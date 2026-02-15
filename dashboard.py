@@ -2959,13 +2959,31 @@ def api_won_quotes_seed_status():
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def _load_customers():
-    """Load customers CRM database."""
+    """Load customers CRM database. Auto-seeds from bundled file if missing."""
     path = os.path.join(DATA_DIR, "customers.json")
     try:
         with open(path) as f:
-            return json.load(f)
+            data = json.load(f)
+            if data:
+                return data
     except (FileNotFoundError, json.JSONDecodeError):
-        return []
+        pass
+    # Auto-seed: Railway volume may not have customers.json yet
+    # Check for seed file in repo root (not overridden by volume mount)
+    seed_path = os.path.join(BASE_DIR, "customers_seed.json")
+    if os.path.exists(seed_path):
+        try:
+            with open(seed_path) as f:
+                data = json.load(f)
+            if data:
+                log.info(f"Auto-seeding {len(data)} customers from seed file")
+                os.makedirs(DATA_DIR, exist_ok=True)
+                with open(path, "w") as f:
+                    json.dump(data, f, indent=2)
+                return data
+        except Exception as e:
+            log.warning(f"Failed to seed customers: {e}")
+    return []
 
 def _save_customers(customers):
     os.makedirs(DATA_DIR, exist_ok=True)
