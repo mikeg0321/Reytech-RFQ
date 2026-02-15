@@ -1,0 +1,19 @@
+[run]
+source = .
+omit =
+    tests/*
+    tests/stubs/*
+    */__pycache__/*
+    */test_*.py
+    logging_config.py
+
+[report]
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    if __name__ == .__main__
+    raise NotImplementedError
+    pass
+    except ImportError
+show_missing = true
+precision = 1
