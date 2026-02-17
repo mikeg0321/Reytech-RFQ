@@ -103,7 +103,7 @@ Common objections and how to handle them:
 - "Send me an email" → "Absolutely, I'll send that right over. Can I get your direct email? And just so I include the right info, are there any categories you buy frequently — office supplies, janitorial, medical?"
 - "We're not buying right now" → "No problem at all. Would it be okay if I check back when your next fiscal quarter starts? In the meantime, I'll send our capabilities sheet so you have us on file."
 - "How are your prices?" → "We're typically 10-30% below CMAS and DGS contract rates. We source direct and pass the savings through. Happy to run a comparison on any items you're currently buying."
-- "Are you on CMAS?" → "We sell through multiple procurement channels including informal bids, competitive quotes, and small business set-asides. For orders under $10K we can quote direct as a certified SB."
+- "Are you on CMAS?" → "We're not on CMAS — we're a direct reseller, which actually works in your favor. No contract markups. We quote item-by-item so you get the best price on each line. For orders under $10K, agencies can purchase direct from a certified SB like us without going through CMAS."
 - "I need to check with my supervisor" → "Of course. Would it help if I sent a brief one-pager about Reytech that you could pass along? And what's the best number to reach you for a follow-up?"
 
 Voicemail rules:

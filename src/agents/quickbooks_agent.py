@@ -366,30 +366,337 @@ def get_recent_purchase_orders(days_back: int = 30) -> list:
 # ─── Vendor Price Comparison ────────────────────────────────────────────────
 
 def get_vendor_pricing(description: str) -> list:
-    """
-    Search QB purchase history for what we've paid vendors for similar items.
-    Useful for: "Is Amazon cheaper than our existing vendor for this item?"
+    """Search QB purchase history for what we've paid vendors for similar items."""
+    if not is_configured():
+        return []
+    pos = get_recent_purchase_orders(days_back=180)
+    return []  # TODO: line-item search requires full PO refetch
 
-    Returns list of historical purchases sorted by unit cost.
+
+# ─── Invoice Operations ────────────────────────────────────────────────────
+
+INVOICE_CACHE_FILE = os.path.join(DATA_DIR, "qb_invoices_cache.json")
+
+def fetch_invoices(status: str = "all", days_back: int = 90,
+                    force_refresh: bool = False) -> list:
+    """
+    Fetch invoices from QuickBooks.
+
+    Args:
+        status: "all", "open" (unpaid), "overdue", "paid"
+        days_back: how far back to look
+        force_refresh: bypass cache
+
+    Returns list of invoice dicts with line items.
     """
     if not is_configured():
         return []
 
-    # Search PO line items for description matches
-    # QB query doesn't support full-text on line items,
-    # so we fetch recent POs and filter locally
-    pos = get_recent_purchase_orders(days_back=180)
-    matches = []
+    # Cache check
+    if not force_refresh:
+        try:
+            with open(INVOICE_CACHE_FILE) as f:
+                cache = json.load(f)
+            if time.time() - cache.get("fetched_at", 0) < 3600:  # 1hr cache
+                invoices = cache.get("invoices", [])
+                return _filter_invoices(invoices, status)
+        except (FileNotFoundError, json.JSONDecodeError):
+            pass
 
-    desc_lower = description.lower()
-    desc_tokens = set(desc_lower.split())
+    cutoff = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
+    query = f"SELECT * FROM Invoice WHERE TxnDate >= '{cutoff}' ORDERBY TxnDate DESC MAXRESULTS 200"
+    raw = _qb_query(query)
 
-    for po in pos:
-        # We'd need to re-fetch full PO for line details
-        # For now, return PO-level data
-        pass
+    invoices = []
+    for inv in raw:
+        due_date = inv.get("DueDate", "")
+        balance = float(inv.get("Balance", 0))
+        total = float(inv.get("TotalAmt", 0))
 
-    return matches
+        # Determine status
+        if balance == 0:
+            inv_status = "paid"
+        elif due_date and due_date < datetime.now().strftime("%Y-%m-%d") and balance > 0:
+            inv_status = "overdue"
+        else:
+            inv_status = "open"
+
+        # Parse line items
+        lines = []
+        for line in inv.get("Line", []):
+            if line.get("DetailType") == "SalesItemLineDetail":
+                detail = line.get("SalesItemLineDetail", {})
+                lines.append({
+                    "description": line.get("Description", ""),
+                    "qty": detail.get("Qty", 0),
+                    "unit_price": float(detail.get("UnitPrice", 0)),
+                    "amount": float(line.get("Amount", 0)),
+                    "item_ref": detail.get("ItemRef", {}).get("name", ""),
+                })
+
+        customer_name = inv.get("CustomerRef", {}).get("name", "")
+        invoices.append({
+            "id": inv.get("Id"),
+            "doc_number": inv.get("DocNumber", ""),
+            "customer_name": customer_name,
+            "customer_id": inv.get("CustomerRef", {}).get("value", ""),
+            "txn_date": inv.get("TxnDate", ""),
+            "due_date": due_date,
+            "total": total,
+            "balance": balance,
+            "status": inv_status,
+            "email_status": inv.get("EmailStatus", ""),
+            "line_items": lines,
+            "po_number": inv.get("CustomField", [{}])[0].get("StringValue", "") if inv.get("CustomField") else "",
+            "memo": inv.get("CustomerMemo", {}).get("value", "") if inv.get("CustomerMemo") else "",
+        })
+
+    # Cache
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(INVOICE_CACHE_FILE, "w") as f:
+        json.dump({"invoices": invoices, "fetched_at": time.time(), "count": len(invoices)}, f, indent=2)
+
+    log.info("Fetched %d invoices from QB", len(invoices))
+    return _filter_invoices(invoices, status)
+
+
+def _filter_invoices(invoices: list, status: str) -> list:
+    if status == "all":
+        return invoices
+    return [i for i in invoices if i.get("status") == status]
+
+
+def get_invoice_summary() -> dict:
+    """Get aggregated invoice metrics."""
+    invoices = fetch_invoices(status="all")
+    open_inv = [i for i in invoices if i["status"] == "open"]
+    overdue_inv = [i for i in invoices if i["status"] == "overdue"]
+    paid_inv = [i for i in invoices if i["status"] == "paid"]
+
+    return {
+        "total_invoices": len(invoices),
+        "open_count": len(open_inv),
+        "overdue_count": len(overdue_inv),
+        "paid_count": len(paid_inv),
+        "open_total": sum(i["balance"] for i in open_inv),
+        "overdue_total": sum(i["balance"] for i in overdue_inv),
+        "paid_total": sum(i["total"] for i in paid_inv),
+        "total_receivable": sum(i["balance"] for i in invoices if i["balance"] > 0),
+        "avg_invoice": sum(i["total"] for i in invoices) / len(invoices) if invoices else 0,
+        "oldest_overdue": min((i["due_date"] for i in overdue_inv), default=""),
+    }
+
+
+def create_invoice(customer_id: str, items: list, po_number: str = "",
+                    memo: str = "") -> Optional[dict]:
+    """
+    Create an invoice in QuickBooks.
+
+    Args:
+        customer_id: QB Customer ID
+        items: [{description, qty, unit_price}]
+        po_number: Reference PO number
+        memo: Customer memo
+    """
+    if not is_configured():
+        return None
+
+    lines = []
+    for i, item in enumerate(items):
+        lines.append({
+            "DetailType": "SalesItemLineDetail",
+            "Amount": round(item.get("qty", 1) * item.get("unit_price", 0), 2),
+            "Description": item.get("description", ""),
+            "SalesItemLineDetail": {
+                "Qty": item.get("qty", 1),
+                "UnitPrice": item.get("unit_price", 0),
+            },
+        })
+
+    invoice_data = {
+        "CustomerRef": {"value": customer_id},
+        "Line": lines,
+    }
+    if memo:
+        invoice_data["CustomerMemo"] = {"value": memo}
+    if po_number:
+        invoice_data["CustomField"] = [{"DefinitionId": "1", "StringValue": po_number, "Type": "StringType"}]
+
+    result = _qb_request("POST", "invoice", invoice_data)
+    if result and result.get("Invoice"):
+        inv = result["Invoice"]
+        log.info("QB Invoice created: #%s for $%s", inv.get("DocNumber"), inv.get("TotalAmt"))
+        return {
+            "id": inv.get("Id"),
+            "doc_number": inv.get("DocNumber"),
+            "total": float(inv.get("TotalAmt", 0)),
+            "customer": inv.get("CustomerRef", {}).get("name", ""),
+        }
+    return None
+
+
+# ─── Customer Operations ────────────────────────────────────────────────────
+
+CUSTOMER_CACHE_FILE = os.path.join(DATA_DIR, "qb_customers_cache.json")
+
+def fetch_customers(force_refresh: bool = False) -> list:
+    """Fetch customers from QuickBooks with balances."""
+    if not is_configured():
+        return []
+
+    if not force_refresh:
+        try:
+            with open(CUSTOMER_CACHE_FILE) as f:
+                cache = json.load(f)
+            if time.time() - cache.get("fetched_at", 0) < 3600 * 4:  # 4hr cache
+                return cache.get("customers", [])
+        except (FileNotFoundError, json.JSONDecodeError):
+            pass
+
+    raw = _qb_query("SELECT * FROM Customer MAXRESULTS 500")
+    customers = []
+    for c in raw:
+        addr = c.get("BillAddr", {})
+        customers.append({
+            "id": c.get("Id"),
+            "name": c.get("DisplayName", ""),
+            "company": c.get("CompanyName", ""),
+            "email": c.get("PrimaryEmailAddr", {}).get("Address", "") if c.get("PrimaryEmailAddr") else "",
+            "phone": c.get("PrimaryPhone", {}).get("FreeFormNumber", "") if c.get("PrimaryPhone") else "",
+            "balance": float(c.get("Balance", 0)),
+            "active": c.get("Active", True),
+            "address": addr.get("Line1", ""),
+            "city": addr.get("City", ""),
+            "state": addr.get("CountrySubDivisionCode", ""),
+            "zip": addr.get("PostalCode", ""),
+            "notes": c.get("Notes", ""),
+            "created": c.get("MetaData", {}).get("CreateTime", ""),
+        })
+
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(CUSTOMER_CACHE_FILE, "w") as f:
+        json.dump({"customers": customers, "fetched_at": time.time(), "count": len(customers)}, f, indent=2)
+
+    log.info("Fetched %d customers from QB", len(customers))
+    return customers
+
+
+def find_customer(name: str) -> Optional[dict]:
+    """Find a customer by name (fuzzy match)."""
+    customers = fetch_customers()
+    name_lower = name.lower()
+    # Exact match first
+    for c in customers:
+        if c["name"].lower() == name_lower:
+            return c
+    # Partial match
+    for c in customers:
+        if name_lower in c["name"].lower() or name_lower in c.get("company", "").lower():
+            return c
+    return None
+
+
+def get_customer_balance_summary() -> dict:
+    """Aggregate customer balance data."""
+    customers = fetch_customers()
+    with_balance = [c for c in customers if c.get("balance", 0) > 0]
+    total_ar = sum(c["balance"] for c in with_balance)
+
+    return {
+        "total_customers": len(customers),
+        "active_customers": sum(1 for c in customers if c.get("active")),
+        "customers_with_balance": len(with_balance),
+        "total_receivable": total_ar,
+        "top_balances": sorted(with_balance, key=lambda c: c["balance"], reverse=True)[:10],
+    }
+
+
+# ─── Financial Context (for all agents) ────────────────────────────────────
+
+QB_CONTEXT_CACHE_FILE = os.path.join(DATA_DIR, "qb_context_cache.json")
+
+def get_financial_context(force_refresh: bool = False) -> dict:
+    """
+    Build a comprehensive financial context for all agents.
+    Cached for 1 hour to avoid hammering QB API.
+
+    Used by: voice agent, manager brief, pipeline, order management
+    """
+    if not force_refresh:
+        try:
+            with open(QB_CONTEXT_CACHE_FILE) as f:
+                cache = json.load(f)
+            if time.time() - cache.get("fetched_at", 0) < 3600:
+                return cache
+        except (FileNotFoundError, json.JSONDecodeError):
+            pass
+
+    if not is_configured():
+        return {"ok": False, "error": "QuickBooks not connected"}
+
+    # Pull everything
+    invoices = fetch_invoices(status="all", force_refresh=force_refresh)
+    customers = fetch_customers(force_refresh=force_refresh)
+    vendors = fetch_vendors(force_refresh=force_refresh)
+
+    open_inv = [i for i in invoices if i["status"] == "open"]
+    overdue_inv = [i for i in invoices if i["status"] == "overdue"]
+    paid_inv = [i for i in invoices if i["status"] == "paid"]
+
+    context = {
+        "ok": True,
+        "fetched_at": time.time(),
+        "fetched_at_str": datetime.now().isoformat(),
+
+        # Revenue
+        "total_invoiced": sum(i["total"] for i in invoices),
+        "total_collected": sum(i["total"] for i in paid_inv),
+        "total_receivable": sum(i["balance"] for i in invoices if i["balance"] > 0),
+        "overdue_amount": sum(i["balance"] for i in overdue_inv),
+
+        # Counts
+        "invoice_count": len(invoices),
+        "open_invoices": len(open_inv),
+        "overdue_invoices": len(overdue_inv),
+        "paid_invoices": len(paid_inv),
+        "customer_count": len(customers),
+        "vendor_count": len(vendors),
+
+        # Pending invoices detail (for orders page)
+        "pending_invoices": [{
+            "doc_number": i["doc_number"],
+            "customer": i["customer_name"],
+            "total": i["total"],
+            "balance": i["balance"],
+            "due_date": i["due_date"],
+            "status": i["status"],
+            "days_outstanding": (datetime.now() - datetime.strptime(i["txn_date"], "%Y-%m-%d")).days if i.get("txn_date") else 0,
+        } for i in (open_inv + overdue_inv)],
+
+        # Top customers by balance
+        "top_ar_customers": sorted(
+            [{"name": c["name"], "balance": c["balance"]} for c in customers if c["balance"] > 0],
+            key=lambda x: x["balance"], reverse=True
+        )[:10],
+
+        # Overdue detail
+        "overdue_detail": [{
+            "doc_number": i["doc_number"],
+            "customer": i["customer_name"],
+            "balance": i["balance"],
+            "due_date": i["due_date"],
+            "days_overdue": (datetime.now() - datetime.strptime(i["due_date"], "%Y-%m-%d")).days if i.get("due_date") else 0,
+        } for i in overdue_inv],
+    }
+
+    # Cache it
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(QB_CONTEXT_CACHE_FILE, "w") as f:
+        json.dump(context, f, indent=2, default=str)
+
+    log.info("QB financial context built: $%.2f receivable, %d open invoices",
+             context["total_receivable"], context["open_invoices"])
+    return context
 
 
 # ─── Public Health / Status ──────────────────────────────────────────────────
@@ -410,13 +717,31 @@ def get_agent_status() -> dict:
     except (FileNotFoundError, json.JSONDecodeError):
         pass
 
+    invoice_count = 0
+    try:
+        with open(INVOICE_CACHE_FILE) as f:
+            cache = json.load(f)
+            invoice_count = cache.get("count", 0)
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+
+    customer_count = 0
+    try:
+        with open(CUSTOMER_CACHE_FILE) as f:
+            cache = json.load(f)
+            customer_count = cache.get("count", 0)
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+
     return {
         "agent": "quickbooks",
-        "version": "1.0.0",
+        "version": "2.0.0",
         "configured": is_configured(),
         "sandbox_mode": QB_SANDBOX,
         "has_valid_token": has_valid_token,
         "token_expires": tokens.get("expires_at"),
         "realm_id_set": bool(QB_REALM_ID),
         "cached_vendors": vendor_count,
+        "cached_invoices": invoice_count,
+        "cached_customers": customer_count,
     }

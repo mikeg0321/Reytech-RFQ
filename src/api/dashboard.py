@@ -3367,7 +3367,38 @@ def orders_page():
       </tr></thead>
       <tbody>{rows if rows else '<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--tx2)">No orders yet — mark a quote as Won to create one</td></tr>'}</tbody>
      </table>
-    </div>"""
+    </div>
+
+    <!-- Pending Invoices from QuickBooks -->
+    <div id="qb-invoices" class="card" style="margin-top:14px;padding:16px;display:none">
+     <div class="card-t" style="margin-bottom:10px">💰 QuickBooks — Pending Invoices</div>
+     <div id="inv-stats" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px"></div>
+     <div id="inv-table"></div>
+    </div>
+    <script>
+    fetch('/api/qb/financial-context').then(r=>r.json()).then(d=>{{
+     if(!d.ok) return;
+     document.getElementById('qb-invoices').style.display='block';
+     const s=document.getElementById('inv-stats');
+     const mkStat=(label,val,color)=>'<div style="background:var(--sf2);padding:10px;border-radius:8px;text-align:center"><div style="font-size:9px;color:var(--tx2);text-transform:uppercase">'+label+'</div><div style="font-size:18px;font-weight:700;color:'+(color||'var(--tx)')+'">'+val+'</div></div>';
+     s.innerHTML=mkStat('Open','$'+(d.total_receivable||0).toLocaleString(),'var(--yl)')
+      +mkStat('Overdue','$'+(d.overdue_amount||0).toLocaleString(),'var(--rd)')
+      +mkStat('Collected','$'+(d.total_collected||0).toLocaleString(),'var(--gn)')
+      +mkStat('Invoices',d.invoice_count||0);
+     const inv=d.pending_invoices||[];
+     if(inv.length){{
+      let t='<table class="tbl" style="width:100%"><thead><tr><th>Invoice</th><th>Customer</th><th style="text-align:right">Total</th><th style="text-align:right">Balance</th><th>Due</th><th>Days Out</th><th>Status</th></tr></thead><tbody>';
+      inv.forEach(i=>{{
+       const st=i.status==='overdue'?'<span style="color:var(--rd);font-weight:600">⚠️ OVERDUE</span>':'<span style="color:var(--yl)">Open</span>';
+       t+='<tr><td class="mono">'+i.doc_number+'</td><td>'+i.customer+'</td><td style="text-align:right;font-weight:600" class="mono">$'+i.total.toLocaleString()+'</td><td style="text-align:right;color:var(--yl)" class="mono">$'+i.balance.toLocaleString()+'</td><td class="mono">'+i.due_date+'</td><td style="text-align:center">'+i.days_outstanding+'</td><td>'+st+'</td></tr>';
+      }});
+      t+='</tbody></table>';
+      document.getElementById('inv-table').innerHTML=t;
+     }} else {{
+      document.getElementById('inv-table').innerHTML='<div style="color:var(--tx2);text-align:center;padding:12px">No pending invoices</div>';
+     }}
+    }}).catch(()=>{{}});
+    </script>"""
     return render(content, title="Orders")
 
 
@@ -4279,6 +4310,9 @@ try:
         fetch_vendors, find_vendor, create_purchase_order,
         get_recent_purchase_orders, get_agent_status as qb_agent_status,
         is_configured as qb_configured,
+        fetch_invoices, get_invoice_summary, create_invoice,
+        fetch_customers, find_customer, get_customer_balance_summary,
+        get_financial_context,
     )
     QB_AVAILABLE = True
 except ImportError:
@@ -4806,6 +4840,77 @@ def api_qb_recent_pos():
     return jsonify({"ok": True, "purchase_orders": pos, "count": len(pos)})
 
 
+@bp.route("/api/qb/invoices")
+@auth_required
+def api_qb_invoices():
+    """Get invoices from QuickBooks. ?status=open|overdue|paid|all"""
+    if not QB_AVAILABLE or not qb_configured():
+        return jsonify({"ok": False, "error": "QuickBooks not configured"})
+    status = request.args.get("status", "all")
+    force = request.args.get("refresh", "").lower() in ("true", "1")
+    invoices = fetch_invoices(status=status, force_refresh=force)
+    return jsonify({"ok": True, "invoices": invoices, "count": len(invoices)})
+
+
+@bp.route("/api/qb/invoices/summary")
+@auth_required
+def api_qb_invoice_summary():
+    """Get invoice metrics: open, overdue, paid counts and totals."""
+    if not QB_AVAILABLE or not qb_configured():
+        return jsonify({"ok": False, "error": "QuickBooks not configured"})
+    return jsonify({"ok": True, **get_invoice_summary()})
+
+
+@bp.route("/api/qb/invoices/create", methods=["POST"])
+@auth_required
+def api_qb_create_invoice():
+    """Create an invoice in QuickBooks.
+    POST: {customer_id, items: [{description, qty, unit_price}], po_number, memo}"""
+    if not QB_AVAILABLE or not qb_configured():
+        return jsonify({"ok": False, "error": "QuickBooks not configured"})
+    data = request.get_json(silent=True) or {}
+    cid = data.get("customer_id", "")
+    items = data.get("items", [])
+    if not cid or not items:
+        return jsonify({"ok": False, "error": "Provide customer_id and items"})
+    result = create_invoice(cid, items, po_number=data.get("po_number", ""), memo=data.get("memo", ""))
+    if result:
+        return jsonify({"ok": True, "invoice": result})
+    return jsonify({"ok": False, "error": "Invoice creation failed"})
+
+
+@bp.route("/api/qb/customers")
+@auth_required
+def api_qb_customers():
+    """List QuickBooks customers with balances."""
+    if not QB_AVAILABLE or not qb_configured():
+        return jsonify({"ok": False, "error": "QuickBooks not configured"})
+    force = request.args.get("refresh", "").lower() in ("true", "1")
+    customers = fetch_customers(force_refresh=force)
+    return jsonify({"ok": True, "customers": customers, "count": len(customers)})
+
+
+@bp.route("/api/qb/customers/balances")
+@auth_required
+def api_qb_customer_balances():
+    """Customer balance summary: total AR, top balances."""
+    if not QB_AVAILABLE or not qb_configured():
+        return jsonify({"ok": False, "error": "QuickBooks not configured"})
+    return jsonify({"ok": True, **get_customer_balance_summary()})
+
+
+@bp.route("/api/qb/financial-context")
+@auth_required
+def api_qb_financial_context():
+    """Comprehensive financial snapshot for all agents.
+    Pulls invoices, customers, vendors — cached 1 hour."""
+    if not QB_AVAILABLE or not qb_configured():
+        return jsonify({"ok": False, "error": "QuickBooks not configured"})
+    force = request.args.get("refresh", "").lower() in ("true", "1")
+    ctx = get_financial_context(force_refresh=force)
+    return jsonify(ctx)
+
+
 # ─── CRM Activity Routes (Phase 16) ───────────────────────────────────────
 
 @bp.route("/api/crm/activity")
@@ -5017,6 +5122,22 @@ def api_funnel_stats():
     pipeline_value = sum(q.get("total", 0) for q in quotes
                          if q.get("status") in ("pending", "sent", "draft"))
 
+    # QuickBooks financial data
+    qb_receivable = 0
+    qb_overdue = 0
+    qb_collected = 0
+    qb_open_invoices = 0
+    if QB_AVAILABLE and qb_configured():
+        try:
+            ctx = get_financial_context()
+            if ctx.get("ok"):
+                qb_receivable = ctx.get("total_receivable", 0)
+                qb_overdue = ctx.get("overdue_amount", 0)
+                qb_collected = ctx.get("total_collected", 0)
+                qb_open_invoices = ctx.get("open_invoices", 0)
+        except Exception:
+            pass
+
     return jsonify({
         "ok": True,
         "rfqs_active": rfqs_active,
@@ -5036,6 +5157,10 @@ def api_funnel_stats():
         "order_value": order_value,
         "invoiced_value": invoiced_value,
         "win_rate": win_rate,
+        "qb_receivable": qb_receivable,
+        "qb_overdue": qb_overdue,
+        "qb_collected": qb_collected,
+        "qb_open_invoices": qb_open_invoices,
     })
 
 

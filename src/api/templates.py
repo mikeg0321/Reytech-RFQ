@@ -2219,13 +2219,26 @@ h1 {{ font-size:22px; margin-bottom:4px; }}
 
 <div class="section">
  <h2>🧾 QuickBooks Online <span class="tag tag-off" id="qb-tag">not connected</span></h2>
- <p style="color:#8b949e;font-size:12px;margin-bottom:10px">PO creation, vendor management, invoice sync. Won quotes auto-create POs in QB.</p>
+ <p style="color:#8b949e;font-size:12px;margin-bottom:10px">Full financial context — invoices, customers, vendors, AR. All agents use this data for informed decisions.</p>
+ <div id="qb-finance" style="display:none;margin-bottom:12px"></div>
  <div class="grid">
   <button class="btn btn-go" onclick="window.location='/api/qb/connect'">
    <span class="label">🔗 Connect QuickBooks</span><span class="desc">Start OAuth2 flow</span>
   </button>
-  <button class="btn" onclick="apiGet('/api/qb/status')">
-   <span class="label">📊 QB Status</span><span class="desc">Connection health</span>
+  <button class="btn" onclick="apiGet('/api/qb/financial-context')">
+   <span class="label">📊 Financial Snapshot</span><span class="desc">Full context for agents</span>
+  </button>
+  <button class="btn" onclick="apiGet('/api/qb/invoices?status=open')">
+   <span class="label">💰 Open Invoices</span><span class="desc">Unpaid receivables</span>
+  </button>
+  <button class="btn" onclick="apiGet('/api/qb/invoices?status=overdue')">
+   <span class="label">⚠️ Overdue</span><span class="desc">Past-due invoices</span>
+  </button>
+  <button class="btn" onclick="apiGet('/api/qb/customers')">
+   <span class="label">👤 Customers</span><span class="desc">QB customer list</span>
+  </button>
+  <button class="btn" onclick="apiGet('/api/qb/customers/balances')">
+   <span class="label">💳 AR Balances</span><span class="desc">Top receivables</span>
   </button>
   <button class="btn" onclick="apiGet('/api/qb/vendors')">
    <span class="label">👥 Vendors</span><span class="desc">Pull vendor list</span>
@@ -2412,6 +2425,22 @@ fetch('/api/agents/status',{{credentials:'same-origin'}}).then(r => r.json()).th
   if (qb.has_valid_token) {{ qt.textContent = 'connected'; qt.className = 'tag tag-ok'; }}
   else if (qb.configured) {{ qt.textContent = 'token expired'; qt.className = 'tag tag-warn'; }}
   else if (qb.status !== 'not_available') {{ qt.textContent = 'not connected'; qt.className = 'tag tag-warn'; }}
+
+  // Load QB financial snapshot
+  if (qb.has_valid_token) {{
+    fetch('/api/qb/financial-context',{{credentials:'same-origin'}}).then(r=>r.json()).then(fc=>{{
+      if(!fc.ok) return;
+      const el = document.getElementById('qb-finance');
+      el.style.display = 'grid';
+      el.style.gridTemplateColumns = 'repeat(4,1fr)';
+      el.style.gap = '8px';
+      const mkC = (l,v,c) => '<div style="background:var(--sf2);padding:10px;border-radius:8px;text-align:center"><div style="font-size:9px;color:var(--tx2);text-transform:uppercase">'+l+'</div><div style="font-size:16px;font-weight:700;color:'+(c||'var(--tx)')+'">'+v+'</div></div>';
+      el.innerHTML = mkC('Receivable','$'+(fc.total_receivable||0).toLocaleString(),'var(--yl)')
+        + mkC('Overdue','$'+(fc.overdue_amount||0).toLocaleString(),'var(--rd)')
+        + mkC('Collected','$'+(fc.total_collected||0).toLocaleString(),'var(--gn)')
+        + mkC('Open Inv',fc.open_invoices||0,'var(--ac)');
+    }}).catch(()=>{{}});
+  }}
 }}).catch(() => {{
   document.getElementById('fleet-grid').innerHTML = '<div>Failed to load fleet status</div>';
 }});

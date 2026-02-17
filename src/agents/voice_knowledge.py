@@ -78,6 +78,11 @@ def build_call_context(institution: str = "", po_number: str = "",
         if pricing:
             sections.append(pricing)
 
+    # ── Financial Context (QB) ──
+    financial = _get_financial_context(institution)
+    if financial:
+        sections.append(financial)
+
     if not sections:
         return ""
 
@@ -239,6 +244,37 @@ def _get_pricing_context(institution: str) -> str:
         price = p.get("unit_price", p.get("price", 0))
         vendor = p.get("vendor", "?")
         lines.append(f"  - {desc}: ${price:,.2f} (vendor: {vendor})")
+
+    return "\n".join(lines)
+
+
+def _get_financial_context(institution: str = "") -> str:
+    """Get QuickBooks financial context for calls."""
+    try:
+        with open(os.path.join(DATA_DIR, "qb_context_cache.json")) as f:
+            ctx = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return ""
+
+    if not ctx.get("ok"):
+        return ""
+
+    lines = ["FINANCIAL STATUS (from QuickBooks):"]
+    lines.append(f"Total receivable: ${ctx.get('total_receivable', 0):,.2f}")
+    lines.append(f"Overdue: ${ctx.get('overdue_amount', 0):,.2f}")
+    lines.append(f"Open invoices: {ctx.get('open_invoices', 0)} | Overdue: {ctx.get('overdue_invoices', 0)}")
+
+    # Check if this institution has open invoices
+    if institution:
+        inst_lower = institution.lower()
+        pending = ctx.get("pending_invoices", [])
+        inst_invoices = [i for i in pending if inst_lower in i.get("customer", "").lower()]
+        if inst_invoices:
+            lines.append(f"\n⚠️ THIS CUSTOMER has {len(inst_invoices)} open invoice(s):")
+            for inv in inst_invoices[:3]:
+                lines.append(f"  Invoice #{inv['doc_number']}: ${inv['balance']:,.2f} due {inv['due_date']} ({inv['status']})")
+            lines.append("Note: Do NOT bring up unpaid invoices unprompted on sales calls. "
+                         "Only reference if they ask about account status or you're doing an invoice follow-up.")
 
     return "\n".join(lines)
 
