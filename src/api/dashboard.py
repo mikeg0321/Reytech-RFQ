@@ -693,6 +693,8 @@ def rfq_generate_quote(rid):
         flash(f"Quote generation failed: {result.get('error', 'unknown')}", "error")
 
     return redirect(f"/rfq/{rid}")
+
+@bp.route("/rfq/<rid>/send", methods=["POST"])
 @auth_required
 def send_email(rid):
     rfqs = load_rfqs()
