@@ -9,8 +9,8 @@ BASE_CSS = """
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--tx);min-height:100vh}
 a{color:var(--ac);text-decoration:none}
-.hdr{background:var(--sf);border-bottom:2px solid var(--bd);padding:12px 24px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;min-height:60px}
-.hdr h1{font-size:19px;font-weight:700;letter-spacing:-0.5px}.hdr h1 span{color:var(--ac)}
+.hdr{background:var(--sf);border-bottom:2px solid var(--bd);padding:14px 28px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;min-height:68px}
+.hdr h1{font-size:17px;font-weight:600;letter-spacing:-0.3px;color:var(--tx2)}
 .hdr-btn{padding:6px 14px;font-size:12px;font-weight:600;border-radius:6px;border:1px solid var(--bd);background:var(--sf2);color:var(--tx);cursor:pointer;text-decoration:none;transition:.15s;font-family:'DM Sans',sans-serif;display:inline-flex;align-items:center;gap:4px}
 .hdr-btn:hover{border-color:var(--ac);background:rgba(79,140,255,.1);color:#fff}
 .hdr-active{border-color:var(--ac);background:rgba(79,140,255,.12)}
@@ -892,6 +892,7 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
      .msg-ok{{background:#23863622;color:#3fb950;border:1px solid #23863655}}
      .msg-warn{{background:#9e6a0322;color:#d29922;border:1px solid #9e6a0355}}
      .msg-err{{background:#da363322;color:#f85149;border:1px solid #da363355}}
+     @keyframes slideIn{{from{{opacity:0;transform:translateY(-8px)}}to{{opacity:1;transform:translateY(0)}}}}
      .tier-btn{{background:#21262d;border:2px solid #30363d;color:#8b949e;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;line-height:1.3;text-align:center;transition:all .15s}}
      .tier-btn:hover{{border-color:#58a6ff;color:#c9d1d9;background:#21262d}}
      .tier-active{{background:#1f6feb22;border-color:#1f6feb;color:#58a6ff}}
@@ -934,7 +935,7 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
     <div class="modal-overlay" id="previewModal">
      <div class="modal-content">
       <div class="modal-header">
-       <h2>📋 Quote Preview — <span id="previewFormType">AMS 704</span></h2>
+       <h2>📋 Preview — <span id="previewFormType">AMS 704 Price Check</span></h2>
        <div>
         <button class="btn btn-sm btn-g" onclick="window.print()" style="margin-right:8px;font-size:12px">🖨️ Print</button>
         <button class="modal-close" onclick="closePreview()">×</button>
@@ -961,13 +962,14 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
       {pipeline_html}
      </div>
 
-     {"<div style='padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(52,211,153,.08);border:1px solid rgba(52,211,153,.25);color:#3fb950;margin-bottom:10px'><span style=font-size:18px>✅</span><div><b>Ready for review</b> — 704 filled, pricing locked. Preview below and approve.<br><span style=color:#8b949e;font-size:12px>Adjust prices if needed, then download the completed 704.</span></div></div>" if pc.get('status') in ('completed','converted') else "<div style='padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(88,166,255,.08);border:1px solid rgba(88,166,255,.25);color:#58a6ff;margin-bottom:10px'><span style=font-size:18px>💰</span><div><b>Priced</b> — review costs below. Save to fill the 704 automatically.</div></div>" if pc.get('status') == 'priced' else "<div style='padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(210,153,34,.08);border:1px solid rgba(210,153,34,.25);color:#d29922;margin-bottom:10px'><span style=font-size:18px>📥</span><div><b>Parsed</b> — awaiting pricing agent. Click Process to run manually.</div></div>" if pc.get('status') == 'parsed' else ""}
+     {"<div style='padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(52,211,153,.08);border:1px solid rgba(52,211,153,.25);color:#3fb950;margin-bottom:10px'><span style=font-size:18px>✅</span><div><b>704 Complete</b> — Download below or re-fill if prices changed.</div></div>" if pc.get('status') in ('completed','converted') else "<div style='padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(88,166,255,.08);border:1px solid rgba(88,166,255,.25);color:#58a6ff;margin-bottom:10px'><span style=font-size:18px>💰</span><div><b>Priced</b> — review costs below, then Save & Fill 704.</div></div>" if pc.get('status') == 'priced' else "<div style='padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(210,153,34,.08);border:1px solid rgba(210,153,34,.25);color:#d29922;margin-bottom:10px'><span style=font-size:18px>📥</span><div><b>Parsed</b> — awaiting pricing agent. Click Process to run manually.</div></div>" if pc.get('status') == 'parsed' else ""}
 
      <div class="meta" style="margin-top:8px">
       <b>Institution:</b> {header.get('institution',pc.get('institution',''))} &nbsp;|&nbsp;
       <b>Requestor:</b> {header.get('requestor',pc.get('requestor',''))} &nbsp;|&nbsp;
       <b>Due:</b> {pc.get('due_date','')} <span id="dueUrgency"></span> &nbsp;|&nbsp;
-      <b>Ship to:</b> {pc.get('ship_to','')}
+      <b>Ship to:</b> {pc.get('ship_to','')} &nbsp;|&nbsp;
+      <b>Today:</b> {today_date}
      </div>
 
      <!-- CRM Customer Card + Quote History -->
@@ -988,11 +990,11 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
       </div>
      </div>
 
-     <!-- Actions: Save + Preview + Submit/Download -->
-     <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+     <!-- Actions: Save + Preview + Fill/Download -->
+     <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center" id="actionBar">
       <button class="btn btn-p" onclick="savePrices(this)" id="saveBtn" style="font-size:14px;padding:8px 20px">💾 Save</button>
-      {"<button class='btn' onclick='showPreview()' style='background:#21262d;color:#c9d1d9;border:1px solid #484f58;font-size:14px;padding:8px 20px'>👁️ Preview 704</button>" if pc.get('status') in ('completed','converted','priced') else ""}
-      {"<button class='btn btn-g' id='submitBtn' onclick='saveAndGenerate(this)' style='font-size:14px;padding:8px 20px'>📄 Save &amp; Submit</button>" if pc.get('status') in ('priced','parsed') else ""}
+      <button class="btn" onclick="showPreview()" style="background:#21262d;color:#c9d1d9;border:1px solid #484f58;font-size:14px;padding:8px 20px">👁️ Preview</button>
+      {"" if pc.get('status') in ('completed','converted') else "<button class='btn btn-g' id='submitBtn' onclick='saveAndGenerate(this)' style='font-size:14px;padding:8px 20px'>📄 Save &amp; Fill 704</button>"}
       {"<button class='btn' data-testid='pc-auto-process' style='background:#f0883e;color:#fff;font-size:14px;padding:8px 20px' onclick='autoProcess(this)'>⚡ Process Now</button>" if pc.get('status') == 'parsed' else ""}
       {download_html}
       <details style="position:relative;display:inline-block">
@@ -1071,11 +1073,15 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
     <script>
     let cachedTaxRate = null;
 
-    // Fetch CA tax rate from CDTFA on load
+    // Fetch CA tax rate from CDTFA on load — uses ship-to zip if available
     (function fetchTaxRate() {{
      cachedTaxRate = 0.0725; // Default immediately so it's never null
      document.getElementById('taxRateDisplay').textContent = '(7.25% — CA Default)';
-     fetch('/api/tax-rate',{{credentials:'same-origin'}}).then(r=>{{
+     // Extract zip from ship-to address
+     const shipTo = '{pc.get("ship_to","").replace("'","\\'")}';
+     const zipMatch = shipTo.match(/\\b(\\d{{5}})\\b/);
+     const zip = zipMatch ? zipMatch[1] : '';
+     fetch('/api/tax-rate' + (zip ? '?zip='+zip : ''),{{credentials:'same-origin'}}).then(r=>{{
       if(!r.ok) throw new Error('HTTP '+r.status);
       return r.json();
      }}).then(d=>{{
@@ -1084,7 +1090,6 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
        document.getElementById('taxRateDisplay').textContent = '(' + (d.rate*100).toFixed(3) + '% — ' + (d.jurisdiction||'CA') + ')';
       }}
      }}).catch(()=>{{
-      // Already set default above, just log
       console.log('Tax rate fetch failed, using 7.25% default');
      }});
     }})();
@@ -1103,7 +1108,8 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
 
     function showMsg(text, type) {{
      const el=document.getElementById('statusMsg');
-     el.innerHTML='<div class="msg msg-'+type+'">'+text+'</div>';
+     el.innerHTML='<div class="msg msg-'+type+'" style="animation:slideIn .3s ease">'+text+'</div>';
+     el.scrollIntoView({{behavior:'smooth',block:'nearest'}});
      if(type==='ok') setTimeout(()=>el.innerHTML='',5000);
     }}
 
@@ -1116,8 +1122,8 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
       btn.disabled=false;
       if(d.ok){{
        btn.textContent='✅ Saved!';btn.style.background='#238636';
-       showMsg('✅ Prices saved successfully','ok');
-       setTimeout(()=>{{btn.textContent=origText;btn.style.background=''}},2000);
+       showMsg('✅ All prices, markups, and settings saved.','ok');
+       setTimeout(()=>{{btn.textContent=origText;btn.style.background=''}},2500);
       }} else {{
        btn.textContent=origText;
        showMsg('❌ Save failed: '+(d.error||'unknown'),'err');
@@ -1483,7 +1489,7 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
     }}
 
     function showPreview() {{
-     // Build preview matching the Reytech quote PDF format
+     // Build preview matching the AMS 704 Price Check format
      const rows=document.querySelectorAll('tr[data-row]');
      let itemsHtml='';
      let subtotal=0;
@@ -1496,21 +1502,16 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
       const uom=row.querySelector('[name=uom_'+i+']')?.value||'EA';
       const desc=row.querySelector('[name=desc_'+i+']')?.value||'';
       const price=parseFloat(row.querySelector('[name=price_'+i+']')?.value)||0;
-      const cost=parseFloat(row.querySelector('[name=cost_'+i+']')?.value)||0;
-      const asin=row.querySelector('.asin-tag')?.textContent?.replace('ASIN:','').trim()||'';
       const ext=Math.round(price*qty*100)/100;
       subtotal+=ext;
       itemCount++;
-      const descWithAsin=asin?desc+'\\nRef ASIN: '+asin:desc;
-      const mfgPart=asin||'—';
       itemsHtml+=`<tr>
-       <td style="text-align:center;border:1px solid #ccc;padding:6px">${{itemNo}}</td>
-       <td style="border:1px solid #ccc;padding:6px;font-size:11px;max-width:280px;white-space:pre-wrap">${{descWithAsin}}</td>
-       <td style="text-align:center;border:1px solid #ccc;padding:6px;font-family:monospace;font-size:10px">${{mfgPart}}</td>
-       <td style="text-align:center;border:1px solid #ccc;padding:6px">${{qty}}</td>
-       <td style="text-align:center;border:1px solid #ccc;padding:6px">${{uom.toUpperCase()}}</td>
-       <td style="text-align:right;border:1px solid #ccc;padding:6px">$${{price.toFixed(2)}}</td>
-       <td style="text-align:right;border:1px solid #ccc;padding:6px;font-weight:600">$${{ext.toFixed(2)}}</td>
+       <td style="text-align:center;border:1px solid #999;padding:6px;font-size:12px">${{itemNo}}</td>
+       <td style="text-align:center;border:1px solid #999;padding:6px;font-size:12px">${{qty}}</td>
+       <td style="text-align:center;border:1px solid #999;padding:6px;font-size:12px">${{uom.toUpperCase()}}</td>
+       <td style="border:1px solid #999;padding:6px;font-size:11px;max-width:300px">${{desc}}</td>
+       <td style="text-align:right;border:1px solid #999;padding:6px;font-size:12px">$${{price.toFixed(2)}}</td>
+       <td style="text-align:right;border:1px solid #999;padding:6px;font-size:12px;font-weight:600">$${{ext.toFixed(2)}}</td>
       </tr>`;
      }});
      const taxOn=document.getElementById('taxToggle')?.checked;
@@ -1521,90 +1522,60 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
        ?document.getElementById('deliveryCustom')?.value
        :document.getElementById('deliverySelect')?.value||'5-7 business days';
      const expiry=document.getElementById('expiryDate')?.textContent||'';
-     const qNum=PC_META.quoteNum||peek_next||'(Next)';
-
+     const notes=document.getElementById('supplierNotes')?.value||'';
      const today=new Date();
-     const dateStr=today.toLocaleDateString('en-US',{{month:'short',day:'numeric',year:'numeric'}});
+     const dateStr=today.toLocaleDateString('en-US',{{month:'2-digit',day:'2-digit',year:'numeric'}});
 
-     const html=`<div style="padding:28px;font-family:'DM Sans',Helvetica,sans-serif;color:#1a1a1a;background:#fff">
-      <!-- Header: Logo area + Quote # box -->
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px">
-       <div>
-        <div style="font-size:18px;font-weight:700;color:#1a2744">▲ Reytech Inc.</div>
-        <div style="font-size:11px;color:#444;line-height:1.6;margin-top:4px">
-         30 Carnoustie Way<br>Trabuco Canyon, CA 92679<br>
-         Michael Guadan, Owner<br>sales@reytechinc.com<br>(714) 501-3530
-        </div>
-       </div>
-       <div style="text-align:right">
-        <div style="font-size:22px;font-weight:700;color:#1a2744;letter-spacing:1px">QUOTE</div>
-        <table style="margin-left:auto;margin-top:6px;border-collapse:collapse">
-         <tr><td style="background:#1a2744;color:#fff;font-size:10px;font-weight:600;padding:4px 10px;text-transform:uppercase">Quote #</td>
-             <td style="border:1px solid #ccc;padding:4px 10px;font-weight:700">${{qNum}}</td></tr>
-         <tr><td style="background:#1a2744;color:#fff;font-size:10px;font-weight:600;padding:4px 10px;text-transform:uppercase">Date</td>
-             <td style="border:1px solid #ccc;padding:4px 10px">${{dateStr}}</td></tr>
-        </table>
-       </div>
+     const html=`<div style="padding:24px 28px;font-family:Arial,Helvetica,sans-serif;color:#000;background:#fff;font-size:13px">
+      <div style="text-align:center;border-bottom:2px solid #000;padding-bottom:10px;margin-bottom:16px">
+       <div style="font-size:11px;color:#444;margin-bottom:2px">STATE OF CALIFORNIA — DEPARTMENT OF GENERAL SERVICES</div>
+       <div style="font-size:18px;font-weight:700;letter-spacing:1px">AMS 704 — PRICE CHECK WORKSHEET</div>
       </div>
-
-      <!-- To / Ship To -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;margin-top:12px">
-       <div style="background:#1a2744;color:#fff;font-size:10px;font-weight:600;padding:4px 10px;text-transform:uppercase">To:</div>
-       <div style="background:#1a2744;color:#fff;font-size:10px;font-weight:600;padding:4px 10px;text-transform:uppercase">Ship To:</div>
-       <div style="border:1px solid #ccc;padding:8px 10px;font-size:12px">${{PC_META.institution}}<br>${{PC_META.shipTo}}</div>
-       <div style="border:1px solid #ccc;padding:8px 10px;font-size:12px">${{PC_META.institution}}<br>${{PC_META.shipTo}}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;margin-bottom:14px;border:1px solid #999">
+       <div style="padding:6px 10px;border:1px solid #999"><span style="font-size:10px;color:#666;text-transform:uppercase">Price Check #</span><br><b>${{PC_META.pcNum}}</b></div>
+       <div style="padding:6px 10px;border:1px solid #999"><span style="font-size:10px;color:#666;text-transform:uppercase">Date</span><br><b>${{dateStr}}</b></div>
+       <div style="padding:6px 10px;border:1px solid #999"><span style="font-size:10px;color:#666;text-transform:uppercase">Institution</span><br><b>${{PC_META.institution}}</b></div>
+       <div style="padding:6px 10px;border:1px solid #999"><span style="font-size:10px;color:#666;text-transform:uppercase">Ship To</span><br>${{PC_META.shipTo}}</div>
+       <div style="padding:6px 10px;border:1px solid #999"><span style="font-size:10px;color:#666;text-transform:uppercase">Company Name</span><br><b>Reytech Inc.</b></div>
+       <div style="padding:6px 10px;border:1px solid #999"><span style="font-size:10px;color:#666;text-transform:uppercase">Delivery</span><br>${{delivery}}</div>
       </div>
-
-      <!-- Terms bar -->
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0;margin-top:8px">
-       <div><div style="background:#f0f0ec;font-size:9px;font-weight:600;padding:3px 8px;text-transform:uppercase;border:1px solid #ccc">Delivery</div>
-            <div style="border:1px solid #ccc;padding:4px 8px;font-size:12px">${{delivery}}</div></div>
-       <div><div style="background:#f0f0ec;font-size:9px;font-weight:600;padding:3px 8px;text-transform:uppercase;border:1px solid #ccc">Terms</div>
-            <div style="border:1px solid #ccc;padding:4px 8px;font-size:12px">Net 45</div></div>
-       <div><div style="background:#f0f0ec;font-size:9px;font-weight:600;padding:3px 8px;text-transform:uppercase;border:1px solid #ccc">Valid Until</div>
-            <div style="border:1px solid #ccc;padding:4px 8px;font-size:12px">${{expiry}}</div></div>
-      </div>
-
-      <!-- Items table -->
-      <table style="width:100%;border-collapse:collapse;margin-top:12px">
-       <thead><tr style="background:#1a2744;color:#fff">
-        <th style="padding:6px 8px;font-size:10px;text-transform:uppercase;width:40px">#</th>
-        <th style="padding:6px 8px;font-size:10px;text-transform:uppercase;text-align:left">Description</th>
-        <th style="padding:6px 8px;font-size:10px;text-transform:uppercase">MFG Part #</th>
-        <th style="padding:6px 8px;font-size:10px;text-transform:uppercase;width:40px">Qty</th>
-        <th style="padding:6px 8px;font-size:10px;text-transform:uppercase;width:40px">UOM</th>
-        <th style="padding:6px 8px;font-size:10px;text-transform:uppercase;text-align:right">Unit Price</th>
-        <th style="padding:6px 8px;font-size:10px;text-transform:uppercase;text-align:right">Extension</th>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:12px">
+       <thead><tr style="background:#e8e8e0">
+        <th style="padding:6px;font-size:10px;text-transform:uppercase;border:1px solid #999;width:50px">Item #</th>
+        <th style="padding:6px;font-size:10px;text-transform:uppercase;border:1px solid #999;width:50px">Qty</th>
+        <th style="padding:6px;font-size:10px;text-transform:uppercase;border:1px solid #999;width:50px">UOM</th>
+        <th style="padding:6px;font-size:10px;text-transform:uppercase;border:1px solid #999">Description</th>
+        <th style="padding:6px;font-size:10px;text-transform:uppercase;border:1px solid #999;text-align:right;width:90px">Price/Unit</th>
+        <th style="padding:6px;font-size:10px;text-transform:uppercase;border:1px solid #999;text-align:right;width:90px">Extension</th>
        </tr></thead>
        <tbody>${{itemsHtml}}</tbody>
       </table>
-
-      <!-- Totals -->
-      <div style="display:flex;justify-content:flex-end;margin-top:8px">
+      <div style="display:flex;justify-content:flex-end">
        <table style="border-collapse:collapse;min-width:220px">
-        <tr><td style="text-align:right;padding:4px 10px;font-size:12px;border:1px solid #ccc">Subtotal</td>
-            <td style="text-align:right;padding:4px 10px;font-size:13px;border:1px solid #ccc;font-weight:600">$${{subtotal.toFixed(2)}}</td></tr>
-        ${{taxOn?`<tr><td style="text-align:right;padding:4px 10px;font-size:12px;border:1px solid #ccc">Tax (${{(taxRate*100).toFixed(2)}}%)</td>
-            <td style="text-align:right;padding:4px 10px;font-size:13px;border:1px solid #ccc">$${{tax.toFixed(2)}}</td></tr>`:''}}
+        <tr><td style="text-align:right;padding:4px 10px;font-size:12px;border:1px solid #999">Subtotal</td>
+            <td style="text-align:right;padding:4px 10px;font-size:13px;border:1px solid #999;font-weight:600">$${{subtotal.toFixed(2)}}</td></tr>
+        ${{taxOn?`<tr><td style="text-align:right;padding:4px 10px;font-size:12px;border:1px solid #999">Tax (${{(taxRate*100).toFixed(2)}}%)</td>
+            <td style="text-align:right;padding:4px 10px;font-size:13px;border:1px solid #999">$${{tax.toFixed(2)}}</td></tr>`:''}}
         <tr style="background:#1a2744;color:#fff"><td style="text-align:right;padding:6px 10px;font-size:13px;font-weight:700">TOTAL</td>
             <td style="text-align:right;padding:6px 10px;font-size:15px;font-weight:700">$${{total.toFixed(2)}}</td></tr>
        </table>
       </div>
-
-      <div style="margin-top:16px;font-size:10px;color:#666;text-align:center;border-top:1px solid #ddd;padding-top:8px">
-       Sellers Permit: 245652416 &nbsp;|&nbsp; SB/MB Cert: 2023764 &nbsp;|&nbsp; ${{itemCount}} item(s) quoted
+      ${{notes?`<div style="margin-top:12px;padding:8px 10px;border:1px solid #ccc;border-radius:4px;font-size:11px;color:#444"><b>Notes:</b> ${{notes}}</div>`:''}}
+      <div style="margin-top:14px;padding-top:8px;border-top:1px solid #ccc;font-size:10px;color:#666;text-align:center">
+       Reytech Inc. — 30 Carnoustie Way, Trabuco Canyon, CA 92679 — sales@reytechinc.com — (714) 501-3530<br>
+       ${{itemCount}} item(s) · Valid until ${{expiry}}
       </div>
      </div>`;
 
      document.getElementById('previewBody').innerHTML=html;
-     document.getElementById('previewFormType').textContent='Reytech Quote — '+PC_META.institution;
+     document.getElementById('previewFormType').textContent='AMS 704 — '+PC_META.institution;
      var modal=document.getElementById('previewModal');
      modal.style.display='flex';
      modal.style.justifyContent='center';
      modal.style.alignItems='flex-start';
     }}
 
-    function closePreview() {{
+    function closePreview()    function closePreview() {{
      document.getElementById('previewModal').style.display='none';
     }}
     // Close on Esc or click outside
@@ -1615,21 +1586,22 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
 
     function saveAndGenerate(btn) {{
      btn.disabled=true;btn.textContent='⏳ Saving prices...';
-     showMsg('Saving prices and generating completed AMS 704...','warn');
+     showMsg('Saving prices and filling AMS 704 PDF...','warn');
      fetch('/pricecheck/{pcid}/save-prices',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(collectPrices())}})
      .then(r=>r.json()).then(d=>{{
-      if(!d.ok){{btn.textContent='📄 Save & Submit';btn.disabled=false;showMsg('❌ Save failed','err');return;}}
+      if(!d.ok){{btn.textContent='📄 Save & Fill 704';btn.disabled=false;showMsg('❌ Save failed','err');return;}}
       btn.textContent='⏳ Generating PDF...';
       return fetch('/pricecheck/{pcid}/generate');
      }}).then(r=>r.json()).then(d=>{{
       btn.disabled=false;
       if(d&&d.ok){{
-       showMsg('✅ AMS 704 generated! Reloading...','ok');
+       showMsg('✅ AMS 704 filled! Reloading...','ok');
        btn.textContent='📥 Download 704';btn.className='btn btn-g';
-       setTimeout(()=>location.reload(),1500);
+       btn.onclick=function(){{window.location=d.download}};
+       setTimeout(()=>location.reload(),2000);
       }}
-      else{{btn.textContent='📄 Save & Submit';showMsg('❌ Generation failed: '+(d?.error||'unknown'),'err')}}
-     }}).catch(e=>{{btn.textContent='📄 Save & Submit';btn.disabled=false;showMsg('❌ Error: '+e,'err')}});
+      else{{btn.textContent='📄 Save & Fill 704';showMsg('❌ Generation failed: '+(d?.error||'unknown'),'err')}}
+     }}).catch(e=>{{btn.textContent='📄 Save & Fill 704';btn.disabled=false;showMsg('❌ Error: '+e,'err')}});
     }}
 
     function generateReytechQuote(btn) {{

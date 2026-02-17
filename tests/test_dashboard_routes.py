@@ -325,18 +325,18 @@ class TestNavigation:
 
 class TestPreviewFormat:
 
-    def test_preview_shows_reytech_branding(self, client, seed_pc):
+    def test_preview_shows_704_format(self, client, seed_pc):
         r = client.get(f"/pricecheck/{seed_pc}")
         html = r.data.decode()
-        # Preview JS should reference Reytech Inc., not AMS 704
+        # Preview JS should show AMS 704 Price Check format
         assert "Reytech Inc." in html
-        assert "QUOTE" in html
+        assert "PRICE CHECK WORKSHEET" in html
 
-    def test_preview_not_704_format(self, client, seed_pc):
+    def test_preview_shows_institution(self, client, seed_pc):
         r = client.get(f"/pricecheck/{seed_pc}")
         html = r.data.decode()
-        # Should NOT show old AMS 704 header in preview function
-        assert "PRICE CHECK WORKSHEET" not in html
+        # Preview should reference institution from PC_META
+        assert "PC_META.institution" in html
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

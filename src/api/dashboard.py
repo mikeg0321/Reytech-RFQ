@@ -332,7 +332,7 @@ def render(content, **kw):
 <div class="hdr">
  <div style="display:flex;align-items:center;gap:14px">
   <a href="/" style="display:flex;align-items:center;gap:10px;text-decoration:none">
-   <img src="/api/logo" alt="Reytech" style="height:40px;background:#fff;padding:5px 10px;border-radius:6px" onerror="this.outerHTML='<span style=\\'font-size:20px;font-weight:700;color:var(--ac)\\'>Reytech</span>'">
+   <img src="/api/logo" alt="Reytech" style="height:44px;background:#fff;padding:6px 12px;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.2)" onerror="this.outerHTML='<span style=\\'font-size:20px;font-weight:700;color:var(--ac)\\'>Reytech</span>'">
    <span style="font-size:17px;font-weight:600;color:var(--tx);letter-spacing:-0.3px">RFQ Dashboard</span>
   </a>
  </div>
