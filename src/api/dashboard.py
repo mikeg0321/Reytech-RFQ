@@ -1,7 +1,8 @@
+```python
 import sys
 from pathlib import Path
 # Compatibility for refactored structure
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 #!/usr/bin/env python3
 """
 Reytech RFQ Dashboard v2
@@ -14,7 +15,7 @@ from flask import (Flask, request, redirect, url_for, render_template_string,
                    send_file, jsonify, flash, Response)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from src.forms.rfq_parser import parse_rfq_attachments, identify_attachments
-from src.forms.reytech_filler_v4 import (load_config, get_pst_date, fill_703b, fill_704b, fill_bid_package)
+from src.forms.reytech_filler_v4 import load_config, get_pst_date, fill_703b, fill_704b, fill_bid_package
 from src.agents.scprs_lookup import bulk_lookup, save_prices_from_rfq, get_price_db_stats
 from src.agents.email_poller import EmailPoller, EmailSender
 # v6.0: Pricing intelligence (graceful fallback if files not present)
@@ -1818,140 +1819,4 @@ def quotes_list():
                       for e in ("png", "jpg", "jpeg", "gif"))
     # Status badge colors
     status_cfg = {
-        "won": ("✅ Won", "#3fb950", "rgba(52,211,153,.08)"),
-        "lost": ("❌ Lost", "#f85149", "rgba(248,113,113,.08)"),
-        "pending": ("⏳ Pending", "#d29922", "rgba(210,153,34,.08)"),
-    }
-    rows_html = ""
-    for qt in quotes:
-        fname = os.path.basename(qt.get("pdf_path", ""))
-        dl = f'<a href="/api/pricecheck/download/{fname}" title="Download PDF">📥</a>' if fname else ""
-        st = qt.get("status", "pending")
-        lbl, color, bg = status_cfg.get(st, status_cfg["pending"])
-        po = qt.get("po_number", "")
-        po_html = f'<br><span style="font-size:10px;color:#8b949e">PO: {po}</span>' if po else ""
-        qn = qt.get("quote_number", "")
-        items_detail = qt.get("items_detail", [])
-        items_text = qt.get("items_text", "")
-        # Build expandable detail row
-        detail_rows = ""
-        if items_detail:
-            for it in items_detail[:10]:
-                desc = str(it.get("description", ""))[:80]
-                pn = it.get("part_number", "")
-                pn_link = f'<a href="https://amazon.com/dp/{pn}" target="_blank" style="color:#58a6ff;font-size:10px">{pn}</a>' if pn and pn.startswith("B0") else (f'<span style="color:#8b949e;font-size:10px">{pn}</span>' if pn else "")
-                detail_rows += f'<div style="display:flex;gap:8px;align-items:baseline;padding:2px 0"><span style="color:var(--tx2);font-size:11px;flex:1">{desc}</span>{pn_link}<span style="font-family:monospace;font-size:11px;color:#d29922">${it.get("unit_price",0):.2f} × {it.get("qty",0)}</span></div>'
-        elif items_text:
-            detail_rows = f'<div style="color:var(--tx2);font-size:11px;padding:2px 0">{items_text[:200]}</div>'
-        detail_id = f"detail-{qn.replace(' ','')}"
-        toggle = f"""<button onclick="document.getElementById('{detail_id}').style.display=document.getElementById('{detail_id}').style.display==='none'?'table-row':'none'" style="background:none;border:none;cursor:pointer;font-size:10px;color:var(--tx2);padding:0" title="Show items">▶ {qt.get('items_count',0)}</button>""" if (items_detail or items_text) else str(qt.get('items_count', 0))
-        rows_html += f"""<tr data-qn="{qn}">
-         <td style="font-family:'JetBrains Mono',monospace;font-weight:700">{qn}</td>
-         <td>{qt.get('date','')}</td>
-         <td>{qt.get('agency','')}</td>
-         <td style="max-width:200px">{qt.get('institution','')[:40]}</td>
-         <td>{qt.get('rfq_number','')}</td>
-         <td style="text-align:right;font-weight:600;font-family:'JetBrains Mono',monospace">${qt.get('total',0):,.2f}</td>
-         <td style="text-align:center">{toggle}</td>
-         <td style="text-align:center">
-          <span style="display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;color:{color};background:{bg}">{lbl}</span>{po_html}
-         </td>
-         <td style="text-align:center;white-space:nowrap">
-          <button onclick="markQuote('{qn}','won')" class="btn btn-sm" style="background:rgba(52,211,153,.15);color:#3fb950;border:1px solid rgba(52,211,153,.3);padding:2px 6px;font-size:11px;cursor:pointer" title="Mark Won">✅</button>
-          <button onclick="markQuote('{qn}','lost')" class="btn btn-sm" style="background:rgba(248,113,113,.15);color:#f85149;border:1px solid rgba(248,113,113,.3);padding:2px 6px;font-size:11px;cursor:pointer" title="Mark Lost">❌</button>
-          {dl}
-         </td>
-        </tr>
-        <tr id="{detail_id}" style="display:none"><td colspan="9" style="background:var(--sf2);padding:8px 16px;border-left:3px solid var(--ac)">{detail_rows if detail_rows else '<span style="color:var(--tx2);font-size:11px">No item details available</span>'}</td></tr>"""
-    # Win rate stats bar
-    wr = stats.get("win_rate", 0)
-    wr_color = "#3fb950" if wr >= 50 else ("#d29922" if wr >= 30 else "#f85149")
-    stats_html = f"""
-     <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap">
-      <div><span style="color:var(--tx2)">Total:</span> <strong>{stats['total']}</strong></div>
-      <div><span style="color:#3fb950">Won:</span> <strong>{stats['won']}</strong> (${stats['won_total']:,.0f})</div>
-      <div><span style="color:#f85149">Lost:</span> <strong>{stats['lost']}</strong></div>
-      <div><span style="color:#d29922">Pending:</span> <strong>{stats['pending']}</strong></div>
-      <div><span style="color:var(--tx2)">Win Rate:</span> <strong style="color:{wr_color}">{wr}%</strong></div>
-      <div style="margin-left:auto"><span style="color:var(--tx2)">Next:</span> <strong>{next_num}</strong></div>
-     </div>
-    """
-    return render(f"""
-     <h2 style="margin-bottom:12px">📋 Reytech Quotes Database</h2>
-     <!-- Stats Bar -->
-     <div class="card" style="margin-bottom:12px;padding:14px">{stats_html}</div>
-     <!-- Search + Filters -->
-     <div class="card" style="margin-bottom:12px;padding:14px">
-      <form method="get" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-       <input name="q" value="{q}" placeholder="Search quotes..." style="flex:1;min-width:180px;padding:8px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx)">
-       <select name="agency" style="padding:8px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx)">
-        <option value="">All Agencies</option>
-        <option value="CDCR" {"selected" if agency_filter=="CDCR" else ""}>CDCR</option>
-        <option value="CCHCS" {"selected" if agency_filter=="CCHCS" else ""}>CCHCS</option>
-        <option value="CalVet" {"selected" if agency_filter=="CalVet" else ""}>CalVet</option>
-        <option value="DGS" {"selected" if agency_filter=="DGS" else ""}>DGS</option>
-       </select>
-       <select name="status" style="padding:8px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx)">
-        <option value="">All Status</option>
-        <option value="pending" {"selected" if status_filter=="pending" else ""}>⏳ Pending</option>
-        <option value="won" {"selected" if status_filter=="won" else ""}>✅ Won</option>
-        <option value="lost" {"selected" if status_filter=="lost" else ""}>❌ Lost</option>
-       </select>
-       <button type="submit" class="btn btn-p">Search</button>
-      </form>
-     </div>
-     <!-- Logo Upload -->
-     <div class="card" style="margin-bottom:12px;padding:14px">
-      <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
-       <span>Logo: {"✅ Uploaded" if logo_exists else "❌ Not uploaded (text fallback)"}</span>
-       <form method="post" action="/settings/upload-logo" enctype="multipart/form-data" style="display:flex;gap:8px;align-items:center">
-        <input type="file" name="logo" accept=".png,.jpg,.jpeg,.gif" style="font-size:13px">
-        <button type="submit" class="btn btn-sm btn-g">Upload Logo</button>
-       </form>
-      </div>
-     </div>
-     <!-- Quotes Table -->
-     <div class="card" style="padding:0;overflow-x:auto">
-      <table>
-       <thead><tr>
-        <th>Quote #</th><th>Date</th><th>Agency</th><th>Institution</th><th>RFQ #</th>
-        <th style="text-align:right">Total</th><th>Items</th><th>Status</th><th>Actions</th>
-       </tr></thead>
-       <tbody>{rows_html if rows_html else '<tr><td colspan="9" style="text-align:center;padding:24px;color:var(--tx2)">No quotes yet — generate your first from a Price Check or RFQ</td></tr>'}</tbody>
-      </table>
-     </div>
-     <script>
-     function markQuote(qn, status) {{
-       let po = '';
-       if (status === 'won') {{
-         po = prompt('PO number (optional):', '') || '';
-       }}
-       fetch('/quotes/' + qn + '/status', {{
-         method: 'POST',
-         headers: {{'Content-Type': 'application/json'}},
-         body: JSON.stringify({{status: status, po_number: po}})
-       }})
-       .then(r => r.json())
-       .then(d => {{
-         if (d.ok) {{ location.reload(); }}
-         else {{ alert('Error: ' + (d.error || 'unknown')); }}
-       }});
-     }}
-     </script>
-    """, title="Quotes Database")
-# Start polling on import (for gunicorn) and on direct run
-start_polling()
-if __name__ == "__main__":
-    email_cfg = CONFIG.get("email", {})
-    port = int(os.environ.get("PORT", 5000))
-    print(f"""
-╔══════════════════════════════════════════════════╗
-║ Reytech RFQ Dashboard v2 ║
-║ ║
-║ 🌐 http://localhost:{port} ║
-║ 📧 Email polling: {'ON' if email_cfg.get('email_password') else 'OFF (set password)':30s}║
-║ 🔒 Login: {DASH_USER} / {'*'*len(DASH_PASS):20s} ║
-║ 📊 SCPRS DB: {get_price_db_stats()['total_items']} items{' ':27s}║
-╚══════════════════════════════════════════════════╝
-    """)
-    app.run(host="0.0.0.0", port=port, debug=False)
+        "won": ("
