@@ -2377,11 +2377,14 @@ h1 {{ font-size:22px; margin-bottom:4px; }}
 
 <div class="section">
  <h2>🔍 QA Agent <span class="tag tag-ok" id="qa-tag">Active</span></h2>
- <p style="color:#8b949e;font-size:12px;margin-bottom:10px">Autonomous health monitor — runs every 5 min. Checks routes, data, agents, code, env.</p>
+ <p style="color:#8b949e;font-size:12px;margin-bottom:10px">Autonomous health monitor — runs every 5 min. Checks routes, data, agents, code, env, sales.</p>
  <div id="qa-health" style="display:none;margin-bottom:12px"></div>
  <div class="grid">
   <button class="btn btn-go" onclick="apiGet('/api/qa/health')">
    <span class="label">🏥 Health Check</span><span class="desc">Full system health</span>
+  </button>
+  <button class="btn btn-go" onclick="apiGet('/api/qa/health?checks=sales')">
+   <span class="label">💰 Sales QA</span><span class="desc">Quote totals, PC profit, $2M goal</span>
   </button>
   <button class="btn" onclick="apiGet('/api/qa/scan')">
    <span class="label">🔍 Code Scan</span><span class="desc">JS/HTML/Python quality</span>

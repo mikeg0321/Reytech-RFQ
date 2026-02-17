@@ -426,7 +426,8 @@ def agent_status() -> dict:
             "Code metrics (line counts, bloat detection)",
             "Env config (required/optional var verification)",
             "JS/HTML scanning (broken handlers, auth, responsive)",
-            "Background monitoring (15-min interval)",
+            "Sales metrics (quote totals, PC profit, revenue goal tracking)",
+            "Background monitoring (5-min interval)",
             "Health trend tracking",
         ],
     }
@@ -592,6 +593,192 @@ def _check_code_metrics() -> list:
     return results
 
 
+def _check_sales_metrics() -> list:
+    """Validate sales data: quote totals, PC profit, revenue toward $2M goal."""
+    results = []
+
+    # ── 1. Quote integrity ──
+    try:
+        quotes_path = os.path.join(DATA_DIR, "quotes_log.json")
+        with open(quotes_path) as f:
+            quotes = json.load(f)
+
+        live_quotes = [q for q in quotes if not q.get("is_test")]
+        test_quotes = [q for q in quotes if q.get("is_test")]
+
+        if test_quotes:
+            results.append({"check": "sales", "status": "warn",
+                            "message": f"{len(test_quotes)} test quotes in DB (should be 0 in production)",
+                            "recommendation": "Remove test quotes from quotes_log.json"})
+        else:
+            results.append({"check": "sales", "status": "pass",
+                            "message": "No test quotes in DB — clean"})
+
+        # Validate totals match line items
+        bad_totals = 0
+        for q in live_quotes:
+            qn = q.get("quote_number", "?")
+            items = q.get("line_items", [])
+            if items:
+                calc_total = sum(
+                    (it.get("unit_price", 0) or 0) * (it.get("quantity", 0) or 0)
+                    for it in items
+                )
+                stated = q.get("total", 0) or 0
+                if stated > 0 and abs(calc_total - stated) > 1.0:
+                    bad_totals += 1
+                    results.append({"check": "sales", "status": "warn",
+                                    "message": f"{qn}: items sum ${calc_total:,.2f} ≠ total ${stated:,.2f}",
+                                    "recommendation": f"Recalculate total for {qn}"})
+        if not bad_totals:
+            results.append({"check": "sales", "status": "pass",
+                            "message": f"{len(live_quotes)} live quote(s), all totals valid"})
+
+        # Missing required fields
+        bad_fields = [q.get("quote_number","?") for q in live_quotes
+                      if not q.get("quote_number") or not q.get("status")]
+        if bad_fields:
+            results.append({"check": "sales", "status": "fail", "severity": "critical",
+                            "message": f"Quotes missing required fields: {bad_fields}",
+                            "recommendation": "Fix quotes missing quote_number or status"})
+
+        # Status distribution
+        statuses = {}
+        for q in live_quotes:
+            s = q.get("status", "unknown")
+            statuses[s] = statuses.get(s, 0) + 1
+        results.append({"check": "sales", "status": "pass",
+                        "message": f"Quote statuses: {statuses}"})
+
+    except FileNotFoundError:
+        results.append({"check": "sales", "status": "warn", "message": "quotes_log.json not found"})
+    except json.JSONDecodeError:
+        results.append({"check": "sales", "status": "fail", "severity": "critical",
+                        "message": "quotes_log.json CORRUPTED",
+                        "recommendation": "Restore quotes_log.json from backup"})
+
+    # ── 2. Price Check profit validation ──
+    try:
+        pc_path = os.path.join(DATA_DIR, "price_checks.json")
+        if os.path.exists(pc_path):
+            with open(pc_path) as f:
+                pcs = json.load(f)
+            pcs = pcs if isinstance(pcs, list) else []
+
+            total_pc_revenue = 0
+            total_pc_cost = 0
+            total_pc_profit = 0
+            negative_margin_items = 0
+
+            for pc in pcs:
+                if pc.get("is_test"):
+                    continue
+                items = pc.get("line_items") or pc.get("items") or []
+                for it in items:
+                    our_price = it.get("our_price") or it.get("unit_price") or 0
+                    cost = it.get("cost") or it.get("vendor_price") or 0
+                    qty = it.get("quantity") or it.get("qty") or 1
+                    revenue = our_price * qty
+                    profit = (our_price - cost) * qty if cost > 0 else 0
+                    total_pc_revenue += revenue
+                    total_pc_cost += cost * qty
+                    total_pc_profit += profit
+                    if cost > 0 and our_price < cost:
+                        negative_margin_items += 1
+
+            margin_pct = round(total_pc_profit / total_pc_revenue * 100, 1) if total_pc_revenue else 0
+
+            if negative_margin_items:
+                results.append({"check": "sales", "status": "warn",
+                                "message": f"{negative_margin_items} PC items with NEGATIVE margin — selling below cost",
+                                "recommendation": "Review pricing on negative margin items"})
+
+            results.append({"check": "sales", "status": "pass",
+                            "message": f"PCs: {len(pcs)} total | Revenue: ${total_pc_revenue:,.2f} | Cost: ${total_pc_cost:,.2f} | Profit: ${total_pc_profit:,.2f} ({margin_pct}%)"})
+        else:
+            results.append({"check": "sales", "status": "info",
+                            "message": "No price_checks.json yet"})
+    except Exception as e:
+        results.append({"check": "sales", "status": "warn", "message": f"PC validation error: {e}"})
+
+    # ── 3. Revenue toward $2M goal ──
+    try:
+        from src.agents.sales_intel import update_revenue_tracker, REVENUE_GOAL
+        rev = update_revenue_tracker()
+        if rev.get("ok"):
+            closed = rev.get("closed_revenue", 0)
+            gap = rev.get("gap_to_goal", 0)
+            pct = rev.get("pct_to_goal", 0)
+            run_rate = rev.get("run_rate_annual", 0)
+            on_track = rev.get("on_track", False)
+            pipeline = rev.get("pipeline_value", 0)
+            goal_m = REVENUE_GOAL / 1e6
+
+            results.append({"check": "sales", "status": "pass",
+                            "message": f"Revenue: ${closed:,.0f} closed ({pct:.1f}% of ${goal_m:.0f}M goal) | Pipeline: ${pipeline:,.0f}"})
+
+            if not on_track and pct < 10:
+                results.append({"check": "sales", "status": "info",
+                                "message": f"Goal early stage — ${gap:,.0f} gap, need ${rev.get('monthly_needed', 0):,.0f}/mo"})
+            elif not on_track:
+                results.append({"check": "sales", "status": "warn",
+                                "message": f"Run rate ${run_rate:,.0f}/yr — below ${goal_m:.0f}M pace",
+                                "recommendation": f"Need ${rev.get('monthly_needed', 0):,.0f}/mo to hit goal"})
+            else:
+                results.append({"check": "sales", "status": "pass",
+                                "message": f"On track for ${goal_m:.0f}M goal ✓"})
+
+            # Cross-check: won quotes = revenue tracker
+            try:
+                with open(os.path.join(DATA_DIR, "quotes_log.json")) as f:
+                    qs = json.load(f)
+                won_total = sum(q.get("total", 0) for q in qs
+                               if q.get("status") == "won" and not q.get("is_test"))
+                tracker_val = rev.get("quotes_won_value", 0)
+                if won_total > 0 and abs(won_total - tracker_val) > 1:
+                    results.append({"check": "sales", "status": "warn",
+                                    "message": f"Won quotes (${won_total:,.2f}) ≠ tracker (${tracker_val:,.2f})",
+                                    "recommendation": "Sync revenue tracker with quotes"})
+                else:
+                    results.append({"check": "sales", "status": "pass",
+                                    "message": "Won quotes ↔ revenue tracker in sync"})
+            except Exception:
+                pass
+    except ImportError:
+        results.append({"check": "sales", "status": "info",
+                        "message": "Sales intel not loaded — revenue check skipped"})
+    except Exception as e:
+        results.append({"check": "sales", "status": "warn", "message": f"Revenue check error: {e}"})
+
+    # ── 4. Orders ↔ Quotes consistency ──
+    try:
+        with open(os.path.join(DATA_DIR, "orders.json")) as f:
+            orders = json.load(f)
+        if isinstance(orders, dict):
+            live_orders = {k: v for k, v in orders.items() if not v.get("is_test")}
+            orphan = 0
+            for oid, o in live_orders.items():
+                qn = o.get("quote_number") or o.get("quote_ref")
+                if qn:
+                    with open(os.path.join(DATA_DIR, "quotes_log.json")) as f:
+                        qs = json.load(f)
+                    if not any(q.get("quote_number") == qn for q in qs):
+                        orphan += 1
+            if orphan:
+                results.append({"check": "sales", "status": "warn",
+                                "message": f"{orphan} orders reference missing quotes",
+                                "recommendation": "Clean orphaned order refs"})
+            else:
+                results.append({"check": "sales", "status": "pass",
+                                "message": f"{len(live_orders)} orders, all quote refs valid"})
+    except FileNotFoundError:
+        results.append({"check": "sales", "status": "info", "message": "No orders yet"})
+    except Exception:
+        pass
+
+    return results
+
+
 def run_health_check(checks: list = None) -> dict:
     """Run full health check suite. Returns report with score and recommendations."""
     start = time.time()
@@ -603,6 +790,7 @@ def run_health_check(checks: list = None) -> dict:
         "agents": _check_agents_health,
         "env": _check_env_config,
         "code": _check_code_metrics,
+        "sales": _check_sales_metrics,
     }
 
     for name in (checks or list(check_map.keys())):

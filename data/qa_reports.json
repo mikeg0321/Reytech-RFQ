@@ -34,5 +34,29 @@
       "warned": 2
     },
     "critical_count": 2
+  },
+  {
+    "timestamp": "2026-02-17T23:55:49.374469",
+    "health_score": 75,
+    "grade": "B",
+    "summary": {
+      "total": 8,
+      "passed": 6,
+      "failed": 0,
+      "warned": 0
+    },
+    "critical_count": 0
+  },
+  {
+    "timestamp": "2026-02-17T23:56:17.004408",
+    "health_score": 10,
+    "grade": "F",
+    "summary": {
+      "total": 40,
+      "passed": 20,
+      "failed": 2,
+      "warned": 2
+    },
+    "critical_count": 2
   }
 ]
