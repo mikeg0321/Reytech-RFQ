@@ -79,6 +79,19 @@ PAGE_HOME = """
   </div>
  </form>
 </div>
+<!-- Search + Quick Actions -->
+<div class="card" style="padding:12px 16px">
+ <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+  <form method="get" action="/quotes" style="display:flex;gap:6px;flex:1;min-width:200px">
+   <input name="q" placeholder="Search quotes, institutions, RFQ #..." style="flex:1;padding:8px 12px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:14px">
+   <button type="submit" class="btn btn-p" style="padding:8px 16px">🔍 Search</button>
+  </form>
+  <span style="border-left:2px solid #30363d;height:24px;margin:0 4px"></span>
+  <a href="/quotes" class="btn btn-sm" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd);font-size:12px;padding:4px 10px">📋 Quotes DB</a>
+  <a href="/api/health" class="btn btn-sm" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd);font-size:12px;padding:4px 10px">💚 Health</a>
+  <a href="/api/diag" class="btn btn-sm" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd);font-size:12px;padding:4px 10px">🔧 Diag</a>
+ </div>
+</div>
 <div class="card">
  <div class="card-t">RFQ Queue ({{rfqs|length}})</div>
  {% for id, r in rfqs|dictsort(reverse=true) %}
@@ -1439,7 +1452,10 @@ def build_quotes_page_content(stats_html, q, agency_filter, status_filter,
     """
     return f"""
      <!-- Logo + Title Header -->
-     <h2 style="margin-bottom:16px">📋 Reytech Quotes Database</h2>
+     <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px">
+      {"<img src='/api/logo' alt='Reytech' style='height:44px;border-radius:6px'>" if logo_exists else ""}
+      <h2 style="margin:0">📋 Reytech Quotes Database</h2>
+     </div>
 
      <!-- Stats Bar -->
      <div class="card" style="margin-bottom:12px;padding:14px">{stats_html}</div>
@@ -1454,6 +1470,7 @@ def build_quotes_page_content(stats_html, q, agency_filter, status_filter,
         <option value="CCHCS" {"selected" if agency_filter=="CCHCS" else ""}>CCHCS</option>
         <option value="CalVet" {"selected" if agency_filter=="CalVet" else ""}>CalVet</option>
         <option value="DGS" {"selected" if agency_filter=="DGS" else ""}>DGS</option>
+        <option value="DSH" {"selected" if agency_filter=="DSH" else ""}>DSH</option>
        </select>
        <select name="status" style="padding:8px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx)">
         <option value="">All Status</option>

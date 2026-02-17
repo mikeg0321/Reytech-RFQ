@@ -2594,7 +2594,6 @@ TEST_PC_FIXTURE = {
 def api_test_create_pc():
     """Create a test Price Check with fixture data. Flagged as is_test=True."""
     from copy import deepcopy
-    import uuid
 
     fixture = deepcopy(TEST_PC_FIXTURE)
     pc_id = f"test_{uuid.uuid4().hex[:8]}"
@@ -2792,15 +2791,26 @@ def api_cleanup_duplicates():
             report["backup"] = backup_name
 
         # Write clean data
-        from src.forms.quote_generator import _save_all_quotes
+        from src.forms.quote_generator import _save_all_quotes, _detect_agency
+
+        # Fix DEFAULT agencies using institution name
+        agencies_fixed = 0
+        for q in clean:
+            if q.get("agency", "DEFAULT") == "DEFAULT" and q.get("institution"):
+                detected = _detect_agency({"institution": q["institution"]})
+                if detected != "DEFAULT":
+                    q["agency"] = detected
+                    agencies_fixed += 1
+        report["agencies_fixed"] = agencies_fixed
+
         _save_all_quotes(clean)
 
         # Reset counter
         set_quote_counter(max_num)
 
-        log.info("CLEANUP: %d → %d quotes (%d duplicates removed). Counter → %d. Backup: %s",
-                 original_count, len(clean), removed, max_num, backup_name)
-        report["message"] = f"Done. {removed} duplicates removed. Counter reset to {max_num}. Backup: {backup_name}"
+        log.info("CLEANUP: %d → %d quotes (%d duplicates removed, %d agencies fixed). Counter → %d. Backup: %s",
+                 original_count, len(clean), removed, agencies_fixed, max_num, backup_name)
+        report["message"] = f"Done. {removed} duplicates removed, {agencies_fixed} agencies fixed. Counter reset to {max_num}. Backup: {backup_name}"
     else:
         report["message"] = f"DRY RUN: Would remove {removed} duplicates and reset counter to {max_num}. Add ?dry_run=false to execute."
 

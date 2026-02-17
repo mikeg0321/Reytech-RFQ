@@ -330,6 +330,7 @@ def _detect_agency(data: dict) -> str:
     if "CCHCS" in text or "HEALTH CARE" in text: return "CCHCS"
     if "CALVET" in text or "VETERAN" in text:    return "CalVet"
     if "DGS" in text or "GENERAL SERVICE" in text: return "DGS"
+    if "DSH" in text or "STATE HOSPITAL" in text:  return "DSH"
     # CDCR: match the agency name OR any known prison abbreviation/pattern
     if "CDCR" in text or "CORRECTION" in text:   return "CDCR"
     # CDCR prison patterns: CSP-*, CIM, CIW, SCC, CMC, SATF, CHCF, PVSP, KVSP,
