@@ -511,6 +511,25 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
     Extracted from dashboard.py to keep the main module lean.
     All parameters are pre-computed by the route handler.
     """
+    # Build pipeline status tracker
+    _status = pc.get('status', 'parsed')
+    _steps = [
+        ('parsed', '📥', 'Parsed'),
+        ('priced', '💰', 'Priced'),
+        ('completed', '📄', '704 Filled'),
+    ]
+    _reached = {'parsed': 0, 'priced': 1, 'completed': 2, 'converted': 2}.get(_status, 0)
+    _pip_parts = []
+    for i, (step, icon, label) in enumerate(_steps):
+        if i <= _reached:
+            style = "padding:4px 10px;border-radius:6px;background:rgba(52,211,153,.12);color:#3fb950"
+        else:
+            style = "padding:4px 10px;border-radius:6px;background:#21262d;color:#484f58"
+        _pip_parts.append(f"<span style=\"{style}\">{icon} {label}</span>")
+        if i < len(_steps) - 1:
+            _pip_parts.append("<span style=\"color:#484f58;margin:0 4px\">→</span>")
+    pipeline_html = "".join(_pip_parts)
+
     return f"""<!doctype html><html><head><title>PC #{pc.get('pc_number','')}</title>
     <style>
      body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#0d1117;color:#c9d1d9;margin:0;padding:20px;font-size:15px;line-height:1.5}}
@@ -591,8 +610,16 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
 
     <div class="card">
      <h1>Price Check #{pc.get('pc_number','unknown')}
-      <span class="status status-{pc.get('status','parsed')}">{pc.get('status','parsed').upper()}</span></h1>
-     {"<div style='margin:10px 0;padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(52,211,153,.08);border:1px solid rgba(52,211,153,.25);color:#3fb950'><span style=font-size:18px>✅</span><div><b>Quote Generated</b> — " + pc.get('reytech_quote_number','') + "<br><span style=color:#8b949e;font-size:12px>Prices locked. Download below or regenerate to update.</span></div></div>" if pc.get('status') in ('completed','converted') and pc.get('reytech_quote_number') else "<div style='margin:10px 0;padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(88,166,255,.08);border:1px solid rgba(88,166,255,.25);color:#58a6ff'><span style=font-size:18px>🔵</span><div><b>Priced</b> — ready to generate quote<br><span style=color:#8b949e;font-size:12px>Review prices below, then click Generate Quote.</span></div></div>" if pc.get('status') == 'priced' else ""}
+      <span class="status status-{pc.get('status','parsed')}">{pc.get('status','parsed').upper()}</span>
+      {f"<span style='margin-left:12px;font-family:JetBrains Mono,monospace;font-size:16px;color:#58a6ff;font-weight:700'>{pc.get('reytech_quote_number','')}</span>" if pc.get('reytech_quote_number') else ""}</h1>
+
+     <!-- Pipeline Status Tracker -->
+     <div style="margin:12px 0;display:flex;align-items:center;gap:0;font-size:12px;font-weight:600">
+      {pipeline_html}
+     </div>
+
+     {"<div style='padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(52,211,153,.08);border:1px solid rgba(52,211,153,.25);color:#3fb950;margin-bottom:10px'><span style=font-size:18px>✅</span><div><b>Ready for review</b> — 704 filled, pricing locked. Preview below and approve.<br><span style=color:#8b949e;font-size:12px>Adjust prices if needed, then download the completed 704.</span></div></div>" if pc.get('status') in ('completed','converted') else "<div style='padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(88,166,255,.08);border:1px solid rgba(88,166,255,.25);color:#58a6ff;margin-bottom:10px'><span style=font-size:18px>💰</span><div><b>Priced</b> — review costs below. Save to fill the 704 automatically.</div></div>" if pc.get('status') == 'priced' else "<div style='padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(210,153,34,.08);border:1px solid rgba(210,153,34,.25);color:#d29922;margin-bottom:10px'><span style=font-size:18px>📥</span><div><b>Parsed</b> — awaiting pricing agent. Click Process to run manually.</div></div>" if pc.get('status') == 'parsed' else ""}
+
      <div class="meta" style="margin-top:8px">
       <b>Institution:</b> {header.get('institution',pc.get('institution',''))} &nbsp;|&nbsp;
       <b>Requestor:</b> {header.get('requestor',pc.get('requestor',''))} &nbsp;|&nbsp;
@@ -618,19 +645,21 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
       </div>
      </div>
 
-     <div style="margin-top:12px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-      <button class="btn btn-p" data-testid="pc-scprs-lookup" onclick="runScprs(this)">🔍 SCPRS Lookup</button>
-      <button class="btn btn-y" data-testid="pc-amazon-lookup" onclick="runLookup(this)">🔬 Amazon Lookup</button>
-      <span style="border-left:2px solid #30363d;height:28px;margin:0 8px"></span>
-      <button class="btn" data-testid="pc-preview-quote" style="background:#21262d;color:#c9d1d9;border:1px solid #484f58" onclick="showPreview()">👁️ Preview Quote</button>
-      <button class="btn btn-g" data-testid="pc-generate-704" onclick="saveAndGenerate(this)">{"♻️ Regenerate 704" if pc.get('status') in ('completed','converted') else "📄 Generate Completed 704"}</button>
-      <button class="btn" data-testid="pc-generate-reytech-quote" style="background:#1a3a5c;color:#fff" onclick="generateReytechQuote(this)">{"♻️ Regenerate Quote" if pc.get('reytech_quote_number') else "📋 Reytech Quote PDF"}</button>
+     <!-- Actions: pipeline-oriented, not manual -->
+     <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       {download_html}
-      <span style="border-left:2px solid #30363d;height:28px;margin:0 8px"></span>
-      {"<button class='btn' disabled style='opacity:0.4;cursor:not-allowed;background:#21262d;color:#8b949e;border:1px solid #30363d'>✅ Converted</button>" if pc.get('status')=='converted' else "<button class='btn btn-v' onclick=\"convertToQuote(this)\">🔄 Convert to Full Quote (704A/B + Package)</button>"}
-     </div>
-     <div style="margin-top:8px">
-      {"<button class='btn' disabled style='opacity:0.4;cursor:not-allowed;background:#4a3000;color:#8b949e;border:1px solid #4a3000'>⚡ Already Processed</button>" if pc.get('status') in ('completed','converted') else "<button class='btn' data-testid='pc-auto-process' style='background:#f0883e;color:#fff' onclick='autoProcess(this)'>⚡ Auto-Process (SCPRS + Amazon + Price + Generate — one click)</button>"}
+      {"<button class='btn btn-p' onclick='showPreview()' style='font-size:13px'>👁️ Preview 704</button>" if pc.get('status') in ('completed','converted','priced') else ""}
+      {"<button class='btn' data-testid='pc-auto-process' style='background:#f0883e;color:#fff;font-size:14px;padding:8px 20px' onclick='autoProcess(this)'>⚡ Process Now</button>" if pc.get('status') == 'parsed' else ""}
+      {"<button class='btn btn-g' data-testid='pc-generate-704' onclick='saveAndGenerate(this)' style='font-size:13px'>💾 Save &amp; Fill 704</button>" if pc.get('status') == 'priced' else ""}
+      <details style="position:relative;display:inline-block">
+       <summary class="btn btn-sm" style="background:#21262d;color:#8b949e;border:1px solid #30363d;font-size:12px;padding:4px 10px;cursor:pointer;list-style:none">⋯ More</summary>
+       <div style="position:absolute;top:100%;left:0;z-index:50;margin-top:4px;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:6px;min-width:220px;box-shadow:0 8px 24px rgba(0,0,0,.4)">
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#c9d1d9;border:none;padding:8px 10px;font-size:12px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runScprs(this)" data-testid="pc-scprs-lookup">🔍 Re-run SCPRS Lookup</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#c9d1d9;border:none;padding:8px 10px;font-size:12px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runLookup(this)" data-testid="pc-amazon-lookup">🔬 Re-run Amazon Lookup</button>
+        {"<button class='btn btn-sm' style='width:100%;text-align:left;background:none;color:#c9d1d9;border:none;padding:8px 10px;font-size:12px;border-radius:4px' onmouseover=\"this.style.background='#21262d'\" onmouseout=\"this.style.background='none'\" onclick='saveAndGenerate(this)'>♻️ Re-fill 704</button>" if pc.get('status') in ('completed','converted') else ""}
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#c9d1d9;border:none;padding:8px 10px;font-size:12px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="window.print()">🖨️ Print Page</button>
+       </div>
+      </details>
      </div>
      <div id="statusMsg"></div>
      <div id="confidenceBar"></div>
@@ -1200,14 +1229,14 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
      showMsg('Saving prices and generating completed AMS 704...','warn');
      fetch('/pricecheck/{pcid}/save-prices',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(collectPrices())}})
      .then(r=>r.json()).then(d=>{{
-      if(!d.ok){{btn.textContent='📄 Generate Completed 704';btn.disabled=false;showMsg('❌ Save failed','err');return;}}
+      if(!d.ok){{btn.textContent='💾 Save & Fill 704';btn.disabled=false;showMsg('❌ Save failed','err');return;}}
       btn.textContent='⏳ Generating PDF...';
       return fetch('/pricecheck/{pcid}/generate');
      }}).then(r=>r.json()).then(d=>{{
-      btn.disabled=false;btn.textContent='📄 Generate Completed 704';
+      btn.disabled=false;btn.textContent='💾 Save & Fill 704';
       if(d&&d.ok){{showMsg('✅ Completed 704 generated! Reloading...','ok');setTimeout(()=>location.reload(),1200)}}
       else{{showMsg('❌ Generation failed: '+(d?.error||'unknown'),'err')}}
-     }}).catch(e=>{{btn.textContent='📄 Generate Completed 704';btn.disabled=false;showMsg('❌ Error: '+e,'err')}});
+     }}).catch(e=>{{btn.textContent='💾 Save & Fill 704';btn.disabled=false;showMsg('❌ Error: '+e,'err')}});
     }}
 
     function generateReytechQuote(btn) {{
@@ -1243,7 +1272,7 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
      btn.disabled=true;btn.textContent='⚡ Running full pipeline...';
      showMsg('⚡ Auto-processing: Parse → SCPRS → Amazon → Price → Generate PDF...','warn');
      fetch('/pricecheck/{pcid}/auto-process').then(r=>r.json()).then(d=>{{
-      btn.disabled=false;btn.textContent='⚡ Auto-Process (SCPRS + Amazon + Price + Generate — one click)';
+      btn.disabled=false;btn.textContent='⚡ Process Now';
       if(d.ok){{
        let t=d.timing||{{}};
        let c=d.confidence||{{}};
@@ -1265,7 +1294,7 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
       }} else {{
        showMsg('❌ Auto-process failed: '+(d.error||'unknown'),'err');
       }}
-     }}).catch(e=>{{btn.textContent='⚡ Auto-Process';btn.disabled=false;showMsg('❌ Error: '+e,'err')}});
+     }}).catch(e=>{{btn.textContent='⚡ Process Now';btn.disabled=false;showMsg('❌ Error: '+e,'err')}});
     }}
 
     // ── CRM Customer Card + Quote History (loads on page) ─────────────────────
