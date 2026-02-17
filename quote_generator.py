@@ -347,35 +347,80 @@ def _log_quote(result: dict):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def _detect_agency(data: dict) -> str:
+    """Detect state agency from ALL available data — institution, ship_to, email, addresses."""
+    # Cast widest possible net across all fields
     text = " ".join(str(v) for v in [
         data.get("institution", ""), data.get("department", ""),
         data.get("bill_to", ""), data.get("bill_to_name", ""),
+        data.get("ship_to", ""), data.get("ship_to_name", ""),
+        " ".join(data.get("ship_to_address", [])) if isinstance(data.get("ship_to_address"), list) else data.get("ship_to_address", ""),
+        " ".join(data.get("to_address", [])) if isinstance(data.get("to_address"), list) else data.get("to_address", ""),
+        data.get("requestor", ""), data.get("requestor_name", ""),
+        data.get("requestor_email", ""), data.get("email", ""),
+        data.get("delivery_location", ""),
     ]).upper()
-    if "CCHCS" in text or "HEALTH CARE" in text: return "CCHCS"
-    if "CALVET" in text or "VETERAN" in text:    return "CalVet"
-    if "DGS" in text or "GENERAL SERVICE" in text: return "DGS"
-    if "DSH" in text or "STATE HOSPITAL" in text:  return "DSH"
-    # CDCR: match the agency name OR any known prison abbreviation/pattern
-    if "CDCR" in text or "CORRECTION" in text:   return "CDCR"
-    # CDCR prison patterns: CSP-*, CIM, CIW, SCC, CMC, SATF, CHCF, PVSP, KVSP,
-    # LAC, MCSP, NKSP, SAC, WSP, SOL, FSP, HDSP, ISP, CTF, DVI, SQ, RJD, CAL, CEN
+
+    # ── Email domain matching (most reliable) ──
+    email_text = " ".join(str(v) for v in [
+        data.get("requestor_email", ""), data.get("email", ""),
+    ]).upper()
+    if "CDCR.CA.GOV" in email_text:   return "CDCR"
+    if "CCHCS.CA.GOV" in email_text:  return "CCHCS"
+    if "CALVET.CA.GOV" in email_text: return "CalVet"
+    if "DGS.CA.GOV" in email_text:    return "DGS"
+    if "DSH.CA.GOV" in email_text:    return "DSH"
+
+    # ── Direct agency name matches ──
+    if "CCHCS" in text or "HEALTH CARE" in text or "CALIFORNIA HEALTH" in text: return "CCHCS"
+    if "CALVET" in text or "VETERAN" in text or "VETERANS HOME" in text:        return "CalVet"
+    if "DGS" in text or "GENERAL SERVICE" in text:                               return "DGS"
+    if "DSH" in text or "STATE HOSPITAL" in text or "DEPT OF STATE HOSP" in text: return "DSH"
+    if "CDCR" in text or "CORRECTION" in text or "DEPT OF CORRECTIONS" in text:  return "CDCR"
+
+    # ── CDCR prison abbreviations ──
     _CDCR_PREFIXES = (
         "CSP", "CIM", "CIW", "SCC", "CMC", "SATF", "CHCF", "PVSP", "KVSP",
         "LAC", "MCSP", "NKSP", "SAC", "WSP", "SOL", "FSP", "HDSP", "ISP",
-        "CTF", "DVI", "RJD", "CAL", "CEN", "ASP", "CCWF", "VSP",
+        "CTF", "DVI", "RJD", "CAL", "CEN", "ASP", "CCWF", "VSP", "SVSP",
+        "PBSP", "CRC", "CCI", "SQ", "SQSP",
     )
-    _CDCR_KEYWORDS = ("STATE PRISON", "CONSERVATION CENTER", "INSTITUTION FOR",
-                      "FOLSOM", "PELICAN BAY", "SAN QUENTIN", "CORCORAN")
     for prefix in _CDCR_PREFIXES:
-        # Match "CSP-Sacramento", "CSP Sacramento", "CSP-", or standalone "CIM"
         if text.startswith(prefix + "-") or text.startswith(prefix + " ") or text == prefix:
             return "CDCR"
-        # Also match mid-string: "CDCR - CIM" etc.
         if f" {prefix}-" in text or f" {prefix} " in text or f"- {prefix}" in text:
             return "CDCR"
+
+    # ── CDCR location keywords (prison names + known cities) ──
+    _CDCR_KEYWORDS = (
+        "STATE PRISON", "CONSERVATION CENTER", "INSTITUTION FOR",
+        "FOLSOM", "PELICAN BAY", "SAN QUENTIN", "CORCORAN",
+        "IRONWOOD", "CHUCKAWALLA", "WASCO", "SOLEDAD", "TEHACHAPI",
+        "AVENAL", "BLYTHE", "SUSANVILLE", "CRESCENT CITY",
+        "REPRESA", "DELANO", "COALINGA", "VACAVILLE", "CHINO",
+        "LANCASTER", "NORCO", "SOLANO", "MULE CREEK",
+        "NORTH KERN", "KERN VALLEY", "VALLEY STATE", "CENTINELA",
+        "RICHARD J DONOVAN", "PLEASANT VALLEY", "HIGH DESERT",
+        "CALIFORNIA MEN", "CALIFORNIA WOMEN",
+    )
     for kw in _CDCR_KEYWORDS:
         if kw in text:
             return "CDCR"
+
+    # ── DSH hospital locations ──
+    _DSH_KEYWORDS = ("ATASCADERO", "COALINGA STATE HOSP", "METROPOLITAN STATE",
+                     "NAPA STATE", "PATTON STATE")
+    for kw in _DSH_KEYWORDS:
+        if kw in text:
+            return "DSH"
+
+    # ── CalVet home locations ──
+    _CALVET_KEYWORDS = ("VETERANS HOME", "VET HOME", "YOUNTVILLE",
+                        "BARSTOW VET", "CHULA VISTA VET", "FRESNO VET",
+                        "LANCASTER VET", "REDDING VET", "WEST LOS ANGELES VET")
+    for kw in _CALVET_KEYWORDS:
+        if kw in text:
+            return "CalVet"
+
     return "DEFAULT"
 
 def _find_logo() -> Optional[str]:

@@ -541,12 +541,23 @@ def _handle_price_check_upload(pdf_path, pc_id):
                 log.info("Found %d previous quote(s) for %s: %s", 
                          len(prev_pcs), institution,
                          ", ".join(q.get("quote_number", "") for q in prev_pcs))
+            # Detect agency from all available data
+            ship_to_raw = parsed.get("ship_to", "") or ""
+            ship_parts = [p.strip() for p in ship_to_raw.split(",") if p.strip()]
+            detect_data = {
+                "institution": institution,
+                "ship_to": ship_to_raw,
+                "ship_to_name": ship_parts[0] if ship_parts else "",
+                "requestor": parsed.get("header", {}).get("requestor", ""),
+            }
+            detected_agency = _detect_agency(detect_data)
+
             # Save as draft in quotes log
             draft_entry = {
                 "quote_number": draft_quote_num,
                 "date": datetime.now().strftime("%b %d, %Y"),
-                "agency": parsed.get("header", {}).get("agency", ""),
-                "institution": institution,
+                "agency": detected_agency if detected_agency != "DEFAULT" else "",
+                "institution": institution or (ship_parts[0] if ship_parts else ""),
                 "rfq_number": pc_num,
                 "total": 0,
                 "subtotal": 0,
@@ -556,6 +567,8 @@ def _handle_price_check_upload(pdf_path, pc_id):
                 "created_at": datetime.now().isoformat(),
                 "status": "draft",
                 "source_pc_id": pc_id,
+                "ship_to_name": ship_parts[0] if ship_parts else "",
+                "ship_to_address": ship_parts[1:] if len(ship_parts) > 1 else ship_parts,
                 "items_text": " | ".join(i.get("description", "")[:50] for i in items[:5]),
             }
             all_quotes = get_all_quotes()
@@ -2600,11 +2613,11 @@ def quotes_list():
                 # Try from items_text or rfq_number as last resort
                 institution = qt.get("rfq_number", "") or "—"
 
-        # Fix DEFAULT agency using institution name
+        # Fix DEFAULT agency using ALL available data
         agency = qt.get("agency", "")
-        if agency in ("DEFAULT", "", None) and institution and QUOTE_GEN_AVAILABLE:
+        if agency in ("DEFAULT", "", None) and QUOTE_GEN_AVAILABLE:
             try:
-                agency = _detect_agency({"institution": institution})
+                agency = _detect_agency(qt)
             except Exception as e:
                 log.debug("Suppressed: %s", e)
                 agency = ""
@@ -2699,11 +2712,11 @@ def quote_detail(qn):
     if not institution or institution.strip() == "":
         institution = qt.get("ship_to_name", "") or qt.get("rfq_number", "") or "—"
 
-    # Fix DEFAULT agency
+    # Fix DEFAULT agency using all available data
     agency = qt.get("agency", "")
-    if agency in ("DEFAULT", "", None) and institution:
+    if agency in ("DEFAULT", "", None):
         try:
-            agency = _detect_agency({"institution": institution})
+            agency = _detect_agency(qt)
         except Exception:
             agency = ""
     if agency == "DEFAULT":
@@ -3807,11 +3820,11 @@ def api_cleanup_duplicates():
         # Write clean data
         from src.forms.quote_generator import _save_all_quotes, _detect_agency
 
-        # Fix DEFAULT agencies using institution name
+        # Fix DEFAULT agencies using all available data
         agencies_fixed = 0
         for q in clean:
-            if q.get("agency", "DEFAULT") == "DEFAULT" and q.get("institution"):
-                detected = _detect_agency({"institution": q["institution"]})
+            if q.get("agency", "DEFAULT") == "DEFAULT":
+                detected = _detect_agency(q)
                 if detected != "DEFAULT":
                     q["agency"] = detected
                     agencies_fixed += 1

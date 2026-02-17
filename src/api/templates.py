@@ -2259,7 +2259,7 @@ function testCall() {{
 }}
 
 // Load fleet status on page load
-fetch('/api/agents/status',{credentials:'same-origin'}).then(r => r.json()).then(data => {{
+fetch('/api/agents/status',{{credentials:'same-origin'}}).then(r => r.json()).then(data => {{
   const grid = document.getElementById('fleet-grid');
   const tag = document.getElementById('fleet-tag');
   if (!data.ok) {{ grid.innerHTML = '<div>Failed to load</div>'; return; }}

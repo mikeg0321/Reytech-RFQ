@@ -6,3 +6,4 @@ requests>=2.31,<3.0
 beautifulsoup4>=4.12,<5.0
 gunicorn>=22.0,<23.0
 langgraph
+twilio>=9.0,<10.0
