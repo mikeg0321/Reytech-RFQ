@@ -1,0 +1,39 @@
+{
+    "company": {
+        "name": "Reytech Inc.",
+        "address": "30 Carnoustie Way Trabuco Canyon CA 92679",
+        "owner": "Michael Guadan",
+        "title": "Owner",
+        "phone": "949-229-1575",
+        "email": "sales@reytechinc.com",
+        "fein": "47-4588061",
+        "sellers_permit": "245652416 - 00001",
+        "cert_number": "2002605",
+        "cert_expiration": "5/31/2027",
+        "description_of_goods": "Medical/Office and other supplies",
+        "drug_free_expiration": "7/1/2028"
+    },
+    "pricing_rules": {
+        "scprs_undercut_pct": 0.01,
+        "profit_floor_general": 100,
+        "profit_floor_amazon": 50,
+        "default_markup_pct": 0.25
+    },
+    "email": {
+        "imap_host": "imap.gmail.com",
+        "imap_port": 993,
+        "smtp_host": "smtp.gmail.com",
+        "smtp_port": 587,
+        "email": "rfq@reytechinc.com",
+        "email_password": "",
+        "from_name": "Michael Guadan - Reytech Inc.",
+        "reply_from": "sales@reytechinc.com",
+        "poll_interval_seconds": 120
+    },
+    "supplier_sites": {
+        "medical": ["partssource.com", "hcl.com", "sandsworldwide.com"],
+        "industrial": ["grainger.com", "uline.com"],
+        "general": ["amazon.com", "walmart.com", "officedepot.com"],
+        "specialty": ["orientaltrading.com"]
+    }
+}
