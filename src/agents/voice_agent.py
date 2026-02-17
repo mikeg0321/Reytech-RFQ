@@ -113,13 +113,14 @@ Voicemail rules:
 - Always repeat the phone number: 949-229-1575
 
 Your goals on calls:
-1. Introduce Reytech and establish credibility
-2. Ask to be added to the vendor/quote list
-3. Offer to provide competitive quotes on current or upcoming orders
-4. If you reach voicemail, leave a brief professional message with callback number
-5. Never be pushy — be helpful and respectful of their time
-6. Always try to get a NAME, EMAIL, and DIRECT PHONE before hanging up
-7. If they show interest, offer to send a quote on whatever they're currently buying
+1. Reference items they already buy — show you know their needs
+2. Say "we sell those same items" and mention competitive pricing (10-30% below contract)
+3. Ask to be added to their RFQ distribution list for future orders
+4. Give our email: sales@reytechinc.com (spell it out: S-A-L-E-S at R-E-Y-T-E-C-H-I-N-C dot com)
+5. Get THEIR purchasing contact name, email, and direct phone
+6. If they show interest, offer to send a quote on whatever they're currently buying
+7. If voicemail, leave a brief message with callback number 949-229-1575
+8. Never be pushy — be helpful and respectful of their time
 
 If they ask questions you don't know, say "Let me have our team get back to you on that" and note the question.
 
@@ -131,18 +132,29 @@ Keep responses SHORT — this is a phone call, not an essay. 1-2 sentences at a 
 SCRIPTS = {
     # ── Prospecting Scripts ──
     "lead_intro": {
-        "name": "Lead Introduction (PO-specific)",
+        "name": "SCPRS Lead Introduction",
         "category": "prospecting",
         "first_message": (
-            "Hi, this is Mike calling from Reytech Inc. I'm reaching out about "
-            "Purchase Order {po_number} for {institution}. We're a certified Small Business "
-            "reseller and I was wondering if I could speak with someone in purchasing?"
+            "Hi, this is Mike calling from Reytech Inc. I'm reaching out because "
+            "I noticed {institution} recently purchased some items that we also carry — "
+            "things like {top_items}. We're a certified Small Business and DVBE, and "
+            "we'd really appreciate the chance to get on your RFQ list. "
+            "Is someone in purchasing available?"
         ),
         "context": (
-            "You are calling about a specific Purchase Order you found on SCPRS. "
-            "Your goal is to introduce Reytech and get on the vendor quote list. "
-            "Mention that you noticed the PO and that you supply similar items at competitive rates. "
-            "Try to learn: who handles purchasing, what they buy frequently, their email for quotes."
+            "You found this buyer on the State Controller's SCPRS system. Their recent "
+            "purchase orders show they buy items Reytech sells.\n\n"
+            "YOUR APPROACH:\n"
+            "1. Lead with THEIR items — reference what they recently bought\n"
+            "2. Say: 'We sell those same types of items you recently purchased, and we're "
+            "typically 10-30% below contract rates'\n"
+            "3. Ask: 'Would it be possible to get added to your RFQ distribution list?'\n"
+            "4. Ask: 'What's the best email to send quotes to?'\n"
+            "5. Always give our contact: 'Our email is sales@reytechinc.com — "
+            "that's S-A-L-E-S at R-E-Y-T-E-C-H-I-N-C dot com'\n\n"
+            "IF THEY ASK HOW YOU FOUND THEM: 'We monitor the state procurement system — "
+            "your recent purchases are a match for items we specialize in.'\n\n"
+            "GOAL: Get on RFQ list + get purchasing contact email"
         ),
     },
     "intro_cold": {
@@ -150,14 +162,18 @@ SCRIPTS = {
         "category": "prospecting",
         "first_message": (
             "Hi, this is Mike calling from Reytech Inc. We're a certified Small Business "
-            "and DVBE reseller that works with California state agencies. I was hoping to "
-            "introduce our services — is someone in purchasing available?"
+            "and DVBE that supplies office, janitorial, medical, and facility items to "
+            "California state agencies. I'd love to get on your vendor list for quotes. "
+            "Is someone in purchasing available?"
         ),
         "context": (
-            "This is a cold call. You don't have a specific PO. Focus on introducing Reytech "
-            "and learning about their upcoming needs. Ask what categories they buy most — "
-            "office supplies, janitorial, medical equipment, IT. Try to get a contact name and email. "
-            "Offer to send a capabilities sheet."
+            "Cold call — no specific PO data. Focus on getting on the RFQ list.\n"
+            "- Say: 'We sell the types of items your facility orders regularly'\n"
+            "- Ask: 'What's the best way to get added to your RFQ distribution list?'\n"
+            "- Ask: 'What categories do you purchase most — office supplies, janitorial, medical?'\n"
+            "- Give email: 'You can reach us at sales@reytechinc.com'\n"
+            "- Mention SB/DVBE helps with their procurement mandates\n"
+            "- GOAL: Get on the RFQ list, get a name and email"
         ),
     },
     "gatekeeper": {
@@ -464,10 +480,30 @@ def _place_vapi_call(phone_number: str, script_key: str, variables: dict) -> dic
     script = SCRIPTS.get(script_key, SCRIPTS["lead_intro"])
 
     # Build first message with variables
+    # Pull top items from lead data for SCPRS-based calls
+    top_items = variables.get("top_items", "")
+    if not top_items and variables.get("po_number"):
+        try:
+            from src.agents.voice_knowledge import _load
+            leads = _load("leads.json")
+            if leads:
+                po = variables["po_number"].lower()
+                for l in (leads if isinstance(leads, list) else leads.values()):
+                    if isinstance(l, dict) and po in l.get("po_number", "").lower():
+                        items = l.get("matched_items", []) or l.get("items", [])
+                        if items:
+                            descs = [i.get("description", "")[:40] if isinstance(i, dict) else str(i)[:40] for i in items[:3]]
+                            top_items = ", ".join(d for d in descs if d)
+                        break
+        except Exception:
+            pass
+    if not top_items:
+        top_items = "office and facility supplies"
+
     first_msg = script["first_message"].format(**{
         k: variables.get(k, f"[{k}]")
-        for k in ["po_number", "institution", "quote_number"]
-    })
+        for k in ["po_number", "institution", "quote_number", "top_items"]
+    } | {"top_items": top_items})
 
     # Build context-aware system prompt
     system_prompt = REYTECH_SYSTEM_PROMPT + f"\n\n--- CALL CONTEXT ---\n{script['context']}"

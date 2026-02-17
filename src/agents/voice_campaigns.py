@@ -203,26 +203,37 @@ CAMPAIGN_SCRIPTS = {
         "name": "SCPRS PO Opportunity",
         "campaign_type": "lead_gen",
         "first_message": (
-            "Hi, this is Mike from Reytech Inc. I noticed a recent purchase order — "
-            "PO {po_number} — for {institution}, and we supply many of those same "
-            "items at competitive pricing. Could I speak with someone in purchasing "
-            "about future orders like this?"
+            "Hi, this is Mike from Reytech Inc. I'm calling because I saw that "
+            "{institution} recently purchased some items that we also carry — things like "
+            "{top_items}. We're a certified Small Business and DVBE, and we'd love the "
+            "opportunity to quote on your next order. Could I speak with someone in purchasing?"
         ),
         "context": (
-            "You found a PO on SCPRS and are cold-calling about it.\n"
-            "- Be specific about the PO but don't be creepy — it's public data\n"
-            "- Mention specific items if available from the lead data\n"
-            "- Emphasize SB/DVBE certification — helps their procurement goals\n"
-            "- Ask: 'For orders like this, how do vendors typically get on the quote list?'\n"
-            "- Ask: 'Who would be the right person to send a capabilities sheet to?'\n"
-            "- If they ask how you found the PO: 'It's publicly listed on the state procurement system'\n"
-            "- GOAL: Get on their vendor list for future similar orders"
+            "You found this institution's purchase order on the State Controller's SCPRS system. "
+            "This is public procurement data — if asked, say 'we monitor state purchasing data to "
+            "find agencies we can help.'\n\n"
+            "YOUR APPROACH:\n"
+            "1. Lead with what THEY buy — reference their specific items from the lead data\n"
+            "2. Say: 'We carry those same types of items and we're typically 10-30% below contract rates'\n"
+            "3. Ask: 'Would it be possible to get on your RFQ distribution list for items like these?'\n"
+            "4. Ask: 'What's the best email for someone to send quotes to?'\n"
+            "5. Offer: 'I can send a quick intro with our capabilities to sales@reytechinc.com — "
+            "or if you give me your email I'll send it directly'\n\n"
+            "KEY PHRASES TO USE:\n"
+            "- 'We supply those exact types of items to other CDCR/state facilities'\n"
+            "- 'We'd appreciate the chance to be on your RFQ list'\n"
+            "- 'Our email is sales@reytechinc.com — S-A-L-E-S at R-E-Y-T-E-C-H-I-N-C dot com'\n"
+            "- 'We're SB/DVBE certified, which helps with your procurement mandates'\n\n"
+            "IF THEY ASK HOW YOU FOUND THEM: 'We monitor the state procurement system — "
+            "your recent purchases show you buy items we specialize in, so I thought I'd reach out.'\n\n"
+            "GOAL: Get on their RFQ/vendor list and get the purchasing contact's email"
         ),
         "voicemail": (
-            "Hi, this is Mike from Reytech Inc., a certified SB/DVBE reseller. "
-            "I'm calling about a recent purchase order for {institution} — we supply "
-            "similar items at competitive pricing. Please reach me at 949-229-1575 or "
-            "sales@reytechinc.com. Thank you."
+            "Hi, this is Mike from Reytech Inc., a certified Small Business and DVBE. "
+            "I noticed {institution} recently purchased some items we also carry, and I'd "
+            "love to get on your RFQ list for future orders. Our contact info is "
+            "sales@reytechinc.com — that's S-A-L-E-S at R-E-Y-T-E-C-H-I-N-C dot com — "
+            "or call me at 949-229-1575. Thank you."
         ),
     },
 
@@ -231,11 +242,20 @@ CAMPAIGN_SCRIPTS = {
         "name": "Lead Introduction",
         "campaign_type": "lead_gen",
         "first_message": (
-            "Hi, this is Mike calling from Reytech Inc. I'm reaching out about "
-            "Purchase Order {po_number} for {institution}. We're a certified Small Business "
-            "reseller and I was wondering if I could speak with someone in purchasing?"
+            "Hi, this is Mike calling from Reytech Inc. I'm reaching out because "
+            "I saw that {institution} recently purchased some items that we also sell — "
+            "things like {top_items}. We're a certified Small Business and DVBE and "
+            "we'd really appreciate the opportunity to get on your RFQ list. "
+            "Is someone in purchasing available?"
         ),
-        "context": "You are calling about a specific Purchase Order. Your goal is to introduce Reytech and get on the vendor quote list.",
+        "context": (
+            "You found this institution on SCPRS. Lead with their specific items.\n"
+            "- Say: 'We sell those same items you recently purchased'\n"
+            "- Ask: 'Would it be possible to get added to your RFQ distribution list?'\n"
+            "- Give email: 'Our email is sales@reytechinc.com'\n"
+            "- Mention SB/DVBE certification\n"
+            "- GOAL: Get on the RFQ list, get their purchasing contact email"
+        ),
     },
     "follow_up": {
         "name": "Quote Follow-Up",
@@ -475,6 +495,14 @@ def execute_campaign_call(campaign_id: str, target_index: int = None) -> dict:
         "quote_date": target.get("quote_date", ""),
         "buyer_name": target.get("name", ""),
     }
+
+    # Pull top items from lead data for SCPRS-based scripts
+    items = target.get("matched_items", []) or target.get("items", [])
+    if items:
+        descs = [i.get("description", "")[:40] if isinstance(i, dict) else str(i)[:40] for i in items[:3]]
+        variables["top_items"] = ", ".join(d for d in descs if d)
+    if not variables.get("top_items"):
+        variables["top_items"] = target.get("category", "office and facility supplies")
 
     # Place the call
     try:
