@@ -2148,6 +2148,34 @@ h1 {{ font-size:22px; margin-bottom:4px; }}
 </div>
 
 <div class="section">
+ <h2>🧠 Sales Intelligence <span class="tag tag-ok">$2M Goal</span></h2>
+ <p style="color:#8b949e;font-size:12px;margin-bottom:8px">Deep SCPRS mining → buyer prioritization → SB admin outreach → revenue tracking.</p>
+ <div class="grid">
+  <button class="btn btn-go" onclick="apiGet('/api/intel/deep-pull')">
+   <span class="label">🔍 Deep Pull All Buyers</span><span class="desc">Mine SCPRS for every buyer across all categories</span>
+  </button>
+  <button class="btn" onclick="apiGet('/api/intel/pull-status')">
+   <span class="label">⏳ Pull Progress</span><span class="desc">Check deep pull status</span>
+  </button>
+  <button class="btn btn-go" onclick="apiGet('/api/intel/priority-queue')">
+   <span class="label">📊 Priority Queue</span><span class="desc">Ranked buyers by opportunity score</span>
+  </button>
+  <button class="btn" onclick="apiGet('/api/intel/push-prospects?top=50')">
+   <span class="label">📥 Push to Growth</span><span class="desc">Send top 50 → Growth outreach pipeline</span>
+  </button>
+  <button class="btn" onclick="apiGet('/api/intel/sb-admin-match')">
+   <span class="label">🏛️ Match SB Admins</span><span class="desc">Find SB liaisons for agencies</span>
+  </button>
+  <button class="btn" onclick="apiGet('/api/intel/revenue')">
+   <span class="label">💰 Revenue Tracker</span><span class="desc">YTD vs $2M goal</span>
+  </button>
+  <button class="btn" onclick="apiGet('/api/intel/status')">
+   <span class="label">📊 Full Status</span><span class="desc">Buyers, agencies, revenue, pull status</span>
+  </button>
+ </div>
+</div>
+
+<div class="section">
  <h2>📧 Email Outreach</h2>
  <div class="grid">
   <button class="btn btn-go" onclick="apiGet('/api/outbox')">

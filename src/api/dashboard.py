@@ -583,6 +583,7 @@ def render(content, **kw):
   <a href="/campaigns" class="hdr-btn">📞 Campaigns</a>
   <a href="/pipeline" class="hdr-btn">🔄 Pipeline</a>
   <a href="/growth" class="hdr-btn">🚀 Growth</a>
+  <a href="/intelligence" class="hdr-btn">🧠 Intel</a>
   <a href="/agents" class="hdr-btn">🤖 Agents</a>
   <span style="width:1px;height:24px;background:var(--bd);margin:0 6px"></span>
   <button class="hdr-btn" onclick="pollNow(this)" id="poll-btn">⚡ Check Now</button>
@@ -4347,6 +4348,18 @@ except ImportError:
     GROWTH_AVAILABLE = False
 
 try:
+    from src.agents.sales_intel import (
+        deep_pull_all_buyers, get_priority_queue, push_to_growth_prospects,
+        get_intel_status, update_revenue_tracker, add_manual_revenue,
+        get_sb_admin, find_sb_admin_for_agencies,
+        DEEP_PULL_STATUS, REVENUE_GOAL,
+        BUYERS_FILE as INTEL_BUYERS_FILE, AGENCIES_FILE as INTEL_AGENCIES_FILE,
+    )
+    INTEL_AVAILABLE = True
+except ImportError:
+    INTEL_AVAILABLE = False
+
+try:
     from src.agents.voice_agent import (
         place_call, get_call_log, get_agent_status as voice_agent_status,
         is_configured as voice_configured, SCRIPTS as VOICE_SCRIPTS,
@@ -5852,6 +5865,323 @@ def api_growth_campaigns():
     if not GROWTH_AVAILABLE:
         return jsonify({"ok": False, "error": "Growth agent not available"})
     return jsonify(get_campaign_dashboard())
+
+
+# ─── Sales Intelligence Routes ─────────────────────────────────────────────
+
+@bp.route("/api/intel/status")
+@auth_required
+def api_intel_status():
+    """Full intelligence status — buyers, agencies, revenue tracker."""
+    if not INTEL_AVAILABLE:
+        return jsonify({"ok": False, "error": "Sales intel not available"})
+    return jsonify(get_intel_status())
+
+
+@bp.route("/api/intel/deep-pull")
+@auth_required
+def api_intel_deep_pull():
+    """Deep pull ALL buyers from SCPRS across all product categories. Long-running."""
+    if not INTEL_AVAILABLE:
+        return jsonify({"ok": False, "error": "Sales intel not available"})
+    from_date = request.args.get("from", "01/01/2023")
+    max_q = request.args.get("max_queries")
+    max_q = int(max_q) if max_q else None
+
+    import threading
+    def _run():
+        deep_pull_all_buyers(from_date=from_date, max_queries=max_q)
+    t = threading.Thread(target=_run, daemon=True, name="intel-deep-pull")
+    t.start()
+    return jsonify({"ok": True, "message": f"Deep pull started ({from_date}→now). Check /api/intel/pull-status."})
+
+
+@bp.route("/api/intel/pull-status")
+@auth_required
+def api_intel_pull_status():
+    """Check deep pull progress."""
+    if not INTEL_AVAILABLE:
+        return jsonify({"ok": False, "error": "Sales intel not available"})
+    return jsonify({"ok": True, **DEEP_PULL_STATUS})
+
+
+@bp.route("/api/intel/priority-queue")
+@auth_required
+def api_intel_priority_queue():
+    """Get prioritized outreach queue — highest opportunity buyers first."""
+    if not INTEL_AVAILABLE:
+        return jsonify({"ok": False, "error": "Sales intel not available"})
+    limit = int(request.args.get("limit", 25))
+    return jsonify(get_priority_queue(limit=limit))
+
+
+@bp.route("/api/intel/push-prospects")
+@auth_required
+def api_intel_push_prospects():
+    """Push top priority buyers into Growth Agent prospect pipeline."""
+    if not INTEL_AVAILABLE:
+        return jsonify({"ok": False, "error": "Sales intel not available"})
+    top_n = int(request.args.get("top", 50))
+    return jsonify(push_to_growth_prospects(top_n=top_n))
+
+
+@bp.route("/api/intel/revenue")
+@auth_required
+def api_intel_revenue():
+    """Revenue tracker — YTD vs $2M goal."""
+    if not INTEL_AVAILABLE:
+        return jsonify({"ok": False, "error": "Sales intel not available"})
+    return jsonify(update_revenue_tracker())
+
+
+@bp.route("/api/intel/revenue", methods=["POST"])
+@auth_required
+def api_intel_add_revenue():
+    """Add manual revenue entry. POST JSON: {amount, description, date}"""
+    if not INTEL_AVAILABLE:
+        return jsonify({"ok": False, "error": "Sales intel not available"})
+    data = request.get_json(silent=True) or {}
+    amount = data.get("amount", 0)
+    desc = data.get("description", "")
+    if not amount or not desc:
+        return jsonify({"ok": False, "error": "amount and description required"})
+    return jsonify(add_manual_revenue(float(amount), desc, data.get("date", "")))
+
+
+@bp.route("/api/intel/sb-admin/<agency>")
+@auth_required
+def api_intel_sb_admin(agency):
+    """Find the SB admin/liaison for an agency."""
+    if not INTEL_AVAILABLE:
+        return jsonify({"ok": False, "error": "Sales intel not available"})
+    return jsonify(get_sb_admin(agency))
+
+
+@bp.route("/api/intel/sb-admin-match")
+@auth_required
+def api_intel_sb_admin_match():
+    """Match SB admin contacts to all agencies in the database."""
+    if not INTEL_AVAILABLE:
+        return jsonify({"ok": False, "error": "Sales intel not available"})
+    return jsonify(find_sb_admin_for_agencies())
+
+
+# ─── Intelligence Dashboard Page ──────────────────────────────────────────
+
+@bp.route("/intelligence")
+@auth_required
+def intelligence_page():
+    """Sales Intelligence Dashboard — $2M revenue command center."""
+    if not INTEL_AVAILABLE:
+        flash("Sales Intelligence not available", "error")
+        return redirect("/")
+
+    from src.agents.sales_intel import _load_json as il, BUYERS_FILE as BF, AGENCIES_FILE as AF
+
+    st = get_intel_status()
+    rev = st.get("revenue", {})
+    top_opps = st.get("top_opportunity_agencies", [])
+    pull = st.get("pull_status", {})
+
+    # Revenue bar
+    pct = min(100, rev.get("pct_to_goal", 0))
+    closed = rev.get("closed_revenue", 0)
+    gap = rev.get("gap_to_goal", 0)
+    pipeline = rev.get("pipeline_value", 0)
+    monthly = rev.get("monthly_needed", 0)
+    on_track = rev.get("on_track", False)
+    run_rate = rev.get("run_rate_annual", 0)
+    bar_color = "#3fb950" if pct >= 50 else "#d29922" if pct >= 25 else "#f85149"
+
+    # Load buyer + agency data
+    buyers_data = il(BF)
+    agencies_data = il(AF)
+    buyers = buyers_data.get("buyers", [])[:100] if isinstance(buyers_data, dict) else []
+    agencies = agencies_data.get("agencies", [])[:50] if isinstance(agencies_data, dict) else []
+    total_buyers = buyers_data.get("total_buyers", 0) if isinstance(buyers_data, dict) else 0
+    total_agencies = agencies_data.get("total_agencies", 0) if isinstance(agencies_data, dict) else 0
+
+    # Opportunity agencies (not our customer, sorted by score)
+    opp_rows = ""
+    for ag in agencies:
+        if ag.get("is_customer"):
+            continue
+        cats = ", ".join(list(ag.get("categories", {}).keys())[:3])
+        sb = ag.get("sb_admin")
+        sb_cell = f'<span style="color:#3fb950">{sb.get("email","") or sb.get("name","")}</span>' if sb else '<span style="color:var(--tx2)">—</span>'
+        buyer_count = len(ag.get("buyers", {}))
+        opp_rows += f"""<tr>
+         <td style="font-weight:600">{ag.get('dept_code','—')}</td>
+         <td class="mono" style="color:#3fb950">${ag.get('total_spend',0):,.0f}</td>
+         <td class="mono">{ag.get('opportunity_score',0)}</td>
+         <td class="mono">{buyer_count}</td>
+         <td style="font-size:11px">{cats}</td>
+         <td style="font-size:11px">{sb_cell}</td>
+        </tr>"""
+        if len(opp_rows) > 20000:
+            break
+
+    # Top buyers (not our customers)
+    buyer_rows = ""
+    for b in buyers:
+        if b.get("is_reytech_customer"):
+            continue
+        cats = ", ".join(list(b.get("categories", {}).keys())[:2])
+        items = ", ".join([i.get("description","")[:40] for i in b.get("items_purchased",[])[:2]])
+        buyer_rows += f"""<tr>
+         <td style="font-weight:500">{b.get('agency','—')}</td>
+         <td>{b.get('name','—')}</td>
+         <td style="font-size:12px">{b.get('email','—')}</td>
+         <td class="mono" style="color:#3fb950">${b.get('total_spend',0):,.0f}</td>
+         <td class="mono">{b.get('opportunity_score',0)}</td>
+         <td style="font-size:11px">{cats}</td>
+         <td style="font-size:10px;color:var(--tx2)">{items[:60]}</td>
+        </tr>"""
+        if len(buyer_rows) > 25000:
+            break
+
+    # Existing customer spend (agencies we do sell to)
+    customer_rows = ""
+    for ag in agencies:
+        if not ag.get("is_customer"):
+            continue
+        upsell = ag.get("total_spend", 0) - ag.get("reytech_spend", 0)
+        customer_rows += f"""<tr>
+         <td style="font-weight:600">{ag.get('dept_code','—')}</td>
+         <td class="mono" style="color:#3fb950">${ag.get('reytech_spend',0):,.0f}</td>
+         <td class="mono">${ag.get('total_spend',0):,.0f}</td>
+         <td class="mono" style="color:#d29922">${upsell:,.0f}</td>
+         <td style="font-size:11px">{', '.join(list(ag.get('categories',{}).keys())[:3])}</td>
+        </tr>"""
+
+    pull_running = pull.get("running", False)
+
+    return f"""{_header('Sales Intelligence')}
+    <style>
+     .card {{background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px;margin-bottom:16px}}
+     .card h3 {{font-size:15px;margin-bottom:12px;display:flex;align-items:center;gap:8px}}
+     .g-btn {{padding:8px 16px;border-radius:8px;border:1px solid var(--bd);background:var(--sf2);color:var(--tx);cursor:pointer;font-size:13px;font-weight:600;transition:all .15s}}
+     .g-btn:hover {{background:var(--ac);color:#000;border-color:var(--ac)}}
+     .g-btn-go {{background:rgba(52,211,153,.12);color:#3fb950;border-color:rgba(52,211,153,.3)}}
+     table {{width:100%;border-collapse:collapse;font-size:12px}}
+     th {{text-align:left;padding:6px 8px;border-bottom:2px solid var(--bd);font-size:11px;color:var(--tx2);text-transform:uppercase}}
+     td {{padding:6px 8px;border-bottom:1px solid var(--bd)}}
+     .mono {{font-family:'JetBrains Mono',monospace}}
+    </style>
+
+    <h1>🧠 Sales Intelligence</h1>
+    <div style="color:var(--tx2);font-size:13px;margin-bottom:16px">
+     SCPRS-mined buyer data → prioritized outreach → $2M revenue target
+    </div>
+
+    <!-- Revenue Goal -->
+    <div class="card">
+     <h3>🎯 $2M Revenue Target</h3>
+     <div style="background:var(--sf2);border-radius:12px;height:32px;overflow:hidden;margin-bottom:10px;position:relative">
+      <div style="background:{bar_color};height:100%;width:{pct}%;border-radius:12px;transition:width .5s"></div>
+      <span style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:13px;font-weight:700">{pct}%</span>
+     </div>
+     <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;text-align:center">
+      <div><div style="font-size:9px;color:var(--tx2);text-transform:uppercase">Closed</div><div style="font-size:20px;font-weight:700;color:#3fb950">${closed:,.0f}</div></div>
+      <div><div style="font-size:9px;color:var(--tx2);text-transform:uppercase">Pipeline</div><div style="font-size:20px;font-weight:700;color:#58a6ff">${pipeline:,.0f}</div></div>
+      <div><div style="font-size:9px;color:var(--tx2);text-transform:uppercase">Gap to $2M</div><div style="font-size:20px;font-weight:700;color:#f85149">${gap:,.0f}</div></div>
+      <div><div style="font-size:9px;color:var(--tx2);text-transform:uppercase">Monthly Needed</div><div style="font-size:20px;font-weight:700;color:#d29922">${monthly:,.0f}</div></div>
+      <div><div style="font-size:9px;color:var(--tx2);text-transform:uppercase">Run Rate</div><div style="font-size:20px;font-weight:700;color:{'#3fb950' if on_track else '#f85149'}">${run_rate:,.0f}</div></div>
+     </div>
+     <div style="margin-top:10px;display:flex;gap:8px">
+      <button class="g-btn" onclick="addRevenue()">💰 Log Revenue</button>
+      <button class="g-btn" onclick="runIntel('/api/intel/revenue')">🔄 Refresh</button>
+     </div>
+    </div>
+
+    <!-- Actions -->
+    <div class="card">
+     <h3>⚡ Intelligence Actions</h3>
+     <div id="progress-bar" style="display:{'block' if pull_running else 'none'};background:var(--sf2);padding:10px;border-radius:8px;margin-bottom:10px;font-size:12px">
+      <span id="progress-text">{pull.get('progress','') if pull_running else ''}</span>
+     </div>
+     <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="g-btn g-btn-go" onclick="runIntel('/api/intel/deep-pull')">🔍 Deep Pull All Buyers</button>
+      <button class="g-btn" onclick="runIntel('/api/intel/pull-status')">⏳ Pull Progress</button>
+      <button class="g-btn g-btn-go" onclick="runIntel('/api/intel/priority-queue')">📊 Priority Queue</button>
+      <button class="g-btn" onclick="runIntel('/api/intel/push-prospects?top=50')">📥 Push Top 50 → Growth Pipeline</button>
+      <button class="g-btn" onclick="runIntel('/api/intel/sb-admin-match')">🏛️ Match SB Admins</button>
+     </div>
+    </div>
+
+    <!-- Stats -->
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
+     <div class="card" style="text-align:center">
+      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase">Total Buyers</div>
+      <div style="font-size:28px;font-weight:700;color:var(--ac)">{total_buyers}</div>
+     </div>
+     <div class="card" style="text-align:center">
+      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase">Agencies</div>
+      <div style="font-size:28px;font-weight:700;color:#bc8cff">{total_agencies}</div>
+     </div>
+     <div class="card" style="text-align:center">
+      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase">Not Our Customer</div>
+      <div style="font-size:28px;font-weight:700;color:#d29922">{sum(1 for a in agencies if not a.get('is_customer'))}</div>
+     </div>
+     <div class="card" style="text-align:center">
+      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase">Addressable Spend</div>
+      <div style="font-size:28px;font-weight:700;color:#3fb950">${sum(a.get('total_spend',0) for a in agencies if not a.get('is_customer')):,.0f}</div>
+     </div>
+    </div>
+
+    <!-- Opportunity Agencies (NOT our customers) -->
+    {'<div class="card"><h3>🎯 Top Opportunity Agencies <span style="font-size:11px;color:var(--tx2);font-weight:400">(agencies we do NOT sell to yet)</span></h3><div style="max-height:400px;overflow:auto"><table><thead><tr><th>Agency</th><th>Total Spend</th><th>Score</th><th>Buyers</th><th>Categories</th><th>SB Admin</th></tr></thead><tbody>' + opp_rows + '</tbody></table></div></div>' if opp_rows else '<div class="card"><h3>🎯 Opportunity Agencies</h3><div style="color:var(--tx2);font-size:12px">Run Deep Pull to discover agencies</div></div>'}
+
+    <!-- Current Customers (upsell opportunity) -->
+    {'<div class="card"><h3>🏆 Current Customers <span style="font-size:11px;color:var(--tx2);font-weight:400">(upsell gap = their total spend - our share)</span></h3><table><thead><tr><th>Agency</th><th>Our Revenue</th><th>Their Total</th><th>Upsell Gap</th><th>Categories</th></tr></thead><tbody>' + customer_rows + '</tbody></table></div>' if customer_rows else ''}
+
+    <!-- Top Priority Buyers -->
+    {'<div class="card"><h3>🔥 Top Priority Buyers <span style="font-size:11px;color:var(--tx2);font-weight:400">(highest score, not our customers)</span></h3><div style="max-height:500px;overflow:auto"><table><thead><tr><th>Agency</th><th>Buyer</th><th>Email</th><th>Spend</th><th>Score</th><th>Categories</th><th>Items</th></tr></thead><tbody>' + buyer_rows + '</tbody></table></div></div>' if buyer_rows else '<div class="card"><h3>🔥 Priority Buyers</h3><div style="color:var(--tx2);font-size:12px">Run Deep Pull to discover buyers</div></div>'}
+
+    <div id="result" style="display:none;background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px;margin-top:12px;max-height:400px;overflow:auto">
+     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <span style="font-weight:600;font-size:13px">Result</span>
+      <button onclick="document.getElementById('result').style.display='none'" style="background:none;border:none;color:var(--tx2);cursor:pointer">✕</button>
+     </div>
+     <pre id="result-content" style="font-size:11px;white-space:pre-wrap;word-break:break-word;margin:0"></pre>
+    </div>
+
+    <script>
+    function runIntel(url) {{
+      fetch(url, {{credentials:'same-origin'}}).then(r=>r.json()).then(data => {{
+        document.getElementById('result').style.display = 'block';
+        document.getElementById('result-content').textContent = JSON.stringify(data, null, 2);
+        if (data.message && data.message.includes('Check')) pollPull();
+      }}).catch(e => {{
+        document.getElementById('result').style.display = 'block';
+        document.getElementById('result-content').textContent = 'Error: ' + e;
+      }});
+    }}
+    function addRevenue() {{
+      const amt = prompt('Revenue amount ($):');
+      if(!amt) return;
+      const desc = prompt('Description (e.g. "PO#12345 - CDCR gloves"):');
+      if(!desc) return;
+      fetch('/api/intel/revenue', {{method:'POST', credentials:'same-origin', headers:{{'Content-Type':'application/json'}}, body:JSON.stringify({{amount:parseFloat(amt), description:desc}})}}).then(r=>r.json()).then(d => {{
+        if(d.ok) location.reload(); else alert(d.error);
+      }});
+    }}
+    let pullTimer = null;
+    function pollPull() {{
+      const bar = document.getElementById('progress-bar');
+      const txt = document.getElementById('progress-text');
+      bar.style.display = 'block';
+      if(pullTimer) clearInterval(pullTimer);
+      pullTimer = setInterval(() => {{
+        fetch('/api/intel/pull-status',{{credentials:'same-origin'}}).then(r=>r.json()).then(d => {{
+          txt.textContent = d.progress || 'Working...';
+          if(!d.running) {{ clearInterval(pullTimer); setTimeout(()=>location.reload(), 2000); }}
+        }});
+      }}, 3000);
+    }}
+    {('pollPull();' if pull_running else '')}
+    </script>
+    </body></html>"""
 
 
 # ─── Voice Agent Routes ─────────────────────────────────────────────────────
