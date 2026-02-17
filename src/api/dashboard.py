@@ -359,9 +359,14 @@ def render(content, **kw):
 {{% endwith %}}
 """ + content + """
 <script>
+function _updatePollTime(ts){
+ var el=document.getElementById('poll-time');
+ if(el&&ts){el.dataset.utc=ts;try{var d=new Date(ts);if(!isNaN(d)){el.textContent=d.toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true})}}catch(e){el.textContent=ts}}
+}
 function pollNow(btn){
  btn.disabled=true;btn.textContent='Checking...';
- fetch('/api/poll-now').then(r=>r.json()).then(d=>{
+ fetch('/api/poll-now',{credentials:'same-origin'}).then(r=>r.json()).then(d=>{
+  _updatePollTime(d.last_check);
   if(d.found>0){btn.textContent=d.found+' found!';setTimeout(()=>location.reload(),800)}
   else{btn.textContent='No new emails';setTimeout(()=>{btn.textContent='⚡ Check Now';btn.disabled=false},2000)}
  }).catch(()=>{btn.textContent='Error';setTimeout(()=>{btn.textContent='⚡ Check Now';btn.disabled=false},2000)});
@@ -369,7 +374,8 @@ function pollNow(btn){
 function resyncAll(btn){
  if(!confirm('Clear all RFQs and re-import from email?'))return;
  btn.disabled=true;btn.textContent='🔄 Syncing...';
- fetch('/api/resync').then(r=>r.json()).then(d=>{
+ fetch('/api/resync',{credentials:'same-origin'}).then(r=>r.json()).then(d=>{
+  _updatePollTime(d.last_check);
   if(d.found>0){btn.textContent=d.found+' imported!';setTimeout(()=>location.reload(),800)}
   else{btn.textContent='0 found';setTimeout(()=>{btn.textContent='🔄 Resync';btn.disabled=false},2000)}
  }).catch(()=>{btn.textContent='Error';setTimeout(()=>{btn.textContent='🔄 Resync';btn.disabled=false},2000)});
@@ -1325,6 +1331,7 @@ def api_resync():
         "cleared": True,
         "found": len(imported),
         "rfqs": [{"id": r["id"], "sol": r.get("solicitation_number", "?")} for r in imported],
+        "last_check": POLL_STATUS.get("last_check"),
     })
 
 
