@@ -366,18 +366,17 @@ def find_category_buyers(max_categories=10, from_date="01/01/2024"):
 
 EMAIL_TEMPLATE = """Hi{name_greeting},
 
-This is Mike from Reytech Inc. We noticed that {agency} recently purchased {items_mention} (around {purchase_date}), and we wanted to reach out because we carry those same items and currently have more competitive pricing available.
+This is Mike from Reytech Inc. We noticed that {agency} recently purchased {items_mention} ({purchase_date}). We carry those same types of items and often have more competitive pricing available — typically 10-30% below current contract rates.
 
-We're a certified Small Business (SB) and Disabled Veteran Business Enterprise (DVBE), and we've been serving California state agencies for several years. We'd love the opportunity to get on your RFQ distribution list so we can quote on your next order.
+We're a certified Small Business (SB) and Disabled Veteran Business Enterprise (DVBE), which helps meet your procurement mandates. We've been serving California state agencies for several years and would love the opportunity to get on your RFQ distribution list.
 
-Please consider us — we look forward to working with you.
+Please consider us for your next order — you can reach us anytime at sales@reytechinc.com or 949-229-1575. We look forward to working with you.
 
 Best regards,
 Mike
 Reytech Inc.
 sales@reytechinc.com
-949-229-1575
-reytechinc.com"""
+949-229-1575"""
 
 
 def launch_outreach(max_prospects=50, dry_run=True):
@@ -413,7 +412,7 @@ def launch_outreach(max_prospects=50, dry_run=True):
         cats = p.get("categories_matched", [])
 
         body = EMAIL_TEMPLATE.format(name_greeting=name_greeting, agency=agency, items_mention=items_mention, purchase_date=purchase_date)
-        subject = f"Reytech Inc. — Competitive Pricing on {', '.join(cats[:2]) if cats else 'Supply Items'}"
+        subject = f"Reytech Inc. — Competitive Pricing on {', '.join(cats[:2])}" if cats else "Reytech Inc. — CA State Vendor Introduction"
 
         entry = {
             "prospect_id": p["id"], "email": p["buyer_email"], "name": name,
@@ -426,13 +425,20 @@ def launch_outreach(max_prospects=50, dry_run=True):
 
         if not dry_run and p.get("buyer_email"):
             try:
-                from src.agents.email_poller import send_email
-                send_email(to=p["buyer_email"], subject=subject, body=body)
-                entry["email_sent"] = True
-                entry["email_sent_at"] = datetime.now().isoformat()
-                sent += 1
-                log.info(f"Growth email → {p['buyer_email']} ({agency})")
-                time.sleep(1)
+                from src.agents.email_poller import EmailSender
+                config = {"email": os.environ.get("GMAIL_ADDRESS", ""), "email_password": os.environ.get("GMAIL_PASSWORD", "")}
+                if config["email"] and config["email_password"]:
+                    sender = EmailSender(config)
+                    sender.send({"to": p["buyer_email"], "subject": subject, "body": body, "attachments": []})
+                    entry["email_sent"] = True
+                    entry["email_sent_at"] = datetime.now().isoformat()
+                    _update_prospect_status(p["id"], "emailed")
+                    _add_event(p["id"], "email_sent", f"Sent: {subject}")
+                    sent += 1
+                    log.info(f"Growth email → {p['buyer_email']} ({agency})")
+                    time.sleep(1)
+                else:
+                    entry["error"] = "Gmail not configured"
             except Exception as e:
                 entry["error"] = str(e)
 
@@ -555,3 +561,392 @@ def full_report():
 
 def lead_funnel():
     return get_growth_status()
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# PROSPECT CRM — Contact Management + Timeline
+# ═══════════════════════════════════════════════════════════════════════
+
+TIMELINE_FILE = os.path.join(DATA_DIR, "growth_timeline.json")
+
+# Status flow: new → emailed → follow_up_due → called → responded | bounced | dead
+VALID_STATUSES = ["new", "emailed", "follow_up_due", "called", "responded", "bounced", "dead", "won"]
+
+def _load_timeline() -> dict:
+    """Load timeline events keyed by prospect_id."""
+    data = _load_json(TIMELINE_FILE)
+    return data if isinstance(data, dict) else {}
+
+def _save_timeline(data: dict):
+    _save_json(TIMELINE_FILE, data)
+
+def _add_event(prospect_id: str, event_type: str, detail: str = "", metadata: dict = None):
+    """Add a timeline event for a prospect."""
+    timeline = _load_timeline()
+    events = timeline.setdefault(prospect_id, [])
+    events.append({
+        "type": event_type,
+        "detail": detail,
+        "timestamp": datetime.now().isoformat(),
+        "metadata": metadata or {},
+    })
+    _save_timeline(timeline)
+
+
+def _update_prospect_status(prospect_id: str, new_status: str):
+    """Update a prospect's outreach_status in the prospects file."""
+    data = _load_json(PROSPECTS_FILE)
+    if not isinstance(data, dict):
+        return
+    for p in data.get("prospects", []):
+        if p.get("id") == prospect_id:
+            old = p.get("outreach_status", "new")
+            p["outreach_status"] = new_status
+            p["status_updated_at"] = datetime.now().isoformat()
+            _save_json(PROSPECTS_FILE, data)
+            _add_event(prospect_id, "status_change", f"{old} → {new_status}")
+            return
+    log.warning(f"Prospect {prospect_id} not found for status update")
+
+
+def get_prospect(prospect_id: str) -> dict:
+    """Get a single prospect with full timeline."""
+    data = _load_json(PROSPECTS_FILE)
+    if not isinstance(data, dict):
+        return {"ok": False, "error": "No prospects data"}
+    for p in data.get("prospects", []):
+        if p.get("id") == prospect_id:
+            timeline = _load_timeline().get(prospect_id, [])
+            # Also pull outreach records
+            outreach = _load_json(OUTREACH_FILE)
+            outreach_records = []
+            if isinstance(outreach, dict):
+                for c in outreach.get("campaigns", []):
+                    for o in c.get("outreach", []):
+                        if o.get("prospect_id") == prospect_id:
+                            outreach_records.append(o)
+            return {
+                "ok": True, "prospect": p,
+                "timeline": sorted(timeline, key=lambda e: e.get("timestamp", ""), reverse=True),
+                "outreach_records": outreach_records,
+            }
+    return {"ok": False, "error": "Prospect not found"}
+
+
+def update_prospect(prospect_id: str, updates: dict) -> dict:
+    """Update prospect fields (name, phone, email, status, notes)."""
+    data = _load_json(PROSPECTS_FILE)
+    if not isinstance(data, dict):
+        return {"ok": False, "error": "No prospects data"}
+    for p in data.get("prospects", []):
+        if p.get("id") == prospect_id:
+            changed = []
+            for key in ["buyer_name", "buyer_phone", "buyer_email", "outreach_status", "notes"]:
+                if key in updates and updates[key] != p.get(key):
+                    old_val = p.get(key, "")
+                    p[key] = updates[key]
+                    changed.append(f"{key}: {old_val} → {updates[key]}")
+            if changed:
+                p["updated_at"] = datetime.now().isoformat()
+                _save_json(PROSPECTS_FILE, data)
+                _add_event(prospect_id, "updated", "; ".join(changed))
+            return {"ok": True, "changed": changed}
+    return {"ok": False, "error": "Prospect not found"}
+
+
+def add_prospect_note(prospect_id: str, note: str) -> dict:
+    """Add a manual note to a prospect's timeline."""
+    if not note.strip():
+        return {"ok": False, "error": "Note cannot be empty"}
+    _add_event(prospect_id, "note", note)
+    return {"ok": True}
+
+
+def mark_responded(prospect_id: str, response_type: str = "email_reply", detail: str = "") -> dict:
+    """Mark a prospect as having responded."""
+    _update_prospect_status(prospect_id, "responded")
+    _add_event(prospect_id, "response_received", detail or response_type, {"response_type": response_type})
+    # Update outreach records
+    outreach = _load_json(OUTREACH_FILE)
+    if isinstance(outreach, dict):
+        for c in outreach.get("campaigns", []):
+            for o in c.get("outreach", []):
+                if o.get("prospect_id") == prospect_id:
+                    o["response_received"] = True
+                    o["response_at"] = datetime.now().isoformat()
+                    o["response_type"] = response_type
+        _save_json(OUTREACH_FILE, outreach)
+    return {"ok": True}
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# BOUNCEBACK HANDLING
+# ═══════════════════════════════════════════════════════════════════════
+
+BOUNCE_KEYWORDS = [
+    "delivery status notification", "undeliverable", "mail delivery failed",
+    "returned mail", "delivery failure", "address rejected",
+    "mailbox not found", "user unknown", "no such user",
+    "mailbox unavailable", "permanent failure", "550 ",
+    "message not delivered", "delivery has failed",
+]
+
+def detect_bounceback(subject: str, body: str, sender: str = "") -> dict:
+    """Check if an email is a bounceback notification."""
+    text = f"{subject} {body}".lower()
+    sender_lower = sender.lower()
+
+    # Check sender patterns
+    is_bounce_sender = any(s in sender_lower for s in [
+        "mailer-daemon", "postmaster", "mail-daemon", "noreply",
+        "no-reply", "bounce", "delivery",
+    ])
+
+    # Check content
+    bounce_signals = sum(1 for kw in BOUNCE_KEYWORDS if kw in text)
+
+    if bounce_signals >= 2 or (is_bounce_sender and bounce_signals >= 1):
+        # Try to extract the original recipient
+        recipient = ""
+        # Common patterns: "The email to <user@example.com> failed"
+        import re
+        email_match = re.search(r'[\w.+-]+@[\w-]+\.[\w.-]+', body)
+        if email_match:
+            recipient = email_match.group(0)
+
+        return {
+            "is_bounce": True,
+            "confidence": min(1.0, bounce_signals * 0.3 + (0.4 if is_bounce_sender else 0)),
+            "recipient": recipient,
+            "signals": bounce_signals,
+        }
+
+    return {"is_bounce": False, "confidence": 0}
+
+
+def process_bounceback(email_address: str, reason: str = "") -> dict:
+    """Mark a prospect as bounced and exclude from future outreach."""
+    data = _load_json(PROSPECTS_FILE)
+    if not isinstance(data, dict):
+        return {"ok": False, "error": "No prospects data"}
+
+    found = None
+    for p in data.get("prospects", []):
+        if p.get("buyer_email", "").lower() == email_address.lower():
+            found = p
+            break
+
+    if not found:
+        return {"ok": False, "error": f"No prospect with email {email_address}"}
+
+    found["outreach_status"] = "bounced"
+    found["bounced_at"] = datetime.now().isoformat()
+    found["bounce_reason"] = reason
+    _save_json(PROSPECTS_FILE, data)
+
+    _add_event(found["id"], "email_bounced", reason or f"Bounce: {email_address}")
+
+    # Mark in outreach campaigns too
+    outreach = _load_json(OUTREACH_FILE)
+    if isinstance(outreach, dict):
+        for c in outreach.get("campaigns", []):
+            for o in c.get("outreach", []):
+                if o.get("email", "").lower() == email_address.lower():
+                    o["bounced"] = True
+                    o["bounce_reason"] = reason
+        _save_json(OUTREACH_FILE, outreach)
+
+    log.info(f"Bounce processed: {email_address} ({reason})")
+    return {"ok": True, "prospect_id": found["id"], "agency": found.get("agency")}
+
+
+def scan_inbox_for_bounces() -> dict:
+    """Check inbox for bounceback emails and process them."""
+    try:
+        from src.agents.email_poller import EmailSender
+        config = {
+            "email": os.environ.get("GMAIL_ADDRESS", ""),
+            "email_password": os.environ.get("GMAIL_PASSWORD", ""),
+        }
+        if not config["email"] or not config["email_password"]:
+            return {"ok": False, "error": "Gmail not configured"}
+        sender = EmailSender(config)
+    except ImportError:
+        return {"ok": False, "error": "EmailSender not available"}
+
+    bounces_found = 0
+    try:
+        # Check recent emails for bouncebacks
+        import imaplib, email as email_lib
+        imap = imaplib.IMAP4_SSL("imap.gmail.com")
+        imap.login(config["email"], config["email_password"])
+        imap.select("INBOX")
+
+        # Search last 7 days
+        from_date = (datetime.now() - timedelta(days=7)).strftime("%d-%b-%Y")
+        _, msg_ids = imap.search(None, f'(SINCE "{from_date}" FROM "mailer-daemon")')
+
+        # Also check for delivery failure subjects
+        _, msg_ids2 = imap.search(None, f'(SINCE "{from_date}" SUBJECT "delivery")')
+
+        all_ids = set()
+        for ids in [msg_ids[0], msg_ids2[0]]:
+            if ids:
+                all_ids.update(ids.split())
+
+        for msg_id in list(all_ids)[:50]:
+            _, data = imap.fetch(msg_id, "(RFC822)")
+            msg = email_lib.message_from_bytes(data[0][1])
+            subject = str(msg.get("Subject", ""))
+            sender_addr = str(msg.get("From", ""))
+            body = ""
+            if msg.is_multipart():
+                for part in msg.walk():
+                    if part.get_content_type() == "text/plain":
+                        try:
+                            body = part.get_payload(decode=True).decode("utf-8", errors="replace")
+                        except Exception:
+                            pass
+                        break
+            else:
+                try:
+                    body = msg.get_payload(decode=True).decode("utf-8", errors="replace")
+                except Exception:
+                    pass
+
+            bounce = detect_bounceback(subject, body, sender_addr)
+            if bounce.get("is_bounce") and bounce.get("recipient"):
+                result = process_bounceback(bounce["recipient"], f"Auto-detected: {subject[:60]}")
+                if result.get("ok"):
+                    bounces_found += 1
+
+        imap.logout()
+
+    except Exception as e:
+        log.warning(f"Bounce scan error: {e}")
+        return {"ok": False, "error": str(e), "bounces_found": bounces_found}
+
+    return {"ok": True, "bounces_found": bounces_found}
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# AUTO-SCHEDULER — Background Follow-Up Engine
+# ═══════════════════════════════════════════════════════════════════════
+
+_scheduler_thread = None
+_scheduler_stop = threading.Event()
+SCHEDULER_INTERVAL = 3600  # Check every hour
+
+def _scheduler_loop():
+    """Background loop: check bounces + initiate voice follow-ups."""
+    log.info("Growth scheduler started (every %ds)", SCHEDULER_INTERVAL)
+    while not _scheduler_stop.is_set():
+        try:
+            # 1. Scan for bouncebacks
+            bounce_result = scan_inbox_for_bounces()
+            if bounce_result.get("bounces_found", 0) > 0:
+                log.info(f"Scheduler: {bounce_result['bounces_found']} bounces processed")
+
+            # 2. Update statuses for follow-up-due prospects
+            outreach = _load_json(OUTREACH_FILE)
+            now = datetime.now()
+            due_count = 0
+            if isinstance(outreach, dict):
+                for c in outreach.get("campaigns", []):
+                    if c.get("dry_run"):
+                        continue
+                    for o in c.get("outreach", []):
+                        if (o.get("email_sent")
+                            and not o.get("response_received")
+                            and not o.get("voice_called")
+                            and not o.get("bounced")
+                            and o.get("voice_follow_up_date")):
+                            try:
+                                fdate = datetime.fromisoformat(o["voice_follow_up_date"])
+                                if now >= fdate:
+                                    due_count += 1
+                                    _update_prospect_status(o["prospect_id"], "follow_up_due")
+                            except Exception:
+                                pass
+
+            if due_count > 0:
+                log.info(f"Scheduler: {due_count} prospects now due for voice follow-up")
+
+        except Exception as e:
+            log.debug(f"Scheduler error: {e}")
+
+        _scheduler_stop.wait(SCHEDULER_INTERVAL)
+
+
+def start_scheduler():
+    """Start background CRM scheduler."""
+    global _scheduler_thread
+    if _scheduler_thread and _scheduler_thread.is_alive():
+        return
+    _scheduler_stop.clear()
+    _scheduler_thread = threading.Thread(target=_scheduler_loop, daemon=True, name="growth-scheduler")
+    _scheduler_thread.start()
+
+
+def get_campaign_dashboard() -> dict:
+    """Campaign management overview with full metrics."""
+    outreach = _load_json(OUTREACH_FILE)
+    if not isinstance(outreach, dict):
+        return {"ok": True, "campaigns": [], "totals": {}}
+
+    prospects_data = _load_json(PROSPECTS_FILE)
+    prospect_map = {}
+    if isinstance(prospects_data, dict):
+        for p in prospects_data.get("prospects", []):
+            prospect_map[p["id"]] = p
+
+    # Per-status counts
+    status_counts = defaultdict(int)
+    for p in prospect_map.values():
+        status_counts[p.get("outreach_status", "new")] += 1
+
+    campaigns = []
+    total_sent = 0
+    total_bounced = 0
+    total_responded = 0
+    total_called = 0
+    total_pending = 0
+
+    for c in outreach.get("campaigns", []):
+        camp_sent = sum(1 for o in c.get("outreach", []) if o.get("email_sent"))
+        camp_bounced = sum(1 for o in c.get("outreach", []) if o.get("bounced"))
+        camp_responded = sum(1 for o in c.get("outreach", []) if o.get("response_received"))
+        camp_called = sum(1 for o in c.get("outreach", []) if o.get("voice_called"))
+        camp_pending = camp_sent - camp_bounced - camp_responded - camp_called
+
+        campaigns.append({
+            "id": c.get("id"),
+            "created_at": c.get("created_at"),
+            "dry_run": c.get("dry_run", True),
+            "total": len(c.get("outreach", [])),
+            "sent": camp_sent,
+            "bounced": camp_bounced,
+            "responded": camp_responded,
+            "called": camp_called,
+            "pending": max(0, camp_pending),
+        })
+
+        total_sent += camp_sent
+        total_bounced += camp_bounced
+        total_responded += camp_responded
+        total_called += camp_called
+        total_pending += max(0, camp_pending)
+
+    return {
+        "ok": True,
+        "campaigns": campaigns,
+        "totals": {
+            "sent": total_sent,
+            "bounced": total_bounced,
+            "responded": total_responded,
+            "called": total_called,
+            "pending_follow_up": total_pending,
+            "total_prospects": len(prospect_map),
+        },
+        "status_breakdown": dict(status_counts),
+    }

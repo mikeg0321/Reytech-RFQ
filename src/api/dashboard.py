@@ -4334,10 +4334,15 @@ try:
         pull_reytech_history, find_category_buyers, launch_outreach,
         check_follow_ups, launch_voice_follow_up,
         get_growth_status, PULL_STATUS, BUYER_STATUS,
+        # CRM layer
+        get_prospect, update_prospect, add_prospect_note, mark_responded,
+        process_bounceback, scan_inbox_for_bounces, detect_bounceback,
+        get_campaign_dashboard, start_scheduler,
         # Legacy compat
         generate_recommendations, full_report, lead_funnel,
     )
     GROWTH_AVAILABLE = True
+    start_scheduler()  # Background: bounce scan + follow-up status updates every hour
 except ImportError:
     GROWTH_AVAILABLE = False
 
@@ -5342,12 +5347,14 @@ def growth_page():
     prospect_data = _load_json(PROSPECTS_FILE)
     prospects = prospect_data.get("prospects", []) if isinstance(prospect_data, dict) else []
 
-    # Load outreach details
+    # Load outreach details + campaign metrics
     outreach_data = _load_json(OUTREACH_FILE)
     campaigns = outreach_data.get("campaigns", []) if isinstance(outreach_data, dict) else []
     total_emailed = sum(1 for c_ in campaigns for o_ in c_.get("outreach", []) if o_.get("email_sent"))
-    total_no_response = sum(1 for c_ in campaigns for o_ in c_.get("outreach", [])
-                           if o_.get("email_sent") and not o_.get("response_received") and not o_.get("voice_called"))
+    total_bounced = sum(1 for c_ in campaigns for o_ in c_.get("outreach", []) if o_.get("bounced"))
+    total_responded = sum(1 for c_ in campaigns for o_ in c_.get("outreach", []) if o_.get("response_received"))
+    total_called = sum(1 for c_ in campaigns for o_ in c_.get("outreach", []) if o_.get("voice_called"))
+    total_no_response = total_emailed - total_bounced - total_responded - total_called
 
     # Category summary
     cat_data = _load_json(CATEGORIES_FILE)
@@ -5362,24 +5369,49 @@ def growth_page():
              <td style="font-size:11px;color:var(--tx2)">{', '.join(info.get('sample_items', [])[:2])[:80]}</td>
             </tr>"""
 
-    # Prospect table rows
+    # Prospect table rows with CRM actions
     prospect_rows = ""
+    status_cfg = {
+        "new": ("⬜ New", "#d29922", "rgba(210,153,34,.08)"),
+        "emailed": ("📧 Emailed", "#58a6ff", "rgba(88,166,255,.08)"),
+        "follow_up_due": ("⏰ Follow-Up Due", "#f0883e", "rgba(240,136,62,.08)"),
+        "called": ("📞 Called", "#bc8cff", "rgba(188,140,255,.08)"),
+        "responded": ("✅ Responded", "#3fb950", "rgba(52,211,153,.08)"),
+        "bounced": ("⛔ Bounced", "#f85149", "rgba(248,113,113,.08)"),
+        "dead": ("💀 Dead", "#8b949e", "rgba(139,148,160,.08)"),
+        "won": ("🏆 Won", "#3fb950", "rgba(52,211,153,.15)"),
+    }
     for pr in prospects[:100]:
+        pid = pr.get("id", "")
         cats = ", ".join(pr.get("categories_matched", [])[:2])
         po_count = len(pr.get("purchase_orders", []))
         phone = pr.get("buyer_phone", "") or "—"
         email = pr.get("buyer_email", "") or "—"
         name = pr.get("buyer_name", "") or "—"
-        status_color = {"new": "#d29922", "emailed": "#58a6ff", "called": "#bc8cff", "responded": "#3fb950"}.get(pr.get("outreach_status", "new"), "#8b949e")
-        prospect_rows += f"""<tr>
-         <td style="font-weight:500">{pr.get('agency', '—')}</td>
+        stat = pr.get("outreach_status", "new")
+        lbl, clr, bg = status_cfg.get(stat, status_cfg["new"])
+        badge = f'<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;color:{clr};background:{bg}">{lbl}</span>'
+
+        # Action buttons based on status
+        actions = ""
+        if stat in ("emailed", "follow_up_due"):
+            actions = f'<button onclick="markResponded(\'{pid}\')" class="act-btn" title="Mark responded" style="color:#3fb950">✅</button>'
+            actions += f'<button onclick="markBounced(\'{pid}\',\'{email}\')" class="act-btn" title="Mark bounced" style="color:#f85149">⛔</button>'
+        elif stat == "new":
+            actions = f'<span style="color:var(--tx2);font-size:10px">awaiting email</span>'
+        elif stat == "responded":
+            actions = f'<button onclick="markWon(\'{pid}\')" class="act-btn" title="Mark won" style="color:#3fb950">🏆</button>'
+
+        prospect_rows += f"""<tr data-pid="{pid}">
+         <td style="font-weight:500"><a href="/growth/prospect/{pid}" style="color:var(--ac);text-decoration:none">{pr.get('agency', '—')}</a></td>
          <td>{name}</td>
          <td style="font-size:12px">{email}</td>
          <td style="font-size:12px">{phone}</td>
          <td class="mono">{po_count}</td>
          <td class="mono" style="color:#3fb950">${pr.get('total_spend', 0):,.0f}</td>
          <td style="font-size:11px">{cats}</td>
-         <td><span style="color:{status_color};font-size:11px;font-weight:600">{pr.get('outreach_status', 'new').upper()}</span></td>
+         <td>{badge}</td>
+         <td style="white-space:nowrap">{actions}</td>
         </tr>"""
 
     # Step progress indicators
@@ -5408,6 +5440,8 @@ def growth_page():
      .g-btn-go {{background:rgba(52,211,153,.12);color:#3fb950;border-color:rgba(52,211,153,.3)}}
      .g-btn-warn {{background:rgba(210,153,34,.12);color:#d29922;border-color:rgba(210,153,34,.3)}}
      .g-btn-red {{background:rgba(248,113,113,.12);color:#f85149;border-color:rgba(248,113,113,.3)}}
+     .act-btn {{background:none;border:none;cursor:pointer;font-size:14px;padding:2px 4px;opacity:.7;transition:opacity .15s}}
+     .act-btn:hover {{opacity:1}}
      table {{width:100%;border-collapse:collapse;font-size:12px}}
      th {{text-align:left;padding:6px 8px;border-bottom:2px solid var(--bd);font-size:11px;color:var(--tx2);text-transform:uppercase}}
      td {{padding:6px 8px;border-bottom:1px solid var(--bd)}}
@@ -5435,6 +5469,8 @@ def growth_page():
       <button class="g-btn g-btn-red" onclick="if(confirm('Send real emails to prospects?')) runStep('/api/growth/outreach?dry_run=false')">📧 Step 3: Send Emails</button>
       <button class="g-btn" onclick="runStep('/api/growth/follow-ups')">📋 Check Follow-Ups</button>
       <button class="g-btn g-btn-warn" onclick="if(confirm('Auto-dial non-responders?')) runStep('/api/growth/voice-follow-up')">📞 Step 4: Voice Follow-Up</button>
+      <button class="g-btn" onclick="runStep('/api/growth/scan-bounces')">🔍 Scan Bouncebacks</button>
+      <button class="g-btn" onclick="runStep('/api/growth/campaigns')">📊 Campaign Stats</button>
      </div>
     </div>
 
@@ -5461,9 +5497,28 @@ def growth_page():
      </div>
     </div>
 
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
+     <div class="card" style="text-align:center">
+      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase">📧 Emailed</div>
+      <div style="font-size:22px;font-weight:700;color:#58a6ff">{total_emailed}</div>
+     </div>
+     <div class="card" style="text-align:center">
+      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase">✅ Responded</div>
+      <div style="font-size:22px;font-weight:700;color:#3fb950">{total_responded}</div>
+     </div>
+     <div class="card" style="text-align:center">
+      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase">⛔ Bounced</div>
+      <div style="font-size:22px;font-weight:700;color:#f85149">{total_bounced}</div>
+     </div>
+     <div class="card" style="text-align:center">
+      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase">📞 Called</div>
+      <div style="font-size:22px;font-weight:700;color:#bc8cff">{total_called}</div>
+     </div>
+    </div>
+
     {'<div class="card"><h3>📂 Item Categories</h3><table><thead><tr><th>Category</th><th>Items</th><th>POs</th><th>Total Value</th><th>Sample Items</th></tr></thead><tbody>' + cat_rows + '</tbody></table></div>' if cat_rows else ''}
 
-    {'<div class="card"><h3>🎯 Prospect Pipeline (' + str(len(prospects)) + ')</h3><div style="max-height:500px;overflow:auto"><table><thead><tr><th>Agency</th><th>Buyer</th><th>Email</th><th>Phone</th><th>POs</th><th>Spend</th><th>Categories</th><th>Status</th></tr></thead><tbody>' + prospect_rows + '</tbody></table></div></div>' if prospect_rows else ''}
+    {'<div class="card"><h3>🎯 Prospect Pipeline (' + str(len(prospects)) + ')</h3><div style="max-height:500px;overflow:auto"><table><thead><tr><th>Agency</th><th>Buyer</th><th>Email</th><th>Phone</th><th>POs</th><th>Spend</th><th>Categories</th><th>Status</th><th>Actions</th></tr></thead><tbody>' + prospect_rows + '</tbody></table></div></div>' if prospect_rows else ''}
 
     <div id="result" style="display:none;background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px;margin-top:12px;max-height:400px;overflow:auto">
      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
@@ -5482,6 +5537,36 @@ def growth_page():
       }}).catch(e => {{
         document.getElementById('result').style.display = 'block';
         document.getElementById('result-content').textContent = 'Error: ' + e;
+      }});
+    }}
+
+    function crmPost(url, body) {{
+      return fetch(url, {{method:'POST', credentials:'same-origin', headers:{{'Content-Type':'application/json'}}, body:JSON.stringify(body)}}).then(r=>r.json());
+    }}
+
+    function markResponded(pid) {{
+      const detail = prompt('Response details (optional):','Email reply received');
+      if (detail === null) return;
+      crmPost('/api/growth/prospect/'+pid+'/responded', {{response_type:'email_reply', detail:detail}}).then(d => {{
+        if (d.ok) {{ alert('Marked as responded'); location.reload(); }}
+        else alert(d.error || 'Failed');
+      }});
+    }}
+
+    function markBounced(pid, email) {{
+      if (!confirm('Mark ' + email + ' as bounced?')) return;
+      const reason = prompt('Bounce reason:', 'Mailbox not found');
+      if (reason === null) return;
+      crmPost('/api/growth/bounceback', {{email:email, reason:reason}}).then(d => {{
+        if (d.ok) {{ alert('Marked as bounced'); location.reload(); }}
+        else alert(d.error || 'Failed');
+      }});
+    }}
+
+    function markWon(pid) {{
+      crmPost('/api/growth/prospect/'+pid, {{outreach_status:'won'}}).then(d => {{
+        if (d.ok) {{ alert('Marked as won!'); location.reload(); }}
+        else alert(d.error || 'Failed');
       }});
     }}
 
@@ -5508,6 +5593,81 @@ def growth_page():
     {('pollProgress();' if (pull_running or buyer_running) else '')}
     </script>
     </body></html>"""
+
+
+@bp.route("/growth/prospect/<prospect_id>")
+@auth_required
+def growth_prospect_detail(prospect_id):
+    """Prospect detail page with timeline + CRM actions."""
+    if not GROWTH_AVAILABLE:
+        flash("Growth agent not available", "error"); return redirect("/growth")
+    result = get_prospect(prospect_id)
+    if not result.get("ok"):
+        flash("Prospect not found", "error"); return redirect("/growth")
+
+    pr = result["prospect"]
+    timeline = result.get("timeline", [])
+    outreach_recs = result.get("outreach_records", [])
+
+    icons = {"status_change": "🔄", "email_sent": "📧", "email_bounced": "⛔",
+             "voice_called": "📞", "response_received": "✅", "note": "📝", "updated": "✏️"}
+    tl_html = ""
+    for ev in timeline[:50]:
+        ts = ev.get("timestamp", "")[:16].replace("T", " ")
+        tl_html += f'<div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--bd)"><span style="font-size:16px">{icons.get(ev.get("type",""),"•")}</span><div style="flex:1"><div style="font-size:12px;font-weight:600">{ev.get("type","").replace("_"," ").title()}</div><div style="font-size:11px;color:var(--tx2)">{ev.get("detail","")}</div></div><span style="font-size:10px;color:var(--tx2)">{ts}</span></div>'
+    if not tl_html:
+        tl_html = '<div style="color:var(--tx2);font-size:12px;padding:12px">No events yet</div>'
+
+    or_html = ""
+    for o in outreach_recs:
+        flags = ("✅ Sent" if o.get("email_sent") else "⏳") + (" ⛔ Bounced" if o.get("bounced") else "") + (" ✅ Replied" if o.get("response_received") else "") + (" 📞 Called" if o.get("voice_called") else "")
+        or_html += f'<div style="padding:8px;background:var(--sf2);border-radius:6px;margin-bottom:6px;font-size:11px"><div style="font-weight:600">{o.get("email_subject","—")}</div><div style="color:var(--tx2)">To: {o.get("email","—")} | {flags}</div></div>'
+
+    po_html = ""
+    for po in pr.get("purchase_orders", []):
+        po_html += f'<tr><td class="mono">{po.get("po_number","—")}</td><td>{po.get("date","—")}</td><td style="font-size:11px">{po.get("items","—")[:60]}</td><td class="mono" style="color:#3fb950">${po.get("total_num",0) or 0:,.0f}</td></tr>'
+
+    stat = pr.get("outreach_status", "new")
+    stat_lbl = {"new": "⬜ New", "emailed": "📧 Emailed", "follow_up_due": "⏰ Follow-Up Due", "called": "📞 Called", "responded": "✅ Responded", "bounced": "⛔ Bounced", "dead": "💀 Dead", "won": "🏆 Won"}.get(stat, stat)
+    pid = pr.get("id", "")
+
+    return f"""{_header('Prospect Detail')}
+    <style>.card{{background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px;margin-bottom:16px}} .card h3{{font-size:15px;margin-bottom:12px}} .g-btn{{padding:6px 12px;border-radius:6px;border:1px solid var(--bd);background:var(--sf2);color:var(--tx);cursor:pointer;font-size:12px;font-weight:600}} .g-btn:hover{{background:var(--ac);color:#000}} table{{width:100%;border-collapse:collapse;font-size:12px}} th{{text-align:left;padding:6px 8px;border-bottom:2px solid var(--bd);font-size:11px;color:var(--tx2)}} td{{padding:6px 8px;border-bottom:1px solid var(--bd)}} .mono{{font-family:'JetBrains Mono',monospace}}</style>
+    <a href="/growth" style="color:var(--ac);text-decoration:none;font-size:13px">← Growth Engine</a>
+    <h1 style="margin-top:8px">{pr.get('agency','Unknown')}</h1>
+    <div style="margin-bottom:16px;font-size:14px;color:var(--tx2)">{stat_lbl} — {pid}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+     <div class="card">
+      <h3>👤 Contact</h3>
+      <div style="font-size:13px;line-height:2">
+       <div><span style="color:var(--tx2);min-width:60px;display:inline-block">Name:</span> <b id="p-name">{pr.get('buyer_name','—')}</b></div>
+       <div><span style="color:var(--tx2);display:inline-block;min-width:60px">Email:</span> {pr.get('buyer_email','—')}</div>
+       <div><span style="color:var(--tx2);display:inline-block;min-width:60px">Phone:</span> <span id="p-phone">{pr.get('buyer_phone','—')}</span></div>
+       <div><span style="color:var(--tx2);display:inline-block;min-width:60px">Spend:</span> <span style="color:#3fb950;font-weight:700">${pr.get('total_spend',0):,.0f}</span></div>
+       <div><span style="color:var(--tx2);display:inline-block;min-width:60px">Cats:</span> {', '.join(pr.get('categories_matched',[]))}</div>
+      </div>
+      <div style="margin-top:12px;display:flex;gap:6px;flex-wrap:wrap">
+       <button class="g-btn" onclick="editContact()">✏️ Edit</button>
+       <button class="g-btn" onclick="addNote()">📝 Note</button>
+       <button class="g-btn" style="color:#3fb950" onclick="setStatus('responded')">✅ Responded</button>
+       <button class="g-btn" style="color:#f85149" onclick="setBounced()">⛔ Bounced</button>
+       <button class="g-btn" style="color:#3fb950" onclick="setStatus('won')">🏆 Won</button>
+       <button class="g-btn" style="color:#8b949e" onclick="setStatus('dead')">💀 Dead</button>
+      </div>
+     </div>
+     <div class="card"><h3>📅 Timeline ({len(timeline)})</h3><div style="max-height:300px;overflow:auto">{tl_html}</div></div>
+    </div>
+    {('<div class="card"><h3>📧 Outreach</h3>' + or_html + '</div>') if or_html else ''}
+    {('<div class="card"><h3>📋 PO History</h3><table><thead><tr><th>PO #</th><th>Date</th><th>Items</th><th>Total</th></tr></thead><tbody>' + po_html + '</tbody></table></div>') if po_html else ''}
+    <script>
+    const PID = '{pid}';
+    function crmPost(u,b){{return fetch(u,{{method:'POST',credentials:'same-origin',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(b)}}).then(r=>r.json())}}
+    function setStatus(s){{crmPost('/api/growth/prospect/'+PID,{{outreach_status:s}}).then(r=>{{if(r.ok)location.reload();else alert(r.error)}})}}
+    function setBounced(){{if(!confirm('Mark as bounced?'))return;crmPost('/api/growth/bounceback',{{email:'{pr.get("buyer_email","")}',reason:'Manual bounce'}}).then(r=>{{if(r.ok)location.reload();else alert(r.error)}})}}
+    function editContact(){{const n=prompt('Name:',document.getElementById('p-name').textContent);if(!n)return;const ph=prompt('Phone:',document.getElementById('p-phone').textContent);crmPost('/api/growth/prospect/'+PID,{{buyer_name:n,buyer_phone:ph||''}}).then(r=>{{if(r.ok)location.reload();else alert(r.error)}})}}
+    function addNote(){{const n=prompt('Note:');if(!n)return;crmPost('/api/growth/prospect/'+PID+'/note',{{note:n}}).then(r=>{{if(r.ok)location.reload();else alert(r.error)}})}}
+    </script></body></html>"""
+
 
 @bp.route("/api/growth/status")
 @auth_required
@@ -5620,6 +5780,78 @@ def api_growth_recommendations():
     if not GROWTH_AVAILABLE:
         return jsonify({"ok": False, "error": "Growth agent not available"})
     return jsonify(get_growth_status())
+
+
+# ─── Growth CRM Routes ────────────────────────────────────────────────────
+
+@bp.route("/api/growth/prospect/<prospect_id>")
+@auth_required
+def api_growth_prospect(prospect_id):
+    """Get prospect detail with full timeline."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    return jsonify(get_prospect(prospect_id))
+
+
+@bp.route("/api/growth/prospect/<prospect_id>", methods=["POST"])
+@auth_required
+def api_growth_prospect_update(prospect_id):
+    """Update prospect. POST JSON: {buyer_name, buyer_phone, outreach_status, notes}"""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    data = request.get_json(silent=True) or {}
+    return jsonify(update_prospect(prospect_id, data))
+
+
+@bp.route("/api/growth/prospect/<prospect_id>/note", methods=["POST"])
+@auth_required
+def api_growth_prospect_note(prospect_id):
+    """Add note to prospect. POST JSON: {note: "..."}"""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    data = request.get_json(silent=True) or {}
+    return jsonify(add_prospect_note(prospect_id, data.get("note", "")))
+
+
+@bp.route("/api/growth/prospect/<prospect_id>/responded", methods=["POST"])
+@auth_required
+def api_growth_prospect_responded(prospect_id):
+    """Mark prospect as responded. POST JSON: {response_type, detail}"""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    data = request.get_json(silent=True) or {}
+    return jsonify(mark_responded(prospect_id, data.get("response_type", "email_reply"), data.get("detail", "")))
+
+
+@bp.route("/api/growth/bounceback", methods=["POST"])
+@auth_required
+def api_growth_bounceback():
+    """Process a bounceback. POST JSON: {email, reason}"""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    data = request.get_json(silent=True) or {}
+    email = data.get("email", "")
+    if not email:
+        return jsonify({"ok": False, "error": "email required"})
+    return jsonify(process_bounceback(email, data.get("reason", "")))
+
+
+@bp.route("/api/growth/scan-bounces")
+@auth_required
+def api_growth_scan_bounces():
+    """Scan inbox for bounceback emails and auto-process them."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    return jsonify(scan_inbox_for_bounces())
+
+
+@bp.route("/api/growth/campaigns")
+@auth_required
+def api_growth_campaigns():
+    """Campaign dashboard with metrics breakdown."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    return jsonify(get_campaign_dashboard())
 
 
 # ─── Voice Agent Routes ─────────────────────────────────────────────────────
