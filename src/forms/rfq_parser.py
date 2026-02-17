@@ -1,8 +1,4 @@
-import sys
-from pathlib import Path
 
-# Compatibility for refactored structure
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 #!/usr/bin/env python3
 """

@@ -1,8 +1,4 @@
-import sys
-from pathlib import Path
 
-# Compatibility for refactored structure
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
 """
@@ -42,8 +38,6 @@ except ImportError:
     )
 
 # ─── Configuration ───────────────────────────────────────────────────────────
-
-# Navigate up to project root: src/knowledge/ → src/ → project_root/
 try:
     from src.core.paths import CONFIG_PATH as CONFIG_FILE
 except ImportError:

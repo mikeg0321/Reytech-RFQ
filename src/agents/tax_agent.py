@@ -1,8 +1,4 @@
-import sys
-from pathlib import Path
 
-# Compatibility for refactored structure
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
 """
@@ -333,10 +329,14 @@ def seed_known_locations():
     """
     # Import CRM contacts
     try:
-        from quote_generator import load_contacts
+        from src.forms.quote_generator import load_contacts
         contacts = load_contacts()
-    except Exception:
-        contacts = []
+    except ImportError:
+        try:
+            from quote_generator import load_contacts
+            contacts = load_contacts()
+        except Exception:
+            contacts = []
 
     results = []
     for c in contacts:

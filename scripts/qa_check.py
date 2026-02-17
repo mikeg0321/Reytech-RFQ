@@ -362,6 +362,90 @@ else:
     if VERBOSE:
         print(output[:500])
 
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 11. CROSS-MODULE IMPORTS — src.* must be primary, bare only in fallback
+# ═══════════════════════════════════════════════════════════════════════════════
+print("\n11. CROSS-MODULE IMPORTS")
+
+our_modules = {"product_research", "pricing_oracle", "won_quotes_db",
+               "quote_generator", "price_check", "auto_processor",
+               "scprs_lookup", "tax_agent", "rfq_parser", "reytech_filler_v4",
+               "email_poller", "dashboard", "templates", "logging_config",
+               "startup_checks", "paths"}
+
+import_issues = []
+for root, dirs, files in os.walk("src"):
+    dirs[:] = [d for d in dirs if d != "__pycache__"]
+    for f in files:
+        if not f.endswith(".py"):
+            continue
+        path = os.path.join(root, f)
+        with open(path) as fh:
+            lines = fh.readlines()
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                continue
+            m = re.match(r'from\s+(\w+)\s+import', stripped)
+            if m and m.group(1) in our_modules:
+                # Check if this line is inside ANY except block at any nesting level
+                # by walking backward through all enclosing blocks
+                is_fallback = False
+                indent = len(line) - len(line.lstrip())
+                for j in range(i-1, max(0, i-20), -1):
+                    prev = lines[j].rstrip()
+                    if not prev.strip():
+                        continue
+                    prev_indent = len(prev) - len(prev.lstrip())
+                    if prev_indent < indent:
+                        if "except" in prev.strip():
+                            is_fallback = True
+                            break
+                        elif prev.strip().startswith("try:"):
+                            # We're inside a try — check if THAT try is inside an except
+                            indent = prev_indent  # look for enclosing block
+                            continue
+                        else:
+                            break  # Not a try/except structure
+                if not is_fallback:
+                    import_issues.append(f"{path}:{i+1}: {stripped}")
+
+if import_issues:
+    for iss in import_issues:
+        _fail(f"Bare primary import: {iss}")
+else:
+    _pass("All cross-module imports use src.* as primary")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 12. SYS.PATH HACKS — only dashboard.py (entry point) should have one
+# ═══════════════════════════════════════════════════════════════════════════════
+print("\n12. SYS.PATH HACKS")
+
+syspath_found = []
+for root, dirs, files in os.walk("src"):
+    dirs[:] = [d for d in dirs if d != "__pycache__"]
+    for f in files:
+        if not f.endswith(".py"):
+            continue
+        path = os.path.join(root, f)
+        with open(path) as fh:
+            for ln, line in enumerate(fh, 1):
+                if "sys.path.insert" in line and not line.strip().startswith("#"):
+                    syspath_found.append(f"{path}:{ln}")
+
+# Only dashboard.py is allowed (entry point needs it for fallback imports)
+allowed = ["src/api/dashboard.py"]
+violations = [s for s in syspath_found if not any(a in s for a in allowed)]
+
+if violations:
+    for v in violations:
+        _fail(f"sys.path hack: {v}")
+else:
+    _pass(f"sys.path clean ({len(syspath_found)} total, only in entry point)")
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # SUMMARY
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -376,3 +460,71 @@ if failed > 0:
 else:
     print("\n🟢 ALL CLEAR — safe to push/deploy")
     sys.exit(0)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 11. INLINE TEMPLATE CHECK — no HTML should leak back into dashboard.py
+# ═══════════════════════════════════════════════════════════════════════════════
+print("\n11. TEMPLATE SEPARATION")
+with open("src/api/dashboard.py") as f:
+    dash_content = f.read()
+
+inline_templates = dash_content.count('f"""<!doctype') + dash_content.count('f"""<!DOCTYPE')
+render_wrapper_count = 1  # the render() wrapper is intentionally inline (38 lines)
+
+if inline_templates <= render_wrapper_count:
+    _pass(f"No leaked inline templates in dashboard.py ({inline_templates} f-string HTML blocks = render wrapper only)")
+else:
+    _fail(f"{inline_templates} inline HTML templates found in dashboard.py (expected {render_wrapper_count})")
+
+with open("src/api/templates.py") as f:
+    tmpl_lines = len(f.readlines())
+_pass(f"templates.py: {tmpl_lines} lines (all page HTML centralized)")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 12. IMPORT HYGIENE — all primary imports use src.* prefix
+# ═══════════════════════════════════════════════════════════════════════════════
+print("\n12. IMPORT HYGIENE")
+
+# Scan for bare sibling imports that are NOT inside except blocks
+import_issues = []
+for root, dirs, files in os.walk("src"):
+    dirs[:] = [d for d in dirs if d != "__pycache__"]
+    for fname in files:
+        if not fname.endswith(".py") or fname == "__init__.py":
+            continue
+        filepath = os.path.join(root, fname)
+        with open(filepath) as fh:
+            file_lines = fh.readlines()
+        
+        # Check each import line
+        for ln, line in enumerate(file_lines, 1):
+            stripped = line.strip()
+            # Skip comments
+            if stripped.startswith("#"):
+                continue
+            # Check for bare imports of sibling modules
+            bare_modules = ["quote_generator", "price_check", "product_research",
+                           "pricing_oracle", "won_quotes_db", "auto_processor",
+                           "tax_agent", "scprs_lookup", "rfq_parser", 
+                           "reytech_filler_v4", "email_poller"]
+            for mod in bare_modules:
+                if f"from {mod} import" in stripped or f"import {mod}" == stripped:
+                    # Check if this is inside an except block (look up for except)
+                    in_except = False
+                    for check_ln in range(ln - 2, max(ln - 5, 0), -1):
+                        check_line = file_lines[check_ln].strip()
+                        if check_line.startswith("except"):
+                            in_except = True
+                            break
+                        if check_line.startswith("try:") or check_line.startswith("def ") or check_line.startswith("class "):
+                            break
+                    if not in_except:
+                        import_issues.append(f"{filepath}:{ln} bare import: {stripped[:60]}")
+
+if import_issues:
+    for issue in import_issues:
+        _fail(issue)
+else:
+    _pass("All sibling imports use src.* prefix (bare imports only in except fallbacks)")

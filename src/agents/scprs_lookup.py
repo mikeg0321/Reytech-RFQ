@@ -1,8 +1,4 @@
-import sys
-from pathlib import Path
 
-# Compatibility for refactored structure
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
 #!/usr/bin/env python3
@@ -37,9 +33,12 @@ log = logging.getLogger("scprs")
 
 # v6.0: Won Quotes KB integration (graceful fallback)
 try:
-    from won_quotes_db import ingest_scprs_result as _ingest_wq
+    from src.knowledge.won_quotes_db import ingest_scprs_result as _ingest_wq
 except ImportError:
-    _ingest_wq = None
+    try:
+        from won_quotes_db import ingest_scprs_result as _ingest_wq
+    except ImportError:
+        _ingest_wq = None
 
 try:
     from src.core.paths import SCPRS_DB_PATH as DB_PATH

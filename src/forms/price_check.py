@@ -1,8 +1,4 @@
-import sys
-from pathlib import Path
 
-# Compatibility for refactored structure
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
 """
@@ -38,22 +34,34 @@ except ImportError:
     HAS_PYPDF = False
 
 try:
-    from product_research import research_product, quick_lookup
+    from src.agents.product_research import research_product, quick_lookup
     HAS_RESEARCH = True
 except ImportError:
-    HAS_RESEARCH = False
+    try:
+        from product_research import research_product, quick_lookup
+        HAS_RESEARCH = True
+    except ImportError:
+        HAS_RESEARCH = False
 
 try:
-    from pricing_oracle import recommend_price
+    from src.knowledge.pricing_oracle import recommend_price
     HAS_ORACLE = True
 except ImportError:
-    HAS_ORACLE = False
+    try:
+        from pricing_oracle import recommend_price
+        HAS_ORACLE = True
+    except ImportError:
+        HAS_ORACLE = False
 
 try:
-    from won_quotes_db import find_similar_items
+    from src.knowledge.won_quotes_db import find_similar_items
     HAS_WON_QUOTES = True
 except ImportError:
-    HAS_WON_QUOTES = False
+    try:
+        from won_quotes_db import find_similar_items
+        HAS_WON_QUOTES = True
+    except ImportError:
+        HAS_WON_QUOTES = False
 
 log = logging.getLogger("pricecheck")
 
