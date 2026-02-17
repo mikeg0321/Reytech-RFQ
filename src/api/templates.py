@@ -87,6 +87,7 @@ PAGE_HOME = """
    <button type="submit" class="btn btn-p" style="padding:8px 16px">🔍 Search</button>
   </form>
   <a href="/quotes" class="btn btn-sm" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd);font-size:12px;padding:5px 12px">📋 Quotes DB</a>
+  <a href="/agents" class="btn btn-sm" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd);font-size:12px;padding:5px 12px">🤖 Agents</a>
  </div>
 </div>
 <div class="card">
@@ -592,6 +593,7 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
      <a href="/" style="color:#58a6ff;font-size:13px;text-decoration:none;padding:4px 10px;background:#21262d;border:1px solid #30363d;border-radius:6px">🏠 Home</a>
      <a href="/quotes" style="color:#fff;font-size:13px;text-decoration:none;padding:4px 10px;background:#1a3a5c;border-radius:6px">📋 Quotes</a>
+     <a href="/agents" style="color:#fff;font-size:13px;text-decoration:none;padding:4px 10px;background:#21262d;border:1px solid #30363d;border-radius:6px">🤖 Agents</a>
     </div>
 
     <!-- Preview Modal -->
@@ -1585,3 +1587,267 @@ def build_quotes_page_content(stats_html, q, agency_filter, status_filter,
      }}
      </script>
 """
+
+
+def render_agents_page():
+    """Render the Agent Control Panel — buttons for all agent operations."""
+    return f"""<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Agent Control Panel — Reytech</title>
+<style>
+:root {{ --bg:#0d1117; --sf:#161b22; --sf2:#21262d; --bd:#30363d; --tx:#e6edf3; --tx2:#8b949e;
+  --ok:#238636; --warn:#d29922; --err:#da3633; --blue:#58a6ff; --purple:#bc8cff; }}
+* {{ box-sizing:border-box; margin:0; padding:0; }}
+body {{ font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; background:var(--bg); color:var(--tx); padding:16px; max-width:1000px; margin:auto; }}
+a {{ color:var(--blue); text-decoration:none; }}
+.nav {{ display:flex; gap:8px; align-items:center; margin-bottom:20px; flex-wrap:wrap; }}
+.nav a {{ padding:5px 12px; background:var(--sf2); border:1px solid var(--bd); border-radius:6px; font-size:13px; color:var(--tx); }}
+h1 {{ font-size:22px; margin-bottom:4px; }}
+.sub {{ color:var(--tx2); font-size:13px; margin-bottom:20px; }}
+.section {{ background:var(--sf); border:1px solid var(--bd); border-radius:10px; padding:16px; margin-bottom:16px; }}
+.section h2 {{ font-size:16px; margin-bottom:12px; display:flex; align-items:center; gap:8px; }}
+.section h2 .tag {{ font-size:11px; padding:2px 8px; border-radius:10px; font-weight:normal; }}
+.tag-ok {{ background:#238636; color:#fff; }}
+.tag-warn {{ background:#d29922; color:#000; }}
+.tag-off {{ background:var(--sf2); color:var(--tx2); border:1px solid var(--bd); }}
+.grid {{ display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:10px; }}
+.btn {{ padding:10px 16px; border:1px solid var(--bd); border-radius:8px; background:var(--sf2); color:var(--tx);
+  cursor:pointer; font-size:13px; text-align:left; transition:all 0.15s; display:flex; flex-direction:column; gap:4px; }}
+.btn:hover {{ border-color:var(--blue); background:#1a2332; }}
+.btn .label {{ font-weight:600; font-size:14px; }}
+.btn .desc {{ font-size:11px; color:var(--tx2); }}
+.btn-go {{ background:#1a3a5c; border-color:#2563eb; }}
+.btn-go:hover {{ background:#1e4a7c; }}
+.btn-danger {{ border-color:var(--err); }}
+.btn-danger:hover {{ background:#3a1515; }}
+#result {{ background:#0a0e14; border:1px solid var(--bd); border-radius:8px; padding:16px; margin-top:16px;
+  font-family:'SF Mono',Consolas,monospace; font-size:12px; line-height:1.6; white-space:pre-wrap;
+  max-height:500px; overflow-y:auto; display:none; position:relative; }}
+#result .close {{ position:absolute; top:8px; right:12px; cursor:pointer; color:var(--tx2); font-size:16px; }}
+#result .close:hover {{ color:var(--tx); }}
+.fleet {{ display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:8px; margin-bottom:16px; }}
+.agent-card {{ padding:10px; border:1px solid var(--bd); border-radius:8px; background:var(--sf2); font-size:12px; }}
+.agent-card .name {{ font-weight:600; font-size:13px; margin-bottom:4px; }}
+.agent-card .mode {{ color:var(--tx2); }}
+.loading {{ color:var(--warn); }}
+</style>
+</head><body>
+
+<div class="nav">
+ <a href="/">🏠 Home</a>
+ <a href="/quotes">📋 Quotes</a>
+ <a href="/agents" style="border-color:var(--blue)">🤖 Agents</a>
+</div>
+
+<h1>🤖 Agent Control Panel</h1>
+<div class="sub">Click any button to run it. Results appear below.</div>
+
+<div id="fleet" class="section">
+ <h2>Fleet Status <span class="tag tag-off" id="fleet-tag">loading...</span></h2>
+ <div class="fleet" id="fleet-grid"><div class="loading">Loading agent status...</div></div>
+</div>
+
+<div class="section">
+ <h2>📊 Growth Intelligence <span class="tag tag-ok">Active</span></h2>
+ <div class="grid">
+  <button class="btn btn-go" onclick="apiGet('/api/growth/report')">
+   <span class="label">📊 Full Report</span><span class="desc">Win/loss + pricing + pipeline + recs</span>
+  </button>
+  <button class="btn" onclick="apiGet('/api/growth/recommendations')">
+   <span class="label">💡 Recommendations</span><span class="desc">Prioritized action items</span>
+  </button>
+  <button class="btn" onclick="apiGet('/api/growth/win-loss')">
+   <span class="label">🏆 Win/Loss</span><span class="desc">By agency & institution</span>
+  </button>
+  <button class="btn" onclick="apiGet('/api/growth/pricing')">
+   <span class="label">💰 Pricing Intel</span><span class="desc">What markup wins?</span>
+  </button>
+  <button class="btn" onclick="apiGet('/api/growth/pipeline')">
+   <span class="label">🔄 Pipeline</span><span class="desc">Stuck PCs, conversion rate</span>
+  </button>
+ </div>
+</div>
+
+<div class="section">
+ <h2>📧 Email Outreach</h2>
+ <div class="grid">
+  <button class="btn btn-go" onclick="apiGet('/api/outbox')">
+   <span class="label">📬 View Outbox</span><span class="desc">All drafts & sent emails</span>
+  </button>
+  <button class="btn" onclick="apiGet('/api/outbox?status=draft')">
+   <span class="label">📝 Drafts Only</span><span class="desc">Emails awaiting approval</span>
+  </button>
+  <button class="btn" onclick="apiGet('/api/outbox/sent')">
+   <span class="label">✅ Sent Log</span><span class="desc">Delivered emails</span>
+  </button>
+  <button class="btn btn-go" onclick="draftForPc()">
+   <span class="label">✉️ Draft PC Email</span><span class="desc">Enter PC ID → auto-draft</span>
+  </button>
+  <button class="btn btn-danger" onclick="sendApproved()">
+   <span class="label">🚀 Send All Approved</span><span class="desc">Send every approved email</span>
+  </button>
+ </div>
+</div>
+
+<div class="section">
+ <h2>🎯 Lead Generation</h2>
+ <div class="grid">
+  <button class="btn btn-go" onclick="apiGet('/api/leads')">
+   <span class="label">📋 All Leads</span><span class="desc">Scored opportunities</span>
+  </button>
+  <button class="btn" onclick="apiGet('/api/leads?status=new')">
+   <span class="label">🆕 New Leads</span><span class="desc">Not yet contacted</span>
+  </button>
+  <button class="btn" onclick="apiGet('/api/leads/analytics')">
+   <span class="label">📈 Lead Analytics</span><span class="desc">Funnel conversion rates</span>
+  </button>
+ </div>
+</div>
+
+<div class="section">
+ <h2>🔍 SCPRS Scanner</h2>
+ <div class="grid">
+  <button class="btn" onclick="apiGet('/api/scanner/status')">
+   <span class="label">📡 Scanner Status</span><span class="desc">Is it running?</span>
+  </button>
+  <button class="btn btn-go" onclick="apiPost('/api/scanner/start',{{interval:120}})">
+   <span class="label">▶️ Start Scanner</span><span class="desc">Poll every 2 min</span>
+  </button>
+  <button class="btn btn-danger" onclick="apiPost('/api/scanner/stop')">
+   <span class="label">⏹️ Stop Scanner</span><span class="desc">Stop polling</span>
+  </button>
+  <button class="btn" onclick="apiPost('/api/scanner/scan')">
+   <span class="label">🔎 Scan Now</span><span class="desc">One manual scan</span>
+  </button>
+ </div>
+</div>
+
+<div class="section">
+ <h2>🔑 Item Identifier</h2>
+ <div class="grid">
+  <button class="btn btn-go" onclick="identifyItem()">
+   <span class="label">🔍 Identify Item</span><span class="desc">Enter description → get search terms</span>
+  </button>
+  <button class="btn" onclick="identifyPc()">
+   <span class="label">📦 Identify PC Items</span><span class="desc">Run ID on all items in a PC</span>
+  </button>
+ </div>
+</div>
+
+<div class="section">
+ <h2>📞 Voice Agent <span class="tag tag-off" id="voice-tag">needs setup</span></h2>
+ <div class="grid">
+  <button class="btn" onclick="apiGet('/api/voice/status')">
+   <span class="label">📞 Voice Status</span><span class="desc">Setup instructions</span>
+  </button>
+  <button class="btn" onclick="apiGet('/api/voice/scripts')">
+   <span class="label">📜 Call Scripts</span><span class="desc">View available scripts</span>
+  </button>
+  <button class="btn" onclick="apiGet('/api/voice/log')">
+   <span class="label">📋 Call Log</span><span class="desc">Recent calls</span>
+  </button>
+  <button class="btn btn-go" onclick="testCall()">
+   <span class="label">📱 Test Call</span><span class="desc">Call yourself to test</span>
+  </button>
+ </div>
+</div>
+
+<div class="section">
+ <h2>🧾 QuickBooks</h2>
+ <div class="grid">
+  <button class="btn btn-go" onclick="apiGet('/api/qb/vendors')">
+   <span class="label">👥 Vendors</span><span class="desc">Pull from QuickBooks</span>
+  </button>
+  <button class="btn" onclick="apiGet('/api/qb/pos')">
+   <span class="label">📄 Recent POs</span><span class="desc">Last 30 days</span>
+  </button>
+ </div>
+</div>
+
+<div id="result"><span class="close" onclick="closeResult()">✕</span><pre id="result-content"></pre></div>
+
+<script>
+const R = document.getElementById('result');
+const RC = document.getElementById('result-content');
+
+function showResult(data) {{
+  RC.textContent = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+  R.style.display = 'block';
+  R.scrollIntoView({{ behavior:'smooth', block:'nearest' }});
+}}
+
+function closeResult() {{ R.style.display = 'none'; }}
+
+function apiGet(url) {{
+  RC.textContent = 'Loading...'; R.style.display = 'block';
+  fetch(url).then(r => r.json()).then(showResult).catch(e => showResult('Error: ' + e));
+}}
+
+function apiPost(url, body) {{
+  RC.textContent = 'Loading...'; R.style.display = 'block';
+  fetch(url, {{
+    method: 'POST',
+    headers: {{ 'Content-Type': 'application/json' }},
+    body: body ? JSON.stringify(body) : '{{}}'
+  }}).then(r => r.json()).then(showResult).catch(e => showResult('Error: ' + e));
+}}
+
+function draftForPc() {{
+  const pcid = prompt('Enter Price Check ID (e.g. pc_abc123):');
+  if (!pcid) return;
+  const qnum = prompt('Quote number (e.g. R26Q16):', '');
+  apiPost('/api/outbox/draft/pc/' + pcid, {{ quote_number: qnum || '' }});
+}}
+
+function identifyItem() {{
+  const desc = prompt('Item description (e.g. "Engraved two line name tag, black/white"):');
+  if (!desc) return;
+  apiPost('/api/identify', {{ description: desc }});
+}}
+
+function identifyPc() {{
+  const pcid = prompt('Enter Price Check ID:');
+  if (!pcid) return;
+  apiGet('/api/identify/pc/' + pcid);
+}}
+
+function sendApproved() {{
+  if (!confirm('Send ALL approved emails in outbox?')) return;
+  apiPost('/api/outbox/send-approved');
+}}
+
+function testCall() {{
+  const phone = prompt('Your phone number in E.164 format (e.g. +19491234567):');
+  if (!phone) return;
+  apiPost('/api/voice/call', {{ phone: phone, script: 'lead_intro', variables: {{ po_number: 'PO-TEST', institution: 'CSP-Sacramento' }} }});
+}}
+
+// Load fleet status on page load
+fetch('/api/agents/status').then(r => r.json()).then(data => {{
+  const grid = document.getElementById('fleet-grid');
+  const tag = document.getElementById('fleet-tag');
+  if (!data.ok) {{ grid.innerHTML = '<div>Failed to load</div>'; return; }}
+  tag.textContent = data.active + '/' + data.total + ' active';
+  tag.className = 'tag ' + (data.active > 5 ? 'tag-ok' : 'tag-warn');
+
+  let html = '';
+  for (const [name, info] of Object.entries(data.agents)) {{
+    const isOff = info.status === 'not_available';
+    const mode = info.mode || info.status || (info.configured === false ? 'not configured' : 'ready');
+    const dot = isOff ? '⚫' : (info.configured === false || info.api_key_set === false ? '🟡' : '🟢');
+    html += '<div class="agent-card"><div class="name">' + dot + ' ' + name.replace(/_/g,' ') + '</div>';
+    html += '<div class="mode">' + mode + '</div></div>';
+  }}
+  grid.innerHTML = html;
+
+  // Update voice tag
+  const vt = document.getElementById('voice-tag');
+  const voice = data.agents.voice_calls || {{}};
+  if (voice.twilio_configured) {{ vt.textContent = 'ready'; vt.className = 'tag tag-ok'; }}
+  else if (voice.status !== 'not_available') {{ vt.textContent = 'needs setup'; vt.className = 'tag tag-warn'; }}
+}}).catch(() => {{
+  document.getElementById('fleet-grid').innerHTML = '<div>Failed to load fleet status</div>';
+}});
+</script>
+</body></html>"""
