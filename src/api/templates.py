@@ -1904,20 +1904,17 @@ def build_quotes_page_content(stats_html, q, agency_filter, status_filter,
     Extracted from dashboard.py. Returns content string for the render() wrapper.
     """
     return f"""
-     <!-- Header: Logo + Title + Stats — all one row -->
-     <div class="card" style="margin-bottom:10px;padding:14px 18px">
-      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
-       {"<div style='background:#fff;padding:4px 8px;border-radius:6px;display:flex;align-items:center'><img src=/api/logo alt=Reytech style=height:36px></div>" if logo_exists else ""}
-       <h2 style="margin:0;font-size:20px">Quotes Database</h2>
-       <div style="margin-left:auto">{stats_html}</div>
-      </div>
+     <!-- Header: Title + Stats — compact row -->
+     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px">
+      <h2 style="margin:0;font-size:20px;font-weight:700">📋 Quotes Database</h2>
+      <div>{stats_html}</div>
      </div>
 
-     <!-- Search + Filters + Logo Upload — one compact bar -->
-     <div class="card" style="margin-bottom:10px;padding:10px 14px">
-      <form method="get" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-       <input name="q" value="{q}" placeholder="Search quotes, institutions, RFQ #..." style="flex:1;min-width:160px;padding:7px 10px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:13px">
-       <select name="agency" style="padding:7px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:13px">
+     <!-- Search + Filters — one compact bar -->
+     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
+      <form method="get" style="display:contents">
+       <input name="q" value="{q}" placeholder="Search quotes, institutions, items, part numbers, RFQ #..." style="flex:1;min-width:240px;padding:10px 14px;background:var(--sf);border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:13px">
+       <select name="agency" style="padding:10px;background:var(--sf);border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:13px">
         <option value="">All Agencies</option>
         <option value="CDCR" {"selected" if agency_filter=="CDCR" else ""}>CDCR</option>
         <option value="CCHCS" {"selected" if agency_filter=="CCHCS" else ""}>CCHCS</option>
@@ -1925,29 +1922,24 @@ def build_quotes_page_content(stats_html, q, agency_filter, status_filter,
         <option value="DGS" {"selected" if agency_filter=="DGS" else ""}>DGS</option>
         <option value="DSH" {"selected" if agency_filter=="DSH" else ""}>DSH</option>
        </select>
-       <select name="status" style="padding:7px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:13px">
+       <select name="status" style="padding:10px;background:var(--sf);border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:13px">
         <option value="">All Status</option>
         <option value="pending" {"selected" if status_filter=="pending" else ""}>⏳ Pending</option>
         <option value="won" {"selected" if status_filter=="won" else ""}>✅ Won</option>
         <option value="lost" {"selected" if status_filter=="lost" else ""}>❌ Lost</option>
+        <option value="sent" {"selected" if status_filter=="sent" else ""}>📤 Sent</option>
+        <option value="expired" {"selected" if status_filter=="expired" else ""}>⏰ Expired</option>
        </select>
-       <button type="submit" class="btn btn-p" style="padding:7px 14px;font-size:13px">Search</button>
-       <span style="border-left:1px solid #30363d;height:22px;margin:0 2px"></span>
-       <span style="font-size:11px;color:#8b949e">Logo:</span>
-       {"<span style='font-size:11px;color:#3fb950'>✅</span>" if logo_exists else "<span style='font-size:11px;color:#f85149'>❌</span>"}
-       <form method="post" action="/settings/upload-logo" enctype="multipart/form-data" style="display:contents">
-        <input type="file" name="logo" accept=".png,.jpg,.jpeg,.gif" style="font-size:11px;max-width:140px">
-        <button type="submit" class="btn btn-sm" style="font-size:11px;padding:3px 8px;background:var(--sf2);color:var(--tx2);border:1px solid var(--bd)">Upload</button>
-       </form>
+       <button type="submit" class="btn btn-p" style="padding:10px 18px;font-size:13px">🔍 Search</button>
       </form>
      </div>
 
-     <!-- Quotes Table — flush, no extra padding -->
+     <!-- Quotes Table — flush, full width -->
      <div class="card" style="padding:0;overflow-x:auto">
-      <table style="min-width:900px">
+      <table class="home-tbl" style="min-width:900px">
        <thead><tr>
-        <th style="width:80px">Quote #</th><th style="width:100px">Date</th><th style="width:70px">Agency</th><th style="min-width:180px">Institution</th><th style="width:90px">RFQ #</th>
-        <th style="text-align:right;width:90px">Total</th><th style="width:50px">Items</th><th style="width:80px">Status</th><th style="width:100px">Actions</th>
+        <th style="width:80px">Quote #</th><th style="width:100px">Date</th><th style="width:70px">Agency</th><th>Institution</th><th style="width:100px">RFQ #</th>
+        <th style="text-align:right;width:90px">Total</th><th style="width:50px;text-align:center">Items</th><th style="width:80px;text-align:center">Status</th><th style="width:100px;text-align:center">Actions</th>
        </tr></thead>
        <tbody>{rows_html if rows_html else '<tr><td colspan="9" style="text-align:center;padding:24px;color:var(--tx2)">No quotes yet — generate your first from a Price Check or RFQ</td></tr>'}</tbody>
       </table>

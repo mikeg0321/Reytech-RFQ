@@ -1,3 +1,6 @@
+
+
+
 """
 Reytech Quote PDF Generator v2
 ================================
@@ -28,7 +31,10 @@ from reportlab.pdfgen import canvas
 
 log = logging.getLogger("quote_gen")
 
-DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+try:
+    from src.core.paths import DATA_DIR
+except ImportError:
+    DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # EXACT COLORS — extracted from QuoteWerks R26Q14 via pdfplumber
@@ -162,7 +168,7 @@ def peek_next_quote_number() -> str:
 # QUOTES DATABASE — searchable log with Win/Loss tracking
 # ═══════════════════════════════════════════════════════════════════════════════
 
-VALID_STATUSES = ("pending", "won", "lost")
+VALID_STATUSES = ("pending", "won", "lost", "draft", "sent", "expired")
 
 def get_all_quotes() -> list:
     path = os.path.join(DATA_DIR, "quotes_log.json")
@@ -182,25 +188,47 @@ def _save_all_quotes(quotes: list):
 
 def search_quotes(query: str = "", agency: str = "", status: str = "",
                   limit: int = 50) -> list:
-    """Search quotes — full-text across all fields including items, PO, notes."""
+    """Search quotes — full-text across all fields including items, part numbers, ship_to."""
     quotes = get_all_quotes()
     q = query.lower()
     results = []
+    now = datetime.now()
     for qt in reversed(quotes):
+        # Auto-expire: if pending and older than 45 days, mark expired
+        if qt.get("status", "pending") == "pending":
+            try:
+                created = qt.get("created_at") or qt.get("date", "")
+                if created:
+                    if "T" in str(created):
+                        created_dt = datetime.fromisoformat(str(created).replace("Z", "+00:00")).replace(tzinfo=None)
+                    else:
+                        created_dt = datetime.strptime(str(created), "%b %d, %Y")
+                    if (now - created_dt).days > 45:
+                        qt["status"] = "expired"
+            except Exception:
+                pass
+
         if agency and qt.get("agency", "").lower() != agency.lower():
             continue
         if status and qt.get("status", "pending").lower() != status.lower():
             continue
         if q:
-            searchable = " ".join([
+            # Build searchable text from all fields including item details
+            parts = [
                 qt.get("quote_number", ""),
                 qt.get("institution", ""),
                 qt.get("rfq_number", ""),
                 qt.get("agency", ""),
                 qt.get("po_number", ""),
                 qt.get("status_notes", ""),
-                qt.get("items_text", ""),   # item descriptions
-            ]).lower()
+                qt.get("items_text", ""),
+                qt.get("ship_to_name", ""),
+            ]
+            # Add item descriptions and part numbers from items_detail
+            for item in qt.get("items_detail", []):
+                parts.append(str(item.get("description", "")))
+                parts.append(str(item.get("part_number", "")))
+            searchable = " ".join(parts).lower()
             if q not in searchable:
                 continue
         results.append(qt)
@@ -209,20 +237,30 @@ def search_quotes(query: str = "", agency: str = "", status: str = "",
     return results
 
 def update_quote_status(quote_number: str, status: str, po_number: str = "",
-                         notes: str = "") -> bool:
-    """Mark a quote as won, lost, or pending. Returns True if found."""
+                         notes: str = "", actor: str = "user") -> bool:
+    """Mark a quote as won, lost, or pending. Records status_history. Returns True if found."""
     if status not in VALID_STATUSES:
         return False
     quotes = get_all_quotes()
     found = False
+    now = datetime.now().isoformat()
     for qt in quotes:
         if qt.get("quote_number") == quote_number:
             qt["status"] = status
-            qt["status_updated"] = datetime.now().isoformat()
+            qt["status_updated"] = now
             if po_number:
                 qt["po_number"] = po_number
             if notes:
                 qt["status_notes"] = notes
+            # Append to status_history (create if missing for legacy records)
+            history = qt.get("status_history", [])
+            entry = {"status": status, "timestamp": now, "actor": actor}
+            if po_number:
+                entry["po_number"] = po_number
+            if notes:
+                entry["notes"] = notes
+            history.append(entry)
+            qt["status_history"] = history
             found = True
             break
     if found:
@@ -252,8 +290,19 @@ def get_quote_stats() -> dict:
 
 def _log_quote(result: dict):
     quotes = get_all_quotes()
-    quotes.append({
-        "quote_number":  result.get("quote_number"),
+    now = datetime.now().isoformat()
+    qn = result.get("quote_number")
+    
+    # Check if this quote number already exists (regeneration)
+    existing_idx = None
+    if qn:
+        for i, q in enumerate(quotes):
+            if q.get("quote_number") == qn:
+                existing_idx = i
+                break
+    
+    entry = {
+        "quote_number":  qn,
         "date":          result.get("date"),
         "agency":        result.get("agency"),
         "institution":   result.get("institution", ""),
@@ -265,9 +314,32 @@ def _log_quote(result: dict):
         "items_text":    result.get("items_text", ""),
         "items_detail":  result.get("items_detail", []),
         "pdf_path":      result.get("path", ""),
-        "status":        "pending",
-        "created_at":    datetime.now().isoformat(),
-    })
+        "source_pc_id":  result.get("source_pc_id", ""),
+        "source_rfq_id": result.get("source_rfq_id", ""),
+        "ship_to_name":  result.get("ship_to_name", ""),
+        "ship_to_address": result.get("ship_to_address", []),
+    }
+    
+    if existing_idx is not None:
+        # UPDATE existing — preserve status, history, and created_at
+        old = quotes[existing_idx]
+        entry["status"] = old.get("status", "pending")
+        entry["created_at"] = old.get("created_at", now)
+        entry["status_history"] = old.get("status_history", [])
+        entry["po_number"] = old.get("po_number", "")
+        entry["regenerated_at"] = now
+        entry["regeneration_count"] = old.get("regeneration_count", 0) + 1
+        quotes[existing_idx] = entry
+        log.info("Quote %s regenerated (update #%d)", qn, entry["regeneration_count"])
+    else:
+        # NEW quote
+        entry["status"] = "pending"
+        entry["created_at"] = now
+        entry["status_history"] = [
+            {"status": "pending", "timestamp": now, "actor": "system"}
+        ]
+        quotes.append(entry)
+    
     _save_all_quotes(quotes)
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -282,6 +354,7 @@ def _detect_agency(data: dict) -> str:
     if "CCHCS" in text or "HEALTH CARE" in text: return "CCHCS"
     if "CALVET" in text or "VETERAN" in text:    return "CalVet"
     if "DGS" in text or "GENERAL SERVICE" in text: return "DGS"
+    if "DSH" in text or "STATE HOSPITAL" in text:  return "DSH"
     # CDCR: match the agency name OR any known prison abbreviation/pattern
     if "CDCR" in text or "CORRECTION" in text:   return "CDCR"
     # CDCR prison patterns: CSP-*, CIM, CIW, SCC, CMC, SATF, CHCF, PVSP, KVSP,
@@ -769,6 +842,8 @@ def generate_quote(
         "items_count": len(items),
         "date": quote_date,
         "expiry": expiry_date,
+        "ship_to_name": ship_name,
+        "ship_to_address": ship_addr,
         "items_text": " | ".join(
             str(it.get("description", ""))[:80] for it in items
         ),
@@ -781,6 +856,9 @@ def generate_quote(
             }
             for it in items
         ],
+        # Bidirectional linking — trace to source document
+        "source_pc_id": quote_data.get("source_pc_id", ""),
+        "source_rfq_id": quote_data.get("source_rfq_id", ""),
     }
     _log_quote(result)
     log.info("Quote %s generated: $%.2f total, %d items → %s",
@@ -809,6 +887,7 @@ def generate_quote_from_pc(pc: dict, output_path: str, **kwargs) -> dict:
         "ship_to_name": ship_parts[0] if ship_parts else institution,
         "ship_to_address": ship_parts[1:] if len(ship_parts) > 1 else ship_parts,
         "rfq_number": pc.get("pc_number", ""),
+        "source_pc_id": pc.get("id", ""),
         "line_items": [],
     }
 
@@ -851,6 +930,7 @@ def generate_quote_from_rfq(rfq: dict, output_path: str, **kwargs) -> dict:
         "ship_to_name": del_parts[0] if del_parts else institution,
         "ship_to_address": del_parts[1:] if len(del_parts) > 1 else del_parts,
         "rfq_number": rfq.get("solicitation_number", ""),
+        "source_rfq_id": rfq.get("id", ""),
         "line_items": [],
     }
 

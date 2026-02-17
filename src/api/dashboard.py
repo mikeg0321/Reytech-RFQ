@@ -2580,21 +2580,37 @@ def quotes_list():
         "lost":    ("❌ Lost",    "#f85149", "rgba(248,113,113,.08)"),
         "pending": ("⏳ Pending", "#d29922", "rgba(210,153,34,.08)"),
         "draft":   ("📝 Draft",   "#8b949e", "rgba(139,148,160,.08)"),
+        "sent":    ("📤 Sent",    "#58a6ff", "rgba(88,166,255,.08)"),
+        "expired": ("⏰ Expired", "#8b949e", "rgba(139,148,160,.08)"),
     }
 
     rows_html = ""
     for qt in quotes:
         fname = os.path.basename(qt.get("pdf_path", ""))
-        dl = f'<a href="/api/pricecheck/download/{fname}" title="Download PDF">📥</a>' if fname else ""
+        dl = f'<a href="/api/pricecheck/download/{fname}" title="Download PDF" style="font-size:14px">📥</a>' if fname else ""
         st = qt.get("status", "pending")
-        # Fix DEFAULT agency on render using institution name
+
+        # Derive institution from ship_to if empty/missing
+        institution = qt.get("institution", "")
+        if not institution or institution.strip() == "":
+            ship_name = qt.get("ship_to_name", "")
+            if ship_name:
+                institution = ship_name
+            else:
+                # Try from items_text or rfq_number as last resort
+                institution = qt.get("rfq_number", "") or "—"
+
+        # Fix DEFAULT agency using institution name
         agency = qt.get("agency", "")
-        if agency in ("DEFAULT", "", None) and qt.get("institution") and QUOTE_GEN_AVAILABLE:
+        if agency in ("DEFAULT", "", None) and institution and QUOTE_GEN_AVAILABLE:
             try:
-                agency = _detect_agency({"institution": qt["institution"]})
+                agency = _detect_agency({"institution": institution})
             except Exception as e:
                 log.debug("Suppressed: %s", e)
-                agency = "DEFAULT"
+                agency = ""
+        if agency == "DEFAULT":
+            agency = ""
+
         lbl, color, bg = status_cfg.get(st, status_cfg["pending"])
         po = qt.get("po_number", "")
         po_html = f'<br><span style="font-size:10px;color:#8b949e">PO: {po}</span>' if po else ""
@@ -2616,19 +2632,25 @@ def quotes_list():
         detail_id = f"detail-{qn.replace(' ','')}"
         toggle = f"""<button onclick="document.getElementById('{detail_id}').style.display=document.getElementById('{detail_id}').style.display==='none'?'table-row':'none'" style="background:none;border:none;cursor:pointer;font-size:10px;color:var(--tx2);padding:0" title="Show items">▶ {qt.get('items_count',0)}</button>""" if (items_detail or items_text) else str(qt.get('items_count', 0))
 
-        rows_html += f"""<tr data-qn="{qn}" style="{'opacity:0.6' if st in ('won','lost') else ''}">
-         <td style="font-family:'JetBrains Mono',monospace;font-weight:700">{qn}</td>
-         <td>{qt.get('date','')}</td>
+        # Quote number links to dedicated detail page
+        qn_cell = f'<a href="/quote/{qn}" style="color:var(--ac);text-decoration:none;font-family:\'JetBrains Mono\',monospace;font-weight:700" title="View quote details">{qn}</a>'
+
+        # Decided rows get subtle opacity
+        row_style = "opacity:0.5" if st in ("won", "lost", "expired") else ""
+
+        rows_html += f"""<tr data-qn="{qn}" style="{row_style}">
+         <td>{qn_cell}</td>
+         <td class="mono" style="white-space:nowrap">{qt.get('date','')}</td>
          <td>{agency}</td>
-         <td style="max-width:260px;word-wrap:break-word;white-space:normal">{qt.get('institution','')}</td>
-         <td>{qt.get('rfq_number','')}</td>
+         <td style="max-width:300px;word-wrap:break-word;white-space:normal;font-weight:500">{institution}</td>
+         <td class="mono">{qt.get('rfq_number','')}</td>
          <td style="text-align:right;font-weight:600;font-family:'JetBrains Mono',monospace">${qt.get('total',0):,.2f}</td>
          <td style="text-align:center">{toggle}</td>
          <td style="text-align:center">
           <span style="display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;color:{color};background:{bg}">{lbl}</span>{po_html}
          </td>
          <td style="text-align:center;white-space:nowrap">
-          {"<span style=\"font-size:11px;color:#8b949e;padding:2px 6px\">decided</span>" if st in ("won","lost") else f"<button onclick=\"markQuote('{qn}','won')\" class=\"btn btn-sm\" style=\"background:rgba(52,211,153,.15);color:#3fb950;border:1px solid rgba(52,211,153,.3);padding:2px 6px;font-size:11px;cursor:pointer\" title=\"Mark Won\">✅</button><button onclick=\"markQuote('{qn}','lost')\" class=\"btn btn-sm\" style=\"background:rgba(248,113,113,.15);color:#f85149;border:1px solid rgba(248,113,113,.3);padding:2px 6px;font-size:11px;cursor:pointer\" title=\"Mark Lost\">❌</button>"}
+          {"<span style=\"font-size:11px;color:#8b949e;padding:2px 6px\">decided</span>" if st in ("won","lost") else f"<button onclick=\"markQuote('{qn}','won')\" class=\"btn btn-sm\" style=\"background:rgba(52,211,153,.15);color:#3fb950;border:1px solid rgba(52,211,153,.3);padding:2px 6px;font-size:11px;cursor:pointer\" title=\"Mark Won\">✅</button><button onclick=\"markQuote('{qn}','lost')\" class=\"btn btn-sm\" style=\"background:rgba(248,113,113,.15);color:#f85149;border:1px solid rgba(248,113,113,.3);padding:2px 6px;font-size:11px;cursor:pointer\" title=\"Mark Lost\">❌</button>" if st not in ("expired",) else "<span style=\"font-size:11px;color:#8b949e\">expired</span>"}
           {dl}
          </td>
         </tr>
@@ -2637,12 +2659,14 @@ def quotes_list():
     # Win rate stats bar
     wr = stats.get("win_rate", 0)
     wr_color = "#3fb950" if wr >= 50 else ("#d29922" if wr >= 30 else "#f85149")
+    expired_count = sum(1 for qt in quotes if qt.get("status") == "expired")
     stats_html = f"""
-     <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;font-size:13px">
+     <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;font-size:13px;font-family:'JetBrains Mono',monospace">
       <span><b>{stats['total']}</b> total</span>
       <span style="color:#3fb950"><b>{stats['won']}</b> won (${stats['won_total']:,.0f})</span>
       <span style="color:#f85149"><b>{stats['lost']}</b> lost</span>
       <span style="color:#d29922"><b>{stats['pending']}</b> pending</span>
+      {f'<span style="color:#8b949e"><b>{expired_count}</b> expired</span>' if expired_count else ''}
       <span>WR: <b style="color:{wr_color}">{wr}%</b></span>
       <span style="color:#8b949e">Next: <b style="color:var(--tx)">{next_num}</b></span>
      </div>
@@ -2652,6 +2676,167 @@ def quotes_list():
         stats_html=stats_html, q=q, agency_filter=agency_filter,
         status_filter=status_filter, logo_exists=logo_exists, rows_html=rows_html
     ), title="Quotes Database")
+
+
+@app.route("/quote/<qn>")
+def quote_detail(qn):
+    """Dedicated quote detail page."""
+    if not QUOTE_GEN_AVAILABLE:
+        flash("Quote generator not available", "error")
+        return redirect("/")
+    quotes = get_all_quotes()
+    qt = None
+    for q in quotes:
+        if q.get("quote_number") == qn:
+            qt = q
+            break
+    if not qt:
+        flash(f"Quote {qn} not found", "error")
+        return redirect("/quotes")
+
+    # Derive institution from ship_to if empty
+    institution = qt.get("institution", "")
+    if not institution or institution.strip() == "":
+        institution = qt.get("ship_to_name", "") or qt.get("rfq_number", "") or "—"
+
+    # Fix DEFAULT agency
+    agency = qt.get("agency", "")
+    if agency in ("DEFAULT", "", None) and institution:
+        try:
+            agency = _detect_agency({"institution": institution})
+        except Exception:
+            agency = ""
+    if agency == "DEFAULT":
+        agency = ""
+
+    st = qt.get("status", "pending")
+    fname = os.path.basename(qt.get("pdf_path", ""))
+    items = qt.get("items_detail", [])
+    source_link = ""
+    source_label = ""
+    if qt.get("source_pc_id"):
+        source_link = f'/pricecheck/{qt["source_pc_id"]}'
+        source_label = "Price Check"
+    elif qt.get("source_rfq_id"):
+        source_link = f'/rfq/{qt["source_rfq_id"]}'
+        source_label = "RFQ"
+
+    # Status config
+    status_cfg = {
+        "won":     ("✅ Won",     "var(--gn)", "rgba(52,211,153,.1)"),
+        "lost":    ("❌ Lost",    "var(--rd)", "rgba(248,113,113,.1)"),
+        "pending": ("⏳ Pending", "var(--yl)", "rgba(251,191,36,.1)"),
+        "draft":   ("📝 Draft",   "var(--tx2)", "rgba(139,148,160,.1)"),
+        "sent":    ("📤 Sent",    "var(--ac)", "rgba(79,140,255,.1)"),
+        "expired": ("⏰ Expired", "var(--tx2)", "rgba(139,148,160,.1)"),
+    }
+    lbl, color, bg = status_cfg.get(st, status_cfg["pending"])
+
+    # Items table rows
+    items_html = ""
+    for it in items:
+        desc = str(it.get("description", ""))
+        pn = it.get("part_number", "")
+        pn_cell = f'<a href="https://amazon.com/dp/{pn}" target="_blank" style="color:var(--ac)">{pn}</a>' if pn and pn.startswith("B0") else (pn or "—")
+        up = it.get("unit_price", 0)
+        qty = it.get("qty", 0)
+        items_html += f"""<tr>
+         <td style="color:var(--tx2)">{it.get('line_number', '')}</td>
+         <td style="max-width:400px;word-wrap:break-word;white-space:normal">{desc}</td>
+         <td class="mono">{pn_cell}</td>
+         <td class="mono" style="text-align:center">{qty}</td>
+         <td class="mono" style="text-align:right">${up:,.2f}</td>
+         <td class="mono" style="text-align:right;font-weight:600">${up*qty:,.2f}</td>
+        </tr>"""
+
+    # Status history
+    history = qt.get("status_history", [])
+    history_html = ""
+    for h in reversed(history[-10:]):
+        history_html += f'<div style="font-size:11px;color:var(--tx2);padding:3px 0"><span class="mono">{h.get("timestamp","")[:16]}</span> → <b>{h.get("status","")}</b>{" by " + h.get("actor","") if h.get("actor") else ""}{" (PO: " + h["po_number"] + ")" if h.get("po_number") else ""}</div>'
+
+    # Build action buttons separately to avoid f-string escaping
+    if st in ('pending', 'sent'):
+        action_btns = '<div style="border-top:1px solid var(--bd);margin-top:14px;padding-top:14px;display:flex;gap:8px;justify-content:center">'
+        action_btns += f'<button onclick="markQuote(&quot;{qn}&quot;,&quot;won&quot;)" class="btn btn-g" style="font-size:13px">✅ Mark Won</button>'
+        action_btns += f'<button onclick="markQuote(&quot;{qn}&quot;,&quot;lost&quot;)" class="btn" style="background:rgba(248,113,113,.15);color:var(--rd);border:1px solid rgba(248,113,113,.3);font-size:13px">❌ Mark Lost</button>'
+        action_btns += '</div>'
+    else:
+        action_btns = ""
+
+    content = f"""
+    <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px">
+     <a href="/quotes" class="btn btn-s" style="font-size:13px">← Quotes</a>
+     {f'<a href="{source_link}" class="btn btn-s" style="font-size:13px">📎 {source_label}</a>' if source_link else ''}
+     {f'<a href="/api/pricecheck/download/{fname}" class="btn btn-s" style="font-size:13px">📥 Download PDF</a>' if fname else ''}
+    </div>
+
+    <!-- Header -->
+    <div class="bento bento-2" style="margin-bottom:14px">
+     <div class="card" style="margin:0">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">
+       <div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:28px;font-weight:700">{qn}</div>
+        <div style="color:var(--tx2);font-size:12px;margin-top:4px">{agency}{' · ' if agency else ''}Generated {qt.get('date','')}</div>
+       </div>
+       <span style="padding:4px 12px;border-radius:12px;font-size:12px;font-weight:600;color:{color};background:{bg}">{lbl}</span>
+      </div>
+      <div class="meta-g" style="margin:0">
+       <div class="meta-i"><div class="meta-l">Institution</div><div class="meta-v">{institution}</div></div>
+       <div class="meta-i"><div class="meta-l">RFQ / PC #</div><div class="meta-v">{qt.get('rfq_number','—')}</div></div>
+       <div class="meta-i"><div class="meta-l">Items</div><div class="meta-v">{qt.get('items_count',0)}</div></div>
+       <div class="meta-i"><div class="meta-l">Expiry</div><div class="meta-v">{qt.get('expiry','—')}</div></div>
+       {'<div class="meta-i"><div class="meta-l">PO Number</div><div class="meta-v" style="color:var(--gn);font-weight:600">' + qt.get("po_number","") + '</div></div>' if qt.get("po_number") else ''}
+      </div>
+     </div>
+     <div class="card" style="margin:0">
+      <div style="text-align:center;padding:12px 0">
+       <div style="font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px">Quote Total</div>
+       <div style="font-family:'JetBrains Mono',monospace;font-size:36px;font-weight:700;color:var(--gn);margin:8px 0">${qt.get('total',0):,.2f}</div>
+       <div style="display:flex;justify-content:center;gap:16px;font-size:12px;color:var(--tx2)">
+        <span>Subtotal: <b>${qt.get('subtotal',0):,.2f}</b></span>
+        <span>Tax: <b>${qt.get('tax',0):,.2f}</b></span>
+       </div>
+      </div>
+      {'<div style="border-top:1px solid var(--bd);margin-top:14px;padding-top:14px"><div style="font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Status History</div>' + history_html + '</div>' if history_html else ''}
+      {action_btns}
+     </div>
+    </div>
+
+    <!-- Line Items -->
+    <div class="card">
+     <div class="card-t">Line Items</div>
+     <div style="overflow-x:auto">
+     <table class="home-tbl">
+      <thead><tr>
+       <th style="width:40px">#</th><th>Description</th><th style="width:120px">Part #</th>
+       <th style="width:60px;text-align:center">Qty</th><th style="width:90px;text-align:right">Unit Price</th><th style="width:90px;text-align:right">Extended</th>
+      </tr></thead>
+      <tbody>{items_html if items_html else '<tr><td colspan="6" style="text-align:center;padding:16px;color:var(--tx2)">No item details stored</td></tr>'}</tbody>
+     </table>
+     </div>
+    </div>
+
+    <script>
+    function markQuote(qn, status) {{
+      let po = '';
+      if (status === 'won') {{
+        po = prompt('PO number (optional):', '') || '';
+      }}
+      fetch('/quotes/' + qn + '/status', {{
+        method: 'POST',
+        headers: {{'Content-Type': 'application/json'}},
+        body: JSON.stringify({{status: status, po_number: po}})
+      }})
+      .then(r => r.json())
+      .then(d => {{
+        if (d.ok) {{ location.reload(); }}
+        else {{ alert('Error: ' + (d.error || 'unknown')); }}
+      }});
+    }}
+    </script>
+    """
+    return render(content, title=f"Quote {qn}")
 
 
 # ═══════════════════════════════════════════════════════════════════════

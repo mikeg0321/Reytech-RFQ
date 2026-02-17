@@ -168,7 +168,7 @@ def peek_next_quote_number() -> str:
 # QUOTES DATABASE — searchable log with Win/Loss tracking
 # ═══════════════════════════════════════════════════════════════════════════════
 
-VALID_STATUSES = ("pending", "won", "lost", "draft")
+VALID_STATUSES = ("pending", "won", "lost", "draft", "sent", "expired")
 
 def get_all_quotes() -> list:
     path = os.path.join(DATA_DIR, "quotes_log.json")
@@ -188,25 +188,47 @@ def _save_all_quotes(quotes: list):
 
 def search_quotes(query: str = "", agency: str = "", status: str = "",
                   limit: int = 50) -> list:
-    """Search quotes — full-text across all fields including items, PO, notes."""
+    """Search quotes — full-text across all fields including items, part numbers, ship_to."""
     quotes = get_all_quotes()
     q = query.lower()
     results = []
+    now = datetime.now()
     for qt in reversed(quotes):
+        # Auto-expire: if pending and older than 45 days, mark expired
+        if qt.get("status", "pending") == "pending":
+            try:
+                created = qt.get("created_at") or qt.get("date", "")
+                if created:
+                    if "T" in str(created):
+                        created_dt = datetime.fromisoformat(str(created).replace("Z", "+00:00")).replace(tzinfo=None)
+                    else:
+                        created_dt = datetime.strptime(str(created), "%b %d, %Y")
+                    if (now - created_dt).days > 45:
+                        qt["status"] = "expired"
+            except Exception:
+                pass
+
         if agency and qt.get("agency", "").lower() != agency.lower():
             continue
         if status and qt.get("status", "pending").lower() != status.lower():
             continue
         if q:
-            searchable = " ".join([
+            # Build searchable text from all fields including item details
+            parts = [
                 qt.get("quote_number", ""),
                 qt.get("institution", ""),
                 qt.get("rfq_number", ""),
                 qt.get("agency", ""),
                 qt.get("po_number", ""),
                 qt.get("status_notes", ""),
-                qt.get("items_text", ""),   # item descriptions
-            ]).lower()
+                qt.get("items_text", ""),
+                qt.get("ship_to_name", ""),
+            ]
+            # Add item descriptions and part numbers from items_detail
+            for item in qt.get("items_detail", []):
+                parts.append(str(item.get("description", "")))
+                parts.append(str(item.get("part_number", "")))
+            searchable = " ".join(parts).lower()
             if q not in searchable:
                 continue
         results.append(qt)
@@ -294,6 +316,8 @@ def _log_quote(result: dict):
         "pdf_path":      result.get("path", ""),
         "source_pc_id":  result.get("source_pc_id", ""),
         "source_rfq_id": result.get("source_rfq_id", ""),
+        "ship_to_name":  result.get("ship_to_name", ""),
+        "ship_to_address": result.get("ship_to_address", []),
     }
     
     if existing_idx is not None:
@@ -818,6 +842,8 @@ def generate_quote(
         "items_count": len(items),
         "date": quote_date,
         "expiry": expiry_date,
+        "ship_to_name": ship_name,
+        "ship_to_address": ship_addr,
         "items_text": " | ".join(
             str(it.get("description", ""))[:80] for it in items
         ),
