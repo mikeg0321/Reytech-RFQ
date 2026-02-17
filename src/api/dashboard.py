@@ -2846,6 +2846,14 @@ try:
 except ImportError:
     VOICE_AVAILABLE = False
 
+try:
+    from src.agents.manager_agent import (
+        generate_brief, get_agent_status as manager_agent_status,
+    )
+    MANAGER_AVAILABLE = True
+except ImportError:
+    MANAGER_AVAILABLE = False
+
 
 @bp.route("/api/identify", methods=["POST"])
 @auth_required
@@ -2909,6 +2917,7 @@ def api_agents_status():
         "email_outreach": outreach_agent_status() if OUTREACH_AVAILABLE else {"status": "not_available"},
         "growth_strategy": growth_agent_status() if GROWTH_AVAILABLE else {"status": "not_available"},
         "voice_calls": voice_agent_status() if VOICE_AVAILABLE else {"status": "not_available"},
+        "manager": manager_agent_status() if MANAGER_AVAILABLE else {"status": "not_available"},
     }
     try:
         from src.agents.product_research import get_research_cache_stats
@@ -2919,6 +2928,17 @@ def api_agents_status():
     return jsonify({"ok": True, "agents": agents,
                     "total": len(agents),
                     "active": sum(1 for a in agents.values() if a.get("status") != "not_available")})
+
+
+# ─── Manager Brief Routes ───────────────────────────────────────────────────
+
+@bp.route("/api/manager/brief")
+@auth_required
+def api_manager_brief():
+    """Manager brief — everything you need to know right now."""
+    if not MANAGER_AVAILABLE:
+        return jsonify({"ok": False, "error": "Manager agent not available"})
+    return jsonify({"ok": True, **generate_brief()})
 
 
 # ─── SCPRS Scanner Routes ───────────────────────────────────────────────────

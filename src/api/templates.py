@@ -50,6 +50,18 @@ a{color:var(--ac);text-decoration:none}
 .home-row{cursor:pointer;transition:background .12s}
 .home-row:hover{background:rgba(79,140,255,.06)}
 .home-row a{text-decoration:none}
+.brief-item{display:flex;justify-content:space-between;align-items:flex-start;padding:8px 10px;border-radius:8px;transition:background .12s;margin-bottom:2px}
+.brief-item:hover{background:var(--sf2)}
+.brief-item-left{display:flex;gap:10px;align-items:flex-start;min-width:0}
+.brief-icon{font-size:16px;flex-shrink:0;margin-top:1px}
+.brief-title{font-size:13px;font-weight:500;line-height:1.4}
+.brief-detail{font-size:11px;color:var(--tx2);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:280px}
+.brief-age{font-size:10px;color:var(--tx2);font-family:'JetBrains Mono',monospace;white-space:nowrap;flex-shrink:0;margin-top:3px}
+.brief-empty{font-size:12px;color:var(--tx2);padding:12px 10px;text-align:center;font-style:italic}
+.brief-count{font-size:10px;padding:1px 7px;border-radius:10px;background:rgba(251,191,36,.2);color:#fbbf24;font-weight:600;font-family:'JetBrains Mono',monospace}
+.stat-chip{background:var(--sf2);border:1px solid var(--bd);border-radius:8px;padding:8px 14px;min-width:85px;text-align:center}
+.stat-val{font-size:16px;font-weight:700;font-family:'JetBrains Mono',monospace;line-height:1.2}
+.stat-label{font-size:9px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:3px}
 .meta-g{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:20px}
 .meta-i{background:var(--sf2);border-radius:8px;padding:10px 12px}
 .meta-l{font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px}
@@ -100,11 +112,45 @@ PAGE_HOME = """
  </form>
 </div>
 
+<!-- Manager Brief — loads via AJAX -->
+<div id="brief-section" class="card" style="margin-bottom:20px;display:none">
+ <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">
+  <div>
+   <div class="card-t" style="margin:0;display:flex;align-items:center;gap:8px">
+    🧠 Manager Brief
+    <span id="brief-badge" style="font-size:10px;padding:2px 8px;border-radius:10px;background:var(--sf2);color:var(--tx2);font-weight:500"></span>
+   </div>
+   <div id="brief-headline" style="font-size:15px;font-weight:600;margin-top:8px;line-height:1.4"></div>
+  </div>
+  <a href="/agents" class="btn btn-sm btn-s" style="font-size:10px;padding:4px 10px;white-space:nowrap;margin-top:2px">📊 Full Report</a>
+ </div>
+
+ <!-- Two-column: Approvals | Activity -->
+ <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px" id="brief-grid">
+  <!-- Pending Approvals -->
+  <div>
+   <div style="font-size:11px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;display:flex;align-items:center;gap:6px">
+    Needs Your Attention <span id="approval-count" class="brief-count"></span>
+   </div>
+   <div id="approvals-list"></div>
+  </div>
+  <!-- Activity Feed -->
+  <div>
+   <div style="font-size:11px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">
+    Recent Activity
+   </div>
+   <div id="activity-list"></div>
+  </div>
+ </div>
+
+ <!-- Pipeline Stats Bar -->
+ <div id="pipeline-bar" style="display:flex;gap:12px;flex-wrap:wrap;margin-top:16px;padding-top:14px;border-top:1px solid var(--bd)"></div>
+</div>
+
 <!-- Price Checks — primary work queue -->
 <div class="card">
  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
   <div class="card-t" style="margin:0">Price Checks ({{price_checks|length}})</div>
-  <a href="/agents" class="btn btn-sm btn-s" style="font-size:10px;padding:4px 10px">📊 Growth Report</a>
  </div>
  {% if price_checks %}
  <table class="home-tbl">
@@ -186,21 +232,103 @@ PAGE_HOME = """
   </div>
  </form>
 </details>
+
 <script>
-const dz=document.getElementById('dz'),fi=document.getElementById('fi'),f=document.getElementById('uf');
+// ── Upload drag/drop ──
+const dz=document.getElementById('dz'),fi=document.getElementById('fi'),uf=document.getElementById('uf');
 if(dz){
  ['dragover','dragenter'].forEach(e=>dz.addEventListener(e,ev=>{ev.preventDefault();dz.style.borderColor='var(--ac)'}));
  ['dragleave','drop'].forEach(e=>dz.addEventListener(e,ev=>{ev.preventDefault();dz.style.borderColor='var(--bd)'}));
- dz.addEventListener('drop',ev=>{fi.files=ev.dataTransfer.files;f.submit()});
- fi.addEventListener('change',()=>{if(fi.files.length)f.submit()});
+ dz.addEventListener('drop',ev=>{fi.files=ev.dataTransfer.files;uf.submit()});
+ fi.addEventListener('change',()=>{if(fi.files.length)uf.submit()});
 }
-// Toggle arrow on details
+// ── Details arrow ──
 document.querySelectorAll('details').forEach(d=>{
  d.addEventListener('toggle',()=>{
   var arr=d.querySelector('.upload-arrow');
   if(arr) arr.style.transform=d.open?'rotate(90deg)':'rotate(0)';
  });
 });
+
+// ── Manager Brief (loads async) ──
+fetch('/api/manager/brief').then(r=>r.json()).then(data=>{
+ if(!data.ok) return;
+ var sec=document.getElementById('brief-section');
+ sec.style.display='block';
+
+ // Headline
+ document.getElementById('brief-headline').textContent=data.headline||'All clear';
+
+ // Badge
+ var badge=document.getElementById('brief-badge');
+ if(data.approval_count>0){
+  badge.textContent=data.approval_count+' pending';
+  badge.style.background='rgba(251,191,36,.15)';badge.style.color='#fbbf24';
+ } else {
+  badge.textContent='all clear';
+  badge.style.background='rgba(52,211,153,.15)';badge.style.color='#34d399';
+ }
+
+ // Approval count
+ var ac=document.getElementById('approval-count');
+ if(data.approval_count>0){
+  ac.textContent=data.approval_count;
+ }
+
+ // Approvals list
+ var al=document.getElementById('approvals-list');
+ if(data.pending_approvals && data.pending_approvals.length>0){
+  al.innerHTML=data.pending_approvals.map(function(a){
+   return '<div class="brief-item">'
+    +'<div class="brief-item-left">'
+    +'<span class="brief-icon">'+a.icon+'</span>'
+    +'<div><div class="brief-title">'+a.title+'</div>'
+    +(a.detail?'<div class="brief-detail">'+a.detail+'</div>':'')
+    +'</div></div>'
+    +(a.age?'<span class="brief-age">'+a.age+'</span>':'')
+    +'</div>';
+  }).join('');
+ } else {
+  al.innerHTML='<div class="brief-empty">Nothing pending — you\'re caught up</div>';
+ }
+
+ // Activity feed
+ var actList=document.getElementById('activity-list');
+ if(data.activity && data.activity.length>0){
+  actList.innerHTML=data.activity.map(function(a){
+   return '<div class="brief-item">'
+    +'<div class="brief-item-left">'
+    +'<span class="brief-icon">'+a.icon+'</span>'
+    +'<div><div class="brief-title">'+a.text+'</div>'
+    +(a.detail?'<div class="brief-detail">'+a.detail+'</div>':'')
+    +'</div></div>'
+    +(a.age?'<span class="brief-age">'+a.age+'</span>':'')
+    +'</div>';
+  }).join('');
+ } else {
+  actList.innerHTML='<div class="brief-empty">No recent activity</div>';
+ }
+
+ // Pipeline stats bar
+ var bar=document.getElementById('pipeline-bar');
+ var s=data.summary||{};
+ var pc=s.price_checks||{};var q=s.quotes||{};var l=s.leads||{};var ob=s.outbox||{};var rev=s.revenue||{};
+ var stats=[
+  {label:'PCs Active',value:pc.parsed+pc.priced,color:'var(--ac)'},
+  {label:'Quotes Pending',value:q.pending,color:'var(--yl)'},
+  {label:'Won',value:q.won,color:'var(--gn)'},
+  {label:'Lost',value:q.lost,color:'var(--rd)'},
+  {label:'Win Rate',value:q.win_rate+'%',color:q.win_rate>=50?'var(--gn)':'var(--yl)'},
+  {label:'Revenue',value:'$'+(rev.won_total||0).toLocaleString(),color:'var(--gn)'},
+  {label:'New Leads',value:l.new||0,color:'var(--ac)'},
+  {label:'Email Drafts',value:ob.drafts||0,color:ob.drafts>0?'var(--yl)':'var(--tx2)'},
+ ];
+ bar.innerHTML=stats.map(function(s){
+  return '<div class="stat-chip">'
+   +'<div class="stat-val" style="color:'+s.color+'">'+s.value+'</div>'
+   +'<div class="stat-label">'+s.label+'</div></div>';
+ }).join('');
+}).catch(function(){});
 </script>
 """
 
@@ -1725,6 +1853,15 @@ h1 {{ font-size:22px; margin-bottom:4px; }}
 <div id="fleet" class="section">
  <h2>Fleet Status <span class="tag tag-off" id="fleet-tag">loading...</span></h2>
  <div class="fleet" id="fleet-grid"><div class="loading">Loading agent status...</div></div>
+</div>
+
+<div class="section">
+ <h2>🧠 Manager Brief <span class="tag tag-ok">Active</span></h2>
+ <div class="grid">
+  <button class="btn btn-go" onclick="apiGet('/api/manager/brief')">
+   <span class="label">📋 Daily Brief</span><span class="desc">What needs attention right now</span>
+  </button>
+ </div>
 </div>
 
 <div class="section">

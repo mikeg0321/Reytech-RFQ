@@ -12,4 +12,5 @@ Modules:
     email_outreach     — Phase 14: Auto-draft + approve + send buyer emails
     growth_agent       — Phase 14: Win/loss analysis + strategy recommendations
     voice_agent        — Phase 14: AI voice calls (Twilio + ElevenLabs scaffold)
+    manager_agent      — Phase 14: Manager brief, pending approvals, activity feed
 """
