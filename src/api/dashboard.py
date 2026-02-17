@@ -966,7 +966,7 @@ def _load_price_checks():
         try:
             with open(path) as f:
                 return json.load(f)
-        except:
+        except Exception:
             return {}
     return {}
 
@@ -1002,7 +1002,7 @@ def update(rid):
             v = request.form.get(f"{field}_{i}")
             if v:
                 try: item[key] = float(v)
-                except: pass
+                except Exception: pass
     
     r["status"] = "ready"
     save_rfqs(rfqs)
@@ -1081,7 +1081,7 @@ def generate(rid):
             v = request.form.get(f"{field}_{i}")
             if v:
                 try: item[key] = float(v)
-                except: pass
+                except Exception: pass
     
     r["sign_date"] = get_pst_date()
     sol = r["solicitation_number"]
@@ -1326,7 +1326,7 @@ def pricecheck_detail(pcid):
             base = processed
         expiry = base + timedelta(days=45)
         expiry_date = expiry.strftime("%m/%d/%Y")
-    except:
+    except Exception:
         expiry_date = (datetime.now() + timedelta(days=45)).strftime("%m/%d/%Y")
 
     # Delivery dropdown state
@@ -2780,7 +2780,7 @@ def _api_diag_inner():
                     try:
                         with open(proc_file) as pf:
                             processed_uids = set(json.load(pf))
-                    except: pass
+                    except Exception: pass
                 
                 recent_uids = recent[0].split() if status3 == "OK" and recent[0] else []
                 new_to_process = [u.decode() for u in recent_uids if u.decode() not in processed_uids]
@@ -2820,7 +2820,7 @@ def _api_diag_inner():
             with open(proc_file) as f:
                 processed = json.load(f)
             diag["processed_emails"] = {"count": len(processed), "ids": processed[-10:] if isinstance(processed, list) else list(processed)[:10]}
-        except:
+        except Exception:
             diag["processed_emails"] = "corrupt file"
     else:
         diag["processed_emails"] = "file not found"
@@ -2956,7 +2956,7 @@ def api_debug_paths():
             if os.path.isdir(path_val):
                 try:
                     results[f"{path_name}_contents"] = os.listdir(path_val)
-                except:
+                except Exception:
                     results[f"{path_name}_contents"] = "permission denied"
             else:
                 results[f"{path_name}_exists"] = True
@@ -2970,7 +2970,7 @@ def api_debug_paths():
         if os.path.exists(check_path) and os.path.isdir(check_path):
             try:
                 results[f"check{key}_contents"] = os.listdir(check_path)
-            except:
+            except Exception:
                 results[f"check{key}_contents"] = "permission denied"
     return jsonify(results)
 
@@ -3472,7 +3472,7 @@ def api_tax_rate():
             )
             # Parse rate from response if possible
             # For now fall through to default — full CDTFA scraper is in main codebase
-        except:
+        except Exception:
             pass
     # Default CA rate — state govt PCs are typically tax-exempt anyway
     return jsonify({
