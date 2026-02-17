@@ -4683,8 +4683,11 @@ def api_voice_call():
     phone = data.get("phone", "")
     if not phone:
         return jsonify({"ok": False, "error": "Provide phone number in E.164 format"})
+    # Inject server URL for Vapi function calling webhook
+    variables = data.get("variables", {})
+    variables["server_url"] = request.url_root.rstrip("/") + "/api/voice/webhook"
     result = place_call(phone, script_key=data.get("script", "lead_intro"),
-                        variables=data.get("variables", {}))
+                        variables=variables)
     # CRM: log call
     ref_id = data.get("variables", {}).get("quote_number", "") or data.get("variables", {}).get("po_number", "")
     _log_crm_activity(ref_id or "outbound", "voice_call",
@@ -4739,6 +4742,49 @@ def api_voice_import_twilio():
     if not VOICE_AVAILABLE:
         return jsonify({"ok": False, "error": "Voice agent not available"})
     return jsonify(import_twilio_to_vapi())
+
+
+@bp.route("/api/voice/webhook", methods=["POST"])
+def api_voice_vapi_webhook():
+    """Vapi server URL webhook — handles function calls during live conversations.
+    No auth required — Vapi calls this endpoint during active calls."""
+    data = request.get_json(silent=True) or {}
+    msg_type = data.get("message", {}).get("type", "")
+
+    if msg_type == "function-call":
+        fn = data.get("message", {}).get("functionCall", {})
+        fn_name = fn.get("name", "")
+        fn_params = fn.get("parameters", {})
+
+        try:
+            from src.agents.voice_knowledge import handle_tool_call
+            result = handle_tool_call(fn_name, fn_params)
+            return jsonify({"results": [{"result": result}]})
+        except Exception as e:
+            log.error("Vapi webhook tool call failed: %s", e)
+            return jsonify({"results": [{"result": "I couldn't look that up right now."}]})
+
+    elif msg_type == "end-of-call-report":
+        # Log transcript to CRM
+        call = data.get("message", {}).get("call", {})
+        transcript = data.get("message", {}).get("transcript", "")
+        summary = data.get("message", {}).get("summary", "")
+        call_id = call.get("id", "")
+        phone = call.get("customer", {}).get("number", "")
+
+        if call_id:
+            _log_crm_activity(call_id, "voice_call_completed",
+                              f"Call to {phone} completed" + (f" — {summary[:200]}" if summary else ""),
+                              actor="system", metadata={
+                                  "call_id": call_id,
+                                  "phone": phone,
+                                  "transcript": transcript[:2000] if transcript else "",
+                                  "summary": summary[:500] if summary else "",
+                                  "duration": data.get("message", {}).get("durationSeconds", 0),
+                              })
+        return jsonify({"ok": True})
+
+    return jsonify({"ok": True})
 
 
 @bp.route("/api/voice/vapi-calls")

@@ -64,6 +64,12 @@ try:
 except ImportError:
     HAS_REQUESTS = False
 
+try:
+    from src.agents.voice_knowledge import build_call_context, VAPI_TOOLS, handle_tool_call
+    HAS_KNOWLEDGE = True
+except ImportError:
+    HAS_KNOWLEDGE = False
+
 
 def is_vapi_configured() -> bool:
     return bool(VAPI_API_KEY and HAS_REQUESTS)
@@ -262,7 +268,7 @@ def place_call(phone_number: str, script_key: str = "lead_intro",
 
 
 def _place_vapi_call(phone_number: str, script_key: str, variables: dict) -> dict:
-    """Place a conversational AI call via Vapi."""
+    """Place a conversational AI call via Vapi with full Reytech knowledge."""
     phone_id = get_or_create_vapi_phone()
     if not phone_id:
         return {"ok": False, "error": "No Vapi phone number available. Import Twilio number or create free one via /api/voice/import-twilio"}
@@ -284,6 +290,31 @@ def _place_vapi_call(phone_number: str, script_key: str, variables: dict) -> dic
     if variables.get("quote_number"):
         system_prompt += f"\nQuote Number: {variables['quote_number']}"
 
+    # ── Inject DB knowledge ──
+    if HAS_KNOWLEDGE:
+        knowledge_context = build_call_context(
+            institution=variables.get("institution", ""),
+            po_number=variables.get("po_number", ""),
+            quote_number=variables.get("quote_number", ""),
+            buyer_name=variables.get("buyer_name", ""),
+            buyer_email=variables.get("buyer_email", ""),
+        )
+        if knowledge_context:
+            system_prompt += knowledge_context
+
+    # Build model config with tools if knowledge available
+    model_config = {
+        "provider": "openai",
+        "model": "gpt-4o-mini",
+        "messages": [
+            {"role": "system", "content": system_prompt}
+        ],
+    }
+
+    # Add function calling tools for mid-call lookups
+    if HAS_KNOWLEDGE:
+        model_config["tools"] = VAPI_TOOLS
+
     # Create the call with transient assistant
     call_data = {
         "phoneNumberId": phone_id,
@@ -292,13 +323,7 @@ def _place_vapi_call(phone_number: str, script_key: str, variables: dict) -> dic
         },
         "assistant": {
             "firstMessage": first_msg,
-            "model": {
-                "provider": "openai",
-                "model": "gpt-4o-mini",
-                "messages": [
-                    {"role": "system", "content": system_prompt}
-                ],
-            },
+            "model": model_config,
             "voice": {
                 "provider": "11labs",
                 "voiceId": "burt",
@@ -310,6 +335,10 @@ def _place_vapi_call(phone_number: str, script_key: str, variables: dict) -> dic
             "name": "Reytech Sales",
         },
     }
+
+    # Set server URL for function calling webhook if we have tools
+    if HAS_KNOWLEDGE and variables.get("server_url"):
+        call_data["assistant"]["serverUrl"] = variables["server_url"]
 
     result = _vapi_request("POST", "call", call_data)
 
