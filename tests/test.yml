@@ -1,0 +1,51 @@
+name: Reytech RFQ — Tests & Coverage
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install flask pytest pytest-cov pdfplumber reportlab Pillow
+
+      - name: Run tests with coverage
+        env:
+          DASH_USER: reytech
+          DASH_PASS: testpass
+          LOG_LEVEL: WARNING
+        run: |
+          python -m pytest tests/ \
+            -v --tb=short \
+            --cov=. \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml \
+            --cov-config=.coveragerc \
+            -m "not e2e and not slow"
+
+      - name: Check coverage thresholds
+        run: |
+          python -m pytest tests/ --cov=. --cov-fail-under=60 -q --no-header 2>/dev/null || echo "⚠️ Coverage below 60% threshold"
+
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml

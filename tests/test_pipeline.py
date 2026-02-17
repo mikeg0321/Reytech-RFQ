@@ -103,7 +103,10 @@ class TestQuoteFromPCPDFContent:
     """Verify generated PDF contains correct business data."""
 
     def test_pdf_has_institution_and_prices(self, tmp_path, sample_pc):
-        from quote_generator import generate_quote_from_pc
+        try:
+            from src.forms.quote_generator import generate_quote_from_pc
+        except ImportError:
+            from quote_generator import generate_quote_from_pc
         out = str(tmp_path / "pipeline.pdf")
         r = generate_quote_from_pc(sample_pc, out, quote_number="PIPE1",
                                     include_tax=False)

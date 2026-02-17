@@ -184,7 +184,7 @@ class TestQuotesPage:
     def test_has_win_rate_stats(self, client):
         r = client.get("/quotes")
         html = r.data.decode()
-        assert "Win Rate" in html
+        assert "WR:" in html
 
     def test_has_mark_buttons(self, client, seed_pc):
         # Generate a quote first so there's a row

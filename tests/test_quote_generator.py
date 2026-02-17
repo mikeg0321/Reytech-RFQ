@@ -10,12 +10,20 @@ import os
 import json
 import pytest
 
-from quote_generator import (
-    generate_quote, generate_quote_from_pc, generate_quote_from_rfq,
-    _detect_agency, _next_quote_number, peek_next_quote_number,
-    get_all_quotes, search_quotes, AGENCY_CONFIGS,
-    update_quote_status, get_quote_stats, set_quote_counter,
-)
+try:
+    from src.forms.quote_generator import (
+        generate_quote, generate_quote_from_pc, generate_quote_from_rfq,
+        _detect_agency, _next_quote_number, peek_next_quote_number,
+        get_all_quotes, search_quotes, AGENCY_CONFIGS,
+        update_quote_status, get_quote_stats, set_quote_counter,
+    )
+except ImportError:
+    from quote_generator import (
+        generate_quote, generate_quote_from_pc, generate_quote_from_rfq,
+        _detect_agency, _next_quote_number, peek_next_quote_number,
+        get_all_quotes, search_quotes, AGENCY_CONFIGS,
+        update_quote_status, get_quote_stats, set_quote_counter,
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
