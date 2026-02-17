@@ -159,6 +159,11 @@ if os.environ.get("GMAIL_ADDRESS"):
 
 POLL_STATUS = {"running": False, "last_check": None, "emails_found": 0, "error": None}
 
+def _pst_now_iso():
+    """Return current PST datetime as ISO string (JS-parseable with time)."""
+    pst = timezone(timedelta(hours=-8))
+    return datetime.now(pst).isoformat()
+
 # ═══════════════════════════════════════════════════════════════════════
 # Password Protection
 # ═══════════════════════════════════════════════════════════════════════
@@ -272,7 +277,7 @@ def do_poll_check():
         if connected:
             log.info("IMAP connected, checking for RFQs...")
             rfq_emails = _shared_poller.check_for_rfqs(save_dir=UPLOAD_DIR)
-            POLL_STATUS["last_check"] = get_pst_date()
+            POLL_STATUS["last_check"] = _pst_now_iso()
             POLL_STATUS["error"] = None
             log.info(f"Poll check complete: {len(rfq_emails)} RFQ emails found")
             
