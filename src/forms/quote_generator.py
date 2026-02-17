@@ -269,8 +269,18 @@ def get_quote_stats() -> dict:
 def _log_quote(result: dict):
     quotes = get_all_quotes()
     now = datetime.now().isoformat()
-    quotes.append({
-        "quote_number":  result.get("quote_number"),
+    qn = result.get("quote_number")
+    
+    # Check if this quote number already exists (regeneration)
+    existing_idx = None
+    if qn:
+        for i, q in enumerate(quotes):
+            if q.get("quote_number") == qn:
+                existing_idx = i
+                break
+    
+    entry = {
+        "quote_number":  qn,
         "date":          result.get("date"),
         "agency":        result.get("agency"),
         "institution":   result.get("institution", ""),
@@ -282,16 +292,30 @@ def _log_quote(result: dict):
         "items_text":    result.get("items_text", ""),
         "items_detail":  result.get("items_detail", []),
         "pdf_path":      result.get("path", ""),
-        "status":        "pending",
-        "created_at":    now,
-        # Bidirectional linking — trace quote back to source document
         "source_pc_id":  result.get("source_pc_id", ""),
         "source_rfq_id": result.get("source_rfq_id", ""),
-        # Status lifecycle — every transition recorded
-        "status_history": [
+    }
+    
+    if existing_idx is not None:
+        # UPDATE existing — preserve status, history, and created_at
+        old = quotes[existing_idx]
+        entry["status"] = old.get("status", "pending")
+        entry["created_at"] = old.get("created_at", now)
+        entry["status_history"] = old.get("status_history", [])
+        entry["po_number"] = old.get("po_number", "")
+        entry["regenerated_at"] = now
+        entry["regeneration_count"] = old.get("regeneration_count", 0) + 1
+        quotes[existing_idx] = entry
+        log.info("Quote %s regenerated (update #%d)", qn, entry["regeneration_count"])
+    else:
+        # NEW quote
+        entry["status"] = "pending"
+        entry["created_at"] = now
+        entry["status_history"] = [
             {"status": "pending", "timestamp": now, "actor": "system"}
-        ],
-    })
+        ]
+        quotes.append(entry)
+    
     _save_all_quotes(quotes)
 
 # ═══════════════════════════════════════════════════════════════════════════════

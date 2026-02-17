@@ -2565,5 +2565,156 @@ def quotes_list():
     ), title="Quotes Database")
 
 
+# ═══════════════════════════════════════════════════════════════════════
+# Test Mode — QA/QC Infrastructure (Phase 12 Ready)
+# ═══════════════════════════════════════════════════════════════════════
+
+# Standard test fixture — realistic PC that exercises the full pipeline
+TEST_PC_FIXTURE = {
+    "header": {
+        "institution": "CSP-Sacramento (TEST)",
+        "requestor": "QA Tester",
+        "phone": "916-555-0100",
+    },
+    "ship_to": "CSP-Sacramento, 100 Prison Road, Represa, CA 95671",
+    "pc_number": "TEST-001",
+    "due_date": "",  # Will be set to 30 days from now
+    "items": [
+        {"item_number": "1", "description": "Nitrile Exam Gloves, Medium, Box/100",
+         "qty": 50, "uom": "BX", "pricing": {}},
+        {"item_number": "2", "description": "Hand Sanitizer, 8oz Pump Bottle",
+         "qty": 100, "uom": "EA", "pricing": {}},
+        {"item_number": "3", "description": "Stryker Patient Restraint Package, Standard",
+         "qty": 10, "uom": "KT", "pricing": {}},
+    ],
+}
+
+
+@bp.route("/api/test/create-pc")
+@auth_required
+def api_test_create_pc():
+    """Create a test Price Check with fixture data. Flagged as is_test=True."""
+    from copy import deepcopy
+    import uuid
+
+    fixture = deepcopy(TEST_PC_FIXTURE)
+    pc_id = f"test_{uuid.uuid4().hex[:8]}"
+    now = datetime.now()
+    fixture["due_date"] = (now + timedelta(days=30)).strftime("%m/%d/%Y")
+
+    # Auto-assign draft quote number
+    draft_qn = ""
+    if QUOTE_GEN_AVAILABLE:
+        try:
+            draft_qn = peek_next_quote_number()
+        except Exception:
+            pass
+
+    pcs = _load_price_checks()
+    pc_record = {
+        "id": pc_id,
+        "pc_number": fixture["pc_number"],
+        "institution": fixture["header"]["institution"],
+        "due_date": fixture["due_date"],
+        "requestor": fixture["header"]["requestor"],
+        "ship_to": fixture["ship_to"],
+        "items": fixture["items"],
+        "source_pdf": "",
+        "status": "parsed",
+        "status_history": [{"from": "", "to": "parsed", "timestamp": now.isoformat(), "actor": "test"}],
+        "created_at": now.isoformat(),
+        "parsed": fixture,
+        "reytech_quote_number": draft_qn,
+        "is_test": True,
+    }
+    pcs[pc_id] = pc_record
+    _save_price_checks(pcs)
+    log.info("TEST: Created test PC %s (%s)", pc_id, fixture["pc_number"])
+    return jsonify({"ok": True, "pc_id": pc_id, "url": f"/pricecheck/{pc_id}",
+                    "message": f"Test PC created: {fixture['pc_number']} with {len(fixture['items'])} items"})
+
+
+@bp.route("/api/test/cleanup")
+@auth_required
+def api_test_cleanup():
+    """Remove all test records and optionally reset quote counter."""
+    reset_counter = request.args.get("reset_counter", "false").lower() == "true"
+
+    # Clean PCs
+    pcs = _load_price_checks()
+    test_pcs = [k for k, v in pcs.items() if v.get("is_test")]
+    for k in test_pcs:
+        del pcs[k]
+    _save_price_checks(pcs)
+
+    # Clean RFQs
+    rfqs = load_rfqs()
+    test_rfqs = [k for k, v in rfqs.items() if v.get("is_test")]
+    for k in test_rfqs:
+        del rfqs[k]
+    if test_rfqs:
+        save_rfqs(rfqs)
+
+    # Clean quotes
+    test_quotes = 0
+    if QUOTE_GEN_AVAILABLE:
+        quotes = get_all_quotes()
+        original_len = len(quotes)
+        clean_quotes = [q for q in quotes if not q.get("source_pc_id", "").startswith("test_")]
+        test_quotes = original_len - len(clean_quotes)
+        if test_quotes > 0:
+            # Use quote_generator's save
+            from src.forms.quote_generator import _save_all_quotes
+            _save_all_quotes(clean_quotes)
+
+    # Reset quote counter
+    counter_reset = ""
+    if reset_counter and QUOTE_GEN_AVAILABLE:
+        # Find highest non-test quote number
+        quotes = get_all_quotes()
+        if quotes:
+            nums = [q.get("quote_number", "") for q in quotes]
+            # Parse R26Q15 → 15
+            max_n = 0
+            for n in nums:
+                try:
+                    max_n = max(max_n, int(n.split("Q")[-1]))
+                except Exception:
+                    pass
+            set_quote_counter(max_n)
+            counter_reset = f"Counter reset to {max_n}"
+        else:
+            set_quote_counter(0)
+            counter_reset = "Counter reset to 0"
+
+    log.info("TEST CLEANUP: %d PCs, %d RFQs, %d quotes removed. %s",
+             len(test_pcs), len(test_rfqs), test_quotes, counter_reset)
+    return jsonify({
+        "ok": True,
+        "removed": {"pcs": len(test_pcs), "rfqs": len(test_rfqs), "quotes": test_quotes},
+        "counter_reset": counter_reset,
+        "message": f"Cleaned {len(test_pcs)} test PCs, {len(test_rfqs)} RFQs, {test_quotes} quotes. {counter_reset}",
+    })
+
+
+@bp.route("/api/test/status")
+@auth_required
+def api_test_status():
+    """Show current test data in the system."""
+    pcs = _load_price_checks()
+    test_pcs = {k: {"pc_number": v.get("pc_number"), "status": v.get("status"), "institution": v.get("institution")}
+                for k, v in pcs.items() if v.get("is_test")}
+    test_quotes = []
+    if QUOTE_GEN_AVAILABLE:
+        for q in get_all_quotes():
+            if q.get("source_pc_id", "").startswith("test_"):
+                test_quotes.append({"quote_number": q.get("quote_number"), "total": q.get("total", 0)})
+    return jsonify({
+        "test_pcs": test_pcs,
+        "test_quotes": test_quotes,
+        "counts": {"pcs": len(test_pcs), "quotes": len(test_quotes)},
+    })
+
+
 # Start polling on import (for gunicorn) and on direct run
 start_polling()

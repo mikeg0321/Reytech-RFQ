@@ -582,6 +582,7 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
     <div class="card">
      <h1>Price Check #{pc.get('pc_number','unknown')}
       <span class="status status-{pc.get('status','parsed')}">{pc.get('status','parsed').upper()}</span></h1>
+     {"<div style='margin:10px 0;padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(52,211,153,.08);border:1px solid rgba(52,211,153,.25);color:#3fb950'><span style=font-size:18px>✅</span><div><b>Quote Generated</b> — " + pc.get('reytech_quote_number','') + "<br><span style=color:#8b949e;font-size:12px>Prices locked. Download below or regenerate to update.</span></div></div>" if pc.get('status') in ('completed','converted') and pc.get('reytech_quote_number') else "<div style='margin:10px 0;padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(88,166,255,.08);border:1px solid rgba(88,166,255,.25);color:#58a6ff'><span style=font-size:18px>🔵</span><div><b>Priced</b> — ready to generate quote<br><span style=color:#8b949e;font-size:12px>Review prices below, then click Generate Quote.</span></div></div>" if pc.get('status') == 'priced' else ""}
      <div class="meta" style="margin-top:8px">
       <b>Institution:</b> {header.get('institution',pc.get('institution',''))} &nbsp;|&nbsp;
       <b>Requestor:</b> {header.get('requestor',pc.get('requestor',''))} &nbsp;|&nbsp;
@@ -1258,12 +1259,30 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
     }}
 
     // ── CRM Customer Card + Quote History (loads on page) ─────────────────────
+    // Timeout wrapper for fetch — Railway cold starts can hang
+    function fetchWithTimeout(url, ms=8000) {{
+      const ctrl = new AbortController();
+      const timer = setTimeout(()=>ctrl.abort(), ms);
+      return fetch(url, {{signal:ctrl.signal}}).finally(()=>clearTimeout(timer));
+    }}
+    function retryFetch(url, attempts=2, ms=8000) {{
+      return fetchWithTimeout(url, ms).catch(err => {{
+        if (attempts <= 1) throw err;
+        return new Promise(r=>setTimeout(r,1500)).then(()=>retryFetch(url,attempts-1,ms));
+      }});
+    }}
+
     (function loadCrmAndHistory() {{
      const inst = PC_META.institution;
-     if (!inst) return;
+     if (!inst) {{
+       document.getElementById('crmBody').innerHTML='<span style="color:#8b949e">No institution detected</span>';
+       document.getElementById('historyBody').innerHTML='<span style="color:#8b949e">No institution — upload a valid PC</span>';
+       return;
+     }}
 
-     // CRM match
-     fetch('/api/customers/match?q=' + encodeURIComponent(inst))
+     // CRM match — with retry
+     document.getElementById('crmBody').innerHTML='<span style="color:#8b949e">🔄 Loading CRM...</span>';
+     retryFetch('/api/customers/match?q=' + encodeURIComponent(inst))
      .then(r=>r.json())
      .then(d=>{{
       const card = document.getElementById('crmBody');
@@ -1299,12 +1318,13 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
        html += '<button onclick="addNewCustomer()" class="btn btn-sm" data-testid="crm-add-customer" style="margin-top:8px;background:rgba(210,153,34,.15);color:#d29922;border:1px solid rgba(210,153,34,.3);font-size:11px;padding:3px 10px;cursor:pointer">+ Add to CRM</button>';
        card.innerHTML = html;
       }}
-     }}).catch(()=>{{
-      document.getElementById('crmBody').innerHTML='<span style="color:#8b949e">CRM unavailable</span>';
+     }}).catch((err)=>{{
+      document.getElementById('crmBody').innerHTML='<span style="color:#f85149">⚠️ CRM load failed</span><br><span style="color:#8b949e;font-size:11px">' + (err.name==='AbortError'?'Timeout — server may be starting up':'Network error') + '</span><br><button onclick="location.reload()" style="margin-top:6px;font-size:11px;background:none;border:1px solid var(--bd);color:var(--tx2);padding:3px 10px;border-radius:4px;cursor:pointer">↻ Retry</button>';
      }});
 
      // Quote history for this institution — with hyperlinks and hover previews
-     fetch('/api/quotes/history?institution=' + encodeURIComponent(inst))
+     document.getElementById('historyBody').innerHTML='<span style="color:#8b949e">🔄 Loading history...</span>';
+     retryFetch('/api/quotes/history?institution=' + encodeURIComponent(inst))
      .then(r=>r.json())
      .then(history=>{{
       const el = document.getElementById('historyBody');
@@ -1384,8 +1404,8 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
        html += '</div>';
       }});
       el.innerHTML = html;
-     }}).catch(()=>{{
-      document.getElementById('historyBody').innerHTML='<span style="color:#8b949e">History unavailable</span>';
+     }}).catch((err)=>{{
+      document.getElementById('historyBody').innerHTML='<span style="color:#f85149">⚠️ History load failed</span><br><span style="color:#8b949e;font-size:11px">' + (err.name==='AbortError'?'Timeout — server may be starting up':'Network error') + '</span><br><button onclick="location.reload()" style="margin-top:6px;font-size:11px;background:none;border:1px solid var(--bd);color:var(--tx2);padding:3px 10px;border-radius:4px;cursor:pointer">↻ Retry</button>';
      }});
     }})();
 
@@ -1419,10 +1439,7 @@ def build_quotes_page_content(stats_html, q, agency_filter, status_filter,
     """
     return f"""
      <!-- Logo + Title Header -->
-     <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px">
-      {"<img src='/api/logo' alt='Reytech Logo' style='height:48px;border-radius:6px'>" if logo_exists else ""}
-      <h2 style="margin:0">📋 Reytech Quotes Database</h2>
-     </div>
+     <h2 style="margin-bottom:16px">📋 Reytech Quotes Database</h2>
 
      <!-- Stats Bar -->
      <div class="card" style="margin-bottom:12px;padding:14px">{stats_html}</div>
@@ -1448,12 +1465,11 @@ def build_quotes_page_content(stats_html, q, agency_filter, status_filter,
       </form>
      </div>
 
-     <!-- Logo Management -->
+     <!-- Logo Management (for PDF quotes only) -->
      <div class="card" style="margin-bottom:12px;padding:14px">
       <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
-       {"<img src='/api/logo' alt='Logo' style='height:36px;border-radius:4px;border:1px solid var(--bd)'>" if logo_exists else ""}
-       <span style="font-size:13px">Logo: {"✅ Uploaded — used on generated quote PDFs" if logo_exists else "❌ Not uploaded (text fallback on PDFs)"}</span>
-       <form method="post" action="/settings/upload-logo" enctype="multipart/form-data" style="display:flex;gap:8px;align-items:center">
+       <span style="font-size:13px">PDF Logo: {"✅ Uploaded — appears on generated quote PDFs" if logo_exists else "❌ Not uploaded — text fallback on PDFs"}</span>
+       <form method="post" action="/settings/upload-logo" enctype="multipart/form-data" style="display:flex;gap:8px;align-items:center;margin-left:auto">
         <input type="file" name="logo" accept=".png,.jpg,.jpeg,.gif" style="font-size:13px">
         <button type="submit" class="btn btn-sm btn-g">Upload Logo</button>
        </form>
