@@ -4063,6 +4063,7 @@ def api_predict_batch():
 
 
 @bp.route("/api/intel/competitors")
+@bp.route("/api/competitor/insights")
 @auth_required
 def api_competitor_insights():
     """Competitor intelligence summary.
@@ -4077,6 +4078,7 @@ def api_competitor_insights():
 
 
 @bp.route("/api/shipping/scan-email", methods=["POST"])
+@bp.route("/api/shipping/detect", methods=["POST"])
 @auth_required
 def api_shipping_scan():
     """Scan an email for shipping/tracking info. POST: {subject, body, sender}"""
@@ -4992,69 +4994,6 @@ def api_crm_agency_summary(agency_name):
 
 
 # ─── Lead Generation Routes ─────────────────────────────────────────────────
-
-@bp.route("/api/predict/win")
-@auth_required
-def api_predict_win():
-    """Predict win probability for a bid.
-    ?institution=CSP-Sacramento&agency=CDCR&value=5000"""
-    if not PREDICT_AVAILABLE:
-        return jsonify({"ok": False, "error": "Predictive intel not available"})
-    result = predict_win_probability(
-        institution=request.args.get("institution", ""),
-        agency=request.args.get("agency", ""),
-        category=request.args.get("category", ""),
-        po_value=float(request.args.get("value", 0)),
-    )
-    return jsonify({"ok": True, **result})
-
-
-@bp.route("/api/competitor/insights")
-@bp.route("/api/intel/competitors")
-@auth_required
-def api_competitor_insights():
-    """Get competitor intelligence summary.
-    ?institution=CSP-Sacramento&agency=CDCR&limit=20"""
-    if not PREDICT_AVAILABLE:
-        return jsonify({"ok": False, "error": "Predictive intel not available"})
-    result = get_competitor_insights(
-        institution=request.args.get("institution", ""),
-        agency=request.args.get("agency", ""),
-        limit=int(request.args.get("limit", 20)),
-    )
-    return jsonify({"ok": True, **result})
-
-
-@bp.route("/api/shipping/detect", methods=["POST"])
-@bp.route("/api/shipping/scan-email", methods=["POST"])
-@auth_required
-def api_shipping_detect():
-    """Test shipping email detection. POST: {subject, body, sender}"""
-    if not PREDICT_AVAILABLE:
-        return jsonify({"ok": False, "error": "Predictive intel not available"})
-    data = request.get_json(silent=True) or {}
-    result = detect_shipping_email(
-        subject=data.get("subject", ""),
-        body=data.get("body", ""),
-        sender=data.get("sender", ""),
-    )
-    # If shipping detected, try to match to order
-    if result.get("is_shipping"):
-        orders = _load_orders()
-        matched_oid = match_tracking_to_order(result, orders)
-        result["matched_order"] = matched_oid
-        if matched_oid and data.get("auto_update"):
-            update_result = update_order_from_tracking(matched_oid, result, orders)
-            if update_result.get("updated_items"):
-                _save_orders(orders)
-                _update_order_status(matched_oid)
-                _log_crm_activity(matched_oid, "tracking_auto_detected",
-                                  f"Shipping detected from {data.get('sender','')}: "
-                                  f"{result.get('carrier','')} {', '.join(result.get('tracking_numbers',[])[:2])}",
-                                  actor="system", metadata=result)
-            result["auto_update_result"] = update_result
-    return jsonify({"ok": True, **result})
-
 
 @bp.route("/api/shipping/detected")
 @auth_required
