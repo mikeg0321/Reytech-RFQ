@@ -523,6 +523,7 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
      input[type=number]::-webkit-outer-spin-button,input[type=number]::-webkit-inner-spin-button{{-webkit-appearance:none;margin:0}}
      .text-in{{background:#0d1117;border:1px solid #484f58;color:#e6edf3;padding:6px 8px;border-radius:5px;font-size:14px;font-family:'Segoe UI',system-ui,sans-serif}}
      .text-in:focus{{border-color:#58a6ff;outline:none;box-shadow:0 0 0 2px #1f6feb44}}
+     textarea.text-in{{resize:vertical;min-height:38px;line-height:1.4}}
      .msg{{padding:10px 14px;border-radius:6px;margin:8px 0;font-size:14px}}
      .msg-ok{{background:#23863622;color:#3fb950;border:1px solid #23863655}}
      .msg-warn{{background:#9e6a0322;color:#d29922;border:1px solid #9e6a0355}}
@@ -665,7 +666,7 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
     <div class="card">
      <h3 style="margin-top:0;font-size:18px">Line Items <span id="itemCount" style="font-weight:normal;color:#8b949e;font-size:15px">({len(items)} items)</span></h3>
      <table id="itemsTable">
-      <tr><th style="width:28px">Bid</th><th>#</th><th>Qty</th><th>UOM</th><th>Description</th><th>SCPRS $</th><th>Amazon $</th><th>Amazon Match</th><th>Unit Cost</th><th>Markup</th><th>Our Price</th><th>Extension</th><th>Profit</th><th>Conf</th></tr>
+      <tr><th style="width:28px">Bid</th><th>#</th><th>Qty</th><th>UOM</th><th style="min-width:280px">Description</th><th>SCPRS $</th><th>Amazon $</th><th>Amazon Match</th><th>Unit Cost</th><th>Markup</th><th>Our Price</th><th>Extension</th><th>Profit</th><th>Conf</th></tr>
       {items_html}
      </table>
      <div style="margin-top:8px">
@@ -827,7 +828,7 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
       +'<td><input type="number" name="itemnum_'+idx+'" value="'+(idx+1)+'" class="num-in sm" style="width:40px"></td>'
       +'<td><input type="number" name="qty_'+idx+'" value="1" class="num-in sm" style="width:55px" onchange="recalcPC()"></td>'
       +'<td><input type="text" name="uom_'+idx+'" value="EA" class="text-in" style="width:45px;text-transform:uppercase;text-align:center;font-weight:600"></td>'
-      +'<td><input type="text" name="desc_'+idx+'" value="" class="text-in" style="width:100%" placeholder="Enter description"></td>'
+      +'<td><textarea name="desc_'+idx+'" class="text-in" style="width:100%;min-height:38px;resize:vertical;font-size:13px;line-height:1.4;padding:6px 8px" placeholder="Enter description"></textarea></td>'
       +'<td>—</td><td>—</td><td>—</td>'
       +'<td><input type="number" step="0.01" min="0" name="cost_'+idx+'" value="" class="num-in" onchange="recalcRow('+idx+')"></td>'
       +'<td><input type="number" step="1" min="0" max="200" name="markup_'+idx+'" value="25" class="num-in sm" style="width:48px" onchange="recalcRow('+idx+')"><span style="color:#8b949e;font-size:13px">%</span></td>'
@@ -1417,7 +1418,11 @@ def build_quotes_page_content(stats_html, q, agency_filter, status_filter,
     Extracted from dashboard.py. Returns content string for the render() wrapper.
     """
     return f"""
-     <h2 style="margin-bottom:12px">📋 Reytech Quotes Database</h2>
+     <!-- Logo + Title Header -->
+     <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px">
+      {"<img src='/api/logo' alt='Reytech Logo' style='height:48px;border-radius:6px'>" if logo_exists else ""}
+      <h2 style="margin:0">📋 Reytech Quotes Database</h2>
+     </div>
 
      <!-- Stats Bar -->
      <div class="card" style="margin-bottom:12px;padding:14px">{stats_html}</div>
@@ -1443,10 +1448,11 @@ def build_quotes_page_content(stats_html, q, agency_filter, status_filter,
       </form>
      </div>
 
-     <!-- Logo Upload -->
+     <!-- Logo Management -->
      <div class="card" style="margin-bottom:12px;padding:14px">
       <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
-       <span>Logo: {"✅ Uploaded" if logo_exists else "❌ Not uploaded (text fallback)"}</span>
+       {"<img src='/api/logo' alt='Logo' style='height:36px;border-radius:4px;border:1px solid var(--bd)'>" if logo_exists else ""}
+       <span style="font-size:13px">Logo: {"✅ Uploaded — used on generated quote PDFs" if logo_exists else "❌ Not uploaded (text fallback on PDFs)"}</span>
        <form method="post" action="/settings/upload-logo" enctype="multipart/form-data" style="display:flex;gap:8px;align-items:center">
         <input type="file" name="logo" accept=".png,.jpg,.jpeg,.gif" style="font-size:13px">
         <button type="submit" class="btn btn-sm btn-g">Upload Logo</button>
@@ -1456,10 +1462,10 @@ def build_quotes_page_content(stats_html, q, agency_filter, status_filter,
 
      <!-- Quotes Table -->
      <div class="card" style="padding:0;overflow-x:auto">
-      <table>
+      <table style="min-width:900px">
        <thead><tr>
-        <th>Quote #</th><th>Date</th><th>Agency</th><th>Institution</th><th>RFQ #</th>
-        <th style="text-align:right">Total</th><th>Items</th><th>Status</th><th>Actions</th>
+        <th style="width:80px">Quote #</th><th style="width:100px">Date</th><th style="width:70px">Agency</th><th style="min-width:180px">Institution</th><th style="width:90px">RFQ #</th>
+        <th style="text-align:right;width:90px">Total</th><th style="width:50px">Items</th><th style="width:80px">Status</th><th style="width:100px">Actions</th>
        </tr></thead>
        <tbody>{rows_html if rows_html else '<tr><td colspan="9" style="text-align:center;padding:24px;color:var(--tx2)">No quotes yet — generate your first from a Price Check or RFQ</td></tr>'}</tbody>
       </table>

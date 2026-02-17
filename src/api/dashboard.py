@@ -894,7 +894,7 @@ def pricecheck_detail(pcid):
          <td><input type="number" name="itemnum_{idx}" value="{item.get('item_number','')}" class="num-in sm" style="width:40px"></td>
          <td><input type="number" name="qty_{idx}" value="{qty}" class="num-in sm" style="width:55px" onchange="recalcPC()"></td>
          <td><input type="text" name="uom_{idx}" value="{item.get('uom','EA').upper()}" class="text-in" style="width:45px;text-transform:uppercase;text-align:center;font-weight:600"></td>
-         <td><input type="text" name="desc_{idx}" value="{display_desc.replace('"','&quot;')}" class="text-in" style="width:100%" title="{raw_desc.replace('"','&quot;')}"></td>
+         <td><textarea name="desc_{idx}" class="text-in" style="width:100%;min-height:38px;resize:vertical;font-family:inherit;font-size:13px;line-height:1.4;padding:6px 8px" title="{raw_desc.replace('"','&quot;').replace('<','&lt;')}">{display_desc.replace('&','&amp;').replace('<','&lt;').replace('>','&gt;')}</textarea></td>
          <td style="font-weight:600;font-size:14px">{scprs_str}{scprs_badge}</td>
          <td style="font-weight:600;font-size:14px" {amazon_data}>{amazon_str}</td>
          <td style="font-size:12px;max-width:180px">{link}</td>
@@ -2445,6 +2445,17 @@ def upload_logo():
     return redirect(request.referrer or "/")
 
 
+@bp.route("/api/logo")
+@auth_required
+def serve_logo():
+    """Serve the uploaded Reytech logo."""
+    for ext in ("png", "jpg", "jpeg", "gif"):
+        path = os.path.join(DATA_DIR, f"reytech_logo.{ext}")
+        if os.path.exists(path):
+            return send_file(path)
+    return "", 404
+
+
 @bp.route("/quotes/<quote_number>/status", methods=["POST"])
 @auth_required
 def quote_update_status(quote_number):
@@ -2519,7 +2530,7 @@ def quotes_list():
          <td style="font-family:'JetBrains Mono',monospace;font-weight:700">{qn}</td>
          <td>{qt.get('date','')}</td>
          <td>{qt.get('agency','')}</td>
-         <td style="max-width:200px">{qt.get('institution','')[:40]}</td>
+         <td style="max-width:260px;word-wrap:break-word;white-space:normal">{qt.get('institution','')}</td>
          <td>{qt.get('rfq_number','')}</td>
          <td style="text-align:right;font-weight:600;font-family:'JetBrains Mono',monospace">${qt.get('total',0):,.2f}</td>
          <td style="text-align:center">{toggle}</td>
