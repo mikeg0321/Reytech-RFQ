@@ -384,6 +384,114 @@ def _find_quote(quote_number: str) -> dict:
     return None
 
 # ═══════════════════════════════════════════════════════════════════════
+# Order Management System — Phase 17
+# ═══════════════════════════════════════════════════════════════════════
+
+ORDERS_FILE = os.path.join(DATA_DIR, "orders.json")
+
+def _load_orders() -> dict:
+    try:
+        with open(ORDERS_FILE) as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+def _save_orders(orders: dict):
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(ORDERS_FILE, "w") as f:
+        json.dump(orders, f, indent=2, default=str)
+
+def _create_order_from_quote(qt: dict, po_number: str = "") -> dict:
+    """Create an order when a quote is won."""
+    qn = qt.get("quote_number", "")
+    oid = f"ORD-{qn}" if qn else f"ORD-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+
+    line_items = []
+    for i, it in enumerate(qt.get("items_detail", [])):
+        pn = it.get("part_number", "")
+        supplier_url = ""
+        if pn and pn.startswith("B0"):
+            supplier_url = f"https://amazon.com/dp/{pn}"
+        line_items.append({
+            "line_id": f"L{i+1:03d}",
+            "description": it.get("description", ""),
+            "part_number": pn,
+            "qty": it.get("qty", 0),
+            "unit_price": it.get("unit_price", 0),
+            "extended": round(it.get("qty", 0) * it.get("unit_price", 0), 2),
+            "supplier": it.get("supplier", "Amazon") if pn and pn.startswith("B0") else "",
+            "supplier_url": supplier_url,
+            "sourcing_status": "pending",    # pending → ordered → shipped → delivered
+            "tracking_number": "",
+            "carrier": "",
+            "ship_date": "",
+            "delivery_date": "",
+            "invoice_status": "pending",     # pending → partial → invoiced
+            "invoice_number": "",
+            "notes": "",
+        })
+
+    order = {
+        "order_id": oid,
+        "quote_number": qn,
+        "po_number": po_number,
+        "agency": qt.get("agency", ""),
+        "institution": qt.get("institution", "") or qt.get("ship_to_name", ""),
+        "ship_to_name": qt.get("ship_to_name", ""),
+        "ship_to_address": qt.get("ship_to_address", []),
+        "total": qt.get("total", 0),
+        "subtotal": qt.get("subtotal", 0),
+        "tax": qt.get("tax", 0),
+        "line_items": line_items,
+        "status": "new",  # new → sourcing → shipped → partial_delivery → delivered → invoiced → closed
+        "invoice_type": "",  # partial or full
+        "invoice_total": 0,
+        "created_at": datetime.now().isoformat(),
+        "updated_at": datetime.now().isoformat(),
+        "status_history": [{"status": "new", "timestamp": datetime.now().isoformat(), "actor": "system"}],
+    }
+
+    orders = _load_orders()
+    orders[oid] = order
+    _save_orders(orders)
+    _log_crm_activity(qn, "order_created",
+                      f"Order {oid} created from quote {qn} — ${qt.get('total',0):,.2f}",
+                      actor="system", metadata={"order_id": oid, "institution": order["institution"]})
+    return order
+
+def _update_order_status(oid: str):
+    """Auto-calculate order status from line item statuses."""
+    orders = _load_orders()
+    order = orders.get(oid)
+    if not order:
+        return
+    items = order.get("line_items", [])
+    if not items:
+        return
+    statuses = [it.get("sourcing_status", "pending") for it in items]
+    inv_statuses = [it.get("invoice_status", "pending") for it in items]
+
+    if all(s == "delivered" for s in statuses):
+        if all(s == "invoiced" for s in inv_statuses):
+            order["status"] = "closed"
+        elif any(s == "invoiced" for s in inv_statuses):
+            order["status"] = "invoiced"
+        else:
+            order["status"] = "delivered"
+    elif any(s == "delivered" for s in statuses):
+        order["status"] = "partial_delivery"
+    elif any(s == "shipped" for s in statuses):
+        order["status"] = "shipped"
+    elif any(s == "ordered" for s in statuses):
+        order["status"] = "sourcing"
+    else:
+        order["status"] = "new"
+
+    order["updated_at"] = datetime.now().isoformat()
+    orders[oid] = order
+    _save_orders(orders)
+
+# ═══════════════════════════════════════════════════════════════════════
 # HTML Templates (extracted to src/api/templates.py)
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -414,6 +522,7 @@ def render(content, **kw):
  <div style="display:flex;align-items:center;gap:6px">
   <a href="/" class="hdr-btn hdr-active">🏠 Home</a>
   <a href="/quotes" class="hdr-btn">📋 Quotes</a>
+  <a href="/orders" class="hdr-btn">📦 Orders</a>
   <a href="/agents" class="hdr-btn">🤖 Agents</a>
   <span style="width:1px;height:24px;background:var(--bd);margin:0 6px"></span>
   <button class="hdr-btn" onclick="pollNow(this)" id="poll-btn">⚡ Check Now</button>
@@ -2702,6 +2811,18 @@ def quote_update_status(quote_number):
                           f"Quote {quote_number} marked LOST" + (f" — {notes}" if notes else ""),
                           actor="user")
 
+    # ── Create Order for won quotes ──
+    if new_status == "won":
+        try:
+            qt = _find_quote(quote_number)
+            if qt:
+                order = _create_order_from_quote(qt, po_number=po_number)
+                result["order_id"] = order["order_id"]
+                result["order_url"] = f"/order/{order['order_id']}"
+        except Exception as e:
+            log.error("Order creation failed: %s", e)
+            result["order_error"] = str(e)
+
     return jsonify(result)
 
 
@@ -3084,6 +3205,468 @@ def quote_detail(qn):
     </script>
     """
     return render(content, title=f"Quote {qn}")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Order Management (Phase 17)
+# ═══════════════════════════════════════════════════════════════════════
+
+@bp.route("/orders")
+@auth_required
+def orders_page():
+    """Orders dashboard — track sourcing, shipping, delivery, invoicing."""
+    orders = _load_orders()
+    order_list = sorted(orders.values(), key=lambda o: o.get("created_at", ""), reverse=True)
+
+    status_cfg = {
+        "new":              ("🆕 New",              "#58a6ff", "rgba(88,166,255,.1)"),
+        "sourcing":         ("🛒 Sourcing",         "#d29922", "rgba(210,153,34,.1)"),
+        "shipped":          ("🚚 Shipped",          "#bc8cff", "rgba(188,140,255,.1)"),
+        "partial_delivery": ("📦 Partial",          "#d29922", "rgba(210,153,34,.1)"),
+        "delivered":        ("✅ Delivered",         "#3fb950", "rgba(52,211,153,.1)"),
+        "invoiced":         ("💰 Invoiced",         "#58a6ff", "rgba(88,166,255,.1)"),
+        "closed":           ("🏁 Closed",           "#8b949e", "rgba(139,148,160,.1)"),
+    }
+
+    # Stats
+    total_orders = len(order_list)
+    active = sum(1 for o in order_list if o.get("status") not in ("closed",))
+    total_value = sum(o.get("total", 0) for o in order_list)
+    invoiced_value = sum(o.get("invoice_total", 0) for o in order_list)
+
+    stats_html = f"""
+    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;font-size:13px;font-family:'JetBrains Mono',monospace">
+     <span><b>{total_orders}</b> orders</span>
+     <span style="color:#58a6ff"><b>{active}</b> active</span>
+     <span style="color:#3fb950">value: <b>${total_value:,.0f}</b></span>
+     <span style="color:#d29922">invoiced: <b>${invoiced_value:,.0f}</b></span>
+    </div>"""
+
+    rows = ""
+    for o in order_list:
+        oid = o.get("order_id", "")
+        st = o.get("status", "new")
+        lbl, clr, bg = status_cfg.get(st, status_cfg["new"])
+        items = o.get("line_items", [])
+        sourced = sum(1 for it in items if it.get("sourcing_status") in ("ordered", "shipped", "delivered"))
+        shipped = sum(1 for it in items if it.get("sourcing_status") in ("shipped", "delivered"))
+        delivered = sum(1 for it in items if it.get("sourcing_status") == "delivered")
+        progress = f"{delivered}/{len(items)}" if items else "0/0"
+
+        rows += f"""<tr style="{'opacity:0.5' if st == 'closed' else ''}">
+         <td><a href="/order/{oid}" style="color:var(--ac);text-decoration:none;font-family:'JetBrains Mono',monospace;font-weight:700">{oid}</a></td>
+         <td class="mono" style="white-space:nowrap">{o.get('created_at','')[:10]}</td>
+         <td>{o.get('agency','')}</td>
+         <td style="max-width:250px;word-wrap:break-word;white-space:normal;font-weight:500">{o.get('institution','')}</td>
+         <td class="mono">{o.get('po_number','') or o.get('quote_number','')}</td>
+         <td style="text-align:right;font-weight:600;font-family:'JetBrains Mono',monospace">${o.get('total',0):,.2f}</td>
+         <td style="text-align:center">{progress}</td>
+         <td style="text-align:center"><span style="display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;color:{clr};background:{bg}">{lbl}</span></td>
+        </tr>"""
+
+    content = f"""
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px">
+     <h2 style="margin:0;font-size:20px;font-weight:700">📦 Orders</h2>
+     <div>{stats_html}</div>
+    </div>
+    <div class="card" style="padding:0;overflow-x:auto">
+     <table class="home-tbl" style="min-width:800px">
+      <thead><tr>
+       <th style="width:130px">Order</th><th style="width:90px">Date</th><th style="width:60px">Agency</th>
+       <th>Institution</th><th style="width:100px">PO / Quote</th>
+       <th style="text-align:right;width:90px">Total</th><th style="width:70px;text-align:center">Delivery</th>
+       <th style="width:100px;text-align:center">Status</th>
+      </tr></thead>
+      <tbody>{rows if rows else '<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--tx2)">No orders yet — mark a quote as Won to create one</td></tr>'}</tbody>
+     </table>
+    </div>"""
+    return render(content, title="Orders")
+
+
+@bp.route("/order/<oid>")
+@auth_required
+def order_detail(oid):
+    """Order detail page — line item sourcing, tracking, invoicing."""
+    orders = _load_orders()
+    order = orders.get(oid)
+    if not order:
+        flash(f"Order {oid} not found", "error")
+        return redirect("/orders")
+
+    st = order.get("status", "new")
+    items = order.get("line_items", [])
+    qn = order.get("quote_number", "")
+    institution = order.get("institution", "")
+
+    sourcing_cfg = {
+        "pending":   ("⏳ Pending",   "#d29922", "rgba(210,153,34,.1)"),
+        "ordered":   ("🛒 Ordered",   "#58a6ff", "rgba(88,166,255,.1)"),
+        "shipped":   ("🚚 Shipped",   "#bc8cff", "rgba(188,140,255,.1)"),
+        "delivered": ("✅ Delivered", "#3fb950", "rgba(52,211,153,.1)"),
+    }
+    inv_cfg = {
+        "pending":  ("⏳", "#d29922"),
+        "partial":  ("½", "#58a6ff"),
+        "invoiced": ("✅", "#3fb950"),
+    }
+
+    # Line items table
+    items_rows = ""
+    for it in items:
+        lid = it.get("line_id", "")
+        desc = it.get("description", "")[:80]
+        pn = it.get("part_number", "")
+        sup_url = it.get("supplier_url", "")
+        sup_link = f'<a href="{sup_url}" target="_blank" style="color:var(--ac);font-size:11px">🛒 {it.get("supplier","Amazon")}</a>' if sup_url else (it.get("supplier","") or "—")
+
+        ss = it.get("sourcing_status", "pending")
+        s_lbl, s_clr, s_bg = sourcing_cfg.get(ss, sourcing_cfg["pending"])
+        tracking = it.get("tracking_number", "")
+        tracking_html = f'<a href="https://track.aftership.com/{tracking}" target="_blank" style="color:var(--ac);font-size:10px">{tracking[:20]}</a>' if tracking else ""
+        carrier = it.get("carrier", "")
+
+        is_lbl, is_clr = inv_cfg.get(it.get("invoice_status","pending"), inv_cfg["pending"])
+
+        items_rows += f"""<tr data-lid="{lid}">
+         <td style="color:var(--tx2);font-size:11px">{lid}</td>
+         <td style="max-width:300px;word-wrap:break-word;white-space:normal">{desc}</td>
+         <td class="mono" style="font-size:11px">{pn or '—'}</td>
+         <td>{sup_link}</td>
+         <td class="mono" style="text-align:center">{it.get('qty',0)}</td>
+         <td class="mono" style="text-align:right">${it.get('unit_price',0):,.2f}</td>
+         <td style="text-align:center">
+          <select onchange="updateLine('{oid}','{lid}','sourcing_status',this.value)" style="background:var(--sf);border:1px solid var(--bd);border-radius:4px;color:{s_clr};font-size:11px;padding:2px">
+           <option value="pending" {"selected" if ss=="pending" else ""}>⏳ Pending</option>
+           <option value="ordered" {"selected" if ss=="ordered" else ""}>🛒 Ordered</option>
+           <option value="shipped" {"selected" if ss=="shipped" else ""}>🚚 Shipped</option>
+           <option value="delivered" {"selected" if ss=="delivered" else ""}>✅ Delivered</option>
+          </select>
+         </td>
+         <td style="font-size:10px">{carrier} {tracking_html}</td>
+         <td style="text-align:center;font-size:12px;color:{is_clr}" title="{it.get('invoice_status','pending')}">{is_lbl}</td>
+        </tr>"""
+
+    status_cfg = {
+        "new": "🆕 New", "sourcing": "🛒 Sourcing", "shipped": "🚚 Shipped",
+        "partial_delivery": "📦 Partial Delivery", "delivered": "✅ Delivered",
+        "invoiced": "💰 Invoiced", "closed": "🏁 Closed"
+    }
+
+    content = f"""
+    <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px">
+     <a href="/orders" class="btn btn-s" style="font-size:13px">← Orders</a>
+     {f'<a href="/quote/{qn}" class="btn btn-s" style="font-size:13px">📋 Quote {qn}</a>' if qn else ''}
+    </div>
+
+    <div class="bento bento-2" style="margin-bottom:14px">
+     <div class="card" style="margin:0">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">
+       <div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:24px;font-weight:700">{oid}</div>
+        <div style="color:var(--tx2);font-size:12px;margin-top:4px">{order.get('agency','')}{' · ' if order.get('agency') else ''}Created {order.get('created_at','')[:10]}</div>
+       </div>
+       <span style="padding:4px 12px;border-radius:12px;font-size:12px;font-weight:600;background:var(--sf2)">{status_cfg.get(st, st)}</span>
+      </div>
+      <div class="meta-g" style="margin:0">
+       <div class="meta-i"><div class="meta-l">Institution</div><div class="meta-v">{institution}</div></div>
+       <div class="meta-i"><div class="meta-l">PO Number</div><div class="meta-v" style="color:var(--gn);font-weight:600">{order.get('po_number','—')}</div></div>
+       <div class="meta-i"><div class="meta-l">Quote</div><div class="meta-v">{qn or '—'}</div></div>
+       <div class="meta-i"><div class="meta-l">Items</div><div class="meta-v">{len(items)}</div></div>
+      </div>
+     </div>
+     <div class="card" style="margin:0">
+      <div style="text-align:center;padding:12px 0">
+       <div style="font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px">Order Total</div>
+       <div style="font-family:'JetBrains Mono',monospace;font-size:32px;font-weight:700;color:var(--gn);margin:8px 0">${order.get('total',0):,.2f}</div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:10px">
+       <div style="background:var(--sf2);padding:8px;border-radius:8px;text-align:center">
+        <div style="font-size:10px;color:var(--tx2)">Sourced</div>
+        <div style="font-size:18px;font-weight:700;color:#58a6ff">{sum(1 for i in items if i.get('sourcing_status') in ('ordered','shipped','delivered'))}/{len(items)}</div>
+       </div>
+       <div style="background:var(--sf2);padding:8px;border-radius:8px;text-align:center">
+        <div style="font-size:10px;color:var(--tx2)">Shipped</div>
+        <div style="font-size:18px;font-weight:700;color:#bc8cff">{sum(1 for i in items if i.get('sourcing_status') in ('shipped','delivered'))}/{len(items)}</div>
+       </div>
+       <div style="background:var(--sf2);padding:8px;border-radius:8px;text-align:center">
+        <div style="font-size:10px;color:var(--tx2)">Delivered</div>
+        <div style="font-size:18px;font-weight:700;color:#3fb950">{sum(1 for i in items if i.get('sourcing_status') == 'delivered')}/{len(items)}</div>
+       </div>
+      </div>
+      <div style="margin-top:12px;display:flex;gap:8px;justify-content:center">
+       <button onclick="invoiceOrder('{oid}','partial')" class="btn btn-s" style="font-size:12px">½ Partial Invoice</button>
+       <button onclick="invoiceOrder('{oid}','full')" class="btn btn-g" style="font-size:12px">💰 Full Invoice</button>
+      </div>
+     </div>
+    </div>
+
+    <!-- Line Items with sourcing controls -->
+    <div class="card">
+     <div class="card-t">Line Items — Sourcing & Tracking</div>
+     <div style="overflow-x:auto">
+     <table class="home-tbl" style="min-width:900px">
+      <thead><tr>
+       <th style="width:40px">#</th><th>Description</th><th style="width:80px">Part #</th>
+       <th style="width:80px">Supplier</th><th style="width:40px;text-align:center">Qty</th>
+       <th style="width:80px;text-align:right">Price</th><th style="width:100px;text-align:center">Status</th>
+       <th style="width:140px">Tracking</th><th style="width:30px;text-align:center">Inv</th>
+      </tr></thead>
+      <tbody>{items_rows}</tbody>
+     </table>
+     </div>
+    </div>
+
+    <!-- Bulk actions -->
+    <div class="card" style="margin-top:14px">
+     <div class="card-t">Quick Actions</div>
+     <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button onclick="bulkAddTracking('{oid}')" class="btn btn-s" style="font-size:12px">📋 Bulk Add Tracking</button>
+      <button onclick="markAllOrdered('{oid}')" class="btn btn-s" style="font-size:12px">🛒 Mark All Ordered</button>
+      <button onclick="markAllDelivered('{oid}')" class="btn btn-s" style="font-size:12px">✅ Mark All Delivered</button>
+      <a href="/api/order/{oid}/reply-all" class="btn btn-s" style="font-size:12px">📧 Reply-All Confirmation</a>
+     </div>
+    </div>
+
+    <script>
+    function updateLine(oid, lid, field, value) {{
+      fetch('/api/order/' + oid + '/line/' + lid, {{
+        method: 'POST',
+        headers: {{'Content-Type': 'application/json'}},
+        body: JSON.stringify({{[field]: value}})
+      }}).then(r => r.json()).then(d => {{
+        if (!d.ok) alert('Error: ' + (d.error||'unknown'));
+        else location.reload();
+      }});
+    }}
+
+    function invoiceOrder(oid, type) {{
+      const num = prompt('Invoice number:');
+      if (!num) return;
+      fetch('/api/order/' + oid + '/invoice', {{
+        method: 'POST',
+        headers: {{'Content-Type': 'application/json'}},
+        body: JSON.stringify({{type: type, invoice_number: num}})
+      }}).then(r => r.json()).then(d => {{
+        if (d.ok) location.reload();
+        else alert('Error: ' + (d.error||'unknown'));
+      }});
+    }}
+
+    function markAllOrdered(oid) {{
+      fetch('/api/order/' + oid + '/bulk', {{
+        method: 'POST',
+        headers: {{'Content-Type': 'application/json'}},
+        body: JSON.stringify({{sourcing_status: 'ordered'}})
+      }}).then(r => r.json()).then(d => {{ if(d.ok) location.reload(); }});
+    }}
+
+    function markAllDelivered(oid) {{
+      fetch('/api/order/' + oid + '/bulk', {{
+        method: 'POST',
+        headers: {{'Content-Type': 'application/json'}},
+        body: JSON.stringify({{sourcing_status: 'delivered'}})
+      }}).then(r => r.json()).then(d => {{ if(d.ok) location.reload(); }});
+    }}
+
+    function bulkAddTracking(oid) {{
+      const tracking = prompt('Tracking number(s) — comma separated for multiple shipments:');
+      if (!tracking) return;
+      const carrier = prompt('Carrier (UPS/FedEx/USPS/Amazon):', 'Amazon');
+      fetch('/api/order/' + oid + '/bulk-tracking', {{
+        method: 'POST',
+        headers: {{'Content-Type': 'application/json'}},
+        body: JSON.stringify({{tracking: tracking, carrier: carrier}})
+      }}).then(r => r.json()).then(d => {{ if(d.ok) location.reload(); }});
+    }}
+    </script>
+    """
+    return render(content, title=f"Order {oid}")
+
+
+# ─── Order API Routes ──────────────────────────────────────────────────────
+
+@bp.route("/api/order/<oid>/line/<lid>", methods=["POST"])
+@auth_required
+def api_order_update_line(oid, lid):
+    """Update a single line item. POST JSON with any fields to update."""
+    orders = _load_orders()
+    order = orders.get(oid)
+    if not order:
+        return jsonify({"ok": False, "error": "Order not found"})
+    data = request.get_json(silent=True) or {}
+    updated = False
+    for it in order.get("line_items", []):
+        if it.get("line_id") == lid:
+            for field in ("sourcing_status", "tracking_number", "carrier",
+                          "ship_date", "delivery_date", "invoice_status",
+                          "invoice_number", "supplier", "supplier_url", "notes"):
+                if field in data:
+                    old_val = it.get(field, "")
+                    it[field] = data[field]
+                    if field == "sourcing_status" and old_val != data[field]:
+                        _log_crm_activity(order.get("quote_number",""), f"line_{data[field]}",
+                                          f"Order {oid} line {lid}: {old_val} → {data[field]} — {it.get('description','')[:60]}",
+                                          actor="user", metadata={"order_id": oid})
+            updated = True
+            break
+    if not updated:
+        return jsonify({"ok": False, "error": "Line item not found"})
+    order["updated_at"] = datetime.now().isoformat()
+    orders[oid] = order
+    _save_orders(orders)
+    _update_order_status(oid)
+    return jsonify({"ok": True})
+
+
+@bp.route("/api/order/<oid>/bulk", methods=["POST"])
+@auth_required
+def api_order_bulk_update(oid):
+    """Bulk update all line items. POST JSON with fields to set on all items."""
+    orders = _load_orders()
+    order = orders.get(oid)
+    if not order:
+        return jsonify({"ok": False, "error": "Order not found"})
+    data = request.get_json(silent=True) or {}
+    for it in order.get("line_items", []):
+        for field in ("sourcing_status", "carrier", "invoice_status"):
+            if field in data:
+                it[field] = data[field]
+    order["updated_at"] = datetime.now().isoformat()
+    orders[oid] = order
+    _save_orders(orders)
+    _update_order_status(oid)
+    _log_crm_activity(order.get("quote_number",""), "order_bulk_update",
+                      f"Order {oid}: bulk update — {data}",
+                      actor="user", metadata={"order_id": oid})
+    return jsonify({"ok": True})
+
+
+@bp.route("/api/order/<oid>/bulk-tracking", methods=["POST"])
+@auth_required
+def api_order_bulk_tracking(oid):
+    """Add tracking to all pending/ordered items. POST: {tracking, carrier}"""
+    orders = _load_orders()
+    order = orders.get(oid)
+    if not order:
+        return jsonify({"ok": False, "error": "Order not found"})
+    data = request.get_json(silent=True) or {}
+    tracking = data.get("tracking", "")
+    carrier = data.get("carrier", "")
+    updated = 0
+    for it in order.get("line_items", []):
+        if it.get("sourcing_status") in ("pending", "ordered"):
+            it["tracking_number"] = tracking
+            it["carrier"] = carrier
+            it["sourcing_status"] = "shipped"
+            it["ship_date"] = datetime.now().strftime("%Y-%m-%d")
+            updated += 1
+    order["updated_at"] = datetime.now().isoformat()
+    orders[oid] = order
+    _save_orders(orders)
+    _update_order_status(oid)
+    _log_crm_activity(order.get("quote_number",""), "tracking_added",
+                      f"Order {oid}: tracking {tracking} ({carrier}) added to {updated} items",
+                      actor="user", metadata={"order_id": oid, "tracking": tracking})
+    return jsonify({"ok": True, "updated": updated})
+
+
+@bp.route("/api/order/<oid>/invoice", methods=["POST"])
+@auth_required
+def api_order_invoice(oid):
+    """Create partial or full invoice. POST: {type: 'partial'|'full', invoice_number}"""
+    orders = _load_orders()
+    order = orders.get(oid)
+    if not order:
+        return jsonify({"ok": False, "error": "Order not found"})
+    data = request.get_json(silent=True) or {}
+    inv_type = data.get("type", "full")
+    inv_num = data.get("invoice_number", "")
+
+    if inv_type == "full":
+        # Mark all items as invoiced
+        for it in order.get("line_items", []):
+            it["invoice_status"] = "invoiced"
+            it["invoice_number"] = inv_num
+        order["invoice_type"] = "full"
+        order["invoice_total"] = order.get("total", 0)
+    elif inv_type == "partial":
+        # Mark only delivered items as invoiced
+        partial_total = 0
+        for it in order.get("line_items", []):
+            if it.get("sourcing_status") == "delivered":
+                it["invoice_status"] = "invoiced"
+                it["invoice_number"] = inv_num
+                partial_total += it.get("extended", 0)
+            elif it.get("sourcing_status") in ("shipped", "ordered"):
+                it["invoice_status"] = "partial"
+        order["invoice_type"] = "partial"
+        order["invoice_total"] = partial_total
+
+    order["invoice_number"] = inv_num
+    order["updated_at"] = datetime.now().isoformat()
+    order["status_history"].append({
+        "status": f"invoice_{inv_type}",
+        "timestamp": datetime.now().isoformat(),
+        "actor": "user",
+        "invoice_number": inv_num,
+    })
+    orders[oid] = order
+    _save_orders(orders)
+    _update_order_status(oid)
+    _log_crm_activity(order.get("quote_number",""), f"invoice_{inv_type}",
+                      f"Order {oid}: {inv_type} invoice #{inv_num} — ${order.get('invoice_total',0):,.2f}",
+                      actor="user", metadata={"order_id": oid, "invoice": inv_num})
+    return jsonify({"ok": True, "invoice_type": inv_type, "invoice_total": order.get("invoice_total", 0)})
+
+
+@bp.route("/api/order/<oid>/reply-all")
+@auth_required
+def api_order_reply_all(oid):
+    """Generate reply-all confirmation email for the won quote's original thread."""
+    orders = _load_orders()
+    order = orders.get(oid)
+    if not order:
+        flash("Order not found", "error")
+        return redirect("/orders")
+
+    qn = order.get("quote_number", "")
+    institution = order.get("institution", "")
+    po_num = order.get("po_number", "")
+    total = order.get("total", 0)
+    items = order.get("line_items", [])
+
+    items_list = "\n".join(
+        f"  - {it.get('description','')[:60]} (Qty {it.get('qty',0)}) — ${it.get('extended',0):,.2f}"
+        for it in items[:15]
+    )
+
+    subject = f"RE: Reytech Quote {qn}" + (f" — PO {po_num}" if po_num else "") + " — Order Confirmation"
+    body = f"""Thank you for your order!
+
+We are pleased to confirm receipt of {"PO " + po_num if po_num else "your order"} for {institution}.
+
+Quote: {qn}
+Order Total: ${total:,.2f}
+Items ({len(items)}):
+{items_list}
+
+We will process your order promptly and provide tracking information as items ship.
+
+Please don't hesitate to reach out with any questions.
+
+Best regards,
+Mike Gonzalez
+Reytech Inc.
+949-229-1575
+sales@reytechinc.com"""
+
+    # Store as draft and redirect to a mailto link
+    mailto = f"mailto:?subject={subject}&body={body}".replace("\n", "%0A").replace(" ", "%20")
+
+    _log_crm_activity(qn, "email_sent", f"Order confirmation reply-all for {oid}",
+                      actor="user", metadata={"order_id": oid})
+
+    return redirect(mailto)
 
 
 # ═══════════════════════════════════════════════════════════════════════
