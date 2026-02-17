@@ -180,6 +180,31 @@ fetch('/api/funnel/stats').then(r=>r.json()).then(d=>{
 }).catch(()=>{});
 </script>
 
+<!-- BI: Annual Revenue Goal (compact, secondary) -->
+<div id="rev-bi" style="display:none;margin-bottom:14px;padding:8px 16px;background:var(--sf);border:1px solid var(--bd);border-radius:10px">
+ <div style="display:flex;align-items:center;gap:10px">
+  <span style="font-size:11px;color:var(--tx2);font-weight:600;white-space:nowrap">📈 Annual Goal</span>
+  <div id="rev-bar-wrap" style="flex:1;background:var(--sf2);border-radius:8px;height:16px;overflow:hidden;position:relative">
+   <div id="rev-bar" style="height:100%;border-radius:8px;transition:width .5s"></div>
+   <span id="rev-label" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:9px;font-weight:600"></span>
+  </div>
+  <span id="rev-stats" style="font-size:10px;color:var(--tx2);white-space:nowrap"></span>
+ </div>
+</div>
+<script>
+fetch('/api/intel/revenue',{credentials:'same-origin'}).then(r=>r.json()).then(d=>{
+ if(!d.ok) return;
+ const el = document.getElementById('rev-bi');
+ const pct = Math.min(100, d.pct_to_goal||0);
+ const color = pct>=50?'#3fb950':pct>=25?'#d29922':'#f85149';
+ document.getElementById('rev-bar').style.width = pct+'%';
+ document.getElementById('rev-bar').style.background = color;
+ document.getElementById('rev-label').textContent = '$'+(d.closed_revenue||0).toLocaleString()+' / $'+(d.goal/1e6).toFixed(0)+'M ('+pct.toFixed(0)+'%)';
+ document.getElementById('rev-stats').innerHTML = 'Gap: <b style="color:#f85149">$'+(d.gap_to_goal||0).toLocaleString()+'</b> · Rate: <b style="color:'+(d.on_track?'#3fb950':'#f85149')+'">$'+(d.run_rate_annual||0).toLocaleString()+'</b>';
+ el.style.display = 'block';
+}).catch(()=>{});
+</script>
+
 <!-- Search — compact utility bar -->
 <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
  <form method="get" action="/quotes" style="display:flex;gap:8px;flex:1;min-width:260px">

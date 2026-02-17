@@ -3955,6 +3955,32 @@ def pipeline_page():
      </div>
     </div>
     """
+    # BI Revenue bar (secondary — data layer only)
+    try:
+        rev = update_revenue_tracker() if INTEL_AVAILABLE else {}
+        if rev.get("ok"):
+            rv_pct = min(100, rev.get("pct_to_goal", 0))
+            rv_closed = rev.get("closed_revenue", 0)
+            rv_goal = rev.get("goal", 2000000)
+            rv_gap = rev.get("gap_to_goal", 0)
+            rv_rate = rev.get("run_rate_annual", 0)
+            rv_on = rev.get("on_track", False)
+            rv_color = "#3fb950" if rv_pct >= 50 else "#d29922" if rv_pct >= 25 else "#f85149"
+            content += f"""
+    <div style="margin-top:14px;padding:12px 16px;background:var(--sf);border:1px solid var(--bd);border-radius:10px">
+     <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
+      <span style="font-size:11px;color:var(--tx2);font-weight:600">📈 ANNUAL GOAL</span>
+      <div style="flex:1;background:var(--sf2);border-radius:8px;height:18px;overflow:hidden;position:relative">
+       <div style="background:{rv_color};height:100%;width:{rv_pct}%;border-radius:8px"></div>
+       <span style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:10px;font-weight:600">${rv_closed:,.0f} / ${rv_goal/1e6:.0f}M ({rv_pct:.0f}%)</span>
+      </div>
+      <span style="font-size:11px;color:var(--tx2)">Gap: <b style="color:#f85149">${rv_gap:,.0f}</b></span>
+      <span style="font-size:11px;color:var(--tx2)">Run rate: <b style="color:{'#3fb950' if rv_on else '#f85149'}">${rv_rate:,.0f}</b></span>
+     </div>
+    </div>"""
+    except Exception:
+        pass
+    content += ""
     return render(content, title="Pipeline")
 
 
@@ -3992,7 +4018,8 @@ def api_pipeline_stats():
             "win_rate": round(statuses.get("won", 0) / max(statuses.get("won", 0) + statuses.get("lost", 0), 1) * 100, 1),
             "quote_count": len(quotes),
             "decided": statuses.get("won", 0) + statuses.get("lost", 0),
-        }
+        },
+        "annual_goal": update_revenue_tracker() if INTEL_AVAILABLE else None,
     })
 
 
@@ -6071,32 +6098,12 @@ def intelligence_page():
 
     <h1>🧠 Sales Intelligence</h1>
     <div style="color:var(--tx2);font-size:13px;margin-bottom:16px">
-     SCPRS-mined buyer data → prioritized outreach → $2M revenue target
-    </div>
-
-    <!-- Revenue Goal -->
-    <div class="card">
-     <h3>🎯 $2M Revenue Target</h3>
-     <div style="background:var(--sf2);border-radius:12px;height:32px;overflow:hidden;margin-bottom:10px;position:relative">
-      <div style="background:{bar_color};height:100%;width:{pct}%;border-radius:12px;transition:width .5s"></div>
-      <span style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:13px;font-weight:700">{pct}%</span>
-     </div>
-     <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;text-align:center">
-      <div><div style="font-size:9px;color:var(--tx2);text-transform:uppercase">Closed</div><div style="font-size:20px;font-weight:700;color:#3fb950">${closed:,.0f}</div></div>
-      <div><div style="font-size:9px;color:var(--tx2);text-transform:uppercase">Pipeline</div><div style="font-size:20px;font-weight:700;color:#58a6ff">${pipeline:,.0f}</div></div>
-      <div><div style="font-size:9px;color:var(--tx2);text-transform:uppercase">Gap to $2M</div><div style="font-size:20px;font-weight:700;color:#f85149">${gap:,.0f}</div></div>
-      <div><div style="font-size:9px;color:var(--tx2);text-transform:uppercase">Monthly Needed</div><div style="font-size:20px;font-weight:700;color:#d29922">${monthly:,.0f}</div></div>
-      <div><div style="font-size:9px;color:var(--tx2);text-transform:uppercase">Run Rate</div><div style="font-size:20px;font-weight:700;color:{'#3fb950' if on_track else '#f85149'}">${run_rate:,.0f}</div></div>
-     </div>
-     <div style="margin-top:10px;display:flex;gap:8px">
-      <button class="g-btn" onclick="addRevenue()">💰 Log Revenue</button>
-      <button class="g-btn" onclick="runIntel('/api/intel/revenue')">🔄 Refresh</button>
-     </div>
+     SCPRS-mined buyer data — every contact, every item, every dollar — prioritized for outreach.
     </div>
 
     <!-- Actions -->
     <div class="card">
-     <h3>⚡ Intelligence Actions</h3>
+     <h3>⚡ Actions</h3>
      <div id="progress-bar" style="display:{'block' if pull_running else 'none'};background:var(--sf2);padding:10px;border-radius:8px;margin-bottom:10px;font-size:12px">
       <span id="progress-text">{pull.get('progress','') if pull_running else ''}</span>
      </div>
@@ -6132,11 +6139,31 @@ def intelligence_page():
     <!-- Opportunity Agencies (NOT our customers) -->
     {'<div class="card"><h3>🎯 Top Opportunity Agencies <span style="font-size:11px;color:var(--tx2);font-weight:400">(agencies we do NOT sell to yet)</span></h3><div style="max-height:400px;overflow:auto"><table><thead><tr><th>Agency</th><th>Total Spend</th><th>Score</th><th>Buyers</th><th>Categories</th><th>SB Admin</th></tr></thead><tbody>' + opp_rows + '</tbody></table></div></div>' if opp_rows else '<div class="card"><h3>🎯 Opportunity Agencies</h3><div style="color:var(--tx2);font-size:12px">Run Deep Pull to discover agencies</div></div>'}
 
+    <!-- Top Priority Buyers -->
+    {'<div class="card"><h3>🔥 Top Priority Buyers <span style="font-size:11px;color:var(--tx2);font-weight:400">(highest score, not our customers)</span></h3><div style="max-height:500px;overflow:auto"><table><thead><tr><th>Agency</th><th>Buyer</th><th>Email</th><th>Spend</th><th>Score</th><th>Categories</th><th>Items</th></tr></thead><tbody>' + buyer_rows + '</tbody></table></div></div>' if buyer_rows else '<div class="card"><h3>🔥 Priority Buyers</h3><div style="color:var(--tx2);font-size:12px">Run Deep Pull to discover buyers</div></div>'}
+
     <!-- Current Customers (upsell opportunity) -->
     {'<div class="card"><h3>🏆 Current Customers <span style="font-size:11px;color:var(--tx2);font-weight:400">(upsell gap = their total spend - our share)</span></h3><table><thead><tr><th>Agency</th><th>Our Revenue</th><th>Their Total</th><th>Upsell Gap</th><th>Categories</th></tr></thead><tbody>' + customer_rows + '</tbody></table></div>' if customer_rows else ''}
 
-    <!-- Top Priority Buyers -->
-    {'<div class="card"><h3>🔥 Top Priority Buyers <span style="font-size:11px;color:var(--tx2);font-weight:400">(highest score, not our customers)</span></h3><div style="max-height:500px;overflow:auto"><table><thead><tr><th>Agency</th><th>Buyer</th><th>Email</th><th>Spend</th><th>Score</th><th>Categories</th><th>Items</th></tr></thead><tbody>' + buyer_rows + '</tbody></table></div></div>' if buyer_rows else '<div class="card"><h3>🔥 Priority Buyers</h3><div style="color:var(--tx2);font-size:12px">Run Deep Pull to discover buyers</div></div>'}
+    <!-- BI: Annual Revenue Goal -->
+    <div class="card" style="border-color:rgba(139,148,160,.2)">
+     <h3 style="font-size:13px;color:var(--tx2)">📈 Annual Revenue — BI Tracking</h3>
+     <div style="background:var(--sf2);border-radius:10px;height:24px;overflow:hidden;margin-bottom:8px;position:relative">
+      <div style="background:{bar_color};height:100%;width:{pct}%;border-radius:10px;transition:width .5s"></div>
+      <span style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:11px;font-weight:600">${closed:,.0f} / $2M ({pct}%)</span>
+     </div>
+     <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;text-align:center;font-size:11px">
+      <div><span style="color:var(--tx2)">Closed</span><br><b style="color:#3fb950">${closed:,.0f}</b></div>
+      <div><span style="color:var(--tx2)">Pipeline</span><br><b style="color:#58a6ff">${pipeline:,.0f}</b></div>
+      <div><span style="color:var(--tx2)">Gap</span><br><b style="color:#f85149">${gap:,.0f}</b></div>
+      <div><span style="color:var(--tx2)">Mo. Needed</span><br><b style="color:#d29922">${monthly:,.0f}</b></div>
+      <div><span style="color:var(--tx2)">Run Rate</span><br><b style="color:{'#3fb950' if on_track else '#f85149'}">${run_rate:,.0f}</b></div>
+     </div>
+     <div style="margin-top:8px;display:flex;gap:6px">
+      <button class="g-btn" style="font-size:11px;padding:5px 10px" onclick="addRevenue()">💰 Log Revenue</button>
+      <button class="g-btn" style="font-size:11px;padding:5px 10px" onclick="runIntel('/api/intel/revenue')">🔄 Refresh</button>
+     </div>
+    </div>
 
     <div id="result" style="display:none;background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px;margin-top:12px;max-height:400px;overflow:auto">
      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
