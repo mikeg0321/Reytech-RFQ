@@ -27,18 +27,24 @@ except ImportError:
     from rfq_parser import parse_rfq_attachments, identify_attachments
 
 try:
-    from src.core.scprs_lookup import bulk_lookup, save_prices_from_rfq, get_price_db_stats
+    from src.agents.scrps_lookup import bulk_lookup, save_prices_from_rfq, get_price_db_stats
 except ImportError:
-    from scprs_lookup import bulk_lookup, save_prices_from_rfq, get_price_db_stats
+    try:
+        from src.core.scprs_lookup import bulk_lookup, save_prices_from_rfq, get_price_db_stats
+    except ImportError:
+        from scprs_lookup import bulk_lookup, save_prices_from_rfq, get_price_db_stats
 
 try:
-    from src.auto.email_poller import EmailPoller, EmailSender
+    from src.agents.email_poller import EmailPoller, EmailSender
 except ImportError:
-    from email_poller import EmailPoller, EmailSender
+    try:
+        from src.auto.email_poller import EmailPoller, EmailSender
+    except ImportError:
+        from email_poller import EmailPoller, EmailSender
 
 # v6.0: Pricing intelligence (graceful fallback if files not present)
 try:
-    from src.core.pricing_oracle import recommend_prices_for_rfq, pricing_health_check
+    from src.knowledge.pricing_oracle import recommend_prices_for_rfq, pricing_health_check
     from src.knowledge.won_quotes_db import (ingest_scprs_result, find_similar_items,
                                 get_kb_stats, get_price_history)
     PRICING_ORACLE_AVAILABLE = True
@@ -68,7 +74,7 @@ except ImportError:
 
 # v6.2: Price Check Processor (graceful fallback)
 try:
-    from src.core.price_check import (parse_ams704, process_price_check, lookup_prices,
+    from src.forms.price_check import (parse_ams704, process_price_check, lookup_prices,
                               test_parse, REYTECH_INFO, clean_description)
     PRICE_CHECK_AVAILABLE = True
 except ImportError:
@@ -2323,7 +2329,7 @@ def pricecheck_generate(pcid):
     if not pc:
         return jsonify({"ok": False, "error": "PC not found"})
 
-    from price_check import fill_ams704
+    from src.forms.price_check import fill_ams704
     parsed = pc.get("parsed", {})
     source_pdf = pc.get("source_pdf", "")
     if not source_pdf or not os.path.exists(source_pdf):
@@ -2559,7 +2565,7 @@ def api_scprs(rid):
     errors = []
     for item in r["line_items"]:
         try:
-            from scprs_lookup import lookup_price, _build_search_terms
+            from src.agents.scrps_lookup import lookup_price, _build_search_terms
             item_num = item.get("item_number")
             desc = item.get("description")
             search_terms = _build_search_terms(item_num, desc)
@@ -2605,7 +2611,7 @@ def api_scprs_test():
     """SCPRS search test — ?q=stryker+xpr"""
     q = request.args.get("q", "stryker xpr")
     try:
-        from scprs_lookup import test_search
+        from src.agents.scrps_lookup import test_search
         return jsonify(test_search(q))
     except Exception as e:
         import traceback
@@ -2618,7 +2624,7 @@ def api_scprs_raw():
     """Raw SCPRS debug — shows HTML field IDs found in search results."""
     q = request.args.get("q", "stryker xpr")
     try:
-        from scprs_lookup import _get_session, _discover_grid_ids, SCPRS_SEARCH_URL, SEARCH_BUTTON, ALL_SEARCH_FIELDS, FIELD_DESCRIPTION
+        from src.agents.scrps_lookup import _get_session, _discover_grid_ids, SCPRS_SEARCH_URL, SEARCH_BUTTON, ALL_SEARCH_FIELDS, FIELD_DESCRIPTION
         from bs4 import BeautifulSoup
         
         session = _get_session()
@@ -2825,7 +2831,7 @@ def _api_diag_inner():
         "db_exists": os.path.exists(os.path.join(BASE_DIR, "data", "scprs_prices.json")),
     }
     try:
-        from scprs_lookup import test_connection
+        from src.agents.scrps_lookup import test_connection
         import threading
         result = [False, "timeout"]
         def _test():
@@ -2923,7 +2929,7 @@ def api_won_quotes_dump():
     """Debug: show first 10 raw KB records to verify what's stored."""
     if not PRICING_ORACLE_AVAILABLE:
         return jsonify({"error": "Won Quotes DB not available"}), 503
-    from won_quotes_db import load_won_quotes
+    from src.knowledge.won_quotes_db import load_won_quotes
     quotes = load_won_quotes()
     return jsonify({"total": len(quotes), "first_10": quotes[:10]})
 
@@ -2974,7 +2980,7 @@ def api_debug_paths():
 def api_won_quotes_migrate():
     """One-time migration: import existing scprs_prices.json into Won Quotes KB."""
     try:
-        from scprs_lookup import migrate_local_db_to_won_quotes
+        from src.agents.scrps_lookup import migrate_local_db_to_won_quotes
         result = migrate_local_db_to_won_quotes()
         return jsonify({"ok": True, **result})
     except Exception as e:
@@ -2987,7 +2993,7 @@ def api_won_quotes_seed():
     """Start bulk SCPRS seed: searches ~20 common categories, drills into PO details,
     ingests unit prices into Won Quotes KB. Runs in background thread (~3-5 min)."""
     try:
-        from scprs_lookup import bulk_seed_won_quotes, SEED_STATUS
+        from src.agents.scrps_lookup import bulk_seed_won_quotes, SEED_STATUS
         if SEED_STATUS.get("running"):
             return jsonify({"ok": False, "message": "Seed already running", "status": SEED_STATUS})
         t = threading.Thread(target=bulk_seed_won_quotes, daemon=True)
@@ -3002,7 +3008,7 @@ def api_won_quotes_seed():
 def api_won_quotes_seed_status():
     """Check progress of bulk SCPRS seed job."""
     try:
-        from scprs_lookup import SEED_STATUS
+        from src.agents.scrps_lookup import SEED_STATUS
         return jsonify(SEED_STATUS)
     except Exception as e:
         return jsonify({"error": str(e)})
