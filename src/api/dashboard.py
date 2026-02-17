@@ -18,7 +18,7 @@ from flask import (Flask, request, redirect, url_for, render_template_string,
                    send_file, jsonify, flash, Response)
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from rfq_parser import parse_rfq_attachments, identify_attachments
+from src.forms.rfq_parser import parse_rfq_attachments, identify_attachments
 from reytech_filler_v4 import (load_config, get_pst_date, fill_703b, fill_704b, fill_bid_package)
 from scprs_lookup import bulk_lookup, save_prices_from_rfq, get_price_db_stats
 from email_poller import EmailPoller, EmailSender
