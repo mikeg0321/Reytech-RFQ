@@ -1,4 +1,4 @@
-```python:disable-run
+
 import sys
 from pathlib import Path
 # Compatibility for refactored structure
