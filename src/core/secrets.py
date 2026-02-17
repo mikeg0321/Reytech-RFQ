@@ -108,6 +108,40 @@ _REGISTRY = {
         "desc": "QuickBooks company/realm ID",
         "agents": ["quickbooks"],
     },
+    # Twilio (voice calls)
+    "twilio_sid": {
+        "env": "TWILIO_ACCOUNT_SID",
+        "required": False,
+        "desc": "Twilio account SID",
+        "agents": ["voice_calls"],
+    },
+    "twilio_token": {
+        "env": "TWILIO_AUTH_TOKEN",
+        "required": False,
+        "desc": "Twilio auth token",
+        "agents": ["voice_calls"],
+        "sensitive": True,
+    },
+    "twilio_phone": {
+        "env": "TWILIO_PHONE_NUMBER",
+        "required": False,
+        "desc": "Twilio outbound phone number",
+        "agents": ["voice_calls"],
+    },
+    # ElevenLabs (AI voice synthesis)
+    "elevenlabs_key": {
+        "env": "ELEVENLABS_API_KEY",
+        "required": False,
+        "desc": "ElevenLabs API key for voice synthesis",
+        "agents": ["voice_calls"],
+        "sensitive": True,
+    },
+    "elevenlabs_voice": {
+        "env": "ELEVENLABS_VOICE_ID",
+        "required": False,
+        "desc": "ElevenLabs voice ID (clone or preset)",
+        "agents": ["voice_calls"],
+    },
     # Dashboard auth
     "dash_user": {
         "env": "DASH_USER",

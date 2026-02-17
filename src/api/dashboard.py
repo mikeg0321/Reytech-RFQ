@@ -2778,6 +2778,35 @@ try:
 except ImportError:
     QB_AVAILABLE = False
 
+try:
+    from src.agents.email_outreach import (
+        draft_for_pc, draft_for_lead, get_outbox, approve_email,
+        update_draft, send_email as outreach_send, send_approved,
+        delete_from_outbox, get_sent_log, get_agent_status as outreach_agent_status,
+    )
+    OUTREACH_AVAILABLE = True
+except ImportError:
+    OUTREACH_AVAILABLE = False
+
+try:
+    from src.agents.growth_agent import (
+        win_loss_analysis, pricing_analysis, pipeline_health,
+        lead_funnel, generate_recommendations, full_report,
+        get_agent_status as growth_agent_status,
+    )
+    GROWTH_AVAILABLE = True
+except ImportError:
+    GROWTH_AVAILABLE = False
+
+try:
+    from src.agents.voice_agent import (
+        place_call, get_call_log, get_agent_status as voice_agent_status,
+        is_configured as voice_configured, SCRIPTS as VOICE_SCRIPTS,
+    )
+    VOICE_AVAILABLE = True
+except ImportError:
+    VOICE_AVAILABLE = False
+
 
 @bp.route("/api/identify", methods=["POST"])
 @auth_required
@@ -2838,6 +2867,9 @@ def api_agents_status():
         "lead_gen": leadgen_agent_status() if LEADGEN_AVAILABLE else {"status": "not_available"},
         "scprs_scanner": get_scanner_status() if SCANNER_AVAILABLE else {"status": "not_available"},
         "quickbooks": qb_agent_status() if QB_AVAILABLE else {"status": "not_available"},
+        "email_outreach": outreach_agent_status() if OUTREACH_AVAILABLE else {"status": "not_available"},
+        "growth_strategy": growth_agent_status() if GROWTH_AVAILABLE else {"status": "not_available"},
+        "voice_calls": voice_agent_status() if VOICE_AVAILABLE else {"status": "not_available"},
     }
     try:
         from src.agents.product_research import get_research_cache_stats
@@ -2845,7 +2877,9 @@ def api_agents_status():
     except Exception:
         agents["product_research"] = {"status": "not_available"}
 
-    return jsonify({"ok": True, "agents": agents})
+    return jsonify({"ok": True, "agents": agents,
+                    "total": len(agents),
+                    "active": sum(1 for a in agents.values() if a.get("status") != "not_available")})
 
 
 # ─── SCPRS Scanner Routes ───────────────────────────────────────────────────
@@ -3020,6 +3054,198 @@ def api_leads_analytics():
     if not LEADGEN_AVAILABLE:
         return jsonify({"ok": False, "error": "Lead gen agent not available"})
     return jsonify({"ok": True, **get_lead_analytics()})
+
+
+# ─── Email Outreach Routes ──────────────────────────────────────────────────
+
+@bp.route("/api/outbox")
+@auth_required
+def api_outbox_list():
+    """Get email outbox. ?status=draft"""
+    if not OUTREACH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Email outreach agent not available"})
+    status = request.args.get("status")
+    emails = get_outbox(status=status)
+    return jsonify({"ok": True, "emails": emails, "count": len(emails)})
+
+
+@bp.route("/api/outbox/draft/pc/<pcid>", methods=["POST"])
+@auth_required
+def api_outbox_draft_pc(pcid):
+    """Draft a buyer email for a completed PC."""
+    if not OUTREACH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Email outreach agent not available"})
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"})
+    data = request.get_json(silent=True) or {}
+    email = draft_for_pc(pc,
+                         quote_number=data.get("quote_number", pc.get("quote_number", "")),
+                         pdf_path=data.get("pdf_path", ""))
+    return jsonify({"ok": True, "email": email})
+
+
+@bp.route("/api/outbox/draft/lead/<lead_id>", methods=["POST"])
+@auth_required
+def api_outbox_draft_lead(lead_id):
+    """Draft outreach email for a lead."""
+    if not OUTREACH_AVAILABLE or not LEADGEN_AVAILABLE:
+        return jsonify({"ok": False, "error": "Required agents not available"})
+    leads = get_leads()
+    lead = next((l for l in leads if l["id"] == lead_id), None)
+    if not lead:
+        return jsonify({"ok": False, "error": "Lead not found"})
+    email = draft_for_lead(lead)
+    return jsonify({"ok": True, "email": email})
+
+
+@bp.route("/api/outbox/<email_id>/approve", methods=["POST"])
+@auth_required
+def api_outbox_approve(email_id):
+    """Approve a draft email for sending."""
+    if not OUTREACH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Email outreach agent not available"})
+    return jsonify(approve_email(email_id))
+
+
+@bp.route("/api/outbox/<email_id>/edit", methods=["POST"])
+@auth_required
+def api_outbox_edit(email_id):
+    """Edit a draft. POST JSON: {"to": "...", "subject": "...", "body": "..."}"""
+    if not OUTREACH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Email outreach agent not available"})
+    data = request.get_json(silent=True) or {}
+    return jsonify(update_draft(email_id, data))
+
+
+@bp.route("/api/outbox/<email_id>/send", methods=["POST"])
+@auth_required
+def api_outbox_send(email_id):
+    """Send a specific email."""
+    if not OUTREACH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Email outreach agent not available"})
+    return jsonify(outreach_send(email_id))
+
+
+@bp.route("/api/outbox/send-approved", methods=["POST"])
+@auth_required
+def api_outbox_send_all():
+    """Send all approved emails."""
+    if not OUTREACH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Email outreach agent not available"})
+    return jsonify({"ok": True, **send_approved()})
+
+
+@bp.route("/api/outbox/<email_id>", methods=["DELETE"])
+@auth_required
+def api_outbox_delete(email_id):
+    """Delete an email from outbox."""
+    if not OUTREACH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Email outreach agent not available"})
+    return jsonify(delete_from_outbox(email_id))
+
+
+@bp.route("/api/outbox/sent")
+@auth_required
+def api_outbox_sent_log():
+    """Get sent email log."""
+    if not OUTREACH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Email outreach agent not available"})
+    limit = int(request.args.get("limit", 50))
+    return jsonify({"ok": True, "sent": get_sent_log(limit=limit)})
+
+
+# ─── Growth Strategy Routes ─────────────────────────────────────────────────
+
+@bp.route("/api/growth/report")
+@auth_required
+def api_growth_report():
+    """Full growth strategy report."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    return jsonify({"ok": True, **full_report()})
+
+
+@bp.route("/api/growth/win-loss")
+@auth_required
+def api_growth_win_loss():
+    """Win/loss analysis breakdown."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    return jsonify({"ok": True, **win_loss_analysis()})
+
+
+@bp.route("/api/growth/pricing")
+@auth_required
+def api_growth_pricing():
+    """Pricing intelligence analysis."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    return jsonify({"ok": True, **pricing_analysis()})
+
+
+@bp.route("/api/growth/pipeline")
+@auth_required
+def api_growth_pipeline():
+    """Pipeline health analysis."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    return jsonify({"ok": True, **pipeline_health()})
+
+
+@bp.route("/api/growth/recommendations")
+@auth_required
+def api_growth_recommendations():
+    """Actionable recommendations."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    recs = generate_recommendations()
+    return jsonify({"ok": True, "recommendations": recs, "count": len(recs)})
+
+
+# ─── Voice Agent Routes ─────────────────────────────────────────────────────
+
+@bp.route("/api/voice/call", methods=["POST"])
+@auth_required
+def api_voice_call():
+    """Place an outbound call. POST JSON: {"phone": "+19165550100", "script": "lead_intro", "variables": {...}}"""
+    if not VOICE_AVAILABLE:
+        return jsonify({"ok": False, "error": "Voice agent not available"})
+    data = request.get_json(silent=True) or {}
+    phone = data.get("phone", "")
+    if not phone:
+        return jsonify({"ok": False, "error": "Provide phone number in E.164 format"})
+    return jsonify(place_call(phone, script_key=data.get("script", "lead_intro"),
+                              variables=data.get("variables", {})))
+
+
+@bp.route("/api/voice/log")
+@auth_required
+def api_voice_log():
+    """Get call log."""
+    if not VOICE_AVAILABLE:
+        return jsonify({"ok": False, "error": "Voice agent not available"})
+    limit = int(request.args.get("limit", 50))
+    return jsonify({"ok": True, "calls": get_call_log(limit=limit)})
+
+
+@bp.route("/api/voice/scripts")
+@auth_required
+def api_voice_scripts():
+    """Get available call scripts."""
+    if not VOICE_AVAILABLE:
+        return jsonify({"ok": False, "error": "Voice agent not available"})
+    return jsonify({"ok": True, "scripts": VOICE_SCRIPTS})
+
+
+@bp.route("/api/voice/status")
+@auth_required
+def api_voice_status():
+    """Voice agent status + setup instructions."""
+    if not VOICE_AVAILABLE:
+        return jsonify({"ok": False, "error": "Voice agent not available"})
+    return jsonify({"ok": True, **voice_agent_status()})
 
 
 @bp.route("/api/test/cleanup-duplicates")
