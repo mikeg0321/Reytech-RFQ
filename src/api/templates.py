@@ -2096,22 +2096,53 @@ h1 {{ font-size:22px; margin-bottom:4px; }}
 </div>
 
 <div class="section">
- <h2>📊 Growth Intelligence <span class="tag tag-ok">Active</span></h2>
+ <h2>🚀 Growth Engine <span class="tag tag-ok" id="growth-tag">v2.0</span></h2>
+ <p style="color:#8b949e;font-size:12px;margin-bottom:8px">Proactive SCPRS-driven outreach — pull Reytech history → categorize → find all buyers → email → voice follow-up.</p>
+ <div id="growth-status" style="display:none;margin-bottom:12px;padding:10px;background:var(--sf2);border-radius:8px;font-size:12px"></div>
+
+ <div style="margin-bottom:8px;font-size:11px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:1px">Step 1 — Pull Reytech History</div>
+ <div class="grid" style="margin-bottom:12px">
+  <button class="btn btn-go" onclick="apiGet('/api/growth/pull-history')">
+   <span class="label">📥 Pull SCPRS History</span><span class="desc">All Reytech POs from 2022</span>
+  </button>
+  <button class="btn" onclick="apiGet('/api/growth/pull-status')">
+   <span class="label">⏳ Pull Progress</span><span class="desc">Check scrape status</span>
+  </button>
+ </div>
+
+ <div style="margin-bottom:8px;font-size:11px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:1px">Step 2 — Find All Buyers</div>
+ <div class="grid" style="margin-bottom:12px">
+  <button class="btn btn-go" onclick="apiGet('/api/growth/find-buyers')">
+   <span class="label">🔍 Find Category Buyers</span><span class="desc">Search SCPRS for all buyers of our items</span>
+  </button>
+  <button class="btn" onclick="apiGet('/api/growth/buyer-status')">
+   <span class="label">⏳ Buyer Search Progress</span><span class="desc">Check buyer scrape status</span>
+  </button>
+ </div>
+
+ <div style="margin-bottom:8px;font-size:11px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:1px">Step 3 — Outreach Campaign</div>
+ <div class="grid" style="margin-bottom:12px">
+  <button class="btn btn-go" onclick="apiGet('/api/growth/outreach?dry_run=true')">
+   <span class="label">👁️ Preview Emails</span><span class="desc">Dry run — see what would send</span>
+  </button>
+  <button class="btn" onclick="if(confirm('Send real emails to prospects?')) apiGet('/api/growth/outreach?dry_run=false')" style="border-color:rgba(52,211,153,.3)">
+   <span class="label">📧 Send Outreach</span><span class="desc">Live emails to prospects</span>
+  </button>
+ </div>
+
+ <div style="margin-bottom:8px;font-size:11px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:1px">Step 4 — Voice Follow-Up</div>
+ <div class="grid" style="margin-bottom:12px">
+  <button class="btn" onclick="apiGet('/api/growth/follow-ups')">
+   <span class="label">📋 Check Follow-Ups</span><span class="desc">Who hasn't responded in 3-5 days?</span>
+  </button>
+  <button class="btn" onclick="if(confirm('Auto-dial non-responders?')) apiGet('/api/growth/voice-follow-up')">
+   <span class="label">📞 Voice Follow-Up</span><span class="desc">Auto-call non-responders</span>
+  </button>
+ </div>
+
  <div class="grid">
-  <button class="btn btn-go" onclick="apiGet('/api/growth/report')">
-   <span class="label">📊 Full Report</span><span class="desc">Win/loss + pricing + pipeline + recs</span>
-  </button>
-  <button class="btn" onclick="apiGet('/api/growth/recommendations')">
-   <span class="label">💡 Recommendations</span><span class="desc">Prioritized action items</span>
-  </button>
-  <button class="btn" onclick="apiGet('/api/growth/win-loss')">
-   <span class="label">🏆 Win/Loss</span><span class="desc">By agency & institution</span>
-  </button>
-  <button class="btn" onclick="apiGet('/api/growth/pricing')">
-   <span class="label">💰 Pricing Intel</span><span class="desc">What markup wins?</span>
-  </button>
-  <button class="btn" onclick="apiGet('/api/growth/pipeline')">
-   <span class="label">🔄 Pipeline</span><span class="desc">Stuck PCs, conversion rate</span>
+  <button class="btn" onclick="apiGet('/api/growth/status')">
+   <span class="label">📊 Full Status</span><span class="desc">History, categories, prospects, outreach</span>
   </button>
  </div>
 </div>

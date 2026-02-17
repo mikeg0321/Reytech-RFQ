@@ -4330,9 +4330,11 @@ except ImportError:
 
 try:
     from src.agents.growth_agent import (
-        win_loss_analysis, pricing_analysis, pipeline_health,
-        lead_funnel, generate_recommendations, full_report,
-        get_agent_status as growth_agent_status,
+        pull_reytech_history, find_category_buyers, launch_outreach,
+        check_follow_ups, launch_voice_follow_up,
+        get_growth_status, PULL_STATUS, BUYER_STATUS,
+        # Legacy compat
+        generate_recommendations, full_report, lead_funnel,
     )
     GROWTH_AVAILABLE = True
 except ImportError:
@@ -4450,7 +4452,7 @@ def api_agents_status():
         "scprs_scanner": get_scanner_status() if SCANNER_AVAILABLE else {"status": "not_available"},
         "quickbooks": qb_agent_status() if QB_AVAILABLE else {"status": "not_available"},
         "email_outreach": outreach_agent_status() if OUTREACH_AVAILABLE else {"status": "not_available"},
-        "growth_strategy": growth_agent_status() if GROWTH_AVAILABLE else {"status": "not_available"},
+        "growth_strategy": get_growth_status() if GROWTH_AVAILABLE else {"status": "not_available"},
         "voice_calls": voice_agent_status() if VOICE_AVAILABLE else {"status": "not_available"},
         "manager": manager_agent_status() if MANAGER_AVAILABLE else {"status": "not_available"},
         "orchestrator": get_workflow_status() if ORCHESTRATOR_AVAILABLE else {"status": "not_available"},
@@ -5313,52 +5315,119 @@ def api_outbox_sent_log():
     return jsonify({"ok": True, "sent": get_sent_log(limit=limit)})
 
 
-# ─── Growth Strategy Routes ─────────────────────────────────────────────────
+# ─── Growth Strategy Routes (v2.0 — SCPRS-driven) ──────────────────────────
 
+@bp.route("/api/growth/status")
+@auth_required
+def api_growth_status():
+    """Full growth agent status — history, categories, prospects, outreach."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    return jsonify(get_growth_status())
+
+
+@bp.route("/api/growth/pull-history")
+@auth_required
+def api_growth_pull_history():
+    """Step 1: Pull ALL Reytech POs from SCPRS (2022-present).
+    Long-running — check /api/growth/pull-status for progress."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    from_date = request.args.get("from", "01/01/2022")
+    to_date = request.args.get("to", "")
+
+    # Run in background thread
+    import threading
+    def _run():
+        pull_reytech_history(from_date=from_date, to_date=to_date)
+    t = threading.Thread(target=_run, daemon=True, name="growth-pull")
+    t.start()
+    return jsonify({"ok": True, "message": f"Pulling Reytech history from SCPRS ({from_date} → present). Check /api/growth/pull-status for progress."})
+
+
+@bp.route("/api/growth/pull-status")
+@auth_required
+def api_growth_pull_status():
+    """Check progress of Reytech history pull."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    return jsonify({"ok": True, **PULL_STATUS})
+
+
+@bp.route("/api/growth/find-buyers")
+@auth_required
+def api_growth_find_buyers():
+    """Step 2: Search SCPRS for all buyers of Reytech's item categories.
+    Requires Step 1 first. Long-running."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    max_cats = int(request.args.get("max_categories", 10))
+    from_date = request.args.get("from", "01/01/2024")
+
+    import threading
+    def _run():
+        find_category_buyers(max_categories=max_cats, from_date=from_date)
+    t = threading.Thread(target=_run, daemon=True, name="growth-buyers")
+    t.start()
+    return jsonify({"ok": True, "message": f"Searching SCPRS for buyers (top {max_cats} categories from {from_date}). Check /api/growth/buyer-status."})
+
+
+@bp.route("/api/growth/buyer-status")
+@auth_required
+def api_growth_buyer_status():
+    """Check progress of buyer search."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    return jsonify({"ok": True, **BUYER_STATUS})
+
+
+@bp.route("/api/growth/outreach")
+@auth_required
+def api_growth_outreach():
+    """Step 3: Launch email outreach to prospects.
+    ?dry_run=true (default) previews without sending.
+    ?dry_run=false sends live emails."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    dry_run = request.args.get("dry_run", "true").lower() != "false"
+    max_p = int(request.args.get("max", 50))
+    return jsonify(launch_outreach(max_prospects=max_p, dry_run=dry_run))
+
+
+@bp.route("/api/growth/follow-ups")
+@auth_required
+def api_growth_follow_ups():
+    """Check which prospects need voice follow-up (3-5 days no response)."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    return jsonify(check_follow_ups())
+
+
+@bp.route("/api/growth/voice-follow-up")
+@auth_required
+def api_growth_voice_follow_up():
+    """Step 4: Auto-dial non-responders."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    max_calls = int(request.args.get("max", 10))
+    return jsonify(launch_voice_follow_up(max_calls=max_calls))
+
+
+# Legacy growth routes (redirect to new status)
 @bp.route("/api/growth/report")
 @auth_required
 def api_growth_report():
-    """Full growth strategy report."""
     if not GROWTH_AVAILABLE:
         return jsonify({"ok": False, "error": "Growth agent not available"})
-    return jsonify({"ok": True, **full_report()})
-
-
-@bp.route("/api/growth/win-loss")
-@auth_required
-def api_growth_win_loss():
-    """Win/loss analysis breakdown."""
-    if not GROWTH_AVAILABLE:
-        return jsonify({"ok": False, "error": "Growth agent not available"})
-    return jsonify({"ok": True, **win_loss_analysis()})
-
-
-@bp.route("/api/growth/pricing")
-@auth_required
-def api_growth_pricing():
-    """Pricing intelligence analysis."""
-    if not GROWTH_AVAILABLE:
-        return jsonify({"ok": False, "error": "Growth agent not available"})
-    return jsonify({"ok": True, **pricing_analysis()})
-
-
-@bp.route("/api/growth/pipeline")
-@auth_required
-def api_growth_pipeline():
-    """Pipeline health analysis."""
-    if not GROWTH_AVAILABLE:
-        return jsonify({"ok": False, "error": "Growth agent not available"})
-    return jsonify({"ok": True, **pipeline_health()})
+    return jsonify(get_growth_status())
 
 
 @bp.route("/api/growth/recommendations")
 @auth_required
 def api_growth_recommendations():
-    """Actionable recommendations."""
     if not GROWTH_AVAILABLE:
         return jsonify({"ok": False, "error": "Growth agent not available"})
-    recs = generate_recommendations()
-    return jsonify({"ok": True, "recommendations": recs, "count": len(recs)})
+    return jsonify(get_growth_status())
 
 
 # ─── Voice Agent Routes ─────────────────────────────────────────────────────

@@ -1,30 +1,19 @@
 """
-growth_agent.py — Growth Strategy Agent for Reytech
-Phase 14 | Version: 1.0.0
+growth_agent.py — Proactive Growth Engine for Reytech
+Phase 26 | Version: 2.0.0
 
-Analyzes the entity graph, won_quotes_db, and lead history to answer:
-  - Why did we win? Why did we lose?
-  - Which institutions buy the most from us?
-  - Which product categories have the highest margins?
-  - Where should we focus outreach next?
-  - What pricing strategy maximizes win rate × margin?
-
-Data sources:
-  - quotes_log.json (all quotes: won/lost/pending)
-  - price_checks.json (PC pipeline data)
-  - leads.json (lead gen data)
-  - lead_history.json (lead conversion funnel)
-  - won_quotes_db (historical SCPRS wins)
-
-Output: Actionable insights as JSON — no dashboards, just data for decisions.
+Workflow:
+  1. Pull ALL Reytech POs from SCPRS (2022 → present)
+  2. Drill into each PO → get items, prices, buyer info
+  3. Categorize items into product groups
+  4. Search SCPRS for ALL buyers of those categories
+  5. Build prospect list with contact info (name, email, agency)
+  6. Launch email outreach → voice follow-up if no response in 3-5 days
 """
 
-import json
-import os
-import logging
+import json, os, re, logging, time, threading, uuid
 from datetime import datetime, timedelta
 from collections import defaultdict
-from typing import Optional
 
 log = logging.getLogger("growth")
 
@@ -34,370 +23,529 @@ except ImportError:
     DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(
         os.path.dirname(os.path.abspath(__file__)))), "data")
 
+HISTORY_FILE = os.path.join(DATA_DIR, "growth_reytech_history.json")
+CATEGORIES_FILE = os.path.join(DATA_DIR, "growth_categories.json")
+PROSPECTS_FILE = os.path.join(DATA_DIR, "growth_prospects.json")
+OUTREACH_FILE = os.path.join(DATA_DIR, "growth_outreach.json")
 
-# ─── Data Loaders ────────────────────────────────────────────────────────────
+try:
+    from src.agents.scprs_lookup import _get_session
+    HAS_SCPRS = True
+except ImportError:
+    HAS_SCPRS = False
 
-def _load_json(filename: str) -> list | dict:
-    path = os.path.join(DATA_DIR, filename)
+
+def _load_json(path):
     try:
         with open(path) as f:
             return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
-        return [] if filename != "price_checks.json" else {}
+        return []
+
+def _save_json(path, data):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2, default=str)
 
 
-def _load_quotes() -> list:
-    data = _load_json("quotes_log.json")
-    return data if isinstance(data, list) else []
+# ─── Item Category Mapping ───────────────────────────────────────────────
+
+CATEGORY_KEYWORDS = {
+    "Medical Supplies": [
+        "glove", "nitrile", "exam", "syringe", "needle", "catheter", "bandage",
+        "gauze", "surgical", "gown", "mask", "face shield", "medical", "patient",
+        "restraint", "stryker", "wheelchair", "first aid",
+    ],
+    "Janitorial & Cleaning": [
+        "trash bag", "liner", "mop", "broom", "disinfect", "sanitizer",
+        "bleach", "cleaner", "detergent", "soap", "wipe", "paper towel",
+        "toilet paper", "tissue", "janitorial", "cleaning", "floor",
+    ],
+    "Office Supplies": [
+        "pen", "pencil", "paper", "copy paper", "toner", "cartridge", "ink",
+        "folder", "binder", "staple", "tape", "envelope", "marker",
+        "highlighter", "office", "label",
+    ],
+    "IT & Electronics": [
+        "battery", "cable", "usb", "adapter", "charger", "keyboard",
+        "mouse", "monitor", "printer", "laptop", "computer", "hard drive",
+    ],
+    "Safety & PPE": [
+        "safety glass", "ear plug", "hard hat", "vest", "boot",
+        "fire extinguisher", "safety", "protective", "respirator", "goggles",
+    ],
+    "Food Service": [
+        "food", "beverage", "cup", "plate", "napkin", "utensil",
+        "container", "tray", "coffee",
+    ],
+    "Facility Maintenance": [
+        "light bulb", "led", "bulb", "filter", "hvac", "paint",
+        "tool", "hardware", "plumbing", "electrical", "maintenance", "lock",
+    ],
+}
+
+def categorize_item(description: str) -> str:
+    desc_lower = (description or "").lower()
+    scores = {}
+    for cat, keywords in CATEGORY_KEYWORDS.items():
+        score = sum(1 for kw in keywords if kw in desc_lower)
+        if score > 0:
+            scores[cat] = score
+    return max(scores, key=scores.get) if scores else "General Supplies"
 
 
-def _load_pcs() -> dict:
-    data = _load_json("price_checks.json")
-    return data if isinstance(data, dict) else {}
+# ═══════════════════════════════════════════════════════════════════════
+# STEP 1: Pull Reytech History from SCPRS
+# ═══════════════════════════════════════════════════════════════════════
 
+PULL_STATUS = {
+    "running": False, "phase": "", "progress": "",
+    "pos_found": 0, "pos_detailed": 0, "items_total": 0,
+    "errors": [], "started_at": None, "finished_at": None,
+}
 
-def _load_leads() -> list:
-    data = _load_json("leads.json")
-    return data if isinstance(data, list) else []
+def pull_reytech_history(from_date="01/01/2022", to_date=""):
+    """Search SCPRS for all Reytech POs from 2022 to present.
+    Drills into each for line items + buyer info."""
+    if not HAS_SCPRS:
+        return {"ok": False, "error": "SCPRS not available (needs requests + bs4)"}
+    if PULL_STATUS["running"]:
+        return {"ok": False, "error": "Already running", "status": PULL_STATUS}
+    if not to_date:
+        to_date = datetime.now().strftime("%m/%d/%Y")
 
+    PULL_STATUS.update({
+        "running": True, "phase": "searching",
+        "progress": f"Searching SCPRS for Reytech ({from_date} to {to_date})...",
+        "pos_found": 0, "pos_detailed": 0, "items_total": 0,
+        "errors": [], "started_at": datetime.now().isoformat(), "finished_at": None,
+    })
 
-# ─── Win/Loss Analysis ──────────────────────────────────────────────────────
+    try:
+        session = _get_session()
+        if not session.initialized and not session.init_session():
+            PULL_STATUS.update({"running": False, "phase": "error"})
+            return {"ok": False, "error": "SCPRS session init failed"}
 
-def win_loss_analysis() -> dict:
-    """
-    Comprehensive win/loss breakdown.
-    Returns which agencies, institutions, categories we win/lose at.
-    """
-    quotes = _load_quotes()
-    if not quotes:
-        return {"error": "No quotes data", "total": 0}
+        results = session.search(supplier_name="Reytech", from_date=from_date, to_date=to_date)
+        if not results:
+            PULL_STATUS["progress"] = "Trying 'Rey Tech'..."
+            results = session.search(supplier_name="Rey Tech", from_date=from_date, to_date=to_date)
+        if not results:
+            PULL_STATUS["progress"] = "Trying 'REYTECH'..."
+            results = session.search(supplier_name="REYTECH", from_date=from_date, to_date=to_date)
 
-    total = len(quotes)
-    won = [q for q in quotes if q.get("status") == "won"]
-    lost = [q for q in quotes if q.get("status") == "lost"]
-    pending = [q for q in quotes if q.get("status", "pending") == "pending"]
+        PULL_STATUS["pos_found"] = len(results)
+        PULL_STATUS["progress"] = f"Found {len(results)} POs — getting details..."
+        log.info(f"Growth: Found {len(results)} Reytech POs")
 
-    # By agency
-    agency_stats = defaultdict(lambda: {"won": 0, "lost": 0, "pending": 0, "total_value": 0})
-    for q in quotes:
-        ag = q.get("agency", "DEFAULT")
-        status = q.get("status", "pending")
-        agency_stats[ag][status] = agency_stats[ag].get(status, 0) + 1
-        if status == "won":
-            agency_stats[ag]["total_value"] += q.get("total", 0)
+        history = []
+        for idx, r in enumerate(results):
+            PULL_STATUS["phase"] = "detailing"
+            PULL_STATUS["progress"] = f"PO {idx+1}/{len(results)}: {r.get('po_number', '?')}"
 
-    # By institution
-    inst_stats = defaultdict(lambda: {"won": 0, "lost": 0, "total_value": 0, "quotes": 0})
-    for q in quotes:
-        inst = q.get("institution", "Unknown")
-        inst_stats[inst]["quotes"] += 1
-        status = q.get("status", "pending")
-        if status in ("won", "lost"):
-            inst_stats[inst][status] += 1
-        if status == "won":
-            inst_stats[inst]["total_value"] += q.get("total", 0)
+            po = {
+                "po_number": r.get("po_number", ""),
+                "dept": r.get("dept", ""),
+                "supplier_name": r.get("supplier_name", ""),
+                "start_date": r.get("start_date", ""),
+                "grand_total": r.get("grand_total", ""),
+                "grand_total_num": r.get("grand_total_num"),
+                "buyer_email": r.get("buyer_email", ""),
+                "acq_type": r.get("acq_type", ""),
+                "status": r.get("status", ""),
+                "first_item": r.get("first_item", ""),
+                "line_items": [],
+                "buyer_name": "",
+                "detail_fetched": False,
+            }
 
-    # Win rate
-    decided = len(won) + len(lost)
-    win_rate = round(len(won) / max(decided, 1) * 100, 1)
-
-    # Average values
-    avg_won_value = round(sum(q.get("total", 0) for q in won) / max(len(won), 1), 2)
-    avg_lost_value = round(sum(q.get("total", 0) for q in lost) / max(len(lost), 1), 2)
-
-    return {
-        "summary": {
-            "total_quotes": total,
-            "won": len(won),
-            "lost": len(lost),
-            "pending": len(pending),
-            "win_rate": win_rate,
-            "avg_won_value": avg_won_value,
-            "avg_lost_value": avg_lost_value,
-            "total_revenue": round(sum(q.get("total", 0) for q in won), 2),
-        },
-        "by_agency": dict(agency_stats),
-        "by_institution": dict(inst_stats),
-        "top_institutions": sorted(
-            inst_stats.items(),
-            key=lambda x: x[1]["total_value"], reverse=True
-        )[:10],
-    }
-
-
-# ─── Pricing Intelligence ───────────────────────────────────────────────────
-
-def pricing_analysis() -> dict:
-    """
-    Analyze pricing patterns: what markup wins? What loses?
-    """
-    quotes = _load_quotes()
-    pcs = _load_pcs()
-
-    markup_data = {"won": [], "lost": []}
-    margin_data = {"won": [], "lost": []}
-
-    for q in quotes:
-        status = q.get("status", "pending")
-        if status not in ("won", "lost"):
-            continue
-
-        # Try to find associated PC for pricing details
-        pc_id = q.get("pc_id", "")
-        pc = pcs.get(pc_id, {})
-        items = pc.get("items", q.get("items", []))
-
-        for item in items:
-            pricing = item.get("pricing", {})
-            markup = pricing.get("markup_pct", 0)
-            cost = pricing.get("unit_cost", 0)
-            price = pricing.get("recommended_price", 0)
-
-            if markup > 0:
-                markup_data[status].append(markup)
-            if cost > 0 and price > 0:
-                margin = round((price - cost) / price * 100, 1)
-                margin_data[status].append(margin)
-
-    def _avg(lst):
-        return round(sum(lst) / max(len(lst), 1), 1)
-
-    return {
-        "markup": {
-            "avg_won_markup": _avg(markup_data["won"]),
-            "avg_lost_markup": _avg(markup_data["lost"]),
-            "won_samples": len(markup_data["won"]),
-            "lost_samples": len(markup_data["lost"]),
-            "insight": (
-                "Lower markup wins more often"
-                if _avg(markup_data["won"]) < _avg(markup_data["lost"])
-                else "Markup doesn't seem to be the deciding factor"
-            ) if markup_data["won"] and markup_data["lost"] else "Not enough data yet",
-        },
-        "margin": {
-            "avg_won_margin": _avg(margin_data["won"]),
-            "avg_lost_margin": _avg(margin_data["lost"]),
-            "insight": "Analyze margin trends as more quotes close",
-        },
-    }
-
-
-# ─── Pipeline Health ─────────────────────────────────────────────────────────
-
-def pipeline_health() -> dict:
-    """
-    How healthy is the current pipeline?
-    - How many PCs are stuck at each stage?
-    - Average time from parse to completion?
-    - Conversion rate through pipeline?
-    """
-    pcs = _load_pcs()
-    if not pcs:
-        return {"error": "No price checks data", "total": 0}
-
-    by_status = defaultdict(int)
-    completion_times = []
-    now = datetime.now()
-
-    for pcid, pc in pcs.items():
-        status = pc.get("status", "parsed")
-        by_status[status] += 1
-
-        # Track age of PCs
-        created = pc.get("created_at", pc.get("uploaded_at", ""))
-        if created:
-            try:
-                created_dt = datetime.fromisoformat(created.replace("Z", "+00:00")).replace(tzinfo=None)
-                age_hours = (now - created_dt).total_seconds() / 3600
-                if status in ("completed", "converted"):
-                    completion_times.append(age_hours)
-            except (ValueError, TypeError):
-                pass
-
-    avg_completion = round(sum(completion_times) / max(len(completion_times), 1), 1)
-
-    # Stuck PCs (parsed for > 24 hours)
-    stuck = 0
-    for pcid, pc in pcs.items():
-        if pc.get("status") == "parsed":
-            created = pc.get("created_at", "")
-            if created:
+            if r.get("_results_html") and r.get("_row_index") is not None:
                 try:
-                    created_dt = datetime.fromisoformat(created.replace("Z", "+00:00")).replace(tzinfo=None)
-                    if (now - created_dt).total_seconds() > 86400:
-                        stuck += 1
-                except (ValueError, TypeError):
+                    detail = session.get_detail(r["_results_html"], r["_row_index"], r.get("_click_action"))
+                    if detail:
+                        po["detail_fetched"] = True
+                        hdr = detail.get("header", {}) if isinstance(detail.get("header"), dict) else {}
+                        po["buyer_name"] = hdr.get("buyer_name", "")
+                        po["buyer_email"] = hdr.get("buyer_email", "") or po["buyer_email"]
+                        po["line_items"] = detail.get("line_items", [])
+                        PULL_STATUS["items_total"] += len(po["line_items"])
+                    time.sleep(0.5)
+                except Exception as e:
+                    PULL_STATUS["errors"].append(f"{po['po_number']}: {e}")
+
+            PULL_STATUS["pos_detailed"] = idx + 1
+            history.append(po)
+
+        _save_json(HISTORY_FILE, {
+            "supplier": "Reytech", "from_date": from_date, "to_date": to_date,
+            "pulled_at": datetime.now().isoformat(),
+            "total_pos": len(history), "total_items": PULL_STATUS["items_total"],
+            "purchase_orders": history,
+        })
+
+        categories = _categorize_history(history)
+
+        PULL_STATUS.update({
+            "running": False, "phase": "complete",
+            "progress": f"Done: {len(history)} POs, {PULL_STATUS['items_total']} items, {len(categories)} categories",
+            "finished_at": datetime.now().isoformat(),
+        })
+
+        return {
+            "ok": True, "total_pos": len(history),
+            "total_items": PULL_STATUS["items_total"],
+            "categories": len(categories),
+            "date_range": f"{from_date} to {to_date}",
+        }
+
+    except Exception as e:
+        PULL_STATUS.update({"running": False, "phase": "error", "progress": str(e)})
+        return {"ok": False, "error": str(e)}
+
+
+def _categorize_history(history):
+    categories = defaultdict(lambda: {"items": [], "total_value": 0, "po_count": 0, "search_terms": set()})
+    for po in history:
+        for item in po.get("line_items", []):
+            desc = item.get("description", "")
+            cat = categorize_item(desc)
+            price = item.get("unit_price_num") or 0
+            qty = item.get("quantity_num") or 1
+            categories[cat]["items"].append({"description": desc, "unit_price": price, "po_number": po.get("po_number")})
+            categories[cat]["total_value"] += price * qty
+            categories[cat]["po_count"] += 1
+            words = set(re.findall(r'\b[a-zA-Z]{3,}\b', desc.lower()))
+            categories[cat]["search_terms"].update(words - {"the", "and", "for", "with", "each", "per", "box", "case", "pack"})
+        if not po.get("line_items") and po.get("first_item"):
+            cat = categorize_item(po["first_item"])
+            categories[cat]["items"].append({"description": po["first_item"], "po_number": po.get("po_number")})
+            categories[cat]["po_count"] += 1
+
+    result = {}
+    for cat, data in categories.items():
+        result[cat] = {
+            "item_count": len(data["items"]),
+            "total_value": round(data["total_value"], 2),
+            "po_count": data["po_count"],
+            "search_terms": sorted(list(data["search_terms"]))[:20],
+            "sample_items": [i["description"][:80] for i in data["items"][:10]],
+        }
+    _save_json(CATEGORIES_FILE, {"generated_at": datetime.now().isoformat(), "total_categories": len(result), "categories": result})
+    return result
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# STEP 2: Find ALL Buyers of Those Categories
+# ═══════════════════════════════════════════════════════════════════════
+
+BUYER_STATUS = {"running": False, "phase": "", "progress": "", "prospects_found": 0, "errors": []}
+
+def find_category_buyers(max_categories=10, from_date="01/01/2024"):
+    """For each category Reytech sells, find all SCPRS buyers."""
+    if not HAS_SCPRS:
+        return {"ok": False, "error": "SCPRS not available"}
+    if BUYER_STATUS["running"]:
+        return {"ok": False, "error": "Already running"}
+
+    cat_data = _load_json(CATEGORIES_FILE)
+    if not isinstance(cat_data, dict) or not cat_data.get("categories"):
+        return {"ok": False, "error": "No categories. Run pull_reytech_history first."}
+
+    cats = sorted(cat_data["categories"].items(), key=lambda x: x[1].get("total_value", 0), reverse=True)[:max_categories]
+
+    BUYER_STATUS.update({"running": True, "phase": "searching", "progress": "Starting...", "prospects_found": 0, "errors": []})
+
+    try:
+        session = _get_session()
+        if not session.initialized and not session.init_session():
+            BUYER_STATUS.update({"running": False})
+            return {"ok": False, "error": "SCPRS session init failed"}
+
+        to_date = datetime.now().strftime("%m/%d/%Y")
+        prospects = {}
+
+        for cat_idx, (cat_name, cat_info) in enumerate(cats):
+            BUYER_STATUS["progress"] = f"[{cat_idx+1}/{len(cats)}] {cat_name}"
+
+            # Build search queries from sample items
+            queries = []
+            for item in cat_info.get("sample_items", [])[:2]:
+                words = item.split()[:3]
+                queries.append(" ".join(words))
+            terms = cat_info.get("search_terms", [])[:2]
+            if terms:
+                queries.append(" ".join(terms))
+
+            for query in queries[:2]:
+                try:
+                    results = session.search(description=query, from_date=from_date, to_date=to_date)
+                    for r in results[:20]:
+                        supplier = (r.get("supplier_name") or "").lower()
+                        if "reytech" in supplier or "rey tech" in supplier:
+                            continue
+
+                        email = (r.get("buyer_email") or "").strip()
+                        dept = (r.get("dept") or "").strip()
+                        if not email and not dept:
+                            continue
+
+                        key = email or f"{dept}_{r.get('po_number', '')}"
+                        if key not in prospects:
+                            prospects[key] = {
+                                "id": f"PRO-{uuid.uuid4().hex[:8]}",
+                                "buyer_email": email, "buyer_name": "",
+                                "agency": dept, "categories_matched": [],
+                                "purchase_orders": [], "total_spend": 0,
+                                "outreach_status": "new",
+                            }
+
+                        p = prospects[key]
+                        if cat_name not in p["categories_matched"]:
+                            p["categories_matched"].append(cat_name)
+
+                        po_num = r.get("po_number", "")
+                        existing_pos = [x["po_number"] for x in p["purchase_orders"]]
+                        if po_num and po_num not in existing_pos:
+                            p["purchase_orders"].append({
+                                "po_number": po_num, "date": r.get("start_date", ""),
+                                "total_num": r.get("grand_total_num"),
+                                "items": r.get("first_item", "")[:100], "category": cat_name,
+                            })
+                            p["total_spend"] += (r.get("grand_total_num") or 0)
+
+                    time.sleep(1)
+                except Exception as e:
+                    BUYER_STATUS["errors"].append(f"{cat_name}: {e}")
+
+            # Get buyer names from detail on a few results
+            for r in (results if 'results' in dir() else [])[:2]:
+                if r.get("_results_html") and r.get("_row_index") is not None:
+                    try:
+                        detail = session.get_detail(r["_results_html"], r["_row_index"], r.get("_click_action"))
+                        if detail:
+                            hdr = detail.get("header", {}) if isinstance(detail.get("header"), dict) else {}
+                            em = hdr.get("buyer_email", "")
+                            if em and em in prospects:
+                                prospects[em]["buyer_name"] = hdr.get("buyer_name", "")
+                        time.sleep(0.5)
+                    except Exception:
+                        pass
+
+        prospect_list = sorted(prospects.values(), key=lambda p: p["total_spend"], reverse=True)
+        _save_json(PROSPECTS_FILE, {
+            "generated_at": datetime.now().isoformat(),
+            "total_prospects": len(prospect_list),
+            "from_date": from_date,
+            "prospects": prospect_list,
+        })
+
+        BUYER_STATUS.update({"running": False, "phase": "complete", "prospects_found": len(prospect_list)})
+
+        return {
+            "ok": True, "prospects_found": len(prospect_list),
+            "categories_searched": len(cats),
+            "top_prospects": [{"agency": p["agency"], "email": p["buyer_email"], "spend": p["total_spend"]} for p in prospect_list[:10]],
+        }
+
+    except Exception as e:
+        BUYER_STATUS.update({"running": False, "phase": "error"})
+        return {"ok": False, "error": str(e)}
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# STEP 3: Email Outreach
+# ═══════════════════════════════════════════════════════════════════════
+
+EMAIL_TEMPLATE = """Hi{name_greeting},
+
+This is Mike from Reytech Inc. We noticed that {agency} purchased {items_mention} on {purchase_date}. {pricing_line}
+
+We've been serving California state agencies for several years and would love the opportunity to get on your RFQ distribution list. We're a certified Small Business (SB) and Disabled Veteran Business Enterprise (DVBE), which helps meet your procurement mandates.
+
+Please consider us for your next order — we'd appreciate the chance to quote.
+
+Best regards,
+Mike
+Reytech Inc.
+sales@reytechinc.com
+949-229-1575
+reytechinc.com"""
+
+
+def launch_outreach(max_prospects=50, dry_run=True):
+    """Send personalized emails. dry_run=True builds but doesn't send."""
+    prospect_data = _load_json(PROSPECTS_FILE)
+    if not isinstance(prospect_data, dict) or not prospect_data.get("prospects"):
+        return {"ok": False, "error": "No prospects. Run find_category_buyers first."}
+
+    outreach = _load_json(OUTREACH_FILE)
+    if not isinstance(outreach, dict):
+        outreach = {"campaigns": [], "total_sent": 0}
+
+    contacted = set()
+    for c in outreach.get("campaigns", []):
+        for o in c.get("outreach", []):
+            if o.get("email_sent"):
+                contacted.add(o.get("email", ""))
+
+    new = [p for p in prospect_data["prospects"] if p.get("buyer_email") and p["buyer_email"] not in contacted][:max_prospects]
+    if not new:
+        return {"ok": True, "message": "All prospects already contacted", "new_to_contact": 0}
+
+    campaign = {"id": f"GC-{datetime.now().strftime('%Y%m%d-%H%M')}", "created_at": datetime.now().isoformat(), "dry_run": dry_run, "outreach": []}
+    sent = 0
+
+    for p in new:
+        name = p.get("buyer_name", "")
+        name_greeting = f" {name.split()[0]}" if name else ""
+        agency = p.get("agency", "your agency")
+        pos = p.get("purchase_orders", [])
+        items_mention = pos[0].get("items", "items we also carry")[:80] if pos else "items we also carry"
+        purchase_date = pos[0].get("date", "recently") if pos else "recently"
+        cats = p.get("categories_matched", [])
+        pricing_line = f"We specialize in {', '.join(cats[:3])} and often offer more competitive rates — typically 10-30% below contract pricing." if cats else "We often offer more competitive rates on these items."
+
+        body = EMAIL_TEMPLATE.format(name_greeting=name_greeting, agency=agency, items_mention=items_mention, purchase_date=purchase_date, pricing_line=pricing_line)
+        subject = f"Reytech Inc. — {', '.join(cats[:2]) if cats else 'Supply'} Vendor Introduction"
+
+        entry = {
+            "prospect_id": p["id"], "email": p["buyer_email"], "name": name,
+            "agency": agency, "categories": cats,
+            "email_subject": subject, "email_body": body,
+            "email_sent": False, "email_sent_at": None,
+            "voice_follow_up_date": (datetime.now() + timedelta(days=4)).isoformat(),
+            "voice_called": False, "response_received": False,
+        }
+
+        if not dry_run and p.get("buyer_email"):
+            try:
+                from src.agents.email_poller import send_email
+                send_email(to=p["buyer_email"], subject=subject, body=body)
+                entry["email_sent"] = True
+                entry["email_sent_at"] = datetime.now().isoformat()
+                sent += 1
+                log.info(f"Growth email → {p['buyer_email']} ({agency})")
+                time.sleep(1)
+            except Exception as e:
+                entry["error"] = str(e)
+
+        campaign["outreach"].append(entry)
+
+    outreach.setdefault("campaigns", []).append(campaign)
+    outreach["total_sent"] = outreach.get("total_sent", 0) + sent
+    _save_json(OUTREACH_FILE, outreach)
+
+    return {
+        "ok": True, "campaign_id": campaign["id"], "dry_run": dry_run,
+        "emails_built": len(new), "emails_sent": sent,
+        "follow_up_date": (datetime.now() + timedelta(days=4)).strftime("%Y-%m-%d"),
+        "preview": [{"to": o["email"], "agency": o["agency"], "subject": o["email_subject"]} for o in campaign["outreach"][:5]],
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# STEP 4: Voice Follow-Up
+# ═══════════════════════════════════════════════════════════════════════
+
+def check_follow_ups():
+    """Find prospects who haven't responded after 3-5 business days."""
+    outreach = _load_json(OUTREACH_FILE)
+    if not isinstance(outreach, dict):
+        return {"ok": True, "ready": [], "count": 0}
+
+    now = datetime.now()
+    ready = []
+    for c in outreach.get("campaigns", []):
+        if c.get("dry_run"):
+            continue
+        for o in c.get("outreach", []):
+            if o.get("email_sent") and not o.get("response_received") and not o.get("voice_called"):
+                try:
+                    fdate = datetime.fromisoformat(o.get("voice_follow_up_date", ""))
+                    if now >= fdate:
+                        ready.append({"prospect_id": o["prospect_id"], "email": o["email"], "agency": o.get("agency", ""), "categories": o.get("categories", [])})
+                except Exception:
                     pass
 
-    return {
-        "total_pcs": len(pcs),
-        "by_status": dict(by_status),
-        "avg_completion_hours": avg_completion,
-        "stuck_parsed": stuck,
-        "conversion_rate": round(
-            by_status.get("completed", 0) + by_status.get("converted", 0)
-        ) / max(len(pcs), 1) * 100,
-    }
+    return {"ok": True, "ready": ready, "count": len(ready)}
 
 
-# ─── Lead Funnel ─────────────────────────────────────────────────────────────
+def launch_voice_follow_up(max_calls=10):
+    """Auto-dial non-responders using voice agent."""
+    fu = check_follow_ups()
+    if not fu.get("ready"):
+        return {"ok": True, "message": "No follow-ups due", "calls_made": 0}
 
-def lead_funnel() -> dict:
-    """
-    Lead generation → conversion funnel analysis.
-    How many leads → contacted → quoted → won?
-    """
-    leads = _load_leads()
-    if not leads:
-        return {"error": "No leads data", "total": 0}
+    prospect_data = _load_json(PROSPECTS_FILE)
+    pmap = {}
+    if isinstance(prospect_data, dict):
+        for p in prospect_data.get("prospects", []):
+            pmap[p["id"]] = p
 
-    by_status = defaultdict(int)
-    by_institution = defaultdict(int)
-    scores = []
-
-    for lead in leads:
-        by_status[lead.get("status", "unknown")] += 1
-        by_institution[lead.get("institution", "Unknown")] += 1
-        scores.append(lead.get("score", 0))
-
-    avg_score = round(sum(scores) / max(len(scores), 1), 2)
-    total = len(leads)
-    contacted = by_status.get("contacted", 0) + by_status.get("quoted", 0) + by_status.get("won", 0)
-    won = by_status.get("won", 0)
-
-    return {
-        "total_leads": total,
-        "by_status": dict(by_status),
-        "contact_rate": round(contacted / max(total, 1) * 100, 1),
-        "win_rate": round(won / max(total, 1) * 100, 1),
-        "avg_lead_score": avg_score,
-        "top_institutions": sorted(
-            by_institution.items(), key=lambda x: x[1], reverse=True
-        )[:10],
-    }
-
-
-# ─── Recommendations ────────────────────────────────────────────────────────
-
-def generate_recommendations() -> list:
-    """
-    Generate actionable recommendations based on all available data.
-    Returns prioritized list of suggestions.
-    """
-    recs = []
-    wl = win_loss_analysis()
-    pricing = pricing_analysis()
-    pipeline = pipeline_health()
-    funnel = lead_funnel()
-
-    # Win rate recommendations
-    summary = wl.get("summary", {})
-    win_rate = summary.get("win_rate", 0)
-    if win_rate > 60:
-        recs.append({
-            "priority": "info",
-            "area": "win_rate",
-            "message": f"Win rate is {win_rate}% — strong. Consider increasing margins.",
-            "action": "Test 5% higher markup on next 5 quotes",
-        })
-    elif win_rate > 0:
-        recs.append({
-            "priority": "warning",
-            "area": "win_rate",
-            "message": f"Win rate is {win_rate}% — analyze lost quotes for pricing gaps.",
-            "action": "Review lost quotes: are we being undercut or losing on delivery?",
-        })
-
-    # Pending quotes
-    pending = summary.get("pending", 0)
-    if pending > 10:
-        recs.append({
-            "priority": "action",
-            "area": "pipeline",
-            "message": f"{pending} quotes pending — follow up on old quotes.",
-            "action": "Mark stale quotes (>30 days) as lost and learn from them",
-        })
-
-    # Pricing intelligence
-    markup = pricing.get("markup", {})
-    if markup.get("won_samples", 0) > 3 and markup.get("lost_samples", 0) > 3:
-        won_avg = markup.get("avg_won_markup", 0)
-        lost_avg = markup.get("avg_lost_markup", 0)
-        if won_avg < lost_avg:
-            recs.append({
-                "priority": "insight",
-                "area": "pricing",
-                "message": f"Winning markup avg: {won_avg}%, losing: {lost_avg}%.",
-                "action": f"Target {won_avg + 2}% markup for optimal win rate × margin",
+    calls = 0
+    for target in fu["ready"][:max_calls]:
+        prospect = pmap.get(target["prospect_id"], {})
+        phone = prospect.get("buyer_phone", "")
+        if not phone:
+            continue
+        try:
+            from src.agents.voice_agent import place_call
+            result = place_call(phone_number=phone, script_key="lead_intro", variables={
+                "institution": target["agency"],
+                "top_items": ", ".join(target.get("categories", ["supplies"])[:3]),
             })
+            if result.get("ok"):
+                calls += 1
+                _mark_called(target["prospect_id"])
+        except Exception as e:
+            log.warning(f"Voice failed {target['agency']}: {e}")
 
-    # Pipeline stuck
-    stuck = pipeline.get("stuck_parsed", 0)
-    if stuck > 0:
-        recs.append({
-            "priority": "action",
-            "area": "pipeline",
-            "message": f"{stuck} Price Check(s) stuck at 'parsed' for >24 hours.",
-            "action": "Process stuck PCs or remove if no longer relevant",
-        })
-
-    # Lead generation
-    total_leads = funnel.get("total_leads", 0)
-    if total_leads == 0:
-        recs.append({
-            "priority": "action",
-            "area": "leads",
-            "message": "No leads generated yet. Start the SCPRS scanner.",
-            "action": "POST /api/scanner/start to begin scanning for opportunities",
-        })
-    elif funnel.get("contact_rate", 0) < 30:
-        recs.append({
-            "priority": "warning",
-            "area": "leads",
-            "message": f"Only {funnel.get('contact_rate', 0)}% of leads contacted.",
-            "action": "Review high-score leads in outbox and send outreach",
-        })
-
-    # Top performing institutions
-    top_inst = wl.get("top_institutions", [])
-    if top_inst:
-        best = top_inst[0]
-        recs.append({
-            "priority": "insight",
-            "area": "focus",
-            "message": f"Top institution: {best[0]} (${best[1]['total_value']:,.0f} won).",
-            "action": f"Prioritize {best[0]} — proactively seek their upcoming POs",
-        })
-
-    return sorted(recs, key=lambda x: {"action": 0, "warning": 1, "insight": 2, "info": 3}.get(x["priority"], 4))
+    return {"ok": True, "calls_made": calls, "remaining": fu["count"] - calls}
 
 
-# ─── Full Report ─────────────────────────────────────────────────────────────
+def _mark_called(prospect_id):
+    outreach = _load_json(OUTREACH_FILE)
+    if not isinstance(outreach, dict):
+        return
+    for c in outreach.get("campaigns", []):
+        for o in c.get("outreach", []):
+            if o.get("prospect_id") == prospect_id:
+                o["voice_called"] = True
+                o["voice_called_at"] = datetime.now().isoformat()
+    _save_json(OUTREACH_FILE, outreach)
 
-def full_report() -> dict:
-    """Generate a comprehensive growth report."""
+
+# ═══════════════════════════════════════════════════════════════════════
+# Status
+# ═══════════════════════════════════════════════════════════════════════
+
+def get_growth_status():
+    history = _load_json(HISTORY_FILE)
+    cats = _load_json(CATEGORIES_FILE)
+    prospects = _load_json(PROSPECTS_FILE)
+    outreach = _load_json(OUTREACH_FILE)
+    h = history if isinstance(history, dict) else {}
+    c = cats if isinstance(cats, dict) else {}
+    p = prospects if isinstance(prospects, dict) else {}
+    o = outreach if isinstance(outreach, dict) else {}
     return {
-        "generated_at": datetime.now().isoformat(),
-        "win_loss": win_loss_analysis(),
-        "pricing": pricing_analysis(),
-        "pipeline": pipeline_health(),
-        "lead_funnel": lead_funnel(),
-        "recommendations": generate_recommendations(),
+        "ok": True,
+        "history": {"total_pos": h.get("total_pos", 0), "total_items": h.get("total_items", 0), "pulled_at": h.get("pulled_at")},
+        "categories": {"total": c.get("total_categories", 0), "names": list(c.get("categories", {}).keys())[:7]},
+        "prospects": {"total": p.get("total_prospects", 0), "generated_at": p.get("generated_at")},
+        "outreach": {"total_sent": o.get("total_sent", 0), "campaigns": len(o.get("campaigns", []))},
+        "pull_status": PULL_STATUS,
+        "buyer_status": BUYER_STATUS,
     }
 
 
-def get_agent_status() -> dict:
-    """Agent health status."""
-    quotes = _load_quotes()
-    pcs = _load_pcs()
-    leads = _load_leads()
-    return {
-        "agent": "growth_strategy",
-        "version": "1.0.0",
-        "data_available": {
-            "quotes": len(quotes),
-            "price_checks": len(pcs),
-            "leads": len(leads),
-        },
-        "has_enough_data": len(quotes) >= 5,
-    }
+# Legacy compatibility
+def generate_recommendations():
+    return get_growth_status()
+
+def full_report():
+    return get_growth_status()
+
+def lead_funnel():
+    return get_growth_status()

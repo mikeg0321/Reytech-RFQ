@@ -240,7 +240,7 @@ class FiscalSession:
             log.error(f"SCPRS init failed: {e}")
             return False
 
-    def search(self, description="", from_date="", to_date=""):
+    def search(self, description="", from_date="", to_date="", supplier_name=""):
         if not self.initialized and not self.init_session():
             return []
 
@@ -256,6 +256,8 @@ class FiscalSession:
         search_values[FIELD_DESCRIPTION] = description
         search_values[FIELD_FROM_DATE] = from_date
         search_values[FIELD_TO_DATE] = to_date
+        if supplier_name:
+            search_values[FIELD_SUPPLIER_NAME] = supplier_name
         form_data = self._build_form_data(page, SEARCH_BUTTON, search_values)
 
         try:
