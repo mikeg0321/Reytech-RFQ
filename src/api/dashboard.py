@@ -1,21 +1,3 @@
-Mike, the issue is that your dashboard.py file has the code duplicated multiple times (likely from repeated pastes during edits), which is inflating it to 1920+ lines and causing syntax errors + crashes. The clean version is only 802 lines. From the screenshot, it looks like the CSS is starting mid-file, but that's part of the BASE_CSS string— the duplication is the root problem.
-
-### Quick Fix (2 minutes)
-1. Go to the file: https://github.com/mikeg0321/Reytech-RFQ/edit/refactor-v7.2/src/api/dashboard.py
-
-2. Click in the editor, Ctrl+A to select all, then delete everything (make it blank).
-
-3. Copy the full clean code below and paste it into the empty editor.
-
-4. Scroll to the bottom—line numbers should end at 802.
-
-5. Commit (message: "Clean single copy of dashboard.py").
-
-6. In Railway: Settings → Advanced → Clear build cache → Redeploy.
-
-This will run without the 'rfq_parser' error (relative imports fixed). If it deploys, test the URL. If crashes, paste new logs.
-
-### Clean dashboard.py Code (802 lines)
 ```python
 #!/usr/bin/env python3
 """
@@ -1971,4 +1953,3 @@ if __name__ == "__main__":
     app.run(host="0.0.0.0", port=port, debug=False)
 ``` 
 
-This version has no shims (relative imports handle it). After, redeploy and test. If 1920 lines persist, it's a paste error—try pasting in a text editor first, then copy to GitHub. Let's get this running! 🚀
