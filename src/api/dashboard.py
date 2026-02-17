@@ -1010,6 +1010,23 @@ def pricecheck_scprs_lookup(pcid):
     return jsonify({"ok": True, "found": found, "total": len(items)})
 
 
+@bp.route("/pricecheck/<pcid>/rename", methods=["POST"])
+@auth_required
+def pricecheck_rename(pcid):
+    """Rename a price check's display number."""
+    pcs = _load_price_checks()
+    if pcid not in pcs:
+        return jsonify({"ok": False, "error": "PC not found"})
+    data = request.get_json(silent=True) or {}
+    new_name = data.get("pc_number", "").strip()
+    if not new_name:
+        return jsonify({"ok": False, "error": "Name cannot be empty"})
+    pcs[pcid]["pc_number"] = new_name
+    _save_price_checks(pcs)
+    log.info("RENAME PC %s → %s", pcid, new_name)
+    return jsonify({"ok": True, "pc_number": new_name})
+
+
 @bp.route("/pricecheck/<pcid>/save-prices", methods=["POST"])
 @auth_required
 def pricecheck_save_prices(pcid):

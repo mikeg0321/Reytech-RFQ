@@ -609,7 +609,14 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
     </div>
 
     <div class="card">
-     <h1>Price Check #{pc.get('pc_number','unknown')}
+     <h1 style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <span>Price Check #</span>
+      <span id="pcNumDisplay" style="cursor:pointer" title="Click to rename" onclick="document.getElementById('pcNumEdit').style.display='inline-flex';this.style.display='none'">{pc.get('pc_number','unknown')}</span>
+      <span id="pcNumEdit" style="display:none;align-items:center;gap:4px">
+       <input type="text" id="pcNumInput" value="{pc.get('pc_number','')}" style="background:#0d1117;border:1px solid #58a6ff;color:#c9d1d9;padding:4px 8px;border-radius:4px;font-size:16px;font-weight:700;width:200px;font-family:inherit">
+       <button onclick="renamePc()" style="background:#238636;color:#fff;border:none;padding:4px 10px;border-radius:4px;font-size:12px;cursor:pointer">Save</button>
+       <button onclick="document.getElementById('pcNumEdit').style.display='none';document.getElementById('pcNumDisplay').style.display='inline'" style="background:none;border:1px solid #30363d;color:#8b949e;padding:4px 8px;border-radius:4px;font-size:12px;cursor:pointer">✕</button>
+      </span>
       <span class="status status-{pc.get('status','parsed')}">{pc.get('status','parsed').upper()}</span>
       {f"<span style='margin-left:12px;font-family:JetBrains Mono,monospace;font-size:16px;color:#58a6ff;font-weight:700'>{pc.get('reytech_quote_number','')}</span>" if pc.get('reytech_quote_number') else ""}</h1>
 
@@ -1096,6 +1103,28 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
     }};
     const peek_next='{next_quote_preview}';
 
+    function renamePc() {{
+      const newName = document.getElementById('pcNumInput').value.trim();
+      if (!newName) return;
+      fetch('/pricecheck/{pcid}/rename', {{
+        method: 'POST',
+        headers: {{'Content-Type': 'application/json'}},
+        body: JSON.stringify({{pc_number: newName}})
+      }})
+      .then(r=>r.json())
+      .then(d=>{{
+        if (d.ok) {{
+          document.getElementById('pcNumDisplay').textContent = newName;
+          document.getElementById('pcNumDisplay').style.display = 'inline';
+          document.getElementById('pcNumEdit').style.display = 'none';
+          document.title = 'PC #' + newName;
+          showMsg('✅ Renamed to ' + newName, 'ok');
+        }} else {{
+          showMsg('❌ ' + (d.error||'Rename failed'), 'err');
+        }}
+      }}).catch(e=>showMsg('❌ Error: '+e, 'err'));
+    }}
+
     function showPreview() {{
      // Build preview matching the Reytech quote PDF format
      const rows=document.querySelectorAll('tr[data-row]');
@@ -1311,7 +1340,15 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
       }});
     }}
 
-    (function loadCrmAndHistory() {{
+    // Fallback: clear Loading... after 12s no matter what
+    setTimeout(()=>{{
+      const crm=document.getElementById('crmBody');
+      const hist=document.getElementById('historyBody');
+      if(crm&&crm.textContent.includes('Loading'))crm.innerHTML='<span style="color:#8b949e">CRM timed out — <button onclick="location.reload()" style="background:none;border:none;color:#58a6ff;cursor:pointer;text-decoration:underline;font-size:inherit">reload</button></span>';
+      if(hist&&hist.textContent.includes('Loading'))hist.innerHTML='<span style="color:#8b949e">History timed out — <button onclick="location.reload()" style="background:none;border:none;color:#58a6ff;cursor:pointer;text-decoration:underline;font-size:inherit">reload</button></span>';
+    }},12000);
+
+    document.addEventListener('DOMContentLoaded',function(){{try{{
      const inst = PC_META.institution;
      if (!inst) {{
        document.getElementById('crmBody').innerHTML='<span style="color:#8b949e">No institution detected</span>';
@@ -1446,7 +1483,10 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
      }}).catch((err)=>{{
       document.getElementById('historyBody').innerHTML='<span style="color:#f85149">⚠️ History load failed</span><br><span style="color:#8b949e;font-size:11px">' + (err.name==='AbortError'?'Timeout — server may be starting up':'Network error') + '</span><br><button onclick="location.reload()" style="margin-top:6px;font-size:11px;background:none;border:1px solid var(--bd);color:var(--tx2);padding:3px 10px;border-radius:4px;cursor:pointer">↻ Retry</button>';
      }});
-    }})();
+    }}catch(e){{console.error('CRM/History load error:',e);
+      const crm=document.getElementById('crmBody');
+      if(crm)crm.innerHTML='<span style="color:#f85149">⚠️ JS error — check console</span>';
+    }}}});
 
     function addNewCustomer() {{
      const inst = PC_META.institution;
