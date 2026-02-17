@@ -62,6 +62,20 @@ a{color:var(--ac);text-decoration:none}
 .stat-chip{background:var(--sf2);border:1px solid var(--bd);border-radius:8px;padding:8px 14px;min-width:85px;text-align:center}
 .stat-val{font-size:16px;font-weight:700;font-family:'JetBrains Mono',monospace;line-height:1.2}
 .stat-label{font-size:9px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:3px}
+.kpi-card{padding:16px 18px;text-align:center}
+.kpi-card-label{font-size:10px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px}
+.kpi-card-value{font-size:28px;font-weight:700;font-family:'JetBrains Mono',monospace;line-height:1.3;margin:4px 0}
+.kpi-card-sub{font-size:11px;color:var(--tx2)}
+.kpi-panel{min-height:120px}
+.kpi-panel-title{font-size:11px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px}
+.kpi-big{font-size:26px;font-weight:700;font-family:'JetBrains Mono',monospace;line-height:1}
+.kpi-sub{font-size:10px;color:var(--tx2);font-family:'JetBrains Mono',monospace}
+.progress-track{height:10px;background:var(--sf2);border-radius:5px;overflow:hidden}
+.progress-fill{height:100%;border-radius:5px;transition:width .8s ease}
+@media(max-width:768px){
+ #kpi-cards{grid-template-columns:repeat(2,1fr)!important}
+ #brief-grid{grid-template-columns:1fr!important}
+}
 .meta-g{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:20px}
 .meta-i{background:var(--sf2);border-radius:8px;padding:10px 12px}
 .meta-l{font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px}
@@ -145,6 +159,44 @@ PAGE_HOME = """
 
  <!-- Pipeline Stats Bar -->
  <div id="pipeline-bar" style="display:flex;gap:12px;flex-wrap:wrap;margin-top:16px;padding-top:14px;border-top:1px solid var(--bd)"></div>
+</div>
+
+<!-- KPI Dashboard — Power BI style -->
+<div id="kpi-section" style="display:none;margin-bottom:20px">
+ <!-- Row 1: Big KPI cards -->
+ <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:12px" id="kpi-cards"></div>
+ <!-- Row 2: Goal progress + Win Rate gauge + Funnel + Weekly chart -->
+ <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+  <!-- Revenue Goal Progress -->
+  <div class="card kpi-panel" style="padding:16px">
+   <div class="kpi-panel-title">Monthly Revenue Goal</div>
+   <div style="display:flex;align-items:flex-end;gap:12px;margin:12px 0 8px">
+    <span id="goal-current" class="kpi-big" style="color:var(--gn)">$0</span>
+    <span style="font-size:13px;color:var(--tx2)">of <span id="goal-target">$25,000</span></span>
+   </div>
+   <div class="progress-track"><div class="progress-fill" id="goal-bar" style="width:0%"></div></div>
+   <div style="display:flex;justify-content:space-between;margin-top:6px">
+    <span class="kpi-sub" id="goal-pct">0%</span>
+    <span class="kpi-sub" id="goal-remaining">$25,000 remaining</span>
+   </div>
+  </div>
+  <!-- Win Rate + Funnel -->
+  <div class="card kpi-panel" style="padding:16px">
+   <div class="kpi-panel-title">Pipeline Funnel</div>
+   <div id="funnel-bars" style="margin-top:12px"></div>
+  </div>
+ </div>
+ <!-- Row 3: Weekly volume + Top institutions -->
+ <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+  <div class="card kpi-panel" style="padding:16px">
+   <div class="kpi-panel-title">Weekly Quote Volume</div>
+   <div id="weekly-chart" style="display:flex;align-items:flex-end;gap:8px;height:100px;margin-top:12px;padding-top:8px"></div>
+  </div>
+  <div class="card kpi-panel" style="padding:16px">
+   <div class="kpi-panel-title">Top Institutions by Revenue</div>
+   <div id="top-inst" style="margin-top:12px"></div>
+  </div>
+ </div>
 </div>
 
 <!-- Price Checks — primary work queue -->
@@ -328,6 +380,81 @@ fetch('/api/manager/brief').then(r=>r.json()).then(data=>{
    +'<div class="stat-val" style="color:'+s.color+'">'+s.value+'</div>'
    +'<div class="stat-label">'+s.label+'</div></div>';
  }).join('');
+}).catch(function(){});
+
+// ── KPI Dashboard (loads async) ──
+fetch('/api/manager/metrics').then(r=>r.json()).then(function(data){
+ if(!data.ok) return;
+ document.getElementById('kpi-section').style.display='block';
+ var rev=data.revenue||{};var q=data.quotes||{};var fn=data.funnel||{};
+
+ // Big KPI cards
+ var cards=[
+  {label:'Total Revenue',value:'$'+(rev.total||0).toLocaleString(undefined,{maximumFractionDigits:0}),color:'var(--gn)',sub:q.won+' quotes won'},
+  {label:'Win Rate',value:(q.win_rate||0)+'%',color:q.win_rate>=50?'var(--gn)':q.win_rate>0?'var(--yl)':'var(--tx2)',sub:(q.won+q.lost)+' decided'},
+  {label:'Pipeline Value',value:'$'+(rev.pipeline_value||0).toLocaleString(undefined,{maximumFractionDigits:0}),color:'var(--ac)',sub:q.pending+' quotes pending'},
+  {label:'Avg Response',value:(data.response_time_hours||0)+'h',color:data.response_time_hours<24?'var(--gn)':data.response_time_hours<48?'var(--yl)':'var(--rd)',sub:'PC upload → priced'},
+ ];
+ document.getElementById('kpi-cards').innerHTML=cards.map(function(c){
+  return '<div class="card kpi-card"><div class="kpi-card-label">'+c.label+'</div>'
+   +'<div class="kpi-card-value" style="color:'+c.color+'">'+c.value+'</div>'
+   +'<div class="kpi-card-sub">'+c.sub+'</div></div>';
+ }).join('');
+
+ // Goal progress
+ document.getElementById('goal-current').textContent='$'+(rev.this_month||0).toLocaleString(undefined,{maximumFractionDigits:0});
+ document.getElementById('goal-target').textContent='$'+(rev.monthly_goal||25000).toLocaleString(undefined,{maximumFractionDigits:0});
+ document.getElementById('goal-pct').textContent=(rev.goal_pct||0)+'%';
+ var remaining=Math.max((rev.monthly_goal||25000)-(rev.this_month||0),0);
+ document.getElementById('goal-remaining').textContent='$'+remaining.toLocaleString(undefined,{maximumFractionDigits:0})+' remaining';
+ var bar=document.getElementById('goal-bar');
+ bar.style.width=Math.min(rev.goal_pct||0,100)+'%';
+ bar.style.background=rev.goal_pct>=100?'var(--gn)':rev.goal_pct>=50?'var(--ac)':'var(--yl)';
+
+ // Funnel
+ var funnelData=[
+  {label:'Price Checks',value:fn.pcs_total||0,color:'var(--ac)'},
+  {label:'Priced',value:fn.priced||0,color:'var(--yl)'},
+  {label:'Completed',value:fn.completed||0,color:'var(--or)'},
+  {label:'Quoted',value:fn.quotes_generated||0,color:'var(--ac)'},
+  {label:'Won',value:fn.quotes_won||0,color:'var(--gn)'},
+ ];
+ var fMax=Math.max.apply(null,funnelData.map(function(f){return f.value}))||1;
+ document.getElementById('funnel-bars').innerHTML=funnelData.map(function(f){
+  var pct=Math.max(f.value/fMax*100,4);
+  return '<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">'
+   +'<div style="width:80px;font-size:11px;color:var(--tx2);text-align:right">'+f.label+'</div>'
+   +'<div style="flex:1;height:20px;background:var(--sf2);border-radius:4px;overflow:hidden">'
+   +'<div style="height:100%;width:'+pct+'%;background:'+f.color+';border-radius:4px;transition:width .6s"></div></div>'
+   +'<div style="width:30px;font-size:12px;font-weight:600;font-family:JetBrains Mono,monospace">'+f.value+'</div></div>';
+ }).join('');
+
+ // Weekly chart (bar chart)
+ var wv=data.weekly_volume||[];
+ var wMax=Math.max.apply(null,wv.map(function(w){return w.quotes}))||1;
+ document.getElementById('weekly-chart').innerHTML=wv.map(function(w){
+  var h=Math.max(w.quotes/wMax*80,4);
+  return '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px">'
+   +'<div style="font-size:10px;font-family:JetBrains Mono,monospace;color:var(--tx2)">'+w.quotes+'</div>'
+   +'<div style="width:100%;height:'+h+'px;background:var(--ac);border-radius:4px 4px 0 0;transition:height .4s"></div>'
+   +'<div style="font-size:9px;color:var(--tx2)">'+w.label+'</div></div>';
+ }).join('');
+
+ // Top institutions
+ var ti=data.top_institutions||[];
+ if(ti.length>0){
+  var tiMax=ti[0].revenue||1;
+  document.getElementById('top-inst').innerHTML=ti.map(function(t){
+   var pct=Math.max(t.revenue/tiMax*100,4);
+   return '<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">'
+    +'<div style="min-width:120px;max-width:160px;font-size:11px;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+t.name+'</div>'
+    +'<div style="flex:1;height:16px;background:var(--sf2);border-radius:4px;overflow:hidden">'
+    +'<div style="height:100%;width:'+pct+'%;background:var(--gn);border-radius:4px;transition:width .6s"></div></div>'
+    +'<div style="width:70px;font-size:11px;font-weight:600;font-family:JetBrains Mono,monospace;text-align:right;color:var(--gn)">$'+t.revenue.toLocaleString(undefined,{maximumFractionDigits:0})+'</div></div>';
+  }).join('');
+ } else {
+  document.getElementById('top-inst').innerHTML='<div class="brief-empty">Win quotes to see top institutions here</div>';
+ }
 }).catch(function(){});
 </script>
 """
