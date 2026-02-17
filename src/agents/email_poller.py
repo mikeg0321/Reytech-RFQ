@@ -219,6 +219,33 @@ class EmailPoller:
                     pdf_names = self._get_pdf_names(msg)
                     
                     if not is_rfq_email(subject, body, pdf_names):
+                        # Check if it's a shipping/tracking email
+                        try:
+                            from src.agents.predictive_intel import detect_shipping_email
+                            ship_info = detect_shipping_email(subject, body, sender)
+                            if ship_info.get("is_shipping") and ship_info.get("tracking_numbers"):
+                                log.info("📦 Shipping email detected: %s tracking=%s",
+                                         subject[:60], ship_info["tracking_numbers"][:2])
+                                # Save for order matching
+                                _ship_file = os.path.join(os.path.dirname(os.path.dirname(
+                                    os.path.dirname(os.path.abspath(__file__)))), "data", "detected_shipments.json")
+                                try:
+                                    with open(_ship_file) as _sf:
+                                        _ships = json.load(_sf)
+                                except (FileNotFoundError, json.JSONDecodeError):
+                                    _ships = []
+                                _ships.append({
+                                    **ship_info,
+                                    "subject": subject,
+                                    "sender": sender,
+                                    "detected_at": datetime.now().isoformat(),
+                                })
+                                if len(_ships) > 500:
+                                    _ships = _ships[-500:]
+                                with open(_ship_file, "w") as _sf:
+                                    json.dump(_ships, _sf, indent=2, default=str)
+                        except Exception as _e:
+                            pass  # Non-critical
                         self._processed.add(uid)
                         continue
 
