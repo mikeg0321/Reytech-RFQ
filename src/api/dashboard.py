@@ -2716,5 +2716,97 @@ def api_test_status():
     })
 
 
+@bp.route("/api/test/cleanup-duplicates")
+@auth_required
+def api_cleanup_duplicates():
+    """ONE-TIME: Deduplicate quotes_log.json and reset counter.
+
+    What it does:
+      1. Backs up quotes_log.json → quotes_log_backup_{timestamp}.json
+      2. Deduplicates: keeps only the LAST entry per quote number
+      3. Resets quote_counter.json to highest quote number + 1
+      4. Returns full before/after report
+
+    Safe to run multiple times — idempotent after first run.
+    Hit: /api/test/cleanup-duplicates?dry_run=true to preview without writing.
+    """
+    if not QUOTE_GEN_AVAILABLE:
+        return jsonify({"ok": False, "error": "quote_generator not available"})
+
+    dry_run = request.args.get("dry_run", "false").lower() == "true"
+    quotes = get_all_quotes()
+    original_count = len(quotes)
+
+    # Deduplicate: walk forward, keep last occurrence of each quote number
+    seen = {}
+    for i, q in enumerate(quotes):
+        qn = q.get("quote_number", "")
+        if qn:
+            seen[qn] = i  # last index wins
+
+    # Build clean list preserving order of last occurrence
+    clean = []
+    used_indices = set(seen.values())
+    for i in sorted(used_indices):
+        clean.append(quotes[i])
+
+    removed = original_count - len(clean)
+
+    # Find highest quote number for counter reset
+    max_num = 0
+    for q in clean:
+        qn = q.get("quote_number", "")
+        try:
+            n = int(qn.split("Q")[-1])
+            max_num = max(max_num, n)
+        except (ValueError, IndexError):
+            pass
+
+    # Build report
+    from collections import Counter
+    old_counts = Counter(q.get("quote_number", "") for q in quotes)
+    dupes = {k: v for k, v in old_counts.items() if v > 1}
+
+    report = {
+        "dry_run": dry_run,
+        "before": {"total_entries": original_count, "unique_quotes": len(seen)},
+        "after": {"total_entries": len(clean), "unique_quotes": len(seen)},
+        "removed": removed,
+        "duplicates_found": dupes,
+        "counter_will_be": max_num,
+        "next_quote": f"R{str(datetime.now().year)[2:]}Q{max_num + 1}",
+        "clean_quotes": [
+            {"quote_number": q.get("quote_number"), "total": q.get("total", 0),
+             "institution": q.get("institution", "")[:40], "status": q.get("status", "")}
+            for q in clean
+        ],
+    }
+
+    if not dry_run:
+        # Backup
+        backup_name = f"quotes_log_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        backup_path = os.path.join(DATA_DIR, backup_name)
+        import shutil
+        src_path = os.path.join(DATA_DIR, "quotes_log.json")
+        if os.path.exists(src_path):
+            shutil.copy2(src_path, backup_path)
+            report["backup"] = backup_name
+
+        # Write clean data
+        from src.forms.quote_generator import _save_all_quotes
+        _save_all_quotes(clean)
+
+        # Reset counter
+        set_quote_counter(max_num)
+
+        log.info("CLEANUP: %d → %d quotes (%d duplicates removed). Counter → %d. Backup: %s",
+                 original_count, len(clean), removed, max_num, backup_name)
+        report["message"] = f"Done. {removed} duplicates removed. Counter reset to {max_num}. Backup: {backup_name}"
+    else:
+        report["message"] = f"DRY RUN: Would remove {removed} duplicates and reset counter to {max_num}. Add ?dry_run=false to execute."
+
+    return jsonify(report)
+
+
 # Start polling on import (for gunicorn) and on direct run
 start_polling()
