@@ -523,6 +523,7 @@ def render(content, **kw):
   <a href="/" class="hdr-btn hdr-active">🏠 Home</a>
   <a href="/quotes" class="hdr-btn">📋 Quotes</a>
   <a href="/orders" class="hdr-btn">📦 Orders</a>
+  <a href="/pipeline" class="hdr-btn">🔄 Pipeline</a>
   <a href="/agents" class="hdr-btn">🤖 Agents</a>
   <span style="width:1px;height:24px;background:var(--bd);margin:0 6px"></span>
   <button class="hdr-btn" onclick="pollNow(this)" id="poll-btn">⚡ Check Now</button>
@@ -3693,6 +3694,243 @@ sales@reytechinc.com"""
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# Pipeline Dashboard (Phase 20)
+# ═══════════════════════════════════════════════════════════════════════
+
+@bp.route("/pipeline")
+@auth_required
+def pipeline_page():
+    """Autonomous pipeline dashboard — full funnel visibility."""
+    quotes = get_all_quotes()
+    orders = _load_orders()
+    crm = _load_crm_activity()
+    leads = []
+    try:
+        import json as _json
+        with open(os.path.join(DATA_DIR, "leads.json")) as f:
+            leads = _json.load(f)
+    except Exception:
+        pass
+
+    # ── Funnel Counts ──
+    total_leads = len(leads)
+    total_quotes = len(quotes)
+    sent = sum(1 for q in quotes if q.get("status") in ("sent",))
+    pending = sum(1 for q in quotes if q.get("status") in ("pending",))
+    won = sum(1 for q in quotes if q.get("status") == "won")
+    lost = sum(1 for q in quotes if q.get("status") == "lost")
+    expired = sum(1 for q in quotes if q.get("status") == "expired")
+    total_orders = len(orders)
+    invoiced = sum(1 for o in orders.values() if o.get("status") in ("invoiced", "closed"))
+
+    # ── Revenue ──
+    total_quoted = sum(q.get("total", 0) for q in quotes)
+    total_won = sum(q.get("total", 0) for q in quotes if q.get("status") == "won")
+    total_pending = sum(q.get("total", 0) for q in quotes if q.get("status") in ("pending", "sent"))
+    total_invoiced = sum(o.get("invoice_total", 0) for o in orders.values())
+
+    # ── Conversion Rates ──
+    def rate(a, b): return round(a/b*100) if b > 0 else 0
+    lead_to_quote = rate(total_quotes, total_leads) if total_leads else "—"
+    quote_to_sent = rate(sent + won + lost, total_quotes) if total_quotes else "—"
+    sent_to_won = rate(won, won + lost) if (won + lost) else "—"
+    won_to_invoiced = rate(invoiced, total_orders) if total_orders else "—"
+
+    # ── Funnel bars ──
+    max_count = max(total_leads, total_quotes, 1)
+    def bar(count, color, label, sublabel=""):
+        pct = max(5, round(count / max_count * 100))
+        return f"""<div style="margin-bottom:8px">
+         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+          <span style="font-size:12px;font-weight:600">{label}</span>
+          <span style="font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:700;color:{color}">{count}</span>
+         </div>
+         <div style="background:var(--sf2);border-radius:6px;height:24px;overflow:hidden">
+          <div style="width:{pct}%;height:100%;background:{color};border-radius:6px;display:flex;align-items:center;padding-left:8px">
+           <span style="font-size:10px;color:#fff;font-weight:600">{sublabel}</span>
+          </div>
+         </div>
+        </div>"""
+
+    funnel = (
+        bar(total_leads, "#58a6ff", "🔍 Leads (SCPRS)", f"{total_leads} opportunities") +
+        bar(total_quotes, "#bc8cff", "📋 Quotes Generated", f"${total_quoted:,.0f} total") +
+        bar(sent + won + lost, "#d29922", "📤 Sent to Buyer", f"{sent} active") +
+        bar(won, "#3fb950", "✅ Won", f"${total_won:,.0f} revenue") +
+        bar(total_orders, "#58a6ff", "📦 Orders", f"{total_orders} active") +
+        bar(invoiced, "#3fb950", "💰 Invoiced", f"${total_invoiced:,.0f}")
+    )
+
+    # ── Recent CRM events ──
+    recent = sorted(crm, key=lambda e: e.get("timestamp", ""), reverse=True)[:15]
+    evt_icons = {
+        "quote_won": "✅", "quote_lost": "❌", "quote_sent": "📤", "quote_generated": "📋",
+        "order_created": "📦", "voice_call": "📞", "email_sent": "📧", "note": "📝",
+        "shipping_detected": "🚚", "invoice_full": "💰", "invoice_partial": "½",
+    }
+    events_html = ""
+    for e in recent:
+        icon = evt_icons.get(e.get("event_type", ""), "●")
+        ts = e.get("timestamp", "")[:16].replace("T", " ")
+        events_html += f"""<div style="padding:6px 0;border-bottom:1px solid var(--bd);font-size:12px;display:flex;gap:8px;align-items:flex-start">
+         <span style="flex-shrink:0">{icon}</span>
+         <div style="flex:1"><div>{e.get('description','')[:100]}</div><div style="color:var(--tx2);font-size:10px;margin-top:2px">{ts}</div></div>
+        </div>"""
+
+    # ── Prediction leaderboard for pending quotes ──
+    predictions_html = ""
+    if PREDICT_AVAILABLE:
+        preds = []
+        for q in quotes:
+            if q.get("status") in ("pending", "sent"):
+                p = predict_win_probability(
+                    institution=q.get("institution", ""),
+                    agency=q.get("agency", ""),
+                    po_value=q.get("total", 0),
+                )
+                preds.append({**q, "win_prob": p["probability"], "rec": p["recommendation"]})
+        preds.sort(key=lambda x: x["win_prob"], reverse=True)
+        for q in preds[:10]:
+            prob = round(q["win_prob"] * 100)
+            clr = "#3fb950" if prob >= 60 else ("#d29922" if prob >= 40 else "#f85149")
+            predictions_html += f"""<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--bd);font-size:12px">
+             <span style="font-family:'JetBrains Mono',monospace;font-weight:700;color:{clr};min-width:36px">{prob}%</span>
+             <a href="/quote/{q.get('quote_number','')}" style="color:var(--ac);text-decoration:none;font-weight:600">{q.get('quote_number','')}</a>
+             <span style="color:var(--tx2);flex:1">{q.get('institution','')[:30]}</span>
+             <span style="font-family:'JetBrains Mono',monospace">${q.get('total',0):,.0f}</span>
+            </div>"""
+
+    content = f"""
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+     <h2 style="margin:0;font-size:20px;font-weight:700">🔄 Pipeline Dashboard</h2>
+     <div style="font-size:12px;font-family:'JetBrains Mono',monospace;display:flex;gap:16px">
+      <span>📊 Leads: <b>{total_leads}</b></span>
+      <span>📋 Quotes: <b>{total_quotes}</b></span>
+      <span style="color:var(--gn)">💰 Pipeline: <b>${total_pending:,.0f}</b></span>
+      <span style="color:var(--gn)">🏆 Won: <b>${total_won:,.0f}</b></span>
+     </div>
+    </div>
+
+    <div class="bento bento-2">
+     <div class="card" style="margin:0">
+      <div class="card-t">📊 Sales Funnel</div>
+      {funnel}
+      <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--bd);display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
+       <div style="text-align:center;background:var(--sf2);padding:8px;border-radius:8px">
+        <div style="font-size:9px;color:var(--tx2);text-transform:uppercase">Lead→Quote</div>
+        <div style="font-size:16px;font-weight:700">{lead_to_quote}{'%' if isinstance(lead_to_quote,int) else ''}</div>
+       </div>
+       <div style="text-align:center;background:var(--sf2);padding:8px;border-radius:8px">
+        <div style="font-size:9px;color:var(--tx2);text-transform:uppercase">Quote→Sent</div>
+        <div style="font-size:16px;font-weight:700">{quote_to_sent}{'%' if isinstance(quote_to_sent,int) else ''}</div>
+       </div>
+       <div style="text-align:center;background:var(--sf2);padding:8px;border-radius:8px">
+        <div style="font-size:9px;color:var(--tx2);text-transform:uppercase">Win Rate</div>
+        <div style="font-size:16px;font-weight:700;color:var(--gn)">{sent_to_won}{'%' if isinstance(sent_to_won,int) else ''}</div>
+       </div>
+       <div style="text-align:center;background:var(--sf2);padding:8px;border-radius:8px">
+        <div style="font-size:9px;color:var(--tx2);text-transform:uppercase">Won→Invoiced</div>
+        <div style="font-size:16px;font-weight:700">{won_to_invoiced}{'%' if isinstance(won_to_invoiced,int) else ''}</div>
+       </div>
+      </div>
+     </div>
+
+     <div class="card" style="margin:0">
+      <div class="card-t">⏱️ Recent Activity</div>
+      <div style="max-height:400px;overflow-y:auto">
+       {events_html if events_html else '<div style="color:var(--tx2);font-size:12px;padding:12px">No activity yet</div>'}
+      </div>
+     </div>
+    </div>
+
+    {'<div class="card" style="margin-top:14px"><div class="card-t">🎯 Win Prediction Leaderboard — Active Quotes</div><div style="max-height:320px;overflow-y:auto">' + predictions_html + '</div></div>' if predictions_html else ''}
+
+    <div class="card" style="margin-top:14px">
+     <div class="card-t">⚡ Quick Actions</div>
+     <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <a href="/quotes?status=pending" class="btn btn-s" style="font-size:12px">📋 Pending Quotes ({pending})</a>
+      <a href="/quotes?status=sent" class="btn btn-s" style="font-size:12px">📤 Sent Quotes ({sent})</a>
+      <a href="/orders" class="btn btn-s" style="font-size:12px">📦 Active Orders ({total_orders})</a>
+      <button onclick="fetch('/api/poll-now').then(r=>r.json()).then(d=>alert(JSON.stringify(d,null,2)))" class="btn btn-p" style="font-size:12px">⚡ Check Inbox</button>
+     </div>
+    </div>
+    """
+    return render(content, title="Pipeline")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Pipeline API (Phase 20)
+# ═══════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/pipeline/stats")
+@auth_required
+def api_pipeline_stats():
+    """Full pipeline statistics as JSON."""
+    quotes = get_all_quotes()
+    orders = _load_orders()
+
+    statuses = {}
+    for q in quotes:
+        s = q.get("status", "pending")
+        statuses[s] = statuses.get(s, 0) + 1
+
+    return jsonify({
+        "ok": True,
+        "quotes": {
+            "total": len(quotes),
+            "by_status": statuses,
+            "total_value": sum(q.get("total", 0) for q in quotes),
+            "won_value": sum(q.get("total", 0) for q in quotes if q.get("status") == "won"),
+            "pending_value": sum(q.get("total", 0) for q in quotes if q.get("status") in ("pending", "sent")),
+        },
+        "orders": {
+            "total": len(orders),
+            "total_value": sum(o.get("total", 0) for o in orders.values()),
+            "invoiced_value": sum(o.get("invoice_total", 0) for o in orders.values()),
+        },
+        "conversion": {
+            "win_rate": round(statuses.get("won", 0) / max(statuses.get("won", 0) + statuses.get("lost", 0), 1) * 100, 1),
+            "quote_count": len(quotes),
+            "decided": statuses.get("won", 0) + statuses.get("lost", 0),
+        }
+    })
+
+
+@bp.route("/api/pipeline/analyze-reply", methods=["POST"])
+@auth_required
+def api_analyze_reply():
+    """Analyze an email reply for win/loss/question signals.
+    POST: {subject, body, sender}"""
+    if not REPLY_ANALYZER_AVAILABLE:
+        return jsonify({"ok": False, "error": "Reply analyzer not available"})
+    data = request.get_json(silent=True) or {}
+    quotes = get_all_quotes()
+    result = find_quote_from_reply(
+        data.get("subject", ""), data.get("body", ""),
+        data.get("sender", ""), quotes)
+    result["ok"] = True
+
+    # Auto-flag quote if high confidence win/loss
+    if result.get("matched_quote") and result.get("confidence", 0) >= 0.6:
+        signal = result.get("signal")
+        qn = result["matched_quote"]
+        if signal == "win":
+            _log_crm_activity(qn, "win_signal_detected",
+                              f"Email reply signals WIN for {qn} — {result.get('summary', '')}",
+                              actor="system", metadata=result)
+        elif signal == "loss":
+            _log_crm_activity(qn, "loss_signal_detected",
+                              f"Email reply signals LOSS for {qn} — {result.get('summary', '')}",
+                              actor="system", metadata=result)
+        elif signal == "question":
+            _log_crm_activity(qn, "question_detected",
+                              f"Buyer question detected for {qn} — follow up needed",
+                              actor="system", metadata=result)
+
+    return jsonify(result)
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # Predictive Intelligence & Shipping Monitor (Phase 19)
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -3965,6 +4203,12 @@ try:
     PREDICT_AVAILABLE = True
 except ImportError:
     PREDICT_AVAILABLE = False
+
+try:
+    from src.agents.reply_analyzer import analyze_reply, find_quote_from_reply
+    REPLY_ANALYZER_AVAILABLE = True
+except ImportError:
+    REPLY_ANALYZER_AVAILABLE = False
 
 try:
     from src.agents.quickbooks_agent import (
