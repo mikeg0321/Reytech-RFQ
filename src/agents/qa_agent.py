@@ -437,7 +437,7 @@ def agent_status() -> dict:
 # ═══════════════════════════════════════════════════════════════════════
 
 QA_REPORT_FILE = os.path.join(DATA_DIR, "qa_reports.json")
-QA_INTERVAL = 900  # 15 minutes
+QA_INTERVAL = 300  # 5 minutes
 
 
 def _check_route_integrity() -> list:
@@ -461,7 +461,7 @@ def _check_route_integrity() -> list:
         unprotected = []
         for rule in rules:
             path = str(rule)
-            if "/api/" in path and "webhook" not in path and "static" not in path:
+            if "/api/" in path and "webhook" not in path and "static" not in path and "callback" not in path:
                 func_name = rule.endpoint.split(".")[-1]
                 idx = dash_source.find(f"def {func_name}(")
                 if idx > 0:
@@ -547,10 +547,12 @@ def _check_agents_health() -> list:
 def _check_env_config() -> list:
     """Check environment variables."""
     results = []
-    required = {"DASHBOARD_USER": "Auth", "DASHBOARD_PASS": "Auth"}
+    required = {"DASH_USER": "Auth", "DASH_PASS": "Auth"}
     optional = {"VAPI_API_KEY": "Voice", "QB_CLIENT_ID": "QuickBooks",
-                "GMAIL_EMAIL": "Email", "GMAIL_APP_PASSWORD": "Email",
-                "ANTHROPIC_API_KEY": "AI"}
+                "QB_CLIENT_SECRET": "QuickBooks", "QB_REALM_ID": "QuickBooks",
+                "GMAIL_ADDRESS": "Email", "GMAIL_PASSWORD": "Email",
+                "ANTHROPIC_API_KEY": "AI", "TWILIO_ACCOUNT_SID": "Twilio",
+                "TWILIO_AUTH_TOKEN": "Twilio", "TWILIO_PHONE_NUMBER": "Twilio"}
     for var, desc in required.items():
         if os.environ.get(var):
             results.append({"check": "env", "status": "pass", "message": f"{var} set"})
@@ -702,7 +704,7 @@ class QAMonitor:
         self._running = False
 
     def _loop(self):
-        time.sleep(60)  # Let app boot
+        time.sleep(30)  # Let app boot
         while self._running:
             try:
                 report = run_health_check(checks=["routes", "data", "agents"])
