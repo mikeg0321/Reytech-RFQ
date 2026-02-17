@@ -82,7 +82,7 @@ PAGE_HOME = """
 <div class="card">
  <div class="card-t">RFQ Queue ({{rfqs|length}})</div>
  {% for id, r in rfqs|dictsort(reverse=true) %}
- <a href="/rfq/{{id}}" class="rfq-i">
+ <a href="/rfq/{{id}}" class="rfq-i" style="{% if r.status in ('sent','generated') %}opacity:0.55{% endif %}">
   <div class="sol">#{{r.solicitation_number}}</div>
   <div class="det"><b>{{r.requestor_name}}</b> · Due {{r.due_date}}{% if r.source == 'email' %} · 📧{% endif %}</div>
   <div class="mono">{{r.line_items|length}} items</div>
@@ -96,9 +96,9 @@ PAGE_HOME = """
 <div class="card">
  <div class="card-t">Price Checks ({{price_checks|length}})</div>
  {% for id, pc in price_checks|dictsort(reverse=true) %}
- <a href="/pricecheck/{{id}}" class="rfq-i">
+ <a href="/pricecheck/{{id}}" class="rfq-i" style="{% if pc.status in ('completed','converted') %}opacity:0.55{% endif %}">
   <div class="sol">#{{pc.pc_number}}</div>
-  <div class="det"><b>{{pc.institution}}</b> · Due {{pc.due_date}}{% if pc.requestor %} · {{pc.requestor}}{% endif %}</div>
+  <div class="det"><b>{{pc.institution}}</b> · Due {{pc.due_date}}{% if pc.requestor %} · {{pc.requestor}}{% endif %}{% if pc.reytech_quote_number %} · <span style="color:#3fb950">{{pc.reytech_quote_number}}</span>{% endif %}</div>
   <div class="mono">{{pc.get('items',[])|length}} items</div>
   <span class="badge b-{{pc.status}}">{{pc.status}}</span>
  </a>
@@ -613,14 +613,14 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
       <button class="btn btn-y" data-testid="pc-amazon-lookup" onclick="runLookup(this)">🔬 Amazon Lookup</button>
       <span style="border-left:2px solid #30363d;height:28px;margin:0 8px"></span>
       <button class="btn" data-testid="pc-preview-quote" style="background:#21262d;color:#c9d1d9;border:1px solid #484f58" onclick="showPreview()">👁️ Preview Quote</button>
-      <button class="btn btn-g" data-testid="pc-generate-704" onclick="saveAndGenerate(this)">📄 Generate Completed 704</button>
-      <button class="btn" data-testid="pc-generate-reytech-quote" style="background:#1a3a5c;color:#fff" onclick="generateReytechQuote(this)">📋 Reytech Quote PDF</button>
+      <button class="btn btn-g" data-testid="pc-generate-704" onclick="saveAndGenerate(this)">{"♻️ Regenerate 704" if pc.get('status') in ('completed','converted') else "📄 Generate Completed 704"}</button>
+      <button class="btn" data-testid="pc-generate-reytech-quote" style="background:#1a3a5c;color:#fff" onclick="generateReytechQuote(this)">{"♻️ Regenerate Quote" if pc.get('reytech_quote_number') else "📋 Reytech Quote PDF"}</button>
       {download_html}
       <span style="border-left:2px solid #30363d;height:28px;margin:0 8px"></span>
-      <button class="btn btn-v" onclick="convertToQuote(this)">🔄 Convert to Full Quote (704A/B + Package)</button>
+      {"<button class='btn' disabled style='opacity:0.4;cursor:not-allowed;background:#21262d;color:#8b949e;border:1px solid #30363d'>✅ Converted</button>" if pc.get('status')=='converted' else "<button class='btn btn-v' onclick=\"convertToQuote(this)\">🔄 Convert to Full Quote (704A/B + Package)</button>"}
      </div>
      <div style="margin-top:8px">
-      <button class="btn" data-testid="pc-auto-process" style="background:#f0883e;color:#fff" onclick="autoProcess(this)">⚡ Auto-Process (SCPRS + Amazon + Price + Generate — one click)</button>
+      {"<button class='btn' disabled style='opacity:0.4;cursor:not-allowed;background:#4a3000;color:#8b949e;border:1px solid #4a3000'>⚡ Already Processed</button>" if pc.get('status') in ('completed','converted') else "<button class='btn' data-testid='pc-auto-process' style='background:#f0883e;color:#fff' onclick='autoProcess(this)'>⚡ Auto-Process (SCPRS + Amazon + Price + Generate — one click)</button>"}
      </div>
      <div id="statusMsg"></div>
      <div id="confidenceBar"></div>

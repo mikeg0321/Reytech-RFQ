@@ -2526,7 +2526,7 @@ def quotes_list():
         detail_id = f"detail-{qn.replace(' ','')}"
         toggle = f"""<button onclick="document.getElementById('{detail_id}').style.display=document.getElementById('{detail_id}').style.display==='none'?'table-row':'none'" style="background:none;border:none;cursor:pointer;font-size:10px;color:var(--tx2);padding:0" title="Show items">▶ {qt.get('items_count',0)}</button>""" if (items_detail or items_text) else str(qt.get('items_count', 0))
 
-        rows_html += f"""<tr data-qn="{qn}">
+        rows_html += f"""<tr data-qn="{qn}" style="{'opacity:0.6' if st in ('won','lost') else ''}">
          <td style="font-family:'JetBrains Mono',monospace;font-weight:700">{qn}</td>
          <td>{qt.get('date','')}</td>
          <td>{qt.get('agency','')}</td>
@@ -2538,8 +2538,7 @@ def quotes_list():
           <span style="display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;color:{color};background:{bg}">{lbl}</span>{po_html}
          </td>
          <td style="text-align:center;white-space:nowrap">
-          <button onclick="markQuote('{qn}','won')" class="btn btn-sm" style="background:rgba(52,211,153,.15);color:#3fb950;border:1px solid rgba(52,211,153,.3);padding:2px 6px;font-size:11px;cursor:pointer" title="Mark Won">✅</button>
-          <button onclick="markQuote('{qn}','lost')" class="btn btn-sm" style="background:rgba(248,113,113,.15);color:#f85149;border:1px solid rgba(248,113,113,.3);padding:2px 6px;font-size:11px;cursor:pointer" title="Mark Lost">❌</button>
+          {"<span style=\"font-size:11px;color:#8b949e;padding:2px 6px\">decided</span>" if st in ("won","lost") else f"<button onclick=\"markQuote('{qn}','won')\" class=\"btn btn-sm\" style=\"background:rgba(52,211,153,.15);color:#3fb950;border:1px solid rgba(52,211,153,.3);padding:2px 6px;font-size:11px;cursor:pointer\" title=\"Mark Won\">✅</button><button onclick=\"markQuote('{qn}','lost')\" class=\"btn btn-sm\" style=\"background:rgba(248,113,113,.15);color:#f85149;border:1px solid rgba(248,113,113,.3);padding:2px 6px;font-size:11px;cursor:pointer\" title=\"Mark Lost\">❌</button>"}
           {dl}
          </td>
         </tr>
@@ -2806,6 +2805,139 @@ def api_cleanup_duplicates():
         report["message"] = f"DRY RUN: Would remove {removed} duplicates and reset counter to {max_num}. Add ?dry_run=false to execute."
 
     return jsonify(report)
+
+
+@bp.route("/api/test/renumber-quote")
+@auth_required
+def api_renumber_quote():
+    """Renumber a quote. Usage: ?old=R26Q1&new=R26Q16
+    
+    Also updates any PC that references the old quote number.
+    """
+    old = request.args.get("old", "").strip()
+    new = request.args.get("new", "").strip()
+    dry_run = request.args.get("dry_run", "false").lower() == "true"
+
+    if not old or not new:
+        return jsonify({"ok": False, "error": "Provide ?old=R26Q1&new=R26Q16"})
+
+    if not QUOTE_GEN_AVAILABLE:
+        return jsonify({"ok": False, "error": "quote_generator not available"})
+
+    quotes = get_all_quotes()
+    found = False
+    for q in quotes:
+        if q.get("quote_number") == old:
+            if not dry_run:
+                q["quote_number"] = new
+                q["renumbered_from"] = old
+                q["renumbered_at"] = datetime.now().isoformat()
+            found = True
+            break
+
+    if not found:
+        return jsonify({"ok": False, "error": f"Quote {old} not found"})
+
+    # Update linked PCs
+    pc_updated = ""
+    pcs = _load_price_checks()
+    for pid, pc in pcs.items():
+        if pc.get("reytech_quote_number") == old:
+            if not dry_run:
+                pc["reytech_quote_number"] = new
+            pc_updated = pid
+
+    # Update counter if new number is higher
+    try:
+        new_num = int(new.split("Q")[-1])
+    except (ValueError, IndexError):
+        new_num = 0
+
+    if not dry_run:
+        from src.forms.quote_generator import _save_all_quotes
+        _save_all_quotes(quotes)
+        if pc_updated:
+            _save_price_checks(pcs)
+        if new_num > 0:
+            set_quote_counter(new_num)
+        log.info("RENUMBER: %s → %s (PC: %s, counter: %d)", old, new, pc_updated or "none", new_num)
+
+    return jsonify({
+        "ok": True,
+        "dry_run": dry_run,
+        "old": old,
+        "new": new,
+        "pc_updated": pc_updated or None,
+        "counter_set_to": new_num,
+        "next_quote": f"R{str(datetime.now().year)[2:]}Q{new_num + 1}",
+        "message": f"{'DRY RUN: Would renumber' if dry_run else 'Renumbered'} {old} → {new}",
+    })
+
+
+@bp.route("/api/test/delete-quotes")
+@auth_required
+def api_delete_quotes():
+    """Delete specific quotes by number. Usage: ?numbers=R26Q2,R26Q3,R26Q4
+
+    Backs up before deleting. Also cleans linked PCs.
+    """
+    numbers_str = request.args.get("numbers", "").strip()
+    dry_run = request.args.get("dry_run", "false").lower() == "true"
+
+    if not numbers_str:
+        return jsonify({"ok": False, "error": "Provide ?numbers=R26Q2,R26Q3,R26Q4"})
+
+    to_delete = set(n.strip() for n in numbers_str.split(",") if n.strip())
+
+    if not QUOTE_GEN_AVAILABLE:
+        return jsonify({"ok": False, "error": "quote_generator not available"})
+
+    quotes = get_all_quotes()
+    original_count = len(quotes)
+    deleted = []
+    kept = []
+
+    for q in quotes:
+        qn = q.get("quote_number", "")
+        if qn in to_delete:
+            deleted.append({"quote_number": qn, "total": q.get("total", 0),
+                           "institution": q.get("institution", "")})
+        else:
+            kept.append(q)
+
+    # Clean linked PCs
+    pcs_cleaned = []
+    pcs = _load_price_checks()
+    for pid, pc in pcs.items():
+        if pc.get("reytech_quote_number") in to_delete:
+            if not dry_run:
+                pc["reytech_quote_number"] = ""
+                pc["reytech_quote_pdf"] = ""
+                _transition_status(pc, "parsed", actor="cleanup", notes=f"Quote deleted")
+            pcs_cleaned.append(pid)
+
+    if not dry_run and deleted:
+        # Backup
+        backup_name = f"quotes_log_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        import shutil
+        src_path = os.path.join(DATA_DIR, "quotes_log.json")
+        if os.path.exists(src_path):
+            shutil.copy2(src_path, os.path.join(DATA_DIR, backup_name))
+        from src.forms.quote_generator import _save_all_quotes
+        _save_all_quotes(kept)
+        if pcs_cleaned:
+            _save_price_checks(pcs)
+        log.info("DELETE QUOTES: %s removed (%d → %d). PCs cleaned: %s",
+                 [d["quote_number"] for d in deleted], original_count, len(kept), pcs_cleaned)
+
+    return jsonify({
+        "ok": True,
+        "dry_run": dry_run,
+        "deleted": deleted,
+        "remaining": len(kept),
+        "pcs_cleaned": pcs_cleaned,
+        "message": f"{'DRY RUN: Would delete' if dry_run else 'Deleted'} {len(deleted)} quotes: {[d['quote_number'] for d in deleted]}",
+    })
 
 
 # Start polling on import (for gunicorn) and on direct run
