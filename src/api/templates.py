@@ -59,6 +59,13 @@ table.it input:focus{outline:none;border-color:var(--ac)}
 .scprs-tag{font-size:9px;padding:2px 5px;border-radius:3px;margin-left:4px;font-weight:600}
 .scprs-hi{background:rgba(52,211,153,.15);color:var(--gn)}
 .scprs-med{background:rgba(251,191,36,.15);color:var(--yl)}
+.qh-link{transition:all .15s;position:relative}
+.qh-link:hover{color:#79c0ff !important;text-decoration:underline !important}
+.qh-row{transition:background .15s}
+.qh-row:hover{background:rgba(56,139,253,.06);border-radius:6px;margin:0 -6px;padding-left:6px !important;padding-right:6px !important}
+.qh-row a:hover{color:#79c0ff !important;text-decoration:underline !important}
+[title]{cursor:pointer}
+#historyCard [title]:hover{filter:brightness(1.15)}
 """
 
 PAGE_HOME = """
@@ -590,9 +597,12 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
        </div>
        <div id="crmBody" style="color:var(--tx2)">Loading...</div>
       </div>
-      <div id="historyCard" style="flex:1;min-width:280px;background:var(--sf2);border:1px solid var(--bd);border-radius:8px;padding:12px;font-size:13px">
-       <span style="font-size:11px;color:#8b949e;text-transform:uppercase;font-weight:600;letter-spacing:.5px">📊 Quote History</span>
-       <div id="historyBody" style="margin-top:6px;color:var(--tx2);font-size:12px">Loading...</div>
+      <div id="historyCard" style="flex:1;min-width:320px;background:var(--sf2);border:1px solid var(--bd);border-radius:8px;padding:16px;font-size:13px">
+       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <span style="font-size:12px;color:#8b949e;text-transform:uppercase;font-weight:600;letter-spacing:.5px">📊 Quote History</span>
+        <span id="historyBadge" style="font-size:11px;padding:2px 10px;border-radius:10px;font-weight:600;background:#1a3a5c;color:#58a6ff;display:none"></span>
+       </div>
+       <div id="historyBody" style="color:var(--tx2);font-size:13px">Loading...</div>
       </div>
      </div>
 
@@ -1292,37 +1302,86 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
       document.getElementById('crmBody').innerHTML='<span style="color:#8b949e">CRM unavailable</span>';
      }});
 
-     // Quote history for this institution
+     // Quote history for this institution — with hyperlinks and hover previews
      fetch('/api/quotes/history?institution=' + encodeURIComponent(inst))
      .then(r=>r.json())
      .then(history=>{{
       const el = document.getElementById('historyBody');
+      const badge = document.getElementById('historyBadge');
       if (!history || history.length === 0) {{
-       el.innerHTML = '<span style="color:#8b949e">No previous quotes for this institution</span>';
+       el.innerHTML = '<span style="color:#8b949e;font-size:13px">No previous quotes for this institution</span>';
        return;
       }}
-      const stCfg = {{won:['✅','#3fb950'],lost:['❌','#f85149'],pending:['⏳','#d29922']}};
-      let html = '';
-      history.forEach(h => {{
-       const [icon,color] = stCfg[h.status] || stCfg.pending;
-       const items = (h.items_text||'').substring(0,80);
-       html += '<div style="display:flex;gap:8px;align-items:center;padding:4px 0;border-bottom:1px solid var(--bd)">';
-       html += '<span style="font-family:monospace;font-weight:700;font-size:11px">' + h.quote_number + '</span>';
-       html += '<span style="color:' + color + ';font-size:11px">' + icon + '</span>';
-       html += '<span style="font-size:11px;color:var(--tx2);flex:1">' + h.date + '</span>';
-       html += '<span style="font-family:monospace;font-weight:600;font-size:12px">$' + (h.total||0).toFixed(2) + '</span>';
-       if (h.po_number) html += '<span style="font-size:10px;color:#8b949e">PO:' + h.po_number + '</span>';
-       html += '</div>';
-       if (items) html += '<div style="font-size:10px;color:#8b949e;padding:2px 0 4px 20px">' + items + '</div>';
-      }});
-      // Summary
+      const stCfg = {{
+        won:['✅','#3fb950','Won — PO received'],
+        lost:['❌','#f85149','Lost — not awarded'],
+        pending:['⏳','#d29922','Pending — awaiting decision'],
+        draft:['📝','#8b949e','Draft — not yet sent'],
+      }};
+
+      // Summary badge
+      badge.style.display = 'inline';
+      badge.textContent = history.length + ' quote' + (history.length>1?'s':'');
+
+      // Summary stats row
       const won = history.filter(h=>h.status==='won').length;
       const lost = history.filter(h=>h.status==='lost').length;
-      const pending = history.filter(h=>h.status==='pending').length;
-      html = '<div style="margin-bottom:6px;font-size:11px"><b>' + history.length + '</b> quotes found — '
-       + '<span style="color:#3fb950">' + won + ' won</span> · '
-       + '<span style="color:#f85149">' + lost + ' lost</span> · '
-       + '<span style="color:#d29922">' + pending + ' pending</span></div>' + html;
+      const pending = history.filter(h=>['pending','draft'].includes(h.status)).length;
+      const wonTotal = history.filter(h=>h.status==='won').reduce((s,h)=>s+(h.total||0),0);
+      let html = '<div style="display:flex;gap:12px;padding:8px 0 10px;border-bottom:1px solid var(--bd);font-size:13px;font-weight:600">';
+      if (won) html += '<span style="color:#3fb950">' + won + ' won · $' + wonTotal.toLocaleString('en',{{minimumFractionDigits:2}}) + '</span>';
+      if (lost) html += '<span style="color:#f85149">' + lost + ' lost</span>';
+      if (pending) html += '<span style="color:#d29922">' + pending + ' pending</span>';
+      html += '</div>';
+
+      // Quote rows — each entity hyperlinked with hover preview
+      history.forEach(h => {{
+       const [icon,color,statusTip] = stCfg[h.status] || stCfg.pending;
+       const items = (h.items_text||'').substring(0,100);
+       const itemsList = (h.items_detail||[]).map(it => 
+         it.description.substring(0,60) + ' (x' + it.qty + ') $' + (it.unit_price||0).toFixed(2)
+       ).join('\\n');
+       const tooltipContent = h.quote_number + ' — ' + statusTip 
+         + '\\n$' + (h.total||0).toFixed(2) + ' · ' + (h.items_count||0) + ' items'
+         + (h.po_number ? '\\nPO: ' + h.po_number : '')
+         + (h.days_ago ? '\\n' + h.days_ago : '')
+         + (itemsList ? '\\n───\\n' + itemsList : '');
+
+       html += '<div class="qh-row" style="padding:8px 0;border-bottom:1px solid rgba(48,54,61,0.5)">';
+       
+       // Row 1: Quote number + status + total
+       html += '<div style="display:flex;gap:10px;align-items:center">';
+       // Quote number — hyperlinked
+       html += '<a href="' + (h.quote_url||'/quotes') + '" class="qh-link" title="' + tooltipContent.replace(/"/g,'&quot;') + '" '
+         + 'style="font-family:\'JetBrains Mono\',monospace;font-weight:700;font-size:13px;color:#58a6ff;text-decoration:none">'
+         + h.quote_number + '</a>';
+       // Status badge — links to source PC if available
+       const statusLink = h.source_pc_url || h.source_rfq_url || '#';
+       const statusTitle = statusLink !== '#' ? 'View source document' : statusTip;
+       html += '<a href="' + statusLink + '" title="' + statusTitle + '" '
+         + 'style="color:' + color + ';font-size:12px;text-decoration:none;padding:1px 8px;border-radius:10px;'
+         + 'background:' + color + '18;font-weight:600;white-space:nowrap">'
+         + icon + ' ' + h.status + '</a>';
+       // Date
+       html += '<span style="font-size:12px;color:#8b949e;flex:1">' + (h.date||'') + '</span>';
+       // Total
+       html += '<span style="font-family:\'JetBrains Mono\',monospace;font-weight:600;font-size:13px;color:var(--tx)">$' 
+         + (h.total||0).toLocaleString('en',{{minimumFractionDigits:2}}) + '</span>';
+       html += '</div>';
+       
+       // Row 2: Items preview + PO + source link
+       html += '<div style="display:flex;gap:8px;margin-top:4px;align-items:center">';
+       if (items) html += '<span style="font-size:11px;color:#8b949e;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' 
+         + (h.items_count||0) + ' items: ' + items + '</span>';
+       if (h.po_number) html += '<span style="font-size:11px;padding:1px 6px;background:#238636;color:#fff;border-radius:4px;font-weight:600">PO: ' + h.po_number + '</span>';
+       if (h.source_pc_url) html += '<a href="' + h.source_pc_url + '" title="View source Price Check" '
+         + 'style="font-size:10px;color:#58a6ff;text-decoration:none">📄 PC</a>';
+       if (h.source_rfq_url) html += '<a href="' + h.source_rfq_url + '" title="View source RFQ" '
+         + 'style="font-size:10px;color:#58a6ff;text-decoration:none">📋 RFQ</a>';
+       html += '</div>';
+       
+       html += '</div>';
+      }});
       el.innerHTML = html;
      }}).catch(()=>{{
       document.getElementById('historyBody').innerHTML='<span style="color:#8b949e">History unavailable</span>';

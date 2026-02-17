@@ -215,20 +215,30 @@ def search_quotes(query: str = "", agency: str = "", status: str = "",
     return results
 
 def update_quote_status(quote_number: str, status: str, po_number: str = "",
-                         notes: str = "") -> bool:
-    """Mark a quote as won, lost, or pending. Returns True if found."""
+                         notes: str = "", actor: str = "user") -> bool:
+    """Mark a quote as won, lost, or pending. Records status_history. Returns True if found."""
     if status not in VALID_STATUSES:
         return False
     quotes = get_all_quotes()
     found = False
+    now = datetime.now().isoformat()
     for qt in quotes:
         if qt.get("quote_number") == quote_number:
             qt["status"] = status
-            qt["status_updated"] = datetime.now().isoformat()
+            qt["status_updated"] = now
             if po_number:
                 qt["po_number"] = po_number
             if notes:
                 qt["status_notes"] = notes
+            # Append to status_history (create if missing for legacy records)
+            history = qt.get("status_history", [])
+            entry = {"status": status, "timestamp": now, "actor": actor}
+            if po_number:
+                entry["po_number"] = po_number
+            if notes:
+                entry["notes"] = notes
+            history.append(entry)
+            qt["status_history"] = history
             found = True
             break
     if found:
@@ -258,6 +268,7 @@ def get_quote_stats() -> dict:
 
 def _log_quote(result: dict):
     quotes = get_all_quotes()
+    now = datetime.now().isoformat()
     quotes.append({
         "quote_number":  result.get("quote_number"),
         "date":          result.get("date"),
@@ -272,7 +283,14 @@ def _log_quote(result: dict):
         "items_detail":  result.get("items_detail", []),
         "pdf_path":      result.get("path", ""),
         "status":        "pending",
-        "created_at":    datetime.now().isoformat(),
+        "created_at":    now,
+        # Bidirectional linking — trace quote back to source document
+        "source_pc_id":  result.get("source_pc_id", ""),
+        "source_rfq_id": result.get("source_rfq_id", ""),
+        # Status lifecycle — every transition recorded
+        "status_history": [
+            {"status": "pending", "timestamp": now, "actor": "system"}
+        ],
     })
     _save_all_quotes(quotes)
 
@@ -787,6 +805,9 @@ def generate_quote(
             }
             for it in items
         ],
+        # Bidirectional linking — trace to source document
+        "source_pc_id": quote_data.get("source_pc_id", ""),
+        "source_rfq_id": quote_data.get("source_rfq_id", ""),
     }
     _log_quote(result)
     log.info("Quote %s generated: $%.2f total, %d items → %s",
@@ -815,6 +836,7 @@ def generate_quote_from_pc(pc: dict, output_path: str, **kwargs) -> dict:
         "ship_to_name": ship_parts[0] if ship_parts else institution,
         "ship_to_address": ship_parts[1:] if len(ship_parts) > 1 else ship_parts,
         "rfq_number": pc.get("pc_number", ""),
+        "source_pc_id": pc.get("id", ""),
         "line_items": [],
     }
 
@@ -857,6 +879,7 @@ def generate_quote_from_rfq(rfq: dict, output_path: str, **kwargs) -> dict:
         "ship_to_name": del_parts[0] if del_parts else institution,
         "ship_to_address": del_parts[1:] if len(del_parts) > 1 else del_parts,
         "rfq_number": rfq.get("solicitation_number", ""),
+        "source_rfq_id": rfq.get("id", ""),
         "line_items": [],
     }
 

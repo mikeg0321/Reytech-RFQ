@@ -399,7 +399,7 @@ def upload():
     
     rfq = parse_rfq_attachments(templates)
     rfq["id"] = rfq_id
-    rfq["status"] = "pending"
+    _transition_status(rfq, "pending", actor="system", notes="Parsed from email")
     rfq["source"] = "upload"
     
     # Auto SCPRS lookup
@@ -437,6 +437,36 @@ def _is_price_check(pdf_path):
     except Exception:
         pass
     return False
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Status Lifecycle — tracks every transition for PCs and RFQs
+# ═══════════════════════════════════════════════════════════════════════
+
+# PC lifecycle: parsed → priced → completed → won/lost/expired
+# RFQ lifecycle: new → pending → ready → generated → sent → won/lost
+PC_LIFECYCLE = ["parsed", "priced", "completed", "won", "lost", "expired"]
+RFQ_LIFECYCLE = ["new", "pending", "ready", "generated", "sent", "won", "lost"]
+
+
+def _transition_status(record, new_status, actor="system", notes=""):
+    """Record a status transition with full history.
+    
+    Mutates record in place. Returns the record for chaining.
+    """
+    old_status = record.get("status", "")
+    record["status"] = new_status
+    now = datetime.now().isoformat()
+    record["status_updated"] = now
+
+    # Build status_history (create if missing for legacy records)
+    history = record.get("status_history", [])
+    entry = {"from": old_status, "to": new_status, "timestamp": now, "actor": actor}
+    if notes:
+        entry["notes"] = notes
+    history.append(entry)
+    record["status_history"] = history
+    return record
 
 
 def _handle_price_check_upload(pdf_path, pc_id):
@@ -507,6 +537,7 @@ def _handle_price_check_upload(pdf_path, pc_id):
         "items": items,
         "source_pdf": pc_file,
         "status": "parsed",
+        "status_history": [{"from": "", "to": "parsed", "timestamp": datetime.now().isoformat(), "actor": "system"}],
         "created_at": datetime.now().isoformat(),
         "parsed": parsed,
         "reytech_quote_number": draft_quote_num,
@@ -565,7 +596,7 @@ def update(rid):
         if desc_val is not None:
             item["description"] = desc_val
     
-    r["status"] = "ready"
+    _transition_status(r, "ready", actor="user", notes="Pricing updated")
     save_rfqs(rfqs)
     
     # Save SCPRS prices for future lookups
@@ -670,7 +701,7 @@ def generate(rid):
             flash("No template PDFs found — upload the original RFQ PDFs first", "error")
             return redirect(f"/rfq/{rid}")
         
-        r["status"] = "generated"
+        _transition_status(r, "generated", actor="system", notes="Bid package filled")
         r["output_files"] = output_files
         r["generated_at"] = datetime.now().isoformat()
         
@@ -752,7 +783,7 @@ def send_email(rid):
     try:
         sender = EmailSender(CONFIG.get("email", {}))
         sender.send(r["draft_email"])
-        r["status"] = "sent"
+        _transition_status(r, "sent", actor="user", notes="Email sent to buyer")
         r["sent_at"] = datetime.now().isoformat()
         save_rfqs(rfqs)
         flash(f"Bid response sent to {r['draft_email']['to']}", "success")
@@ -935,7 +966,7 @@ def pricecheck_lookup(pcid):
     parsed = lookup_prices(parsed)
     pc["parsed"] = parsed
     pc["items"] = parsed.get("line_items", [])
-    pc["status"] = "priced"
+    _transition_status(pc, "priced", actor="user", notes="Prices saved")
     _save_price_checks(pcs)
 
     found = sum(1 for i in pc["items"] if i.get("pricing", {}).get("amazon_price"))
@@ -1072,7 +1103,7 @@ def pricecheck_generate(pcid):
 
     if result.get("ok"):
         pc["output_pdf"] = output_path
-        pc["status"] = "completed"
+        _transition_status(pc, "completed", actor="system", notes="704 PDF filled")
         pc["summary"] = result.get("summary", {})
         _save_price_checks(pcs)
 
@@ -1204,7 +1235,7 @@ def pricecheck_convert_to_quote(pcid):
     save_rfqs(rfqs)
 
     # Update PC status
-    pc["status"] = "converted"
+    _transition_status(pc, "completed", actor="system", notes="Reytech quote generated")
     pc["converted_rfq_id"] = rfq_id
     _save_price_checks(pcs)
 
@@ -1947,7 +1978,7 @@ def _guess_agency(institution_name):
 @bp.route("/api/quotes/history")
 @auth_required
 def api_quote_history():
-    """Get quote history for an institution. Shows won/lost/pending context."""
+    """Get quote history for an institution. Returns linked entities for UI."""
     institution = request.args.get("institution", "").strip()
     if not institution or not QUOTE_GEN_AVAILABLE:
         return jsonify([])
@@ -1957,6 +1988,20 @@ def api_quote_history():
     for qt in reversed(quotes):
         qt_inst = qt.get("institution", "").upper()
         if inst_upper in qt_inst or qt_inst in inst_upper:
+            source_pc = qt.get("source_pc_id", "")
+            source_rfq = qt.get("source_rfq_id", "")
+            
+            # Compute days since creation for age display
+            created = qt.get("created_at", "")
+            days_ago = ""
+            if created:
+                try:
+                    created_dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
+                    delta = datetime.now() - created_dt.replace(tzinfo=None)
+                    days_ago = f"{delta.days}d ago" if delta.days > 0 else "today"
+                except Exception:
+                    pass
+
             matches.append({
                 "quote_number": qt.get("quote_number"),
                 "date": qt.get("date"),
@@ -1966,6 +2011,15 @@ def api_quote_history():
                 "po_number": qt.get("po_number", ""),
                 "items_text": qt.get("items_text", ""),
                 "items_detail": qt.get("items_detail", []),
+                "days_ago": days_ago,
+                # Links for UI navigation
+                "source_pc_id": source_pc,
+                "source_pc_url": f"/pricecheck/{source_pc}" if source_pc else "",
+                "source_rfq_id": source_rfq,
+                "source_rfq_url": f"/rfq/{source_rfq}" if source_rfq else "",
+                "quote_url": f"/quotes?q={qt.get('quote_number', '')}",
+                # Lifecycle
+                "status_history": qt.get("status_history", []),
             })
             if len(matches) >= 10:
                 break
@@ -2330,7 +2384,7 @@ def pricecheck_auto_process(pcid):
         pc["confidence"] = result.get("confidence", {})
         pc["draft_email"] = result.get("draft_email", {})
         pc["timing"] = result.get("timing", {})
-        pc["status"] = "completed"
+        _transition_status(pc, "completed", actor="auto", notes="Auto-processed")
         pc["summary"] = result.get("summary", {})
         _save_price_checks(pcs)
         # Ingest into KB
