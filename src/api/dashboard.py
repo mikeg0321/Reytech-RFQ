@@ -813,6 +813,18 @@ def delete_rfq(rid):
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# Agent Control Panel (Phase 14)
+# ═══════════════════════════════════════════════════════════════════════
+
+@bp.route("/agents")
+@auth_required
+def agents_page():
+    """Agent Control Panel — click buttons instead of writing API calls."""
+    from src.api.templates import render_agents_page
+    return render_agents_page()
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # Price Check Pages (v6.2)
 # ═══════════════════════════════════════════════════════════════════════
 
