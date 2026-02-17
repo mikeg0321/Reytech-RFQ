@@ -1,0 +1,14 @@
+[
+  {
+    "timestamp": "2026-02-17T21:30:47.324583",
+    "health_score": 1,
+    "grade": "F",
+    "summary": {
+      "total": 27,
+      "passed": 11,
+      "failed": 2,
+      "warned": 3
+    },
+    "critical_count": 2
+  }
+]

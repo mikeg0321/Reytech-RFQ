@@ -4378,8 +4378,16 @@ except ImportError:
     ORCHESTRATOR_AVAILABLE = False
 
 try:
-    from src.agents.qa_agent import full_scan, scan_html, agent_status as qa_agent_status
+    from src.agents.qa_agent import (
+        full_scan, scan_html, agent_status as qa_agent_status,
+        run_health_check, get_qa_history, get_health_trend, start_qa_monitor,
+    )
     QA_AVAILABLE = True
+    # Start background QA monitor
+    try:
+        start_qa_monitor()
+    except Exception:
+        pass
 except ImportError:
     QA_AVAILABLE = False
 
@@ -4475,6 +4483,38 @@ def api_qa_scan():
     except Exception as e:
         log.exception("QA scan failed: %s", e)
         return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/qa/health")
+@auth_required
+def api_qa_health():
+    """Run health check — routes, data, agents, env, code metrics.
+    ?checks=routes,data,agents"""
+    if not QA_AVAILABLE:
+        return jsonify({"ok": False, "error": "QA agent not available"})
+    checks = request.args.get("checks", "").split(",") if request.args.get("checks") else None
+    checks = [c.strip() for c in checks] if checks else None
+    report = run_health_check(checks=checks)
+    return jsonify({"ok": True, **report})
+
+
+@bp.route("/api/qa/history")
+@auth_required
+def api_qa_history():
+    """Get QA report history."""
+    if not QA_AVAILABLE:
+        return jsonify({"ok": False, "error": "QA agent not available"})
+    limit = int(request.args.get("limit", 20))
+    return jsonify({"ok": True, "reports": get_qa_history(limit)})
+
+
+@bp.route("/api/qa/trend")
+@auth_required
+def api_qa_trend():
+    """Health score trend over time."""
+    if not QA_AVAILABLE:
+        return jsonify({"ok": False, "error": "QA agent not available"})
+    return jsonify({"ok": True, **get_health_trend()})
 
 
 # ─── Manager Brief Routes ───────────────────────────────────────────────────

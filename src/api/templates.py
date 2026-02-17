@@ -2292,11 +2292,21 @@ h1 {{ font-size:22px; margin-bottom:4px; }}
 </div>
 
 <div class="section">
- <h2>🔍 QA Agent <span class="tag tag-ok">Active</span></h2>
- <p style="color:#8b949e;font-size:12px;margin-bottom:10px">Automated quality assurance — scans for broken buttons, auth issues, JS errors, responsive gaps.</p>
+ <h2>🔍 QA Agent <span class="tag tag-ok" id="qa-tag">Active</span></h2>
+ <p style="color:#8b949e;font-size:12px;margin-bottom:10px">Autonomous health monitor — runs every 15 min. Checks routes, data, agents, code, env.</p>
+ <div id="qa-health" style="display:none;margin-bottom:12px"></div>
  <div class="grid">
-  <button class="btn btn-go" onclick="apiGet('/api/qa/scan')">
-   <span class="label">🔍 Full QA Scan</span><span class="desc">Scan all pages + source code</span>
+  <button class="btn btn-go" onclick="apiGet('/api/qa/health')">
+   <span class="label">🏥 Health Check</span><span class="desc">Full system health</span>
+  </button>
+  <button class="btn" onclick="apiGet('/api/qa/scan')">
+   <span class="label">🔍 Code Scan</span><span class="desc">JS/HTML/Python quality</span>
+  </button>
+  <button class="btn" onclick="apiGet('/api/qa/history')">
+   <span class="label">📊 History</span><span class="desc">Past health reports</span>
+  </button>
+  <button class="btn" onclick="apiGet('/api/qa/trend')">
+   <span class="label">📈 Trend</span><span class="desc">Health score over time</span>
   </button>
  </div>
 </div>
@@ -2425,6 +2435,15 @@ fetch('/api/agents/status',{{credentials:'same-origin'}}).then(r => r.json()).th
   if (qb.has_valid_token) {{ qt.textContent = 'connected'; qt.className = 'tag tag-ok'; }}
   else if (qb.configured) {{ qt.textContent = 'token expired'; qt.className = 'tag tag-warn'; }}
   else if (qb.status !== 'not_available') {{ qt.textContent = 'not connected'; qt.className = 'tag tag-warn'; }}
+
+  // Update QA tag with health score
+  const qaInfo = data.agents.qa || {{}};
+  const qaTag = document.getElementById('qa-tag');
+  if (qaInfo.last_grade && qaInfo.last_grade !== '—') {{
+    const gColor = {{'A':'tag-ok','B':'tag-ok','C':'tag-warn','D':'tag-warn','F':'tag-off'}}[qaInfo.last_grade] || 'tag-warn';
+    qaTag.textContent = 'Grade: ' + qaInfo.last_grade + ' (' + qaInfo.last_score + ')';
+    qaTag.className = 'tag ' + gColor;
+  }}
 
   // Load QB financial snapshot
   if (qb.has_valid_token) {{

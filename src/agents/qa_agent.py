@@ -21,9 +21,21 @@ Can run as:
 
 import re
 import os
+import json
+import ast
+import time
 import logging
+import threading
+import traceback
+from datetime import datetime
 
 log = logging.getLogger("qa_agent")
+
+try:
+    from src.core.paths import DATA_DIR
+except ImportError:
+    DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(
+        os.path.dirname(os.path.abspath(__file__)))), "data")
 
 
 def scan_html(html: str, route_list: list = None) -> dict:
@@ -396,18 +408,321 @@ def full_scan(app=None) -> dict:
 
 def agent_status() -> dict:
     """Return agent status for the control panel."""
+    history = get_qa_history(limit=1)
+    last = history[0] if history else {}
     return {
         "name": "QA Agent",
-        "status": "ready",
-        "description": "Scans pages for broken buttons, auth issues, JS errors, responsive gaps",
+        "status": "active" if _monitor and _monitor._running else "ready",
+        "version": "2.0.0",
+        "description": "Health monitor, route checker, data validator, code scanner",
+        "last_score": last.get("health_score", "—"),
+        "last_grade": last.get("grade", "—"),
+        "last_run": last.get("timestamp", "never"),
+        "monitor_active": _monitor._running if _monitor else False,
         "capabilities": [
-            "JS string escaping validation",
-            "fetch() credential verification",
-            "onclick handler wiring check",
-            "Responsive CSS audit",
-            "Python source quality scan",
+            "Route integrity (duplicate detection, auth coverage)",
+            "Data integrity (JSON validation, corruption detection)",
+            "Agent health (import checks, config validation)",
+            "Code metrics (line counts, bloat detection)",
+            "Env config (required/optional var verification)",
+            "JS/HTML scanning (broken handlers, auth, responsive)",
+            "Background monitoring (15-min interval)",
+            "Health trend tracking",
         ],
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Health Monitor System (Phase 25)
+# ═══════════════════════════════════════════════════════════════════════
+
+QA_REPORT_FILE = os.path.join(DATA_DIR, "qa_reports.json")
+QA_INTERVAL = 900  # 15 minutes
+
+
+def _check_route_integrity() -> list:
+    """Check for duplicate routes, missing auth, endpoint conflicts."""
+    results = []
+    try:
+        from flask import Flask
+        test_app = Flask(__name__)
+        from src.api.dashboard import bp as dash_bp
+        test_app.register_blueprint(dash_bp)
+
+        rules = list(test_app.url_map.iter_rules())
+        results.append({
+            "check": "routes", "status": "pass",
+            "message": f"{len(rules)} routes registered OK",
+        })
+
+        # Check auth coverage on API routes
+        dash_source = open(os.path.join(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))), "api", "dashboard.py")).read()
+        unprotected = []
+        for rule in rules:
+            path = str(rule)
+            if "/api/" in path and "webhook" not in path and "static" not in path:
+                func_name = rule.endpoint.split(".")[-1]
+                idx = dash_source.find(f"def {func_name}(")
+                if idx > 0:
+                    context = dash_source[max(0, idx - 200):idx]
+                    if "auth_required" not in context:
+                        unprotected.append(path)
+
+        if unprotected:
+            results.append({
+                "check": "auth_coverage", "status": "warn",
+                "message": f"{len(unprotected)} API routes may lack auth",
+                "details": unprotected[:5],
+                "recommendation": "Add @auth_required to unprotected API routes",
+            })
+        else:
+            results.append({"check": "auth_coverage", "status": "pass", "message": "All API routes protected"})
+
+    except AssertionError as e:
+        results.append({
+            "check": "routes", "status": "fail",
+            "message": f"ROUTE CONFLICT: {e}",
+            "recommendation": "Fix duplicate route endpoints — app cannot start",
+            "severity": "critical",
+        })
+    except Exception as e:
+        results.append({"check": "routes", "status": "fail", "message": str(e)})
+    return results
+
+
+def _check_data_integrity() -> list:
+    """Validate all JSON data files."""
+    results = []
+    json_files = [
+        "quotes_log.json", "customers.json", "leads.json",
+        "rfqs.json", "orders.json", "crm_activity.json",
+        "voice_campaigns.json", "competitor_intel.json",
+    ]
+    for fname in json_files:
+        fpath = os.path.join(DATA_DIR, fname)
+        if not os.path.exists(fpath):
+            results.append({"check": "data", "file": fname, "status": "info", "message": f"{fname} not found (OK if new)"})
+            continue
+        try:
+            with open(fpath) as f:
+                data = json.load(f)
+            size_kb = os.path.getsize(fpath) / 1024
+            count = len(data) if isinstance(data, (list, dict)) else 0
+            status = "warn" if size_kb > 5000 else "pass"
+            rec = f"Archive old records in {fname} (>{size_kb:.0f}KB)" if size_kb > 5000 else None
+            results.append({"check": "data", "file": fname, "status": status,
+                            "message": f"{fname}: {count} records, {size_kb:.1f}KB",
+                            **({"recommendation": rec} if rec else {})})
+        except json.JSONDecodeError as e:
+            results.append({"check": "data", "file": fname, "status": "fail",
+                            "message": f"CORRUPTED: {e}", "severity": "critical",
+                            "recommendation": f"Restore {fname} from backup"})
+    return results
+
+
+def _check_agents_health() -> list:
+    """Verify all agents import correctly."""
+    results = []
+    agents = {
+        "email_poller": "src.agents.email_poller",
+        "lead_gen": "src.agents.lead_gen_agent",
+        "scprs_scanner": "src.agents.scprs_scanner",
+        "voice_agent": "src.agents.voice_agent",
+        "voice_campaigns": "src.agents.voice_campaigns",
+        "quickbooks": "src.agents.quickbooks_agent",
+        "predictive_intel": "src.agents.predictive_intel",
+    }
+    for name, module_path in agents.items():
+        try:
+            __import__(module_path)
+            results.append({"check": "agent", "agent": name, "status": "pass", "message": f"{name} OK"})
+        except ImportError as e:
+            results.append({"check": "agent", "agent": name, "status": "warn", "message": f"{name}: {e}"})
+        except Exception as e:
+            results.append({"check": "agent", "agent": name, "status": "fail", "message": f"{name}: {e}"})
+    return results
+
+
+def _check_env_config() -> list:
+    """Check environment variables."""
+    results = []
+    required = {"DASHBOARD_USER": "Auth", "DASHBOARD_PASS": "Auth"}
+    optional = {"VAPI_API_KEY": "Voice", "QB_CLIENT_ID": "QuickBooks",
+                "GMAIL_EMAIL": "Email", "GMAIL_APP_PASSWORD": "Email",
+                "ANTHROPIC_API_KEY": "AI"}
+    for var, desc in required.items():
+        if os.environ.get(var):
+            results.append({"check": "env", "status": "pass", "message": f"{var} set"})
+        else:
+            results.append({"check": "env", "status": "fail", "message": f"{var} MISSING",
+                            "severity": "critical", "recommendation": f"Set {var} in Railway"})
+    for var, desc in optional.items():
+        status = "pass" if os.environ.get(var) else "info"
+        results.append({"check": "env", "status": status, "message": f"{var}: {'set' if os.environ.get(var) else 'not set'} ({desc})"})
+    return results
+
+
+def _check_code_metrics() -> list:
+    """Code size and bloat metrics."""
+    results = []
+    src_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    total_lines = 0
+    total_files = 0
+    big_files = []
+    for root, dirs, files in os.walk(src_root):
+        dirs[:] = [d for d in dirs if d not in ("__pycache__",)]
+        for f in files:
+            if f.endswith(".py"):
+                total_files += 1
+                fp = os.path.join(root, f)
+                with open(fp) as fh:
+                    lines = len(fh.readlines())
+                total_lines += lines
+                if lines > 2000:
+                    big_files.append((os.path.relpath(fp, src_root), lines))
+    results.append({"check": "codebase", "status": "info",
+                    "message": f"{total_files} files, {total_lines:,} lines"})
+    for fp, lines in sorted(big_files, key=lambda x: -x[1]):
+        results.append({"check": "code_size", "status": "warn", "file": fp,
+                        "message": f"{fp}: {lines} lines",
+                        "recommendation": f"Consider splitting {fp}"})
+    return results
+
+
+def run_health_check(checks: list = None) -> dict:
+    """Run full health check suite. Returns report with score and recommendations."""
+    start = time.time()
+    all_results = []
+
+    check_map = {
+        "routes": _check_route_integrity,
+        "data": _check_data_integrity,
+        "agents": _check_agents_health,
+        "env": _check_env_config,
+        "code": _check_code_metrics,
+    }
+
+    for name in (checks or list(check_map.keys())):
+        if name in check_map:
+            try:
+                all_results.extend(check_map[name]())
+            except Exception as e:
+                all_results.append({"check": name, "status": "fail", "message": str(e)})
+
+    duration = time.time() - start
+    total = len(all_results)
+    passed = sum(1 for r in all_results if r["status"] == "pass")
+    failed = sum(1 for r in all_results if r["status"] == "fail")
+    warned = sum(1 for r in all_results if r["status"] == "warn")
+    critical = [r for r in all_results if r.get("severity") == "critical"]
+    recommendations = [r["recommendation"] for r in all_results if r.get("recommendation")]
+
+    health = round((passed / total) * 100) if total > 0 else 100
+    health = max(0, health - len(critical) * 20)
+    grade = "A" if health >= 90 else "B" if health >= 75 else "C" if health >= 60 else "D" if health >= 40 else "F"
+
+    report = {
+        "timestamp": datetime.now().isoformat(),
+        "duration_seconds": round(duration, 2),
+        "health_score": health,
+        "grade": grade,
+        "summary": {"total": total, "passed": passed, "failed": failed, "warned": warned},
+        "critical_issues": critical,
+        "recommendations": recommendations,
+        "results": all_results,
+    }
+
+    # Save to history
+    _save_qa_report(report)
+    log.info("QA Health: %s score=%d grade=%s (%d pass, %d fail, %d warn) %.1fs",
+             "OK" if health >= 75 else "ISSUES", health, grade, passed, failed, warned, duration)
+    return report
+
+
+def _save_qa_report(report: dict):
+    os.makedirs(DATA_DIR, exist_ok=True)
+    try:
+        with open(QA_REPORT_FILE) as f:
+            reports = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        reports = []
+    reports.append({
+        "timestamp": report["timestamp"],
+        "health_score": report["health_score"],
+        "grade": report["grade"],
+        "summary": report["summary"],
+        "critical_count": len(report["critical_issues"]),
+    })
+    if len(reports) > 100:
+        reports = reports[-100:]
+    with open(QA_REPORT_FILE, "w") as f:
+        json.dump(reports, f, indent=2, default=str)
+
+
+def get_qa_history(limit: int = 20) -> list:
+    try:
+        with open(QA_REPORT_FILE) as f:
+            reports = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []
+    return sorted(reports, key=lambda r: r.get("timestamp", ""), reverse=True)[:limit]
+
+
+def get_health_trend() -> dict:
+    history = get_qa_history(50)
+    if not history:
+        return {"trend": "unknown", "scores": []}
+    scores = [h["health_score"] for h in history]
+    recent = scores[:5]
+    older = scores[5:10] if len(scores) > 5 else scores
+    avg_r = sum(recent) / len(recent) if recent else 0
+    avg_o = sum(older) / len(older) if older else avg_r
+    trend = "improving" if avg_r > avg_o + 5 else "declining" if avg_r < avg_o - 5 else "stable"
+    return {"trend": trend, "current": scores[0] if scores else 0, "scores": scores[:20]}
+
+
+# ─── Background Monitor ─────────────────────────────────────────────────────
+
+class QAMonitor:
+    def __init__(self, interval=QA_INTERVAL):
+        self.interval = interval
+        self._thread = None
+        self._running = False
+
+    def start(self):
+        if self._running:
+            return
+        self._running = True
+        self._thread = threading.Thread(target=self._loop, daemon=True)
+        self._thread.start()
+        log.info("QA Monitor started (every %ds)", self.interval)
+
+    def stop(self):
+        self._running = False
+
+    def _loop(self):
+        time.sleep(60)  # Let app boot
+        while self._running:
+            try:
+                report = run_health_check(checks=["routes", "data", "agents"])
+                if report["health_score"] < 75:
+                    log.warning("QA ALERT: score=%d — %s",
+                                report["health_score"],
+                                "; ".join(report["recommendations"][:3]))
+            except Exception as e:
+                log.error("QA Monitor: %s", e)
+            time.sleep(self.interval)
+
+
+_monitor = None
+
+def start_qa_monitor(interval=QA_INTERVAL):
+    global _monitor
+    if _monitor is None:
+        _monitor = QAMonitor(interval)
+        _monitor.start()
+    return _monitor
 
 
 if __name__ == "__main__":
