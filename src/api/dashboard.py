@@ -2948,7 +2948,7 @@ def quotes_list():
     ), title="Quotes Database")
 
 
-@app.route("/quote/<qn>")
+@bp.route("/quote/<qn>")
 def quote_detail(qn):
     """Dedicated quote detail page."""
     if not QUOTE_GEN_AVAILABLE:
