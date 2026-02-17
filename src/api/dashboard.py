@@ -4759,7 +4759,7 @@ def api_qb_connect():
     if not QB_CLIENT_ID:
         return jsonify({"ok": False, "error": "Set QB_CLIENT_ID env var first"})
     # Build OAuth URL
-    redirect_uri = request.url_root.rstrip("/") + "/api/qb/callback"
+    redirect_uri = request.url_root.rstrip("/").replace("http://", "https://") + "/api/qb/callback"
     scope = "com.intuit.quickbooks.accounting"
     auth_url = (
         f"https://appcenter.intuit.com/connect/oauth2?"
@@ -4785,7 +4785,7 @@ def api_qb_callback():
             QB_CLIENT_ID, QB_CLIENT_SECRET, TOKEN_URL, _save_tokens
         )
         import base64 as _b64
-        redirect_uri = request.url_root.rstrip("/") + "/api/qb/callback"
+        redirect_uri = request.url_root.rstrip("/").replace("http://", "https://") + "/api/qb/callback"
         auth = _b64.b64encode(f"{QB_CLIENT_ID}:{QB_CLIENT_SECRET}".encode()).decode()
         import requests as _req
         resp = _req.post(TOKEN_URL, headers={
@@ -5375,7 +5375,7 @@ def api_voice_call():
         return jsonify({"ok": False, "error": "Provide phone number in E.164 format"})
     # Inject server URL for Vapi function calling webhook
     variables = data.get("variables", {})
-    variables["server_url"] = request.url_root.rstrip("/") + "/api/voice/webhook"
+    variables["server_url"] = request.url_root.rstrip("/").replace("http://", "https://") + "/api/voice/webhook"
     result = place_call(phone, script_key=data.get("script", "lead_intro"),
                         variables=variables)
     # CRM: log call
