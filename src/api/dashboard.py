@@ -453,6 +453,45 @@ def _handle_price_check_upload(pdf_path, pc_id):
     institution = parsed.get("header", {}).get("institution", "")
     due_date = parsed.get("header", {}).get("due_date", "")
 
+    # Auto-assign quote number (draft) on PC intake
+    draft_quote_num = ""
+    if QUOTE_GEN_AVAILABLE:
+        try:
+            from src.forms.quote_generator import _next_quote_number, _save_all_quotes, get_all_quotes
+            draft_quote_num = _next_quote_number()
+            # Check for previous PCs from same institution
+            existing_quotes = get_all_quotes()
+            prev_pcs = [q for q in existing_quotes 
+                        if q.get("institution", "").lower() == institution.lower() 
+                        and q.get("status") in ("pending", "draft")]
+            if prev_pcs:
+                log.info("Found %d previous quote(s) for %s: %s", 
+                         len(prev_pcs), institution,
+                         ", ".join(q.get("quote_number", "") for q in prev_pcs))
+            # Save as draft in quotes log
+            draft_entry = {
+                "quote_number": draft_quote_num,
+                "date": datetime.now().strftime("%b %d, %Y"),
+                "agency": parsed.get("header", {}).get("agency", ""),
+                "institution": institution,
+                "rfq_number": pc_num,
+                "total": 0,
+                "subtotal": 0,
+                "tax": 0,
+                "items_count": len(items),
+                "pdf_path": "",
+                "created_at": datetime.now().isoformat(),
+                "status": "draft",
+                "source_pc_id": pc_id,
+                "items_text": " | ".join(i.get("description", "")[:50] for i in items[:5]),
+            }
+            all_quotes = get_all_quotes()
+            all_quotes.append(draft_entry)
+            _save_all_quotes(all_quotes)
+            log.info("Auto-assigned draft quote %s to PC #%s (%s)", draft_quote_num, pc_num, institution)
+        except Exception as e:
+            log.error("Failed to auto-assign quote number: %s", e)
+
     # Save PC record
     pcs = _load_price_checks()
     pcs[pc_id] = {
@@ -467,6 +506,7 @@ def _handle_price_check_upload(pdf_path, pc_id):
         "status": "parsed",
         "created_at": datetime.now().isoformat(),
         "parsed": parsed,
+        "reytech_quote_number": draft_quote_num,
     }
     _save_price_checks(pcs)
 
@@ -517,6 +557,10 @@ def update(rid):
             if v:
                 try: item[key] = float(v)
                 except Exception: pass
+        # Save edited description
+        desc_val = request.form.get(f"desc_{i}")
+        if desc_val is not None:
+            item["description"] = desc_val
     
     r["status"] = "ready"
     save_rfqs(rfqs)
@@ -3184,6 +3228,7 @@ def quotes_list():
         "won":     ("✅ Won",     "#3fb950", "rgba(52,211,153,.08)"),
         "lost":    ("❌ Lost",    "#f85149", "rgba(248,113,113,.08)"),
         "pending": ("⏳ Pending", "#d29922", "rgba(210,153,34,.08)"),
+        "draft":   ("📝 Draft",   "#8b949e", "rgba(139,148,160,.08)"),
     }
 
     rows_html = ""

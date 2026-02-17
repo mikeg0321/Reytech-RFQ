@@ -35,7 +35,8 @@ from reportlab.pdfgen import canvas
 
 log = logging.getLogger("quote_gen")
 
-DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+# Navigate up to project root: src/forms/ → src/ → project_root/
+DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # EXACT COLORS — extracted from QuoteWerks R26Q14 via pdfplumber
@@ -169,7 +170,7 @@ def peek_next_quote_number() -> str:
 # QUOTES DATABASE — searchable log with Win/Loss tracking
 # ═══════════════════════════════════════════════════════════════════════════════
 
-VALID_STATUSES = ("pending", "won", "lost")
+VALID_STATUSES = ("pending", "won", "lost", "draft")
 
 def get_all_quotes() -> list:
     path = os.path.join(DATA_DIR, "quotes_log.json")

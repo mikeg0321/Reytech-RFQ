@@ -42,7 +42,8 @@ log = logging.getLogger("research")
 
 # ─── Configuration ───────────────────────────────────────────────────────────
 
-DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+# Navigate up to project root: src/agents/ → src/ → project_root/
+DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
 CACHE_FILE = os.path.join(DATA_DIR, "product_research_cache.json")
 CACHE_TTL_DAYS = 7
 MAX_CACHE_ENTRIES = 5000
@@ -183,6 +184,49 @@ def _extract_price(item: dict) -> Optional[float]:
     return None
 
 
+def _extract_mfg_info(title: str, asin: str = "") -> dict:
+    """Extract manufacturer name and part/model number from Amazon title.
+    
+    Amazon titles typically follow: 'Brand ModelXYZ - Description...'
+    Returns: {"manufacturer": str, "mfg_number": str, "item_number": str}
+    """
+    mfg = {"manufacturer": "", "mfg_number": "", "item_number": asin}
+    if not title:
+        return mfg
+    
+    # Common patterns: "Brand Model# - desc" or "Brand - Model# desc"
+    parts = title.split(",")[0].split(" - ")[0].strip()
+    
+    # Extract potential part/model numbers (alphanumeric with dashes, 4+ chars)
+    model_patterns = re.findall(
+        r'\b([A-Z]{1,5}[-]?\d{2,}[A-Z0-9-]*)\b'
+        r'|'
+        r'\b(\d{2,}[-][A-Z0-9]{2,}[-]?[A-Z0-9]*)\b'
+        r'|'
+        r'\b([A-Z]{2,}\d+[A-Z]+\d*)\b',
+        title
+    )
+    models = [m for groups in model_patterns for m in groups if m and len(m) >= 4]
+    
+    if models:
+        mfg["mfg_number"] = models[0]
+    
+    # Brand = first word(s) of title
+    brand_match = re.match(r'^([A-Za-z][A-Za-z\s&.]{1,25}?)(?:\s+[-–]|\s+[A-Z0-9]{2,}\d|\s*,)', title)
+    if brand_match:
+        mfg["manufacturer"] = brand_match.group(1).strip()
+    elif parts:
+        words = parts.split()[:2]
+        mfg["manufacturer"] = " ".join(words)
+    
+    if not mfg["mfg_number"]:
+        mfg["item_number"] = asin
+    else:
+        mfg["item_number"] = mfg["mfg_number"]
+    
+    return mfg
+
+
 def search_amazon(query: str, max_results: int = 5) -> list:
     """
     Search Amazon via SerpApi and extract product prices.
@@ -241,6 +285,7 @@ def search_amazon(query: str, max_results: int = 5) -> list:
             if not link and asin:
                 link = f"https://www.amazon.com/dp/{asin}"
 
+            mfg_info = _extract_mfg_info(title, asin)
             results.append({
                 "title": title[:200],
                 "price": price,
@@ -249,6 +294,9 @@ def search_amazon(query: str, max_results: int = 5) -> list:
                 "source": "amazon",
                 "rating": item.get("rating"),
                 "reviews": item.get("reviews"),
+                "manufacturer": mfg_info.get("manufacturer", ""),
+                "mfg_number": mfg_info.get("mfg_number", ""),
+                "item_number": mfg_info.get("item_number", asin),
             })
 
             if len(results) >= max_results:
@@ -309,6 +357,9 @@ def research_product(
             "source": "amazon",
             "url": best["url"],
             "asin": best.get("asin", ""),
+            "manufacturer": best.get("manufacturer", ""),
+            "mfg_number": best.get("mfg_number", ""),
+            "item_number": best.get("item_number", best.get("asin", "")),
             "rating": best.get("rating"),
             "reviews": best.get("reviews"),
             "alternatives": results[1:] if len(results) > 1 else [],
@@ -330,6 +381,9 @@ def research_product(
                 "source": "amazon",
                 "url": best["url"],
                 "asin": best.get("asin", ""),
+                "manufacturer": best.get("manufacturer", ""),
+                "mfg_number": best.get("mfg_number", ""),
+                "item_number": best.get("item_number", best.get("asin", "")),
                 "alternatives": results[1:] if len(results) > 1 else [],
                 "searched": f"{query} → fallback: {short_query}",
             }

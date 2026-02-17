@@ -26,16 +26,25 @@ from typing import Optional
 log = logging.getLogger("reytech.oracle")
 
 # Import from our Won Quotes KB
-from won_quotes_db import (
-    find_similar_items,
-    get_price_history,
-    win_probability,
-    classify_category,
-)
+try:
+    from src.knowledge.won_quotes_db import (
+        find_similar_items,
+        get_price_history,
+        win_probability,
+        classify_category,
+    )
+except ImportError:
+    from won_quotes_db import (
+        find_similar_items,
+        get_price_history,
+        win_probability,
+        classify_category,
+    )
 
 # ─── Configuration ───────────────────────────────────────────────────────────
 
-CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reytech_config.json")
+# Navigate up to project root: src/knowledge/ → src/ → project_root/
+CONFIG_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "reytech_config.json")
 
 # Default pricing rules (loaded from config if available)
 DEFAULT_CONFIG = {

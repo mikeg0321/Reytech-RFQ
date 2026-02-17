@@ -29,7 +29,8 @@ from collections import defaultdict
 log = logging.getLogger("reytech.wonquotes")
 
 # ─── Configuration ───────────────────────────────────────────────────────────
-DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+# Navigate up to project root: src/knowledge/ → src/ → project_root/
+DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
 WON_QUOTES_FILE = os.path.join(DATA_DIR, "won_quotes.json")
 MAX_RECORDS = 10000  # LRU eviction cap
 FRESHNESS_WEIGHTS = {

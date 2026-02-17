@@ -41,7 +41,8 @@ try:
 except ImportError:
     _ingest_wq = None
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "scprs_prices.json")
+# Navigate up to project root: src/agents/ → src/ → project_root/
+DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "scprs_prices.json")
 
 # ── FI$Cal URLs & Field IDs ───────────────────────────────────────
 

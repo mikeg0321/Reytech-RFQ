@@ -57,7 +57,8 @@ except ImportError:
 
 log = logging.getLogger("pricecheck")
 
-DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+# Navigate up to project root: src/forms/ → src/ → project_root/
+DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
 
 
 def clean_description(raw: str) -> str:
@@ -433,6 +434,8 @@ def lookup_prices(parsed_pc: dict) -> dict:
                     pricing["amazon_title"] = research.get("title", "")
                     pricing["amazon_url"] = research.get("url", "")
                     pricing["amazon_asin"] = research.get("asin", "")
+                    pricing["mfg_number"] = research.get("mfg_number", "")
+                    pricing["manufacturer"] = research.get("manufacturer", "")
                     pricing["price_source"] = "amazon"
             except Exception as e:
                 log.error(f"Amazon lookup error for '{desc[:50]}': {e}")
@@ -574,11 +577,28 @@ def fill_ams704(
         desc_clean = clean_description(desc_raw) if desc_raw else ""
         if desc_clean:
             desc_field = ROW_FIELDS["description"].format(n=row)
+            # Issue 1: Append MFG/ASIN if available
+            mfg_num = (pricing.get("mfg_number") or pricing.get("manufacturer_part") 
+                       or item.get("mfg_number") or "")
+            asin = pricing.get("amazon_asin", "")
+            if mfg_num and mfg_num.lower() not in desc_clean.lower():
+                desc_clean = f"{desc_clean}\nMFG#: {mfg_num}"
+            elif asin and asin not in desc_clean:
+                desc_clean = f"{desc_clean}\nASIN: {asin}"
             field_values.append({
                 "field_id": desc_field,
                 "page": 1,
                 "value": desc_clean,
             })
+
+        # Issue 3: Write UOM (uppercase) to PDF
+        uom_val = (item.get("uom") or "EA").upper()
+        uom_field = ROW_FIELDS["uom"].format(n=row)
+        field_values.append({
+            "field_id": uom_field,
+            "page": 1,
+            "value": uom_val,
+        })
 
         # Fill price and extension
         price_field = ROW_FIELDS["unit_price"].format(n=row)

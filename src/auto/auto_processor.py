@@ -37,7 +37,8 @@ from typing import Optional
 
 log = logging.getLogger("autoprocessor")
 
-DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+# Navigate up to project root: src/auto/ → src/ → project_root/
+DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
 
 # ─── Import available modules ────────────────────────────────────────────────
 

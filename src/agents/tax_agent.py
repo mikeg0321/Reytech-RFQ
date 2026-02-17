@@ -20,7 +20,8 @@ import os, json, re, logging
 from datetime import datetime
 
 log = logging.getLogger("cdtfa_tax")
-DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+# Navigate up to project root: src/agents/ → src/ → project_root/
+DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
 os.makedirs(DATA_DIR, exist_ok=True)
 
 CA_BASE_RATE = 0.0725  # statewide minimum

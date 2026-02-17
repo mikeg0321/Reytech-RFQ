@@ -173,7 +173,7 @@ PAGE_DETAIL = """
   <tr>
    <td>{{i.line_number}}</td>
    <td style="white-space:nowrap">{{i.qty}} {{i.uom}}</td>
-   <td style="max-width:220px;font-size:12px">{{i.description.split('\n')[0][:60]}}</td>
+   <td style="max-width:220px;font-size:12px"><input type="text" name="desc_{{loop.index0}}" value="{{i.description.split('\n')[0]}}" class="text-in" style="width:100%;font-size:12px" title="{{i.description}}"></td>
    <td class="mono" style="font-size:11px">{{i.item_number}}</td>
    <td><input type="number" step="0.01" name="cost_{{loop.index0}}" value="{{i.supplier_cost or ''}}" placeholder="0.00" class="num-in" style="width:80px;font-size:14px;font-weight:600" oninput="recalc()"></td>
    <td style="font-size:13px;font-weight:600">
