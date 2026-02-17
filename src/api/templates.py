@@ -86,10 +86,7 @@ PAGE_HOME = """
    <input name="q" placeholder="Search quotes, institutions, RFQ #..." style="flex:1;padding:8px 12px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:14px">
    <button type="submit" class="btn btn-p" style="padding:8px 16px">🔍 Search</button>
   </form>
-  <span style="border-left:2px solid #30363d;height:24px;margin:0 4px"></span>
-  <a href="/quotes" class="btn btn-sm" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd);font-size:12px;padding:4px 10px">📋 Quotes DB</a>
-  <a href="/api/health" class="btn btn-sm" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd);font-size:12px;padding:4px 10px">💚 Health</a>
-  <a href="/api/diag" class="btn btn-sm" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd);font-size:12px;padding:4px 10px">🔧 Diag</a>
+  <a href="/quotes" class="btn btn-sm" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd);font-size:12px;padding:5px 12px">📋 Quotes DB</a>
  </div>
 </div>
 <div class="card">
@@ -1451,20 +1448,20 @@ def build_quotes_page_content(stats_html, q, agency_filter, status_filter,
     Extracted from dashboard.py. Returns content string for the render() wrapper.
     """
     return f"""
-     <!-- Logo + Title Header -->
-     <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px">
-      {"<img src='/api/logo' alt='Reytech' style='height:44px;border-radius:6px'>" if logo_exists else ""}
-      <h2 style="margin:0">📋 Reytech Quotes Database</h2>
+     <!-- Header: Logo + Title + Stats — all one row -->
+     <div class="card" style="margin-bottom:10px;padding:14px 18px">
+      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+       {"<div style='background:#fff;padding:4px 8px;border-radius:6px;display:flex;align-items:center'><img src=/api/logo alt=Reytech style=height:36px></div>" if logo_exists else ""}
+       <h2 style="margin:0;font-size:20px">Quotes Database</h2>
+       <div style="margin-left:auto">{stats_html}</div>
+      </div>
      </div>
 
-     <!-- Stats Bar -->
-     <div class="card" style="margin-bottom:12px;padding:14px">{stats_html}</div>
-
-     <!-- Search + Filters -->
-     <div class="card" style="margin-bottom:12px;padding:14px">
+     <!-- Search + Filters + Logo Upload — one compact bar -->
+     <div class="card" style="margin-bottom:10px;padding:10px 14px">
       <form method="get" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-       <input name="q" value="{q}" placeholder="Search quotes..." style="flex:1;min-width:180px;padding:8px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx)">
-       <select name="agency" style="padding:8px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx)">
+       <input name="q" value="{q}" placeholder="Search quotes, institutions, RFQ #..." style="flex:1;min-width:160px;padding:7px 10px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:13px">
+       <select name="agency" style="padding:7px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:13px">
         <option value="">All Agencies</option>
         <option value="CDCR" {"selected" if agency_filter=="CDCR" else ""}>CDCR</option>
         <option value="CCHCS" {"selected" if agency_filter=="CCHCS" else ""}>CCHCS</option>
@@ -1472,28 +1469,24 @@ def build_quotes_page_content(stats_html, q, agency_filter, status_filter,
         <option value="DGS" {"selected" if agency_filter=="DGS" else ""}>DGS</option>
         <option value="DSH" {"selected" if agency_filter=="DSH" else ""}>DSH</option>
        </select>
-       <select name="status" style="padding:8px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx)">
+       <select name="status" style="padding:7px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:13px">
         <option value="">All Status</option>
         <option value="pending" {"selected" if status_filter=="pending" else ""}>⏳ Pending</option>
         <option value="won" {"selected" if status_filter=="won" else ""}>✅ Won</option>
         <option value="lost" {"selected" if status_filter=="lost" else ""}>❌ Lost</option>
        </select>
-       <button type="submit" class="btn btn-p">Search</button>
+       <button type="submit" class="btn btn-p" style="padding:7px 14px;font-size:13px">Search</button>
+       <span style="border-left:1px solid #30363d;height:22px;margin:0 2px"></span>
+       <span style="font-size:11px;color:#8b949e">Logo:</span>
+       {"<span style='font-size:11px;color:#3fb950'>✅</span>" if logo_exists else "<span style='font-size:11px;color:#f85149'>❌</span>"}
+       <form method="post" action="/settings/upload-logo" enctype="multipart/form-data" style="display:contents">
+        <input type="file" name="logo" accept=".png,.jpg,.jpeg,.gif" style="font-size:11px;max-width:140px">
+        <button type="submit" class="btn btn-sm" style="font-size:11px;padding:3px 8px;background:var(--sf2);color:var(--tx2);border:1px solid var(--bd)">Upload</button>
+       </form>
       </form>
      </div>
 
-     <!-- Logo Management (for PDF quotes only) -->
-     <div class="card" style="margin-bottom:12px;padding:14px">
-      <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
-       <span style="font-size:13px">PDF Logo: {"✅ Uploaded — appears on generated quote PDFs" if logo_exists else "❌ Not uploaded — text fallback on PDFs"}</span>
-       <form method="post" action="/settings/upload-logo" enctype="multipart/form-data" style="display:flex;gap:8px;align-items:center;margin-left:auto">
-        <input type="file" name="logo" accept=".png,.jpg,.jpeg,.gif" style="font-size:13px">
-        <button type="submit" class="btn btn-sm btn-g">Upload Logo</button>
-       </form>
-      </div>
-     </div>
-
-     <!-- Quotes Table -->
+     <!-- Quotes Table — flush, no extra padding -->
      <div class="card" style="padding:0;overflow-x:auto">
       <table style="min-width:900px">
        <thead><tr>

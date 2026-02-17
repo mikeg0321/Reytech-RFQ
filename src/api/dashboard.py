@@ -85,7 +85,8 @@ try:
                                   generate_quote_from_rfq, AGENCY_CONFIGS,
                                   get_all_quotes, search_quotes,
                                   peek_next_quote_number, update_quote_status,
-                                  get_quote_stats, set_quote_counter)
+                                  get_quote_stats, set_quote_counter,
+                                  _detect_agency)
     QUOTE_GEN_AVAILABLE = True
 except ImportError:
     try:
@@ -2505,6 +2506,13 @@ def quotes_list():
         fname = os.path.basename(qt.get("pdf_path", ""))
         dl = f'<a href="/api/pricecheck/download/{fname}" title="Download PDF">📥</a>' if fname else ""
         st = qt.get("status", "pending")
+        # Fix DEFAULT agency on render using institution name
+        agency = qt.get("agency", "")
+        if agency in ("DEFAULT", "", None) and qt.get("institution") and QUOTE_GEN_AVAILABLE:
+            try:
+                agency = _detect_agency({"institution": qt["institution"]})
+            except Exception:
+                agency = "DEFAULT"
         lbl, color, bg = status_cfg.get(st, status_cfg["pending"])
         po = qt.get("po_number", "")
         po_html = f'<br><span style="font-size:10px;color:#8b949e">PO: {po}</span>' if po else ""
@@ -2529,7 +2537,7 @@ def quotes_list():
         rows_html += f"""<tr data-qn="{qn}" style="{'opacity:0.6' if st in ('won','lost') else ''}">
          <td style="font-family:'JetBrains Mono',monospace;font-weight:700">{qn}</td>
          <td>{qt.get('date','')}</td>
-         <td>{qt.get('agency','')}</td>
+         <td>{agency}</td>
          <td style="max-width:260px;word-wrap:break-word;white-space:normal">{qt.get('institution','')}</td>
          <td>{qt.get('rfq_number','')}</td>
          <td style="text-align:right;font-weight:600;font-family:'JetBrains Mono',monospace">${qt.get('total',0):,.2f}</td>
@@ -2548,13 +2556,13 @@ def quotes_list():
     wr = stats.get("win_rate", 0)
     wr_color = "#3fb950" if wr >= 50 else ("#d29922" if wr >= 30 else "#f85149")
     stats_html = f"""
-     <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap">
-      <div><span style="color:var(--tx2)">Total:</span> <strong>{stats['total']}</strong></div>
-      <div><span style="color:#3fb950">Won:</span> <strong>{stats['won']}</strong> (${stats['won_total']:,.0f})</div>
-      <div><span style="color:#f85149">Lost:</span> <strong>{stats['lost']}</strong></div>
-      <div><span style="color:#d29922">Pending:</span> <strong>{stats['pending']}</strong></div>
-      <div><span style="color:var(--tx2)">Win Rate:</span> <strong style="color:{wr_color}">{wr}%</strong></div>
-      <div style="margin-left:auto"><span style="color:var(--tx2)">Next:</span> <strong>{next_num}</strong></div>
+     <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;font-size:13px">
+      <span><b>{stats['total']}</b> total</span>
+      <span style="color:#3fb950"><b>{stats['won']}</b> won (${stats['won_total']:,.0f})</span>
+      <span style="color:#f85149"><b>{stats['lost']}</b> lost</span>
+      <span style="color:#d29922"><b>{stats['pending']}</b> pending</span>
+      <span>WR: <b style="color:{wr_color}">{wr}%</b></span>
+      <span style="color:#8b949e">Next: <b style="color:var(--tx)">{next_num}</b></span>
      </div>
     """
 
