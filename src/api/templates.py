@@ -2147,30 +2147,37 @@ h1 {{ font-size:22px; margin-bottom:4px; }}
 </div>
 
 <div class="section">
- <h2>📞 Voice Agent (Twilio) <span class="tag tag-off" id="voice-tag">needs setup</span></h2>
- <p style="color:#8b949e;font-size:12px;margin-bottom:10px">AI-powered outbound calls to buyers — lead intro, quote follow-up, voicemail drops. Set 3 env vars in Railway to activate.</p>
+ <h2>📞 Voice Agent (Vapi AI) <span class="tag tag-off" id="voice-tag">needs setup</span></h2>
+ <p style="color:#8b949e;font-size:12px;margin-bottom:10px">Conversational AI outbound calls — real conversations, not script reading. Powered by Vapi.ai with natural voice.</p>
  <div class="grid">
   <button class="btn btn-go" onclick="apiGet('/api/voice/status')">
-   <span class="label">📞 Voice Status</span><span class="desc">Check config + setup steps</span>
+   <span class="label">📞 Voice Status</span><span class="desc">Engine + config check</span>
   </button>
   <button class="btn btn-go" onclick="apiGet('/api/voice/verify')">
-   <span class="label">🔑 Verify Keys</span><span class="desc">Test Twilio credentials</span>
+   <span class="label">🔑 Verify Keys</span><span class="desc">Test Vapi + Twilio</span>
   </button>
   <button class="btn" onclick="apiGet('/api/voice/scripts')">
-   <span class="label">📜 Call Scripts</span><span class="desc">Lead intro, follow-up</span>
+   <span class="label">📜 Call Scripts</span><span class="desc">Lead intro, follow-up, cold, thank you</span>
   </button>
   <button class="btn" onclick="apiGet('/api/voice/log')">
-   <span class="label">📋 Call Log</span><span class="desc">Recent calls + transcripts</span>
+   <span class="label">📋 Call Log</span><span class="desc">Recent calls</span>
+  </button>
+  <button class="btn" onclick="apiGet('/api/voice/vapi-calls')">
+   <span class="label">🎙️ Transcripts</span><span class="desc">Vapi calls + AI transcripts</span>
   </button>
   <button class="btn btn-go" onclick="testCall()">
-   <span class="label">📱 Test Call</span><span class="desc">Call yourself to verify</span>
+   <span class="label">📱 Test Call</span><span class="desc">Call to test conversation</span>
+  </button>
+  <button class="btn" onclick="importTwilio()">
+   <span class="label">🔗 Import Twilio #</span><span class="desc">Use Reytech caller ID</span>
   </button>
  </div>
  <div style="margin-top:10px;padding:10px;background:#0d1117;border-radius:8px;font-size:11px;font-family:monospace;color:#8b949e">
-  <div style="color:var(--warn);margin-bottom:4px">Railway env vars needed:</div>
-  <div>TWILIO_ACCOUNT_SID=AC...</div>
-  <div>TWILIO_AUTH_TOKEN=...</div>
-  <div>TWILIO_PHONE_NUMBER=+1XXXXXXXXXX</div>
+  <div style="color:var(--warn);margin-bottom:4px">Railway env vars:</div>
+  <div>VAPI_API_KEY=... <span style="color:#3fb950">(required — conversational AI)</span></div>
+  <div>TWILIO_ACCOUNT_SID=AC... <span style="color:#8b949e">(optional — for Reytech caller ID)</span></div>
+  <div>TWILIO_AUTH_TOKEN=... <span style="color:#8b949e">(optional)</span></div>
+  <div>TWILIO_PHONE_NUMBER=+1... <span style="color:#8b949e">(optional)</span></div>
  </div>
 </div>
 
@@ -2293,9 +2300,15 @@ function sendApproved() {{
 }}
 
 function testCall() {{
-  const phone = prompt('Your phone number in E.164 format (e.g. +19491234567):');
+  const phone = prompt('Phone number to call (E.164 format, e.g. +19491234567):');
   if (!phone) return;
-  apiPost('/api/voice/call', {{ phone: phone, script: 'lead_intro', variables: {{ po_number: 'PO-TEST', institution: 'CSP-Sacramento' }} }});
+  const script = prompt('Script: lead_intro, follow_up, intro_cold, thank_you (default: lead_intro):', 'lead_intro') || 'lead_intro';
+  apiPost('/api/voice/call', {{ phone: phone, script: script, variables: {{ po_number: 'PO-TEST', institution: 'CSP-Sacramento', quote_number: 'R26Q1' }} }});
+}}
+
+function importTwilio() {{
+  if (!confirm('Import your Twilio phone number into Vapi? This lets outbound calls show your Reytech caller ID.')) return;
+  apiPost('/api/voice/import-twilio', {{}});
 }}
 
 // Load fleet status on page load
@@ -2319,7 +2332,8 @@ fetch('/api/agents/status',{{credentials:'same-origin'}}).then(r => r.json()).th
   // Update voice tag
   const vt = document.getElementById('voice-tag');
   const voice = data.agents.voice_calls || {{}};
-  if (voice.twilio_configured) {{ vt.textContent = 'ready'; vt.className = 'tag tag-ok'; }}
+  if (voice.vapi_configured) {{ vt.textContent = 'Vapi AI'; vt.className = 'tag tag-ok'; }}
+  else if (voice.twilio_configured) {{ vt.textContent = 'Twilio TTS'; vt.className = 'tag tag-warn'; }}
   else if (voice.status !== 'not_available') {{ vt.textContent = 'needs setup'; vt.className = 'tag tag-warn'; }}
 
   // Update QB tag

@@ -3885,6 +3885,7 @@ try:
         place_call, get_call_log, get_agent_status as voice_agent_status,
         is_configured as voice_configured, SCRIPTS as VOICE_SCRIPTS,
         verify_credentials as voice_verify,
+        import_twilio_to_vapi, get_vapi_call_details, get_vapi_calls,
     )
     VOICE_AVAILABLE = True
 except ImportError:
@@ -4729,6 +4730,36 @@ def api_voice_verify():
     if not VOICE_AVAILABLE:
         return jsonify({"ok": False, "error": "Voice agent not available"})
     return jsonify(voice_verify())
+
+
+@bp.route("/api/voice/import-twilio", methods=["POST"])
+@auth_required
+def api_voice_import_twilio():
+    """Import Twilio phone number into Vapi for Reytech caller ID."""
+    if not VOICE_AVAILABLE:
+        return jsonify({"ok": False, "error": "Voice agent not available"})
+    return jsonify(import_twilio_to_vapi())
+
+
+@bp.route("/api/voice/vapi-calls")
+@auth_required
+def api_voice_vapi_calls():
+    """List recent Vapi calls with transcripts."""
+    if not VOICE_AVAILABLE:
+        return jsonify({"ok": False, "error": "Voice agent not available"})
+    limit = int(request.args.get("limit", 20))
+    calls = get_vapi_calls(limit=limit)
+    return jsonify({"ok": True, "calls": calls, "count": len(calls)})
+
+
+@bp.route("/api/voice/call/<call_id>/details")
+@auth_required
+def api_voice_call_details(call_id):
+    """Get Vapi call details including transcript."""
+    if not VOICE_AVAILABLE:
+        return jsonify({"ok": False, "error": "Voice agent not available"})
+    details = get_vapi_call_details(call_id)
+    return jsonify({"ok": not bool(details.get("error")), **details})
 
 
 @bp.route("/api/test/cleanup-duplicates")
