@@ -76,6 +76,28 @@ a{color:var(--ac);text-decoration:none}
  #kpi-cards{grid-template-columns:repeat(2,1fr)!important}
  #brief-grid{grid-template-columns:1fr!important}
 }
+@media(max-width:1200px){
+ .pc-table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+ .pc-table-wrap table{min-width:900px}
+}
+@media(max-width:900px){
+ .hdr-bar{flex-wrap:wrap;gap:6px}
+ .hdr-bar .nav-btn{font-size:11px;padding:4px 8px}
+ .meta-g{grid-template-columns:1fr 1fr!important}
+ .action-bar{flex-wrap:wrap;gap:6px}
+ .action-bar .btn{font-size:12px;padding:5px 10px}
+ .sidebar-cards{flex-direction:column!important}
+ .sidebar-cards>div{width:100%!important;min-width:unset!important}
+}
+@media(max-width:600px){
+ #kpi-cards{grid-template-columns:1fr!important}
+ .meta-g{grid-template-columns:1fr!important}
+ .hdr-bar{padding:6px 10px}
+ body{padding:0 4px}
+ .card{padding:10px}
+ .action-bar{flex-direction:column}
+ .action-bar .btn{width:100%}
+}
 .meta-g{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:20px}
 .meta-i{background:var(--sf2);border-radius:8px;padding:10px 12px}
 .meta-l{font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px}
@@ -690,7 +712,7 @@ function applyScprsUndercut(pct){
 
 function lookupScprs(){
  const btn=event.target;btn.disabled=true;btn.textContent='⏳ Searching FI$Cal...';
- fetch('/api/scprs/{{rid}}').then(r=>r.json()).then(d=>{
+ fetch('/api/scprs/{{rid}}',{credentials:'same-origin'}).then(r=>r.json()).then(d=>{
   let found=0,total=0;
   if(d.results){
    total=d.results.length;
@@ -714,11 +736,11 @@ function lookupScprs(){
 
 function researchPrices(){
  const btn=event.target;btn.disabled=true;btn.textContent='⏳ Searching Amazon...';
- fetch('/api/research/rfq/{{rid}}').then(r=>r.json()).then(d=>{
+ fetch('/api/research/rfq/{{rid}}',{credentials:'same-origin'}).then(r=>r.json()).then(d=>{
   if(!d.ok){btn.textContent='❌ '+d.message;btn.disabled=false;return;}
   // Poll for results
   const poll=setInterval(()=>{
-   fetch('/api/research/status').then(r=>r.json()).then(s=>{
+   fetch('/api/research/status',{credentials:'same-origin'}).then(r=>r.json()).then(s=>{
     btn.textContent=`⏳ ${s.items_done}/${s.items_total} items (${s.prices_found} found)`;
     if(!s.running){
      clearInterval(poll);
@@ -1005,7 +1027,7 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
      </div>
 
      <!-- Actions: Save + Preview + Fill/Download -->
-     <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center" id="actionBar">
+     <div class="action-bar" style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center" id="actionBar">
       <button class="btn btn-p" onclick="savePrices(this)" id="saveBtn" style="font-size:14px;padding:8px 20px">💾 Save</button>
       <button class="btn" onclick="showPreview()" style="background:#21262d;color:#c9d1d9;border:1px solid #484f58;font-size:14px;padding:8px 20px">👁️ Preview</button>
       {"" if pc.get('status') in ('completed','converted') else "<button class='btn btn-g' id='submitBtn' onclick='saveAndGenerate(this)' style='font-size:14px;padding:8px 20px'>📄 Save &amp; Fill 704</button>"}
@@ -1065,10 +1087,12 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
 
     <div class="card">
      <h3 style="margin-top:0;font-size:18px">Line Items <span id="itemCount" style="font-weight:normal;color:#8b949e;font-size:15px">({len(items)} items)</span></h3>
+     <div class="pc-table-wrap">
      <table id="itemsTable">
       <tr><th style="width:28px">Bid</th><th>#</th><th>Qty</th><th>UOM</th><th style="min-width:280px">Description</th><th>SCPRS $</th><th>Amazon $</th><th>Amazon Match</th><th>Unit Cost</th><th>Markup</th><th>Our Price</th><th>Extension</th><th>Profit</th><th>Conf</th></tr>
       {items_html}
      </table>
+     </div>
      <div style="margin-top:8px">
       <button class="btn btn-sm" style="background:#21262d;color:#8b949e;border:1px solid #30363d" onclick="addRow()">+ Add Item</button>
      </div>
@@ -1845,6 +1869,7 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
      const parent = prompt('Parent organization?\\n(e.g. "Dept of Corrections and Rehabilitation")', '');
      fetch('/api/customers', {{
       method: 'POST',
+      credentials: 'same-origin',
       headers: {{'Content-Type': 'application/json'}},
       body: JSON.stringify({{display_name: inst, agency: ag, parent: parent||'',
                             city: '', state: 'CA', source: 'user_validated'}})
@@ -2147,6 +2172,16 @@ h1 {{ font-size:22px; margin-bottom:4px; }}
  </div>
 </div>
 
+<div class="section">
+ <h2>🔍 QA Agent <span class="tag tag-ok">Active</span></h2>
+ <p style="color:#8b949e;font-size:12px;margin-bottom:10px">Automated quality assurance — scans for broken buttons, auth issues, JS errors, responsive gaps.</p>
+ <div class="grid">
+  <button class="btn btn-go" onclick="apiGet('/api/qa/scan')">
+   <span class="label">🔍 Full QA Scan</span><span class="desc">Scan all pages + source code</span>
+  </button>
+ </div>
+</div>
+
 <div id="result"><span class="close" onclick="closeResult()">✕</span><pre id="result-content"></pre></div>
 
 <script>
@@ -2220,7 +2255,7 @@ function testCall() {{
 }}
 
 // Load fleet status on page load
-fetch('/api/agents/status').then(r => r.json()).then(data => {{
+fetch('/api/agents/status',{credentials:'same-origin'}).then(r => r.json()).then(data => {{
   const grid = document.getElementById('fleet-grid');
   const tag = document.getElementById('fleet-tag');
   if (!data.ok) {{ grid.innerHTML = '<div>Failed to load</div>'; return; }}

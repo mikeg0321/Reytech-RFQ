@@ -462,7 +462,8 @@ def _is_price_check(pdf_path):
             ams704_markers = {"COMPANY NAME", "Requestor", "PRICE PER UNITRow1", "EXTENSIONRow1"}
             if len(ams704_markers & field_names) >= 3:
                 return True
-    except Exception:
+    except Exception as e:
+        log.debug("Suppressed: %s", e)
         pass
     return False
 
@@ -582,7 +583,8 @@ def _load_price_checks():
         try:
             with open(path) as f:
                 return json.load(f)
-        except Exception:
+        except Exception as e:
+            log.debug("Suppressed: %s", e)
             return {}
     return {}
 
@@ -618,7 +620,9 @@ def update(rid):
             v = request.form.get(f"{field}_{i}")
             if v:
                 try: item[key] = float(v)
-                except Exception: pass
+                except Exception as e:
+
+                    log.debug("Suppressed: %s", e)
         # Save edited description
         desc_val = request.form.get(f"desc_{i}")
         if desc_val is not None:
@@ -702,7 +706,9 @@ def generate(rid):
             v = request.form.get(f"{field}_{i}")
             if v:
                 try: item[key] = float(v)
-                except Exception: pass
+                except Exception as e:
+
+                    log.debug("Suppressed: %s", e)
     
     r["sign_date"] = get_pst_date()
     sol = r["solicitation_number"]
@@ -959,7 +965,8 @@ def pricecheck_detail(pcid):
     try:
         expiry = datetime.now() + timedelta(days=45)
         expiry_date = expiry.strftime("%m/%d/%Y")
-    except Exception:
+    except Exception as e:
+        log.debug("Suppressed: %s", e)
         expiry_date = (datetime.now() + timedelta(days=45)).strftime("%m/%d/%Y")
     today_date = datetime.now().strftime("%m/%d/%Y")
 
@@ -1396,7 +1403,8 @@ def api_scprs(rid):
                             award_date=result.get("date", ""),
                             source=result.get("source", "scprs_live"),
                         )
-                    except Exception:
+                    except Exception as e:
+                        log.debug("Suppressed: %s", e)
                         pass  # Never let KB ingestion break the lookup flow
             else:
                 results.append({
@@ -1589,7 +1597,9 @@ def _api_diag_inner():
                     try:
                         with open(proc_file) as pf:
                             processed_uids = set(json.load(pf))
-                    except Exception: pass
+                    except Exception as e:
+
+                        log.debug("Suppressed: %s", e)
                 
                 recent_uids = recent[0].split() if status3 == "OK" and recent[0] else []
                 new_to_process = [u.decode() for u in recent_uids if u.decode() not in processed_uids]
@@ -1629,7 +1639,8 @@ def _api_diag_inner():
             with open(proc_file) as f:
                 processed = json.load(f)
             diag["processed_emails"] = {"count": len(processed), "ids": processed[-10:] if isinstance(processed, list) else list(processed)[:10]}
-        except Exception:
+        except Exception as e:
+            log.debug("Suppressed: %s", e)
             diag["processed_emails"] = "corrupt file"
     else:
         diag["processed_emails"] = "file not found"
@@ -1765,7 +1776,8 @@ def api_debug_paths():
             if os.path.isdir(path_val):
                 try:
                     results[f"{path_name}_contents"] = os.listdir(path_val)
-                except Exception:
+                except Exception as e:
+                    log.debug("Suppressed: %s", e)
                     results[f"{path_name}_contents"] = "permission denied"
             else:
                 results[f"{path_name}_exists"] = True
@@ -1779,7 +1791,8 @@ def api_debug_paths():
         if os.path.exists(check_path) and os.path.isdir(check_path):
             try:
                 results[f"check{key}_contents"] = os.listdir(check_path)
-            except Exception:
+            except Exception as e:
+                log.debug("Suppressed: %s", e)
                 results[f"check{key}_contents"] = "permission denied"
     return jsonify(results)
 
@@ -2053,7 +2066,8 @@ def api_quote_history():
                     created_dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
                     delta = datetime.now() - created_dt.replace(tzinfo=None)
                     days_ago = f"{delta.days}d ago" if delta.days > 0 else "today"
-                except Exception:
+                except Exception as e:
+                    log.debug("Suppressed: %s", e)
                     pass
 
             matches.append({
@@ -2307,7 +2321,8 @@ def api_tax_rate():
             )
             # Parse rate from response if possible
             # For now fall through to default — full CDTFA scraper is in main codebase
-        except Exception:
+        except Exception as e:
+            log.debug("Suppressed: %s", e)
             pass
     # Default CA rate — state govt PCs are typically tax-exempt anyway
     return jsonify({
@@ -2366,7 +2381,8 @@ def api_health():
     if AUTO_PROCESSOR_AVAILABLE:
         try:
             health["checks"]["auto_processor"] = system_health_check()
-        except Exception:
+        except Exception as e:
+            log.debug("Suppressed: %s", e)
             pass
     
     return jsonify(health)
@@ -2564,7 +2580,8 @@ def quotes_list():
         if agency in ("DEFAULT", "", None) and qt.get("institution") and QUOTE_GEN_AVAILABLE:
             try:
                 agency = _detect_agency({"institution": qt["institution"]})
-            except Exception:
+            except Exception as e:
+                log.debug("Suppressed: %s", e)
                 agency = "DEFAULT"
         lbl, color, bg = status_cfg.get(st, status_cfg["pending"])
         po = qt.get("po_number", "")
@@ -2666,7 +2683,8 @@ def api_test_create_pc():
     if QUOTE_GEN_AVAILABLE:
         try:
             draft_qn = peek_next_quote_number()
-        except Exception:
+        except Exception as e:
+            log.debug("Suppressed: %s", e)
             pass
 
     pcs = _load_price_checks()
@@ -2738,7 +2756,8 @@ def api_test_cleanup():
             for n in nums:
                 try:
                     max_n = max(max_n, int(n.split("Q")[-1]))
-                except Exception:
+                except Exception as e:
+                    log.debug("Suppressed: %s", e)
                     pass
             set_quote_counter(max_n)
             counter_reset = f"Counter reset to {max_n}"
@@ -2859,6 +2878,12 @@ try:
 except ImportError:
     ORCHESTRATOR_AVAILABLE = False
 
+try:
+    from src.agents.qa_agent import full_scan, scan_html, agent_status as qa_agent_status
+    QA_AVAILABLE = True
+except ImportError:
+    QA_AVAILABLE = False
+
 
 @bp.route("/api/identify", methods=["POST"])
 @auth_required
@@ -2924,16 +2949,32 @@ def api_agents_status():
         "voice_calls": voice_agent_status() if VOICE_AVAILABLE else {"status": "not_available"},
         "manager": manager_agent_status() if MANAGER_AVAILABLE else {"status": "not_available"},
         "orchestrator": get_workflow_status() if ORCHESTRATOR_AVAILABLE else {"status": "not_available"},
+        "qa": qa_agent_status() if QA_AVAILABLE else {"status": "not_available"},
     }
     try:
         from src.agents.product_research import get_research_cache_stats
         agents["product_research"] = get_research_cache_stats()
-    except Exception:
+    except Exception as e:
+        log.debug("Suppressed: %s", e)
         agents["product_research"] = {"status": "not_available"}
 
     return jsonify({"ok": True, "agents": agents,
                     "total": len(agents),
                     "active": sum(1 for a in agents.values() if a.get("status") != "not_available")})
+
+
+@bp.route("/api/qa/scan")
+@auth_required
+def api_qa_scan():
+    """Run full QA scan across all pages and source files."""
+    if not QA_AVAILABLE:
+        return jsonify({"ok": False, "error": "QA agent not available"})
+    try:
+        report = full_scan(current_app)
+        return jsonify({"ok": True, **report})
+    except Exception as e:
+        log.exception("QA scan failed: %s", e)
+        return jsonify({"ok": False, "error": str(e)})
 
 
 # ─── Manager Brief Routes ───────────────────────────────────────────────────
@@ -2962,7 +3003,8 @@ def api_manager_metrics():
         qpath = os.path.join(DATA_DIR, "quotes_log.json")
         with open(qpath) as f:
             quotes = json.load(f)
-    except Exception:
+    except Exception as e:
+        log.debug("Suppressed: %s", e)
         pass
 
     pcs = _load_price_checks()
@@ -3252,7 +3294,8 @@ def api_leads_evaluate():
     try:
         from src.knowledge.won_quotes_db import get_all_items
         won_history = get_all_items()
-    except Exception:
+    except Exception as e:
+        log.debug("Suppressed: %s", e)
         pass
     lead = evaluate_po(data, won_history)
     if not lead:
