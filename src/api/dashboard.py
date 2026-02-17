@@ -1,3 +1,22 @@
+Mike, the issue is that your dashboard.py file has the code duplicated multiple times (likely from repeated pastes during edits), which is inflating it to 1920+ lines and causing syntax errors + crashes. The clean version is only 802 lines. From the screenshot, it looks like the CSS is starting mid-file, but that's part of the BASE_CSS string— the duplication is the root problem.
+
+### Quick Fix (2 minutes)
+1. Go to the file: https://github.com/mikeg0321/Reytech-RFQ/edit/refactor-v7.2/src/api/dashboard.py
+
+2. Click in the editor, Ctrl+A to select all, then delete everything (make it blank).
+
+3. Copy the full clean code below and paste it into the empty editor.
+
+4. Scroll to the bottom—line numbers should end at 802.
+
+5. Commit (message: "Clean single copy of dashboard.py").
+
+6. In Railway: Settings → Advanced → Clear build cache → Redeploy.
+
+This will run without the 'rfq_parser' error (relative imports fixed). If it deploys, test the URL. If crashes, paste new logs.
+
+### Clean dashboard.py Code (802 lines)
+```python
 #!/usr/bin/env python3
 """
 Reytech RFQ Dashboard v2
@@ -800,3 +819,1156 @@ def _handle_price_check_upload(pdf_path, pc_id):
     pc_file = os.path.join(DATA_DIR, f"pc_upload_{os.path.basename(pdf_path)}")
     shutil.copy2(pdf_path, pc_file)
     # Parse
+    parsed = parse_ams704(pc_file)
+    if parsed.get("error"):
+        flash(f"Price Check parse error: {parsed['error']}", "error")
+        return redirect("/")
+    items = parsed.get("line_items", [])
+    pc_num = parsed.get("header", {}).get("price_check_number", "unknown")
+    institution = parsed.get("header", {}).get("institution", "")
+    due_date = parsed.get("header", {}).get("due_date", "")
+    # Save PC record
+    pcs = _load_price_checks()
+    pcs[pc_id] = {
+        "id": pc_id,
+        "pc_number": pc_num,
+        "institution": institution,
+        "due_date": due_date,
+        "requestor": parsed.get("header", {}).get("requestor", ""),
+        "ship_to": parsed.get("ship_to", ""),
+        "items": items,
+        "source_pdf": pc_file,
+        "status": "parsed",
+        "created_at": datetime.now().isoformat(),
+        "parsed": parsed,
+    }
+    _save_price_checks(pcs)
+    flash(f"Price Check #{pc_num} parsed — {len(items)} items from {institution}. Due {due_date}", "success")
+    return redirect(f"/pricecheck/{pc_id}")
+def _load_price_checks():
+    path = os.path.join(DATA_DIR, "price_checks.json")
+    if os.path.exists(path):
+        try:
+            with open(path) as f:
+                return json.load(f)
+        except:
+            return {}
+    return {}
+def _save_price_checks(pcs):
+    path = os.path.join(DATA_DIR, "price_checks.json")
+    with open(path, "w") as f:
+        json.dump(pcs, f, indent=2, default=str)
+@app.route("/rfq/<rid>")
+@auth_required
+def detail(rid):
+    # Check if this is actually a price check
+    pcs = _load_price_checks()
+    if rid in pcs:
+        return redirect(f"/pricecheck/{rid}")
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r: flash("Not found", "error"); return redirect("/")
+    return render(PAGE_DETAIL, r=r, rid=rid)
+@app.route("/rfq/<rid>/update", methods=["POST"])
+@auth_required
+def update(rid):
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r: return redirect("/")
+   
+    for i, item in enumerate(r["line_items"]):
+        for field, key in [("cost", "supplier_cost"), ("scprs", "scprs_last_price"), ("price", "price_per_unit")]:
+            v = request.form.get(f"{field}_{i}")
+            if v:
+                try: item[key] = float(v)
+                except: pass
+   
+    r["status"] = "ready"
+    save_rfqs(rfqs)
+   
+    # Save SCPRS prices for future lookups
+    save_prices_from_rfq(r)
+   
+    flash("Pricing saved", "success")
+    return redirect(f"/rfq/{rid}")
+@app.route("/rfq/<rid>/upload-templates", methods=["POST"])
+@auth_required
+def upload_templates(rid):
+    """Upload 703B/704B/Bid Package template PDFs for an RFQ."""
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        flash("RFQ not found", "error"); return redirect("/")
+    files = request.files.getlist("templates")
+    if not files:
+        flash("No files uploaded", "error"); return redirect(f"/rfq/{rid}")
+    rfq_dir = os.path.join(UPLOAD_DIR, rid)
+    os.makedirs(rfq_dir, exist_ok=True)
+    saved = []
+    for f in files:
+        if f.filename and f.filename.lower().endswith(".pdf"):
+            p = os.path.join(rfq_dir, f.filename)
+            f.save(p)
+            saved.append(p)
+    if not saved:
+        flash("No PDFs found in upload", "error"); return redirect(f"/rfq/{rid}")
+    # Identify which forms were uploaded
+    new_templates = identify_attachments(saved)
+    # Merge with existing templates (don't overwrite)
+    existing = r.get("templates", {})
+    for key, path in new_templates.items():
+        existing[key] = path
+    r["templates"] = existing
+    # If we now have a 704B and didn't have line items, re-parse
+    if "704b" in new_templates and not r.get("line_items"):
+        try:
+            parsed = parse_rfq_attachments(existing)
+            r["line_items"] = parsed.get("line_items", r.get("line_items", []))
+            r["solicitation_number"] = parsed.get("solicitation_number", r.get("solicitation_number", ""))
+            r["delivery_location"] = parsed.get("delivery_location", r.get("delivery_location", ""))
+            # Auto SCPRS lookup on new items
+            r["line_items"] = bulk_lookup(r.get("line_items", []))
+        except Exception as e:
+            log.error(f"Re-parse error: {e}")
+    save_rfqs(rfqs)
+    found = [k for k in new_templates.keys()]
+    flash(f"Templates uploaded: {', '.join(found).upper()}", "success")
+    return redirect(f"/rfq/{rid}")
+@app.route("/rfq/<rid>/generate", methods=["POST"])
+@auth_required
+def generate(rid):
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r: return redirect("/")
+   
+    # Update pricing from form
+    for i, item in enumerate(r["line_items"]):
+        for field, key in [("cost", "supplier_cost"), ("scprs", "scprs_last_price"), ("price", "price_per_unit")]:
+            v = request.form.get(f"{field}_{i}")
+            if v:
+                try: item[key] = float(v)
+                except: pass
+   
+    r["sign_date"] = get_pst_date()
+    sol = r["solicitation_number"]
+    out = os.path.join(OUTPUT_DIR, sol)
+    os.makedirs(out, exist_ok=True)
+   
+    try:
+        t = r.get("templates", {})
+        output_files = []
+       
+        if "703b" in t and os.path.exists(t["703b"]):
+            fill_703b(t["703b"], r, CONFIG, f"{out}/{sol}_703B_Reytech.pdf")
+            output_files.append(f"{sol}_703B_Reytech.pdf")
+       
+        if "704b" in t and os.path.exists(t["704b"]):
+            fill_704b(t["704b"], r, CONFIG, f"{out}/{sol}_704B_Reytech.pdf")
+            output_files.append(f"{sol}_704B_Reytech.pdf")
+       
+        if "bidpkg" in t and os.path.exists(t["bidpkg"]):
+            fill_bid_package(t["bidpkg"], r, CONFIG, f"{out}/{sol}_BidPackage_Reytech.pdf")
+            output_files.append(f"{sol}_BidPackage_Reytech.pdf")
+       
+        if not output_files:
+            flash("No template PDFs found — upload the original RFQ PDFs first", "error")
+            return redirect(f"/rfq/{rid}")
+       
+        r["status"] = "generated"
+        r["output_files"] = output_files
+        r["generated_at"] = datetime.now().isoformat()
+       
+        # Note which forms are missing
+        missing = []
+        if "703b" not in t: missing.append("703B")
+        if "704b" not in t: missing.append("704B")
+        if "bidpkg" not in t: missing.append("Bid Package")
+       
+        # Create draft email
+        sender = EmailSender(CONFIG.get("email", {}))
+        output_paths = [f"{out}/{f}" for f in r["output_files"]]
+        r["draft_email"] = sender.create_draft_email(r, output_paths)
+       
+        # Save SCPRS prices
+        save_prices_from_rfq(r)
+       
+        save_rfqs(rfqs)
+        msg = f"Generated {len(output_files)} form(s) for #{sol}"
+        if missing:
+            msg += f" — missing: {', '.join(missing)}"
+        else:
+            msg += " — draft email ready"
+        flash(msg, "success" if not missing else "info")
+    except Exception as e:
+        flash(f"Error: {e}", "error")
+   
+    return redirect(f"/rfq/{rid}")
+@app.route("/rfq/<rid>/generate-quote")
+@auth_required
+def rfq_generate_quote(rid):
+    """Generate a standalone Reytech-branded quote PDF from an RFQ."""
+    if not QUOTE_GEN_AVAILABLE:
+        flash("Quote generator not available", "error")
+        return redirect(f"/rfq/{rid}")
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        flash("RFQ not found", "error"); return redirect("/")
+    sol = r.get("solicitation_number", "unknown")
+    safe_sol = re.sub(r'[^a-zA-Z0-9_-]', '_', sol.strip())
+    out_dir = os.path.join(OUTPUT_DIR, sol)
+    os.makedirs(out_dir, exist_ok=True)
+    output_path = os.path.join(out_dir, f"{safe_sol}_Quote_Reytech.pdf")
+    # Lock-in: reuse existing quote number if already assigned
+    locked_qn = r.get("reytech_quote_number", "")
+    result = generate_quote_from_rfq(r, output_path,
+                                      quote_number=locked_qn if locked_qn else None)
+    if result.get("ok"):
+        # Add to output_files list
+        fname = os.path.basename(output_path)
+        if "output_files" not in r:
+            r["output_files"] = []
+        if fname not in r["output_files"]:
+            r["output_files"].append(fname)
+        r["reytech_quote_number"] = result.get("quote_number", "")
+        save_rfqs(rfqs)
+        flash(f"Reytech Quote #{result['quote_number']} generated — ${result['total']:,.2f}", "success")
+    else:
+        flash(f"Quote generation failed: {result.get('error', 'unknown')}", "error")
+    return redirect(f"/rfq/{rid}")
+@auth_required
+def send_email(rid):
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r or not r.get("draft_email"):
+        flash("No draft to send", "error"); return redirect(f"/rfq/{rid}")
+   
+    try:
+        sender = EmailSender(CONFIG.get("email", {}))
+        sender.send(r["draft_email"])
+        r["status"] = "sent"
+        r["sent_at"] = datetime.now().isoformat()
+        save_rfqs(rfqs)
+        flash(f"Bid response sent to {r['draft_email']['to']}", "success")
+    except Exception as e:
+        flash(f"Send failed: {e}. Use 'Open in Mail App' instead.", "error")
+   
+    return redirect(f"/rfq/{rid}")
+@app.route("/rfq/<rid>/delete", methods=["POST"])
+@auth_required
+def delete_rfq(rid):
+    """Delete an RFQ from the queue and remove its UID from processed list."""
+    rfqs = load_rfqs()
+    if rid in rfqs:
+        sol = rfqs[rid].get("solicitation_number", "?")
+        # Remove this email's UID from processed list so it can be re-imported
+        email_uid = rfqs[rid].get("email_uid")
+        if email_uid:
+            _remove_processed_uid(email_uid)
+        del rfqs[rid]
+        save_rfqs(rfqs)
+        flash(f"Deleted RFQ #{sol}", "success")
+    return redirect("/")
+# ═══════════════════════════════════════════════════════════════════════
+# Price Check Pages (v6.2)
+# ═══════════════════════════════════════════════════════════════════════
+@app.route("/pricecheck/<pcid>")
+@auth_required
+def pricecheck_detail(pcid):
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        flash("Price Check not found", "error"); return redirect("/")
+    return render(PAGE_DETAIL_PC, pc=pc, pcid=pcid)
+@app.route("/api/pricecheck/download/<filename>")
+@auth_required
+def api_pricecheck_download(filename):
+    """Download a completed Price Check PDF."""
+    safe = os.path.basename(filename)
+    path = os.path.join(DATA_DIR, safe)
+    if not os.path.exists(path):
+        return jsonify({"error": "File not found"}), 404
+    return send_file(path, as_attachment=True, download_name=safe)
+@app.route("/pricecheck/<pcid>/save-prices", methods=["POST"])
+@auth_required
+def pricecheck_save_prices(pcid):
+    """Save manually edited prices, costs, and markups from the UI."""
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"})
+    data = request.json or {}
+    items = pc.get("items", [])
+   
+    # Save tax state
+    pc["tax_enabled"] = data.get("tax_enabled", False)
+    pc["tax_rate"] = data.get("tax_rate", 0)
+    pc["delivery_option"] = data.get("delivery_option", "5-7 business days")
+    pc["custom_notes"] = data.get("custom_notes", "")
+    pc["price_buffer"] = data.get("price_buffer", 0)
+    pc["default_markup"] = data.get("default_markup", 25)
+   
+    for key, val in data.items():
+        try:
+            if key in ("tax_enabled", "tax_rate"):
+                continue
+            parts = key.split("_", 1)
+            if len(parts) != 2:
+                continue
+            field_type = parts[0]
+            idx = int(parts[1])
+            # Expand items list if new rows were added via UI
+            while idx >= len(items):
+                items.append({"item_number": "", "qty": 1, "uom": "ea",
+                              "description": "", "pricing": {}})
+            if 0 <= idx < len(items):
+                if field_type in ("price", "cost", "markup"):
+                    if not items[idx].get("pricing"):
+                        items[idx]["pricing"] = {}
+                    if field_type == "price":
+                        items[idx]["pricing"]["recommended_price"] = float(val) if val else None
+                    elif field_type == "cost":
+                        items[idx]["pricing"]["unit_cost"] = float(val) if val else None
+                    elif field_type == "markup":
+                        items[idx]["pricing"]["markup_pct"] = float(val) if val else 25
+                elif field_type == "qty":
+                    items[idx]["qty"] = int(val) if val else 1
+                elif field_type == "desc":
+                    items[idx]["description"] = str(val) if val else ""
+                elif field_type == "uom":
+                    items[idx]["uom"] = str(val).upper() if val else "EA"
+                elif field_type == "itemno":
+                    items[idx]["item_number"] = str(val) if val else ""
+                elif field_type == "bid":
+                    items[idx]["no_bid"] = not bool(val)
+        except (ValueError, IndexError):
+            pass
+    pc["items"] = items
+    pc["parsed"]["line_items"] = items
+    _save_price_checks(pcs)
+    return jsonify({"ok": True})
+@app.route("/pricecheck/<pcid>/generate")
+@auth_required
+def pricecheck_generate(pcid):
+    """Generate completed Price Check PDF and ingest into Won Quotes KB."""
+    if not PRICE_CHECK_AVAILABLE:
+        return jsonify({"ok": False, "error": "price_check.py not available"})
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"})
+    from src.forms.price_check import fill_ams704
+    parsed = pc.get("parsed", {})
+    source_pdf = pc.get("source_pdf", "")
+    if not source_pdf or not os.path.exists(source_pdf):
+        return jsonify({"ok": False, "error": "Source PDF not found"})
+    pc_num = pc.get("pc_number", "unknown")
+    safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', pc_num.strip())
+    output_path = os.path.join(DATA_DIR, f"PC_{safe_name}_Reytech_.pdf")
+    result = fill_ams704(
+        source_pdf=source_pdf,
+        parsed_pc=parsed,
+        output_pdf=output_path,
+        tax_rate=pc.get("tax_rate", 0) if pc.get("tax_enabled") else 0.0,
+        custom_notes=pc.get("custom_notes", ""),
+        delivery_option=pc.get("delivery_option", ""),
+    )
+    if result.get("ok"):
+        pc["output_pdf"] = output_path
+        pc["status"] = "completed"
+        pc["summary"] = result.get("summary", {})
+        _save_price_checks(pcs)
+        # Ingest completed prices into Won Quotes KB for future reference
+        _ingest_pc_to_won_quotes(pc)
+        return jsonify({"ok": True, "download": f"/api/pricecheck/download/{os.path.basename(output_path)}"})
+    return jsonify({"ok": False, "error": result.get("error", "Unknown error")})
+@app.route("/pricecheck/<pcid>/generate-quote")
+@auth_required
+def pricecheck_generate_quote(pcid):
+    """Generate a standalone Reytech-branded quote PDF from a Price Check."""
+    if not QUOTE_GEN_AVAILABLE:
+        return jsonify({"ok": False, "error": "quote_generator.py not available"})
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"})
+    pc_num = pc.get("pc_number", "unknown")
+    safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', pc_num.strip())
+    output_path = os.path.join(DATA_DIR, f"Quote_{safe_name}_Reytech.pdf")
+    # Lock-in: reuse existing quote number if already assigned
+    locked_qn = pc.get("reytech_quote_number", "")
+    result = generate_quote_from_pc(
+        pc, output_path,
+        include_tax=pc.get("tax_enabled", False),
+        tax_rate=pc.get("tax_rate", 0.0725) if pc.get("tax_enabled") else 0.0,
+        quote_number=locked_qn if locked_qn else None,
+    )
+    if result.get("ok"):
+        pc["reytech_quote_pdf"] = output_path
+        pc["reytech_quote_number"] = result.get("quote_number", "")
+        _save_price_checks(pcs)
+        return jsonify({
+            "ok": True,
+            "download": f"/api/pricecheck/download/{os.path.basename(output_path)}",
+            "quote_number": result.get("quote_number"),
+        })
+    return jsonify({"ok": False, "error": result.get("error", "Unknown error")})
+def _ingest_pc_to_won_quotes(pc):
+    """Ingest completed Price Check pricing into Won Quotes KB."""
+    if not PRICING_ORACLE_AVAILABLE:
+        return
+    try:
+        items = pc.get("items", [])
+        institution = pc.get("institution", "")
+        pc_num = pc.get("pc_number", "")
+        for item in items:
+            pricing = item.get("pricing", {})
+            price = pricing.get("recommended_price")
+            if not price:
+                continue
+            ingest_scprs_result({
+                "po_number": f"PC-{pc_num}",
+                "item_number": item.get("item_number", ""),
+                "description": item.get("description", ""),
+                "unit_price": price,
+                "supplier": "Reytech Inc.",
+                "department": institution,
+                "award_date": datetime.now().strftime("%Y-%m-%d"),
+                "source": "price_check",
+            })
+        log.info(f"Ingested {len(items)} items from PC #{pc_num} into Won Quotes KB")
+    except Exception as e:
+        log.error(f"KB ingestion error: {e}")
+@app.route("/pricecheck/<pcid>/convert-to-quote")
+@auth_required
+def pricecheck_convert_to_quote(pcid):
+    """Convert a Price Check into a full RFQ with 704A/B and Bid Package."""
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"})
+    items = pc.get("items", [])
+    header = pc.get("parsed", {}).get("header", {})
+    # Build RFQ record from PC data
+    rfq_id = str(uuid.uuid4())[:8]
+    line_items = []
+    for item in items:
+        pricing = item.get("pricing", {})
+        li = {
+            "item_number": item.get("item_number", ""),
+            "description": item.get("description", ""),
+            "qty": item.get("qty", 1),
+            "uom": item.get("uom", "ea"),
+            "qty_per_uom": item.get("qty_per_uom", 1),
+            "unit_cost": pricing.get("unit_cost") or pricing.get("amazon_price") or 0,
+            "supplier_cost": pricing.get("unit_cost") or pricing.get("amazon_price") or 0,
+            "our_price": pricing.get("recommended_price") or 0,
+            "markup_pct": pricing.get("markup_pct", 25),
+            "scprs_last_price": pricing.get("scprs_price"),
+            "supplier_source": pricing.get("price_source", "price_check"),
+            "supplier_url": pricing.get("amazon_url", ""),
+        }
+        line_items.append(li)
+    rfq = {
+        "id": rfq_id,
+        "solicitation_number": f"PC-{pc.get('pc_number', 'unknown')}",
+        "requestor_name": header.get("requestor", pc.get("requestor", "")),
+        "requestor_email": "",
+        "department": header.get("institution", pc.get("institution", "")),
+        "ship_to": pc.get("ship_to", ""),
+        "delivery_zip": header.get("zip_code", ""),
+        "due_date": pc.get("due_date", ""),
+        "phone": header.get("phone", ""),
+        "line_items": line_items,
+        "status": "pending",
+        "source": "price_check",
+        "source_pc_id": pcid,
+        "award_method": "all_or_none",
+        "created_at": datetime.now().isoformat(),
+    }
+    rfqs = load_rfqs()
+    rfqs[rfq_id] = rfq
+    save_rfqs(rfqs)
+    # Update PC status
+    pc["status"] = "converted"
+    pc["converted_rfq_id"] = rfq_id
+    _save_price_checks(pcs)
+    return jsonify({"ok": True, "rfq_id": rfq_id})
+@app.route("/api/resync")
+@auth_required
+def api_resync():
+    """Clear entire queue + reset processed UIDs + re-poll inbox."""
+    # 1. Clear queue
+    save_rfqs({})
+    # 2. Reset processed UIDs
+    proc_file = os.path.join(DATA_DIR, "processed_emails.json")
+    if os.path.exists(proc_file):
+        os.remove(proc_file)
+        log.info("Cleared processed_emails.json")
+    # 3. Reset poller so it rebuilds
+    global _shared_poller
+    _shared_poller = None
+    # 4. Re-poll
+    imported = do_poll_check()
+    return jsonify({
+        "ok": True,
+        "cleared": True,
+        "found": len(imported),
+        "rfqs": [{"id": r["id"], "sol": r.get("solicitation_number", "?")} for r in imported],
+    })
+def _remove_processed_uid(uid):
+    """Remove a single UID from processed_emails.json."""
+    proc_file = os.path.join(DATA_DIR, "processed_emails.json")
+    if not os.path.exists(proc_file):
+        return
+    try:
+        with open(proc_file) as f:
+            processed = json.load(f)
+        if isinstance(processed, list) and uid in processed:
+            processed.remove(uid)
+            with open(proc_file, "w") as f:
+                json.dump(processed, f)
+            log.info(f"Removed UID {uid} from processed list")
+        elif isinstance(processed, dict) and uid in processed:
+            del processed[uid]
+            with open(proc_file, "w") as f:
+                json.dump(processed, f)
+    except Exception as e:
+        log.error(f"Error removing UID: {e}")
+@app.route("/api/clear-queue")
+@auth_required
+def api_clear_queue():
+    """Clear all RFQs from the queue."""
+    save_rfqs({})
+    return jsonify({"ok": True, "message": "Queue cleared"})
+@app.route("/dl/<rid>/<fname>")
+@auth_required
+def download(rid, fname):
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r: return redirect("/")
+    p = os.path.join(OUTPUT_DIR, r["solicitation_number"], fname)
+    if os.path.exists(p): return send_file(p, as_attachment=True)
+    flash("File not found", "error"); return redirect(f"/rfq/{rid}")
+@app.route("/api/scprs/<rid>")
+@auth_required
+def api_scprs(rid):
+    """SCPRS lookup API endpoint for the dashboard JS."""
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r: return jsonify({"error": "not found"})
+   
+    results = []
+    errors = []
+    for item in r["line_items"]:
+        try:
+            from src.agents.scprs_lookup import lookup_price, _build_search_terms
+            item_num = item.get("item_number")
+            desc = item.get("description")
+            search_terms = _build_search_terms(item_num, desc)
+            result = lookup_price(item_num, desc)
+            if result:
+                result["searched"] = search_terms
+                results.append(result)
+                # v6.0: Auto-ingest into Won Quotes KB
+                if PRICING_ORACLE_AVAILABLE and result.get("price"):
+                    try:
+                        ingest_scprs_result(
+                            po_number=result.get("po_number", ""),
+                            item_number=item_num or "",
+                            description=desc or "",
+                            unit_price=result["price"],
+                            quantity=1,
+                            supplier=result.get("vendor", ""),
+                            department=result.get("department", ""),
+                            award_date=result.get("date", ""),
+                            source=result.get("source", "scprs_live"),
+                        )
+                    except:
+                        pass # Never let KB ingestion break the lookup flow
+            else:
+                results.append({
+                    "price": None,
+                    "note": f"No SCPRS data found",
+                    "item_number": item_num,
+                    "description": (desc or "")[:80],
+                    "searched": search_terms,
+                })
+        except Exception as e:
+            import traceback
+            results.append({"price": None, "error": str(e), "traceback": traceback.format_exc()})
+            errors.append(str(e))
+   
+    return jsonify({"results": results, "errors": errors if errors else None})
+@app.route("/api/scprs-test")
+@auth_required
+def api_scprs_test():
+    """SCPRS search test — ?q=stryker+xpr"""
+    q = request.args.get("q", "stryker xpr")
+    return jsonify(test_search(q))
+@app.route("/api/scprs-raw")
+@auth_required
+def api_scprs_raw():
+    """Raw SCPRS debug — shows HTML field IDs found in search results."""
+    q = request.args.get("q", "stryker xpr")
+    try:
+        from src.agents.scprs_lookup import _get_session, _discover_grid_ids, SCPRS_SEARCH_URL, SEARCH_BUTTON, ALL_SEARCH_FIELDS, FIELD_DESCRIPTION
+        from bs4 import BeautifulSoup
+       
+        session = _get_session()
+        if not session.initialized:
+            session.init_session()
+       
+        # Load search page
+        page = session._load_page(2)
+        icsid = session._extract_icsid(page)
+        if icsid: session.icsid = icsid
+       
+        # POST search
+        sv = {f: "" for f in ALL_SEARCH_FIELDS}
+        sv[FIELD_DESCRIPTION] = q
+        fd = session._build_form_data(page, SEARCH_BUTTON, sv)
+        r = session.session.post(SCPRS_SEARCH_URL, data=fd, timeout=30)
+        html = r.text
+        soup = BeautifulSoup(html, "html.parser")
+       
+        import re
+        count = re.search(r'(\d+)\s+to\s+(\d+)\s+of\s+(\d+)', html)
+        discovered = _discover_grid_ids(soup, "ZZ_SCPR_RD_DVW")
+       
+        # Sample row 0 values
+        row0 = {}
+        for suffix in discovered:
+            eid = f"ZZ_SCPR_RD_DVW_{suffix}$0"
+            el = soup.find(id=eid)
+            val = el.get_text(strip=True) if el else None
+            row0[eid] = val
+       
+        # Also check for link-style elements
+        link0 = soup.find("a", id="ZZ_SCPR_RD_DVW_CRDMEM_ACCT_NBR$0")
+       
+        # Broad scan: find ALL element IDs ending in $0
+        all_row0_ids = {}
+        for el in soup.find_all(id=re.compile(r'\$0$')):
+            eid = el.get('id', '')
+            if eid and ('SCPR' in eid or 'DVW' in eid or 'RSLT' in eid):
+                all_row0_ids[eid] = el.get_text(strip=True)[:80]
+       
+        # Also discover with correct prefix
+        discovered2 = _discover_grid_ids(soup, "ZZ_SCPR_RSLT_VW")
+       
+        # Table class scan
+        tables = [(t.get("class",""), t.get("id",""), len(t.find_all("tr")))
+                  for t in soup.find_all("table") if t.get("class")]
+        grid_tables = [t for t in tables if "PSLEVEL1GRID" in str(t[0])]
+       
+        return jsonify({
+            "query": q, "status": r.status_code, "size": len(html),
+            "result_count": count.group(0) if count else "none",
+            "id_discovered_RD_DVW": list(discovered.keys()),
+            "id_discovered_RSLT_VW": list(discovered2.keys()),
+            "all_row0_ids": all_row0_ids,
+            "row0_values": row0,
+            "po_link_found": link0.get_text(strip=True) if link0 else None,
+            "grid_tables": grid_tables[:5],
+        })
+    except Exception as e:
+        import traceback
+        return jsonify({"error": str(e), "traceback": traceback.format_exc()})
+@app.route("/api/status")
+@auth_required
+def api_status():
+    return jsonify({
+        "poll": POLL_STATUS,
+        "scprs_db": get_price_db_stats(),
+        "rfqs": len(load_rfqs()),
+    })
+@app.route("/api/poll-now")
+@auth_required
+def api_poll_now():
+    """Manual trigger: check email inbox right now."""
+    try:
+        imported = do_poll_check()
+        return jsonify({
+            "ok": True,
+            "found": len(imported),
+            "rfqs": [{"id": r["id"], "sol": r.get("solicitation_number", "?")} for r in imported],
+            "last_check": POLL_STATUS.get("last_check"),
+            "error": POLL_STATUS.get("error"),
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "found": 0, "error": str(e)})
+@app.route("/api/diag")
+@auth_required
+def api_diag():
+    """Diagnostic endpoint — shows email config, connection test, and inbox status."""
+    import imaplib
+    import traceback
+    email_cfg = CONFIG.get("email", {})
+    addr = email_cfg.get("email", "NOT SET")
+    has_pw = bool(email_cfg.get("email_password"))
+    host = email_cfg.get("imap_host", "imap.gmail.com")
+    port = email_cfg.get("imap_port", 993)
+   
+    diag = {
+        "config": {
+            "email_address": addr,
+            "has_password": has_pw,
+            "password_length": len(email_cfg.get("email_password", "")),
+            "imap_host": host,
+            "imap_port": port,
+            "imap_folder": email_cfg.get("imap_folder", "INBOX"),
+        },
+        "env_vars": {
+            "GMAIL_ADDRESS_set": bool(os.environ.get("GMAIL_ADDRESS")),
+            "GMAIL_PASSWORD_set": bool(os.environ.get("GMAIL_PASSWORD")),
+            "GMAIL_ADDRESS_value": os.environ.get("GMAIL_ADDRESS", "NOT SET"),
+        },
+        "poll_status": POLL_STATUS,
+        "connection_test": None,
+        "inbox_test": None,
+    }
+   
+    # Test IMAP connection
+    try:
+        mail = imaplib.IMAP4_SSL(host, port)
+        diag["connection_test"] = "SSL connected OK"
+       
+        try:
+            mail.login(addr, email_cfg.get("email_password", ""))
+            diag["connection_test"] = f"Logged in as {addr} OK"
+           
+            try:
+                mail.select("INBOX")
+                # Check total
+                status, messages = mail.search(None, "ALL")
+                total = len(messages[0].split()) if status == "OK" and messages[0] else 0
+                # Check recent (last 3 days) — same as poller
+                since_date = (datetime.now() - timedelta(days=3)).strftime("%d-%b-%Y")
+                status3, recent = mail.uid("search", None, f"(SINCE {since_date})")
+                recent_count = len(recent[0].split()) if status3 == "OK" and recent[0] else 0
+               
+                # Check how many already processed
+                proc_file = os.path.join(DATA_DIR, "processed_emails.json")
+                processed_uids = set()
+                if os.path.exists(proc_file):
+                    try:
+                        with open(proc_file) as pf:
+                            processed_uids = set(json.load(pf))
+                    except: pass
+               
+                recent_uids = recent[0].split() if status3 == "OK" and recent[0] else []
+                new_to_process = [u.decode() for u in recent_uids if u.decode() not in processed_uids]
+               
+                diag["inbox_test"] = {
+                    "total_emails": total,
+                    "recent_3_days": recent_count,
+                    "already_processed": recent_count - len(new_to_process),
+                    "new_to_process": len(new_to_process),
+                }
+               
+                # Show subjects of emails that would be processed
+                if new_to_process:
+                    subjects = []
+                    for uid_str in new_to_process[:5]:
+                        st, data = mail.uid("fetch", uid_str.encode(), "(BODY.PEEK[HEADER.FIELDS (SUBJECT FROM)])")
+                        if st == "OK":
+                            subjects.append(data[0][1].decode("utf-8", errors="replace").strip())
+                    diag["inbox_test"]["new_email_subjects"] = subjects
+               
+            except Exception as e:
+                diag["inbox_test"] = f"SELECT/SEARCH failed: {e}"
+           
+            mail.logout()
+        except imaplib.IMAP4.error as e:
+            diag["connection_test"] = f"LOGIN FAILED: {e}"
+        except Exception as e:
+            diag["connection_test"] = f"LOGIN ERROR: {e}"
+    except Exception as e:
+        diag["connection_test"] = f"SSL CONNECT FAILED: {e}"
+        diag["connection_traceback"] = traceback.format_exc()
+   
+    # Check processed emails file
+    proc_file = email_cfg.get("processed_file", "data/processed_emails.json")
+    if os.path.exists(proc_file):
+        try:
+            with open(proc_file) as f:
+                processed = json.load(f)
+            diag["processed_emails"] = {"count": len(processed), "ids": processed[-10:] if isinstance(processed, list) else list(processed)[:10]}
+        except:
+            diag["processed_emails"] = "corrupt file"
+    else:
+        diag["processed_emails"] = "file not found"
+   
+    # SCPRS diagnostics
+    diag["scprs"] = {
+        "db_stats": get_price_db_stats(),
+        "db_exists": os.path.exists(os.path.join(BASE_DIR, "data", "scprs_prices.json")),
+    }
+    try:
+        from src.agents.scprs_lookup import test_connection
+        import threading
+        result = [False, "timeout"]
+        def _test():
+            try:
+                result[0], result[1] = test_connection()
+            except Exception as ex:
+                result[1] = str(ex)
+        t = threading.Thread(target=_test, daemon=True)
+        t.start()
+        t.join(timeout=15) # Max 15 seconds for connectivity test (may need 2-3 loads)
+        diag["scprs"]["fiscal_reachable"] = result[0]
+        diag["scprs"]["fiscal_status"] = result[1]
+    except Exception as e:
+        diag["scprs"]["fiscal_reachable"] = False
+        diag["scprs"]["fiscal_error"] = str(e)
+   
+    return jsonify(diag)
+@app.route("/api/reset-processed")
+@auth_required
+def api_reset_processed():
+    """Clear the processed emails list so all recent emails get re-scanned."""
+    global _shared_poller
+    proc_file = os.path.join(DATA_DIR, "processed_emails.json")
+    if os.path.exists(proc_file):
+        os.remove(proc_file)
+    _shared_poller = None # Force new poller instance
+    return jsonify({"ok": True, "message": "Processed emails list cleared. Hit Check Now to re-scan."})
+# ═══════════════════════════════════════════════════════════════════════
+# Pricing Oracle API (v6.0)
+# ═══════════════════════════════════════════════════════════════════════
+@app.route("/api/pricing/recommend", methods=["POST"])
+@auth_required
+def api_pricing_recommend():
+    """Get three-tier pricing recommendation for an RFQ's line items."""
+    if not PRICING_ORACLE_AVAILABLE:
+        return jsonify({"error": "Pricing oracle not available — check won_quotes_db.py and pricing_oracle.py are in repo"}), 503
+    data = request.get_json() or {}
+    rid = data.get("rfq_id")
+    if rid:
+        rfqs = load_rfqs()
+        rfq = rfqs.get(rid)
+        if not rfq:
+            return jsonify({"error": f"RFQ {rid} not found"}), 404
+        result = recommend_prices_for_rfq(rfq, config_overrides=data.get("config"))
+    else:
+        result = recommend_prices_for_rfq(data, config_overrides=data.get("config"))
+    return jsonify(result)
+@app.route("/api/won-quotes/search")
+@auth_required
+def api_won_quotes_search():
+    """Search the Won Quotes Knowledge Base."""
+    if not PRICING_ORACLE_AVAILABLE:
+        return jsonify({"error": "Won Quotes DB not available"}), 503
+    query = request.args.get("q", "")
+    item_number = request.args.get("item", "")
+    max_results = int(request.args.get("max", 10))
+    if not query and not item_number:
+        return jsonify({"error": "Provide ?q=description or ?item=number"}), 400
+    results = find_similar_items(
+        item_number=item_number,
+        description=query,
+        max_results=max_results,
+    )
+    return jsonify({"query": query, "item_number": item_number, "results": results})
+@app.route("/api/won-quotes/stats")
+@auth_required
+def api_won_quotes_stats():
+    """Get Won Quotes KB statistics and pricing health check."""
+    if not PRICING_ORACLE_AVAILABLE:
+        return jsonify({"error": "Won Quotes DB not available"}), 503
+    stats = get_kb_stats()
+    health = pricing_health_check()
+    return jsonify({"stats": stats, "health": health})
+@app.route("/api/won-quotes/dump")
+@auth_required
+def api_won_quotes_dump():
+    """Debug: show first 10 raw KB records to verify what's stored."""
+    if not PRICING_ORACLE_AVAILABLE:
+        return jsonify({"error": "Won Quotes DB not available"}), 503
+    from src.knowledge.won_quotes_db import load_won_quotes
+    quotes = load_won_quotes()
+    return jsonify({"total": len(quotes), "first_10": quotes[:10]})
+@app.route("/api/debug/paths")
+@auth_required
+def api_debug_paths():
+    """Debug: show actual filesystem paths and what exists."""
+    import won_quotes_db
+    results = {
+        "dashboard_BASE_DIR": BASE_DIR,
+        "dashboard_DATA_DIR": DATA_DIR,
+        "won_quotes_DATA_DIR": won_quotes_db.DATA_DIR,
+        "won_quotes_FILE": won_quotes_db.WON_QUOTES_FILE,
+        "cwd": os.getcwd(),
+        "app_file_location": os.path.abspath(__file__),
+    }
+    # Check what exists
+    for path_name, path_val in list(results.items()):
+        if path_val and os.path.exists(path_val):
+            if os.path.isdir(path_val):
+                try:
+                    results[f"{path_name}_contents"] = os.listdir(path_val)
+                except:
+                    results[f"{path_name}_contents"] = "permission denied"
+            else:
+                results[f"{path_name}_exists"] = True
+                results[f"{path_name}_size"] = os.path.getsize(path_val)
+        else:
+            results[f"{path_name}_exists"] = False
+    # Check /app/data specifically
+    for check_path in ["/app/data", "/app", DATA_DIR]:
+        key = check_path.replace("/", "_")
+        results[f"check{key}_exists"] = os.path.exists(check_path)
+        if os.path.exists(check_path) and os.path.isdir(check_path):
+            try:
+                results[f"check{key}_contents"] = os.listdir(check_path)
+            except:
+                results[f"check{key}_contents"] = "permission denied"
+    return jsonify(results)
+@app.route("/api/won-quotes/migrate")
+@auth_required
+def api_won_quotes_migrate():
+    """One-time migration: import existing scprs_prices.json into Won Quotes KB."""
+    try:
+        from src.agents.scprs_lookup import migrate_local_db_to_won_quotes
+        result = migrate_local_db_to_won_quotes()
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+@app.route("/api/won-quotes/seed")
+@auth_required
+def api_won_quotes_seed():
+    """Start bulk SCPRS seed: searches ~20 common categories, drills into PO details,
+    ingests unit prices into Won Quotes KB. Runs in background thread (~3-5 min)."""
+    try:
+        from src.agents.scprs_lookup import bulk_seed_won_quotes, SEED_STATUS
+        if SEED_STATUS.get("running"):
+            return jsonify({"ok": False, "message": "Seed already running", "status": SEED_STATUS})
+        t = threading.Thread(target=bulk_seed_won_quotes, daemon=True)
+        t.start()
+        return jsonify({"ok": True, "message": "Seed started in background. Check progress at /api/won-quotes/seed-status"})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+@app.route("/api/won-quotes/seed-status")
+@auth_required
+def api_won_quotes_seed_status():
+    """Check progress of bulk SCPRS seed job."""
+    try:
+        from src.agents.scprs_lookup import SEED_STATUS
+        return jsonify(SEED_STATUS)
+    except Exception as e:
+        return jsonify({"error": str(e)})
+# ═══════════════════════════════════════════════════════════════════════
+# Startup
+# ═══════════════════════════════════════════════════════════════════════
+_poll_started = False
+def start_polling():
+    global _poll_started
+    if _poll_started:
+        return
+    _poll_started = True
+    email_cfg = CONFIG.get("email", {})
+    if email_cfg.get("email_password"):
+        poll_thread = threading.Thread(target=email_poll_loop, daemon=True)
+        poll_thread.start()
+        log.info("Email polling started")
+    else:
+        POLL_STATUS["error"] = "Set GMAIL_PASSWORD env var or email_password in config"
+        log.info("Email polling disabled — no password configured")
+# ─── Logo Upload + Quotes Database ────────────────────────────────────────────
+@app.route("/settings/upload-logo", methods=["POST"])
+@auth_required
+def upload_logo():
+    """Upload Reytech logo for quote PDFs."""
+    if "logo" not in request.files:
+        flash("No file selected", "error")
+        return redirect(request.referrer or "/")
+    f = request.files["logo"]
+    if not f.filename:
+        flash("No file selected", "error")
+        return redirect(request.referrer or "/")
+    ext = f.filename.rsplit(".", 1)[-1].lower() if "." in f.filename else ""
+    if ext not in ("png", "jpg", "jpeg", "gif"):
+        flash("Logo must be PNG, JPG, or GIF", "error")
+        return redirect(request.referrer or "/")
+    dest = os.path.join(DATA_DIR, f"reytech_logo.{ext}")
+    # Remove old logos
+    for old in glob.glob(os.path.join(DATA_DIR, "reytech_logo.*")):
+        os.remove(old)
+    f.save(dest)
+    flash(f"Logo uploaded: {f.filename}", "success")
+    return redirect(request.referrer or "/")
+@app.route("/quotes/<quote_number>/status", methods=["POST"])
+@auth_required
+def quote_update_status(quote_number):
+    """Mark a quote as won, lost, or pending."""
+    if not QUOTE_GEN_AVAILABLE:
+        return jsonify({"ok": False, "error": "Quote generator not available"})
+    data = request.json or request.form
+    new_status = data.get("status", "").lower()
+    po_number = data.get("po_number", "")
+    notes = data.get("notes", "")
+    if new_status not in ("won", "lost", "pending"):
+        return jsonify({"ok": False, "error": f"Invalid status: {new_status}"})
+    found = update_quote_status(quote_number, new_status, po_number, notes)
+    if not found:
+        return jsonify({"ok": False, "error": f"Quote {quote_number} not found"})
+    return jsonify({"ok": True, "quote_number": quote_number, "status": new_status})
+@app.route("/quotes")
+@auth_required
+def quotes_list():
+    """Browse / search all generated Reytech quotes with win/loss tracking."""
+    if not QUOTE_GEN_AVAILABLE:
+        flash("Quote generator not available", "error")
+        return redirect("/")
+    q = request.args.get("q", "")
+    agency_filter = request.args.get("agency", "")
+    status_filter = request.args.get("status", "")
+    quotes = search_quotes(query=q, agency=agency_filter, status=status_filter, limit=100)
+    next_num = peek_next_quote_number()
+    stats = get_quote_stats()
+    # Check if logo exists
+    logo_exists = any(os.path.exists(os.path.join(DATA_DIR, f"reytech_logo.{e}"))
+                      for e in ("png", "jpg", "jpeg", "gif"))
+    # Status badge colors
+    status_cfg = {
+        "won": ("✅ Won", "#3fb950", "rgba(52,211,153,.08)"),
+        "lost": ("❌ Lost", "#f85149", "rgba(248,113,113,.08)"),
+        "pending": ("⏳ Pending", "#d29922", "rgba(210,153,34,.08)"),
+    }
+    rows_html = ""
+    for qt in quotes:
+        fname = os.path.basename(qt.get("pdf_path", ""))
+        dl = f'<a href="/api/pricecheck/download/{fname}" title="Download PDF">📥</a>' if fname else ""
+        st = qt.get("status", "pending")
+        lbl, color, bg = status_cfg.get(st, status_cfg["pending"])
+        po = qt.get("po_number", "")
+        po_html = f'<br><span style="font-size:10px;color:#8b949e">PO: {po}</span>' if po else ""
+        qn = qt.get("quote_number", "")
+        items_detail = qt.get("items_detail", [])
+        items_text = qt.get("items_text", "")
+        # Build expandable detail row
+        detail_rows = ""
+        if items_detail:
+            for it in items_detail[:10]:
+                desc = str(it.get("description", ""))[:80]
+                pn = it.get("part_number", "")
+                pn_link = f'<a href="https://amazon.com/dp/{pn}" target="_blank" style="color:#58a6ff;font-size:10px">{pn}</a>' if pn and pn.startswith("B0") else (f'<span style="color:#8b949e;font-size:10px">{pn}</span>' if pn else "")
+                detail_rows += f'<div style="display:flex;gap:8px;align-items:baseline;padding:2px 0"><span style="color:var(--tx2);font-size:11px;flex:1">{desc}</span>{pn_link}<span style="font-family:monospace;font-size:11px;color:#d29922">${it.get("unit_price",0):.2f} × {it.get("qty",0)}</span></div>'
+        elif items_text:
+            detail_rows = f'<div style="color:var(--tx2);font-size:11px;padding:2px 0">{items_text[:200]}</div>'
+        detail_id = f"detail-{qn.replace(' ','')}"
+        toggle = f"""<button onclick="document.getElementById('{detail_id}').style.display=document.getElementById('{detail_id}').style.display==='none'?'table-row':'none'" style="background:none;border:none;cursor:pointer;font-size:10px;color:var(--tx2);padding:0" title="Show items">▶ {qt.get('items_count',0)}</button>""" if (items_detail or items_text) else str(qt.get('items_count', 0))
+        rows_html += f"""<tr data-qn="{qn}">
+         <td style="font-family:'JetBrains Mono',monospace;font-weight:700">{qn}</td>
+         <td>{qt.get('date','')}</td>
+         <td>{qt.get('agency','')}</td>
+         <td style="max-width:200px">{qt.get('institution','')[:40]}</td>
+         <td>{qt.get('rfq_number','')}</td>
+         <td style="text-align:right;font-weight:600;font-family:'JetBrains Mono',monospace">${qt.get('total',0):,.2f}</td>
+         <td style="text-align:center">{toggle}</td>
+         <td style="text-align:center">
+          <span style="display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;color:{color};background:{bg}">{lbl}</span>{po_html}
+         </td>
+         <td style="text-align:center;white-space:nowrap">
+          <button onclick="markQuote('{qn}','won')" class="btn btn-sm" style="background:rgba(52,211,153,.15);color:#3fb950;border:1px solid rgba(52,211,153,.3);padding:2px 6px;font-size:11px;cursor:pointer" title="Mark Won">✅</button>
+          <button onclick="markQuote('{qn}','lost')" class="btn btn-sm" style="background:rgba(248,113,113,.15);color:#f85149;border:1px solid rgba(248,113,113,.3);padding:2px 6px;font-size:11px;cursor:pointer" title="Mark Lost">❌</button>
+          {dl}
+         </td>
+        </tr>
+        <tr id="{detail_id}" style="display:none"><td colspan="9" style="background:var(--sf2);padding:8px 16px;border-left:3px solid var(--ac)">{detail_rows if detail_rows else '<span style="color:var(--tx2);font-size:11px">No item details available</span>'}</td></tr>"""
+    # Win rate stats bar
+    wr = stats.get("win_rate", 0)
+    wr_color = "#3fb950" if wr >= 50 else ("#d29922" if wr >= 30 else "#f85149")
+    stats_html = f"""
+     <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap">
+      <div><span style="color:var(--tx2)">Total:</span> <strong>{stats['total']}</strong></div>
+      <div><span style="color:#3fb950">Won:</span> <strong>{stats['won']}</strong> (${stats['won_total']:,.0f})</div>
+      <div><span style="color:#f85149">Lost:</span> <strong>{stats['lost']}</strong></div>
+      <div><span style="color:#d29922">Pending:</span> <strong>{stats['pending']}</strong></div>
+      <div><span style="color:var(--tx2)">Win Rate:</span> <strong style="color:{wr_color}">{wr}%</strong></div>
+      <div style="margin-left:auto"><span style="color:var(--tx2)">Next:</span> <strong>{next_num}</strong></div>
+     </div>
+    """
+    return render(f"""
+     <h2 style="margin-bottom:12px">📋 Reytech Quotes Database</h2>
+     <!-- Stats Bar -->
+     <div class="card" style="margin-bottom:12px;padding:14px">{stats_html}</div>
+     <!-- Search + Filters -->
+     <div class="card" style="margin-bottom:12px;padding:14px">
+      <form method="get" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+       <input name="q" value="{q}" placeholder="Search quotes..." style="flex:1;min-width:180px;padding:8px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx)">
+       <select name="agency" style="padding:8px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx)">
+        <option value="">All Agencies</option>
+        <option value="CDCR" {"selected" if agency_filter=="CDCR" else ""}>CDCR</option>
+        <option value="CCHCS" {"selected" if agency_filter=="CCHCS" else ""}>CCHCS</option>
+        <option value="CalVet" {"selected" if agency_filter=="CalVet" else ""}>CalVet</option>
+        <option value="DGS" {"selected" if agency_filter=="DGS" else ""}>DGS</option>
+       </select>
+       <select name="status" style="padding:8px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx)">
+        <option value="">All Status</option>
+        <option value="pending" {"selected" if status_filter=="pending" else ""}>⏳ Pending</option>
+        <option value="won" {"selected" if status_filter=="won" else ""}>✅ Won</option>
+        <option value="lost" {"selected" if status_filter=="lost" else ""}>❌ Lost</option>
+       </select>
+       <button type="submit" class="btn btn-p">Search</button>
+      </form>
+     </div>
+     <!-- Logo Upload -->
+     <div class="card" style="margin-bottom:12px;padding:14px">
+      <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+       <span>Logo: {"✅ Uploaded" if logo_exists else "❌ Not uploaded (text fallback)"}</span>
+       <form method="post" action="/settings/upload-logo" enctype="multipart/form-data" style="display:flex;gap:8px;align-items:center">
+        <input type="file" name="logo" accept=".png,.jpg,.jpeg,.gif" style="font-size:13px">
+        <button type="submit" class="btn btn-sm btn-g">Upload Logo</button>
+       </form>
+      </div>
+     </div>
+     <!-- Quotes Table -->
+     <div class="card" style="padding:0;overflow-x:auto">
+      <table>
+       <thead><tr>
+        <th>Quote #</th><th>Date</th><th>Agency</th><th>Institution</th><th>RFQ #</th>
+        <th style="text-align:right">Total</th><th>Items</th><th>Status</th><th>Actions</th>
+       </tr></thead>
+       <tbody>{rows_html if rows_html else '<tr><td colspan="9" style="text-align:center;padding:24px;color:var(--tx2)">No quotes yet — generate your first from a Price Check or RFQ</td></tr>'}</tbody>
+      </table>
+     </div>
+     <script>
+     function markQuote(qn, status) {{
+       let po = '';
+       if (status === 'won') {{
+         po = prompt('PO number (optional):', '') || '';
+       }}
+       fetch('/quotes/' + qn + '/status', {{
+         method: 'POST',
+         headers: {{'Content-Type': 'application/json'}},
+         body: JSON.stringify({{status: status, po_number: po}})
+       }})
+       .then(r => r.json())
+       .then(d => {{
+         if (d.ok) {{ location.reload(); }}
+         else {{ alert('Error: ' + (d.error || 'unknown')); }}
+       }});
+     }}
+     </script>
+    """, title="Quotes Database")
+# Start polling on import (for gunicorn) and on direct run
+start_polling()
+if __name__ == "__main__":
+    email_cfg = CONFIG.get("email", {})
+    port = int(os.environ.get("PORT", 5000))
+    print(f"""
+╔══════════════════════════════════════════════════╗
+║ Reytech RFQ Dashboard v2 ║
+║ ║
+║ 🌐 http://localhost:{port} ║
+║ 📧 Email polling: {'ON' if email_cfg.get('email_password') else 'OFF (set password)':30s}║
+║ 🔒 Login: {DASH_USER} / {'*'*len(DASH_PASS):20s} ║
+║ 📊 SCPRS DB: {get_price_db_stats()['total_items']} items{' ':27s}║
+╚══════════════════════════════════════════════════╝
+    """)
+    app.run(host="0.0.0.0", port=port, debug=False)
+``` 
+
+This version has no shims (relative imports handle it). After, redeploy and test. If 1920 lines persist, it's a paste error—try pasting in a text editor first, then copy to GitHub. Let's get this running! 🚀
