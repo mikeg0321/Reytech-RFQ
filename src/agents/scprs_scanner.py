@@ -166,6 +166,22 @@ def scan_once(won_history: list = None) -> dict:
                         log.info("NEW LEAD: %s (%s) score=%.2f",
                                  po_num, po.get("institution", ""), lead["score"])
 
+                        # Auto-draft outreach for hot leads
+                        if lead.get("score", 0) >= 0.7:
+                            try:
+                                from src.agents.lead_gen_agent import draft_outreach_email
+                                draft = draft_outreach_email(lead)
+                                if draft:
+                                    results.setdefault("auto_drafts", []).append({
+                                        "lead_id": lead["id"],
+                                        "po_number": po_num,
+                                        "score": lead["score"],
+                                    })
+                                    log.info("AUTO-DRAFT: outreach for %s (score=%.2f)",
+                                             po_num, lead["score"])
+                            except Exception as de:
+                                log.debug("Auto-draft failed: %s", de)
+
         except Exception as e:
             log.error("Scan error for %s: %s", category, e)
             results["errors"] += 1

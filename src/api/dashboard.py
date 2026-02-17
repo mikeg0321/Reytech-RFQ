@@ -2935,7 +2935,7 @@ def quotes_list():
           <span style="display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;color:{color};background:{bg}">{lbl}</span>{po_html}
          </td>
          <td style="text-align:center;white-space:nowrap">
-          {"<span style=\"font-size:11px;color:#8b949e;padding:2px 6px\">decided</span>" if st in ("won","lost") else f"<button onclick=\"markQuote('{qn}','won')\" class=\"btn btn-sm\" style=\"background:rgba(52,211,153,.15);color:#3fb950;border:1px solid rgba(52,211,153,.3);padding:2px 6px;font-size:11px;cursor:pointer\" title=\"Mark Won\">✅</button><button onclick=\"markQuote('{qn}','lost')\" class=\"btn btn-sm\" style=\"background:rgba(248,113,113,.15);color:#f85149;border:1px solid rgba(248,113,113,.3);padding:2px 6px;font-size:11px;cursor:pointer\" title=\"Mark Lost\">❌</button>" if st not in ("expired",) else "<span style=\"font-size:11px;color:#8b949e\">expired</span>"}
+          {"<a href=\"/order/ORD-" + qn + "\" style=\"font-size:11px;color:#3fb950;text-decoration:none;padding:2px 6px\" title=\"View order\">📦 Order</a>" if st == "won" else "<span style=\"font-size:11px;color:#8b949e;padding:2px 6px\">lost</span>" if st == "lost" else f"<button onclick=\"markQuote('{qn}','won')\" class=\"btn btn-sm\" style=\"background:rgba(52,211,153,.15);color:#3fb950;border:1px solid rgba(52,211,153,.3);padding:2px 6px;font-size:11px;cursor:pointer\" title=\"Mark Won\">✅</button><button onclick=\"markQuote('{qn}','lost')\" class=\"btn btn-sm\" style=\"background:rgba(248,113,113,.15);color:#f85149;border:1px solid rgba(248,113,113,.3);padding:2px 6px;font-size:11px;cursor:pointer\" title=\"Mark Lost\">❌</button>" if st not in ("expired",) else "<span style=\"font-size:11px;color:#8b949e\">expired</span>"}
           {dl}
          </td>
         </tr>
@@ -4896,6 +4896,79 @@ def api_shipping_detected():
     limit = int(request.args.get("limit", 20))
     shipments = sorted(shipments, key=lambda s: s.get("detected_at", ""), reverse=True)[:limit]
     return jsonify({"ok": True, "shipments": shipments, "count": len(shipments)})
+
+
+@bp.route("/api/funnel/stats")
+@auth_required
+def api_funnel_stats():
+    """Pipeline funnel stats — aggregated view of the full business pipeline."""
+    # RFQs
+    rfqs = load_rfqs()
+    rfqs_active = sum(1 for r in rfqs.values() if r.get("status") not in ("completed", "won", "lost"))
+
+    # Quotes
+    quotes = get_all_quotes()
+    quotes_pending = sum(1 for q in quotes if q.get("status") in ("pending", "draft"))
+    quotes_sent = sum(1 for q in quotes if q.get("status") == "sent")
+    quotes_won = sum(1 for q in quotes if q.get("status") == "won")
+    quotes_lost = sum(1 for q in quotes if q.get("status") == "lost")
+    total_quoted = sum(q.get("total", 0) for q in quotes)
+    total_won = sum(q.get("total", 0) for q in quotes if q.get("status") == "won")
+
+    # Orders
+    orders = _load_orders()
+    orders_active = sum(1 for o in orders.values() if o.get("status") not in ("closed",))
+    orders_total = len(orders)
+    items_shipped = 0
+    items_delivered = 0
+    for o in orders.values():
+        for it in o.get("line_items", []):
+            if it.get("sourcing_status") in ("shipped", "delivered"):
+                items_shipped += 1
+            if it.get("sourcing_status") == "delivered":
+                items_delivered += 1
+    order_value = sum(o.get("total", 0) for o in orders.values())
+    invoiced_value = sum(o.get("invoice_total", 0) for o in orders.values())
+
+    # Leads
+    try:
+        with open(os.path.join(DATA_DIR, "leads.json")) as f:
+            leads = json.load(f)
+        leads_count = len(leads) if isinstance(leads, list) else 0
+        hot_leads = sum(1 for l in (leads if isinstance(leads, list) else [])
+                        if isinstance(l, dict) and l.get("score", 0) >= 0.7)
+    except (FileNotFoundError, json.JSONDecodeError):
+        leads_count = 0
+        hot_leads = 0
+
+    # Win rate
+    decided = quotes_won + quotes_lost
+    win_rate = round(quotes_won / decided * 100) if decided > 0 else 0
+
+    # Pipeline value = pending + sent quote totals
+    pipeline_value = sum(q.get("total", 0) for q in quotes
+                         if q.get("status") in ("pending", "sent", "draft"))
+
+    return jsonify({
+        "ok": True,
+        "rfqs_active": rfqs_active,
+        "quotes_pending": quotes_pending,
+        "quotes_sent": quotes_sent,
+        "quotes_won": quotes_won,
+        "quotes_lost": quotes_lost,
+        "orders_active": orders_active,
+        "orders_total": orders_total,
+        "items_shipped": items_shipped,
+        "items_delivered": items_delivered,
+        "leads_count": leads_count,
+        "hot_leads": hot_leads,
+        "total_quoted": total_quoted,
+        "total_won": total_won,
+        "pipeline_value": pipeline_value,
+        "order_value": order_value,
+        "invoiced_value": invoiced_value,
+        "win_rate": win_rate,
+    })
 
 
 @bp.route("/api/leads")

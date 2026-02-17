@@ -145,6 +145,41 @@ table.it input:focus{outline:none;border-color:var(--ac)}
 """
 
 PAGE_HOME = """
+<!-- Pipeline Funnel Stats -->
+<div id="funnel-stats" class="card" style="margin-bottom:14px;padding:12px 16px">
+ <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+  <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap" id="funnel-row">
+   <span style="font-size:12px;font-weight:600;color:var(--tx2)">📊 Pipeline</span>
+   <span class="funnel-s" style="color:var(--ac)">— loading</span>
+  </div>
+  <div style="display:flex;gap:6px">
+   <a href="/quotes" class="btn btn-sm" style="font-size:10px;padding:2px 8px">Quotes</a>
+   <a href="/orders" class="btn btn-sm" style="font-size:10px;padding:2px 8px">Orders</a>
+   <a href="/pipeline" class="btn btn-sm" style="font-size:10px;padding:2px 8px">Pipeline</a>
+  </div>
+ </div>
+</div>
+<script>
+fetch('/api/funnel/stats').then(r=>r.json()).then(d=>{
+ if(!d.ok) return;
+ const f = d;
+ const items = [
+  ['📥',f.rfqs_active||0,'RFQs'],
+  ['💰',f.quotes_pending||0,'Pending'],
+  ['📤',f.quotes_sent||0,'Sent'],
+  ['✅',f.quotes_won||0,'Won'],
+  ['📦',f.orders_active||0,'Orders'],
+  ['🚚',f.items_shipped||0,'Shipped'],
+  ['💵','$'+(f.pipeline_value||0).toLocaleString(),'Value'],
+ ];
+ document.getElementById('funnel-row').innerHTML =
+  '<span style="font-size:12px;font-weight:600;color:var(--tx2)">📊 Pipeline</span>' +
+  items.map(([icon,val,label])=>
+   '<span style="font-size:11px"><span style="opacity:.6">'+icon+'</span> <b>'+val+'</b> <span style="color:var(--tx2)">'+label+'</span></span>'
+  ).join('<span style="color:var(--bd)">→</span>');
+}).catch(()=>{});
+</script>
+
 <!-- Search — compact utility bar -->
 <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
  <form method="get" action="/quotes" style="display:flex;gap:8px;flex:1;min-width:260px">
@@ -152,6 +187,7 @@ PAGE_HOME = """
   <button type="submit" class="btn btn-p" style="padding:10px 18px;font-size:13px">🔍 Search</button>
  </form>
  <a href="/quotes" class="btn btn-s" style="padding:10px 16px;font-size:13px">📋 Quotes DB</a>
+ <a href="/orders" class="btn btn-s" style="padding:10px 16px;font-size:13px">📦 Orders</a>
  <a href="/agents" class="btn btn-s" style="padding:10px 16px;font-size:13px">🤖 Agents</a>
 </div>
 
