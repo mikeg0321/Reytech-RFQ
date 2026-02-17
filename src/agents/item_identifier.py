@@ -46,9 +46,13 @@ CACHE_FILE = os.path.join(DATA_DIR, "item_id_cache.json")
 CACHE_TTL_DAYS = 30  # Item IDs are stable — cache aggressively
 MAX_CACHE_ENTRIES = 10000
 
-# API config — agent-specific key, falls back to shared key
-ANTHROPIC_API_KEY = os.environ.get("AGENT_ITEM_ID_KEY",
-                   os.environ.get("ANTHROPIC_API_KEY", ""))
+# API config — use centralized secret registry
+try:
+    from src.core.secrets import get_agent_key
+    ANTHROPIC_API_KEY = get_agent_key("item_identifier")
+except ImportError:
+    ANTHROPIC_API_KEY = os.environ.get("AGENT_ITEM_ID_KEY",
+                       os.environ.get("ANTHROPIC_API_KEY", ""))
 ANTHROPIC_MODEL = "claude-haiku-4-5-20251001"  # Cheapest, fastest — $0.25/$1.25 per M tokens
 
 # Try anthropic SDK, fall back to requests

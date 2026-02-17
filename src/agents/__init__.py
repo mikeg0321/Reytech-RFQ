@@ -7,4 +7,6 @@ Modules:
     tax_agent          — CDTFA tax rate lookup
     item_identifier    — Phase 13: Item ID + search term optimization (LLM-enhanced)
     lead_gen_agent     — Phase 13: SCPRS opportunity scanner + outreach
+    scprs_scanner      — Phase 13: Background SCPRS polling loop
+    quickbooks_agent   — Phase 13: QuickBooks OAuth2 + vendor/PO sync
 """

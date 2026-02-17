@@ -44,9 +44,13 @@ LEADS_FILE = os.path.join(DATA_DIR, "leads.json")
 LEAD_HISTORY_FILE = os.path.join(DATA_DIR, "lead_history.json")
 MAX_LEADS = 500
 
-# Agent-specific API key
-ANTHROPIC_API_KEY = os.environ.get("AGENT_LEADGEN_KEY",
-                   os.environ.get("ANTHROPIC_API_KEY", ""))
+# Agent-specific API key — use centralized secret registry
+try:
+    from src.core.secrets import get_agent_key
+    ANTHROPIC_API_KEY = get_agent_key("lead_gen")
+except ImportError:
+    ANTHROPIC_API_KEY = os.environ.get("AGENT_LEADGEN_KEY",
+                       os.environ.get("ANTHROPIC_API_KEY", ""))
 
 # SCPRS polling config
 POLL_INTERVAL_SECONDS = 60  # Check every minute when running

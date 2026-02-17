@@ -2760,6 +2760,24 @@ try:
 except ImportError:
     LEADGEN_AVAILABLE = False
 
+try:
+    from src.agents.scprs_scanner import (
+        get_scanner_status, start_scanner, stop_scanner, manual_scan,
+    )
+    SCANNER_AVAILABLE = True
+except ImportError:
+    SCANNER_AVAILABLE = False
+
+try:
+    from src.agents.quickbooks_agent import (
+        fetch_vendors, find_vendor, create_purchase_order,
+        get_recent_purchase_orders, get_agent_status as qb_agent_status,
+        is_configured as qb_configured,
+    )
+    QB_AVAILABLE = True
+except ImportError:
+    QB_AVAILABLE = False
+
 
 @bp.route("/api/identify", methods=["POST"])
 @auth_required
@@ -2818,6 +2836,8 @@ def api_agents_status():
     agents = {
         "item_identifier": item_id_agent_status() if ITEM_ID_AVAILABLE else {"status": "not_available"},
         "lead_gen": leadgen_agent_status() if LEADGEN_AVAILABLE else {"status": "not_available"},
+        "scprs_scanner": get_scanner_status() if SCANNER_AVAILABLE else {"status": "not_available"},
+        "quickbooks": qb_agent_status() if QB_AVAILABLE else {"status": "not_available"},
     }
     try:
         from src.agents.product_research import get_research_cache_stats
@@ -2826,6 +2846,109 @@ def api_agents_status():
         agents["product_research"] = {"status": "not_available"}
 
     return jsonify({"ok": True, "agents": agents})
+
+
+# ─── SCPRS Scanner Routes ───────────────────────────────────────────────────
+
+@bp.route("/api/scanner/start", methods=["POST"])
+@auth_required
+def api_scanner_start():
+    """Start the SCPRS opportunity scanner."""
+    if not SCANNER_AVAILABLE:
+        return jsonify({"ok": False, "error": "Scanner not available"})
+    data = request.get_json(silent=True) or {}
+    interval = data.get("interval", 60)
+    start_scanner(interval)
+    return jsonify({"ok": True, "status": get_scanner_status()})
+
+
+@bp.route("/api/scanner/stop", methods=["POST"])
+@auth_required
+def api_scanner_stop():
+    """Stop the SCPRS opportunity scanner."""
+    if not SCANNER_AVAILABLE:
+        return jsonify({"ok": False, "error": "Scanner not available"})
+    stop_scanner()
+    return jsonify({"ok": True, "status": get_scanner_status()})
+
+
+@bp.route("/api/scanner/scan", methods=["POST"])
+@auth_required
+def api_scanner_manual():
+    """Run a single scan manually."""
+    if not SCANNER_AVAILABLE:
+        return jsonify({"ok": False, "error": "Scanner not available"})
+    results = manual_scan()
+    return jsonify({"ok": True, **results})
+
+
+@bp.route("/api/scanner/status")
+@auth_required
+def api_scanner_status():
+    """Get scanner status."""
+    if not SCANNER_AVAILABLE:
+        return jsonify({"ok": False, "error": "Scanner not available"})
+    return jsonify({"ok": True, **get_scanner_status()})
+
+
+# ─── QuickBooks Routes ──────────────────────────────────────────────────────
+
+@bp.route("/api/qb/vendors")
+@auth_required
+def api_qb_vendors():
+    """List QuickBooks vendors."""
+    if not QB_AVAILABLE:
+        return jsonify({"ok": False, "error": "QuickBooks agent not available"})
+    if not qb_configured():
+        return jsonify({"ok": False, "error": "QuickBooks not configured. Set QB_CLIENT_ID, QB_CLIENT_SECRET, QB_REFRESH_TOKEN, QB_REALM_ID"})
+    force = request.args.get("refresh", "").lower() in ("true", "1")
+    vendors = fetch_vendors(force_refresh=force)
+    return jsonify({"ok": True, "vendors": vendors, "count": len(vendors)})
+
+
+@bp.route("/api/qb/vendors/find")
+@auth_required
+def api_qb_vendor_find():
+    """Find a vendor by name. ?name=Amazon"""
+    if not QB_AVAILABLE or not qb_configured():
+        return jsonify({"ok": False, "error": "QuickBooks not configured"})
+    name = request.args.get("name", "")
+    if not name:
+        return jsonify({"ok": False, "error": "Provide ?name= parameter"})
+    vendor = find_vendor(name)
+    if vendor:
+        return jsonify({"ok": True, "vendor": vendor})
+    return jsonify({"ok": True, "vendor": None, "message": f"No vendor matching '{name}'"})
+
+
+@bp.route("/api/qb/po/create", methods=["POST"])
+@auth_required
+def api_qb_create_po():
+    """Create a Purchase Order in QuickBooks."""
+    if not QB_AVAILABLE or not qb_configured():
+        return jsonify({"ok": False, "error": "QuickBooks not configured"})
+    data = request.get_json(silent=True) or {}
+    vendor_id = data.get("vendor_id", "")
+    items = data.get("items", [])
+    if not vendor_id or not items:
+        return jsonify({"ok": False, "error": "Provide vendor_id and items"})
+    result = create_purchase_order(vendor_id, items,
+                                   memo=data.get("memo", ""),
+                                   ship_to=data.get("ship_to", ""))
+    if result:
+        return jsonify({"ok": True, "po": result})
+    return jsonify({"ok": False, "error": "PO creation failed — check QB credentials"})
+
+
+@bp.route("/api/qb/pos")
+@auth_required
+def api_qb_recent_pos():
+    """Get recent Purchase Orders from QuickBooks."""
+    if not QB_AVAILABLE or not qb_configured():
+        return jsonify({"ok": False, "error": "QuickBooks not configured"})
+    days = int(request.args.get("days", 30))
+    pos = get_recent_purchase_orders(days_back=days)
+    return jsonify({"ok": True, "purchase_orders": pos, "count": len(pos)})
 
 
 # ─── Lead Generation Routes ─────────────────────────────────────────────────
