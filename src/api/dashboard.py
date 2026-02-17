@@ -314,6 +314,76 @@ def email_poll_loop():
         time.sleep(interval)
 
 # ═══════════════════════════════════════════════════════════════════════
+# CRM Activity Log — Phase 16
+# ═══════════════════════════════════════════════════════════════════════
+
+CRM_LOG_FILE = os.path.join(DATA_DIR, "crm_activity.json")
+
+def _load_crm_activity() -> list:
+    try:
+        with open(CRM_LOG_FILE) as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []
+
+def _save_crm_activity(activity: list):
+    os.makedirs(DATA_DIR, exist_ok=True)
+    if len(activity) > 5000:
+        activity = activity[-5000:]
+    with open(CRM_LOG_FILE, "w") as f:
+        json.dump(activity, f, indent=2, default=str)
+
+def _log_crm_activity(ref_id: str, event_type: str, description: str,
+                       actor: str = "system", metadata: dict = None):
+    """Log a CRM activity event.
+    
+    event_types: quote_won, quote_lost, quote_sent, quote_generated,
+                 qb_po_created, email_sent, email_received, voice_call,
+                 scprs_lookup, price_check, lead_scored, follow_up
+    """
+    activity = _load_crm_activity()
+    activity.append({
+        "id": f"crm-{datetime.now().strftime('%Y%m%d%H%M%S')}-{len(activity)}",
+        "ref_id": ref_id,
+        "event_type": event_type,
+        "description": description,
+        "actor": actor,
+        "timestamp": datetime.now().isoformat(),
+        "metadata": metadata or {},
+    })
+    _save_crm_activity(activity)
+
+def _get_crm_activity(ref_id: str = None, event_type: str = None,
+                       institution: str = None, limit: int = 50) -> list:
+    """Get CRM activity, optionally filtered."""
+    activity = _load_crm_activity()
+    results = []
+    for a in reversed(activity):
+        if ref_id and ref_id != a.get("ref_id"):
+            continue
+        if event_type and event_type != a.get("event_type"):
+            continue
+        if institution:
+            meta = a.get("metadata", {})
+            if institution.lower() not in (
+                meta.get("institution", "").lower() +
+                meta.get("agency", "").lower() +
+                a.get("description", "").lower()
+            ):
+                continue
+        results.append(a)
+        if len(results) >= limit:
+            break
+    return results
+
+def _find_quote(quote_number: str) -> dict:
+    """Find a single quote by number."""
+    for qt in get_all_quotes():
+        if qt.get("quote_number") == quote_number:
+            return qt
+    return None
+
+# ═══════════════════════════════════════════════════════════════════════
 # HTML Templates (extracted to src/api/templates.py)
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -824,6 +894,10 @@ def rfq_generate_quote(rid):
         save_rfqs(rfqs)
         log.info("Quote #%s generated for RFQ %s — $%s", result.get("quote_number"), rid, f"{result['total']:,.2f}")
         flash(f"Reytech Quote #{result['quote_number']} generated — ${result['total']:,.2f}", "success")
+        # CRM: log
+        _log_crm_activity(result.get("quote_number", ""), "quote_generated",
+                          f"Quote {result.get('quote_number','')} generated from RFQ {sol} — ${result.get('total',0):,.2f}",
+                          actor="user", metadata={"rfq_id": rid, "agency": result.get("agency","")})
     else:
         log.error("Quote generation failed for RFQ %s: %s", rid, result.get("error", "unknown"))
         flash(f"Quote generation failed: {result.get('error', 'unknown')}", "error")
@@ -845,6 +919,13 @@ def send_email(rid):
         r["sent_at"] = datetime.now().isoformat()
         save_rfqs(rfqs)
         flash(f"Bid response sent to {r['draft_email']['to']}", "success")
+        # CRM: log email sent + update quote status to sent
+        qn = r.get("reytech_quote_number", "")
+        if qn and QUOTE_GEN_AVAILABLE:
+            update_quote_status(qn, "sent", actor="system")
+            _log_crm_activity(qn, "email_sent",
+                              f"Quote {qn} emailed to {r['draft_email'].get('to','')}",
+                              actor="user", metadata={"to": r['draft_email'].get('to','')})
     except Exception as e:
         flash(f"Send failed: {e}. Use 'Open in Mail App' instead.", "error")
     
@@ -1228,6 +1309,10 @@ def pricecheck_generate_quote(pcid):
         pc["reytech_quote_pdf"] = output_path
         pc["reytech_quote_number"] = result.get("quote_number", "")
         _save_price_checks(pcs)
+        # CRM: log quote generation
+        _log_crm_activity(result.get("quote_number", ""), "quote_generated",
+                          f"Quote {result.get('quote_number','')} generated — ${result.get('total',0):,.2f} for {pc.get('institution','')}",
+                          actor="user", metadata={"institution": pc.get("institution",""), "agency": result.get("agency","")})
         return jsonify({
             "ok": True,
             "download": f"/api/pricecheck/download/{os.path.basename(output_path)}",
@@ -2554,7 +2639,7 @@ def serve_logo():
 @bp.route("/quotes/<quote_number>/status", methods=["POST"])
 @auth_required
 def quote_update_status(quote_number):
-    """Mark a quote as won, lost, or pending."""
+    """Mark a quote as won, lost, or pending. Triggers won workflow if applicable."""
     if not QUOTE_GEN_AVAILABLE:
         return jsonify({"ok": False, "error": "Quote generator not available"})
     data = request.json or request.form
@@ -2566,7 +2651,58 @@ def quote_update_status(quote_number):
     found = update_quote_status(quote_number, new_status, po_number, notes)
     if not found:
         return jsonify({"ok": False, "error": f"Quote {quote_number} not found"})
-    return jsonify({"ok": True, "quote_number": quote_number, "status": new_status})
+
+    result = {"ok": True, "quote_number": quote_number, "status": new_status}
+
+    # ── Won workflow: QB PO + CRM activity ──
+    if new_status == "won":
+        # Log CRM activity
+        _log_crm_activity(quote_number, "quote_won",
+                          f"Quote {quote_number} marked WON" + (f" — PO: {po_number}" if po_number else ""),
+                          actor="user")
+
+        # Attempt QB PO creation if configured
+        if QB_AVAILABLE and qb_configured():
+            try:
+                qt = _find_quote(quote_number)
+                if qt:
+                    items_for_qb = []
+                    for it in qt.get("items_detail", []):
+                        items_for_qb.append({
+                            "description": it.get("description", ""),
+                            "qty": it.get("qty", 1),
+                            "unit_cost": it.get("unit_price", 0),
+                        })
+                    if items_for_qb:
+                        # Find or use default vendor
+                        institution = qt.get("institution", "") or qt.get("ship_to_name", "")
+                        vendor = find_vendor(institution) if institution else None
+                        if vendor:
+                            po_result = create_purchase_order(
+                                vendor_id=vendor["qb_id"],
+                                items=items_for_qb,
+                                memo=f"Reytech Quote {quote_number}" + (f" / PO {po_number}" if po_number else ""),
+                                ship_to=institution,
+                            )
+                            if po_result:
+                                result["qb_po"] = po_result
+                                _log_crm_activity(quote_number, "qb_po_created",
+                                                  f"QB PO #{po_result.get('doc_number','')} created — ${po_result.get('total',0):,.2f}",
+                                                  actor="system")
+                            else:
+                                result["qb_po_error"] = "PO creation failed"
+                        else:
+                            result["qb_vendor_missing"] = f"No QB vendor match for '{institution}'"
+            except Exception as e:
+                log.error("Won workflow QB step failed: %s", e)
+                result["qb_error"] = str(e)
+
+    elif new_status == "lost":
+        _log_crm_activity(quote_number, "quote_lost",
+                          f"Quote {quote_number} marked LOST" + (f" — {notes}" if notes else ""),
+                          actor="user")
+
+    return jsonify(result)
 
 
 @bp.route("/quotes")
@@ -2830,6 +2966,22 @@ def quote_detail(qn):
      </div>
     </div>
 
+    <!-- CRM Section: Agency Intel + Activity Timeline -->
+    <div class="bento bento-2" style="margin-top:14px">
+     <div class="card" style="margin:0">
+      <div class="card-t">🏢 Agency Intel</div>
+      <div id="agency-intel" style="color:var(--tx2);font-size:12px;padding:4px 0">Loading agency data...</div>
+     </div>
+     <div class="card" style="margin:0">
+      <div class="card-t">📋 Activity Timeline</div>
+      <div id="crm-activity" style="max-height:320px;overflow-y:auto;font-size:12px">Loading...</div>
+      <div style="margin-top:10px;border-top:1px solid var(--bd);padding-top:10px;display:flex;gap:6px">
+       <input id="crm-note" placeholder="Add a note..." style="flex:1;padding:8px 10px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:12px">
+       <button onclick="addNote()" class="btn btn-p" style="padding:8px 12px;font-size:12px">Add</button>
+      </div>
+     </div>
+    </div>
+
     <script>
     function markQuote(qn, status) {{
       let po = '';
@@ -2847,6 +2999,88 @@ def quote_detail(qn):
         else {{ alert('Error: ' + (d.error || 'unknown')); }}
       }});
     }}
+
+    function addNote() {{
+      const note = document.getElementById('crm-note').value.trim();
+      if (!note) return;
+      fetch('/api/crm/activity', {{
+        method: 'POST',
+        headers: {{'Content-Type': 'application/json'}},
+        body: JSON.stringify({{ref_id: '{qn}', event_type: 'note', description: note,
+                              metadata: {{institution: '{institution}', agency: '{agency}'}} }})
+      }}).then(r => r.json()).then(d => {{
+        if (d.ok) {{
+          document.getElementById('crm-note').value = '';
+          loadActivity();
+        }}
+      }});
+    }}
+
+    const eventIcons = {{
+      'quote_won': '✅', 'quote_lost': '❌', 'quote_sent': '📤',
+      'quote_generated': '📋', 'qb_po_created': '💰', 'email_sent': '📧',
+      'email_received': '📨', 'voice_call': '📞', 'scprs_lookup': '🔍',
+      'price_check': '📊', 'lead_scored': '🎯', 'follow_up': '🔔', 'note': '📝'
+    }};
+
+    function loadActivity() {{
+      fetch('/api/crm/activity?ref_id={qn}&limit=30').then(r => r.json()).then(d => {{
+        const el = document.getElementById('crm-activity');
+        if (!d.ok || !d.activity.length) {{
+          el.innerHTML = '<div style="color:var(--tx2);padding:12px">No activity yet</div>';
+          return;
+        }}
+        el.innerHTML = d.activity.map(a => {{
+          const icon = eventIcons[a.event_type] || '•';
+          const ts = a.timestamp ? a.timestamp.substring(0,16).replace('T',' ') : '';
+          const actor = a.actor && a.actor !== 'system' ? ' <span style="color:var(--ac)">' + a.actor + '</span>' : '';
+          return '<div style="padding:6px 0;border-bottom:1px solid var(--bd);display:flex;gap:8px;align-items:baseline">' +
+            '<span>' + icon + '</span>' +
+            '<div style="flex:1"><div>' + a.description + actor + '</div>' +
+            '<div style="font-size:10px;color:var(--tx2);font-family:monospace">' + ts + '</div></div></div>';
+        }}).join('');
+      }}).catch(() => {{
+        document.getElementById('crm-activity').innerHTML = '<div style="color:var(--rd)">Failed to load</div>';
+      }});
+    }}
+
+    function loadAgencyIntel() {{
+      const agency = '{agency}' || '{institution}'.split('-')[0].split(' ')[0];
+      if (!agency) {{
+        document.getElementById('agency-intel').innerHTML = '<div style="color:var(--tx2)">No agency detected</div>';
+        return;
+      }}
+      fetch('/api/crm/agency/' + encodeURIComponent(agency)).then(r => r.json()).then(d => {{
+        if (!d.ok) {{ document.getElementById('agency-intel').innerHTML = '<div>No data</div>'; return; }}
+        const wrColor = d.win_rate >= 50 ? 'var(--gn)' : (d.win_rate >= 30 ? 'var(--yl)' : 'var(--rd)');
+        let html = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">';
+        html += '<div style="background:var(--sf2);padding:10px;border-radius:8px;text-align:center"><div style="font-size:10px;color:var(--tx2);text-transform:uppercase">Quotes</div><div style="font-size:22px;font-weight:700">' + d.total_quotes + '</div></div>';
+        html += '<div style="background:var(--sf2);padding:10px;border-radius:8px;text-align:center"><div style="font-size:10px;color:var(--tx2);text-transform:uppercase">Win Rate</div><div style="font-size:22px;font-weight:700;color:' + wrColor + '">' + d.win_rate + '%</div></div>';
+        html += '<div style="background:var(--sf2);padding:10px;border-radius:8px;text-align:center"><div style="font-size:10px;color:var(--tx2);text-transform:uppercase">Won Value</div><div style="font-size:16px;font-weight:700;color:var(--gn)">$' + d.total_won_value.toLocaleString() + '</div></div>';
+        html += '<div style="background:var(--sf2);padding:10px;border-radius:8px;text-align:center"><div style="font-size:10px;color:var(--tx2);text-transform:uppercase">Pending</div><div style="font-size:22px;font-weight:700;color:var(--yl)">' + d.pending + '</div></div>';
+        html += '</div>';
+        if (d.institutions && d.institutions.length) {{
+          html += '<div style="font-size:11px;color:var(--tx2);margin-bottom:6px"><b>Facilities:</b></div>';
+          html += '<div style="display:flex;flex-wrap:wrap;gap:4px">';
+          d.institutions.forEach(inst => {{
+            html += '<span style="background:var(--sf2);padding:2px 8px;border-radius:10px;font-size:10px">' + inst + '</span>';
+          }});
+          html += '</div>';
+        }}
+        if (d.last_contact) {{
+          const days = Math.floor((Date.now() - new Date(d.last_contact).getTime()) / 86400000);
+          const color = days > 14 ? 'var(--rd)' : (days > 7 ? 'var(--yl)' : 'var(--gn)');
+          html += '<div style="margin-top:10px;font-size:11px">Last contact: <b style="color:' + color + '">' + days + ' days ago</b></div>';
+        }}
+        document.getElementById('agency-intel').innerHTML = html;
+      }}).catch(() => {{
+        document.getElementById('agency-intel').innerHTML = '<div>Failed to load</div>';
+      }});
+    }}
+
+    // Load on page ready
+    loadActivity();
+    loadAgencyIntel();
     </script>
     """
     return render(content, title=f"Quote {qn}")
@@ -3419,6 +3653,81 @@ def api_scanner_status():
 
 # ─── QuickBooks Routes ──────────────────────────────────────────────────────
 
+@bp.route("/api/qb/connect")
+@auth_required
+def api_qb_connect():
+    """Start QuickBooks OAuth2 flow — redirects to Intuit login."""
+    if not QB_AVAILABLE:
+        return jsonify({"ok": False, "error": "QuickBooks agent not available"})
+    from src.agents.quickbooks_agent import QB_CLIENT_ID, QB_SANDBOX
+    if not QB_CLIENT_ID:
+        return jsonify({"ok": False, "error": "Set QB_CLIENT_ID env var first"})
+    # Build OAuth URL
+    redirect_uri = request.url_root.rstrip("/") + "/api/qb/callback"
+    scope = "com.intuit.quickbooks.accounting"
+    auth_url = (
+        f"https://appcenter.intuit.com/connect/oauth2?"
+        f"client_id={QB_CLIENT_ID}&response_type=code&scope={scope}"
+        f"&redirect_uri={redirect_uri}&state=reytech"
+    )
+    return redirect(auth_url)
+
+
+@bp.route("/api/qb/callback")
+def api_qb_callback():
+    """QuickBooks OAuth2 callback — exchange code for tokens."""
+    if not QB_AVAILABLE:
+        flash("QuickBooks agent not available", "error")
+        return redirect("/agents")
+    code = request.args.get("code")
+    realm_id = request.args.get("realmId")
+    if not code:
+        flash(f"QB OAuth failed: {request.args.get('error', 'no code')}", "error")
+        return redirect("/agents")
+    try:
+        from src.agents.quickbooks_agent import (
+            QB_CLIENT_ID, QB_CLIENT_SECRET, TOKEN_URL, _save_tokens
+        )
+        import base64 as _b64
+        redirect_uri = request.url_root.rstrip("/") + "/api/qb/callback"
+        auth = _b64.b64encode(f"{QB_CLIENT_ID}:{QB_CLIENT_SECRET}".encode()).decode()
+        import requests as _req
+        resp = _req.post(TOKEN_URL, headers={
+            "Authorization": f"Basic {auth}",
+            "Content-Type": "application/x-www-form-urlencoded",
+        }, data={
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": redirect_uri,
+        }, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+        import time as _time
+        _save_tokens({
+            "access_token": data["access_token"],
+            "refresh_token": data["refresh_token"],
+            "expires_at": _time.time() + data.get("expires_in", 3600),
+            "realm_id": realm_id,
+            "connected_at": datetime.now().isoformat(),
+        })
+        # Also save realm_id to env for future use
+        os.environ["QB_REALM_ID"] = realm_id or ""
+        flash(f"QuickBooks connected! Realm: {realm_id}", "success")
+        _log_crm_activity("system", "qb_connected", f"QuickBooks Online connected (realm {realm_id})", actor="user")
+    except Exception as e:
+        flash(f"QB OAuth error: {e}", "error")
+    return redirect("/agents")
+
+
+@bp.route("/api/qb/status")
+@auth_required
+def api_qb_status():
+    """QuickBooks connection status."""
+    if not QB_AVAILABLE:
+        return jsonify({"ok": False, "error": "QuickBooks agent not available"})
+    return jsonify({"ok": True, **qb_agent_status()})
+
+
 @bp.route("/api/qb/vendors")
 @auth_required
 def api_qb_vendors():
@@ -3475,6 +3784,86 @@ def api_qb_recent_pos():
     days = int(request.args.get("days", 30))
     pos = get_recent_purchase_orders(days_back=days)
     return jsonify({"ok": True, "purchase_orders": pos, "count": len(pos)})
+
+
+# ─── CRM Activity Routes (Phase 16) ───────────────────────────────────────
+
+@bp.route("/api/crm/activity")
+@auth_required
+def api_crm_activity():
+    """Get CRM activity feed. ?ref_id=R26Q1&type=quote_won&institution=CSP&limit=50"""
+    ref_id = request.args.get("ref_id")
+    event_type = request.args.get("type")
+    institution = request.args.get("institution")
+    limit = int(request.args.get("limit", 50))
+    activity = _get_crm_activity(ref_id=ref_id, event_type=event_type,
+                                  institution=institution, limit=limit)
+    return jsonify({"ok": True, "activity": activity, "count": len(activity)})
+
+
+@bp.route("/api/crm/activity", methods=["POST"])
+@auth_required
+def api_crm_log_activity():
+    """Manually log a CRM activity. POST JSON {ref_id, event_type, description}"""
+    data = request.get_json(silent=True) or {}
+    ref_id = data.get("ref_id", "")
+    event_type = data.get("event_type", "note")
+    description = data.get("description", "")
+    if not description:
+        return jsonify({"ok": False, "error": "description required"})
+    _log_crm_activity(ref_id, event_type, description, actor="user",
+                       metadata=data.get("metadata", {}))
+    return jsonify({"ok": True})
+
+
+@bp.route("/api/crm/agency/<agency_name>")
+@auth_required
+def api_crm_agency_summary(agency_name):
+    """Agency CRM summary — quotes, win rate, recent activity, last contact."""
+    if not QUOTE_GEN_AVAILABLE:
+        return jsonify({"ok": False, "error": "Quote generator not available"})
+
+    quotes = get_all_quotes()
+    agency_quotes = [q for q in quotes
+                     if q.get("agency", "").lower() == agency_name.lower()
+                     or q.get("institution", "").lower().startswith(agency_name.lower())]
+
+    won = [q for q in agency_quotes if q.get("status") == "won"]
+    lost = [q for q in agency_quotes if q.get("status") == "lost"]
+    pending = [q for q in agency_quotes if q.get("status") in ("pending", "sent")]
+    expired = [q for q in agency_quotes if q.get("status") == "expired"]
+
+    total_won = sum(q.get("total", 0) for q in won)
+    total_quoted = sum(q.get("total", 0) for q in agency_quotes)
+    decided = len(won) + len(lost)
+    win_rate = round(len(won) / decided * 100, 1) if decided else 0
+
+    # Unique institutions
+    institutions = list(set(q.get("institution", "") for q in agency_quotes if q.get("institution")))
+
+    # Recent activity for this agency
+    activity = _get_crm_activity(institution=agency_name, limit=20)
+
+    # Last contact date
+    last_contact = None
+    for a in activity:
+        if a.get("event_type") in ("email_sent", "voice_call", "quote_sent"):
+            last_contact = a.get("timestamp")
+            break
+
+    return jsonify({
+        "ok": True,
+        "agency": agency_name,
+        "total_quotes": len(agency_quotes),
+        "won": len(won), "lost": len(lost),
+        "pending": len(pending), "expired": len(expired),
+        "total_won_value": total_won,
+        "total_quoted_value": total_quoted,
+        "win_rate": win_rate,
+        "institutions": sorted(institutions),
+        "last_contact": last_contact,
+        "recent_activity": activity[:10],
+    })
 
 
 # ─── Lead Generation Routes ─────────────────────────────────────────────────
@@ -3709,8 +4098,16 @@ def api_voice_call():
     phone = data.get("phone", "")
     if not phone:
         return jsonify({"ok": False, "error": "Provide phone number in E.164 format"})
-    return jsonify(place_call(phone, script_key=data.get("script", "lead_intro"),
-                              variables=data.get("variables", {})))
+    result = place_call(phone, script_key=data.get("script", "lead_intro"),
+                        variables=data.get("variables", {}))
+    # CRM: log call
+    ref_id = data.get("variables", {}).get("quote_number", "") or data.get("variables", {}).get("po_number", "")
+    _log_crm_activity(ref_id or "outbound", "voice_call",
+                      f"Outbound call to {phone} ({data.get('script','lead_intro')})" +
+                      (" — " + result.get("call_sid", "") if result.get("ok") else " — FAILED"),
+                      actor="user", metadata={"phone": phone, "script": data.get("script",""),
+                                               "institution": data.get("variables",{}).get("institution","")})
+    return jsonify(result)
 
 
 @bp.route("/api/voice/log")

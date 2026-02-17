@@ -2147,31 +2147,68 @@ h1 {{ font-size:22px; margin-bottom:4px; }}
 </div>
 
 <div class="section">
- <h2>📞 Voice Agent <span class="tag tag-off" id="voice-tag">needs setup</span></h2>
+ <h2>📞 Voice Agent (Twilio) <span class="tag tag-off" id="voice-tag">needs setup</span></h2>
+ <p style="color:#8b949e;font-size:12px;margin-bottom:10px">AI-powered outbound calls to buyers — lead intro, quote follow-up, voicemail drops. Set 3 env vars in Railway to activate.</p>
  <div class="grid">
-  <button class="btn" onclick="apiGet('/api/voice/status')">
-   <span class="label">📞 Voice Status</span><span class="desc">Setup instructions</span>
+  <button class="btn btn-go" onclick="apiGet('/api/voice/status')">
+   <span class="label">📞 Voice Status</span><span class="desc">Check config + setup steps</span>
   </button>
   <button class="btn" onclick="apiGet('/api/voice/scripts')">
-   <span class="label">📜 Call Scripts</span><span class="desc">View available scripts</span>
+   <span class="label">📜 Call Scripts</span><span class="desc">Lead intro, follow-up</span>
   </button>
   <button class="btn" onclick="apiGet('/api/voice/log')">
-   <span class="label">📋 Call Log</span><span class="desc">Recent calls</span>
+   <span class="label">📋 Call Log</span><span class="desc">Recent calls + transcripts</span>
   </button>
   <button class="btn btn-go" onclick="testCall()">
-   <span class="label">📱 Test Call</span><span class="desc">Call yourself to test</span>
+   <span class="label">📱 Test Call</span><span class="desc">Call yourself to verify</span>
   </button>
+ </div>
+ <div style="margin-top:10px;padding:10px;background:#0d1117;border-radius:8px;font-size:11px;font-family:monospace;color:#8b949e">
+  <div style="color:var(--warn);margin-bottom:4px">Railway env vars needed:</div>
+  <div>TWILIO_ACCOUNT_SID=AC...</div>
+  <div>TWILIO_AUTH_TOKEN=...</div>
+  <div>TWILIO_PHONE_NUMBER=+1XXXXXXXXXX</div>
  </div>
 </div>
 
 <div class="section">
- <h2>🧾 QuickBooks</h2>
+ <h2>🧾 QuickBooks Online <span class="tag tag-off" id="qb-tag">not connected</span></h2>
+ <p style="color:#8b949e;font-size:12px;margin-bottom:10px">PO creation, vendor management, invoice sync. Won quotes auto-create POs in QB.</p>
  <div class="grid">
-  <button class="btn btn-go" onclick="apiGet('/api/qb/vendors')">
-   <span class="label">👥 Vendors</span><span class="desc">Pull from QuickBooks</span>
+  <button class="btn btn-go" onclick="window.location='/api/qb/connect'">
+   <span class="label">🔗 Connect QuickBooks</span><span class="desc">Start OAuth2 flow</span>
+  </button>
+  <button class="btn" onclick="apiGet('/api/qb/status')">
+   <span class="label">📊 QB Status</span><span class="desc">Connection health</span>
+  </button>
+  <button class="btn" onclick="apiGet('/api/qb/vendors')">
+   <span class="label">👥 Vendors</span><span class="desc">Pull vendor list</span>
   </button>
   <button class="btn" onclick="apiGet('/api/qb/pos')">
    <span class="label">📄 Recent POs</span><span class="desc">Last 30 days</span>
+  </button>
+ </div>
+ <div style="margin-top:10px;padding:10px;background:#0d1117;border-radius:8px;font-size:11px;font-family:monospace;color:#8b949e">
+  <div style="color:var(--warn);margin-bottom:4px">Railway env vars needed:</div>
+  <div>QB_CLIENT_ID=...</div>
+  <div>QB_CLIENT_SECRET=...</div>
+  <div>QB_REALM_ID=... (or auto-detected on connect)</div>
+  <div>QB_REFRESH_TOKEN=... (or auto-set on connect)</div>
+ </div>
+</div>
+
+<div class="section">
+ <h2>📋 CRM Activity <span class="tag tag-ok">Phase 16</span></h2>
+ <p style="color:#8b949e;font-size:12px;margin-bottom:10px">Activity timeline — tracks quotes, emails, calls, POs across all agencies.</p>
+ <div class="grid">
+  <button class="btn btn-go" onclick="apiGet('/api/crm/activity?limit=20')">
+   <span class="label">📋 Recent Activity</span><span class="desc">Last 20 events</span>
+  </button>
+  <button class="btn" onclick="apiGet('/api/crm/agency/CDCR')">
+   <span class="label">🏢 CDCR Intel</span><span class="desc">Agency summary</span>
+  </button>
+  <button class="btn" onclick="apiGet('/api/crm/agency/CCHCS')">
+   <span class="label">🏥 CCHCS Intel</span><span class="desc">Agency summary</span>
   </button>
  </div>
 </div>
@@ -2281,6 +2318,13 @@ fetch('/api/agents/status',{{credentials:'same-origin'}}).then(r => r.json()).th
   const voice = data.agents.voice_calls || {{}};
   if (voice.twilio_configured) {{ vt.textContent = 'ready'; vt.className = 'tag tag-ok'; }}
   else if (voice.status !== 'not_available') {{ vt.textContent = 'needs setup'; vt.className = 'tag tag-warn'; }}
+
+  // Update QB tag
+  const qt = document.getElementById('qb-tag');
+  const qb = data.agents.quickbooks || {{}};
+  if (qb.has_valid_token) {{ qt.textContent = 'connected'; qt.className = 'tag tag-ok'; }}
+  else if (qb.configured) {{ qt.textContent = 'token expired'; qt.className = 'tag tag-warn'; }}
+  else if (qb.status !== 'not_available') {{ qt.textContent = 'not connected'; qt.className = 'tag tag-warn'; }}
 }}).catch(() => {{
   document.getElementById('fleet-grid').innerHTML = '<div>Failed to load fleet status</div>';
 }});
