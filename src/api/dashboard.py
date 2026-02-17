@@ -14,21 +14,21 @@ from datetime import datetime, timezone, timedelta
 from flask import (Flask, request, redirect, url_for, render_template_string,
                    send_file, jsonify, flash, Response)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from ..forms.rfq_parser import parse_rfq_attachments, identify_attachments
-from ..forms.reytech_filler_v4 import load_config, get_pst_date, fill_703b, fill_704b, fill_bid_package
-from ..agents.scprs_lookup import bulk_lookup, save_prices_from_rfq, get_price_db_stats
-from ..agents.email_poller import EmailPoller, EmailSender
+from src.forms.rfq_parser import parse_rfq_attachments, identify_attachments
+from src.forms.reytech_filler_v4 import (load_config, get_pst_date, fill_703b, fill_704b, fill_bid_package)
+from src.agents.scprs_lookup import bulk_lookup, save_prices_from_rfq, get_price_db_stats
+from src.agents.email_poller import EmailPoller, EmailSender
 # v6.0: Pricing intelligence (graceful fallback if files not present)
 try:
-    from ..knowledge.pricing_oracle import recommend_prices_for_rfq, pricing_health_check
-    from ..knowledge.won_quotes_db import (ingest_scprs_result, find_similar_items,
+    from src.knowledge.pricing_oracle import recommend_prices_for_rfq, pricing_health_check
+    from src.knowledge.won_quotes_db import (ingest_scprs_result, find_similar_items,
                                 get_kb_stats, get_price_history)
     PRICING_ORACLE_AVAILABLE = True
 except ImportError:
     PRICING_ORACLE_AVAILABLE = False
 # v6.1: Product Research Agent (graceful fallback)
 try:
-    from ..agents.product_research import (research_product, research_rfq_items,
+    from src.agents.product_research import (research_product, research_rfq_items,
                                    quick_lookup, test_amazon_search,
                                    get_research_cache_stats, RESEARCH_STATUS)
     PRODUCT_RESEARCH_AVAILABLE = True
@@ -36,14 +36,14 @@ except ImportError:
     PRODUCT_RESEARCH_AVAILABLE = False
 # v6.2: Price Check Processor (graceful fallback)
 try:
-    from ..forms.price_check import (parse_ams704, process_price_check, lookup_prices,
+    from src.forms.price_check import (parse_ams704, process_price_check, lookup_prices,
                               test_parse, REYTECH_INFO, clean_description)
     PRICE_CHECK_AVAILABLE = True
 except ImportError:
     PRICE_CHECK_AVAILABLE = False
 # v7.1: Reytech Quote Generator (graceful fallback)
 try:
-    from ..forms.quote_generator import (generate_quote, generate_quote_from_pc,
+    from src.forms.quote_generator import (generate_quote, generate_quote_from_pc,
                                   generate_quote_from_rfq, AGENCY_CONFIGS,
                                   get_all_quotes, search_quotes,
                                   peek_next_quote_number, update_quote_status,
@@ -53,7 +53,7 @@ except ImportError:
     QUOTE_GEN_AVAILABLE = False
 # v7.0: Auto-Processor Engine (graceful fallback)
 try:
-    from ..auto.auto_processor import (auto_process_price_check, detect_document_type,
+    from src.auto.auto_processor import (auto_process_price_check, detect_document_type,
                                  score_quote_confidence, system_health_check,
                                  get_audit_stats, track_response_time)
     AUTO_PROCESSOR_AVAILABLE = True
@@ -136,7 +136,7 @@ def process_rfq_email(rfq_email):
     templates = {}
     for att in rfq_email["attachments"]:
         if att["type"] != "unknown":
-            templates[att["type"] ] = att["path"]
+            templates[att["type"]] = att["path"]
    
     if "704b" not in templates:
         # Still save it as a raw entry so user can see it arrived
@@ -412,7 +412,7 @@ PAGE_DETAIL = """
   {% endfor %}
   </tbody>
  </table>
- <div style="display:flex;justify-content:justify-content:space-between;align-items:center;margin-top:14px;padding-top:14px;border-top:1px solid var(--bd)">
+ <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;padding-top:14px;border-top:1px solid var(--bd)">
   <div>
    <span style="color:var(--tx2);font-size:13px">Revenue: </span><span id="tot" style="font-family:'JetBrains Mono',monospace;font-size:20px;font-weight:700">$0</span>
   </div>
@@ -706,7 +706,7 @@ def render(content, **kw):
 </div></div>
 <div class="ctr">
 {{% with messages = get_flashed_messages(with_categories=true) %}}
- {{% for cat, msg in messages %}}<div class="alert al-{{'s' if cat=='success' else 'e' if cat=='error' else 'i'}}">{{% if cat=='success' %}}✅{{% elif cat=='error' %}}❌{{% else %}}ℹ️{{% endif %}} {{{{msg}}}}</div>{{% endfor %}}
+ {{% for cat, msg in messages %}}<div class="alert al-{{'s' if cat=='success' else 'e' if cat=='error' else 'i'}}">{{% if cat=='success' %}}✅{{% elif cat=='error' %}}❌{{% else %}}ℹ️{{% endif %}} {{{{msg}}}}</div{{% endfor %}}
 {{% endwith %}}
 """ + content + """
 <script>
@@ -1349,7 +1349,7 @@ def api_scprs(rid):
     errors = []
     for item in r["line_items"]:
         try:
-            from ..agents.scprs_lookup import lookup_price, _build_search_terms
+            from src.agents.scprs_lookup import lookup_price, _build_search_terms
             item_num = item.get("item_number")
             desc = item.get("description")
             search_terms = _build_search_terms(item_num, desc)
@@ -1399,7 +1399,7 @@ def api_scprs_raw():
     """Raw SCPRS debug — shows HTML field IDs found in search results."""
     q = request.args.get("q", "stryker xpr")
     try:
-        from ..agents.scprs_lookup import _get_session, _discover_grid_ids, SCPRS_SEARCH_URL, SEARCH_BUTTON, ALL_SEARCH_FIELDS, FIELD_DESCRIPTION
+        from src.agents.scprs_lookup import _get_session, _discover_grid_ids, SCPRS_SEARCH_URL, SEARCH_BUTTON, ALL_SEARCH_FIELDS, FIELD_DESCRIPTION
         from bs4 import BeautifulSoup
        
         session = _get_session()
@@ -1593,7 +1593,7 @@ def api_diag():
         "db_exists": os.path.exists(os.path.join(BASE_DIR, "data", "scprs_prices.json")),
     }
     try:
-        from ..agents.scprs_lookup import test_connection
+        from src.agents.scprs_lookup import test_connection
         import threading
         result = [False, "timeout"]
         def _test():
@@ -1673,7 +1673,7 @@ def api_won_quotes_dump():
     """Debug: show first 10 raw KB records to verify what's stored."""
     if not PRICING_ORACLE_AVAILABLE:
         return jsonify({"error": "Won Quotes DB not available"}), 503
-    from ..knowledge.won_quotes_db import load_won_quotes
+    from src.knowledge.won_quotes_db import load_won_quotes
     quotes = load_won_quotes()
     return jsonify({"total": len(quotes), "first_10": quotes[:10]})
 @app.route("/api/debug/paths")
@@ -1717,7 +1717,7 @@ def api_debug_paths():
 def api_won_quotes_migrate():
     """One-time migration: import existing scprs_prices.json into Won Quotes KB."""
     try:
-        from ..agents.scprs_lookup import migrate_local_db_to_won_quotes
+        from src.agents.scprs_lookup import migrate_local_db_to_won_quotes
         result = migrate_local_db_to_won_quotes()
         return jsonify({"ok": True, **result})
     except Exception as e:
@@ -1728,7 +1728,7 @@ def api_won_quotes_seed():
     """Start bulk SCPRS seed: searches ~20 common categories, drills into PO details,
     ingests unit prices into Won Quotes KB. Runs in background thread (~3-5 min)."""
     try:
-        from ..agents.scprs_lookup import bulk_seed_won_quotes, SEED_STATUS
+        from src.agents.scprs_lookup import bulk_seed_won_quotes, SEED_STATUS
         if SEED_STATUS.get("running"):
             return jsonify({"ok": False, "message": "Seed already running", "status": SEED_STATUS})
         t = threading.Thread(target=bulk_seed_won_quotes, daemon=True)
@@ -1741,7 +1741,7 @@ def api_won_quotes_seed():
 def api_won_quotes_seed_status():
     """Check progress of bulk SCPRS seed job."""
     try:
-        from ..agents.scprs_lookup import SEED_STATUS
+        from src.agents.scprs_lookup import SEED_STATUS
         return jsonify(SEED_STATUS)
     except Exception as e:
         return jsonify({"error": str(e)})
