@@ -23,7 +23,11 @@ a{color:var(--ac);text-decoration:none}
 .poll-on{background:var(--gn);box-shadow:0 0 8px var(--gn),0 0 16px rgba(52,211,153,.3);animation:pulse 2s infinite}.poll-off{background:var(--rd);box-shadow:0 0 6px var(--rd)}
 .poll-wait{background:var(--yl);box-shadow:0 0 6px var(--yl)}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
-.ctr{max-width:1200px;margin:0 auto;padding:20px}
+.ctr{max-width:1600px;margin:0 auto;padding:20px 28px}
+.bento{display:grid;gap:14px}
+.bento-2{grid-template-columns:1.2fr 0.8fr}
+.bento-4{grid-template-columns:repeat(4,1fr)}
+.bento-2e{grid-template-columns:1fr 1fr}
 .card{background:var(--sf);border:1px solid var(--bd);border-radius:var(--r);padding:20px;margin-bottom:16px}
 .card-t{font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:1px;margin-bottom:14px}
 .upl{border:2px dashed var(--bd);border-radius:var(--r);padding:36px;text-align:center;cursor:pointer;transition:.2s}
@@ -79,6 +83,8 @@ a{color:var(--ac);text-decoration:none}
 @media(max-width:1200px){
  .pc-table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
  .pc-table-wrap table{min-width:900px}
+ .bento-2,.bento-2e{grid-template-columns:1fr}
+ .bento-4{grid-template-columns:repeat(2,1fr)}
 }
 @media(max-width:900px){
  .hdr-bar{flex-wrap:wrap;gap:6px}
@@ -97,6 +103,7 @@ a{color:var(--ac);text-decoration:none}
  .card{padding:10px}
  .action-bar{flex-direction:column}
  .action-bar .btn{width:100%}
+ .bento-4{grid-template-columns:1fr}
 }
 .meta-g{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:20px}
 .meta-i{background:var(--sf2);border-radius:8px;padding:10px 12px}
@@ -138,18 +145,18 @@ table.it input:focus{outline:none;border-color:var(--ac)}
 """
 
 PAGE_HOME = """
-<!-- Search + Quick Nav — hero section -->
-<div class="card" style="padding:18px 22px;margin-bottom:20px">
- <form method="get" action="/quotes" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-  <input name="q" placeholder="Search quotes, institutions, PO numbers, items..." style="flex:1;min-width:260px;padding:12px 16px;background:var(--sf2);border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:15px">
-  <button type="submit" class="btn btn-p" style="padding:12px 24px;font-size:14px">🔍 Search</button>
-  <a href="/quotes" class="btn btn-s" style="padding:12px 20px;font-size:14px">📋 Quotes DB</a>
-  <a href="/agents" class="btn btn-s" style="padding:12px 20px;font-size:14px">🤖 Agents</a>
+<!-- Search — compact utility bar -->
+<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
+ <form method="get" action="/quotes" style="display:flex;gap:8px;flex:1;min-width:260px">
+  <input name="q" placeholder="Search quotes, institutions, PO numbers, items..." style="flex:1;padding:10px 14px;background:var(--sf);border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:13px">
+  <button type="submit" class="btn btn-p" style="padding:10px 18px;font-size:13px">🔍 Search</button>
  </form>
+ <a href="/quotes" class="btn btn-s" style="padding:10px 16px;font-size:13px">📋 Quotes DB</a>
+ <a href="/agents" class="btn btn-s" style="padding:10px 16px;font-size:13px">🤖 Agents</a>
 </div>
 
 <!-- Manager Brief — loads via AJAX -->
-<div id="brief-section" class="card" style="margin-bottom:20px;display:none">
+<div id="brief-section" class="card" style="margin-bottom:14px;display:none">
  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">
   <div>
    <div class="card-t" style="margin:0;display:flex;align-items:center;gap:8px">
@@ -183,14 +190,90 @@ PAGE_HOME = """
  <div id="pipeline-bar" style="display:flex;gap:12px;flex-wrap:wrap;margin-top:16px;padding-top:14px;border-top:1px solid var(--bd)"></div>
 </div>
 
-<!-- KPI Dashboard — Power BI style -->
-<div id="kpi-section" style="display:none;margin-bottom:20px">
+<!-- ═══ Work Queues — Primary Bento Row ═══ -->
+<div class="bento bento-2" style="margin-bottom:14px">
+
+ <!-- Price Checks — primary work queue (wider column) -->
+ <div class="card" style="margin:0;overflow:hidden">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+   <div class="card-t" style="margin:0">Price Checks ({{price_checks|length}})</div>
+  </div>
+  {% if price_checks %}
+  <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+  <table class="home-tbl">
+   <thead>
+    <tr>
+     <th>PC Number</th>
+     <th>Institution</th>
+     <th>Requestor</th>
+     <th style="width:90px">Due</th>
+     <th style="width:56px;text-align:center">Items</th>
+     <th style="width:74px;text-align:center">Quote</th>
+     <th style="width:80px;text-align:center">Status</th>
+    </tr>
+   </thead>
+   <tbody>
+    {% for id, pc in price_checks|dictsort(reverse=true) %}
+    <tr class="home-row" onclick="location.href='/pricecheck/{{id}}'">
+     <td><a href="/pricecheck/{{id}}" class="sol">#{{pc.pc_number}}</a></td>
+     <td style="font-weight:600">{{pc.institution}}</td>
+     <td style="color:var(--tx2)">{{pc.requestor or '—'}}</td>
+     <td class="mono">{{pc.due_date or '—'}}</td>
+     <td style="text-align:center" class="mono">{{pc.get('items',[])|length}}</td>
+     <td style="text-align:center">{% if pc.reytech_quote_number %}<span style="color:var(--gn);font-weight:600;font-family:'JetBrains Mono',monospace;font-size:12px">{{pc.reytech_quote_number}}</span>{% else %}—{% endif %}</td>
+     <td style="text-align:center"><span class="badge b-{{pc.status}}">{{pc.status}}</span></td>
+    </tr>
+    {% endfor %}
+   </tbody>
+  </table>
+  </div>
+  {% else %}
+  <div class="empty" style="padding:32px 16px">No Price Checks yet — upload a 704 or configure email polling</div>
+  {% endif %}
+ </div>
+
+ <!-- RFQ Queue (narrower column) -->
+ <div class="card" style="margin:0;overflow:hidden">
+  <div class="card-t">RFQ Queue ({{rfqs|length}})</div>
+  {% if rfqs %}
+  <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+  <table class="home-tbl">
+   <thead>
+    <tr>
+     <th>Solicitation</th>
+     <th>Requestor</th>
+     <th style="width:90px">Due</th>
+     <th style="width:56px;text-align:center">Items</th>
+     <th style="width:80px;text-align:center">Status</th>
+    </tr>
+   </thead>
+   <tbody>
+    {% for id, r in rfqs|dictsort(reverse=true) %}
+    <tr class="home-row" onclick="location.href='/rfq/{{id}}'" style="{% if r.status in ('sent','generated') %}opacity:0.55{% endif %}">
+     <td><a href="/rfq/{{id}}" class="sol">#{{r.solicitation_number}}</a></td>
+     <td style="font-weight:600">{{r.requestor_name}}</td>
+     <td class="mono">{{r.due_date}}</td>
+     <td style="text-align:center" class="mono">{{r.line_items|length}}</td>
+     <td style="text-align:center"><span class="badge b-{{r.status}}">{{r.status}}</span></td>
+    </tr>
+    {% endfor %}
+   </tbody>
+  </table>
+  </div>
+  {% else %}
+  <div class="empty" style="padding:32px 16px">No RFQs — configure email polling or upload below</div>
+  {% endif %}
+ </div>
+
+</div>
+
+<!-- ═══ KPI Dashboard — Bento analytics ═══ -->
+<div id="kpi-section" style="display:none">
  <!-- Row 1: Big KPI cards -->
- <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:12px" id="kpi-cards"></div>
- <!-- Row 2: Goal progress + Win Rate gauge + Funnel + Weekly chart -->
- <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
-  <!-- Revenue Goal Progress -->
-  <div class="card kpi-panel" style="padding:16px">
+ <div class="bento bento-4" style="margin-bottom:14px" id="kpi-cards"></div>
+ <!-- Row 2: Goal + Funnel side by side -->
+ <div class="bento bento-2e" style="margin-bottom:14px">
+  <div class="card kpi-panel" style="padding:16px;margin:0">
    <div class="kpi-panel-title">Monthly Revenue Goal</div>
    <div style="display:flex;align-items:flex-end;gap:12px;margin:12px 0 8px">
     <span id="goal-current" class="kpi-big" style="color:var(--gn)">$0</span>
@@ -202,96 +285,25 @@ PAGE_HOME = """
     <span class="kpi-sub" id="goal-remaining">$25,000 remaining</span>
    </div>
   </div>
-  <!-- Win Rate + Funnel -->
-  <div class="card kpi-panel" style="padding:16px">
+  <div class="card kpi-panel" style="padding:16px;margin:0">
    <div class="kpi-panel-title">Pipeline Funnel</div>
    <div id="funnel-bars" style="margin-top:12px"></div>
   </div>
  </div>
  <!-- Row 3: Weekly volume + Top institutions -->
- <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-  <div class="card kpi-panel" style="padding:16px">
+ <div class="bento bento-2e" style="margin-bottom:14px">
+  <div class="card kpi-panel" style="padding:16px;margin:0">
    <div class="kpi-panel-title">Weekly Quote Volume</div>
    <div id="weekly-chart" style="display:flex;align-items:flex-end;gap:8px;height:100px;margin-top:12px;padding-top:8px"></div>
   </div>
-  <div class="card kpi-panel" style="padding:16px">
+  <div class="card kpi-panel" style="padding:16px;margin:0">
    <div class="kpi-panel-title">Top Institutions by Revenue</div>
    <div id="top-inst" style="margin-top:12px"></div>
   </div>
  </div>
 </div>
 
-<!-- Price Checks — primary work queue -->
-<div class="card">
- <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-  <div class="card-t" style="margin:0">Price Checks ({{price_checks|length}})</div>
- </div>
- {% if price_checks %}
- <table class="home-tbl">
-  <thead>
-   <tr>
-    <th style="width:160px">PC Number</th>
-    <th>Institution</th>
-    <th>Requestor</th>
-    <th style="width:100px">Due</th>
-    <th style="width:70px;text-align:center">Items</th>
-    <th style="width:80px;text-align:center">Quote</th>
-    <th style="width:90px;text-align:center">Status</th>
-   </tr>
-  </thead>
-  <tbody>
-   {% for id, pc in price_checks|dictsort(reverse=true) %}
-   <tr class="home-row" onclick="location.href='/pricecheck/{{id}}'">
-    <td><a href="/pricecheck/{{id}}" class="sol">#{{pc.pc_number}}</a></td>
-    <td style="font-weight:600">{{pc.institution}}</td>
-    <td style="color:var(--tx2)">{{pc.requestor or '—'}}</td>
-    <td class="mono">{{pc.due_date or '—'}}</td>
-    <td style="text-align:center" class="mono">{{pc.get('items',[])|length}}</td>
-    <td style="text-align:center">{% if pc.reytech_quote_number %}<span style="color:var(--gn);font-weight:600;font-family:'JetBrains Mono',monospace;font-size:12px">{{pc.reytech_quote_number}}</span>{% else %}—{% endif %}</td>
-    <td style="text-align:center"><span class="badge b-{{pc.status}}">{{pc.status}}</span></td>
-   </tr>
-   {% endfor %}
-  </tbody>
- </table>
- {% else %}
- <div class="empty" style="padding:32px">No Price Checks yet — upload a 704 below or configure email polling</div>
- {% endif %}
-</div>
-
-<!-- RFQ Queue -->
-<div class="card">
- <div class="card-t">RFQ Queue ({{rfqs|length}})</div>
- {% if rfqs %}
- <table class="home-tbl">
-  <thead>
-   <tr>
-    <th style="width:140px">Solicitation</th>
-    <th>Requestor</th>
-    <th style="width:100px">Due</th>
-    <th style="width:70px;text-align:center">Items</th>
-    <th style="width:70px;text-align:center">Source</th>
-    <th style="width:90px;text-align:center">Status</th>
-   </tr>
-  </thead>
-  <tbody>
-   {% for id, r in rfqs|dictsort(reverse=true) %}
-   <tr class="home-row" onclick="location.href='/rfq/{{id}}'" style="{% if r.status in ('sent','generated') %}opacity:0.55{% endif %}">
-    <td><a href="/rfq/{{id}}" class="sol">#{{r.solicitation_number}}</a></td>
-    <td style="font-weight:600">{{r.requestor_name}}</td>
-    <td class="mono">{{r.due_date}}</td>
-    <td style="text-align:center" class="mono">{{r.line_items|length}}</td>
-    <td style="text-align:center">{% if r.source == 'email' %}📧{% else %}📤{% endif %}</td>
-    <td style="text-align:center"><span class="badge b-{{r.status}}">{{r.status}}</span></td>
-   </tr>
-   {% endfor %}
-  </tbody>
- </table>
- {% else %}
- <div class="empty" style="padding:32px">No RFQs yet — configure email polling or upload below</div>
- {% endif %}
-</div>
-
-<!-- Manual Upload — de-prioritized, fallback only -->
+<!-- Manual Upload — collapsed fallback -->
 <details class="card" style="cursor:default">
  <summary style="font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:1px;cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px">
   <span style="font-size:10px;transition:transform .2s" class="upload-arrow">▶</span>
