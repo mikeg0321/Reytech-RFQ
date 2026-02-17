@@ -303,7 +303,10 @@ document.querySelectorAll('details').forEach(d=>{
 });
 
 // ── Manager Brief (loads async) ──
-fetch('/api/manager/brief').then(r=>r.json()).then(data=>{
+fetch('/api/manager/brief',{credentials:'same-origin'}).then(function(r){
+ if(!r.ok) throw new Error('HTTP '+r.status);
+ return r.json();
+}).then(function(data){
  if(!data.ok) return;
  var sec=document.getElementById('brief-section');
  sec.style.display='block';
@@ -380,10 +383,21 @@ fetch('/api/manager/brief').then(r=>r.json()).then(data=>{
    +'<div class="stat-val" style="color:'+s.color+'">'+s.value+'</div>'
    +'<div class="stat-label">'+s.label+'</div></div>';
  }).join('');
-}).catch(function(){});
+}).catch(function(err){
+ console.error('Manager brief failed:',err);
+ var sec=document.getElementById('brief-section');
+ sec.style.display='block';
+ document.getElementById('brief-headline').textContent='Could not load brief — check console';
+ document.getElementById('brief-badge').textContent='error';
+ document.getElementById('brief-badge').style.background='rgba(248,113,113,.15)';
+ document.getElementById('brief-badge').style.color='#f87171';
+});
 
 // ── KPI Dashboard (loads async) ──
-fetch('/api/manager/metrics').then(r=>r.json()).then(function(data){
+fetch('/api/manager/metrics',{credentials:'same-origin'}).then(function(r){
+ if(!r.ok) throw new Error('HTTP '+r.status);
+ return r.json();
+}).then(function(data){
  if(!data.ok) return;
  document.getElementById('kpi-section').style.display='block';
  var rev=data.revenue||{};var q=data.quotes||{};var fn=data.funnel||{};
@@ -455,7 +469,7 @@ fetch('/api/manager/metrics').then(r=>r.json()).then(function(data){
  } else {
   document.getElementById('top-inst').innerHTML='<div class="brief-empty">Win quotes to see top institutions here</div>';
  }
-}).catch(function(){});
+}).catch(function(err){ console.error('Manager metrics failed:',err); });
 </script>
 """
 

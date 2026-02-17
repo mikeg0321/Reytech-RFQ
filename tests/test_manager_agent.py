@@ -153,3 +153,139 @@ class TestManagerStatus:
         assert status["agent"] == "manager"
         assert status["version"] == "1.0.0"
         assert status["brief_available"] is True
+
+
+class TestManagerMetrics:
+    """Test the metrics computation used by /api/manager/metrics."""
+
+    def test_pipeline_summary_structure(self):
+        from src.agents.manager_agent import _get_pipeline_summary
+        s = _get_pipeline_summary()
+        assert "price_checks" in s
+        assert "quotes" in s
+        assert "leads" in s
+        assert "outbox" in s
+        assert "revenue" in s
+        # Revenue should be a dict with won_total
+        assert "won_total" in s["revenue"]
+        assert isinstance(s["revenue"]["won_total"], (int, float))
+
+    def test_pipeline_counts_nonnegative(self):
+        from src.agents.manager_agent import _get_pipeline_summary
+        s = _get_pipeline_summary()
+        assert s["price_checks"]["total"] >= 0
+        assert s["quotes"]["total"] >= 0
+        assert s["quotes"]["win_rate"] >= 0
+        assert s["leads"]["total"] >= 0
+        assert s["outbox"]["drafts"] >= 0
+
+    def test_activity_feed_has_required_fields(self):
+        from src.agents.manager_agent import _get_activity_feed
+        activity = _get_activity_feed()
+        for item in activity:
+            assert "icon" in item
+            assert "text" in item
+            assert "timestamp" in item
+            assert "age" in item
+
+
+class TestBriefAPIContract:
+    """Ensure the brief response matches what the JS expects."""
+
+    def test_brief_has_all_js_fields(self):
+        from src.agents.manager_agent import generate_brief
+        brief = generate_brief()
+        # These are the exact keys the JS reads
+        assert "ok" not in brief  # ok is added by the route, not the agent
+        assert "headline" in brief
+        assert "approval_count" in brief
+        assert "pending_approvals" in brief
+        assert "activity" in brief
+        assert "summary" in brief
+        assert isinstance(brief["approval_count"], int)
+
+    def test_brief_summary_has_stats_bar_fields(self):
+        """JS reads summary.price_checks.parsed, .priced, summary.quotes.pending, etc."""
+        from src.agents.manager_agent import generate_brief
+        brief = generate_brief()
+        s = brief["summary"]
+        # Stats bar reads these exact paths
+        assert "parsed" in s["price_checks"]
+        assert "priced" in s["price_checks"]
+        assert "pending" in s["quotes"]
+        assert "won" in s["quotes"]
+        assert "lost" in s["quotes"]
+        assert "win_rate" in s["quotes"]
+        assert "new" in s["leads"]
+        assert "drafts" in s["outbox"]
+        assert "won_total" in s["revenue"]
+
+    def test_approval_items_have_required_fields(self):
+        from src.agents.manager_agent import generate_brief
+        brief = generate_brief()
+        for a in brief["pending_approvals"]:
+            assert "icon" in a
+            assert "title" in a
+            # JS reads these for rendering
+            assert "type" in a
+
+    def test_activity_items_have_required_fields(self):
+        from src.agents.manager_agent import generate_brief
+        brief = generate_brief()
+        for a in brief["activity"]:
+            assert "icon" in a
+            assert "text" in a
+            assert "age" in a
+
+
+class TestHomePageRendering:
+    """Verify the home page HTML includes brief and KPI sections."""
+
+    def test_home_has_brief_section(self):
+        """The brief section div must exist in home page HTML."""
+        import os
+        os.environ.setdefault('APP_SECRET', 'test')
+        from src.api.templates import PAGE_HOME
+        assert 'id="brief-section"' in PAGE_HOME
+        assert 'id="brief-headline"' in PAGE_HOME
+        assert 'id="approvals-list"' in PAGE_HOME
+        assert 'id="activity-list"' in PAGE_HOME
+        assert 'id="pipeline-bar"' in PAGE_HOME
+
+    def test_home_has_kpi_section(self):
+        """The KPI dashboard section must exist in home page HTML."""
+        from src.api.templates import PAGE_HOME
+        assert 'id="kpi-section"' in PAGE_HOME
+        assert 'id="kpi-cards"' in PAGE_HOME
+        assert 'id="goal-bar"' in PAGE_HOME
+        assert 'id="funnel-bars"' in PAGE_HOME
+        assert 'id="weekly-chart"' in PAGE_HOME
+        assert 'id="top-inst"' in PAGE_HOME
+
+    def test_home_fetches_brief_and_metrics(self):
+        """JS must fetch both API endpoints."""
+        from src.api.templates import PAGE_HOME
+        assert "/api/manager/brief" in PAGE_HOME
+        assert "/api/manager/metrics" in PAGE_HOME
+        assert "credentials:'same-origin'" in PAGE_HOME
+
+    def test_home_has_error_handling(self):
+        """JS must log errors, not swallow them."""
+        from src.api.templates import PAGE_HOME
+        assert "console.error" in PAGE_HOME
+        assert "Manager brief failed" in PAGE_HOME
+        assert "Manager metrics failed" in PAGE_HOME
+
+    def test_brief_css_classes_exist(self):
+        """CSS classes used by brief JS must be defined."""
+        from src.api.templates import BASE_CSS
+        assert "brief-item" in BASE_CSS
+        assert "brief-title" in BASE_CSS
+        assert "brief-age" in BASE_CSS
+        assert "brief-empty" in BASE_CSS
+        assert "stat-chip" in BASE_CSS
+        assert "stat-val" in BASE_CSS
+        assert "kpi-card" in BASE_CSS
+        assert "kpi-card-value" in BASE_CSS
+        assert "progress-track" in BASE_CSS
+        assert "progress-fill" in BASE_CSS
