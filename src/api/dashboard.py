@@ -321,21 +321,38 @@ from src.api.templates import BASE_CSS, PAGE_HOME, PAGE_DETAIL, build_pc_detail_
 def render(content, **kw):
     _email_cfg = CONFIG.get("email", {})
     _has_email = bool(_email_cfg.get("email_password"))
+    _poll_running = POLL_STATUS.get("running", False)
+    _poll_last = POLL_STATUS.get("last_check", "")
+    _poll_status = "Polling" if _poll_running else ("Email not configured" if not _has_email else "Starting...")
+    _poll_class = "poll-on" if _poll_running else ("poll-off" if not _has_email else "poll-wait")
     html = f"""<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Reytech RFQ</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>{BASE_CSS}</style></head><body>
-<div class="hdr"><h1><a href="/" style="color:inherit;text-decoration:none"><span>Reytech</span> RFQ Dashboard</a></h1>
-<div class="hdr-right">
- <a href="/" class="btn btn-sm" style="padding:4px 10px;font-size:11px;background:#21262d;color:#c9d1d9;text-decoration:none;border:1px solid #30363d">🏠 Home</a>
- <a href="/quotes" class="btn btn-sm" style="padding:4px 10px;font-size:11px;background:#1a3a5c;color:#fff;text-decoration:none">📋 Quotes</a>
- <button class="btn btn-sm btn-s" onclick="pollNow(this)" style="padding:4px 10px;font-size:11px;cursor:pointer" id="poll-btn">Check Now</button>
- <button class="btn btn-sm btn-s" onclick="resyncAll(this)" style="padding:4px 10px;font-size:11px;cursor:pointer;border-color:var(--or);color:var(--or)" title="Clear queue & re-import all emails">🔄 Resync</button>
- <div><span class="poll-dot {'poll-on' if POLL_STATUS['running'] else 'poll-off' if not _has_email else 'poll-wait'}"></span>
- {'Polling' if POLL_STATUS['running'] else 'Email not configured' if not _has_email else 'Starting...'}
- {' · Last: ' + POLL_STATUS['last_check'] if POLL_STATUS.get('last_check') else ''}</div>
- <div>{get_pst_date()}</div>
-</div></div>
+<div class="hdr">
+ <div style="display:flex;align-items:center;gap:14px">
+  <a href="/" style="display:flex;align-items:center;gap:10px;text-decoration:none">
+   <img src="/api/logo" alt="" style="height:32px;border-radius:4px" onerror="this.style.display='none'">
+   <h1 style="font-size:19px;font-weight:700;letter-spacing:-0.5px;margin:0"><span style="color:var(--ac)">Reytech</span> <span style="color:var(--tx)">RFQ Dashboard</span></h1>
+  </a>
+ </div>
+ <div style="display:flex;align-items:center;gap:6px">
+  <a href="/" class="hdr-btn hdr-active">🏠 Home</a>
+  <a href="/quotes" class="hdr-btn">📋 Quotes</a>
+  <a href="/agents" class="hdr-btn">🤖 Agents</a>
+  <span style="width:1px;height:24px;background:var(--bd);margin:0 6px"></span>
+  <button class="hdr-btn" onclick="pollNow(this)" id="poll-btn">⚡ Check Now</button>
+  <button class="hdr-btn hdr-warn" onclick="resyncAll(this)" title="Clear queue & re-import all emails">🔄 Resync</button>
+  <span style="width:1px;height:24px;background:var(--bd);margin:0 6px"></span>
+  <div class="hdr-status">
+   <div style="display:flex;align-items:center;gap:6px">
+    <span class="poll-dot {_poll_class}"></span>
+    <span>{_poll_status}</span>
+   </div>
+   <div class="hdr-time" id="poll-time" data-utc="{_poll_last}">{_poll_last or 'never'}</div>
+  </div>
+ </div>
+</div>
 <div class="ctr">
 {{% with messages = get_flashed_messages(with_categories=true) %}}
  {{% for cat, msg in messages %}}<div class="alert al-{{'s' if cat=='success' else 'e' if cat=='error' else 'i'}}">{{% if cat=='success' %}}✅{{% elif cat=='error' %}}❌{{% else %}}ℹ️{{% endif %}} {{{{msg}}}}</div>{{% endfor %}}
@@ -346,8 +363,8 @@ function pollNow(btn){
  btn.disabled=true;btn.textContent='Checking...';
  fetch('/api/poll-now').then(r=>r.json()).then(d=>{
   if(d.found>0){btn.textContent=d.found+' found!';setTimeout(()=>location.reload(),800)}
-  else{btn.textContent='No new emails';setTimeout(()=>{btn.textContent='Check Now';btn.disabled=false},2000)}
- }).catch(()=>{btn.textContent='Error';setTimeout(()=>{btn.textContent='Check Now';btn.disabled=false},2000)});
+  else{btn.textContent='No new emails';setTimeout(()=>{btn.textContent='⚡ Check Now';btn.disabled=false},2000)}
+ }).catch(()=>{btn.textContent='Error';setTimeout(()=>{btn.textContent='⚡ Check Now';btn.disabled=false},2000)});
 }
 function resyncAll(btn){
  if(!confirm('Clear all RFQs and re-import from email?'))return;
@@ -357,6 +374,16 @@ function resyncAll(btn){
   else{btn.textContent='0 found';setTimeout(()=>{btn.textContent='🔄 Resync';btn.disabled=false},2000)}
  }).catch(()=>{btn.textContent='Error';setTimeout(()=>{btn.textContent='🔄 Resync';btn.disabled=false},2000)});
 }
+// Convert poll time to local
+(function(){
+ var el=document.getElementById('poll-time');
+ if(el && el.dataset.utc){
+  try{
+   var d=new Date(el.dataset.utc);
+   if(!isNaN(d)){el.textContent=d.toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true})}
+  }catch(e){}
+ }
+})();
 </script>
 </div></body></html>"""
     return render_template_string(html, **kw)

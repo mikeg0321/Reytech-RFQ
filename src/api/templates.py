@@ -9,12 +9,20 @@ BASE_CSS = """
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--tx);min-height:100vh}
 a{color:var(--ac);text-decoration:none}
-.hdr{background:var(--sf);border-bottom:1px solid var(--bd);padding:14px 28px;display:flex;justify-content:space-between;align-items:center}
+.hdr{background:var(--sf);border-bottom:2px solid var(--bd);padding:10px 24px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px}
 .hdr h1{font-size:19px;font-weight:700;letter-spacing:-0.5px}.hdr h1 span{color:var(--ac)}
+.hdr-btn{padding:6px 14px;font-size:12px;font-weight:600;border-radius:6px;border:1px solid var(--bd);background:var(--sf2);color:var(--tx);cursor:pointer;text-decoration:none;transition:.15s;font-family:'DM Sans',sans-serif;display:inline-flex;align-items:center;gap:4px}
+.hdr-btn:hover{border-color:var(--ac);background:rgba(79,140,255,.1);color:#fff}
+.hdr-active{border-color:var(--ac);background:rgba(79,140,255,.12)}
+.hdr-warn{border-color:var(--or);color:var(--or)}
+.hdr-warn:hover{background:rgba(251,146,60,.1)}
+.hdr-status{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--tx2);text-align:right;line-height:1.5}
+.hdr-time{font-size:10px;opacity:0.7}
 .hdr-right{display:flex;align-items:center;gap:16px;font-size:12px;font-family:'JetBrains Mono',monospace;color:var(--tx2)}
-.poll-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:4px}
-.poll-on{background:var(--gn);box-shadow:0 0 6px var(--gn)}.poll-off{background:var(--rd)}
-.poll-wait{background:var(--yl)}
+.poll-dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:4px}
+.poll-on{background:var(--gn);box-shadow:0 0 8px var(--gn),0 0 16px rgba(52,211,153,.3);animation:pulse 2s infinite}.poll-off{background:var(--rd);box-shadow:0 0 6px var(--rd)}
+.poll-wait{background:var(--yl);box-shadow:0 0 6px var(--yl)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
 .ctr{max-width:1200px;margin:0 auto;padding:20px}
 .card{background:var(--sf);border:1px solid var(--bd);border-radius:var(--r);padding:20px;margin-bottom:16px}
 .card-t{font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:1px;margin-bottom:14px}
@@ -29,6 +37,19 @@ a{color:var(--ac);text-decoration:none}
 .b-new{background:rgba(251,191,36,.15);color:var(--yl)}.b-pending{background:rgba(251,191,36,.15);color:var(--yl)}
 .b-ready{background:rgba(52,211,153,.15);color:var(--gn)}.b-generated{background:rgba(79,140,255,.15);color:var(--ac)}
 .b-sent{background:rgba(52,211,153,.2);color:var(--gn)}
+.b-priced{background:rgba(79,140,255,.15);color:var(--ac)}
+.b-completed{background:rgba(52,211,153,.15);color:var(--gn)}
+.b-converted{background:rgba(52,211,153,.2);color:var(--gn)}
+.b-parsed{background:rgba(251,191,36,.15);color:var(--yl)}
+.b-won{background:rgba(52,211,153,.2);color:var(--gn)}
+.b-lost{background:rgba(248,113,113,.15);color:var(--rd)}
+.b-expired{background:rgba(139,144,160,.15);color:var(--tx2)}
+.home-tbl{width:100%;border-collapse:collapse;font-size:13px}
+.home-tbl thead th{text-align:left;padding:8px 10px;font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--bd);font-weight:600}
+.home-tbl tbody td{padding:10px;border-bottom:1px solid rgba(46,51,69,.5);vertical-align:middle}
+.home-row{cursor:pointer;transition:background .12s}
+.home-row:hover{background:rgba(79,140,255,.06)}
+.home-row a{text-decoration:none}
 .meta-g{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:20px}
 .meta-i{background:var(--sf2);border-radius:8px;padding:10px 12px}
 .meta-l{font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px}
@@ -69,59 +90,117 @@ table.it input:focus{outline:none;border-color:var(--ac)}
 """
 
 PAGE_HOME = """
+<!-- Search + Quick Nav — hero section -->
+<div class="card" style="padding:18px 22px;margin-bottom:20px">
+ <form method="get" action="/quotes" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+  <input name="q" placeholder="Search quotes, institutions, PO numbers, items..." style="flex:1;min-width:260px;padding:12px 16px;background:var(--sf2);border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:15px">
+  <button type="submit" class="btn btn-p" style="padding:12px 24px;font-size:14px">🔍 Search</button>
+  <a href="/quotes" class="btn btn-s" style="padding:12px 20px;font-size:14px">📋 Quotes DB</a>
+  <a href="/agents" class="btn btn-s" style="padding:12px 20px;font-size:14px">🤖 Agents</a>
+ </form>
+</div>
+
+<!-- Price Checks — primary work queue -->
 <div class="card">
- <div class="card-t">New RFQ / Price Check</div>
- <form method="POST" action="/upload" enctype="multipart/form-data" id="uf">
-  <div class="upl" id="dz" onclick="document.getElementById('fi').click()">
-   <h3>Drop PDF attachments here</h3>
-   <p>Upload RFQ (703B, 704B, Bid Package) or AMS 704 Price Check</p>
+ <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+  <div class="card-t" style="margin:0">Price Checks ({{price_checks|length}})</div>
+  <a href="/agents" class="btn btn-sm btn-s" style="font-size:10px;padding:4px 10px">📊 Growth Report</a>
+ </div>
+ {% if price_checks %}
+ <table class="home-tbl">
+  <thead>
+   <tr>
+    <th style="width:160px">PC Number</th>
+    <th>Institution</th>
+    <th>Requestor</th>
+    <th style="width:100px">Due</th>
+    <th style="width:70px;text-align:center">Items</th>
+    <th style="width:80px;text-align:center">Quote</th>
+    <th style="width:90px;text-align:center">Status</th>
+   </tr>
+  </thead>
+  <tbody>
+   {% for id, pc in price_checks|dictsort(reverse=true) %}
+   <tr class="home-row" onclick="location.href='/pricecheck/{{id}}'">
+    <td><a href="/pricecheck/{{id}}" class="sol">#{{pc.pc_number}}</a></td>
+    <td style="font-weight:600">{{pc.institution}}</td>
+    <td style="color:var(--tx2)">{{pc.requestor or '—'}}</td>
+    <td class="mono">{{pc.due_date or '—'}}</td>
+    <td style="text-align:center" class="mono">{{pc.get('items',[])|length}}</td>
+    <td style="text-align:center">{% if pc.reytech_quote_number %}<span style="color:var(--gn);font-weight:600;font-family:'JetBrains Mono',monospace;font-size:12px">{{pc.reytech_quote_number}}</span>{% else %}—{% endif %}</td>
+    <td style="text-align:center"><span class="badge b-{{pc.status}}">{{pc.status}}</span></td>
+   </tr>
+   {% endfor %}
+  </tbody>
+ </table>
+ {% else %}
+ <div class="empty" style="padding:32px">No Price Checks yet — upload a 704 below or configure email polling</div>
+ {% endif %}
+</div>
+
+<!-- RFQ Queue -->
+<div class="card">
+ <div class="card-t">RFQ Queue ({{rfqs|length}})</div>
+ {% if rfqs %}
+ <table class="home-tbl">
+  <thead>
+   <tr>
+    <th style="width:140px">Solicitation</th>
+    <th>Requestor</th>
+    <th style="width:100px">Due</th>
+    <th style="width:70px;text-align:center">Items</th>
+    <th style="width:70px;text-align:center">Source</th>
+    <th style="width:90px;text-align:center">Status</th>
+   </tr>
+  </thead>
+  <tbody>
+   {% for id, r in rfqs|dictsort(reverse=true) %}
+   <tr class="home-row" onclick="location.href='/rfq/{{id}}'" style="{% if r.status in ('sent','generated') %}opacity:0.55{% endif %}">
+    <td><a href="/rfq/{{id}}" class="sol">#{{r.solicitation_number}}</a></td>
+    <td style="font-weight:600">{{r.requestor_name}}</td>
+    <td class="mono">{{r.due_date}}</td>
+    <td style="text-align:center" class="mono">{{r.line_items|length}}</td>
+    <td style="text-align:center">{% if r.source == 'email' %}📧{% else %}📤{% endif %}</td>
+    <td style="text-align:center"><span class="badge b-{{r.status}}">{{r.status}}</span></td>
+   </tr>
+   {% endfor %}
+  </tbody>
+ </table>
+ {% else %}
+ <div class="empty" style="padding:32px">No RFQs yet — configure email polling or upload below</div>
+ {% endif %}
+</div>
+
+<!-- Manual Upload — de-prioritized, fallback only -->
+<details class="card" style="cursor:default">
+ <summary style="font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:1px;cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px">
+  <span style="font-size:10px;transition:transform .2s" class="upload-arrow">▶</span>
+  Manual Upload
+  <span style="font-weight:400;font-size:11px;color:var(--tx2);margin-left:auto">Use if email automation doesn't catch it</span>
+ </summary>
+ <form method="POST" action="/upload" enctype="multipart/form-data" id="uf" style="margin-top:14px">
+  <div class="upl" id="dz" onclick="document.getElementById('fi').click()" style="padding:24px;border-width:1px">
+   <h3 style="font-size:14px;margin-bottom:2px">Drop PDF here</h3>
+   <p style="font-size:12px">AMS 704 Price Check or RFQ (703B, 704B, Bid Package)</p>
    <input type="file" id="fi" data-testid="upload-file-input" name="files" multiple accept=".pdf" style="display:none">
   </div>
  </form>
-</div>
-<!-- Search + Quick Actions -->
-<div class="card" style="padding:12px 16px">
- <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-  <form method="get" action="/quotes" style="display:flex;gap:6px;flex:1;min-width:200px">
-   <input name="q" placeholder="Search quotes, institutions, RFQ #..." style="flex:1;padding:8px 12px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:14px">
-   <button type="submit" class="btn btn-p" style="padding:8px 16px">🔍 Search</button>
-  </form>
-  <a href="/quotes" class="btn btn-sm" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd);font-size:12px;padding:5px 12px">📋 Quotes DB</a>
-  <a href="/agents" class="btn btn-sm" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd);font-size:12px;padding:5px 12px">🤖 Agents</a>
- </div>
-</div>
-<div class="card">
- <div class="card-t">RFQ Queue ({{rfqs|length}})</div>
- {% for id, r in rfqs|dictsort(reverse=true) %}
- <a href="/rfq/{{id}}" class="rfq-i" style="{% if r.status in ('sent','generated') %}opacity:0.55{% endif %}">
-  <div class="sol">#{{r.solicitation_number}}</div>
-  <div class="det"><b>{{r.requestor_name}}</b> · Due {{r.due_date}}{% if r.source == 'email' %} · 📧{% endif %}</div>
-  <div class="mono">{{r.line_items|length}} items</div>
-  <span class="badge b-{{r.status}}">{{r.status}}</span>
- </a>
- {% else %}
- <div class="empty">No RFQs yet — upload files above or configure email polling</div>
- {% endfor %}
-</div>
-{% if price_checks %}
-<div class="card">
- <div class="card-t">Price Checks ({{price_checks|length}})</div>
- {% for id, pc in price_checks|dictsort(reverse=true) %}
- <a href="/pricecheck/{{id}}" class="rfq-i" style="{% if pc.status in ('completed','converted') %}opacity:0.55{% endif %}">
-  <div class="sol">#{{pc.pc_number}}</div>
-  <div class="det"><b>{{pc.institution}}</b> · Due {{pc.due_date}}{% if pc.requestor %} · {{pc.requestor}}{% endif %}{% if pc.reytech_quote_number %} · <span style="color:#3fb950">{{pc.reytech_quote_number}}</span>{% endif %}</div>
-  <div class="mono">{{pc.get('items',[])|length}} items</div>
-  <span class="badge b-{{pc.status}}">{{pc.status}}</span>
- </a>
- {% endfor %}
-</div>
-{% endif %}
+</details>
 <script>
 const dz=document.getElementById('dz'),fi=document.getElementById('fi'),f=document.getElementById('uf');
-['dragover','dragenter'].forEach(e=>dz.addEventListener(e,ev=>{ev.preventDefault();dz.style.borderColor='var(--ac)'}));
-['dragleave','drop'].forEach(e=>dz.addEventListener(e,ev=>{ev.preventDefault();dz.style.borderColor='var(--bd)'}));
-dz.addEventListener('drop',ev=>{fi.files=ev.dataTransfer.files;f.submit()});
-fi.addEventListener('change',()=>{if(fi.files.length)f.submit()});
+if(dz){
+ ['dragover','dragenter'].forEach(e=>dz.addEventListener(e,ev=>{ev.preventDefault();dz.style.borderColor='var(--ac)'}));
+ ['dragleave','drop'].forEach(e=>dz.addEventListener(e,ev=>{ev.preventDefault();dz.style.borderColor='var(--bd)'}));
+ dz.addEventListener('drop',ev=>{fi.files=ev.dataTransfer.files;f.submit()});
+ fi.addEventListener('change',()=>{if(fi.files.length)f.submit()});
+}
+// Toggle arrow on details
+document.querySelectorAll('details').forEach(d=>{
+ d.addEventListener('toggle',()=>{
+  var arr=d.querySelector('.upload-arrow');
+  if(arr) arr.style.transform=d.open?'rotate(90deg)':'rotate(0)';
+ });
+});
 </script>
 """
 
