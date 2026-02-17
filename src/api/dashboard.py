@@ -332,7 +332,7 @@ def render(content, **kw):
 <div class="hdr">
  <div style="display:flex;align-items:center;gap:14px">
   <a href="/" style="display:flex;align-items:center;gap:10px;text-decoration:none">
-   <img src="/api/logo" alt="" style="height:32px;border-radius:4px" onerror="this.style.display='none'">
+   <img src="/api/logo" alt="" style="height:28px;background:#fff;padding:4px 8px;border-radius:6px" onerror="this.style.display='none'">
    <h1 style="font-size:19px;font-weight:700;letter-spacing:-0.5px;margin:0"><span style="color:var(--ac)">Reytech</span> <span style="color:var(--tx)">RFQ Dashboard</span></h1>
   </a>
  </div>
@@ -2939,6 +2939,146 @@ def api_manager_brief():
     if not MANAGER_AVAILABLE:
         return jsonify({"ok": False, "error": "Manager agent not available"})
     return jsonify({"ok": True, **generate_brief()})
+
+
+@bp.route("/api/manager/metrics")
+@auth_required
+def api_manager_metrics():
+    """Power BI-style metrics for dashboard KPIs."""
+    if not MANAGER_AVAILABLE:
+        return jsonify({"ok": False, "error": "Manager agent not available"})
+
+    from datetime import timedelta
+    from collections import defaultdict
+
+    quotes = []
+    try:
+        qpath = os.path.join(DATA_DIR, "quotes_log.json")
+        with open(qpath) as f:
+            quotes = json.load(f)
+    except Exception:
+        pass
+
+    pcs = _load_price_checks()
+    now = datetime.now()
+
+    # Revenue metrics
+    won = [q for q in quotes if q.get("status") == "won"]
+    lost = [q for q in quotes if q.get("status") == "lost"]
+    pending = [q for q in quotes if q.get("status", "pending") == "pending"]
+    total_revenue = sum(q.get("total", 0) for q in won)
+    pipeline_value = sum(q.get("total", 0) for q in pending)
+
+    # Monthly goal (configurable later, default $25K)
+    monthly_goal = float(os.environ.get("MONTHLY_REVENUE_GOAL", "25000"))
+
+    # This month's revenue
+    month_start = now.replace(day=1, hour=0, minute=0, second=0)
+    month_revenue = 0
+    month_quotes = 0
+    for q in won:
+        ts = q.get("status_updated", q.get("created_at", ""))
+        if ts:
+            try:
+                dt = datetime.fromisoformat(ts.replace("Z", "+00:00")).replace(tzinfo=None)
+                if dt >= month_start:
+                    month_revenue += q.get("total", 0)
+                    month_quotes += 1
+            except (ValueError, TypeError):
+                pass
+
+    # Weekly quote volume (last 4 weeks)
+    weekly_volume = []
+    for w in range(4):
+        week_end = now - timedelta(weeks=w)
+        week_start = week_end - timedelta(weeks=1)
+        count = 0
+        value = 0
+        for q in quotes:
+            ts = q.get("created_at", q.get("generated_at", ""))
+            if ts:
+                try:
+                    dt = datetime.fromisoformat(ts.replace("Z", "+00:00")).replace(tzinfo=None)
+                    if week_start <= dt < week_end:
+                        count += 1
+                        value += q.get("total", 0)
+                except (ValueError, TypeError):
+                    pass
+        label = f"Week {4-w}" if w > 0 else "This Week"
+        weekly_volume.append({"label": label, "quotes": count, "value": round(value, 2)})
+    weekly_volume.reverse()
+
+    # Win rate trend (rolling - all time)
+    decided = len(won) + len(lost)
+    win_rate = round(len(won) / max(decided, 1) * 100)
+
+    # Average deal size
+    avg_deal = round(total_revenue / max(len(won), 1), 2)
+
+    # Pipeline funnel
+    pc_count = len(pcs) if isinstance(pcs, dict) else 0
+    pc_parsed = sum(1 for p in (pcs.values() if isinstance(pcs, dict) else []) if p.get("status") == "parsed")
+    pc_priced = sum(1 for p in (pcs.values() if isinstance(pcs, dict) else []) if p.get("status") == "priced")
+    pc_completed = sum(1 for p in (pcs.values() if isinstance(pcs, dict) else []) if p.get("status") == "completed")
+
+    # Response time (avg hours from PC upload to priced)
+    response_times = []
+    for pcid, pc in (pcs.items() if isinstance(pcs, dict) else []):
+        history = pc.get("status_history", [])
+        created_ts = None
+        priced_ts = None
+        for h in history:
+            if h.get("to") == "parsed" and not created_ts:
+                created_ts = h.get("timestamp")
+            if h.get("to") == "priced" and not priced_ts:
+                priced_ts = h.get("timestamp")
+        if created_ts and priced_ts:
+            try:
+                c = datetime.fromisoformat(created_ts.replace("Z", "+00:00")).replace(tzinfo=None)
+                p = datetime.fromisoformat(priced_ts.replace("Z", "+00:00")).replace(tzinfo=None)
+                hours = (p - c).total_seconds() / 3600
+                if 0 < hours < 720:  # Sanity: under 30 days
+                    response_times.append(hours)
+            except (ValueError, TypeError):
+                pass
+    avg_response = round(sum(response_times) / max(len(response_times), 1), 1)
+
+    # Top institutions by revenue
+    inst_rev = defaultdict(float)
+    for q in won:
+        inst_rev[q.get("institution", "Unknown")] += q.get("total", 0)
+    top_institutions = sorted(inst_rev.items(), key=lambda x: x[1], reverse=True)[:5]
+
+    return jsonify({
+        "ok": True,
+        "revenue": {
+            "total": round(total_revenue, 2),
+            "this_month": round(month_revenue, 2),
+            "monthly_goal": monthly_goal,
+            "goal_pct": round(month_revenue / max(monthly_goal, 1) * 100),
+            "pipeline_value": round(pipeline_value, 2),
+            "avg_deal": avg_deal,
+        },
+        "quotes": {
+            "total": len(quotes),
+            "won": len(won),
+            "lost": len(lost),
+            "pending": len(pending),
+            "win_rate": win_rate,
+            "this_month_won": month_quotes,
+        },
+        "funnel": {
+            "pcs_total": pc_count,
+            "parsed": pc_parsed,
+            "priced": pc_priced,
+            "completed": pc_completed,
+            "quotes_generated": len(quotes),
+            "quotes_won": len(won),
+        },
+        "weekly_volume": weekly_volume,
+        "response_time_hours": avg_response,
+        "top_institutions": [{"name": n, "revenue": round(v, 2)} for n, v in top_institutions],
+    })
 
 
 # ─── SCPRS Scanner Routes ───────────────────────────────────────────────────
