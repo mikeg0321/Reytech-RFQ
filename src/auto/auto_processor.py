@@ -80,6 +80,12 @@ except ImportError:
     except ImportError:
         HAS_PRICE_CHECK = False
 
+try:
+    from src.agents.item_identifier import identify_pc_items, get_agent_status as item_id_status
+    HAS_ITEM_ID = True
+except ImportError:
+    HAS_ITEM_ID = False
+
 
 # ─── Processing Status ───────────────────────────────────────────────────────
 
@@ -365,7 +371,22 @@ def auto_process_price_check(pdf_path: str, pc_id: str = None) -> dict:
 
     items = parsed["line_items"]
 
-    # Step 2: SCPRS lookup
+    # Step 2: Item Identification (search term optimization + category detection)
+    t0 = time.time()
+    identified = 0
+    if HAS_ITEM_ID:
+        try:
+            items = identify_pc_items(items)
+            identified = sum(1 for it in items if it.get("identification", {}).get("primary_search"))
+            log.info("Identified %d/%d items (mode: %s)", identified, len(items),
+                     items[0].get("identification", {}).get("method", "?") if items else "?")
+        except Exception as e:
+            log.error("Item identification failed: %s", e)
+    result["steps"].append({"step": "identify", "found": identified, "total": len(items),
+                            "mode": "llm" if (items and items[0].get("identification", {}).get("llm_enhanced")) else "rules"})
+    result["timing"]["identify"] = round(time.time() - t0, 2)
+
+    # Step 3: SCPRS lookup
     t0 = time.time()
     scprs_found = 0
     if HAS_WON_QUOTES:
@@ -388,13 +409,15 @@ def auto_process_price_check(pdf_path: str, pc_id: str = None) -> dict:
     result["steps"].append({"step": "scprs", "found": scprs_found, "total": len(items)})
     result["timing"]["scprs"] = round(time.time() - t0, 2)
 
-    # Step 3: Amazon lookup
+    # Step 4: Amazon lookup
     t0 = time.time()
     amazon_found = 0
     if HAS_RESEARCH:
         for item in items:
             try:
-                research = research_product(description=item.get("description", ""))
+                # Use item ID agent's optimized search term if available
+                search_query = item.get("_search_query", item.get("description", ""))
+                research = research_product(description=search_query)
                 if research.get("found"):
                     if not item.get("pricing"):
                         item["pricing"] = {}
@@ -409,7 +432,7 @@ def auto_process_price_check(pdf_path: str, pc_id: str = None) -> dict:
     result["steps"].append({"step": "amazon", "found": amazon_found, "total": len(items)})
     result["timing"]["amazon"] = round(time.time() - t0, 2)
 
-    # Step 4: Calculate pricing (cost + 25% markup)
+    # Step 5: Calculate pricing (cost + 25% markup)
     t0 = time.time()
     priced = 0
     for item in items:
@@ -425,7 +448,7 @@ def auto_process_price_check(pdf_path: str, pc_id: str = None) -> dict:
     result["steps"].append({"step": "pricing", "priced": priced, "total": len(items)})
     result["timing"]["pricing"] = round(time.time() - t0, 2)
 
-    # Step 5: Confidence scoring
+    # Step 6: Confidence scoring
     t0 = time.time()
     confidence = score_quote_confidence(items)
     result["confidence"] = confidence
@@ -433,7 +456,7 @@ def auto_process_price_check(pdf_path: str, pc_id: str = None) -> dict:
                             "score": confidence["overall_score"]})
     result["timing"]["confidence"] = round(time.time() - t0, 2)
 
-    # Step 6: Generate filled PDF
+    # Step 7: Generate filled PDF
     t0 = time.time()
     pc_num = parsed.get("header", {}).get("price_check_number", "unknown")
     safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', pc_num.strip())

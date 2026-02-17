@@ -36,3 +36,12 @@ data/audit_log.json
 !data/customers.json
 !data/quote_counter.json
 !data/quotes_log.json
+
+# Agent data (generated at runtime)
+data/item_id_cache.json
+data/leads.json
+data/lead_history.json
+data/qb_tokens.json
+data/qb_vendors.json
+data/scprs_scan_log.json
+data/scprs_seen_pos.json
