@@ -2224,6 +2224,25 @@ h1 {{ font-size:22px; margin-bottom:4px; }}
 </div>
 
 <div class="section">
+ <h2>🎯 Predictive Intel <span class="tag tag-ok">Phase 19</span></h2>
+ <p style="color:#8b949e;font-size:12px;margin-bottom:10px">Win probability prediction, competitor intelligence, shipping monitor. AI learns from every won and lost quote.</p>
+ <div class="grid">
+  <button class="btn btn-go" onclick="predictWin()">
+   <span class="label">🎯 Predict Win</span><span class="desc">Score any opportunity</span>
+  </button>
+  <button class="btn" onclick="apiGet('/api/intel/competitors')">
+   <span class="label">🕵️ Competitor Intel</span><span class="desc">Lost quote patterns</span>
+  </button>
+  <button class="btn" onclick="apiGet('/api/intel/competitors?institution=CSP-Sacramento')">
+   <span class="label">🏢 CSP Intel</span><span class="desc">Sacramento competitor data</span>
+  </button>
+  <button class="btn" onclick="testShipping()">
+   <span class="label">📦 Test Shipping Scan</span><span class="desc">Detect tracking in email</span>
+  </button>
+ </div>
+</div>
+
+<div class="section">
  <h2>🔍 QA Agent <span class="tag tag-ok">Active</span></h2>
  <p style="color:#8b949e;font-size:12px;margin-bottom:10px">Automated quality assurance — scans for broken buttons, auth issues, JS errors, responsive gaps.</p>
  <div class="grid">
@@ -2309,6 +2328,21 @@ function testCall() {{
 function importTwilio() {{
   if (!confirm('Import your Twilio phone number into Vapi? This lets outbound calls show your Reytech caller ID.')) return;
   apiPost('/api/voice/import-twilio', {{}});
+}}
+
+function predictWin() {{
+  const inst = prompt('Institution (e.g. CSP-Sacramento):');
+  if (!inst) return;
+  const agency = prompt('Agency (e.g. CDCR):', '') || '';
+  const value = prompt('Estimated PO value ($):', '5000') || '0';
+  apiGet('/api/predict/win?institution=' + encodeURIComponent(inst) + '&agency=' + encodeURIComponent(agency) + '&value=' + value);
+}}
+
+function testShipping() {{
+  const subject = prompt('Email subject:', 'Your Amazon order has shipped');
+  if (!subject) return;
+  const body = prompt('Email body (paste tracking #):', 'Your order has shipped. Tracking: TBA123456789012. Estimated delivery: Feb 20.');
+  apiPost('/api/shipping/scan-email', {{subject: subject, body: body, sender: 'ship-confirm@amazon.com'}});
 }}
 
 // Load fleet status on page load

@@ -2810,6 +2810,14 @@ def quote_update_status(quote_number):
         _log_crm_activity(quote_number, "quote_lost",
                           f"Quote {quote_number} marked LOST" + (f" — {notes}" if notes else ""),
                           actor="user")
+        # Log competitor intelligence
+        if PREDICT_AVAILABLE:
+            try:
+                ci = log_competitor_intel(quote_number, "lost",
+                                          {"notes": notes, "competitor": request.get_json(silent=True).get("competitor", "")})
+                result["competitor_intel"] = ci.get("id", "")
+            except Exception as e:
+                log.error("Competitor intel log failed: %s", e)
 
     # ── Create Order for won quotes ──
     if new_status == "won":
@@ -3091,6 +3099,7 @@ def quote_detail(qn):
     <div class="bento bento-2" style="margin-top:14px">
      <div class="card" style="margin:0">
       <div class="card-t">🏢 Agency Intel</div>
+      <div id="win-prediction" style="padding:6px 0;font-size:12px"></div>
       <div id="agency-intel" style="color:var(--tx2);font-size:12px;padding:4px 0">Loading agency data...</div>
      </div>
      <div class="card" style="margin:0">
@@ -3202,6 +3211,20 @@ def quote_detail(qn):
     // Load on page ready
     loadActivity();
     loadAgencyIntel();
+
+    // Win prediction
+    fetch('/api/predict/win?institution={institution}&agency={agency}&value={qt.get("total",0)}')
+      .then(r => r.json()).then(d => {{
+        if (!d.ok) return;
+        const pct = Math.round(d.probability * 100);
+        const clr = pct >= 60 ? 'var(--gn)' : (pct >= 40 ? 'var(--yl)' : 'var(--rd)');
+        const bar = '<div style="background:var(--sf2);border-radius:6px;height:8px;margin:6px 0;overflow:hidden"><div style="width:' + pct + '%;height:100%;background:' + clr + ';border-radius:6px;transition:width .5s"></div></div>';
+        document.getElementById('win-prediction').innerHTML =
+          '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">' +
+          '<span style="font-weight:600;font-size:11px">🎯 Win Prediction</span>' +
+          '<span style="font-size:18px;font-weight:700;color:' + clr + '">' + pct + '%</span></div>' + bar +
+          '<div style="color:var(--tx2);font-size:10px">' + d.recommendation + ' <span style="opacity:.5">(' + d.confidence + ' confidence)</span></div>';
+      }}).catch(() => {{}});
     </script>
     """
     return render(content, title=f"Quote {qn}")
@@ -3670,6 +3693,90 @@ sales@reytechinc.com"""
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# Predictive Intelligence & Shipping Monitor (Phase 19)
+# ═══════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/predict/win")
+@auth_required
+def api_predict_win():
+    """Predict win probability for an institution/agency.
+    GET ?institution=CSP-Sacramento&agency=CDCR&value=5000"""
+    if not PREDICT_AVAILABLE:
+        return jsonify({"ok": False, "error": "Predictive module not available"})
+    inst = request.args.get("institution", "")
+    agency = request.args.get("agency", "")
+    value = float(request.args.get("value", 0) or 0)
+    result = predict_win_probability(institution=inst, agency=agency, po_value=value)
+    return jsonify({"ok": True, **result})
+
+
+@bp.route("/api/predict/batch", methods=["POST"])
+@auth_required
+def api_predict_batch():
+    """Batch predict for multiple opportunities. POST JSON: [{institution, agency, value}, ...]"""
+    if not PREDICT_AVAILABLE:
+        return jsonify({"ok": False, "error": "Predictive module not available"})
+    data = request.get_json(silent=True) or []
+    results = []
+    for opp in data[:50]:
+        pred = predict_win_probability(
+            institution=opp.get("institution", ""),
+            agency=opp.get("agency", ""),
+            po_value=opp.get("value", 0),
+        )
+        results.append({**opp, **pred})
+    results.sort(key=lambda r: r.get("probability", 0), reverse=True)
+    return jsonify({"ok": True, "predictions": results})
+
+
+@bp.route("/api/intel/competitors")
+@auth_required
+def api_competitor_insights():
+    """Competitor intelligence summary.
+    GET ?institution=...&agency=...&limit=20"""
+    if not PREDICT_AVAILABLE:
+        return jsonify({"ok": False, "error": "Predictive module not available"})
+    inst = request.args.get("institution", "")
+    agency = request.args.get("agency", "")
+    limit = int(request.args.get("limit", 20))
+    result = get_competitor_insights(institution=inst, agency=agency, limit=limit)
+    return jsonify({"ok": True, **result})
+
+
+@bp.route("/api/shipping/scan-email", methods=["POST"])
+@auth_required
+def api_shipping_scan():
+    """Scan an email for shipping/tracking info. POST: {subject, body, sender}"""
+    if not PREDICT_AVAILABLE:
+        return jsonify({"ok": False, "error": "Shipping monitor not available"})
+    data = request.get_json(silent=True) or {}
+    tracking_info = detect_shipping_email(
+        data.get("subject", ""), data.get("body", ""), data.get("sender", ""))
+
+    if not tracking_info.get("is_shipping"):
+        return jsonify({"ok": True, "is_shipping": False})
+
+    # Try to match to an order
+    orders = _load_orders()
+    matched_oid = match_tracking_to_order(tracking_info, orders)
+    result = {"ok": True, **tracking_info, "matched_order": matched_oid}
+
+    # Auto-update order if matched
+    if matched_oid:
+        update = update_order_from_tracking(matched_oid, tracking_info, orders)
+        _save_orders(orders)
+        _update_order_status(matched_oid)
+        result["update"] = update
+        _log_crm_activity(matched_oid, "shipping_detected",
+                          f"Shipping email detected — {tracking_info.get('carrier','')} "
+                          f"tracking {', '.join(tracking_info.get('tracking_numbers',[])) or 'N/A'} — "
+                          f"status: {tracking_info.get('delivery_status','')}",
+                          actor="system", metadata=tracking_info)
+
+    return jsonify(result)
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # Test Mode — QA/QC Infrastructure (Phase 12 Ready)
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -3851,6 +3958,15 @@ except ImportError:
     SCANNER_AVAILABLE = False
 
 try:
+    from src.agents.predictive_intel import (
+        predict_win_probability, log_competitor_intel, get_competitor_insights,
+        detect_shipping_email, match_tracking_to_order, update_order_from_tracking,
+    )
+    PREDICT_AVAILABLE = True
+except ImportError:
+    PREDICT_AVAILABLE = False
+
+try:
     from src.agents.quickbooks_agent import (
         fetch_vendors, find_vendor, create_purchase_order,
         get_recent_purchase_orders, get_agent_status as qb_agent_status,
@@ -3979,6 +4095,7 @@ def api_agents_status():
         "manager": manager_agent_status() if MANAGER_AVAILABLE else {"status": "not_available"},
         "orchestrator": get_workflow_status() if ORCHESTRATOR_AVAILABLE else {"status": "not_available"},
         "qa": qa_agent_status() if QA_AVAILABLE else {"status": "not_available"},
+        "predictive_intel": {"status": "ready", "version": "1.0.0", "features": ["win_prediction", "competitor_intel", "shipping_monitor"]} if PREDICT_AVAILABLE else {"status": "not_available"},
     }
     try:
         from src.agents.product_research import get_research_cache_stats
