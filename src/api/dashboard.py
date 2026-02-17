@@ -3884,6 +3884,7 @@ try:
     from src.agents.voice_agent import (
         place_call, get_call_log, get_agent_status as voice_agent_status,
         is_configured as voice_configured, SCRIPTS as VOICE_SCRIPTS,
+        verify_credentials as voice_verify,
     )
     VOICE_AVAILABLE = True
 except ImportError:
@@ -4719,6 +4720,15 @@ def api_voice_status():
     if not VOICE_AVAILABLE:
         return jsonify({"ok": False, "error": "Voice agent not available"})
     return jsonify({"ok": True, **voice_agent_status()})
+
+
+@bp.route("/api/voice/verify")
+@auth_required
+def api_voice_verify():
+    """Verify Twilio credentials are valid by pinging the API."""
+    if not VOICE_AVAILABLE:
+        return jsonify({"ok": False, "error": "Voice agent not available"})
+    return jsonify(voice_verify())
 
 
 @bp.route("/api/test/cleanup-duplicates")

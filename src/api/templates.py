@@ -2153,6 +2153,9 @@ h1 {{ font-size:22px; margin-bottom:4px; }}
   <button class="btn btn-go" onclick="apiGet('/api/voice/status')">
    <span class="label">📞 Voice Status</span><span class="desc">Check config + setup steps</span>
   </button>
+  <button class="btn btn-go" onclick="apiGet('/api/voice/verify')">
+   <span class="label">🔑 Verify Keys</span><span class="desc">Test Twilio credentials</span>
+  </button>
   <button class="btn" onclick="apiGet('/api/voice/scripts')">
    <span class="label">📜 Call Scripts</span><span class="desc">Lead intro, follow-up</span>
   </button>

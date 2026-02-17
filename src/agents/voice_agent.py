@@ -243,6 +243,28 @@ def get_call_log(limit: int = 50) -> list:
 
 # ─── Status ──────────────────────────────────────────────────────────────────
 
+def verify_credentials() -> dict:
+    """Actually ping Twilio API to verify credentials are valid."""
+    if not is_configured():
+        return {"ok": False, "error": "Not configured — env vars missing"}
+    if not HAS_TWILIO:
+        return {"ok": False, "error": "twilio SDK not installed"}
+    try:
+        client = TwilioClient(TWILIO_SID, TWILIO_TOKEN)
+        account = client.api.accounts(TWILIO_SID).fetch()
+        # Check that phone number exists
+        numbers = client.incoming_phone_numbers.list(phone_number=TWILIO_PHONE, limit=1)
+        return {
+            "ok": True,
+            "account_name": account.friendly_name,
+            "account_status": account.status,
+            "phone_verified": len(numbers) > 0,
+            "phone_number": TWILIO_PHONE,
+        }
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 def get_agent_status() -> dict:
     """Agent health + configuration status."""
     return {
@@ -253,6 +275,8 @@ def get_agent_status() -> dict:
         "twilio_sdk_installed": HAS_TWILIO,
         "elevenlabs_configured": is_voice_configured(),
         "phone_number": TWILIO_PHONE[:6] + "****" if TWILIO_PHONE else "(not set)",
+        "sid_set": bool(TWILIO_SID),
+        "token_set": bool(TWILIO_TOKEN),
         "available_scripts": list(SCRIPTS.keys()),
         "call_log_count": len(get_call_log(limit=9999)),
         "setup_steps": [
