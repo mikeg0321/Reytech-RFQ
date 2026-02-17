@@ -580,6 +580,7 @@ def render(content, **kw):
   <a href="/" class="hdr-btn hdr-active">🏠 Home</a>
   <a href="/quotes" class="hdr-btn">📋 Quotes</a>
   <a href="/orders" class="hdr-btn">📦 Orders</a>
+  <a href="/campaigns" class="hdr-btn">📞 Campaigns</a>
   <a href="/pipeline" class="hdr-btn">🔄 Pipeline</a>
   <a href="/agents" class="hdr-btn">🤖 Agents</a>
   <span style="width:1px;height:24px;background:var(--bd);margin:0 6px"></span>
@@ -4315,6 +4316,16 @@ except ImportError:
     VOICE_AVAILABLE = False
 
 try:
+    from src.agents.voice_campaigns import (
+        create_campaign, get_campaigns, get_campaign,
+        execute_campaign_call, update_call_outcome,
+        get_campaign_stats, list_scripts as campaign_list_scripts,
+    )
+    CAMPAIGNS_AVAILABLE = True
+except ImportError:
+    CAMPAIGNS_AVAILABLE = False
+
+try:
     from src.agents.manager_agent import (
         generate_brief, get_agent_status as manager_agent_status,
     )
@@ -5381,6 +5392,296 @@ def api_voice_call_details(call_id):
         return jsonify({"ok": False, "error": "Voice agent not available"})
     details = get_vapi_call_details(call_id)
     return jsonify({"ok": not bool(details.get("error")), **details})
+
+
+# ─── Campaign Routes ────────────────────────────────────────────────────────
+
+@bp.route("/campaigns")
+@auth_required
+def campaigns_page():
+    """Campaigns management page."""
+    campaigns = get_campaigns() if CAMPAIGNS_AVAILABLE else []
+    stats = get_campaign_stats() if CAMPAIGNS_AVAILABLE else {}
+    scripts = list(VOICE_SCRIPTS.items()) if VOICE_AVAILABLE else []
+
+    # Script options for dropdowns
+    script_options = ""
+    for key, sc in scripts:
+        cat = sc.get("category", "other")
+        script_options += f'<option value="{key}">[{cat}] {sc["name"]}</option>'
+
+    # Source options
+    source_options = """
+    <option value="manual">Manual (add contacts)</option>
+    <option value="hot_leads">🔥 Hot Leads (score ≥ 70%)</option>
+    <option value="pending_quotes">📋 Pending Quotes (follow-up)</option>
+    <option value="lost_quotes">❌ Lost Quotes (recovery)</option>
+    <option value="won_customers">✅ Won Customers (thank you)</option>
+    <option value="dormant">💤 Dormant Accounts (reactivation)</option>
+    """
+
+    # Campaign rows
+    camp_rows = ""
+    for c in campaigns[:20]:
+        st = c.get("status", "draft")
+        st_color = {"draft": "var(--tx2)", "active": "var(--gn)", "paused": "var(--yl)", "completed": "var(--ac)"}
+        called = c["stats"]["called"]
+        total = c["stats"]["total"]
+        reached = c["stats"]["reached"]
+        pct = round(called / total * 100) if total > 0 else 0
+        camp_rows += f"""<tr>
+         <td><a href="/campaign/{c['id']}" style="color:var(--ac);text-decoration:none;font-weight:600">{c['name']}</a></td>
+         <td style="color:{st_color.get(st,'var(--tx2)')};font-weight:600">{st}</td>
+         <td>{c.get('script_key','?')}</td>
+         <td style="text-align:center">{total}</td>
+         <td style="text-align:center">{called}/{total} ({pct}%)</td>
+         <td style="text-align:center">{reached}</td>
+         <td class="mono" style="font-size:11px">{c.get('created_at','')[:10]}</td>
+        </tr>"""
+
+    content = f"""
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+     <h1 style="margin:0">📞 Voice Campaigns</h1>
+     <button class="btn btn-p" onclick="document.getElementById('new-camp').style.display='block'" style="padding:8px 16px">+ New Campaign</button>
+    </div>
+
+    <!-- Stats bar -->
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:16px">
+     <div class="card" style="text-align:center;padding:12px"><div style="font-size:10px;color:var(--tx2);text-transform:uppercase">Campaigns</div><div style="font-size:24px;font-weight:700">{stats.get('total_campaigns',0)}</div></div>
+     <div class="card" style="text-align:center;padding:12px"><div style="font-size:10px;color:var(--tx2);text-transform:uppercase">Total Calls</div><div style="font-size:24px;font-weight:700">{stats.get('total_called',0)}</div></div>
+     <div class="card" style="text-align:center;padding:12px"><div style="font-size:10px;color:var(--tx2);text-transform:uppercase">Connect Rate</div><div style="font-size:24px;font-weight:700;color:var(--gn)">{stats.get('connect_rate',0)}%</div></div>
+     <div class="card" style="text-align:center;padding:12px"><div style="font-size:10px;color:var(--tx2);text-transform:uppercase">Interested</div><div style="font-size:24px;font-weight:700;color:var(--ac)">{stats.get('total_interested',0)}</div></div>
+     <div class="card" style="text-align:center;padding:12px"><div style="font-size:10px;color:var(--tx2);text-transform:uppercase">Est. Cost</div><div style="font-size:24px;font-weight:700">${stats.get('estimated_cost',0):.2f}</div></div>
+    </div>
+
+    <!-- New Campaign Form (hidden) -->
+    <div id="new-camp" class="card" style="display:none;margin-bottom:16px;padding:16px">
+     <div class="card-t" style="margin-bottom:12px">New Campaign</div>
+     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div>
+       <label style="font-size:11px;color:var(--tx2)">Campaign Name</label>
+       <input id="camp-name" placeholder="Feb CDCR Outreach" style="width:100%;padding:8px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);margin-top:4px">
+      </div>
+      <div>
+       <label style="font-size:11px;color:var(--tx2)">Contact Source</label>
+       <select id="camp-source" style="width:100%;padding:8px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);margin-top:4px">{source_options}</select>
+      </div>
+      <div>
+       <label style="font-size:11px;color:var(--tx2)">Default Script</label>
+       <select id="camp-script" style="width:100%;padding:8px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);margin-top:4px">{script_options}</select>
+      </div>
+      <div>
+       <label style="font-size:11px;color:var(--tx2)">Filter (agency)</label>
+       <input id="camp-filter" placeholder="CDCR, CCHCS, etc." style="width:100%;padding:8px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);margin-top:4px">
+      </div>
+     </div>
+     <div style="margin-top:12px;display:flex;gap:8px">
+      <button class="btn btn-p" onclick="createCampaign()" style="padding:8px 20px">Create Campaign</button>
+      <button class="btn" onclick="document.getElementById('new-camp').style.display='none'" style="padding:8px 20px">Cancel</button>
+     </div>
+    </div>
+
+    <!-- Available Scripts -->
+    <div class="card" style="margin-bottom:16px;padding:16px">
+     <div class="card-t" style="margin-bottom:10px">📜 {len(scripts)} Call Scripts Available</div>
+     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:8px">
+      {''.join(f'<div style="padding:8px;background:var(--sf2);border-radius:8px;font-size:12px"><span style="color:var(--ac);font-weight:600">{sc["name"]}</span><br><span style="color:var(--tx2);font-size:10px">[{sc.get("category","?")}] {key}</span></div>' for key, sc in scripts)}
+     </div>
+    </div>
+
+    <!-- Campaigns Table -->
+    <div class="card" style="padding:16px">
+     <div class="card-t" style="margin-bottom:10px">Campaigns</div>
+     <table class="tbl" style="width:100%">
+      <thead><tr>
+       <th>Campaign</th><th>Status</th><th>Script</th><th>Contacts</th><th>Progress</th><th>Reached</th><th>Created</th>
+      </tr></thead>
+      <tbody>{camp_rows if camp_rows else '<tr><td colspan="7" style="text-align:center;color:var(--tx2);padding:20px">No campaigns yet — create one above</td></tr>'}</tbody>
+     </table>
+    </div>
+
+    <script>
+    function createCampaign() {{
+      const name = document.getElementById('camp-name').value;
+      if (!name) {{ alert('Enter a campaign name'); return; }}
+      const source = document.getElementById('camp-source').value;
+      const script = document.getElementById('camp-script').value;
+      const agency = document.getElementById('camp-filter').value;
+      fetch('/api/campaigns', {{
+        method: 'POST', credentials: 'same-origin',
+        headers: {{'Content-Type': 'application/json'}},
+        body: JSON.stringify({{name, script_key: script, target_type: source, filters: {{agency: agency}}}})
+      }}).then(r => r.json()).then(d => {{
+        if (d.ok) {{ location.reload(); }} else {{ alert(d.error || 'Failed'); }}
+      }});
+    }}
+    </script>
+    """
+    return render(content, title="Voice Campaigns")
+
+
+@bp.route("/campaign/<cid>")
+@auth_required
+def campaign_detail(cid):
+    """Campaign detail page with contact list and dialer."""
+    if not CAMPAIGNS_AVAILABLE:
+        return redirect("/campaigns")
+    camp = get_campaign(cid)
+    if not camp:
+        flash("Campaign not found", "error")
+        return redirect("/campaigns")
+
+    contacts = camp.get("contacts", [])
+    stats = camp.get("stats", {})
+    pending = [c for c in contacts if c.get("status") == "pending"]
+    called = [c for c in contacts if c.get("status") == "called"]
+
+    # Contact rows
+    contact_rows = ""
+    for i, c in enumerate(contacts):
+        outcome = c.get("outcome", "")
+        outcome_color = {"reached": "var(--gn)", "voicemail": "var(--yl)", "interested": "var(--ac)",
+                         "no_answer": "var(--tx2)", "callback": "var(--warn)", "not_interested": "var(--rd)"}.get(outcome, "var(--tx2)")
+        phone = c.get("phone", "")
+        dial_btn = f'<button class="btn btn-sm" onclick="dialContact({i})" style="background:rgba(52,211,153,.15);color:var(--gn);border:1px solid rgba(52,211,153,.3);padding:2px 8px;font-size:10px">📞 Dial</button>' if c["status"] == "pending" and phone else ""
+        outcome_btn = f'<select onchange="logOutcome(\'{phone}\',this.value)" style="font-size:10px;padding:2px;background:var(--sf);border:1px solid var(--bd);border-radius:4px;color:var(--tx)"><option value="">Log outcome...</option><option value="reached">✅ Reached</option><option value="voicemail">📱 Voicemail</option><option value="no_answer">❌ No Answer</option><option value="callback">📞 Callback</option><option value="interested">🎯 Interested</option><option value="not_interested">👎 Not Interested</option><option value="gatekeeper">🚪 Gatekeeper</option></select>' if c["status"] == "pending" or (c["status"] == "called" and not outcome) else ""
+
+        contact_rows += f"""<tr>
+         <td style="font-weight:500">{c.get('name','?')}</td>
+         <td class="mono" style="font-size:11px">{phone or '<span style=\"color:var(--rd)\">no phone</span>'}</td>
+         <td style="font-size:11px">{c.get('institution','')}</td>
+         <td style="font-size:11px">{c.get('script', camp.get('script_key',''))}</td>
+         <td style="text-align:center"><span style="color:{outcome_color};font-weight:600;font-size:11px">{outcome or c.get('status','')}</span></td>
+         <td style="text-align:center;white-space:nowrap">{dial_btn} {outcome_btn}</td>
+        </tr>"""
+
+    content = f"""
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+     <div>
+      <h1 style="margin:0">{camp['name']}</h1>
+      <div style="color:var(--tx2);font-size:12px;margin-top:4px">{camp.get('contact_source', camp.get('target_type',''))} • {camp.get('script_key','')} • {len(contacts)} contacts</div>
+     </div>
+     <div style="display:flex;gap:8px">
+      <a href="/campaigns" class="btn" style="padding:8px 16px">← Back</a>
+      <button class="btn btn-p" onclick="dialNext()" style="padding:8px 16px" {'disabled' if not pending else ''}>📞 Dial Next ({len(pending)} remaining)</button>
+     </div>
+    </div>
+
+    <!-- Stats -->
+    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-bottom:16px">
+     <div class="card" style="text-align:center;padding:10px"><div style="font-size:9px;color:var(--tx2);text-transform:uppercase">Total</div><div style="font-size:20px;font-weight:700">{stats.get('total',0)}</div></div>
+     <div class="card" style="text-align:center;padding:10px"><div style="font-size:9px;color:var(--tx2);text-transform:uppercase">Called</div><div style="font-size:20px;font-weight:700">{stats.get('called',0)}</div></div>
+     <div class="card" style="text-align:center;padding:10px"><div style="font-size:9px;color:var(--tx2);text-transform:uppercase">Reached</div><div style="font-size:20px;font-weight:700;color:var(--gn)">{stats.get('reached',0)}</div></div>
+     <div class="card" style="text-align:center;padding:10px"><div style="font-size:9px;color:var(--tx2);text-transform:uppercase">Voicemail</div><div style="font-size:20px;font-weight:700;color:var(--yl)">{stats.get('voicemail',0)}</div></div>
+     <div class="card" style="text-align:center;padding:10px"><div style="font-size:9px;color:var(--tx2);text-transform:uppercase">Interested</div><div style="font-size:20px;font-weight:700;color:var(--ac)">{stats.get('interested',0)}</div></div>
+     <div class="card" style="text-align:center;padding:10px"><div style="font-size:9px;color:var(--tx2);text-transform:uppercase">Callback</div><div style="font-size:20px;font-weight:700;color:var(--warn)">{stats.get('callback',0)}</div></div>
+    </div>
+
+    <!-- Contact List -->
+    <div class="card" style="padding:16px">
+     <div class="card-t" style="margin-bottom:10px">Contact List</div>
+     <table class="tbl" style="width:100%">
+      <thead><tr><th>Name</th><th>Phone</th><th>Institution</th><th>Script</th><th>Outcome</th><th>Actions</th></tr></thead>
+      <tbody>{contact_rows}</tbody>
+     </table>
+    </div>
+
+    <script>
+    function dialContact(idx) {{
+      fetch('/api/campaigns/{cid}/call', {{
+        method: 'POST', credentials: 'same-origin',
+        headers: {{'Content-Type': 'application/json'}},
+        body: JSON.stringify({{target_index: idx}})
+      }}).then(r => r.json()).then(d => {{
+        if (d.ok) {{ alert('Call placed: ' + (d.call_id||d.call_sid||'queued')); location.reload(); }}
+        else {{ alert(d.error || 'Call failed'); }}
+      }});
+    }}
+    function dialNext() {{
+      fetch('/api/campaigns/{cid}/call', {{
+        method: 'POST', credentials: 'same-origin',
+        headers: {{'Content-Type': 'application/json'}},
+        body: JSON.stringify({{}})
+      }}).then(r => r.json()).then(d => {{
+        if (d.ok) {{ alert('Calling: ' + (d.to||'next contact')); location.reload(); }}
+        else {{ alert(d.error || 'No more contacts'); }}
+      }});
+    }}
+    function logOutcome(phone, outcome) {{
+      if (!outcome) return;
+      fetch('/api/campaigns/{cid}/outcome', {{
+        method: 'POST', credentials: 'same-origin',
+        headers: {{'Content-Type': 'application/json'}},
+        body: JSON.stringify({{phone, outcome}})
+      }}).then(r => r.json()).then(d => {{
+        if (d.ok) location.reload();
+      }});
+    }}
+    </script>
+    """
+    return render(content, title=f"Campaign: {camp['name']}")
+
+
+@bp.route("/api/campaigns", methods=["GET", "POST"])
+@auth_required
+def api_campaigns():
+    """List or create campaigns."""
+    if not CAMPAIGNS_AVAILABLE:
+        return jsonify({"ok": False, "error": "Campaigns not available"})
+    if request.method == "POST":
+        data = request.get_json(silent=True) or {}
+        result = create_campaign(
+            name=data.get("name", "Untitled"),
+            script_key=data.get("script_key", "lead_intro"),
+            target_type=data.get("target_type", "manual"),
+            filters=data.get("filters", {}),
+        )
+        return jsonify({"ok": True, **result})
+    return jsonify({"ok": True, "campaigns": get_campaigns()})
+
+
+@bp.route("/api/campaigns/<cid>/call", methods=["POST"])
+@auth_required
+def api_campaign_call(cid):
+    """Execute next call in campaign."""
+    if not CAMPAIGNS_AVAILABLE or not VOICE_AVAILABLE:
+        return jsonify({"ok": False, "error": "Voice/campaigns not available"})
+    data = request.get_json(silent=True) or {}
+    target_index = data.get("target_index")
+    result = execute_campaign_call(cid, target_index=target_index)
+    return jsonify(result)
+
+
+@bp.route("/api/campaigns/<cid>/outcome", methods=["POST"])
+@auth_required
+def api_campaign_outcome(cid):
+    """Log call outcome for a campaign contact."""
+    if not CAMPAIGNS_AVAILABLE:
+        return jsonify({"ok": False, "error": "Campaigns not available"})
+    data = request.get_json(silent=True) or {}
+    result = update_call_outcome(cid, phone=data.get("phone", ""), outcome=data.get("outcome", ""))
+    return jsonify(result)
+
+
+@bp.route("/api/campaigns/<cid>")
+@auth_required
+def api_campaign_detail(cid):
+    """Get campaign details."""
+    if not CAMPAIGNS_AVAILABLE:
+        return jsonify({"ok": False, "error": "Campaigns not available"})
+    camp = get_campaign(cid)
+    if not camp:
+        return jsonify({"ok": False, "error": "Not found"})
+    return jsonify({"ok": True, **camp})
+
+
+@bp.route("/api/campaigns/stats")
+@auth_required
+def api_campaign_stats():
+    """Aggregate campaign analytics."""
+    if not CAMPAIGNS_AVAILABLE:
+        return jsonify({"ok": False, "error": "Campaigns not available"})
+    return jsonify({"ok": True, **get_campaign_stats()})
 
 
 @bp.route("/api/test/cleanup-duplicates")
