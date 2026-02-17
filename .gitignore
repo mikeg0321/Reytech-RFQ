@@ -36,3 +36,8 @@ data/audit_log.json
 !data/customers.json
 !data/quote_counter.json
 !data/quotes_log.json
+
+# Agent data (generated at runtime)
+data/item_id_cache.json
+data/leads.json
+data/lead_history.json

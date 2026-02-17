@@ -2739,6 +2739,166 @@ def api_test_status():
     })
 
 
+# ─── Item Identification Agent ───────────────────────────────────────────────
+
+try:
+    from src.agents.item_identifier import (identify_item, identify_pc_items,
+                                            get_agent_status as item_id_agent_status)
+    ITEM_ID_AVAILABLE = True
+except ImportError:
+    ITEM_ID_AVAILABLE = False
+
+# ─── Lead Generation Agent ──────────────────────────────────────────────────
+
+try:
+    from src.agents.lead_gen_agent import (
+        evaluate_po, add_lead, get_leads, update_lead_status,
+        draft_outreach_email, get_agent_status as leadgen_agent_status,
+        get_lead_analytics,
+    )
+    LEADGEN_AVAILABLE = True
+except ImportError:
+    LEADGEN_AVAILABLE = False
+
+
+@bp.route("/api/identify", methods=["POST"])
+@auth_required
+def api_identify_item():
+    """Identify a single item. POST JSON: {"description": "...", "qty": 22, "uom": "EA"}"""
+    if not ITEM_ID_AVAILABLE:
+        return jsonify({"ok": False, "error": "Item identifier agent not available"})
+    data = request.get_json(silent=True) or {}
+    desc = data.get("description", "").strip()
+    if not desc:
+        return jsonify({"ok": False, "error": "No description provided"})
+    result = identify_item(desc, qty=data.get("qty", 0), uom=data.get("uom", ""))
+    return jsonify({"ok": True, **result})
+
+
+@bp.route("/api/identify/pc/<pcid>")
+@auth_required
+def api_identify_pc(pcid):
+    """Run item identification on all items in a Price Check."""
+    if not ITEM_ID_AVAILABLE:
+        return jsonify({"ok": False, "error": "Item identifier agent not available"})
+    pcs = _load_price_checks()
+    if pcid not in pcs:
+        return jsonify({"ok": False, "error": "PC not found"})
+    pc = pcs[pcid]
+    items = pc.get("items", [])
+    if not items:
+        return jsonify({"ok": False, "error": "No items in PC"})
+
+    identified = identify_pc_items(items)
+    # Save back
+    pc["items"] = identified
+    _save_price_checks(pcs)
+
+    return jsonify({
+        "ok": True,
+        "items": len(identified),
+        "identified": sum(1 for it in identified if it.get("identification")),
+        "mode": identified[0].get("identification", {}).get("method", "none") if identified else "none",
+        "results": [
+            {
+                "description": it.get("description", "")[:60],
+                "search_term": it.get("_search_query", ""),
+                "category": it.get("_category", ""),
+                "method": it.get("identification", {}).get("method", ""),
+            }
+            for it in identified
+        ],
+    })
+
+
+@bp.route("/api/agents/status")
+@auth_required
+def api_agents_status():
+    """Status of all agents."""
+    agents = {
+        "item_identifier": item_id_agent_status() if ITEM_ID_AVAILABLE else {"status": "not_available"},
+        "lead_gen": leadgen_agent_status() if LEADGEN_AVAILABLE else {"status": "not_available"},
+    }
+    try:
+        from src.agents.product_research import get_research_cache_stats
+        agents["product_research"] = get_research_cache_stats()
+    except Exception:
+        agents["product_research"] = {"status": "not_available"}
+
+    return jsonify({"ok": True, "agents": agents})
+
+
+# ─── Lead Generation Routes ─────────────────────────────────────────────────
+
+@bp.route("/api/leads")
+@auth_required
+def api_leads_list():
+    """Get leads, optionally filtered. ?status=new&min_score=0.6&limit=20"""
+    if not LEADGEN_AVAILABLE:
+        return jsonify({"ok": False, "error": "Lead gen agent not available"})
+    status = request.args.get("status")
+    min_score = float(request.args.get("min_score", 0))
+    limit = int(request.args.get("limit", 50))
+    leads = get_leads(status=status, min_score=min_score, limit=limit)
+    return jsonify({"ok": True, "leads": leads, "count": len(leads)})
+
+
+@bp.route("/api/leads/evaluate", methods=["POST"])
+@auth_required
+def api_leads_evaluate():
+    """Evaluate a PO as a potential lead. POST JSON with PO data."""
+    if not LEADGEN_AVAILABLE:
+        return jsonify({"ok": False, "error": "Lead gen agent not available"})
+    data = request.get_json(silent=True) or {}
+    # Load won history for matching
+    won_history = []
+    try:
+        from src.knowledge.won_quotes_db import get_all_items
+        won_history = get_all_items()
+    except Exception:
+        pass
+    lead = evaluate_po(data, won_history)
+    if not lead:
+        return jsonify({"ok": True, "qualified": False,
+                        "reason": "Below confidence threshold or out of value range"})
+    result = add_lead(lead)
+    return jsonify({"ok": True, "qualified": True, "lead": lead, **result})
+
+
+@bp.route("/api/leads/<lead_id>/status", methods=["POST"])
+@auth_required
+def api_leads_update_status(lead_id):
+    """Update lead status. POST JSON: {"status": "contacted", "notes": "..."}"""
+    if not LEADGEN_AVAILABLE:
+        return jsonify({"ok": False, "error": "Lead gen agent not available"})
+    data = request.get_json(silent=True) or {}
+    return jsonify(update_lead_status(
+        lead_id, data.get("status", ""), data.get("notes", "")))
+
+
+@bp.route("/api/leads/<lead_id>/draft")
+@auth_required
+def api_leads_draft(lead_id):
+    """Get outreach email draft for a lead."""
+    if not LEADGEN_AVAILABLE:
+        return jsonify({"ok": False, "error": "Lead gen agent not available"})
+    leads = get_leads()
+    lead = next((l for l in leads if l["id"] == lead_id), None)
+    if not lead:
+        return jsonify({"ok": False, "error": "Lead not found"})
+    draft = draft_outreach_email(lead)
+    return jsonify({"ok": True, **draft})
+
+
+@bp.route("/api/leads/analytics")
+@auth_required
+def api_leads_analytics():
+    """Lead conversion analytics."""
+    if not LEADGEN_AVAILABLE:
+        return jsonify({"ok": False, "error": "Lead gen agent not available"})
+    return jsonify({"ok": True, **get_lead_analytics()})
+
+
 @bp.route("/api/test/cleanup-duplicates")
 @auth_required
 def api_cleanup_duplicates():
