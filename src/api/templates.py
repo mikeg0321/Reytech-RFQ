@@ -2293,7 +2293,7 @@ h1 {{ font-size:22px; margin-bottom:4px; }}
 
 <div class="section">
  <h2>🔍 QA Agent <span class="tag tag-ok" id="qa-tag">Active</span></h2>
- <p style="color:#8b949e;font-size:12px;margin-bottom:10px">Autonomous health monitor — runs every 15 min. Checks routes, data, agents, code, env.</p>
+ <p style="color:#8b949e;font-size:12px;margin-bottom:10px">Autonomous health monitor — runs every 5 min. Checks routes, data, agents, code, env.</p>
  <div id="qa-health" style="display:none;margin-bottom:12px"></div>
  <div class="grid">
   <button class="btn btn-go" onclick="apiGet('/api/qa/health')">
@@ -2307,6 +2307,22 @@ h1 {{ font-size:22px; margin-bottom:4px; }}
   </button>
   <button class="btn" onclick="apiGet('/api/qa/trend')">
    <span class="label">📈 Trend</span><span class="desc">Health score over time</span>
+  </button>
+ </div>
+</div>
+
+<div class="section">
+ <h2>🧪 Testing <span class="tag tag-warn">Sandbox</span></h2>
+ <p style="color:#8b949e;font-size:12px;margin-bottom:10px">Test data is labeled <span style="background:#d29922;color:#000;font-size:9px;padding:1px 5px;border-radius:4px;font-weight:700">TEST</span> and excluded from pipeline stats, funnel, and auto-assignment.</p>
+ <div class="grid">
+  <button class="btn btn-go" onclick="apiGet('/api/test/create-pc')">
+   <span class="label">📝 Create Test RFQ</span><span class="desc">CSP-Sacramento test PC with 3 items</span>
+  </button>
+  <button class="btn" onclick="apiGet('/api/test/status')">
+   <span class="label">📊 Test Status</span><span class="desc">View active test records</span>
+  </button>
+  <button class="btn" onclick="if(confirm('Remove all test data?')) apiGet('/api/test/cleanup?reset_counter=false')" style="border-color:rgba(248,113,113,.3)">
+   <span class="label">🗑️ Clean Test Data</span><span class="desc">Remove all TEST records</span>
   </button>
  </div>
 </div>

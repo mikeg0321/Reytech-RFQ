@@ -805,6 +805,7 @@ def _handle_price_check_upload(pdf_path, pc_id):
                 "created_at": datetime.now().isoformat(),
                 "status": "draft",
                 "source_pc_id": pc_id,
+                "is_test": pc_id.startswith("test_"),
                 "ship_to_name": ship_parts[0] if ship_parts else "",
                 "ship_to_address": ship_parts[1:] if len(ship_parts) > 1 else ship_parts,
                 "items_text": " | ".join(i.get("description", "")[:50] for i in items[:5]),
@@ -1564,6 +1565,7 @@ def pricecheck_convert_to_quote(pcid):
         "status": "pending",
         "source": "price_check",
         "source_pc_id": pcid,
+        "is_test": pcid.startswith("test_") or pc.get("is_test", False),
         "award_method": "all_or_none",
         "created_at": datetime.now().isoformat(),
     }
@@ -2976,7 +2978,8 @@ def quotes_list():
         toggle = f"""<button onclick="document.getElementById('{detail_id}').style.display=document.getElementById('{detail_id}').style.display==='none'?'table-row':'none'" style="background:none;border:none;cursor:pointer;font-size:10px;color:var(--tx2);padding:0" title="Show items">▶ {qt.get('items_count',0)}</button>""" if (items_detail or items_text) else str(qt.get('items_count', 0))
 
         # Quote number links to dedicated detail page
-        qn_cell = f'<a href="/quote/{qn}" style="color:var(--ac);text-decoration:none;font-family:\'JetBrains Mono\',monospace;font-weight:700" title="View quote details">{qn}</a>'
+        test_badge = ' <span style="background:#d29922;color:#000;font-size:9px;padding:1px 5px;border-radius:4px;font-weight:700">TEST</span>' if qt.get("is_test") or qt.get("source_pc_id", "").startswith("test_") else ""
+        qn_cell = f'<a href="/quote/{qn}" style="color:var(--ac);text-decoration:none;font-family:\'JetBrains Mono\',monospace;font-weight:700" title="View quote details">{qn}</a>{test_badge}'
 
         # Decided rows get subtle opacity
         row_style = "opacity:0.5" if st in ("won", "lost", "expired") else ""
@@ -3796,8 +3799,8 @@ sales@reytechinc.com"""
 @auth_required
 def pipeline_page():
     """Autonomous pipeline dashboard — full funnel visibility."""
-    quotes = get_all_quotes()
-    orders = _load_orders()
+    quotes = [q for q in get_all_quotes() if not q.get("is_test")]
+    orders = {k: v for k, v in _load_orders().items() if not v.get("is_test")}
     crm = _load_crm_activity()
     leads = []
     try:
@@ -3961,8 +3964,8 @@ def pipeline_page():
 @auth_required
 def api_pipeline_stats():
     """Full pipeline statistics as JSON."""
-    quotes = get_all_quotes()
-    orders = _load_orders()
+    quotes = [q for q in get_all_quotes() if not q.get("is_test")]
+    orders = {k: v for k, v in _load_orders().items() if not v.get("is_test")}
 
     statuses = {}
     for q in quotes:
@@ -4147,14 +4150,9 @@ def api_test_create_pc():
     now = datetime.now()
     fixture["due_date"] = (now + timedelta(days=30)).strftime("%m/%d/%Y")
 
-    # Auto-assign draft quote number
-    draft_qn = ""
-    if QUOTE_GEN_AVAILABLE:
-        try:
-            draft_qn = peek_next_quote_number()
-        except Exception as e:
-            log.debug("Suppressed: %s", e)
-            pass
+    # Auto-assign TEST quote number (never uses real counter)
+    import random
+    draft_qn = f"TEST-Q{random.randint(100,999)}"
 
     pcs = _load_price_checks()
     pc_record = {
@@ -5054,12 +5052,13 @@ def api_shipping_detected():
 @auth_required
 def api_funnel_stats():
     """Pipeline funnel stats — aggregated view of the full business pipeline."""
-    # RFQs
+    # RFQs (exclude test)
     rfqs = load_rfqs()
-    rfqs_active = sum(1 for r in rfqs.values() if r.get("status") not in ("completed", "won", "lost"))
+    rfqs_active = sum(1 for r in rfqs.values()
+                      if r.get("status") not in ("completed", "won", "lost") and not r.get("is_test"))
 
-    # Quotes
-    quotes = get_all_quotes()
+    # Quotes (exclude test)
+    quotes = [q for q in get_all_quotes() if not q.get("is_test")]
     quotes_pending = sum(1 for q in quotes if q.get("status") in ("pending", "draft"))
     quotes_sent = sum(1 for q in quotes if q.get("status") == "sent")
     quotes_won = sum(1 for q in quotes if q.get("status") == "won")
@@ -5067,8 +5066,9 @@ def api_funnel_stats():
     total_quoted = sum(q.get("total", 0) for q in quotes)
     total_won = sum(q.get("total", 0) for q in quotes if q.get("status") == "won")
 
-    # Orders
-    orders = _load_orders()
+    # Orders (exclude test)
+    all_orders = _load_orders()
+    orders = {k: v for k, v in all_orders.items() if not v.get("is_test")}
     orders_active = sum(1 for o in orders.values() if o.get("status") not in ("closed",))
     orders_total = len(orders)
     items_shipped = 0
