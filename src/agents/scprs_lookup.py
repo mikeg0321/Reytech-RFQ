@@ -93,6 +93,7 @@ DETAIL_HEADER_FIELDS = {
     "ZZ_SCPR_SBP_WRK_AWARDED_AMT": "grand_total",
     "ZZ_SCPR_SBP_WRK_BUYER_DESCR": "buyer_name",
     "ZZ_SCPR_SBP_WRK_EMAILID": "buyer_email",
+    "ZZ_SCPR_SBP_WRK_PHONE": "buyer_phone",
 }
 
 USER_AGENT = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -392,7 +393,14 @@ class FiscalSession:
             detail["line_items"].append(line)
 
         log.info(f"Detail: PO={detail.get('po_number','?')}, {len(detail['line_items'])} lines")
-        return detail
+
+        # Try regex phone extraction if not found in standard fields
+        if "buyer_phone" not in detail or not detail.get("buyer_phone"):
+            phone_match = re.search(r'(?:phone|tel|fax)[:\s]*[\(]?(\d{3})[\)\-\.\s]+(\d{3})[\-\.\s]+(\d{4})', html, re.IGNORECASE)
+            if phone_match:
+                detail["buyer_phone"] = f"({phone_match.group(1)}) {phone_match.group(2)}-{phone_match.group(3)}"
+
+        return {"header": detail, "line_items": detail.pop("line_items", [])}
 
 
 # ── High-Level Lookup ──────────────────────────────────────────────

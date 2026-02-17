@@ -168,6 +168,7 @@ def pull_reytech_history(from_date="01/01/2022", to_date=""):
                         hdr = detail.get("header", {}) if isinstance(detail.get("header"), dict) else {}
                         po["buyer_name"] = hdr.get("buyer_name", "")
                         po["buyer_email"] = hdr.get("buyer_email", "") or po["buyer_email"]
+                        po["buyer_phone"] = hdr.get("buyer_phone", "")
                         po["line_items"] = detail.get("line_items", [])
                         PULL_STATUS["items_total"] += len(po["line_items"])
                     time.sleep(0.5)
@@ -295,6 +296,7 @@ def find_category_buyers(max_categories=10, from_date="01/01/2024"):
                             prospects[key] = {
                                 "id": f"PRO-{uuid.uuid4().hex[:8]}",
                                 "buyer_email": email, "buyer_name": "",
+                                "buyer_phone": "",
                                 "agency": dept, "categories_matched": [],
                                 "purchase_orders": [], "total_spend": 0,
                                 "outreach_status": "new",
@@ -318,8 +320,12 @@ def find_category_buyers(max_categories=10, from_date="01/01/2024"):
                 except Exception as e:
                     BUYER_STATUS["errors"].append(f"{cat_name}: {e}")
 
-            # Get buyer names from detail on a few results
-            for r in (results if 'results' in dir() else [])[:2]:
+            # Get buyer names + phone from detail on a few results
+            try:
+                detail_results = results if results else []
+            except NameError:
+                detail_results = []
+            for r in detail_results[:3]:
                 if r.get("_results_html") and r.get("_row_index") is not None:
                     try:
                         detail = session.get_detail(r["_results_html"], r["_row_index"], r.get("_click_action"))
@@ -327,7 +333,8 @@ def find_category_buyers(max_categories=10, from_date="01/01/2024"):
                             hdr = detail.get("header", {}) if isinstance(detail.get("header"), dict) else {}
                             em = hdr.get("buyer_email", "")
                             if em and em in prospects:
-                                prospects[em]["buyer_name"] = hdr.get("buyer_name", "")
+                                prospects[em]["buyer_name"] = hdr.get("buyer_name", "") or prospects[em]["buyer_name"]
+                                prospects[em]["buyer_phone"] = hdr.get("buyer_phone", "") or prospects[em]["buyer_phone"]
                         time.sleep(0.5)
                     except Exception:
                         pass
@@ -359,11 +366,11 @@ def find_category_buyers(max_categories=10, from_date="01/01/2024"):
 
 EMAIL_TEMPLATE = """Hi{name_greeting},
 
-This is Mike from Reytech Inc. We noticed that {agency} purchased {items_mention} on {purchase_date}. {pricing_line}
+This is Mike from Reytech Inc. We noticed that {agency} recently purchased {items_mention} (around {purchase_date}), and we wanted to reach out because we carry those same items and currently have more competitive pricing available.
 
-We've been serving California state agencies for several years and would love the opportunity to get on your RFQ distribution list. We're a certified Small Business (SB) and Disabled Veteran Business Enterprise (DVBE), which helps meet your procurement mandates.
+We're a certified Small Business (SB) and Disabled Veteran Business Enterprise (DVBE), and we've been serving California state agencies for several years. We'd love the opportunity to get on your RFQ distribution list so we can quote on your next order.
 
-Please consider us for your next order — we'd appreciate the chance to quote.
+Please consider us — we look forward to working with you.
 
 Best regards,
 Mike
@@ -404,10 +411,9 @@ def launch_outreach(max_prospects=50, dry_run=True):
         items_mention = pos[0].get("items", "items we also carry")[:80] if pos else "items we also carry"
         purchase_date = pos[0].get("date", "recently") if pos else "recently"
         cats = p.get("categories_matched", [])
-        pricing_line = f"We specialize in {', '.join(cats[:3])} and often offer more competitive rates — typically 10-30% below contract pricing." if cats else "We often offer more competitive rates on these items."
 
-        body = EMAIL_TEMPLATE.format(name_greeting=name_greeting, agency=agency, items_mention=items_mention, purchase_date=purchase_date, pricing_line=pricing_line)
-        subject = f"Reytech Inc. — {', '.join(cats[:2]) if cats else 'Supply'} Vendor Introduction"
+        body = EMAIL_TEMPLATE.format(name_greeting=name_greeting, agency=agency, items_mention=items_mention, purchase_date=purchase_date)
+        subject = f"Reytech Inc. — Competitive Pricing on {', '.join(cats[:2]) if cats else 'Supply Items'}"
 
         entry = {
             "prospect_id": p["id"], "email": p["buyer_email"], "name": name,

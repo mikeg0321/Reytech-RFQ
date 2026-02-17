@@ -582,6 +582,7 @@ def render(content, **kw):
   <a href="/orders" class="hdr-btn">📦 Orders</a>
   <a href="/campaigns" class="hdr-btn">📞 Campaigns</a>
   <a href="/pipeline" class="hdr-btn">🔄 Pipeline</a>
+  <a href="/growth" class="hdr-btn">🚀 Growth</a>
   <a href="/agents" class="hdr-btn">🤖 Agents</a>
   <span style="width:1px;height:24px;background:var(--bd);margin:0 6px"></span>
   <button class="hdr-btn" onclick="pollNow(this)" id="poll-btn">⚡ Check Now</button>
@@ -5316,6 +5317,197 @@ def api_outbox_sent_log():
 
 
 # ─── Growth Strategy Routes (v2.0 — SCPRS-driven) ──────────────────────────
+
+@bp.route("/growth")
+@auth_required
+def growth_page():
+    """Growth Engine Dashboard — full funnel view."""
+    if not GROWTH_AVAILABLE:
+        flash("Growth agent not available", "error")
+        return redirect("/")
+    from src.agents.growth_agent import (
+        get_growth_status, PULL_STATUS, BUYER_STATUS,
+        HISTORY_FILE, CATEGORIES_FILE, PROSPECTS_FILE, OUTREACH_FILE,
+        _load_json,
+    )
+    st = get_growth_status()
+    h = st.get("history", {})
+    c = st.get("categories", {})
+    p = st.get("prospects", {})
+    o = st.get("outreach", {})
+    pull = st.get("pull_status", {})
+    buyer = st.get("buyer_status", {})
+
+    # Load prospect details for table
+    prospect_data = _load_json(PROSPECTS_FILE)
+    prospects = prospect_data.get("prospects", []) if isinstance(prospect_data, dict) else []
+
+    # Load outreach details
+    outreach_data = _load_json(OUTREACH_FILE)
+    campaigns = outreach_data.get("campaigns", []) if isinstance(outreach_data, dict) else []
+    total_emailed = sum(1 for c_ in campaigns for o_ in c_.get("outreach", []) if o_.get("email_sent"))
+    total_no_response = sum(1 for c_ in campaigns for o_ in c_.get("outreach", [])
+                           if o_.get("email_sent") and not o_.get("response_received") and not o_.get("voice_called"))
+
+    # Category summary
+    cat_data = _load_json(CATEGORIES_FILE)
+    cat_rows = ""
+    if isinstance(cat_data, dict) and cat_data.get("categories"):
+        for cat_name, info in sorted(cat_data["categories"].items(), key=lambda x: x[1].get("total_value", 0), reverse=True):
+            cat_rows += f"""<tr>
+             <td style="font-weight:600">{cat_name}</td>
+             <td class="mono">{info.get('item_count', 0)}</td>
+             <td class="mono">{info.get('po_count', 0)}</td>
+             <td class="mono" style="color:#3fb950">${info.get('total_value', 0):,.2f}</td>
+             <td style="font-size:11px;color:var(--tx2)">{', '.join(info.get('sample_items', [])[:2])[:80]}</td>
+            </tr>"""
+
+    # Prospect table rows
+    prospect_rows = ""
+    for pr in prospects[:100]:
+        cats = ", ".join(pr.get("categories_matched", [])[:2])
+        po_count = len(pr.get("purchase_orders", []))
+        phone = pr.get("buyer_phone", "") or "—"
+        email = pr.get("buyer_email", "") or "—"
+        name = pr.get("buyer_name", "") or "—"
+        status_color = {"new": "#d29922", "emailed": "#58a6ff", "called": "#bc8cff", "responded": "#3fb950"}.get(pr.get("outreach_status", "new"), "#8b949e")
+        prospect_rows += f"""<tr>
+         <td style="font-weight:500">{pr.get('agency', '—')}</td>
+         <td>{name}</td>
+         <td style="font-size:12px">{email}</td>
+         <td style="font-size:12px">{phone}</td>
+         <td class="mono">{po_count}</td>
+         <td class="mono" style="color:#3fb950">${pr.get('total_spend', 0):,.0f}</td>
+         <td style="font-size:11px">{cats}</td>
+         <td><span style="color:{status_color};font-size:11px;font-weight:600">{pr.get('outreach_status', 'new').upper()}</span></td>
+        </tr>"""
+
+    # Step progress indicators
+    def step_tag(done, label):
+        c = "#3fb950" if done else "#8b949e"
+        bg = "rgba(52,211,153,.1)" if done else "rgba(139,148,160,.05)"
+        icon = "✅" if done else "⬜"
+        return f'<span style="display:inline-block;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;color:{c};background:{bg}">{icon} {label}</span>'
+
+    step1 = step_tag(h.get("total_pos", 0) > 0, f"History: {h.get('total_pos', 0)} POs")
+    step2 = step_tag(c.get("total", 0) > 0, f"Categories: {c.get('total', 0)}")
+    step3 = step_tag(p.get("total", 0) > 0, f"Prospects: {p.get('total', 0)}")
+    step4 = step_tag(o.get("total_sent", 0) > 0, f"Emailed: {o.get('total_sent', 0)}")
+
+    pull_running = pull.get("running", False)
+    buyer_running = buyer.get("running", False)
+    pull_progress = pull.get("progress", "") if pull_running else ""
+    buyer_progress = buyer.get("progress", "") if buyer_running else ""
+
+    return f"""{_header('Growth Engine')}
+    <style>
+     .card {{background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px;margin-bottom:16px}}
+     .card h3 {{font-size:15px;margin-bottom:12px;display:flex;align-items:center;gap:8px}}
+     .g-btn {{padding:8px 16px;border-radius:8px;border:1px solid var(--bd);background:var(--sf2);color:var(--tx);cursor:pointer;font-size:13px;font-weight:600;transition:all .15s}}
+     .g-btn:hover {{background:var(--ac);color:#000;border-color:var(--ac)}}
+     .g-btn-go {{background:rgba(52,211,153,.12);color:#3fb950;border-color:rgba(52,211,153,.3)}}
+     .g-btn-warn {{background:rgba(210,153,34,.12);color:#d29922;border-color:rgba(210,153,34,.3)}}
+     .g-btn-red {{background:rgba(248,113,113,.12);color:#f85149;border-color:rgba(248,113,113,.3)}}
+     table {{width:100%;border-collapse:collapse;font-size:12px}}
+     th {{text-align:left;padding:6px 8px;border-bottom:2px solid var(--bd);font-size:11px;color:var(--tx2);text-transform:uppercase}}
+     td {{padding:6px 8px;border-bottom:1px solid var(--bd)}}
+     .mono {{font-family:'JetBrains Mono',monospace}}
+     #progress-bar {{display:{'block' if (pull_running or buyer_running) else 'none'};background:var(--sf2);padding:10px;border-radius:8px;margin-bottom:12px;font-size:12px}}
+    </style>
+
+    <h1>🚀 Growth Engine</h1>
+    <div style="color:var(--tx2);font-size:13px;margin-bottom:16px">
+     SCPRS-driven proactive outreach — mine Reytech history → find all buyers → email → voice follow-up
+    </div>
+
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">{step1} → {step2} → {step3} → {step4}</div>
+
+    <div id="progress-bar">
+     <span id="progress-text">{pull_progress or buyer_progress or 'Idle'}</span>
+    </div>
+
+    <div class="card">
+     <h3>⚡ Actions</h3>
+     <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="g-btn g-btn-go" onclick="runStep('/api/growth/pull-history')">📥 Step 1: Pull Reytech History</button>
+      <button class="g-btn g-btn-go" onclick="runStep('/api/growth/find-buyers')">🔍 Step 2: Find All Buyers</button>
+      <button class="g-btn g-btn-warn" onclick="runStep('/api/growth/outreach?dry_run=true')">👁️ Step 3: Preview Emails</button>
+      <button class="g-btn g-btn-red" onclick="if(confirm('Send real emails to prospects?')) runStep('/api/growth/outreach?dry_run=false')">📧 Step 3: Send Emails</button>
+      <button class="g-btn" onclick="runStep('/api/growth/follow-ups')">📋 Check Follow-Ups</button>
+      <button class="g-btn g-btn-warn" onclick="if(confirm('Auto-dial non-responders?')) runStep('/api/growth/voice-follow-up')">📞 Step 4: Voice Follow-Up</button>
+     </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
+     <div class="card" style="text-align:center">
+      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;letter-spacing:1px">Reytech POs</div>
+      <div style="font-size:28px;font-weight:700;color:var(--ac)">{h.get('total_pos', 0)}</div>
+      <div style="font-size:10px;color:var(--tx2)">{h.get('total_items', 0)} items</div>
+     </div>
+     <div class="card" style="text-align:center">
+      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;letter-spacing:1px">Categories</div>
+      <div style="font-size:28px;font-weight:700;color:#bc8cff">{c.get('total', 0)}</div>
+      <div style="font-size:10px;color:var(--tx2)">product groups</div>
+     </div>
+     <div class="card" style="text-align:center">
+      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;letter-spacing:1px">Prospects</div>
+      <div style="font-size:28px;font-weight:700;color:#d29922">{p.get('total', 0)}</div>
+      <div style="font-size:10px;color:var(--tx2)">buyers found</div>
+     </div>
+     <div class="card" style="text-align:center">
+      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;letter-spacing:1px">Outreach</div>
+      <div style="font-size:28px;font-weight:700;color:#3fb950">{o.get('total_sent', 0)}</div>
+      <div style="font-size:10px;color:var(--tx2)">{total_no_response} pending follow-up</div>
+     </div>
+    </div>
+
+    {'<div class="card"><h3>📂 Item Categories</h3><table><thead><tr><th>Category</th><th>Items</th><th>POs</th><th>Total Value</th><th>Sample Items</th></tr></thead><tbody>' + cat_rows + '</tbody></table></div>' if cat_rows else ''}
+
+    {'<div class="card"><h3>🎯 Prospect Pipeline (' + str(len(prospects)) + ')</h3><div style="max-height:500px;overflow:auto"><table><thead><tr><th>Agency</th><th>Buyer</th><th>Email</th><th>Phone</th><th>POs</th><th>Spend</th><th>Categories</th><th>Status</th></tr></thead><tbody>' + prospect_rows + '</tbody></table></div></div>' if prospect_rows else ''}
+
+    <div id="result" style="display:none;background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px;margin-top:12px;max-height:400px;overflow:auto">
+     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <span style="font-weight:600;font-size:13px">Result</span>
+      <button onclick="document.getElementById('result').style.display='none'" style="background:none;border:none;color:var(--tx2);cursor:pointer">✕</button>
+     </div>
+     <pre id="result-content" style="font-size:11px;white-space:pre-wrap;word-break:break-word;margin:0"></pre>
+    </div>
+
+    <script>
+    function runStep(url) {{
+      fetch(url, {{credentials:'same-origin'}}).then(r=>r.json()).then(data => {{
+        document.getElementById('result').style.display = 'block';
+        document.getElementById('result-content').textContent = JSON.stringify(data, null, 2);
+        if (data.message && data.message.includes('Check')) pollProgress();
+      }}).catch(e => {{
+        document.getElementById('result').style.display = 'block';
+        document.getElementById('result-content').textContent = 'Error: ' + e;
+      }});
+    }}
+
+    let pollTimer = null;
+    function pollProgress() {{
+      if (pollTimer) clearInterval(pollTimer);
+      const bar = document.getElementById('progress-bar');
+      const txt = document.getElementById('progress-text');
+      bar.style.display = 'block';
+      pollTimer = setInterval(() => {{
+        Promise.all([
+          fetch('/api/growth/pull-status',{{credentials:'same-origin'}}).then(r=>r.json()),
+          fetch('/api/growth/buyer-status',{{credentials:'same-origin'}}).then(r=>r.json())
+        ]).then(([pull, buyer]) => {{
+          const running = pull.running || buyer.running;
+          txt.textContent = pull.running ? pull.progress : buyer.running ? buyer.progress : 'Complete — refresh page to see results';
+          if (!running) {{
+            clearInterval(pollTimer);
+            setTimeout(() => location.reload(), 2000);
+          }}
+        }});
+      }}, 3000);
+    }}
+    {('pollProgress();' if (pull_running or buyer_running) else '')}
+    </script>
+    </body></html>"""
 
 @bp.route("/api/growth/status")
 @auth_required
