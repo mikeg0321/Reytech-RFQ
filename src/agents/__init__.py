@@ -13,4 +13,5 @@ Modules:
     growth_agent       — Phase 14: Win/loss analysis + strategy recommendations
     voice_agent        — Phase 14: AI voice calls (Twilio + ElevenLabs scaffold)
     manager_agent      — Phase 14: Manager brief, pending approvals, activity feed
+    orchestrator       — Phase 15: LangGraph workflow engine (pc/lead/quote pipelines)
 """

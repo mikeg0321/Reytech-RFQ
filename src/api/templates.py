@@ -1997,6 +1997,31 @@ h1 {{ font-size:22px; margin-bottom:4px; }}
 </div>
 
 <div class="section">
+ <h2>🔀 Workflow Orchestrator <span class="tag tag-ok">LangGraph</span></h2>
+ <p style="color:#8b949e;font-size:12px;margin-bottom:10px">LangGraph-powered pipelines — chains your agents into executable workflows with audit trails.</p>
+ <div class="grid">
+  <button class="btn btn-go" onclick="apiGet('/api/workflow/status')">
+   <span class="label">📊 Orchestrator Status</span><span class="desc">Run history + available workflows</span>
+  </button>
+  <button class="btn btn-go" onclick="runWorkflow('pc_pipeline')">
+   <span class="label">⚡ PC Pipeline</span><span class="desc">SCPRS → Amazon → Price → 704</span>
+  </button>
+  <button class="btn btn-go" onclick="runWorkflow('lead_pipeline')">
+   <span class="label">🎯 Lead Pipeline</span><span class="desc">Scan → Score → Draft → Approve</span>
+  </button>
+  <button class="btn btn-go" onclick="runWorkflow('quote_pipeline')">
+   <span class="label">📋 Quote Pipeline</span><span class="desc">Quote PDF → Email → Review</span>
+  </button>
+  <button class="btn btn-go" onclick="apiGet('/api/workflow/graph/pc_pipeline')">
+   <span class="label">🗺️ View PC Graph</span><span class="desc">Node → edge structure</span>
+  </button>
+  <button class="btn btn-go" onclick="apiGet('/api/workflow/graph/lead_pipeline')">
+   <span class="label">🗺️ View Lead Graph</span><span class="desc">Node → edge structure</span>
+  </button>
+ </div>
+</div>
+
+<div class="section">
  <h2>🧠 Manager Brief <span class="tag tag-ok">Active</span></h2>
  <div class="grid">
   <button class="btn btn-go" onclick="apiGet('/api/manager/brief')">
@@ -2148,6 +2173,20 @@ function apiPost(url, body) {{
     headers: {{ 'Content-Type': 'application/json' }},
     body: body ? JSON.stringify(body) : '{{}}'
   }}).then(r => r.json()).then(showResult).catch(e => showResult('Error: ' + e));
+}}
+
+function runWorkflow(name) {{
+  let inputs = {{}};
+  if (name === 'pc_pipeline') {{
+    const pcid = prompt('Enter Price Check ID (e.g. pc_abc123):');
+    if (!pcid) return;
+    inputs = {{ pc_id: pcid }};
+  }} else if (name === 'quote_pipeline') {{
+    const pcid = prompt('Enter Price Check ID for quote:');
+    if (!pcid) return;
+    inputs = {{ pc_id: pcid }};
+  }}
+  apiPost('/api/workflow/run', {{ workflow: name, inputs: inputs }});
 }}
 
 function draftForPc() {{

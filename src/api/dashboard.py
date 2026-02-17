@@ -2851,6 +2851,14 @@ try:
 except ImportError:
     MANAGER_AVAILABLE = False
 
+try:
+    from src.agents.orchestrator import (
+        run_workflow, get_workflow_status, get_workflow_graph_viz,
+    )
+    ORCHESTRATOR_AVAILABLE = True
+except ImportError:
+    ORCHESTRATOR_AVAILABLE = False
+
 
 @bp.route("/api/identify", methods=["POST"])
 @auth_required
@@ -2915,6 +2923,7 @@ def api_agents_status():
         "growth_strategy": growth_agent_status() if GROWTH_AVAILABLE else {"status": "not_available"},
         "voice_calls": voice_agent_status() if VOICE_AVAILABLE else {"status": "not_available"},
         "manager": manager_agent_status() if MANAGER_AVAILABLE else {"status": "not_available"},
+        "orchestrator": get_workflow_status() if ORCHESTRATOR_AVAILABLE else {"status": "not_available"},
     }
     try:
         from src.agents.product_research import get_research_cache_stats
@@ -3076,6 +3085,41 @@ def api_manager_metrics():
         "response_time_hours": avg_response,
         "top_institutions": [{"name": n, "revenue": round(v, 2)} for n, v in top_institutions],
     })
+
+
+# ─── Orchestrator / Workflow Routes ──────────────────────────────────────────
+
+@bp.route("/api/workflow/run", methods=["POST"])
+@auth_required
+def api_workflow_run():
+    """Execute a named workflow pipeline."""
+    if not ORCHESTRATOR_AVAILABLE:
+        return jsonify({"ok": False, "error": "Orchestrator not available"})
+    data = request.json or {}
+    name = data.get("workflow", "")
+    inputs = data.get("inputs", {})
+    if not name:
+        return jsonify({"ok": False, "error": "Missing 'workflow' field"})
+    result = run_workflow(name, inputs)
+    return jsonify({"ok": not bool(result.get("error")), **result})
+
+
+@bp.route("/api/workflow/status")
+@auth_required
+def api_workflow_status():
+    """Orchestrator status and run history."""
+    if not ORCHESTRATOR_AVAILABLE:
+        return jsonify({"ok": False, "error": "Orchestrator not available"})
+    return jsonify({"ok": True, **get_workflow_status()})
+
+
+@bp.route("/api/workflow/graph/<name>")
+@auth_required
+def api_workflow_graph(n):
+    """Get workflow graph structure for visualization."""
+    if not ORCHESTRATOR_AVAILABLE:
+        return jsonify({"ok": False, "error": "Orchestrator not available"})
+    return jsonify({"ok": True, **get_workflow_graph_viz(n)})
 
 
 # ─── SCPRS Scanner Routes ───────────────────────────────────────────────────
