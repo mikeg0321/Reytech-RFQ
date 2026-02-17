@@ -42,8 +42,10 @@ log = logging.getLogger("research")
 
 # ─── Configuration ───────────────────────────────────────────────────────────
 
-# Navigate up to project root: src/agents/ → src/ → project_root/
-DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
+try:
+    from src.core.paths import DATA_DIR
+except ImportError:
+    DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
 CACHE_FILE = os.path.join(DATA_DIR, "product_research_cache.json")
 CACHE_TTL_DAYS = 7
 MAX_CACHE_ENTRIES = 5000

@@ -35,8 +35,10 @@ from reportlab.pdfgen import canvas
 
 log = logging.getLogger("quote_gen")
 
-# Navigate up to project root: src/forms/ → src/ → project_root/
-DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
+try:
+    from src.core.paths import DATA_DIR
+except ImportError:
+    DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # EXACT COLORS — extracted from QuoteWerks R26Q14 via pdfplumber

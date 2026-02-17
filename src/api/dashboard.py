@@ -138,12 +138,15 @@ def _log_request_end(response):
                             "status": response.status_code, "duration_ms": duration_ms})
     return response
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
-OUTPUT_DIR = os.path.join(BASE_DIR, "output")
-DATA_DIR = os.path.join(BASE_DIR, "data")
-for d in [UPLOAD_DIR, OUTPUT_DIR, DATA_DIR]:
-    os.makedirs(d, exist_ok=True)
+try:
+    from src.core.paths import PROJECT_ROOT as BASE_DIR, DATA_DIR, UPLOAD_DIR, OUTPUT_DIR
+except ImportError:
+    BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
+    OUTPUT_DIR = os.path.join(BASE_DIR, "output")
+    DATA_DIR = os.path.join(BASE_DIR, "data")
+    for d in [UPLOAD_DIR, OUTPUT_DIR, DATA_DIR]:
+        os.makedirs(d, exist_ok=True)
 
 CONFIG = load_config()
 
@@ -3054,10 +3057,56 @@ def api_tax_rate():
 @bp.route("/api/health")
 @auth_required
 def api_health():
-    """Comprehensive system health check."""
-    if not AUTO_PROCESSOR_AVAILABLE:
-        return jsonify({"status": "degraded", "error": "auto_processor.py not available"})
-    return jsonify(system_health_check())
+    """Comprehensive system health check with path validation."""
+    health = {"status": "ok", "checks": {}}
+    
+    # Path validation
+    try:
+        from src.core.paths import validate_paths
+        path_check = validate_paths()
+        health["checks"]["paths"] = {
+            "ok": path_check["ok"],
+            "errors": path_check["errors"],
+            "warnings": path_check["warnings"],
+        }
+        if not path_check["ok"]:
+            health["status"] = "degraded"
+    except Exception as e:
+        health["checks"]["paths"] = {"ok": False, "error": str(e)}
+    
+    # Data file checks
+    data_checks = {}
+    for name, path in [("customers", os.path.join(DATA_DIR, "customers.json")),
+                       ("quotes_log", os.path.join(DATA_DIR, "quotes_log.json")),
+                       ("quote_counter", os.path.join(DATA_DIR, "quote_counter.json"))]:
+        if os.path.exists(path):
+            try:
+                with open(path) as f:
+                    d = json.load(f)
+                data_checks[name] = {"ok": True, "records": len(d) if isinstance(d, (list, dict)) else "?"}
+            except Exception as e:
+                data_checks[name] = {"ok": False, "error": str(e)}
+                health["status"] = "degraded"
+        else:
+            data_checks[name] = {"ok": False, "error": "not found"}
+    health["checks"]["data_files"] = data_checks
+    
+    # Module availability
+    health["checks"]["modules"] = {
+        "quote_generator": QUOTE_GEN_AVAILABLE,
+        "price_check": PRICE_CHECK_AVAILABLE,
+        "auto_processor": AUTO_PROCESSOR_AVAILABLE,
+        "email_poller": bool(EmailPoller),
+    }
+    
+    # Auto-processor health
+    if AUTO_PROCESSOR_AVAILABLE:
+        try:
+            health["checks"]["auto_processor"] = system_health_check()
+        except Exception:
+            pass
+    
+    return jsonify(health)
 
 
 @bp.route("/api/audit-stats")

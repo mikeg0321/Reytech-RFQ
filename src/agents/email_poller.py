@@ -166,7 +166,7 @@ class EmailPoller:
                 try:
                     self.mail.noop()
                     return True
-                except:
+                except Exception:
                     self._connected = False
             
             self.mail = imaplib.IMAP4_SSL(self.host, self.port)
@@ -387,7 +387,7 @@ class EmailPoller:
         try:
             if self.mail:
                 self.mail.logout()
-        except:
+        except Exception:
             pass
         self._connected = False
 

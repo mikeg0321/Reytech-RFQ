@@ -20,8 +20,10 @@ import os, json, re, logging
 from datetime import datetime
 
 log = logging.getLogger("cdtfa_tax")
-# Navigate up to project root: src/agents/ → src/ → project_root/
-DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
+try:
+    from src.core.paths import DATA_DIR
+except ImportError:
+    DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
 os.makedirs(DATA_DIR, exist_ok=True)
 
 CA_BASE_RATE = 0.0725  # statewide minimum
@@ -109,7 +111,7 @@ def parse_ship_to(ship_to_name, ship_to_address):
 def _load_cache():
     try:
         with open(CACHE_FILE) as f: return json.load(f)
-    except: return {}
+    except Exception: return {}
 
 def _save_cache(data):
     with open(CACHE_FILE, "w") as f: json.dump(data, f, indent=2)
@@ -132,7 +134,7 @@ def get_cached_rate(key, max_age_days=30):
         cached_at = datetime.fromisoformat(entry["cached_at"])
         if (datetime.now() - cached_at).days <= max_age_days:
             return entry["result"]
-    except:
+    except Exception:
         pass
     return None
 
@@ -206,7 +208,7 @@ def _call_api_by_address(street, city, zip_code):
         elif r.status_code == 400:
             try:
                 return {"error": r.json().get("errors", []), "source": "cdtfa_api_error"}
-            except:
+            except Exception:
                 return {"error": str(r.text), "source": "cdtfa_api_error"}
         else:
             log.warning(f"CDTFA API HTTP {r.status_code}")
@@ -333,7 +335,7 @@ def seed_known_locations():
     try:
         from quote_generator import load_contacts
         contacts = load_contacts()
-    except:
+    except Exception:
         contacts = []
 
     results = []

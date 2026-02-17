@@ -112,19 +112,19 @@ def parse_704b(pdf_path):
             qty = 0
             try:
                 qty = int(float(row["qty"]))
-            except:
+            except Exception:
                 pass
             
             qty_per = 1
             try:
                 qty_per = int(float(row["qty_per_uom"])) if row["qty_per_uom"] else 1
-            except:
+            except Exception:
                 pass
             
             line_num = 0
             try:
                 line_num = int(float(row["line_number"])) if row["line_number"] else len(items) + 1
-            except:
+            except Exception:
                 line_num = len(items) + 1
             
             current = {

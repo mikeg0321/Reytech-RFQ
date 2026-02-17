@@ -190,7 +190,7 @@ def fill_and_sign_pdf(input_path, field_values, output_path,
     for page in writer.pages:
         try:
             writer.update_page_form_field_values(page, clean_values, auto_regenerate=False)
-        except:
+        except Exception:
             pass
 
     sig_path = sig_image or SIGNATURE_PATH
@@ -206,7 +206,7 @@ def fill_and_sign_pdf(input_path, field_values, output_path,
                 try:
                     r = [float(x) for x in obj["/Rect"]]
                     sig_entries.append((name, r))
-                except:
+                except Exception:
                     pass
 
         if sig_entries:
@@ -233,7 +233,7 @@ def fill_703b(input_path, rfq_data, config, output_path):
     try:
         due = datetime.strptime(rfq_data["due_date"], "%m/%d/%Y")
         bid_exp = (due + timedelta(days=45)).strftime("%m/%d/%Y")
-    except:
+    except Exception:
         pass
 
     values = {

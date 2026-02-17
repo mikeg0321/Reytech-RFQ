@@ -57,8 +57,10 @@ except ImportError:
 
 log = logging.getLogger("pricecheck")
 
-# Navigate up to project root: src/forms/ → src/ → project_root/
-DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
+try:
+    from src.core.paths import DATA_DIR
+except ImportError:
+    DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
 
 
 def clean_description(raw: str) -> str:
@@ -385,7 +387,7 @@ def _extract_items_from_table(table: list, result: dict, page_num: int):
         qty_str = str(row[col_map.get("qty", 1)] or "1")
         try:
             qty = int(float(qty_str))
-        except:
+        except Exception:
             qty = 1
 
         row_num = len(result["line_items"]) + 1 + (page_num * MAX_ROWS_PER_PAGE)
@@ -694,7 +696,7 @@ def _fill_pdf_fields(source_pdf: str, field_values: list, output_pdf: str):
                     cleaned.append(annot_ref)
                 else:
                     log.debug(f"Stripping annotation: {subtype} T={annot.get('/T','')}")
-            except:
+            except Exception:
                 cleaned.append(annot_ref)  # Keep if we can't inspect
         page[NameObject("/Annots")] = ArrayObject(cleaned)
 
@@ -717,7 +719,7 @@ def _fill_pdf_fields(source_pdf: str, field_values: list, output_pdf: str):
                 rect = annot.get("/Rect", [0, 0, 0, 0])
                 w = float(rect[2]) - float(rect[0])
                 field_widths[name] = w
-            except:
+            except Exception:
                 pass
 
     # Step 2: Calculate optimal font size for each text value
@@ -746,7 +748,7 @@ def _fill_pdf_fields(source_pdf: str, field_values: list, output_pdf: str):
                     font_size = calc_font_size(val, width)
                     da_str = f"/Helv {font_size:.1f} Tf 0 g"
                     annot[NameObject("/DA")] = TextStringObject(da_str)
-            except:
+            except Exception:
                 pass
 
     # Step 4: Fill values with auto_regenerate=True (builds appearance streams using our /DA)
@@ -767,7 +769,7 @@ def _fill_pdf_fields(source_pdf: str, field_values: list, output_pdf: str):
                     state = checkbox_fields[name]
                     annot[NameObject("/V")] = NameObject(f"/{state}")
                     annot[NameObject("/AS")] = NameObject(f"/{state}")
-            except:
+            except Exception:
                 pass
 
     # Step 6: Add signature image + date

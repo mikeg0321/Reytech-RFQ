@@ -17,6 +17,17 @@ def create_app():
     from src.api.dashboard import bp, start_polling
     app.register_blueprint(bp)
 
+    # ── Runtime self-test — catches path/route/data bugs at boot ──────────
+    try:
+        from src.core.startup_checks import run_startup_checks
+        with app.app_context():
+            checks = run_startup_checks(app)
+            if checks["failed"] > 0:
+                logging.getLogger("reytech").error(
+                    "STARTUP: %d checks FAILED — review logs", checks["failed"])
+    except Exception as e:
+        logging.getLogger("reytech").warning("Startup checks skipped: %s", e)
+
     # Start email polling in background (production only)
     if os.environ.get("ENABLE_EMAIL_POLLING", "").lower() == "true":
         with app.app_context():

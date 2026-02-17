@@ -44,7 +44,10 @@ except ImportError:
 # ─── Configuration ───────────────────────────────────────────────────────────
 
 # Navigate up to project root: src/knowledge/ → src/ → project_root/
-CONFIG_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "reytech_config.json")
+try:
+    from src.core.paths import CONFIG_PATH as CONFIG_FILE
+except ImportError:
+    CONFIG_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "reytech_config.json")
 
 # Default pricing rules (loaded from config if available)
 DEFAULT_CONFIG = {

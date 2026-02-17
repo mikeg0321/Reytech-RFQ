@@ -41,8 +41,10 @@ try:
 except ImportError:
     _ingest_wq = None
 
-# Navigate up to project root: src/agents/ → src/ → project_root/
-DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "scprs_prices.json")
+try:
+    from src.core.paths import SCPRS_DB_PATH as DB_PATH
+except ImportError:
+    DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "scprs_prices.json")
 
 # ── FI$Cal URLs & Field IDs ───────────────────────────────────────
 
@@ -155,12 +157,12 @@ def _get_text(soup, element_id):
 def _parse_dollar(text):
     if not text: return None
     try: return float(re.sub(r'[^\d.]', '', text))
-    except: return None
+    except Exception: return None
 
 def _parse_date(text, fmt="%m/%d/%Y"):
     if not text: return None
     try: return datetime.strptime(text.strip(), fmt)
-    except: return None
+    except Exception: return None
 
 def _discover_grid_ids(soup, prefix):
     """Find all PeopleSoft grid fields for row 0 matching prefix_*$0."""
@@ -385,7 +387,7 @@ class FiscalSession:
             }
             if qty_text:
                 try: line["quantity_num"] = float(qty_text.replace(",", ""))
-                except: pass
+                except Exception: pass
             detail["line_items"].append(line)
 
         log.info(f"Detail: PO={detail.get('po_number','?')}, {len(detail['line_items'])} lines")

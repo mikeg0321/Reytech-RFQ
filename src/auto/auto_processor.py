@@ -37,8 +37,10 @@ from typing import Optional
 
 log = logging.getLogger("autoprocessor")
 
-# Navigate up to project root: src/auto/ → src/ → project_root/
-DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
+try:
+    from src.core.paths import DATA_DIR
+except ImportError:
+    DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
 
 # ─── Import available modules ────────────────────────────────────────────────
 
@@ -517,7 +519,7 @@ def track_response_time(doc_type: str, received_at: str, responded_at: str = Non
         resp = datetime.fromisoformat(responded_at)
         delta = resp - recv
         minutes = delta.total_seconds() / 60
-    except:
+    except Exception:
         minutes = 0
 
     # Load historical
@@ -527,7 +529,7 @@ def track_response_time(doc_type: str, received_at: str, responded_at: str = Non
         try:
             with open(stats_file) as f:
                 stats = json.load(f)
-        except:
+        except Exception:
             pass
 
     stats["total"] += 1
@@ -574,7 +576,7 @@ def _log_audit(result: dict):
         try:
             with open(AUDIT_LOG_FILE) as f:
                 audit = json.load(f)
-        except:
+        except Exception:
             audit = []
 
     audit.append(entry)
@@ -595,7 +597,7 @@ def get_audit_stats() -> dict:
     try:
         with open(AUDIT_LOG_FILE) as f:
             audit = json.load(f)
-    except:
+    except Exception:
         return {"total_runs": 0}
 
     if not audit:
@@ -673,7 +675,7 @@ def system_health_check() -> dict:
                 "records": len(kb.get("quotes", kb)) if isinstance(kb, dict) else len(kb),
                 "status": "ok",
             }
-        except:
+        except Exception:
             health["components"]["won_quotes_kb"] = {"status": "corrupt"}
     else:
         health["components"]["won_quotes_kb"] = {"status": "empty"}
@@ -688,7 +690,7 @@ def system_health_check() -> dict:
                 "entries": len(cache),
                 "status": "ok",
             }
-        except:
+        except Exception:
             health["components"]["research_cache"] = {"status": "corrupt"}
 
     # Audit stats
