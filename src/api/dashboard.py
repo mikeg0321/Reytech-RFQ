@@ -27,7 +27,7 @@ except ImportError:
     from rfq_parser import parse_rfq_attachments, identify_attachments
 
 try:
-    from src.agents.scrps_lookup import bulk_lookup, save_prices_from_rfq, get_price_db_stats
+    from src.agents.scprs_lookup import bulk_lookup, save_prices_from_rfq, get_price_db_stats
 except ImportError:
     try:
         from src.core.scprs_lookup import bulk_lookup, save_prices_from_rfq, get_price_db_stats
@@ -2565,7 +2565,7 @@ def api_scprs(rid):
     errors = []
     for item in r["line_items"]:
         try:
-            from src.agents.scrps_lookup import lookup_price, _build_search_terms
+            from src.agents.scprs_lookup import lookup_price, _build_search_terms
             item_num = item.get("item_number")
             desc = item.get("description")
             search_terms = _build_search_terms(item_num, desc)
@@ -2611,7 +2611,7 @@ def api_scprs_test():
     """SCPRS search test — ?q=stryker+xpr"""
     q = request.args.get("q", "stryker xpr")
     try:
-        from src.agents.scrps_lookup import test_search
+        from src.agents.scprs_lookup import test_search
         return jsonify(test_search(q))
     except Exception as e:
         import traceback
@@ -2624,7 +2624,7 @@ def api_scprs_raw():
     """Raw SCPRS debug — shows HTML field IDs found in search results."""
     q = request.args.get("q", "stryker xpr")
     try:
-        from src.agents.scrps_lookup import _get_session, _discover_grid_ids, SCPRS_SEARCH_URL, SEARCH_BUTTON, ALL_SEARCH_FIELDS, FIELD_DESCRIPTION
+        from src.agents.scprs_lookup import _get_session, _discover_grid_ids, SCPRS_SEARCH_URL, SEARCH_BUTTON, ALL_SEARCH_FIELDS, FIELD_DESCRIPTION
         from bs4 import BeautifulSoup
         
         session = _get_session()
@@ -2831,7 +2831,7 @@ def _api_diag_inner():
         "db_exists": os.path.exists(os.path.join(BASE_DIR, "data", "scprs_prices.json")),
     }
     try:
-        from src.agents.scrps_lookup import test_connection
+        from src.agents.scprs_lookup import test_connection
         import threading
         result = [False, "timeout"]
         def _test():
@@ -2980,7 +2980,7 @@ def api_debug_paths():
 def api_won_quotes_migrate():
     """One-time migration: import existing scprs_prices.json into Won Quotes KB."""
     try:
-        from src.agents.scrps_lookup import migrate_local_db_to_won_quotes
+        from src.agents.scprs_lookup import migrate_local_db_to_won_quotes
         result = migrate_local_db_to_won_quotes()
         return jsonify({"ok": True, **result})
     except Exception as e:
@@ -2993,7 +2993,7 @@ def api_won_quotes_seed():
     """Start bulk SCPRS seed: searches ~20 common categories, drills into PO details,
     ingests unit prices into Won Quotes KB. Runs in background thread (~3-5 min)."""
     try:
-        from src.agents.scrps_lookup import bulk_seed_won_quotes, SEED_STATUS
+        from src.agents.scprs_lookup import bulk_seed_won_quotes, SEED_STATUS
         if SEED_STATUS.get("running"):
             return jsonify({"ok": False, "message": "Seed already running", "status": SEED_STATUS})
         t = threading.Thread(target=bulk_seed_won_quotes, daemon=True)
@@ -3008,7 +3008,7 @@ def api_won_quotes_seed():
 def api_won_quotes_seed_status():
     """Check progress of bulk SCPRS seed job."""
     try:
-        from src.agents.scrps_lookup import SEED_STATUS
+        from src.agents.scprs_lookup import SEED_STATUS
         return jsonify(SEED_STATUS)
     except Exception as e:
         return jsonify({"error": str(e)})
