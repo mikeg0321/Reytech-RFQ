@@ -326,6 +326,42 @@ if bare_excepts == 0:
     _pass("No bare except: blocks")
 
 
+
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 10. TEST SUITE EXECUTION
+# ═══════════════════════════════════════════════════════════════════════════════
+print("\n10. TEST SUITE")
+import subprocess
+result = subprocess.run(
+    ["python3", "-m", "pytest", "tests/", "-q", "--tb=line"],
+    capture_output=True, text=True, cwd=PROJECT_ROOT, timeout=60
+)
+# Parse output for pass/fail counts
+output = result.stdout + result.stderr
+if "passed" in output:
+    # Extract "N passed" from output
+    import re as _re
+    m = _re.search(r"(\d+) passed", output)
+    passed_count = int(m.group(1)) if m else 0
+    m = _re.search(r"(\d+) failed", output)
+    failed_count = int(m.group(1)) if m else 0
+    m = _re.search(r"(\d+) error", output)
+    error_count = int(m.group(1)) if m else 0
+
+    if failed_count == 0 and error_count == 0:
+        _pass(f"{passed_count} tests passed")
+    else:
+        _fail(f"{passed_count} passed, {failed_count} failed, {error_count} errors")
+        if VERBOSE:
+            for line in output.strip().split("\n")[-10:]:
+                print(f"    {line}")
+else:
+    _warn(f"Could not parse test output")
+    if VERBOSE:
+        print(output[:500])
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # SUMMARY
 # ═══════════════════════════════════════════════════════════════════════════════

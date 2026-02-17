@@ -501,7 +501,10 @@ def pricing_health_check() -> dict:
 
     Returns diagnostics about KB size, data freshness, coverage.
     """
-    from won_quotes_db import get_kb_stats
+    try:
+        from src.knowledge.won_quotes_db import get_kb_stats
+    except ImportError:
+        from won_quotes_db import get_kb_stats
     stats = get_kb_stats()
 
     health = {

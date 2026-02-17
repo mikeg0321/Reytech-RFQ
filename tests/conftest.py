@@ -49,12 +49,22 @@ def temp_data_dir(tmp_path, monkeypatch):
     ])
 
     # Patch every module that has DATA_DIR
-    for mod_name in ("won_quotes_db", "product_research", "quote_generator",
-                     "price_check", "auto_processor", "scprs_lookup"):
+    _module_map = {
+        "src.knowledge.won_quotes_db": "won_quotes_db",
+        "src.agents.product_research": "product_research",
+        "src.forms.quote_generator": "quote_generator",
+        "src.forms.price_check": "price_check",
+        "src.auto.auto_processor": "auto_processor",
+        "src.agents.scprs_lookup": "scprs_lookup",
+    }
+    for mod_path, mod_name in _module_map.items():
         try:
-            mod = __import__(mod_name)
+            mod = __import__(mod_path, fromlist=[mod_name.split(".")[-1]])
         except ImportError:
-            continue
+            try:
+                mod = __import__(mod_name)
+            except ImportError:
+                continue
         if hasattr(mod, "DATA_DIR"):
             monkeypatch.setattr(mod, "DATA_DIR", data)
         if hasattr(mod, "WON_QUOTES_FILE"):
@@ -105,7 +115,10 @@ def app(temp_data_dir, monkeypatch):
     monkeypatch.setenv("DASH_USER", "reytech")
     monkeypatch.setenv("DASH_PASS", "changeme")
 
-    import dashboard
+    try:
+        from src.api import dashboard
+    except ImportError:
+        import dashboard
     monkeypatch.setattr(dashboard, "DATA_DIR", temp_data_dir)
     monkeypatch.setattr(dashboard, "OUTPUT_DIR",
                         os.path.join(temp_data_dir, "output"))
@@ -114,8 +127,10 @@ def app(temp_data_dir, monkeypatch):
     for d in ("output", "uploads"):
         os.makedirs(os.path.join(temp_data_dir, d), exist_ok=True)
 
-    dashboard.app.config["TESTING"] = True
-    return dashboard.app
+    from app import create_app
+    _app = create_app()
+    _app.config["TESTING"] = True
+    return _app
 
 
 @pytest.fixture

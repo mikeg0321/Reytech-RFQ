@@ -1,10 +1,3 @@
-import sys
-from pathlib import Path
-
-# Compatibility for refactored structure
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-
 """
 Structured logging configuration for Reytech RFQ system.
 Import and call setup_logging() once at app startup.
@@ -15,7 +8,11 @@ import os
 import json
 from datetime import datetime
 
-DATA_DIR = os.environ.get("REYTECH_DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
+try:
+    from src.core.paths import DATA_DIR
+except ImportError:
+    DATA_DIR = os.environ.get("REYTECH_DATA_DIR",
+        os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data"))
 LOG_DIR = os.path.join(DATA_DIR, "logs")
 
 
