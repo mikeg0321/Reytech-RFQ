@@ -9,7 +9,7 @@ BASE_CSS = """
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--tx);min-height:100vh}
 a{color:var(--ac);text-decoration:none}
-.hdr{background:var(--sf);border-bottom:2px solid var(--bd);padding:10px 24px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px}
+.hdr{background:var(--sf);border-bottom:2px solid var(--bd);padding:12px 24px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;min-height:60px}
 .hdr h1{font-size:19px;font-weight:700;letter-spacing:-0.5px}.hdr h1 span{color:var(--ac)}
 .hdr-btn{padding:6px 14px;font-size:12px;font-weight:600;border-radius:6px;border:1px solid var(--bd);background:var(--sf2);color:var(--tx);cursor:pointer;text-decoration:none;transition:.15s;font-family:'DM Sans',sans-serif;display:inline-flex;align-items:center;gap:4px}
 .hdr-btn:hover{border-color:var(--ac);background:rgba(79,140,255,.1);color:#fff}
@@ -840,7 +840,7 @@ recalc();
 
 def build_pc_detail_html(pcid, pc, items, items_html, download_html, 
                          expiry_date, header, custom_val, custom_display,
-                         del_sel, next_quote_preview=""):
+                         del_sel, next_quote_preview="", today_date=""):
     """Build the Price Check detail page HTML.
     
     Extracted from dashboard.py to keep the main module lean.
@@ -988,12 +988,13 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
       </div>
      </div>
 
-     <!-- Actions: pipeline-oriented, not manual -->
+     <!-- Actions: Save + Preview + Submit/Download -->
      <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-      {download_html}
-      {"<button class='btn btn-p' onclick='showPreview()' style='font-size:13px'>👁️ Preview 704</button>" if pc.get('status') in ('completed','converted','priced') else ""}
+      <button class="btn btn-p" onclick="savePrices(this)" id="saveBtn" style="font-size:14px;padding:8px 20px">💾 Save</button>
+      {"<button class='btn' onclick='showPreview()' style='background:#21262d;color:#c9d1d9;border:1px solid #484f58;font-size:14px;padding:8px 20px'>👁️ Preview 704</button>" if pc.get('status') in ('completed','converted','priced') else ""}
+      {"<button class='btn btn-g' id='submitBtn' onclick='saveAndGenerate(this)' style='font-size:14px;padding:8px 20px'>📄 Save &amp; Submit</button>" if pc.get('status') in ('priced','parsed') else ""}
       {"<button class='btn' data-testid='pc-auto-process' style='background:#f0883e;color:#fff;font-size:14px;padding:8px 20px' onclick='autoProcess(this)'>⚡ Process Now</button>" if pc.get('status') == 'parsed' else ""}
-      {"<button class='btn btn-g' data-testid='pc-generate-704' onclick='saveAndGenerate(this)' style='font-size:13px'>💾 Save &amp; Fill 704</button>" if pc.get('status') == 'priced' else ""}
+      {download_html}
       <details style="position:relative;display:inline-block">
        <summary class="btn btn-sm" style="background:#21262d;color:#8b949e;border:1px solid #30363d;font-size:12px;padding:4px 10px;cursor:pointer;list-style:none">⋯ More</summary>
        <div style="position:absolute;top:100%;left:0;z-index:50;margin-top:4px;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:6px;min-width:220px;box-shadow:0 8px 24px rgba(0,0,0,.4)">
@@ -1063,7 +1064,7 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
        <span id="taxRateDisplay" style="color:#8b949e;font-size:13px">(fetching rate...)</span>
       </label>
       <span style="color:#30363d">|</span>
-      <span style="color:#8b949e">📅 Pricing valid through: <b id="expiryDate" style="color:#d29922">{expiry_date}</b> (45 days)</span>
+      <span style="color:#8b949e">📅 Date: <b style="color:#c9d1d9">{today_date}</b> · Valid through: <b id="expiryDate" style="color:#d29922">{expiry_date}</b> (45 days)</span>
      </div>
     </div>
 
@@ -1072,17 +1073,19 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
 
     // Fetch CA tax rate from CDTFA on load
     (function fetchTaxRate() {{
-     fetch('/api/tax-rate').then(r=>r.json()).then(d=>{{
+     cachedTaxRate = 0.0725; // Default immediately so it's never null
+     document.getElementById('taxRateDisplay').textContent = '(7.25% — CA Default)';
+     fetch('/api/tax-rate',{{credentials:'same-origin'}}).then(r=>{{
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      return r.json();
+     }}).then(d=>{{
       if(d.rate) {{
        cachedTaxRate = d.rate;
        document.getElementById('taxRateDisplay').textContent = '(' + (d.rate*100).toFixed(3) + '% — ' + (d.jurisdiction||'CA') + ')';
-      }} else {{
-       cachedTaxRate = 0.0725;
-       document.getElementById('taxRateDisplay').textContent = '(7.25% — default CA)';
       }}
      }}).catch(()=>{{
-      cachedTaxRate = 0.0725;
-      document.getElementById('taxRateDisplay').textContent = '(7.25% — default CA)';
+      // Already set default above, just log
+      console.log('Tax rate fetch failed, using 7.25% default');
      }});
     }})();
 
@@ -1102,6 +1105,24 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
      const el=document.getElementById('statusMsg');
      el.innerHTML='<div class="msg msg-'+type+'">'+text+'</div>';
      if(type==='ok') setTimeout(()=>el.innerHTML='',5000);
+    }}
+
+    // ── Standalone Save with feedback ──
+    function savePrices(btn) {{
+     const origText=btn.textContent;
+     btn.disabled=true;btn.textContent='⏳ Saving...';
+     fetch('/pricecheck/{pcid}/save-prices',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(collectPrices())}})
+     .then(r=>r.json()).then(d=>{{
+      btn.disabled=false;
+      if(d.ok){{
+       btn.textContent='✅ Saved!';btn.style.background='#238636';
+       showMsg('✅ Prices saved successfully','ok');
+       setTimeout(()=>{{btn.textContent=origText;btn.style.background=''}},2000);
+      }} else {{
+       btn.textContent=origText;
+       showMsg('❌ Save failed: '+(d.error||'unknown'),'err');
+      }}
+     }}).catch(e=>{{btn.disabled=false;btn.textContent=origText;showMsg('❌ Error: '+e,'err')}});
     }}
 
     function getCurrentBuffer() {{
@@ -1577,11 +1598,14 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
 
      document.getElementById('previewBody').innerHTML=html;
      document.getElementById('previewFormType').textContent='Reytech Quote — '+PC_META.institution;
-     document.getElementById('previewModal').classList.add('active');
+     var modal=document.getElementById('previewModal');
+     modal.style.display='flex';
+     modal.style.justifyContent='center';
+     modal.style.alignItems='flex-start';
     }}
 
     function closePreview() {{
-     document.getElementById('previewModal').classList.remove('active');
+     document.getElementById('previewModal').style.display='none';
     }}
     // Close on Esc or click outside
     document.getElementById('previewModal').addEventListener('click',function(e){{
@@ -1594,14 +1618,18 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
      showMsg('Saving prices and generating completed AMS 704...','warn');
      fetch('/pricecheck/{pcid}/save-prices',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(collectPrices())}})
      .then(r=>r.json()).then(d=>{{
-      if(!d.ok){{btn.textContent='💾 Save & Fill 704';btn.disabled=false;showMsg('❌ Save failed','err');return;}}
+      if(!d.ok){{btn.textContent='📄 Save & Submit';btn.disabled=false;showMsg('❌ Save failed','err');return;}}
       btn.textContent='⏳ Generating PDF...';
       return fetch('/pricecheck/{pcid}/generate');
      }}).then(r=>r.json()).then(d=>{{
-      btn.disabled=false;btn.textContent='💾 Save & Fill 704';
-      if(d&&d.ok){{showMsg('✅ Completed 704 generated! Reloading...','ok');setTimeout(()=>location.reload(),1200)}}
-      else{{showMsg('❌ Generation failed: '+(d?.error||'unknown'),'err')}}
-     }}).catch(e=>{{btn.textContent='💾 Save & Fill 704';btn.disabled=false;showMsg('❌ Error: '+e,'err')}});
+      btn.disabled=false;
+      if(d&&d.ok){{
+       showMsg('✅ AMS 704 generated! Reloading...','ok');
+       btn.textContent='📥 Download 704';btn.className='btn btn-g';
+       setTimeout(()=>location.reload(),1500);
+      }}
+      else{{btn.textContent='📄 Save & Submit';showMsg('❌ Generation failed: '+(d?.error||'unknown'),'err')}}
+     }}).catch(e=>{{btn.textContent='📄 Save & Submit';btn.disabled=false;showMsg('❌ Error: '+e,'err')}});
     }}
 
     function generateReytechQuote(btn) {{

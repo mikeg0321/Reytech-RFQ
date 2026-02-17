@@ -332,8 +332,8 @@ def render(content, **kw):
 <div class="hdr">
  <div style="display:flex;align-items:center;gap:14px">
   <a href="/" style="display:flex;align-items:center;gap:10px;text-decoration:none">
-   <img src="/api/logo" alt="" style="height:28px;background:#fff;padding:4px 8px;border-radius:6px" onerror="this.style.display='none'">
-   <h1 style="font-size:19px;font-weight:700;letter-spacing:-0.5px;margin:0"><span style="color:var(--ac)">Reytech</span> <span style="color:var(--tx)">RFQ Dashboard</span></h1>
+   <img src="/api/logo" alt="Reytech" style="height:40px;background:#fff;padding:5px 10px;border-radius:6px" onerror="this.outerHTML='<span style=\\'font-size:20px;font-weight:700;color:var(--ac)\\'>Reytech</span>'">
+   <span style="font-size:17px;font-weight:600;color:var(--tx);letter-spacing:-0.3px">RFQ Dashboard</span>
   </a>
  </div>
  <div style="display:flex;align-items:center;gap:6px">
@@ -955,17 +955,13 @@ def pricecheck_detail(pcid):
         qnum = pc.get("reytech_quote_number", "")
         download_html += f' <a href="/api/pricecheck/download/{qfname}" class="btn btn-sm" style="background:#1a3a5c;color:#fff;font-size:13px">📥 Quote {qnum}</a>'
 
-    # 45-day expiry from processing date
+    # 45-day expiry from TODAY (not upload date)
     try:
-        processed = pc.get("uploaded_at") or pc.get("created_at") or datetime.now().isoformat()
-        if isinstance(processed, str):
-            base = datetime.fromisoformat(processed.replace("Z", "+00:00"))
-        else:
-            base = processed
-        expiry = base + timedelta(days=45)
+        expiry = datetime.now() + timedelta(days=45)
         expiry_date = expiry.strftime("%m/%d/%Y")
     except Exception:
         expiry_date = (datetime.now() + timedelta(days=45)).strftime("%m/%d/%Y")
+    today_date = datetime.now().strftime("%m/%d/%Y")
 
     # Delivery dropdown state
     saved_delivery = pc.get("delivery_option", "5-7 business days")
@@ -986,7 +982,8 @@ def pricecheck_detail(pcid):
         pcid=pcid, pc=pc, items=items, items_html=items_html,
         download_html=download_html, expiry_date=expiry_date,
         header=header, custom_val=custom_val, custom_display=custom_display,
-        del_sel=del_sel, next_quote_preview=next_quote_preview
+        del_sel=del_sel, next_quote_preview=next_quote_preview,
+        today_date=today_date
     )
     return html
 
