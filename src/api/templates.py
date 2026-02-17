@@ -344,7 +344,7 @@ fetch('/api/manager/brief',{credentials:'same-origin'}).then(function(r){
     +'</div>';
   }).join('');
  } else {
-  al.innerHTML='<div class="brief-empty">Nothing pending — you\'re caught up</div>';
+  al.innerHTML='<div class="brief-empty">Nothing pending — all caught up</div>';
  }
 
  // Activity feed

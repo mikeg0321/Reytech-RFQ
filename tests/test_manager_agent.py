@@ -289,3 +289,31 @@ class TestHomePageRendering:
         assert "kpi-card-value" in BASE_CSS
         assert "progress-track" in BASE_CSS
         assert "progress-fill" in BASE_CSS
+
+    def test_no_unescaped_apostrophes_in_js(self):
+        """Regression: apostrophes in JS single-quoted strings break the parser."""
+        import os, re
+        os.environ.setdefault('APP_SECRET', 'test')
+        os.environ.setdefault('DASHBOARD_PASSWORD', 'test')
+        from flask import Flask
+        from src.api.dashboard import bp, load_rfqs, _load_price_checks, render
+        from src.api.templates import PAGE_HOME
+        app = Flask(__name__)
+        app.secret_key = 'test'
+        app.register_blueprint(bp)
+        with app.test_request_context():
+            html = render(PAGE_HOME, rfqs=load_rfqs(), price_checks=_load_price_checks())
+        # Find all script blocks and check for unescaped apostrophes in strings
+        in_script = False
+        for i, line in enumerate(html.split('\n')):
+            if '<script>' in line.lower():
+                in_script = True
+            if '</script>' in line.lower():
+                in_script = False
+            if in_script:
+                # Check for patterns like: ='...you're...' (unescaped ' inside ')
+                # Simple heuristic: innerHTML='...' should not contain unescaped quotes
+                matches = re.findall(r"innerHTML='[^']*'", line)
+                for m in matches:
+                    inner = m[11:-1]  # strip innerHTML=' and trailing '
+                    assert "'" not in inner, f"Unescaped apostrophe on rendered line {i+1}: {m[:60]}"
