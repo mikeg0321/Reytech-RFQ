@@ -1,6 +1,4 @@
-import os
-import sys
-from pathlib import Path
+from src.api.dashboard import app as application
 
 # Add src/ to the Python path for compatibility
 sys.path.insert(0, str(Path(__file__).parent / "src"))
