@@ -177,13 +177,70 @@ def check_auth(username, password):
 def auth_required(f):
     @functools.wraps(f)
     def decorated(*args, **kwargs):
+        # Rate limit auth attempts
+        auth_key = f"auth:{request.remote_addr}"
+        if not _check_rate_limit(auth_key, RATE_LIMIT_AUTH_MAX):
+            return Response("Rate limited — too many auth attempts", 429)
         auth = request.authorization
         if not auth or not check_auth(auth.username, auth.password):
             return Response(
                 "🔒 Reytech RFQ Dashboard — Login Required",
                 401, {"WWW-Authenticate": 'Basic realm="Reytech RFQ Dashboard"'})
+        # Rate limit all authenticated requests
+        if not _check_rate_limit():
+            return Response("Rate limited — slow down", 429)
         return f(*args, **kwargs)
     return decorated
+
+# ═══════════════════════════════════════════════════════════════════════
+# Security: Rate Limiting + Input Sanitization (Phase 22)
+# ═══════════════════════════════════════════════════════════════════════
+
+_rate_limiter = {}  # {ip: [timestamps]}
+RATE_LIMIT_WINDOW = 60  # seconds
+RATE_LIMIT_MAX = 120    # requests per window (generous for normal use)
+RATE_LIMIT_AUTH_MAX = 10  # auth attempts per window
+
+def _check_rate_limit(key: str = None, max_requests: int = None) -> bool:
+    """Check if request is within rate limits. Returns True if OK."""
+    import time as _time
+    key = key or request.remote_addr or "unknown"
+    max_req = max_requests or RATE_LIMIT_MAX
+    now = _time.time()
+    window = _rate_limiter.get(key, [])
+    window = [t for t in window if now - t < RATE_LIMIT_WINDOW]
+    if len(window) >= max_req:
+        return False
+    window.append(now)
+    _rate_limiter[key] = window
+    # Cleanup old keys periodically
+    if len(_rate_limiter) > 1000:
+        cutoff = now - RATE_LIMIT_WINDOW * 2
+        _rate_limiter.clear()
+    return True
+
+def _sanitize_input(value: str, max_length: int = 500, allow_html: bool = False) -> str:
+    """Sanitize user input — strip dangerous characters."""
+    if not isinstance(value, str):
+        return str(value)[:max_length] if value else ""
+    value = value[:max_length]
+    if not allow_html:
+        # Strip HTML tags
+        value = re.sub(r'<[^>]+>', '', value)
+        # Strip path traversal
+        value = value.replace('../', '').replace('..\\', '')
+        value = value.replace('\x00', '')  # null bytes
+    return value.strip()
+
+def _sanitize_path(path_str: str) -> str:
+    """Sanitize file path input — prevent traversal attacks."""
+    if not path_str:
+        return ""
+    # Resolve to prevent traversal
+    clean = os.path.basename(path_str)
+    # Only allow safe characters
+    clean = re.sub(r'[^\w\-.]', '_', clean)
+    return clean
 
 # ═══════════════════════════════════════════════════════════════════════
 # Data Layer
