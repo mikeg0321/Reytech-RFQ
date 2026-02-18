@@ -503,7 +503,7 @@ def launch_voice_follow_up(max_calls=10):
             continue
         try:
             from src.agents.voice_agent import place_call
-            result = place_call(phone_number=phone, script_key="lead_intro", variables={
+            result = place_call(phone_number=phone, script_key="growth_email_follow_up", variables={
                 "institution": target["agency"],
                 "top_items": ", ".join(target.get("categories", ["supplies"])[:3]),
             })
