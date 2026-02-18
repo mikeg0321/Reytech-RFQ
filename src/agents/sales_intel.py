@@ -687,7 +687,100 @@ def add_manual_buyer(agency: str, buyer_email: str, buyer_name: str = "",
     agencies_data["total_agencies"] = len(agencies)
     _save_json(AGENCIES_FILE, agencies_data)
 
+    # Auto-sync new buyer to CRM immediately
+    sync_buyers_to_crm()
     return {"ok": True, "action": "created", "buyer_id": bid, "buyer_email": buyer_email}
+
+
+def sync_buyers_to_crm() -> dict:
+    """Sync all intel buyers into crm_contacts.json.
+    Preserves manual fields (phone, title, linkedin, notes, activity).
+    Updates SCPRS intel fields (spend, categories, items, POs).
+    Called automatically after seed, add, import, and deep pull.
+    """
+    buyers_data = _load_json(BUYERS_FILE)
+    if not isinstance(buyers_data, dict):
+        return {"ok": False, "error": "No buyer data to sync"}
+
+    crm_path = os.path.join(DATA_DIR, "crm_contacts.json")
+    try:
+        with open(crm_path) as f:
+            contacts = json.load(f)
+        if not isinstance(contacts, dict):
+            contacts = {}
+    except (FileNotFoundError, json.JSONDecodeError):
+        contacts = {}
+
+    created = 0
+    updated = 0
+    for b in buyers_data.get("buyers", []):
+        bid = b.get("id", "")
+        if not bid:
+            continue
+        email = (b.get("email","") or b.get("buyer_email","")).strip().lower()
+        if bid in contacts:
+            # Update intel fields only — never touch manual fields
+            c = contacts[bid]
+            c["total_spend"]      = b.get("total_spend", c.get("total_spend", 0))
+            c["po_count"]         = b.get("po_count", c.get("po_count", 0))
+            c["categories"]       = b.get("categories", c.get("categories", {}))
+            c["items_purchased"]  = b.get("items_purchased", c.get("items_purchased", []))
+            c["purchase_orders"]  = b.get("purchase_orders", c.get("purchase_orders", []))
+            c["last_purchase"]    = b.get("last_purchase", c.get("last_purchase", ""))
+            c["score"]            = b.get("score", c.get("score", 0))
+            c["opportunity_score"]= b.get("opportunity_score", c.get("opportunity_score", 0))
+            c["is_reytech_customer"] = b.get("is_reytech_customer", False)
+            c["intel_synced_at"]  = datetime.now().isoformat()
+            c["updated_at"]       = datetime.now().isoformat()
+            # Update name/email/phone only if currently empty
+            if not c.get("buyer_name") and b.get("name"):
+                c["buyer_name"] = b["name"]
+            if not c.get("buyer_email") and email:
+                c["buyer_email"] = email
+            if not c.get("buyer_phone") and b.get("phone"):
+                c["buyer_phone"] = b["phone"]
+            updated += 1
+        else:
+            # Create new CRM record from buyer
+            contacts[bid] = {
+                "id": bid,
+                "created_at": datetime.now().isoformat(),
+                "buyer_name": b.get("name","") or b.get("buyer_name",""),
+                "buyer_email": email,
+                "buyer_phone": b.get("phone","") or b.get("buyer_phone",""),
+                "agency": b.get("agency",""),
+                "title": "",
+                "linkedin": "",
+                "notes": b.get("notes",""),
+                "tags": [],
+                "total_spend": b.get("total_spend", 0),
+                "po_count": b.get("po_count", 0),
+                "categories": b.get("categories", {}),
+                "items_purchased": b.get("items_purchased", []),
+                "purchase_orders": b.get("purchase_orders", []),
+                "last_purchase": b.get("last_purchase",""),
+                "score": b.get("score", 0),
+                "opportunity_score": b.get("opportunity_score", 0),
+                "is_reytech_customer": b.get("is_reytech_customer", False),
+                "outreach_status": b.get("outreach_status","new"),
+                "activity": [],
+                "intel_synced_at": datetime.now().isoformat(),
+                "updated_at": datetime.now().isoformat(),
+                "source": b.get("source","intel"),
+            }
+            created += 1
+
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(crm_path, "w") as f:
+        json.dump(contacts, f, indent=2, default=str)
+
+    return {
+        "ok": True,
+        "created": created,
+        "updated": updated,
+        "total_contacts": len(contacts),
+        "message": f"Synced {created + updated} buyers → CRM ({created} new, {updated} updated)",
+    }
 
 
 def import_buyers_csv(csv_text: str) -> dict:
@@ -730,13 +823,18 @@ def import_buyers_csv(csv_text: str) -> dict:
         except Exception as e:
             errors.append(f"Row {row_num}: {e}")
 
-    return {
+    result = {
         "ok": True,
         "created": created,
         "updated": updated,
         "errors": errors,
         "message": f"Imported {created} new + {updated} updated buyers. {len(errors)} errors.",
     }
+    # Auto-sync to CRM
+    sync = sync_buyers_to_crm()
+    result["crm_synced"] = sync.get("created", 0) + sync.get("updated", 0)
+    result["message"] += f" Synced {result['crm_synced']} to CRM."
+    return result
 
 
 def seed_demo_data() -> dict:
@@ -771,10 +869,13 @@ def seed_demo_data() -> dict:
         )
         if result.get("ok"): created += 1
 
+    # Auto-sync to CRM immediately
+    sync = sync_buyers_to_crm()
     return {
         "ok": True,
         "created": created,
-        "message": f"Seeded {created} demo CA state agency buyers. This is sample data — run Deep Pull on Railway to replace with real SCPRS data.",
+        "crm_synced": sync.get("created", 0),
+        "message": f"Seeded {created} demo CA state agency buyers + synced {sync.get('created',0)} to CRM. Run Deep Pull on Railway to replace with real SCPRS data.",
         "note": "demo_data",
     }
 

@@ -1,0 +1,165 @@
+{
+  "agencies": [
+    {
+      "dept_code": "CDCR",
+      "total_spend": 231500,
+      "buyers": {
+        "james.chen@cdcr.ca.gov": true,
+        "sarah.morales@cdcr.ca.gov": true
+      },
+      "categories": {
+        "Medical": 71000.0,
+        "Safety": 71000.0
+      },
+      "is_customer": false,
+      "opportunity_score": 100
+    },
+    {
+      "dept_code": "CalTrans",
+      "total_spend": 293000,
+      "buyers": {
+        "m.nguyen@dot.ca.gov": true,
+        "linda.park@dot.ca.gov": true
+      },
+      "categories": {
+        "Safety": 107500.0,
+        "Office": 107500.0
+      },
+      "is_customer": false,
+      "opportunity_score": 100
+    },
+    {
+      "dept_code": "CDPH",
+      "total_spend": 475000,
+      "buyers": {
+        "r.thompson@cdph.ca.gov": true,
+        "amy.wilson@cdph.ca.gov": true
+      },
+      "categories": {
+        "Medical": 165000.0,
+        "Safety": 165000.0
+      },
+      "is_customer": false,
+      "opportunity_score": 100
+    },
+    {
+      "dept_code": "DSS",
+      "total_spend": 67000,
+      "buyers": {
+        "kevin.ortiz@dss.ca.gov": true
+      },
+      "categories": {
+        "Office": 33500.0,
+        "Facility": 33500.0
+      },
+      "is_customer": false,
+      "opportunity_score": 67
+    },
+    {
+      "dept_code": "CHP",
+      "total_spend": 198000,
+      "buyers": {
+        "t.garcia@chp.ca.gov": true
+      },
+      "categories": {
+        "Safety": 99000.0,
+        "Medical": 99000.0
+      },
+      "is_customer": false,
+      "opportunity_score": 100
+    },
+    {
+      "dept_code": "CalFire",
+      "total_spend": 412000,
+      "buyers": {
+        "b.johnson@fire.ca.gov": true
+      },
+      "categories": {
+        "Safety": 206000.0,
+        "Facility": 206000.0
+      },
+      "is_customer": false,
+      "opportunity_score": 100
+    },
+    {
+      "dept_code": "DGS",
+      "total_spend": 95000,
+      "buyers": {
+        "patricia.lee@dgs.ca.gov": true
+      },
+      "categories": {
+        "Office": 31666.666666666668,
+        "IT": 31666.666666666668,
+        "Facility": 31666.666666666668
+      },
+      "is_customer": false,
+      "opportunity_score": 95
+    },
+    {
+      "dept_code": "CDFA",
+      "total_spend": 53000,
+      "buyers": {
+        "d.martinez@cdfa.ca.gov": true
+      },
+      "categories": {
+        "Safety": 26500.0,
+        "Janitorial": 26500.0
+      },
+      "is_customer": false,
+      "opportunity_score": 53
+    },
+    {
+      "dept_code": "DMV",
+      "total_spend": 44000,
+      "buyers": {
+        "e.robinson@dmv.ca.gov": true
+      },
+      "categories": {
+        "Office": 22000.0,
+        "IT": 22000.0
+      },
+      "is_customer": false,
+      "opportunity_score": 44
+    },
+    {
+      "dept_code": "EDD",
+      "total_spend": 118000,
+      "buyers": {
+        "c.white@edd.ca.gov": true
+      },
+      "categories": {
+        "Office": 59000.0,
+        "Facility": 59000.0
+      },
+      "is_customer": false,
+      "opportunity_score": 100
+    },
+    {
+      "dept_code": "OSHPD",
+      "total_spend": 267000,
+      "buyers": {
+        "jennifer.brown@oshpd.ca.gov": true
+      },
+      "categories": {
+        "Medical": 133500.0,
+        "Safety": 133500.0
+      },
+      "is_customer": false,
+      "opportunity_score": 100
+    },
+    {
+      "dept_code": "Caltrans-D4",
+      "total_spend": 88000,
+      "buyers": {
+        "m.taylor@dot.ca.gov": true
+      },
+      "categories": {
+        "Safety": 44000.0,
+        "Facility": 44000.0
+      },
+      "is_customer": false,
+      "opportunity_score": 88
+    }
+  ],
+  "total_agencies": 12
+}

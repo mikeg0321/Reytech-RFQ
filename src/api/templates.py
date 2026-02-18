@@ -226,7 +226,7 @@ fetch('/api/intel/revenue',{credentials:'same-origin'}).then(r=>r.json()).then(d
 
 <!-- ═══ Bar 3: Search + Quick Nav ═══ -->
 <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
- <form method="get" action="/quotes" style="display:flex;gap:0;flex:1;min-width:320px;background:var(--sf);border:1.5px solid var(--bd);border-radius:10px;overflow:hidden;transition:border-color .2s" onfocusin="this.style.borderColor='var(--ac)'" onfocusout="this.style.borderColor='var(--bd)'">
+ <form method="get" action="/search" style="display:flex;gap:0;flex:1;min-width:320px;background:var(--sf);border:1.5px solid var(--bd);border-radius:10px;overflow:hidden;transition:border-color .2s" onfocusin="this.style.borderColor='var(--ac)'" onfocusout="this.style.borderColor='var(--bd)'">
   <span style="padding:0 14px;font-size:18px;display:flex;align-items:center;color:var(--tx2)">🔍</span>
   <input name="q" placeholder="Search quotes, agencies, PO numbers, items, contacts..." style="flex:1;padding:14px 4px 14px 0;background:transparent;border:none;color:var(--tx);font-size:15px;outline:none" autocomplete="off">
   <button type="submit" style="padding:14px 22px;background:var(--ac);border:none;color:#fff;font-size:14px;font-weight:700;cursor:pointer;transition:.15s;letter-spacing:.3px" onmouseover="this.style.background='var(--ac2)'" onmouseout="this.style.background='var(--ac)'">Search</button>

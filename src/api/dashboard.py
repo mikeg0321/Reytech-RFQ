@@ -615,6 +615,7 @@ def render(content, **kw):
  </div>
  <nav aria-label="Main navigation" style="display:flex;align-items:center;gap:6px">
   <a href="/" class="hdr-btn hdr-active" aria-label="Home" aria-current="page">🏠 Home</a>
+  <a href="/search" class="hdr-btn" aria-label="Universal search">🔍 Search</a>
   <a href="/quotes" class="hdr-btn" aria-label="Quotes database">📋 Quotes</a>
   <a href="/orders" class="hdr-btn" aria-label="Orders tracking">📦 Orders</a>
   <a href="/contacts" class="hdr-btn" aria-label="CRM Contacts">👥 CRM</a>
@@ -700,6 +701,7 @@ def _header(page_title: str = "") -> str:
  </div>
  <div style="display:flex;align-items:center;gap:6px">
   <a href="/" class="hdr-btn">🏠 Home</a>
+  <a href="/search" class="hdr-btn{'{ hdr-active}' if page_title=='Search' else ''}">🔍 Search</a>
   <a href="/quotes" class="hdr-btn">📋 Quotes</a>
   <a href="/orders" class="hdr-btn">📦 Orders</a>
   <a href="/contacts" class="hdr-btn">👥 CRM</a>
@@ -2413,8 +2415,168 @@ def api_quote_counter():
     """Get current quote counter state."""
     if not QUOTE_GEN_AVAILABLE:
         return jsonify({"ok": False, "error": "Quote generator not available"})
-    return jsonify({"ok": True, "next": peek_next_quote_number(),
-                    **({} if not hasattr(peek_next_quote_number, '__module__') else {})})
+    return jsonify({"ok": True, "next": peek_next_quote_number()})
+
+
+@bp.route("/api/search")
+@auth_required
+def api_universal_search():
+    """Universal search across ALL data: quotes, CRM contacts, intel buyers,
+    orders, RFQs, growth prospects. Returns results with clickable links.
+    GET ?q=<query>&limit=<n>
+    """
+    q = (_sanitize_input(request.args.get("q", "")) or "").strip().lower()
+    limit = min(int(request.args.get("limit", 30)), 100)
+    if not q or len(q) < 2:
+        return jsonify({"ok": False, "error": "Query must be at least 2 characters"})
+
+    results = []
+
+    # ── Quotes ────────────────────────────────────────────────────────────────
+    if QUOTE_GEN_AVAILABLE:
+        try:
+            for qt in search_quotes(query=q, limit=20):
+                qn = qt.get("quote_number", "")
+                inst = qt.get("institution","") or qt.get("ship_to_name","") or "—"
+                ag   = qt.get("agency","") or "—"
+                total= qt.get("total", 0)
+                status = qt.get("status","")
+                results.append({
+                    "type": "quote",
+                    "icon": "📋",
+                    "title": qn,
+                    "subtitle": f"{ag} · {inst[:40]}",
+                    "meta": f"${total:,.0f} · {status}",
+                    "url": f"/quote/{qn}",
+                    "score": 100,
+                })
+        except Exception:
+            pass
+
+    # ── CRM Contacts ──────────────────────────────────────────────────────────
+    try:
+        contacts = _load_crm_contacts()
+        for cid, c in contacts.items():
+            fields = " ".join([
+                c.get("buyer_name",""), c.get("buyer_email",""),
+                c.get("agency",""), c.get("title",""),
+                c.get("notes",""), c.get("buyer_phone",""),
+                " ".join(str(k) for k in c.get("categories",{}).keys()),
+            ]).lower()
+            if q in fields:
+                spend = c.get("total_spend", 0)
+                status = c.get("outreach_status","new")
+                results.append({
+                    "type": "contact",
+                    "icon": "👤",
+                    "title": c.get("buyer_name","") or c.get("buyer_email",""),
+                    "subtitle": f"{c.get('agency','')} · {c.get('buyer_email','')}",
+                    "meta": f"${spend:,.0f} · {status}",
+                    "url": f"/growth/prospect/{cid}",
+                    "score": 90,
+                })
+                if len(results) >= limit: break
+    except Exception:
+        pass
+
+    # ── Intel Buyers (not yet in CRM) ─────────────────────────────────────────
+    if INTEL_AVAILABLE:
+        try:
+            from src.agents.sales_intel import _load_json as _il, BUYERS_FILE as _BF
+            buyers_data = _il(_BF)
+            crm_emails = {c.get("buyer_email","").lower() for c in _load_crm_contacts().values()}
+            if isinstance(buyers_data, dict):
+                for b in buyers_data.get("buyers", [])[:200]:
+                    email = (b.get("email","") or b.get("buyer_email","")).lower()
+                    if email in crm_emails:
+                        continue  # already surfaced via CRM
+                    fields = " ".join([
+                        b.get("name","") or b.get("buyer_name",""),
+                        email, b.get("agency",""),
+                        " ".join(b.get("categories",{}).keys()),
+                        " ".join(i.get("description","") for i in b.get("items_purchased",[])[:5]),
+                    ]).lower()
+                    if q in fields:
+                        spend = b.get("total_spend",0)
+                        results.append({
+                            "type": "intel_buyer",
+                            "icon": "🧠",
+                            "title": b.get("name","") or b.get("buyer_name","") or email,
+                            "subtitle": f"{b.get('agency','')} · {email}",
+                            "meta": f"${spend:,.0f} · score {b.get('opportunity_score',0)}",
+                            "url": f"/growth/prospect/{b.get('id','')}",
+                            "score": 80,
+                        })
+                        if len(results) >= limit: break
+        except Exception:
+            pass
+
+    # ── Orders ────────────────────────────────────────────────────────────────
+    try:
+        orders = _load_orders()
+        for oid, o in orders.items():
+            fields = " ".join([
+                o.get("quote_number",""), o.get("agency",""),
+                o.get("institution",""), o.get("po_number",""),
+                o.get("status",""), oid,
+            ]).lower()
+            if q in fields:
+                results.append({
+                    "type": "order",
+                    "icon": "📦",
+                    "title": oid,
+                    "subtitle": f"{o.get('agency','')} · {o.get('institution','')}",
+                    "meta": f"PO {o.get('po_number','')} · {o.get('status','')}",
+                    "url": f"/order/{oid}",
+                    "score": 70,
+                })
+                if len(results) >= limit: break
+    except Exception:
+        pass
+
+    # ── RFQs ──────────────────────────────────────────────────────────────────
+    try:
+        rfqs = load_rfqs()
+        for rid, r in rfqs.items():
+            fields = " ".join([
+                r.get("rfq_number",""), r.get("requestor_name",""),
+                r.get("institution",""), r.get("agency",""),
+                r.get("status",""), rid,
+                " ".join(str(i.get("description","")) for i in r.get("items",[])),
+            ]).lower()
+            if q in fields:
+                results.append({
+                    "type": "rfq",
+                    "icon": "📄",
+                    "title": r.get("rfq_number","") or rid[:12],
+                    "subtitle": f"{r.get('agency','')} · {r.get('requestor_name','')}",
+                    "meta": f"{len(r.get('items',[]))} items · {r.get('status','')}",
+                    "url": f"/rfq/{rid}",
+                    "score": 60,
+                })
+                if len(results) >= limit: break
+    except Exception:
+        pass
+
+    # Sort by type priority, dedupe urls
+    seen_urls = set()
+    deduped = []
+    for r in sorted(results, key=lambda x: -x["score"]):
+        if r["url"] not in seen_urls:
+            seen_urls.add(r["url"])
+            deduped.append(r)
+
+    return jsonify({
+        "ok": True,
+        "query": q,
+        "count": len(deduped),
+        "results": deduped[:limit],
+        "breakdown": {t: sum(1 for r in deduped if r["type"]==t)
+                      for t in ("quote","contact","intel_buyer","order","rfq")},
+    })
+
+
+
 
 
 @bp.route("/api/quotes/set-counter", methods=["POST"])
@@ -3108,6 +3270,228 @@ def quote_update_status(quote_number):
             result["order_error"] = str(e)
 
     return jsonify(result)
+
+
+@bp.route("/search")
+@auth_required
+def universal_search_page():
+    """Universal search page — searches all data types: quotes, contacts, intel buyers, orders, RFQs."""
+    q = (_sanitize_input(request.args.get("q", "")) or "").strip()
+
+    # Run search if query provided
+    results = []
+    breakdown = {}
+    error = None
+
+    if q and len(q) >= 2:
+        try:
+            # Reuse the API logic directly
+            from flask import g as _g
+            # Call search inline to avoid HTTP round-trip
+            ql = q.lower()
+            limit = 50
+
+            # ── Quotes ──
+            if QUOTE_GEN_AVAILABLE:
+                try:
+                    for qt in search_quotes(query=ql, limit=20):
+                        qn = qt.get("quote_number", "")
+                        inst = qt.get("institution","") or qt.get("ship_to_name","") or "—"
+                        ag   = qt.get("agency","") or "—"
+                        results.append({
+                            "type": "quote", "icon": "📋",
+                            "title": qn,
+                            "subtitle": f"{ag} · {inst[:50]}",
+                            "meta": f"${qt.get('total',0):,.0f} · {qt.get('status','')} · {str(qt.get('created_at',''))[:10]}",
+                            "url": f"/quote/{qn}",
+                        })
+                except Exception:
+                    pass
+
+            # ── CRM Contacts ──
+            try:
+                contacts = _load_crm_contacts()
+                for cid, c in contacts.items():
+                    fields = " ".join([
+                        c.get("buyer_name",""), c.get("buyer_email",""),
+                        c.get("agency",""), c.get("title",""), c.get("notes",""),
+                        c.get("buyer_phone",""),
+                        " ".join(str(k) for k in c.get("categories",{}).keys()),
+                        " ".join(i.get("description","") for i in c.get("items_purchased",[])[:5]),
+                    ]).lower()
+                    if ql in fields:
+                        spend = c.get("total_spend",0)
+                        results.append({
+                            "type": "contact", "icon": "👤",
+                            "title": c.get("buyer_name","") or c.get("buyer_email",""),
+                            "subtitle": f"{c.get('agency','')} · {c.get('buyer_email','')}",
+                            "meta": f"${spend:,.0f} spend · {c.get('outreach_status','new')} · {len(c.get('activity',[]))} interactions",
+                            "url": f"/growth/prospect/{cid}",
+                        })
+            except Exception:
+                pass
+
+            # ── Intel Buyers (not yet in CRM) ──
+            if INTEL_AVAILABLE:
+                try:
+                    from src.agents.sales_intel import _load_json as _il, BUYERS_FILE as _BF
+                    buyers_data = _il(_BF)
+                    crm_ids = set(_load_crm_contacts().keys())
+                    if isinstance(buyers_data, dict):
+                        for b in buyers_data.get("buyers", []):
+                            if b.get("id","") in crm_ids:
+                                continue
+                            email = (b.get("email","") or b.get("buyer_email","")).lower()
+                            fields = " ".join([
+                                b.get("name","") or b.get("buyer_name",""),
+                                email, b.get("agency",""),
+                                " ".join(b.get("categories",{}).keys()),
+                                " ".join(i.get("description","") for i in b.get("items_purchased",[])[:5]),
+                            ]).lower()
+                            if ql in fields:
+                                results.append({
+                                    "type": "intel_buyer", "icon": "🧠",
+                                    "title": b.get("name","") or b.get("buyer_name","") or email,
+                                    "subtitle": f"{b.get('agency','')} · {email}",
+                                    "meta": f"${b.get('total_spend',0):,.0f} spend · score {b.get('opportunity_score',0)} · not in CRM",
+                                    "url": f"/growth/prospect/{b.get('id','')}",
+                                })
+                except Exception:
+                    pass
+
+            # ── Orders ──
+            try:
+                orders = _load_orders()
+                for oid, o in orders.items():
+                    fields = " ".join([
+                        o.get("quote_number",""), o.get("agency",""),
+                        o.get("institution",""), o.get("po_number",""), oid,
+                    ]).lower()
+                    if ql in fields:
+                        results.append({
+                            "type": "order", "icon": "📦",
+                            "title": oid,
+                            "subtitle": f"{o.get('agency','')} · {o.get('institution','')}",
+                            "meta": f"PO {o.get('po_number','—')} · {o.get('status','')}",
+                            "url": f"/order/{oid}",
+                        })
+            except Exception:
+                pass
+
+            # ── RFQs ──
+            try:
+                rfqs = load_rfqs()
+                for rid, r in rfqs.items():
+                    fields = " ".join([
+                        r.get("rfq_number",""), r.get("requestor_name",""),
+                        r.get("institution",""), r.get("agency",""), rid,
+                        " ".join(str(i.get("description","")) for i in r.get("items",[])),
+                    ]).lower()
+                    if ql in fields:
+                        results.append({
+                            "type": "rfq", "icon": "📄",
+                            "title": r.get("rfq_number","") or rid[:12],
+                            "subtitle": f"{r.get('agency','')} · {r.get('requestor_name','')}",
+                            "meta": f"{len(r.get('items',[]))} items · {r.get('status','')}",
+                            "url": f"/rfq/{rid}",
+                        })
+            except Exception:
+                pass
+
+            # Dedupe by URL
+            seen = set()
+            deduped = []
+            for r in results:
+                if r["url"] not in seen:
+                    seen.add(r["url"])
+                    deduped.append(r)
+            results = deduped[:limit]
+
+            breakdown = {t: sum(1 for r in results if r["type"]==t)
+                         for t in ("quote","contact","intel_buyer","order","rfq")}
+        except Exception as e:
+            error = str(e)
+
+    # Build type badge colors
+    type_styles = {
+        "quote":       ("#58a6ff", "rgba(88,166,255,.12)",  "📋 Quote"),
+        "contact":     ("#a78bfa", "rgba(167,139,250,.12)", "👤 Contact"),
+        "intel_buyer": ("#3fb950", "rgba(52,211,153,.12)",  "🧠 Intel Buyer"),
+        "order":       ("#fbbf24", "rgba(251,191,36,.12)",  "📦 Order"),
+        "rfq":         ("#f87171", "rgba(248,113,113,.12)", "📄 RFQ"),
+    }
+
+    rows_html = ""
+    for r in results:
+        color, bg, lbl = type_styles.get(r["type"], ("#8b949e","rgba(139,148,160,.12)","?"))
+        rows_html += f"""
+        <a href="{r['url']}" style="display:block;text-decoration:none;padding:14px 16px;border-bottom:1px solid var(--bd);transition:background .1s" onmouseover="this.style.background='rgba(79,140,255,.06)'" onmouseout="this.style.background=''">
+         <div style="display:flex;align-items:center;gap:12px">
+          <span style="font-size:11px;padding:3px 8px;border-radius:10px;color:{color};background:{bg};white-space:nowrap;font-weight:600">{lbl}</span>
+          <div style="flex:1;min-width:0">
+           <div style="font-weight:600;font-size:14px;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{r['title']}</div>
+           <div style="font-size:12px;color:var(--tx2);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{r['subtitle']}</div>
+          </div>
+          <div style="font-size:11px;color:var(--tx2);white-space:nowrap;text-align:right">{r['meta']}</div>
+          <span style="color:var(--ac);font-size:16px">→</span>
+         </div>
+        </a>"""
+
+    breakdown_html = ""
+    if breakdown:
+        for t, count in breakdown.items():
+            if count:
+                color, bg, lbl = type_styles.get(t, ("#8b949e","rgba(139,148,160,.12)",t))
+                breakdown_html += f'<span style="font-size:12px;padding:3px 10px;border-radius:10px;color:{color};background:{bg}">{lbl}: {count}</span>'
+
+    empty_state = ""
+    if q and len(q) >= 2 and not results:
+        empty_state = f"""
+        <div style="text-align:center;padding:48px 24px;color:var(--tx2)">
+         <div style="font-size:40px;margin-bottom:12px">🔍</div>
+         <div style="font-size:16px;font-weight:600;margin-bottom:6px">No results for "{q}"</div>
+         <div style="font-size:13px;margin-bottom:20px">Try a name, agency, email, item description, or quote number</div>
+         <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+          <a href="/quotes" style="padding:8px 16px;background:var(--sf2);border:1px solid var(--bd);border-radius:7px;color:var(--tx);font-size:13px;text-decoration:none">📋 Browse Quotes</a>
+          <a href="/contacts" style="padding:8px 16px;background:var(--sf2);border:1px solid var(--bd);border-radius:7px;color:var(--tx);font-size:13px;text-decoration:none">👥 Browse CRM</a>
+          <a href="/intelligence" style="padding:8px 16px;background:var(--sf2);border:1px solid var(--bd);border-radius:7px;color:var(--tx);font-size:13px;text-decoration:none">🧠 Sales Intel</a>
+         </div>
+        </div>"""
+
+    q_escaped = q.replace('"','&quot;')
+    return render(f"""
+     <!-- Search header -->
+     <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;flex-wrap:wrap">
+      <h2 style="margin:0;font-size:20px;font-weight:700">🔍 Search</h2>
+      {'<div style="font-size:13px;color:var(--tx2)">' + str(len(results)) + ' results for <b style="color:var(--tx)">"' + q + '"</b></div>' if q else ''}
+     </div>
+
+     <!-- Search form -->
+     <form method="get" action="/search" style="display:flex;gap:10px;margin-bottom:16px">
+      <div style="flex:1;display:flex;background:var(--sf);border:1.5px solid var(--ac);border-radius:10px;overflow:hidden">
+       <span style="padding:0 14px;font-size:18px;display:flex;align-items:center;color:var(--tx2)">🔍</span>
+       <input name="q" value="{q_escaped}" placeholder="Search quotes, contacts, buyers, orders, RFQs..." autofocus
+              style="flex:1;padding:14px 4px 14px 0;background:transparent;border:none;color:var(--tx);font-size:15px;outline:none" autocomplete="off">
+       <button type="submit" style="padding:14px 22px;background:var(--ac);border:none;color:#fff;font-size:14px;font-weight:700;cursor:pointer">Search</button>
+      </div>
+     </form>
+
+     <!-- Breakdown badges -->
+     {('<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">' + breakdown_html + '</div>') if breakdown_html else ''}
+
+     <!-- Results -->
+     <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;overflow:hidden">
+      {rows_html if rows_html else empty_state if q else '<div style="text-align:center;padding:48px;color:var(--tx2)"><div style="font-size:40px;margin-bottom:12px">🔍</div><div style="font-size:15px">Type a name, agency, quote number, or email above</div></div>'}
+     </div>
+
+     {'<div style="margin-top:10px;font-size:12px;color:var(--rd);padding:8px 12px;background:rgba(248,113,113,.1);border-radius:6px">Search error: ' + error + '</div>' if error else ''}
+
+     <!-- Data sources key -->
+     <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <span style="font-size:11px;color:var(--tx2)">Searches:</span>
+      {''.join(f'<span style="font-size:11px;padding:2px 8px;border-radius:8px;color:{c};background:{bg}">{lbl}</span>' for t,(c,bg,lbl) in type_styles.items())}
+     </div>
+    """, title=f'Search{" — " + q if q else ""}')
 
 
 @bp.route("/quotes")
@@ -4587,6 +4971,7 @@ try:
         get_intel_status, update_revenue_tracker, add_manual_revenue,
         get_sb_admin, find_sb_admin_for_agencies,
         add_manual_buyer, import_buyers_csv, seed_demo_data, delete_buyer,
+        sync_buyers_to_crm,
         DEEP_PULL_STATUS, REVENUE_GOAL,
         BUYERS_FILE as INTEL_BUYERS_FILE, AGENCIES_FILE as INTEL_AGENCIES_FILE,
     )
@@ -5496,55 +5881,9 @@ def api_crm_sync_intel():
     """
     if not INTEL_AVAILABLE:
         return jsonify({"ok": False, "error": "Intel not available"})
-    from src.agents.sales_intel import _load_json as il, BUYERS_FILE
-    buyers_data = il(BUYERS_FILE)
-    buyers = buyers_data.get("buyers", []) if isinstance(buyers_data, dict) else []
-    if not buyers:
-        return jsonify({"ok": False, "error": "No buyer data — run Deep Pull first"})
-
-    contacts = _load_crm_contacts()
-    created = 0
-    updated = 0
-    for b in buyers:
-        bid = b.get("id","")
-        if not bid:
-            continue
-        if bid in contacts:
-            # Update SCPRS fields, preserve manual fields
-            for field in ("total_spend","po_count","categories","items_purchased","purchase_orders","last_purchase","score","agency","outreach_status"):
-                if b.get(field) is not None:
-                    contacts[bid][field] = b[field]
-            # Fill blank manual fields from intel if available
-            for field in ("buyer_name","buyer_email","buyer_phone"):
-                if not contacts[bid].get(field) and b.get(field):
-                    contacts[bid][field] = b[field]
-            contacts[bid]["intel_synced_at"] = datetime.now().isoformat()
-            updated += 1
-        else:
-            contacts[bid] = {
-                "id": bid,
-                "created_at": datetime.now().isoformat(),
-                "intel_synced_at": datetime.now().isoformat(),
-                "buyer_name": b.get("buyer_name",""),
-                "buyer_email": b.get("buyer_email",""),
-                "buyer_phone": b.get("buyer_phone",""),
-                "agency": b.get("agency",""),
-                "title": "", "linkedin": "", "notes": "", "tags": [],
-                "total_spend": b.get("total_spend",0),
-                "po_count": b.get("po_count",0),
-                "categories": b.get("categories",{}),
-                "items_purchased": b.get("items_purchased",[]),
-                "purchase_orders": b.get("purchase_orders",[]),
-                "last_purchase": b.get("last_purchase",""),
-                "score": b.get("score",0),
-                "outreach_status": b.get("outreach_status","new"),
-                "activity": [],
-            }
-            created += 1
-    _save_crm_contacts(contacts)
-    return jsonify({"ok": True, "created": created, "updated": updated,
-                    "total_contacts": len(contacts),
-                    "message": f"Synced {len(buyers)} buyers → CRM. {created} new, {updated} updated."})
+    result = sync_buyers_to_crm()
+    _invalidate_cache(os.path.join(DATA_DIR, "crm_contacts.json"))
+    return jsonify(result)
 
 
 # ─── Lead Generation Routes ─────────────────────────────────────────────────
