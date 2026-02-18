@@ -1,0 +1,86 @@
+{
+  "prospects": [
+    {
+      "id": "PRO-f1b7cc68",
+      "buyer_email": "james.chen@cdcr.ca.gov",
+      "buyer_name": "James Chen",
+      "buyer_phone": "",
+      "agency": "CDCR",
+      "categories_matched": [
+        "Medical",
+        "Safety"
+      ],
+      "purchase_orders": [],
+      "total_spend": 142000,
+      "outreach_status": "new",
+      "source": "sales_intel",
+      "opportunity_score": 100
+    },
+    {
+      "id": "PRO-87c8ab96",
+      "buyer_email": "sarah.morales@cdcr.ca.gov",
+      "buyer_name": "Sarah Morales",
+      "buyer_phone": "",
+      "agency": "CDCR",
+      "categories_matched": [
+        "Janitorial",
+        "Facility"
+      ],
+      "purchase_orders": [],
+      "total_spend": 89500,
+      "outreach_status": "new",
+      "source": "sales_intel",
+      "opportunity_score": 89
+    },
+    {
+      "id": "PRO-929c1815",
+      "buyer_email": "m.nguyen@dot.ca.gov",
+      "buyer_name": "Mike Nguyen",
+      "buyer_phone": "",
+      "agency": "CalTrans",
+      "categories_matched": [
+        "Safety",
+        "Office"
+      ],
+      "purchase_orders": [],
+      "total_spend": 215000,
+      "outreach_status": "new",
+      "source": "sales_intel",
+      "opportunity_score": 100
+    },
+    {
+      "id": "PRO-4bca6d1e",
+      "buyer_email": "linda.park@dot.ca.gov",
+      "buyer_name": "Linda Park",
+      "buyer_phone": "",
+      "agency": "CalTrans",
+      "categories_matched": [
+        "IT",
+        "Office"
+      ],
+      "purchase_orders": [],
+      "total_spend": 78000,
+      "outreach_status": "new",
+      "source": "sales_intel",
+      "opportunity_score": 78
+    },
+    {
+      "id": "PRO-bc9e2b31",
+      "buyer_email": "r.thompson@cdph.ca.gov",
+      "buyer_name": "Robert Thompson",
+      "buyer_phone": "",
+      "agency": "CDPH",
+      "categories_matched": [
+        "Medical",
+        "Safety"
+      ],
+      "purchase_orders": [],
+      "total_spend": 330000,
+      "outreach_status": "new",
+      "source": "sales_intel",
+      "opportunity_score": 100
+    }
+  ],
+  "generated_at": "2026-02-18T03:35:39.801149",
+  "total_prospects": 5
+}

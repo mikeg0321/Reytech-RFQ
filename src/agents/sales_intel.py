@@ -123,7 +123,7 @@ def deep_pull_all_buyers(from_date="01/01/2019", max_queries=None, max_detail_pe
     REYTECH_NAMES = ["Reytech", "Rey Tech", "REYTECH"]
 
     DEEP_PULL_STATUS.update({
-        "running": True, "phase": "init", "progress": "Starting SCPRS session...",
+        "running": True, "phase": "init", "progress": "Connecting to SCPRS (suppliers.fiscal.ca.gov)...",
         "queries_done": 0, "queries_total": len(queries) + len(REYTECH_NAMES),
         "total_pos": 0, "total_buyers": 0, "total_agencies": 0,
         "errors": [], "started_at": datetime.now().isoformat(), "finished_at": None,
@@ -132,8 +132,14 @@ def deep_pull_all_buyers(from_date="01/01/2019", max_queries=None, max_detail_pe
     try:
         session = _get_session()
         if not session.initialized and not session.init_session():
-            DEEP_PULL_STATUS.update({"running": False, "phase": "error"})
-            return {"ok": False, "error": "SCPRS session init failed"}
+            err_msg = "SCPRS connection blocked — Railway static IP not enabled. Go to Railway → Settings → Networking → Static IP → Enable."
+            DEEP_PULL_STATUS.update({
+                "running": False, "phase": "error",
+                "progress": err_msg,
+                "errors": [err_msg],
+                "finished_at": datetime.now().isoformat(),
+            })
+            return {"ok": False, "error": err_msg}
 
         # Master collections
         buyers = {}     # email → buyer record
@@ -308,8 +314,18 @@ def deep_pull_all_buyers(from_date="01/01/2019", max_queries=None, max_detail_pe
         }
 
     except Exception as e:
-        DEEP_PULL_STATUS.update({"running": False, "phase": "error", "progress": str(e)})
-        return {"ok": False, "error": str(e)}
+        err_str = str(e)
+        if "ProxyError" in err_str or "403" in err_str or "ConnectionPool" in err_str or "Max retries" in err_str:
+            err_msg = f"SCPRS network blocked ({err_str[:80]}). Enable Railway static IP: Settings → Networking → Static IP."
+        else:
+            err_msg = err_str
+        DEEP_PULL_STATUS.update({
+            "running": False, "phase": "error",
+            "progress": err_msg,
+            "errors": DEEP_PULL_STATUS.get("errors", []) + [err_msg],
+            "finished_at": datetime.now().isoformat(),
+        })
+        return {"ok": False, "error": err_msg}
 
 
 def _score_buyers(buyers):
@@ -577,8 +593,214 @@ def add_manual_revenue(amount: float, description: str, date: str = "") -> dict:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# PRIORITY QUEUE — Who to Contact Next
+# MANUAL BUYER MANAGEMENT — Works without SCPRS
 # ═══════════════════════════════════════════════════════════════════════
+
+def add_manual_buyer(agency: str, buyer_email: str, buyer_name: str = "",
+                     buyer_phone: str = "", categories: list = None,
+                     annual_spend: float = 0, notes: str = "") -> dict:
+    """Manually add a buyer to the intel database without needing SCPRS.
+    Useful when you already know a contact at an agency.
+    """
+    buyers_data = _load_json(BUYERS_FILE)
+    if not isinstance(buyers_data, dict):
+        buyers_data = {"buyers": [], "total_buyers": 0, "updated_at": datetime.now().isoformat()}
+
+    buyer_email = (buyer_email or "").strip().lower()
+    if not buyer_email or not agency:
+        return {"ok": False, "error": "agency and buyer_email are required"}
+
+    # Check for existing
+    buyers = buyers_data.get("buyers", [])
+    for b in buyers:
+        if b.get("email", "").lower() == buyer_email:
+            # Update existing
+            b.update({
+                "name": buyer_name or b.get("name", ""),
+                "phone": buyer_phone or b.get("phone", ""),
+                "agency": agency,
+                "total_spend": annual_spend or b.get("total_spend", 0),
+                "notes": notes or b.get("notes", ""),
+                "updated_at": datetime.now().isoformat(),
+            })
+            if categories:
+                for cat in categories:
+                    b.setdefault("categories", {})[cat] = annual_spend / max(len(categories), 1)
+            buyers_data["updated_at"] = datetime.now().isoformat()
+            _save_json(BUYERS_FILE, buyers_data)
+            return {"ok": True, "action": "updated", "buyer_email": buyer_email}
+
+    # Create new
+    bid = f"manual-{uuid.uuid4().hex[:8]}"
+    cat_dict = {}
+    if categories:
+        per_cat = annual_spend / max(len(categories), 1)
+        for cat in categories:
+            cat_dict[cat] = per_cat
+
+    new_buyer = {
+        "id": bid,
+        "email": buyer_email,
+        "buyer_email": buyer_email,
+        "name": buyer_name,
+        "buyer_name": buyer_name,
+        "phone": buyer_phone,
+        "buyer_phone": buyer_phone,
+        "agency": agency,
+        "total_spend": annual_spend,
+        "categories": cat_dict,
+        "items_purchased": [],
+        "purchase_orders": [],
+        "po_count": 0,
+        "last_purchase": "",
+        "opportunity_score": min(100, int(annual_spend / 1000)),
+        "score": min(1.0, annual_spend / 100000),
+        "is_reytech_customer": False,
+        "outreach_status": "new",
+        "notes": notes,
+        "source": "manual",
+        "added_at": datetime.now().isoformat(),
+    }
+    buyers.append(new_buyer)
+    buyers_data["buyers"] = buyers
+    buyers_data["total_buyers"] = len(buyers)
+    buyers_data["updated_at"] = datetime.now().isoformat()
+    _save_json(BUYERS_FILE, buyers_data)
+
+    # Also update agencies file
+    agencies_data = _load_json(AGENCIES_FILE)
+    if not isinstance(agencies_data, dict):
+        agencies_data = {"agencies": [], "total_agencies": 0}
+    agencies = agencies_data.get("agencies", [])
+    existing_ag = next((a for a in agencies if a.get("dept_code") == agency), None)
+    if existing_ag:
+        existing_ag.setdefault("buyers", {})[buyer_email] = True
+        existing_ag["total_spend"] = existing_ag.get("total_spend", 0) + annual_spend
+    else:
+        agencies.append({
+            "dept_code": agency, "total_spend": annual_spend,
+            "buyers": {buyer_email: True},
+            "categories": cat_dict,
+            "is_customer": False, "opportunity_score": new_buyer["opportunity_score"],
+        })
+    agencies_data["agencies"] = agencies
+    agencies_data["total_agencies"] = len(agencies)
+    _save_json(AGENCIES_FILE, agencies_data)
+
+    return {"ok": True, "action": "created", "buyer_id": bid, "buyer_email": buyer_email}
+
+
+def import_buyers_csv(csv_text: str) -> dict:
+    """Import buyers from CSV text.
+    Expected columns (any order, case-insensitive):
+    agency, email, name, phone, categories, annual_spend, notes
+    """
+    import csv, io
+    lines = csv_text.strip().splitlines()
+    if not lines:
+        return {"ok": False, "error": "Empty CSV"}
+
+    reader = csv.DictReader(io.StringIO(csv_text))
+    created = 0
+    updated = 0
+    errors = []
+
+    for row_num, row in enumerate(reader, 2):
+        # Normalize keys
+        r = {k.strip().lower().replace(" ", "_"): v.strip() for k, v in row.items() if v}
+        agency = r.get("agency", "")
+        email = r.get("email", "")
+        if not agency or not email:
+            errors.append(f"Row {row_num}: missing agency or email")
+            continue
+        try:
+            cats_raw = r.get("categories", "")
+            cats = [c.strip() for c in cats_raw.split(",") if c.strip()] if cats_raw else []
+            spend = float(r.get("annual_spend", "0").replace(",","").replace("$","") or 0)
+            result = add_manual_buyer(
+                agency=agency, buyer_email=email,
+                buyer_name=r.get("name","") or r.get("buyer_name",""),
+                buyer_phone=r.get("phone","") or r.get("buyer_phone",""),
+                categories=cats, annual_spend=spend,
+                notes=r.get("notes",""),
+            )
+            if result.get("action") == "created": created += 1
+            elif result.get("action") == "updated": updated += 1
+            else: errors.append(f"Row {row_num}: {result.get('error','')}")
+        except Exception as e:
+            errors.append(f"Row {row_num}: {e}")
+
+    return {
+        "ok": True,
+        "created": created,
+        "updated": updated,
+        "errors": errors,
+        "message": f"Imported {created} new + {updated} updated buyers. {len(errors)} errors.",
+    }
+
+
+def seed_demo_data() -> dict:
+    """Seed the intel database with realistic CA state agency demo data.
+    Used when SCPRS is unreachable — shows the full UI working with real-looking data.
+    Clears existing data first.
+    """
+    demo_buyers = [
+        {"agency":"CDCR","email":"james.chen@cdcr.ca.gov","name":"James Chen","phone":"916-445-2182","categories":["Medical","Safety"],"annual_spend":142000},
+        {"agency":"CDCR","email":"sarah.morales@cdcr.ca.gov","name":"Sarah Morales","phone":"916-445-3391","categories":["Janitorial","Facility"],"annual_spend":89500},
+        {"agency":"CalTrans","email":"m.nguyen@dot.ca.gov","name":"Mike Nguyen","phone":"916-654-2852","categories":["Safety","Office"],"annual_spend":215000},
+        {"agency":"CalTrans","email":"linda.park@dot.ca.gov","name":"Linda Park","phone":"916-654-5000","categories":["IT","Office"],"annual_spend":78000},
+        {"agency":"CDPH","email":"r.thompson@cdph.ca.gov","name":"Robert Thompson","phone":"916-558-1784","categories":["Medical","Safety"],"annual_spend":330000},
+        {"agency":"CDPH","email":"amy.wilson@cdph.ca.gov","name":"Amy Wilson","phone":"916-558-2900","categories":["Medical","Janitorial"],"annual_spend":145000},
+        {"agency":"DSS","email":"kevin.ortiz@dss.ca.gov","name":"Kevin Ortiz","phone":"916-651-8848","categories":["Office","Facility"],"annual_spend":67000},
+        {"agency":"CHP","email":"t.garcia@chp.ca.gov","name":"Tony Garcia","phone":"916-657-7095","categories":["Safety","Medical"],"annual_spend":198000},
+        {"agency":"CalFire","email":"b.johnson@fire.ca.gov","name":"Bill Johnson","phone":"916-653-5123","categories":["Safety","Facility"],"annual_spend":412000},
+        {"agency":"DGS","email":"patricia.lee@dgs.ca.gov","name":"Patricia Lee","phone":"916-375-4100","categories":["Office","IT","Facility"],"annual_spend":95000},
+        {"agency":"CDFA","email":"d.martinez@cdfa.ca.gov","name":"Diana Martinez","phone":"916-900-5022","categories":["Safety","Janitorial"],"annual_spend":53000},
+        {"agency":"DMV","email":"e.robinson@dmv.ca.gov","name":"Eric Robinson","phone":"916-657-6565","categories":["Office","IT"],"annual_spend":44000},
+        {"agency":"EDD","email":"c.white@edd.ca.gov","name":"Chris White","phone":"916-654-7000","categories":["Office","Facility"],"annual_spend":118000},
+        {"agency":"OSHPD","email":"jennifer.brown@oshpd.ca.gov","name":"Jennifer Brown","phone":"916-326-3000","categories":["Medical","Safety"],"annual_spend":267000},
+        {"agency":"Caltrans-D4","email":"m.taylor@dot.ca.gov","name":"Michael Taylor","phone":"510-286-5600","categories":["Safety","Facility"],"annual_spend":88000},
+    ]
+
+    created = 0
+    for b in demo_buyers:
+        result = add_manual_buyer(
+            agency=b["agency"], buyer_email=b["email"],
+            buyer_name=b["name"], buyer_phone=b["phone"],
+            categories=b["categories"], annual_spend=b["annual_spend"],
+        )
+        if result.get("ok"): created += 1
+
+    return {
+        "ok": True,
+        "created": created,
+        "message": f"Seeded {created} demo CA state agency buyers. This is sample data — run Deep Pull on Railway to replace with real SCPRS data.",
+        "note": "demo_data",
+    }
+
+
+def delete_buyer(buyer_id: str = None, buyer_email: str = None) -> dict:
+    """Delete a buyer from the intel database by ID or email."""
+    buyers_data = _load_json(BUYERS_FILE)
+    if not isinstance(buyers_data, dict):
+        return {"ok": False, "error": "No buyer data"}
+    buyers = buyers_data.get("buyers", [])
+    original_len = len(buyers)
+    if buyer_id:
+        buyers = [b for b in buyers if b.get("id") != buyer_id]
+    elif buyer_email:
+        buyers = [b for b in buyers if b.get("email","").lower() != buyer_email.lower()]
+    else:
+        return {"ok": False, "error": "buyer_id or buyer_email required"}
+    if len(buyers) == original_len:
+        return {"ok": False, "error": "Buyer not found"}
+    buyers_data["buyers"] = buyers
+    buyers_data["total_buyers"] = len(buyers)
+    _save_json(BUYERS_FILE, buyers_data)
+    return {"ok": True, "deleted": original_len - len(buyers)}
+
+
+
 
 def get_priority_queue(limit=25) -> dict:
     """Generate prioritized outreach queue from all intelligence data."""

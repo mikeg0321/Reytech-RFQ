@@ -240,8 +240,8 @@ def auth_required(f):
 
 _rate_limiter = {}  # {ip: [timestamps]}
 RATE_LIMIT_WINDOW = 60  # seconds
-RATE_LIMIT_MAX = 120    # requests per window (generous for normal use)
-RATE_LIMIT_AUTH_MAX = 10  # auth attempts per window
+RATE_LIMIT_MAX = 300    # requests per window (generous for single-user dashboard with polling)
+RATE_LIMIT_AUTH_MAX = 60  # auth attempts per window (was 10 — too low for polling pages)
 
 def _check_rate_limit(key: str = None, max_requests: int = None) -> bool:
     """Check if request is within rate limits. Returns True if OK. Thread-safe."""
@@ -4556,6 +4556,7 @@ try:
         deep_pull_all_buyers, get_priority_queue, push_to_growth_prospects,
         get_intel_status, update_revenue_tracker, add_manual_revenue,
         get_sb_admin, find_sb_admin_for_agencies,
+        add_manual_buyer, import_buyers_csv, seed_demo_data, delete_buyer,
         DEEP_PULL_STATUS, REVENUE_GOAL,
         BUYERS_FILE as INTEL_BUYERS_FILE, AGENCIES_FILE as INTEL_AGENCIES_FILE,
     )
@@ -6731,16 +6732,33 @@ def api_intel_deep_pull():
     """Deep pull ALL buyers from SCPRS across all product categories. Long-running."""
     if not INTEL_AVAILABLE:
         return jsonify({"ok": False, "error": "Sales intel not available"})
+
+    # If already running, return current status
+    if DEEP_PULL_STATUS.get("running"):
+        return jsonify({"ok": True, "message": "Already running", "status": DEEP_PULL_STATUS})
+
     from_date = request.args.get("from", "01/01/2019")
     max_q = request.args.get("max_queries")
     max_q = int(max_q) if max_q else None
 
-    import threading
     def _run():
         deep_pull_all_buyers(from_date=from_date, max_queries=max_q)
+
     t = threading.Thread(target=_run, daemon=True, name="intel-deep-pull")
     t.start()
-    return jsonify({"ok": True, "message": f"Deep pull started ({from_date}→now). Check /api/intel/pull-status."})
+    # Give the thread 1.5s to fail fast on SCPRS init, so we can surface the error now
+    t.join(timeout=1.5)
+
+    if not DEEP_PULL_STATUS.get("running") and DEEP_PULL_STATUS.get("phase") == "error":
+        err = DEEP_PULL_STATUS.get("progress", "SCPRS connection failed")
+        return jsonify({
+            "ok": False,
+            "error": err,
+            "hint": "Enable Railway static IP: railway.app → your project → Settings → Networking → Static IP. Then retry.",
+            "railway_guide": "https://docs.railway.app/reference/static-outbound-ips",
+        })
+
+    return jsonify({"ok": True, "message": f"Deep pull started (from {from_date}). Polling /api/intel/pull-status…"})
 
 
 @bp.route("/api/intel/pull-status")
@@ -6816,6 +6834,83 @@ def api_intel_sb_admin_match():
     if not INTEL_AVAILABLE:
         return jsonify({"ok": False, "error": "Sales intel not available"})
     return jsonify(find_sb_admin_for_agencies())
+
+
+@bp.route("/api/intel/buyers/add", methods=["POST"])
+@auth_required
+def api_intel_buyer_add():
+    """Manually add a buyer. POST JSON: {agency, email, name, phone, categories[], annual_spend, notes}"""
+    if not INTEL_AVAILABLE:
+        return jsonify({"ok": False, "error": "Sales intel not available"})
+    data = request.get_json(silent=True) or {}
+    return jsonify(add_manual_buyer(
+        agency=_sanitize_input(data.get("agency","")),
+        buyer_email=_sanitize_input(data.get("email","")),
+        buyer_name=_sanitize_input(data.get("name","") or data.get("buyer_name","")),
+        buyer_phone=_sanitize_input(data.get("phone","") or data.get("buyer_phone","")),
+        categories=data.get("categories", []),
+        annual_spend=float(data.get("annual_spend", 0) or 0),
+        notes=_sanitize_input(data.get("notes","")),
+    ))
+
+
+@bp.route("/api/intel/buyers/import-csv", methods=["POST"])
+@auth_required
+def api_intel_buyers_import_csv():
+    """Import buyers from CSV. POST raw CSV text as body, or JSON {csv: '...'}.
+    Columns: agency, email, name, phone, categories, annual_spend, notes
+    """
+    if not INTEL_AVAILABLE:
+        return jsonify({"ok": False, "error": "Sales intel not available"})
+    if request.content_type and "json" in request.content_type:
+        data = request.get_json(silent=True) or {}
+        csv_text = data.get("csv", "")
+    else:
+        csv_text = request.get_data(as_text=True)
+    if not csv_text.strip():
+        return jsonify({"ok": False, "error": "No CSV data provided"})
+    return jsonify(import_buyers_csv(csv_text))
+
+
+@bp.route("/api/intel/seed-demo", methods=["POST"])
+@auth_required
+def api_intel_seed_demo():
+    """Seed the intel DB with realistic CA agency demo data (for testing/demo when SCPRS is unreachable)."""
+    if not INTEL_AVAILABLE:
+        return jsonify({"ok": False, "error": "Sales intel not available"})
+    return jsonify(seed_demo_data())
+
+
+@bp.route("/api/intel/buyers/delete", methods=["POST"])
+@auth_required
+def api_intel_buyer_delete():
+    """Delete a buyer by id or email. POST JSON: {buyer_id} or {email}"""
+    if not INTEL_AVAILABLE:
+        return jsonify({"ok": False, "error": "Sales intel not available"})
+    data = request.get_json(silent=True) or {}
+    return jsonify(delete_buyer(
+        buyer_id=data.get("buyer_id"),
+        buyer_email=data.get("email"),
+    ))
+
+
+@bp.route("/api/intel/buyers/clear", methods=["POST"])
+@auth_required
+def api_intel_buyers_clear():
+    """Clear all buyer data (start fresh). Requires confirm=true in body."""
+    if not INTEL_AVAILABLE:
+        return jsonify({"ok": False, "error": "Sales intel not available"})
+    data = request.get_json(silent=True) or {}
+    if not data.get("confirm"):
+        return jsonify({"ok": False, "error": "Send {confirm: true} to clear all buyer data"})
+    import os as _os
+    for f in [INTEL_BUYERS_FILE, INTEL_AGENCIES_FILE]:
+        if _os.path.exists(f):
+            _os.remove(f)
+            _invalidate_cache(f)
+    return jsonify({"ok": True, "message": "Buyer database cleared. Run Deep Pull or seed demo data."})
+
+
 
 
 # ─── Intelligence Dashboard Page ──────────────────────────────────────────
@@ -6908,171 +7003,298 @@ def intelligence_page():
 
     pull_running = pull.get("running", False)
 
+    # Check scprs connectivity status
+    scprs_ok = st.get("scprs_reachable", False)
+    scprs_err = st.get("scprs_error", "")
+    has_buyers = total_buyers > 0
+
     return f"""{_header('Sales Intelligence')}
     <style>
-     .card {{background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px;margin-bottom:16px}}
-     .card h3 {{font-size:15px;margin-bottom:12px;display:flex;align-items:center;gap:8px}}
-     .g-btn {{padding:8px 16px;border-radius:8px;border:1px solid var(--bd);background:var(--sf2);color:var(--tx);cursor:pointer;font-size:13px;font-weight:600;transition:all .15s}}
-     .g-btn:hover {{background:var(--ac);color:#000;border-color:var(--ac)}}
-     .g-btn-go {{background:rgba(52,211,153,.12);color:#3fb950;border-color:rgba(52,211,153,.3)}}
-     table {{width:100%;border-collapse:collapse;font-size:12px}}
-     th {{text-align:left;padding:6px 8px;border-bottom:2px solid var(--bd);font-size:11px;color:var(--tx2);text-transform:uppercase}}
-     td {{padding:6px 8px;border-bottom:1px solid var(--bd)}}
-     .mono {{font-family:'JetBrains Mono',monospace}}
+     .card{{background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px;margin-bottom:14px}}
+     .card h3{{font-size:11px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px}}
+     .g-btn{{padding:8px 14px;border-radius:7px;border:1px solid var(--bd);background:var(--sf2);color:var(--tx);cursor:pointer;font-size:13px;font-weight:600;transition:.15s;display:inline-flex;align-items:center;gap:5px}}
+     .g-btn:hover{{border-color:var(--ac);background:rgba(79,140,255,.1)}}
+     .g-btn-go{{background:rgba(52,211,153,.1);color:#3fb950;border-color:rgba(52,211,153,.3)}}
+     .g-btn-warn{{background:rgba(251,191,36,.1);color:#fbbf24;border-color:rgba(251,191,36,.3)}}
+     .g-btn-red{{background:rgba(248,113,113,.1);color:#f87171;border-color:rgba(248,113,113,.3)}}
+     .g-btn-purple{{background:rgba(167,139,250,.1);color:#a78bfa;border-color:rgba(167,139,250,.3)}}
+     table{{width:100%;border-collapse:collapse;font-size:12px}}
+     th{{text-align:left;padding:8px;font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--bd)}}
+     td{{padding:8px;border-bottom:1px solid rgba(46,51,69,.4);vertical-align:middle}}
+     tr:hover td{{background:rgba(79,140,255,.04)}}
+     .mono{{font-family:'JetBrains Mono',monospace}}
+     .modal-bg{{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1000;align-items:center;justify-content:center}}
+     .modal-box{{background:var(--sf);border:1px solid var(--bd);border-radius:12px;padding:24px;width:520px;max-width:95vw;max-height:90vh;overflow-y:auto}}
+     .form-lbl{{font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px}}
+     .form-input{{width:100%;padding:10px 12px;background:var(--sf2);border:1px solid var(--bd);border-radius:7px;color:var(--tx);font-size:13px;box-sizing:border-box;margin-bottom:12px;font-family:'DM Sans',sans-serif}}
+     .form-input:focus{{outline:none;border-color:var(--ac)}}
+     textarea.form-input{{resize:vertical;min-height:120px}}
     </style>
 
-    <h1>🧠 Sales Intelligence</h1>
-    <div style="color:var(--tx2);font-size:13px;margin-bottom:16px">
-     SCPRS-mined buyer data — every contact, every item, every dollar — prioritized for outreach.
-    </div>
-
-    <!-- Actions -->
-    <div class="card">
-     <h3>⚡ Actions</h3>
-     <div id="progress-bar" style="display:{'block' if pull_running else 'none'};background:var(--sf2);padding:10px;border-radius:8px;margin-bottom:10px;font-size:12px">
-      <span id="progress-text">{pull.get('progress','') if pull_running else ''}</span>
+    <!-- Header -->
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:18px">
+     <div>
+      <h1 style="font-size:22px;font-weight:700;margin-bottom:4px">🧠 Sales Intelligence</h1>
+      <div style="font-size:13px;color:var(--tx2)">SCPRS buyer database — contacts, spend, categories, opportunities</div>
      </div>
-     <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <button class="g-btn g-btn-go" onclick="runIntel('/api/intel/deep-pull')">🔍 Deep Pull All Buyers</button>
-      <button class="g-btn" onclick="runIntel('/api/intel/pull-status')">⏳ Pull Progress</button>
-      <button class="g-btn g-btn-go" onclick="runIntel('/api/intel/priority-queue')">📊 Priority Queue</button>
-      <button class="g-btn" onclick="runIntel('/api/intel/push-prospects?top=50')">📥 Push Top 50 → Growth Pipeline</button>
-      <button class="g-btn g-btn-purple" onclick="syncCRM()">👥 Sync All → CRM</button>
-      <button class="g-btn" onclick="runIntel('/api/intel/sb-admin-match')">🏛️ Match SB Admins</button>
-      <button class="g-btn" onclick="runIntel('/api/intel/scprs-test')" style="border-color:rgba(167,139,250,.4);color:#a78bfa">🔌 Test SCPRS Connection</button>
+     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <span id="scprs-dot" style="font-size:12px;padding:4px 10px;border-radius:12px;background:{'rgba(52,211,153,.15)' if scprs_ok else 'rgba(248,113,113,.15)'};color:{'#3fb950' if scprs_ok else '#f87171'};border:1px solid {'rgba(52,211,153,.3)' if scprs_ok else 'rgba(248,113,113,.3)'}">
+       {'✅ SCPRS Connected' if scprs_ok else '⚠️ SCPRS Offline'}
+      </span>
+      <button class="g-btn" onclick="testSCPRS(this)">🔌 Test Connection</button>
      </div>
     </div>
 
-    <!-- Stats -->
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
-     <div class="card" style="text-align:center">
-      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase">Total Buyers</div>
-      <div style="font-size:28px;font-weight:700;color:var(--ac)">{total_buyers}</div>
+    <!-- SCPRS offline banner -->
+    {'<div id="scprs-banner" style="background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.3);border-radius:8px;padding:12px 16px;margin-bottom:14px;font-size:13px"><b style=\'color:#f87171\'>⚠️ SCPRS Unreachable</b> — Deep Pull requires Railway static IP.<br><span style=\'color:var(--tx2);font-size:12px\'>Fix: railway.app → your project → Settings → Networking → Static IP → Enable. Then retry Deep Pull.</span><br><span style=\'color:var(--tx2);font-size:12px\'>In the meantime, use <b style=\'color:#fbbf24\'>Load Demo Data</b> to see the full UI, or <b style=\'color:#3fb950\'>Add Buyer Manually</b> to enter real contacts.</span></div>' if not scprs_ok else ''}
+
+    <!-- Stats bar -->
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px">
+     <div class="card" style="text-align:center;padding:12px">
+      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">Buyers</div>
+      <div style="font-size:26px;font-weight:700;color:var(--ac);font-family:monospace">{total_buyers}</div>
      </div>
-     <div class="card" style="text-align:center">
-      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase">Agencies</div>
-      <div style="font-size:28px;font-weight:700;color:#bc8cff">{total_agencies}</div>
+     <div class="card" style="text-align:center;padding:12px">
+      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">Agencies</div>
+      <div style="font-size:26px;font-weight:700;color:#a78bfa;font-family:monospace">{total_agencies}</div>
      </div>
-     <div class="card" style="text-align:center">
-      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase">Not Our Customer</div>
-      <div style="font-size:28px;font-weight:700;color:#d29922">{sum(1 for a in agencies if not a.get('is_customer'))}</div>
+     <div class="card" style="text-align:center;padding:12px">
+      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">Addressable</div>
+      <div style="font-size:22px;font-weight:700;color:#fbbf24;font-family:monospace">${sum(b.get('total_spend',0) for b in buyers):,.0f}</div>
      </div>
-     <div class="card" style="text-align:center">
-      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase">Addressable Spend</div>
-      <div style="font-size:28px;font-weight:700;color:#3fb950">${sum(a.get('total_spend',0) for a in agencies if not a.get('is_customer')):,.0f}</div>
+     <div class="card" style="text-align:center;padding:12px">
+      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">Revenue Closed</div>
+      <div style="font-size:22px;font-weight:700;color:#3fb950;font-family:monospace">${closed:,.0f}</div>
+     </div>
+     <div class="card" style="text-align:center;padding:12px">
+      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">Goal Progress</div>
+      <div style="font-size:22px;font-weight:700;color:{'#3fb950' if pct>=50 else '#d29922'};font-family:monospace">{pct:.0f}%</div>
      </div>
     </div>
 
-    <!-- Opportunity Agencies (NOT our customers) -->
-    {'<div class="card"><h3>🎯 Top Opportunity Agencies <span style="font-size:11px;color:var(--tx2);font-weight:400">(agencies we do NOT sell to yet)</span></h3><div style="max-height:400px;overflow:auto"><table><thead><tr><th>Agency</th><th>Total Spend</th><th>Score</th><th>Buyers</th><th>Categories</th><th>SB Admin</th></tr></thead><tbody>' + opp_rows + '</tbody></table></div></div>' if opp_rows else '<div class="card"><h3>🎯 Opportunity Agencies</h3><div style="color:var(--tx2);font-size:12px">Run Deep Pull to discover agencies</div></div>'}
+    <!-- 2-col layout -->
+    <div style="display:grid;grid-template-columns:1fr 340px;gap:14px;align-items:start">
+     <div>
 
-    <!-- Top Priority Buyers -->
-    {'<div class="card"><h3>🔥 Top Priority Buyers <span style="font-size:11px;color:var(--tx2);font-weight:400">(highest score, not our customers)</span></h3><div style="max-height:500px;overflow:auto"><table><thead><tr><th>Agency</th><th>Buyer</th><th>Email</th><th>Spend</th><th>Score</th><th>Categories</th><th>Items</th></tr></thead><tbody>' + buyer_rows + '</tbody></table></div></div>' if buyer_rows else '<div class="card"><h3>🔥 Priority Buyers</h3><div style="color:var(--tx2);font-size:12px">Run Deep Pull to discover buyers</div></div>'}
+      <!-- Deep Pull Actions -->
+      <div class="card">
+       <h3>⚡ Data Collection</h3>
+       <div id="pull-progress-wrap" style="display:{'block' if pull_running else 'none'};margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+         <span style="font-size:12px;font-weight:600;color:var(--tx2)" id="pull-phase-label">Deep Pull Running...</span>
+         <span style="font-size:11px;font-family:monospace;color:var(--ac)" id="pull-counts"></span>
+        </div>
+        <div style="background:var(--sf2);border-radius:8px;height:22px;overflow:hidden;position:relative;border:1px solid var(--bd)">
+         <div id="pull-bar-fill" style="height:100%;border-radius:8px;transition:width .5s;background:linear-gradient(90deg,#4f8cff,#34d399);width:0%"></div>
+         <span id="pull-bar-text" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:11px;font-weight:600;color:#fff;white-space:nowrap">Starting...</span>
+        </div>
+        <div style="margin-top:6px;font-size:11px;color:var(--tx2)" id="pull-detail-text"></div>
+        <div id="pull-errors" style="margin-top:6px;font-size:11px;color:#f87171;display:none"></div>
+       </div>
+       <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="g-btn g-btn-go" id="deep-pull-btn" onclick="startDeepPull()">🔍 Deep Pull SCPRS</button>
+        <button class="g-btn g-btn-warn" onclick="seedDemo(this)">🌱 Load Demo Data</button>
+        <button class="g-btn g-btn-purple" onclick="openAddBuyer()">➕ Add Buyer</button>
+        <button class="g-btn" onclick="openImportCSV()">📥 Import CSV</button>
+        <button class="g-btn" onclick="syncCRM(this)">👥 Sync → CRM</button>
+        <button class="g-btn" onclick="pushProspects(this)">🚀 Push → Growth</button>
+        <button class="g-btn" onclick="showPriorityQueue(this)">📊 Priority Queue</button>
+       </div>
+      </div>
 
-    <!-- Current Customers (upsell opportunity) -->
-    {'<div class="card"><h3>🏆 Current Customers <span style="font-size:11px;color:var(--tx2);font-weight:400">(upsell gap = their total spend - our share)</span></h3><table><thead><tr><th>Agency</th><th>Our Revenue</th><th>Their Total</th><th>Upsell Gap</th><th>Categories</th></tr></thead><tbody>' + customer_rows + '</tbody></table></div>' if customer_rows else ''}
+      <!-- Buyer table -->
+      <div class="card">
+       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <h3 style="margin:0">🔥 Buyer Database ({total_buyers})</h3>
+        <input id="buyer-search" placeholder="Filter buyers..." style="padding:6px 10px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:12px;width:180px" oninput="filterBuyers()">
+       </div>
+       {'<div style="overflow-x:auto"><table id="buyer-table"><thead><tr><th>Agency</th><th>Name</th><th>Email</th><th>Categories</th><th>Spend</th><th>Score</th><th>Status</th><th></th></tr></thead><tbody id="buyer-tbody">' + ''.join(
+           f'<tr data-search="{b.get("agency","").lower()} {b.get("name","").lower()} {b.get("email","").lower()}">'
+           f'<td style="font-weight:600">{b.get("agency","—")}</td>'
+           f'<td>{b.get("name") or b.get("buyer_name","—")}</td>'
+           f'<td style="font-family:monospace;font-size:11px"><a href="mailto:{b.get("email","")}" style="color:var(--ac)">{b.get("email","—")}</a></td>'
+           f'<td style="font-size:11px">{", ".join(list(b.get("categories",{}).keys())[:2])}</td>'
+           f'<td class="mono" style="color:#3fb950">${b.get("total_spend",0):,.0f}</td>'
+           f'<td class="mono" style="color:#a78bfa">{b.get("opportunity_score",0) or int((b.get("score",0) or 0)*100)}</td>'
+           f'<td><span style="font-size:10px;padding:2px 8px;border-radius:8px;background:rgba(79,140,255,.15);color:var(--ac)">{b.get("outreach_status","new")}</span></td>'
+           f'<td><a href="/growth/prospect/{b.get("id","")}" style="color:var(--ac);font-size:11px">View →</a></td>'
+           f'</tr>'
+           for b in buyers
+       ) + '</tbody></table></div>' if has_buyers else '<div style="text-align:center;padding:32px;color:var(--tx2)"><div style="font-size:32px;margin-bottom:10px">📭</div><div style="font-size:14px;font-weight:600;margin-bottom:6px">No buyers yet</div><div style="font-size:13px;margin-bottom:16px">Use the buttons above to pull from SCPRS, import CSV, or add manually</div><button class="g-btn g-btn-warn" onclick="seedDemo(this)" style="margin:0 auto">🌱 Load Demo Data (15 CA agencies)</button></div>'}
+      </div>
 
-    <!-- BI: Annual Revenue Goal -->
-    <div class="card" style="border-color:rgba(139,148,160,.2)">
-     <h3 style="font-size:13px;color:var(--tx2)">📈 Annual Revenue — BI Tracking</h3>
-     <div style="background:var(--sf2);border-radius:10px;height:24px;overflow:hidden;margin-bottom:8px;position:relative">
-      <div style="background:{bar_color};height:100%;width:{pct}%;border-radius:10px;transition:width .5s"></div>
-      <span style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:11px;font-weight:600">${closed:,.0f} / $2M ({pct}%)</span>
+      <!-- Opportunity Agencies -->
+      {'<div class="card"><h3>🎯 Opportunity Agencies (' + str(sum(1 for a in agencies if not a.get("is_customer"))) + ')</h3><div style="overflow-x:auto"><table><thead><tr><th>Agency</th><th>Total Spend</th><th>Score</th><th>Buyers</th><th>Categories</th></tr></thead><tbody>' + opp_rows + '</tbody></table></div></div>' if opp_rows else ''}
+
+      <!-- Existing Customers -->
+      {'<div class="card"><h3>🏆 Existing Customers — Upsell View</h3><table><thead><tr><th>Agency</th><th>Our Revenue</th><th>Their Total</th><th>Upsell Gap</th><th>Categories</th></tr></thead><tbody>' + customer_rows + '</tbody></table></div>' if customer_rows else ''}
+
      </div>
-     <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;text-align:center;font-size:11px">
-      <div><span style="color:var(--tx2)">Closed</span><br><b style="color:#3fb950">${closed:,.0f}</b></div>
-      <div><span style="color:var(--tx2)">Pipeline</span><br><b style="color:#58a6ff">${pipeline:,.0f}</b></div>
-      <div><span style="color:var(--tx2)">Gap</span><br><b style="color:#f85149">${gap:,.0f}</b></div>
-      <div><span style="color:var(--tx2)">Mo. Needed</span><br><b style="color:#d29922">${monthly:,.0f}</b></div>
-      <div><span style="color:var(--tx2)">Run Rate</span><br><b style="color:{'#3fb950' if on_track else '#f85149'}">${run_rate:,.0f}</b></div>
-     </div>
-     <div style="margin-top:8px;display:flex;gap:6px">
-      <button class="g-btn" style="font-size:11px;padding:5px 10px" onclick="addRevenue()">💰 Log Revenue</button>
-      <button class="g-btn" style="font-size:11px;padding:5px 10px" onclick="runIntel('/api/intel/revenue')">🔄 Refresh</button>
+
+     <!-- Right column -->
+     <div>
+
+      <!-- Revenue Goal -->
+      <div class="card">
+       <h3>📈 Revenue Goal — 2026</h3>
+       <div style="background:var(--sf2);border-radius:8px;height:22px;overflow:hidden;position:relative;margin-bottom:10px">
+        <div style="background:{bar_color};height:100%;width:{pct}%;border-radius:8px;transition:width .5s"></div>
+        <span style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:11px;font-weight:700;color:#fff">${closed:,.0f} / $2M</span>
+       </div>
+       <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px;margin-bottom:12px">
+        <div style="background:var(--sf2);border-radius:6px;padding:8px;text-align:center"><div style="color:var(--tx2);font-size:9px;text-transform:uppercase">Gap</div><div style="font-weight:700;color:#f85149;font-family:monospace">${gap:,.0f}</div></div>
+        <div style="background:var(--sf2);border-radius:6px;padding:8px;text-align:center"><div style="color:var(--tx2);font-size:9px;text-transform:uppercase">Mo. Needed</div><div style="font-weight:700;color:#fbbf24;font-family:monospace">${monthly:,.0f}</div></div>
+        <div style="background:var(--sf2);border-radius:6px;padding:8px;text-align:center"><div style="color:var(--tx2);font-size:9px;text-transform:uppercase">Run Rate</div><div style="font-weight:700;color:{'#3fb950' if on_track else '#f87171'};font-family:monospace">${run_rate:,.0f}</div></div>
+        <div style="background:var(--sf2);border-radius:6px;padding:8px;text-align:center"><div style="color:var(--tx2);font-size:9px;text-transform:uppercase">Pipeline</div><div style="font-weight:700;color:#58a6ff;font-family:monospace">${pipeline:,.0f}</div></div>
+       </div>
+       <div style="display:flex;gap:6px">
+        <button class="g-btn g-btn-go" onclick="openLogRevenue()" style="flex:1;justify-content:center">💰 Log Revenue</button>
+        <button class="g-btn" onclick="refreshRevenue(this)" style="padding:8px 10px">🔄</button>
+       </div>
+      </div>
+
+      <!-- Pull status -->
+      <div class="card">
+       <h3>📡 Pull Status</h3>
+       <div id="pull-status-card" style="font-size:12px">
+        {'<div style="color:#f87171">⚠️ Last pull failed: ' + pull.get("progress","")[:80] + '</div>' if pull.get("phase") == "error" else '<div style="color:var(--tx2)">No pull run yet</div>' if not pull.get("phase") else '<div style="color:#3fb950">✅ ' + str(pull.get("progress",""))[:80] + '</div>'}
+        {f'<div style="font-size:11px;color:var(--tx2);margin-top:6px">{pull.get("total_buyers",0)} buyers · {pull.get("total_agencies",0)} agencies · {pull.get("total_pos",0)} POs scanned</div>' if pull.get("total_buyers") else ''}
+        {f'<div style="font-size:11px;color:var(--tx2);margin-top:4px">Finished: {str(pull.get("finished_at",""))[:16].replace("T"," ")}</div>' if pull.get("finished_at") else ''}
+       </div>
+      </div>
+
+      <!-- Result output box -->
+      <div id="result-wrap" style="display:none" class="card">
+       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <h3 style="margin:0" id="result-title">Result</h3>
+        <button onclick="document.getElementById('result-wrap').style.display='none'" style="background:none;border:none;color:var(--tx2);cursor:pointer;font-size:16px">✕</button>
+       </div>
+       <div id="result-content" style="font-size:12px;line-height:1.6"></div>
+      </div>
+
+      <!-- CSV template -->
+      <div class="card">
+       <h3>📋 CSV Import Format</h3>
+       <div style="font-size:11px;color:var(--tx2);margin-bottom:8px">Copy this template, fill it out, and click Import CSV:</div>
+       <pre style="font-size:10px;background:var(--sf2);padding:10px;border-radius:6px;overflow-x:auto;color:var(--tx);line-height:1.4">agency,email,name,phone,categories,annual_spend,notes
+CDCR,j.smith@cdcr.ca.gov,John Smith,916-445-1000,"Medical,Safety",125000,High priority
+CalTrans,m.jones@dot.ca.gov,Mary Jones,916-654-2000,Office,45000,</pre>
+       <button class="g-btn" onclick="copyTemplate(this)" style="margin-top:6px;font-size:11px;padding:5px 10px">📋 Copy Template</button>
+      </div>
+
      </div>
     </div>
 
-    <div id="result" style="display:none;background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px;margin-top:12px;max-height:400px;overflow:auto">
-     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-      <span style="font-weight:600;font-size:13px">Result</span>
-      <button onclick="document.getElementById('result').style.display='none'" style="background:none;border:none;color:var(--tx2);cursor:pointer">✕</button>
+    <!-- Add Buyer Modal -->
+    <div class="modal-bg" id="add-buyer-modal" onclick="if(event.target===this)closeModal('add-buyer-modal')">
+     <div class="modal-box">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+       <span style="font-size:16px;font-weight:700">➕ Add Buyer Manually</span>
+       <button onclick="closeModal('add-buyer-modal')" style="background:none;border:none;color:var(--tx2);cursor:pointer;font-size:20px">✕</button>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">
+       <div><label class="form-lbl">Agency *</label><input id="ab-agency" class="form-input" placeholder="e.g. CDCR, CalTrans"></div>
+       <div><label class="form-lbl">Email *</label><input id="ab-email" class="form-input" placeholder="buyer@agency.ca.gov"></div>
+       <div><label class="form-lbl">Full Name</label><input id="ab-name" class="form-input" placeholder="First Last"></div>
+       <div><label class="form-lbl">Phone</label><input id="ab-phone" class="form-input" placeholder="916-xxx-xxxx"></div>
+      </div>
+      <label class="form-lbl">Categories (comma-separated)</label>
+      <input id="ab-categories" class="form-input" placeholder="e.g. Medical, Safety, Janitorial">
+      <label class="form-lbl">Annual Spend ($)</label>
+      <input id="ab-spend" class="form-input" type="number" placeholder="e.g. 75000">
+      <label class="form-lbl">Notes</label>
+      <textarea id="ab-notes" class="form-input" rows="2" placeholder="Any context about this buyer..."></textarea>
+      <button onclick="submitAddBuyer()" class="g-btn g-btn-go" style="width:100%;justify-content:center;padding:12px;font-size:14px">✅ Add Buyer</button>
      </div>
-     <pre id="result-content" style="font-size:11px;white-space:pre-wrap;word-break:break-word;margin:0"></pre>
     </div>
 
-    <!-- Live Progress Bar — shown during deep pull -->
-    <div id="pull-progress-wrap" style="display:{'block' if pull_running else 'none'};margin-top:12px">
-     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-      <span style="font-size:12px;font-weight:600;color:var(--tx2)" id="pull-phase-label">Deep Pull Running...</span>
-      <span style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--ac)" id="pull-counts"></span>
+    <!-- Import CSV Modal -->
+    <div class="modal-bg" id="csv-modal" onclick="if(event.target===this)closeModal('csv-modal')">
+     <div class="modal-box">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+       <span style="font-size:16px;font-weight:700">📥 Import Buyers CSV</span>
+       <button onclick="closeModal('csv-modal')" style="background:none;border:none;color:var(--tx2);cursor:pointer;font-size:20px">✕</button>
+      </div>
+      <div style="font-size:12px;color:var(--tx2);margin-bottom:10px">Paste CSV with headers: agency, email, name, phone, categories, annual_spend, notes</div>
+      <textarea id="csv-input" class="form-input" rows="10" placeholder="agency,email,name,phone,categories,annual_spend,notes&#10;CDCR,j.smith@cdcr.ca.gov,John Smith,916-445-1000,&quot;Medical,Safety&quot;,125000,"></textarea>
+      <div style="display:flex;gap:8px;margin-top:4px">
+       <button onclick="submitCSV()" class="g-btn g-btn-go" style="flex:1;justify-content:center;padding:12px">📥 Import</button>
+       <button onclick="closeModal('csv-modal')" class="g-btn" style="padding:12px 20px">Cancel</button>
+      </div>
      </div>
-     <div style="background:var(--sf2);border-radius:8px;height:20px;overflow:hidden;position:relative;border:1px solid var(--bd)">
-      <div id="pull-bar-fill" style="height:100%;border-radius:8px;transition:width .5s;background:linear-gradient(90deg,#4f8cff,#34d399);width:0%"></div>
-      <span id="pull-bar-text" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:11px;font-weight:600;color:#fff;white-space:nowrap">Starting...</span>
+    </div>
+
+    <!-- Log Revenue Modal -->
+    <div class="modal-bg" id="rev-modal" onclick="if(event.target===this)closeModal('rev-modal')">
+     <div class="modal-box">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+       <span style="font-size:16px;font-weight:700">💰 Log Revenue</span>
+       <button onclick="closeModal('rev-modal')" style="background:none;border:none;color:var(--tx2);cursor:pointer;font-size:20px">✕</button>
+      </div>
+      <label class="form-lbl">Amount ($) *</label>
+      <input id="rev-amount" class="form-input" type="number" placeholder="e.g. 12500">
+      <label class="form-lbl">Description *</label>
+      <input id="rev-desc" class="form-input" placeholder="e.g. PO#12345 CDCR nitrile gloves">
+      <label class="form-lbl">Date (optional)</label>
+      <input id="rev-date" class="form-input" type="date">
+      <button onclick="submitRevenue()" class="g-btn g-btn-go" style="width:100%;justify-content:center;padding:12px;font-size:14px">💰 Log Revenue</button>
      </div>
-     <div style="margin-top:6px;font-size:11px;color:var(--tx2)" id="pull-detail-text"></div>
-     <div id="pull-errors" style="margin-top:6px;font-size:11px;color:var(--rd);display:none"></div>
     </div>
 
     <script>
-    // SCPRS connectivity check on load
-    fetch('/api/intel/status', {{credentials:'same-origin'}}).then(r=>r.json()).then(d => {{
-      const bar = document.getElementById('progress-bar');
-      if(d.scprs_error) {{
-        const errDiv = document.createElement('div');
-        errDiv.style.cssText = 'background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.3);color:#f87171;padding:10px 14px;border-radius:8px;font-size:12px;margin-bottom:12px';
-        errDiv.innerHTML = '⚠️ <b>SCPRS Connectivity Issue:</b> ' + d.scprs_error + '<br><span style="opacity:.7">Deep Pull requires Railway static IP to reach suppliers.fiscal.ca.gov</span>';
-        document.querySelector('.card').after(errDiv);
-      }}
-    }}).catch(()=>{{}});
-
-    function showResult(data, isError) {{
-      const el = document.getElementById('result');
-      const content = document.getElementById('result-content');
-      el.style.display = 'block';
-      el.style.borderColor = isError ? 'rgba(248,113,113,.4)' : 'var(--bd)';
-      if(typeof data === 'string') {{
-        content.textContent = data;
-      }} else {{
-        // Format nicely
-        if(data.error) {{
-          content.style.color = '#f87171';
-          content.textContent = '❌ ' + data.error + (data.hint ? '\n\n💡 ' + data.hint : '');
+    // ── Utility ──
+    function showResult(title, content, isError) {{
+      document.getElementById('result-wrap').style.display = 'block';
+      document.getElementById('result-title').textContent = title;
+      const el = document.getElementById('result-content');
+      el.style.color = isError ? '#f87171' : 'var(--tx)';
+      if(typeof content === 'object') {{
+        if(content.error) {{
+          el.innerHTML = '<b style="color:#f87171">❌ ' + content.error + '</b>' +
+            (content.hint ? '<br><br>💡 ' + content.hint : '') +
+            (content.railway_guide ? '<br><a href="' + content.railway_guide + '" target="_blank" style="color:var(--ac)">📖 Railway guide →</a>' : '');
         }} else {{
-          content.style.color = 'var(--tx)';
-          content.textContent = JSON.stringify(data, null, 2);
+          const lines = [];
+          if(content.message) lines.push('✅ ' + content.message);
+          if(content.created !== undefined) lines.push('Created: ' + content.created);
+          if(content.updated !== undefined) lines.push('Updated: ' + content.updated);
+          if(content.total_in_queue !== undefined) lines.push('In queue: ' + content.total_in_queue);
+          if(content.queue) {{
+            lines.push('');
+            content.queue.slice(0,10).forEach(q => {{
+              lines.push('• ' + (q.agency||'') + ' — ' + (q.email||'') + ' ($' + (q.total_spend||0).toLocaleString() + ')');
+            }});
+          }}
+          if(content.errors && content.errors.length) lines.push('Errors: ' + content.errors.join(', '));
+          el.innerHTML = lines.join('<br>') || JSON.stringify(content, null, 2);
         }}
+      }} else {{
+        el.textContent = content;
       }}
     }}
 
-    function runIntel(url) {{
-      const isDeepPull = url.includes('deep-pull');
-      if(isDeepPull) {{
-        startDeepPull();
-        return;
-      }}
-      fetch(url, {{credentials:'same-origin'}}).then(r=>r.json()).then(data => {{
-        const isErr = !data.ok || data.error;
-        showResult(data, isErr);
-      }}).catch(e => {{
-        showResult('Network error: ' + e, true);
-      }});
-    }}
+    function closeModal(id) {{ document.getElementById(id).style.display='none'; }}
+    function crmPost(u,b){{return fetch(u,{{method:'POST',credentials:'same-origin',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(b)}}).then(r=>r.json())}}
 
+    // ── Deep Pull ──
     function startDeepPull() {{
-      const btn = document.querySelector('[onclick*="deep-pull"]');
-      if(btn) {{ btn.disabled = true; btn.textContent = '⏳ Running...'; }}
+      const btn = document.getElementById('deep-pull-btn');
+      btn.disabled = true; btn.textContent = '⏳ Starting...';
       fetch('/api/intel/deep-pull', {{credentials:'same-origin'}}).then(r=>r.json()).then(data => {{
         if(!data.ok) {{
-          showResult(data, true);
-          if(btn) {{ btn.disabled = false; btn.textContent = '🔍 Deep Pull All Buyers'; }}
+          btn.disabled = false; btn.textContent = '🔍 Deep Pull SCPRS';
+          showResult('Deep Pull Failed', data, true);
+          // Show banner if SCPRS blocked
+          if(data.error && (data.error.includes('static IP') || data.error.includes('blocked') || data.error.includes('proxy'))) {{
+            document.getElementById('scprs-banner') && (document.getElementById('scprs-banner').style.display='block');
+          }}
           return;
         }}
         document.getElementById('pull-progress-wrap').style.display = 'block';
         pollPull();
       }}).catch(e => {{
-        showResult('Failed to start: ' + e, true);
-        if(btn) {{ btn.disabled = false; btn.textContent = '🔍 Deep Pull All Buyers'; }}
+        btn.disabled = false; btn.textContent = '🔍 Deep Pull SCPRS';
+        showResult('Error', 'Network error: ' + e, true);
       }});
     }}
 
@@ -7081,87 +7303,170 @@ def intelligence_page():
       if(pullTimer) clearInterval(pullTimer);
       pullTimer = setInterval(() => {{
         fetch('/api/intel/pull-status', {{credentials:'same-origin'}}).then(r=>r.json()).then(d => {{
-          // Update progress bar
           const total = d.queries_total || 1;
           const done = d.queries_done || 0;
-          const pct = Math.min(99, Math.round((done / total) * 100));
+          const pct = Math.min(99, Math.round((done/total)*100));
           document.getElementById('pull-bar-fill').style.width = pct + '%';
-          document.getElementById('pull-bar-text').textContent = pct + '% (' + done + '/' + total + ' queries)';
-
-          // Phase label
+          document.getElementById('pull-bar-text').textContent = pct + '% (' + done + '/' + total + ')';
           const phaseMap = {{
-            'init': '🔌 Connecting to SCPRS...',
-            'reytech_history': '📥 Phase 1: Pulling Reytech win history...',
-            'category_scan': '🔍 Phase 2: Scanning category buyers...',
-            'scoring': '📊 Scoring & ranking buyers...',
-            'saving': '💾 Saving buyer database...',
-            'complete': '✅ Complete!',
-            'error': '❌ Error',
+            'init':'🔌 Connecting...','reytech_history':'📥 Phase 1: Reytech history',
+            'category_scan':'🔍 Phase 2: Category scan','scoring':'📊 Scoring buyers',
+            'saving':'💾 Saving','complete':'✅ Complete','error':'❌ Error'
           }};
           document.getElementById('pull-phase-label').textContent = phaseMap[d.phase] || d.phase || 'Running...';
-
-          // Detail line
           document.getElementById('pull-detail-text').textContent = d.progress || '';
-
-          // Running counts
           const counts = [];
           if(d.total_pos) counts.push(d.total_pos + ' POs');
           if(d.total_buyers) counts.push(d.total_buyers + ' buyers');
           if(d.total_agencies) counts.push(d.total_agencies + ' agencies');
           document.getElementById('pull-counts').textContent = counts.join(' · ');
-
-          // Errors
-          if(d.errors && d.errors.length > 0) {{
-            const errEl = document.getElementById('pull-errors');
-            errEl.style.display = 'block';
-            errEl.textContent = d.errors.slice(-3).join('\n');
+          if(d.errors && d.errors.length) {{
+            const e = document.getElementById('pull-errors');
+            e.style.display='block'; e.textContent=d.errors.slice(-2).join('\n');
           }}
-
           if(!d.running) {{
             clearInterval(pullTimer);
-            document.getElementById('pull-bar-fill').style.width = '100%';
-            if(d.phase === 'error') {{
-              document.getElementById('pull-bar-fill').style.background = '#f85149';
-              document.getElementById('pull-bar-text').textContent = 'Failed — ' + (d.progress || 'Unknown error');
-              showResult({{error: d.progress || 'Deep pull failed', hint: 'Check SCPRS connectivity — Railway static IP must be enabled'}}, true);
+            document.getElementById('pull-bar-fill').style.width='100%';
+            const btn = document.getElementById('deep-pull-btn');
+            btn.disabled=false; btn.textContent='🔍 Deep Pull SCPRS';
+            if(d.phase==='error') {{
+              document.getElementById('pull-bar-fill').style.background='#f85149';
+              document.getElementById('pull-bar-text').textContent='❌ Failed';
+              showResult('Deep Pull Failed', {{error: d.progress||'Unknown error', hint: 'Enable Railway static IP, then retry.', railway_guide: 'https://docs.railway.app/reference/static-outbound-ips'}}, true);
             }} else {{
-              document.getElementById('pull-bar-fill').style.background = '#34d399';
-              document.getElementById('pull-bar-text').textContent = '✅ Done — syncing to CRM...';
-              // Auto-sync buyers to CRM contacts store
-              fetch('/api/crm/sync-intel', {{method:'POST',credentials:'same-origin'}}).then(r=>r.json()).then(sync => {{
-                document.getElementById('pull-bar-text').textContent = '✅ Done — ' + (sync.created||0) + ' new CRM contacts. Reloading...';
-                setTimeout(() => location.reload(), 2500);
-              }}).catch(() => {{ setTimeout(() => location.reload(), 2500); }});
+              document.getElementById('pull-bar-fill').style.background='#34d399';
+              document.getElementById('pull-bar-text').textContent='✅ Done — syncing...';
+              fetch('/api/crm/sync-intel',{{method:'POST',credentials:'same-origin'}}).then(r=>r.json()).then(sync => {{
+                document.getElementById('pull-bar-text').textContent='✅ ' + (sync.created||0) + ' new contacts';
+                setTimeout(()=>location.reload(), 1500);
+              }}).catch(()=>setTimeout(()=>location.reload(),1500));
             }}
-            const btn = document.querySelector('[onclick*="deep-pull"]');
-            if(btn) {{ btn.disabled = false; btn.textContent = '🔍 Deep Pull All Buyers'; }}
           }}
-        }}).catch(() => {{}});
+        }}).catch(()=>{{}});
       }}, 2000);
     }}
 
-    function syncCRM() {{
-      const btn = event.target;
-      btn.disabled = true; btn.textContent = '⏳ Syncing...';
-      fetch('/api/crm/sync-intel', {{method:'POST',credentials:'same-origin'}}).then(r=>r.json()).then(d => {{
-        btn.disabled = false; btn.textContent = '👥 Sync All → CRM';
-        showResult(d, !d.ok);
-      }}).catch(e => {{
-        btn.disabled = false; btn.textContent = '👥 Sync All → CRM';
-        showResult('Sync failed: '+e, true);
-      }});
+    // ── SCPRS Test ──
+    function testSCPRS(btn) {{
+      btn.disabled=true; btn.textContent='⏳ Testing...';
+      fetch('/api/intel/scprs-test',{{credentials:'same-origin'}}).then(r=>r.json()).then(d => {{
+        btn.disabled=false; btn.textContent='🔌 Test Connection';
+        const dot = document.getElementById('scprs-dot');
+        if(d.reachable) {{
+          dot.textContent='✅ SCPRS Connected'; dot.style.color='#3fb950';
+          dot.style.background='rgba(52,211,153,.15)';
+          showResult('SCPRS Connection', '✅ Connected! ' + d.status_code + ' ' + d.elapsed_ms + 'ms', false);
+        }} else {{
+          dot.textContent='⚠️ SCPRS Offline'; dot.style.color='#f87171';
+          dot.style.background='rgba(248,113,113,.15)';
+          showResult('SCPRS Connection', {{error: d.error || 'Cannot reach SCPRS', hint: 'Enable Railway static IP to allow outbound connections to suppliers.fiscal.ca.gov', railway_guide: 'https://docs.railway.app/reference/static-outbound-ips'}}, true);
+        }}
+      }}).catch(e=>{{btn.disabled=false;btn.textContent='🔌 Test Connection';showResult('Error','Network error: '+e,true);}});
     }}
-    function addRevenue() {{
-      const amt = prompt('Revenue amount ($):');
-      if(!amt) return;
-      const desc = prompt('Description (e.g. "PO#12345 - CDCR gloves"):');
-      if(!desc) return;
-      fetch('/api/intel/revenue', {{method:'POST', credentials:'same-origin', headers:{{'Content-Type':'application/json'}}, body:JSON.stringify({{amount:parseFloat(amt), description:desc}})}}).then(r=>r.json()).then(d => {{
-        if(d.ok) location.reload(); else alert(d.error);
+
+    // ── Seed Demo ──
+    function seedDemo(btn) {{
+      if(!confirm('Load 15 realistic CA agency contacts as demo data? This will add to any existing data.')) return;
+      btn.disabled=true; btn.textContent='⏳ Loading...';
+      crmPost('/api/intel/seed-demo',{{}}).then(d => {{
+        btn.disabled=false; btn.textContent='🌱 Load Demo Data';
+        if(d.ok) {{ showResult('Demo Data Loaded', d, false); setTimeout(()=>location.reload(), 1200); }}
+        else showResult('Error', d, true);
+      }}).catch(e=>{{btn.disabled=false;btn.textContent='🌱 Load Demo Data';showResult('Error',''+e,true);}});
+    }}
+
+    // ── Sync CRM ──
+    function syncCRM(btn) {{
+      btn.disabled=true; btn.textContent='⏳ Syncing...';
+      crmPost('/api/crm/sync-intel',{{}}).then(d => {{
+        btn.disabled=false; btn.textContent='👥 Sync → CRM';
+        showResult('CRM Sync', d, !d.ok);
+      }}).catch(e=>{{btn.disabled=false;btn.textContent='👥 Sync → CRM';showResult('Error',''+e,true);}});
+    }}
+
+    // ── Push Prospects ──
+    function pushProspects(btn) {{
+      btn.disabled=true; btn.textContent='⏳ Pushing...';
+      fetch('/api/intel/push-prospects?top=50',{{credentials:'same-origin'}}).then(r=>r.json()).then(d => {{
+        btn.disabled=false; btn.textContent='🚀 Push → Growth';
+        showResult('Push to Growth', d, !d.ok);
+        if(d.ok) setTimeout(()=>{{if(confirm('Pushed! Go to Growth page?')) location.href='/growth';}}, 500);
+      }}).catch(e=>{{btn.disabled=false;btn.textContent='🚀 Push → Growth';showResult('Error',''+e,true);}});
+    }}
+
+    // ── Priority Queue ──
+    function showPriorityQueue(btn) {{
+      btn.disabled=true; btn.textContent='⏳ Loading...';
+      fetch('/api/intel/priority-queue',{{credentials:'same-origin'}}).then(r=>r.json()).then(d => {{
+        btn.disabled=false; btn.textContent='📊 Priority Queue';
+        showResult('Priority Queue', d, !d.ok);
+      }}).catch(e=>{{btn.disabled=false;btn.textContent='📊 Priority Queue';showResult('Error',''+e,true);}});
+    }}
+
+    // ── Add Buyer ──
+    function openAddBuyer() {{ document.getElementById('add-buyer-modal').style.display='flex'; setTimeout(()=>document.getElementById('ab-agency').focus(),100); }}
+    function submitAddBuyer() {{
+      const agency = document.getElementById('ab-agency').value.trim();
+      const email = document.getElementById('ab-email').value.trim();
+      if(!agency||!email) {{ alert('Agency and Email are required'); return; }}
+      const cats = document.getElementById('ab-categories').value.split(',').map(s=>s.trim()).filter(Boolean);
+      crmPost('/api/intel/buyers/add', {{
+        agency, email,
+        name: document.getElementById('ab-name').value,
+        phone: document.getElementById('ab-phone').value,
+        categories: cats,
+        annual_spend: parseFloat(document.getElementById('ab-spend').value||'0'),
+        notes: document.getElementById('ab-notes').value,
+      }}).then(d => {{
+        if(d.ok) {{ closeModal('add-buyer-modal'); showResult('Buyer Added', d, false); setTimeout(()=>location.reload(),1000); }}
+        else showResult('Error', d, true);
       }});
     }}
 
-    {('pollPull();' if pull_running else '')}
+    // ── Import CSV ──
+    function openImportCSV() {{ document.getElementById('csv-modal').style.display='flex'; setTimeout(()=>document.getElementById('csv-input').focus(),100); }}
+    function submitCSV() {{
+      const csv = document.getElementById('csv-input').value.trim();
+      if(!csv) {{ alert('Paste CSV data first'); return; }}
+      crmPost('/api/intel/buyers/import-csv', {{csv}}).then(d => {{
+        if(d.ok) {{ closeModal('csv-modal'); showResult('CSV Import', d, false); setTimeout(()=>location.reload(),1000); }}
+        else showResult('Error', d, true);
+      }});
+    }}
+
+    // ── Revenue ──
+    function openLogRevenue() {{ document.getElementById('rev-modal').style.display='flex'; setTimeout(()=>document.getElementById('rev-amount').focus(),100); }}
+    function submitRevenue() {{
+      const amount = parseFloat(document.getElementById('rev-amount').value||'0');
+      const desc = document.getElementById('rev-desc').value.trim();
+      if(!amount||!desc) {{ alert('Amount and Description required'); return; }}
+      crmPost('/api/intel/revenue', {{amount, description:desc, date:document.getElementById('rev-date').value}}).then(d => {{
+        if(d.ok) {{ closeModal('rev-modal'); showResult('Revenue Logged', d, false); setTimeout(()=>location.reload(),800); }}
+        else showResult('Error', d, true);
+      }});
+    }}
+    function refreshRevenue(btn) {{
+      btn.disabled=true; btn.textContent='⏳';
+      fetch('/api/intel/revenue',{{credentials:'same-origin'}}).then(r=>r.json()).then(d => {{
+        btn.disabled=false; btn.textContent='🔄';
+        if(d.ok) location.reload(); else showResult('Error', d, true);
+      }}).catch(e=>{{btn.disabled=false;btn.textContent='🔄';}});
+    }}
+
+    // ── Buyer filter ──
+    function filterBuyers() {{
+      const q = document.getElementById('buyer-search').value.toLowerCase();
+      document.querySelectorAll('#buyer-tbody tr').forEach(r => {{
+        r.style.display = !q || (r.dataset.search||'').includes(q) ? '' : 'none';
+      }});
+    }}
+
+    // ── Copy CSV template ──
+    function copyTemplate(btn) {{
+      navigator.clipboard.writeText('agency,email,name,phone,categories,annual_spend,notes\nCDCR,j.smith@cdcr.ca.gov,John Smith,916-445-1000,"Medical,Safety",125000,High priority\nCalTrans,m.jones@dot.ca.gov,Mary Jones,916-654-2000,Office,45000,').then(()=>{{btn.textContent='✅ Copied!';setTimeout(()=>btn.textContent='📋 Copy Template',2000);}});
+    }}
+
+    {f'pollPull();' if pull_running else ''}
     </script>
     </body></html>"""
 
