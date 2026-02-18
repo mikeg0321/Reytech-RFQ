@@ -1,1 +1,11 @@
-[]
+[
+  {
+    "id": "crm-20260218053516-0",
+    "ref_id": "manual-58363835",
+    "event_type": "note",
+    "description": "Audit test note",
+    "actor": "mike",
+    "timestamp": "2026-02-18T05:35:16.841661",
+    "metadata": {}
+  }
+]

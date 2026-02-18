@@ -24,7 +24,8 @@
       "outreach_status": "new",
       "notes": "",
       "source": "manual",
-      "added_at": "2026-02-18T04:06:09.699782"
+      "added_at": "2026-02-18T04:06:09.699782",
+      "updated_at": "2026-02-18T05:41:20.473827"
     },
     {
       "id": "manual-7e4370b1",
@@ -50,7 +51,8 @@
       "outreach_status": "new",
       "notes": "",
       "source": "manual",
-      "added_at": "2026-02-18T04:06:09.703931"
+      "added_at": "2026-02-18T04:06:09.703931",
+      "updated_at": "2026-02-18T05:41:20.475216"
     },
     {
       "id": "manual-2d0ef1ba",
@@ -76,7 +78,8 @@
       "outreach_status": "new",
       "notes": "",
       "source": "manual",
-      "added_at": "2026-02-18T04:06:09.708135"
+      "added_at": "2026-02-18T04:06:09.708135",
+      "updated_at": "2026-02-18T05:41:20.476422"
     },
     {
       "id": "manual-3291c749",
@@ -102,7 +105,8 @@
       "outreach_status": "new",
       "notes": "",
       "source": "manual",
-      "added_at": "2026-02-18T04:06:09.712217"
+      "added_at": "2026-02-18T04:06:09.712217",
+      "updated_at": "2026-02-18T05:41:20.477751"
     },
     {
       "id": "manual-4eaaebd3",
@@ -128,7 +132,8 @@
       "outreach_status": "new",
       "notes": "",
       "source": "manual",
-      "added_at": "2026-02-18T04:06:09.715975"
+      "added_at": "2026-02-18T04:06:09.715975",
+      "updated_at": "2026-02-18T05:41:20.478897"
     },
     {
       "id": "manual-7792de93",
@@ -154,7 +159,8 @@
       "outreach_status": "new",
       "notes": "",
       "source": "manual",
-      "added_at": "2026-02-18T04:06:09.720646"
+      "added_at": "2026-02-18T04:06:09.720646",
+      "updated_at": "2026-02-18T05:41:20.479991"
     },
     {
       "id": "manual-b78fa585",
@@ -180,7 +186,8 @@
       "outreach_status": "new",
       "notes": "",
       "source": "manual",
-      "added_at": "2026-02-18T04:06:09.724445"
+      "added_at": "2026-02-18T04:06:09.724445",
+      "updated_at": "2026-02-18T05:41:20.481299"
     },
     {
       "id": "manual-2738f531",
@@ -206,7 +213,8 @@
       "outreach_status": "new",
       "notes": "",
       "source": "manual",
-      "added_at": "2026-02-18T04:06:09.728436"
+      "added_at": "2026-02-18T04:06:09.728436",
+      "updated_at": "2026-02-18T05:41:20.482624"
     },
     {
       "id": "manual-42dcf547",
@@ -232,7 +240,8 @@
       "outreach_status": "new",
       "notes": "",
       "source": "manual",
-      "added_at": "2026-02-18T04:06:09.732683"
+      "added_at": "2026-02-18T04:06:09.732683",
+      "updated_at": "2026-02-18T05:41:20.484072"
     },
     {
       "id": "manual-e1ad4f9b",
@@ -259,7 +268,8 @@
       "outreach_status": "new",
       "notes": "",
       "source": "manual",
-      "added_at": "2026-02-18T04:06:09.736850"
+      "added_at": "2026-02-18T04:06:09.736850",
+      "updated_at": "2026-02-18T05:41:20.485501"
     },
     {
       "id": "manual-edf2db8f",
@@ -285,7 +295,8 @@
       "outreach_status": "new",
       "notes": "",
       "source": "manual",
-      "added_at": "2026-02-18T04:06:09.741489"
+      "added_at": "2026-02-18T04:06:09.741489",
+      "updated_at": "2026-02-18T05:41:20.486721"
     },
     {
       "id": "manual-480fbcd3",
@@ -311,7 +322,8 @@
       "outreach_status": "new",
       "notes": "",
       "source": "manual",
-      "added_at": "2026-02-18T04:06:09.746206"
+      "added_at": "2026-02-18T04:06:09.746206",
+      "updated_at": "2026-02-18T05:41:20.487686"
     },
     {
       "id": "manual-12e7d01a",
@@ -337,7 +349,8 @@
       "outreach_status": "new",
       "notes": "",
       "source": "manual",
-      "added_at": "2026-02-18T04:06:09.750711"
+      "added_at": "2026-02-18T04:06:09.750711",
+      "updated_at": "2026-02-18T05:41:20.488784"
     },
     {
       "id": "manual-d5aa031c",
@@ -363,7 +376,8 @@
       "outreach_status": "new",
       "notes": "",
       "source": "manual",
-      "added_at": "2026-02-18T04:06:09.754835"
+      "added_at": "2026-02-18T04:06:09.754835",
+      "updated_at": "2026-02-18T05:41:20.489938"
     },
     {
       "id": "manual-2696a906",
@@ -389,9 +403,35 @@
       "outreach_status": "new",
       "notes": "",
       "source": "manual",
-      "added_at": "2026-02-18T04:06:09.759621"
+      "added_at": "2026-02-18T04:06:09.759621",
+      "updated_at": "2026-02-18T05:41:20.491048"
+    },
+    {
+      "id": "manual-277c557b",
+      "email": "audit@test.gov",
+      "buyer_email": "audit@test.gov",
+      "name": "Audit Test",
+      "buyer_name": "Audit Test",
+      "phone": "",
+      "buyer_phone": "",
+      "agency": "TEST",
+      "total_spend": 0.0,
+      "categories": {
+        "Medical": 0.0
+      },
+      "items_purchased": [],
+      "purchase_orders": [],
+      "po_count": 0,
+      "last_purchase": "",
+      "opportunity_score": 0,
+      "score": 0.0,
+      "is_reytech_customer": false,
+      "outreach_status": "new",
+      "notes": "",
+      "source": "manual",
+      "added_at": "2026-02-18T05:35:16.370335"
     }
   ],
-  "total_buyers": 15,
-  "updated_at": "2026-02-18T04:06:09.759628"
+  "total_buyers": 16,
+  "updated_at": "2026-02-18T05:41:20.491062"
 }

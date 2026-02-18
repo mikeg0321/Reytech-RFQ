@@ -159,7 +159,19 @@
       },
       "is_customer": false,
       "opportunity_score": 88
+    },
+    {
+      "dept_code": "TEST",
+      "total_spend": 0.0,
+      "buyers": {
+        "audit@test.gov": true
+      },
+      "categories": {
+        "Medical": 0.0
+      },
+      "is_customer": false,
+      "opportunity_score": 0
     }
   ],
-  "total_agencies": 12
+  "total_agencies": 13
 }

@@ -150,6 +150,8 @@ PAGE_HOME = """
  <div style="display:flex;align-items:center;gap:6px;margin-bottom:14px">
   <span style="font-size:11px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:1px">📊 Pipeline</span>
   <span style="flex:1;height:1px;background:var(--bd)"></span>
+  <span id="next-quote-badge" style="font-size:11px;color:var(--tx2)">—</span>
+  <span style="width:1px;height:14px;background:var(--bd);margin:0 8px"></span>
   <a href="/pipeline" style="font-size:11px;color:var(--ac);font-weight:600">View Full Pipeline →</a>
  </div>
  <div id="funnel-row" style="display:grid;grid-template-columns:repeat(7,1fr);gap:0">
@@ -166,7 +168,7 @@ fetch('/api/funnel/stats').then(r=>r.json()).then(d=>{
   {icon:'📤', val:d.quotes_sent||0, label:'Sent', href:'/quotes?status=sent', color:'#a78bfa', fmt:'n'},
   {icon:'✅', val:d.quotes_won||0, label:'Won', href:'/quotes?status=won', color:'var(--gn)', fmt:'n'},
   {icon:'📦', val:d.orders_active||0, label:'Orders', href:'/orders', color:'var(--or)', fmt:'n'},
-  {icon:'🚚', val:d.items_shipped||0, label:'Shipped', href:'/orders', color:'var(--gn)', fmt:'n'},
+  {icon:'👥', val:d.crm_contacts||0, label:'Contacts', href:'/contacts', color:'#a78bfa', fmt:'n'},
   {icon:'💵', val:d.pipeline_value||0, label:'Pipeline $', href:'/pipeline', color:'var(--gn)', fmt:'$'},
  ];
  const cols = items.map((it,i)=>{
@@ -180,7 +182,8 @@ fetch('/api/funnel/stats').then(r=>r.json()).then(d=>{
  });
  document.getElementById('funnel-row').style.gridTemplateColumns='repeat(7,1fr)';
  document.getElementById('funnel-row').innerHTML = cols.join('');
-}).catch(()=>{});
+ if(d.next_quote){const nb=document.getElementById('next-quote-badge');if(nb)nb.innerHTML='🎯 Next: <b style="color:var(--ac);font-family:\'JetBrains Mono\',monospace">'+d.next_quote+'</b>'+(d.win_rate?' &nbsp;·&nbsp; Win Rate: <b style="color:var(--gn)">'+d.win_rate+'%</b>':'');}
+}).catch(()=>{const nb=document.getElementById('next-quote-badge');if(nb)nb.textContent='';});
 </script>
 
 <!-- ═══ Bar 2: Annual Revenue Goal ═══ -->
@@ -2840,5 +2843,247 @@ fetch('/api/growth/status', {credentials:'same-origin'}).then(r=>r.json()).then(
  document.getElementById('crm-table').style.display = 'none';
  document.getElementById('crm-empty').style.display = 'block';
 });
+</script>
+"""
+
+DEBUG_PAGE_HTML = """
+<style>
+:root{--ok:#3fb950;--warn:#e3b341;--fail:#f85149;--info:#58a6ff;--neu:#8b949e}
+.dbg-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px;margin-top:16px}
+.dbg-card{background:var(--bg2);border:1px solid var(--bd);border-radius:12px;padding:20px;position:relative;overflow:hidden}
+.dbg-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:var(--card-color,var(--ac))}
+.dbg-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.2px;color:var(--tx2);margin-bottom:14px;display:flex;align-items:center;gap:8px}
+.dbg-title .dot{width:8px;height:8px;border-radius:50%;background:var(--card-color,var(--ac));flex-shrink:0}
+.dbg-row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--bd);font-size:13px}
+.dbg-row:last-child{border-bottom:none}
+.dbg-key{color:var(--tx2);font-size:12px}
+.dbg-val{font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600}
+.badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600}
+.badge-ok{background:rgba(63,185,80,.15);color:var(--ok)}
+.badge-warn{background:rgba(227,179,65,.15);color:var(--warn)}
+.badge-fail{background:rgba(248,81,73,.15);color:var(--fail)}
+.badge-info{background:rgba(88,166,255,.15);color:var(--info)}
+.badge-neu{background:rgba(139,148,158,.12);color:var(--neu)}
+.fix-btn{display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:8px;font-size:12px;font-weight:600;border:1px solid var(--bd);background:var(--bg);color:var(--tx);cursor:pointer;transition:all .15s}
+.fix-btn:hover{border-color:var(--ac);color:var(--ac);background:rgba(79,140,255,.06)}
+.fix-btn:disabled{opacity:.4;cursor:not-allowed}
+.fix-btn.running{border-color:var(--warn);color:var(--warn)}
+.pulse{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--ok);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(1.3)}}
+.section-hdr{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--tx2);margin:24px 0 12px;display:flex;align-items:center;gap:8px}
+.section-hdr::after{content:'';flex:1;height:1px;background:var(--bd)}
+.log-panel{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:14px;font-family:'JetBrains Mono',monospace;font-size:11px;max-height:220px;overflow-y:auto;color:var(--tx2);line-height:1.6}
+.log-ok{color:var(--ok)}.log-warn{color:var(--warn)}.log-fail{color:var(--fail)}.log-info{color:var(--info)}
+.refresh-bar{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+.last-run{font-size:11px;color:var(--tx2)}
+#score-ring{position:relative;display:inline-flex;align-items:center;justify-content:center}
+.table-sm{width:100%;border-collapse:collapse;font-size:12px}
+.table-sm td,.table-sm th{padding:5px 8px;border-bottom:1px solid var(--bd);text-align:left}
+.table-sm th{color:var(--tx2);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.5px}
+.table-sm tr:last-child td{border-bottom:none}
+</style>
+
+<div class="refresh-bar">
+  <h2 style="margin:0;font-size:18px;font-weight:700">🔬 Debug Agent</h2>
+  <span style="flex:1"></span>
+  <span id="last-run-ts" class="last-run">Loading...</span>
+  <button class="fix-btn" onclick="runDebug()" id="refresh-btn">⟳ Refresh</button>
+  <button class="fix-btn" onclick="runFix('seed_demo')" id="btn-seed">🌱 Load Demo</button>
+  <button class="fix-btn" onclick="runFix('sync_crm')" id="btn-sync">🔄 Sync CRM</button>
+  <button class="fix-btn" onclick="runFix('clear_cache')" id="btn-cache">🗑 Clear Cache</button>
+</div>
+
+<!-- Health Score Banner -->
+<div id="health-banner" class="card" style="padding:16px 24px;margin-bottom:8px;display:flex;align-items:center;gap:20px">
+  <div style="text-align:center;min-width:80px">
+    <div id="qa-score" style="font-size:42px;font-weight:800;font-family:'JetBrains Mono',monospace;line-height:1">—</div>
+    <div style="font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:1px;margin-top:2px">Health Score</div>
+  </div>
+  <div style="width:1px;height:50px;background:var(--bd)"></div>
+  <div style="flex:1">
+    <div id="qa-grade" style="font-size:13px;font-weight:600;margin-bottom:6px">—</div>
+    <div id="qa-issues" style="font-size:12px;color:var(--tx2)">Running checks...</div>
+  </div>
+  <div id="persistence-badge" style="text-align:right">
+    <div style="font-size:11px;color:var(--tx2);margin-bottom:4px">Persistence</div>
+    <div id="vol-status">—</div>
+  </div>
+</div>
+
+<div class="dbg-grid" id="dbg-grid">
+  <div class="dbg-card" style="--card-color:var(--ac)">
+    <div class="dbg-title"><span class="dot"></span>Loading checks...</div>
+  </div>
+</div>
+
+<div class="section-hdr">📋 QA Check Log</div>
+<div class="log-panel" id="qa-log">Fetching QA report...</div>
+
+<div class="section-hdr">🔧 Available Fixes</div>
+<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:24px" id="fixes-panel">
+  <button class="fix-btn" onclick="runFix('seed_demo')">🌱 Seed Demo Data</button>
+  <button class="fix-btn" onclick="runFix('sync_crm')">🔄 Sync Intel → CRM</button>
+  <button class="fix-btn" onclick="runFix('clear_cache')">🗑 Clear JSON Cache</button>
+  <button class="fix-btn" onclick="runFix('migrate_db')">🗄 Migrate JSON → DB</button>
+  <button class="fix-btn" onclick="window.open('/api/qa/health','_blank')">📊 Full QA Health</button>
+  <button class="fix-btn" onclick="window.open('/api/metrics','_blank')">📈 Metrics API</button>
+  <button class="fix-btn" onclick="window.open('/api/db','_blank')">🗃 DB Status</button>
+  <button class="fix-btn" onclick="window.open('/api/search?q=test','_blank')">🔍 Test Search</button>
+</div>
+
+<div id="fix-result" style="display:none" class="card" style="padding:12px 16px;margin-bottom:16px;font-family:'JetBrains Mono',monospace;font-size:12px"></div>
+
+<script>
+let lastData = null;
+
+function fmt(v){
+  if(v===null||v===undefined) return '<span style="color:var(--tx2)">—</span>';
+  if(typeof v==='boolean') return v?'<span class="badge badge-ok">✓ yes</span>':'<span class="badge badge-fail">✗ no</span>';
+  if(typeof v==='number') return '<b>'+v.toLocaleString()+'</b>';
+  return '<span>'+v+'</span>';
+}
+
+function badge(ok, label){
+  const cls = ok==='ok'||ok===true ? 'badge-ok' : ok==='warn' ? 'badge-warn' : ok==='fail'||ok===false ? 'badge-fail' : 'badge-info';
+  return '<span class="badge '+cls+'">'+label+'</span>';
+}
+
+function renderDebug(d){
+  lastData = d;
+  document.getElementById('last-run-ts').textContent = 'Updated '+new Date(d.timestamp).toLocaleTimeString()+' ('+d.elapsed_ms+'ms)';
+
+  // Health banner
+  fetch('/api/qa/health').then(r=>r.json()).then(qa=>{
+    const score = qa.health_score||0;
+    const el = document.getElementById('qa-score');
+    el.textContent = score;
+    el.style.color = score>=90?'var(--ok)':score>=70?'var(--warn)':'var(--fail)';
+    document.getElementById('qa-grade').innerHTML = badge(score>=90?'ok':score>=70?'warn':'fail', 'Grade '+qa.grade) + ' &nbsp; ' + qa.summary.passed+' pass / '+qa.summary.warned+' warn / '+qa.summary.failed+' fail';
+    document.getElementById('qa-issues').textContent = qa.critical_issues.length ? '⚠️ '+qa.critical_issues.join(' · ') : qa.recommendations.join(' · ') || 'No critical issues';
+    
+    // Log panel
+    const log = document.getElementById('qa-log');
+    log.innerHTML = qa.results.map(r=>{
+      const cls = r.status==='pass'?'log-ok':r.status==='warn'?'log-warn':r.status==='fail'?'log-fail':'log-info';
+      const icon = r.status==='pass'?'✓':r.status==='warn'?'⚠':r.status==='fail'?'✗':'ℹ';
+      return '<div class="'+cls+'">'+icon+' ['+r.check.toUpperCase()+'] '+r.message+'</div>';
+    }).join('');
+  }).catch(()=>{});
+
+  // Volume/persistence badge
+  const vol = d.db.is_volume;
+  document.getElementById('vol-status').innerHTML = vol 
+    ? '<span class="badge badge-ok">💾 Volume ✓</span>'
+    : '<span class="badge badge-warn">⚠ No Volume</span>';
+
+  // Build cards
+  const cards = [];
+
+  // DB Card
+  const dbTables = d.db.tables||{};
+  const dbOk = d.db.ok;
+  cards.push(`<div class="dbg-card" style="--card-color:${dbOk?'var(--ok)':'var(--fail)'}">
+    <div class="dbg-title"><span class="dot"></span>SQLite Database</div>
+    <div class="dbg-row"><span class="dbg-key">Status</span><span>${badge(dbOk?'ok':'fail', dbOk?'Online':'Error')}</span></div>
+    <div class="dbg-row"><span class="dbg-key">Path</span><span class="dbg-val" style="font-size:10px;max-width:200px;overflow:hidden;text-overflow:ellipsis" title="${d.db.path}">${d.db.path.split('/').slice(-3).join('/')}</span></div>
+    <div class="dbg-row"><span class="dbg-key">Size</span><span class="dbg-val">${d.db.size_kb} KB</span></div>
+    <div class="dbg-row"><span class="dbg-key">Persistent</span>${fmt(d.db.is_volume)}</div>
+    <div style="margin-top:10px">
+      <table class="table-sm"><tr><th>Table</th><th>Rows</th></tr>
+      ${Object.entries(dbTables).map(([t,n])=>`<tr><td>${t}</td><td><b>${n}</b></td></tr>`).join('')}
+      </table>
+    </div>
+  </div>`);
+
+  // Data Files Card
+  const files = d.data_files||{};
+  cards.push(`<div class="dbg-card" style="--card-color:var(--ac)">
+    <div class="dbg-title"><span class="dot"></span>Data Files</div>
+    <table class="table-sm"><tr><th>File</th><th>Records</th><th>KB</th></tr>
+    ${Object.entries(files).map(([f,v])=>`<tr>
+      <td style="font-size:11px">${f.replace('.json','')}</td>
+      <td>${badge(v.exists&&v.records>0?'ok':v.records===0?'warn':'fail', v.records||0)}</td>
+      <td style="color:var(--tx2)">${v.size_kb||0}</td>
+    </tr>`).join('')}
+    </table>
+  </div>`);
+
+  // Sync Card
+  const sync = d.sync||{};
+  const syncOk = sync.delta === 0;
+  cards.push(`<div class="dbg-card" style="--card-color:${syncOk?'var(--ok)':'var(--warn)'}">
+    <div class="dbg-title"><span class="dot"></span>Intel ↔ CRM Sync</div>
+    <div class="dbg-row"><span class="dbg-key">Intel Buyers</span><span class="dbg-val">${sync.intel_buyers||0}</span></div>
+    <div class="dbg-row"><span class="dbg-key">CRM Contacts</span><span class="dbg-val">${sync.crm_contacts||0}</span></div>
+    <div class="dbg-row"><span class="dbg-key">Delta</span><span>${badge(syncOk?'ok':'warn', sync.delta===0?'✓ In Sync':'+'+sync.delta+' drift')}</span></div>
+    <div class="dbg-row"><span class="dbg-key">Auto-Seed</span><span>${badge(d.auto_seed?.needed?'warn':'ok', d.auto_seed?.status||'—')}</span></div>
+    ${sync.delta>0?`<button class="fix-btn" style="margin-top:12px;width:100%" onclick="runFix('sync_crm')">🔄 Sync Now</button>`:''}
+  </div>`);
+
+  // Quote Counter Card
+  cards.push(`<div class="dbg-card" style="--card-color:#a78bfa">
+    <div class="dbg-title"><span class="dot"></span>Quote Engine</div>
+    <div class="dbg-row"><span class="dbg-key">Next Quote</span><span class="dbg-val" style="color:#a78bfa;font-size:15px">${d.quote_counter?.next||'—'}</span></div>
+    <div class="dbg-row"><span class="dbg-key">Total Quotes</span><span class="dbg-val">${d.funnel?.quotes_total||0}</span></div>
+    <div class="dbg-row"><span class="dbg-key">Sent</span><span class="dbg-val">${d.funnel?.quotes_sent||0}</span></div>
+    <div class="dbg-row"><span class="dbg-key">Won</span><span class="dbg-val" style="color:var(--ok)">${d.funnel?.quotes_won||0}</span></div>
+    <div class="dbg-row"><span class="dbg-key">Orders</span><span class="dbg-val">${d.funnel?.orders||0}</span></div>
+  </div>`);
+
+  // Modules Card
+  const mods = d.modules||{};
+  cards.push(`<div class="dbg-card" style="--card-color:var(--gn)">
+    <div class="dbg-title"><span class="dot"></span>Agent Modules</div>
+    ${Object.entries(mods).map(([m,v])=>`<div class="dbg-row">
+      <span class="dbg-key">${m.replace(/_/g,' ')}</span>
+      ${badge(v?'ok':'fail', v?'✓ loaded':'✗ missing')}
+    </div>`).join('')}
+  </div>`);
+
+  // Railway Card
+  const rw = d.railway||{};
+  const isRailway = rw.environment !== 'local';
+  cards.push(`<div class="dbg-card" style="--card-color:${isRailway?'var(--ok)':'var(--neu)'}">
+    <div class="dbg-title"><span class="dot"></span>Railway Environment</div>
+    <div class="dbg-row"><span class="dbg-key">Environment</span><span>${badge(isRailway?'ok':'info', rw.environment||'local')}</span></div>
+    <div class="dbg-row"><span class="dbg-key">Volume</span><span>${badge(d.db.is_volume?'ok':'warn', rw.volume_name||'not mounted')}</span></div>
+    <div class="dbg-row"><span class="dbg-key">Mount Path</span><span class="dbg-val" style="font-size:11px">${rw.volume_path||'—'}</span></div>
+    <div class="dbg-row"><span class="dbg-key">Deploy ID</span><span class="dbg-val" style="font-size:10px">${rw.deployment_id||'local'}</span></div>
+    ${!d.db.is_volume?`<div style="margin-top:10px;padding:8px 10px;background:rgba(227,179,65,.1);border-radius:6px;font-size:11px;color:var(--warn)">⚠ Add Railway Volume → Mount: /app/data → Redeploy</div>`:''}
+  </div>`);
+
+  document.getElementById('dbg-grid').innerHTML = cards.join('');
+}
+
+function runDebug(){
+  const btn = document.getElementById('refresh-btn');
+  btn.textContent='⟳ Running...'; btn.disabled=true;
+  fetch('/api/debug/run').then(r=>r.json()).then(d=>{
+    renderDebug(d);
+    btn.textContent='⟳ Refresh'; btn.disabled=false;
+  }).catch(e=>{
+    btn.textContent='⟳ Refresh'; btn.disabled=false;
+    console.error(e);
+  });
+}
+
+function runFix(name){
+  const panel = document.getElementById('fix-result');
+  panel.style.display='block';
+  panel.innerHTML='⏳ Running '+name+'...';
+  panel.style.borderLeft='3px solid var(--warn)';
+  fetch('/api/debug/fix/'+name,{method:'POST'}).then(r=>r.json()).then(d=>{
+    panel.style.borderLeft='3px solid '+(d.ok?'var(--ok)':'var(--fail)');
+    panel.innerHTML = (d.ok?'✓ ':'✗ ') + name + ': ' + JSON.stringify(d.result||d.error||d,null,2).substring(0,300);
+    setTimeout(()=>runDebug(),500);
+  }).catch(e=>{
+    panel.innerHTML='✗ Error: '+e;
+    panel.style.borderLeft='3px solid var(--fail)';
+  });
+}
+
+// Auto-refresh every 30 seconds
+runDebug();
+setInterval(runDebug, 30000);
 </script>
 """

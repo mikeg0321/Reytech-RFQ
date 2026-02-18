@@ -22,7 +22,15 @@
     "last_purchase": "",
     "score": 1.0,
     "outreach_status": "new",
-    "activity": []
+    "activity": [
+      {
+        "id": "act-20260218053516-manual",
+        "event_type": "note",
+        "detail": "Audit test note",
+        "actor": "mike",
+        "timestamp": "2026-02-18T05:35:16.375918"
+      }
+    ]
   },
   "manual-b695325d": {
     "id": "manual-b695325d",
@@ -888,8 +896,8 @@
     "is_reytech_customer": false,
     "outreach_status": "new",
     "activity": [],
-    "intel_synced_at": "2026-02-18T04:06:09.764993",
-    "updated_at": "2026-02-18T04:06:09.765000",
+    "intel_synced_at": "2026-02-18T05:41:20.493282",
+    "updated_at": "2026-02-18T05:41:20.493286",
     "source": "manual"
   },
   "manual-7e4370b1": {
@@ -917,8 +925,8 @@
     "is_reytech_customer": false,
     "outreach_status": "new",
     "activity": [],
-    "intel_synced_at": "2026-02-18T04:06:09.765003",
-    "updated_at": "2026-02-18T04:06:09.765004",
+    "intel_synced_at": "2026-02-18T05:41:20.493292",
+    "updated_at": "2026-02-18T05:41:20.493293",
     "source": "manual"
   },
   "manual-2d0ef1ba": {
@@ -946,8 +954,8 @@
     "is_reytech_customer": false,
     "outreach_status": "new",
     "activity": [],
-    "intel_synced_at": "2026-02-18T04:06:09.765006",
-    "updated_at": "2026-02-18T04:06:09.765007",
+    "intel_synced_at": "2026-02-18T05:41:20.493297",
+    "updated_at": "2026-02-18T05:41:20.493298",
     "source": "manual"
   },
   "manual-3291c749": {
@@ -975,8 +983,8 @@
     "is_reytech_customer": false,
     "outreach_status": "new",
     "activity": [],
-    "intel_synced_at": "2026-02-18T04:06:09.765008",
-    "updated_at": "2026-02-18T04:06:09.765009",
+    "intel_synced_at": "2026-02-18T05:41:20.493301",
+    "updated_at": "2026-02-18T05:41:20.493301",
     "source": "manual"
   },
   "manual-4eaaebd3": {
@@ -1004,8 +1012,8 @@
     "is_reytech_customer": false,
     "outreach_status": "new",
     "activity": [],
-    "intel_synced_at": "2026-02-18T04:06:09.765011",
-    "updated_at": "2026-02-18T04:06:09.765012",
+    "intel_synced_at": "2026-02-18T05:41:20.493303",
+    "updated_at": "2026-02-18T05:41:20.493304",
     "source": "manual"
   },
   "manual-7792de93": {
@@ -1033,8 +1041,8 @@
     "is_reytech_customer": false,
     "outreach_status": "new",
     "activity": [],
-    "intel_synced_at": "2026-02-18T04:06:09.765013",
-    "updated_at": "2026-02-18T04:06:09.765014",
+    "intel_synced_at": "2026-02-18T05:41:20.493306",
+    "updated_at": "2026-02-18T05:41:20.493307",
     "source": "manual"
   },
   "manual-b78fa585": {
@@ -1062,8 +1070,8 @@
     "is_reytech_customer": false,
     "outreach_status": "new",
     "activity": [],
-    "intel_synced_at": "2026-02-18T04:06:09.765015",
-    "updated_at": "2026-02-18T04:06:09.765016",
+    "intel_synced_at": "2026-02-18T05:41:20.493309",
+    "updated_at": "2026-02-18T05:41:20.493310",
     "source": "manual"
   },
   "manual-2738f531": {
@@ -1091,8 +1099,8 @@
     "is_reytech_customer": false,
     "outreach_status": "new",
     "activity": [],
-    "intel_synced_at": "2026-02-18T04:06:09.765018",
-    "updated_at": "2026-02-18T04:06:09.765018",
+    "intel_synced_at": "2026-02-18T05:41:20.493312",
+    "updated_at": "2026-02-18T05:41:20.493313",
     "source": "manual"
   },
   "manual-42dcf547": {
@@ -1120,8 +1128,8 @@
     "is_reytech_customer": false,
     "outreach_status": "new",
     "activity": [],
-    "intel_synced_at": "2026-02-18T04:06:09.765020",
-    "updated_at": "2026-02-18T04:06:09.765021",
+    "intel_synced_at": "2026-02-18T05:41:20.493314",
+    "updated_at": "2026-02-18T05:41:20.493315",
     "source": "manual"
   },
   "manual-e1ad4f9b": {
@@ -1150,8 +1158,8 @@
     "is_reytech_customer": false,
     "outreach_status": "new",
     "activity": [],
-    "intel_synced_at": "2026-02-18T04:06:09.765023",
-    "updated_at": "2026-02-18T04:06:09.765024",
+    "intel_synced_at": "2026-02-18T05:41:20.493317",
+    "updated_at": "2026-02-18T05:41:20.493318",
     "source": "manual"
   },
   "manual-edf2db8f": {
@@ -1179,8 +1187,8 @@
     "is_reytech_customer": false,
     "outreach_status": "new",
     "activity": [],
-    "intel_synced_at": "2026-02-18T04:06:09.765026",
-    "updated_at": "2026-02-18T04:06:09.765026",
+    "intel_synced_at": "2026-02-18T05:41:20.493320",
+    "updated_at": "2026-02-18T05:41:20.493321",
     "source": "manual"
   },
   "manual-480fbcd3": {
@@ -1208,8 +1216,8 @@
     "is_reytech_customer": false,
     "outreach_status": "new",
     "activity": [],
-    "intel_synced_at": "2026-02-18T04:06:09.765028",
-    "updated_at": "2026-02-18T04:06:09.765029",
+    "intel_synced_at": "2026-02-18T05:41:20.493322",
+    "updated_at": "2026-02-18T05:41:20.493323",
     "source": "manual"
   },
   "manual-12e7d01a": {
@@ -1237,8 +1245,8 @@
     "is_reytech_customer": false,
     "outreach_status": "new",
     "activity": [],
-    "intel_synced_at": "2026-02-18T04:06:09.765030",
-    "updated_at": "2026-02-18T04:06:09.765031",
+    "intel_synced_at": "2026-02-18T05:41:20.493325",
+    "updated_at": "2026-02-18T05:41:20.493326",
     "source": "manual"
   },
   "manual-d5aa031c": {
@@ -1266,8 +1274,8 @@
     "is_reytech_customer": false,
     "outreach_status": "new",
     "activity": [],
-    "intel_synced_at": "2026-02-18T04:06:09.765033",
-    "updated_at": "2026-02-18T04:06:09.765034",
+    "intel_synced_at": "2026-02-18T05:41:20.493328",
+    "updated_at": "2026-02-18T05:41:20.493329",
     "source": "manual"
   },
   "manual-2696a906": {
@@ -1295,8 +1303,36 @@
     "is_reytech_customer": false,
     "outreach_status": "new",
     "activity": [],
-    "intel_synced_at": "2026-02-18T04:06:09.765035",
-    "updated_at": "2026-02-18T04:06:09.765036",
+    "intel_synced_at": "2026-02-18T05:41:20.493330",
+    "updated_at": "2026-02-18T05:41:20.493331",
+    "source": "manual"
+  },
+  "manual-277c557b": {
+    "id": "manual-277c557b",
+    "created_at": "2026-02-18T05:35:16.373248",
+    "buyer_name": "Audit Test",
+    "buyer_email": "audit@test.gov",
+    "buyer_phone": "",
+    "agency": "TEST",
+    "title": "",
+    "linkedin": "",
+    "notes": "",
+    "tags": [],
+    "total_spend": 0.0,
+    "po_count": 0,
+    "categories": {
+      "Medical": 0.0
+    },
+    "items_purchased": [],
+    "purchase_orders": [],
+    "last_purchase": "",
+    "score": 0.0,
+    "opportunity_score": 0,
+    "is_reytech_customer": false,
+    "outreach_status": "new",
+    "activity": [],
+    "intel_synced_at": "2026-02-18T05:41:20.493333",
+    "updated_at": "2026-02-18T05:41:20.493334",
     "source": "manual"
   }
 }

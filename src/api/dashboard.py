@@ -588,7 +588,7 @@ def _update_order_status(oid: str):
 # HTML Templates (extracted to src/api/templates.py)
 # ═══════════════════════════════════════════════════════════════════════
 
-from src.api.templates import BASE_CSS, PAGE_HOME, PAGE_DETAIL, build_pc_detail_html, build_quotes_page_content, PAGE_CRM
+from src.api.templates import BASE_CSS, PAGE_HOME, PAGE_DETAIL, build_pc_detail_html, build_quotes_page_content, PAGE_CRM, DEBUG_PAGE_HTML
 
 # ═══════════════════════════════════════════════════════════════════════
 # Routes
@@ -3370,11 +3370,195 @@ def quote_update_status(quote_number):
                 order = _create_order_from_quote(qt, po_number=po_number)
                 result["order_id"] = order["order_id"]
                 result["order_url"] = f"/order/{order['order_id']}"
+                # ── Auto-log revenue to SQLite DB ──
+                try:
+                    from src.core.db import log_revenue
+                    total = qt.get("total", 0)
+                    if total > 0:
+                        rev_id = log_revenue(
+                            amount=total,
+                            description=f"Quote {quote_number} WON — {qt.get('institution','') or qt.get('agency','')}",
+                            source="quote_won",
+                            quote_number=quote_number,
+                            po_number=po_number or "",
+                            agency=qt.get("agency",""),
+                            date=datetime.now().strftime("%Y-%m-%d"),
+                        )
+                        result["revenue_logged"] = rev_id
+                        log.info("Auto-logged revenue $%.2f for won quote %s", total, quote_number)
+                except Exception as rev_err:
+                    log.debug("Revenue auto-log skipped: %s", rev_err)
         except Exception as e:
             log.error("Order creation failed: %s", e)
             result["order_error"] = str(e)
 
     return jsonify(result)
+
+
+@bp.route("/debug")
+@auth_required
+def debug_agent():
+    """Live debug + monitoring agent — system health, data flow, automation status."""
+    return render(DEBUG_PAGE_HTML, title="Debug Agent")
+
+
+@bp.route("/api/debug/run")
+@auth_required
+def api_debug_run():
+    """Run all debug checks and return JSON results. Used by /debug page."""
+    results = {}
+    start = time.time()
+
+    # 1. DB health
+    try:
+        from src.core.db import get_db_stats, _is_railway_volume, DB_PATH
+        db = get_db_stats()
+        results["db"] = {
+            "ok": True, "path": DB_PATH,
+            "size_kb": db.get("db_size_kb", 0),
+            "is_volume": _is_railway_volume(),
+            "tables": {k: v for k, v in db.items() if k not in ("db_path","db_size_kb")},
+        }
+    except Exception as e:
+        results["db"] = {"ok": False, "error": str(e)}
+
+    # 2. Data files
+    data_files = {}
+    for fname in ["quotes_log.json","crm_contacts.json","intel_buyers.json",
+                  "intel_agencies.json","quote_counter.json","orders.json"]:
+        fp = os.path.join(DATA_DIR, fname)
+        if os.path.exists(fp):
+            try:
+                d = json.load(open(fp))
+                n = len(d) if isinstance(d, (list, dict)) else 0
+                data_files[fname] = {"exists": True, "records": n, "size_kb": round(os.path.getsize(fp)/1024,1)}
+            except Exception:
+                data_files[fname] = {"exists": True, "records": "parse_error"}
+        else:
+            data_files[fname] = {"exists": False, "records": 0}
+    results["data_files"] = data_files
+
+    # 3. Quote counter
+    try:
+        nxt = peek_next_quote_number() if QUOTE_GEN_AVAILABLE else "N/A"
+        results["quote_counter"] = {"ok": True, "next": nxt}
+    except Exception as e:
+        results["quote_counter"] = {"ok": False, "error": str(e)}
+
+    # 4. Intel + CRM sync state
+    try:
+        intel_buyers = 0
+        crm_count = len(_load_crm_contacts())
+        if INTEL_AVAILABLE:
+            from src.agents.sales_intel import _load_json as _il2, BUYERS_FILE as _BF2
+            bd = _il2(_BF2)
+            intel_buyers = bd.get("total_buyers", 0) if isinstance(bd, dict) else 0
+        in_sync = intel_buyers == crm_count or crm_count >= intel_buyers
+        results["sync"] = {
+            "ok": in_sync,
+            "intel_buyers": intel_buyers,
+            "crm_contacts": crm_count,
+            "delta": abs(crm_count - intel_buyers),
+        }
+    except Exception as e:
+        results["sync"] = {"ok": False, "error": str(e)}
+
+    # 5. Auto-seed check
+    try:
+        crm_count = results.get("sync", {}).get("crm_contacts", 0)
+        results["auto_seed"] = {
+            "needed": crm_count == 0,
+            "crm_contacts": crm_count,
+            "status": "empty — run Load Demo Data" if crm_count == 0 else f"ok ({crm_count} contacts)",
+        }
+    except Exception as e:
+        results["auto_seed"] = {"ok": False, "error": str(e)}
+
+    # 6. Funnel stats
+    try:
+        quotes = [q for q in get_all_quotes() if not q.get("is_test")]
+        results["funnel"] = {
+            "ok": True,
+            "quotes_total": len(quotes),
+            "quotes_sent": sum(1 for q in quotes if q.get("status") == "sent"),
+            "quotes_won": sum(1 for q in quotes if q.get("status") == "won"),
+            "orders": len(_load_orders()),
+        }
+    except Exception as e:
+        results["funnel"] = {"ok": False, "error": str(e)}
+
+    # 7. Module availability
+    results["modules"] = {
+        "quote_gen": QUOTE_GEN_AVAILABLE,
+        "price_check": PRICE_CHECK_AVAILABLE,
+        "intel": INTEL_AVAILABLE,
+        "growth": GROWTH_AVAILABLE,
+        "qb": QB_AVAILABLE,
+        "predict": PREDICT_AVAILABLE,
+        "auto_processor": AUTO_PROCESSOR_AVAILABLE,
+    }
+
+    # 8. Recent errors from QA
+    try:
+        if QA_AVAILABLE:
+            hist = get_qa_history(5)
+            last = hist[0] if hist else {}
+            results["qa"] = {
+                "score": last.get("health_score", 0),
+                "grade": last.get("grade", "?"),
+                "critical_issues": last.get("critical_issues", []),
+                "last_run": last.get("timestamp", "never"),
+            }
+    except Exception as e:
+        results["qa"] = {"error": str(e)}
+
+    # 9. Railway environment
+    results["railway"] = {
+        "environment": os.environ.get("RAILWAY_ENVIRONMENT", "local"),
+        "volume_name": os.environ.get("RAILWAY_VOLUME_NAME", "not mounted"),
+        "volume_path": os.environ.get("RAILWAY_VOLUME_MOUNT_PATH", "not mounted"),
+        "deployment_id": os.environ.get("RAILWAY_DEPLOYMENT_ID", "local")[:16] if os.environ.get("RAILWAY_DEPLOYMENT_ID") else "local",
+    }
+
+    results["elapsed_ms"] = round((time.time() - start) * 1000)
+    results["ok"] = True
+    results["timestamp"] = datetime.now().isoformat()
+    return jsonify(results)
+
+
+@bp.route("/api/debug/fix/<fix_name>", methods=["POST"])
+@auth_required
+def api_debug_fix(fix_name):
+    """Run an automated fix. fix_name: seed_demo | sync_crm | clear_cache | reset_counter"""
+    if fix_name == "seed_demo":
+        if INTEL_AVAILABLE:
+            from src.agents.sales_intel import seed_demo_data
+            r = seed_demo_data()
+            return jsonify({"ok": True, "result": r})
+        return jsonify({"ok": False, "error": "Intel not available"})
+
+    elif fix_name == "sync_crm":
+        if INTEL_AVAILABLE:
+            from src.agents.sales_intel import sync_buyers_to_crm
+            r = sync_buyers_to_crm()
+            return jsonify({"ok": True, "result": r})
+        return jsonify({"ok": False, "error": "Intel not available"})
+
+    elif fix_name == "clear_cache":
+        with _json_cache_lock:
+            count = len(_json_cache)
+            _json_cache.clear()
+        return jsonify({"ok": True, "cleared": count})
+
+    elif fix_name == "migrate_db":
+        try:
+            from src.core.db import migrate_json_to_db
+            r = migrate_json_to_db()
+            return jsonify({"ok": True, "result": r})
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)})
+
+    return jsonify({"ok": False, "error": f"Unknown fix: {fix_name}"})
 
 
 @bp.route("/search")
@@ -6101,8 +6285,29 @@ def api_funnel_stats():
         except Exception:
             pass
 
+    # Next quote number + CRM stats
+    next_quote = ""
+    crm_contacts_count = 0
+    intel_buyers_count = 0
+    try:
+        next_quote = peek_next_quote_number() if QUOTE_GEN_AVAILABLE else ""
+    except Exception:
+        pass
+    try:
+        crm_contacts_count = len(_load_crm_contacts())
+    except Exception:
+        pass
+    if INTEL_AVAILABLE:
+        try:
+            from src.agents.sales_intel import _load_json as _il, BUYERS_FILE as _BF
+            bd = _il(_BF)
+            intel_buyers_count = bd.get("total_buyers", 0) if isinstance(bd, dict) else 0
+        except Exception:
+            pass
+
     return jsonify({
         "ok": True,
+        "next_quote": next_quote,
         "rfqs_active": rfqs_active,
         "quotes_pending": quotes_pending,
         "quotes_sent": quotes_sent,
@@ -6120,6 +6325,8 @@ def api_funnel_stats():
         "order_value": order_value,
         "invoiced_value": invoiced_value,
         "win_rate": win_rate,
+        "crm_contacts": crm_contacts_count,
+        "intel_buyers": intel_buyers_count,
         "qb_receivable": qb_receivable,
         "qb_overdue": qb_overdue,
         "qb_collected": qb_collected,
