@@ -782,6 +782,7 @@ def render(content, **kw):
   <a href="/orders" class="hdr-btn" aria-label="Orders tracking">📦 Orders</a>
   <a href="/contacts" class="hdr-btn" aria-label="CRM Contacts">👥 CRM</a>
   <a href="/vendors" class="hdr-btn" aria-label="Vendor ordering">🏭 Vendors</a>
+  <a href="/intel/market" class="hdr-btn" aria-label="Market Intelligence">📊 Intel</a>
   <a href="/campaigns" class="hdr-btn" aria-label="Outreach campaigns">📞 Campaigns</a>
   <a href="/pipeline" class="hdr-btn" aria-label="Revenue pipeline">🔄 Pipeline</a>
   <a href="/growth" class="hdr-btn" aria-label="Growth engine">🚀 Growth</a>
@@ -973,6 +974,7 @@ def _header(page_title: str = "") -> str:
   <a href="/orders" class="hdr-btn">📦 Orders</a>
   <a href="/contacts" class="hdr-btn">👥 CRM</a>
   <a href="/vendors" class="hdr-btn">🏭 Vendors</a>
+  <a href="/intel/market" class="hdr-btn">📊 Intel</a>
   <a href="/campaigns" class="hdr-btn">📞 Campaigns</a>
   <a href="/pipeline" class="hdr-btn">🔄 Pipeline</a>
   <a href="/growth" class="hdr-btn{'{ hdr-active}' if page_title=='Growth Engine' else ''}">🚀 Growth</a>
@@ -4801,6 +4803,211 @@ def api_delete_cs_draft():
         return jsonify({"ok": False, "error": str(e)})
 
 
+
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# MARKET INTELLIGENCE / LAND & EXPAND PAGE
+# ════════════════════════════════════════════════════════════════════════════════
+
+@bp.route("/intel/market")
+@auth_required
+def page_market_intel():
+    """Land & Expand — competitive gap analysis, buyer intelligence, revenue model."""
+    import json as _json
+    from pathlib import Path
+    mi_path = os.path.join(DATA_DIR, "market_intelligence.json")
+    if not os.path.exists(mi_path):
+        return "<h2>Market intelligence not yet generated. Run SCPRS pull first.</h2>"
+    mi = _json.load(open(mi_path))
+
+    agencies = mi.get("agencies", {})
+    gaps = mi.get("competitive_product_gaps", [])
+    accounts = mi.get("accounts_to_register_now", [])
+    playbook = mi.get("land_and_expand_playbook", {})
+    rev_ops = {k: v for k, v in mi.get("revenue_model", {}).get("opportunities", {}).items()} if mi.get("revenue_model") else {}
+
+    # Revenue opportunity summary
+    total_opp = sum(
+        a.get("revenue_opportunity_12mo", 0) for a in agencies.values()
+    )
+    p0_gaps = [g for g in gaps if g.get("priority") == "P0"]
+    p1_gaps = [g for g in gaps if g.get("priority") == "P1"]
+    p0_missed = sum(g.get("annual_missed", 0) for g in p0_gaps)
+
+    # Agency status cards
+    def agency_card(key, ag):
+        is_cust = ag.get("is_customer", False)
+        ar = ag.get("ar_outstanding", 0)
+        opp = ag.get("revenue_opportunity_12mo", 0)
+        pri = ag.get("priority", "P2")
+        color = "var(--gn)" if is_cust else ("var(--ac)" if pri == "P0" else "var(--yl)")
+        status = f"✅ Customer (${ar:,.0f} AR)" if is_cust else f"🎯 Target ({pri})"
+        buyer_html = ""
+        if ag.get("intel_buyer"):
+            b = ag["intel_buyer"]
+            if isinstance(b, dict):
+                buyer_html = f'<div style="font-size:11px;color:var(--ac);margin-top:4px">📞 {b["name"]} | {b["email"]} | {b["phone"]}</div>'
+        elif ag.get("intel_buyers"):
+            for b in ag["intel_buyers"][:2]:
+                if isinstance(b, dict):
+                    buyer_html += f'<div style="font-size:11px;color:var(--ac);margin-top:2px">📞 {b["name"]} | {b["email"]}</div>'
+        # Competitive items (top 3)
+        items_html = ""
+        comp = ag.get("what_they_buy_from_competitors", {})
+        all_items = []
+        for cat_items in comp.values():
+            if isinstance(cat_items, list):
+                all_items.extend(cat_items[:2])
+        for it in all_items[:4]:
+            vendor = it.get("vendor", "")
+            annual = it.get("annual_est", 0)
+            items_html += f'<div style="font-size:11px;padding:3px 0;border-bottom:1px solid var(--bd)"><span style="color:var(--tx1)">{it["item"][:45]}</span> <span style="color:var(--tx2);float:right">${annual:,.0f}/yr → {vendor[:20]}</span></div>'
+
+        return f"""<div class="card" style="border-color:{color};margin-bottom:14px">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start">
+    <div>
+      <div style="font-size:13px;font-weight:700;color:{color}">{ag.get('full_name','')[:50]}</div>
+      <div style="font-size:11px;color:var(--tx2);margin-top:2px">{status}</div>
+      {buyer_html}
+    </div>
+    <div style="text-align:right">
+      <div style="font-size:20px;font-weight:700;color:var(--gn)">${opp:,.0f}</div>
+      <div style="font-size:10px;color:var(--tx2)">12mo opportunity</div>
+    </div>
+  </div>
+  <div style="margin-top:10px;font-size:11px;color:var(--yl);background:rgba(210,167,78,.08);padding:6px 8px;border-radius:4px">
+    💡 {ag.get('land_expand_strategy','')[:150]}
+  </div>
+  {f'<div style="margin-top:8px">{items_html}</div>' if items_html else ""}
+</div>"""
+
+    agencies_html = "".join(agency_card(k, v) for k, v in agencies.items())
+
+    # Competitive gap table
+    def gap_row(g):
+        pri_color = "var(--rd)" if g["priority"]=="P0" else "var(--yl)"
+        return f"""<tr style="border-bottom:1px solid var(--bd)">
+  <td style="padding:8px 10px;font-weight:500;font-size:12px">{g["item"]}</td>
+  <td style="padding:8px 10px;font-size:11px;color:{pri_color}">{g["priority"]}</td>
+  <td style="padding:8px 10px;font-size:12px;color:var(--gn);font-weight:600">${g["annual_missed"]:,}</td>
+  <td style="padding:8px 10px;font-size:11px;color:var(--tx2)">{g["fix"][:80]}</td>
+</tr>"""
+
+    gaps_html = "".join(gap_row(g) for g in sorted(gaps, key=lambda x: (x["priority"], -x["annual_missed"])))
+
+    # Accounts to register
+    def account_card(a):
+        pri_color = "var(--rd)" if a.get("priority")=="P0" else "var(--yl)"
+        return f"""<div style="padding:10px 12px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:flex-start">
+  <div>
+    <div style="font-size:13px;font-weight:600">{a["vendor"]}</div>
+    <div style="font-size:11px;color:var(--tx2);margin-top:2px">{a["why"][:90]}</div>
+    <div style="font-size:10px;color:var(--ac);margin-top:3px">{a["url"]}</div>
+  </div>
+  <span style="font-size:11px;font-weight:700;color:{pri_color};white-space:nowrap;margin-left:12px">{a["priority"]}</span>
+</div>"""
+
+    accounts_html = "".join(account_card(a) for a in accounts)
+
+    # Playbook
+    def phase_html(phase_key, phase):
+        return f"""<div class="card" style="margin-bottom:12px">
+  <div style="font-size:13px;font-weight:700;margin-bottom:8px">
+    {phase_key.replace('_',' ').title()} — <span style="color:var(--gn)">${phase.get('revenue_target',0):,}</span>
+    <span style="font-size:11px;font-weight:400;color:var(--tx2);margin-left:8px">{phase.get('title','')}</span>
+  </div>
+  {"".join(f'<div style="font-size:12px;padding:3px 0;color:var(--tx2)">▸ {a}</div>' for a in phase.get('actions',[]))}
+</div>"""
+
+    playbook_html = "".join(phase_html(k, v) for k, v in playbook.items())
+
+    html = _header("Market Intel") + f"""
+<style>
+.card{{background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:16px;margin-bottom:0}}
+th{{padding:8px 10px;font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;text-align:left;border-bottom:1px solid var(--bd)}}
+table{{width:100%;border-collapse:collapse}}
+</style>
+
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+  <div>
+    <h2 style="font-size:22px;font-weight:700">📊 Land & Expand Intelligence</h2>
+    <p style="color:var(--tx2);font-size:13px;margin-top:4px">Competitive gaps · Buyer contacts · Revenue model</p>
+  </div>
+  <div style="display:flex;gap:8px">
+    <a href="/" style="padding:5px 12px;border:1px solid var(--bd);border-radius:6px;font-size:12px;text-decoration:none">🏠 Home</a>
+    <a href="/vendors" style="padding:5px 12px;border:1px solid var(--bd);border-radius:6px;font-size:12px;text-decoration:none">🏭 Vendors</a>
+  </div>
+</div>
+
+<!-- Revenue opportunity summary -->
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:14px;margin-bottom:24px">
+  <div class="card">
+    <div style="font-size:11px;color:var(--tx2)">12-MONTH OPPORTUNITY</div>
+    <div style="font-size:26px;font-weight:800;color:var(--gn)">${total_opp:,.0f}</div>
+    <div style="font-size:11px;color:var(--tx2)">across {len(agencies)} agencies</div>
+  </div>
+  <div class="card">
+    <div style="font-size:11px;color:var(--tx2)">P0 PRODUCT GAPS</div>
+    <div style="font-size:26px;font-weight:800;color:var(--rd)">{len(p0_gaps)}</div>
+    <div style="font-size:11px;color:var(--tx2)">${p0_missed:,.0f}/yr being lost to competitors</div>
+  </div>
+  <div class="card">
+    <div style="font-size:11px;color:var(--tx2)">EXISTING CUSTOMERS</div>
+    <div style="font-size:26px;font-weight:800;color:var(--ac)">3</div>
+    <div style="font-size:11px;color:var(--tx2)">CCHCS · CalVet · DSH (32+ untapped facilities)</div>
+  </div>
+  <div class="card">
+    <div style="font-size:11px;color:var(--tx2)">ACCOUNTS TO REGISTER</div>
+    <div style="font-size:26px;font-weight:800;color:var(--yl)">{len(accounts)}</div>
+    <div style="font-size:11px;color:var(--tx2)">Cardinal · McKesson · Bound Tree · Waxie + more</div>
+  </div>
+</div>
+
+<div style="display:grid;grid-template-columns:1.5fr 1fr;gap:20px">
+  <div>
+    <!-- Agency intelligence -->
+    <div style="font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">Agency Intelligence</div>
+    {agencies_html}
+  </div>
+  <div>
+    <!-- Accounts to register -->
+    <div style="font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">Accounts to Register Now</div>
+    <div class="card" style="padding:0;margin-bottom:20px">
+      {accounts_html}
+    </div>
+
+    <!-- Land & Expand Playbook -->
+    <div style="font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">30/60/90 Day Playbook</div>
+    {playbook_html}
+  </div>
+</div>
+
+<!-- Competitive product gap table -->
+<div class="card" style="margin-top:20px;padding:0">
+  <div style="padding:14px 16px;border-bottom:1px solid var(--bd)">
+    <span style="font-size:13px;font-weight:700">🎯 Items Competitors Are Selling To Your Customers</span>
+    <span style="font-size:11px;color:var(--tx2);margin-left:8px">{len(gaps)} gaps · ${sum(g.get('annual_missed',0) for g in gaps):,.0f}/yr being captured by others</span>
+  </div>
+  <table>
+    <thead><tr><th>Product / Item</th><th>Priority</th><th>Annual Missed</th><th>Fix</th></tr></thead>
+    <tbody>{gaps_html}</tbody>
+  </table>
+</div>
+
+</div></body></html>"""
+    return html
+
+
+@bp.route("/api/intel/market")
+@auth_required
+def api_intel_market():
+    """Raw market intelligence JSON."""
+    import json as _json
+    mi_path = os.path.join(DATA_DIR, "market_intelligence.json")
+    if not os.path.exists(mi_path):
+        return jsonify({"ok": False, "error": "market_intelligence.json not found"})
+    return jsonify({"ok": True, **_json.load(open(mi_path))})
 
 # ════════════════════════════════════════════════════════════════════════════════
 # VENDOR ORDERING ROUTES
