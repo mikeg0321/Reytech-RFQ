@@ -1387,48 +1387,175 @@ def _save_email_templates(data: dict):
         json.dump(data, f, indent=2)
 
 
+def _get_recent_scprs_pos(agency: str, months: int = 3) -> list:
+    """Return SCPRS purchase orders for an agency from the last N months.
+
+    Returns list of {po_number, items, date, link} dicts sorted by date desc.
+    Data sourced from intel_buyers.json and activity_log.
+    """
+    from datetime import timezone
+    cutoff = datetime.now(timezone.utc) - timedelta(days=months * 30)
+    results = []
+    try:
+        # Check intel_buyers for SCPRS purchase data
+        from src.agents.sales_intel import _load_json as _il, BUYERS_FILE as _BF
+        buyers = _il(_BF)
+        buyer_list = buyers.get("buyers", []) if isinstance(buyers, dict) else buyers
+        agency_lower = agency.lower()
+        for b in buyer_list:
+            if agency_lower not in (b.get("agency") or "").lower():
+                continue
+            for po in b.get("recent_pos", b.get("purchase_orders", [])):
+                try:
+                    po_date = po.get("date") or po.get("purchase_date") or ""
+                    if po_date:
+                        from dateutil.parser import parse as _dp
+                        dt = _dp(po_date).replace(tzinfo=timezone.utc)
+                        if dt >= cutoff:
+                            results.append({
+                                "po_number": po.get("po_number") or po.get("number") or "",
+                                "items": po.get("items") or po.get("description") or "",
+                                "date": po_date[:10],
+                                "amount": po.get("amount") or po.get("total") or 0,
+                                "link": po.get("link") or po.get("scprs_link") or
+                                        f"https://www.dgsapps.dgs.ca.gov/OA_HTML/OA.jsp?OAFunc=SCPRS_SEARCH&agency={agency.replace(' ', '%20')}",
+                            })
+                except Exception:
+                    pass
+            # Also check top_purchases / categories
+            for item in b.get("top_purchases", [])[:3]:
+                if isinstance(item, dict) and item.get("date"):
+                    try:
+                        from dateutil.parser import parse as _dp
+                        dt = _dp(item["date"]).replace(tzinfo=timezone.utc)
+                        if dt >= cutoff:
+                            results.append({
+                                "po_number": item.get("po_number") or "",
+                                "items": item.get("description") or item.get("item") or "",
+                                "date": item["date"][:10],
+                                "amount": item.get("amount") or 0,
+                                "link": item.get("scprs_link") or
+                                        f"https://www.dgsapps.dgs.ca.gov/OA_HTML/OA.jsp?OAFunc=SCPRS_SEARCH",
+                            })
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+    # Sort newest first, deduplicate by PO number
+    seen = set()
+    out = []
+    for r in sorted(results, key=lambda x: x.get("date", ""), reverse=True):
+        key = r.get("po_number") or r.get("items", "")[:30]
+        if key and key not in seen:
+            seen.add(key)
+            out.append(r)
+    return out[:5]  # top 5 most recent
+
+
 def _personalize_template(template: dict, contact: dict = None, quote: dict = None, extra: dict = None) -> dict:
-    """Fill template variables from CRM contact + quote data."""
+    """Fill template variables from CRM contact + quote data.
+
+    Supports both [name] and {{name}} variable formats.
+    Auto-fetches recent SCPRS POs (<3 months) for the contact's agency
+    and injects them as [recent_po_line] and [recent_po_link].
+    """
+    from datetime import timezone
+    expiry = (datetime.now() + timedelta(days=45)).strftime("%B %d, %Y")
     vars_ = {
         "name": "",
         "agency": "",
         "items": "",
+        "items_preview": "",
+        "items_summary": "",
         "date": datetime.now().strftime("%B %d, %Y"),
         "category": "",
         "quote_number": "",
+        "quote_date": "",
         "total": "",
         "po_number": "",
-        "delivery_date": "5-7 business days",
-        "items_summary": "",
+        "delivery_date": "5–7 business days",
         "tax_note": "tax included",
-        "expiry_date": (datetime.now() + timedelta(days=45)).strftime("%B %d, %Y"),
-        "lead_time": "5-7 business days",
+        "expiry_date": expiry,
+        "lead_time": "5–7 business days",
+        "recent_po_line": "",
+        "recent_po_link": "",
+        "recent_po_line_warm": "",
     }
+
+    # ── Contact fields ────────────────────────────────────────────────────
     if contact:
-        name = contact.get("buyer_name") or contact.get("name") or ""
-        vars_["name"] = name.split()[0] if name else ""
+        raw_name = contact.get("buyer_name") or contact.get("name") or ""
+        vars_["name"] = raw_name.split()[0] if raw_name else ""
         vars_["agency"] = contact.get("agency") or ""
-        cats = contact.get("categories") or []
-        if cats:
-            vars_["items"] = ", ".join(cats[:2]) if isinstance(cats, list) else str(cats)
-            vars_["category"] = cats[0] if isinstance(cats, list) and cats else str(cats)
+        cats = contact.get("categories") or contact.get("top_categories") or []
+        if isinstance(cats, list) and cats:
+            vars_["items"] = ", ".join(str(c) for c in cats[:3])
+            vars_["category"] = str(cats[0])
+        elif isinstance(cats, str):
+            vars_["items"] = cats
+            vars_["category"] = cats.split(",")[0].strip()
+
+        # ── Recent SCPRS POs (<3 months) ─────────────────────────────────
+        agency = vars_["agency"]
+        if agency:
+            recent_pos = _get_recent_scprs_pos(agency, months=3)
+            if recent_pos:
+                po = recent_pos[0]  # most recent
+                po_num = po.get("po_number") or ""
+                po_items = po.get("items") or vars_["items"]
+                po_date = po.get("date") or ""
+                po_link = po.get("link") or ""
+                # Build [recent_po_line] for outreach templates
+                if po_num and po_link:
+                    vars_["recent_po_line"] = (
+                        f"purchased {po_items} on {po_date} "
+                        f"(PO {po_num} — {po_link})"
+                    )
+                    vars_["recent_po_link"] = po_link
+                elif po_items:
+                    vars_["recent_po_line"] = f"recently purchased {po_items}"
+                # Warm/lost variant
+                vars_["recent_po_line_warm"] = (
+                    f"We previously supplied {agency} with {po_items}"
+                    + (f" (PO {po_num})" if po_num else "") + " and delivered on time."
+                )
+                # Items preview for outreach
+                vars_["items_preview"] = "\n".join(
+                    f"  • {p.get('items','')[:60]}" + (f" — ${p.get('amount',0):,.0f}" if p.get('amount') else "")
+                    for p in recent_pos[:3]
+                )
+            else:
+                # Use fallback text from template definition
+                fallback = template.get("recent_po_fallback", f"procures {vars_['category'] or 'supplies'} through SCPRS")
+                vars_["recent_po_line"] = fallback.replace("[category]", vars_["category"]).replace("[agency]", agency)
+                vars_["recent_po_line_warm"] = f"We're actively monitoring {agency}'s upcoming procurement activity."
+
+    # ── Quote fields ──────────────────────────────────────────────────────
     if quote:
         vars_["quote_number"] = quote.get("quote_number") or ""
-        vars_["items"] = quote.get("items_text") or vars_["items"]
+        vars_["quote_date"] = (quote.get("created_at") or "")[:10]
+        qitems = quote.get("items_text") or vars_["items"]
+        vars_["items"] = qitems
         total = quote.get("total") or 0
         vars_["total"] = f"${total:,.2f}" if total else ""
-        vars_["items_summary"] = chr(10).join(
-            f"  - {it.get('description','')[:60]} - ${it.get('unit_price',0):,.2f} x {it.get('qty',1)}"
-            for it in (quote.get("items_detail") or [])[:5]
+        line_items = quote.get("items_detail") or quote.get("line_items") or []
+        vars_["items_summary"] = "\n".join(
+            f"  • {it.get('description','')[:60]}"
+            f"  ${it.get('unit_price', it.get('our_price', 0)):,.2f} x {it.get('qty', it.get('quantity', 1))}"
+            for it in line_items[:8]
         )
+
+    # ── Extra overrides ───────────────────────────────────────────────────
     if extra:
         vars_.update(extra)
 
+    # ── Substitute both [name] and {{name}} formats ───────────────────────
     subject = template.get("subject", "")
     body = template.get("body", "")
     for k, v in vars_.items():
-        subject = subject.replace("{{" + k + "}}", str(v))
-        body = body.replace("{{" + k + "}}", str(v))
+        subject = subject.replace(f"[{k}]", str(v)).replace("{{" + k + "}}", str(v))
+        body = body.replace(f"[{k}]", str(v)).replace("{{" + k + "}}", str(v))
+
     return {"subject": subject, "body": body, "variables_used": vars_}
 
 
@@ -8142,25 +8269,45 @@ def _parse_simple_cron(cron_expr: str) -> dict:
     return {"day_of_week": 6, "hour": 2, "minute": 0, "label": "Sundays at 2:00 AM"}
 
 
-def _scprs_scheduler_loop(cron_expr: str, run_now: bool = False):
-    """Background thread: run SCPRS deep pull on schedule."""
+# Default dual schedule (PRD spec: Monday 7am + Wednesday 10am PST)
+_SCPRS_DEFAULT_SCHEDULES = [
+    {"day_of_week": 0, "hour": 7, "minute": 0,  "label": "Monday 7:00 AM PST"},
+    {"day_of_week": 2, "hour": 10, "minute": 0, "label": "Wednesday 10:00 AM PST"},
+]
+
+
+def _scprs_scheduler_loop(cron_expr: str = "", run_now: bool = False, schedules: list = None):
+    """Background thread: SCPRS deep pull on dual schedule.
+
+    Defaults: Monday 7:00 AM PST + Wednesday 10:00 AM PST.
+    PST applied via UTC-8 offset (configurable via PST_OFFSET_HOURS env var).
+    """
     import time as _time
-    schedule = _parse_simple_cron(cron_expr)
+    from datetime import timezone, timedelta as _tds
     _scprs_scheduler_state["running"] = True
-    _scprs_scheduler_state["cron"] = cron_expr
+    _scprs_scheduler_state["cron"] = cron_expr or "Mon 7am + Wed 10am PST"
+
+    sched_list = schedules or ([_parse_simple_cron(cron_expr)] if cron_expr else _SCPRS_DEFAULT_SCHEDULES)
+    _scprs_scheduler_state["schedules"] = [s["label"] for s in sched_list]
+    log.info("SCPRS Scheduler started: %s", [s["label"] for s in sched_list])
 
     if run_now:
         _run_scheduled_scprs_pull()
 
     while _scprs_scheduler_state["running"]:
-        now = datetime.now()
-        dow = now.weekday()  # 0=Mon, 6=Sun
-        if (schedule["day_of_week"] == -1 or dow == schedule["day_of_week"]) and            now.hour == schedule["hour"] and now.minute == schedule["minute"]:
-            log.info("SCPRS Scheduler: triggering scheduled pull")
-            _run_scheduled_scprs_pull()
-            _time.sleep(70)  # avoid double-trigger within same minute
-        else:
-            _time.sleep(30)
+        tz_offset = int(os.environ.get("PST_OFFSET_HOURS", "-8"))
+        now_pst = datetime.now(timezone.utc) + _tds(hours=tz_offset)
+        dow = now_pst.weekday()  # 0=Mon, 6=Sun
+
+        for sched in sched_list:
+            if ((sched["day_of_week"] == -1 or dow == sched["day_of_week"])
+                    and now_pst.hour == sched["hour"]
+                    and now_pst.minute == sched.get("minute", 0)):
+                log.info("SCPRS Scheduler: triggering pull (%s)", sched["label"])
+                _run_scheduled_scprs_pull()
+                _time.sleep(70)
+                break
+        _time.sleep(30)
 
 
 def _run_scheduled_scprs_pull():
@@ -8177,8 +8324,25 @@ def _run_scheduled_scprs_pull():
                 log.info("Scheduled SCPRS pull: CRM sync complete")
             _scprs_scheduler_state["result"] = result
     except Exception as e:
-        log.error("Scheduled SCPRS pull failed: %s", e)
+
         _scprs_scheduler_state["error"] = str(e)
+
+
+# ── SCPRS Scheduler auto-start on module load ────────────────────────────────
+# Defaults to Monday 7am + Wednesday 10am PST.
+# Set SCPRS_PULL_SCHEDULE env var to override (or "off" to disable).
+def _scprs_autostart():
+    _env = os.environ.get("SCPRS_PULL_SCHEDULE", "auto")
+    if _env.lower() in ("off", "disable", "disabled", "false", "0"):
+        log.info("SCPRS scheduler disabled via SCPRS_PULL_SCHEDULE=off")
+        return
+    _cron = "" if _env == "auto" else _env
+    _label = "Mon 7am PST + Wed 10am PST" if _env == "auto" else _env
+    _threading.Thread(target=_scprs_scheduler_loop, args=(_cron,),
+                      daemon=True, name="scprs-scheduler").start()
+    log.info("SCPRS scheduler started: %s", _label)
+
+_scprs_autostart()
 
 
 @bp.route("/api/intel/pull/schedule", methods=["GET", "POST"])
@@ -8200,34 +8364,37 @@ def api_intel_pull_schedule():
         })
 
     body = request.get_json(silent=True) or {}
-    cron = body.get("cron", os.environ.get("SCPRS_PULL_SCHEDULE", "sunday 2am"))
+    cron = body.get("cron", os.environ.get("SCPRS_PULL_SCHEDULE", ""))
     run_now = body.get("run_now", False)
+    # Support custom schedule list or use the default dual schedule
+    custom_schedules = body.get("schedules")
 
     # Stop existing thread
     _scprs_scheduler_state["running"] = False
     if _scprs_scheduler_thread and _scprs_scheduler_thread.is_alive():
         _scprs_scheduler_thread = None
 
-    # Start new thread
+    # Start new thread with dual schedule by default
     _scprs_scheduler_thread = _threading.Thread(
         target=_scprs_scheduler_loop,
-        args=(cron, run_now),
+        args=(cron,),
+        kwargs={"run_now": run_now, "schedules": custom_schedules},
         daemon=True, name="scprs-scheduler"
     )
     _scprs_scheduler_thread.start()
 
-    schedule = _parse_simple_cron(cron)
-    _scprs_scheduler_state["schedule_label"] = schedule["label"]
-    _scprs_scheduler_state["next_run"] = schedule["label"]
+    labels = custom_schedules or (_SCPRS_DEFAULT_SCHEDULES if not cron else [_parse_simple_cron(cron)])
+    label_str = " + ".join(s if isinstance(s, str) else s["label"] for s in labels)
+    _scprs_scheduler_state["schedule_label"] = label_str
+    _scprs_scheduler_state["next_run"] = label_str
 
-    log.info("SCPRS Scheduler: enabled (%s, run_now=%s)", cron, run_now)
+    log.info("SCPRS Scheduler: enabled (%s, run_now=%s)", label_str, run_now)
     return jsonify({
         "ok": True,
-        "message": f"SCPRS scheduler enabled: {schedule['label']}",
-        "cron": cron,
-        "schedule": schedule,
+        "message": f"SCPRS scheduler enabled: {label_str}",
+        "schedules": [s if isinstance(s, str) else s["label"] for s in labels],
         "run_now": run_now,
-        "hint": "Set SCPRS_PULL_SCHEDULE env var in Railway to persist schedule across restarts.",
+        "hint": "Default: Monday 7am + Wednesday 10am PST. Set SCPRS_PULL_SCHEDULE to override.",
     })
 
 

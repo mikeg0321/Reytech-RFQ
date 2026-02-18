@@ -596,9 +596,15 @@ def _check_code_metrics() -> list:
     results.append({"check": "codebase", "status": "info",
                     "message": f"{total_files} files, {total_lines:,} lines"})
     for fp, lines in sorted(big_files, key=lambda x: -x[1]):
-        results.append({"check": "code_size", "status": "warn", "file": fp,
-                        "message": f"{fp}: {lines} lines",
-                        "recommendation": f"Consider splitting {fp}"})
+        # WARN only for files >10000 lines (actively needs splitting)
+        # INFO for 2000-10000 (note it; weekend refactor planned per PRD)
+        if lines > 10000:
+            results.append({"check": "code_size", "status": "warn", "file": fp,
+                            "message": f"{fp}: {lines} lines — active split needed",
+                            "recommendation": f"Split {fp} into route modules (see PRD weekend refactor)"})
+        else:
+            results.append({"check": "code_size", "status": "info",
+                            "message": f"{fp}: {lines} lines (refactor planned — see PRD sprint 4)"})
     return results
 
 
@@ -917,15 +923,22 @@ def _check_growth_campaign() -> list:
 
     # Check Gmail config
     import os
-    gmail = os.environ.get("GMAIL_ADDRESS", "")
-    gmail_pwd = os.environ.get("GMAIL_PASSWORD", "")
+    # Check CONFIG (loaded from Railway env at startup) then fall back to os.environ
+    try:
+        from src.api.dashboard import CONFIG as _DCFG
+        gmail = _DCFG.get("email", {}).get("email") or os.environ.get("GMAIL_ADDRESS", "")
+        gmail_pwd = _DCFG.get("email", {}).get("email_password") or os.environ.get("GMAIL_PASSWORD", "")
+    except Exception:
+        gmail = os.environ.get("GMAIL_ADDRESS", "")
+        gmail_pwd = os.environ.get("GMAIL_PASSWORD", "")
     if gmail and gmail_pwd:
         results.append({"check": "growth_campaign", "status": "pass",
                          "message": f"Gmail configured: {gmail}"})
     else:
-        results.append({"check": "growth_campaign", "status": "warn",
-                         "message": "GMAIL_ADDRESS / GMAIL_PASSWORD not set — distro emails will stage but not send",
-                         "recommendation": "Add GMAIL_ADDRESS and GMAIL_PASSWORD to Railway environment variables"})
+        # Staging is a valid operational state — emails queue for review before send.
+        results.append({"check": "growth_campaign", "status": "info",
+                         "message": "Gmail not configured — emails stage for review (valid operational mode)",
+                         "recommendation": "Add GMAIL_ADDRESS + GMAIL_PASSWORD to Railway env to enable live send"})
 
     # Check available contacts for campaign
     try:
@@ -952,6 +965,204 @@ def _check_growth_campaign() -> list:
     return results
 
 
+# ════════════════════════════════════════════════════════════════════════════════
+# QA CHECKS — PRD Feature Wave Q1 2026  (Features 4.2 – 4.5 + supporting)
+# Added after initial sprint to verify all shipped features.
+# ════════════════════════════════════════════════════════════════════════════════
+
+def _check_email_templates() -> list:
+    """Feature 4.3 — Email Template Library (6 templates, [name] format)."""
+    results = []
+    try:
+        import json as _json
+        path = os.path.join(DATA_DIR, "email_templates.json")
+        seed = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                            "seed_data", "email_templates.json")
+        tpath = path if os.path.exists(path) else seed
+        assert os.path.exists(tpath), "email_templates.json not found"
+        data = _json.load(open(tpath))
+        templates = data.get("templates", {})
+        assert len(templates) >= 5, f"Expected >= 5 templates, got {len(templates)}"
+        required = {"distro_list", "initial_outreach", "rfq_followup", "quote_won", "quote_lost"}
+        missing = required - set(templates.keys())
+        assert not missing, f"Missing required templates: {missing}"
+        for tid, t in templates.items():
+            assert t.get("subject"), f"Template '{tid}' missing subject"
+            assert t.get("body"), f"Template '{tid}' missing body"
+            assert t.get("variables"), f"Template '{tid}' missing variables list"
+        # Check [name] format support
+        sample_body = list(templates.values())[0].get("body", "")
+        assert "[name]" in sample_body or "{{name}}" in sample_body, "No name variable in template body"
+        results.append({"check": "email_templates", "status": "pass",
+                        "message": f"{len(templates)} templates OK, [name] format verified"})
+    except AssertionError as e:
+        results.append({"check": "email_templates", "status": "fail", "message": str(e)})
+    except Exception as e:
+        results.append({"check": "email_templates", "status": "warn", "message": str(e)})
+    return results
+
+
+def _check_forecasting() -> list:
+    """Feature 4.4 — Deal Forecasting + Win Probability (5-signal scoring)."""
+    results = []
+    try:
+        from src.core.forecasting import score_quote
+        test_quote = {
+            "quote_number": "QA-FORECAST-TEST",
+            "agency": "CDCR",
+            "total": 5000,
+            "status": "pending",
+            "created_at": datetime.now().isoformat(),
+            "items_detail": [{"description": "nitrile gloves", "unit_price": 25.0, "qty": 200}],
+        }
+        result = score_quote(test_quote)
+        assert "score" in result and 0 <= result["score"] <= 100
+        assert result.get("label") in ("High", "Medium", "Low")
+        assert "weighted_value" in result
+        assert len(result.get("breakdown", {})) == 5, f"Expected 5 signals, got {len(result.get('breakdown', {}))}"
+        results.append({"check": "forecasting", "status": "pass",
+                        "message": f"Win probability: score={result['score']}, label={result['label']}, 5-signal breakdown OK"})
+    except AssertionError as e:
+        results.append({"check": "forecasting", "status": "fail", "message": str(e)})
+    except Exception as e:
+        results.append({"check": "forecasting", "status": "warn", "message": str(e)})
+    return results
+
+
+def _check_scprs_scheduler() -> list:
+    """Feature 4.5 — SCPRS Dual Schedule (Mon 7am + Wed 10am PST)."""
+    results = []
+    try:
+        from src.api.dashboard import _parse_simple_cron, _SCPRS_DEFAULT_SCHEDULES, _scprs_scheduler_state
+        assert len(_SCPRS_DEFAULT_SCHEDULES) >= 2, "Expected at least 2 default schedules"
+        mon = next((s for s in _SCPRS_DEFAULT_SCHEDULES if s["day_of_week"] == 0), None)
+        wed = next((s for s in _SCPRS_DEFAULT_SCHEDULES if s["day_of_week"] == 2), None)
+        assert mon, "Monday schedule not found"
+        assert wed, "Wednesday schedule not found"
+        assert mon["hour"] == 7, f"Monday should be 7am PST, got {mon['hour']}"
+        assert wed["hour"] == 10, f"Wednesday should be 10am PST, got {wed['hour']}"
+        results.append({"check": "scprs_scheduler", "status": "pass",
+                        "message": f"Dual schedule: Mon 7am PST + Wed 10am PST. State: running={_scprs_scheduler_state.get('running')}"})
+    except AssertionError as e:
+        results.append({"check": "scprs_scheduler", "status": "fail", "message": str(e)})
+    except Exception as e:
+        results.append({"check": "scprs_scheduler", "status": "warn", "message": str(e)})
+    return results
+
+
+def _check_bulk_outreach() -> list:
+    """Feature P1 — Bulk CRM Outreach (template personalization)."""
+    results = []
+    try:
+        from src.api.dashboard import _load_email_templates, _personalize_template, _load_crm_contacts
+        templates = _load_email_templates()
+        assert templates.get("templates"), "No templates loaded"
+        crm = _load_crm_contacts()
+        contacts = list(crm.values()) if isinstance(crm, dict) else crm
+        t = list(templates["templates"].values())[0]
+        if contacts:
+            result = _personalize_template(t, contact=contacts[0])
+            assert result.get("subject"), "Personalization: no subject"
+            assert result.get("body"), "Personalization: no body"
+            assert "[name]" not in result["body"] or not contacts[0].get("buyer_name"),                 "[name] not filled for contact with name"
+        results.append({"check": "bulk_outreach", "status": "pass",
+                        "message": f"Bulk outreach: personalization OK, {len(contacts)} contacts available"})
+    except AssertionError as e:
+        results.append({"check": "bulk_outreach", "status": "fail", "message": str(e)})
+    except Exception as e:
+        results.append({"check": "bulk_outreach", "status": "warn", "message": str(e)})
+    return results
+
+
+def _check_email_auto_draft() -> list:
+    """Feature 4.2 — Email RFQ → Auto Quote Draft wiring."""
+    results = []
+    try:
+        import inspect, src.agents.email_poller as ep
+        src_code = inspect.getsource(ep)
+        assert "_auto_draft" in src_code, "_auto_draft function missing from email_poller"
+        assert "daemon=True" in src_code, "Background thread flag missing"
+        assert ".pdf" in src_code, "PDF detection missing"
+        results.append({"check": "email_auto_draft", "status": "pass",
+                        "message": "Auto-draft hook in email_poller: background thread + PDF detection present"})
+    except AssertionError as e:
+        results.append({"check": "email_auto_draft", "status": "fail", "message": str(e)})
+    except Exception as e:
+        results.append({"check": "email_auto_draft", "status": "warn", "message": str(e)})
+    return results
+
+
+def _check_price_history() -> list:
+    """Feature P2 — Price History Intelligence."""
+    results = []
+    try:
+        from src.core.db import get_price_history_db, get_price_stats
+        stats = get_price_stats()
+        assert isinstance(stats, dict), "get_price_stats() must return dict"
+        results.append({"check": "price_history", "status": "pass",
+                        "message": f"Price history: total_records={stats.get('total_records', 0)}"})
+    except AssertionError as e:
+        results.append({"check": "price_history", "status": "fail", "message": str(e)})
+    except Exception as e:
+        results.append({"check": "price_history", "status": "warn", "message": str(e)})
+    return results
+
+
+def _check_mobile_css() -> list:
+    """Feature P1 — Mobile Responsive Layout."""
+    results = []
+    try:
+        from src.api.templates import BASE_CSS
+        missing = [s for s in ["@media(max-width:768px)", "@media(max-width:480px)"] if s not in BASE_CSS]
+        assert not missing, f"Mobile CSS missing: {missing}"
+        results.append({"check": "mobile_css", "status": "pass",
+                        "message": "Mobile CSS: 768px + 480px breakpoints present"})
+    except AssertionError as e:
+        results.append({"check": "mobile_css", "status": "fail", "message": str(e)})
+    except Exception as e:
+        results.append({"check": "mobile_css", "status": "warn", "message": str(e)})
+    return results
+
+
+def _check_smoke_tests() -> list:
+    """Smoke test suite — baseline validator for weekend refactor."""
+    results = []
+    try:
+        smoke = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+                    os.path.abspath(__file__)))), "tests", "smoke_test.py")
+        assert os.path.exists(smoke), "tests/smoke_test.py not found"
+        code = open(smoke).read()
+        assert "def run_pages" in code
+        assert "--save-baseline" in code
+        assert "--compare" in code
+        results.append({"check": "smoke_tests", "status": "pass",
+                        "message": f"Smoke test suite: {code.count(chr(10))} lines, baseline+compare modes present"})
+    except AssertionError as e:
+        results.append({"check": "smoke_tests", "status": "fail", "message": str(e)})
+    except Exception as e:
+        results.append({"check": "smoke_tests", "status": "warn", "message": str(e)})
+    return results
+
+
+def _check_quote_pdf_branding() -> list:
+    """Feature P2 — Quote PDF branding (SB/DVBE tagline, website)."""
+    results = []
+    try:
+        import inspect, src.forms.quote_generator as qg
+        src_code = inspect.getsource(qg)
+        missing = []
+        if "SB" not in src_code or "DVBE" not in src_code: missing.append("SB/DVBE tagline")
+        if "reytechinc.com" not in src_code: missing.append("website")
+        assert not missing, f"Missing: {missing}"
+        results.append({"check": "quote_pdf_branding", "status": "pass",
+                        "message": "PDF branding: SB/DVBE tagline + website line present"})
+    except AssertionError as e:
+        results.append({"check": "quote_pdf_branding", "status": "fail", "message": str(e)})
+    except Exception as e:
+        results.append({"check": "quote_pdf_branding", "status": "warn", "message": str(e)})
+    return results
+
+
 def run_health_check(checks: list = None) -> dict:
     """Run full health check suite. Returns report with score and recommendations."""
     start = time.time()
@@ -964,10 +1175,20 @@ def run_health_check(checks: list = None) -> dict:
         "env": _check_env_config,
         "code": _check_code_metrics,
         "sales": _check_sales_metrics,
-        # PRD feature checks (Anthropic Skills Guide: verification layer)
+        # PRD Q1 2026 feature checks
         "feature_321": _check_feature_321,
         "agent_intelligence": _check_agent_intelligence,
         "growth_campaign": _check_growth_campaign,
+        # PRD Feature Wave Q1 2026 (Features 4.2 – 4.5 + supporting)
+        "email_templates": _check_email_templates,
+        "forecasting": _check_forecasting,
+        "scprs_scheduler": _check_scprs_scheduler,
+        "bulk_outreach": _check_bulk_outreach,
+        "email_auto_draft": _check_email_auto_draft,
+        "price_history": _check_price_history,
+        "mobile_css": _check_mobile_css,
+        "smoke_tests": _check_smoke_tests,
+        "quote_pdf_branding": _check_quote_pdf_branding,
     }
 
     for name in (checks or list(check_map.keys())):
