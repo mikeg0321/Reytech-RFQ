@@ -217,12 +217,14 @@ def _check_all_agents() -> list:
 
     # SCPRS Scanner
     try:
-        from src.agents.scprs_scanner import agent_status
-        st = agent_status()
-        agents.append({"name": "SCPRS Scanner", "icon": "🔍", "status": st.get("status", "unknown"),
-                        "detail": f"v{st.get('version','?')} — {st.get('description','')[:40]}"})
-    except Exception:
-        agents.append({"name": "SCPRS Scanner", "icon": "🔍", "status": "unavailable", "detail": "Not loaded"})
+        from src.agents.scprs_scanner import get_scanner_status
+        st = get_scanner_status()
+        agents.append({"name": "SCPRS Scanner", "icon": "🔍", "status": st.get("status", "ready"),
+                        "detail": f"Scanned {st.get('total_scans', 0)} times, {st.get('leads_generated', 0)} leads found"})
+    except ImportError:
+        agents.append({"name": "SCPRS Scanner", "icon": "🔍", "status": "unavailable", "detail": "Module not loaded"})
+    except Exception as e:
+        agents.append({"name": "SCPRS Scanner", "icon": "🔍", "status": "error", "detail": str(e)[:40]})
 
     # Voice Agent
     try:
@@ -266,21 +268,32 @@ def _check_all_agents() -> list:
 
     # QuickBooks
     try:
-        from src.agents.quickbooks_agent import qb_configured
-        agents.append({"name": "QuickBooks", "icon": "💰",
-                        "status": "connected" if qb_configured() else "not configured",
-                        "detail": "Invoices, AR, customer sync"})
-    except Exception:
-        agents.append({"name": "QuickBooks", "icon": "💰", "status": "unavailable", "detail": "Not loaded"})
+        from src.agents.quickbooks_agent import is_configured as qb_is_configured, get_access_token
+        configured = qb_is_configured()
+        if configured:
+            # Try to actually get a token to verify connection
+            token = get_access_token()
+            agents.append({"name": "QuickBooks", "icon": "💰",
+                            "status": "connected" if token else "auth_expired",
+                            "detail": "Invoices, AR, customer sync" if token else "Token expired — reconnect at /api/qb/connect"})
+        else:
+            agents.append({"name": "QuickBooks", "icon": "💰",
+                            "status": "not configured",
+                            "detail": "Set QB_CLIENT_ID, QB_CLIENT_SECRET, QB_REALM_ID, QB_REFRESH_TOKEN"})
+    except ImportError:
+        agents.append({"name": "QuickBooks", "icon": "💰", "status": "unavailable", "detail": "Module not loaded"})
+    except Exception as e:
+        agents.append({"name": "QuickBooks", "icon": "💰", "status": "error", "detail": str(e)[:50]})
 
     # Predictive Intel
     try:
-        from src.agents.predictive_intel import agent_status as pred_status
-        ps = pred_status()
-        agents.append({"name": "Predictive Intel", "icon": "🔮", "status": ps.get("status", "unknown"),
-                        "detail": ps.get("description", "")[:40]})
-    except Exception:
-        agents.append({"name": "Predictive Intel", "icon": "🔮", "status": "unavailable", "detail": "Not loaded"})
+        from src.agents.predictive_intel import predict_win_probability, get_competitor_insights
+        agents.append({"name": "Predictive Intel", "icon": "🔮", "status": "active",
+                        "detail": "Win probability, competitor intel, shipping detection"})
+    except ImportError:
+        agents.append({"name": "Predictive Intel", "icon": "🔮", "status": "unavailable", "detail": "Module not loaded"})
+    except Exception as e:
+        agents.append({"name": "Predictive Intel", "icon": "🔮", "status": "error", "detail": str(e)[:40]})
 
     return agents
 
