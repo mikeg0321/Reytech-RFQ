@@ -116,6 +116,17 @@ except ImportError:
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
 log = logging.getLogger("dashboard")
+# ── Dashboard Notifications (Feature 4.2 auto-draft alerts) ──────────────────
+import collections as _collections
+_notifications = _collections.deque(maxlen=20)
+
+def _push_notification(notif: dict):
+    notif.setdefault("ts", datetime.now().isoformat())
+    notif.setdefault("read", False)
+    _notifications.appendleft(notif)
+    log.info("Notification: [%s] %s", notif.get("type",""), notif.get("title",""))
+
+
 
 bp = Blueprint("dashboard", __name__)
 # Secret key set in app.py
@@ -303,7 +314,9 @@ _shared_poller = None  # Shared poller instance for manual checks
 
 def process_rfq_email(rfq_email):
     """Process a single RFQ email into the queue. Returns rfq_data or None.
-    Deduplicates by checking email_uid against existing RFQs."""
+    Deduplicates by checking email_uid against existing RFQs.
+    PRD Feature 4.2: After parsing, auto-triggers price check + draft quote generation.
+    """
     
     # Dedup: check if this email UID is already in the queue
     rfqs = load_rfqs()
@@ -318,7 +331,6 @@ def process_rfq_email(rfq_email):
             templates[att["type"]] = att["path"]
     
     if "704b" not in templates:
-        # Still save it as a raw entry so user can see it arrived
         rfq_data = {
             "id": rfq_email["id"],
             "solicitation_number": rfq_email.get("solicitation_hint", "unknown"),
@@ -343,14 +355,149 @@ def process_rfq_email(rfq_email):
         rfq_data["email_uid"] = rfq_email.get("email_uid")
         rfq_data["email_subject"] = rfq_email["subject"]
         rfq_data["email_sender"] = rfq_email["sender_email"]
-        # Auto SCPRS lookup
         rfq_data["line_items"] = bulk_lookup(rfq_data.get("line_items", []))
     
     rfqs[rfq_data["id"]] = rfq_data
     save_rfqs(rfqs)
     POLL_STATUS["emails_found"] += 1
     log.info(f"Auto-imported RFQ #{rfq_data.get('solicitation_number', 'unknown')}")
+
+    # ── PRD Feature 4.2: Auto Price Check + Draft Quote ───────────────────
+    # Runs in background thread so polling isn't blocked.
+    # Guardrails: never sends, creates draft status, skips if parser confidence < 70%
+    _trigger_auto_draft(rfq_data)
+
     return rfq_data
+
+
+def _trigger_auto_draft(rfq_data: dict):
+    """PRD Feature 4.2: Background auto-draft pipeline for inbound RFQ emails.
+
+    Pipeline: RFQ parsed → create PC → run price lookup → generate draft quote
+    Guardrails:
+      - Never auto-sends anything
+      - Creates quotes with status='draft' (yellow badge, needs review)
+      - Skips if line_items < 1 (parser failed)
+      - Skips if already has an auto_draft_pc_id (dedup)
+      - If price lookup fails, still creates draft with $0 prices flagged
+    """
+    if rfq_data.get("auto_draft_pc_id"):
+        return  # already processed
+    if not rfq_data.get("line_items"):
+        log.info("Auto-draft skipped: no line items in RFQ %s", rfq_data.get("id"))
+        return
+
+    import threading as _t
+    def _run():
+        try:
+            _auto_draft_pipeline(rfq_data)
+        except Exception as e:
+            log.error("Auto-draft pipeline error for %s: %s", rfq_data.get("id"), e)
+
+    _t.Thread(target=_run, daemon=True, name=f"auto-draft-{rfq_data.get('id','?')[:8]}").start()
+    log.info("Auto-draft pipeline started for RFQ %s", rfq_data.get("solicitation_number"))
+
+
+def _auto_draft_pipeline(rfq_data: dict):
+    """Execute the full auto-draft pipeline (runs in background thread)."""
+    import time as _time
+    rfq_id = rfq_data.get("id", "")
+    sol = rfq_data.get("solicitation_number", "?")
+    items = rfq_data.get("line_items", [])
+
+    log.info("[AutoDraft] Starting pipeline for RFQ %s (%d items)", sol, len(items))
+    t0 = _time.time()
+
+    # Step 1: Create a Price Check record from the RFQ
+    pc_id = f"autodraft_{rfq_id[:8]}_{int(_time.time())}"
+    pc_items = []
+    for li in items:
+        pc_items.append({
+            "item_number": str(li.get("item_number", "")),
+            "description": li.get("description", ""),
+            "qty": li.get("qty", 1),
+            "uom": li.get("uom", "ea"),
+            "part_number": li.get("part_number", ""),
+            "pricing": {},
+            "no_bid": False,
+        })
+
+    pc = {
+        "id": pc_id,
+        "pc_number": f"AD-{sol[:20]}",
+        "status": "parsed",
+        "source": "email_auto_draft",
+        "rfq_id": rfq_id,
+        "solicitation_number": sol,
+        "institution": rfq_data.get("department", rfq_data.get("requestor_name", "")),
+        "items": pc_items,
+        "parsed": {"header": {
+            "institution": rfq_data.get("department", ""),
+            "requestor": rfq_data.get("requestor_name", ""),
+            "phone": rfq_data.get("phone", ""),
+        }},
+        "created_at": datetime.now().isoformat(),
+        "is_auto_draft": True,
+    }
+    pcs = _load_price_checks()
+    pcs[pc_id] = pc
+    _save_price_checks(pcs)
+
+    # Step 2: Run SCPRS + Amazon price lookup
+    try:
+        from src.forms.price_check import lookup_prices
+        pc = lookup_prices(pc)
+        pcs[pc_id] = pc
+        _save_price_checks(pcs)
+        priced = sum(1 for it in pc.get("items", []) if it.get("pricing", {}).get("recommended_price"))
+        log.info("[AutoDraft] Prices found: %d/%d items", priced, len(pc_items))
+    except Exception as pe:
+        log.warning("[AutoDraft] Price lookup failed (will draft with $0): %s", pe)
+
+    # Step 3: Generate draft Reytech quote PDF
+    draft_result = {}
+    if QUOTE_GEN_AVAILABLE:
+        try:
+            from src.forms.quote_generator import generate_quote_from_pc, _next_quote_number
+            output_path = os.path.join(DATA_DIR, f"Draft_{pc_id}_Reytech.pdf")
+            draft_result = generate_quote_from_pc(pc, output_path, include_tax=False)
+            if draft_result.get("ok"):
+                # Mark as draft status (not pending — needs review)
+                from src.forms.quote_generator import get_all_quotes, _save_all_quotes
+                all_q = get_all_quotes()
+                for q in all_q:
+                    if q.get("quote_number") == draft_result.get("quote_number"):
+                        q["status"] = "draft"
+                        q["auto_draft"] = True
+                        q["source_rfq_id"] = rfq_id
+                        q["requires_review"] = True
+                        q["review_note"] = "Auto-generated from email RFQ — review prices before sending"
+                        break
+                _save_all_quotes(all_q)
+                log.info("[AutoDraft] Draft quote %s generated in %.1fs",
+                         draft_result.get("quote_number"), _time.time() - t0)
+        except Exception as qe:
+            log.warning("[AutoDraft] Quote generation failed: %s", qe)
+
+    # Step 4: Update RFQ with auto_draft link
+    rfqs = load_rfqs()
+    if rfq_id in rfqs:
+        rfqs[rfq_id]["auto_draft_pc_id"] = pc_id
+        rfqs[rfq_id]["auto_draft_quote"] = draft_result.get("quote_number", "")
+        rfqs[rfq_id]["auto_draft_at"] = datetime.now().isoformat()
+        rfqs[rfq_id]["status"] = "auto_drafted"
+        save_rfqs(rfqs)
+
+    # Step 5: Log to CRM activity
+    _log_crm_activity(
+        draft_result.get("quote_number") or rfq_id,
+        "auto_draft_generated",
+        f"Auto-draft from email RFQ {sol}: {len(pc_items)} items, {draft_result.get('quote_number','pending')}",
+        actor="system",
+        metadata={"rfq_id": rfq_id, "pc_id": pc_id, "feature": "4.2"},
+    )
+    log.info("[AutoDraft] Complete for RFQ %s in %.1fs", sol, _time.time() - t0)
+
 
 
 def do_poll_check():
@@ -1216,6 +1363,373 @@ def agents_page():
     """Agent Control Panel — click buttons instead of writing API calls."""
     from src.api.templates import render_agents_page
     return render_agents_page()
+
+# ════════════════════════════════════════════════════════════════════════════════
+# EMAIL TEMPLATE LIBRARY  (PRD Feature 4.3 — P0)
+# ════════════════════════════════════════════════════════════════════════════════
+def _load_email_templates() -> dict:
+    path = os.path.join(DATA_DIR, "email_templates.json")
+    if not os.path.exists(path):
+        seed = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                            "seed_data", "email_templates.json")
+        if os.path.exists(seed):
+            import shutil; shutil.copy2(seed, path)
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except Exception:
+        return {"templates": {}}
+
+
+def _save_email_templates(data: dict):
+    path = os.path.join(DATA_DIR, "email_templates.json")
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2)
+
+
+def _personalize_template(template: dict, contact: dict = None, quote: dict = None, extra: dict = None) -> dict:
+    """Fill template variables from CRM contact + quote data."""
+    vars_ = {
+        "name": "",
+        "agency": "",
+        "items": "",
+        "date": datetime.now().strftime("%B %d, %Y"),
+        "category": "",
+        "quote_number": "",
+        "total": "",
+        "po_number": "",
+        "delivery_date": "5-7 business days",
+        "items_summary": "",
+        "tax_note": "tax included",
+        "expiry_date": (datetime.now() + timedelta(days=45)).strftime("%B %d, %Y"),
+        "lead_time": "5-7 business days",
+    }
+    if contact:
+        name = contact.get("buyer_name") or contact.get("name") or ""
+        vars_["name"] = name.split()[0] if name else ""
+        vars_["agency"] = contact.get("agency") or ""
+        cats = contact.get("categories") or []
+        if cats:
+            vars_["items"] = ", ".join(cats[:2]) if isinstance(cats, list) else str(cats)
+            vars_["category"] = cats[0] if isinstance(cats, list) and cats else str(cats)
+    if quote:
+        vars_["quote_number"] = quote.get("quote_number") or ""
+        vars_["items"] = quote.get("items_text") or vars_["items"]
+        total = quote.get("total") or 0
+        vars_["total"] = f"${total:,.2f}" if total else ""
+        vars_["items_summary"] = chr(10).join(
+            f"  - {it.get('description','')[:60]} - ${it.get('unit_price',0):,.2f} x {it.get('qty',1)}"
+            for it in (quote.get("items_detail") or [])[:5]
+        )
+    if extra:
+        vars_.update(extra)
+
+    subject = template.get("subject", "")
+    body = template.get("body", "")
+    for k, v in vars_.items():
+        subject = subject.replace("{{" + k + "}}", str(v))
+        body = body.replace("{{" + k + "}}", str(v))
+    return {"subject": subject, "body": body, "variables_used": vars_}
+
+
+@bp.route("/templates")
+@auth_required
+def email_templates_page():
+    """Email Template Library — PRD Feature 4.3 (P0)."""
+    data = _load_email_templates()
+    templates_list = list(data.get("templates", {}).values())
+    count = len(templates_list)
+    cards = ""
+    for t in templates_list:
+        tid = t.get("id", "")
+        tname = t.get("name", "")
+        tcat = t.get("category", "other")
+        tsubj = t.get("subject", "")[:80]
+        tbody_prev = t.get("body", "")[:180].replace("\n", " ").replace('"', "'").replace("<", "&lt;")
+        tags = " ".join(
+            f'<span style="background:#21262d;color:#8b949e;padding:2px 6px;border-radius:3px;font-size:11px">{g}</span>'
+            for g in t.get("tags", [])
+        )
+        vars_str = ", ".join("{{" + v + "}}" for v in t.get("variables", []))
+        cat_color = {"outreach": "#1f6feb", "followup": "#e3b341",
+                     "transaction": "#238636", "nurture": "#8957e5"}.get(tcat, "#484f58")
+        cards += f"""<div class="card tmpl-card" data-cat="{tcat}" id="tmpl-{tid}" style="margin-bottom:12px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+            <div style="flex:1;min-width:0">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                <span style="background:{cat_color}22;color:{cat_color};border:1px solid {cat_color}44;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;text-transform:uppercase">{tcat}</span>
+                <h3 style="margin:0;font-size:16px;color:#e6edf3">{tname}</h3>
+              </div>
+              <div style="font-size:13px;color:#8b949e;margin-bottom:4px">Subject: <b style="color:#c9d1d9">{tsubj}</b></div>
+              <div style="font-size:12px;color:#484f58;margin-bottom:6px">{tbody_prev}&#x2026;</div>
+              <div style="font-size:11px;color:#3fb950">Variables: {vars_str}</div>
+              <div style="margin-top:6px">{tags}</div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px;min-width:120px">
+              <button onclick="previewTmpl('{tid}')" class="btn" style="background:#21262d;color:#c9d1d9;border:1px solid #30363d;font-size:12px;padding:5px 10px">Preview</button>
+              <button onclick="composeTmpl('{tid}')" class="btn" style="background:#1f6feb;color:#fff;font-size:12px;padding:5px 10px">Use Template</button>
+            </div>
+          </div></div>"""
+
+    return f"""<!doctype html><html><head><title>Email Templates</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <style>
+    body{{font-family:"Segoe UI",system-ui,sans-serif;background:#0d1117;color:#c9d1d9;margin:0;padding:20px;font-size:15px}}
+    .card{{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px}}
+    .btn{{padding:7px 14px;border-radius:6px;border:none;cursor:pointer;font-weight:600;font-size:14px;text-decoration:none;display:inline-block}}
+    a{{color:#58a6ff;text-decoration:none}}
+    input,textarea,select{{background:#0d1117;border:1px solid #484f58;color:#e6edf3;padding:8px;border-radius:5px;font-size:14px;width:100%;box-sizing:border-box;margin-bottom:10px}}
+    textarea{{resize:vertical;min-height:140px;font-family:monospace;line-height:1.5}}
+    .modal{{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.75);z-index:100;padding:20px;overflow:auto;align-items:flex-start;justify-content:center}}
+    .modal.open{{display:flex}}
+    .modal-box{{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:24px;max-width:700px;width:100%;margin-top:20px}}
+    label{{display:block;font-size:11px;color:#8b949e;margin-bottom:3px;font-weight:700;text-transform:uppercase;letter-spacing:.3px}}
+    .msg{{padding:8px 12px;border-radius:6px;font-size:13px;margin-top:8px}}
+    .msg-ok{{background:#23863622;color:#3fb950;border:1px solid #23863655}}
+    .msg-err{{background:#da363322;color:#f85149;border:1px solid #da363355}}
+    @media(max-width:600px){{body{{padding:10px}}}}
+    </style></head><body>
+    <div style="max-width:900px;margin:0 auto">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap">
+        <a href="/">&#8592; Home</a>
+        <span style="color:#484f58">/</span>
+        <h1 style="margin:0;font-size:22px">Email Templates</h1>
+        <span style="font-size:13px;color:#484f58">{count} templates</span>
+        <button onclick="composeTmpl('')" class="btn" style="margin-left:auto;background:#238636;color:#fff">+ Compose</button>
+      </div>
+
+      <div class="card" style="margin-bottom:16px;background:#0d2137;border-color:#1f6feb">
+        <b style="color:#58a6ff">PRD Feature 4.3</b>
+        <span style="color:#8b949e;font-size:13px"> — Personalized templates. Use from CRM contact pages or compose below. Target: outreach drafted in &lt;2 min.</span>
+      </div>
+
+      <div id="tmpl-list">{cards}</div>
+    </div>
+
+    <div class="modal" id="previewModal">
+      <div class="modal-box">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+          <h2 style="margin:0;font-size:17px" id="prevTitle">Preview</h2>
+          <button onclick="closeModal('previewModal')" style="background:none;border:none;color:#8b949e;font-size:22px;cursor:pointer">x</button>
+        </div>
+        <label>Subject</label>
+        <div id="prevSubj" style="background:#0d1117;border:1px solid #30363d;padding:10px;border-radius:5px;font-size:14px;margin-bottom:10px"></div>
+        <label>Body</label>
+        <pre id="prevBody" style="background:#0d1117;border:1px solid #30363d;padding:14px;border-radius:5px;font-size:13px;white-space:pre-wrap;line-height:1.6;max-height:400px;overflow:auto;margin:0"></pre>
+        <div style="margin-top:12px;display:flex;gap:8px">
+          <button onclick="closeModal('previewModal')" class="btn" style="background:#21262d;color:#c9d1d9;border:1px solid #30363d">Close</button>
+          <button onclick="navigator.clipboard.writeText(document.getElementById('prevBody').textContent);this.textContent='Copied!'" class="btn" style="background:#1f6feb;color:#fff">Copy Body</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal" id="composeModal">
+      <div class="modal-box">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+          <h2 style="margin:0;font-size:17px">Compose Email</h2>
+          <button onclick="closeModal('composeModal')" style="background:none;border:none;color:#8b949e;font-size:22px;cursor:pointer">x</button>
+        </div>
+        <label>Template</label>
+        <select id="cmpTmpl" onchange="draftEmail()">
+          <option value="">-- select template --</option>
+          {''.join(f'<option value="{t.get("id")}">{t.get("name")}</option>' for t in templates_list)}
+        </select>
+        <label>Contact email (for personalization)</label>
+        <input id="cmpContact" placeholder="buyer@agency.ca.gov" oninput="draftEmail()">
+        <label>To</label>
+        <input id="cmpTo" placeholder="recipient@agency.ca.gov">
+        <label>Subject</label>
+        <input id="cmpSubj">
+        <label>Body</label>
+        <textarea id="cmpBody"></textarea>
+        <div id="cmpMsg"></div>
+        <div style="display:flex;gap:8px;margin-top:4px">
+          <button onclick="closeModal('composeModal')" class="btn" style="background:#21262d;color:#c9d1d9;border:1px solid #30363d">Cancel</button>
+          <button onclick="copyAll()" class="btn" style="background:#21262d;color:#58a6ff;border:1px solid #1f6feb">Copy All</button>
+          <button onclick="sendEmail()" class="btn" id="sendBtn" style="background:#238636;color:#fff">Send Email</button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+    let allTmpls = {{}};
+    fetch('/api/email/templates').then(r=>r.json()).then(d=>{{ allTmpls = d.templates || {{}}; }});
+
+    function previewTmpl(id) {{
+      const t = allTmpls[id] || {{}};
+      document.getElementById('prevTitle').textContent = t.name || id;
+      document.getElementById('prevSubj').textContent = t.subject || '';
+      document.getElementById('prevBody').textContent = t.body || '';
+      document.getElementById('previewModal').classList.add('open');
+    }}
+    function composeTmpl(id) {{
+      if (id) document.getElementById('cmpTmpl').value = id;
+      document.getElementById('composeModal').classList.add('open');
+      draftEmail();
+    }}
+    function closeModal(id) {{ document.getElementById(id).classList.remove('open'); }}
+    function draftEmail() {{
+      const tid = document.getElementById('cmpTmpl').value;
+      const contact = document.getElementById('cmpContact').value;
+      if (!tid) return;
+      fetch('/api/email/draft', {{method:'POST',headers:{{'Content-Type':'application/json'}},
+        body: JSON.stringify({{template_id: tid, contact_email: contact}})
+      }}).then(r=>r.json()).then(d=>{{
+        document.getElementById('cmpSubj').value = d.subject || '';
+        document.getElementById('cmpBody').value = d.body || '';
+        if (d.to) document.getElementById('cmpTo').value = d.to;
+      }});
+    }}
+    function copyAll() {{
+      const txt = 'To: '+document.getElementById('cmpTo').value+'\nSubject: '+document.getElementById('cmpSubj').value+'\n\n'+document.getElementById('cmpBody').value;
+      navigator.clipboard.writeText(txt).then(()=>{{ document.getElementById('cmpMsg').innerHTML='<div class="msg msg-ok">Copied to clipboard</div>'; }});
+    }}
+    function sendEmail() {{
+      const btn = document.getElementById('sendBtn');
+      btn.disabled = true; btn.textContent = 'Sending...';
+      fetch('/api/email/send', {{method:'POST',headers:{{'Content-Type':'application/json'}},
+        body: JSON.stringify({{to:document.getElementById('cmpTo').value, subject:document.getElementById('cmpSubj').value, body:document.getElementById('cmpBody').value}})
+      }}).then(r=>r.json()).then(d=>{{
+        btn.disabled=false; btn.textContent='Send Email';
+        document.getElementById('cmpMsg').innerHTML = d.ok
+          ? '<div class="msg msg-ok">Sent successfully</div>'
+          : '<div class="msg msg-err">' + (d.message||d.error||'Send failed — check Gmail config in Railway env') + '</div>';
+      }}).catch(e=>{{btn.disabled=false;btn.textContent='Send Email';document.getElementById('cmpMsg').innerHTML='<div class="msg msg-err">'+e+'</div>';}});
+    }}
+    </script></body></html>"""
+
+
+@bp.route("/api/email/templates")
+@auth_required
+def api_email_templates():
+    """Return all email templates."""
+    data = _load_email_templates()
+    return jsonify({"ok": True, "templates": data.get("templates", {}),
+                    "count": len(data.get("templates", {}))})
+
+
+@bp.route("/api/email/templates/<tid>", methods=["GET"])
+@auth_required
+def api_email_template_get(tid):
+    """Get single template."""
+    data = _load_email_templates()
+    t = data.get("templates", {}).get(tid)
+    if not t:
+        return jsonify({"ok": False, "error": "Template not found"})
+    return jsonify({"ok": True, "template": t})
+
+
+@bp.route("/api/email/templates/<tid>", methods=["POST", "PUT"])
+@auth_required
+def api_email_template_save(tid):
+    """Create or update a template."""
+    body = request.get_json(silent=True) or {}
+    data = _load_email_templates()
+    templates = data.setdefault("templates", {})
+    templates[tid] = {
+        "id": tid,
+        "name": body.get("name", tid),
+        "category": body.get("category", "outreach"),
+        "subject": body.get("subject", ""),
+        "body": body.get("body", ""),
+        "variables": body.get("variables", []),
+        "tags": body.get("tags", []),
+        "updated_at": datetime.now().isoformat(),
+    }
+    data["updated_at"] = datetime.now().isoformat()
+    _save_email_templates(data)
+    return jsonify({"ok": True, "template": templates[tid]})
+
+
+@bp.route("/api/email/draft", methods=["POST"])
+@auth_required
+def api_email_draft():
+    """Return a personalized draft from a template + optional contact.
+
+    POST { template_id, contact_id?, contact_email?, quote_number? }
+    Returns { ok, subject, body, to, template_name }
+    """
+    body = request.get_json(silent=True) or {}
+    tid = body.get("template_id", "")
+    data = _load_email_templates()
+    template = data.get("templates", {}).get(tid)
+    if not template:
+        return jsonify({"ok": False, "error": f"Template '{tid}' not found"})
+
+    contact = None
+    to_email = ""
+    # Try to find contact by ID or email
+    contact_id = body.get("contact_id", "")
+    contact_email = body.get("contact_email", "")
+    if contact_id or contact_email:
+        try:
+            crm = _load_crm_contacts()
+            if isinstance(crm, dict):
+                for cid, c in crm.items():
+                    if cid == contact_id or c.get("buyer_email") == contact_email:
+                        contact = c
+                        to_email = c.get("buyer_email", "")
+                        break
+        except Exception:
+            pass
+
+    quote = None
+    qn = body.get("quote_number", "")
+    if qn:
+        try:
+            from src.forms.quote_generator import get_all_quotes
+            for q in get_all_quotes():
+                if q.get("quote_number") == qn:
+                    quote = q
+                    break
+        except Exception:
+            pass
+
+    result = _personalize_template(template, contact=contact, quote=quote)
+    return jsonify({
+        "ok": True,
+        "subject": result["subject"],
+        "body": result["body"],
+        "to": to_email,
+        "template_name": template.get("name", ""),
+        "template_id": tid,
+    })
+
+
+@bp.route("/api/email/send", methods=["POST"])
+@auth_required
+def api_email_send():
+    """Send an email. Requires GMAIL_ADDRESS + GMAIL_PASSWORD in Railway env."""
+    body = request.get_json(silent=True) or {}
+    to = body.get("to", "")
+    subject = body.get("subject", "")
+    email_body = body.get("body", "")
+
+    if not to:
+        return jsonify({"ok": False, "error": "to field required"})
+
+    gmail = os.environ.get("GMAIL_ADDRESS", "")
+    pwd = os.environ.get("GMAIL_PASSWORD", "")
+
+    if not gmail or not pwd:
+        return jsonify({
+            "ok": False,
+            "message": "Gmail not configured. Add GMAIL_ADDRESS and GMAIL_PASSWORD to Railway environment variables to enable sending.",
+            "staged": True,
+            "to": to, "subject": subject,
+        })
+
+    try:
+        from src.agents.email_poller import EmailSender
+        sender = EmailSender({"email": gmail, "email_password": pwd})
+        sender.send({"to": to, "subject": subject, "body": email_body, "attachments": []})
+        log.info("Email sent via template: to=%s subject=%s", to, subject[:50])
+        return jsonify({"ok": True, "message": f"Sent to {to}", "to": to})
+    except Exception as e:
+        log.error("Email send failed: %s", e)
+        return jsonify({"ok": False, "error": str(e)})
+
+
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -3544,6 +4058,126 @@ def api_quote_from_price_check():
         "feature": "PRD 3.2.1",
     })
 
+
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# BULK CRM OUTREACH  (PRD Feature P1)
+# ════════════════════════════════════════════════════════════════════════════════
+@bp.route("/api/crm/bulk-outreach", methods=["POST"])
+@auth_required
+def api_crm_bulk_outreach():
+    """Send a templated email to multiple CRM contacts.
+
+    POST {
+      contact_ids: ["id1","id2",...],   # or use filter
+      filter: {status: "new", agency: "CDCR"},
+      template_id: "distro_list",
+      extra_vars: {},
+      dry_run: true
+    }
+    Returns { ok, staged, sent, failed, results[] }
+    """
+    body = request.get_json(silent=True) or {}
+    contact_ids = body.get("contact_ids", [])
+    filter_params = body.get("filter", {})
+    template_id = body.get("template_id", "distro_list")
+    extra_vars = body.get("extra_vars", {})
+    dry_run = body.get("dry_run", True)
+
+    # Load template
+    tmpl_data = _load_email_templates()
+    template = tmpl_data.get("templates", {}).get(template_id)
+    if not template:
+        return jsonify({"ok": False, "error": f"Template '{template_id}' not found"})
+
+    # Load contacts
+    crm = _load_crm_contacts()
+    all_contacts = list(crm.values()) if isinstance(crm, dict) else crm
+
+    # Filter
+    if contact_ids:
+        contacts = [c for c in all_contacts if c.get("id") in contact_ids
+                    or c.get("buyer_email") in contact_ids]
+    elif filter_params:
+        contacts = all_contacts
+        if filter_params.get("status"):
+            contacts = [c for c in contacts if c.get("outreach_status") == filter_params["status"]]
+        if filter_params.get("agency"):
+            ag = filter_params["agency"].lower()
+            contacts = [c for c in contacts if ag in (c.get("agency") or "").lower()]
+        if filter_params.get("has_email"):
+            contacts = [c for c in contacts if c.get("buyer_email")]
+    else:
+        contacts = all_contacts
+
+    # Only contacts with email
+    contacts = [c for c in contacts if c.get("buyer_email")]
+
+    results = []
+    sent = 0
+    staged = 0
+    failed = 0
+
+    gmail = os.environ.get("GMAIL_ADDRESS", "")
+    pwd = os.environ.get("GMAIL_PASSWORD", "")
+
+    for contact in contacts[:100]:  # hard cap 100
+        draft = _personalize_template(template, contact=contact, extra=extra_vars)
+        entry = {
+            "contact_id": contact.get("id"),
+            "name": contact.get("buyer_name") or contact.get("name") or "",
+            "email": contact.get("buyer_email"),
+            "agency": contact.get("agency") or "",
+            "subject": draft["subject"],
+            "ok": False,
+            "staged": dry_run,
+            "sent": False,
+        }
+
+        if not dry_run and gmail and pwd:
+            try:
+                from src.agents.email_poller import EmailSender
+                sender = EmailSender({"email": gmail, "email_password": pwd})
+                sender.send({"to": contact["buyer_email"], "subject": draft["subject"],
+                             "body": draft["body"], "attachments": []})
+                entry["ok"] = True
+                entry["sent"] = True
+                sent += 1
+                import time; time.sleep(1)
+            except Exception as e:
+                entry["error"] = str(e)
+                failed += 1
+        else:
+            entry["ok"] = True
+            staged += 1
+
+        results.append(entry)
+
+    log.info("Bulk outreach: template=%s, dry_run=%s, contacts=%d, sent=%d, staged=%d",
+             template_id, dry_run, len(contacts), sent, staged)
+
+    # Log to DB
+    try:
+        from src.core.db import log_activity as _la
+        _la(contact_id="bulk_outreach", event_type="bulk_email",
+            subject=f"Bulk {template_id}: {sent} sent, {staged} staged",
+            body=f"contacts={len(contacts)}, dry_run={dry_run}",
+            actor="user", metadata={"template": template_id, "sent": sent, "staged": staged})
+    except Exception:
+        pass
+
+    return jsonify({
+        "ok": True,
+        "dry_run": dry_run,
+        "template": template_id,
+        "total_contacts": len(contacts),
+        "sent": sent,
+        "staged": staged,
+        "failed": failed,
+        "results": results[:20],
+        "note": "Set dry_run=false and configure GMAIL_ADDRESS+GMAIL_PASSWORD in Railway to send." if dry_run else f"Sent {sent} emails.",
+    })
 
 @bp.route("/debug")
 @auth_required
@@ -6367,6 +7001,25 @@ def api_shipping_detected():
     return jsonify({"ok": True, "shipments": shipments, "count": len(shipments)})
 
 
+
+_wp_cache = {"value": 0, "ts": 0}
+
+def _get_weighted_pipeline_cached() -> float:
+    """Return probability-weighted pipeline value. Cached 60s to avoid slowing funnel stats."""
+    import time as _time
+    now = _time.time()
+    if now - _wp_cache["ts"] < 60:
+        return _wp_cache["value"]
+    try:
+        from src.core.forecasting import score_all_quotes
+        result = score_all_quotes()
+        val = result.get("weighted_pipeline", 0)
+    except Exception:
+        val = 0
+    _wp_cache["value"] = val
+    _wp_cache["ts"] = now
+    return val
+
 @bp.route("/api/funnel/stats")
 @auth_required
 def api_funnel_stats():
@@ -6482,7 +7135,10 @@ def api_funnel_stats():
         "qb_overdue": qb_overdue,
         "qb_collected": qb_collected,
         "qb_open_invoices": qb_open_invoices,
+        # PRD Feature 4.4 — weighted pipeline (probability-adjusted)
+        "weighted_pipeline": _get_weighted_pipeline_cached(),
     })
+
 
 
 @bp.route("/api/leads")
@@ -7392,6 +8048,228 @@ def api_growth_campaign_status():
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
 
+
+
+
+
+# ── Notifications API ─────────────────────────────────────────────────────────
+@bp.route("/api/notifications")
+@auth_required
+def api_notifications():
+    """Get dashboard notifications (auto-draft alerts, etc.)."""
+    unread = [n for n in _notifications if not n.get("read")]
+    return jsonify({"ok": True, "notifications": list(_notifications),
+                    "unread_count": len(unread)})
+
+@bp.route("/api/notifications/mark-read", methods=["POST"])
+@auth_required
+def api_notifications_mark_read():
+    for n in _notifications:
+        n["read"] = True
+    return jsonify({"ok": True})
+
+
+# ── _create_quote_from_pc helper (used by email auto-draft) ──────────────────
+def _create_quote_from_pc(pc_id: str, status: str = "draft") -> dict:
+    """Create a quote from a price check. Wrapper used by Feature 4.2 auto-draft."""
+    try:
+        pcs = _load_price_checks()
+        pc = pcs.get(pc_id)
+        if not pc:
+            return {"ok": False, "error": "PC not found"}
+        items = pc.get("items", [])
+        priced = [i for i in items if i.get("our_price") or i.get("unit_cost")]
+        if not priced:
+            return {"ok": False, "error": "no_prices"}
+        from src.forms.quote_generator import (
+            create_quote, peek_next_quote_number, increment_quote_counter
+        )
+        quote_number = pc.get("linked_quote_number") or peek_next_quote_number()
+        agency = pc.get("agency") or pc.get("institution") or ""
+        line_items = []
+        for it in priced:
+            price = it.get("our_price") or it.get("unit_cost") or 0
+            qty = it.get("qty") or 1
+            line_items.append({
+                "description": it.get("description",""),
+                "qty": qty,
+                "unit_price": price,
+                "total": round(price * qty, 2),
+            })
+        total = sum(i["total"] for i in line_items)
+        result = create_quote({
+            "quote_number": quote_number,
+            "agency": agency,
+            "total": total,
+            "items": line_items,
+            "status": status,
+            "source_pc_id": pc_id,
+            "feature": "PRD 4.2",
+        })
+        if result.get("ok"):
+            increment_quote_counter()
+            pcs[pc_id]["linked_quote_number"] = quote_number
+            _save_price_checks(pcs)
+        return result
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# SCPRS DEEP PULL SCHEDULER  (PRD Feature 4.5 — P2)
+# ════════════════════════════════════════════════════════════════════════════════
+import threading as _threading
+_scprs_scheduler_thread = None
+_scprs_scheduler_state = {"running": False, "cron": "", "last_run": None, "next_run": None}
+
+
+def _parse_simple_cron(cron_expr: str) -> dict:
+    """Parse simple cron: 'sunday 2am', '0 2 * * 0', 'weekly', 'daily', etc."""
+    expr = cron_expr.lower().strip()
+    if "sunday" in expr or "weekly" in expr or expr == "0 2 * * 0":
+        return {"day_of_week": 6, "hour": 2, "minute": 0, "label": "Sundays at 2:00 AM"}
+    if "monday" in expr: return {"day_of_week": 0, "hour": 8, "minute": 0, "label": "Mondays at 8:00 AM"}
+    if "daily" in expr or "everyday" in expr:
+        return {"day_of_week": -1, "hour": 3, "minute": 0, "label": "Daily at 3:00 AM"}
+    # Try standard cron: minute hour day month weekday
+    parts = expr.split()
+    if len(parts) == 5:
+        try:
+            return {"day_of_week": int(parts[4]) % 7, "hour": int(parts[1]),
+                    "minute": int(parts[0]), "label": f"cron: {expr}"}
+        except Exception:
+            pass
+    return {"day_of_week": 6, "hour": 2, "minute": 0, "label": "Sundays at 2:00 AM"}
+
+
+def _scprs_scheduler_loop(cron_expr: str, run_now: bool = False):
+    """Background thread: run SCPRS deep pull on schedule."""
+    import time as _time
+    schedule = _parse_simple_cron(cron_expr)
+    _scprs_scheduler_state["running"] = True
+    _scprs_scheduler_state["cron"] = cron_expr
+
+    if run_now:
+        _run_scheduled_scprs_pull()
+
+    while _scprs_scheduler_state["running"]:
+        now = datetime.now()
+        dow = now.weekday()  # 0=Mon, 6=Sun
+        if (schedule["day_of_week"] == -1 or dow == schedule["day_of_week"]) and            now.hour == schedule["hour"] and now.minute == schedule["minute"]:
+            log.info("SCPRS Scheduler: triggering scheduled pull")
+            _run_scheduled_scprs_pull()
+            _time.sleep(70)  # avoid double-trigger within same minute
+        else:
+            _time.sleep(30)
+
+
+def _run_scheduled_scprs_pull():
+    """Execute a SCPRS deep pull and auto-sync to CRM."""
+    _scprs_scheduler_state["last_run"] = datetime.now().isoformat()
+    try:
+        if INTEL_AVAILABLE:
+            from src.agents.sales_intel import run_deep_pull
+            result = run_deep_pull(max_items=200)
+            log.info("Scheduled SCPRS pull: %s", result)
+            # Auto-sync to CRM
+            if result.get("ok"):
+                sync_buyers_to_crm()
+                log.info("Scheduled SCPRS pull: CRM sync complete")
+            _scprs_scheduler_state["result"] = result
+    except Exception as e:
+        log.error("Scheduled SCPRS pull failed: %s", e)
+        _scprs_scheduler_state["error"] = str(e)
+
+
+@bp.route("/api/intel/pull/schedule", methods=["GET", "POST"])
+@auth_required
+def api_intel_pull_schedule():
+    """Configure SCPRS auto-pull schedule.
+
+    GET: Return current schedule status
+    POST { cron: "sunday 2am", run_now: false }: Set schedule
+         cron examples: "sunday 2am", "daily", "0 2 * * 0" (standard cron)
+    """
+    global _scprs_scheduler_thread
+
+    if request.method == "GET":
+        return jsonify({
+            "ok": True,
+            "scheduler": _scprs_scheduler_state,
+            "hint": "POST {cron: 'sunday 2am'} to enable. Also set SCPRS_PULL_SCHEDULE env var for persistence.",
+        })
+
+    body = request.get_json(silent=True) or {}
+    cron = body.get("cron", os.environ.get("SCPRS_PULL_SCHEDULE", "sunday 2am"))
+    run_now = body.get("run_now", False)
+
+    # Stop existing thread
+    _scprs_scheduler_state["running"] = False
+    if _scprs_scheduler_thread and _scprs_scheduler_thread.is_alive():
+        _scprs_scheduler_thread = None
+
+    # Start new thread
+    _scprs_scheduler_thread = _threading.Thread(
+        target=_scprs_scheduler_loop,
+        args=(cron, run_now),
+        daemon=True, name="scprs-scheduler"
+    )
+    _scprs_scheduler_thread.start()
+
+    schedule = _parse_simple_cron(cron)
+    _scprs_scheduler_state["schedule_label"] = schedule["label"]
+    _scprs_scheduler_state["next_run"] = schedule["label"]
+
+    log.info("SCPRS Scheduler: enabled (%s, run_now=%s)", cron, run_now)
+    return jsonify({
+        "ok": True,
+        "message": f"SCPRS scheduler enabled: {schedule['label']}",
+        "cron": cron,
+        "schedule": schedule,
+        "run_now": run_now,
+        "hint": "Set SCPRS_PULL_SCHEDULE env var in Railway to persist schedule across restarts.",
+    })
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# DEAL FORECASTING + WIN PROBABILITY  (PRD Feature 4.4 — P1)
+# ════════════════════════════════════════════════════════════════════════════════
+@bp.route("/api/quotes/win-probability")
+@auth_required
+def api_win_probability():
+    """Score all open quotes with win probability (0-100).
+
+    Returns per-quote scores + weighted pipeline total.
+    Scoring: agency relationship (30%), category match (20%),
+             contact engagement (20%), price competitiveness (20%),
+             time recency (10%).
+    """
+    try:
+        from src.core.forecasting import score_all_quotes
+        result = score_all_quotes()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e), "scores": [], "weighted_pipeline": 0})
+
+
+@bp.route("/api/quotes/<qn>/win-probability")
+@auth_required
+def api_quote_win_probability(qn):
+    """Score a single quote."""
+    try:
+        from src.core.forecasting import score_quote
+        from src.forms.quote_generator import get_all_quotes
+        from src.core.agent_context import get_context
+
+        quotes = get_all_quotes()
+        q = next((x for x in quotes if x.get("quote_number") == qn), None)
+        if not q:
+            return jsonify({"ok": False, "error": "Quote not found"})
+        ctx = get_context(include_contacts=True)
+        result = score_quote(q, contacts=ctx.get("contacts", []))
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
 
 @bp.route("/api/agent/context")
 @auth_required

@@ -645,6 +645,11 @@ def generate_quote(
     c.setFillColor(NAVY)
     c.drawString(logo_text_x, Y(166), "Reytech Inc.")
 
+    # PRD Feature P2: Enhanced branding — SB/DVBE tagline
+    c.setFont("Helvetica-Oblique", 7.5)
+    c.setFillColor(HexColor("#4f8cff"))
+    c.drawString(logo_text_x, Y(178), "CA Certified Small Business (SB) & DVBE")
+
     # Company details — y positions matched to QuoteWerks extraction
     # Combined "Michael Guadan, Owner" saves a line
     c.setFillColor(BLACK)
@@ -655,6 +660,7 @@ def generate_quote(
         (219, f"{REYTECH['contact']}, {REYTECH['title']}"),   # Michael Guadan, Owner
         (231, REYTECH["phone"]),                              # 949-229-1575
         (243, REYTECH["email"]),                              # sales@reytechinc.com
+        (255, "www.reytechinc.com"),                          # website
     ]
     for iy, itxt in info_lines:
         text(TXT_X, iy, itxt, "Helvetica", 9)

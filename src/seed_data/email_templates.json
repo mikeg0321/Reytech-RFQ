@@ -1,0 +1,60 @@
+{
+  "version": "1.0",
+  "updated_at": "2026-02-18",
+  "templates": {
+    "distro_list": {
+      "id": "distro_list",
+      "name": "Get on RFQ Distro List",
+      "category": "outreach",
+      "subject": "Reytech Inc. — SB/DVBE Vendor — Request to Join RFQ Distribution List",
+      "body": "Hi {{name}},\n\nMy name is Mike from Reytech Inc. I wanted to reach out because {{agency}} recently purchased {{items}} — we supply those same categories and consistently offer competitive pricing on SCPRS.\n\nWe're a California-certified Small Business (SB) and Disabled Veteran Business Enterprise (DVBE), which helps meet your procurement mandates under CalTrans and DGS guidelines. We've been serving CA state agencies for several years.\n\nI'd love the opportunity to get on {{agency}}'s RFQ distribution list so we can submit quotes for your next procurement. We turn around quotes quickly and our prices are typically 10–30% below current contract rates.\n\nYou can add us at sales@reytechinc.com or call/text 949-229-1575. I'm happy to provide our vendor registration, certifications, or a product catalog on request.\n\nThank you for your time.\n\nBest regards,\nMike\nReytech Inc. | SB/DVBE Certified\nsales@reytechinc.com | 949-229-1575",
+      "variables": ["name", "agency", "items"],
+      "tags": ["phase1", "cold_outreach"]
+    },
+    "initial_outreach": {
+      "id": "initial_outreach",
+      "name": "Initial Outreach",
+      "category": "outreach",
+      "subject": "Reytech Inc. — Competitive Pricing on {{category}}",
+      "body": "Hi {{name}},\n\nThis is Mike from Reytech Inc. I noticed {{agency}} recently purchased {{items}} ({{date}}). We carry those same types of items and often have more competitive pricing — typically 10–30% below current contract rates.\n\nWe're a certified Small Business (SB) and Disabled Veteran Business Enterprise (DVBE), which helps meet your procurement mandates. We'd love to get on your RFQ distribution list for future bids.\n\nPlease reach us at sales@reytechinc.com or 949-229-1575.\n\nBest regards,\nMike | Reytech Inc. | SB/DVBE\nsales@reytechinc.com | 949-229-1575",
+      "variables": ["name", "agency", "items", "date", "category"],
+      "tags": ["cold_outreach"]
+    },
+    "rfq_followup": {
+      "id": "rfq_followup",
+      "name": "RFQ Follow-Up",
+      "category": "followup",
+      "subject": "Following Up — Quote {{quote_number}} for {{agency}}",
+      "body": "Hi {{name}},\n\nFollowing up on Quote {{quote_number}} we sent on {{date}} for {{items}}.\n\nTotal: {{total}}. We're happy to clarify any pricing, adjust quantities, or answer questions about availability.\n\nIf you've already awarded this or it's no longer needed, just let us know and we'll update our records.\n\nBest,\nMike | Reytech Inc.\nsales@reytechinc.com | 949-229-1575",
+      "variables": ["name", "agency", "quote_number", "date", "items", "total"],
+      "tags": ["followup", "quote"]
+    },
+    "quote_won": {
+      "id": "quote_won",
+      "name": "Quote Won — Thank You",
+      "category": "transaction",
+      "subject": "Thank You — PO {{po_number}} Confirmed | Reytech Inc.",
+      "body": "Hi {{name}},\n\nThank you for the award on PO {{po_number}}. Your order for {{items}} is being processed and you'll receive tracking information once shipped.\n\nExpected delivery: {{delivery_date}}.\n\nWe look forward to continuing to serve {{agency}}. Please keep us on your distribution list — we're always competitive on pricing and delivery.\n\nBest regards,\nMike | Reytech Inc.\nsales@reytechinc.com | 949-229-1575",
+      "variables": ["name", "agency", "po_number", "items", "delivery_date"],
+      "tags": ["won", "transaction"]
+    },
+    "quote_lost": {
+      "id": "quote_lost",
+      "name": "Quote Lost — Stay Warm",
+      "category": "nurture",
+      "subject": "Thank You for the Opportunity — {{agency}}",
+      "body": "Hi {{name}},\n\nThank you for the opportunity to quote on {{items}}. We understand the award went elsewhere this time.\n\nWe'll keep monitoring upcoming SCPRS bids in your categories and would love another shot on your next procurement. We continuously work to improve our pricing and delivery times.\n\nPlease keep us on your distribution list — we're a certified SB/DVBE and always available at sales@reytechinc.com or 949-229-1575.\n\nBest,\nMike | Reytech Inc.\nsales@reytechinc.com | 949-229-1575",
+      "variables": ["name", "agency", "items"],
+      "tags": ["lost", "nurture"]
+    },
+    "price_check_turnaround": {
+      "id": "price_check_turnaround",
+      "name": "Price Check / Quote Ready",
+      "category": "transaction",
+      "subject": "Your Pricing — {{items}} | Quote {{quote_number}}",
+      "body": "Hi {{name}},\n\nHere is our pricing for the items you requested. Quote {{quote_number}} is attached.\n\n{{items_summary}}\n\nTotal: {{total}} ({{tax_note}})\nValid through: {{expiry_date}}\n\nWe can ship within {{lead_time}} of PO receipt. Let me know if you need any adjustments.\n\nBest regards,\nMike | Reytech Inc.\nsales@reytechinc.com | 949-229-1575",
+      "variables": ["name", "items", "quote_number", "items_summary", "total", "tax_note", "expiry_date", "lead_time"],
+      "tags": ["quote", "transaction"]
+    }
+  }
+}

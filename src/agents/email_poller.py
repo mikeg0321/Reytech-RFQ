@@ -278,6 +278,55 @@ class EmailPoller:
                         }
                         results.append(rfq_info)
                         log.info(f"RFQ captured: {subject[:60]} ({len(attachments)} PDFs, sol #{sol_num})")
+
+                        # ── PRD Feature 4.2: Auto Price Check + Draft Quote ──
+                        # Trigger in background thread so polling doesn't block.
+                        # Creates a draft quote the user can review and approve.
+                        def _auto_draft(rfq=rfq_info):
+                            """PRD Feature 4.2: Email RFQ → Auto Price Check → Draft Quote."""
+                            try:
+                                from src.api.dashboard import _handle_price_check_upload, _push_notification
+                                import uuid as _uuid
+                                pc_id = f"auto_{_uuid.uuid4().hex[:8]}"
+                                pdfs = [a["path"] for a in rfq.get("attachments", [])
+                                        if a.get("path") and a["path"].endswith(".pdf")]
+                                if not pdfs:
+                                    log.info("Auto-draft: no PDFs in RFQ — skipping")
+                                    return
+                                # Step 1: Create price check from PDF
+                                pc_result = _handle_price_check_upload(pdfs[0], pc_id)
+                                log.info("Auto-draft [Feature 4.2]: PC %s created from %s", pc_id, rfq.get("subject","")[:50])
+                                # Step 2: Auto-run price lookup
+                                try:
+                                    from src.auto.auto_processor import auto_process_price_check
+                                    auto_process_price_check(pdfs[0], pc_id=pc_id)
+                                    log.info("Auto-draft: price lookup complete for %s", pc_id)
+                                except Exception as _ape:
+                                    log.debug("Auto-draft price lookup skipped: %s", _ape)
+                                # Step 3: Create draft quote
+                                try:
+                                    from src.api.dashboard import _create_quote_from_pc
+                                    q_result = _create_quote_from_pc(pc_id, status="draft")
+                                    if q_result and q_result.get("ok"):
+                                        qnum = q_result.get("quote_number","")
+                                        log.info("Auto-draft: quote %s created (draft) from RFQ", qnum)
+                                        # Step 4: Push dashboard notification
+                                        agency = rfq.get("agency","") or rfq.get("institution","") or "Unknown Agency"
+                                        _push_notification({
+                                            "type": "auto_draft",
+                                            "title": f"New draft quote from {agency}",
+                                            "message": f"Quote {qnum} ready to review",
+                                            "quote_number": qnum,
+                                            "pc_id": pc_id,
+                                            "url": f"/quotes",
+                                            "feature": "PRD 4.2",
+                                        })
+                                except Exception as _qe:
+                                    log.debug("Auto-draft quote creation skipped: %s", _qe)
+                            except Exception as _ae:
+                                log.debug("Auto-draft pipeline failed: %s", _ae)
+                        import threading as _t
+                        _t.Thread(target=_auto_draft, daemon=True, name="auto-draft").start()
                     else:
                         log.info(f"RFQ email but no PDFs saved: {subject[:60]}")
                     

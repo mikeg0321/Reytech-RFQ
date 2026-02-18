@@ -48,6 +48,7 @@ a{color:var(--ac);text-decoration:none}
 .b-won{background:rgba(52,211,153,.2);color:var(--gn)}
 .b-lost{background:rgba(248,113,113,.15);color:var(--rd)}
 .b-expired{background:rgba(139,144,160,.15);color:var(--tx2)}
+.b-draft{background:rgba(251,191,36,.25);color:#f59e0b;border:1px solid rgba(251,191,36,.4)}
 .home-tbl{width:100%;border-collapse:collapse;font-size:13px}
 .home-tbl thead th{text-align:left;padding:8px 10px;font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--bd);font-weight:600}
 .home-tbl tbody td{padding:10px;border-bottom:1px solid rgba(46,51,69,.5);vertical-align:middle}
@@ -104,6 +105,19 @@ a{color:var(--ac);text-decoration:none}
  .action-bar{flex-direction:column}
  .action-bar .btn{width:100%}
  .bento-4{grid-template-columns:1fr}
+ /* Feature 6: Core mobile improvements */
+ .home-tbl thead{display:none}
+ .home-tbl tr{display:block;border:1px solid var(--bd);border-radius:6px;margin-bottom:8px;padding:8px}
+ .home-tbl td{display:flex;justify-content:space-between;padding:4px 0;border:none;font-size:13px}
+ .home-tbl td:before{content:attr(data-label);color:var(--tx2);font-size:11px;text-transform:uppercase;letter-spacing:.3px}
+ #pipeline-bar{flex-wrap:wrap;gap:6px}
+ #pipeline-bar .bar-item{font-size:12px}
+ .pc-table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+ .pc-table-wrap table{min-width:700px}
+ .quote-gen-banner{flex-direction:column!important;gap:8px!important}
+ .quote-gen-banner button{width:100%}
+ h1{font-size:18px}
+ .hdr-bar .nav-btn{font-size:10px;padding:3px 6px}
 }
 .meta-g{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:20px}
 .meta-i{background:var(--sf2);border-radius:8px;padding:10px 12px}
@@ -142,6 +156,30 @@ table.it input:focus{outline:none;border-color:var(--ac)}
 .qh-row a:hover{color:#79c0ff !important;text-decoration:underline !important}
 [title]{cursor:pointer}
 #historyCard [title]:hover{filter:brightness(1.15)}
+
+/* ── Mobile Responsive (PRD Feature P1) ───────────────────────────── */
+@media(max-width:768px){
+  body{padding:10px!important;font-size:14px!important}
+  .card{padding:12px!important}
+  table{font-size:12px}
+  th,td{padding:5px 6px!important}
+  .btn{padding:8px 12px!important;font-size:13px!important}
+  h1{font-size:18px!important}
+  h2{font-size:16px!important}
+  .pipeline-bar,.kpi-row{flex-direction:column!important;gap:8px!important}
+  .nav-tabs,.tab-bar{overflow-x:auto;white-space:nowrap}
+  .sidebar{display:none!important}
+  .home-row td:nth-child(5),.home-row td:nth-child(6){display:none}
+  .action-bar{flex-direction:column!important}
+  #quote-gen-banner{flex-direction:column!important;gap:10px!important}
+  .pc-table-wrap{overflow-x:auto}
+  .modal-box{padding:16px!important;margin:0!important}
+}
+@media(max-width:480px){
+  .btn-group{flex-direction:column;width:100%}
+  .btn-group .btn{width:100%;text-align:center}
+  h1{font-size:16px!important}
+}
 """
 
 PAGE_HOME = """
@@ -1230,6 +1268,19 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
      <div style="margin-top:8px">
       <button class="btn btn-sm" style="background:#21262d;color:#8b949e;border:1px solid #30363d" onclick="addRow()">+ Add Item</button>
      </div>
+
+     <!-- PRD Feature 10: Price History Intelligence Panel -->
+     <div id="price-history-panel" style="margin-top:16px">
+       <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+         <span style="font-size:13px;font-weight:700;color:#8b949e;text-transform:uppercase;letter-spacing:.5px">📊 Price History Intelligence</span>
+         <span style="font-size:11px;color:#484f58">Historical prices from all prior quotes & lookups</span>
+         <button onclick="loadPriceHistory()" id="phLoadBtn" class="btn btn-sm" style="background:#21262d;color:#8b949e;border:1px solid #30363d;margin-left:auto;font-size:11px">Load History</button>
+       </div>
+       <div id="ph-content" style="display:none">
+         <div id="ph-rows"></div>
+       </div>
+     </div>
+
      <div class="totals" id="totals"></div>
      <div style="margin-top:12px;display:flex;align-items:center;gap:20px;font-size:14px">
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
@@ -2072,6 +2123,42 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
       if (d.ok) {{ alert('✅ Added "' + inst + '" to CRM'); location.reload(); }}
       else {{ alert('⚠️ ' + (d.error||'Failed')); }}
      }});
+    }}
+
+    // ── PRD Feature 10: Price History Intelligence ──────────────────────────
+    function loadPriceHistory() {{
+      const btn = document.getElementById('phLoadBtn');
+      const panel = document.getElementById('ph-content');
+      const rows = document.getElementById('ph-rows');
+      btn.textContent = 'Loading...'; btn.disabled = true;
+      const descs = [];
+      document.querySelectorAll('#itemsTable tr').forEach(tr => {{
+        const inputs = tr.querySelectorAll('input[type=text]');
+        inputs.forEach(inp => {{ if(inp.name && inp.name.startsWith('desc_') && inp.value.trim()) descs.push(inp.value.trim().substring(0,80)); }});
+      }});
+      if (!descs.length) {{
+        rows.innerHTML = '<div style="color:#484f58;font-size:13px;padding:8px">No items found.</div>';
+        panel.style.display='block'; btn.textContent='Load History'; btn.disabled=false; return;
+      }}
+      let loaded = 0; rows.innerHTML = ''; panel.style.display = 'block';
+      const seen = new Set();
+      descs.filter(d=>!seen.has(d)&&seen.add(d)).forEach(desc => {{
+        fetch('/api/prices/best?q=' + encodeURIComponent(desc.substring(0,50)))
+          .then(r=>r.json()).then(d=>{{
+            loaded++;
+            if (d.ok && d.found) {{
+              rows.innerHTML += `<div style="display:flex;align-items:center;gap:12px;padding:8px 12px;background:#161b22;border:1px solid #30363d;border-radius:6px;margin-bottom:6px;flex-wrap:wrap">
+                <div style="flex:1;min-width:0"><div style="font-size:13px;color:#c9d1d9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${{desc}}">${{desc.substring(0,70)}}</div>
+                <div style="font-size:11px;color:#484f58">via ${{d.best_source||'?'}} · ${{(d.best_found_at||'').substring(0,10)}} · ${{d.observations}} observation${{d.observations!==1?'s':''}}</div></div>
+                <div style="text-align:right;white-space:nowrap"><div style="color:#3fb950;font-weight:700;font-size:15px">Best: $${{d.best_price.toFixed(2)}}</div>
+                <div style="color:#8b949e;font-size:12px">Avg: $${{d.avg_price.toFixed(2)}}</div></div></div>`;
+            }}
+            if (loaded >= seen.size) {{
+              if (!rows.innerHTML) rows.innerHTML='<div style="color:#484f58;font-size:13px;padding:8px">No price history yet — builds as quotes are generated.</div>';
+              btn.textContent='Refresh'; btn.disabled=false;
+            }}
+          }}).catch(()=>{{loaded++;}});
+      }});
     }}
     </script>
     </body></html>
