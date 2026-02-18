@@ -485,6 +485,45 @@ def lookup_prices(parsed_pc: dict) -> dict:
         item["pricing"] = pricing
         results.append(item)
 
+        # ── Persist every price found to SQLite price_history ──
+        try:
+            from src.core.db import record_price
+            pc_id = parsed_pc.get("pc_id", "") or parsed_pc.get("id", "")
+            agency = parsed_pc.get("agency", "") or parsed_pc.get("institution", "")
+            if pricing.get("amazon_price"):
+                record_price(
+                    description=desc,
+                    unit_price=pricing["amazon_price"],
+                    source="amazon",
+                    part_number=item.get("item_number","") or pricing.get("mfg_number",""),
+                    manufacturer=pricing.get("manufacturer",""),
+                    source_url=pricing.get("amazon_url",""),
+                    source_id=pricing.get("amazon_asin",""),
+                    agency=agency,
+                    price_check_id=pc_id,
+                )
+            if pricing.get("scprs_price"):
+                record_price(
+                    description=desc,
+                    unit_price=pricing["scprs_price"],
+                    source="scprs",
+                    part_number=item.get("item_number",""),
+                    agency=agency,
+                    price_check_id=pc_id,
+                )
+            if pricing.get("recommended_price"):
+                record_price(
+                    description=desc,
+                    unit_price=pricing["recommended_price"],
+                    source="recommended",
+                    part_number=item.get("item_number",""),
+                    agency=agency,
+                    price_check_id=pc_id,
+                    notes=f"markup from {pricing.get('price_source','unknown')}",
+                )
+        except Exception:
+            pass
+
     parsed_pc["line_items"] = results
     return parsed_pc
 

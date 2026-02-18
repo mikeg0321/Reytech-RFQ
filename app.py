@@ -13,6 +13,21 @@ def create_app():
     app = Flask(__name__)
     app.secret_key = os.environ.get("SECRET_KEY", "reytech-rfq-2026")
 
+    # ── Persistent database init ──────────────────────────────────────────────
+    try:
+        from src.core.db import startup as db_startup
+        result = db_startup()
+        logging.getLogger("reytech").info(
+            "DB: %s | volume=%s | quotes=%d contacts=%d prices=%d",
+            result["db_path"],
+            result.get("is_volume", False),
+            result["stats"].get("quotes", 0),
+            result["stats"].get("contacts", 0),
+            result["stats"].get("price_history", 0),
+        )
+    except Exception as e:
+        logging.getLogger("reytech").warning("DB init skipped: %s", e)
+
     # Register the dashboard blueprint (all routes)
     from src.api.dashboard import bp, start_polling
     app.register_blueprint(bp)

@@ -3007,6 +3007,14 @@ def api_metrics():
     # GC stats
     gc_counts = gc.get_count()
 
+    # DB stats
+    db_stats = {}
+    try:
+        from src.core.db import get_db_stats
+        db_stats = get_db_stats()
+    except Exception:
+        pass
+
     return jsonify({
         "ok": True,
         "timestamp": datetime.now().isoformat(),
@@ -3015,6 +3023,7 @@ def api_metrics():
             "keys": [os.path.basename(k) for k in cache_keys],
         },
         "data_files": data_files,
+        "database": db_stats,
         "threads": {"count": len(threads), "list": threads},
         "rate_limiter": {"active_ips": active_ips},
         "agents": agent_states,
@@ -3028,6 +3037,99 @@ def api_metrics():
             "qb": QB_AVAILABLE,
         },
     })
+
+
+@bp.route("/api/db")
+@auth_required
+def api_db_status():
+    """Database status — row counts, file size, persistence info."""
+    try:
+        from src.core.db import get_db_stats, DB_PATH, DATA_DIR as _DB_DATA_DIR
+        stats = get_db_stats()
+        is_volume = _DB_DATA_DIR == os.environ.get("REYTECH_DATA_DIR","")
+        return jsonify({
+            "ok": True,
+            "db_path": DB_PATH,
+            "db_size_kb": stats.get("db_size_kb", 0),
+            "is_railway_volume": is_volume,
+            "persistence": "permanent (Railway volume)" if is_volume else "temporary (container filesystem — data lost on redeploy)",
+            "tables": {k: v for k, v in stats.items() if k not in ("db_path","db_size_kb")},
+            "setup_instructions": None if is_volume else {
+                "step1": "railway.app → your project → your service → Storage → Add Volume",
+                "step2": "Mount Path: /data",
+                "step3": "Add env var: REYTECH_DATA_DIR=/data",
+                "step4": "Redeploy — all data now survives forever",
+            },
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/prices/history")
+@auth_required
+def api_price_history():
+    """Search price history database.
+    GET ?q=<description>&pn=<part_number>&source=<amazon|scprs|quote>&limit=50
+    """
+    try:
+        from src.core.db import get_price_history_db, get_price_stats
+        q = request.args.get("q","").strip()
+        pn = request.args.get("pn","").strip()
+        source = request.args.get("source","").strip()
+        limit = min(int(request.args.get("limit",50)), 200)
+
+        if not q and not pn and not source:
+            stats = get_price_stats()
+            return jsonify({"ok": True, "mode": "stats", **stats})
+
+        results = get_price_history_db(description=q, part_number=pn,
+                                        source=source, limit=limit)
+        return jsonify({
+            "ok": True,
+            "query": {"description": q, "part_number": pn, "source": source},
+            "count": len(results),
+            "results": results,
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/prices/best")
+@auth_required
+def api_price_best():
+    """Get the best (lowest) recorded price for an item description.
+    GET ?q=<description>  or  ?pn=<part_number>
+    Returns: best price, source, when found, and all price observations.
+    """
+    try:
+        from src.core.db import get_price_history_db
+        q = request.args.get("q","").strip()
+        pn = request.args.get("pn","").strip()
+        if not q and not pn:
+            return jsonify({"ok": False, "error": "q (description) or pn (part number) required"})
+
+        results = get_price_history_db(description=q, part_number=pn, limit=100)
+        if not results:
+            return jsonify({"ok": True, "found": False, "query": q or pn})
+
+        best = min(results, key=lambda x: x["unit_price"])
+        avg = sum(r["unit_price"] for r in results) / len(results)
+        sources_seen = list({r["source"] for r in results})
+
+        return jsonify({
+            "ok": True,
+            "found": True,
+            "query": q or pn,
+            "best_price": best["unit_price"],
+            "best_source": best["source"],
+            "best_found_at": best["found_at"],
+            "avg_price": round(avg, 2),
+            "observations": len(results),
+            "sources": sources_seen,
+            "all": results[:20],
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
 
 
 @bp.route("/api/cache/clear", methods=["POST"])
@@ -5688,6 +5790,15 @@ def _save_crm_contacts(contacts: dict):
     with open(CRM_CONTACTS_FILE, "w") as f:
         json.dump(contacts, f, indent=2, default=str)
     _invalidate_cache(CRM_CONTACTS_FILE)
+    # ── Also persist to SQLite ──
+    try:
+        from src.core.db import upsert_contact
+        for cid, c in contacts.items():
+            c_copy = dict(c)
+            c_copy["id"] = cid
+            upsert_contact(c_copy)
+    except Exception:
+        pass
 
 def _get_or_create_crm_contact(prospect_id: str, prospect: dict = None) -> dict:
     """Get or create a CRM contact record, merging SCPRS intel data."""
@@ -5778,6 +5889,21 @@ def api_crm_contact_log(contact_id):
         actor=actor,
         metadata=metadata,
     )
+
+    # ── Persist to SQLite activity_log ──
+    try:
+        from src.core.db import log_activity
+        log_activity(
+            contact_id=contact_id,
+            event_type=event_type,
+            subject=entry.get("subject",""),
+            body=detail,
+            outcome=entry.get("outcome",""),
+            actor=actor,
+            metadata=metadata,
+        )
+    except Exception:
+        pass
 
     # Auto-update prospect status on meaningful interactions
     if GROWTH_AVAILABLE and event_type in ("email_sent","voice_called","chat","meeting"):

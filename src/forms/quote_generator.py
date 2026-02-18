@@ -345,6 +345,10 @@ def _log_quote(result: dict):
         "source_rfq_id": result.get("source_rfq_id", ""),
         "ship_to_name":  result.get("ship_to_name", ""),
         "ship_to_address": result.get("ship_to_address", []),
+        "requestor":     result.get("requestor") or result.get("contact_name", ""),
+        "email":         result.get("email") or result.get("requestor_email", ""),
+        "phone":         result.get("phone") or result.get("contact_phone", ""),
+        "source":        result.get("source", ""),
     }
     
     if existing_idx is not None:
@@ -368,6 +372,28 @@ def _log_quote(result: dict):
         quotes.append(entry)
     
     _save_all_quotes(quotes)
+
+    # ── Also persist to SQLite (survives Railway redeploys) ──
+    try:
+        from src.core.db import upsert_quote, record_price
+        upsert_quote(entry)
+        # Record every line item price into price_history
+        for item in entry.get("items_detail", []):
+            price = item.get("unit_price") or item.get("price_each") or item.get("our_price")
+            desc = item.get("description", "")
+            if price and price > 0 and desc:
+                record_price(
+                    description=desc,
+                    unit_price=float(price),
+                    source="quote",
+                    part_number=item.get("part_number", "") or item.get("item_number", ""),
+                    manufacturer=item.get("manufacturer", ""),
+                    quantity=float(item.get("qty", 1) or 1),
+                    agency=result.get("agency", ""),
+                    quote_number=qn or "",
+                )
+    except Exception as _db_err:
+        log.debug("DB write skipped: %s", _db_err)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # HELPERS

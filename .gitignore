@@ -1,4 +1,3 @@
-# Python
 __pycache__/
 *.py[cod]
 *$py.class
@@ -7,45 +6,37 @@ __pycache__/
 dist/
 build/
 *.egg
-
-# Environment
 .env
 .venv/
 env/
 venv/
-
-# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
-
-# OS
 .DS_Store
 Thumbs.db
-
-# App data (generated at runtime)
 uploads/
 output/
-data/scprs_prices.json
+
+# ── Sensitive / auth tokens (never commit) ───────────────────────────────────
+data/qb_tokens.json
+data/qb_vendors.json
+data/.write_test
+
+# ── High-volume transient logs (too large / rebuilt at runtime) ───────────────
 data/processed_emails.json
-data/won_quotes.json
+data/email_outbox.json
+data/email_sent_log.json
+data/scprs_scan_log.json
+data/scprs_seen_pos.json
+data/workflow_runs.json
 data/audit_log.json
-
-# Keep seed data
-!data/customers.json
-!data/quote_counter.json
-!data/quotes_log.json
-
-# Agent data (generated at runtime)
 data/item_id_cache.json
 data/leads.json
 data/lead_history.json
-data/qb_tokens.json
-data/qb_vendors.json
-data/scprs_scan_log.json
-data/scprs_seen_pos.json
-data/email_outbox.json
-data/email_sent_log.json
-data/voice_call_log.json
-data/workflow_runs.json
+
+# ── SQLite DB lives on Railway volume (/data/reytech.db), not in git ─────────
+data/reytech.db
+data/reytech.db-wal
+data/reytech.db-shm
