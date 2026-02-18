@@ -552,7 +552,7 @@ def _update_order_status(oid: str):
 # HTML Templates (extracted to src/api/templates.py)
 # ═══════════════════════════════════════════════════════════════════════
 
-from src.api.templates import BASE_CSS, PAGE_HOME, PAGE_DETAIL, build_pc_detail_html, build_quotes_page_content
+from src.api.templates import BASE_CSS, PAGE_HOME, PAGE_DETAIL, build_pc_detail_html, build_quotes_page_content, PAGE_CRM
 
 # ═══════════════════════════════════════════════════════════════════════
 # Routes
@@ -580,6 +580,7 @@ def render(content, **kw):
   <a href="/" class="hdr-btn hdr-active">🏠 Home</a>
   <a href="/quotes" class="hdr-btn">📋 Quotes</a>
   <a href="/orders" class="hdr-btn">📦 Orders</a>
+  <a href="/contacts" class="hdr-btn">👥 CRM</a>
   <a href="/campaigns" class="hdr-btn">📞 Campaigns</a>
   <a href="/pipeline" class="hdr-btn">🔄 Pipeline</a>
   <a href="/growth" class="hdr-btn">🚀 Growth</a>
@@ -6464,6 +6465,15 @@ def api_voice_call_details(call_id):
         return jsonify({"ok": False, "error": "Voice agent not available"})
     details = get_vapi_call_details(call_id)
     return jsonify({"ok": not bool(details.get("error")), **details})
+
+
+# ─── CRM / Contacts Route ────────────────────────────────────────────────────
+
+@bp.route("/contacts")
+@auth_required
+def contacts_page():
+    """CRM — Buyers & Contacts from SCPRS Deep Pull."""
+    return render(PAGE_CRM)
 
 
 # ─── Campaign Routes ────────────────────────────────────────────────────────

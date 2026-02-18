@@ -145,79 +145,97 @@ table.it input:focus{outline:none;border-color:var(--ac)}
 """
 
 PAGE_HOME = """
-<!-- Pipeline Funnel Stats -->
-<div id="funnel-stats" class="card" style="margin-bottom:14px;padding:12px 16px">
- <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-  <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap" id="funnel-row">
-   <span style="font-size:12px;font-weight:600;color:var(--tx2)">📊 Pipeline</span>
-   <span class="funnel-s" style="color:var(--ac)">— loading</span>
-  </div>
-  <div style="display:flex;gap:6px">
-   <a href="/quotes" class="btn btn-sm" style="font-size:10px;padding:2px 8px">Quotes</a>
-   <a href="/orders" class="btn btn-sm" style="font-size:10px;padding:2px 8px">Orders</a>
-   <a href="/pipeline" class="btn btn-sm" style="font-size:10px;padding:2px 8px">Pipeline</a>
-   <a href="/growth" class="btn btn-sm" style="font-size:10px;padding:2px 8px">Growth</a>
-   <a href="/intelligence" class="btn btn-sm" style="font-size:10px;padding:2px 8px">Intel</a>
-  </div>
+<!-- ═══ Bar 1: Pipeline Funnel — full-width stat strip ═══ -->
+<div class="card" style="margin-bottom:12px;padding:18px 24px">
+ <div style="display:flex;align-items:center;gap:6px;margin-bottom:14px">
+  <span style="font-size:11px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:1px">📊 Pipeline</span>
+  <span style="flex:1;height:1px;background:var(--bd)"></span>
+  <a href="/pipeline" style="font-size:11px;color:var(--ac);font-weight:600">View Full Pipeline →</a>
+ </div>
+ <div id="funnel-row" style="display:grid;grid-template-columns:repeat(7,1fr);gap:0">
+  <!-- loading skeleton -->
+  <div style="text-align:center;padding:10px 0"><div style="font-size:28px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--tx2)">—</div><div style="font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Loading</div></div>
  </div>
 </div>
 <script>
 fetch('/api/funnel/stats').then(r=>r.json()).then(d=>{
  if(!d.ok) return;
- const f = d;
  const items = [
-  ['📥',f.rfqs_active||0,'RFQs'],
-  ['💰',f.quotes_pending||0,'Pending'],
-  ['📤',f.quotes_sent||0,'Sent'],
-  ['✅',f.quotes_won||0,'Won'],
-  ['📦',f.orders_active||0,'Orders'],
-  ['🚚',f.items_shipped||0,'Shipped'],
-  ['💵','$'+(f.pipeline_value||0).toLocaleString(),'Value'],
+  {icon:'📥', val:d.rfqs_active||0, label:'RFQs', href:'/rfq/', color:'var(--ac)', fmt:'n'},
+  {icon:'💰', val:d.quotes_pending||0, label:'Pending', href:'/quotes?status=pending', color:'var(--yl)', fmt:'n'},
+  {icon:'📤', val:d.quotes_sent||0, label:'Sent', href:'/quotes?status=sent', color:'#a78bfa', fmt:'n'},
+  {icon:'✅', val:d.quotes_won||0, label:'Won', href:'/quotes?status=won', color:'var(--gn)', fmt:'n'},
+  {icon:'📦', val:d.orders_active||0, label:'Orders', href:'/orders', color:'var(--or)', fmt:'n'},
+  {icon:'🚚', val:d.items_shipped||0, label:'Shipped', href:'/orders', color:'var(--gn)', fmt:'n'},
+  {icon:'💵', val:d.pipeline_value||0, label:'Pipeline $', href:'/pipeline', color:'var(--gn)', fmt:'$'},
  ];
- document.getElementById('funnel-row').innerHTML =
-  '<span style="font-size:12px;font-weight:600;color:var(--tx2)">📊 Pipeline</span>' +
-  items.map(([icon,val,label])=>
-   '<span style="font-size:11px"><span style="opacity:.6">'+icon+'</span> <b>'+val+'</b> <span style="color:var(--tx2)">'+label+'</span></span>'
-  ).join('<span style="color:var(--bd)">→</span>');
+ const cols = items.map((it,i)=>{
+  const fmtVal = it.fmt==='$' ? '$'+(it.val>=1e6?(it.val/1e6).toFixed(1)+'M':it.val>=1e3?(it.val/1e3).toFixed(0)+'K':it.val.toLocaleString()) : it.val;
+  const sep = i<items.length-1 ? '<div style="position:absolute;right:0;top:50%;transform:translateY(-50%);color:var(--bd);font-size:20px;font-weight:300">›</div>' : '';
+  return '<a href="'+it.href+'" style="text-align:center;padding:10px 4px;display:block;text-decoration:none;border-radius:8px;transition:background .15s;position:relative" onmouseover="this.style.background=\'rgba(79,140,255,.08)\'" onmouseout="this.style.background=\'\'">'+
+   '<div style="font-size:18px;margin-bottom:4px">'+it.icon+'</div>'+
+   '<div style="font-size:26px;font-weight:700;font-family:\'JetBrains Mono\',monospace;color:'+it.color+';line-height:1">'+fmtVal+'</div>'+
+   '<div style="font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:5px;font-weight:600">'+it.label+'</div>'+
+   sep+'</a>';
+ });
+ document.getElementById('funnel-row').style.gridTemplateColumns='repeat(7,1fr)';
+ document.getElementById('funnel-row').innerHTML = cols.join('');
 }).catch(()=>{});
 </script>
 
-<!-- BI: Annual Revenue Goal (compact, secondary) -->
-<div id="rev-bi" style="display:none;margin-bottom:14px;padding:8px 16px;background:var(--sf);border:1px solid var(--bd);border-radius:10px">
- <div style="display:flex;align-items:center;gap:10px">
-  <span style="font-size:11px;color:var(--tx2);font-weight:600;white-space:nowrap">📈 Annual Goal</span>
-  <div id="rev-bar-wrap" style="flex:1;background:var(--sf2);border-radius:8px;height:16px;overflow:hidden;position:relative">
-   <div id="rev-bar" style="height:100%;border-radius:8px;transition:width .5s"></div>
-   <span id="rev-label" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:9px;font-weight:600"></span>
+<!-- ═══ Bar 2: Annual Revenue Goal ═══ -->
+<div id="rev-bi" class="card" style="margin-bottom:12px;padding:18px 24px;display:block">
+ <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+  <span style="font-size:11px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:1px">📈 Annual Revenue Goal</span>
+  <div style="display:flex;gap:20px;align-items:center" id="rev-meta">
+   <span style="font-size:12px;color:var(--tx2)">Gap: <b id="rev-gap" style="color:var(--rd);font-family:'JetBrains Mono',monospace">$2,000,000</b></span>
+   <span style="font-size:12px;color:var(--tx2)">Run Rate: <b id="rev-rate" style="font-family:'JetBrains Mono',monospace;color:var(--rd)">$0</b></span>
+   <span style="font-size:12px;color:var(--tx2)">Status: <b id="rev-track" style="color:var(--rd)">Behind</b></span>
   </div>
-  <span id="rev-stats" style="font-size:10px;color:var(--tx2);white-space:nowrap"></span>
+ </div>
+ <div style="display:flex;align-items:center;gap:16px">
+  <span id="rev-closed" style="font-size:28px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--gn);white-space:nowrap">$0</span>
+  <div style="flex:1">
+   <div style="background:var(--sf2);border-radius:10px;height:28px;overflow:hidden;position:relative;border:1px solid var(--bd)">
+    <div id="rev-bar" style="height:100%;border-radius:10px;transition:width .8s ease;background:var(--rd);min-width:2px"></div>
+    <span id="rev-label" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:12px;font-weight:700;color:#fff;white-space:nowrap;text-shadow:0 1px 3px rgba(0,0,0,.5)">$0 / $2M (0%)</span>
+   </div>
+  </div>
+  <span style="font-size:14px;color:var(--tx2);white-space:nowrap">$2M Goal</span>
  </div>
 </div>
 <script>
 fetch('/api/intel/revenue',{credentials:'same-origin'}).then(r=>r.json()).then(d=>{
  if(!d.ok) return;
- const el = document.getElementById('rev-bi');
  const pct = Math.min(100, d.pct_to_goal||0);
  const color = pct>=50?'#3fb950':pct>=25?'#d29922':'#f85149';
- document.getElementById('rev-bar').style.width = pct+'%';
- document.getElementById('rev-bar').style.background = color;
- document.getElementById('rev-label').textContent = '$'+(d.closed_revenue||0).toLocaleString()+' / $'+(d.goal/1e6).toFixed(0)+'M ('+pct.toFixed(0)+'%)';
- document.getElementById('rev-stats').innerHTML = 'Gap: <b style="color:#f85149">$'+(d.gap_to_goal||0).toLocaleString()+'</b> · Rate: <b style="color:'+(d.on_track?'#3fb950':'#f85149')+'">$'+(d.run_rate_annual||0).toLocaleString()+'</b>';
- el.style.display = 'block';
+ const bar = document.getElementById('rev-bar');
+ bar.style.width = Math.max(pct,0.5)+'%';
+ bar.style.background = 'linear-gradient(90deg, '+color+', '+color+'aa)';
+ document.getElementById('rev-label').textContent = '$'+(d.closed_revenue||0).toLocaleString()+' / $'+(d.goal/1e6).toFixed(0)+'M ('+pct.toFixed(1)+'%)';
+ document.getElementById('rev-closed').textContent = '$'+(d.closed_revenue||0).toLocaleString();
+ document.getElementById('rev-closed').style.color = color;
+ document.getElementById('rev-gap').textContent = '$'+(d.gap_to_goal||0).toLocaleString();
+ document.getElementById('rev-rate').textContent = '$'+(d.run_rate_annual||0).toLocaleString()+'/yr';
+ document.getElementById('rev-rate').style.color = d.on_track?'#3fb950':'#f85149';
+ document.getElementById('rev-track').textContent = d.on_track?'On Track ✅':'Behind 🔴';
+ document.getElementById('rev-track').style.color = d.on_track?'#3fb950':'#f85149';
+ document.getElementById('rev-gap').style.color = d.gap_to_goal>0?'#f85149':'#3fb950';
 }).catch(()=>{});
 </script>
 
-<!-- Search — compact utility bar -->
+<!-- ═══ Bar 3: Search + Quick Nav ═══ -->
 <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
- <form method="get" action="/quotes" style="display:flex;gap:8px;flex:1;min-width:260px">
-  <input name="q" placeholder="Search quotes, institutions, PO numbers, items..." style="flex:1;padding:10px 14px;background:var(--sf);border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:13px">
-  <button type="submit" class="btn btn-p" style="padding:10px 18px;font-size:13px">🔍 Search</button>
+ <form method="get" action="/quotes" style="display:flex;gap:0;flex:1;min-width:320px;background:var(--sf);border:1.5px solid var(--bd);border-radius:10px;overflow:hidden;transition:border-color .2s" onfocusin="this.style.borderColor='var(--ac)'" onfocusout="this.style.borderColor='var(--bd)'">
+  <span style="padding:0 14px;font-size:18px;display:flex;align-items:center;color:var(--tx2)">🔍</span>
+  <input name="q" placeholder="Search quotes, agencies, PO numbers, items, contacts..." style="flex:1;padding:14px 4px 14px 0;background:transparent;border:none;color:var(--tx);font-size:15px;outline:none" autocomplete="off">
+  <button type="submit" style="padding:14px 22px;background:var(--ac);border:none;color:#fff;font-size:14px;font-weight:700;cursor:pointer;transition:.15s;letter-spacing:.3px" onmouseover="this.style.background='var(--ac2)'" onmouseout="this.style.background='var(--ac)'">Search</button>
  </form>
- <a href="/quotes" class="btn btn-s" style="padding:10px 16px;font-size:13px">📋 Quotes DB</a>
- <a href="/orders" class="btn btn-s" style="padding:10px 16px;font-size:13px">📦 Orders</a>
- <a href="/growth" class="btn btn-s" style="padding:10px 16px;font-size:13px">🚀 Growth</a>
- <a href="/intelligence" class="btn btn-s" style="padding:10px 16px;font-size:13px">🧠 Intel</a>
- <a href="/agents" class="btn btn-s" style="padding:10px 16px;font-size:13px">🤖 Agents</a>
+ <a href="/quotes" class="btn btn-s" style="padding:14px 18px;font-size:14px;font-weight:600;white-space:nowrap">📋 Quotes DB</a>
+ <a href="/contacts" class="btn btn-s" style="padding:14px 18px;font-size:14px;font-weight:600;white-space:nowrap;border-color:rgba(167,139,250,.4);color:#a78bfa" onmouseover="this.style.borderColor='#a78bfa'" onmouseout="this.style.borderColor='rgba(167,139,250,.4)'">👥 CRM</a>
+ <a href="/orders" class="btn btn-s" style="padding:14px 18px;font-size:14px;font-weight:600;white-space:nowrap">📦 Orders</a>
+ <a href="/growth" class="btn btn-s" style="padding:14px 18px;font-size:14px;font-weight:600;white-space:nowrap">🚀 Growth</a>
+ <a href="/agents" class="btn btn-s" style="padding:14px 18px;font-size:14px;font-weight:600;white-space:nowrap">🤖 Agents</a>
 </div>
 
 <!-- Manager Brief — loads via AJAX -->
@@ -254,10 +272,10 @@ fetch('/api/intel/revenue',{credentials:'same-origin'}).then(r=>r.json()).then(d
  <!-- Pipeline Stats Bar -->
  <div id="pipeline-bar" style="display:flex;gap:12px;flex-wrap:wrap;margin-top:16px;padding-top:14px;border-top:1px solid var(--bd)"></div>
 
- <!-- Agent Health Row -->
- <div id="agents-row" style="display:none;margin-top:12px;padding-top:10px;border-top:1px solid var(--bd)">
-  <div style="font-size:10px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Agent Status</div>
-  <div id="agents-list" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+ <!-- Agent Health Row — prominent 3x sizing -->
+ <div id="agents-row" style="display:none;margin-top:16px;padding-top:14px;border-top:1px solid var(--bd)">
+  <div style="font-size:10px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">Agent Status</div>
+  <div id="agents-list" style="display:flex;gap:10px;flex-wrap:wrap"></div>
  </div>
 </div>
 
@@ -494,10 +512,15 @@ fetch('/api/manager/brief',{credentials:'same-origin'}).then(function(r){
  if(data.agents && data.agents.length>0){
   document.getElementById('agents-row').style.display='block';
   document.getElementById('agents-list').innerHTML=data.agents.map(function(a){
-   var color=a.status==='active'||a.status==='ready'||a.status==='connected'?'#3fb950':a.status==='not configured'?'#d29922':'#f85149';
-   return '<span style="font-size:11px;padding:3px 8px;border-radius:6px;background:var(--sf2);display:inline-flex;align-items:center;gap:4px">'
-    +'<span style="width:6px;height:6px;border-radius:50%;background:'+color+';display:inline-block"></span>'
-    +a.icon+' '+a.name
+   var isOk=a.status==='active'||a.status==='ready'||a.status==='connected';
+   var isWait=a.status==='not configured'||a.status==='waiting';
+   var color=isOk?'#3fb950':isWait?'#d29922':'#f85149';
+   var bg=isOk?'rgba(52,211,153,.08)':isWait?'rgba(251,191,36,.08)':'rgba(248,113,113,.08)';
+   var border=isOk?'rgba(52,211,153,.25)':isWait?'rgba(251,191,36,.25)':'rgba(248,113,113,.25)';
+   return '<span style="font-size:13px;padding:8px 14px;border-radius:8px;background:'+bg+';border:1px solid '+border+';display:inline-flex;align-items:center;gap:7px;font-weight:500">'
+    +'<span style="width:10px;height:10px;border-radius:50%;background:'+color+';display:inline-block;flex-shrink:0;box-shadow:0 0 6px '+color+'66"></span>'
+    +'<span style="font-size:15px">'+a.icon+'</span>'
+    +'<span>'+a.name+'</span>'
     +'</span>';
   }).join('');
  }
@@ -2591,3 +2614,231 @@ fetch('/api/agents/status',{{credentials:'same-origin'}}).then(r => r.json()).th
 }});
 </script>
 </body></html>"""
+
+# ── CRM / Contacts Page ──────────────────────────────────────────────────────
+PAGE_CRM = """
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:10px">
+ <div>
+  <h2 style="font-size:20px;font-weight:700;margin-bottom:4px">👥 CRM — Buyers & Contacts</h2>
+  <p style="font-size:13px;color:var(--tx2)">SCPRS-sourced buyers tagged by category, items purchased, and annual spend. Correlates to growth pipeline.</p>
+ </div>
+ <div style="display:flex;gap:8px;flex-wrap:wrap">
+  <a href="/growth" class="btn btn-s" style="padding:10px 16px;font-size:13px">🚀 Growth Engine</a>
+  <a href="/intelligence" class="btn btn-s" style="padding:10px 16px;font-size:13px">🧠 Intel / Deep Pull</a>
+  <a href="/" class="btn btn-s" style="padding:10px 16px;font-size:13px">← Home</a>
+ </div>
+</div>
+
+<!-- CRM Summary Stats -->
+<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:20px" id="crm-stats">
+ <div class="card" style="text-align:center;padding:16px;margin:0">
+  <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Total Buyers</div>
+  <div id="stat-total" style="font-size:28px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--ac)">—</div>
+ </div>
+ <div class="card" style="text-align:center;padding:16px;margin:0">
+  <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Agencies</div>
+  <div id="stat-agencies" style="font-size:28px;font-weight:700;font-family:'JetBrains Mono',monospace;color:#a78bfa">—</div>
+ </div>
+ <div class="card" style="text-align:center;padding:16px;margin:0">
+  <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Total SCPRS Spend</div>
+  <div id="stat-spend" style="font-size:28px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--yl)">—</div>
+ </div>
+ <div class="card" style="text-align:center;padding:16px;margin:0">
+  <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">In Outreach</div>
+  <div id="stat-outreach" style="font-size:28px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--or)">—</div>
+ </div>
+ <div class="card" style="text-align:center;padding:16px;margin:0">
+  <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Won</div>
+  <div id="stat-won" style="font-size:28px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--gn)">—</div>
+ </div>
+</div>
+
+<!-- Filters -->
+<div class="card" style="padding:14px 18px;margin-bottom:16px">
+ <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+  <input id="crm-search" placeholder="Search agency, buyer name, email, item..." style="flex:1;min-width:240px;padding:10px 14px;background:var(--sf2);border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:14px" oninput="filterTable()">
+  <select id="crm-cat" style="padding:10px 12px;background:var(--sf2);border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:13px" onchange="filterTable()">
+   <option value="">All Categories</option>
+   <option value="Medical">Medical</option>
+   <option value="Janitorial">Janitorial</option>
+   <option value="Office">Office</option>
+   <option value="IT">IT</option>
+   <option value="Facility">Facility</option>
+   <option value="Safety">Safety</option>
+  </select>
+  <select id="crm-status" style="padding:10px 12px;background:var(--sf2);border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:13px" onchange="filterTable()">
+   <option value="">All Statuses</option>
+   <option value="new">New</option>
+   <option value="emailed">Emailed</option>
+   <option value="called">Called</option>
+   <option value="responded">Responded</option>
+   <option value="won">Won</option>
+   <option value="lost">Lost</option>
+  </select>
+  <span id="crm-count" style="font-size:12px;color:var(--tx2);white-space:nowrap;font-family:'JetBrains Mono',monospace"></span>
+ </div>
+</div>
+
+<!-- Buyers Table -->
+<div class="card" style="padding:0;overflow:hidden">
+ <div style="overflow-x:auto">
+  <table class="home-tbl" id="crm-table">
+   <thead>
+    <tr>
+     <th style="padding:12px 14px">Agency</th>
+     <th style="padding:12px 14px">Buyer</th>
+     <th style="padding:12px 14px">Email</th>
+     <th style="padding:12px 14px">Categories</th>
+     <th style="padding:12px 14px">Items Bought (SCPRS)</th>
+     <th style="padding:12px 14px;text-align:right">Annual Spend</th>
+     <th style="padding:12px 14px">Score</th>
+     <th style="padding:12px 14px;text-align:center">Status</th>
+     <th style="padding:12px 14px;text-align:center">Action</th>
+    </tr>
+   </thead>
+   <tbody id="crm-body">
+    <tr><td colspan="9" style="text-align:center;padding:40px;color:var(--tx2)">Loading buyer data...</td></tr>
+   </tbody>
+  </table>
+ </div>
+</div>
+
+<!-- No Data State -->
+<div id="crm-empty" style="display:none" class="card">
+ <div style="text-align:center;padding:48px 20px">
+  <div style="font-size:40px;margin-bottom:12px">🔍</div>
+  <div style="font-size:16px;font-weight:600;margin-bottom:8px">No buyers yet</div>
+  <p style="font-size:13px;color:var(--tx2);margin-bottom:16px">Run a Deep Pull on the Intelligence page to discover all SCPRS buyers who purchase the same items as Reytech. The CRM will auto-populate with buyer names, emails, categories, items, and spend data.</p>
+  <a href="/intelligence" class="btn btn-p" style="padding:12px 24px;font-size:14px">🧠 Run Deep Pull → Populate CRM</a>
+ </div>
+</div>
+
+<script>
+var ALL_BUYERS = [];
+
+// Status badge colors
+var STATUS_COLORS = {
+ 'new': {bg:'rgba(79,140,255,.15)',color:'#4f8cff'},
+ 'emailed': {bg:'rgba(251,191,36,.15)',color:'#fbbf24'},
+ 'called': {bg:'rgba(251,146,60,.15)',color:'#fb923c'},
+ 'responded': {bg:'rgba(167,139,250,.15)',color:'#a78bfa'},
+ 'won': {bg:'rgba(52,211,153,.2)',color:'#34d399'},
+ 'lost': {bg:'rgba(248,113,113,.15)',color:'#f87171'},
+ 'bounced': {bg:'rgba(139,144,160,.15)',color:'#8b90a0'},
+};
+
+function statusBadge(s) {
+ var c = STATUS_COLORS[s] || {bg:'rgba(139,144,160,.15)',color:'#8b90a0'};
+ return '<span style="padding:3px 10px;border-radius:12px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;background:'+c.bg+';color:'+c.color+'">'+(s||'new')+'</span>';
+}
+
+function catTag(cat) {
+ var colors = {'Medical':'#f87171','Janitorial':'#3fb950','Office':'#4f8cff','IT':'#a78bfa','Facility':'#fb923c','Safety':'#fbbf24'};
+ var c = colors[cat] || '#8b90a0';
+ return '<span style="font-size:10px;padding:2px 8px;border-radius:10px;background:'+c+'22;color:'+c+';font-weight:600;border:1px solid '+c+'44;white-space:nowrap">'+cat+'</span>';
+}
+
+function scoreBar(score) {
+ var pct = Math.round((score||0)*100);
+ var color = pct>=70?'#3fb950':pct>=40?'#fbbf24':'#f87171';
+ return '<div style="display:flex;align-items:center;gap:6px"><div style="width:52px;background:var(--sf2);border-radius:4px;height:6px;overflow:hidden"><div style="width:'+pct+'%;height:100%;background:'+color+';border-radius:4px"></div></div><span style="font-size:11px;font-family:\'JetBrains Mono\',monospace;color:'+color+'">'+pct+'%</span></div>';
+}
+
+function fmtSpend(v) {
+ if (!v) return '<span style="color:var(--tx2)">—</span>';
+ if (v >= 1e6) return '<span style="color:var(--yl);font-weight:700;font-family:\'JetBrains Mono\',monospace">$'+(v/1e6).toFixed(1)+'M</span>';
+ if (v >= 1e3) return '<span style="color:var(--yl);font-weight:700;font-family:\'JetBrains Mono\',monospace">$'+(v/1e3).toFixed(0)+'K</span>';
+ return '<span style="font-family:\'JetBrains Mono\',monospace">$'+v.toLocaleString()+'</span>';
+}
+
+function renderTable(buyers) {
+ var tbody = document.getElementById('crm-body');
+ document.getElementById('crm-count').textContent = buyers.length + ' buyers';
+ if (!buyers.length) {
+  tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:32px;color:var(--tx2)">No buyers match filter</td></tr>';
+  return;
+ }
+ tbody.innerHTML = buyers.map(function(b) {
+  var cats = (b.categories||[]).map(catTag).join(' ');
+  var items = (b.items||[]).slice(0,3).map(function(it){
+   return '<span style="font-size:11px;color:var(--tx2)">'+it+'</span>';
+  }).join(', ') + ((b.items||[]).length>3?' <span style="font-size:10px;color:var(--ac)">+'+((b.items||[]).length-3)+' more</span>':'');
+  var pid = b.id || b.prospect_id || '';
+  var detailLink = pid ? '/growth/prospect/'+pid : '#';
+  return '<tr class="home-row" onclick="location.href=\''+detailLink+'\'">'
+   + '<td style="padding:12px 14px;font-weight:600;font-size:13px">'+b.agency+'</td>'
+   + '<td style="padding:12px 14px;font-size:13px">'+(b.buyer_name||'—')+'</td>'
+   + '<td style="padding:12px 14px"><a href="mailto:'+(b.buyer_email||'')
+     +'" onclick="event.stopPropagation()" style="font-size:12px;font-family:\'JetBrains Mono\',monospace;color:var(--ac)">'
+     +(b.buyer_email||'—')+'</a></td>'
+   + '<td style="padding:12px 14px"><div style="display:flex;gap:4px;flex-wrap:wrap">'+cats+'</div></td>'
+   + '<td style="padding:12px 14px;max-width:220px;overflow:hidden"><div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+items+'</div></td>'
+   + '<td style="padding:12px 14px;text-align:right">'+fmtSpend(b.annual_spend||b.spend||0)+'</td>'
+   + '<td style="padding:12px 14px">'+scoreBar(b.score||0)+'</td>'
+   + '<td style="padding:12px 14px;text-align:center">'+statusBadge(b.outreach_status||'new')+'</td>'
+   + '<td style="padding:12px 14px;text-align:center"><a href="'+detailLink+'" onclick="event.stopPropagation()" class="btn btn-sm btn-s">View</a></td>'
+   + '</tr>';
+ }).join('');
+}
+
+function filterTable() {
+ var q = document.getElementById('crm-search').value.toLowerCase();
+ var cat = document.getElementById('crm-cat').value;
+ var status = document.getElementById('crm-status').value;
+ var filtered = ALL_BUYERS.filter(function(b) {
+  var matchQ = !q ||
+   (b.agency||'').toLowerCase().includes(q) ||
+   (b.buyer_name||'').toLowerCase().includes(q) ||
+   (b.buyer_email||'').toLowerCase().includes(q) ||
+   (b.items||[]).some(function(it){return it.toLowerCase().includes(q);});
+  var matchCat = !cat || (b.categories||[]).includes(cat);
+  var matchStatus = !status || (b.outreach_status||'new')===status;
+  return matchQ && matchCat && matchStatus;
+ });
+ renderTable(filtered);
+}
+
+// Load buyers from growth prospects API
+fetch('/api/growth/status', {credentials:'same-origin'}).then(r=>r.json()).then(function(d) {
+ var buyers = d.prospects || d.pipeline || [];
+ ALL_BUYERS = buyers;
+
+ if (!buyers.length) {
+  document.getElementById('crm-table').style.display = 'none';
+  document.getElementById('crm-empty').style.display = 'block';
+  document.getElementById('stat-total').textContent = '0';
+  document.getElementById('stat-agencies').textContent = '0';
+  document.getElementById('stat-spend').textContent = '$0';
+  document.getElementById('stat-outreach').textContent = '0';
+  document.getElementById('stat-won').textContent = '0';
+  return;
+ }
+
+ // Stats
+ var agencies = new Set(buyers.map(function(b){return b.agency})).size;
+ var totalSpend = buyers.reduce(function(s,b){return s+(b.annual_spend||b.spend||0)}, 0);
+ var inOutreach = buyers.filter(function(b){return b.outreach_status&&b.outreach_status!=='new'}).length;
+ var won = buyers.filter(function(b){return b.outreach_status==='won'}).length;
+
+ document.getElementById('stat-total').textContent = buyers.length;
+ document.getElementById('stat-agencies').textContent = agencies;
+ document.getElementById('stat-spend').textContent = totalSpend>=1e6?'$'+(totalSpend/1e6).toFixed(1)+'M':totalSpend>=1e3?'$'+(totalSpend/1e3).toFixed(0)+'K':'$'+totalSpend;
+ document.getElementById('stat-outreach').textContent = inOutreach;
+ document.getElementById('stat-won').textContent = won;
+
+ // Populate category filter with actual categories
+ var cats = new Set();
+ buyers.forEach(function(b){(b.categories||[]).forEach(function(c){cats.add(c)})});
+ var sel = document.getElementById('crm-cat');
+ sel.innerHTML = '<option value="">All Categories</option>';
+ Array.from(cats).sort().forEach(function(c){
+  sel.innerHTML += '<option value="'+c+'">'+c+'</option>';
+ });
+
+ renderTable(buyers);
+}).catch(function() {
+ document.getElementById('crm-table').style.display = 'none';
+ document.getElementById('crm-empty').style.display = 'block';
+});
+</script>
+"""
