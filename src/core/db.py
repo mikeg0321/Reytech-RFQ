@@ -45,13 +45,30 @@ log = logging.getLogger("reytech.db")
 # Priority: REYTECH_DATA_DIR env var (Railway volume) → project /data directory
 def _resolve_data_dir() -> str:
     """Return the persistent data directory path."""
+    # Explicit override (optional)
     env_path = os.environ.get("REYTECH_DATA_DIR", "")
     if env_path and os.path.isdir(env_path):
         return env_path
-    # Railway volume not configured — fall back to project data dir
+    # Railway auto-mounts volume — check both common paths
+    for candidate in ("/app/data", "/data"):
+        if os.path.isdir(candidate):
+            # Confirm it's a real volume mount (not just the git data dir baked into image)
+            # Railway sets RAILWAY_VOLUME_NAME or RAILWAY_VOLUME_MOUNT_PATH when a volume is attached
+            if (os.environ.get("RAILWAY_VOLUME_NAME") or
+                os.environ.get("RAILWAY_VOLUME_MOUNT_PATH") or
+                os.environ.get("RAILWAY_ENVIRONMENT")):
+                return candidate
+    # Fall back to project /data directory (local dev)
     _here = os.path.abspath(__file__)
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(_here)))
     return os.path.join(project_root, "data")
+
+def _is_railway_volume() -> bool:
+    """True when running on Railway with a volume actually mounted."""
+    return bool(
+        os.environ.get("RAILWAY_VOLUME_NAME") or
+        os.environ.get("RAILWAY_VOLUME_MOUNT_PATH")
+    )
 
 DATA_DIR = _resolve_data_dir()
 DB_PATH = os.path.join(DATA_DIR, "reytech.db")
@@ -561,60 +578,56 @@ def get_db_stats() -> dict:
 # ── Migration: JSON → SQLite ──────────────────────────────────────────────────
 def migrate_json_to_db() -> dict:
     """One-time migration of all existing JSON files into SQLite.
-    Safe to call multiple times — uses INSERT OR IGNORE.
+    Safe to call multiple times — uses INSERT OR IGNORE / upsert.
+    Checks both the volume DATA_DIR and the git-tracked data/ dir.
     """
     counts = {"quotes": 0, "contacts": 0, "revenue": 0, "errors": []}
 
+    # Possible source dirs: volume path first, then git data dir as fallback
+    _here = os.path.abspath(__file__)
+    _git_data = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(_here))), "data")
+    source_dirs = list(dict.fromkeys([DATA_DIR, _git_data]))  # dedup, preserve order
+
+    def _try_load(fname):
+        for d in source_dirs:
+            p = os.path.join(d, fname)
+            if os.path.exists(p) and os.path.getsize(p) > 2:
+                try:
+                    with open(p) as f:
+                        return json.load(f)
+                except Exception:
+                    continue
+        return None
+
     # Quotes
-    quotes_path = os.path.join(DATA_DIR, "quotes_log.json")
-    try:
-        with open(quotes_path) as f:
-            quotes = json.load(f)
-        if isinstance(quotes, list):
-            for q in quotes:
-                if upsert_quote(q):
-                    counts["quotes"] += 1
-    except (FileNotFoundError, json.JSONDecodeError):
-        pass
-    except Exception as e:
-        counts["errors"].append(f"quotes: {e}")
+    quotes = _try_load("quotes_log.json")
+    if isinstance(quotes, list):
+        for q in quotes:
+            if upsert_quote(q):
+                counts["quotes"] += 1
 
     # CRM contacts
-    crm_path = os.path.join(DATA_DIR, "crm_contacts.json")
-    try:
-        with open(crm_path) as f:
-            contacts = json.load(f)
-        if isinstance(contacts, dict):
-            for cid, c in contacts.items():
-                c["id"] = cid
-                if upsert_contact(c):
-                    counts["contacts"] += 1
-    except (FileNotFoundError, json.JSONDecodeError):
-        pass
-    except Exception as e:
-        counts["errors"].append(f"contacts: {e}")
+    contacts = _try_load("crm_contacts.json")
+    if isinstance(contacts, dict):
+        for cid, c in contacts.items():
+            c["id"] = cid
+            if upsert_contact(c):
+                counts["contacts"] += 1
 
     # Revenue entries
-    revenue_path = os.path.join(DATA_DIR, "intel_revenue.json")
-    try:
-        with open(revenue_path) as f:
-            rev = json.load(f)
-        if isinstance(rev, dict):
-            for entry in rev.get("manual_entries", []):
-                try:
-                    log_revenue(
-                        amount=entry.get("amount", 0),
-                        description=entry.get("description", ""),
-                        date=entry.get("date", ""),
-                        source="manual",
-                    )
-                    counts["revenue"] += 1
-                except Exception:
-                    pass
-    except (FileNotFoundError, json.JSONDecodeError):
-        pass
-    except Exception as e:
-        counts["errors"].append(f"revenue: {e}")
+    rev = _try_load("intel_revenue.json")
+    if isinstance(rev, dict):
+        for entry in rev.get("manual_entries", []):
+            try:
+                log_revenue(
+                    amount=entry.get("amount", 0),
+                    description=entry.get("description", ""),
+                    date=entry.get("date", ""),
+                    source="manual",
+                )
+                counts["revenue"] += 1
+            except Exception:
+                pass
 
     log.info("JSON→DB migration: %s", counts)
     return counts
@@ -625,11 +638,12 @@ def startup() -> dict:
     """Initialize DB and migrate existing data. Call once at app start."""
     init_db()
     stats_before = get_db_stats()
-    if stats_before.get("quotes", 0) == 0:
-        # First run — migrate from JSON
+    if stats_before.get("quotes", 0) == 0 and stats_before.get("contacts", 0) == 0:
+        # First run — migrate from JSON seed files
         migrated = migrate_json_to_db()
         log.info("First-run migration complete: %s", migrated)
     stats = get_db_stats()
-    log.info("DB ready: %s", {k: v for k, v in stats.items() if k != "db_path"})
-    return {"ok": True, "db_path": DB_PATH, "stats": stats,
-            "is_volume": DATA_DIR == os.environ.get("REYTECH_DATA_DIR", "")}
+    is_vol = _is_railway_volume()
+    log.info("DB ready [volume=%s]: %s", is_vol,
+             {k: v for k, v in stats.items() if k not in ("db_path", "db_size_kb")})
+    return {"ok": True, "db_path": DB_PATH, "stats": stats, "is_volume": is_vol}

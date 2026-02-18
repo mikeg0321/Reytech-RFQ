@@ -3044,21 +3044,24 @@ def api_metrics():
 def api_db_status():
     """Database status — row counts, file size, persistence info."""
     try:
-        from src.core.db import get_db_stats, DB_PATH, DATA_DIR as _DB_DATA_DIR
+        from src.core.db import get_db_stats, DB_PATH, _is_railway_volume
         stats = get_db_stats()
-        is_volume = _DB_DATA_DIR == os.environ.get("REYTECH_DATA_DIR","")
+        is_vol = _is_railway_volume()
         return jsonify({
             "ok": True,
             "db_path": DB_PATH,
             "db_size_kb": stats.get("db_size_kb", 0),
-            "is_railway_volume": is_volume,
-            "persistence": "permanent (Railway volume)" if is_volume else "temporary (container filesystem — data lost on redeploy)",
-            "tables": {k: v for k, v in stats.items() if k not in ("db_path","db_size_kb")},
-            "setup_instructions": None if is_volume else {
-                "step1": "railway.app → your project → your service → Storage → Add Volume",
-                "step2": "Mount Path: /data",
-                "step3": "Add env var: REYTECH_DATA_DIR=/data",
-                "step4": "Redeploy — all data now survives forever",
+            "is_railway_volume": is_vol,
+            "persistence": "permanent (Railway volume ✅)" if is_vol else "temporary (container filesystem — data lost on redeploy)",
+            "tables": {k: v for k, v in stats.items() if k not in ("db_path", "db_size_kb")},
+            "railway_env": {
+                "RAILWAY_VOLUME_NAME": os.environ.get("RAILWAY_VOLUME_NAME", "not set"),
+                "RAILWAY_VOLUME_MOUNT_PATH": os.environ.get("RAILWAY_VOLUME_MOUNT_PATH", "not set"),
+                "RAILWAY_ENVIRONMENT": os.environ.get("RAILWAY_ENVIRONMENT", "not set"),
+            },
+            "setup_instructions": None if is_vol else {
+                "note": "Volume appears mounted at /app/data but RAILWAY_VOLUME_NAME env var not detected.",
+                "fix": "In Railway UI → your service → Variables → confirm RAILWAY_VOLUME_NAME is auto-set, or redeploy.",
             },
         })
     except Exception as e:
