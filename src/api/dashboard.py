@@ -4588,23 +4588,26 @@ def api_manager_metrics():
     try:
         qpath = os.path.join(DATA_DIR, "quotes_log.json")
         with open(qpath) as f:
-            quotes = json.load(f)
+            quotes = [q for q in json.load(f) if not q.get("is_test")]
     except Exception as e:
         log.debug("Suppressed: %s", e)
         pass
 
     pcs = _load_price_checks()
+    # Filter test PCs
+    if isinstance(pcs, dict):
+        pcs = {k: v for k, v in pcs.items() if not v.get("is_test")}
     now = datetime.now()
 
     # Revenue metrics
     won = [q for q in quotes if q.get("status") == "won"]
     lost = [q for q in quotes if q.get("status") == "lost"]
-    pending = [q for q in quotes if q.get("status", "pending") == "pending"]
+    pending = [q for q in quotes if q.get("status") in ("pending", "sent")]
     total_revenue = sum(q.get("total", 0) for q in won)
     pipeline_value = sum(q.get("total", 0) for q in pending)
 
-    # Monthly goal (configurable later, default $25K)
-    monthly_goal = float(os.environ.get("MONTHLY_REVENUE_GOAL", "25000"))
+    # Monthly goal aligned with $2M annual
+    monthly_goal = float(os.environ.get("MONTHLY_REVENUE_GOAL", "166667"))
 
     # This month's revenue
     month_start = now.replace(day=1, hour=0, minute=0, second=0)
@@ -6741,6 +6744,135 @@ def api_cleanup_duplicates():
     return jsonify(report)
 
 
+@bp.route("/api/data/sync-clean")
+@auth_required
+def api_data_sync_clean():
+    """Deep clean production data — remove all stale/orphaned records.
+    
+    Keeps: R26Q16 (only real quote), customers, vendors, scprs caches.
+    Removes: old quotes, test data, stale leads, orphaned PCs, old CRM entries.
+    
+    ?dry_run=true to preview. Default is dry_run.
+    ?confirm=yes to actually execute.
+    """
+    dry_run = request.args.get("confirm", "no").lower() != "yes"
+    report = {"dry_run": dry_run, "actions": []}
+
+    # 1. Clean quotes — keep only R26Q16
+    try:
+        qpath = os.path.join(DATA_DIR, "quotes_log.json")
+        with open(qpath) as f:
+            quotes = json.load(f)
+        keep = [q for q in quotes if q.get("quote_number") == "R26Q16"]
+        removed_q = len(quotes) - len(keep)
+        report["quotes"] = {"before": len(quotes), "after": len(keep), "removed": removed_q,
+                            "kept": [q.get("quote_number") for q in keep]}
+        if removed_q > 0:
+            report["actions"].append(f"Remove {removed_q} stale quotes (keep R26Q16)")
+        if not dry_run and removed_q > 0:
+            with open(qpath, "w") as f:
+                json.dump(keep, f, indent=2, default=str)
+    except Exception as e:
+        report["quotes_error"] = str(e)
+
+    # 2. Clean price checks — remove any with is_test or no real data
+    try:
+        pcpath = os.path.join(DATA_DIR, "price_checks.json")
+        if os.path.exists(pcpath):
+            with open(pcpath) as f:
+                pcs = json.load(f)
+            if isinstance(pcs, dict):
+                clean_pcs = {k: v for k, v in pcs.items()
+                             if not v.get("is_test") and v.get("institution")}
+                removed_pc = len(pcs) - len(clean_pcs)
+                report["price_checks"] = {"before": len(pcs), "after": len(clean_pcs), "removed": removed_pc}
+                if removed_pc > 0:
+                    report["actions"].append(f"Remove {removed_pc} stale/test PCs")
+                if not dry_run and removed_pc > 0:
+                    with open(pcpath, "w") as f:
+                        json.dump(clean_pcs, f, indent=2, default=str)
+    except Exception as e:
+        report["pc_error"] = str(e)
+
+    # 3. Clean leads — remove test leads + batch-generated
+    try:
+        lpath = os.path.join(DATA_DIR, "leads.json")
+        if os.path.exists(lpath):
+            with open(lpath) as f:
+                leads = json.load(f)
+            clean_leads = [l for l in leads
+                           if not l.get("is_test")
+                           and l.get("match_type") != "test"
+                           and not str(l.get("po_number", "")).startswith("PO-ADD-")]
+            removed_l = len(leads) - len(clean_leads)
+            report["leads"] = {"before": len(leads), "after": len(clean_leads), "removed": removed_l}
+            if removed_l > 0:
+                report["actions"].append(f"Remove {removed_l} test/batch leads")
+            if not dry_run and removed_l > 0:
+                with open(lpath, "w") as f:
+                    json.dump(clean_leads, f, indent=2, default=str)
+    except Exception as e:
+        report["leads_error"] = str(e)
+
+    # 4. Clear stale outbox, CRM, email logs
+    stale_files = ["email_outbox.json", "crm_activity.json", "email_sent_log.json",
+                   "lead_history.json", "workflow_runs.json", "scan_log.json"]
+    for fname in stale_files:
+        fpath = os.path.join(DATA_DIR, fname)
+        if os.path.exists(fpath):
+            try:
+                with open(fpath) as f:
+                    data = json.load(f)
+                count = len(data) if isinstance(data, (list, dict)) else 0
+                if count > 0:
+                    report["actions"].append(f"Clear {fname} ({count} entries)")
+                    if not dry_run:
+                        empty = [] if isinstance(data, list) else {}
+                        with open(fpath, "w") as f:
+                            json.dump(empty, f, indent=2)
+            except Exception:
+                pass
+
+    # 5. Reset quote counter to 16
+    try:
+        cpath = os.path.join(DATA_DIR, "quote_counter.json")
+        if os.path.exists(cpath):
+            with open(cpath) as f:
+                counter = json.load(f)
+            current = counter.get("counter", 0)
+            if current != 16:
+                report["actions"].append(f"Reset quote counter: {current} → 16")
+                if not dry_run:
+                    counter["counter"] = 16
+                    with open(cpath, "w") as f:
+                        json.dump(counter, f, indent=2)
+    except Exception:
+        pass
+
+    # 6. Clear orders
+    try:
+        opath = os.path.join(DATA_DIR, "orders.json")
+        if os.path.exists(opath):
+            with open(opath) as f:
+                orders = json.load(f)
+            if isinstance(orders, dict) and len(orders) > 0:
+                report["actions"].append(f"Clear {len(orders)} orders")
+                if not dry_run:
+                    with open(opath, "w") as f:
+                        json.dump({}, f, indent=2)
+    except Exception:
+        pass
+
+    if not report["actions"]:
+        report["message"] = "Data is already clean — nothing to do"
+    elif dry_run:
+        report["message"] = f"DRY RUN: {len(report['actions'])} actions needed. Hit /api/data/sync-clean?confirm=yes to execute."
+    else:
+        report["message"] = f"DONE: {len(report['actions'])} cleanup actions executed"
+        log.info("DATA SYNC: %d actions executed", len(report["actions"]))
+
+    return jsonify({"ok": True, **report})
+@auth_required
 @bp.route("/api/test/renumber-quote")
 @auth_required
 def api_renumber_quote():
