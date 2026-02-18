@@ -353,8 +353,16 @@ def build_cs_response_draft(
         if inv_nums:
             entities_resolved["invoice_numbers"] = inv_nums
 
+    # ── EMAIL THREAD (for CS body context) ──────────────────────────────────
+    prior_thread = []
+    try:
+        from src.agents.notify_agent import get_email_thread
+        prior_thread = get_email_thread(contact_email=sender_email, limit=10)
+    except Exception:
+        pass
+
     # ── QUOTE STATUS ─────────────────────────────────────────────────────────
-    elif intent == "quote_status":
+    if intent == "quote_status":
         q_nums = entities.get("quote_numbers", [])
         quote = _lookup_quote(q_nums[0]) if q_nums else None
         recent = _lookup_recent_quotes_for_sender(sender_email) if sender_email else []
@@ -456,6 +464,37 @@ def build_cs_response_draft(
         pass
 
     log.info("CS draft created: intent=%s, to=%s, draft_id=%s", intent, sender_email, draft["id"])
+
+    # 🔔 Fire alert — SMS + email + bell
+    try:
+        from src.agents.notify_agent import send_alert, log_email_event
+        send_alert(
+            event_type="cs_draft_ready",
+            title=f"📬 CS Draft Ready: {intent.replace('_',' ').title()}",
+            body=f"Inbound from {sender_name or sender_email}: {subject[:80]}\nDraft reply ready for your review.",
+            urgency="urgent",
+            context={
+                "intent": intent,
+                "contact": sender,
+                "entity_id": draft["id"],
+                **{k: v for k, v in entities_resolved.items() if isinstance(v, str)},
+            },
+            cooldown_key=f"cs_draft_{sender_email}",
+        )
+        # Log the received email for CS dispute resolution
+        log_email_event(
+            direction="received",
+            sender=sender,
+            recipient=GMAIL_ADDRESS if GMAIL_ADDRESS else "sales@reytechinc.com",
+            subject=subject,
+            body_preview=body[:500],
+            full_body=body,
+            contact_id=sender_email or sender,
+            intent=f"cs_{intent}",
+            status="received",
+        )
+    except Exception as _ne:
+        log.debug("Notify error: %s", _ne)
 
     return {
         "ok": True,

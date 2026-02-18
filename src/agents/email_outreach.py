@@ -334,6 +334,23 @@ def send_email(email_id: str) -> dict:
         })
 
         log.info("SENT email %s → %s: %s", target["id"], target["to"], target["subject"])
+        # 📧 Log to email_log for CS communication history
+        try:
+            from src.agents.notify_agent import log_email_event
+            log_email_event(
+                direction="sent",
+                sender=os.environ.get("GMAIL_ADDRESS","sales@reytechinc.com"),
+                recipient=target.get("to",""),
+                subject=target.get("subject",""),
+                body_preview=(target.get("body","") or "")[:500],
+                full_body=target.get("body",""),
+                quote_number=(target.get("metadata",{}) or {}).get("quote_number",""),
+                contact_id=target.get("to",""),
+                intent=target.get("type","general"),
+                status="sent",
+            )
+        except Exception as _le:
+            pass
         return {"ok": True, "email": target}
 
     except Exception as e:

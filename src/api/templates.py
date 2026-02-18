@@ -180,6 +180,28 @@ table.it input:focus{outline:none;border-color:var(--ac)}
   .btn-group .btn{width:100%;text-align:center}
   h1{font-size:16px!important}
 }
+
+/* Notification bell */
+.notif-bell{position:relative;cursor:pointer;padding:6px 10px;border-radius:6px;border:1px solid var(--bd);background:var(--sf2);color:var(--tx);display:inline-flex;align-items:center;gap:5px;font-size:13px;transition:.15s}
+.notif-bell:hover{border-color:var(--ac);background:rgba(79,140,255,.1)}
+.notif-badge{position:absolute;top:-6px;right:-6px;background:var(--rd);color:#fff;border-radius:10px;font-size:10px;font-weight:700;min-width:18px;height:18px;display:flex;align-items:center;justify-content:center;padding:0 4px;border:2px solid var(--bg);display:none}
+.notif-badge.show{display:flex}
+.notif-panel{position:fixed;top:76px;right:20px;width:360px;background:var(--sf);border:1px solid var(--bd);border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.5);z-index:999;display:none;flex-direction:column;max-height:520px;overflow:hidden}
+.notif-panel.open{display:flex}
+.notif-panel-hdr{padding:14px 16px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center}
+.notif-panel-hdr h4{font-size:13px;font-weight:600;color:var(--tx)}
+.notif-panel-body{overflow-y:auto;flex:1}
+.notif-item{padding:12px 16px;border-bottom:1px solid rgba(46,51,69,.5);cursor:pointer;transition:.1s}
+.notif-item:hover{background:var(--sf2)}
+.notif-item.unread{border-left:3px solid var(--ac)}
+.notif-item.urgency-urgent{border-left:3px solid var(--rd)}
+.notif-item.urgency-deal{border-left:3px solid var(--gn)}
+.notif-item.urgency-warning{border-left:3px solid var(--yl)}
+.notif-item-title{font-size:13px;font-weight:500;color:var(--tx);margin-bottom:3px}
+.notif-item-body{font-size:11px;color:var(--tx2);line-height:1.4}
+.notif-item-time{font-size:10px;color:var(--tx2);margin-top:4px;font-family:'JetBrains Mono',monospace}
+.notif-empty{padding:32px;text-align:center;color:var(--tx2);font-size:13px}
+.notif-footer{padding:10px 16px;border-top:1px solid var(--bd);display:flex;gap:8px}
 """
 
 PAGE_HOME = """

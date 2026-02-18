@@ -256,6 +256,49 @@ CREATE TABLE IF NOT EXISTS price_checks (
     quote_number    TEXT,
     total_items     INTEGER DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS notifications (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at      TEXT NOT NULL,
+    event_type      TEXT NOT NULL,
+    urgency         TEXT DEFAULT 'info',
+    title           TEXT NOT NULL,
+    body            TEXT,
+    context_json    TEXT,
+    deep_link       TEXT,
+    is_read         INTEGER DEFAULT 0,
+    sms_sent        INTEGER DEFAULT 0,
+    email_sent      INTEGER DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_notif_unread ON notifications(is_read, created_at);
+CREATE INDEX IF NOT EXISTS idx_notif_type ON notifications(event_type);
+
+CREATE TABLE IF NOT EXISTS email_log (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    logged_at       TEXT NOT NULL,
+    direction       TEXT NOT NULL,
+    sender          TEXT NOT NULL,
+    recipient       TEXT NOT NULL,
+    subject         TEXT,
+    body_preview    TEXT,
+    full_body       TEXT,
+    attachments_json TEXT,
+    quote_number    TEXT,
+    po_number       TEXT,
+    rfq_id          TEXT,
+    contact_id      TEXT,
+    intent          TEXT,
+    status          TEXT DEFAULT 'sent',
+    message_id      TEXT,
+    thread_id       TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_email_log_contact ON email_log(contact_id);
+CREATE INDEX IF NOT EXISTS idx_email_log_quote ON email_log(quote_number);
+CREATE INDEX IF NOT EXISTS idx_email_log_po ON email_log(po_number);
+CREATE INDEX IF NOT EXISTS idx_email_log_direction ON email_log(direction, logged_at);
+CREATE INDEX IF NOT EXISTS idx_email_log_sender ON email_log(sender);
 """
 
 def init_db():

@@ -162,6 +162,16 @@ def build_call_context(institution: str = "", po_number: str = "",
         if order_ctx:
             sections.append(order_ctx)
 
+    # ── Email Communication History (for CS dispute resolution) ──────────────
+    if buyer_email or quote_number or po_number:
+        try:
+            from src.agents.notify_agent import build_cs_communication_summary
+            comm = build_cs_communication_summary(buyer_email, quote_number, po_number)
+            if comm:
+                sections.append(comm)
+        except Exception:
+            pass
+
     # ── Financial Context (QB) ────────────────────────────────────────────
     financial = _get_financial_context(institution)
     if financial:

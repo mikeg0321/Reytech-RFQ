@@ -497,6 +497,21 @@ def _auto_draft_pipeline(rfq_data: dict):
         metadata={"rfq_id": rfq_id, "pc_id": pc_id, "feature": "4.2"},
     )
     log.info("[AutoDraft] Complete for RFQ %s in %.1fs", sol, _time.time() - t0)
+    # 🔔 Proactive alert — auto-draft ready for review
+    try:
+        from src.agents.notify_agent import send_alert
+        qnum = draft_result.get("quote_number","?")
+        contact = rfq_data.get("requestor_email","") or rfq_data.get("requestor_name","")
+        send_alert(
+            event_type="auto_draft_ready",
+            title=f"📋 Auto-Draft Ready: {qnum}",
+            body=f"Quote {qnum} auto-drafted from email RFQ {sol} ({contact}). Review and send when ready.",
+            urgency="draft",
+            context={"quote_number": qnum, "contact": contact, "entity_id": qnum},
+            cooldown_key=f"auto_draft_{qnum}",
+        )
+    except Exception as _ne:
+        log.debug("Auto-draft alert error: %s", _ne)
 
 
 
@@ -774,6 +789,29 @@ def render(content, **kw):
   <span style="width:1px;height:24px;background:var(--bd);margin:0 6px" role="separator" aria-hidden="true"></span>
   <button class="hdr-btn" onclick="pollNow(this)" id="poll-btn" aria-label="Check for new emails now">⚡ Check Now</button>
   <button class="hdr-btn hdr-warn" onclick="resyncAll(this)" title="Clear queue & re-import all emails" aria-label="Resync all emails from inbox">🔄 Resync</button>
+<div style="position:relative" id="notif-wrap">
+   <button class="notif-bell" onclick="toggleNotifPanel()" id="notif-bell-btn" aria-label="Notifications" title="Notifications">
+    🔔
+    <span class="notif-badge" id="notif-badge">0</span>
+   </button>
+   <div class="notif-panel" id="notif-panel">
+    <div class="notif-panel-hdr">
+     <h4>🔔 Notifications</h4>
+     <div style="display:flex;gap:8px;align-items:center">
+      <span id="notif-cs-count" style="font-size:11px;color:var(--yl);display:none"></span>
+      <button onclick="markAllRead()" style="font-size:11px;color:var(--tx2);background:none;border:none;cursor:pointer;padding:2px 6px">Mark all read</button>
+      <button onclick="toggleNotifPanel()" style="font-size:16px;color:var(--tx2);background:none;border:none;cursor:pointer;line-height:1">×</button>
+     </div>
+    </div>
+    <div class="notif-panel-body" id="notif-list">
+     <div class="notif-empty">Loading...</div>
+    </div>
+    <div class="notif-footer">
+     <a href="/outbox" class="hdr-btn" style="font-size:11px;padding:4px 10px">📬 Review Drafts</a>
+     <a href="/api/notify/status" class="hdr-btn" style="font-size:11px;padding:4px 10px" target="_blank">⚙️ Alert Settings</a>
+    </div>
+   </div>
+  </div>
   <span style="width:1px;height:24px;background:var(--bd);margin:0 6px" role="separator" aria-hidden="true"></span>
   <div class="hdr-status" role="status" aria-live="polite" aria-label="Email polling status">
    <div style="display:flex;align-items:center;gap:6px">
@@ -812,6 +850,87 @@ function resyncAll(btn){
   else{btn.textContent='0 found';setTimeout(()=>{btn.textContent='🔄 Resync';btn.disabled=false},2000)}
  }).catch(()=>{btn.textContent='Error';setTimeout(()=>{btn.textContent='🔄 Resync';btn.disabled=false},2000)});
 }
+
+// ── Notification Bell ──────────────────────────────────────────────────────
+(function initBell(){
+  // Poll badge count every 30s
+  function updateBellCount(){
+    fetch('/api/notifications/bell-count',{credentials:'same-origin'})
+    .then(r=>r.json()).then(d=>{
+      var badge=document.getElementById('notif-badge');
+      var btn=document.getElementById('notif-bell-btn');
+      if(!badge||!d.ok)return;
+      var total=d.total_badge||0;
+      if(total>0){badge.textContent=total>99?'99+':total;badge.classList.add('show')}
+      else{badge.classList.remove('show')}
+      // CS drafts warning
+      var csEl=document.getElementById('notif-cs-count');
+      if(csEl&&d.cs_drafts>0){csEl.textContent=d.cs_drafts+' CS draft(s)';csEl.style.display='inline'}
+      else if(csEl){csEl.style.display='none'}
+    }).catch(()=>{});
+  }
+  updateBellCount();
+  setInterval(updateBellCount,30000);
+})();
+
+function toggleNotifPanel(){
+  var panel=document.getElementById('notif-panel');
+  if(!panel)return;
+  var isOpen=panel.classList.contains('open');
+  panel.classList.toggle('open');
+  if(!isOpen) loadNotifications();
+}
+
+function loadNotifications(){
+  fetch('/api/notifications/persistent?limit=20',{credentials:'same-origin'})
+  .then(r=>r.json()).then(d=>{
+    var list=document.getElementById('notif-list');
+    if(!list)return;
+    if(!d.notifications||d.notifications.length===0){
+      list.innerHTML='<div class="notif-empty">No notifications yet.<br><small style="color:var(--tx2)">You\'ll get alerts for new RFQs, CS drafts, and won quotes.</small></div>';
+      return;
+    }
+    var URGENCY_ICON={urgent:'🚨',deal:'💰',draft:'📋',warning:'⏰',info:'ℹ️'};
+    list.innerHTML=d.notifications.map(n=>{
+      var ts=n.created_at?new Date(n.created_at).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true}):'';
+      var icon=URGENCY_ICON[n.urgency]||'🔔';
+      return '<div class="notif-item '+(n.is_read?'':'unread')+' urgency-'+(n.urgency||'info')+'" onclick="notifClick(\''+n.deep_link+'\','+n.id+')">'
+        +'<div class="notif-item-title">'+icon+' '+(n.title||'')+'</div>'
+        +'<div class="notif-item-body">'+(n.body||'').substring(0,120)+'</div>'
+        +'<div class="notif-item-time">'+ts+'</div>'
+        +'</div>';
+    }).join('');
+  }).catch(()=>{
+    var list=document.getElementById('notif-list');
+    if(list)list.innerHTML='<div class="notif-empty">Could not load notifications.</div>';
+  });
+}
+
+function notifClick(link,id){
+  // Mark read
+  if(id) fetch('/api/notifications/mark-read',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:[id]})});
+  // Navigate
+  if(link&&link!=='/'){window.location.href=link}
+  document.getElementById('notif-panel').classList.remove('open');
+}
+
+function markAllRead(){
+  fetch('/api/notifications/mark-read',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({})})
+  .then(()=>{
+    document.getElementById('notif-badge').classList.remove('show');
+    loadNotifications();
+  });
+}
+
+// Close panel on outside click
+document.addEventListener('click',function(e){
+  var wrap=document.getElementById('notif-wrap');
+  if(wrap&&!wrap.contains(e.target)){
+    var panel=document.getElementById('notif-panel');
+    if(panel)panel.classList.remove('open');
+  }
+});
+
 // Convert poll time to local
 (function(){
  var el=document.getElementById('poll-time');
@@ -859,6 +978,29 @@ def _header(page_title: str = "") -> str:
   <a href="/agents" class="hdr-btn">🤖 Agents</a>
   <span style="width:1px;height:24px;background:var(--bd);margin:0 6px"></span>
   <button class="hdr-btn" onclick="pollNow(this)" id="poll-btn">⚡ Check Now</button>
+<div style="position:relative" id="notif-wrap">
+   <button class="notif-bell" onclick="toggleNotifPanel()" id="notif-bell-btn" aria-label="Notifications" title="Notifications">
+    🔔
+    <span class="notif-badge" id="notif-badge">0</span>
+   </button>
+   <div class="notif-panel" id="notif-panel">
+    <div class="notif-panel-hdr">
+     <h4>🔔 Notifications</h4>
+     <div style="display:flex;gap:8px;align-items:center">
+      <span id="notif-cs-count" style="font-size:11px;color:var(--yl);display:none"></span>
+      <button onclick="markAllRead()" style="font-size:11px;color:var(--tx2);background:none;border:none;cursor:pointer;padding:2px 6px">Mark all read</button>
+      <button onclick="toggleNotifPanel()" style="font-size:16px;color:var(--tx2);background:none;border:none;cursor:pointer;line-height:1">×</button>
+     </div>
+    </div>
+    <div class="notif-panel-body" id="notif-list">
+     <div class="notif-empty">Loading...</div>
+    </div>
+    <div class="notif-footer">
+     <a href="/outbox" class="hdr-btn" style="font-size:11px;padding:4px 10px">📬 Review Drafts</a>
+     <a href="/api/notify/status" class="hdr-btn" style="font-size:11px;padding:4px 10px" target="_blank">⚙️ Alert Settings</a>
+    </div>
+   </div>
+  </div>
   <span style="width:1px;height:24px;background:var(--bd);margin:0 6px"></span>
   <div class="hdr-status">
    <div style="display:flex;align-items:center;gap:6px">
@@ -4307,6 +4449,336 @@ def api_crm_bulk_outreach():
     })
 
 
+
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# NOTIFICATION & ALERT ROUTES — Push notification system
+# ════════════════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/notifications/persistent")
+@auth_required
+def api_notifications_persistent():
+    """Get persistent notifications from SQLite (survives deploys)."""
+    unread_only = request.args.get("unread_only") == "true"
+    limit = int(request.args.get("limit", 30))
+    try:
+        from src.agents.notify_agent import get_notifications, get_unread_count
+        notifs = get_notifications(limit=limit, unread_only=unread_only)
+        return jsonify({"ok": True, "notifications": notifs, "unread_count": get_unread_count()})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/notifications/bell-count")
+@auth_required
+def api_bell_count():
+    """Fast unread count for nav bell badge — polled every 30s."""
+    try:
+        from src.agents.notify_agent import get_unread_count
+        from src.agents.cs_agent import get_cs_drafts
+        cs_pending = len(get_cs_drafts())
+        return jsonify({
+            "ok": True,
+            "unread": get_unread_count(),
+            "cs_drafts": cs_pending,
+            "total_badge": get_unread_count() + cs_pending,
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "unread": 0, "cs_drafts": 0, "total_badge": 0})
+
+
+@bp.route("/api/notifications/mark-read", methods=["POST"])
+@auth_required
+def api_notifications_mark_read_v2():
+    """Mark notifications as read."""
+    data = request.get_json(silent=True) or {}
+    ids = data.get("ids")  # list of IDs, or None to mark all
+    try:
+        from src.agents.notify_agent import mark_notifications_read
+        result = mark_notifications_read(ids)
+        # Also mark in-memory deque
+        for n in _notifications:
+            n["read"] = True
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/notify/test", methods=["POST"])
+@auth_required
+def api_notify_test():
+    """Test notification channels (SMS + email + bell). POST {} to fire test."""
+    try:
+        from src.agents.notify_agent import send_alert
+        result = send_alert(
+            event_type="auto_draft_ready",
+            title="🔔 Test Alert — Reytech Dashboard",
+            body="This is a test notification. All channels working correctly.",
+            urgency="info",
+            context={"entity_id": "test_" + datetime.now().strftime("%H%M%S")},
+            cooldown_key=f"test_{datetime.now().strftime('%H%M')}",
+            run_async=False,
+        )
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/notify/status")
+@auth_required
+def api_notify_status():
+    """Notification agent configuration status."""
+    try:
+        from src.agents.notify_agent import get_agent_status
+        return jsonify({"ok": True, **get_agent_status()})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/email-log")
+@auth_required
+def api_email_log():
+    """Get email communication log for CS dispute resolution.
+    ?contact=email&quote=R26Q4&po=12345&limit=50
+    """
+    contact = request.args.get("contact","")
+    quote = request.args.get("quote","")
+    po = request.args.get("po","")
+    limit = int(request.args.get("limit", 50))
+    try:
+        from src.agents.notify_agent import get_email_thread, build_cs_communication_summary
+        thread = get_email_thread(contact_email=contact, quote_number=quote, po_number=po, limit=limit)
+        summary = build_cs_communication_summary(contact, quote, po)
+        return jsonify({"ok": True, "count": len(thread), "thread": thread, "summary": summary})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/email-log/log", methods=["POST"])
+@auth_required
+def api_email_log_entry():
+    """Manually log an email event (sent or received).
+    POST {direction, sender, recipient, subject, body, quote_number, po_number, intent, status}
+    """
+    data = request.get_json(silent=True) or {}
+    try:
+        from src.agents.notify_agent import log_email_event
+        result = log_email_event(
+            direction=data.get("direction","sent"),
+            sender=data.get("sender",""),
+            recipient=data.get("recipient",""),
+            subject=data.get("subject",""),
+            body_preview=data.get("body","")[:500],
+            full_body=data.get("body",""),
+            quote_number=data.get("quote_number",""),
+            po_number=data.get("po_number",""),
+            rfq_id=data.get("rfq_id",""),
+            contact_id=data.get("contact_id","") or data.get("recipient",""),
+            intent=data.get("intent","general"),
+            status=data.get("status","sent"),
+        )
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+
+@bp.route("/outbox")
+@auth_required  
+def page_outbox():
+    """Email outbox — review and approve all pending drafts (sales + CS)."""
+    try:
+        from src.agents.email_outreach import get_outbox
+        from src.agents.cs_agent import get_cs_drafts
+        from src.agents.notify_agent import get_unread_count, get_notifications
+        
+        sales_drafts = get_outbox(status="draft")
+        cs_drafts = get_cs_drafts(limit=50)
+        sent_today = [e for e in get_outbox() if e.get("status") == "sent" and
+                      e.get("sent_at","").startswith(datetime.now().strftime("%Y-%m-%d"))]
+        notifications = get_notifications(limit=10, unread_only=True)
+    except Exception:
+        sales_drafts, cs_drafts, sent_today, notifications = [], [], [], []
+
+    total_pending = len(sales_drafts) + len(cs_drafts)
+    
+    sales_html = ""
+    for d in sales_drafts:
+        sales_html += f"""<div class="card" style="margin-bottom:10px">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
+   <div style="flex:1">
+    <div style="font-size:13px;font-weight:600;color:var(--tx)">{d.get('subject','')}</div>
+    <div style="font-size:11px;color:var(--tx2);margin-top:3px">To: {d.get('to','')} &nbsp;·&nbsp; Created: {(d.get('created_at','') or '')[:16].replace('T',' ')}</div>
+    <div style="font-size:12px;color:var(--tx2);margin-top:6px;white-space:pre-wrap">{(d.get('body','') or '')[:300]}{'...' if len(d.get('body','') or '') > 300 else ''}</div>
+   </div>
+   <div style="display:flex;flex-direction:column;gap:6px;min-width:120px">
+    <button class="btn btn-sm" onclick="approveDraft('{d.get('id','')}',this)" style="background:var(--gn);color:#000;font-size:11px">✅ Approve</button>
+    <button class="btn btn-sm" onclick="deleteDraft('{d.get('id','')}',this)" style="background:var(--sf2);color:var(--rd);font-size:11px">🗑 Delete</button>
+    {"<span style='font-size:10px;color:var(--ac);padding:2px 6px;background:rgba(79,140,255,.1);border-radius:4px'>📋 sales draft</span>" if d.get('type') != 'cs_response' else ''}
+   </div>
+  </div>
+</div>"""
+
+    cs_html = ""
+    for d in cs_drafts:
+        intent_colors = {"order_status":"var(--ac)","delivery":"var(--gn)","invoice":"var(--yl)","quote_status":"var(--or)","general":"var(--tx2)"}
+        intent = d.get("intent","general")
+        cs_html += f"""<div class="card" style="margin-bottom:10px;border-left:3px solid {intent_colors.get(intent,'var(--ac)')}">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
+   <div style="flex:1">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+     <span style="font-size:11px;font-weight:600;color:{intent_colors.get(intent,'var(--ac)')};text-transform:uppercase">{intent.replace('_',' ')}</span>
+     <span style="font-size:10px;color:var(--tx2)">📬 CS auto-draft</span>
+    </div>
+    <div style="font-size:13px;font-weight:600;color:var(--tx)">{d.get('subject','')}</div>
+    <div style="font-size:11px;color:var(--tx2);margin-top:3px">To: {d.get('to','')} &nbsp;·&nbsp; {(d.get('created_at','') or '')[:16].replace('T',' ')}</div>
+    <div style="font-size:12px;color:var(--tx);margin-top:8px;white-space:pre-wrap;padding:8px;background:var(--sf2);border-radius:6px">{(d.get('body','') or '')[:400]}{'...' if len(d.get('body','') or '') > 400 else ''}</div>
+   </div>
+   <div style="display:flex;flex-direction:column;gap:6px;min-width:120px">
+    <button class="btn btn-sm" onclick="approveCS('{d.get('id','')}',this)" style="background:var(--gn);color:#000;font-size:11px">✅ Send Reply</button>
+    <button class="btn btn-sm" onclick="deleteCS('{d.get('id','')}',this)" style="background:var(--sf2);color:var(--rd);font-size:11px">🗑 Discard</button>
+   </div>
+  </div>
+</div>"""
+
+    html = _header("Outbox") + f"""
+<style>
+.btn{{padding:5px 12px;border:1px solid var(--bd);border-radius:6px;cursor:pointer;font-family:'DM Sans',sans-serif;font-weight:500;transition:.15s;text-decoration:none}}
+.btn:hover{{opacity:.8}}
+.btn-sm{{font-size:12px;padding:4px 10px}}
+</style>
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+ <div>
+  <h2 style="font-size:22px;font-weight:700">📬 Email Outbox</h2>
+  <p style="color:var(--tx2);font-size:13px;margin-top:4px">{total_pending} pending · {len(sent_today)} sent today — Review all drafts before sending</p>
+ </div>
+ <div style="display:flex;gap:8px">
+  <a href="/" class="btn">🏠 Home</a>
+  <button class="btn" onclick="sendAllApproved(this)" style="background:rgba(52,211,153,.1);border-color:var(--gn);color:var(--gn)">📤 Send All Approved</button>
+ </div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:24px">
+ <div class="card"><div style="font-size:11px;color:var(--tx2);margin-bottom:4px">PENDING DRAFTS</div><div style="font-size:28px;font-weight:700;color:var(--yl)">{len(sales_drafts)}</div><div style="font-size:11px;color:var(--tx2)">sales outreach</div></div>
+ <div class="card"><div style="font-size:11px;color:var(--tx2);margin-bottom:4px">CS REPLY DRAFTS</div><div style="font-size:28px;font-weight:700;color:{'var(--rd)' if cs_drafts else 'var(--gn)'}">{len(cs_drafts)}</div><div style="font-size:11px;color:var(--tx2)">customer service</div></div>
+</div>
+
+<h3 style="font-size:14px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">📬 Customer Service Replies ({len(cs_drafts)})</h3>
+{'<p style="color:var(--tx2);font-size:13px;padding:20px 0">No CS drafts pending. 👍</p>' if not cs_drafts else cs_html}
+
+<h3 style="font-size:14px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin:24px 0 12px">📋 Sales Drafts ({len(sales_drafts)})</h3>
+{'<p style="color:var(--tx2);font-size:13px;padding:20px 0">No sales drafts pending.</p>' if not sales_drafts else sales_html}
+
+<script>
+function approveDraft(id,btn){{
+  btn.disabled=true;btn.textContent='Sending...';
+  fetch('/api/email/approve',{{method:'POST',credentials:'same-origin',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{email_id:id}})}})
+  .then(r=>r.json()).then(d=>{{
+    if(d.ok){{btn.textContent='✅ Sent!';btn.style.background='var(--gn)';setTimeout(()=>location.reload(),1200)}}
+    else{{btn.disabled=false;btn.textContent='❌ Failed: '+d.error}}
+  }}).catch(()=>{{btn.disabled=false;btn.textContent='Error'}});
+}}
+function approveCS(id,btn){{
+  btn.disabled=true;btn.textContent='Sending...';
+  fetch('/api/email/approve-cs',{{method:'POST',credentials:'same-origin',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{draft_id:id}})}})
+  .then(r=>r.json()).then(d=>{{
+    if(d.ok){{btn.textContent='✅ Sent!';setTimeout(()=>location.reload(),1200)}}
+    else{{btn.disabled=false;btn.textContent='Error: '+(d.error||'unknown')}}
+  }}).catch(()=>{{btn.disabled=false;btn.textContent='Error'}});
+}}
+function deleteDraft(id,btn){{
+  if(!confirm('Delete this draft?'))return;
+  fetch('/api/email/delete',{{method:'POST',credentials:'same-origin',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{email_id:id}})}})
+  .then(()=>btn.closest('.card').remove());
+}}
+function deleteCS(id,btn){{
+  if(!confirm('Discard this CS draft?'))return;
+  fetch('/api/email/delete-cs',{{method:'POST',credentials:'same-origin',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{draft_id:id}})}})
+  .then(()=>btn.closest('.card').remove());
+}}
+function sendAllApproved(btn){{
+  btn.disabled=true;btn.textContent='⏳ Sending...';
+  fetch('/api/email/send-approved',{{method:'POST',credentials:'same-origin'}})
+  .then(r=>r.json()).then(d=>{{
+    btn.textContent=(d.sent||0)+' sent';setTimeout(()=>location.reload(),1500);
+  }}).catch(()=>{{btn.disabled=false;btn.textContent='Error'}});
+}}
+</script>
+</div></body></html>"""
+    return html
+
+
+@bp.route("/api/email/approve-cs", methods=["POST"])
+@auth_required
+def api_approve_cs_draft():
+    """Approve and send a CS reply draft."""
+    data = request.get_json(silent=True) or {}
+    draft_id = data.get("draft_id","")
+    if not draft_id:
+        return jsonify({"ok": False, "error": "draft_id required"})
+    try:
+        outbox_path = os.path.join(DATA_DIR, "email_outbox.json")
+        with open(outbox_path) as f:
+            outbox = json.load(f)
+        
+        draft = next((e for e in outbox if e.get("id") == draft_id), None)
+        if not draft:
+            return jsonify({"ok": False, "error": "Draft not found"})
+        
+        # Send via EmailSender
+        from src.agents.email_poller import EmailSender
+        from src.core.secrets import CONFIG
+        sender = EmailSender(CONFIG.get("email", {}))
+        sender.send({"to": draft["to"], "subject": draft["subject"], "body": draft["body"], "attachments": []})
+        
+        # Mark as sent
+        draft["status"] = "sent"
+        draft["sent_at"] = datetime.now().isoformat()
+        
+        with open(outbox_path, "w") as f:
+            json.dump(outbox, f, indent=2, default=str)
+        
+        # Log the sent email
+        try:
+            from src.agents.notify_agent import log_email_event
+            log_email_event(
+                direction="sent",
+                sender=CONFIG.get("email",{}).get("email","sales@reytechinc.com"),
+                recipient=draft["to"],
+                subject=draft["subject"],
+                body_preview=draft.get("body","")[:500],
+                full_body=draft.get("body",""),
+                contact_id=draft.get("to",""),
+                intent=f"cs_{draft.get('intent','reply')}",
+                status="sent",
+            )
+        except Exception:
+            pass
+        
+        log.info("CS draft %s sent to %s", draft_id, draft["to"])
+        return jsonify({"ok": True, "sent_to": draft["to"]})
+    except Exception as e:
+        log.error("CS send failed: %s", e)
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/email/delete-cs", methods=["POST"])
+@auth_required
+def api_delete_cs_draft():
+    """Delete a CS draft."""
+    data = request.get_json(silent=True) or {}
+    draft_id = data.get("draft_id","")
+    try:
+        outbox_path = os.path.join(DATA_DIR, "email_outbox.json")
+        with open(outbox_path) as f:
+            outbox = json.load(f)
+        outbox = [e for e in outbox if e.get("id") != draft_id]
+        with open(outbox_path, "w") as f:
+            json.dump(outbox, f, indent=2, default=str)
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
 
 # ════════════════════════════════════════════════════════════════════════════════
 # CS AGENT ROUTES — Inbound Customer Service
@@ -8426,6 +8898,12 @@ def _scprs_autostart():
     _threading.Thread(target=_scprs_scheduler_loop, args=(_cron,),
                       daemon=True, name="scprs-scheduler").start()
     log.info("SCPRS scheduler started: %s", _label)
+    # Start stale outbox watcher (alerts when drafts sit >4h unreviewed)
+    try:
+        from src.agents.notify_agent import start_stale_watcher
+        start_stale_watcher()
+    except Exception as _sw:
+        log.debug("Stale watcher startup: %s", _sw)
 
 _scprs_autostart()
 

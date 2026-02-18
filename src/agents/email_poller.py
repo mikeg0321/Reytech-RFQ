@@ -364,6 +364,29 @@ class EmailPoller:
                                     log.debug("Auto-draft quote creation skipped: %s", _qe)
                             except Exception as _ae:
                                 log.debug("Auto-draft pipeline failed: %s", _ae)
+                        # 🔔 RFQ arrival alert (before spawning auto-draft thread)
+                        try:
+                            from src.agents.notify_agent import send_alert, log_email_event
+                            send_alert(
+                                event_type="rfq_arrived",
+                                title=f"🚨 New RFQ: {subject[:50]}",
+                                body=f"From: {sender} — {len(rfq_info.get('items',[]))} line items. Auto-draft starting.",
+                                urgency="urgent",
+                                context={"contact": sender, "entity_id": rfq_id},
+                                cooldown_key=f"rfq_{rfq_id}",
+                            )
+                            log_email_event(
+                                direction="received",
+                                sender=sender,
+                                recipient=self.email_addr,
+                                subject=subject,
+                                body_preview=(body or "")[:500],
+                                rfq_id=rfq_id,
+                                intent="rfq",
+                                status="received",
+                            )
+                        except Exception as _ne:
+                            pass
                         import threading as _t
                         _t.Thread(target=_auto_draft, daemon=True, name="auto-draft").start()
                     else:
