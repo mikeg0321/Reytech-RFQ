@@ -159,6 +159,48 @@ if os.environ.get("GMAIL_ADDRESS"):
 
 POLL_STATUS = {"running": False, "last_check": None, "emails_found": 0, "error": None}
 
+# ── Thread-safe locks for all mutated global state ──────────────────────────
+_poll_status_lock   = threading.Lock()
+_rate_limiter_lock  = threading.Lock()
+_json_cache_lock    = threading.Lock()
+
+# ── TTL JSON cache — eliminates redundant disk reads on hot routes ───────────
+_json_cache: dict = {}   # path → {"data": ..., "mtime": float, "ts": float}
+_JSON_CACHE_TTL = 2.0    # seconds — balance freshness vs perf
+
+def _cached_json_load(path: str, fallback=None):
+    """Load JSON with mtime-aware caching. Avoids re-reading unchanged files.
+    Falls back to `fallback` on missing/corrupt file.
+    Thread-safe via _json_cache_lock.
+    """
+    if fallback is None:
+        fallback = {}
+    if not os.path.exists(path):
+        return fallback
+    try:
+        mtime = os.path.getmtime(path)
+        with _json_cache_lock:
+            cached = _json_cache.get(path)
+            if cached and cached["mtime"] == mtime:
+                return cached["data"]
+        with open(path) as f:
+            data = json.load(f)
+        with _json_cache_lock:
+            _json_cache[path] = {"data": data, "mtime": mtime, "ts": time.time()}
+            # Evict oldest entries if cache grows large
+            if len(_json_cache) > 50:
+                oldest = sorted(_json_cache.items(), key=lambda x: x[1]["ts"])[:10]
+                for k, _ in oldest:
+                    del _json_cache[k]
+        return data
+    except (json.JSONDecodeError, OSError):
+        return fallback
+
+def _invalidate_cache(path: str):
+    """Call after writing a JSON file to evict stale cache entry."""
+    with _json_cache_lock:
+        _json_cache.pop(path, None)
+
 def _pst_now_iso():
     """Return current PST datetime as ISO string (JS-parseable with time)."""
     pst = timezone(timedelta(hours=-8))
@@ -202,21 +244,20 @@ RATE_LIMIT_MAX = 120    # requests per window (generous for normal use)
 RATE_LIMIT_AUTH_MAX = 10  # auth attempts per window
 
 def _check_rate_limit(key: str = None, max_requests: int = None) -> bool:
-    """Check if request is within rate limits. Returns True if OK."""
-    import time as _time
-    key = key or request.remote_addr or "unknown"
+    """Check if request is within rate limits. Returns True if OK. Thread-safe."""
+    key = key or (request.remote_addr if request else "unknown") or "unknown"
     max_req = max_requests or RATE_LIMIT_MAX
-    now = _time.time()
-    window = _rate_limiter.get(key, [])
-    window = [t for t in window if now - t < RATE_LIMIT_WINDOW]
-    if len(window) >= max_req:
-        return False
-    window.append(now)
-    _rate_limiter[key] = window
-    # Cleanup old keys periodically
-    if len(_rate_limiter) > 1000:
-        cutoff = now - RATE_LIMIT_WINDOW * 2
-        _rate_limiter.clear()
+    now = time.time()
+    with _rate_limiter_lock:
+        window = _rate_limiter.get(key, [])
+        window = [t for t in window if now - t < RATE_LIMIT_WINDOW]
+        if len(window) >= max_req:
+            return False
+        window.append(now)
+        _rate_limiter[key] = window
+        # Cleanup old keys periodically (thread-safe, inside lock)
+        if len(_rate_limiter) > 1000:
+            _rate_limiter.clear()
     return True
 
 def _sanitize_input(value: str, max_length: int = 500, allow_html: bool = False) -> str:
@@ -248,10 +289,11 @@ def _sanitize_path(path_str: str) -> str:
 
 def rfq_db_path(): return os.path.join(DATA_DIR, "rfqs.json")
 def load_rfqs():
-    p = rfq_db_path()
-    return json.load(open(p)) if os.path.exists(p) else {}
+    return _cached_json_load(rfq_db_path(), fallback={})
 def save_rfqs(rfqs):
-    json.dump(rfqs, open(rfq_db_path(), "w"), indent=2, default=str)
+    p = rfq_db_path()
+    json.dump(rfqs, open(p, "w"), indent=2, default=str)
+    _invalidate_cache(p)
 
 # ═══════════════════════════════════════════════════════════════════════
 # Email Polling Thread
@@ -377,11 +419,7 @@ def email_poll_loop():
 CRM_LOG_FILE = os.path.join(DATA_DIR, "crm_activity.json")
 
 def _load_crm_activity() -> list:
-    try:
-        with open(CRM_LOG_FILE) as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return []
+    return _cached_json_load(CRM_LOG_FILE, fallback=[])
 
 def _save_crm_activity(activity: list):
     os.makedirs(DATA_DIR, exist_ok=True)
@@ -389,6 +427,7 @@ def _save_crm_activity(activity: list):
         activity = activity[-5000:]
     with open(CRM_LOG_FILE, "w") as f:
         json.dump(activity, f, indent=2, default=str)
+    _invalidate_cache(CRM_LOG_FILE)
 
 def _log_crm_activity(ref_id: str, event_type: str, description: str,
                        actor: str = "system", metadata: dict = None):
@@ -447,16 +486,13 @@ def _find_quote(quote_number: str) -> dict:
 ORDERS_FILE = os.path.join(DATA_DIR, "orders.json")
 
 def _load_orders() -> dict:
-    try:
-        with open(ORDERS_FILE) as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return {}
+    return _cached_json_load(ORDERS_FILE, fallback={})
 
 def _save_orders(orders: dict):
     os.makedirs(DATA_DIR, exist_ok=True)
     with open(ORDERS_FILE, "w") as f:
         json.dump(orders, f, indent=2, default=str)
+    _invalidate_cache(ORDERS_FILE)
 
 def _create_order_from_quote(qt: dict, po_number: str = "") -> dict:
     """Create an order when a quote is won."""
@@ -567,59 +603,61 @@ def render(content, **kw):
     _poll_class = "poll-on" if _poll_running else ("poll-off" if not _has_email else "poll-wait")
     html = f"""<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Reytech RFQ</title>
+<meta name="description" content="Reytech RFQ Dashboard — AI-powered sales automation for CA state agency reseller">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>{BASE_CSS}</style></head><body>
-<div class="hdr">
+<header class="hdr" role="banner">
  <div style="display:flex;align-items:center;gap:14px">
-  <a href="/" style="display:flex;align-items:center;gap:10px;text-decoration:none">
-   <img src="/api/logo" alt="Reytech" style="height:44px;background:#fff;padding:6px 12px;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.2)" onerror="this.outerHTML='<span style=\\'font-size:20px;font-weight:700;color:var(--ac)\\'>Reytech</span>'">
-   <span style="font-size:17px;font-weight:600;color:var(--tx);letter-spacing:-0.3px">RFQ Dashboard</span>
+  <a href="/" aria-label="Reytech RFQ Dashboard — Home" style="display:flex;align-items:center;gap:10px;text-decoration:none">
+   <img src="/api/logo" alt="Reytech logo" style="height:44px;background:#fff;padding:6px 12px;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.2)" onerror="this.outerHTML='<span style=\\'font-size:20px;font-weight:700;color:var(--ac)\\'>Reytech</span>'">
+   <span style="font-size:17px;font-weight:600;color:var(--tx);letter-spacing:-0.3px" aria-hidden="true">RFQ Dashboard</span>
   </a>
  </div>
- <div style="display:flex;align-items:center;gap:6px">
-  <a href="/" class="hdr-btn hdr-active">🏠 Home</a>
-  <a href="/quotes" class="hdr-btn">📋 Quotes</a>
-  <a href="/orders" class="hdr-btn">📦 Orders</a>
-  <a href="/contacts" class="hdr-btn">👥 CRM</a>
-  <a href="/campaigns" class="hdr-btn">📞 Campaigns</a>
-  <a href="/pipeline" class="hdr-btn">🔄 Pipeline</a>
-  <a href="/growth" class="hdr-btn">🚀 Growth</a>
-  <a href="/intelligence" class="hdr-btn">🧠 Intel</a>
-  <a href="/agents" class="hdr-btn">🤖 Agents</a>
-  <span style="width:1px;height:24px;background:var(--bd);margin:0 6px"></span>
-  <button class="hdr-btn" onclick="pollNow(this)" id="poll-btn">⚡ Check Now</button>
-  <button class="hdr-btn hdr-warn" onclick="resyncAll(this)" title="Clear queue & re-import all emails">🔄 Resync</button>
-  <span style="width:1px;height:24px;background:var(--bd);margin:0 6px"></span>
-  <div class="hdr-status">
+ <nav aria-label="Main navigation" style="display:flex;align-items:center;gap:6px">
+  <a href="/" class="hdr-btn hdr-active" aria-label="Home" aria-current="page">🏠 Home</a>
+  <a href="/quotes" class="hdr-btn" aria-label="Quotes database">📋 Quotes</a>
+  <a href="/orders" class="hdr-btn" aria-label="Orders tracking">📦 Orders</a>
+  <a href="/contacts" class="hdr-btn" aria-label="CRM Contacts">👥 CRM</a>
+  <a href="/campaigns" class="hdr-btn" aria-label="Outreach campaigns">📞 Campaigns</a>
+  <a href="/pipeline" class="hdr-btn" aria-label="Revenue pipeline">🔄 Pipeline</a>
+  <a href="/growth" class="hdr-btn" aria-label="Growth engine">🚀 Growth</a>
+  <a href="/intelligence" class="hdr-btn" aria-label="Sales intelligence">🧠 Intel</a>
+  <a href="/agents" class="hdr-btn" aria-label="AI Agents manager">🤖 Agents</a>
+  <span style="width:1px;height:24px;background:var(--bd);margin:0 6px" role="separator" aria-hidden="true"></span>
+  <button class="hdr-btn" onclick="pollNow(this)" id="poll-btn" aria-label="Check for new emails now">⚡ Check Now</button>
+  <button class="hdr-btn hdr-warn" onclick="resyncAll(this)" title="Clear queue & re-import all emails" aria-label="Resync all emails from inbox">🔄 Resync</button>
+  <span style="width:1px;height:24px;background:var(--bd);margin:0 6px" role="separator" aria-hidden="true"></span>
+  <div class="hdr-status" role="status" aria-live="polite" aria-label="Email polling status">
    <div style="display:flex;align-items:center;gap:6px">
-    <span class="poll-dot {_poll_class}"></span>
+    <span class="poll-dot {_poll_class}" aria-hidden="true"></span>
     <span>{_poll_status}</span>
    </div>
    <div class="hdr-time" id="poll-time" data-utc="{_poll_last}">{_poll_last or 'never'}</div>
   </div>
- </div>
-</div>
-<div class="ctr">
+ </nav>
+</header>
+<main class="ctr" role="main" id="main-content">
 {{% with messages = get_flashed_messages(with_categories=true) %}}
- {{% for cat, msg in messages %}}<div class="alert al-{{'s' if cat=='success' else 'e' if cat=='error' else 'i'}}">{{% if cat=='success' %}}✅{{% elif cat=='error' %}}❌{{% else %}}ℹ️{{% endif %}} {{{{msg}}}}</div>{{% endfor %}}
+ {{% for cat, msg in messages %}}<div class="alert al-{{'s' if cat=='success' else 'e' if cat=='error' else 'i'}}" role="alert" aria-live="assertive">{{% if cat=='success' %}}✅{{% elif cat=='error' %}}❌{{% else %}}ℹ️{{% endif %}} {{{{msg}}}}</div>{{% endfor %}}
 {{% endwith %}}
 """ + content + """
+</main>
 <script>
 function _updatePollTime(ts){
  var el=document.getElementById('poll-time');
  if(el&&ts){el.dataset.utc=ts;try{var d=new Date(ts);if(!isNaN(d)){el.textContent=d.toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true})}}catch(e){el.textContent=ts}}
 }
 function pollNow(btn){
- btn.disabled=true;btn.textContent='Checking...';
+ btn.disabled=true;btn.setAttribute('aria-busy','true');btn.textContent='Checking...';
  fetch('/api/poll-now',{credentials:'same-origin'}).then(r=>r.json()).then(d=>{
   _updatePollTime(d.last_check);
   if(d.found>0){btn.textContent=d.found+' found!';setTimeout(()=>location.reload(),800)}
-  else{btn.textContent='No new emails';setTimeout(()=>{btn.textContent='⚡ Check Now';btn.disabled=false},2000)}
- }).catch(()=>{btn.textContent='Error';setTimeout(()=>{btn.textContent='⚡ Check Now';btn.disabled=false},2000)});
+  else{btn.textContent='No new emails';setTimeout(()=>{btn.textContent='⚡ Check Now';btn.disabled=false;btn.removeAttribute('aria-busy')},2000)}
+ }).catch(()=>{btn.textContent='Error';setTimeout(()=>{btn.textContent='⚡ Check Now';btn.disabled=false;btn.removeAttribute('aria-busy')},2000)});
 }
 function resyncAll(btn){
  if(!confirm('Clear all RFQs and re-import from email?'))return;
- btn.disabled=true;btn.textContent='🔄 Syncing...';
+ btn.disabled=true;btn.setAttribute('aria-busy','true');btn.textContent='🔄 Syncing...';
  fetch('/api/resync',{credentials:'same-origin'}).then(r=>r.json()).then(d=>{
   _updatePollTime(d.last_check);
   if(d.found>0){btn.textContent=d.found+' imported!';setTimeout(()=>location.reload(),800)}
@@ -2715,8 +2753,102 @@ def api_health():
     return jsonify(health)
 
 
-@bp.route("/api/audit-stats")
+@bp.route("/api/metrics")
 @auth_required
+def api_metrics():
+    """Real-time performance & system metrics — cache efficiency, data sizes, thread state."""
+    import gc
+
+    # Cache stats
+    with _json_cache_lock:
+        cache_size = len(_json_cache)
+        cache_keys = list(_json_cache.keys())
+    
+    # Data file sizes
+    data_files = {}
+    for fname in ["rfqs.json","quotes_log.json","orders.json","crm_activity.json",
+                  "crm_contacts.json","intel_buyers.json","intel_agencies.json",
+                  "growth_prospects.json","scprs_prices.json"]:
+        fpath = os.path.join(DATA_DIR, fname)
+        if os.path.exists(fpath):
+            stat = os.stat(fpath)
+            try:
+                with open(fpath) as f:
+                    d = json.load(f)
+                records = len(d) if isinstance(d, (list, dict)) else "?"
+            except Exception:
+                records = "?"
+            data_files[fname] = {"size_kb": round(stat.st_size/1024,1), "records": records,
+                                  "mtime": datetime.fromtimestamp(stat.st_mtime).isoformat()}
+        else:
+            data_files[fname] = {"size_kb": 0, "records": 0, "mtime": None}
+
+    # Thread inventory
+    threads = [{"name": t.name, "alive": t.is_alive(), "daemon": t.daemon}
+               for t in threading.enumerate()]
+
+    # Rate limiter state
+    with _rate_limiter_lock:
+        active_ips = len(_rate_limiter)
+
+    # Global agent states
+    agent_states = {
+        "poll_running": POLL_STATUS.get("running", False),
+        "poll_last": POLL_STATUS.get("last_check"),
+        "poll_emails_found": POLL_STATUS.get("emails_found", 0),
+    }
+    if INTEL_AVAILABLE:
+        try:
+            from src.agents.sales_intel import DEEP_PULL_STATUS
+            agent_states["intel_pull_running"] = DEEP_PULL_STATUS.get("running", False)
+            agent_states["intel_buyers"] = DEEP_PULL_STATUS.get("total_buyers", 0)
+        except Exception:
+            pass
+    if GROWTH_AVAILABLE:
+        try:
+            from src.agents.growth_agent import PULL_STATUS, BUYER_STATUS
+            agent_states["growth_pull_running"] = PULL_STATUS.get("running", False)
+            agent_states["growth_buyer_running"] = BUYER_STATUS.get("running", False)
+        except Exception:
+            pass
+
+    # GC stats
+    gc_counts = gc.get_count()
+
+    return jsonify({
+        "ok": True,
+        "timestamp": datetime.now().isoformat(),
+        "cache": {
+            "entries": cache_size,
+            "keys": [os.path.basename(k) for k in cache_keys],
+        },
+        "data_files": data_files,
+        "threads": {"count": len(threads), "list": threads},
+        "rate_limiter": {"active_ips": active_ips},
+        "agents": agent_states,
+        "gc": {"gen0": gc_counts[0], "gen1": gc_counts[1], "gen2": gc_counts[2]},
+        "modules": {
+            "quote_gen": QUOTE_GEN_AVAILABLE,
+            "price_check": PRICE_CHECK_AVAILABLE,
+            "auto_processor": AUTO_PROCESSOR_AVAILABLE,
+            "intel": INTEL_AVAILABLE,
+            "growth": GROWTH_AVAILABLE,
+            "qb": QB_AVAILABLE,
+        },
+    })
+
+
+@bp.route("/api/cache/clear", methods=["POST"])
+@auth_required
+def api_cache_clear():
+    """Clear the JSON read cache (useful after manual data edits)."""
+    with _json_cache_lock:
+        count = len(_json_cache)
+        _json_cache.clear()
+    return jsonify({"ok": True, "cleared": count, "message": f"Cleared {count} cache entries"})
+
+
+
 def api_audit_stats():
     """Processing statistics from audit log."""
     if not AUTO_PROCESSOR_AVAILABLE:
@@ -5133,16 +5265,13 @@ CRM_CONTACTS_FILE = os.path.join(DATA_DIR, "crm_contacts.json")
 
 def _load_crm_contacts() -> dict:
     """Load persisted CRM contact enhancements (manual fields + activity)."""
-    try:
-        with open(CRM_CONTACTS_FILE) as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return {}
+    return _cached_json_load(CRM_CONTACTS_FILE, fallback={})
 
 def _save_crm_contacts(contacts: dict):
     os.makedirs(DATA_DIR, exist_ok=True)
     with open(CRM_CONTACTS_FILE, "w") as f:
         json.dump(contacts, f, indent=2, default=str)
+    _invalidate_cache(CRM_CONTACTS_FILE)
 
 def _get_or_create_crm_contact(prospect_id: str, prospect: dict = None) -> dict:
     """Get or create a CRM contact record, merging SCPRS intel data."""
