@@ -2407,6 +2407,36 @@ def _guess_agency(institution_name):
             return "CDCR"
     return "DEFAULT"
 
+@bp.route("/api/quotes/counter")
+@auth_required
+def api_quote_counter():
+    """Get current quote counter state."""
+    if not QUOTE_GEN_AVAILABLE:
+        return jsonify({"ok": False, "error": "Quote generator not available"})
+    return jsonify({"ok": True, "next": peek_next_quote_number(),
+                    **({} if not hasattr(peek_next_quote_number, '__module__') else {})})
+
+
+@bp.route("/api/quotes/set-counter", methods=["POST"])
+@auth_required
+def api_set_quote_counter():
+    """Manually set quote counter to sync with QuoteWerks.
+    POST JSON: {"seq": 16, "year": 2026}  ← next quote will be R26Q17
+    """
+    if not QUOTE_GEN_AVAILABLE:
+        return jsonify({"ok": False, "error": "Quote generator not available"})
+    data = request.get_json(silent=True) or {}
+    seq = data.get("seq")
+    year = data.get("year", datetime.now().year)
+    if seq is None or not isinstance(seq, int) or seq < 0:
+        return jsonify({"ok": False, "error": "seq (integer ≥ 0) required — next quote will be R{YY}Q{seq+1}"})
+    set_quote_counter(seq=seq, year=year)
+    nxt = peek_next_quote_number()
+    return jsonify({"ok": True, "set_to": seq, "year": year,
+                    "next_quote_will_be": nxt,
+                    "message": f"Counter set. Next quote: {nxt}"})
+
+
 @bp.route("/api/quotes/history")
 @auth_required
 def api_quote_history():

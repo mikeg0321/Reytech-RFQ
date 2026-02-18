@@ -125,9 +125,17 @@ def _load_counter():
     path = os.path.join(DATA_DIR, "quote_counter.json")
     try:
         with open(path) as f:
-            return json.load(f)
+            raw = json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
         return {}
+    # Migrate legacy format {"counter": N} → {"year": YYYY, "seq": N}
+    if "counter" in raw and "seq" not in raw:
+        migrated = {"year": datetime.now().year, "seq": raw["counter"]}
+        _save_counter(migrated)
+        log.info("Migrated quote_counter.json: counter=%d → year=%d seq=%d",
+                 raw["counter"], migrated["year"], migrated["seq"])
+        return migrated
+    return raw
 
 def _save_counter(data):
     os.makedirs(DATA_DIR, exist_ok=True)
@@ -143,16 +151,24 @@ def set_quote_counter(seq: int, year: int = None):
     log.info("Quote counter set to seq=%d year=%d → next will be R%sQ%d",
              seq, year, str(year)[-2:], seq + 1)
 
+def _should_reset_counter(stored_year: int) -> bool:
+    """Reset at 12:00:01 AM on Jan 1 of a new year only."""
+    now = datetime.now()
+    return stored_year != now.year
+
 def _next_quote_number() -> str:
-    """R{YY}Q{seq} — sequential, resets midnight Jan 1."""
+    """R{YY}Q{seq} — sequential per calendar year, resets midnight Jan 1."""
     data = _load_counter()
     year = datetime.now().year
     yy = str(year)[-2:]
 
-    if data.get("year") != year:
+    if _should_reset_counter(data.get("year", 0)):
+        log.info("New year detected — resetting quote counter from seq=%d (year=%d) to seq=1 (year=%d)",
+                 data.get("seq", 0), data.get("year", 0), year)
         data = {"year": year, "seq": 0}
 
     data["seq"] = data.get("seq", 0) + 1
+    data["year"] = year
     _save_counter(data)
     return f"R{yy}Q{data['seq']}"
 
@@ -161,8 +177,9 @@ def peek_next_quote_number() -> str:
     data = _load_counter()
     year = datetime.now().year
     yy = str(year)[-2:]
-    seq = data.get("seq", 0) + 1 if data.get("year") == year else 1
-    return f"R{yy}Q{seq}"
+    if _should_reset_counter(data.get("year", 0)):
+        return f"R{yy}Q1"
+    return f"R{yy}Q{data.get('seq', 0) + 1}"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # QUOTES DATABASE — searchable log with Win/Loss tracking
@@ -213,7 +230,7 @@ def search_quotes(query: str = "", agency: str = "", status: str = "",
         if status and qt.get("status", "pending").lower() != status.lower():
             continue
         if q:
-            # Build searchable text from all fields including item details
+            # Build searchable text from ALL fields — requestor, contact, notes included
             parts = [
                 qt.get("quote_number", ""),
                 qt.get("institution", ""),
@@ -223,6 +240,16 @@ def search_quotes(query: str = "", agency: str = "", status: str = "",
                 qt.get("status_notes", ""),
                 qt.get("items_text", ""),
                 qt.get("ship_to_name", ""),
+                qt.get("ship_to_address", ""),
+                qt.get("requestor", ""),           # ← was missing
+                qt.get("contact_name", ""),         # ← was missing
+                qt.get("requestor_name", ""),       # ← was missing
+                qt.get("email", ""),                # ← was missing
+                qt.get("requestor_email", ""),      # ← was missing
+                qt.get("phone", ""),                # ← was missing
+                qt.get("notes", ""),                # ← was missing
+                qt.get("source", ""),               # ← was missing
+                str(qt.get("total", "")),
             ]
             # Add item descriptions and part numbers from items_detail
             for item in qt.get("items_detail", []):
