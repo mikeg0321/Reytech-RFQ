@@ -104,7 +104,7 @@ PULL_STATUS = {
     "errors": [], "started_at": None, "finished_at": None,
 }
 
-def pull_reytech_history(from_date="01/01/2022", to_date=""):
+def pull_reytech_history(from_date="01/01/2019", to_date=""):
     """Search SCPRS for all Reytech POs from 2022 to present.
     Drills into each for line items + buyer info."""
     if not HAS_SCPRS:
@@ -242,7 +242,7 @@ def _categorize_history(history):
 
 BUYER_STATUS = {"running": False, "phase": "", "progress": "", "prospects_found": 0, "errors": []}
 
-def find_category_buyers(max_categories=10, from_date="01/01/2024"):
+def find_category_buyers(max_categories=10, from_date="01/01/2019"):
     """For each category Reytech sells, find all SCPRS buyers."""
     if not HAS_SCPRS:
         return {"ok": False, "error": "SCPRS not available"}

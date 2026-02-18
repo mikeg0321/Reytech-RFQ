@@ -98,12 +98,18 @@ DEEP_PULL_STATUS = {
 }
 
 
-def deep_pull_all_buyers(from_date="01/01/2023", max_queries=None, max_detail_per_query=5):
+def deep_pull_all_buyers(from_date="01/01/2019", max_queries=None, max_detail_per_query=20):
     """
-    Massive SCPRS pull: search every product category, drill into POs,
-    extract every buyer + agency + item + price.
-    
-    Builds the master intelligence database.
+    Massive SCPRS pull: search every product category + Reytech supplier history,
+    drill into POs, extract every buyer + agency + item + price.
+
+    Strategy:
+      1. First search by supplier_name="Reytech" to get OUR full win history
+      2. Then search all product category keywords to find competitor buyers
+      3. Tag buyers by item type, annual spend, and agency
+      4. Score and rank — highest spend + not our customer = top priority
+
+    Builds the master intelligence database going back to 2019.
     """
     if not HAS_SCPRS:
         return {"ok": False, "error": "SCPRS not available"}
@@ -113,9 +119,12 @@ def deep_pull_all_buyers(from_date="01/01/2023", max_queries=None, max_detail_pe
     queries = SEARCH_QUERIES[:max_queries] if max_queries else SEARCH_QUERIES
     to_date = datetime.now().strftime("%m/%d/%Y")
 
+    # Reytech supplier name variants to search our own win history
+    REYTECH_NAMES = ["Reytech", "Rey Tech", "REYTECH"]
+
     DEEP_PULL_STATUS.update({
         "running": True, "phase": "init", "progress": "Starting SCPRS session...",
-        "queries_done": 0, "queries_total": len(queries),
+        "queries_done": 0, "queries_total": len(queries) + len(REYTECH_NAMES),
         "total_pos": 0, "total_buyers": 0, "total_agencies": 0,
         "errors": [], "started_at": datetime.now().isoformat(), "finished_at": None,
     })
@@ -131,122 +140,125 @@ def deep_pull_all_buyers(from_date="01/01/2023", max_queries=None, max_detail_pe
         agencies = {}   # dept_code → agency record
         all_pos = []
 
+        def _process_results(results, q_idx, total_q, label):
+            """Shared result processor for both Reytech and category searches."""
+            DEEP_PULL_STATUS["total_pos"] += len(results)
+            for r_idx, r in enumerate(results):
+                po_num = r.get("po_number", "")
+                dept = r.get("dept", "").strip()
+                supplier = r.get("supplier_name", "")
+                email = (r.get("buyer_email") or "").strip().lower()
+                total = r.get("grand_total_num") or 0
+                first_item = r.get("first_item", "")
+                date = r.get("start_date", "")
+                is_reytech = "reytech" in (supplier or "").lower() or "rey tech" in (supplier or "").lower()
+                category = categorize_item(first_item)
+
+                # Drill detail for more POs to get buyer names
+                buyer_name = ""
+                line_items = []
+                if r_idx < max_detail_per_query and r.get("_results_html") and r.get("_row_index") is not None:
+                    try:
+                        detail = session.get_detail(r["_results_html"], r["_row_index"], r.get("_click_action"))
+                        if detail:
+                            hdr = detail.get("header", {}) if isinstance(detail.get("header"), dict) else {}
+                            buyer_name = hdr.get("buyer_name", "")
+                            email = (hdr.get("buyer_email") or email or "").strip().lower()
+                            line_items = detail.get("line_items", [])
+                        time.sleep(0.2)
+                    except Exception as e:
+                        DEEP_PULL_STATUS["errors"].append(f"Detail {po_num}: {e}")
+
+                # Build agency record
+                if dept and dept not in agencies:
+                    agencies[dept] = {
+                        "dept_code": dept,
+                        "total_spend": 0, "po_count": 0,
+                        "categories": {}, "buyers": {}, "suppliers": {},
+                        "is_customer": False, "reytech_spend": 0,
+                    }
+                if dept:
+                    ag = agencies[dept]
+                    ag["total_spend"] += total
+                    ag["po_count"] += 1
+                    ag["categories"][category] = ag["categories"].get(category, 0) + total
+                    if is_reytech:
+                        ag["is_customer"] = True
+                        ag["reytech_spend"] += total
+                    if supplier:
+                        ag["suppliers"][supplier] = ag["suppliers"].get(supplier, 0) + total
+
+                # Build buyer record
+                buyer_key = email or f"anon_{dept}_{po_num}"
+                if buyer_key not in buyers:
+                    buyers[buyer_key] = {
+                        "id": f"BUY-{uuid.uuid4().hex[:8]}",
+                        "email": email, "name": buyer_name, "agency": dept,
+                        "total_spend": 0, "po_count": 0,
+                        "categories": {}, "items_purchased": [], "purchase_orders": [],
+                        "is_reytech_customer": False, "reytech_spend": 0,
+                        "last_purchase": "",
+                    }
+                b = buyers[buyer_key]
+                b["total_spend"] += total
+                b["po_count"] += 1
+                b["categories"][category] = b["categories"].get(category, 0) + total
+                if not b["name"] and buyer_name:
+                    b["name"] = buyer_name
+                if is_reytech:
+                    b["is_reytech_customer"] = True
+                    b["reytech_spend"] += total
+                if date > b.get("last_purchase", ""):
+                    b["last_purchase"] = date
+                if len(b["purchase_orders"]) < 20:
+                    b["purchase_orders"].append({
+                        "po_number": po_num, "date": date,
+                        "total": total, "supplier": supplier,
+                        "items": first_item[:100], "category": category,
+                    })
+                for li in line_items[:5]:
+                    desc = li.get("description", "")[:80]
+                    if desc and len(b["items_purchased"]) < 50:
+                        b["items_purchased"].append({
+                            "description": desc,
+                            "unit_price": li.get("unit_price_num"),
+                            "category": categorize_item(desc),
+                        })
+                if dept and email:
+                    agencies[dept]["buyers"][email] = {
+                        "name": buyer_name or b.get("name", ""),
+                        "spend": b["total_spend"],
+                    }
+
+        # ── Phase 1: Pull Reytech's own win history (marks our customers) ──
+        DEEP_PULL_STATUS["phase"] = "reytech_history"
+        for rt_idx, rt_name in enumerate(REYTECH_NAMES):
+            DEEP_PULL_STATUS["progress"] = f"[Phase 1] Pulling Reytech PO history: '{rt_name}'..."
+            try:
+                results = session.search(supplier_name=rt_name, from_date=from_date, to_date=to_date)
+                log.info(f"Reytech '{rt_name}': {len(results)} POs found")
+                _process_results(results, rt_idx, len(REYTECH_NAMES), f"Reytech:{rt_name}")
+                time.sleep(0.5)
+            except Exception as e:
+                log.warning(f"Reytech search '{rt_name}' failed: {e}")
+                DEEP_PULL_STATUS["errors"].append(f"Reytech:{rt_name}: {e}")
+
+        reytech_agencies = [a for a in agencies.values() if a.get("is_customer")]
+        log.info(f"Phase 1 done: {len(reytech_agencies)} agencies are Reytech customers")
+        DEEP_PULL_STATUS["progress"] = f"Phase 1 done — {len(reytech_agencies)} Reytech customer agencies found. Starting category scan..."
+
+        # ── Phase 2: Search all product categories (finds competitor buyers) ──
+        DEEP_PULL_STATUS["phase"] = "category_scan"
         for q_idx, query in enumerate(queries):
             DEEP_PULL_STATUS.update({
-                "phase": "searching",
-                "progress": f"[{q_idx+1}/{len(queries)}] Searching: {query}",
-                "queries_done": q_idx,
+                "progress": f"[Phase 2 — {q_idx+1}/{len(queries)}] Category scan: '{query}'",
+                "queries_done": q_idx + len(REYTECH_NAMES),
             })
 
             try:
                 results = session.search(description=query, from_date=from_date, to_date=to_date)
-                DEEP_PULL_STATUS["total_pos"] += len(results)
-
-                for r_idx, r in enumerate(results):
-                    po_num = r.get("po_number", "")
-                    dept = r.get("dept", "").strip()
-                    supplier = r.get("supplier_name", "")
-                    email = (r.get("buyer_email") or "").strip().lower()
-                    total = r.get("grand_total_num") or 0
-                    first_item = r.get("first_item", "")
-                    date = r.get("start_date", "")
-                    is_reytech = "reytech" in (supplier or "").lower() or "rey tech" in (supplier or "").lower()
-                    category = categorize_item(first_item)
-
-                    # Drill detail for top results (get buyer name + line items)
-                    buyer_name = ""
-                    line_items = []
-                    if r_idx < max_detail_per_query and r.get("_results_html") and r.get("_row_index") is not None:
-                        try:
-                            detail = session.get_detail(r["_results_html"], r["_row_index"], r.get("_click_action"))
-                            if detail:
-                                hdr = detail.get("header", {}) if isinstance(detail.get("header"), dict) else {}
-                                buyer_name = hdr.get("buyer_name", "")
-                                email = (hdr.get("buyer_email") or email or "").strip().lower()
-                                line_items = detail.get("line_items", [])
-                            time.sleep(0.3)
-                        except Exception as e:
-                            DEEP_PULL_STATUS["errors"].append(f"Detail {po_num}: {e}")
-
-                    # Build agency record
-                    if dept and dept not in agencies:
-                        agencies[dept] = {
-                            "dept_code": dept,
-                            "total_spend": 0,
-                            "po_count": 0,
-                            "categories": {},
-                            "buyers": {},
-                            "suppliers": {},
-                            "is_customer": False,  # Do we sell to them?
-                            "reytech_spend": 0,
-                        }
-                    if dept:
-                        ag = agencies[dept]
-                        ag["total_spend"] += total
-                        ag["po_count"] += 1
-                        ag["categories"][category] = ag["categories"].get(category, 0) + total
-                        if is_reytech:
-                            ag["is_customer"] = True
-                            ag["reytech_spend"] += total
-                        if supplier:
-                            ag["suppliers"][supplier] = ag["suppliers"].get(supplier, 0) + total
-
-                    # Build buyer record
-                    buyer_key = email or f"anon_{dept}_{po_num}"
-                    if buyer_key not in buyers:
-                        buyers[buyer_key] = {
-                            "id": f"BUY-{uuid.uuid4().hex[:8]}",
-                            "email": email,
-                            "name": buyer_name,
-                            "agency": dept,
-                            "total_spend": 0,
-                            "po_count": 0,
-                            "categories": {},
-                            "items_purchased": [],
-                            "purchase_orders": [],
-                            "is_reytech_customer": False,
-                            "reytech_spend": 0,
-                            "last_purchase": "",
-                        }
-                    b = buyers[buyer_key]
-                    b["total_spend"] += total
-                    b["po_count"] += 1
-                    b["categories"][category] = b["categories"].get(category, 0) + total
-                    if not b["name"] and buyer_name:
-                        b["name"] = buyer_name
-                    if is_reytech:
-                        b["is_reytech_customer"] = True
-                        b["reytech_spend"] += total
-                    if date > b.get("last_purchase", ""):
-                        b["last_purchase"] = date
-
-                    # Store PO ref
-                    if len(b["purchase_orders"]) < 20:
-                        b["purchase_orders"].append({
-                            "po_number": po_num, "date": date,
-                            "total": total, "supplier": supplier,
-                            "items": first_item[:100], "category": category,
-                        })
-
-                    # Track items from detail
-                    for li in line_items[:5]:
-                        desc = li.get("description", "")[:80]
-                        if desc and len(b["items_purchased"]) < 50:
-                            b["items_purchased"].append({
-                                "description": desc,
-                                "unit_price": li.get("unit_price_num"),
-                                "category": categorize_item(desc),
-                            })
-
-                    # Track buyer in agency
-                    if dept and email:
-                        agencies[dept]["buyers"][email] = {
-                            "name": buyer_name or b.get("name", ""),
-                            "spend": b["total_spend"],
-                        }
-
-                time.sleep(0.8)  # Rate limit between queries
-
+                _process_results(results, q_idx, len(queries), query)
+                time.sleep(0.6)  # Be polite to SCPRS
             except Exception as e:
                 log.warning(f"Query '{query}' failed: {e}")
                 DEEP_PULL_STATUS["errors"].append(f"{query}: {e}")

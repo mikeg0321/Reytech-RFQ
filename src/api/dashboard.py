@@ -5981,7 +5981,7 @@ def api_growth_create_campaign():
     # Campaign config from request
     data = request.get_json(silent=True) or {}
     max_prospects = data.get("max_prospects", 50)
-    from_date = data.get("from_date", "01/01/2023")
+    from_date = data.get("from_date", "01/01/2019")
     dry_run = data.get("dry_run", True)  # Default to preview mode
 
     def run_campaign():
@@ -6074,7 +6074,7 @@ def api_intel_deep_pull():
     """Deep pull ALL buyers from SCPRS across all product categories. Long-running."""
     if not INTEL_AVAILABLE:
         return jsonify({"ok": False, "error": "Sales intel not available"})
-    from_date = request.args.get("from", "01/01/2023")
+    from_date = request.args.get("from", "01/01/2019")
     max_q = request.args.get("max_queries")
     max_q = int(max_q) if max_q else None
 
