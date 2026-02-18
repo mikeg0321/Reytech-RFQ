@@ -641,6 +641,50 @@ function resyncAll(btn){
     return render_template_string(html, **kw)
 
 
+def _header(page_title: str = "") -> str:
+    """Standalone page header for Growth/Intelligence/Prospect pages that build their own full HTML."""
+    _email_cfg = CONFIG.get("email", {})
+    _has_email = bool(_email_cfg.get("email_password"))
+    _poll_running = POLL_STATUS.get("running", False)
+    _poll_last = POLL_STATUS.get("last_check", "")
+    _poll_status = "Polling" if _poll_running else ("Email not configured" if not _has_email else "Starting...")
+    _poll_class = "poll-on" if _poll_running else ("poll-off" if not _has_email else "poll-wait")
+    return f"""<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{page_title} — Reytech</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>{BASE_CSS}</style></head><body>
+<div class="hdr">
+ <div style="display:flex;align-items:center;gap:14px">
+  <a href="/" style="display:flex;align-items:center;gap:10px;text-decoration:none">
+   <img src="/api/logo" alt="Reytech" style="height:44px;background:#fff;padding:6px 12px;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.2)" onerror="this.outerHTML='<span style=\\'font-size:20px;font-weight:700;color:var(--ac)\\'>Reytech</span>'">
+   <span style="font-size:17px;font-weight:600;color:var(--tx);letter-spacing:-0.3px">RFQ Dashboard</span>
+  </a>
+ </div>
+ <div style="display:flex;align-items:center;gap:6px">
+  <a href="/" class="hdr-btn">🏠 Home</a>
+  <a href="/quotes" class="hdr-btn">📋 Quotes</a>
+  <a href="/orders" class="hdr-btn">📦 Orders</a>
+  <a href="/contacts" class="hdr-btn">👥 CRM</a>
+  <a href="/campaigns" class="hdr-btn">📞 Campaigns</a>
+  <a href="/pipeline" class="hdr-btn">🔄 Pipeline</a>
+  <a href="/growth" class="hdr-btn{'{ hdr-active}' if page_title=='Growth Engine' else ''}">🚀 Growth</a>
+  <a href="/intelligence" class="hdr-btn{'{ hdr-active}' if page_title=='Sales Intelligence' else ''}">🧠 Intel</a>
+  <a href="/agents" class="hdr-btn">🤖 Agents</a>
+  <span style="width:1px;height:24px;background:var(--bd);margin:0 6px"></span>
+  <button class="hdr-btn" onclick="pollNow(this)" id="poll-btn">⚡ Check Now</button>
+  <span style="width:1px;height:24px;background:var(--bd);margin:0 6px"></span>
+  <div class="hdr-status">
+   <div style="display:flex;align-items:center;gap:6px">
+    <span class="poll-dot {_poll_class}"></span>
+    <span>{_poll_status}</span>
+   </div>
+   <div class="hdr-time" id="poll-time" data-utc="{_poll_last}">{_poll_last or 'never'}</div>
+  </div>
+ </div>
+</div>
+<div class="ctr">"""
+
+
 @bp.route("/")
 @auth_required
 def home():
