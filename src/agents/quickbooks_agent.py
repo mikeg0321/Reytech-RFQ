@@ -31,6 +31,21 @@ from typing import Optional
 
 log = logging.getLogger("quickbooks")
 
+# ── Shared DB Context (Anthropic Skills Guide: Pattern 5 — Domain Intelligence) ──
+# Full access to live CRM, quotes, revenue, price history, voice calls from SQLite.
+try:
+    from src.core.agent_context import (
+        get_context, format_context_for_agent,
+        get_contact_by_agency, get_best_price,
+    )
+    HAS_AGENT_CTX = True
+except ImportError:
+    HAS_AGENT_CTX = False
+    def get_context(**kw): return {}
+    def format_context_for_agent(c, **kw): return ""
+    def get_contact_by_agency(a): return []
+    def get_best_price(d): return None
+
 try:
     from src.core.paths import DATA_DIR
 except ImportError:

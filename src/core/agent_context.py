@@ -81,6 +81,10 @@ def get_context(
             "revenue": {},
             "intel": {},
             "prices": {},
+            "voice": {},      # call log summary + campaign stats
+            "cs": {},         # CS agent: pending drafts + recent intents
+            "orders": {},     # active orders summary
+            "email_outbox": {}, # pending draft emails
         }
 
         # ── CRM Contacts ──────────────────────────────────────────────────
@@ -97,6 +101,18 @@ def get_context(
 
         # ── Intel Buyers ──────────────────────────────────────────────────
         ctx["intel"] = _get_intel_context()
+
+        # ── Voice Agent Context ───────────────────────────────────────────
+        ctx["voice"] = _get_voice_context()
+
+        # ── CS Agent Context ──────────────────────────────────────────────
+        ctx["cs"] = _get_cs_context()
+
+        # ── Orders Summary ────────────────────────────────────────────────
+        ctx["orders"] = _get_orders_context()
+
+        # ── Email Outbox ──────────────────────────────────────────────────
+        ctx["email_outbox"] = _get_outbox_context()
 
         # ── Price History (on demand) ─────────────────────────────────────
         if include_prices and price_query:
@@ -352,4 +368,134 @@ def format_context_for_agent(ctx: dict, focus: str = "all") -> str:
             "",
         ]
 
+    voice = ctx.get("voice", {})
+    if voice and focus in ("all", "voice"):
+        lines += [
+            f"VOICE: {voice.get('call_count', 0)} calls logged | "
+            f"{voice.get('campaigns', 0)} campaigns ({voice.get('active_campaigns', 0)} active) | "
+            f"{len(voice.get('scripts', []))} scripts",
+            "",
+        ]
+
+    cs = ctx.get("cs", {})
+    if cs and cs.get("pending_drafts", 0) > 0:
+        lines += [
+            f"CS AGENT: {cs.get('pending_drafts', 0)} pending CS draft(s) awaiting review",
+            "",
+        ]
+
+    outbox = ctx.get("email_outbox", {})
+    if outbox and focus in ("all",):
+        total_drafts = outbox.get("drafts", 0) + outbox.get("cs_drafts", 0)
+        if total_drafts > 0:
+            lines += [
+                f"EMAIL OUTBOX: {outbox.get('drafts', 0)} sales drafts + {outbox.get('cs_drafts', 0)} CS drafts pending review",
+                "",
+            ]
+
+    orders = ctx.get("orders", {})
+    if orders and orders.get("total", 0) > 0 and focus in ("all",):
+        lines += [
+            f"ORDERS: {orders.get('total', 0)} total | {orders.get('active', 0)} active | {orders.get('delivered', 0)} delivered",
+            "",
+        ]
+
     return "\n".join(lines)
+
+
+def _get_voice_context() -> dict:
+    """Voice call log summary + campaign stats for all agents."""
+    result = {"call_count": 0, "recent_calls": [], "campaigns": 0, "scripts": []}
+    try:
+        import os as _os, json as _json
+        call_log_path = _os.path.join(DATA_DIR, "voice_call_log.json")
+        with open(call_log_path) as f:
+            calls = _json.load(f)
+        calls = sorted(calls, key=lambda c: c.get("timestamp",""), reverse=True)
+        result["call_count"] = len(calls)
+        result["recent_calls"] = [
+            {
+                "to": c.get("to",""),
+                "script": c.get("script",""),
+                "status": c.get("status",""),
+                "timestamp": c.get("timestamp",""),
+                "engine": c.get("engine",""),
+            }
+            for c in calls[:5]
+        ]
+    except Exception:
+        pass
+    try:
+        import os as _os, json as _json
+        camp_path = _os.path.join(DATA_DIR, "voice_campaigns.json")
+        with open(camp_path) as f:
+            camps = _json.load(f)
+        result["campaigns"] = len(camps)
+        active = sum(1 for c in camps.values() if c.get("status") == "active")
+        result["active_campaigns"] = active
+    except Exception:
+        pass
+    try:
+        from src.agents.voice_agent import SCRIPTS
+        result["scripts"] = list(SCRIPTS.keys())
+    except Exception:
+        pass
+    return result
+
+
+def _get_cs_context() -> dict:
+    """CS agent: pending drafts + recent intents."""
+    result = {"pending_drafts": 0, "recent_intents": []}
+    try:
+        import os as _os, json as _json
+        outbox_path = _os.path.join(DATA_DIR, "email_outbox.json")
+        with open(outbox_path) as f:
+            outbox = _json.load(f)
+        cs_drafts = [e for e in outbox if e.get("type") == "cs_response" or e.get("status") == "cs_draft"]
+        result["pending_drafts"] = len([d for d in cs_drafts if d.get("status") == "cs_draft"])
+        result["recent_intents"] = [
+            {"intent": d.get("intent","?"), "to": d.get("to",""), "created_at": d.get("created_at","")}
+            for d in sorted(cs_drafts, key=lambda x: x.get("created_at",""), reverse=True)[:5]
+        ]
+    except Exception:
+        pass
+    return result
+
+
+def _get_orders_context() -> dict:
+    """Active orders summary from SQLite."""
+    result = {"total": 0, "active": 0, "delivered": 0}
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT status, COUNT(*) as cnt FROM orders GROUP BY status"
+            ).fetchall()
+            for row in rows:
+                status = row["status"] or "unknown"
+                cnt = row["cnt"]
+                result["total"] = result.get("total",0) + cnt
+                if status in ("active","processing","shipped","in_transit"):
+                    result["active"] = result.get("active",0) + cnt
+                elif status == "delivered":
+                    result["delivered"] = result.get("delivered",0) + cnt
+    except Exception:
+        pass
+    return result
+
+
+def _get_outbox_context() -> dict:
+    """Email outbox summary — pending drafts awaiting approval."""
+    result = {"total": 0, "drafts": 0, "cs_drafts": 0, "approved": 0}
+    try:
+        import os as _os, json as _json
+        outbox_path = _os.path.join(DATA_DIR, "email_outbox.json")
+        with open(outbox_path) as f:
+            outbox = _json.load(f)
+        result["total"] = len(outbox)
+        result["drafts"] = sum(1 for e in outbox if e.get("status") == "draft")
+        result["cs_drafts"] = sum(1 for e in outbox if e.get("type") == "cs_response" or e.get("status") == "cs_draft")
+        result["approved"] = sum(1 for e in outbox if e.get("status") == "approved")
+    except Exception:
+        pass
+    return result

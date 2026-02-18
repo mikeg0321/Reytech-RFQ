@@ -4306,6 +4306,91 @@ def api_crm_bulk_outreach():
         "note": "Set dry_run=false and configure GMAIL_ADDRESS+GMAIL_PASSWORD in Railway to send." if dry_run else f"Sent {sent} emails.",
     })
 
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# CS AGENT ROUTES — Inbound Customer Service
+# ════════════════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/cs/classify", methods=["POST"])
+@auth_required
+def api_cs_classify():
+    """Classify an email as an update request and get its intent.
+    POST {subject, body, sender}
+    """
+    body = request.get_json(silent=True) or {}
+    try:
+        from src.agents.cs_agent import classify_inbound_email
+        result = classify_inbound_email(
+            subject=body.get("subject",""),
+            body=body.get("body",""),
+            sender=body.get("sender",""),
+        )
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/cs/draft", methods=["POST"])
+@auth_required
+def api_cs_draft():
+    """Build a CS response draft for an inbound email.
+    POST {subject, body, sender}
+    Returns a draft ready for review in the outbox.
+    """
+    body = request.get_json(silent=True) or {}
+    try:
+        from src.agents.cs_agent import classify_inbound_email, build_cs_response_draft
+        subject = body.get("subject","")
+        email_body = body.get("body","")
+        sender = body.get("sender","")
+        classification = classify_inbound_email(subject, email_body, sender)
+        result = build_cs_response_draft(classification, subject, email_body, sender)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/cs/drafts", methods=["GET"])
+@auth_required
+def api_cs_drafts():
+    """Get all pending CS drafts from the outbox."""
+    try:
+        from src.agents.cs_agent import get_cs_drafts
+        drafts = get_cs_drafts(limit=50)
+        return jsonify({"ok": True, "count": len(drafts), "drafts": drafts})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/cs/call", methods=["POST"])
+@auth_required
+def api_cs_call():
+    """Place a CS follow-up call via Vapi.
+    POST {phone_number, context: {intent, po_number, quote_number, institution, buyer_name}}
+    """
+    body = request.get_json(silent=True) or {}
+    phone = body.get("phone_number","")
+    if not phone:
+        return jsonify({"ok": False, "error": "phone_number required"})
+    try:
+        from src.agents.cs_agent import place_cs_call
+        result = place_cs_call(phone, context=body.get("context",{}))
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/cs/status", methods=["GET"])
+@auth_required
+def api_cs_status():
+    """Get CS agent status."""
+    try:
+        from src.agents.cs_agent import get_agent_status
+        return jsonify({"ok": True, **get_agent_status()})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
 @bp.route("/debug")
 @auth_required
 def debug_agent():

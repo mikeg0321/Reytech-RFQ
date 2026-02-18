@@ -16,6 +16,21 @@ from datetime import datetime, timedelta
 
 log = logging.getLogger("email_poller")
 
+# ── Shared DB Context (Anthropic Skills Guide: Pattern 5 — Domain Intelligence) ──
+# Full access to live CRM, quotes, revenue, price history, voice calls from SQLite.
+try:
+    from src.core.agent_context import (
+        get_context, format_context_for_agent,
+        get_contact_by_agency, get_best_price,
+    )
+    HAS_AGENT_CTX = True
+except ImportError:
+    HAS_AGENT_CTX = False
+    def get_context(**kw): return {}
+    def format_context_for_agent(c, **kw): return ""
+    def get_contact_by_agency(a): return []
+    def get_best_price(d): return None
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # RFQ Detection
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -246,6 +261,30 @@ class EmailPoller:
                                     json.dump(_ships, _sf, indent=2, default=str)
                         except Exception as _e:
                             pass  # Non-critical
+
+                        # ── CS Agent: Inbound Update Request Detection ──────────────
+                        # After ruling out RFQ + shipping, check if this is a customer
+                        # asking for an order/quote/delivery/invoice update.
+                        # Auto-drafts a professional CS reply for Mike to review.
+                        try:
+                            from src.agents.cs_agent import classify_inbound_email, build_cs_response_draft
+                            cs_class = classify_inbound_email(subject, body, sender)
+                            if cs_class.get("is_update_request"):
+                                log.info("📬 CS update request detected: intent=%s from=%s subject=%s",
+                                         cs_class.get("intent"), sender[:40], subject[:50])
+                                def _cs_draft(cls=cs_class, subj=subject, bdy=body, snd=sender):
+                                    try:
+                                        result = build_cs_response_draft(cls, subj, bdy, snd)
+                                        log.info("CS auto-draft: ok=%s intent=%s draft_id=%s",
+                                                 result.get("ok"), cls.get("intent"),
+                                                 result.get("draft",{}).get("id",""))
+                                    except Exception as _ce:
+                                        log.debug("CS draft error: %s", _ce)
+                                import threading as _cst
+                                _cst.Thread(target=_cs_draft, daemon=True, name="cs-draft").start()
+                        except Exception as _cse:
+                            pass  # Non-critical — CS agent is additive
+
                         self._processed.add(uid)
                         continue
 
