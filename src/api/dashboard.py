@@ -6758,18 +6758,26 @@ def api_data_sync_clean():
     dry_run = request.args.get("confirm", "no").lower() != "yes"
     report = {"dry_run": dry_run, "actions": []}
 
-    # 1. Clean quotes — keep all real, remove test
+    # 1. Clean quotes — keep real ones, remove test
+    # ?keep=R26Q16,R26Q17 to explicitly specify which to keep
     try:
         qpath = os.path.join(DATA_DIR, "quotes_log.json")
         with open(qpath) as f:
             quotes = json.load(f)
-        keep = [q for q in quotes if not q.get("is_test")
-                and not str(q.get("quote_number", "")).startswith("TEST-")]
+        keep_list = request.args.get("keep", "").split(",") if request.args.get("keep") else None
+        if keep_list:
+            # Explicit keep list provided
+            keep_list = [k.strip() for k in keep_list if k.strip()]
+            keep = [q for q in quotes if q.get("quote_number") in keep_list]
+        else:
+            # Auto: remove is_test or TEST- prefix
+            keep = [q for q in quotes if not q.get("is_test")
+                    and not str(q.get("quote_number", "")).startswith("TEST-")]
         removed_q = len(quotes) - len(keep)
         report["quotes"] = {"before": len(quotes), "after": len(keep), "removed": removed_q,
                             "kept": [q.get("quote_number") for q in keep]}
         if removed_q > 0:
-            report["actions"].append(f"Remove {removed_q} test quotes (keep {len(keep)} real)")
+            report["actions"].append(f"Remove {removed_q} quotes (keep {[q.get('quote_number') for q in keep]})")
         if not dry_run and removed_q > 0:
             with open(qpath, "w") as f:
                 json.dump(keep, f, indent=2, default=str)
