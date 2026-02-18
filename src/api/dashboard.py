@@ -6747,10 +6747,10 @@ def api_cleanup_duplicates():
 @bp.route("/api/data/sync-clean")
 @auth_required
 def api_data_sync_clean():
-    """Deep clean production data — remove all stale/orphaned records.
+    """Deep clean production data — remove test/orphaned records, keep all real data.
     
-    Keeps: R26Q16 (only real quote), customers, vendors, scprs caches.
-    Removes: old quotes, test data, stale leads, orphaned PCs, old CRM entries.
+    Keeps: all non-test quotes, real PCs, real leads, customers, vendors, caches.
+    Removes: test data, batch-generated leads, stale logs.
     
     ?dry_run=true to preview. Default is dry_run.
     ?confirm=yes to actually execute.
@@ -6758,17 +6758,18 @@ def api_data_sync_clean():
     dry_run = request.args.get("confirm", "no").lower() != "yes"
     report = {"dry_run": dry_run, "actions": []}
 
-    # 1. Clean quotes — keep only R26Q16
+    # 1. Clean quotes — keep all real, remove test
     try:
         qpath = os.path.join(DATA_DIR, "quotes_log.json")
         with open(qpath) as f:
             quotes = json.load(f)
-        keep = [q for q in quotes if q.get("quote_number") == "R26Q16"]
+        keep = [q for q in quotes if not q.get("is_test")
+                and not str(q.get("quote_number", "")).startswith("TEST-")]
         removed_q = len(quotes) - len(keep)
         report["quotes"] = {"before": len(quotes), "after": len(keep), "removed": removed_q,
                             "kept": [q.get("quote_number") for q in keep]}
         if removed_q > 0:
-            report["actions"].append(f"Remove {removed_q} stale quotes (keep R26Q16)")
+            report["actions"].append(f"Remove {removed_q} test quotes (keep {len(keep)} real)")
         if not dry_run and removed_q > 0:
             with open(qpath, "w") as f:
                 json.dump(keep, f, indent=2, default=str)
@@ -6833,17 +6834,29 @@ def api_data_sync_clean():
             except Exception:
                 pass
 
-    # 5. Reset quote counter to 16
+    # 5. Ensure quote counter matches highest quote number
     try:
         cpath = os.path.join(DATA_DIR, "quote_counter.json")
-        if os.path.exists(cpath):
+        qpath2 = os.path.join(DATA_DIR, "quotes_log.json")
+        if os.path.exists(cpath) and os.path.exists(qpath2):
             with open(cpath) as f:
                 counter = json.load(f)
+            with open(qpath2) as f:
+                all_q = json.load(f)
+            # Find highest quote number
+            max_num = 0
+            for q in all_q:
+                qn = q.get("quote_number", "")
+                # Extract number from R26Q16 format
+                import re
+                m = re.search(r'(\d+)$', qn)
+                if m:
+                    max_num = max(max_num, int(m.group(1)))
             current = counter.get("counter", 0)
-            if current != 16:
-                report["actions"].append(f"Reset quote counter: {current} → 16")
+            if current != max_num and max_num > 0:
+                report["actions"].append(f"Sync quote counter: {current} → {max_num}")
                 if not dry_run:
-                    counter["counter"] = 16
+                    counter["counter"] = max_num
                     with open(cpath, "w") as f:
                         json.dump(counter, f, indent=2)
     except Exception:
@@ -6872,7 +6885,7 @@ def api_data_sync_clean():
         log.info("DATA SYNC: %d actions executed", len(report["actions"]))
 
     return jsonify({"ok": True, **report})
-@auth_required
+
 @bp.route("/api/test/renumber-quote")
 @auth_required
 def api_renumber_quote():
