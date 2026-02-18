@@ -249,6 +249,12 @@ fetch('/api/intel/revenue',{credentials:'same-origin'}).then(r=>r.json()).then(d
 
  <!-- Pipeline Stats Bar -->
  <div id="pipeline-bar" style="display:flex;gap:12px;flex-wrap:wrap;margin-top:16px;padding-top:14px;border-top:1px solid var(--bd)"></div>
+
+ <!-- Agent Health Row -->
+ <div id="agents-row" style="display:none;margin-top:12px;padding-top:10px;border-top:1px solid var(--bd)">
+  <div style="font-size:10px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Agent Status</div>
+  <div id="agents-list" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+ </div>
 </div>
 
 <!-- ═══ Work Queues — Primary Bento Row ═══ -->
@@ -462,22 +468,35 @@ fetch('/api/manager/brief',{credentials:'same-origin'}).then(function(r){
  // Pipeline stats bar
  var bar=document.getElementById('pipeline-bar');
  var s=data.summary||{};
- var pc=s.price_checks||{};var q=s.quotes||{};var l=s.leads||{};var ob=s.outbox||{};var rev=s.revenue||{};
+ var pc=s.price_checks||{};var q=s.quotes||{};var l=s.leads||{};var ob=s.outbox||{};
+ var gr=s.growth||{};var rv=data.revenue||{};var ag=data.agents_summary||{};
  var stats=[
-  {label:'PCs Active',value:pc.parsed+pc.priced,color:'var(--ac)'},
-  {label:'Quotes Pending',value:q.pending,color:'var(--yl)'},
-  {label:'Won',value:q.won,color:'var(--gn)'},
-  {label:'Lost',value:q.lost,color:'var(--rd)'},
-  {label:'Win Rate',value:q.win_rate+'%',color:q.win_rate>=50?'var(--gn)':'var(--yl)'},
-  {label:'Revenue',value:'$'+(rev.won_total||0).toLocaleString(),color:'var(--gn)'},
-  {label:'New Leads',value:l.new||0,color:'var(--ac)'},
-  {label:'Email Drafts',value:ob.drafts||0,color:ob.drafts>0?'var(--yl)':'var(--tx2)'},
+  {label:'Quotes',value:q.total||0,color:'var(--ac)'},
+  {label:'Pipeline $',value:'$'+(q.pipeline_value||0).toLocaleString(),color:'var(--yl)'},
+  {label:'Won $',value:'$'+(q.won_total||0).toLocaleString(),color:'var(--gn)'},
+  {label:'Win Rate',value:(q.win_rate||0)+'%',color:q.win_rate>=50?'var(--gn)':'var(--yl)'},
+  {label:'Growth',value:gr.total_prospects||0,color:'#bc8cff'},
+  {label:'Agents',value:(ag.healthy||0)+'/'+(ag.total||0),color:ag.down>0?'var(--rd)':'var(--gn)'},
+  {label:'Goal',value:rv.pct?rv.pct.toFixed(0)+'%':'0%',color:rv.pct>=50?'var(--gn)':rv.pct>=25?'var(--yl)':'var(--rd)'},
+  {label:'Drafts',value:ob.drafts||0,color:ob.drafts>0?'var(--yl)':'var(--tx2)'},
  ];
  bar.innerHTML=stats.map(function(s){
   return '<div class="stat-chip">'
    +'<div class="stat-val" style="color:'+s.color+'">'+s.value+'</div>'
    +'<div class="stat-label">'+s.label+'</div></div>';
  }).join('');
+
+ // Agent health row
+ if(data.agents && data.agents.length>0){
+  document.getElementById('agents-row').style.display='block';
+  document.getElementById('agents-list').innerHTML=data.agents.map(function(a){
+   var color=a.status==='active'||a.status==='ready'||a.status==='connected'?'#3fb950':a.status==='not configured'?'#d29922':'#f85149';
+   return '<span style="font-size:11px;padding:3px 8px;border-radius:6px;background:var(--sf2);display:inline-flex;align-items:center;gap:4px">'
+    +'<span style="width:6px;height:6px;border-radius:50%;background:'+color+';display:inline-block"></span>'
+    +a.icon+' '+a.name
+    +'</span>';
+  }).join('');
+ }
 }).catch(function(err){
  console.error('Manager brief failed:',err);
  var sec=document.getElementById('brief-section');

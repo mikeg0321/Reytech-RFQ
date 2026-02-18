@@ -548,8 +548,9 @@ def _check_agents_health() -> list:
 def _check_env_config() -> list:
     """Check environment variables."""
     results = []
-    required = {"DASH_USER": "Auth", "DASH_PASS": "Auth"}
-    optional = {"VAPI_API_KEY": "Voice", "QB_CLIENT_ID": "QuickBooks",
+    required = {"DASH_PASS": "Auth"}
+    optional = {"DASH_USER": "Auth (default: reytech)",
+                "VAPI_API_KEY": "Voice", "QB_CLIENT_ID": "QuickBooks",
                 "QB_CLIENT_SECRET": "QuickBooks", "QB_REALM_ID": "QuickBooks",
                 "GMAIL_ADDRESS": "Email", "GMAIL_PASSWORD": "Email",
                 "ANTHROPIC_API_KEY": "AI", "TWILIO_ACCOUNT_SID": "Twilio",
@@ -805,10 +806,13 @@ def run_health_check(checks: list = None) -> dict:
     passed = sum(1 for r in all_results if r["status"] == "pass")
     failed = sum(1 for r in all_results if r["status"] == "fail")
     warned = sum(1 for r in all_results if r["status"] == "warn")
+    info = sum(1 for r in all_results if r["status"] == "info")
     critical = [r for r in all_results if r.get("severity") == "critical"]
     recommendations = [r["recommendation"] for r in all_results if r.get("recommendation")]
 
-    health = round((passed / total) * 100) if total > 0 else 100
+    # Score: info items are neutral (not pass, not fail)
+    scorable = total - info
+    health = round((passed / max(scorable, 1)) * 100)
     health = max(0, health - len(critical) * 20)
     grade = "A" if health >= 90 else "B" if health >= 75 else "C" if health >= 60 else "D" if health >= 40 else "F"
 
@@ -817,7 +821,7 @@ def run_health_check(checks: list = None) -> dict:
         "duration_seconds": round(duration, 2),
         "health_score": health,
         "grade": grade,
-        "summary": {"total": total, "passed": passed, "failed": failed, "warned": warned},
+        "summary": {"total": total, "passed": passed, "failed": failed, "warned": warned, "info": info},
         "critical_issues": critical,
         "recommendations": recommendations,
         "results": all_results,
