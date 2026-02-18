@@ -579,14 +579,26 @@ def get_db_stats() -> dict:
 def migrate_json_to_db() -> dict:
     """One-time migration of all existing JSON files into SQLite.
     Safe to call multiple times — uses INSERT OR IGNORE / upsert.
-    Checks both the volume DATA_DIR and the git-tracked data/ dir.
+
+    Source priority:
+      1. DATA_DIR (volume /app/data — runtime writes live here)
+      2. src/seed_data/ (baked into the image at /app/src/seed_data/ — NEVER
+         shadowed by the volume mount, so always readable on first boot)
+
+    The root-level data/ directory is intentionally NOT used as a fallback
+    because on Railway it resolves to /app/data — the same path as the volume
+    mount — meaning it is equally empty on a fresh volume.
     """
     counts = {"quotes": 0, "contacts": 0, "revenue": 0, "errors": []}
 
-    # Possible source dirs: volume path first, then git data dir as fallback
+    # src/seed_data/ is two levels up from this file (src/core/db.py → src/ → seed_data/)
     _here = os.path.abspath(__file__)
-    _git_data = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(_here))), "data")
-    source_dirs = list(dict.fromkeys([DATA_DIR, _git_data]))  # dedup, preserve order
+    _seed_data = os.path.join(os.path.dirname(os.path.dirname(_here)), "seed_data")
+
+    # DATA_DIR first (picks up any runtime JSON already written to volume),
+    # then seed_data as guaranteed fallback.
+    source_dirs = list(dict.fromkeys([DATA_DIR, _seed_data]))  # dedup, volume never == seed_data
+    log.info("migrate_json_to_db: source_dirs=%s", source_dirs)
 
     def _try_load(fname):
         for d in source_dirs:
@@ -634,8 +646,46 @@ def migrate_json_to_db() -> dict:
 
 
 # ── Startup ───────────────────────────────────────────────────────────────────
+def _seed_volume_json() -> dict:
+    """On first boot with a fresh volume, copy seed JSON files from src/seed_data/
+    into DATA_DIR so the live app can read them (not just SQLite).
+    Files that already exist in DATA_DIR are never overwritten.
+    Returns dict of {filename: 'copied'|'exists'|'error'}.
+    """
+    _here = os.path.abspath(__file__)
+    _seed_dir = os.path.join(os.path.dirname(os.path.dirname(_here)), "seed_data")
+    if not os.path.isdir(_seed_dir):
+        return {}
+    results = {}
+    for fname in os.listdir(_seed_dir):
+        if not fname.endswith(".json"):
+            continue
+        src = os.path.join(_seed_dir, fname)
+        dst = os.path.join(DATA_DIR, fname)
+        if os.path.exists(dst) and os.path.getsize(dst) > 10:
+            results[fname] = "exists"
+            continue
+        try:
+            import shutil
+            shutil.copy2(src, dst)
+            results[fname] = "copied"
+        except Exception as e:
+            results[fname] = f"error: {e}"
+    copied = [k for k, v in results.items() if v == "copied"]
+    if copied:
+        log.info("Seeded %d JSON files into volume: %s", len(copied), copied)
+    return results
+
+
 def startup() -> dict:
     """Initialize DB and migrate existing data. Call once at app start."""
+    # Step 1: If volume is fresh, copy seed JSON into it so the app can read them
+    if _is_railway_volume():
+        seed_results = _seed_volume_json()
+        copied = [k for k, v in seed_results.items() if v == "copied"]
+        if copied:
+            log.info("Volume first-boot seed: copied %d files", len(copied))
+
     init_db()
     stats_before = get_db_stats()
     if stats_before.get("quotes", 0) == 0 and stats_before.get("contacts", 0) == 0:

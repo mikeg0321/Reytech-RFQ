@@ -1,0 +1,647 @@
+[
+  {
+    "name": "2024 Anodyne, LLC",
+    "company": "2024 Anodyne, LLC",
+    "address": "5050 S. 2nd Street",
+    "city": "Milwaukee",
+    "state": "WI",
+    "zip": "53207",
+    "source": "quickbooks"
+  },
+  {
+    "name": "AAA Wholesale Company",
+    "company": "AAA Wholesale Company",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Ace Hardware",
+    "company": "Ace Hardware",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Ace Parking",
+    "company": "Ace Parking",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Adobe",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Alaska Air",
+    "company": "Alaska Air",
+    "source": "quickbooks"
+  },
+  {
+    "name": "AliExpress",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Amazon",
+    "source": "quickbooks"
+  },
+  {
+    "name": "American Airlines",
+    "company": "American Airlines",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Anchortex Corp",
+    "company": "Anchortex Corp",
+    "address": "420 Commerce Lane\nSte 2-3",
+    "city": "West Berlin",
+    "state": "NJ",
+    "zip": "08091",
+    "phone": "(856) 768-5240",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Anker",
+    "company": "Anker",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Apple",
+    "company": "Apple",
+    "source": "quickbooks"
+  },
+  {
+    "name": "AT&T",
+    "company": "AT&T",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Atascadero",
+    "source": "quickbooks"
+  },
+  {
+    "name": "B2B Prime",
+    "company": "B2B Prime",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Baja Fish Tacos",
+    "company": "Baja Fish Tacos",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Barstow Sales Tax",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Bath & Body Works",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Bernell",
+    "company": "Bernell",
+    "address": "4016 North Home Street",
+    "city": "Mishawaka",
+    "state": "IN",
+    "zip": "46545",
+    "email": "marianne.rush@bernell.com",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Best Buy",
+    "company": "Best Buy",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Big 5",
+    "company": "Big 5",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Board of Equalization",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Ca Dept Taxation",
+    "company": "Ca Dept Taxation",
+    "source": "quickbooks"
+  },
+  {
+    "name": "CA EDD",
+    "source": "quickbooks"
+  },
+  {
+    "name": "CA Secretary of State",
+    "company": "CA Secretary of State",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Cal Vet - West Los Angeles",
+    "source": "quickbooks"
+  },
+  {
+    "name": "California Pizza Kitchen",
+    "company": "California Pizza Kitchen",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Calnena",
+    "company": "Calnena",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Capital One",
+    "company": "Capital One",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Carnival",
+    "company": "Carnival",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Carnival Shops",
+    "company": "Carnival Shops",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Carter's",
+    "company": "Carter's",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Chat GPT",
+    "company": "Chat GPT",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Chefgruel.Com",
+    "company": "Chefgruel.Com",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Chula Vista Tax",
+    "email": "c.marler@echelondistribution.com",
+    "source": "quickbooks"
+  },
+  {
+    "name": "City of Blythe",
+    "source": "quickbooks"
+  },
+  {
+    "name": "CNN News",
+    "company": "CNN News",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Coffee Bean",
+    "company": "Coffee Bean",
+    "source": "quickbooks"
+  },
+  {
+    "name": "CorTech",
+    "company": "CorTech",
+    "address": "7530 Plaza Court",
+    "city": "Willowbrook",
+    "state": "IL",
+    "zip": "60527",
+    "phone": "(800) 571-0770",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Costco",
+    "company": "Costco",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Costco Gas",
+    "company": "Costco Gas",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Courtyard",
+    "company": "Courtyard",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Cox",
+    "company": "Cox",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Crumble",
+    "company": "Crumble",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Curbell Medical Products, Inc.",
+    "company": "Curbell Medical Products, Inc.",
+    "address": "7 Cobham Drive",
+    "city": "Orchard Park",
+    "state": "NY",
+    "zip": "14127",
+    "email": "mbleecher@curbellmedical.com",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Denault's",
+    "company": "Denault's",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Dollar Tree",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Door Dash",
+    "company": "Door Dash",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Echelon Distribution",
+    "company": "Echelon Distribution",
+    "address": "4470 Yankee Hill Road, Suite 150",
+    "city": "Rocklin",
+    "state": "CA",
+    "zip": "95677",
+    "phone": "916-426-1608",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Federal Express",
+    "company": "Federal Express",
+    "source": "quickbooks"
+  },
+  {
+    "name": "FedEx",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Fistula Solution Corporation",
+    "company": "Fistula Solution Corporation",
+    "address": "10604 230th Street North",
+    "city": "Scandia",
+    "state": "MN",
+    "zip": "55073",
+    "phone": "+16514334936",
+    "email": "info@fistulasolution.com",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Franchise Tax Board",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Fresno Sales Tax",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Global Industrial",
+    "company": "Global Industrial",
+    "address": "11 Harbor Park Drive",
+    "city": "Port Washington",
+    "state": "NY",
+    "zip": "11050",
+    "source": "quickbooks"
+  },
+  {
+    "name": "GoDaddy",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Google",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Gravity Heights",
+    "company": "Gravity Heights",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Heartland Medical Sales & Service",
+    "company": "Heartland Medical Sales & Service",
+    "address": "2601 Holloway Road",
+    "city": "Louisville",
+    "state": "KY",
+    "zip": "40299",
+    "phone": "(877) 329-7775",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Home Depot",
+    "company": "Home Depot",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Hudson News",
+    "company": "Hudson News",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Hudson St.",
+    "company": "Hudson St.",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Hylete",
+    "company": "Hylete",
+    "source": "quickbooks"
+  },
+  {
+    "name": "IFixit",
+    "company": "IFixit",
+    "source": "quickbooks"
+  },
+  {
+    "name": "In Flight",
+    "company": "In Flight",
+    "source": "quickbooks"
+  },
+  {
+    "name": "In N Out Burger",
+    "company": "In N Out Burger",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Integrated Medical Supplies",
+    "phone": "(310) 212-6899",
+    "email": "adimalanta@imsla.com",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Intuit",
+    "company": "Intuit",
+    "source": "quickbooks"
+  },
+  {
+    "name": "IRS",
+    "source": "quickbooks"
+  },
+  {
+    "name": "John Wayne",
+    "company": "John Wayne",
+    "source": "quickbooks"
+  },
+  {
+    "name": "LAX Cafe",
+    "company": "LAX Cafe",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Leeann Chin",
+    "company": "Leeann Chin",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Linkedin",
+    "company": "Linkedin",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Lyft",
+    "company": "Lyft",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Master Medical Equipment",
+    "company": "Master Medical Equipment",
+    "address": "PO Box 11476",
+    "city": "Jackson",
+    "state": "TN",
+    "zip": "38308",
+    "source": "quickbooks"
+  },
+  {
+    "name": "MCCS Lodging",
+    "company": "MCCS Lodging",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Michaels",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Microsoft",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Mountain Primal",
+    "company": "Mountain Primal",
+    "source": "quickbooks"
+  },
+  {
+    "name": "My OC Bookkeeper",
+    "company": "My OC Bookkeeper",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Nekter",
+    "company": "Nekter",
+    "source": "quickbooks"
+  },
+  {
+    "name": "OC Pizza Co",
+    "company": "OC Pizza Co",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Office Depot",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Panera",
+    "company": "Panera",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Pho Today",
+    "company": "Pho Today",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Postal Annex",
+    "company": "Postal Annex",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Prime",
+    "company": "Prime",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Pump It Up",
+    "company": "Pump It Up",
+    "source": "quickbooks"
+  },
+  {
+    "name": "QuickBooks Payroll",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Quotewerks",
+    "company": "Quotewerks",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Red O Restaurant",
+    "company": "Red O Restaurant",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Riley L",
+    "company": "Riley L",
+    "source": "quickbooks"
+  },
+  {
+    "name": "S&S Worldwide",
+    "company": "S&S Worldwide",
+    "address": "P.O. BOX 516",
+    "city": "Colchester",
+    "state": "CT",
+    "zip": "06415",
+    "phone": "(800) 243-9232",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Sacramento Sales Tax",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Sangean America Inc",
+    "company": "Sangean America Inc",
+    "address": "9900 Jordan Circle",
+    "city": "Santa Fe Springs",
+    "state": "CA",
+    "zip": "90670",
+    "email": "vince@sangeanus.com",
+    "source": "quickbooks"
+  },
+  {
+    "name": "SCFTA Bars",
+    "company": "SCFTA Bars",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Scholastic",
+    "company": "Scholastic",
+    "source": "quickbooks"
+  },
+  {
+    "name": "School Fund",
+    "company": "School Fund",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Segerstrom",
+    "company": "Segerstrom",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Selanne Steak Tavern",
+    "company": "Selanne Steak Tavern",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Shamrock Labels",
+    "company": "Shamrock Labels",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Sheraton",
+    "company": "Sheraton",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Sirvezas",
+    "company": "Sirvezas",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Snooze La Jolla",
+    "company": "Snooze La Jolla",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Southwest",
+    "company": "Southwest",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Starbucks",
+    "company": "Starbucks",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Starlink",
+    "company": "Starlink",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Stellar",
+    "company": "Stellar",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Streamline Solutions",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Surgireal",
+    "company": "Surgireal",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Target",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Test Vendor",
+    "company": "Test Vendor",
+    "source": "quickbooks",
+    "open_balance": 48.96
+  },
+  {
+    "name": "Transformer Table",
+    "company": "Transformer Table",
+    "source": "quickbooks"
+  },
+  {
+    "name": "TSI Incorporated",
+    "address": "500 Cardigan Road",
+    "city": "Shoreview",
+    "state": "MN",
+    "zip": "55126",
+    "email": "psullivan@tsi.com",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Uline Shipping Supplies",
+    "company": "Uline Shipping Supplies",
+    "source": "quickbooks"
+  },
+  {
+    "name": "UPS",
+    "source": "quickbooks"
+  },
+  {
+    "name": "USPS",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Wal-Mart",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Wayfair",
+    "company": "Wayfair",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Weather Tech",
+    "company": "Weather Tech",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Webstaurant",
+    "source": "quickbooks"
+  },
+  {
+    "name": "Wix",
+    "source": "quickbooks"
+  }
+]

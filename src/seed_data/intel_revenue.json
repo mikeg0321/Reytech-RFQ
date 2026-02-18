@@ -1,0 +1,19 @@
+{
+  "goal": 2000000,
+  "year": 2026,
+  "entries": [],
+  "manual_entries": [],
+  "closed_revenue": 0,
+  "pipeline_value": 0,
+  "growth_pipeline": 0,
+  "quotes_won_value": 0,
+  "qb_collected": 0,
+  "manual_entries_total": 0,
+  "pct_to_goal": 0.0,
+  "gap_to_goal": 2000000,
+  "monthly_needed": 181818.18,
+  "run_rate_annual": 0.0,
+  "on_track": false,
+  "pct_year_elapsed": 13.4,
+  "updated_at": "2026-02-18T05:41:20.636403"
+}
