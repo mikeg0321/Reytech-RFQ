@@ -5127,6 +5127,266 @@ def api_crm_agency_summary(agency_name):
     })
 
 
+# ─── CRM Contact Routes (contact-level activity, persisted separately) ────────
+
+CRM_CONTACTS_FILE = os.path.join(DATA_DIR, "crm_contacts.json")
+
+def _load_crm_contacts() -> dict:
+    """Load persisted CRM contact enhancements (manual fields + activity)."""
+    try:
+        with open(CRM_CONTACTS_FILE) as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+def _save_crm_contacts(contacts: dict):
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(CRM_CONTACTS_FILE, "w") as f:
+        json.dump(contacts, f, indent=2, default=str)
+
+def _get_or_create_crm_contact(prospect_id: str, prospect: dict = None) -> dict:
+    """Get or create a CRM contact record, merging SCPRS intel data."""
+    contacts = _load_crm_contacts()
+    if prospect_id not in contacts:
+        pr = prospect or {}
+        contacts[prospect_id] = {
+            "id": prospect_id,
+            "created_at": datetime.now().isoformat(),
+            "buyer_name": pr.get("buyer_name",""),
+            "buyer_email": pr.get("buyer_email",""),
+            "buyer_phone": pr.get("buyer_phone",""),
+            "agency": pr.get("agency",""),
+            "title": "",
+            "linkedin": "",
+            "notes": "",
+            "tags": [],
+            # SCPRS intel snapshot (updated on each sync)
+            "total_spend": pr.get("total_spend", 0),
+            "po_count": pr.get("po_count", 0),
+            "categories": pr.get("categories", {}),
+            "items_purchased": pr.get("items_purchased", []),
+            "purchase_orders": pr.get("purchase_orders", []),
+            "last_purchase": pr.get("last_purchase",""),
+            "score": pr.get("score", 0),
+            "outreach_status": pr.get("outreach_status","new"),
+            # Activity log (all emails, calls, chats, notes)
+            "activity": [],
+        }
+        _save_crm_contacts(contacts)
+    return contacts[prospect_id]
+
+
+@bp.route("/api/crm/contact/<contact_id>/log", methods=["POST"])
+@auth_required
+def api_crm_contact_log(contact_id):
+    """Log an activity (email, call, chat, note) for a contact.
+    POST JSON: {event_type, detail, actor, subject?, direction?, outcome?, channel?, duration?}
+    """
+    data = request.get_json(silent=True) or {}
+    event_type = data.get("event_type") or data.get("type") or "note"
+    detail = data.get("detail","").strip()
+    actor = data.get("actor","mike")
+
+    if not detail:
+        return jsonify({"ok": False, "error": "detail is required"})
+
+    # Build activity entry
+    entry = {
+        "id": f"act-{datetime.now().strftime('%Y%m%d%H%M%S')}-{contact_id[:6]}",
+        "event_type": event_type,
+        "detail": detail,
+        "actor": actor,
+        "timestamp": datetime.now().isoformat(),
+    }
+    # Attach extra fields based on type
+    for field in ("subject","direction","outcome","channel","duration","amount"):
+        if data.get(field):
+            entry[field] = data[field]
+
+    # Persist to CRM contacts store
+    contacts = _load_crm_contacts()
+    if contact_id not in contacts:
+        # Try to fetch prospect data to hydrate
+        try:
+            if GROWTH_AVAILABLE:
+                pr_result = get_prospect(contact_id)
+                pr = pr_result.get("prospect", {}) if pr_result.get("ok") else {}
+            else:
+                pr = {}
+        except Exception:
+            pr = {}
+        contacts[contact_id] = _get_or_create_crm_contact(contact_id, pr)
+        contacts = _load_crm_contacts()  # reload after create
+
+    if contact_id in contacts:
+        contacts[contact_id].setdefault("activity", []).append(entry)
+        # Keep newest 500 entries per contact
+        contacts[contact_id]["activity"] = contacts[contact_id]["activity"][-500:]
+        _save_crm_contacts(contacts)
+
+    # Also write to global CRM activity log (for cross-contact views)
+    metadata = {k: v for k, v in entry.items() if k not in ("id","event_type","detail","actor","timestamp")}
+    _log_crm_activity(
+        ref_id=contact_id,
+        event_type=event_type,
+        description=detail,
+        actor=actor,
+        metadata=metadata,
+    )
+
+    # Auto-update prospect status on meaningful interactions
+    if GROWTH_AVAILABLE and event_type in ("email_sent","voice_called","chat","meeting"):
+        try:
+            update_prospect(contact_id, {"outreach_status": "emailed" if event_type=="email_sent" else "called"})
+        except Exception:
+            pass
+
+    return jsonify({"ok": True, "entry": entry, "contact_id": contact_id})
+
+
+@bp.route("/api/crm/contact/<contact_id>")
+@auth_required
+def api_crm_contact_get(contact_id):
+    """Get full CRM contact record including all logged activity."""
+    contacts = _load_crm_contacts()
+    if contact_id not in contacts:
+        # Hydrate from prospect if available
+        if GROWTH_AVAILABLE:
+            try:
+                pr_result = get_prospect(contact_id)
+                if pr_result.get("ok"):
+                    contacts[contact_id] = _get_or_create_crm_contact(contact_id, pr_result["prospect"])
+            except Exception:
+                pass
+    contact = contacts.get(contact_id)
+    if not contact:
+        return jsonify({"ok": False, "error": "Contact not found"})
+    # Merge global CRM activity
+    global_events = _get_crm_activity(ref_id=contact_id, limit=200)
+    contact["global_activity"] = global_events
+    return jsonify({"ok": True, "contact": contact})
+
+
+@bp.route("/api/crm/contact/<contact_id>", methods=["PATCH"])
+@auth_required
+def api_crm_contact_update(contact_id):
+    """Update manual contact fields: name, phone, title, linkedin, notes, tags."""
+    data = request.get_json(silent=True) or {}
+    contacts = _load_crm_contacts()
+    if contact_id not in contacts:
+        if GROWTH_AVAILABLE:
+            try:
+                pr_result = get_prospect(contact_id)
+                if pr_result.get("ok"):
+                    _get_or_create_crm_contact(contact_id, pr_result["prospect"])
+                    contacts = _load_crm_contacts()
+            except Exception:
+                pass
+    if contact_id not in contacts:
+        return jsonify({"ok": False, "error": "Contact not found"})
+
+    allowed = {"buyer_name","buyer_phone","title","linkedin","notes","tags","outreach_status"}
+    for k, v in data.items():
+        if k in allowed:
+            contacts[contact_id][k] = v
+    contacts[contact_id]["updated_at"] = datetime.now().isoformat()
+    _save_crm_contacts(contacts)
+    # Sync name/phone back to growth prospects too
+    if GROWTH_AVAILABLE:
+        try:
+            sync = {k: data[k] for k in ("buyer_name","buyer_phone") if k in data}
+            if sync:
+                update_prospect(contact_id, sync)
+        except Exception:
+            pass
+    return jsonify({"ok": True, "contact_id": contact_id})
+
+
+@bp.route("/api/crm/contacts")
+@auth_required
+def api_crm_contacts_list():
+    """List all CRM contacts with activity counts and last interaction."""
+    contacts = _load_crm_contacts()
+    result = []
+    for cid, c in contacts.items():
+        activity = c.get("activity", [])
+        last_act = activity[-1].get("timestamp","") if activity else ""
+        result.append({
+            "id": cid,
+            "buyer_name": c.get("buyer_name",""),
+            "buyer_email": c.get("buyer_email",""),
+            "agency": c.get("agency",""),
+            "outreach_status": c.get("outreach_status","new"),
+            "total_spend": c.get("total_spend",0),
+            "categories": list(c.get("categories",{}).keys()),
+            "activity_count": len(activity),
+            "last_activity": last_act,
+            "score": c.get("score",0),
+        })
+    result.sort(key=lambda x: x.get("last_activity",""), reverse=True)
+    return jsonify({"ok": True, "contacts": result, "total": len(result)})
+
+
+@bp.route("/api/crm/sync-intel", methods=["POST"])
+@auth_required
+def api_crm_sync_intel():
+    """Sync all intel buyers into CRM contacts store.
+    Preserves manual fields (phone, title, linkedin, notes, activity).
+    Updates SCPRS intel fields (spend, categories, items, POs).
+    """
+    if not INTEL_AVAILABLE:
+        return jsonify({"ok": False, "error": "Intel not available"})
+    from src.agents.sales_intel import _load_json as il, BUYERS_FILE
+    buyers_data = il(BUYERS_FILE)
+    buyers = buyers_data.get("buyers", []) if isinstance(buyers_data, dict) else []
+    if not buyers:
+        return jsonify({"ok": False, "error": "No buyer data — run Deep Pull first"})
+
+    contacts = _load_crm_contacts()
+    created = 0
+    updated = 0
+    for b in buyers:
+        bid = b.get("id","")
+        if not bid:
+            continue
+        if bid in contacts:
+            # Update SCPRS fields, preserve manual fields
+            for field in ("total_spend","po_count","categories","items_purchased","purchase_orders","last_purchase","score","agency","outreach_status"):
+                if b.get(field) is not None:
+                    contacts[bid][field] = b[field]
+            # Fill blank manual fields from intel if available
+            for field in ("buyer_name","buyer_email","buyer_phone"):
+                if not contacts[bid].get(field) and b.get(field):
+                    contacts[bid][field] = b[field]
+            contacts[bid]["intel_synced_at"] = datetime.now().isoformat()
+            updated += 1
+        else:
+            contacts[bid] = {
+                "id": bid,
+                "created_at": datetime.now().isoformat(),
+                "intel_synced_at": datetime.now().isoformat(),
+                "buyer_name": b.get("buyer_name",""),
+                "buyer_email": b.get("buyer_email",""),
+                "buyer_phone": b.get("buyer_phone",""),
+                "agency": b.get("agency",""),
+                "title": "", "linkedin": "", "notes": "", "tags": [],
+                "total_spend": b.get("total_spend",0),
+                "po_count": b.get("po_count",0),
+                "categories": b.get("categories",{}),
+                "items_purchased": b.get("items_purchased",[]),
+                "purchase_orders": b.get("purchase_orders",[]),
+                "last_purchase": b.get("last_purchase",""),
+                "score": b.get("score",0),
+                "outreach_status": b.get("outreach_status","new"),
+                "activity": [],
+            }
+            created += 1
+    _save_crm_contacts(contacts)
+    return jsonify({"ok": True, "created": created, "updated": updated,
+                    "total_contacts": len(contacts),
+                    "message": f"Synced {len(buyers)} buyers → CRM. {created} new, {updated} updated."})
+
+
 # ─── Lead Generation Routes ─────────────────────────────────────────────────
 
 @bp.route("/api/shipping/detected")
@@ -5709,75 +5969,285 @@ def growth_page():
 @bp.route("/growth/prospect/<prospect_id>")
 @auth_required
 def growth_prospect_detail(prospect_id):
-    """Prospect detail page with timeline + CRM actions."""
+    """Full CRM contact detail — timeline, contact info, SCPRS data, activity log."""
     if not GROWTH_AVAILABLE:
-        flash("Growth agent not available", "error"); return redirect("/growth")
+        flash("Growth agent not available", "error"); return redirect("/contacts")
     result = get_prospect(prospect_id)
     if not result.get("ok"):
-        flash("Prospect not found", "error"); return redirect("/growth")
+        flash("Prospect not found", "error"); return redirect("/contacts")
 
     pr = result["prospect"]
     timeline = result.get("timeline", [])
     outreach_recs = result.get("outreach_records", [])
 
-    icons = {"status_change": "🔄", "email_sent": "📧", "email_bounced": "⛔",
-             "voice_called": "📞", "response_received": "✅", "note": "📝", "updated": "✏️"}
-    tl_html = ""
-    for ev in timeline[:50]:
-        ts = ev.get("timestamp", "")[:16].replace("T", " ")
-        tl_html += f'<div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--bd)"><span style="font-size:16px">{icons.get(ev.get("type",""),"•")}</span><div style="flex:1"><div style="font-size:12px;font-weight:600">{ev.get("type","").replace("_"," ").title()}</div><div style="font-size:11px;color:var(--tx2)">{ev.get("detail","")}</div></div><span style="font-size:10px;color:var(--tx2)">{ts}</span></div>'
-    if not tl_html:
-        tl_html = '<div style="color:var(--tx2);font-size:12px;padding:12px">No events yet</div>'
+    # Merge CRM activity log for this contact
+    contact_email = pr.get("buyer_email", "")
+    crm_events = _get_crm_activity(ref_id=prospect_id, limit=100)
+    if contact_email:
+        crm_events += _get_crm_activity(ref_id=contact_email, limit=50)
+    crm_events = sorted(crm_events, key=lambda x: x.get("timestamp",""), reverse=True)[:100]
 
+    # Combine all events
+    event_icons = {
+        "status_change":"🔄","email_sent":"📧","email_received":"📨","email_bounced":"⛔",
+        "voice_called":"📞","sms_sent":"💬","chat":"💬","note":"📝","updated":"✏️",
+        "response_received":"✅","won":"🏆","lost":"💀","follow_up":"⏰","meeting":"🤝",
+        "quote_sent":"📋","quote_won":"✅","lead_scored":"⭐",
+    }
+    all_events = []
+    for ev in timeline[:50]:
+        all_events.append({"ts":ev.get("timestamp",""),"type":ev.get("type","event"),
+                           "detail":ev.get("detail",""),"actor":"system","source":"growth"})
+    for ev in crm_events:
+        all_events.append({"ts":ev.get("timestamp",""),"type":ev.get("event_type","event"),
+                           "detail":ev.get("description",""),"actor":ev.get("actor","system"),
+                           "source":"crm","metadata":ev.get("metadata",{})})
+    all_events.sort(key=lambda x: x.get("ts",""), reverse=True)
+
+    tl_html = ""
+    for ev in all_events[:80]:
+        ts = ev.get("ts","")[:16].replace("T"," ")
+        icon = event_icons.get(ev.get("type",""), "•")
+        etype = ev.get("type","").replace("_"," ").title()
+        detail = ev.get("detail","")
+        actor = ev.get("actor","")
+        actor_badge = f'<span style="font-size:9px;padding:1px 6px;border-radius:8px;background:rgba(79,140,255,.15);color:var(--ac);margin-left:4px">{actor}</span>' if actor and actor != "system" else ""
+        meta = ev.get("metadata",{})
+        meta_html = ""
+        if meta.get("amount"): meta_html += f' · <span style="color:#3fb950">${float(meta["amount"]):,.0f}</span>'
+        if meta.get("subject"): meta_html += f' · <i style="color:var(--tx2)">{str(meta["subject"])[:50]}</i>'
+        tl_html += f'<div style="display:flex;gap:10px;padding:10px 0;border-bottom:1px solid rgba(46,51,69,.5)"><span style="font-size:18px;flex-shrink:0;width:24px;text-align:center">{icon}</span><div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:600;display:flex;align-items:center;gap:4px">{etype}{actor_badge}</div><div style="font-size:12px;color:var(--tx2);margin-top:2px;word-break:break-word">{detail}{meta_html}</div></div><span style="font-size:10px;color:var(--tx2);font-family:monospace;white-space:nowrap;flex-shrink:0">{ts}</span></div>'
+    if not tl_html:
+        tl_html = '<div style="color:var(--tx2);font-size:13px;padding:16px;text-align:center">No activity yet — log a call, email, or note above</div>'
+
+    # PO history
+    po_html = ""
+    for po in pr.get("purchase_orders",[]):
+        po_html += f'<tr><td class="mono" style="color:var(--ac)">{po.get("po_number","—")}</td><td class="mono">{po.get("date","—")}</td><td style="font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{str(po.get("items","—"))[:80]}</td><td style="font-size:11px">{po.get("category","—")}</td><td class="mono" style="color:#3fb950;text-align:right">${po.get("total_num",0) or po.get("total",0) or 0:,.0f}</td></tr>'
+
+    # Items purchased
+    items_html = ""
+    cat_colors = {"Medical":"#f87171","Janitorial":"#3fb950","Office":"#4f8cff","IT":"#a78bfa","Facility":"#fb923c","Safety":"#fbbf24"}
+    for it in pr.get("items_purchased",[])[:20]:
+        cc = cat_colors.get(it.get("category",""),"#8b90a0")
+        up = f'<span style="font-size:11px;font-family:monospace;color:#3fb950">${float(it["unit_price"]):,.2f}</span>' if it.get("unit_price") else ""
+        items_html += f'<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid rgba(46,51,69,.4)"><span style="font-size:10px;padding:2px 7px;border-radius:8px;background:{cc}22;color:{cc};border:1px solid {cc}44;white-space:nowrap">{it.get("category","General")}</span><span style="font-size:12px;flex:1">{it.get("description","")}</span>{up}</div>'
+
+    # Categories breakdown
+    cats_dict = pr.get("categories",{})
+    cats_html = ""
+    total_cat = sum(cats_dict.values()) or 1
+    for cat, spend in sorted(cats_dict.items(), key=lambda x: x[1], reverse=True):
+        pct = round(spend/total_cat*100)
+        cc = cat_colors.get(cat,"#8b90a0")
+        cats_html += f'<div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px"><span style="color:{cc};font-weight:600">{cat}</span><span class="mono">${spend:,.0f} ({pct}%)</span></div><div style="background:var(--sf2);border-radius:4px;height:6px;overflow:hidden"><div style="width:{pct}%;height:100%;background:{cc};border-radius:4px"></div></div></div>'
+
+    # Outreach records
     or_html = ""
     for o in outreach_recs:
-        flags = ("✅ Sent" if o.get("email_sent") else "⏳") + (" ⛔ Bounced" if o.get("bounced") else "") + (" ✅ Replied" if o.get("response_received") else "") + (" 📞 Called" if o.get("voice_called") else "")
-        or_html += f'<div style="padding:8px;background:var(--sf2);border-radius:6px;margin-bottom:6px;font-size:11px"><div style="font-weight:600">{o.get("email_subject","—")}</div><div style="color:var(--tx2)">To: {o.get("email","—")} | {flags}</div></div>'
+        flags = (''.join([
+            '<span style="color:#3fb950">✅ Sent</span> ' if o.get("email_sent") else '<span style="color:var(--tx2)">⏳ Draft</span> ',
+            '<span style="color:#f85149">⛔ Bounced</span> ' if o.get("bounced") else '',
+            '<span style="color:#3fb950">✅ Replied</span> ' if o.get("response_received") else '',
+            '<span style="color:#fb923c">📞 Called</span>' if o.get("voice_called") else '',
+        ]))
+        or_html += f'<div style="padding:10px;background:var(--sf2);border-radius:8px;margin-bottom:8px;font-size:12px"><div style="font-weight:600;margin-bottom:4px">{o.get("email_subject","—")}</div><div style="color:var(--tx2);display:flex;gap:12px;flex-wrap:wrap"><span>To: {o.get("email","—")}</span>{flags}</div></div>'
 
-    po_html = ""
-    for po in pr.get("purchase_orders", []):
-        po_html += f'<tr><td class="mono">{po.get("po_number","—")}</td><td>{po.get("date","—")}</td><td style="font-size:11px">{po.get("items","—")[:60]}</td><td class="mono" style="color:#3fb950">${po.get("total_num",0) or 0:,.0f}</td></tr>'
+    stat = pr.get("outreach_status","new")
+    sc = {"new":"#4f8cff","emailed":"#fbbf24","called":"#fb923c","responded":"#a78bfa","won":"#3fb950","lost":"#f87171","dead":"#8b90a0","bounced":"#f85149","follow_up_due":"#d29922"}
+    stat_color = sc.get(stat,"#8b90a0")
+    pid = pr.get("id","")
+    agency = pr.get("agency","Unknown")
+    total_spend = pr.get("total_spend",0) or 0
+    po_count = pr.get("po_count",0) or len(pr.get("purchase_orders",[]))
+    score = pr.get("score",0) or 0
+    score_pct = round(score*100) if score<=1 else round(score)
+    last_purchase = (pr.get("last_purchase","") or pr.get("last_po_date","") or "—")[:10]
 
-    stat = pr.get("outreach_status", "new")
-    stat_lbl = {"new": "⬜ New", "emailed": "📧 Emailed", "follow_up_due": "⏰ Follow-Up Due", "called": "📞 Called", "responded": "✅ Responded", "bounced": "⛔ Bounced", "dead": "💀 Dead", "won": "🏆 Won"}.get(stat, stat)
-    pid = pr.get("id", "")
+    page_html = f"""{_header('CRM Contact')}
+    <style>
+     .card{{background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:18px;margin-bottom:14px}}
+     .card h3{{font-size:11px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px}}
+     .g-btn{{padding:8px 14px;border-radius:7px;border:1px solid var(--bd);background:var(--sf2);color:var(--tx);cursor:pointer;font-size:13px;font-weight:600;transition:.15s;text-decoration:none;display:inline-flex;align-items:center;gap:5px}}
+     .g-btn:hover{{border-color:var(--ac);background:rgba(79,140,255,.1)}}
+     .g-btn-go{{background:rgba(52,211,153,.1);color:#3fb950;border-color:rgba(52,211,153,.3)}}
+     .g-btn-warn{{background:rgba(251,191,36,.1);color:#fbbf24;border-color:rgba(251,191,36,.3)}}
+     .g-btn-red{{background:rgba(248,113,113,.1);color:#f87171;border-color:rgba(248,113,113,.3)}}
+     .g-btn-purple{{background:rgba(167,139,250,.1);color:#a78bfa;border-color:rgba(167,139,250,.3)}}
+     table{{width:100%;border-collapse:collapse;font-size:12px}}
+     th{{text-align:left;padding:8px;font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--bd)}}
+     td{{padding:8px;border-bottom:1px solid rgba(46,51,69,.4);vertical-align:middle}}
+     .mono{{font-family:'JetBrains Mono',monospace}}
+     .field-row{{display:flex;align-items:flex-start;padding:9px 0;border-bottom:1px solid rgba(46,51,69,.4)}}
+     .field-lbl{{font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;width:80px;flex-shrink:0;padding-top:2px}}
+     .field-val{{font-size:13px;font-weight:500;flex:1}}
+     .modal-bg{{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1000;align-items:center;justify-content:center}}
+     .modal-box{{background:var(--sf);border:1px solid var(--bd);border-radius:12px;padding:24px;width:480px;max-width:95vw;max-height:90vh;overflow-y:auto}}
+     .form-lbl{{font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px}}
+     .form-input{{width:100%;padding:10px 12px;background:var(--sf2);border:1px solid var(--bd);border-radius:7px;color:var(--tx);font-size:13px;font-family:'DM Sans',sans-serif;box-sizing:border-box;margin-bottom:12px}}
+     .form-input:focus{{outline:none;border-color:var(--ac)}}
+     textarea.form-input{{resize:vertical;min-height:80px}}
+    </style>
 
-    return f"""{_header('Prospect Detail')}
-    <style>.card{{background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px;margin-bottom:16px}} .card h3{{font-size:15px;margin-bottom:12px}} .g-btn{{padding:6px 12px;border-radius:6px;border:1px solid var(--bd);background:var(--sf2);color:var(--tx);cursor:pointer;font-size:12px;font-weight:600}} .g-btn:hover{{background:var(--ac);color:#000}} table{{width:100%;border-collapse:collapse;font-size:12px}} th{{text-align:left;padding:6px 8px;border-bottom:2px solid var(--bd);font-size:11px;color:var(--tx2)}} td{{padding:6px 8px;border-bottom:1px solid var(--bd)}} .mono{{font-family:'JetBrains Mono',monospace}}</style>
-    <a href="/growth" style="color:var(--ac);text-decoration:none;font-size:13px">← Growth Engine</a>
-    <h1 style="margin-top:8px">{pr.get('agency','Unknown')}</h1>
-    <div style="margin-bottom:16px;font-size:14px;color:var(--tx2)">{stat_lbl} — {pid}</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
-     <div class="card">
-      <h3>👤 Contact</h3>
-      <div style="font-size:13px;line-height:2">
-       <div><span style="color:var(--tx2);min-width:60px;display:inline-block">Name:</span> <b id="p-name">{pr.get('buyer_name','—')}</b></div>
-       <div><span style="color:var(--tx2);display:inline-block;min-width:60px">Email:</span> {pr.get('buyer_email','—')}</div>
-       <div><span style="color:var(--tx2);display:inline-block;min-width:60px">Phone:</span> <span id="p-phone">{pr.get('buyer_phone','—')}</span></div>
-       <div><span style="color:var(--tx2);display:inline-block;min-width:60px">Spend:</span> <span style="color:#3fb950;font-weight:700">${pr.get('total_spend',0):,.0f}</span></div>
-       <div><span style="color:var(--tx2);display:inline-block;min-width:60px">Cats:</span> {', '.join(pr.get('categories_matched',[]))}</div>
-      </div>
-      <div style="margin-top:12px;display:flex;gap:6px;flex-wrap:wrap">
-       <button class="g-btn" onclick="editContact()">✏️ Edit</button>
-       <button class="g-btn" onclick="addNote()">📝 Note</button>
-       <button class="g-btn" style="color:#3fb950" onclick="setStatus('responded')">✅ Responded</button>
-       <button class="g-btn" style="color:#f85149" onclick="setBounced()">⛔ Bounced</button>
-       <button class="g-btn" style="color:#3fb950" onclick="setStatus('won')">🏆 Won</button>
-       <button class="g-btn" style="color:#8b949e" onclick="setStatus('dead')">💀 Dead</button>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;font-size:13px">
+     <a href="/contacts" style="color:var(--ac)">👥 CRM</a>
+     <span style="color:var(--tx2)">›</span>
+     <span style="color:var(--tx)">{agency}</span>
+    </div>
+
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:18px">
+     <div>
+      <h1 style="font-size:22px;font-weight:700;margin-bottom:6px">{pr.get('buyer_name') or agency}</h1>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+       <span style="font-size:13px;color:var(--tx2)">{agency}</span>
+       <span style="padding:3px 12px;border-radius:12px;font-size:11px;font-weight:700;text-transform:uppercase;background:{stat_color}22;color:{stat_color};border:1px solid {stat_color}44">{stat}</span>
+       <span style="font-size:12px;color:var(--tx2)">Score <b style="color:var(--ac)">{score_pct}%</b></span>
+       <span style="font-size:12px;color:var(--tx2)">Spend <b style="color:#3fb950">${total_spend:,.0f}</b></span>
+       <span style="font-size:12px;color:var(--tx2)">{po_count} POs · Last {last_purchase}</span>
       </div>
      </div>
-     <div class="card"><h3>📅 Timeline ({len(timeline)})</h3><div style="max-height:300px;overflow:auto">{tl_html}</div></div>
+     <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="g-btn g-btn-go" onclick="openLog('email')">📧 Log Email</button>
+      <button class="g-btn g-btn-go" onclick="openLog('call')">📞 Log Call</button>
+      <button class="g-btn g-btn-purple" onclick="openLog('chat')">💬 Log Chat</button>
+      <button class="g-btn" onclick="openLog('note')">📝 Note</button>
+      <button class="g-btn" onclick="openEdit()">✏️ Edit</button>
+     </div>
     </div>
-    {('<div class="card"><h3>📧 Outreach</h3>' + or_html + '</div>') if or_html else ''}
-    {('<div class="card"><h3>📋 PO History</h3><table><thead><tr><th>PO #</th><th>Date</th><th>Items</th><th>Total</th></tr></thead><tbody>' + po_html + '</tbody></table></div>') if po_html else ''}
+
+    <div style="display:grid;grid-template-columns:1fr 1.5fr 0.9fr;gap:14px;margin-bottom:14px">
+     <div class="card">
+      <h3>👤 Contact Info</h3>
+      <div class="field-row"><span class="field-lbl">Name</span><span class="field-val">{pr.get('buyer_name') or '—'}</span></div>
+      <div class="field-row"><span class="field-lbl">Email</span><span class="field-val"><a href="mailto:{pr.get('buyer_email','')}" style="color:var(--ac);font-family:monospace;font-size:12px">{pr.get('buyer_email') or '—'}</a></span></div>
+      <div class="field-row"><span class="field-lbl">Phone</span><span class="field-val">{pr.get('buyer_phone') or '—'}</span></div>
+      <div class="field-row"><span class="field-lbl">Title</span><span class="field-val">{pr.get('title') or '—'}</span></div>
+      <div class="field-row"><span class="field-lbl">Agency</span><span class="field-val">{agency}</span></div>
+      <div class="field-row"><span class="field-lbl">LinkedIn</span><span class="field-val">{"<a href='"+str(pr.get('linkedin',''))+"' target='_blank' style='color:var(--ac)'>View Profile</a>" if pr.get('linkedin') else '—'}</span></div>
+      <div class="field-row"><span class="field-lbl">Notes</span><span class="field-val" style="font-size:12px;color:var(--tx2);white-space:pre-wrap">{pr.get('notes') or pr.get('contact_notes') or '—'}</span></div>
+      <div style="margin-top:14px;display:grid;grid-template-columns:1fr 1fr;gap:6px">
+       <button class="g-btn g-btn-go" onclick="setStatus('responded')" style="justify-content:center">✅ Responded</button>
+       <button class="g-btn g-btn-warn" onclick="setStatus('follow_up_due')" style="justify-content:center">⏰ Follow Up</button>
+       <button class="g-btn g-btn-go" onclick="setStatus('won')" style="justify-content:center">🏆 Won</button>
+       <button class="g-btn g-btn-red" onclick="setStatus('dead')" style="justify-content:center">💀 Dead</button>
+      </div>
+     </div>
+
+     <div class="card">
+      <h3>📅 Activity Log <span style="font-weight:400;color:var(--tx2);font-size:10px;text-transform:none;letter-spacing:0">({len(all_events)} events)</span></h3>
+      <div style="max-height:420px;overflow-y:auto;padding-right:4px">{tl_html}</div>
+     </div>
+
+     <div class="card">
+      <h3>📊 SCPRS Intel</h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
+       <div style="background:var(--sf2);border-radius:8px;padding:10px;text-align:center">
+        <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">Annual Spend</div>
+        <div style="font-size:18px;font-weight:700;color:#3fb950;font-family:monospace">${total_spend:,.0f}</div>
+       </div>
+       <div style="background:var(--sf2);border-radius:8px;padding:10px;text-align:center">
+        <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">PO Count</div>
+        <div style="font-size:18px;font-weight:700;color:var(--ac);font-family:monospace">{po_count}</div>
+       </div>
+       <div style="background:var(--sf2);border-radius:8px;padding:10px;text-align:center">
+        <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">Opp Score</div>
+        <div style="font-size:18px;font-weight:700;color:#a78bfa;font-family:monospace">{score_pct}%</div>
+       </div>
+       <div style="background:var(--sf2);border-radius:8px;padding:10px;text-align:center">
+        <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">Last Buy</div>
+        <div style="font-size:12px;font-weight:600;font-family:monospace;color:var(--tx)">{last_purchase}</div>
+       </div>
+      </div>
+      {('<div style="font-size:10px;color:var(--tx2);font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Spend by Category</div>' + cats_html) if cats_html else '<div style="color:var(--tx2);font-size:12px">Run Deep Pull for category data</div>'}
+     </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1.8fr;gap:14px">
+     <div class="card">
+      <h3>🛒 Items Purchased</h3>
+      {('<div>' + items_html + '</div>') if items_html else '<div style="color:var(--tx2);font-size:13px;padding:8px 0">No item data yet — run Deep Pull to mine line items</div>'}
+     </div>
+     <div class="card">
+      <h3>📋 PO History ({po_count})</h3>
+      {('<div style="overflow-x:auto"><table><thead><tr><th>PO #</th><th>Date</th><th>Items</th><th>Category</th><th style="text-align:right">Total</th></tr></thead><tbody>' + po_html + '</tbody></table></div>') if po_html else '<div style="color:var(--tx2);font-size:13px;padding:8px 0">No PO history — run Deep Pull to fetch SCPRS purchase orders</div>'}
+     </div>
+    </div>
+
+    {('<div class="card"><h3>📧 Outreach Campaigns</h3>' + or_html + '</div>') if or_html else ''}
+
+    <!-- Log Activity Modal -->
+    <div class="modal-bg" id="log-modal" onclick="if(event.target===this)closeModal()">
+     <div class="modal-box">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+       <span id="modal-title" style="font-size:16px;font-weight:700">Log Activity</span>
+       <button onclick="closeModal()" style="background:none;border:none;color:var(--tx2);cursor:pointer;font-size:20px">✕</button>
+      </div>
+      <div id="modal-body"></div>
+     </div>
+    </div>
+
+    <!-- Edit Contact Modal -->
+    <div class="modal-bg" id="edit-modal" onclick="if(event.target===this)closeEditModal()">
+     <div class="modal-box">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+       <span style="font-size:16px;font-weight:700">✏️ Edit Contact</span>
+       <button onclick="closeEditModal()" style="background:none;border:none;color:var(--tx2);cursor:pointer;font-size:20px">✕</button>
+      </div>
+      <label class="form-lbl">Full Name</label>
+      <input id="edit-name" class="form-input" value="{pr.get('buyer_name','')}" placeholder="Full name">
+      <label class="form-lbl">Phone</label>
+      <input id="edit-phone" class="form-input" value="{pr.get('buyer_phone','')}" placeholder="+1 (xxx) xxx-xxxx">
+      <label class="form-lbl">Title / Role</label>
+      <input id="edit-title" class="form-input" value="{pr.get('title','')}" placeholder="e.g. Procurement Officer">
+      <label class="form-lbl">LinkedIn URL</label>
+      <input id="edit-linkedin" class="form-input" value="{pr.get('linkedin','')}" placeholder="https://linkedin.com/in/...">
+      <label class="form-lbl">Notes</label>
+      <textarea id="edit-notes" class="form-input">{pr.get('notes','') or pr.get('contact_notes','')}</textarea>
+      <button onclick="saveContact()" class="g-btn g-btn-go" style="width:100%;justify-content:center;padding:12px;font-size:14px">💾 Save Contact</button>
+     </div>
+    </div>
+
     <script>
     const PID = '{pid}';
+    const EMAIL = '{pr.get("buyer_email","")}';
     function crmPost(u,b){{return fetch(u,{{method:'POST',credentials:'same-origin',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(b)}}).then(r=>r.json())}}
     function setStatus(s){{crmPost('/api/growth/prospect/'+PID,{{outreach_status:s}}).then(r=>{{if(r.ok)location.reload();else alert(r.error)}})}}
-    function setBounced(){{if(!confirm('Mark as bounced?'))return;crmPost('/api/growth/bounceback',{{email:'{pr.get("buyer_email","")}',reason:'Manual bounce'}}).then(r=>{{if(r.ok)location.reload();else alert(r.error)}})}}
-    function editContact(){{const n=prompt('Name:',document.getElementById('p-name').textContent);if(!n)return;const ph=prompt('Phone:',document.getElementById('p-phone').textContent);crmPost('/api/growth/prospect/'+PID,{{buyer_name:n,buyer_phone:ph||''}}).then(r=>{{if(r.ok)location.reload();else alert(r.error)}})}}
-    function addNote(){{const n=prompt('Note:');if(!n)return;crmPost('/api/growth/prospect/'+PID+'/note',{{note:n}}).then(r=>{{if(r.ok)location.reload();else alert(r.error)}})}}
+    function setBounced(){{if(!confirm('Mark as bounced?'))return;crmPost('/api/growth/bounceback',{{email:EMAIL,reason:'Manual bounce'}}).then(r=>{{if(r.ok)location.reload();else alert(r.error)}})}}
+
+    var logType='';
+    function openLog(type){{
+      logType=type;
+      var titles={{email:'📧 Log Email',call:'📞 Log Call',note:'📝 Add Note',chat:'💬 Log Interaction'}};
+      document.getElementById('modal-title').textContent=titles[type]||'Log Activity';
+      var bodies={{
+        email:'<label class="form-lbl">Direction</label><select id="log-dir" class="form-input"><option value="sent">Sent (outbound)</option><option value="received">Received (inbound reply)</option></select><label class="form-lbl">Subject</label><input id="log-subject" class="form-input" placeholder="Email subject..."><label class="form-lbl">Notes / Summary</label><textarea id="log-detail" class="form-input" placeholder="What was the email about?"></textarea>',
+        call:'<label class="form-lbl">Outcome</label><select id="log-outcome" class="form-input"><option value="reached">Reached — had conversation</option><option value="voicemail">Left voicemail</option><option value="no_answer">No answer</option><option value="callback">Requested callback</option><option value="not_interested">Not interested</option></select><label class="form-lbl">Duration (minutes)</label><input id="log-duration" class="form-input" type="number" placeholder="e.g. 5"><label class="form-lbl">Notes</label><textarea id="log-detail" class="form-input" placeholder="What was discussed?"></textarea>',
+        note:'<label class="form-lbl">Note</label><textarea id="log-detail" class="form-input" rows="6" placeholder="Add a note about this contact..."></textarea>',
+        chat:'<label class="form-lbl">Channel</label><select id="log-channel" class="form-input"><option value="in_person">In-person meeting</option><option value="teams">Teams / Zoom</option><option value="linkedin">LinkedIn message</option><option value="text">Text / SMS</option><option value="other">Other</option></select><label class="form-lbl">Summary</label><textarea id="log-detail" class="form-input" placeholder="What was discussed?"></textarea>',
+      }};
+      document.getElementById('modal-body').innerHTML=(bodies[type]||'')+'<div style="display:flex;gap:8px;margin-top:4px"><button onclick="submitLog()" class="g-btn g-btn-go" style="flex:1;justify-content:center;padding:12px">✅ Save</button><button onclick="closeModal()" class="g-btn" style="padding:12px 20px">Cancel</button></div>';
+      document.getElementById('log-modal').style.display='flex';
+      setTimeout(()=>{{var d=document.getElementById('log-detail');if(d)d.focus();}},100);
+    }}
+    function closeModal(){{document.getElementById('log-modal').style.display='none';}}
+    function submitLog(){{
+      var detail=document.getElementById('log-detail')?.value||'';
+      if(!detail.trim()){{alert('Please add a note or summary');return;}}
+      var payload={{type:logType,detail:detail,actor:'mike'}};
+      if(logType==='email'){{payload.direction=document.getElementById('log-dir')?.value;payload.subject=document.getElementById('log-subject')?.value;payload.event_type=payload.direction==='sent'?'email_sent':'email_received';}}
+      else if(logType==='call'){{payload.outcome=document.getElementById('log-outcome')?.value;payload.duration=document.getElementById('log-duration')?.value;payload.event_type='voice_called';}}
+      else if(logType==='chat'){{payload.channel=document.getElementById('log-channel')?.value;payload.event_type='chat';}}
+      else{{payload.event_type='note';}}
+      crmPost('/api/crm/contact/'+PID+'/log',payload).then(r=>{{if(r.ok){{closeModal();location.reload();}}else alert('Error: '+(r.error||'Failed'));}});
+    }}
+    function openEdit(){{document.getElementById('edit-modal').style.display='flex';}}
+    function closeEditModal(){{document.getElementById('edit-modal').style.display='none';}}
+    function saveContact(){{
+      var data={{buyer_name:document.getElementById('edit-name').value,buyer_phone:document.getElementById('edit-phone').value,title:document.getElementById('edit-title').value,linkedin:document.getElementById('edit-linkedin').value,notes:document.getElementById('edit-notes').value}};
+      crmPost('/api/growth/prospect/'+PID,data).then(r=>{{if(r.ok){{closeEditModal();location.reload();}}else alert('Error: '+(r.error||'Failed'));}});
+    }}
     </script></body></html>"""
+    return page_html
 
 
 @bp.route("/api/growth/status")
@@ -5907,10 +6377,31 @@ def api_growth_prospect(prospect_id):
 @bp.route("/api/growth/prospect/<prospect_id>", methods=["POST"])
 @auth_required
 def api_growth_prospect_update(prospect_id):
-    """Update prospect. POST JSON: {buyer_name, buyer_phone, outreach_status, notes}"""
+    """Update prospect. POST JSON: {buyer_name, buyer_phone, outreach_status, notes, title, linkedin}"""
     if not GROWTH_AVAILABLE:
         return jsonify({"ok": False, "error": "Growth agent not available"})
     data = request.get_json(silent=True) or {}
+
+    # Sync CRM-only fields (title, linkedin, notes) to crm_contacts store
+    crm_fields = {k: data[k] for k in ("title","linkedin","notes","buyer_name","buyer_phone","outreach_status") if k in data}
+    if crm_fields:
+        try:
+            contacts = _load_crm_contacts()
+            if prospect_id not in contacts:
+                # Hydrate from prospect
+                pr_result = get_prospect(prospect_id)
+                if pr_result.get("ok"):
+                    _get_or_create_crm_contact(prospect_id, pr_result["prospect"])
+                    contacts = _load_crm_contacts()
+            if prospect_id in contacts:
+                for k, v in crm_fields.items():
+                    contacts[prospect_id][k] = v
+                contacts[prospect_id]["updated_at"] = datetime.now().isoformat()
+                _save_crm_contacts(contacts)
+        except Exception as e:
+            log.warning(f"CRM sync for {prospect_id} failed: {e}")
+
+    # Pass all fields to growth agent (it ignores unknown keys gracefully)
     return jsonify(update_prospect(prospect_id, data))
 
 
@@ -6317,6 +6808,7 @@ def intelligence_page():
       <button class="g-btn" onclick="runIntel('/api/intel/pull-status')">⏳ Pull Progress</button>
       <button class="g-btn g-btn-go" onclick="runIntel('/api/intel/priority-queue')">📊 Priority Queue</button>
       <button class="g-btn" onclick="runIntel('/api/intel/push-prospects?top=50')">📥 Push Top 50 → Growth Pipeline</button>
+      <button class="g-btn g-btn-purple" onclick="syncCRM()">👥 Sync All → CRM</button>
       <button class="g-btn" onclick="runIntel('/api/intel/sb-admin-match')">🏛️ Match SB Admins</button>
       <button class="g-btn" onclick="runIntel('/api/intel/scprs-test')" style="border-color:rgba(167,139,250,.4);color:#a78bfa">🔌 Test SCPRS Connection</button>
      </div>
@@ -6505,8 +6997,12 @@ def intelligence_page():
               showResult({{error: d.progress || 'Deep pull failed', hint: 'Check SCPRS connectivity — Railway static IP must be enabled'}}, true);
             }} else {{
               document.getElementById('pull-bar-fill').style.background = '#34d399';
-              document.getElementById('pull-bar-text').textContent = '✅ Done — reloading...';
-              setTimeout(() => location.reload(), 2500);
+              document.getElementById('pull-bar-text').textContent = '✅ Done — syncing to CRM...';
+              // Auto-sync buyers to CRM contacts store
+              fetch('/api/crm/sync-intel', {{method:'POST',credentials:'same-origin'}}).then(r=>r.json()).then(sync => {{
+                document.getElementById('pull-bar-text').textContent = '✅ Done — ' + (sync.created||0) + ' new CRM contacts. Reloading...';
+                setTimeout(() => location.reload(), 2500);
+              }}).catch(() => {{ setTimeout(() => location.reload(), 2500); }});
             }}
             const btn = document.querySelector('[onclick*="deep-pull"]');
             if(btn) {{ btn.disabled = false; btn.textContent = '🔍 Deep Pull All Buyers'; }}
@@ -6515,6 +7011,17 @@ def intelligence_page():
       }}, 2000);
     }}
 
+    function syncCRM() {{
+      const btn = event.target;
+      btn.disabled = true; btn.textContent = '⏳ Syncing...';
+      fetch('/api/crm/sync-intel', {{method:'POST',credentials:'same-origin'}}).then(r=>r.json()).then(d => {{
+        btn.disabled = false; btn.textContent = '👥 Sync All → CRM';
+        showResult(d, !d.ok);
+      }}).catch(e => {{
+        btn.disabled = false; btn.textContent = '👥 Sync All → CRM';
+        showResult('Sync failed: '+e, true);
+      }});
+    }}
     function addRevenue() {{
       const amt = prompt('Revenue amount ($):');
       if(!amt) return;
@@ -6672,8 +7179,238 @@ def api_voice_call_details(call_id):
 @bp.route("/contacts")
 @auth_required
 def contacts_page():
-    """CRM — Buyers & Contacts from SCPRS Deep Pull."""
-    return render(PAGE_CRM)
+    """CRM — Persistent buyer/contact database with activity tracking."""
+    contacts_dict = _load_crm_contacts()
+
+    # Also pull from growth prospects if contacts store is empty
+    if not contacts_dict and GROWTH_AVAILABLE:
+        try:
+            from src.agents.growth_agent import _load_json, PROSPECTS_FILE
+            pd = _load_json(PROSPECTS_FILE)
+            prospects = pd.get("prospects",[]) if isinstance(pd,dict) else []
+            for p in prospects[:200]:
+                cid = p.get("id","")
+                if cid:
+                    contacts_dict[cid] = {
+                        "id": cid, "buyer_name": p.get("buyer_name",""),
+                        "buyer_email": p.get("buyer_email",""), "buyer_phone": p.get("buyer_phone",""),
+                        "agency": p.get("agency",""), "title":"", "linkedin":"", "notes":"", "tags":[],
+                        "total_spend": p.get("total_spend",0), "po_count": p.get("po_count",0),
+                        "categories": p.get("categories",{}), "items_purchased": p.get("items_purchased",[]),
+                        "purchase_orders": p.get("purchase_orders",[]),
+                        "last_purchase": p.get("last_purchase",""),
+                        "score": p.get("score",0), "outreach_status": p.get("outreach_status","new"), "activity":[],
+                    }
+        except Exception:
+            pass
+
+    contacts = list(contacts_dict.values())
+    total = len(contacts)
+    has_data = total > 0
+
+    # Aggregate stats
+    total_spend = sum(c.get("total_spend",0) for c in contacts)
+    agencies = len(set(c.get("agency","") for c in contacts if c.get("agency")))
+    in_outreach = sum(1 for c in contacts if c.get("outreach_status") not in ("new",""))
+    total_activity = sum(len(c.get("activity",[])) for c in contacts)
+    won_count = sum(1 for c in contacts if c.get("outreach_status")=="won")
+
+    # Collect all categories + statuses for filters
+    all_cats = sorted(set(cat for c in contacts for cat in c.get("categories",{}).keys()))
+    all_statuses = sorted(set(c.get("outreach_status","new") for c in contacts if c.get("outreach_status")))
+
+    # Sort by score desc
+    contacts.sort(key=lambda x: (x.get("score",0) or 0), reverse=True)
+
+    def fmt_spend(v):
+        if not v: return "$0"
+        if v >= 1_000_000: return f"${v/1_000_000:.1f}M"
+        if v >= 1_000: return f"${v/1_000:.0f}K"
+        return f"${v:,.0f}"
+
+    stat_colors = {"new":"#4f8cff","emailed":"#fbbf24","called":"#fb923c","responded":"#a78bfa",
+                   "won":"#3fb950","lost":"#f87171","dead":"#8b90a0","bounced":"#f85149","follow_up_due":"#d29922"}
+    cat_colors = {"Medical":"#f87171","Janitorial":"#3fb950","Office":"#4f8cff","IT":"#a78bfa","Facility":"#fb923c","Safety":"#fbbf24"}
+
+    rows_html = ""
+    for c in contacts[:500]:
+        cid = c.get("id","")
+        name = c.get("buyer_name") or "—"
+        email = c.get("buyer_email","")
+        agency = c.get("agency","—")
+        stat = c.get("outreach_status","new")
+        sc = stat_colors.get(stat,"#8b90a0")
+        spend = c.get("total_spend",0) or 0
+        po_count = c.get("po_count",0) or len(c.get("purchase_orders",[]))
+        score = c.get("score",0) or 0
+        score_pct = round(score*100) if score<=1 else round(score)
+        last = (c.get("last_purchase","") or "")[:10] or "—"
+        act_count = len(c.get("activity",[]))
+        categories = c.get("categories",{})
+        items = c.get("items_purchased",[])
+
+        # Category tags (top 3)
+        cat_tags = ""
+        for cat in list(categories.keys())[:3]:
+            cc = cat_colors.get(cat,"#8b90a0")
+            cat_tags += f'<span style="font-size:10px;padding:2px 7px;border-radius:8px;background:{cc}22;color:{cc};border:1px solid {cc}44;white-space:nowrap">{cat}</span> '
+
+        # Items (first 2)
+        items_text = ", ".join(it.get("description","")[:30] for it in items[:2])
+        if len(items) > 2: items_text += f" +{len(items)-2}"
+
+        # Score bar
+        sp_color = "#3fb950" if score_pct>=70 else "#fbbf24" if score_pct>=40 else "#f87171"
+        score_bar = f'<div style="display:flex;align-items:center;gap:6px"><div style="background:var(--sf2);border-radius:3px;height:6px;width:50px;overflow:hidden"><div style="width:{score_pct}%;height:100%;background:{sp_color};border-radius:3px"></div></div><span style="font-size:11px;font-family:monospace">{score_pct}%</span></div>'
+
+        # Activity badge
+        act_badge = f'<span style="font-size:11px;background:rgba(79,140,255,.15);color:var(--ac);padding:2px 8px;border-radius:8px">{act_count} 📋</span>' if act_count > 0 else '<span style="font-size:11px;color:var(--tx2)">—</span>'
+
+        rows_html += f'''<tr data-agency="{agency.lower()}" data-name="{name.lower()}" data-email="{email.lower()}" data-cats="{','.join(categories.keys()).lower()}" data-status="{stat}" data-items="{items_text.lower()}" style="cursor:pointer" onclick="location.href='/growth/prospect/{cid}'">
+         <td><div style="font-weight:600;font-size:13px">{agency}</div><div style="font-size:11px;color:var(--tx2)">{name}</div></td>
+         <td style="font-size:12px"><a href="mailto:{email}" style="color:var(--ac);font-family:monospace" onclick="event.stopPropagation()">{email or '—'}</a></td>
+         <td><div style="display:flex;flex-wrap:wrap;gap:3px">{cat_tags}</div></td>
+         <td style="font-size:11px;color:var(--tx2);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{items_text or '—'}</td>
+         <td class="mono" style="color:#3fb950;font-weight:700">{fmt_spend(spend)}</td>
+         <td class="mono" style="color:var(--tx2)">{po_count} · {last}</td>
+         <td>{score_bar}</td>
+         <td><span style="padding:3px 10px;border-radius:10px;font-size:11px;font-weight:600;background:{sc}22;color:{sc};border:1px solid {sc}44">{stat}</span></td>
+         <td>{act_badge}</td>
+         <td><a href="/growth/prospect/{cid}" style="color:var(--ac);font-size:12px;text-decoration:none">View →</a></td>
+        </tr>'''
+
+    cat_options = "".join(f'<option value="{c}">{c}</option>' for c in all_cats)
+    status_options = "".join(f'<option value="{s}">{s}</option>' for s in all_statuses)
+
+    empty_html = """<div style="text-align:center;padding:60px 20px;color:var(--tx2)">
+      <div style="font-size:48px;margin-bottom:16px">👥</div>
+      <div style="font-size:18px;font-weight:600;margin-bottom:8px">No contacts yet</div>
+      <div style="font-size:14px;margin-bottom:24px">Run a Deep Pull on the Intelligence page to mine all SCPRS buyers into CRM</div>
+      <a href="/intelligence" style="padding:12px 24px;background:rgba(52,211,153,.15);color:#3fb950;border:1px solid rgba(52,211,153,.3);border-radius:8px;text-decoration:none;font-weight:600">🧠 Go to Intelligence → Run Deep Pull</a>
+     </div>""" if not has_data else ""
+
+    return f"""{_header('CRM Contacts')}
+    <style>
+     .card{{background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:14px}}
+     table{{width:100%;border-collapse:collapse;font-size:12px}}
+     th{{text-align:left;padding:9px 10px;font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--bd);white-space:nowrap;cursor:pointer;user-select:none}}
+     th:hover{{color:var(--tx)}}
+     td{{padding:9px 10px;border-bottom:1px solid rgba(46,51,69,.4);vertical-align:middle}}
+     tr:hover td{{background:rgba(79,140,255,.04)}}
+     .mono{{font-family:'JetBrains Mono',monospace}}
+     .filter-input{{padding:8px 12px;background:var(--sf2);border:1px solid var(--bd);border-radius:7px;color:var(--tx);font-size:13px;font-family:'DM Sans',sans-serif}}
+     .filter-input:focus{{outline:none;border-color:var(--ac)}}
+    </style>
+
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:12px">
+     <div>
+      <h1 style="font-size:22px;font-weight:700;margin-bottom:4px">👥 CRM Contacts</h1>
+      <div style="font-size:13px;color:var(--tx2)">All buyers from SCPRS — tagged, scored, with full activity history</div>
+     </div>
+     <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button onclick="syncFromIntel(this)" style="padding:8px 16px;border-radius:7px;border:1px solid rgba(52,211,153,.3);background:rgba(52,211,153,.1);color:#3fb950;cursor:pointer;font-size:13px;font-weight:600">🔄 Sync from Intel</button>
+      <a href="/intelligence" style="padding:8px 16px;border-radius:7px;border:1px solid var(--bd);background:var(--sf2);color:var(--tx);text-decoration:none;font-size:13px;font-weight:600">🧠 Run Deep Pull</a>
+     </div>
+    </div>
+
+    <!-- Stats bar -->
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:18px">
+     <div class="card" style="text-align:center"><div style="font-size:9px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">Contacts</div><div style="font-size:26px;font-weight:700;color:var(--ac);font-family:monospace">{total}</div></div>
+     <div class="card" style="text-align:center"><div style="font-size:9px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">Agencies</div><div style="font-size:26px;font-weight:700;color:#a78bfa;font-family:monospace">{agencies}</div></div>
+     <div class="card" style="text-align:center"><div style="font-size:9px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">Total Spend</div><div style="font-size:22px;font-weight:700;color:#fbbf24;font-family:monospace">{fmt_spend(total_spend)}</div></div>
+     <div class="card" style="text-align:center"><div style="font-size:9px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">Interactions</div><div style="font-size:26px;font-weight:700;color:#fb923c;font-family:monospace">{total_activity}</div></div>
+     <div class="card" style="text-align:center"><div style="font-size:9px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">Won</div><div style="font-size:26px;font-weight:700;color:#3fb950;font-family:monospace">{won_count}</div></div>
+    </div>
+
+    <!-- Filters -->
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
+     <input id="search" class="filter-input" placeholder="🔍  Search agency, name, email, items..." oninput="filterTable()" style="flex:1;min-width:220px">
+     <select id="cat-filter" class="filter-input" onchange="filterTable()">
+      <option value="">All Categories</option>{cat_options}
+     </select>
+     <select id="status-filter" class="filter-input" onchange="filterTable()">
+      <option value="">All Statuses</option>{status_options}
+     </select>
+     <span id="count-label" style="font-size:13px;color:var(--tx2);white-space:nowrap">{total} contacts</span>
+    </div>
+
+    <!-- Table -->
+    <div class="card" style="overflow-x:auto;padding:0">
+     {empty_html if not has_data else f'''<table id="crm-table">
+      <thead><tr>
+       <th onclick="sortTable(0)">Agency / Buyer ↕</th>
+       <th>Email</th>
+       <th>Categories</th>
+       <th>Items Bought</th>
+       <th onclick="sortTable(4)">Spend ↕</th>
+       <th onclick="sortTable(5)">POs · Last Buy ↕</th>
+       <th onclick="sortTable(6)">Score ↕</th>
+       <th>Status</th>
+       <th>Activity</th>
+       <th></th>
+      </tr></thead>
+      <tbody id="crm-tbody">{rows_html}</tbody>
+     </table>'''}
+    </div>
+
+    <script>
+    function filterTable() {{
+      const q = document.getElementById('search').value.toLowerCase();
+      const cat = document.getElementById('cat-filter').value.toLowerCase();
+      const status = document.getElementById('status-filter').value;
+      const rows = document.querySelectorAll('#crm-tbody tr');
+      let visible = 0;
+      rows.forEach(r => {{
+        const agency = r.dataset.agency||'';
+        const name = r.dataset.name||'';
+        const email = r.dataset.email||'';
+        const cats = r.dataset.cats||'';
+        const stat = r.dataset.status||'';
+        const items = r.dataset.items||'';
+        const matchQ = !q || agency.includes(q) || name.includes(q) || email.includes(q) || items.includes(q);
+        const matchCat = !cat || cats.includes(cat);
+        const matchStat = !status || stat === status;
+        const show = matchQ && matchCat && matchStat;
+        r.style.display = show ? '' : 'none';
+        if(show) visible++;
+      }});
+      document.getElementById('count-label').textContent = visible + ' contacts';
+    }}
+
+    let sortDir = {{}};
+    function sortTable(col) {{
+      const tbody = document.getElementById('crm-tbody');
+      if(!tbody) return;
+      const rows = Array.from(tbody.querySelectorAll('tr'));
+      const dir = sortDir[col] = -(sortDir[col]||1);
+      rows.sort((a,b) => {{
+        const av = a.cells[col]?.textContent?.trim()||'';
+        const bv = b.cells[col]?.textContent?.trim()||'';
+        const an = parseFloat(av.replace(/[$KMk,]/g,''));
+        const bn = parseFloat(bv.replace(/[$KMk,]/g,''));
+        if(!isNaN(an)&&!isNaN(bn)) return (an-bn)*dir;
+        return av.localeCompare(bv)*dir;
+      }});
+      rows.forEach(r => tbody.appendChild(r));
+    }}
+
+    function syncFromIntel(btn) {{
+      btn.disabled = true; btn.textContent = '⏳ Syncing...';
+      fetch('/api/crm/sync-intel', {{method:'POST',credentials:'same-origin'}}).then(r=>r.json()).then(d => {{
+        if(d.ok) {{
+          btn.textContent = '✅ ' + (d.message||'Synced');
+          setTimeout(() => location.reload(), 1500);
+        }} else {{
+          btn.disabled = false; btn.textContent = '🔄 Sync from Intel';
+          alert(d.error||'Sync failed');
+        }}
+      }}).catch(e => {{
+        btn.disabled = false; btn.textContent = '🔄 Sync from Intel';
+        alert('Error: '+e);
+      }});
+    }}
+    </script>
+    </body></html>"""
 
 
 # ─── Campaign Routes ────────────────────────────────────────────────────────
