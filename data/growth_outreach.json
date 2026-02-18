@@ -1,0 +1,187 @@
+{
+  "campaigns": [
+    {
+      "id": "DISTRO-20260218-0610",
+      "type": "distro_list_phase1",
+      "created_at": "2026-02-18T06:10:08.861344",
+      "dry_run": true,
+      "template": "distro_list",
+      "context_summary": "=== REYTECH LIVE CONTEXT ===\nTimestamp: 2026-02-18T06:10:08.856960\n\nCRM: 48 contacts loaded\n  Warm/Active: 0\n",
+      "outreach": [
+        {
+          "buyer_id": "manual-79aa3ae9",
+          "email": "james.chen@cdcr.ca.gov",
+          "name": "James Chen",
+          "agency": "CDCR",
+          "categories": [
+            "Medical",
+            "Safety"
+          ],
+          "subject": "Reytech Inc. \u2014 Competitive Pricing on Medical Supplies for CDCR",
+          "body": "Hi James,\n\nMy name is Mike from Reytech Inc. I wanted to reach out because CDCR recently purchased Medical, Safety \u2014 we supply those same categories and consistently offer competitive pricing on SCPRS.\n\nWe're a California-certified Small Business (SB) and Disabled Veteran Business Enterprise (DVBE), which helps meet your procurement mandates under CalTrans and DGS guidelines. We've been serving CA state agencies for several years.\n\nI'd love the opportunity to get on CDCR's RFQ distribution list so we can submit quotes for your next procurement. We turn around quotes quickly and our prices are typically 10\u201330% below current contract rates.\n\nYou can add us at sales@reytechinc.com or call/text 949-229-1575. I'm happy to provide our vendor registration, certifications, or a product catalog on request.\n\nThank you for your time.\n\nBest regards,\nMike\nReytech Inc. | SB/DVBE Certified\nsales@reytechinc.com | 949-229-1575\nwww.reytechinc.com",
+          "staged": true,
+          "email_sent": false,
+          "email_sent_at": null,
+          "campaign_id": "DISTRO-20260218-0610",
+          "follow_up_date": "2026-02-23T06:10:08.861364"
+        },
+        {
+          "buyer_id": "manual-7e4370b1",
+          "email": "sarah.morales@cdcr.ca.gov",
+          "name": "Sarah Morales",
+          "agency": "CDCR",
+          "categories": [
+            "Janitorial",
+            "Facility"
+          ],
+          "subject": "Reytech Inc. \u2014 Janitorial & Cleaning Supplies \u2014 SB/DVBE Vendor",
+          "body": "Hi Sarah,\n\nMy name is Mike from Reytech Inc. I wanted to reach out because CDCR recently purchased Janitorial, Facility \u2014 we supply those same categories and consistently offer competitive pricing on SCPRS.\n\nWe're a California-certified Small Business (SB) and Disabled Veteran Business Enterprise (DVBE), which helps meet your procurement mandates under CalTrans and DGS guidelines. We've been serving CA state agencies for several years.\n\nI'd love the opportunity to get on CDCR's RFQ distribution list so we can submit quotes for your next procurement. We turn around quotes quickly and our prices are typically 10\u201330% below current contract rates.\n\nYou can add us at sales@reytechinc.com or call/text 949-229-1575. I'm happy to provide our vendor registration, certifications, or a product catalog on request.\n\nThank you for your time.\n\nBest regards,\nMike\nReytech Inc. | SB/DVBE Certified\nsales@reytechinc.com | 949-229-1575\nwww.reytechinc.com",
+          "staged": true,
+          "email_sent": false,
+          "email_sent_at": null,
+          "campaign_id": "DISTRO-20260218-0610",
+          "follow_up_date": "2026-02-23T06:10:08.861498"
+        },
+        {
+          "buyer_id": "manual-2d0ef1ba",
+          "email": "m.nguyen@dot.ca.gov",
+          "name": "Mike Nguyen",
+          "agency": "CalTrans",
+          "categories": [
+            "Safety",
+            "Office"
+          ],
+          "subject": "Reytech Inc. \u2014 Safety Pricing \u2014 SB/DVBE \u2014 Get on RFQ Distro",
+          "body": "Hi Mike,\n\nMy name is Mike from Reytech Inc. I wanted to reach out because CalTrans recently purchased Safety, Office \u2014 we supply those same categories and consistently offer competitive pricing on SCPRS.\n\nWe're a California-certified Small Business (SB) and Disabled Veteran Business Enterprise (DVBE), which helps meet your procurement mandates under CalTrans and DGS guidelines. We've been serving CA state agencies for several years.\n\nI'd love the opportunity to get on CalTrans's RFQ distribution list so we can submit quotes for your next procurement. We turn around quotes quickly and our prices are typically 10\u201330% below current contract rates.\n\nYou can add us at sales@reytechinc.com or call/text 949-229-1575. I'm happy to provide our vendor registration, certifications, or a product catalog on request.\n\nThank you for your time.\n\nBest regards,\nMike\nReytech Inc. | SB/DVBE Certified\nsales@reytechinc.com | 949-229-1575\nwww.reytechinc.com",
+          "staged": true,
+          "email_sent": false,
+          "email_sent_at": null,
+          "campaign_id": "DISTRO-20260218-0610",
+          "follow_up_date": "2026-02-23T06:10:08.861595"
+        },
+        {
+          "buyer_id": "manual-3291c749",
+          "email": "linda.park@dot.ca.gov",
+          "name": "Linda Park",
+          "agency": "CalTrans",
+          "categories": [
+            "IT",
+            "Office"
+          ],
+          "subject": "Reytech Inc. \u2014 IT Pricing \u2014 SB/DVBE \u2014 Get on RFQ Distro",
+          "body": "Hi Linda,\n\nMy name is Mike from Reytech Inc. I wanted to reach out because CalTrans recently purchased IT, Office \u2014 we supply those same categories and consistently offer competitive pricing on SCPRS.\n\nWe're a California-certified Small Business (SB) and Disabled Veteran Business Enterprise (DVBE), which helps meet your procurement mandates under CalTrans and DGS guidelines. We've been serving CA state agencies for several years.\n\nI'd love the opportunity to get on CalTrans's RFQ distribution list so we can submit quotes for your next procurement. We turn around quotes quickly and our prices are typically 10\u201330% below current contract rates.\n\nYou can add us at sales@reytechinc.com or call/text 949-229-1575. I'm happy to provide our vendor registration, certifications, or a product catalog on request.\n\nThank you for your time.\n\nBest regards,\nMike\nReytech Inc. | SB/DVBE Certified\nsales@reytechinc.com | 949-229-1575\nwww.reytechinc.com",
+          "staged": true,
+          "email_sent": false,
+          "email_sent_at": null,
+          "campaign_id": "DISTRO-20260218-0610",
+          "follow_up_date": "2026-02-23T06:10:08.861649"
+        },
+        {
+          "buyer_id": "manual-4eaaebd3",
+          "email": "r.thompson@cdph.ca.gov",
+          "name": "Robert Thompson",
+          "agency": "CDPH",
+          "categories": [
+            "Medical",
+            "Safety"
+          ],
+          "subject": "Reytech Inc. \u2014 Competitive Pricing on Medical Supplies for CDPH",
+          "body": "Hi Robert,\n\nMy name is Mike from Reytech Inc. I wanted to reach out because CDPH recently purchased Medical, Safety \u2014 we supply those same categories and consistently offer competitive pricing on SCPRS.\n\nWe're a California-certified Small Business (SB) and Disabled Veteran Business Enterprise (DVBE), which helps meet your procurement mandates under CalTrans and DGS guidelines. We've been serving CA state agencies for several years.\n\nI'd love the opportunity to get on CDPH's RFQ distribution list so we can submit quotes for your next procurement. We turn around quotes quickly and our prices are typically 10\u201330% below current contract rates.\n\nYou can add us at sales@reytechinc.com or call/text 949-229-1575. I'm happy to provide our vendor registration, certifications, or a product catalog on request.\n\nThank you for your time.\n\nBest regards,\nMike\nReytech Inc. | SB/DVBE Certified\nsales@reytechinc.com | 949-229-1575\nwww.reytechinc.com",
+          "staged": true,
+          "email_sent": false,
+          "email_sent_at": null,
+          "campaign_id": "DISTRO-20260218-0610",
+          "follow_up_date": "2026-02-23T06:10:08.861698"
+        },
+        {
+          "buyer_id": "manual-7792de93",
+          "email": "amy.wilson@cdph.ca.gov",
+          "name": "Amy Wilson",
+          "agency": "CDPH",
+          "categories": [
+            "Medical",
+            "Janitorial"
+          ],
+          "subject": "Reytech Inc. \u2014 Competitive Pricing on Medical Supplies for CDPH",
+          "body": "Hi Amy,\n\nMy name is Mike from Reytech Inc. I wanted to reach out because CDPH recently purchased Medical, Janitorial \u2014 we supply those same categories and consistently offer competitive pricing on SCPRS.\n\nWe're a California-certified Small Business (SB) and Disabled Veteran Business Enterprise (DVBE), which helps meet your procurement mandates under CalTrans and DGS guidelines. We've been serving CA state agencies for several years.\n\nI'd love the opportunity to get on CDPH's RFQ distribution list so we can submit quotes for your next procurement. We turn around quotes quickly and our prices are typically 10\u201330% below current contract rates.\n\nYou can add us at sales@reytechinc.com or call/text 949-229-1575. I'm happy to provide our vendor registration, certifications, or a product catalog on request.\n\nThank you for your time.\n\nBest regards,\nMike\nReytech Inc. | SB/DVBE Certified\nsales@reytechinc.com | 949-229-1575\nwww.reytechinc.com",
+          "staged": true,
+          "email_sent": false,
+          "email_sent_at": null,
+          "campaign_id": "DISTRO-20260218-0610",
+          "follow_up_date": "2026-02-23T06:10:08.861733"
+        },
+        {
+          "buyer_id": "manual-b78fa585",
+          "email": "kevin.ortiz@dss.ca.gov",
+          "name": "Kevin Ortiz",
+          "agency": "DSS",
+          "categories": [
+            "Office",
+            "Facility"
+          ],
+          "subject": "Reytech Inc. \u2014 Office Pricing \u2014 SB/DVBE \u2014 Get on RFQ Distro",
+          "body": "Hi Kevin,\n\nMy name is Mike from Reytech Inc. I wanted to reach out because DSS recently purchased Office, Facility \u2014 we supply those same categories and consistently offer competitive pricing on SCPRS.\n\nWe're a California-certified Small Business (SB) and Disabled Veteran Business Enterprise (DVBE), which helps meet your procurement mandates under CalTrans and DGS guidelines. We've been serving CA state agencies for several years.\n\nI'd love the opportunity to get on DSS's RFQ distribution list so we can submit quotes for your next procurement. We turn around quotes quickly and our prices are typically 10\u201330% below current contract rates.\n\nYou can add us at sales@reytechinc.com or call/text 949-229-1575. I'm happy to provide our vendor registration, certifications, or a product catalog on request.\n\nThank you for your time.\n\nBest regards,\nMike\nReytech Inc. | SB/DVBE Certified\nsales@reytechinc.com | 949-229-1575\nwww.reytechinc.com",
+          "staged": true,
+          "email_sent": false,
+          "email_sent_at": null,
+          "campaign_id": "DISTRO-20260218-0610",
+          "follow_up_date": "2026-02-23T06:10:08.861775"
+        },
+        {
+          "buyer_id": "manual-2738f531",
+          "email": "t.garcia@chp.ca.gov",
+          "name": "Tony Garcia",
+          "agency": "CHP",
+          "categories": [
+            "Safety",
+            "Medical"
+          ],
+          "subject": "Reytech Inc. \u2014 Competitive Pricing on Medical Supplies for CHP",
+          "body": "Hi Tony,\n\nMy name is Mike from Reytech Inc. I wanted to reach out because CHP recently purchased Safety, Medical \u2014 we supply those same categories and consistently offer competitive pricing on SCPRS.\n\nWe're a California-certified Small Business (SB) and Disabled Veteran Business Enterprise (DVBE), which helps meet your procurement mandates under CalTrans and DGS guidelines. We've been serving CA state agencies for several years.\n\nI'd love the opportunity to get on CHP's RFQ distribution list so we can submit quotes for your next procurement. We turn around quotes quickly and our prices are typically 10\u201330% below current contract rates.\n\nYou can add us at sales@reytechinc.com or call/text 949-229-1575. I'm happy to provide our vendor registration, certifications, or a product catalog on request.\n\nThank you for your time.\n\nBest regards,\nMike\nReytech Inc. | SB/DVBE Certified\nsales@reytechinc.com | 949-229-1575\nwww.reytechinc.com",
+          "staged": true,
+          "email_sent": false,
+          "email_sent_at": null,
+          "campaign_id": "DISTRO-20260218-0610",
+          "follow_up_date": "2026-02-23T06:10:08.861808"
+        },
+        {
+          "buyer_id": "manual-42dcf547",
+          "email": "b.johnson@fire.ca.gov",
+          "name": "Bill Johnson",
+          "agency": "CalFire",
+          "categories": [
+            "Safety",
+            "Facility"
+          ],
+          "subject": "Reytech Inc. \u2014 Safety Pricing \u2014 SB/DVBE \u2014 Get on RFQ Distro",
+          "body": "Hi Bill,\n\nMy name is Mike from Reytech Inc. I wanted to reach out because CalFire recently purchased Safety, Facility \u2014 we supply those same categories and consistently offer competitive pricing on SCPRS.\n\nWe're a California-certified Small Business (SB) and Disabled Veteran Business Enterprise (DVBE), which helps meet your procurement mandates under CalTrans and DGS guidelines. We've been serving CA state agencies for several years.\n\nI'd love the opportunity to get on CalFire's RFQ distribution list so we can submit quotes for your next procurement. We turn around quotes quickly and our prices are typically 10\u201330% below current contract rates.\n\nYou can add us at sales@reytechinc.com or call/text 949-229-1575. I'm happy to provide our vendor registration, certifications, or a product catalog on request.\n\nThank you for your time.\n\nBest regards,\nMike\nReytech Inc. | SB/DVBE Certified\nsales@reytechinc.com | 949-229-1575\nwww.reytechinc.com",
+          "staged": true,
+          "email_sent": false,
+          "email_sent_at": null,
+          "campaign_id": "DISTRO-20260218-0610",
+          "follow_up_date": "2026-02-23T06:10:08.861851"
+        },
+        {
+          "buyer_id": "manual-e1ad4f9b",
+          "email": "patricia.lee@dgs.ca.gov",
+          "name": "Patricia Lee",
+          "agency": "DGS",
+          "categories": [
+            "Office",
+            "IT",
+            "Facility"
+          ],
+          "subject": "Reytech Inc. \u2014 Office Pricing \u2014 SB/DVBE \u2014 Get on RFQ Distro",
+          "body": "Hi Patricia,\n\nMy name is Mike from Reytech Inc. I wanted to reach out because DGS recently purchased Office, IT \u2014 we supply those same categories and consistently offer competitive pricing on SCPRS.\n\nWe're a California-certified Small Business (SB) and Disabled Veteran Business Enterprise (DVBE), which helps meet your procurement mandates under CalTrans and DGS guidelines. We've been serving CA state agencies for several years.\n\nI'd love the opportunity to get on DGS's RFQ distribution list so we can submit quotes for your next procurement. We turn around quotes quickly and our prices are typically 10\u201330% below current contract rates.\n\nYou can add us at sales@reytechinc.com or call/text 949-229-1575. I'm happy to provide our vendor registration, certifications, or a product catalog on request.\n\nThank you for your time.\n\nBest regards,\nMike\nReytech Inc. | SB/DVBE Certified\nsales@reytechinc.com | 949-229-1575\nwww.reytechinc.com",
+          "staged": true,
+          "email_sent": false,
+          "email_sent_at": null,
+          "campaign_id": "DISTRO-20260218-0610",
+          "follow_up_date": "2026-02-23T06:10:08.861883"
+        }
+      ]
+    }
+  ],
+  "total_sent": 0,
+  "last_distro_campaign": "DISTRO-20260218-0610"
+}

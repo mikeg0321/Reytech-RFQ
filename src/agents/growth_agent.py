@@ -15,6 +15,17 @@ import json, os, re, logging, time, threading, uuid
 from datetime import datetime, timedelta
 from collections import defaultdict
 
+# ── Agent Context (Anthropic Skills Guide: Pattern 5 — Domain Intelligence) ──
+try:
+    from src.core.agent_context import get_context, get_contact_by_agency, format_context_for_agent
+    HAS_CTX = True
+except ImportError:
+    HAS_CTX = False
+    def get_context(**kw): return {}
+    def get_contact_by_agency(a): return []
+    def format_context_for_agent(c, **kw): return ""
+
+
 log = logging.getLogger("growth")
 
 try:
@@ -364,19 +375,313 @@ def find_category_buyers(max_categories=10, from_date="01/01/2019"):
 # STEP 3: Email Outreach
 # ═══════════════════════════════════════════════════════════════════════
 
-EMAIL_TEMPLATE = """Hi{name_greeting},
+# ── Email Template Library (PRD Feature 4.3) ─────────────────────────────
+# Implements Anthropic Skills Guide Pattern 5: Domain-specific intelligence
+# Templates are personalized from CRM/intel DB context
 
-This is Mike from Reytech Inc. We noticed that {agency} recently purchased {items_mention} ({purchase_date}). We carry those same types of items and often have more competitive pricing available — typically 10-30% below current contract rates.
+EMAIL_TEMPLATES = {
+    "distro_list": """Hi{name_greeting},
 
-We're a certified Small Business (SB) and Disabled Veteran Business Enterprise (DVBE), which helps meet your procurement mandates. We've been serving California state agencies for several years and would love the opportunity to get on your RFQ distribution list.
+My name is Mike from Reytech Inc. I wanted to reach out because {agency} recently purchased {items_mention} — we supply those same categories and consistently offer competitive pricing on SCPRS.
 
-Please consider us for your next order — you can reach us anytime at sales@reytechinc.com or 949-229-1575. We look forward to working with you.
+We're a California-certified Small Business (SB) and Disabled Veteran Business Enterprise (DVBE), which helps meet your procurement mandates under CalTrans and DGS guidelines. We've been serving CA state agencies for several years.
+
+I'd love the opportunity to get on {agency}'s RFQ distribution list so we can submit quotes for your next procurement. We turn around quotes quickly and our prices are typically 10–30% below current contract rates.
+
+You can add us at sales@reytechinc.com or call/text 949-229-1575. I'm happy to provide our vendor registration, certifications, or a product catalog on request.
+
+Thank you for your time.
 
 Best regards,
 Mike
-Reytech Inc.
-sales@reytechinc.com
-949-229-1575"""
+Reytech Inc. | SB/DVBE Certified
+sales@reytechinc.com | 949-229-1575
+www.reytechinc.com""",
+
+    "initial_outreach": """Hi{name_greeting},
+
+This is Mike from Reytech Inc. We noticed that {agency} recently purchased {items_mention} ({purchase_date}). We carry those same types of items and often have more competitive pricing — typically 10–30% below current contract rates.
+
+We're a certified Small Business (SB) and Disabled Veteran Business Enterprise (DVBE), which helps meet your procurement mandates. We'd love to get on your RFQ distribution list for future bids.
+
+Please reach us at sales@reytechinc.com or 949-229-1575.
+
+Best regards,
+Mike | Reytech Inc. | SB/DVBE
+sales@reytechinc.com | 949-229-1575""",
+
+    "follow_up": """Hi{name_greeting},
+
+Following up on my recent email about Reytech Inc. We specialize in {items_mention} for California state agencies and are a certified SB/DVBE vendor.
+
+I wanted to make sure you received my previous note and reiterate our interest in being added to {agency}'s RFQ distribution list. We're ready to quote on your next procurement.
+
+Feel free to reply or call/text 949-229-1575.
+
+Best,
+Mike | Reytech Inc. | SB/DVBE""",
+
+    "quote_won": """Hi{name_greeting},
+
+Thank you for the award on {items_mention}. Your order is being processed and you'll receive tracking information once shipped.
+
+We look forward to continuing to serve {agency}. For your next procurement, please keep us on your distribution list — we're always competitive on pricing and delivery.
+
+Best regards,
+Mike | Reytech Inc.
+sales@reytechinc.com | 949-229-1575""",
+}
+
+# Keep backward-compat alias
+EMAIL_TEMPLATE = EMAIL_TEMPLATES["initial_outreach"]
+
+
+
+
+def launch_distro_campaign(
+    max_contacts: int = 100,
+    dry_run: bool = True,
+    template: str = "distro_list",
+    source_filter: str = "",
+) -> dict:
+    """Phase 1 Growth Campaign: Email CA state agency buyers to get on RFQ distro lists.
+
+    This is the primary growth lever per the PRD:
+      'Get on RFQ distribution list — Phase 1'
+      Target: ~100 buyers from SCPRS intel, personalized by agency/category.
+
+    Uses the Anthropic Skills Guide Pattern 5 (Domain Intelligence):
+      Pulls live DB context → personalizes each email from actual purchase history →
+      logs every touch to activity_log → deduplicates against already-contacted.
+
+    Args:
+        max_contacts: Max emails to send (or stage in dry_run)
+        dry_run: True = build emails but DO NOT send (review first)
+        template: Template key from EMAIL_TEMPLATES
+        source_filter: Only contact buyers from this agency/source substring
+
+    Returns:
+        {ok, campaign_id, total_staged, total_sent, emails[], dry_run, context_used}
+    """
+    log.info("launch_distro_campaign: dry_run=%s template=%s max=%d", dry_run, template, max_contacts)
+
+    # ── Pull DB context (agent intelligence layer) ─────────────────────────
+    ctx = get_context(include_contacts=True, include_revenue=True, include_quotes=True)
+    ctx_summary = format_context_for_agent(ctx, focus="crm")
+
+    # ── Load all buyers from intel + CRM ───────────────────────────────────
+    all_buyers = []
+
+    # Source 1: Intel buyers (SCPRS-sourced)
+    intel_data = _load_json(os.path.join(DATA_DIR, "intel_buyers.json"))
+    if isinstance(intel_data, dict):
+        for b in intel_data.get("buyers", []):
+            if b.get("buyer_email") and "@" in b.get("buyer_email", ""):
+                all_buyers.append({
+                    "id": b.get("id", f"intel_{len(all_buyers)}"),
+                    "name": b.get("buyer_name", ""),
+                    "email": b.get("buyer_email", ""),
+                    "agency": b.get("agency", ""),
+                    "categories": b.get("categories", []),
+                    "spend": b.get("annual_spend", 0),
+                    "source": "intel",
+                    "items_mention": ", ".join(list(b.get("categories", []) or [])[:2]) or "medical supplies",
+                    "purchase_date": "recently",
+                })
+
+    # Source 2: Growth prospects
+    prospect_data = _load_json(PROSPECTS_FILE)
+    if isinstance(prospect_data, dict):
+        for p in prospect_data.get("prospects", []):
+            if p.get("buyer_email") and "@" in p.get("buyer_email", ""):
+                pos = p.get("purchase_orders", [])
+                items = pos[0].get("items", ", ".join(p.get("categories_matched", [])))[:80] if pos else ", ".join(p.get("categories_matched", []))[:80]
+                date = pos[0].get("date", "recently") if pos else "recently"
+                all_buyers.append({
+                    "id": p.get("id", f"prospect_{len(all_buyers)}"),
+                    "name": p.get("buyer_name", ""),
+                    "email": p.get("buyer_email", ""),
+                    "agency": p.get("agency", ""),
+                    "categories": p.get("categories_matched", []),
+                    "spend": p.get("estimated_spend", 0),
+                    "source": "prospect",
+                    "items_mention": items or "supplies",
+                    "purchase_date": date,
+                })
+
+    # Source 3: CRM contacts with email not yet emailed
+    for c in ctx.get("contacts", []):
+        if c.get("email") and "@" in c.get("email", "") and c.get("status") == "new":
+            if not any(b["email"] == c["email"] for b in all_buyers):
+                cats = list(c.get("categories", []) or [])
+                all_buyers.append({
+                    "id": c["id"],
+                    "name": c.get("name", ""),
+                    "email": c.get("email", ""),
+                    "agency": c.get("agency", ""),
+                    "categories": cats,
+                    "spend": c.get("spend", 0),
+                    "source": "crm",
+                    "items_mention": ", ".join(list(cats or [])[:2]) or "your recent purchases",
+                    "purchase_date": "recently",
+                })
+
+    # ── Deduplicate against previously contacted ───────────────────────────
+    outreach_data = _load_json(OUTREACH_FILE)
+    if not isinstance(outreach_data, dict):
+        outreach_data = {"campaigns": [], "total_sent": 0}
+
+    already_contacted = set()
+    for camp in outreach_data.get("campaigns", []):
+        for o in camp.get("outreach", []):
+            if o.get("email_sent") or o.get("staged"):
+                already_contacted.add(o.get("email", ""))
+
+    # Apply filters
+    if source_filter:
+        sf = source_filter.lower()
+        all_buyers = [b for b in all_buyers if sf in (b.get("agency") or "").lower()
+                      or sf in (b.get("source") or "").lower()]
+
+    new_buyers = [b for b in all_buyers if b["email"] not in already_contacted]
+    new_buyers = new_buyers[:max_contacts]
+
+    if not new_buyers:
+        return {
+            "ok": True,
+            "message": f"All {len(all_buyers)} contacts already contacted (or no contacts found). Run Intel Deep Pull to find more.",
+            "total_staged": 0,
+            "total_sent": 0,
+            "dry_run": dry_run,
+        }
+
+    # ── Build campaign ─────────────────────────────────────────────────────
+    campaign_id = f"DISTRO-{datetime.now().strftime('%Y%m%d-%H%M')}"
+    email_template = EMAIL_TEMPLATES.get(template, EMAIL_TEMPLATES["distro_list"])
+    campaign = {
+        "id": campaign_id,
+        "type": "distro_list_phase1",
+        "created_at": datetime.now().isoformat(),
+        "dry_run": dry_run,
+        "template": template,
+        "context_summary": ctx_summary[:500],
+        "outreach": [],
+    }
+    staged = 0
+    sent = 0
+    emails = []
+
+    for b in new_buyers:
+        name = b.get("name", "")
+        name_greeting = f" {name.split()[0]}" if name else ""
+        agency = b.get("agency", "your agency")
+        items_mention = b.get("items_mention", "supplies")
+        purchase_date = b.get("purchase_date", "recently")
+        cats = list(b.get("categories", []) or [])
+        if isinstance(cats, str): cats = [cats] if cats else []
+
+        # Personalize subject by category
+        if "Medical" in str(cats) or "medical" in items_mention.lower():
+            subject = f"Reytech Inc. — Competitive Pricing on Medical Supplies for {agency}"
+        elif "Janitorial" in str(cats) or "cleaning" in items_mention.lower():
+            subject = f"Reytech Inc. — Janitorial & Cleaning Supplies — SB/DVBE Vendor"
+        elif cats:
+            subject = f"Reytech Inc. — {cats[0]} Pricing — SB/DVBE — Get on RFQ Distro"
+        else:
+            subject = f"Reytech Inc. — CA State Vendor Introduction — SB/DVBE Certified"
+
+        body = email_template.format(
+            name_greeting=name_greeting,
+            agency=agency,
+            items_mention=items_mention,
+            purchase_date=purchase_date,
+        )
+
+        entry = {
+            "buyer_id": b["id"],
+            "email": b["email"],
+            "name": name,
+            "agency": agency,
+            "categories": cats,
+            "subject": subject,
+            "body": body,
+            "staged": True,
+            "email_sent": False,
+            "email_sent_at": None,
+            "campaign_id": campaign_id,
+            "follow_up_date": (datetime.now() + timedelta(days=5)).isoformat(),
+        }
+
+        if not dry_run and b.get("email"):
+            try:
+                from src.agents.email_poller import EmailSender
+                gmail = os.environ.get("GMAIL_ADDRESS", "")
+                pwd = os.environ.get("GMAIL_PASSWORD", "")
+                if gmail and pwd:
+                    sender = EmailSender({"email": gmail, "email_password": pwd})
+                    sender.send({"to": b["email"], "subject": subject, "body": body, "attachments": []})
+                    entry["email_sent"] = True
+                    entry["email_sent_at"] = datetime.now().isoformat()
+                    sent += 1
+                    log.info("Distro email SENT → %s (%s)", b["email"], agency)
+                    _add_event(b["id"], "distro_email_sent", f"Phase 1 distro campaign: {subject}")
+                    time.sleep(1.2)  # rate limit
+                else:
+                    entry["error"] = "GMAIL_ADDRESS / GMAIL_PASSWORD not set in Railway env"
+            except Exception as e:
+                entry["error"] = str(e)
+                log.error("Email send failed %s: %s", b["email"], e)
+        else:
+            log.info("Distro email STAGED → %s (%s) [dry_run]", b["email"], agency)
+
+        campaign["outreach"].append(entry)
+        emails.append({
+            "to": b["email"],
+            "name": name,
+            "agency": agency,
+            "subject": subject,
+            "body_preview": body[:120] + "...",
+            "sent": entry["email_sent"],
+        })
+        staged += 1
+
+    # ── Save campaign ──────────────────────────────────────────────────────
+    outreach_data.setdefault("campaigns", []).append(campaign)
+    outreach_data["total_sent"] = outreach_data.get("total_sent", 0) + sent
+    outreach_data["last_distro_campaign"] = campaign_id
+    _save_json(OUTREACH_FILE, outreach_data)
+
+    # Log to DB activity
+    try:
+        from src.core.db import log_activity as _la
+        _la(
+            contact_id="growth_agent",
+            event_type="distro_campaign_launched",
+            detail=f"Campaign {campaign_id}: {staged} staged, {sent} sent, dry_run={dry_run}",
+            actor="growth_agent",
+            metadata={"campaign_id": campaign_id, "staged": staged, "sent": sent, "template": template},
+        )
+    except Exception:
+        pass
+
+    log.info("launch_distro_campaign: %s — staged=%d sent=%d dry_run=%s",
+             campaign_id, staged, sent, dry_run)
+
+    result = {
+        "ok": True,
+        "campaign_id": campaign_id,
+        "total_available": len(all_buyers),
+        "already_contacted": len(already_contacted),
+        "total_staged": staged,
+        "total_sent": sent,
+        "dry_run": dry_run,
+        "template": template,
+        "emails": emails,
+        "follow_up_in_days": 5,
+        "next_step": "Review emails in growth outreach dashboard, then set dry_run=False to send" if dry_run else f"Sent {sent} emails. Follow up in 5 days.",
+        "context_used": bool(ctx.get("contacts")),
+    }
+    return result
 
 
 def launch_outreach(max_prospects=50, dry_run=True):
@@ -412,7 +717,8 @@ def launch_outreach(max_prospects=50, dry_run=True):
         cats = p.get("categories_matched", [])
 
         body = EMAIL_TEMPLATE.format(name_greeting=name_greeting, agency=agency, items_mention=items_mention, purchase_date=purchase_date)
-        subject = f"Reytech Inc. — Competitive Pricing on {', '.join(cats[:2])}" if cats else "Reytech Inc. — CA State Vendor Introduction"
+        cats_list = list(cats or []) if not isinstance(cats, str) else [cats]
+        subject = f"Reytech Inc. — Competitive Pricing on {', '.join(cats_list[:2])}" if cats_list else "Reytech Inc. — CA State Vendor Introduction"
 
         entry = {
             "prospect_id": p["id"], "email": p["buyer_email"], "name": name,

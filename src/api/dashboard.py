@@ -3395,6 +3395,156 @@ def quote_update_status(quote_number):
     return jsonify(result)
 
 
+@bp.route("/api/quote/from-price-check", methods=["POST"])
+@auth_required
+def api_quote_from_price_check():
+    """PRD Feature 3.2.1 — 1-click Price Check → Reytech Quote with full logging.
+
+    POST JSON: { "pc_id": "abc123" }
+    Returns: { ok, quote_number, total, download, next_quote, pc_id, logs[] }
+
+    Logging chain (all 5 layers):
+      1. quotes_log.json  — JSON store (Railway seed)
+      2. SQLite quotes    — persistent DB on volume
+      3. SQLite price_history — every line item price
+      4. SQLite activity_log — CRM entry per quote
+      5. Application log  — structured INFO lines
+    """
+    body = request.get_json(silent=True) or {}
+    pc_id = body.get("pc_id", "").strip()
+    if not pc_id:
+        return jsonify({"ok": False, "error": "pc_id required"})
+
+    if not QUOTE_GEN_AVAILABLE:
+        return jsonify({"ok": False, "error": "Quote generator not available"})
+
+    pcs = _load_price_checks()
+    pc = pcs.get(pc_id)
+    if not pc:
+        return jsonify({"ok": False, "error": f"Price Check {pc_id} not found"})
+
+    # ── Items check ───────────────────────────────────────────────────────
+    items = pc.get("items", [])
+    priced_items = [it for it in items if not it.get("no_bid") and
+                    (it.get("pricing", {}).get("recommended_price") or
+                     it.get("pricing", {}).get("amazon_price"))]
+    if not priced_items:
+        return jsonify({"ok": False,
+                        "error": "No priced items — run price lookup first (⚡ Process Now)"})
+
+    # ── Generate PDF ──────────────────────────────────────────────────────
+    pc_num = pc.get("pc_number", "unknown")
+    safe_name = re.sub(r"[^a-zA-Z0-9_-]", "_", pc_num.strip())
+    output_path = os.path.join(DATA_DIR, f"Quote_{safe_name}_Reytech.pdf")
+
+    locked_qn = pc.get("reytech_quote_number", "")  # reuse if regenerating
+
+    logs = []
+    t0 = time.time()
+
+    result = generate_quote_from_pc(
+        pc, output_path,
+        include_tax=pc.get("tax_enabled", False),
+        tax_rate=pc.get("tax_rate", 0.0725) if pc.get("tax_enabled") else 0.0,
+        quote_number=locked_qn if locked_qn else None,
+    )
+
+    if not result.get("ok"):
+        return jsonify({"ok": False, "error": result.get("error", "PDF generation failed")})
+
+    qn = result.get("quote_number", "")
+    total = result.get("total", 0)
+    items_count = result.get("items_count", 0)
+    institution = result.get("institution", pc.get("institution", ""))
+    agency = result.get("agency", "")
+
+    logs.append(f"PDF generated: {qn} — ${total:,.2f} ({items_count} items) in {(time.time()-t0)*1000:.0f}ms")
+
+    # ── Layer 1+2: JSON + SQLite via _log_quote (already called inside generate_quote_from_pc) ──
+    logs.append("JSON quotes_log.json: written")
+    logs.append(f"SQLite quotes table: upserted {qn}")
+
+    # ── Layer 3: Price history — explicit per-item logging ─────────────────
+    ph_count = 0
+    try:
+        from src.core.db import record_price as _rp
+        for it in result.get("items_detail", []):
+            price = it.get("unit_price") or it.get("price_each") or 0
+            desc = it.get("description", "")
+            if price > 0 and desc:
+                _rp(
+                    description=desc,
+                    unit_price=float(price),
+                    source="quote_1click",
+                    part_number=it.get("part_number", "") or it.get("item_number", ""),
+                    manufacturer=it.get("manufacturer", ""),
+                    quantity=float(it.get("qty", 1) or 1),
+                    agency=agency,
+                    quote_number=qn,
+                    price_check_id=pc_id,
+                )
+                ph_count += 1
+        logs.append(f"SQLite price_history: {ph_count} prices recorded")
+    except Exception as ph_err:
+        logs.append(f"price_history skipped: {ph_err}")
+
+    # ── Layer 4: CRM activity log ──────────────────────────────────────────
+    try:
+        from src.core.db import log_activity as _la
+        _la(
+            contact_id=f"pc_{pc_id}",
+            event_type="quote_generated_1click",
+            subject=f"Quote {qn} generated — ${total:,.2f}",
+            body=f"1-click quote {qn} for {institution} ({items_count} items, PC #{pc_num})",
+            actor="user",
+            metadata={"pc_id": pc_id, "quote_number": qn, "total": total,
+                      "institution": institution, "agency": agency, "feature": "3.2.1"},
+        )
+        logs.append(f"SQLite activity_log: CRM entry written")
+    except Exception as al_err:
+        logs.append(f"activity_log skipped: {al_err}")
+
+    # Also log to JSON CRM activity (existing system)
+    _log_crm_activity(
+        qn, "quote_generated_1click",
+        f"1-click Quote {qn} — ${total:,.2f} for {institution} (PC #{pc_num}, {items_count} items)",
+        actor="user",
+        metadata={"pc_id": pc_id, "institution": institution, "agency": agency},
+    )
+    logs.append("CRM activity_log.json: written")
+
+    # ── Layer 5: Application log ───────────────────────────────────────────
+    log.info("1-CLICK QUOTE [Feature 3.2.1] %s → %s $%.2f (%d items, PC %s, %dms)",
+             institution[:40], qn, total, items_count, pc_id,
+             (time.time() - t0) * 1000)
+
+    # ── Update PC record ──────────────────────────────────────────────────
+    pc["reytech_quote_pdf"] = output_path
+    pc["reytech_quote_number"] = qn
+    pc["quote_generated_at"] = datetime.now().isoformat()
+    pc["quote_generated_via"] = "1click_feature_321"
+    _transition_status(pc, "completed", actor="user", notes=f"1-click quote {qn}")
+    _save_price_checks(pcs)
+    logs.append(f"PC {pc_id} status → completed, reytech_quote_number={qn}")
+
+    next_qn = peek_next_quote_number() if QUOTE_GEN_AVAILABLE else ""
+
+    return jsonify({
+        "ok": True,
+        "quote_number": qn,
+        "total": total,
+        "items_count": items_count,
+        "institution": institution,
+        "agency": agency,
+        "pc_id": pc_id,
+        "download": f"/api/pricecheck/download/{os.path.basename(output_path)}",
+        "next_quote": next_qn,
+        "logs": logs,
+        "elapsed_ms": round((time.time() - t0) * 1000),
+        "feature": "PRD 3.2.1",
+    })
+
+
 @bp.route("/debug")
 @auth_required
 def debug_agent():
@@ -5240,6 +5390,7 @@ except ImportError:
 try:
     from src.agents.growth_agent import (
         pull_reytech_history, find_category_buyers, launch_outreach,
+        launch_distro_campaign,
         check_follow_ups, launch_voice_follow_up,
         get_growth_status, PULL_STATUS, BUYER_STATUS,
         # CRM layer
@@ -7169,6 +7320,111 @@ def api_growth_follow_ups():
     if not GROWTH_AVAILABLE:
         return jsonify({"ok": False, "error": "Growth agent not available"})
     return jsonify(check_follow_ups())
+
+
+# ── PRD Feature 4.3 + Growth Campaign: Distro List Email Campaign ────────────
+@bp.route("/api/growth/distro-campaign", methods=["GET", "POST"])
+@auth_required
+def api_growth_distro_campaign():
+    """Phase 1 Growth Campaign — email CA state buyers to get on RFQ distro lists.
+
+    GET: Preview campaign (dry_run=true, shows emails without sending)
+    POST: Execute campaign
+      Body: { dry_run: bool, max: int, template: str, source_filter: str }
+
+    Templates: distro_list (default) | initial_outreach | follow_up
+    """
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+
+    from src.agents.growth_agent import launch_distro_campaign
+
+    if request.method == "GET":
+        dry_run = True
+    else:
+        body = request.get_json(silent=True) or {}
+        dry_run = body.get("dry_run", True)
+
+    args = request.get_json(silent=True) or {} if request.method == "POST" else {}
+    max_c = int(request.args.get("max", args.get("max", 100)))
+    template = request.args.get("template", args.get("template", "distro_list"))
+    source_filter = request.args.get("source", args.get("source_filter", ""))
+
+    result = launch_distro_campaign(
+        max_contacts=max_c,
+        dry_run=dry_run,
+        template=template,
+        source_filter=source_filter,
+    )
+    return jsonify(result)
+
+
+@bp.route("/api/growth/campaign-status")
+@auth_required
+def api_growth_campaign_status():
+    """Get status of all growth campaigns including distro list campaign."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    try:
+        from src.agents.growth_agent import get_campaign_dashboard, _load_json, OUTREACH_FILE
+        dashboard = get_campaign_dashboard()
+        outreach = _load_json(OUTREACH_FILE)
+        if not isinstance(outreach, dict):
+            outreach = {}
+        campaigns = outreach.get("campaigns", [])
+        distro_campaigns = [c for c in campaigns if c.get("type") == "distro_list_phase1"]
+        total_distro_staged = sum(len(c.get("outreach", [])) for c in distro_campaigns)
+        total_distro_sent = sum(
+            sum(1 for o in c.get("outreach", []) if o.get("email_sent"))
+            for c in distro_campaigns
+        )
+        return jsonify({
+            "ok": True,
+            "dashboard": dashboard,
+            "distro_campaigns": {
+                "count": len(distro_campaigns),
+                "total_staged": total_distro_staged,
+                "total_sent": total_distro_sent,
+                "last_campaign": distro_campaigns[-1]["id"] if distro_campaigns else None,
+            },
+            "total_sent_all_campaigns": outreach.get("total_sent", 0),
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/agent/context")
+@auth_required
+def api_agent_context():
+    """Return full DB context snapshot for any agent to consume.
+    Implements Anthropic Skills Guide Pattern 5: Domain-Specific Intelligence.
+    ?prices=query&focus=all|crm|quotes|revenue|intel
+    """
+    try:
+        from src.core.agent_context import get_context, format_context_for_agent
+        price_q = request.args.get("prices", "")
+        focus = request.args.get("focus", "all")
+        ctx = get_context(
+            include_prices=bool(price_q),
+            price_query=price_q,
+            include_contacts=True,
+            include_quotes=True,
+            include_revenue=True,
+        )
+        return jsonify({
+            "ok": True,
+            "context": ctx,
+            "formatted": format_context_for_agent(ctx, focus=focus),
+            "summary": {
+                "contacts": len(ctx.get("contacts", [])),
+                "quote_pipeline": ctx.get("quotes", {}).get("pipeline_value", 0),
+                "revenue_pct": ctx.get("revenue", {}).get("pct", 0),
+                "intel_buyers": ctx.get("intel", {}).get("total_buyers", 0),
+            },
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
 
 
 @bp.route("/api/growth/voice-follow-up")

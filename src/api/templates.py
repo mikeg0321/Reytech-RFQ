@@ -1149,6 +1149,18 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
      </div>
 
      <!-- Actions: Save + Preview + Fill/Download -->
+     <!-- 1-click Generate Quote banner (PRD Feature 3.2.1) -->
+     <div id="quote-gen-banner" style="background:linear-gradient(135deg,#1a3a5c,#0d2137);border:1px solid #1f6feb;border-radius:10px;padding:14px 20px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;gap:16px">
+      <div>
+       <div style="font-size:13px;font-weight:700;color:#58a6ff;margin-bottom:3px">🎯 Generate Reytech Quote</div>
+       <div style="font-size:12px;color:#8b949e" id="quote-gen-meta">Prices saved → 1 click to PDF + logged to CRM + DB</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+       <span style="font-size:11px;color:#3fb950;font-family:monospace" id="next-qn-badge">Next: {next_quote_preview or '—'}</span>
+       <button class="btn" id="genQuoteBtn" data-testid="pc-generate-quote-1click" onclick="generateQuote1Click(this)" style="background:#1f6feb;color:#fff;font-weight:700;font-size:14px;padding:10px 24px;border-radius:8px;transition:all .2s;white-space:nowrap">📋 Generate Quote →</button>
+      </div>
+     </div>
+
      <div class="action-bar" style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center" id="actionBar">
       <button class="btn btn-p" onclick="savePrices(this)" id="saveBtn" style="font-size:14px;padding:8px 20px">💾 Save</button>
       <button class="btn" onclick="showPreview()" style="background:#21262d;color:#c9d1d9;border:1px solid #484f58;font-size:14px;padding:8px 20px">👁️ Preview</button>
@@ -1762,6 +1774,65 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
       }}
       else{{btn.textContent='📄 Save & Fill 704';showMsg('❌ Generation failed: '+(d?.error||'unknown'),'err')}}
      }}).catch(e=>{{btn.textContent='📄 Save & Fill 704';btn.disabled=false;showMsg('❌ Error: '+e,'err')}});
+    }}
+
+    // ═══ PRD Feature 3.2.1: 1-click Price Check → Quote ═══
+    function generateQuote1Click(btn) {{
+     const banner = document.getElementById('quote-gen-banner');
+     const meta = document.getElementById('quote-gen-meta');
+     btn.disabled = true;
+     btn.textContent = '⏳ Saving prices...';
+     banner.style.borderColor = '#e3b341';
+     meta.textContent = 'Step 1/3: Persisting prices to DB...';
+
+     // Step 1: Save current prices
+     fetch('/pricecheck/{pcid}/save-prices', {{
+       method: 'POST',
+       headers: {{'Content-Type': 'application/json'}},
+       body: JSON.stringify(collectPrices())
+     }})
+     .then(r => r.json())
+     .then(d => {{
+       if (!d.ok) throw new Error('Save failed: ' + (d.error || 'unknown'));
+       meta.textContent = 'Step 2/3: Generating Reytech Quote PDF...';
+       btn.textContent = '⏳ Generating PDF...';
+
+       // Step 2: Generate quote via enhanced endpoint with full logging
+       return fetch('/api/quote/from-price-check', {{
+         method: 'POST',
+         headers: {{'Content-Type': 'application/json'}},
+         body: JSON.stringify({{pc_id: '{pcid}'}})
+       }});
+     }})
+     .then(r => r.json())
+     .then(d => {{
+       btn.disabled = false;
+       if (d && d.ok) {{
+         const qn = d.quote_number || '?';
+         const total = d.total ? ' — $' + parseFloat(d.total).toLocaleString('en-US', {{minimumFractionDigits:2}}) : '';
+         banner.style.borderColor = '#3fb950';
+         banner.style.background = 'linear-gradient(135deg,#0d2a0d,#0d1117)';
+         meta.innerHTML = `✅ Quote <b style="color:#3fb950">${{qn}}</b>${{total}} generated · <a href="${{d.download}}" style="color:#58a6ff" download>Download PDF</a> · <a href="/quotes" style="color:#58a6ff">View in Quotes →</a>`;
+         btn.textContent = '✅ ' + qn + ' Generated';
+         btn.style.background = '#238636';
+         document.getElementById('next-qn-badge').textContent = 'Next: ' + (d.next_quote || '—');
+         showMsg('✅ Quote ' + qn + total + ' generated and logged to CRM + DB', 'ok');
+       }} else {{
+         banner.style.borderColor = '#f85149';
+         meta.textContent = '❌ ' + (d?.error || 'Generation failed');
+         btn.textContent = '📋 Generate Quote →';
+         btn.style.background = '#1f6feb';
+         showMsg('❌ Quote generation failed: ' + (d?.error || 'unknown'), 'err');
+       }}
+     }})
+     .catch(e => {{
+       btn.disabled = false;
+       btn.textContent = '📋 Generate Quote →';
+       btn.style.background = '#1f6feb';
+       banner.style.borderColor = '#f85149';
+       meta.textContent = '❌ Error: ' + e.message;
+       showMsg('❌ Error: ' + e, 'err');
+     }});
     }}
 
     function generateReytechQuote(btn) {{

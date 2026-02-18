@@ -15,6 +15,23 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 
 log = logging.getLogger("manager")
+# ── Shared DB Context (Anthropic Skills Guide: Pattern 5 — Domain Intelligence) ──
+# Gives this agent access to live CRM, quotes, revenue, price history from SQLite.
+# Eliminates file loading duplication and ensures consistent ground truth.
+try:
+    from src.core.agent_context import (
+        get_context, format_context_for_agent,
+        get_contact_by_agency, get_best_price,
+    )
+    HAS_AGENT_CTX = True
+except ImportError:
+    HAS_AGENT_CTX = False
+    def get_context(**kw): return {}
+    def format_context_for_agent(c, **kw): return ""
+    def get_contact_by_agency(a): return []
+    def get_best_price(d): return None
+
+
 
 try:
     from src.core.paths import DATA_DIR
@@ -379,12 +396,22 @@ def _get_pipeline_summary() -> dict:
 # ─── Manager Brief (main output) ──────────────────────────────────────────
 
 def generate_brief() -> dict:
-    """Generate the full manager brief. Everything in one glance."""
+    """Generate the full manager brief. Everything in one glance.
+    Now uses agent_context for live DB data (Skills Guide Pattern 5).
+    """
     approvals = _get_pending_approvals()
     activity = _get_activity_feed(limit=10)
     summary = _get_pipeline_summary()
     agents = _check_all_agents()
     revenue = _get_revenue_status()
+
+    # ── Pull live DB context (agent intelligence layer) ────────────────────
+    db_ctx = {}
+    if HAS_AGENT_CTX:
+        try:
+            db_ctx = get_context(include_contacts=True, include_quotes=True, include_revenue=True)
+        except Exception:
+            pass
 
     # Build headline
     headlines = []
@@ -398,6 +425,14 @@ def generate_brief() -> dict:
         n = summary["growth"]["by_status"]["follow_up_due"]
         headlines.append(f"{n} growth prospect{'s' if n!=1 else ''} ready for follow-up call")
 
+    # DB-context headlines
+    qt = db_ctx.get("quotes", {})
+    if qt.get("sent", 0) > 0:
+        headlines.append(f"{qt['sent']} quote{'s' if qt['sent']!=1 else ''} sent — awaiting PO")
+    new_contacts = sum(1 for c in db_ctx.get("contacts", []) if c.get("status") == "new")
+    if new_contacts > 5:
+        headlines.append(f"{new_contacts} new contacts never contacted — run distro campaign")
+
     if not headlines:
         closed = revenue.get("closed_revenue", 0)
         if closed > 0:
@@ -410,17 +445,40 @@ def generate_brief() -> dict:
     agents_down = sum(1 for a in agents if a["status"] in ("unavailable", "error"))
     agents_config = sum(1 for a in agents if a["status"] == "not configured")
 
-    # Revenue snapshot
+    # Revenue snapshot (merge DB context if available)
+    rev_db = db_ctx.get("revenue", {})
     rev_snapshot = {
-        "closed": revenue.get("closed_revenue", 0),
-        "goal": revenue.get("goal", 2000000),
-        "pct": revenue.get("pct_to_goal", 0),
-        "gap": revenue.get("gap_to_goal", 0),
-        "on_track": revenue.get("on_track", False),
-        "run_rate": revenue.get("run_rate_annual", 0),
+        "closed": rev_db.get("closed") or revenue.get("closed_revenue", 0),
+        "goal": rev_db.get("goal") or revenue.get("goal", 2000000),
+        "pct": rev_db.get("pct") or revenue.get("pct_to_goal", 0),
+        "gap": rev_db.get("gap") or revenue.get("gap_to_goal", 0),
+        "on_track": rev_db.get("on_track") or revenue.get("on_track", False),
+        "run_rate": rev_db.get("run_rate_annual") or revenue.get("run_rate_annual", 0),
+        "monthly_needed": rev_db.get("monthly_needed") or revenue.get("monthly_needed", 181818),
     }
 
+    # Growth campaign status
+    growth_campaign = {}
+    try:
+        import json, os
+        from src.core.paths import DATA_DIR
+        outreach_path = os.path.join(DATA_DIR, "growth_outreach.json")
+        if os.path.exists(outreach_path):
+            with open(outreach_path) as f:
+                od = json.load(f)
+            if isinstance(od, dict):
+                campaigns = od.get("campaigns", [])
+                distro = [c for c in campaigns if c.get("type") == "distro_list_phase1"]
+                growth_campaign = {
+                    "distro_campaigns": len(distro),
+                    "total_sent": od.get("total_sent", 0),
+                    "last_campaign": distro[-1]["id"] if distro else None,
+                }
+    except Exception:
+        pass
+
     return {
+        "ok": True,
         "generated_at": datetime.now().isoformat(),
         "headline": headlines[0] if headlines else "All clear",
         "headlines": headlines,
@@ -436,7 +494,15 @@ def generate_brief() -> dict:
             "needs_config": agents_config,
         },
         "revenue": rev_snapshot,
+        "growth_campaign": growth_campaign,
+        "db_context": {
+            "contacts": len(db_ctx.get("contacts", [])),
+            "pipeline_value": qt.get("pipeline_value", 0),
+            "win_rate": qt.get("win_rate", 0),
+            "intel_buyers": db_ctx.get("intel", {}).get("total_buyers", 0),
+        },
     }
+
 
 
 def get_agent_status() -> dict:

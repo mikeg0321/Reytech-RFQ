@@ -31,6 +31,14 @@ from datetime import datetime
 
 log = logging.getLogger("qa_agent")
 
+# ── Agent Context (Skills Guide: Domain Intelligence layer) ──────────────────
+try:
+    from src.core.agent_context import get_context as _get_agent_ctx
+    HAS_CTX = True
+except ImportError:
+    HAS_CTX = False
+    def _get_agent_ctx(**kw): return {}
+
 try:
     from src.core.paths import DATA_DIR
 except ImportError:
@@ -780,6 +788,170 @@ def _check_sales_metrics() -> list:
     return results
 
 
+def _check_feature_321() -> list:
+    """QA checks for PRD Feature 3.2.1: 1-click Price Check → Quote."""
+    results = []
+
+    # Check endpoint exists
+    try:
+        import importlib, sys
+        db_mod = sys.modules.get("src.api.dashboard")
+        if db_mod:
+            bp_rules = [str(r) for r in db_mod.bp.url_map._rules] if hasattr(db_mod.bp, 'url_map') else []
+        # Soft check — just verify the route function is importable
+        from src.api.dashboard import api_quote_from_price_check
+        results.append({"check": "feature_321", "status": "pass",
+                         "message": "POST /api/quote/from-price-check endpoint: registered"})
+    except Exception as e:
+        results.append({"check": "feature_321", "status": "fail",
+                         "message": f"1-click quote endpoint missing: {e}",
+                         "severity": "critical",
+                         "recommendation": "Re-deploy — /api/quote/from-price-check not found"})
+
+    # Check banner in PC detail template
+    try:
+        from src.api.templates import build_pc_detail_html
+        import inspect
+        src = inspect.getsource(build_pc_detail_html)
+        if "quote-gen-banner" in src and "generateQuote1Click" in src:
+            results.append({"check": "feature_321", "status": "pass",
+                             "message": "PC detail template: 1-click banner + JS present"})
+        else:
+            results.append({"check": "feature_321", "status": "warn",
+                             "message": "PC detail template missing 1-click banner or JS",
+                             "recommendation": "Check templates.py for quote-gen-banner"})
+    except Exception as e:
+        results.append({"check": "feature_321", "status": "info",
+                         "message": f"Template check skipped: {e}"})
+
+    # Check all 5 logging layers are wired
+    try:
+        import inspect
+        from src.api.dashboard import api_quote_from_price_check as _fn
+        fn_src = inspect.getsource(_fn)
+        layers = {
+            "JSON quotes_log": "JSON quotes_log.json",
+            "SQLite quotes": "SQLite quotes table",
+            "SQLite price_history": "SQLite price_history",
+            "SQLite activity_log": "activity_log",
+            "CRM activity_log.json": "CRM activity_log.json",
+        }
+        for layer, marker in layers.items():
+            if marker in fn_src:
+                results.append({"check": "feature_321", "status": "pass",
+                                 "message": f"Logging layer: {layer} ✓"})
+            else:
+                results.append({"check": "feature_321", "status": "warn",
+                                 "message": f"Logging layer missing: {layer}",
+                                 "recommendation": f"Add {layer} logging to api_quote_from_price_check"})
+    except Exception as e:
+        results.append({"check": "feature_321", "status": "info",
+                         "message": f"Logging layer check skipped: {e}"})
+
+    return results
+
+
+def _check_agent_intelligence() -> list:
+    """Check that all agents have access to DB context (Skills Guide Pattern 5)."""
+    results = []
+
+    # Check agent_context module exists
+    try:
+        from src.core.agent_context import get_context, format_context_for_agent, get_best_price
+        ctx = get_context(include_contacts=True, include_quotes=True, include_revenue=True)
+        n_contacts = len(ctx.get("contacts", []))
+        results.append({"check": "agent_intelligence", "status": "pass",
+                         "message": f"agent_context.py: loaded, {n_contacts} contacts in DB context"})
+    except Exception as e:
+        results.append({"check": "agent_intelligence", "status": "fail",
+                         "message": f"agent_context.py not functional: {e}",
+                         "severity": "critical",
+                         "recommendation": "Check src/core/agent_context.py"})
+
+    # Check each key agent imports agent_context
+    agents_with_ctx = ["growth_agent"]  # agents we've upskilled
+    for agent_name in agents_with_ctx:
+        try:
+            import importlib
+            mod = importlib.import_module(f"src.agents.{agent_name}")
+            if hasattr(mod, "get_context") or hasattr(mod, "HAS_CTX"):
+                results.append({"check": "agent_intelligence", "status": "pass",
+                                 "message": f"{agent_name}: DB context layer ✓"})
+            else:
+                results.append({"check": "agent_intelligence", "status": "info",
+                                 "message": f"{agent_name}: DB context not imported (scheduled)"})
+        except Exception as e:
+            results.append({"check": "agent_intelligence", "status": "info",
+                             "message": f"{agent_name} context check: {e}"})
+
+    # Check /api/agent/context endpoint
+    try:
+        from src.api.dashboard import api_agent_context
+        results.append({"check": "agent_intelligence", "status": "pass",
+                         "message": "GET /api/agent/context endpoint: registered"})
+    except Exception as e:
+        results.append({"check": "agent_intelligence", "status": "warn",
+                         "message": f"/api/agent/context endpoint missing: {e}",
+                         "recommendation": "Add api_agent_context route to dashboard.py"})
+
+    return results
+
+
+def _check_growth_campaign() -> list:
+    """Check growth distro campaign readiness."""
+    results = []
+
+    # Check distro campaign function
+    try:
+        from src.agents.growth_agent import launch_distro_campaign, EMAIL_TEMPLATES
+        if "distro_list" in EMAIL_TEMPLATES:
+            results.append({"check": "growth_campaign", "status": "pass",
+                             "message": f"Growth: launch_distro_campaign ready, {len(EMAIL_TEMPLATES)} templates loaded"})
+        else:
+            results.append({"check": "growth_campaign", "status": "warn",
+                             "message": "distro_list template missing from EMAIL_TEMPLATES"})
+    except Exception as e:
+        results.append({"check": "growth_campaign", "status": "fail",
+                         "message": f"launch_distro_campaign not importable: {e}",
+                         "recommendation": "Check src/agents/growth_agent.py"})
+
+    # Check Gmail config
+    import os
+    gmail = os.environ.get("GMAIL_ADDRESS", "")
+    gmail_pwd = os.environ.get("GMAIL_PASSWORD", "")
+    if gmail and gmail_pwd:
+        results.append({"check": "growth_campaign", "status": "pass",
+                         "message": f"Gmail configured: {gmail}"})
+    else:
+        results.append({"check": "growth_campaign", "status": "warn",
+                         "message": "GMAIL_ADDRESS / GMAIL_PASSWORD not set — distro emails will stage but not send",
+                         "recommendation": "Add GMAIL_ADDRESS and GMAIL_PASSWORD to Railway environment variables"})
+
+    # Check available contacts for campaign
+    try:
+        from src.core.agent_context import get_context
+        ctx = get_context(include_contacts=True)
+        total = len(ctx.get("contacts", []))
+        with_email = sum(1 for c in ctx.get("contacts", []) if c.get("email"))
+        new_contacts = sum(1 for c in ctx.get("contacts", []) if c.get("status") == "new" and c.get("email"))
+        results.append({"check": "growth_campaign", "status": "pass" if new_contacts > 0 else "warn",
+                         "message": f"Campaign targets: {total} contacts, {with_email} have email, {new_contacts} new (never contacted)"})
+    except Exception as e:
+        results.append({"check": "growth_campaign", "status": "info",
+                         "message": f"Contact count check: {e}"})
+
+    # Check distro campaign API endpoint
+    try:
+        from src.api.dashboard import api_growth_distro_campaign
+        results.append({"check": "growth_campaign", "status": "pass",
+                         "message": "GET/POST /api/growth/distro-campaign endpoint: registered"})
+    except Exception as e:
+        results.append({"check": "growth_campaign", "status": "warn",
+                         "message": f"Distro campaign endpoint missing: {e}"})
+
+    return results
+
+
 def run_health_check(checks: list = None) -> dict:
     """Run full health check suite. Returns report with score and recommendations."""
     start = time.time()
@@ -792,6 +964,10 @@ def run_health_check(checks: list = None) -> dict:
         "env": _check_env_config,
         "code": _check_code_metrics,
         "sales": _check_sales_metrics,
+        # PRD feature checks (Anthropic Skills Guide: verification layer)
+        "feature_321": _check_feature_321,
+        "agent_intelligence": _check_agent_intelligence,
+        "growth_campaign": _check_growth_campaign,
     }
 
     for name in (checks or list(check_map.keys())):

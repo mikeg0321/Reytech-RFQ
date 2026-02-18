@@ -7,5 +7,57 @@
     "actor": "mike",
     "timestamp": "2026-02-18T05:35:16.841661",
     "metadata": {}
+  },
+  {
+    "id": "crm-20260218060342-1",
+    "ref_id": "TEST-Q177",
+    "event_type": "quote_generated_1click",
+    "description": "1-click Quote TEST-Q177 \u2014 $2,078.40 for CSP-Sacramento (TEST) (PC #TEST-001, 3 items)",
+    "actor": "user",
+    "timestamp": "2026-02-18T06:03:42.701786",
+    "metadata": {
+      "pc_id": "test_b48db6c1",
+      "institution": "CSP-Sacramento (TEST)",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260218060847-2",
+    "ref_id": "TEST-Q906",
+    "event_type": "quote_generated_1click",
+    "description": "1-click Quote TEST-Q906 \u2014 $3,998.40 for CSP-Sacramento (TEST) (PC #TEST-001, 3 items)",
+    "actor": "user",
+    "timestamp": "2026-02-18T06:08:47.557966",
+    "metadata": {
+      "pc_id": "test_92970447",
+      "institution": "CSP-Sacramento (TEST)",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260218060913-3",
+    "ref_id": "TEST-Q214",
+    "event_type": "quote_generated_1click",
+    "description": "1-click Quote TEST-Q214 \u2014 $3,998.40 for CSP-Sacramento (TEST) (PC #TEST-001, 3 items)",
+    "actor": "user",
+    "timestamp": "2026-02-18T06:09:13.032252",
+    "metadata": {
+      "pc_id": "test_52f8d1a9",
+      "institution": "CSP-Sacramento (TEST)",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260218061008-4",
+    "ref_id": "TEST-Q507",
+    "event_type": "quote_generated_1click",
+    "description": "1-click Quote TEST-Q507 \u2014 $3,998.40 for CSP-Sacramento (TEST) (PC #TEST-001, 3 items)",
+    "actor": "user",
+    "timestamp": "2026-02-18T06:10:08.853976",
+    "metadata": {
+      "pc_id": "test_97ee9b5f",
+      "institution": "CSP-Sacramento (TEST)",
+      "agency": "CDCR"
+    }
   }
 ]
