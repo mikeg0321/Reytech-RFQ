@@ -5505,15 +5505,21 @@ def growth_page():
 
     <div class="card">
      <h3>⚡ Actions</h3>
+     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+      <button class="g-btn g-btn-go" style="font-size:14px;padding:10px 20px" onclick="createCampaign()">🚀 Create Campaign</button>
+     </div>
+     <div style="font-size:11px;color:var(--tx2);margin-bottom:12px">
+      Mines SCPRS for all buyers → scores by opportunity → emails top prospects → auto-schedules voice follow-up in 3-5 days
+     </div>
      <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <button class="g-btn g-btn-go" onclick="runStep('/api/growth/pull-history')">📥 Step 1: Pull Reytech History</button>
-      <button class="g-btn g-btn-go" onclick="runStep('/api/growth/find-buyers')">🔍 Step 2: Find All Buyers</button>
-      <button class="g-btn g-btn-warn" onclick="runStep('/api/growth/outreach?dry_run=true')">👁️ Step 3: Preview Emails</button>
-      <button class="g-btn g-btn-red" onclick="if(confirm('Send real emails to prospects?')) runStep('/api/growth/outreach?dry_run=false')">📧 Step 3: Send Emails</button>
-      <button class="g-btn" onclick="runStep('/api/growth/follow-ups')">📋 Check Follow-Ups</button>
-      <button class="g-btn g-btn-warn" onclick="if(confirm('Auto-dial non-responders?')) runStep('/api/growth/voice-follow-up')">📞 Step 4: Voice Follow-Up</button>
-      <button class="g-btn" onclick="runStep('/api/growth/scan-bounces')">🔍 Scan Bouncebacks</button>
-      <button class="g-btn" onclick="runStep('/api/growth/campaigns')">📊 Campaign Stats</button>
+      <button class="g-btn" onclick="runStep('/api/growth/pull-history')">📥 Pull Reytech History</button>
+      <button class="g-btn" onclick="runStep('/api/growth/find-buyers')">🔍 Find Buyers</button>
+      <button class="g-btn" onclick="runStep('/api/growth/outreach?dry_run=true')">👁️ Preview Emails</button>
+      <button class="g-btn g-btn-warn" onclick="if(confirm('Send real emails to prospects?')) runStep('/api/growth/outreach?dry_run=false')">📧 Send Emails</button>
+      <button class="g-btn" onclick="runStep('/api/growth/follow-ups')">📋 Follow-Ups</button>
+      <button class="g-btn" onclick="if(confirm('Auto-dial non-responders?')) runStep('/api/growth/voice-follow-up')">📞 Voice Follow-Up</button>
+      <button class="g-btn" onclick="runStep('/api/growth/scan-bounces')">🔍 Scan Bounces</button>
+      <button class="g-btn" onclick="runStep('/api/growth/campaigns')">📊 Stats</button>
      </div>
     </div>
 
@@ -5572,6 +5578,23 @@ def growth_page():
     </div>
 
     <script>
+    function createCampaign() {{
+      const mode = confirm('Send real emails to prospects?\\n\\nOK = Send emails (live)\\nCancel = Preview only (dry run)');
+      const body = {{ dry_run: !mode, max_prospects: 50 }};
+      fetch('/api/growth/create-campaign', {{
+        method: 'POST', credentials: 'same-origin',
+        headers: {{'Content-Type': 'application/json'}},
+        body: JSON.stringify(body)
+      }}).then(r => r.json()).then(data => {{
+        document.getElementById('result').style.display = 'block';
+        document.getElementById('result-content').textContent = JSON.stringify(data, null, 2);
+        if (data.ok) pollProgress();
+      }}).catch(e => {{
+        document.getElementById('result').style.display = 'block';
+        document.getElementById('result-content').textContent = 'Error: ' + e;
+      }});
+    }}
+
     function runStep(url) {{
       fetch(url, {{credentials:'same-origin'}}).then(r=>r.json()).then(data => {{
         document.getElementById('result').style.display = 'block';
@@ -5895,6 +5918,98 @@ def api_growth_campaigns():
     if not GROWTH_AVAILABLE:
         return jsonify({"ok": False, "error": "Growth agent not available"})
     return jsonify(get_campaign_dashboard())
+
+
+@bp.route("/api/growth/create-campaign", methods=["POST"])
+@auth_required
+def api_growth_create_campaign():
+    """Create Campaign — full pipeline: pull history → find buyers → push to growth → preview emails.
+    
+    This is the one-button workflow that chains everything together.
+    Runs steps in background thread so it doesn't block.
+    """
+    if not GROWTH_AVAILABLE or not INTEL_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth + Intel agents required"})
+
+    import threading
+
+    # Campaign config from request
+    data = request.get_json(silent=True) or {}
+    max_prospects = data.get("max_prospects", 50)
+    from_date = data.get("from_date", "01/01/2023")
+    dry_run = data.get("dry_run", True)  # Default to preview mode
+
+    def run_campaign():
+        """Background: Pull → Mine → Push → Outreach."""
+        try:
+            from src.agents.growth_agent import (
+                pull_reytech_history, find_category_buyers,
+                launch_outreach, PULL_STATUS, BUYER_STATUS,
+            )
+            from src.agents.sales_intel import (
+                deep_pull_all_buyers, push_to_growth_prospects,
+                DEEP_PULL_STATUS,
+            )
+
+            # Step 1: Pull Reytech purchase history from SCPRS
+            PULL_STATUS["running"] = True
+            PULL_STATUS["progress"] = "Step 1/4: Pulling Reytech purchase history..."
+            pull_reytech_history(from_date=from_date)
+            PULL_STATUS["progress"] = "Step 1 done."
+            PULL_STATUS["running"] = False
+
+            # Step 2: Find all buyers who buy same items from competitors
+            BUYER_STATUS["running"] = True
+            BUYER_STATUS["progress"] = "Step 2/4: Mining SCPRS for all buyers..."
+            find_category_buyers(from_date=from_date)
+            BUYER_STATUS["progress"] = "Step 2 done."
+            BUYER_STATUS["running"] = False
+
+            # Step 3: Deep pull from Sales Intel for scoring + agency data
+            DEEP_PULL_STATUS["running"] = True
+            DEEP_PULL_STATUS["progress"] = "Step 3/4: Deep pull — scoring buyers & agencies..."
+            deep_pull_all_buyers(from_date=from_date)
+            DEEP_PULL_STATUS["running"] = False
+
+            # Step 4: Push top prospects to growth pipeline + preview outreach
+            PULL_STATUS["running"] = True
+            PULL_STATUS["progress"] = f"Step 4/4: Pushing top {max_prospects} prospects to growth pipeline..."
+            push_to_growth_prospects(top_n=max_prospects)
+
+            if not dry_run:
+                PULL_STATUS["progress"] = "Step 4/4: Sending outreach emails..."
+                launch_outreach(max_prospects=max_prospects, dry_run=False)
+
+            PULL_STATUS["progress"] = "✅ Campaign complete! Refresh page to see results."
+            PULL_STATUS["running"] = False
+            log.info("CREATE CAMPAIGN: Complete (dry_run=%s, max=%d)", dry_run, max_prospects)
+
+        except Exception as e:
+            log.error("CREATE CAMPAIGN failed: %s", e)
+            PULL_STATUS["running"] = False
+            PULL_STATUS["progress"] = f"❌ Campaign error: {e}"
+            try:
+                BUYER_STATUS["running"] = False
+                DEEP_PULL_STATUS["running"] = False
+            except Exception:
+                pass
+
+    t = threading.Thread(target=run_campaign, daemon=True)
+    t.start()
+
+    mode = "LIVE — emails will send" if not dry_run else "PREVIEW — dry run, no emails sent"
+    return jsonify({
+        "ok": True,
+        "message": f"🚀 Campaign started ({mode}). Check progress on Growth page.",
+        "mode": "live" if not dry_run else "preview",
+        "max_prospects": max_prospects,
+        "steps": [
+            "1. Pull Reytech purchase history from SCPRS",
+            "2. Find all buyers of same items (competitors' customers)",
+            "3. Deep pull — score buyers & agencies by opportunity",
+            f"4. Push top {max_prospects} to growth pipeline" + (" + send emails" if not dry_run else " (preview only)"),
+        ],
+    })
 
 
 # ─── Sales Intelligence Routes ─────────────────────────────────────────────

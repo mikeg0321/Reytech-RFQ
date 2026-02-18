@@ -156,6 +156,8 @@ PAGE_HOME = """
    <a href="/quotes" class="btn btn-sm" style="font-size:10px;padding:2px 8px">Quotes</a>
    <a href="/orders" class="btn btn-sm" style="font-size:10px;padding:2px 8px">Orders</a>
    <a href="/pipeline" class="btn btn-sm" style="font-size:10px;padding:2px 8px">Pipeline</a>
+   <a href="/growth" class="btn btn-sm" style="font-size:10px;padding:2px 8px">Growth</a>
+   <a href="/intelligence" class="btn btn-sm" style="font-size:10px;padding:2px 8px">Intel</a>
   </div>
  </div>
 </div>
@@ -213,6 +215,8 @@ fetch('/api/intel/revenue',{credentials:'same-origin'}).then(r=>r.json()).then(d
  </form>
  <a href="/quotes" class="btn btn-s" style="padding:10px 16px;font-size:13px">📋 Quotes DB</a>
  <a href="/orders" class="btn btn-s" style="padding:10px 16px;font-size:13px">📦 Orders</a>
+ <a href="/growth" class="btn btn-s" style="padding:10px 16px;font-size:13px">🚀 Growth</a>
+ <a href="/intelligence" class="btn btn-s" style="padding:10px 16px;font-size:13px">🧠 Intel</a>
  <a href="/agents" class="btn btn-s" style="padding:10px 16px;font-size:13px">🤖 Agents</a>
 </div>
 
