@@ -6843,28 +6843,34 @@ def api_data_sync_clean():
                 pass
 
     # 5. Ensure quote counter matches highest quote number
+    # ?counter=16 to force a specific value
     try:
         cpath = os.path.join(DATA_DIR, "quote_counter.json")
         qpath2 = os.path.join(DATA_DIR, "quotes_log.json")
-        if os.path.exists(cpath) and os.path.exists(qpath2):
+        if os.path.exists(cpath):
             with open(cpath) as f:
                 counter = json.load(f)
-            with open(qpath2) as f:
-                all_q = json.load(f)
-            # Find highest quote number
-            max_num = 0
-            for q in all_q:
-                qn = q.get("quote_number", "")
-                # Extract number from R26Q16 format
-                import re
-                m = re.search(r'(\d+)$', qn)
-                if m:
-                    max_num = max(max_num, int(m.group(1)))
+            force_counter = request.args.get("counter", type=int)
+            if force_counter:
+                target = force_counter
+            elif os.path.exists(qpath2):
+                with open(qpath2) as f:
+                    all_q = json.load(f)
+                max_num = 0
+                for q in all_q:
+                    qn = q.get("quote_number", "")
+                    import re
+                    m = re.search(r'(\d+)$', qn)
+                    if m:
+                        max_num = max(max_num, int(m.group(1)))
+                target = max_num
+            else:
+                target = 0
             current = counter.get("counter", 0)
-            if current != max_num and max_num > 0:
-                report["actions"].append(f"Sync quote counter: {current} → {max_num}")
+            if current != target and target > 0:
+                report["actions"].append(f"Sync quote counter: {current} → {target}")
                 if not dry_run:
-                    counter["counter"] = max_num
+                    counter["counter"] = target
                     with open(cpath, "w") as f:
                         json.dump(counter, f, indent=2)
     except Exception:
