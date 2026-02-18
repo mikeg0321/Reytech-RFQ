@@ -781,6 +781,7 @@ def render(content, **kw):
   <a href="/quotes" class="hdr-btn" aria-label="Quotes database">📋 Quotes</a>
   <a href="/orders" class="hdr-btn" aria-label="Orders tracking">📦 Orders</a>
   <a href="/contacts" class="hdr-btn" aria-label="CRM Contacts">👥 CRM</a>
+  <a href="/vendors" class="hdr-btn" aria-label="Vendor ordering">🏭 Vendors</a>
   <a href="/campaigns" class="hdr-btn" aria-label="Outreach campaigns">📞 Campaigns</a>
   <a href="/pipeline" class="hdr-btn" aria-label="Revenue pipeline">🔄 Pipeline</a>
   <a href="/growth" class="hdr-btn" aria-label="Growth engine">🚀 Growth</a>
@@ -971,6 +972,7 @@ def _header(page_title: str = "") -> str:
   <a href="/quotes" class="hdr-btn">📋 Quotes</a>
   <a href="/orders" class="hdr-btn">📦 Orders</a>
   <a href="/contacts" class="hdr-btn">👥 CRM</a>
+  <a href="/vendors" class="hdr-btn">🏭 Vendors</a>
   <a href="/campaigns" class="hdr-btn">📞 Campaigns</a>
   <a href="/pipeline" class="hdr-btn">🔄 Pipeline</a>
   <a href="/growth" class="hdr-btn{'{ hdr-active}' if page_title=='Growth Engine' else ''}">🚀 Growth</a>
@@ -4175,6 +4177,24 @@ def quote_update_status(quote_number):
             log.error("Order creation failed: %s", e)
             result["order_error"] = str(e)
 
+    # 🏭 Vendor ordering pipeline (async, on won quotes)
+    if new_status == "won":
+        try:
+            from src.agents.vendor_ordering_agent import process_won_quote_ordering
+            qt_for_order = _find_quote(quote_number)
+            if qt_for_order:
+                ordering_result = process_won_quote_ordering(
+                    quote_number=quote_number,
+                    items=qt_for_order.get("items_detail", qt_for_order.get("items", [])),
+                    agency=qt_for_order.get("agency","") or qt_for_order.get("institution",""),
+                    po_number=po_number or "",
+                    run_async=True,
+                )
+                result["vendor_ordering"] = ordering_result
+                log.info("Vendor ordering pipeline triggered for %s", quote_number)
+        except Exception as _voe:
+            log.debug("Vendor ordering trigger skipped: %s", _voe)
+
     return jsonify(result)
 
 
@@ -4777,6 +4797,285 @@ def api_delete_cs_draft():
         with open(outbox_path, "w") as f:
             json.dump(outbox, f, indent=2, default=str)
         return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# VENDOR ORDERING ROUTES
+# ════════════════════════════════════════════════════════════════════════════════
+
+@bp.route("/vendors")
+@auth_required
+def page_vendors():
+    """Vendor management — API status, enriched list, ordering capabilities."""
+    from src.agents.vendor_ordering_agent import get_enriched_vendor_list, get_agent_status as _voas, get_vendor_orders
+    vendors = get_enriched_vendor_list()
+    vs = _voas()
+    recent_orders = get_vendor_orders(limit=20)
+    
+    active = [v for v in vendors if v.get("can_order")]
+    email_po = [v for v in vendors if v.get("integration_status") == "email_po"]
+    setup_needed = [v for v in vendors if v.get("integration_status") == "setup_needed"]
+    manual = [v for v in vendors if v.get("integration_status") == "manual_only"]
+
+    STATUS_BADGE = {
+        "active": ("<span style='color:var(--gn);font-size:11px;font-weight:600'>● ACTIVE</span>", "var(--gn)"),
+        "email_po": ("<span style='color:var(--ac);font-size:11px;font-weight:600'>✉ EMAIL PO</span>", "var(--ac)"),
+        "setup_needed": ("<span style='color:var(--yl);font-size:11px;font-weight:600'>⚙ SETUP</span>", "var(--yl)"),
+        "ready": ("<span style='color:var(--or);font-size:11px;font-weight:600'>◑ PARTIAL</span>", "var(--or)"),
+        "manual_only": ("<span style='color:var(--tx2);font-size:11px'>— MANUAL</span>", "var(--tx2)"),
+    }
+    
+    def vendor_row(v):
+        name = v.get("name","")
+        status = v.get("integration_status","manual_only")
+        badge_html, color = STATUS_BADGE.get(status, STATUS_BADGE["manual_only"])
+        email = v.get("email","") or v.get("contact_email","")
+        phone = v.get("phone","")
+        balance = v.get("open_balance","")
+        cats = ", ".join(v.get("categories",[])[:3]) or "—"
+        note = v.get("note","") or v.get("action","")
+        return f"""<tr style="border-bottom:1px solid var(--bd)">
+  <td style="padding:10px 12px;font-weight:500;color:{color}">{name}</td>
+  <td style="padding:10px 12px;font-size:12px">{badge_html}</td>
+  <td style="padding:10px 12px;font-size:11px;color:var(--tx2)">{cats}</td>
+  <td style="padding:10px 12px;font-size:11px;color:var(--ac)">{email}</td>
+  <td style="padding:10px 12px;font-size:11px;color:var(--tx2)">{phone}</td>
+  <td style="padding:10px 12px;font-size:11px;color:var(--yl)">{f"${float(balance):,.2f}" if balance else ""}</td>
+  <td style="padding:10px 12px;font-size:11px;color:var(--tx2);max-width:200px">{note[:80] if note else ""}</td>
+</tr>"""
+    
+    # Priority vendors first
+    priority_vendors = [v for v in vendors if v.get("integration_status") in ("active","email_po","setup_needed","ready")]
+    other_vendors = [v for v in vendors if v.get("integration_status") == "manual_only"]
+    all_rows = "".join(vendor_row(v) for v in priority_vendors + other_vendors)
+    
+    # Recent orders
+    orders_html = ""
+    if recent_orders:
+        for o in recent_orders[:10]:
+            ts = (o.get("submitted_at","")[:16] or "").replace("T"," ")
+            status_color = {"submitted":"var(--ac)","confirmed":"var(--gn)","shipped":"var(--yl)","failed":"var(--rd)"}.get(o.get("status",""),("var(--tx2)"))
+            orders_html += f"""<tr>
+  <td style="padding:8px 12px;font-size:12px">{ts}</td>
+  <td style="padding:8px 12px;font-size:12px;font-weight:500">{o.get("vendor_name","")}</td>
+  <td style="padding:8px 12px;font-size:12px;font-family:'JetBrains Mono',monospace">{o.get("po_number","")}</td>
+  <td style="padding:8px 12px;font-size:12px">{o.get("quote_number","")}</td>
+  <td style="padding:8px 12px;font-size:12px">${o.get("total",0):,.2f}</td>
+  <td style="padding:8px 12px;font-size:12px;color:{status_color}">{o.get("status","").upper()}</td>
+</tr>"""
+    else:
+        orders_html = '<tr><td colspan="6" style="padding:20px;text-align:center;color:var(--tx2)">No vendor orders yet — orders appear here when quotes are won</td></tr>'
+
+    html = _header("Vendors") + f"""
+<style>
+.btn{{padding:5px 12px;border:1px solid var(--bd);border-radius:6px;cursor:pointer;font-family:'DM Sans',sans-serif;transition:.15s;text-decoration:none;font-size:12px;font-weight:500}}
+.btn:hover{{opacity:.8}}
+table{{width:100%;border-collapse:collapse}}
+th{{padding:8px 12px;font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;text-align:left;border-bottom:1px solid var(--bd)}}
+</style>
+
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+  <div>
+    <h2 style="font-size:22px;font-weight:700">🏭 Vendor Management</h2>
+    <p style="color:var(--tx2);font-size:13px;margin-top:4px">{len(vendors)} vendors · {len(active)+len(email_po)} API-ready · {len(setup_needed)} need setup</p>
+  </div>
+  <div style="display:flex;gap:8px">
+    <a href="/" class="btn">🏠 Home</a>
+    <a href="/api/vendor/status" class="btn" target="_blank">⚙️ API Status</a>
+    <button class="btn" onclick="testGrainger(this)" style="border-color:var(--ac);color:var(--ac)">🔍 Test Grainger Search</button>
+  </div>
+</div>
+
+<!-- Setup guide cards -->
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:24px">
+  <div class="card" style="border-color:{('var(--gn)' if vs.get('grainger_can_order') else 'var(--yl)')}">
+    <div style="font-size:11px;color:var(--tx2);margin-bottom:8px">GRAINGER REST API</div>
+    <div style="font-size:20px;font-weight:700;color:{('var(--gn)' if vs.get('grainger_can_order') else 'var(--yl)')}">
+      {'✅ Active' if vs.get('grainger_can_order') else '⚙ Setup Needed'}
+    </div>
+    <div style="font-size:11px;color:var(--tx2);margin-top:6px">Free public API · industrial + medical</div>
+    {'<div style="font-size:11px;color:var(--yl);margin-top:8px">→ Set GRAINGER_CLIENT_ID/SECRET/ACCOUNT_NUMBER in Railway</div>' if not vs.get('grainger_can_order') else ''}
+  </div>
+  <div class="card" style="border-color:{('var(--gn)' if vs.get('amazon_configured') else 'var(--yl)')}">
+    <div style="font-size:11px;color:var(--tx2);margin-bottom:8px">AMAZON BUSINESS SP-API</div>
+    <div style="font-size:20px;font-weight:700;color:{('var(--gn)' if vs.get('amazon_configured') else 'var(--yl)')}">
+      {'✅ Active' if vs.get('amazon_configured') else '⚙ Setup Needed'}
+    </div>
+    <div style="font-size:11px;color:var(--tx2);margin-top:6px">Search via SerpApi ✅ · ordering via SP-API</div>
+    {'<div style="font-size:11px;color:var(--yl);margin-top:8px">→ Set AMZN_ACCESS_KEY/SECRET/REFRESH_TOKEN in Railway</div>' if not vs.get('amazon_configured') else ''}
+  </div>
+  <div class="card" style="border-color:{('var(--gn)' if vs.get('email_po_active') else 'var(--bd)')}">
+    <div style="font-size:11px;color:var(--tx2);margin-bottom:8px">EMAIL PO VENDORS</div>
+    <div style="font-size:20px;font-weight:700;color:var(--gn)">
+      {len(vs.get('email_po_vendors',[]))} Active
+    </div>
+    <div style="font-size:11px;color:var(--tx2);margin-top:6px">Curbell · IMS · Echelon · TSI</div>
+    <div style="font-size:11px;color:var(--gn);margin-top:6px">POs sent automatically on quote won</div>
+  </div>
+</div>
+
+<!-- Vendor table -->
+<div class="card" style="margin-bottom:20px">
+  <div style="font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px">
+    All Vendors ({len(vendors)})
+  </div>
+  <div style="overflow-x:auto">
+    <table>
+      <thead><tr>
+        <th>Vendor</th><th>Integration</th><th>Categories</th>
+        <th>Email</th><th>Phone</th><th>Balance</th><th>Notes</th>
+      </tr></thead>
+      <tbody>{all_rows}</tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Recent vendor orders -->
+<div class="card">
+  <div style="font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px">
+    Vendor Order History
+  </div>
+  <table>
+    <thead><tr>
+      <th>Date</th><th>Vendor</th><th>PO Number</th><th>Quote</th><th>Total</th><th>Status</th>
+    </tr></thead>
+    <tbody>{orders_html}</tbody>
+  </table>
+</div>
+
+<div id="grainger-results" style="margin-top:16px"></div>
+
+<script>
+function testGrainger(btn){{
+  var q=prompt("Search Grainger catalog (e.g. 'nitrile gloves medium 100 box'):");
+  if(!q)return;
+  btn.disabled=true;btn.textContent='Searching...';
+  fetch('/api/vendor/search?vendor=grainger&q='+encodeURIComponent(q),{{credentials:'same-origin'}})
+  .then(r=>r.json()).then(d=>{{
+    btn.disabled=false;btn.textContent='🔍 Test Grainger Search';
+    var el=document.getElementById('grainger-results');
+    if(!d.results||!d.results.length){{el.innerHTML='<p style="color:var(--yl)">No results (configure GRAINGER_CLIENT_ID/SECRET for full access)</p>';return;}}
+    var rows=d.results.map(r=>'<tr><td style="padding:6px 10px">'+r.item_number+'</td><td style="padding:6px 10px">'+r.title.substring(0,60)+'</td><td style="padding:6px 10px;color:var(--gn)">$'+(r.price||0).toFixed(2)+'</td><td style="padding:6px 10px;color:var(--tx2)">'+r.availability+'</td></tr>').join('');
+    el.innerHTML='<div class="card"><div style="font-size:12px;font-weight:600;color:var(--tx2);margin-bottom:10px">Grainger Results: '+d.results.length+' found</div><table><thead><tr><th>Item#</th><th>Title</th><th>Price</th><th>Availability</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+  }}).catch(()=>{{btn.disabled=false;btn.textContent='🔍 Test Grainger Search';alert('Search failed')}});
+}}
+</script>
+</div></body></html>"""
+    return html
+
+
+@bp.route("/api/vendor/status")
+@auth_required
+def api_vendor_status():
+    """Vendor ordering agent status + setup guide."""
+    from src.agents.vendor_ordering_agent import get_agent_status as _voas
+    return jsonify({"ok": True, **_voas()})
+
+
+@bp.route("/api/vendor/search")
+@auth_required
+def api_vendor_search():
+    """Search a vendor catalog.
+    ?vendor=grainger&q=nitrile+gloves
+    """
+    vendor = request.args.get("vendor", "grainger")
+    q = request.args.get("q", "")
+    if not q:
+        return jsonify({"ok": False, "error": "q required"})
+    try:
+        from src.agents.vendor_ordering_agent import grainger_search, amazon_search_catalog, compare_vendor_prices
+        if vendor == "grainger":
+            results = grainger_search(q, max_results=10)
+        elif vendor == "amazon":
+            results = amazon_search_catalog(q, max_results=10)
+        elif vendor == "compare":
+            qty = int(request.args.get("qty", 1))
+            return jsonify(compare_vendor_prices(q, qty))
+        else:
+            return jsonify({"ok": False, "error": f"Unknown vendor: {vendor}"})
+        return jsonify({"ok": True, "vendor": vendor, "query": q, "count": len(results), "results": results})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/vendor/compare")
+@auth_required
+def api_vendor_compare():
+    """Compare prices across all vendors for a product.
+    ?q=nitrile+gloves+medium&qty=10
+    """
+    q = request.args.get("q", "")
+    qty = int(request.args.get("qty", 1))
+    if not q:
+        return jsonify({"ok": False, "error": "q required"})
+    try:
+        from src.agents.vendor_ordering_agent import compare_vendor_prices
+        return jsonify({"ok": True, **compare_vendor_prices(q, qty)})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/vendor/order", methods=["POST"])
+@auth_required
+def api_vendor_order():
+    """Place a vendor order or email PO.
+    POST {vendor_key, items: [{description, quantity, unit_price}], po_number, quote_number}
+    """
+    data = request.get_json(silent=True) or {}
+    vendor_key = data.get("vendor_key", "")
+    items = data.get("items", [])
+    po_number = data.get("po_number", "")
+    quote_number = data.get("quote_number", "")
+
+    if not vendor_key or not items or not po_number:
+        return jsonify({"ok": False, "error": "vendor_key, items, and po_number required"})
+
+    try:
+        from src.agents.vendor_ordering_agent import VENDOR_CATALOG, grainger_place_order, send_email_po
+        vendor = VENDOR_CATALOG.get(vendor_key, {})
+        
+        if not vendor:
+            return jsonify({"ok": False, "error": f"Unknown vendor: {vendor_key}"})
+        if not vendor.get("can_order"):
+            return jsonify({"ok": False, "error": f"Vendor {vendor_key} not configured for ordering", "setup": vendor.get("env_needed", [])})
+        
+        api_type = vendor.get("api_type", "")
+        if api_type == "rest":
+            result = grainger_place_order(items, po_number)
+        elif api_type == "email_po":
+            result = send_email_po(vendor_key, items, po_number, quote_number)
+        else:
+            return jsonify({"ok": False, "error": f"Vendor type {api_type} not supported for ordering"})
+        
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/vendor/orders")
+@auth_required
+def api_vendor_orders():
+    """Get vendor order history."""
+    status_filter = request.args.get("status")
+    limit = int(request.args.get("limit", 50))
+    try:
+        from src.agents.vendor_ordering_agent import get_vendor_orders
+        orders = get_vendor_orders(limit=limit, status=status_filter)
+        return jsonify({"ok": True, "count": len(orders), "orders": orders})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/vendor/enrich", methods=["POST"])
+@auth_required
+def api_vendor_enrich():
+    """Get enriched vendor list with API metadata."""
+    try:
+        from src.agents.vendor_ordering_agent import get_enriched_vendor_list
+        return jsonify({"ok": True, "vendors": get_enriched_vendor_list()})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
 

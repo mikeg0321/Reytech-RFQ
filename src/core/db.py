@@ -299,6 +299,26 @@ CREATE INDEX IF NOT EXISTS idx_email_log_quote ON email_log(quote_number);
 CREATE INDEX IF NOT EXISTS idx_email_log_po ON email_log(po_number);
 CREATE INDEX IF NOT EXISTS idx_email_log_direction ON email_log(direction, logged_at);
 CREATE INDEX IF NOT EXISTS idx_email_log_sender ON email_log(sender);
+
+CREATE TABLE IF NOT EXISTS vendor_orders (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    submitted_at    TEXT NOT NULL,
+    updated_at      TEXT,
+    vendor_key      TEXT NOT NULL,     -- grainger|amazon_business|curbell_medical|etc
+    vendor_name     TEXT NOT NULL,
+    po_number       TEXT NOT NULL,     -- Our internal PO (R26Q4-PO-GRAI)
+    order_number    TEXT,              -- Vendor's confirmation/order number
+    quote_number    TEXT,              -- The Reytech quote this PO is for
+    items_json      TEXT,              -- JSON array of ordered items
+    total           REAL DEFAULT 0,
+    status          TEXT DEFAULT 'submitted',  -- submitted|confirmed|shipped|delivered|failed|po_emailed
+    tracking        TEXT,              -- tracking number when shipped
+    notes           TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_vendor_orders_quote ON vendor_orders(quote_number);
+CREATE INDEX IF NOT EXISTS idx_vendor_orders_status ON vendor_orders(status);
+CREATE INDEX IF NOT EXISTS idx_vendor_orders_vendor ON vendor_orders(vendor_key);
 """
 
 def init_db():

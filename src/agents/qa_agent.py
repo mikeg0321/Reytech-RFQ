@@ -1189,6 +1189,11 @@ def run_health_check(checks: list = None) -> dict:
         "mobile_css": _check_mobile_css,
         "smoke_tests": _check_smoke_tests,
         "quote_pdf_branding": _check_quote_pdf_branding,
+        # Phase 28-29: Notification + Vendor Ordering checks
+        "notify_agent": _check_notify_agent,
+        "email_log": _check_email_log,
+        "vendor_ordering": _check_vendor_ordering,
+        "outbox_coverage": _check_outbox_coverage,
     }
 
     for name in (checks or list(check_map.keys())):
@@ -1353,3 +1358,119 @@ if __name__ == "__main__":
     grade = "A" if total_c == 0 and total_w < 5 else "B" if total_c == 0 else "F"
     print(f"  Grade: {grade}")
     print(f"{'=' * 60}")
+
+
+def _check_notify_agent() -> list:
+    """Check notification agent configuration."""
+    results = []
+    try:
+        from src.agents.notify_agent import get_agent_status as _ns, get_unread_count
+        ns = _ns()
+        results.append({"check": "notify_agent", "status": "pass",
+                       "message": f"Notify agent: bell={get_unread_count()} unread, stale_watcher={ns.get('stale_watcher')}"})
+        if ns.get("sms", {}).get("enabled"):
+            results.append({"check": "notify_agent", "status": "pass",
+                           "message": f"SMS alerts: configured to {ns['sms']['to']}"})
+        else:
+            results.append({"check": "notify_agent", "status": "warn",
+                           "message": "SMS: not set up — set NOTIFY_PHONE + Twilio in Railway for text alerts",
+                           "action": "NOTIFY_PHONE (Google Voice OK), TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER"})
+        if ns.get("email_alerts", {}).get("enabled"):
+            results.append({"check": "notify_agent", "status": "pass",
+                           "message": f"Alert email: configured to {ns['email_alerts']['to']}"})
+        else:
+            results.append({"check": "notify_agent", "status": "warn",
+                           "message": "Alert email: set NOTIFY_EMAIL in Railway for proactive email alerts",
+                           "action": "Set NOTIFY_EMAIL to your personal email (separate from GMAIL_ADDRESS)"})
+    except Exception as e:
+        results.append({"check": "notify_agent", "status": "warn", "message": f"Notify check: {e}"})
+    return results
+
+
+def _check_email_log() -> list:
+    """Check email communication log and notification persistence."""
+    results = []
+    try:
+        from src.core.db import get_db as _gdb
+        with _gdb() as conn:
+            # Auto-create tables if they don't exist yet (first deploy)
+            try:
+                cnt = conn.execute("SELECT COUNT(*) FROM email_log").fetchone()[0]
+                results.append({"check": "email_log", "status": "pass",
+                               "message": f"Email audit trail: {cnt} entries (CS dispute resolution)"})
+            except Exception:
+                results.append({"check": "email_log", "status": "info",
+                               "message": "Email log: table pending (auto-created on first email activity)"})
+            try:
+                ncnt = conn.execute("SELECT COUNT(*) FROM notifications").fetchone()[0]
+                unread = conn.execute("SELECT COUNT(*) FROM notifications WHERE is_read=0").fetchone()[0]
+                results.append({"check": "email_log", "status": "pass",
+                               "message": f"Persistent bell: {ncnt} notifications, {unread} unread"})
+            except Exception:
+                results.append({"check": "email_log", "status": "info",
+                               "message": "Notifications table: pending (auto-created on first alert)"})
+    except Exception as e:
+        results.append({"check": "email_log", "status": "warn", "message": f"Email log check: {e}"})
+    return results
+
+
+def _check_vendor_ordering() -> list:
+    """Check vendor ordering agent readiness."""
+    results = []
+    try:
+        from src.agents.vendor_ordering_agent import get_agent_status as _voas, get_vendor_orders
+        vs = _voas()
+        recent = get_vendor_orders(limit=20)
+        if vs.get("email_po_active") and vs.get("email_po_vendors"):
+            results.append({"check": "vendor_ordering", "status": "pass",
+                           "message": f"Email PO: {len(vs['email_po_vendors'])} vendors ready (Curbell, IMS, Echelon, TSI)"})
+        else:
+            results.append({"check": "vendor_ordering", "status": "warn",
+                           "message": "Email PO: needs GMAIL_ADDRESS + GMAIL_PASSWORD"})
+        if vs.get("grainger_can_order"):
+            results.append({"check": "vendor_ordering", "status": "pass",
+                           "message": "Grainger: fully configured (search + pricing + order)"})
+        else:
+            results.append({"check": "vendor_ordering", "status": "warn",
+                           "message": "Grainger REST API: not set (P0 — free API at api.grainger.com)",
+                           "action": "Set GRAINGER_CLIENT_ID, GRAINGER_CLIENT_SECRET, GRAINGER_ACCOUNT_NUMBER in Railway"})
+        if vs.get("amazon_configured"):
+            results.append({"check": "vendor_ordering", "status": "pass",
+                           "message": "Amazon Business SP-API: configured"})
+        else:
+            results.append({"check": "vendor_ordering", "status": "warn",
+                           "message": "Amazon SP-API: not configured (SerpApi search still works)",
+                           "action": "Set AMZN_ACCESS_KEY/SECRET/REFRESH_TOKEN from sellercentral.amazon.com"})
+        results.append({"check": "vendor_ordering", "status": "info",
+                       "message": f"Orders in DB: {len(recent)} | needs setup: {vs.get('vendors_setup_needed', [])[:3]}"})
+    except Exception as e:
+        results.append({"check": "vendor_ordering", "status": "warn", "message": f"Vendor ordering: {e}"})
+    return results
+
+
+def _check_outbox_coverage() -> list:
+    """Check email outbox for stale unreviewed drafts."""
+    results = []
+    try:
+        import json as _jq
+        from datetime import datetime as _dtq, timedelta as _tdq
+        outbox_path = os.path.join(DATA_DIR, "email_outbox.json")
+        if os.path.exists(outbox_path):
+            outbox = _jq.load(open(outbox_path))
+            drafts = [e for e in outbox if e.get("status") in ("draft", "cs_draft")]
+            sent = [e for e in outbox if e.get("status") == "sent"]
+            stale_cutoff = (_dtq.now() - _tdq(hours=4)).isoformat()
+            stale = [e for e in drafts if e.get("created_at", "9999") < stale_cutoff]
+            if stale:
+                results.append({"check": "outbox_coverage", "status": "warn",
+                               "message": f"Outbox: {len(stale)} stale drafts (>4h) at /outbox",
+                               "action": "Visit /outbox to review and send"})
+            else:
+                results.append({"check": "outbox_coverage", "status": "pass",
+                               "message": f"Outbox: {len(drafts)} drafts pending, {len(sent)} sent, 0 stale"})
+        else:
+            results.append({"check": "outbox_coverage", "status": "info",
+                           "message": "Outbox: clean (no drafts yet)"})
+    except Exception as e:
+        results.append({"check": "outbox_coverage", "status": "warn", "message": f"Outbox: {e}"})
+    return results
