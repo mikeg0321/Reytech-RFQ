@@ -6065,7 +6065,44 @@ def api_intel_status():
     """Full intelligence status — buyers, agencies, revenue tracker."""
     if not INTEL_AVAILABLE:
         return jsonify({"ok": False, "error": "Sales intel not available"})
-    return jsonify(get_intel_status())
+    st = get_intel_status()
+    # Quick SCPRS connectivity probe
+    scprs_error = None
+    try:
+        import requests as _req
+        r = _req.get("https://suppliers.fiscal.ca.gov/psc/psfpd1/SUPPLIER/ERP/c/ZZ_PO.ZZ_SCPRS1_CMP.GBL",
+                     timeout=5, allow_redirects=True)
+        if r.status_code >= 400:
+            scprs_error = f"HTTP {r.status_code}"
+    except Exception as e:
+        scprs_error = str(e)[:120]
+    st["scprs_reachable"] = scprs_error is None
+    st["scprs_error"] = scprs_error
+    return jsonify(st)
+
+
+@bp.route("/api/intel/scprs-test")
+@auth_required
+def api_intel_scprs_test():
+    """Test SCPRS connectivity from Railway and return detailed result."""
+    try:
+        import requests as _req
+        import time as _time
+        t0 = _time.time()
+        r = _req.get("https://suppliers.fiscal.ca.gov/psc/psfpd1/SUPPLIER/ERP/c/ZZ_PO.ZZ_SCPRS1_CMP.GBL",
+                     timeout=10, allow_redirects=True)
+        elapsed = round((_time.time() - t0) * 1000)
+        return jsonify({
+            "ok": r.status_code < 400,
+            "status_code": r.status_code,
+            "elapsed_ms": elapsed,
+            "reachable": True,
+            "content_length": len(r.content),
+            "is_html": "text/html" in r.headers.get("content-type", ""),
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "reachable": False, "error": str(e),
+                        "hint": "Railway static IP must be enabled and whitelisted. Check Railway settings → Networking → Static IP."})
 
 
 @bp.route("/api/intel/deep-pull")
@@ -6102,7 +6139,12 @@ def api_intel_priority_queue():
     if not INTEL_AVAILABLE:
         return jsonify({"ok": False, "error": "Sales intel not available"})
     limit = int(request.args.get("limit", 25))
-    return jsonify(get_priority_queue(limit=limit))
+    result = get_priority_queue(limit=limit)
+    if not result.get("ok") and "No buyer data" in str(result.get("error", "")):
+        return jsonify({"ok": False,
+                        "error": "No buyer data yet",
+                        "hint": "Run 🔍 Deep Pull All Buyers first to mine SCPRS for buyer contacts, categories, and spend data."})
+    return jsonify(result)
 
 
 @bp.route("/api/intel/push-prospects")
@@ -6276,6 +6318,7 @@ def intelligence_page():
       <button class="g-btn g-btn-go" onclick="runIntel('/api/intel/priority-queue')">📊 Priority Queue</button>
       <button class="g-btn" onclick="runIntel('/api/intel/push-prospects?top=50')">📥 Push Top 50 → Growth Pipeline</button>
       <button class="g-btn" onclick="runIntel('/api/intel/sb-admin-match')">🏛️ Match SB Admins</button>
+      <button class="g-btn" onclick="runIntel('/api/intel/scprs-test')" style="border-color:rgba(167,139,250,.4);color:#a78bfa">🔌 Test SCPRS Connection</button>
      </div>
     </div>
 
@@ -6336,17 +6379,142 @@ def intelligence_page():
      <pre id="result-content" style="font-size:11px;white-space:pre-wrap;word-break:break-word;margin:0"></pre>
     </div>
 
+    <!-- Live Progress Bar — shown during deep pull -->
+    <div id="pull-progress-wrap" style="display:{'block' if pull_running else 'none'};margin-top:12px">
+     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <span style="font-size:12px;font-weight:600;color:var(--tx2)" id="pull-phase-label">Deep Pull Running...</span>
+      <span style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--ac)" id="pull-counts"></span>
+     </div>
+     <div style="background:var(--sf2);border-radius:8px;height:20px;overflow:hidden;position:relative;border:1px solid var(--bd)">
+      <div id="pull-bar-fill" style="height:100%;border-radius:8px;transition:width .5s;background:linear-gradient(90deg,#4f8cff,#34d399);width:0%"></div>
+      <span id="pull-bar-text" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:11px;font-weight:600;color:#fff;white-space:nowrap">Starting...</span>
+     </div>
+     <div style="margin-top:6px;font-size:11px;color:var(--tx2)" id="pull-detail-text"></div>
+     <div id="pull-errors" style="margin-top:6px;font-size:11px;color:var(--rd);display:none"></div>
+    </div>
+
     <script>
+    // SCPRS connectivity check on load
+    fetch('/api/intel/status', {{credentials:'same-origin'}}).then(r=>r.json()).then(d => {{
+      const bar = document.getElementById('progress-bar');
+      if(d.scprs_error) {{
+        const errDiv = document.createElement('div');
+        errDiv.style.cssText = 'background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.3);color:#f87171;padding:10px 14px;border-radius:8px;font-size:12px;margin-bottom:12px';
+        errDiv.innerHTML = '⚠️ <b>SCPRS Connectivity Issue:</b> ' + d.scprs_error + '<br><span style="opacity:.7">Deep Pull requires Railway static IP to reach suppliers.fiscal.ca.gov</span>';
+        document.querySelector('.card').after(errDiv);
+      }}
+    }}).catch(()=>{{}});
+
+    function showResult(data, isError) {{
+      const el = document.getElementById('result');
+      const content = document.getElementById('result-content');
+      el.style.display = 'block';
+      el.style.borderColor = isError ? 'rgba(248,113,113,.4)' : 'var(--bd)';
+      if(typeof data === 'string') {{
+        content.textContent = data;
+      }} else {{
+        // Format nicely
+        if(data.error) {{
+          content.style.color = '#f87171';
+          content.textContent = '❌ ' + data.error + (data.hint ? '\n\n💡 ' + data.hint : '');
+        }} else {{
+          content.style.color = 'var(--tx)';
+          content.textContent = JSON.stringify(data, null, 2);
+        }}
+      }}
+    }}
+
     function runIntel(url) {{
+      const isDeepPull = url.includes('deep-pull');
+      if(isDeepPull) {{
+        startDeepPull();
+        return;
+      }}
       fetch(url, {{credentials:'same-origin'}}).then(r=>r.json()).then(data => {{
-        document.getElementById('result').style.display = 'block';
-        document.getElementById('result-content').textContent = JSON.stringify(data, null, 2);
-        if (data.message && data.message.includes('Check')) pollPull();
+        const isErr = !data.ok || data.error;
+        showResult(data, isErr);
       }}).catch(e => {{
-        document.getElementById('result').style.display = 'block';
-        document.getElementById('result-content').textContent = 'Error: ' + e;
+        showResult('Network error: ' + e, true);
       }});
     }}
+
+    function startDeepPull() {{
+      const btn = document.querySelector('[onclick*="deep-pull"]');
+      if(btn) {{ btn.disabled = true; btn.textContent = '⏳ Running...'; }}
+      fetch('/api/intel/deep-pull', {{credentials:'same-origin'}}).then(r=>r.json()).then(data => {{
+        if(!data.ok) {{
+          showResult(data, true);
+          if(btn) {{ btn.disabled = false; btn.textContent = '🔍 Deep Pull All Buyers'; }}
+          return;
+        }}
+        document.getElementById('pull-progress-wrap').style.display = 'block';
+        pollPull();
+      }}).catch(e => {{
+        showResult('Failed to start: ' + e, true);
+        if(btn) {{ btn.disabled = false; btn.textContent = '🔍 Deep Pull All Buyers'; }}
+      }});
+    }}
+
+    let pullTimer = null;
+    function pollPull() {{
+      if(pullTimer) clearInterval(pullTimer);
+      pullTimer = setInterval(() => {{
+        fetch('/api/intel/pull-status', {{credentials:'same-origin'}}).then(r=>r.json()).then(d => {{
+          // Update progress bar
+          const total = d.queries_total || 1;
+          const done = d.queries_done || 0;
+          const pct = Math.min(99, Math.round((done / total) * 100));
+          document.getElementById('pull-bar-fill').style.width = pct + '%';
+          document.getElementById('pull-bar-text').textContent = pct + '% (' + done + '/' + total + ' queries)';
+
+          // Phase label
+          const phaseMap = {{
+            'init': '🔌 Connecting to SCPRS...',
+            'reytech_history': '📥 Phase 1: Pulling Reytech win history...',
+            'category_scan': '🔍 Phase 2: Scanning category buyers...',
+            'scoring': '📊 Scoring & ranking buyers...',
+            'saving': '💾 Saving buyer database...',
+            'complete': '✅ Complete!',
+            'error': '❌ Error',
+          }};
+          document.getElementById('pull-phase-label').textContent = phaseMap[d.phase] || d.phase || 'Running...';
+
+          // Detail line
+          document.getElementById('pull-detail-text').textContent = d.progress || '';
+
+          // Running counts
+          const counts = [];
+          if(d.total_pos) counts.push(d.total_pos + ' POs');
+          if(d.total_buyers) counts.push(d.total_buyers + ' buyers');
+          if(d.total_agencies) counts.push(d.total_agencies + ' agencies');
+          document.getElementById('pull-counts').textContent = counts.join(' · ');
+
+          // Errors
+          if(d.errors && d.errors.length > 0) {{
+            const errEl = document.getElementById('pull-errors');
+            errEl.style.display = 'block';
+            errEl.textContent = d.errors.slice(-3).join('\n');
+          }}
+
+          if(!d.running) {{
+            clearInterval(pullTimer);
+            document.getElementById('pull-bar-fill').style.width = '100%';
+            if(d.phase === 'error') {{
+              document.getElementById('pull-bar-fill').style.background = '#f85149';
+              document.getElementById('pull-bar-text').textContent = 'Failed — ' + (d.progress || 'Unknown error');
+              showResult({{error: d.progress || 'Deep pull failed', hint: 'Check SCPRS connectivity — Railway static IP must be enabled'}}, true);
+            }} else {{
+              document.getElementById('pull-bar-fill').style.background = '#34d399';
+              document.getElementById('pull-bar-text').textContent = '✅ Done — reloading...';
+              setTimeout(() => location.reload(), 2500);
+            }}
+            const btn = document.querySelector('[onclick*="deep-pull"]');
+            if(btn) {{ btn.disabled = false; btn.textContent = '🔍 Deep Pull All Buyers'; }}
+          }}
+        }}).catch(() => {{}});
+      }}, 2000);
+    }}
+
     function addRevenue() {{
       const amt = prompt('Revenue amount ($):');
       if(!amt) return;
@@ -6356,19 +6524,7 @@ def intelligence_page():
         if(d.ok) location.reload(); else alert(d.error);
       }});
     }}
-    let pullTimer = null;
-    function pollPull() {{
-      const bar = document.getElementById('progress-bar');
-      const txt = document.getElementById('progress-text');
-      bar.style.display = 'block';
-      if(pullTimer) clearInterval(pullTimer);
-      pullTimer = setInterval(() => {{
-        fetch('/api/intel/pull-status',{{credentials:'same-origin'}}).then(r=>r.json()).then(d => {{
-          txt.textContent = d.progress || 'Working...';
-          if(!d.running) {{ clearInterval(pullTimer); setTimeout(()=>location.reload(), 2000); }}
-        }});
-      }}, 3000);
-    }}
+
     {('pollPull();' if pull_running else '')}
     </script>
     </body></html>"""
