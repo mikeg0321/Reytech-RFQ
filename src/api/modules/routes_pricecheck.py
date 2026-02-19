@@ -1347,7 +1347,7 @@ def api_admin_cleanup():
 @bp.route("/api/admin/status")
 @auth_required
 def api_admin_status():
-    """Quick system status — quote counter, PC count, quote count."""
+    """Quick system status — quote counter, PC count, quote count, full PC detail."""
     try:
         from src.forms.quote_generator import _load_counter
         from src.core.db import get_db
@@ -1356,16 +1356,54 @@ def api_admin_status():
         with get_db() as conn:
             q_count = conn.execute("SELECT COUNT(*) FROM quotes WHERE is_test=0 OR is_test IS NULL").fetchone()[0]
             quotes = [dict(r) for r in conn.execute(
-                "SELECT quote_number, total, status FROM quotes WHERE is_test=0 ORDER BY rowid DESC LIMIT 10"
+                "SELECT quote_number, total, status FROM quotes WHERE is_test=0 ORDER BY rowid DESC LIMIT 20"
             ).fetchall()]
+        # Full PC detail — show quote numbers so we can see what's holding the counter
+        pc_detail = {}
+        for pcid, pc in pcs.items():
+            pc_detail[pcid] = {
+                "pc_number": pc.get("pc_number", "?"),
+                "institution": pc.get("institution", "?"),
+                "reytech_quote_number": pc.get("reytech_quote_number", ""),
+                "status": pc.get("status", "?"),
+                "items_count": len(pc.get("items", [])),
+                "email_subject": pc.get("email_subject", ""),
+            }
         return jsonify({
             "ok": True,
             "pc_count": len(pcs),
-            "pc_numbers": sorted([pc.get("pc_number","?") for pc in pcs.values()]),
+            "pcs": pc_detail,
             "quote_count": q_count,
-            "recent_quotes": quotes,
+            "all_quotes": quotes,
             "counter": counter,
             "next_quote": f"R{str(counter.get('year',2026))[-2:]}Q{counter.get('seq',0)+1}",
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/admin/counter-set", methods=["POST"])
+@auth_required
+def api_admin_counter_set():
+    """Force-set the quote counter. POST body: {"seq": 16}
+    Next quote will be R26Q(seq+1).
+    """
+    data = request.get_json(silent=True) or {}
+    new_seq = data.get("seq")
+    if new_seq is None:
+        return jsonify({"ok": False, "error": "Missing 'seq' in body"})
+    try:
+        from src.forms.quote_generator import set_quote_counter, _load_counter
+        old = _load_counter()
+        set_quote_counter(int(new_seq))
+        new = _load_counter()
+        log.info("ADMIN counter force-set: Q%d → Q%d (next = Q%d)",
+                 old.get("seq", 0), new["seq"], new["seq"] + 1)
+        return jsonify({
+            "ok": True,
+            "before": old,
+            "after": new,
+            "next_quote": f"R{str(new.get('year',2026))[-2:]}Q{new['seq']+1}",
         })
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
