@@ -198,9 +198,27 @@ def pricecheck_scprs_lookup(pcid):
                     quote = best.get("quote", best)
                     if not item.get("pricing"):
                         item["pricing"] = {}
-                    item["pricing"]["scprs_price"] = quote.get("unit_price")
-                    item["pricing"]["scprs_match"] = quote.get("description", "")[:60]
+                    scprs_price = quote.get("unit_price")
+                    item["pricing"]["scprs_price"]      = scprs_price
+                    item["pricing"]["scprs_match"]      = quote.get("description", "")[:60]
                     item["pricing"]["scprs_confidence"] = best.get("match_confidence", 0)
+                    item["pricing"]["scprs_source"]     = quote.get("source", "scprs_kb")
+                    item["pricing"]["scprs_po"]         = quote.get("po_number", "")
+                    # GAP 4 FIX: record this match to price_history
+                    if scprs_price and scprs_price > 0:
+                        try:
+                            from src.core.db import record_price as _rp3
+                            _rp3(
+                                description=item.get("description", ""),
+                                unit_price=float(scprs_price),
+                                source="scprs_kb_match",
+                                part_number=str(item.get("item_number", "") or ""),
+                                agency=pc.get("institution", ""),
+                                price_check_id=pcid,
+                                notes=f"conf={best.get('match_confidence',0):.2f}|po={quote.get('po_number','')}",
+                            )
+                        except Exception:
+                            pass
                     found += 1
             except Exception as e:
                 log.error(f"SCPRS lookup error: {e}")
@@ -358,6 +376,42 @@ def pricecheck_save_prices(pcid):
         upsert_price_check(pcid, pc)
     except Exception:
         pass
+
+    # ── GAP 3 FIX: write confirmed prices to price_history + won_quotes ───────
+    institution = pc.get("institution", "")
+    pc_num      = pc.get("pc_number", "")
+    try:
+        from src.core.db import record_price as _rp
+        from src.knowledge.won_quotes_db import ingest_scprs_result as _ingest_wq2
+        for _item in items:
+            if _item.get("no_bid"):
+                continue
+            _up   = _item.get("unit_price") or _item.get("pricing", {}).get("recommended_price") or 0
+            _cost = _item.get("vendor_cost") or _item.get("pricing", {}).get("unit_cost") or 0
+            _desc = _item.get("description", "")
+            _qty  = _item.get("qty", 1) or 1
+            _part = str(_item.get("item_number", "") or "")
+            if _up > 0 and _desc:
+                _rp(description=_desc, unit_price=float(_up), source="pc_confirmed",
+                    part_number=_part, quantity=float(_qty),
+                    agency=institution, price_check_id=pcid, notes=f"PC#{pc_num}")
+            if _cost > 0 and _desc:
+                _rp(description=_desc, unit_price=float(_cost), source="pc_vendor_cost",
+                    part_number=_part, quantity=float(_qty),
+                    agency=institution, price_check_id=pcid,
+                    notes=f"PC#{pc_num} vendor cost")
+                _ingest_wq2(
+                    po_number=f"PC-{pc_num}",
+                    item_number=_part,
+                    description=_desc,
+                    unit_price=float(_cost),
+                    quantity=float(_qty),
+                    department=institution,
+                    award_date=datetime.now().strftime("%Y-%m-%d"),
+                    source="pc_vendor_cost",
+                )
+    except Exception as _e:
+        log.debug("price learning write: %s", _e)
 
     summary = pc["profit_summary"]
     return jsonify({

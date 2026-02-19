@@ -357,6 +357,23 @@ def recommend_price(
              result.get("recommended", {}).get("price", 0),
              result.get("recommended", {}).get("margin_pct_display", "?"),
              rec.data_quality, rec.flags or "none")
+
+    # GAP 5 FIX: write the oracle recommendation to price_history
+    # This lets the oracle see its own past recommendations as data points
+    rec_price = result.get("recommended", {}).get("price")
+    if rec_price and rec_price > 0 and description:
+        try:
+            from src.core.db import record_price as _rp_oracle
+            _rp_oracle(
+                description=description,
+                unit_price=float(rec_price),
+                source="oracle_recommendation",
+                part_number=item_number or "",
+                notes=f"quality={rec.data_quality}|{','.join(rec.flags) if rec.flags else 'ok'}",
+            )
+        except Exception:
+            pass
+
     return result
 
 

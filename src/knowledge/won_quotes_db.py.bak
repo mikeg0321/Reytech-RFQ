@@ -58,128 +58,39 @@ CATEGORY_KEYWORDS = {
 }
 
 
-# ─── Storage Layer (SQLite — Railway-persistent) ─────────────────────────────
+# ─── Storage Layer ───────────────────────────────────────────────────────────
 
-def _get_db_conn():
-    """Get a direct SQLite connection (not context manager)."""
-    import sqlite3
-    conn = sqlite3.connect(os.path.join(DATA_DIR, "reytech.db"))
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    return conn
+def _ensure_data_dir():
+    os.makedirs(DATA_DIR, exist_ok=True)
 
 
-def _ensure_won_quotes_table():
-    """Create won_quotes table if it doesn't exist (idempotent)."""
-    conn = _get_db_conn()
+def load_won_quotes() -> list:
+    """Load the won quotes knowledge base from disk."""
+    _ensure_data_dir()
+    if not os.path.exists(WON_QUOTES_FILE):
+        return []
     try:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS won_quotes (
-                id           TEXT PRIMARY KEY,
-                po_number    TEXT,
-                item_number  TEXT,
-                description  TEXT NOT NULL,
-                normalized_description TEXT,
-                tokens       TEXT,
-                category     TEXT,
-                supplier     TEXT,
-                department   TEXT,
-                unit_price   REAL NOT NULL,
-                quantity     REAL DEFAULT 1,
-                total        REAL,
-                award_date   TEXT,
-                source       TEXT DEFAULT 'scprs_live',
-                confidence   REAL DEFAULT 1.0,
-                ingested_at  TEXT,
-                updated_at   TEXT
-            )
-        """)
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_wq_description ON won_quotes(normalized_description)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_wq_item_number ON won_quotes(item_number)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_wq_category    ON won_quotes(category)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_wq_source      ON won_quotes(source)")
-        conn.commit()
-    finally:
-        conn.close()
-
-
-def load_won_quotes(limit: int = MAX_RECORDS) -> list:
-    """Load won quotes from SQLite. Returns list of dicts (same format as before)."""
-    try:
-        _ensure_won_quotes_table()
-        conn = _get_db_conn()
-        rows = conn.execute(
-            "SELECT * FROM won_quotes ORDER BY ingested_at DESC LIMIT ?", (limit,)
-        ).fetchall()
-        conn.close()
-        records = []
-        for row in rows:
-            d = dict(row)
-            # Deserialize tokens JSON → set (matching original format)
-            try:
-                d["tokens"] = set(json.loads(d["tokens"] or "[]"))
-            except Exception:
-                d["tokens"] = set()
-            records.append(d)
-        log.debug("Loaded %d won quotes from SQLite", len(records))
+        with open(WON_QUOTES_FILE, "r") as f:
+            data = json.load(f)
+        records = data if isinstance(data, list) else []
+        log.debug("Loaded %d won quotes from KB", len(records))
         return records
-    except Exception as e:
-        log.error("load_won_quotes SQLite error: %s", e)
-        # Fallback: try JSON file
-        if os.path.exists(WON_QUOTES_FILE):
-            try:
-                with open(WON_QUOTES_FILE) as f:
-                    return json.load(f)
-            except Exception:
-                pass
+    except (json.JSONDecodeError, IOError) as e:
+        log.error("Failed to load won quotes: %s", e)
         return []
 
 
 def save_won_quotes(quotes: list):
-    """
-    Legacy shim — kept for backwards compat.
-    Bulk-upserts a list of dicts into SQLite.
-    """
-    if not quotes:
-        return
-    try:
-        _ensure_won_quotes_table()
-        conn = _get_db_conn()
-        now = datetime.now(timezone.utc).isoformat()
-        for q in quotes:
-            tokens = q.get("tokens", set())
-            if isinstance(tokens, set):
-                tokens = list(tokens)
-            conn.execute("""
-                INSERT INTO won_quotes
-                  (id, po_number, item_number, description, normalized_description,
-                   tokens, category, supplier, department, unit_price, quantity,
-                   total, award_date, source, confidence, ingested_at, updated_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                ON CONFLICT(id) DO UPDATE SET
-                  unit_price=excluded.unit_price,
-                  tokens=excluded.tokens,
-                  updated_at=excluded.updated_at
-            """, (
-                q.get("id"), q.get("po_number"), q.get("item_number"),
-                q.get("description", ""), q.get("normalized_description", ""),
-                json.dumps(tokens),
-                q.get("category", "general"), q.get("supplier", ""),
-                q.get("department", ""), float(q.get("unit_price", 0)),
-                float(q.get("quantity", 1)), q.get("total"),
-                q.get("award_date", ""), q.get("source", "scprs_live"),
-                float(q.get("confidence", 1.0)),
-                q.get("ingested_at", now), now,
-            ))
-        conn.commit()
-        conn.close()
-        log.debug("save_won_quotes: upserted %d records to SQLite", len(quotes))
-    except Exception as e:
-        log.error("save_won_quotes SQLite error: %s", e)
-
-
-def _ensure_data_dir():
-    os.makedirs(DATA_DIR, exist_ok=True)
+    """Save the won quotes KB to disk with LRU eviction."""
+    _ensure_data_dir()
+    # LRU eviction: keep most recently ingested if over cap
+    if len(quotes) > MAX_RECORDS:
+        quotes.sort(key=lambda q: q.get("ingested_at", ""), reverse=True)
+        quotes = quotes[:MAX_RECORDS]
+        log.info("LRU eviction: trimmed KB to %d records", MAX_RECORDS)
+    with open(WON_QUOTES_FILE, "w") as f:
+        json.dump(quotes, f, indent=2, default=str)
+    log.debug("Saved %d won quotes to KB", len(quotes))
 
 
 # ─── Text Processing ─────────────────────────────────────────────────────────
@@ -284,44 +195,15 @@ def find_similar_items(
     Returns list of dicts with 'quote' and 'match_confidence' keys,
     sorted by (confidence * freshness_weight) descending.
     """
+    quotes = load_won_quotes()
+    if not quotes:
+        log.debug("find_similar_items: KB empty, no matches for '%s'", description[:40])
+        return []
+
     query_tokens = tokenize(description)
     normalized_item = normalize_text(item_number) if item_number else ""
     cutoff_date = datetime.now() - timedelta(days=max_age_days)
     results = []
-
-    # Load from SQLite — pre-filter by item_number if provided (fast index hit)
-    try:
-        _ensure_won_quotes_table()
-        conn = _get_db_conn()
-        if normalized_item:
-            # Try exact item number first (index scan)
-            rows = conn.execute(
-                "SELECT * FROM won_quotes WHERE item_number=? ORDER BY ingested_at DESC LIMIT 200",
-                (normalized_item,)
-            ).fetchall()
-            if not rows:
-                # Broaden to all rows for token matching
-                rows = conn.execute(
-                    "SELECT * FROM won_quotes ORDER BY ingested_at DESC LIMIT 2000"
-                ).fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT * FROM won_quotes ORDER BY ingested_at DESC LIMIT 2000"
-            ).fetchall()
-        conn.close()
-        quotes = []
-        for row in rows:
-            d = dict(row)
-            try: d["tokens"] = set(json.loads(d["tokens"] or "[]"))
-            except Exception: d["tokens"] = set()
-            quotes.append(d)
-    except Exception as e:
-        log.error("find_similar_items DB error: %s — falling back to JSON", e)
-        quotes = load_won_quotes()
-
-    if not quotes:
-        log.debug("find_similar_items: KB empty, no matches for '%s'", description[:40])
-        return []
 
     for quote in quotes:
         # Age filter
@@ -480,11 +362,10 @@ def ingest_scprs_result(
     source: str = "scprs_live",
 ) -> dict:
     """
-    Ingest a single SCPRS result into the Won Quotes KB (SQLite).
+    Ingest a single SCPRS result into the Won Quotes KB.
 
     Called automatically after every SCPRS lookup.
     Deduplicates by (po_number, item_number, normalized_description).
-    Also cross-posts to price_history so the pricing oracle sees it.
     """
     record_id = generate_record_id(po_number, item_number, description)
     tokens = list(tokenize(description))
@@ -492,67 +373,40 @@ def ingest_scprs_result(
     now = datetime.now(timezone.utc).isoformat()
 
     record = {
-        "id":                     record_id,
-        "po_number":              po_number,
-        "item_number":            item_number,
-        "description":            description,
+        "id": record_id,
+        "po_number": po_number,
+        "item_number": item_number,
+        "description": description,
         "normalized_description": normalize_text(description),
-        "tokens":                 tokens,
-        "category":               category,
-        "supplier":               supplier,
-        "department":             department,
-        "unit_price":             float(unit_price) if unit_price else 0.0,
-        "quantity":               float(quantity) if quantity else 1,
-        "total":                  round(float(unit_price or 0) * float(quantity or 1), 2),
-        "award_date":             award_date,
-        "source":                 source,
-        "confidence":             1.0 if source == "scprs_live" else 0.8,
-        "ingested_at":            now,
+        "tokens": tokens,
+        "category": category,
+        "supplier": supplier,
+        "department": department,
+        "unit_price": float(unit_price) if unit_price else 0.0,
+        "quantity": float(quantity) if quantity else 1,
+        "total": round(float(unit_price or 0) * float(quantity or 1), 2),
+        "award_date": award_date,
+        "source": source,
+        "confidence": 1.0 if source == "scprs_live" else 0.8,
+        "ingested_at": now,
     }
 
-    # ── Write to SQLite won_quotes (primary store) ────────────────────────────
-    try:
-        _ensure_won_quotes_table()
-        conn = _get_db_conn()
-        conn.execute("""
-            INSERT INTO won_quotes
-              (id, po_number, item_number, description, normalized_description,
-               tokens, category, supplier, department, unit_price, quantity,
-               total, award_date, source, confidence, ingested_at, updated_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            ON CONFLICT(id) DO UPDATE SET
-              unit_price=excluded.unit_price,
-              supplier=excluded.supplier,
-              department=excluded.department,
-              tokens=excluded.tokens,
-              updated_at=excluded.updated_at
-        """, (
-            record_id, po_number, item_number, description,
-            normalize_text(description), json.dumps(tokens), category,
-            supplier, department, float(unit_price or 0),
-            float(quantity or 1), record["total"],
-            award_date, source, record["confidence"], now, now,
-        ))
-        conn.commit()
-        conn.close()
-        log.debug("won_quotes SQLite: %s $%.2f (PO:%s)", description[:35], unit_price, po_number)
-    except Exception as e:
-        log.error("won_quotes SQLite write error: %s", e)
+    quotes = load_won_quotes()
 
-    # ── Also cross-post to price_history so the pricing oracle sees it ────────
-    try:
-        from src.core.db import record_price as _rp
-        _rp(
-            description=description,
-            unit_price=float(unit_price or 0),
-            source="scprs",
-            part_number=item_number or "",
-            agency=department or "",
-            notes=f"PO:{po_number} | {supplier}" if supplier else f"PO:{po_number}",
-        )
-    except Exception as e:
-        log.debug("price_history cross-post skipped: %s", e)
+    # Dedup check
+    existing_idx = next(
+        (i for i, q in enumerate(quotes) if q.get("id") == record_id),
+        None
+    )
+    if existing_idx is not None:
+        # Update existing record (price may have changed)
+        quotes[existing_idx] = record
+        log.debug("KB update: %s $%.2f (PO:%s)", description[:30], unit_price, po_number)
+    else:
+        quotes.append(record)
+        log.debug("KB ingest: %s $%.2f (PO:%s)", description[:30], unit_price, po_number)
 
+    save_won_quotes(quotes)
     return record
 
 
@@ -703,36 +557,41 @@ def win_probability(
 # ─── Statistics ──────────────────────────────────────────────────────────────
 
 def get_kb_stats() -> dict:
-    """Return statistics about the Won Quotes Knowledge Base (from SQLite)."""
-    try:
-        _ensure_won_quotes_table()
-        conn = _get_db_conn()
-        total = conn.execute("SELECT COUNT(*) FROM won_quotes").fetchone()[0]
-        if total == 0:
-            conn.close()
-            return {"total_records": 0, "categories": {}, "departments": {},
-                    "suppliers": {}, "date_range": None, "avg_unit_price": None}
-
-        # Aggregate queries — much faster than Python loops over thousands of rows
-        cats   = {r[0]: r[1] for r in conn.execute("SELECT category, COUNT(*) FROM won_quotes GROUP BY category").fetchall()}
-        depts  = {r[0]: r[1] for r in conn.execute("SELECT department, COUNT(*) FROM won_quotes WHERE department!='' GROUP BY department ORDER BY 2 DESC LIMIT 10").fetchall()}
-        sups   = {r[0]: r[1] for r in conn.execute("SELECT supplier, COUNT(*) FROM won_quotes WHERE supplier!='' GROUP BY supplier ORDER BY 2 DESC LIMIT 10").fetchall()}
-        prices = conn.execute("SELECT AVG(unit_price), MIN(unit_price), MAX(unit_price) FROM won_quotes WHERE unit_price>0").fetchone()
-        dates  = conn.execute("SELECT MIN(award_date), MAX(award_date) FROM won_quotes WHERE award_date!=''").fetchone()
-        conn.close()
-
+    """Return statistics about the Won Quotes Knowledge Base."""
+    quotes = load_won_quotes()
+    if not quotes:
         return {
-            "total_records":  total,
-            "categories":     cats,
-            "departments":    depts,
-            "suppliers":      sups,
-            "date_range":     {"earliest": dates[0], "latest": dates[1]} if dates and dates[0] else None,
-            "avg_unit_price": round(prices[0], 2) if prices and prices[0] else None,
-            "min_price":      round(prices[1], 2) if prices and prices[1] else None,
-            "max_price":      round(prices[2], 2) if prices and prices[2] else None,
-            "storage":        "sqlite",
+            "total_records": 0,
+            "categories": {},
+            "departments": {},
+            "suppliers": {},
+            "date_range": None,
+            "avg_unit_price": None,
         }
-    except Exception as e:
-        log.error("get_kb_stats SQLite error: %s", e)
-        return {"total_records": 0, "categories": {}, "departments": {},
-                "suppliers": {}, "date_range": None, "avg_unit_price": None, "error": str(e)}
+
+    categories = defaultdict(int)
+    departments = defaultdict(int)
+    suppliers = defaultdict(int)
+    prices = []
+    dates = []
+
+    for q in quotes:
+        categories[q.get("category", "unknown")] += 1
+        if q.get("department"):
+            departments[q["department"]] += 1
+        if q.get("supplier"):
+            suppliers[q["supplier"]] += 1
+        if q.get("unit_price", 0) > 0:
+            prices.append(q["unit_price"])
+        if q.get("award_date"):
+            dates.append(q["award_date"])
+
+    return {
+        "total_records": len(quotes),
+        "categories": dict(categories),
+        "departments": dict(sorted(departments.items(), key=lambda x: -x[1])[:10]),
+        "suppliers": dict(sorted(suppliers.items(), key=lambda x: -x[1])[:10]),
+        "date_range": {"earliest": min(dates), "latest": max(dates)} if dates else None,
+        "avg_unit_price": round(sum(prices) / len(prices), 2) if prices else None,
+        "total_value": round(sum(q.get("total", 0) for q in quotes), 2),
+    }
