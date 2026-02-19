@@ -23,6 +23,13 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 
 log = logging.getLogger("sales_intel")
+
+try:
+    from src.core.db import (upsert_contact, get_all_customers as _get_customers,
+                               get_intel_agencies, upsert_intel_agency)
+    _HAS_DB = True
+except ImportError:
+    _HAS_DB = False
 # ── Shared DB Context (Anthropic Skills Guide: Pattern 5 — Domain Intelligence) ──
 # Gives this agent access to live CRM, quotes, revenue, price history from SQLite.
 # Eliminates file loading duplication and ensures consistent ground truth.
@@ -74,6 +81,13 @@ except ImportError:
     def _save_json(p, d):
         os.makedirs(os.path.dirname(p), exist_ok=True)
         with open(p, "w") as f: json.dump(d, f, indent=2, default=str)
+    # Mirror buyers to contacts table
+    if _HAS_DB:
+        for buyer in d.get("buyers", []):
+            try:
+                upsert_contact(buyer)
+            except Exception:
+                pass
 
 REVENUE_GOAL = 2_000_000  # $2M annual target
 

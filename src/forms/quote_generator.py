@@ -122,26 +122,44 @@ AGENCY_CONFIGS = {
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def _load_counter():
+    """Load counter from SQLite (primary) with JSON fallback."""
+    try:
+        from src.core.db import get_setting
+        year_val = get_setting("quote_counter_year", datetime.now().year)
+        seq_val = get_setting("quote_counter_seq", get_setting("quote_counter", 16))
+        return {"year": int(year_val), "seq": int(seq_val)}
+    except Exception:
+        pass
+    # JSON fallback
     path = os.path.join(DATA_DIR, "quote_counter.json")
     try:
         with open(path) as f:
             raw = json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
         return {}
-    # Migrate legacy format {"counter": N} → {"year": YYYY, "seq": N}
     if "counter" in raw and "seq" not in raw:
         migrated = {"year": datetime.now().year, "seq": raw["counter"]}
         _save_counter(migrated)
-        log.info("Migrated quote_counter.json: counter=%d → year=%d seq=%d",
-                 raw["counter"], migrated["year"], migrated["seq"])
         return migrated
     return raw
 
 def _save_counter(data):
+    """Save counter to SQLite (primary) and JSON (backup)."""
+    try:
+        from src.core.db import set_setting
+        set_setting("quote_counter_year", data.get("year", datetime.now().year))
+        set_setting("quote_counter_seq", data.get("seq", 16))
+        set_setting("quote_counter", data.get("seq", 16))  # legacy key compat
+    except Exception as _e:
+        log.warning("Counter SQLite save failed: %s", _e)
+    # Also write JSON as belt-and-suspenders backup
     os.makedirs(DATA_DIR, exist_ok=True)
     path = os.path.join(DATA_DIR, "quote_counter.json")
-    with open(path, "w") as f:
-        json.dump(data, f, indent=2)
+    try:
+        with open(path, "w") as f:
+            json.dump(data, f, indent=2)
+    except Exception:
+        pass
 
 def set_quote_counter(seq: int, year: int = None):
     """Manually set the quote counter (e.g., to sync with QuoteWerks)."""

@@ -40,12 +40,16 @@ log = logging.getLogger("scprs_intel")
 
 try:
     from src.core.paths import DATA_DIR
-    from src.core.db import get_db
+    from src.core.db import DB_PATH as _DB_PATH
 except ImportError:
-    DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(
-        os.path.dirname(os.path.abspath(__file__)))), "data")
-    def get_db():
-        return sqlite3.connect(os.path.join(DATA_DIR, "reytech.db"))
+    _DB_PATH = os.path.join(os.path.dirname(os.path.dirname(
+        os.path.dirname(os.path.abspath(__file__)))), "data", "reytech.db")
+
+def _db():
+    """Return a plain SQLite connection to reytech.db (not the context-manager get_db)."""
+    conn = sqlite3.connect(_DB_PATH, timeout=30, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    return conn
 
 
 # ── Agency Registry ───────────────────────────────────────────────────────────

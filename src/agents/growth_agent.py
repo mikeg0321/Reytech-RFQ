@@ -29,6 +29,13 @@ except ImportError:
 log = logging.getLogger("growth")
 
 try:
+    from src.core.db import (get_all_customers, get_intel_agencies, 
+                               get_all_leads, get_growth_outreach, save_growth_campaign)
+    _HAS_DB_DAL = True
+except ImportError:
+    _HAS_DB_DAL = False
+
+try:
     from src.core.paths import DATA_DIR
 except ImportError:
     DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(
@@ -473,7 +480,7 @@ def launch_distro_campaign(
     all_buyers = []
 
     # Source 1: Intel buyers (SCPRS-sourced)
-    intel_data = _load_json(os.path.join(DATA_DIR, "intel_buyers.json"))
+    intel_data = {"buyers": [dict(c) for c in get_intel_agencies()]} if _HAS_DB_DAL else _load_json(os.path.join(DATA_DIR, "intel_buyers.json"))
     if isinstance(intel_data, dict):
         for b in intel_data.get("buyers", []):
             if b.get("buyer_email") and "@" in b.get("buyer_email", ""):

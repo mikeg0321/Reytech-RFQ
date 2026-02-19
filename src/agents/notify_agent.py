@@ -38,6 +38,12 @@ EMAIL COMMUNICATION LOG:
 """
 
 import os
+
+try:
+    from src.core.db import upsert_outbox_email as _db_outbox_save
+    _HAS_DB_OUTBOX = True
+except ImportError:
+    _HAS_DB_OUTBOX = False
 import json
 import logging
 import threading

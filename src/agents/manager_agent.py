@@ -219,7 +219,7 @@ def _get_activity_feed(limit: int = 12) -> list:
         })
 
     # Growth outreach
-    outreach = _load_json("growth_outreach.json", {})
+    outreach = get_growth_outreach() if _HAS_DB_DAL else _load_json("growth_outreach.json", {})
     if isinstance(outreach, dict):
         for c in outreach.get("campaigns", [])[-3:]:
             ts = c.get("launched_at", "")

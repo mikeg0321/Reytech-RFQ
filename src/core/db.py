@@ -1287,3 +1287,217 @@ def sync_outbox_to_json():
     except Exception as e:
         log.warning("sync_outbox_to_json: %s", e)
 
+
+
+# ── RFQs ──────────────────────────────────────────────────────────────────────
+
+def upsert_rfq(rfq: dict) -> bool:
+    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    now = datetime.now(timezone.utc).isoformat()
+    rid = rfq.get('id') or f"rfq-{__import__('uuid').uuid4().hex[:12]}"
+    try:
+        conn.execute("""
+            INSERT INTO rfq_store
+              (id, created_at, rfq_number, institution, agency, requestor, email, phone,
+               status, pdf_path, items, notes, source, updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(id) DO UPDATE SET
+              status=excluded.status, items=excluded.items,
+              notes=excluded.notes, updated_at=excluded.updated_at
+        """, (rid, rfq.get('created_at', now), rfq.get('rfq_number',''),
+              rfq.get('institution',''), rfq.get('agency',''), rfq.get('requestor',''),
+              rfq.get('email',''), rfq.get('phone',''), rfq.get('status','pending'),
+              rfq.get('pdf_path',''), _jd(rfq.get('items',[])), rfq.get('notes',''),
+              rfq.get('source',''), now))
+        conn.commit()
+        return True
+    except Exception as e:
+        log.error("upsert_rfq: %s", e)
+        return False
+    finally:
+        conn.close()
+
+
+def get_all_rfqs(status: str = None) -> list:
+    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    if status:
+        rows = conn.execute(
+            "SELECT * FROM rfq_store WHERE status=? ORDER BY created_at DESC", (status,)
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM rfq_store ORDER BY created_at DESC"
+        ).fetchall()
+    conn.close()
+    result = []
+    for r in rows:
+        d = dict(r)
+        d['items'] = _jl(d.get('items'), [])
+        result.append(d)
+    return result
+
+
+# ── APP SETTINGS (quote counter, etc.) ───────────────────────────────────────
+
+def get_setting(key: str, default=None):
+    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    row = conn.execute("SELECT value FROM app_settings WHERE key=?", (key,)).fetchone()
+    conn.close()
+    if row is None:
+        return default
+    val = row[0]
+    try:
+        return int(val)
+    except (ValueError, TypeError):
+        return val
+
+
+def set_setting(key: str, value) -> bool:
+    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        conn.execute("""
+            INSERT INTO app_settings (key, value, updated_at) VALUES (?,?,?)
+            ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at
+        """, (key, str(value), now))
+        conn.commit()
+        return True
+    except Exception as e:
+        log.error("set_setting: %s", e)
+        return False
+    finally:
+        conn.close()
+
+
+def next_quote_number() -> str:
+    """Atomically increment quote counter and return formatted number like R26Q17."""
+    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    try:
+        conn.execute("BEGIN EXCLUSIVE")
+        row = conn.execute("SELECT value FROM app_settings WHERE key='quote_counter'").fetchone()
+        current = int(row[0]) if row else 16
+        next_val = current + 1
+        conn.execute("""
+            INSERT INTO app_settings (key, value, updated_at) VALUES ('quote_counter',?,datetime('now'))
+            ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at
+        """, (str(next_val),))
+        conn.commit()
+        year = datetime.now().strftime("%y")
+        return f"R{year}Q{next_val}"
+    except Exception as e:
+        log.error("next_quote_number: %s", e)
+        conn.rollback()
+        return f"R26Q{__import__('random').randint(100,999)}"
+    finally:
+        conn.close()
+
+
+# ── LEADS ─────────────────────────────────────────────────────────────────────
+
+def get_all_leads(status: str = None) -> list:
+    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    if status:
+        rows = conn.execute(
+            "SELECT * FROM leads WHERE status=? ORDER BY score DESC, created_at DESC", (status,)
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM leads ORDER BY score DESC, created_at DESC"
+        ).fetchall()
+    conn.close()
+    result = []
+    for r in rows:
+        d = dict(r)
+        d['tags'] = _jl(d.get('tags'), [])
+        d['activity'] = _jl(d.get('activity'), [])
+        result.append(d)
+    return result
+
+
+def upsert_lead(lead: dict) -> bool:
+    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    now = datetime.now(timezone.utc).isoformat()
+    lid = lead.get('id') or f"lead-{__import__('uuid').uuid4().hex[:8]}"
+    try:
+        conn.execute("""
+            INSERT INTO leads
+              (id, created_at, name, email, phone, company, agency, source,
+               status, score, notes, tags, activity, updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(id) DO UPDATE SET
+              status=excluded.status, score=excluded.score,
+              notes=excluded.notes, tags=excluded.tags,
+              activity=excluded.activity, updated_at=excluded.updated_at
+        """, (lid, lead.get('created_at', now), lead.get('name', lead.get('buyer_name','')),
+              lead.get('email', lead.get('buyer_email','')), lead.get('phone',''),
+              lead.get('company',''), lead.get('agency',''), lead.get('source','manual'),
+              lead.get('status','new'), float(lead.get('score',0) or 0),
+              lead.get('notes',''), _jd(lead.get('tags',[])),
+              _jd(lead.get('activity',[])), now))
+        conn.commit()
+        return True
+    except Exception as e:
+        log.error("upsert_lead: %s", e)
+        return False
+    finally:
+        conn.close()
+
+
+# ── EMAIL SENT LOG ────────────────────────────────────────────────────────────
+
+def log_email_sent(email: dict) -> bool:
+    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    now = datetime.now(timezone.utc).isoformat()
+    eid = email.get('id') or f"sent-{__import__('uuid').uuid4().hex[:10]}"
+    try:
+        conn.execute("""
+            INSERT OR IGNORE INTO email_sent_log
+              (id, sent_at, to_address, subject, body, type, ref_id, success, error)
+            VALUES (?,?,?,?,?,?,?,?,?)
+        """, (eid, email.get('sent_at', now), email.get('to', email.get('to_address','')),
+              email.get('subject',''), email.get('body',''), email.get('type',''),
+              email.get('ref_id',''), 1 if email.get('success', True) else 0,
+              email.get('error','')))
+        conn.commit()
+        return True
+    except Exception as e:
+        log.error("log_email_sent: %s", e)
+        return False
+    finally:
+        conn.close()
+
+
+def get_email_sent_log(limit: int = 100) -> list:
+    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        "SELECT * FROM email_sent_log ORDER BY sent_at DESC LIMIT ?", (limit,)
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# ── WORKFLOW RUNS ─────────────────────────────────────────────────────────────
+
+def log_workflow_run(run: dict) -> str:
+    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    now = datetime.now(timezone.utc).isoformat()
+    rid = run.get('id') or f"run-{__import__('uuid').uuid4().hex[:10]}"
+    try:
+        conn.execute("""
+            INSERT OR REPLACE INTO workflow_runs
+              (id, started_at, finished_at, type, status, input, output, error, duration_ms)
+            VALUES (?,?,?,?,?,?,?,?,?)
+        """, (rid, run.get('started_at', now), run.get('finished_at'),
+              run.get('type',''), run.get('status','running'),
+              _jd(run.get('input',{})), _jd(run.get('output',{})),
+              run.get('error',''), run.get('duration_ms')))
+        conn.commit()
+    except Exception as e:
+        log.error("log_workflow_run: %s", e)
+    finally:
+        conn.close()
+    return rid
+
