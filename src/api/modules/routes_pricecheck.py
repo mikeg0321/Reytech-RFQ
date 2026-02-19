@@ -75,6 +75,12 @@ def pricecheck_detail(pcid):
         profit_color = "#3fb950" if item_profit > 0 else ("#f85149" if item_profit < 0 else "#8b949e")
         profit_str = f'<span style="color:{profit_color}">${item_profit:.2f}</span>' if (final_price and unit_cost) else "—"
         
+        # Item link
+        item_link = item.get("item_link", "")
+        item_supplier = item.get("item_supplier", "")
+        link_display = f'<a href="{item_link}" target="_blank" style="font-size:11px;color:#58a6ff;word-break:break-all">{item_supplier or item_link[:30]}</a>' if item_link else ""
+        supplier_badge = f'<span style="font-size:10px;color:#8b949e;display:block;margin-top:1px">{item_supplier}</span>' if item_supplier else ""
+
         # No-bid state
         no_bid = item.get("no_bid", False)
         bid_checked = "" if no_bid else "checked"
@@ -86,6 +92,12 @@ def pricecheck_detail(pcid):
          <td><input type="number" name="qty_{idx}" value="{qty}" class="num-in sm" style="width:55px" onchange="recalcPC()"></td>
          <td><input type="text" name="uom_{idx}" value="{item.get('uom','EA').upper()}" class="text-in" style="width:45px;text-transform:uppercase;text-align:center;font-weight:600"></td>
          <td><textarea name="desc_{idx}" class="text-in" style="width:100%;min-height:38px;resize:vertical;font-family:inherit;font-size:13px;line-height:1.4;padding:6px 8px" title="{raw_desc.replace('"','&quot;').replace('<','&lt;')}">{display_desc.replace('&','&amp;').replace('<','&lt;').replace('>','&gt;')}</textarea></td>
+         <td style="min-width:220px">
+          <div style="display:flex;flex-direction:column;gap:3px">
+           <input type="text" name="link_{idx}" value="{item_link.replace(chr(34), '&quot;')}" placeholder="Paste supplier URL…" class="text-in" style="width:100%;font-size:12px;color:#58a6ff;padding:5px 7px" oninput="handleLinkInput({idx}, this)" onpaste="setTimeout(()=>handleLinkInput({idx},this),50)">
+           <div id="link_meta_{idx}" style="font-size:10px;color:#8b949e">{supplier_badge}</div>
+          </div>
+         </td>
          <td style="font-weight:600;font-size:14px">{scprs_str}{scprs_badge}</td>
          <td style="font-weight:600;font-size:14px" {amazon_data}>{amazon_str}</td>
          <td style="font-size:12px;max-width:180px">{link}</td>
@@ -298,6 +310,15 @@ def pricecheck_save_prices(pcid):
                     items[idx]["item_number"] = str(val) if val else ""
                 elif field_type == "bid":
                     items[idx]["no_bid"] = not bool(val)
+                elif field_type == "link":
+                    items[idx]["item_link"] = str(val).strip() if val else ""
+                    # Auto-detect supplier from the URL when it's saved
+                    if items[idx]["item_link"]:
+                        try:
+                            from src.agents.item_link_lookup import detect_supplier
+                            items[idx]["item_supplier"] = detect_supplier(items[idx]["item_link"])
+                        except Exception:
+                            pass
         except (ValueError, IndexError):
             pass
 
@@ -1076,3 +1097,24 @@ def api_won_quotes_seed_status():
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/item-link/lookup", methods=["POST"])
+@auth_required
+def api_item_link_lookup():
+    """
+    POST { url: "https://grainger.com/product/..." }
+    Returns structured product data: title, price, part_number, shipping, supplier.
+    Used for the item_link autofill on PC and RFQ line items.
+    """
+    data = request.get_json(silent=True) or {}
+    url = (data.get("url") or "").strip()
+    if not url:
+        return jsonify({"ok": False, "error": "url required"})
+
+    try:
+        from src.agents.item_link_lookup import lookup_from_url
+        result = lookup_from_url(url)
+        return jsonify(result)
+    except Exception as e:
+        log.error("item_link_lookup API error: %s", e)
+        return jsonify({"ok": False, "error": str(e)})

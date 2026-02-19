@@ -255,6 +255,15 @@ def update(rid):
         desc_val = request.form.get(f"desc_{i}")
         if desc_val is not None:
             item["description"] = desc_val
+        # Save item link and auto-detect supplier
+        link_val = request.form.get(f"link_{i}", "").strip()
+        item["item_link"] = link_val
+        if link_val:
+            try:
+                from src.agents.item_link_lookup import detect_supplier
+                item["item_supplier"] = detect_supplier(link_val)
+            except Exception:
+                pass
     
     _transition_status(r, "ready", actor="user", notes="Pricing updated")
     save_rfqs(rfqs)

@@ -736,6 +736,7 @@ PAGE_DETAIL = """
  <table class="it">
   <thead><tr>
    <th>#</th><th>Qty</th><th style="min-width:180px">Description</th><th>Part #</th>
+   <th style="min-width:200px">Item Link</th>
    <th>Your Cost</th><th>SCPRS</th><th>Amazon</th><th>Bid Price</th><th>Subtotal</th><th>Margin</th><th>Profit</th>
   </tr></thead>
   <tbody>
@@ -745,6 +746,12 @@ PAGE_DETAIL = """
    <td style="white-space:nowrap">{{i.qty}} {{i.uom}}</td>
    <td style="max-width:220px;font-size:12px"><input type="text" name="desc_{{loop.index0}}" value="{{i.description.split('\n')[0]}}" class="text-in" style="width:100%;font-size:12px" title="{{i.description}}"></td>
    <td class="mono" style="font-size:11px">{{i.item_number}}</td>
+   <td style="min-width:200px">
+    <div style="display:flex;align-items:center;gap:4px">
+     <input type="text" name="link_{{loop.index0}}" value="{{i.get('item_link','')}}" placeholder="Paste supplier URL..." class="text-in" style="width:100%;font-size:12px;color:#58a6ff" oninput="handleRfqLinkInput({{loop.index0}}, this)">
+     {% if i.get('item_supplier') %}<span style="font-size:10px;color:#8b949e;white-space:nowrap">{{i.item_supplier}}</span>{% endif %}
+    </div>
+   </td>
    <td><input type="number" step="0.01" name="cost_{{loop.index0}}" value="{{i.supplier_cost or ''}}" placeholder="0.00" class="num-in" style="width:80px;font-size:14px;font-weight:600" oninput="recalc()"></td>
    <td style="font-size:13px;font-weight:600">
     {% if i.scprs_last_price %}${{'{:.2f}'.format(i.scprs_last_price)}}{% else %}—{% endif %}
@@ -1284,7 +1291,7 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
      <h3 style="margin-top:0;font-size:18px">Line Items <span id="itemCount" style="font-weight:normal;color:#8b949e;font-size:15px">({len(items)} items)</span></h3>
      <div class="pc-table-wrap">
      <table id="itemsTable">
-      <tr><th style="width:28px">Bid</th><th>#</th><th>Qty</th><th>UOM</th><th style="min-width:280px">Description</th><th>SCPRS $</th><th>Amazon $</th><th>Amazon Match</th><th>Unit Cost</th><th>Markup</th><th>Our Price</th><th>Extension</th><th>Profit</th><th>Conf</th></tr>
+      <tr><th style="width:28px">Bid</th><th>#</th><th>Qty</th><th>UOM</th><th style="min-width:280px">Description</th><th style="min-width:220px">Item Link</th><th>SCPRS $</th><th>Amazon $</th><th>Amazon Match</th><th>Unit Cost</th><th>Markup</th><th>Our Price</th><th>Extension</th><th>Profit</th><th>Conf</th></tr>
       {items_html}
      </table>
      </div>
@@ -1500,6 +1507,99 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
      recalcPC();
     }}
 
+
+    // ── Item Link Autofill ──────────────────────────────────────────────────
+    const _linkDebounce = {{}};
+    const _KNOWN_DOMAINS = {{'amazon.com':'Amazon','grainger.com':'Grainger',
+      'mcmaster.com':'McMaster-Carr','fishersci.com':'Fisher Scientific',
+      'medline.com':'Medline','boundtree.com':'Bound Tree Medical',
+      'henryschein.com':'Henry Schein','uline.com':'Uline','zoro.com':'Zoro',
+      'staples.com':'Staples','waxie.com':'Waxie','fastenal.com':'Fastenal',
+      'globalindustrial.com':'Global Industrial','homedepot.com':'Home Depot',
+      'officedepot.com':'Office Depot'
+    }};
+
+    function _detectSupplierJS(url) {{
+      try {{
+        const host = new URL(url).hostname.replace(/^www\./,'');
+        for (const [dom, name] of Object.entries(_KNOWN_DOMAINS)) {{
+          if (host.includes(dom)) return name;
+        }}
+        const parts = host.split('.');
+        return parts.length >= 2
+          ? parts[parts.length-2].charAt(0).toUpperCase()+parts[parts.length-2].slice(1)
+          : host;
+      }} catch(e) {{ return ''; }}
+    }}
+
+    function _isUrl(v) {{
+      return /^https?:\/\//i.test(v) || /^[a-z0-9-]+\.[a-z]{{2,}}\//i.test(v);
+    }}
+
+    function handleLinkInput(idx, inp) {{
+      const url = inp.value.trim();
+      const metaEl = document.getElementById('link_meta_'+idx);
+      if (!url) {{ if(metaEl) metaEl.innerHTML=''; return; }}
+      const supplier = _detectSupplierJS(url);
+      if (metaEl && supplier) metaEl.innerHTML='<span style="color:#8b949e">'+supplier+'</span>';
+      if (!_isUrl(url)) return;
+      clearTimeout(_linkDebounce[idx]);
+      _linkDebounce[idx] = setTimeout(() => _fireLinkLookup(idx, url, 'pc'), 800);
+    }}
+
+    function handleRfqLinkInput(idx, inp) {{
+      const url = inp.value.trim();
+      if (!url || !_isUrl(url)) return;
+      clearTimeout(_linkDebounce['rfq_'+idx]);
+      _linkDebounce['rfq_'+idx] = setTimeout(() => _fireLinkLookup(idx, url, 'rfq'), 800);
+    }}
+
+    function _fireLinkLookup(idx, url, mode) {{
+      const metaEl = mode==='pc' ? document.getElementById('link_meta_'+idx) : null;
+      if (metaEl) metaEl.innerHTML='<span style="color:#d29922">\u23F3 Looking up…</span>';
+      fetch('/api/item-link/lookup',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{url}})}})
+      .then(r=>r.json()).then(d=>{{
+        if (!d.ok && d.error) {{
+          if (metaEl) metaEl.innerHTML='<span style="color:#f85149">\u26A0\uFE0F '+d.error+'</span>';
+          return;
+        }}
+        _applyLinkData(idx, d, mode);
+      }}).catch(()=>{{ if(metaEl) metaEl.innerHTML='<span style="color:#f85149">Lookup failed</span>'; }});
+    }}
+
+    function _applyLinkData(idx, d, mode) {{
+      const filled = [];
+      if (mode==='pc') {{
+        const descEl = document.querySelector('[name=desc_'+idx+']');
+        if (descEl && !descEl.value.trim() && d.description) {{ descEl.value=d.description; filled.push('description'); }}
+        const costEl = document.querySelector('[name=cost_'+idx+']');
+        if (costEl && d.price) {{ costEl.value=d.price.toFixed(2); filled.push('cost $'+d.price.toFixed(2)); recalcRow(idx); }}
+        const metaEl = document.getElementById('link_meta_'+idx);
+        if (metaEl) {{
+          const supStr = d.supplier ? '<b style="color:#c9d1d9">'+d.supplier+'</b>' : '';
+          const shipStr = d.shipping===0 ? ' \u00B7 <span style="color:#3fb950">Free shipping</span>'
+                        : d.shipping>0 ? ' \u00B7 Ship $'+d.shipping.toFixed(2) : '';
+          const partStr = d.part_number ? ' \u00B7 Part: <span style="font-family:monospace;color:#58a6ff">'+d.part_number+'</span>' : '';
+          const fillStr = filled.length ? ' <span style="color:#3fb950">\u2713 '+filled.join(', ')+'</span>' : '';
+          metaEl.innerHTML = supStr+shipStr+partStr+fillStr;
+        }}
+      }} else {{
+        const descEl = document.querySelector('[name=desc_'+idx+']');
+        if (descEl && !descEl.value.trim() && d.description) descEl.value=d.description;
+        const costEl = document.querySelector('[name=cost_'+idx+']');
+        if (costEl && d.price) {{ costEl.value=d.price.toFixed(2); typeof recalc==='function' && recalc(); }}
+      }}
+      if (filled.length > 0 && typeof showMsg==='function') {{
+        showMsg('\uD83D\uDD17 Auto-filled from '+d.supplier+': '+filled.join(', '),'ok');
+      }}
+    }}
+
+    function relookupLink(idx) {{
+      const inp = document.querySelector('[name=link_'+idx+']');
+      if (!inp||!inp.value.trim()) {{ typeof showMsg==='function'&&showMsg('Paste a supplier URL first','warn'); return; }}
+      _fireLinkLookup(idx, inp.value.trim(), 'pc');
+    }}
+
     function recalcPC() {{
      let sub=0, totalCost=0, totalProfit=0, bidCount=0, totalCount=0;
      const priceInputs=document.querySelectorAll('input[name^=price_]');
@@ -1691,6 +1791,9 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
      }});
      document.querySelectorAll('input[name^=bid_]').forEach(inp=>{{
       data[inp.name]=inp.checked;
+     }});
+     document.querySelectorAll('input[name^=link_]').forEach(inp=>{{
+      data[inp.name]=inp.value.trim();
      }});
      data['tax_enabled']=document.getElementById('taxToggle').checked;
      data['tax_rate']=cachedTaxRate||0;
