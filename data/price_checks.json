@@ -1,18 +1,30 @@
 {
-  "auto_aaa11111": {
-    "id": "auto_aaa11111",
-    "pc_number": "0S - MH - 02.17.26",
+  "test_pc1": {
+    "id": "test_pc1",
+    "pc_number": "0S - MH",
     "institution": "CSP-Sacramento",
+    "due_date": "02/19/2026",
+    "requestor": "Val",
+    "ship_to": "CSP-Sacramento",
+    "items": [
+      {
+        "item_number": "1",
+        "qty": 1,
+        "uom": "EA",
+        "description": "Test item",
+        "pricing": {}
+      }
+    ],
+    "source_pdf": "",
+    "status": "parsed",
+    "status_history": [],
     "created_at": "2026-02-19T10:00:00",
-    "reytech_quote_number": "R26Q17",
-    "status": "parsed"
-  },
-  "auto_bbb22222": {
-    "id": "auto_bbb22222",
-    "pc_number": "0S - Med - Feb",
-    "institution": "CSP-Sacramento",
-    "created_at": "2026-02-19T10:01:00",
-    "reytech_quote_number": "R26Q18",
-    "status": "parsed"
+    "parsed": {
+      "header": {
+        "price_check_number": "0S - MH",
+        "institution": "CSP-Sacramento"
+      }
+    },
+    "reytech_quote_number": "R26Q17"
   }
 }

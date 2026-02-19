@@ -1706,7 +1706,7 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
         if (costEl && d.price) {{ costEl.value=d.price.toFixed(2); typeof recalc==='function' && recalc(); }}
       }}
       if (filled.length > 0 && typeof showMsg==='function') {{
-        showMsg('\uD83D\uDD17 Auto-filled from '+d.supplier+': '+filled.join(', '),'ok');
+        showMsg('🔗 Auto-filled from '+d.supplier+': '+filled.join(', '),'ok');
       }}
     }}
 
