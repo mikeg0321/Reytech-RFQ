@@ -385,21 +385,132 @@ def find_category_buyers(max_categories=10, from_date="01/01/2019"):
 # ── Email Template Library (PRD Feature 4.3) ─────────────────────────────
 # Implements Anthropic Skills Guide Pattern 5: Domain-specific intelligence
 # Templates are personalized from CRM/intel DB context
+# HTML emails with SCPRS hyperlinks for credibility
 
+SCPRS_SEARCH_URL = "https://caleprocure.ca.gov/pages/SCPRSSearch/scprs-search.aspx"
+
+# Agencies Reytech has served — updated dynamically on campaign build
+_DEFAULT_SERVED_AGENCIES = ["CCHCS", "CDCR"]
+
+
+def _get_served_agencies() -> list:
+    """Pull agencies Reytech has served from quotes + SCPRS history."""
+    agencies = set()
+    try:
+        quotes_path = os.path.join(DATA_DIR, "quotes_log.json")
+        if os.path.exists(quotes_path):
+            with open(quotes_path) as f:
+                for q in json.load(f):
+                    a = q.get("agency", "") or q.get("institution", "")
+                    if a and not q.get("is_test"):
+                        agencies.add(a)
+    except Exception:
+        pass
+    try:
+        hist = _load_json(HISTORY_FILE)
+        if isinstance(hist, dict):
+            for po in hist.get("purchase_orders", []):
+                d = po.get("dept", "")
+                if d:
+                    agencies.add(d)
+    except Exception:
+        pass
+    return sorted(agencies) if agencies else _DEFAULT_SERVED_AGENCIES
+
+
+def _build_agencies_mention(target_agency: str, served: list) -> str:
+    """Build 'your agency and other agencies' mention."""
+    others = [a for a in served if a.lower() != target_agency.lower()][:3]
+    if others:
+        return f"{target_agency} and {', '.join(others)}"
+    return target_agency
+
+
+def _build_po_link(prospect: dict) -> str:
+    """Build a SCPRS reference for a PO the buyer made that we could support."""
+    pos = prospect.get("purchase_orders", [])
+    if pos and pos[0].get("po_number"):
+        po = pos[0]
+        po_num = po.get("po_number", "")
+        items = po.get("items", "a recent purchase")[:60]
+        return f'<a href="{SCPRS_SEARCH_URL}" style="color:#1a73e8;text-decoration:underline" title="Search PO #{po_num} on SCPRS">{items} (PO #{po_num})</a>'
+    # Fallback — reference by category
+    cats = prospect.get("categories_matched", [])
+    if cats:
+        cat_text = ", ".join(cats[:2])
+        return f'<a href="{SCPRS_SEARCH_URL}" style="color:#1a73e8;text-decoration:underline" title="Search {cat_text} on SCPRS">your recent {cat_text} purchases</a>'
+    return f'<a href="{SCPRS_SEARCH_URL}" style="color:#1a73e8;text-decoration:underline">recent purchases in your categories</a>'
+
+
+def build_outreach_email(prospect: dict, served_agencies: list = None) -> dict:
+    """Build personalized HTML email for a prospect.
+    Returns {subject, body_html, body_plain}."""
+    name = prospect.get("buyer_name", "")
+    first_name = name.split()[0] if name else ""
+    name_greeting = first_name if first_name else "there"
+    agency = prospect.get("agency", "your agency")
+    cats = prospect.get("categories_matched", [])
+    cats_list = list(cats or []) if not isinstance(cats, str) else [cats]
+
+    served = served_agencies or _get_served_agencies()
+    agencies_mention = _build_agencies_mention(agency, served)
+    po_link = _build_po_link(prospect)
+    reytech_link = f'<a href="{SCPRS_SEARCH_URL}" style="color:#1a73e8;text-decoration:underline" title="Search \'Reytech\' as Supplier on SCPRS to see our past performance">Reytech Inc.</a>'
+
+    subject = f"Reytech Inc. — Competitive Pricing for {agency}" if agency != "your agency" else "Reytech Inc. — CA State Vendor Introduction"
+
+    body_html = f"""<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#222">
+<p>Hi {name_greeting},</p>
+
+<p>I'm the owner of {reytech_link}. We've been supporting {agencies_mention} as a responsive and reliable supplier. We are able to source many of the supplies you are purchasing, an example being {po_link}.</p>
+
+<p>Are you able to add us to the RFQ distribution list for future opportunities? Thank you kindly and I look forward to supporting {agency}.</p>
+
+<p style="margin-top:24px">Respectfully,</p>
+<p style="margin:0"><strong>Mike</strong><br>
+Reytech Inc. | SB/DVBE Certified<br>
+<a href="mailto:sales@reytechinc.com" style="color:#1a73e8">sales@reytechinc.com</a> | 949-229-1575<br>
+<a href="https://www.reytechinc.com" style="color:#1a73e8">www.reytechinc.com</a></p>
+</div>"""
+
+    # Plain text fallback
+    po_ref = ""
+    pos = prospect.get("purchase_orders", [])
+    if pos and pos[0].get("po_number"):
+        po_ref = f"{pos[0].get('items','a recent purchase')[:60]} (PO #{pos[0]['po_number']})"
+    elif cats_list:
+        po_ref = f"your recent {', '.join(cats_list[:2])} purchases"
+    else:
+        po_ref = "recent purchases in your categories"
+
+    body_plain = f"""Hi {name_greeting},
+
+I'm the owner of Reytech Inc. We've been supporting {agencies_mention} as a responsive and reliable supplier. We are able to source many of the supplies you are purchasing, an example being {po_ref}.
+
+You can verify our past performance on SCPRS: {SCPRS_SEARCH_URL} (search "Reytech" as Supplier)
+
+Are you able to add us to the RFQ distribution list for future opportunities? Thank you kindly and I look forward to supporting {agency}.
+
+Respectfully,
+
+Mike
+Reytech Inc. | SB/DVBE Certified
+sales@reytechinc.com | 949-229-1575
+www.reytechinc.com"""
+
+    return {"subject": subject, "body_html": body_html, "body_plain": body_plain}
+
+
+# Legacy templates kept for backward compat with distro campaigns
 EMAIL_TEMPLATES = {
     "distro_list": """Hi{name_greeting},
 
-My name is Mike from Reytech Inc. I wanted to reach out because {agency} recently purchased {items_mention} — we supply those same categories and consistently offer competitive pricing on SCPRS.
+I'm the owner of Reytech Inc. We've been supporting {agency} and other CA state agencies as a responsive and reliable supplier. We are able to source many of the supplies you are purchasing, an example being {items_mention}.
 
-We're a California-certified Small Business (SB) and Disabled Veteran Business Enterprise (DVBE), which helps meet your procurement mandates under CalTrans and DGS guidelines. We've been serving CA state agencies for several years.
+Are you able to add us to the RFQ distribution list for future opportunities? Thank you kindly and I look forward to supporting {agency}.
 
-I'd love the opportunity to get on {agency}'s RFQ distribution list so we can submit quotes for your next procurement. We turn around quotes quickly and our prices are typically 10–30% below current contract rates.
+Respectfully,
 
-You can add us at sales@reytechinc.com or call/text 949-229-1575. I'm happy to provide our vendor registration, certifications, or a product catalog on request.
-
-Thank you for your time.
-
-Best regards,
 Mike
 Reytech Inc. | SB/DVBE Certified
 sales@reytechinc.com | 949-229-1575
@@ -407,35 +518,43 @@ www.reytechinc.com""",
 
     "initial_outreach": """Hi{name_greeting},
 
-This is Mike from Reytech Inc. We noticed that {agency} recently purchased {items_mention} ({purchase_date}). We carry those same types of items and often have more competitive pricing — typically 10–30% below current contract rates.
+I'm the owner of Reytech Inc. We've been supporting {agency} and other CA state agencies as a responsive and reliable supplier. We are able to source many of the supplies you are purchasing, an example being {items_mention}.
 
-We're a certified Small Business (SB) and Disabled Veteran Business Enterprise (DVBE), which helps meet your procurement mandates. We'd love to get on your RFQ distribution list for future bids.
+You can verify our past performance on SCPRS: https://caleprocure.ca.gov/pages/SCPRSSearch/scprs-search.aspx (search "Reytech" as Supplier)
 
-Please reach us at sales@reytechinc.com or 949-229-1575.
+Are you able to add us to the RFQ distribution list for future opportunities? Thank you kindly and I look forward to supporting {agency}.
 
-Best regards,
-Mike | Reytech Inc. | SB/DVBE
-sales@reytechinc.com | 949-229-1575""",
+Respectfully,
+
+Mike
+Reytech Inc. | SB/DVBE Certified
+sales@reytechinc.com | 949-229-1575
+www.reytechinc.com""",
 
     "follow_up": """Hi{name_greeting},
 
-Following up on my recent email about Reytech Inc. We specialize in {items_mention} for California state agencies and are a certified SB/DVBE vendor.
+Following up on my recent email — I'm the owner of Reytech Inc. and we'd love the chance to support {agency}. We specialize in {items_mention} for California state agencies and are a certified SB/DVBE vendor.
 
-I wanted to make sure you received my previous note and reiterate our interest in being added to {agency}'s RFQ distribution list. We're ready to quote on your next procurement.
+Are you able to add us to the RFQ distribution list? We're ready to quote on your next procurement.
 
 Feel free to reply or call/text 949-229-1575.
 
-Best,
-Mike | Reytech Inc. | SB/DVBE""",
+Respectfully,
+
+Mike
+Reytech Inc. | SB/DVBE Certified
+sales@reytechinc.com | 949-229-1575""",
 
     "quote_won": """Hi{name_greeting},
 
 Thank you for the award on {items_mention}. Your order is being processed and you'll receive tracking information once shipped.
 
-We look forward to continuing to serve {agency}. For your next procurement, please keep us on your distribution list — we're always competitive on pricing and delivery.
+We look forward to continuing to support {agency}. For your next procurement, please keep us on your distribution list.
 
-Best regards,
-Mike | Reytech Inc.
+Respectfully,
+
+Mike
+Reytech Inc.
 sales@reytechinc.com | 949-229-1575""",
 }
 
@@ -715,40 +834,29 @@ def launch_outreach(max_prospects=50, dry_run=True):
     cat_data = _load_json(CATEGORIES_FILE)
     cat_info = cat_data.get("categories", {}) if isinstance(cat_data, dict) else {}
 
+    # Get agencies Reytech has served for the template
+    served_agencies = _get_served_agencies()
+
     campaign = {"id": f"GC-{datetime.now().strftime('%Y%m%d-%H%M')}", "created_at": datetime.now().isoformat(), "dry_run": dry_run, "outreach": []}
     sent = 0
 
     for p in new:
         name = p.get("buyer_name", "")
-        name_greeting = f" {name.split()[0]}" if name else ""
         agency = p.get("agency", "your agency")
-        pos = p.get("purchase_orders", [])
         cats = p.get("categories_matched", [])
         cats_list = list(cats or []) if not isinstance(cats, str) else [cats]
 
-        # Build items_mention — prefer PO data, fall back to category sample items
-        if pos and pos[0].get("items"):
-            items_mention = pos[0]["items"][:80]
-            purchase_date = pos[0].get("date", "recently")
-        elif cats_list and cat_info:
-            # Pull sample items from category data for better personalization
-            sample_items = []
-            for cat_name in cats_list[:2]:
-                ci = cat_info.get(cat_name, {})
-                sample_items.extend(ci.get("sample_items", [])[:2])
-            items_mention = ", ".join(sample_items[:3]) if sample_items else ", ".join(cats_list[:2])
-            purchase_date = "recently"
-        else:
-            items_mention = ", ".join(cats_list[:2]) if cats_list else "items we also carry"
-            purchase_date = "recently"
-
-        body = EMAIL_TEMPLATE.format(name_greeting=name_greeting, agency=agency, items_mention=items_mention, purchase_date=purchase_date)
-        subject = f"Reytech Inc. — Competitive Pricing on {', '.join(cats_list[:2])}" if cats_list else "Reytech Inc. — CA State Vendor Introduction"
+        # Build HTML email with SCPRS links
+        email_data = build_outreach_email(p, served_agencies)
+        subject = email_data["subject"]
+        body_html = email_data["body_html"]
+        body_plain = email_data["body_plain"]
 
         entry = {
             "prospect_id": p["id"], "email": p["buyer_email"], "name": name,
             "agency": agency, "categories": cats,
-            "email_subject": subject, "email_body": body,
+            "email_subject": subject, "email_body": body_plain,
+            "email_body_html": body_html,
             "email_sent": False, "email_sent_at": None,
             "voice_follow_up_date": (datetime.now() + timedelta(days=4)).isoformat(),
             "voice_called": False, "response_received": False,
@@ -760,7 +868,9 @@ def launch_outreach(max_prospects=50, dry_run=True):
                 config = {"email": os.environ.get("GMAIL_ADDRESS", ""), "email_password": os.environ.get("GMAIL_PASSWORD", "")}
                 if config["email"] and config["email_password"]:
                     sender = EmailSender(config)
-                    sender.send({"to": p["buyer_email"], "subject": subject, "body": body, "attachments": []})
+                    sender.send({"to": p["buyer_email"], "subject": subject,
+                                 "body": body_plain, "body_html": body_html,
+                                 "attachments": []})
                     entry["email_sent"] = True
                     entry["email_sent_at"] = datetime.now().isoformat()
                     _update_prospect_status(p["id"], "emailed")
@@ -785,7 +895,7 @@ def launch_outreach(max_prospects=50, dry_run=True):
         "follow_up_date": (datetime.now() + timedelta(days=4)).strftime("%Y-%m-%d"),
         "preview": [
             {"to": o["email"], "agency": o["agency"], "subject": o["email_subject"],
-             "body": o["email_body"]}
+             "body": o["email_body"], "body_html": o.get("email_body_html", "")}
             for o in campaign["outreach"][:10]
         ],
     }
@@ -1271,6 +1381,7 @@ def get_campaign_dashboard() -> dict:
                     "agency": o.get("agency", ""),
                     "subject": o.get("subject", o.get("email_subject", "")),
                     "body": o.get("body", o.get("email_body", "")),
+                    "body_html": o.get("body_html", o.get("email_body_html", "")),
                     "email_sent": o.get("email_sent", False),
                     "email_sent_at": o.get("email_sent_at"),
                     "error": o.get("error"),

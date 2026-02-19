@@ -839,11 +839,21 @@ SB/DVBE Cert #2002605"""
         from email.mime.base import MIMEBase
         from email import encoders
         
-        msg = MIMEMultipart()
+        msg = MIMEMultipart("mixed")
         msg["From"] = f"{self.from_name} <{self.email_addr}>"
         msg["To"] = draft["to"]
         msg["Subject"] = draft["subject"]
-        msg.attach(MIMEText(draft["body"], "plain"))
+
+        # Build alternative part (plain + HTML) if HTML body provided
+        body_html = draft.get("body_html", "")
+        body_plain = draft.get("body", "")
+        if body_html:
+            alt = MIMEMultipart("alternative")
+            alt.attach(MIMEText(body_plain, "plain"))
+            alt.attach(MIMEText(body_html, "html"))
+            msg.attach(alt)
+        else:
+            msg.attach(MIMEText(body_plain, "plain"))
         
         for filepath in draft.get("attachments", []):
             if os.path.exists(filepath):

@@ -4825,7 +4825,7 @@ def growth_page():
         prospect_rows += f"""<tr data-pid="{pid}">
          <td style="font-weight:500"><a href="/growth/prospect/{pid}" style="color:var(--ac);text-decoration:none">{pr.get('agency', '—')}</a></td>
          <td>{name}</td>
-         <td style="font-size:12px">{email}</td>
+         <td style="font-size:12px"><a href="mailto:{email}" style="color:var(--ac);text-decoration:none" title="Open email to {name}">{email}</a></td>
          <td style="font-size:12px">{phone}</td>
          <td class="mono">{po_count}</td>
          <td class="mono" style="color:#3fb950">${pr.get('total_spend', 0):,.0f}</td>
@@ -4996,17 +4996,25 @@ def growth_page():
         title.textContent = (data.dry_run ? '👁️ Preview' : '📧 Sent') + ': ' + data.emails_built + ' emails';
         emails.style.display = 'block';
         pre.style.display = 'none';
-        emails.innerHTML = data.preview.map((e, i) => `
+        emails.innerHTML = data.preview.map((e, i) => {{
+          const gmailUrl = 'https://mail.google.com/mail/?view=cm&to=' + encodeURIComponent(e.to) + '&su=' + encodeURIComponent(e.subject) + '&body=' + encodeURIComponent(e.body || '');
+          const bodyContent = e.body_html || e.body || '(no body)';
+          const isHtml = !!e.body_html;
+          return `
           <div style="background:var(--sf2);border:1px solid var(--bd);border-radius:8px;padding:12px;margin-bottom:10px">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
               <span style="font-size:11px;color:var(--tx2)">#${{i+1}}</span>
-              <span style="font-size:11px;padding:2px 8px;border-radius:10px;background:${{data.dry_run?'rgba(210,153,34,.1)':'rgba(52,211,153,.1)'}};color:${{data.dry_run?'#d29922':'#3fb950'}};font-weight:600">${{data.dry_run?'DRAFT':'SENT'}}</span>
+              <div style="display:flex;gap:6px;align-items:center">
+                <a href="${{gmailUrl}}" target="_blank" style="font-size:10px;padding:3px 8px;border-radius:6px;background:rgba(79,140,255,.12);color:var(--ac);text-decoration:none;font-weight:600;border:1px solid rgba(79,140,255,.3)">📧 Open in Gmail</a>
+                <a href="mailto:${{e.to}}?subject=${{encodeURIComponent(e.subject)}}&body=${{encodeURIComponent(e.body || '')}}" style="font-size:10px;padding:3px 8px;border-radius:6px;background:rgba(139,148,160,.1);color:var(--tx2);text-decoration:none;border:1px solid var(--bd)">✉️ mailto</a>
+                <span style="font-size:10px;padding:2px 8px;border-radius:10px;background:${{data.dry_run?'rgba(210,153,34,.1)':'rgba(52,211,153,.1)'}};color:${{data.dry_run?'#d29922':'#3fb950'}};font-weight:600">${{data.dry_run?'DRAFT':'SENT'}}</span>
+              </div>
             </div>
-            <div style="font-size:12px;margin-bottom:4px"><strong>To:</strong> ${{e.to}} <span style="color:var(--tx2)">(${{e.agency}})</span></div>
+            <div style="font-size:12px;margin-bottom:4px"><strong>To:</strong> <a href="mailto:${{e.to}}" style="color:var(--ac)">${{e.to}}</a> <span style="color:var(--tx2)">(${{e.agency}})</span></div>
             <div style="font-size:12px;margin-bottom:8px;color:var(--ac)"><strong>Subject:</strong> ${{e.subject}}</div>
-            <div style="font-size:11px;white-space:pre-wrap;line-height:1.5;color:var(--tx);background:var(--sf);padding:10px;border-radius:6px;border:1px solid var(--bd);max-height:200px;overflow:auto">${{e.body || '(no body)'}}</div>
+            <div style="font-size:12px;line-height:1.5;color:var(--tx);background:var(--sf);padding:10px;border-radius:6px;border:1px solid var(--bd);max-height:200px;overflow:auto">${{isHtml ? bodyContent : '<pre style="white-space:pre-wrap;margin:0;font-family:inherit">' + bodyContent + '</pre>'}}</div>
           </div>
-        `).join('');
+        `}}).join('');
         // Also reload drafts section
         loadDrafts();
       }} else {{
@@ -5077,13 +5085,17 @@ def growth_page():
             </div>`;
           entries.slice(0, 5).forEach((e, ei) => {{
             const subj = e.subject || e.email_subject || '(no subject)';
-            const body = e.body || e.email_body || '';
+            const body = e.body_html || e.body || e.email_body || '';
+            const bodyPlain = e.body || e.email_body || '';
+            const isHtml = !!e.body_html;
+            const gmailUrl = 'https://mail.google.com/mail/?view=cm&to=' + encodeURIComponent(e.email || '') + '&su=' + encodeURIComponent(subj) + '&body=' + encodeURIComponent(bodyPlain);
             html += `<details style="margin-bottom:4px;font-size:12px">
-              <summary style="cursor:pointer;padding:4px 8px;border-radius:4px;background:var(--sf2)">
+              <summary style="cursor:pointer;padding:4px 8px;border-radius:4px;background:var(--sf2);display:flex;align-items:center;gap:6px;flex-wrap:wrap">
                 <span style="color:var(--tx2)">${{e.email || ''}}</span> — <span style="color:var(--ac)">${{subj.substring(0,60)}}</span>
                 ${{e.email_sent ? '<span style="color:#3fb950;font-size:10px">✅ SENT</span>' : '<span style="color:#d29922;font-size:10px">📝 DRAFT</span>'}}
+                <a href="${{gmailUrl}}" target="_blank" onclick="event.stopPropagation()" style="font-size:9px;padding:2px 6px;border-radius:4px;background:rgba(79,140,255,.12);color:var(--ac);text-decoration:none;border:1px solid rgba(79,140,255,.3);margin-left:auto">📧 Gmail</a>
               </summary>
-              <div style="padding:8px;margin:4px 0 4px 16px;font-size:11px;white-space:pre-wrap;line-height:1.4;background:var(--sf);border-radius:4px;border:1px solid var(--bd);max-height:180px;overflow:auto">${{body}}</div>
+              <div style="padding:8px;margin:4px 0 4px 16px;font-size:12px;line-height:1.4;background:var(--sf);border-radius:4px;border:1px solid var(--bd);max-height:180px;overflow:auto">${{isHtml ? body : '<pre style="white-space:pre-wrap;margin:0;font-family:inherit">' + body + '</pre>'}}</div>
             </details>`;
           }});
           if (entries.length > 5) html += `<div style="font-size:10px;color:var(--tx2);padding-left:8px">...and ${{entries.length-5}} more</div>`;
