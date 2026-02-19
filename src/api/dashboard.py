@@ -1029,7 +1029,7 @@ function loadNotifications(){
     list.innerHTML=d.notifications.map(n=>{
       var ts=n.created_at?new Date(n.created_at).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true}):'';
       var icon=URGENCY_ICON[n.urgency]||'🔔';
-      return '<div class="notif-item '+(n.is_read?'':'unread')+' urgency-'+(n.urgency||'info')+'" onclick="notifClick(\''+n.deep_link+'\','+n.id+')">'
+      return '<div class="notif-item '+(n.is_read?'':'unread')+' urgency-'+(n.urgency||'info')+'" onclick="notifClick(&apos;'+n.deep_link+'&apos;,'+n.id+')">'
         +'<div class="notif-item-title">'+icon+' '+(n.title||'')+'</div>'
         +'<div class="notif-item-body">'+(n.body||'').substring(0,120)+'</div>'
         +'<div class="notif-item-time">'+ts+'</div>'

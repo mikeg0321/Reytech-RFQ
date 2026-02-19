@@ -544,8 +544,8 @@ document.querySelectorAll('details').forEach(d=>{
             }
             // Show what was cleaned up
             let msg = '✅ Price Check deleted.';
-            if (d.quote_removed) msg += '\nQuote ' + d.quote_removed + ' removed.';
-            if (d.counter_reset) msg += '\nQuote counter adjusted — ' + d.counter_reset;
+            if (d.quote_removed) msg += '\\nQuote ' + d.quote_removed + ' removed.';
+            if (d.counter_reset) msg += '\\nQuote counter adjusted — ' + d.counter_reset;
             alert(msg);
           } else {
             btn.textContent = 'Delete';
