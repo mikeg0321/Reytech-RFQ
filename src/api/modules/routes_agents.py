@@ -26,7 +26,11 @@ except ImportError:
 def agents_page():
     """Agent Control Panel — click buttons instead of writing API calls."""
     from src.api.templates import render_agents_page
-    return render_agents_page()
+    return render_agents_page(
+        brief_html=BRIEF_HTML,
+        brief_js=BRIEF_JS,
+        brief_css=BASE_CSS,
+    )
 
 # ════════════════════════════════════════════════════════════════════════════════
 # EMAIL TEMPLATE LIBRARY  (PRD Feature 4.3 — P0)

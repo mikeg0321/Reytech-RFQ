@@ -2381,20 +2381,38 @@ def build_quotes_page_content(stats_html, q, agency_filter, status_filter,
 """
 
 
-def render_agents_page():
+def render_agents_page(brief_html="", brief_js="", brief_css=""):
     """Render the Agent Control Panel — buttons for all agent operations."""
+    # Brief-specific CSS classes (subset of BASE_CSS needed for the brief widget)
+    _brief_css = """
+.card{background:var(--sf);border:1px solid var(--bd);border-radius:12px;padding:20px 24px;margin-bottom:12px}
+.card-t{font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.8px;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+.brief-item{display:flex;justify-content:space-between;align-items:flex-start;padding:8px 10px;border-radius:8px;transition:background .12s;margin-bottom:2px}
+.brief-item:hover{background:var(--sf2)}
+.brief-item-left{display:flex;gap:10px;align-items:flex-start;min-width:0}
+.brief-icon{font-size:16px;flex-shrink:0;margin-top:1px}
+.brief-title{font-size:13px;font-weight:500;line-height:1.4}
+.brief-detail{font-size:11px;color:var(--tx2);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:280px}
+.brief-age{font-size:10px;color:var(--tx2);font-family:'JetBrains Mono',monospace;white-space:nowrap;flex-shrink:0;margin-top:3px}
+.brief-empty{font-size:12px;color:var(--tx2);padding:12px 10px;text-align:center;font-style:italic}
+.brief-count{font-size:10px;padding:1px 7px;border-radius:10px;background:rgba(251,191,36,.2);color:#fbbf24;font-weight:600;font-family:'JetBrains Mono',monospace}
+.stat-chip{background:var(--sf2);border:1px solid var(--bd);border-radius:8px;padding:8px 12px;text-align:center;min-width:70px}
+.stat-val{font-size:16px;font-weight:700;font-family:'JetBrains Mono',monospace;line-height:1.2}
+.stat-label{font-size:9px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:3px}
+""" if brief_html else ""
     return f"""<!DOCTYPE html>
 <html><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Agent Control Panel — Reytech</title>
 <style>
 :root {{ --bg:#0d1117; --sf:#161b22; --sf2:#21262d; --bd:#30363d; --tx:#e6edf3; --tx2:#8b949e;
-  --ok:#238636; --warn:#d29922; --err:#da3633; --blue:#58a6ff; --purple:#bc8cff; }}
+  --ok:#238636; --warn:#d29922; --err:#da3633; --blue:#58a6ff; --purple:#bc8cff;
+  --ac:#4f8cff; --ac2:#3b7cf5; --gn:#34d399; --rd:#f87171; --yl:#fbbf24; --or:#fb923c; --r:12px; }}
 * {{ box-sizing:border-box; margin:0; padding:0; }}
 body {{ font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; background:var(--bg); color:var(--tx); padding:16px; max-width:1000px; margin:auto; }}
 a {{ color:var(--blue); text-decoration:none; }}
-.nav {{ display:flex; gap:8px; align-items:center; margin-bottom:20px; flex-wrap:wrap; }}
-.nav a {{ padding:5px 12px; background:var(--sf2); border:1px solid var(--bd); border-radius:6px; font-size:13px; color:var(--tx); }}
+.agents-nav {{ display:flex; gap:8px; align-items:center; margin-bottom:20px; flex-wrap:wrap; }}
+.agents-nav a {{ padding:5px 12px; background:var(--sf2); border:1px solid var(--bd); border-radius:6px; font-size:13px; color:var(--tx); }}
 h1 {{ font-size:22px; margin-bottom:4px; }}
 .sub {{ color:var(--tx2); font-size:13px; margin-bottom:20px; }}
 .section {{ background:var(--sf); border:1px solid var(--bd); border-radius:10px; padding:16px; margin-bottom:16px; }}
@@ -2423,14 +2441,17 @@ h1 {{ font-size:22px; margin-bottom:4px; }}
 .agent-card .name {{ font-weight:600; font-size:13px; margin-bottom:4px; }}
 .agent-card .mode {{ color:var(--tx2); }}
 .loading {{ color:var(--warn); }}
+{_brief_css}
 </style>
 </head><body>
 
-<div class="nav">
+<div class="agents-nav">
  <a href="/">🏠 Home</a>
  <a href="/quotes">📋 Quotes</a>
  <a href="/agents" style="border-color:var(--blue)">🤖 Agents</a>
 </div>
+
+{brief_html}
 
 <h1>🤖 Agent Control Panel</h1>
 <div class="sub">Click any button to run it. Results appear below.</div>
@@ -3048,6 +3069,7 @@ fetch('/api/agents/status',{{credentials:'same-origin'}}).then(r => r.json()).th
   document.getElementById('fleet-grid').innerHTML = '<div>Failed to load fleet status</div>';
 }});
 </script>
+<script>{brief_js}</script>
 </body></html>"""
 
 # ── CRM / Contacts Page ──────────────────────────────────────────────────────

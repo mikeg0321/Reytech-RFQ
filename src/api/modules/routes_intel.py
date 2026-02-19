@@ -3564,12 +3564,21 @@ def api_manager_brief_debug():
     return jsonify({"ok": all_ok, "results": results})
 
 
+_brief_cache = {"data": None, "ts": 0}
+_BRIEF_TTL = 30  # seconds
+
 @bp.route("/api/manager/brief")
 @auth_required
 def api_manager_brief():
-    """Manager brief — everything you need to know right now."""
+    """Manager brief — everything you need to know right now.  Server-side 30s TTL cache."""
+    import time as _time
     if not MANAGER_AVAILABLE:
         return jsonify({"ok": False, "error": "Manager agent not available"})
+    # Serve from cache unless ?nocache=1 (Refresh button) or stale
+    nocache = request.args.get("nocache") == "1"
+    now = _time.time()
+    if not nocache and _brief_cache["data"] and (now - _brief_cache["ts"]) < _BRIEF_TTL:
+        return jsonify(_brief_cache["data"])
     try:
         brief = generate_brief()
         # Sanitize any None values that could crash the JS
@@ -3578,7 +3587,10 @@ def api_manager_brief():
             si.setdefault("top_action", None)
             si.setdefault("recommendations", [])
             si.setdefault("recent_losses", [])
-        return jsonify({"ok": True, **brief})
+        result = {"ok": True, **brief}
+        _brief_cache["data"] = result
+        _brief_cache["ts"] = now
+        return jsonify(result)
     except Exception as e:
         import traceback
         err_detail = traceback.format_exc()
@@ -6822,7 +6834,7 @@ CalTrans,m.jones@dot.ca.gov,Mary Jones,916-654-2000,Office,45000,</pre>
           document.getElementById('pull-counts').textContent = counts.join(' · ');
           if(d.errors && d.errors.length) {{
             const e = document.getElementById('pull-errors');
-            e.style.display='block'; e.textContent=d.errors.slice(-2).join('\n');
+            e.style.display='block'; e.textContent=d.errors.slice(-2).join('\\n');
           }}
           if(!d.running) {{
             clearInterval(pullTimer);
@@ -6963,7 +6975,7 @@ CalTrans,m.jones@dot.ca.gov,Mary Jones,916-654-2000,Office,45000,</pre>
 
     // ── Copy CSV template ──
     function copyTemplate(btn) {{
-      navigator.clipboard.writeText('agency,email,name,phone,categories,annual_spend,notes\nCDCR,j.smith@cdcr.ca.gov,John Smith,916-445-1000,"Medical,Safety",125000,High priority\nCalTrans,m.jones@dot.ca.gov,Mary Jones,916-654-2000,Office,45000,').then(()=>{{btn.textContent='✅ Copied!';setTimeout(()=>btn.textContent='📋 Copy Template',2000);}});
+      navigator.clipboard.writeText('agency,email,name,phone,categories,annual_spend,notes\\nCDCR,j.smith@cdcr.ca.gov,John Smith,916-445-1000,"Medical,Safety",125000,High priority\\nCalTrans,m.jones@dot.ca.gov,Mary Jones,916-654-2000,Office,45000,').then(()=>{{btn.textContent='✅ Copied!';setTimeout(()=>btn.textContent='📋 Copy Template',2000);}});
     }}
 
     {f'pollPull();' if pull_running else ''}
