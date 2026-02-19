@@ -387,10 +387,10 @@ fetch('/api/intel/revenue',{credentials:'same-origin'}).then(r=>r.json()).then(d
      <td style="color:var(--tx2)">{{pc.requestor or '—'}}</td>
      <td class="mono">{{pc.due_date or '—'}}</td>
      <td style="text-align:center" class="mono">{{pc.get('items',[])|length}}</td>
-     <td style="text-align:center" onclick="event.stopPropagation()">{% if pc.reytech_quote_number %}<span style="color:var(--gn);font-weight:600;font-family:'JetBrains Mono',monospace;font-size:12px">{{pc.reytech_quote_number}}</span><button onclick="clearPCQuote('{{id}}',this)" title="Clear stale quote number" style="background:none;border:none;color:#484f58;cursor:pointer;font-size:10px;padding:0 3px;vertical-align:middle" onmouseover="this.style.color='#f85149'" onmouseout="this.style.color='#484f58'">&nbsp;✕</button>{% else %}—{% endif %}</td>
+     <td style="text-align:center" onclick="event.stopPropagation()">{% if pc.reytech_quote_number %}<span style="color:var(--gn);font-weight:600;font-family:'JetBrains Mono',monospace;font-size:12px">{{pc.reytech_quote_number}}</span>{% else %}—{% endif %}</td>
      <td style="text-align:center"><span class="badge b-{{pc.status}}">{{pc.status}}</span></td>
      <td style="text-align:center" onclick="event.stopPropagation()">
-      <button onclick="deletePC('{{id}}',this)" title="Delete this PC" style="background:none;border:none;color:#484f58;cursor:pointer;font-size:14px;padding:2px 5px;border-radius:3px" onmouseover="this.style.color='#f85149'" onmouseout="this.style.color='#484f58'">✕</button>
+      <button onclick="deletePC('{{id}}',this)" title="Delete this Price Check" style="background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.2);color:#f85149;cursor:pointer;font-size:10px;padding:2px 8px;border-radius:4px;font-weight:600" onmouseover="this.style.background='rgba(248,81,73,.2)'" onmouseout="this.style.background='rgba(248,81,73,.08)'">Delete</button>
      </td>
     </tr>
     {% endfor %}
@@ -526,8 +526,10 @@ document.querySelectorAll('details').forEach(d=>{
 
     // ── Delete Price Check ─────────────────────────────────────────────────
     function deletePC(id, btn) {
-      if (!confirm('Delete this Price Check? This will also remove its linked draft quote and reclaim the quote number.')) return;
+      if (!confirm('Are you sure you want to delete this Price Check?')) return;
+      if (!confirm('This will permanently remove the PC, its linked draft quote, and reclaim the quote number. Continue?')) return;
       btn.textContent = '⏳';
+      btn.disabled = true;
       fetch('/api/pricecheck/' + id + '/delete', {method: 'POST', credentials: 'same-origin'})
         .then(r => r.json())
         .then(d => {
@@ -541,16 +543,17 @@ document.querySelectorAll('details').forEach(d=>{
               hdr.textContent = 'Price Checks (' + remaining + ')';
             }
             // Show what was cleaned up
-            let msg = 'Deleted.';
-            if (d.quote_removed) msg += ' Quote ' + d.quote_removed + ' removed.';
-            if (d.counter_reset) msg += ' Counter reset: ' + d.counter_reset;
-            if (d.quote_removed || d.counter_reset) alert(msg);
+            let msg = '✅ Price Check deleted.';
+            if (d.quote_removed) msg += '\nQuote ' + d.quote_removed + ' removed.';
+            if (d.counter_reset) msg += '\nQuote counter adjusted — ' + d.counter_reset;
+            alert(msg);
           } else {
-            btn.textContent = '✕';
+            btn.textContent = 'Delete';
+            btn.disabled = false;
             alert('Delete failed: ' + (d.error || 'unknown'));
           }
         })
-        .catch(() => { btn.textContent = '✕'; });
+        .catch(() => { btn.textContent = 'Delete'; btn.disabled = false; });
     }
 
 
