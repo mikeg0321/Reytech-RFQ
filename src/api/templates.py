@@ -348,7 +348,7 @@ fetch('/api/intel/revenue',{credentials:'same-origin'}).then(r=>r.json()).then(d
  <!-- Price Checks — primary work queue (wider column) -->
  <div class="card" style="margin:0;overflow:hidden">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-   <div class="card-t" style="margin:0">Price Checks ({{price_checks|length}})</div>
+   <div class="card-t" style="margin:0">Price Checks <span style="font-size:11px;font-weight:400;color:var(--tx2)">(AMS 704 — price your response)</span> <span style="font-family:'JetBrains Mono',monospace;font-weight:700">{{price_checks|length}}</span></div>
   </div>
   {% if price_checks %}
   <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
@@ -390,7 +390,7 @@ fetch('/api/intel/revenue',{credentials:'same-origin'}).then(r=>r.json()).then(d
 
  <!-- RFQ Queue (narrower column) -->
  <div class="card" style="margin:0;overflow:hidden">
-  <div class="card-t">RFQ Queue ({{rfqs|length}})</div>
+  <div class="card-t">RFQ Queue <span style="font-size:11px;font-weight:400;color:var(--tx2)">(704A/704B + formal quote package)</span> <span style="font-family:'JetBrains Mono',monospace;font-weight:700">{{rfqs|length}}</span></div>
   {% if rfqs %}
   <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
   <table class="home-tbl">

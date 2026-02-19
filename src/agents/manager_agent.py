@@ -127,6 +127,34 @@ def _get_pending_approvals() -> list:
                 "action_url": "/agents", "action_label": "Draft Outreach",
             })
 
+    # 3b. Pending / new RFQs needing action
+    try:
+        rfqs_path = os.path.join(DATA_DIR, "rfqs.json")
+        with open(rfqs_path) as _f:
+            _rfqs = json.load(_f)
+        actionable_rfqs = [r for r in (_rfqs.values() if isinstance(_rfqs, dict) else [])
+                           if r.get("status") in ("new", "pending", "auto_drafted")]
+        if actionable_rfqs:
+            # Sort by due date if available
+            actionable_rfqs.sort(key=lambda x: x.get("due_date", "9999"), reverse=False)
+            for rfq in actionable_rfqs[:3]:
+                sol = rfq.get("solicitation_number", "?")
+                req = rfq.get("requestor_name", rfq.get("requestor_email", "?"))
+                status = rfq.get("status", "new")
+                due = rfq.get("due_date", "TBD")
+                items = len(rfq.get("line_items", []))
+                action_label = "Fill Out & Send" if status == "auto_drafted" else "Review & Price"
+                approvals.append({
+                    "type": "rfq_pending", "icon": "📬",
+                    "title": f"RFQ #{sol} — {status.upper()}",
+                    "detail": f"{req} · {items} item{'s' if items != 1 else ''} · Due {due}",
+                    "age": _age_str(rfq.get("created_at", "")),
+                    "action_url": f"/rfq/{rfq.get('id', '')}",
+                    "action_label": action_label,
+                })
+    except (FileNotFoundError, Exception):
+        pass
+
     # 4. Stale quotes (pending 7+ days)
     quotes = _load_json("quotes_log.json", [])
     for q in quotes:
@@ -377,10 +405,30 @@ def _get_pipeline_summary() -> dict:
     for p in p_list:
         growth_stats[p.get("outreach_status", "new")] += 1
 
+    # RFQs — live from rfqs.json
+    rfq_by_status = defaultdict(int)
+    try:
+        rfqs_path = os.path.join(DATA_DIR, "rfqs.json")
+        with open(rfqs_path) as _f:
+            _rfqs = json.load(_f)
+        for _r in (_rfqs.values() if isinstance(_rfqs, dict) else []):
+            rfq_by_status[_r.get("status", "unknown")] += 1
+    except (FileNotFoundError, Exception):
+        pass
+
     return {
         "price_checks": {
             "total": len(pcs) if isinstance(pcs, dict) else 0,
             **dict(pc_by_status),
+        },
+        "rfqs": {
+            "total": sum(rfq_by_status.values()),
+            "new": rfq_by_status.get("new", 0),
+            "pending": rfq_by_status.get("pending", 0),
+            "auto_drafted": rfq_by_status.get("auto_drafted", 0),
+            "ready": rfq_by_status.get("ready", 0),
+            "generated": rfq_by_status.get("generated", 0),
+            "by_status": dict(rfq_by_status),
         },
         "quotes": {
             "total": len(live_quotes),
@@ -487,6 +535,12 @@ def generate_brief() -> dict:
     if summary.get("growth", {}).get("by_status", {}).get("follow_up_due", 0) > 0:
         n = summary["growth"]["by_status"]["follow_up_due"]
         headlines.append(f"{n} growth prospect{'s' if n!=1 else ''} ready for follow-up call")
+
+    # RFQ headlines — highest priority (pending RFQs need filling out)
+    rfq_summary = summary.get("rfqs", {})
+    rfq_action_count = rfq_summary.get("new", 0) + rfq_summary.get("pending", 0) + rfq_summary.get("auto_drafted", 0)
+    if rfq_action_count > 0:
+        headlines.insert(0, f"{rfq_action_count} RFQ{'s' if rfq_action_count != 1 else ''} waiting — fill out 704A/704B and send formal quote")
 
     # DB-context headlines
     qt = db_ctx.get("quotes", {})
