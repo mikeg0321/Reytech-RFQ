@@ -56,6 +56,215 @@ ATTACHMENT_PATTERNS = {
 }
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# Reply / Follow-Up Detection — must fire BEFORE is_rfq_email()
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Conversational reply indicators — buyer confirming, clarifying, or asking about
+# an EXISTING PC/RFQ thread, not submitting a new one.
+REPLY_BODY_PATTERNS = [
+    # Confirmations
+    r"(?:yes|yeah|correct|confirmed?|that(?:'s| is) (?:correct|right|it))",
+    r"(?:go\s+(?:ahead|with)|sounds?\s+good|works?\s+for (?:me|us)|approved?)",
+    r"(?:please\s+)?proceed",
+    # Clarifications
+    r"(?:to clarify|just to confirm|clarification|clarifying|fyi|for your info)",
+    r"(?:i|we) (?:meant|mean|need|want|prefer|would like)\b",
+    r"(?:the correct|the right|the actual) (?:item|part|product|quantity|color|size|spec)",
+    r"(?:instead of|rather than|not the .+? but the)",
+    r"(?:should be|needs to be|it(?:'s| is) actually)",
+    # Quick answers / short responses
+    r"^(?:yes|no|correct|will do|ok|okay|sure|thanks|thank you|got it|noted)[\.\!\s]*$",
+    # Questions about existing request
+    r"(?:did you|have you|can you).{0,40}(?:receive|get|see|process|send|ship|quote)",
+    r"(?:any update|update on|status (?:of|on)|following up|checking (?:in|on))",
+    r"(?:when (?:can|will|would)|how (?:soon|long|quickly))\b",
+    # Attachments that are supporting docs, not new RFQs
+    r"(?:attached|here(?:'s| is)|see attached|sending).{0,40}(?:spec|photo|picture|image|catalog|detail)",
+]
+
+REPLY_PATTERNS_COMPILED = [re.compile(p, re.I | re.M) for p in REPLY_BODY_PATTERNS]
+
+
+def _extract_email_addr(sender_str):
+    """Pull bare email from 'Name <email@example.com>' format."""
+    m = re.search(r'[\w.+-]+@[\w.-]+\.\w+', sender_str or "")
+    return m.group(0).lower() if m else ""
+
+
+def _sender_has_active_item(sender_email):
+    """Check if this sender has any active PC, RFQ, or sent quote.
+    Returns dict with match info or None."""
+    if not sender_email:
+        return None
+    try:
+        from src.core.db import get_db, DB_PATH
+        import sqlite3
+        conn = sqlite3.connect(DB_PATH, timeout=10, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+
+        # Check quotes — any sent/pending to this email
+        q_rows = conn.execute(
+            "SELECT quote_number, status, requestor, contact_email FROM quotes "
+            "WHERE (lower(contact_email) = ? OR lower(requestor) LIKE ?) "
+            "AND status IN ('sent','pending','draft') AND is_test=0 "
+            "ORDER BY created_at DESC LIMIT 3",
+            (sender_email, f"%{sender_email}%")
+        ).fetchall()
+
+        # Check RFQs — from rfqs.json (not in SQLite yet typically)
+        rfq_match = None
+        try:
+            rfqs_path = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                "data", "rfqs.json")
+            if os.path.exists(rfqs_path):
+                with open(rfqs_path) as f:
+                    rfqs = json.load(f)
+                for rid, rfq in rfqs.items():
+                    rfq_email = (rfq.get("contact_email") or rfq.get("requestor") or "").lower()
+                    if sender_email in rfq_email or rfq_email in sender_email:
+                        if rfq.get("status", "").lower() in ("new", "pending", "auto_drafted", "in_progress"):
+                            rfq_match = {"rfq_id": rid, "status": rfq.get("status"), "sol": rfq.get("solicitation_number", "")}
+                            break
+        except Exception:
+            pass
+
+        # Check price checks
+        pc_rows = conn.execute(
+            "SELECT pc_number, status, requestor FROM price_checks "
+            "WHERE (lower(requestor) LIKE ? OR lower(contact_email) LIKE ?) "
+            "AND status NOT IN ('completed','cancelled','closed') AND is_test=0 "
+            "ORDER BY created_at DESC LIMIT 3",
+            (f"%{sender_email}%", f"%{sender_email}%")
+        ).fetchall()
+        conn.close()
+
+        matches = []
+        for r in q_rows:
+            matches.append({"type": "quote", "ref": r["quote_number"], "status": r["status"]})
+        if rfq_match:
+            matches.append({"type": "rfq", **rfq_match})
+        for r in pc_rows:
+            matches.append({"type": "pc", "ref": r["pc_number"], "status": r["status"]})
+
+        return matches if matches else None
+    except Exception as e:
+        log.debug("_sender_has_active_item error: %s", e)
+        return None
+
+
+def is_reply_followup(msg, subject, body, sender, pdf_names):
+    """Detect if this email is a REPLY/FOLLOW-UP to an existing thread,
+    not a new RFQ submission.
+
+    Returns dict with classification or None if it's genuinely new.
+    This MUST fire before is_rfq_email() to prevent pipeline pollution.
+
+    Logic:
+      1. Must have reply indicators (Re: subject, In-Reply-To header, References header)
+      2. Sender must match an existing active PC/RFQ/quote
+      3. Must NOT carry new RFQ form attachments (704A/704B/703B)
+      4. Body should be conversational (short or matches reply patterns)
+
+    If ALL conditions met → route to CS agent, not PC/RFQ queue.
+    """
+    # ── Step 1: Reply indicators ──
+    is_reply = False
+    reply_signals = []
+
+    # Check headers
+    in_reply_to = msg.get("In-Reply-To", "") if msg else ""
+    references = msg.get("References", "") if msg else ""
+    if in_reply_to:
+        is_reply = True
+        reply_signals.append("In-Reply-To header present")
+    if references:
+        is_reply = True
+        reply_signals.append("References header present")
+
+    # Check subject prefix
+    subj_clean = (subject or "").strip()
+    if re.match(r'^(?:Re|RE|re|Fwd|FW|fw)\s*:\s*', subj_clean):
+        is_reply = True
+        reply_signals.append(f"Subject starts with reply/forward prefix")
+
+    if not is_reply:
+        return None  # Not a reply — let is_rfq_email() handle it
+
+    # ── Step 2: Check for NEW RFQ form attachments ──
+    # If the reply carries fresh 704B/703B forms, it IS a new submission
+    # even though it's threaded as a reply (buyer sometimes replies with new RFQ)
+    has_new_forms = False
+    if pdf_names:
+        for name in pdf_names:
+            name_lower = name.lower().replace(" ", ".").replace("-", ".")
+            if any(re.search(p, name_lower) for p in [r"703b", r"704b", r"bid.?package", r"quote.?worksheet"]):
+                has_new_forms = True
+                break
+
+    if has_new_forms:
+        log.info("Reply has new RFQ form attachments — treating as NEW RFQ: %s", subject[:60])
+        return None  # Let is_rfq_email() process it as a genuine new submission
+
+    # ── Step 3: Sender has active item? ──
+    sender_email = _extract_email_addr(sender)
+    active_items = _sender_has_active_item(sender_email)
+
+    if not active_items:
+        # Reply thread but unknown sender — could be a new buyer replying to a
+        # forwarded RFQ. Let is_rfq_email() decide.
+        log.debug("Reply from unknown sender %s — passing to is_rfq_email()", sender_email)
+        return None
+
+    # ── Step 4: Body analysis — conversational vs. new request ──
+    body_text = (body or "")[:1500]
+    body_score = 0
+
+    # Short body = almost certainly a reply (full RFQs are long)
+    body_lines = [l.strip() for l in body_text.split("\n") if l.strip() and not l.strip().startswith(">")]
+    original_body = "\n".join(body_lines)
+    if len(original_body) < 300:
+        body_score += 3
+
+    # Pattern match for conversational content
+    for pat in REPLY_PATTERNS_COMPILED:
+        if pat.search(original_body):
+            body_score += 2
+            break
+
+    # No PDFs at all = very likely a reply
+    if not pdf_names:
+        body_score += 2
+
+    # If body contains strong NEW RFQ indicators, override
+    combined = f"{subject} {original_body}".lower()
+    new_rfq_signals = ["solicitation", "bid package", "quote worksheet", "informal competitive", "acquisition quote"]
+    for sig in new_rfq_signals:
+        # Only count if it's NOT in the quoted/forwarded part
+        if sig in original_body.lower() and not any(l.strip().startswith(">") for l in body_text.split("\n") if sig in l.lower()):
+            body_score -= 3
+            break
+
+    if body_score < 2:
+        log.debug("Reply body score too low (%d) — passing to is_rfq_email(): %s", body_score, subject[:60])
+        return None
+
+    # ── All checks passed: this is a follow-up, not a new RFQ ──
+    result = {
+        "is_followup": True,
+        "sender_email": sender_email,
+        "reply_signals": reply_signals,
+        "active_items": active_items,
+        "body_score": body_score,
+        "subject": subject,
+    }
+    log.info("🔄 FOLLOW-UP detected (not new RFQ): sender=%s items=%s signals=%s score=%d subj='%s'",
+             sender_email, [i.get("ref") for i in active_items[:3]],
+             reply_signals, body_score, subject[:60])
+    return result
+
+
 def is_rfq_email(subject, body, attachments):
     """
     Determine if an email is an RFQ. Uses tiered detection:
@@ -233,6 +442,53 @@ class EmailPoller:
                     # Get PDF names without saving
                     pdf_names = self._get_pdf_names(msg)
                     
+                    # ── REPLY DETECTION — fires BEFORE is_rfq_email() ──────────
+                    # Prevents pipeline pollution from buyer follow-ups/clarifications
+                    # being logged as new PCs/RFQs.
+                    followup = is_reply_followup(msg, subject, body, sender, pdf_names)
+                    if followup:
+                        # Route to CS Agent with context about which item they're replying to
+                        log.info("🔄 Routing follow-up to CS Agent (not PC/RFQ queue): %s", subject[:60])
+                        try:
+                            from src.agents.cs_agent import classify_inbound_email, build_cs_response_draft
+                            cs_class = classify_inbound_email(subject, body, sender)
+                            # Enrich with thread context even if CS patterns didn't match
+                            cs_class["is_update_request"] = True
+                            cs_class["is_followup"] = True
+                            cs_class["linked_items"] = followup.get("active_items", [])
+                            if not cs_class.get("intent"):
+                                cs_class["intent"] = "followup_clarification"
+                            def _cs_followup(cls=cs_class, subj=subject, bdy=body, snd=sender):
+                                try:
+                                    result = build_cs_response_draft(cls, subj, bdy, snd)
+                                    log.info("CS follow-up draft: ok=%s intent=%s linked=%s draft_id=%s",
+                                             result.get("ok"), cls.get("intent"),
+                                             [i.get("ref") for i in cls.get("linked_items",[])[:2]],
+                                             result.get("draft",{}).get("id",""))
+                                except Exception as _ce:
+                                    log.debug("CS follow-up draft error: %s", _ce)
+                            import threading as _ft
+                            _ft.Thread(target=_cs_followup, daemon=True, name="cs-followup").start()
+                        except Exception as _fse:
+                            log.debug("Follow-up CS routing error: %s", _fse)
+                        # Notify about the follow-up (don't silently swallow it)
+                        try:
+                            from src.agents.notify_agent import send_alert
+                            linked = followup.get("active_items", [])
+                            ref_str = ", ".join(i.get("ref","?") for i in linked[:3])
+                            send_alert(
+                                event_type="buyer_followup",
+                                title=f"📩 Buyer follow-up: {subject[:50]}",
+                                body=f"From {followup.get('sender_email','')} re: {ref_str}. Routed to CS — check /outbox.",
+                                urgency="normal",
+                                cooldown_key=f"followup_{uid}",
+                            )
+                        except Exception:
+                            pass
+                        self._processed.add(uid)
+                        continue
+                    # ── END REPLY DETECTION ────────────────────────────────────
+
                     if not is_rfq_email(subject, body, pdf_names):
                         # Check if it's a shipping/tracking email
                         try:

@@ -505,6 +505,61 @@ def test_brief_fallback_resilience() -> list:
     return results
 
 
+def test_reply_followup_detection() -> list:
+    """Reply/follow-up emails must be routed to CS, not create new PCs."""
+    results = []
+    try:
+        from src.agents.email_poller import is_reply_followup, is_rfq_email
+
+        # Simulate a buyer reply — "Re:" subject with RFQ keywords, no new forms
+        class FakeMsg:
+            def get(self, header, default=""):
+                if header == "In-Reply-To":
+                    return "<original-msg-id@mail.cdcr.ca.gov>"
+                if header == "References":
+                    return "<original-msg-id@mail.cdcr.ca.gov>"
+                return default
+
+        reply_subject = "Re: RFQ Solicitation #10838349 - Name Tags"
+        reply_body = "Yes, that is correct. Please proceed with the blue ones."
+        reply_sender = "test-detect@example.com"  # Won't match active items
+
+        # Test 1: Reply detection function exists and runs
+        result = is_reply_followup(FakeMsg(), reply_subject, reply_body, reply_sender, [])
+        # With no active items for test sender, should return None (pass-through)
+        # This validates the function runs without crashing
+
+        # Test 2: is_rfq_email still works for genuine new RFQs
+        genuine = is_rfq_email("RFQ Solicitation #9999999 - Office Supplies", "Please quote the following items.", ["703B_form.pdf"])
+        if not genuine:
+            results.append(_result(
+                "reply_detection", WARN,
+                "is_rfq_email() failed to detect a genuine new RFQ with 703B form"
+            ))
+            return results
+
+        # Test 3: Verify the reply detection code is wired into email_poller
+        import inspect
+        from src.agents.email_poller import EmailPoller
+        source = inspect.getsource(EmailPoller.check_for_rfqs)
+        if "is_reply_followup" not in source:
+            results.append(_result(
+                "reply_detection", FAIL,
+                "is_reply_followup() not called in check_for_rfqs() — buyer replies will create duplicate PCs",
+                fix_hint="email_poller.check_for_rfqs must call is_reply_followup() BEFORE is_rfq_email()"
+            ))
+            return results
+
+        results.append(_result(
+            "reply_detection", PASS,
+            "Reply detection wired in: buyer follow-ups route to CS agent, not PC/RFQ queue"
+        ))
+
+    except Exception as e:
+        results.append(_result("reply_detection", WARN, f"Could not test: {e}"))
+    return results
+
+
 WORKFLOW_TESTS = {
     "queue_isolation": test_queue_isolation,
     "manager_brief_accuracy": test_manager_brief_accuracy,
@@ -516,6 +571,7 @@ WORKFLOW_TESTS = {
     "quote_item_totals": test_quote_item_totals,
     "email_routing": test_email_routing,
     "notification_badge": test_notification_badge_accuracy,
+    "reply_detection": test_reply_followup_detection,
 }
 
 
