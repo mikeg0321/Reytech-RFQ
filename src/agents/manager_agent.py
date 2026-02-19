@@ -137,7 +137,7 @@ def _get_pending_approvals() -> list:
         if actionable_rfqs:
             # Sort by due date if available
             actionable_rfqs.sort(key=lambda x: x.get("due_date", "9999"), reverse=False)
-            for rfq in actionable_rfqs[:3]:
+            for rfq in actionable_rfqs:
                 sol = rfq.get("solicitation_number", "?")
                 req = rfq.get("requestor_name", rfq.get("requestor_email", "?"))
                 status = rfq.get("status", "new")
