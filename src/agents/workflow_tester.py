@@ -601,16 +601,18 @@ def test_growth_data_integrity() -> list:
                 "No prospect data yet — Growth Engine not activated"
             ))
 
-        # ── Test 2: Outreach email content quality (GC- campaigns only) ──
-        # DISTRO- campaigns are legacy mass-distribution; GC- are personalized growth outreach
+        # ── Test 2: Outreach email content quality ──
+        # Skip DISTRO-* legacy mass-distribution campaigns (old template, can't change)
         if isinstance(outreach_data, dict) and outreach_data.get("campaigns"):
             empty_bodies = 0
             total_entries = 0
             generic_count = 0
+            skipped_distro = 0
             for camp in outreach_data["campaigns"]:
                 camp_id = camp.get("id", "")
-                # Only check growth campaigns (GC-*), not legacy DISTRO-* mass emails
-                if not camp_id.startswith("GC-"):
+                # Skip legacy DISTRO mass emails — old template, not personalized
+                if camp_id.upper().startswith("DISTRO"):
+                    skipped_distro += 1
                     continue
                 for entry in camp.get("outreach", []):
                     total_entries += 1
@@ -622,11 +624,9 @@ def test_growth_data_integrity() -> list:
 
             if total_entries == 0:
                 all_entries = sum(len(c.get("outreach", [])) for c in outreach_data["campaigns"])
-                gc_count = sum(1 for c in outreach_data["campaigns"] if c.get("id", "").startswith("GC-"))
-                distro_count = len(outreach_data["campaigns"]) - gc_count
                 msg = f"{all_entries} emails across {len(outreach_data['campaigns'])} campaigns"
-                if distro_count:
-                    msg += f" ({distro_count} legacy DISTRO campaigns skipped)"
+                if skipped_distro:
+                    msg += f" ({skipped_distro} legacy DISTRO skipped)"
                 results.append(_result("growth_outreach_quality", PASS, msg))
             elif empty_bodies > 0:
                 results.append(_result(

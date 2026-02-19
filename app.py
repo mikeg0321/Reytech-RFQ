@@ -4,6 +4,21 @@ Reytech RFQ — Application Entry Point
 Creates Flask app and registers the dashboard Blueprint.
 """
 
+# ── Clear stale bytecode BEFORE any imports ──
+# Railway's persistent volume caches .pyc across deploys, causing old code to run.
+import sys, pathlib
+sys.dont_write_bytecode = True
+for _pyc in pathlib.Path(__file__).parent.rglob("*.pyc"):
+    try:
+        _pyc.unlink()
+    except OSError:
+        pass
+for _cache in pathlib.Path(__file__).parent.rglob("__pycache__"):
+    try:
+        _cache.rmdir()
+    except OSError:
+        pass
+
 import os
 import logging
 from flask import Flask
