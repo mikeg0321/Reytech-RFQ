@@ -1,0 +1,989 @@
+# Price Check Routes
+# 26 routes, 985 lines
+# Loaded by dashboard.py via load_module()
+
+# Price Check Pages (v6.2)
+# ═══════════════════════════════════════════════════════════════════════
+
+@bp.route("/pricecheck/<pcid>")
+@auth_required
+def pricecheck_detail(pcid):
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        flash("Price Check not found", "error"); return redirect("/")
+
+    items = pc.get("items", [])
+    header = pc.get("parsed", {}).get("header", {})
+
+    items_html = ""
+    for idx, item in enumerate(items):
+        p = item.get("pricing", {})
+        # Clean description for display (strip font specs, dimensions, etc.)
+        raw_desc = item.get("description_raw") or item.get("description", "")
+        display_desc = item.get("description", raw_desc)
+        if PRICE_CHECK_AVAILABLE and raw_desc:
+            display_desc = clean_description(raw_desc)
+            # Persist cleaned version back
+            if display_desc != item.get("description"):
+                item["description"] = display_desc
+                item["description_raw"] = raw_desc
+        # Cost sources
+        amazon_cost = p.get("amazon_price")
+        scprs_cost = p.get("scprs_price")
+        # Best available cost
+        unit_cost = p.get("unit_cost") or amazon_cost or scprs_cost or 0
+        # Markup and final price
+        markup_pct = p.get("markup_pct", 25)
+        final_price = p.get("recommended_price") or (round(unit_cost * (1 + markup_pct/100), 2) if unit_cost else 0)
+
+        amazon_str = f"${amazon_cost:.2f}" if amazon_cost else "—"
+        amazon_data = f'data-amazon="{amazon_cost:.2f}"' if amazon_cost else 'data-amazon="0"'
+        scprs_str = f"${scprs_cost:.2f}" if scprs_cost else "—"
+        cost_str = f"{unit_cost:.2f}" if unit_cost else ""
+        final_str = f"{final_price:.2f}" if final_price else ""
+        qty = item.get("qty", 1)
+        ext = f"${final_price * qty:.2f}" if final_price else "—"
+
+        # Amazon match link + ASIN
+        title = (p.get("amazon_title") or "")[:40]
+        url = p.get("amazon_url", "")
+        asin = p.get("amazon_asin", "")
+        link_parts = []
+        if url and title:
+            link_parts.append(f'<a href="{url}" target="_blank" title="{p.get("amazon_title","")}">{title}</a>')
+        if asin:
+            link_parts.append(f'<span style="color:#58a6ff;font-size:10px;font-family:JetBrains Mono,monospace">ASIN: {asin}</span>')
+        link = "<br>".join(link_parts) if link_parts else "—"
+
+        # SCPRS confidence indicator
+        scprs_conf = p.get("scprs_confidence", 0)
+        scprs_badge = ""
+        if scprs_cost:
+            color = "#3fb950" if scprs_conf > 0.7 else ("#d29922" if scprs_conf > 0.4 else "#8b949e")
+            scprs_badge = f' <span style="color:{color};font-size:10px" title="Confidence: {scprs_conf:.0%}">●</span>'
+
+        # Confidence grade if scored
+        conf = item.get("confidence", {})
+        grade = conf.get("grade", "")
+        grade_color = {"A": "#3fb950", "B": "#58a6ff", "C": "#d29922", "F": "#f85149"}.get(grade, "#8b949e")
+        grade_html = f'<span style="color:{grade_color};font-weight:bold">{grade}</span>' if grade else "—"
+
+        # Per-item profit
+        item_profit = round((final_price - unit_cost) * qty, 2) if (final_price and unit_cost) else 0
+        profit_color = "#3fb950" if item_profit > 0 else ("#f85149" if item_profit < 0 else "#8b949e")
+        profit_str = f'<span style="color:{profit_color}">${item_profit:.2f}</span>' if (final_price and unit_cost) else "—"
+        
+        # No-bid state
+        no_bid = item.get("no_bid", False)
+        bid_checked = "" if no_bid else "checked"
+        row_opacity = "opacity:0.4" if no_bid else ""
+
+        items_html += f"""<tr style="{row_opacity}" data-row="{idx}">
+         <td style="text-align:center"><input type="checkbox" name="bid_{idx}" {bid_checked} onchange="toggleBid({idx},this)" style="width:18px;height:18px;cursor:pointer"></td>
+         <td><input type="number" name="itemnum_{idx}" value="{item.get('item_number','')}" class="num-in sm" style="width:40px"></td>
+         <td><input type="number" name="qty_{idx}" value="{qty}" class="num-in sm" style="width:55px" onchange="recalcPC()"></td>
+         <td><input type="text" name="uom_{idx}" value="{item.get('uom','EA').upper()}" class="text-in" style="width:45px;text-transform:uppercase;text-align:center;font-weight:600"></td>
+         <td><textarea name="desc_{idx}" class="text-in" style="width:100%;min-height:38px;resize:vertical;font-family:inherit;font-size:13px;line-height:1.4;padding:6px 8px" title="{raw_desc.replace('"','&quot;').replace('<','&lt;')}">{display_desc.replace('&','&amp;').replace('<','&lt;').replace('>','&gt;')}</textarea></td>
+         <td style="font-weight:600;font-size:14px">{scprs_str}{scprs_badge}</td>
+         <td style="font-weight:600;font-size:14px" {amazon_data}>{amazon_str}</td>
+         <td style="font-size:12px;max-width:180px">{link}</td>
+         <td><input type="number" step="0.01" min="0" name="cost_{idx}" value="{cost_str}" class="num-in" onchange="recalcRow({idx})"></td>
+         <td><input type="number" step="1" min="0" max="200" name="markup_{idx}" value="{markup_pct}" class="num-in sm" style="width:48px" onchange="recalcRow({idx})"><span style="color:#8b949e;font-size:13px">%</span></td>
+         <td><input type="number" step="0.01" min="0" name="price_{idx}" value="{final_str}" class="num-in" onchange="recalcPC()"></td>
+         <td class="ext" style="font-weight:600;font-size:14px">{ext}</td>
+         <td class="profit" style="font-size:14px">{profit_str}</td>
+         <td style="text-align:center;font-size:15px">{grade_html}</td>
+        </tr>"""
+
+    download_html = ""
+    if pc.get("output_pdf") and os.path.exists(pc.get("output_pdf", "")):
+        fname = os.path.basename(pc["output_pdf"])
+        download_html += f'<a href="/api/pricecheck/download/{fname}" class="btn btn-sm btn-g" style="font-size:13px">📥 Download 704</a>'
+    if pc.get("reytech_quote_pdf") and os.path.exists(pc.get("reytech_quote_pdf", "")):
+        qfname = os.path.basename(pc["reytech_quote_pdf"])
+        qnum = pc.get("reytech_quote_number", "")
+        download_html += f' <a href="/api/pricecheck/download/{qfname}" class="btn btn-sm" style="background:#1a3a5c;color:#fff;font-size:13px">📥 Quote {qnum}</a>'
+
+    # 45-day expiry from TODAY (not upload date)
+    try:
+        expiry = datetime.now() + timedelta(days=45)
+        expiry_date = expiry.strftime("%m/%d/%Y")
+    except Exception as e:
+        log.debug("Suppressed: %s", e)
+        expiry_date = (datetime.now() + timedelta(days=45)).strftime("%m/%d/%Y")
+    today_date = datetime.now().strftime("%m/%d/%Y")
+
+    # Delivery dropdown state
+    saved_delivery = pc.get("delivery_option", "5-7 business days")
+    preset_options = ("3-5 business days", "5-7 business days", "7-14 business days")
+    is_custom = saved_delivery not in preset_options and saved_delivery != ""
+    del_sel = {opt: ("selected" if saved_delivery == opt else "") for opt in preset_options}
+    del_sel["custom"] = "selected" if is_custom else ""
+    # Default to 5-7 if nothing saved
+    if not any(del_sel.values()):
+        del_sel["5-7 business days"] = "selected"
+    custom_val = saved_delivery if is_custom else ""
+    custom_display = "inline-block" if is_custom else "none"
+
+    # Pre-compute next quote number preview
+    next_quote_preview = peek_next_quote_number() if QUOTE_GEN_AVAILABLE else ""
+    
+    html = build_pc_detail_html(
+        pcid=pcid, pc=pc, items=items, items_html=items_html,
+        download_html=download_html, expiry_date=expiry_date,
+        header=header, custom_val=custom_val, custom_display=custom_display,
+        del_sel=del_sel, next_quote_preview=next_quote_preview,
+        today_date=today_date
+    )
+    return html
+
+
+@bp.route("/pricecheck/<pcid>/lookup")
+@auth_required
+def pricecheck_lookup(pcid):
+    """Run Amazon lookup for all items in a Price Check."""
+    if not PRICE_CHECK_AVAILABLE:
+        return jsonify({"ok": False, "error": "price_check.py not available"})
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"})
+
+    parsed = pc.get("parsed", {})
+    parsed = lookup_prices(parsed)
+    pc["parsed"] = parsed
+    pc["items"] = parsed.get("line_items", [])
+    _transition_status(pc, "priced", actor="user", notes="Prices saved")
+    _save_price_checks(pcs)
+
+    found = sum(1 for i in pc["items"] if i.get("pricing", {}).get("amazon_price"))
+    return jsonify({"ok": True, "found": found, "total": len(pc["items"])})
+
+
+@bp.route("/pricecheck/<pcid>/scprs-lookup")
+@auth_required
+def pricecheck_scprs_lookup(pcid):
+    """Run SCPRS Won Quotes lookup for all items."""
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"})
+
+    items = pc.get("items", [])
+    found = 0
+    if PRICING_ORACLE_AVAILABLE:
+        for item in items:
+            try:
+                matches = find_similar_items(
+                    item_number=item.get("item_number", ""),
+                    description=item.get("description", ""),
+                )
+                if matches:
+                    best = matches[0]
+                    quote = best.get("quote", best)
+                    if not item.get("pricing"):
+                        item["pricing"] = {}
+                    item["pricing"]["scprs_price"] = quote.get("unit_price")
+                    item["pricing"]["scprs_match"] = quote.get("description", "")[:60]
+                    item["pricing"]["scprs_confidence"] = best.get("match_confidence", 0)
+                    found += 1
+            except Exception as e:
+                log.error(f"SCPRS lookup error: {e}")
+
+    pc["items"] = items
+    pc["parsed"]["line_items"] = items
+    _save_price_checks(pcs)
+    return jsonify({"ok": True, "found": found, "total": len(items)})
+
+
+@bp.route("/pricecheck/<pcid>/rename", methods=["POST"])
+@auth_required
+def pricecheck_rename(pcid):
+    """Rename a price check's display number."""
+    pcs = _load_price_checks()
+    if pcid not in pcs:
+        return jsonify({"ok": False, "error": "PC not found"})
+    data = request.get_json(silent=True) or {}
+    new_name = data.get("pc_number", "").strip()
+    if not new_name:
+        return jsonify({"ok": False, "error": "Name cannot be empty"})
+    pcs[pcid]["pc_number"] = new_name
+    _save_price_checks(pcs)
+    log.info("RENAME PC %s → %s", pcid, new_name)
+    return jsonify({"ok": True, "pc_number": new_name})
+
+
+@bp.route("/pricecheck/<pcid>/save-prices", methods=["POST"])
+@auth_required
+def pricecheck_save_prices(pcid):
+    """Save manually edited prices, costs, and markups from the UI."""
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"})
+
+    data = request.json or {}
+    items = pc.get("items", [])
+    
+    # Save tax state
+    pc["tax_enabled"] = data.get("tax_enabled", False)
+    pc["tax_rate"] = data.get("tax_rate", 0)
+    pc["delivery_option"] = data.get("delivery_option", "5-7 business days")
+    pc["custom_notes"] = data.get("custom_notes", "")
+    pc["price_buffer"] = data.get("price_buffer", 0)
+    pc["default_markup"] = data.get("default_markup", 25)
+    
+    for key, val in data.items():
+        try:
+            if key in ("tax_enabled", "tax_rate"):
+                continue
+            parts = key.split("_", 1)
+            if len(parts) != 2:
+                continue
+            field_type = parts[0]
+            idx = int(parts[1])
+            # Expand items list if new rows were added via UI
+            while idx >= len(items):
+                items.append({"item_number": "", "qty": 1, "uom": "ea",
+                              "description": "", "pricing": {}})
+            if 0 <= idx < len(items):
+                if field_type in ("price", "cost", "markup"):
+                    if not items[idx].get("pricing"):
+                        items[idx]["pricing"] = {}
+                    if field_type == "price":
+                        items[idx]["pricing"]["recommended_price"] = float(val) if val else None
+                    elif field_type == "cost":
+                        items[idx]["pricing"]["unit_cost"] = float(val) if val else None
+                    elif field_type == "markup":
+                        items[idx]["pricing"]["markup_pct"] = float(val) if val else 25
+                elif field_type == "qty":
+                    items[idx]["qty"] = int(val) if val else 1
+                elif field_type == "desc":
+                    items[idx]["description"] = str(val) if val else ""
+                elif field_type == "uom":
+                    items[idx]["uom"] = str(val).upper() if val else "EA"
+                elif field_type == "itemno":
+                    items[idx]["item_number"] = str(val) if val else ""
+                elif field_type == "bid":
+                    items[idx]["no_bid"] = not bool(val)
+        except (ValueError, IndexError):
+            pass
+
+    pc["items"] = items
+    pc["parsed"]["line_items"] = items
+    _save_price_checks(pcs)
+    return jsonify({"ok": True})
+
+
+@bp.route("/pricecheck/<pcid>/generate")
+@auth_required
+def pricecheck_generate(pcid):
+    """Generate completed Price Check PDF and ingest into Won Quotes KB."""
+    if not PRICE_CHECK_AVAILABLE:
+        return jsonify({"ok": False, "error": "price_check.py not available"})
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"})
+
+    from src.forms.price_check import fill_ams704
+    parsed = pc.get("parsed", {})
+    source_pdf = pc.get("source_pdf", "")
+    if not source_pdf or not os.path.exists(source_pdf):
+        return jsonify({"ok": False, "error": "Source PDF not found"})
+
+    pc_num = pc.get("pc_number", "unknown")
+    safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', pc_num.strip())
+    output_path = os.path.join(DATA_DIR, f"PC_{safe_name}_Reytech_.pdf")
+
+    result = fill_ams704(
+        source_pdf=source_pdf,
+        parsed_pc=parsed,
+        output_pdf=output_path,
+        tax_rate=pc.get("tax_rate", 0) if pc.get("tax_enabled") else 0.0,
+        custom_notes=pc.get("custom_notes", ""),
+        delivery_option=pc.get("delivery_option", ""),
+    )
+
+    if result.get("ok"):
+        pc["output_pdf"] = output_path
+        _transition_status(pc, "completed", actor="system", notes="704 PDF filled")
+        pc["summary"] = result.get("summary", {})
+        _save_price_checks(pcs)
+
+        # Ingest completed prices into Won Quotes KB for future reference
+        _ingest_pc_to_won_quotes(pc)
+
+        return jsonify({"ok": True, "download": f"/api/pricecheck/download/{os.path.basename(output_path)}"})
+    return jsonify({"ok": False, "error": result.get("error", "Unknown error")})
+
+
+@bp.route("/pricecheck/<pcid>/generate-quote")
+@auth_required
+def pricecheck_generate_quote(pcid):
+    """Generate a standalone Reytech-branded quote PDF from a Price Check."""
+    if not QUOTE_GEN_AVAILABLE:
+        return jsonify({"ok": False, "error": "quote_generator.py not available"})
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"})
+
+    pc_num = pc.get("pc_number", "unknown")
+    safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', pc_num.strip())
+    output_path = os.path.join(DATA_DIR, f"Quote_{safe_name}_Reytech.pdf")
+
+    # Lock-in: reuse existing quote number if already assigned
+    locked_qn = pc.get("reytech_quote_number", "")
+
+    result = generate_quote_from_pc(
+        pc, output_path,
+        include_tax=pc.get("tax_enabled", False),
+        tax_rate=pc.get("tax_rate", 0.0725) if pc.get("tax_enabled") else 0.0,
+        quote_number=locked_qn if locked_qn else None,
+    )
+
+    if result.get("ok"):
+        pc["reytech_quote_pdf"] = output_path
+        pc["reytech_quote_number"] = result.get("quote_number", "")
+        _save_price_checks(pcs)
+        # CRM: log quote generation
+        _log_crm_activity(result.get("quote_number", ""), "quote_generated",
+                          f"Quote {result.get('quote_number','')} generated — ${result.get('total',0):,.2f} for {pc.get('institution','')}",
+                          actor="user", metadata={"institution": pc.get("institution",""), "agency": result.get("agency","")})
+        return jsonify({
+            "ok": True,
+            "download": f"/api/pricecheck/download/{os.path.basename(output_path)}",
+            "quote_number": result.get("quote_number"),
+        })
+    return jsonify({"ok": False, "error": result.get("error", "Unknown error")})
+
+
+def _ingest_pc_to_won_quotes(pc):
+    """Ingest completed Price Check pricing into Won Quotes KB."""
+    if not PRICING_ORACLE_AVAILABLE:
+        return
+    try:
+        items = pc.get("items", [])
+        institution = pc.get("institution", "")
+        pc_num = pc.get("pc_number", "")
+        for item in items:
+            pricing = item.get("pricing", {})
+            price = pricing.get("recommended_price")
+            if not price:
+                continue
+            ingest_scprs_result({
+                "po_number": f"PC-{pc_num}",
+                "item_number": item.get("item_number", ""),
+                "description": item.get("description", ""),
+                "unit_price": price,
+                "supplier": "Reytech Inc.",
+                "department": institution,
+                "award_date": datetime.now().strftime("%Y-%m-%d"),
+                "source": "price_check",
+            })
+        log.info(f"Ingested {len(items)} items from PC #{pc_num} into Won Quotes KB")
+    except Exception as e:
+        log.error(f"KB ingestion error: {e}")
+
+
+@bp.route("/pricecheck/<pcid>/convert-to-quote")
+@auth_required
+def pricecheck_convert_to_quote(pcid):
+    """Convert a Price Check into a full RFQ with 704A/B and Bid Package."""
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"})
+
+    items = pc.get("items", [])
+    header = pc.get("parsed", {}).get("header", {})
+
+    # Build RFQ record from PC data
+    rfq_id = str(uuid.uuid4())[:8]
+    line_items = []
+    for item in items:
+        pricing = item.get("pricing", {})
+        li = {
+            "item_number": item.get("item_number", ""),
+            "description": item.get("description", ""),
+            "qty": item.get("qty", 1),
+            "uom": item.get("uom", "ea"),
+            "qty_per_uom": item.get("qty_per_uom", 1),
+            "unit_cost": pricing.get("unit_cost") or pricing.get("amazon_price") or 0,
+            "supplier_cost": pricing.get("unit_cost") or pricing.get("amazon_price") or 0,
+            "our_price": pricing.get("recommended_price") or 0,
+            "markup_pct": pricing.get("markup_pct", 25),
+            "scprs_last_price": pricing.get("scprs_price"),
+            "supplier_source": pricing.get("price_source", "price_check"),
+            "supplier_url": pricing.get("amazon_url", ""),
+        }
+        line_items.append(li)
+
+    rfq = {
+        "id": rfq_id,
+        "solicitation_number": f"PC-{pc.get('pc_number', 'unknown')}",
+        "requestor_name": header.get("requestor", pc.get("requestor", "")),
+        "requestor_email": "",
+        "department": header.get("institution", pc.get("institution", "")),
+        "ship_to": pc.get("ship_to", ""),
+        "delivery_zip": header.get("zip_code", ""),
+        "due_date": pc.get("due_date", ""),
+        "phone": header.get("phone", ""),
+        "line_items": line_items,
+        "status": "pending",
+        "source": "price_check",
+        "source_pc_id": pcid,
+        "is_test": pcid.startswith("test_") or pc.get("is_test", False),
+        "award_method": "all_or_none",
+        "created_at": datetime.now().isoformat(),
+    }
+
+    rfqs = load_rfqs()
+    rfqs[rfq_id] = rfq
+    save_rfqs(rfqs)
+
+    # Update PC status
+    _transition_status(pc, "completed", actor="system", notes="Reytech quote generated")
+    pc["converted_rfq_id"] = rfq_id
+    _save_price_checks(pcs)
+
+    return jsonify({"ok": True, "rfq_id": rfq_id})
+
+
+@bp.route("/api/resync")
+@auth_required
+def api_resync():
+    """Clear entire queue + reset processed UIDs + re-poll inbox."""
+    log.info("Full resync triggered — clearing queue and re-polling")
+    # 1. Clear queue
+    save_rfqs({})
+    # 2. Reset processed UIDs
+    proc_file = os.path.join(DATA_DIR, "processed_emails.json")
+    if os.path.exists(proc_file):
+        os.remove(proc_file)
+        log.info("Cleared processed_emails.json")
+    # 3. Reset poller so it rebuilds
+    global _shared_poller
+    _shared_poller = None
+    # 4. Re-poll
+    imported = do_poll_check()
+    return jsonify({
+        "ok": True,
+        "cleared": True,
+        "found": len(imported),
+        "rfqs": [{"id": r["id"], "sol": r.get("solicitation_number", "?")} for r in imported],
+        "last_check": POLL_STATUS.get("last_check"),
+    })
+
+
+def _remove_processed_uid(uid):
+    """Remove a single UID from processed_emails.json."""
+    proc_file = os.path.join(DATA_DIR, "processed_emails.json")
+    if not os.path.exists(proc_file):
+        return
+    try:
+        with open(proc_file) as f:
+            processed = json.load(f)
+        if isinstance(processed, list) and uid in processed:
+            processed.remove(uid)
+            with open(proc_file, "w") as f:
+                json.dump(processed, f)
+            log.info(f"Removed UID {uid} from processed list")
+        elif isinstance(processed, dict) and uid in processed:
+            del processed[uid]
+            with open(proc_file, "w") as f:
+                json.dump(processed, f)
+    except Exception as e:
+        log.error(f"Error removing UID: {e}")
+
+
+@bp.route("/api/clear-queue")
+@auth_required
+def api_clear_queue():
+    """Clear all RFQs from the queue."""
+    save_rfqs({})
+    return jsonify({"ok": True, "message": "Queue cleared"})
+
+
+@bp.route("/dl/<rid>/<fname>")
+@auth_required
+def download(rid, fname):
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r: return redirect("/")
+    p = os.path.join(OUTPUT_DIR, r["solicitation_number"], fname)
+    if os.path.exists(p): return send_file(p, as_attachment=True)
+    flash("File not found", "error"); return redirect(f"/rfq/{rid}")
+
+
+@bp.route("/api/scprs/<rid>")
+@auth_required
+def api_scprs(rid):
+    """SCPRS lookup API endpoint for the dashboard JS."""
+    log.info("SCPRS lookup requested for RFQ %s", rid)
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r: return jsonify({"error": "not found"})
+    
+    results = []
+    errors = []
+    for item in r["line_items"]:
+        try:
+            from src.agents.scprs_lookup import lookup_price, _build_search_terms
+            item_num = item.get("item_number")
+            desc = item.get("description")
+            search_terms = _build_search_terms(item_num, desc)
+            result = lookup_price(item_num, desc)
+            if result:
+                result["searched"] = search_terms
+                results.append(result)
+                # v6.0: Auto-ingest into Won Quotes KB
+                if PRICING_ORACLE_AVAILABLE and result.get("price"):
+                    try:
+                        ingest_scprs_result(
+                            po_number=result.get("po_number", ""),
+                            item_number=item_num or "",
+                            description=desc or "",
+                            unit_price=result["price"],
+                            quantity=1,
+                            supplier=result.get("vendor", ""),
+                            department=result.get("department", ""),
+                            award_date=result.get("date", ""),
+                            source=result.get("source", "scprs_live"),
+                        )
+                    except Exception as e:
+                        log.debug("Suppressed: %s", e)
+                        pass  # Never let KB ingestion break the lookup flow
+            else:
+                results.append({
+                    "price": None,
+                    "note": f"No SCPRS data found",
+                    "item_number": item_num,
+                    "description": (desc or "")[:80],
+                    "searched": search_terms,
+                })
+        except Exception as e:
+            import traceback
+            results.append({"price": None, "error": str(e), "traceback": traceback.format_exc()})
+            errors.append(str(e))
+    
+    return jsonify({"results": results, "errors": errors if errors else None})
+
+
+@bp.route("/api/scprs-test")
+@auth_required
+def api_scprs_test():
+    """SCPRS search test — ?q=stryker+xpr"""
+    q = request.args.get("q", "stryker xpr")
+    try:
+        from src.agents.scprs_lookup import test_search
+        return jsonify(test_search(q))
+    except Exception as e:
+        import traceback
+        return jsonify({"error": str(e), "traceback": traceback.format_exc()})
+
+
+@bp.route("/api/scprs-raw")
+@auth_required
+def api_scprs_raw():
+    """Raw SCPRS debug — shows HTML field IDs found in search results."""
+    q = request.args.get("q", "stryker xpr")
+    try:
+        from src.agents.scprs_lookup import _get_session, _discover_grid_ids, SCPRS_SEARCH_URL, SEARCH_BUTTON, ALL_SEARCH_FIELDS, FIELD_DESCRIPTION
+        from bs4 import BeautifulSoup
+        
+        session = _get_session()
+        if not session.initialized:
+            session.init_session()
+        
+        # Load search page
+        page = session._load_page(2)
+        icsid = session._extract_icsid(page)
+        if icsid: session.icsid = icsid
+        
+        # POST search
+        sv = {f: "" for f in ALL_SEARCH_FIELDS}
+        sv[FIELD_DESCRIPTION] = q
+        fd = session._build_form_data(page, SEARCH_BUTTON, sv)
+        r = session.session.post(SCPRS_SEARCH_URL, data=fd, timeout=30)
+        html = r.text
+        soup = BeautifulSoup(html, "html.parser")
+        
+        import re
+        count = re.search(r'(\d+)\s+to\s+(\d+)\s+of\s+(\d+)', html)
+        discovered = _discover_grid_ids(soup, "ZZ_SCPR_RD_DVW")
+        
+        # Sample row 0 values
+        row0 = {}
+        for suffix in discovered:
+            eid = f"ZZ_SCPR_RD_DVW_{suffix}$0"
+            el = soup.find(id=eid)
+            val = el.get_text(strip=True) if el else None
+            row0[eid] = val
+        
+        # Also check for link-style elements
+        link0 = soup.find("a", id="ZZ_SCPR_RD_DVW_CRDMEM_ACCT_NBR$0")
+        
+        # Broad scan: find ALL element IDs ending in $0
+        all_row0_ids = {}
+        for el in soup.find_all(id=re.compile(r'\$0$')):
+            eid = el.get('id', '')
+            if eid and ('SCPR' in eid or 'DVW' in eid or 'RSLT' in eid):
+                all_row0_ids[eid] = el.get_text(strip=True)[:80]
+        
+        # Also discover with correct prefix
+        discovered2 = _discover_grid_ids(soup, "ZZ_SCPR_RSLT_VW")
+        
+        # Table class scan
+        tables = [(t.get("class",""), t.get("id",""), len(t.find_all("tr")))
+                  for t in soup.find_all("table") if t.get("class")]
+        grid_tables = [t for t in tables if "PSLEVEL1GRID" in str(t[0])]
+        
+        return jsonify({
+            "query": q, "status": r.status_code, "size": len(html),
+            "result_count": count.group(0) if count else "none",
+            "id_discovered_RD_DVW": list(discovered.keys()),
+            "id_discovered_RSLT_VW": list(discovered2.keys()),
+            "all_row0_ids": all_row0_ids,
+            "row0_values": row0,
+            "po_link_found": link0.get_text(strip=True) if link0 else None,
+            "grid_tables": grid_tables[:5],
+        })
+    except Exception as e:
+        import traceback
+        return jsonify({"error": str(e), "traceback": traceback.format_exc()})
+
+
+@bp.route("/api/status")
+@auth_required
+def api_status():
+    return jsonify({
+        "poll": POLL_STATUS,
+        "scprs_db": get_price_db_stats(),
+        "rfqs": len(load_rfqs()),
+    })
+
+
+@bp.route("/api/poll-now")
+@auth_required
+def api_poll_now():
+    """Manual trigger: check email inbox right now."""
+    try:
+        imported = do_poll_check()
+        return jsonify({
+            "ok": True,
+            "found": len(imported),
+            "rfqs": [{"id": r["id"], "sol": r.get("solicitation_number", "?")} for r in imported],
+            "last_check": POLL_STATUS.get("last_check"),
+            "error": POLL_STATUS.get("error"),
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "found": 0, "error": str(e)})
+
+
+@bp.route("/api/diag")
+@auth_required
+def api_diag():
+    """Diagnostic endpoint — shows email config, connection test, and inbox status."""
+    import traceback
+    try:
+        return _api_diag_inner()
+    except Exception as e:
+        return jsonify({"error": str(e), "traceback": traceback.format_exc()})
+
+def _api_diag_inner():
+    import traceback
+    email_cfg = CONFIG.get("email", {})
+    addr = email_cfg.get("email", "NOT SET")
+    has_pw = bool(email_cfg.get("email_password"))
+    host = email_cfg.get("imap_host", "imap.gmail.com")
+    port = email_cfg.get("imap_port", 993)
+    
+    diag = {
+        "config": {
+            "email_address": addr,
+            "has_password": has_pw,
+            "password_length": len(email_cfg.get("email_password", "")),
+            "imap_host": host,
+            "imap_port": port,
+            "imap_folder": email_cfg.get("imap_folder", "INBOX"),
+        },
+        "env_vars": {
+            "GMAIL_ADDRESS_set": bool(os.environ.get("GMAIL_ADDRESS")),
+            "GMAIL_PASSWORD_set": bool(os.environ.get("GMAIL_PASSWORD")),
+            "GMAIL_ADDRESS_value": os.environ.get("GMAIL_ADDRESS", "NOT SET"),
+        },
+        "poll_status": POLL_STATUS,
+        "connection_test": None,
+        "inbox_test": None,
+    }
+    
+    # Test IMAP connection
+    try:
+        import imaplib
+        mail = imaplib.IMAP4_SSL(host, port)
+        diag["connection_test"] = "SSL connected OK"
+        
+        try:
+            mail.login(addr, email_cfg.get("email_password", ""))
+            diag["connection_test"] = f"Logged in as {addr} OK"
+            
+            try:
+                mail.select("INBOX")
+                # Check total
+                status, messages = mail.search(None, "ALL")
+                total = len(messages[0].split()) if status == "OK" and messages[0] else 0
+                # Check recent (last 3 days) — same as poller
+                since_date = (datetime.now() - timedelta(days=3)).strftime("%d-%b-%Y")
+                status3, recent = mail.uid("search", None, f"(SINCE {since_date})")
+                recent_count = len(recent[0].split()) if status3 == "OK" and recent[0] else 0
+                
+                # Check how many already processed
+                proc_file = os.path.join(DATA_DIR, "processed_emails.json")
+                processed_uids = set()
+                if os.path.exists(proc_file):
+                    try:
+                        with open(proc_file) as pf:
+                            processed_uids = set(json.load(pf))
+                    except Exception as e:
+
+                        log.debug("Suppressed: %s", e)
+                
+                recent_uids = recent[0].split() if status3 == "OK" and recent[0] else []
+                new_to_process = [u.decode() for u in recent_uids if u.decode() not in processed_uids]
+                
+                diag["inbox_test"] = {
+                    "total_emails": total,
+                    "recent_3_days": recent_count,
+                    "already_processed": recent_count - len(new_to_process),
+                    "new_to_process": len(new_to_process),
+                }
+                
+                # Show subjects of emails that would be processed
+                if new_to_process:
+                    subjects = []
+                    for uid_str in new_to_process[:5]:
+                        st, data = mail.uid("fetch", uid_str.encode(), "(BODY.PEEK[HEADER.FIELDS (SUBJECT FROM)])")
+                        if st == "OK":
+                            subjects.append(data[0][1].decode("utf-8", errors="replace").strip())
+                    diag["inbox_test"]["new_email_subjects"] = subjects
+                
+            except Exception as e:
+                diag["inbox_test"] = f"SELECT/SEARCH failed: {e}"
+            
+            mail.logout()
+        except imaplib.IMAP4.error as e:
+            diag["connection_test"] = f"LOGIN FAILED: {e}"
+        except Exception as e:
+            diag["connection_test"] = f"LOGIN ERROR: {e}"
+    except Exception as e:
+        diag["connection_test"] = f"SSL CONNECT FAILED: {e}"
+        diag["connection_traceback"] = traceback.format_exc()
+    
+    # Check processed emails file
+    proc_file = email_cfg.get("processed_file", "data/processed_emails.json")
+    if os.path.exists(proc_file):
+        try:
+            with open(proc_file) as f:
+                processed = json.load(f)
+            diag["processed_emails"] = {"count": len(processed), "ids": processed[-10:] if isinstance(processed, list) else list(processed)[:10]}
+        except Exception as e:
+            log.debug("Suppressed: %s", e)
+            diag["processed_emails"] = "corrupt file"
+    else:
+        diag["processed_emails"] = "file not found"
+    
+    # SCPRS diagnostics
+    diag["scprs"] = {
+        "db_stats": get_price_db_stats(),
+        "db_exists": os.path.exists(os.path.join(BASE_DIR, "data", "scprs_prices.json")),
+    }
+    try:
+        from src.agents.scprs_lookup import test_connection
+        import threading
+        result = [False, "timeout"]
+        def _test():
+            try:
+                result[0], result[1] = test_connection()
+            except Exception as ex:
+                result[1] = str(ex)
+        t = threading.Thread(target=_test, daemon=True)
+        t.start()
+        t.join(timeout=15)  # Max 15 seconds for connectivity test (may need 2-3 loads)
+        diag["scprs"]["fiscal_reachable"] = result[0]
+        diag["scprs"]["fiscal_status"] = result[1]
+    except Exception as e:
+        diag["scprs"]["fiscal_reachable"] = False
+        diag["scprs"]["fiscal_error"] = str(e)
+    
+    return jsonify(diag)
+
+
+@bp.route("/api/reset-processed")
+@auth_required
+def api_reset_processed():
+    """Clear the processed emails list so all recent emails get re-scanned."""
+    global _shared_poller
+    proc_file = os.path.join(DATA_DIR, "processed_emails.json")
+    if os.path.exists(proc_file):
+        os.remove(proc_file)
+    _shared_poller = None  # Force new poller instance
+    return jsonify({"ok": True, "message": "Processed emails list cleared. Hit Check Now to re-scan."})
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Pricing Oracle API (v6.0)
+# ═══════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/pricing/recommend", methods=["POST"])
+@auth_required
+def api_pricing_recommend():
+    """Get three-tier pricing recommendation for an RFQ's line items."""
+    if not PRICING_ORACLE_AVAILABLE:
+        return jsonify({"error": "Pricing oracle not available — check won_quotes_db.py and pricing_oracle.py are in repo"}), 503
+
+    data = request.get_json() or {}
+    rid = data.get("rfq_id")
+
+    if rid:
+        rfqs = load_rfqs()
+        rfq = rfqs.get(rid)
+        if not rfq:
+            return jsonify({"error": f"RFQ {rid} not found"}), 404
+        result = recommend_prices_for_rfq(rfq, config_overrides=data.get("config"))
+    else:
+        result = recommend_prices_for_rfq(data, config_overrides=data.get("config"))
+
+    return jsonify(result)
+
+
+@bp.route("/api/won-quotes/search")
+@auth_required
+def api_won_quotes_search():
+    """Search the Won Quotes Knowledge Base."""
+    if not PRICING_ORACLE_AVAILABLE:
+        return jsonify({"error": "Won Quotes DB not available"}), 503
+
+    query = request.args.get("q", "")
+    item_number = request.args.get("item", "")
+    max_results = int(request.args.get("max", 10))
+
+    if not query and not item_number:
+        return jsonify({"error": "Provide ?q=description or ?item=number"}), 400
+
+    results = find_similar_items(
+        item_number=item_number,
+        description=query,
+        max_results=max_results,
+    )
+    return jsonify({"query": query, "item_number": item_number, "results": results})
+
+
+@bp.route("/api/won-quotes/stats")
+@auth_required
+def api_won_quotes_stats():
+    """Get Won Quotes KB statistics and pricing health check."""
+    if not PRICING_ORACLE_AVAILABLE:
+        return jsonify({"error": "Won Quotes DB not available"}), 503
+
+    stats = get_kb_stats()
+    health = pricing_health_check()
+    return jsonify({"stats": stats, "health": health})
+
+
+@bp.route("/api/won-quotes/dump")
+@auth_required
+def api_won_quotes_dump():
+    """Debug: show first 10 raw KB records to verify what's stored."""
+    if not PRICING_ORACLE_AVAILABLE:
+        return jsonify({"error": "Won Quotes DB not available"}), 503
+    from src.knowledge.won_quotes_db import load_won_quotes
+    quotes = load_won_quotes()
+    return jsonify({"total": len(quotes), "first_10": quotes[:10]})
+
+
+@bp.route("/api/debug/paths")
+@auth_required
+def api_debug_paths():
+    """Debug: show actual filesystem paths and what exists."""
+    try:
+        from src.knowledge import won_quotes_db
+    except ImportError:
+        import won_quotes_db
+    results = {
+        "dashboard_BASE_DIR": BASE_DIR,
+        "dashboard_DATA_DIR": DATA_DIR,
+        "won_quotes_DATA_DIR": won_quotes_db.DATA_DIR,
+        "won_quotes_FILE": won_quotes_db.WON_QUOTES_FILE,
+        "cwd": os.getcwd(),
+        "app_file_location": os.path.abspath(__file__),
+    }
+    # Check what exists
+    for path_name, path_val in list(results.items()):
+        if path_val and os.path.exists(path_val):
+            if os.path.isdir(path_val):
+                try:
+                    results[f"{path_name}_contents"] = os.listdir(path_val)
+                except Exception as e:
+                    log.debug("Suppressed: %s", e)
+                    results[f"{path_name}_contents"] = "permission denied"
+            else:
+                results[f"{path_name}_exists"] = True
+                results[f"{path_name}_size"] = os.path.getsize(path_val)
+        else:
+            results[f"{path_name}_exists"] = False
+    # Check /app/data specifically
+    for check_path in ["/app/data", "/app", DATA_DIR]:
+        key = check_path.replace("/", "_")
+        results[f"check{key}_exists"] = os.path.exists(check_path)
+        if os.path.exists(check_path) and os.path.isdir(check_path):
+            try:
+                results[f"check{key}_contents"] = os.listdir(check_path)
+            except Exception as e:
+                log.debug("Suppressed: %s", e)
+                results[f"check{key}_contents"] = "permission denied"
+    return jsonify(results)
+
+
+@bp.route("/api/won-quotes/migrate")
+@auth_required
+def api_won_quotes_migrate():
+    """One-time migration: import existing scprs_prices.json into Won Quotes KB."""
+    try:
+        from src.agents.scprs_lookup import migrate_local_db_to_won_quotes
+        result = migrate_local_db_to_won_quotes()
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/won-quotes/seed")
+@auth_required
+def api_won_quotes_seed():
+    """Start bulk SCPRS seed: searches ~20 common categories, drills into PO details,
+    ingests unit prices into Won Quotes KB. Runs in background thread (~3-5 min)."""
+    try:
+        from src.agents.scprs_lookup import bulk_seed_won_quotes, SEED_STATUS
+        if SEED_STATUS.get("running"):
+            return jsonify({"ok": False, "message": "Seed already running", "status": SEED_STATUS})
+        t = threading.Thread(target=bulk_seed_won_quotes, daemon=True)
+        t.start()
+        return jsonify({"ok": True, "message": "Seed started in background. Check progress at /api/won-quotes/seed-status"})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/won-quotes/seed-status")
+@auth_required
+def api_won_quotes_seed_status():
+    """Check progress of bulk SCPRS seed job."""
+    try:
+        from src.agents.scprs_lookup import SEED_STATUS
+        return jsonify(SEED_STATUS)
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
