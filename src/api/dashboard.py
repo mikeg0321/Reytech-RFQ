@@ -884,6 +884,208 @@ def _update_order_status(oid: str):
 from src.api.templates import BASE_CSS, PAGE_HOME, PAGE_DETAIL, build_pc_detail_html, build_quotes_page_content, PAGE_CRM, DEBUG_PAGE_HTML
 
 # ═══════════════════════════════════════════════════════════════════════
+# Shared Manager Brief (app-wide) + Header JS
+# ═══════════════════════════════════════════════════════════════════════
+
+BRIEF_HTML = """<!-- Manager Brief — app-wide, loads via AJAX with sessionStorage cache -->
+<div id="brief-section" class="card" style="margin-bottom:14px;display:none">
+ <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">
+  <div style="min-width:0;flex:1">
+   <div class="card-t" style="margin:0;display:flex;align-items:center;gap:8px;cursor:pointer" onclick="toggleBriefBody()">
+    &#x1F9E0; Manager Brief
+    <span id="brief-badge" style="font-size:10px;padding:2px 8px;border-radius:10px;background:var(--sf2);color:var(--tx2);font-weight:500"></span>
+    <span id="brief-toggle" style="font-size:10px;color:var(--tx2);margin-left:4px">&#x25BC;</span>
+   </div>
+   <div id="brief-headline" style="font-size:15px;font-weight:600;margin-top:8px;line-height:1.4"></div>
+  </div>
+  <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
+   <a href="/agents" class="btn btn-sm btn-s" style="font-size:10px;padding:4px 10px;white-space:nowrap">&#x1F4CA; Full Report</a>
+   <button onclick="loadBrief(true)" id="brief-refresh-btn" style="font-size:10px;padding:4px 8px;background:rgba(79,140,255,.1);border:1px solid rgba(79,140,255,.3);color:var(--ac);border-radius:6px;cursor:pointer;white-space:nowrap">&#x1F504; Refresh</button>
+  </div>
+ </div>
+ <div id="brief-body">
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px" id="brief-grid">
+   <div>
+    <div style="font-size:11px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;display:flex;align-items:center;gap:6px">
+     Needs Your Attention <span id="approval-count" class="brief-count"></span>
+    </div>
+    <div id="approvals-list"></div>
+   </div>
+   <div>
+    <div style="font-size:11px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Recent Activity</div>
+    <div id="activity-list"></div>
+   </div>
+  </div>
+  <div id="pipeline-bar" style="display:flex;gap:12px;flex-wrap:wrap;margin-top:16px;padding-top:14px;border-top:1px solid var(--bd)"></div>
+  <div id="agents-row" style="display:none;margin-top:16px;padding-top:14px;border-top:1px solid var(--bd)">
+   <div style="font-size:10px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">Agent Status</div>
+   <div id="agents-list" style="display:flex;gap:10px;flex-wrap:wrap"></div>
+  </div>
+ </div>
+</div>"""
+
+# Brief JS — sessionStorage cached (60s), instant on page nav, background refresh when stale
+BRIEF_JS = """
+function toggleBriefBody(){
+ var body=document.getElementById('brief-body');var tog=document.getElementById('brief-toggle');
+ if(!body)return;
+ if(body.style.display==='none'){body.style.display='';tog.innerHTML='\\u25BC';}
+ else{body.style.display='none';tog.innerHTML='\\u25B6';}
+}
+function loadBrief(force){
+ var btn=document.getElementById('brief-refresh-btn');
+ if(!document.getElementById('brief-section'))return;
+ // SessionStorage cache — instant render on page nav
+ if(!force){
+  try{
+   var cached=sessionStorage.getItem('_brief_data');
+   var cachedTs=parseInt(sessionStorage.getItem('_brief_ts')||'0',10);
+   if(cached&&(Date.now()-cachedTs)<60000){
+    renderBrief(JSON.parse(cached));
+    // Background refresh if >30s old
+    if(Date.now()-cachedTs>30000){
+     fetch('/api/manager/brief',{credentials:'same-origin'}).then(function(r){return r.json()}).then(function(d){
+      if(d.ok){sessionStorage.setItem('_brief_data',JSON.stringify(d));sessionStorage.setItem('_brief_ts',''+Date.now());renderBrief(d)}
+     }).catch(function(){});
+    }
+    return;
+   }
+  }catch(e){}
+ }
+ if(btn){btn.disabled=true;btn.textContent='\\u23F3';}
+ var url='/api/manager/brief';if(force)url+='?nocache=1';
+ fetch(url,{credentials:'same-origin'}).then(function(r){
+  if(!r.ok)throw new Error('HTTP '+r.status);return r.json();
+ }).then(function(data){
+  if(!data.ok)return;
+  try{sessionStorage.setItem('_brief_data',JSON.stringify(data));sessionStorage.setItem('_brief_ts',''+Date.now())}catch(e){}
+  renderBrief(data);
+ }).catch(function(err){
+  console.error('Manager brief:',err);
+  var sec=document.getElementById('brief-section');if(sec)sec.style.display='block';
+  var badge=document.getElementById('brief-badge');
+  if(badge){badge.textContent='retry';badge.style.background='rgba(251,191,36,.15)';badge.style.color='#fbbf24';badge.style.cursor='pointer';badge.onclick=function(){loadBrief(true);};}
+  var hdr=document.getElementById('brief-headline');
+  if(hdr){hdr.textContent='Click Refresh to load brief';hdr.style.color='#8b949e';}
+ }).finally(function(){if(btn){btn.disabled=false;btn.textContent='\\u1F504 Refresh';}});
+}
+function renderBrief(data){
+ var sec=document.getElementById('brief-section');if(!sec)return;sec.style.display='block';
+ var hl=document.getElementById('brief-headline');if(hl)hl.textContent=data.headline||'All clear';
+ var badge=document.getElementById('brief-badge');
+ if(badge){if(data.approval_count>0){badge.textContent=data.approval_count+' pending';badge.style.background='rgba(251,191,36,.15)';badge.style.color='#fbbf24';}else{badge.textContent='all clear';badge.style.background='rgba(52,211,153,.15)';badge.style.color='#34d399';}}
+ var ac=document.getElementById('approval-count');if(ac&&data.approval_count>0)ac.textContent=data.approval_count;
+ var al=document.getElementById('approvals-list');
+ if(al){if(data.pending_approvals&&data.pending_approvals.length>0){al.innerHTML=data.pending_approvals.map(function(a){return '<div class="brief-item"><div class="brief-item-left"><span class="brief-icon">'+a.icon+'</span><div><div class="brief-title">'+a.title+'</div>'+(a.detail?'<div class="brief-detail">'+a.detail+'</div>':'')+'</div></div>'+(a.age?'<span class="brief-age">'+a.age+'</span>':'')+'</div>';}).join('');}else{al.innerHTML='<div class="brief-empty">Nothing pending \\u2014 all caught up</div>';}}
+ var actList=document.getElementById('activity-list');
+ if(actList){if(data.activity&&data.activity.length>0){actList.innerHTML=data.activity.map(function(a){return '<div class="brief-item"><div class="brief-item-left"><span class="brief-icon">'+a.icon+'</span><div><div class="brief-title">'+a.text+'</div>'+(a.detail?'<div class="brief-detail">'+a.detail+'</div>':'')+'</div></div>'+(a.age?'<span class="brief-age">'+a.age+'</span>':'')+'</div>';}).join('');}else{actList.innerHTML='<div class="brief-empty">No recent activity</div>';}}
+ var bar=document.getElementById('pipeline-bar');
+ if(bar){var s=data.summary||{};var q=s.quotes||{};var gr=s.growth||{};var ob=s.outbox||{};var rv=data.revenue||{};var ag=data.agents_summary||{};var stats=[{label:'Quotes',value:q.total||0,color:'var(--ac)'},{label:'Pipeline $',value:'$'+(q.pipeline_value||0).toLocaleString(),color:'var(--yl)'},{label:'Won $',value:'$'+(q.won_total||0).toLocaleString(),color:'var(--gn)'},{label:'Win Rate',value:(q.win_rate||0)+'%',color:q.win_rate>=50?'var(--gn)':'var(--yl)'},{label:'Growth',value:gr.total_prospects||0,color:'#bc8cff'},{label:'Agents',value:(ag.healthy||0)+'/'+(ag.total||0),color:ag.down>0?'var(--rd)':'var(--gn)'},{label:'Goal',value:rv.pct?rv.pct.toFixed(0)+'%':'0%',color:rv.pct>=50?'var(--gn)':rv.pct>=25?'var(--yl)':'var(--rd)'},{label:'Drafts',value:ob.drafts||0,color:ob.drafts>0?'var(--yl)':'var(--tx2)'}];bar.innerHTML=stats.map(function(s){return '<div class="stat-chip"><div class="stat-val" style="color:'+s.color+'">'+s.value+'</div><div class="stat-label">'+s.label+'</div></div>';}).join('');}
+ var agRow=document.getElementById('agents-row');var agList=document.getElementById('agents-list');
+ if(agRow&&agList&&data.agents&&data.agents.length>0){agRow.style.display='block';agList.innerHTML=data.agents.map(function(a){var isOk=a.status==='active'||a.status==='ready'||a.status==='connected';var isWait=a.status==='not configured'||a.status==='waiting';var color=isOk?'#3fb950':isWait?'#d29922':'#f85149';var bg=isOk?'rgba(52,211,153,.08)':isWait?'rgba(251,191,36,.08)':'rgba(248,113,113,.08)';var border=isOk?'rgba(52,211,153,.25)':isWait?'rgba(251,191,36,.25)':'rgba(248,113,113,.25)';return '<span style="font-size:13px;padding:8px 14px;border-radius:8px;background:'+bg+';border:1px solid '+border+';display:inline-flex;align-items:center;gap:7px;font-weight:500"><span style="width:10px;height:10px;border-radius:50%;background:'+color+';display:inline-block;flex-shrink:0;box-shadow:0 0 6px '+color+'66"></span><span style="font-size:15px">'+a.icon+'</span><span>'+a.name+'</span></span>';}).join('');}
+}
+loadBrief();
+"""
+
+# Shared header JS — pollNow, resync, notifications, poll time. Injected into BOTH render() and _header() pages.
+SHARED_HEADER_JS = """
+function _updatePollTime(ts){
+ var el=document.getElementById('poll-time');
+ if(el&&ts){el.dataset.utc=ts;try{var d=new Date(ts);if(!isNaN(d)){el.textContent=d.toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true})}}catch(e){el.textContent=ts}}
+}
+function pollNow(btn){
+ btn.disabled=true;btn.setAttribute('aria-busy','true');btn.textContent='Checking...';
+ fetch('/api/poll-now',{credentials:'same-origin'}).then(function(r){return r.json()}).then(function(d){
+  _updatePollTime(d.last_check);
+  if(d.found>0){btn.textContent=d.found+' found!';setTimeout(function(){location.reload()},800)}
+  else{btn.textContent='No new emails';setTimeout(function(){btn.textContent='\\u26A1 Check Now';btn.disabled=false;btn.removeAttribute('aria-busy')},2000)}
+ }).catch(function(){btn.textContent='Error';setTimeout(function(){btn.textContent='\\u26A1 Check Now';btn.disabled=false;btn.removeAttribute('aria-busy')},2000)});
+}
+function resyncAll(btn){
+ if(!confirm('Clear all RFQs and re-import from email?'))return;
+ btn.disabled=true;btn.setAttribute('aria-busy','true');btn.textContent='Syncing...';
+ fetch('/api/resync',{credentials:'same-origin'}).then(function(r){return r.json()}).then(function(d){
+  _updatePollTime(d.last_check);
+  if(d.found>0){btn.textContent=d.found+' imported!';setTimeout(function(){location.reload()},800)}
+  else{btn.textContent='0 found';setTimeout(function(){btn.textContent='Resync';btn.disabled=false},2000)}
+ }).catch(function(){btn.textContent='Error';setTimeout(function(){btn.textContent='Resync';btn.disabled=false},2000)});
+}
+(function initBell(){
+  function updateBellCount(){
+    fetch('/api/notifications/bell-count',{credentials:'same-origin'})
+    .then(function(r){return r.json()}).then(function(d){
+      var badge=document.getElementById('notif-badge');
+      if(!badge||!d.ok)return;
+      var total=d.total_badge||0;
+      if(total>0){badge.textContent=total>99?'99+':total;badge.classList.add('show')}
+      else{badge.classList.remove('show')}
+      var csEl=document.getElementById('notif-cs-count');
+      if(csEl&&d.cs_drafts>0){csEl.textContent=d.cs_drafts+' CS draft(s)';csEl.style.display='inline'}
+      else if(csEl){csEl.style.display='none'}
+    }).catch(function(){});
+  }
+  updateBellCount();
+  setInterval(updateBellCount,30000);
+})();
+function toggleNotifPanel(){
+  var panel=document.getElementById('notif-panel');
+  if(!panel)return;
+  var isOpen=panel.classList.contains('open');
+  panel.classList.toggle('open');
+  if(!isOpen) loadNotifications();
+}
+function loadNotifications(){
+  fetch('/api/notifications/persistent?limit=20',{credentials:'same-origin'})
+  .then(function(r){return r.json()}).then(function(d){
+    var list=document.getElementById('notif-list');
+    if(!list)return;
+    if(!d.notifications||d.notifications.length===0){
+      list.innerHTML='<div class="notif-empty">No notifications yet.</div>';
+      return;
+    }
+    var IC={urgent:'\\u1F6A8',deal:'\\u1F4B0',draft:'\\u1F4CB',warning:'\\u23F0',info:'\\u2139\\uFE0F'};
+    list.innerHTML=d.notifications.map(function(n){
+      var ts=n.created_at?new Date(n.created_at).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true}):'';
+      var icon=IC[n.urgency]||'\\u1F514';
+      return '<div class="notif-item '+(n.is_read?'':'unread')+' urgency-'+(n.urgency||'info')+'" onclick="notifClick(&apos;'+n.deep_link+'&apos;,'+n.id+')">'
+        +'<div class="notif-item-title">'+icon+' '+(n.title||'')+'</div>'
+        +'<div class="notif-item-body">'+(n.body||'').substring(0,120)+'</div>'
+        +'<div class="notif-item-time">'+ts+'</div>'
+        +'</div>';
+    }).join('');
+  }).catch(function(){
+    var list=document.getElementById('notif-list');
+    if(list)list.innerHTML='<div class="notif-empty">Could not load notifications.</div>';
+  });
+}
+function notifClick(link,id){
+  if(id) fetch('/api/notifications/mark-read',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:[id]})});
+  if(link&&link!=='/'){window.location.href=link}
+  var p=document.getElementById('notif-panel');if(p)p.classList.remove('open');
+}
+function markAllRead(){
+  fetch('/api/notifications/mark-read',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({})})
+  .then(function(){
+    var b=document.getElementById('notif-badge');if(b)b.classList.remove('show');
+    loadNotifications();
+  });
+}
+document.addEventListener('click',function(e){
+  var wrap=document.getElementById('notif-wrap');
+  if(wrap&&!wrap.contains(e.target)){
+    var panel=document.getElementById('notif-panel');
+    if(panel)panel.classList.remove('open');
+  }
+});
+(function(){
+ var el=document.getElementById('poll-time');
+ if(el&&el.dataset.utc){
+  try{var d=new Date(el.dataset.utc);if(!isNaN(d)){el.textContent=d.toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true})}}catch(e){}
+ }
+})();
+"""
+
+# ═══════════════════════════════════════════════════════════════════════
 # Routes
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -961,122 +1163,9 @@ def render(content, **kw):
 {{% with messages = get_flashed_messages(with_categories=true) %}}
  {{% for cat, msg in messages %}}<div class="alert al-{{'s' if cat=='success' else 'e' if cat=='error' else 'i'}}" role="alert" aria-live="assertive">{{% if cat=='success' %}}✅{{% elif cat=='error' %}}❌{{% else %}}ℹ️{{% endif %}} {{{{msg}}}}</div>{{% endfor %}}
 {{% endwith %}}
-""" + content + """
+""" + BRIEF_HTML + content + """
 </main>
-<script>
-function _updatePollTime(ts){
- var el=document.getElementById('poll-time');
- if(el&&ts){el.dataset.utc=ts;try{var d=new Date(ts);if(!isNaN(d)){el.textContent=d.toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true})}}catch(e){el.textContent=ts}}
-}
-function pollNow(btn){
- btn.disabled=true;btn.setAttribute('aria-busy','true');btn.textContent='Checking...';
- fetch('/api/poll-now',{credentials:'same-origin'}).then(r=>r.json()).then(d=>{
-  _updatePollTime(d.last_check);
-  if(d.found>0){btn.textContent=d.found+' found!';setTimeout(()=>location.reload(),800)}
-  else{btn.textContent='No new emails';setTimeout(()=>{btn.textContent='⚡ Check Now';btn.disabled=false;btn.removeAttribute('aria-busy')},2000)}
- }).catch(()=>{btn.textContent='Error';setTimeout(()=>{btn.textContent='⚡ Check Now';btn.disabled=false;btn.removeAttribute('aria-busy')},2000)});
-}
-function resyncAll(btn){
- if(!confirm('Clear all RFQs and re-import from email?'))return;
- btn.disabled=true;btn.setAttribute('aria-busy','true');btn.textContent='🔄 Syncing...';
- fetch('/api/resync',{credentials:'same-origin'}).then(r=>r.json()).then(d=>{
-  _updatePollTime(d.last_check);
-  if(d.found>0){btn.textContent=d.found+' imported!';setTimeout(()=>location.reload(),800)}
-  else{btn.textContent='0 found';setTimeout(()=>{btn.textContent='🔄 Resync';btn.disabled=false},2000)}
- }).catch(()=>{btn.textContent='Error';setTimeout(()=>{btn.textContent='🔄 Resync';btn.disabled=false},2000)});
-}
-
-// ── Notification Bell ──────────────────────────────────────────────────────
-(function initBell(){
-  // Poll badge count every 30s
-  function updateBellCount(){
-    fetch('/api/notifications/bell-count',{credentials:'same-origin'})
-    .then(r=>r.json()).then(d=>{
-      var badge=document.getElementById('notif-badge');
-      var btn=document.getElementById('notif-bell-btn');
-      if(!badge||!d.ok)return;
-      var total=d.total_badge||0;
-      if(total>0){badge.textContent=total>99?'99+':total;badge.classList.add('show')}
-      else{badge.classList.remove('show')}
-      // CS drafts warning
-      var csEl=document.getElementById('notif-cs-count');
-      if(csEl&&d.cs_drafts>0){csEl.textContent=d.cs_drafts+' CS draft(s)';csEl.style.display='inline'}
-      else if(csEl){csEl.style.display='none'}
-    }).catch(()=>{});
-  }
-  updateBellCount();
-  setInterval(updateBellCount,30000);
-})();
-
-function toggleNotifPanel(){
-  var panel=document.getElementById('notif-panel');
-  if(!panel)return;
-  var isOpen=panel.classList.contains('open');
-  panel.classList.toggle('open');
-  if(!isOpen) loadNotifications();
-}
-
-function loadNotifications(){
-  fetch('/api/notifications/persistent?limit=20',{credentials:'same-origin'})
-  .then(r=>r.json()).then(d=>{
-    var list=document.getElementById('notif-list');
-    if(!list)return;
-    if(!d.notifications||d.notifications.length===0){
-      list.innerHTML='<div class="notif-empty">No notifications yet.<br><small style="color:var(--tx2)">You’ll get alerts for new RFQs, CS drafts, and won quotes.</small></div>';
-      return;
-    }
-    var URGENCY_ICON={urgent:'🚨',deal:'💰',draft:'📋',warning:'⏰',info:'ℹ️'};
-    list.innerHTML=d.notifications.map(n=>{
-      var ts=n.created_at?new Date(n.created_at).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true}):'';
-      var icon=URGENCY_ICON[n.urgency]||'🔔';
-      return '<div class="notif-item '+(n.is_read?'':'unread')+' urgency-'+(n.urgency||'info')+'" onclick="notifClick(&apos;'+n.deep_link+'&apos;,'+n.id+')">'
-        +'<div class="notif-item-title">'+icon+' '+(n.title||'')+'</div>'
-        +'<div class="notif-item-body">'+(n.body||'').substring(0,120)+'</div>'
-        +'<div class="notif-item-time">'+ts+'</div>'
-        +'</div>';
-    }).join('');
-  }).catch(()=>{
-    var list=document.getElementById('notif-list');
-    if(list)list.innerHTML='<div class="notif-empty">Could not load notifications.</div>';
-  });
-}
-
-function notifClick(link,id){
-  // Mark read
-  if(id) fetch('/api/notifications/mark-read',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:[id]})});
-  // Navigate
-  if(link&&link!=='/'){window.location.href=link}
-  document.getElementById('notif-panel').classList.remove('open');
-}
-
-function markAllRead(){
-  fetch('/api/notifications/mark-read',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({})})
-  .then(()=>{
-    document.getElementById('notif-badge').classList.remove('show');
-    loadNotifications();
-  });
-}
-
-// Close panel on outside click
-document.addEventListener('click',function(e){
-  var wrap=document.getElementById('notif-wrap');
-  if(wrap&&!wrap.contains(e.target)){
-    var panel=document.getElementById('notif-panel');
-    if(panel)panel.classList.remove('open');
-  }
-});
-
-// Convert poll time to local
-(function(){
- var el=document.getElementById('poll-time');
- if(el && el.dataset.utc){
-  try{
-   var d=new Date(el.dataset.utc);
-   if(!isNaN(d)){el.textContent=d.toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true})}
-  }catch(e){}
- }
-})();
-</script>
+<script>""" + SHARED_HEADER_JS + BRIEF_JS + """</script>
 </div></body></html>"""
     return render_template_string(html, **kw)
 
@@ -1151,7 +1240,7 @@ def _header(page_title: str = "") -> str:
   </div>
  </div>
 </div>
-<div class="ctr">"""
+<div class="ctr">""" + BRIEF_HTML + "<script>" + SHARED_HEADER_JS + BRIEF_JS + "</script>"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
