@@ -205,13 +205,23 @@ def peek_next_quote_number() -> str:
 
 VALID_STATUSES = ("pending", "won", "lost", "draft", "sent", "expired")
 
-def get_all_quotes() -> list:
+def get_all_quotes(include_test: bool = False) -> list:
+    """Return all quotes. By default excludes test/QA quotes."""
     path = os.path.join(DATA_DIR, "quotes_log.json")
     try:
         with open(path) as f:
-            return json.load(f)
+            quotes = json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
-        return []
+        quotes = []
+    if include_test:
+        return quotes
+    # Filter out test quotes — TEST-/QA- prefixed numbers or is_test flag
+    return [q for q in quotes if not (
+        q.get("is_test") or
+        str(q.get("quote_number", "")).startswith("TEST-") or
+        str(q.get("quote_number", "")).startswith("QA-") or
+        str(q.get("source_pc_id", "")).startswith("test_")
+    )]
 
 def _save_all_quotes(quotes: list):
     path = os.path.join(DATA_DIR, "quotes_log.json")
@@ -346,6 +356,13 @@ def _log_quote(result: dict):
                 existing_idx = i
                 break
     
+    # Determine if this is a test quote — never let test data touch real records
+    is_test = bool(
+        result.get("is_test") or
+        (qn and (str(qn).startswith("TEST-") or str(qn).startswith("QA-"))) or
+        result.get("source_pc_id", "").startswith("test_")
+    )
+
     entry = {
         "quote_number":  qn,
         "date":          result.get("date"),
@@ -364,10 +381,23 @@ def _log_quote(result: dict):
         "ship_to_name":  result.get("ship_to_name", ""),
         "ship_to_address": result.get("ship_to_address", []),
         "requestor":     result.get("requestor") or result.get("contact_name", ""),
+        "contact_name":  result.get("contact_name") or result.get("requestor", ""),
         "email":         result.get("email") or result.get("requestor_email", ""),
         "phone":         result.get("phone") or result.get("contact_phone", ""),
         "source":        result.get("source", ""),
+        "is_test":       is_test,
     }
+
+    # TEST GUARD: test quotes never write to SQLite or appear in real data
+    if is_test:
+        log.info("Test quote %s logged with is_test=True — excluded from real records", qn)
+        existing = [q for q in get_all_quotes() if q.get("quote_number") != qn]
+        entry["status"] = "pending"
+        entry["created_at"] = datetime.now().isoformat()
+        entry["status_history"] = []
+        existing.append(entry)
+        _save_all_quotes(existing)
+        return  # Do NOT write test quotes to SQLite
     
     if existing_idx is not None:
         # UPDATE existing — preserve status, history, and created_at

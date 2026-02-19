@@ -1,235 +1,35 @@
 [
   {
     "quote_number": "R26Q16",
-    "institution": "",
-    "agency": "",
-    "requestor": "Valentina",
-    "contact_name": "Valentina",
+    "institution": "CSP-Sacramento",
+    "agency": "CCHCS",
+    "requestor": "Valentina Demidenko",
+    "contact_name": "Valentina Demidenko",
     "email": "",
-    "phone": "",
+    "phone": "916-985-8610 x 6554",
     "status": "sent",
     "created_at": "2026-02-17T12:00:00",
     "sent_at": "2026-02-17T12:30:00",
-    "total": 0,
-    "line_items": [],
+    "total": 345.84,
+    "line_items": [
+      {
+        "item_number": 1,
+        "description": "Engraved two line name tag, black/white",
+        "qty": 22,
+        "uom": "ea",
+        "qty_per_uom": 1,
+        "unit_price": 15.72,
+        "extension": 345.84
+      }
+    ],
     "source": "email_pc",
-    "notes": "Price Comparison sent to Valentina. Live data on Railway.",
-    "is_test": false
-  },
-  {
-    "quote_number": "TEST-Q177",
-    "date": "Feb 18, 2026",
-    "agency": "CDCR",
-    "institution": "CSP-Sacramento (TEST)",
-    "rfq_number": "TEST-001",
-    "total": 2078.4,
-    "subtotal": 2078.4,
-    "tax": 0.0,
-    "items_count": 3,
-    "items_text": "Nitrile Exam Gloves, Medium, Box/100 | Hand Sanitizer, 8oz Pump Bottle | Stryker Patient Restraint Package, Standard",
-    "items_detail": [
-      {
-        "description": "Nitrile Exam Gloves, Medium, Box/100",
-        "part_number": "",
-        "qty": 50,
-        "unit_price": 12.99
-      },
-      {
-        "description": "Hand Sanitizer, 8oz Pump Bottle",
-        "part_number": "",
-        "qty": 100,
-        "unit_price": 12.99
-      },
-      {
-        "description": "Stryker Patient Restraint Package, Standard",
-        "part_number": "",
-        "qty": 10,
-        "unit_price": 12.99
-      }
-    ],
-    "pdf_path": "/home/claude/repo/data/Quote_TEST-001_Reytech.pdf",
-    "source_pc_id": "test_b48db6c1",
-    "source_rfq_id": "",
+    "notes": "PC# OS-Den-Feb | Due 2/17/26 08:00 AM PST | Net 45",
+    "is_test": false,
     "ship_to_name": "CSP-Sacramento",
-    "ship_to_address": [
-      "100 Prison Road",
-      "Represa",
-      "CA 95671"
-    ],
-    "requestor": "",
-    "email": "",
-    "phone": "",
-    "source": "",
-    "status": "pending",
-    "created_at": "2026-02-18T06:03:42.606168",
-    "status_history": [
-      {
-        "status": "pending",
-        "timestamp": "2026-02-18T06:03:42.606168",
-        "actor": "system"
-      }
-    ]
-  },
-  {
-    "quote_number": "TEST-Q906",
-    "date": "Feb 18, 2026",
-    "agency": "CDCR",
-    "institution": "CSP-Sacramento (TEST)",
-    "rfq_number": "TEST-001",
-    "total": 3998.4,
-    "subtotal": 3998.4,
+    "ship_to_address": "100 Prison Road, Represa, CA 95671",
+    "subtotal": 345.84,
     "tax": 0.0,
-    "items_count": 3,
-    "items_text": "Nitrile Exam Gloves, Medium, Box/100 | Hand Sanitizer, 8oz Pump Bottle | Stryker Patient Restraint Package, Standard",
-    "items_detail": [
-      {
-        "description": "Nitrile Exam Gloves, Medium, Box/100",
-        "part_number": "",
-        "qty": 50,
-        "unit_price": 24.99
-      },
-      {
-        "description": "Hand Sanitizer, 8oz Pump Bottle",
-        "part_number": "",
-        "qty": 100,
-        "unit_price": 24.99
-      },
-      {
-        "description": "Stryker Patient Restraint Package, Standard",
-        "part_number": "",
-        "qty": 10,
-        "unit_price": 24.99
-      }
-    ],
-    "pdf_path": "/home/claude/repo/data/Quote_TEST-001_Reytech.pdf",
-    "source_pc_id": "test_92970447",
-    "source_rfq_id": "",
-    "ship_to_name": "CSP-Sacramento",
-    "ship_to_address": [
-      "100 Prison Road",
-      "Represa",
-      "CA 95671"
-    ],
-    "requestor": "",
-    "email": "",
-    "phone": "",
-    "source": "",
-    "status": "pending",
-    "created_at": "2026-02-18T06:08:47.456069",
-    "status_history": [
-      {
-        "status": "pending",
-        "timestamp": "2026-02-18T06:08:47.456069",
-        "actor": "system"
-      }
-    ]
-  },
-  {
-    "quote_number": "TEST-Q214",
-    "date": "Feb 18, 2026",
-    "agency": "CDCR",
-    "institution": "CSP-Sacramento (TEST)",
-    "rfq_number": "TEST-001",
-    "total": 3998.4,
-    "subtotal": 3998.4,
-    "tax": 0.0,
-    "items_count": 3,
-    "items_text": "Nitrile Exam Gloves, Medium, Box/100 | Hand Sanitizer, 8oz Pump Bottle | Stryker Patient Restraint Package, Standard",
-    "items_detail": [
-      {
-        "description": "Nitrile Exam Gloves, Medium, Box/100",
-        "part_number": "",
-        "qty": 50,
-        "unit_price": 24.99
-      },
-      {
-        "description": "Hand Sanitizer, 8oz Pump Bottle",
-        "part_number": "",
-        "qty": 100,
-        "unit_price": 24.99
-      },
-      {
-        "description": "Stryker Patient Restraint Package, Standard",
-        "part_number": "",
-        "qty": 10,
-        "unit_price": 24.99
-      }
-    ],
-    "pdf_path": "/home/claude/repo/data/Quote_TEST-001_Reytech.pdf",
-    "source_pc_id": "test_52f8d1a9",
-    "source_rfq_id": "",
-    "ship_to_name": "CSP-Sacramento",
-    "ship_to_address": [
-      "100 Prison Road",
-      "Represa",
-      "CA 95671"
-    ],
-    "requestor": "",
-    "email": "",
-    "phone": "",
-    "source": "",
-    "status": "pending",
-    "created_at": "2026-02-18T06:09:12.948403",
-    "status_history": [
-      {
-        "status": "pending",
-        "timestamp": "2026-02-18T06:09:12.948403",
-        "actor": "system"
-      }
-    ]
-  },
-  {
-    "quote_number": "TEST-Q507",
-    "date": "Feb 18, 2026",
-    "agency": "CDCR",
-    "institution": "CSP-Sacramento (TEST)",
-    "rfq_number": "TEST-001",
-    "total": 3998.4,
-    "subtotal": 3998.4,
-    "tax": 0.0,
-    "items_count": 3,
-    "items_text": "Nitrile Exam Gloves, Medium, Box/100 | Hand Sanitizer, 8oz Pump Bottle | Stryker Patient Restraint Package, Standard",
-    "items_detail": [
-      {
-        "description": "Nitrile Exam Gloves, Medium, Box/100",
-        "part_number": "",
-        "qty": 50,
-        "unit_price": 24.99
-      },
-      {
-        "description": "Hand Sanitizer, 8oz Pump Bottle",
-        "part_number": "",
-        "qty": 100,
-        "unit_price": 24.99
-      },
-      {
-        "description": "Stryker Patient Restraint Package, Standard",
-        "part_number": "",
-        "qty": 10,
-        "unit_price": 24.99
-      }
-    ],
-    "pdf_path": "/home/claude/repo/data/Quote_TEST-001_Reytech.pdf",
-    "source_pc_id": "test_97ee9b5f",
-    "source_rfq_id": "",
-    "ship_to_name": "CSP-Sacramento",
-    "ship_to_address": [
-      "100 Prison Road",
-      "Represa",
-      "CA 95671"
-    ],
-    "requestor": "",
-    "email": "",
-    "phone": "",
-    "source": "",
-    "status": "pending",
-    "created_at": "2026-02-18T06:10:08.754785",
-    "status_history": [
-      {
-        "status": "pending",
-        "timestamp": "2026-02-18T06:10:08.754785",
-        "actor": "system"
-      }
-    ]
+    "items_count": 1,
+    "items_text": "Engraved two line name tag, black/white (22 ea)"
   }
 ]
