@@ -426,6 +426,7 @@ def process_rfq_email(rfq_email):
                     pcs = _load_price_checks()
                     if pc_id in pcs:
                         pcs[pc_id]["email_uid"] = email_uid
+                        pcs[pc_id]["email_subject"] = rfq_email.get("subject", "")
                         pcs[pc_id]["requestor"] = pcs[pc_id].get("requestor") or rfq_email.get("sender_name") or rfq_email.get("sender_email", "")
                         from src.api.modules.routes_rfq import _save_price_checks
                         _save_price_checks(pcs)

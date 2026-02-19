@@ -154,6 +154,187 @@ def _sender_has_active_item(sender_email):
         return None
 
 
+def is_recall_email(subject, body):
+    """Detect Outlook/Exchange recall requests.
+    
+    Pattern: Subject starts with 'Recall:' and body contains 'would like to recall'.
+    Returns the original subject being recalled, or None if not a recall.
+    
+    Examples:
+      Subject: "Recall: Quote - Med OS - 02.17.26"
+      Body: 'Demidenko, Valentina@CDCR would like to recall the message, "Quote - Med OS - 02.17.26".'
+    """
+    subj = (subject or "").strip()
+    body_text = (body or "")[:500].lower()
+    
+    # Must have Recall: prefix
+    recall_match = re.match(r'^Recall:\s*(.+)', subj, re.IGNORECASE)
+    if not recall_match:
+        return None
+    
+    original_subject = recall_match.group(1).strip()
+    
+    # Body confirmation (optional but strengthens detection)
+    if "would like to recall" in body_text or "recall the message" in body_text:
+        log.info("📨 Recall email detected: original subject = '%s'", original_subject)
+        return original_subject
+    
+    # Even without body match, Recall: prefix is strong enough
+    log.info("📨 Recall email detected (subject only): original subject = '%s'", original_subject)
+    return original_subject
+
+
+def handle_recall(original_subject):
+    """Process a recall: find matching PCs and delete them + free quote numbers.
+    
+    Matches by comparing the original recalled subject against PC numbers and
+    filenames in existing price checks.
+    
+    Returns list of deleted PC IDs.
+    """
+    deleted = []
+    try:
+        from src.api.dashboard import _load_price_checks, _save_price_checks
+        pcs = _load_price_checks()
+        
+        # Normalize the recalled subject for fuzzy matching
+        # "Quote - Med OS - 02.17.26" → extract the PC identifier part
+        recall_clean = original_subject.lower().strip()
+        # Remove common prefixes: "Quote - ", "Quote request - "
+        for prefix in ["quote request - ", "quote - ", "price check - ", "pc - "]:
+            if recall_clean.startswith(prefix):
+                recall_clean = recall_clean[len(prefix):]
+                break
+        recall_clean = recall_clean.strip()
+        
+        if not recall_clean:
+            log.warning("Recall: could not extract identifier from '%s'", original_subject)
+            return deleted
+        
+        # Find matching PCs
+        to_delete = []
+        for pcid, pc in pcs.items():
+            pc_num = (pc.get("pc_number") or "").lower().strip()
+            # Direct match on PC number
+            if recall_clean and recall_clean in pc_num:
+                to_delete.append(pcid)
+                continue
+            # Match on source PDF filename
+            source = (pc.get("source_pdf") or "").lower()
+            if recall_clean and recall_clean in source:
+                to_delete.append(pcid)
+                continue
+            # Match on original email subject
+            email_subject = (pc.get("email_subject") or "").lower()
+            if recall_clean and recall_clean in email_subject:
+                to_delete.append(pcid)
+                continue
+        
+        if not to_delete:
+            log.info("Recall: no matching PCs found for '%s'", original_subject)
+            return deleted
+        
+        # Delete each matching PC + cascade (quote, counter)
+        for pcid in to_delete:
+            result = _delete_price_check_cascade(pcid, pcs, reason=f"recalled: {original_subject}")
+            if result:
+                deleted.append(result)
+        
+        # Save updated PCs
+        _save_price_checks(pcs)
+        
+        # Recalculate counter after all deletes
+        _recalc_quote_counter()
+        
+        log.info("📨 Recall processed: deleted %d PCs for '%s': %s",
+                 len(deleted), original_subject, [d["pcid"] for d in deleted])
+        
+    except Exception as e:
+        log.error("Recall handling error: %s", e, exc_info=True)
+    
+    return deleted
+
+
+def _delete_price_check_cascade(pcid, pcs_dict, reason=""):
+    """Delete a PC from dict + SQLite + linked draft quote. 
+    Does NOT save pcs_dict or recalc counter (caller handles batch).
+    Returns info dict or None.
+    """
+    if pcid not in pcs_dict:
+        return None
+    
+    pc = pcs_dict[pcid]
+    pc_num = pc.get("pc_number", pcid)
+    linked_qn = pc.get("reytech_quote_number", "") or pc.get("linked_quote_number", "")
+    
+    # Remove from dict
+    del pcs_dict[pcid]
+    
+    # Remove from SQLite
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            conn.execute("DELETE FROM price_checks WHERE id=?", (pcid,))
+    except Exception as e:
+        log.debug("SQLite PC delete: %s", e)
+    
+    # Remove linked draft quote
+    quote_removed = False
+    if linked_qn:
+        try:
+            from src.forms.quote_generator import get_all_quotes, _save_all_quotes
+            all_quotes = get_all_quotes()
+            before = len(all_quotes)
+            all_quotes = [q for q in all_quotes
+                          if not (q.get("quote_number") == linked_qn
+                                  and q.get("status") in ("draft", "pending"))]
+            if len(all_quotes) < before:
+                _save_all_quotes(all_quotes)
+                quote_removed = True
+                try:
+                    from src.core.db import get_db
+                    with get_db() as conn:
+                        conn.execute("DELETE FROM quotes WHERE quote_number=? AND status IN ('draft','pending')", (linked_qn,))
+                except Exception:
+                    pass
+        except Exception as e:
+            log.debug("Quote cleanup: %s", e)
+    
+    log.info("DELETED PC %s (%s) — %s%s", pcid, pc_num, reason,
+             f" + quote {linked_qn}" if quote_removed else "")
+    
+    return {
+        "pcid": pcid,
+        "pc_number": pc_num,
+        "quote_removed": linked_qn if quote_removed else None,
+    }
+
+
+def _recalc_quote_counter():
+    """Recalculate quote counter to highest remaining quote number."""
+    try:
+        from src.forms.quote_generator import get_all_quotes, _load_counter, _save_counter
+        from src.api.dashboard import _load_price_checks
+        all_quotes = get_all_quotes()
+        max_seq = 0
+        for q in all_quotes:
+            qn = q.get("quote_number", "")
+            m = re.search(r'R\d{2}Q(\d+)', qn)
+            if m and not q.get("is_test"):
+                max_seq = max(max_seq, int(m.group(1)))
+        for rpc in _load_price_checks().values():
+            qn = rpc.get("reytech_quote_number", "") or ""
+            m = re.search(r'R\d{2}Q(\d+)', qn)
+            if m:
+                max_seq = max(max_seq, int(m.group(1)))
+        old = _load_counter()
+        if max_seq < old.get("seq", 0):
+            _save_counter({"year": old.get("year", 2026), "seq": max_seq})
+            log.info("Quote counter reset: Q%d → Q%d", old["seq"], max_seq)
+    except Exception as e:
+        log.debug("Counter recalc: %s", e)
+
+
 def is_reply_followup(msg, subject, body, sender, pdf_names):
     """Detect if this email is a REPLY/FOLLOW-UP to an existing thread,
     not a new RFQ submission.
@@ -442,6 +623,32 @@ class EmailPoller:
                     # Get PDF names without saving
                     pdf_names = self._get_pdf_names(msg)
                     
+                    # ── RECALL DETECTION — fires FIRST ─────────────────────
+                    # Outlook/Exchange recall requests delete the original PC
+                    # and free the quote number for reuse.
+                    recalled_subject = is_recall_email(subject, body)
+                    if recalled_subject:
+                        log.info("📨 Processing recall: '%s' from %s", recalled_subject, sender[:40])
+                        deleted_pcs = handle_recall(recalled_subject)
+                        if deleted_pcs:
+                            try:
+                                from src.agents.notify_agent import send_alert
+                                deleted_nums = [d["pc_number"] for d in deleted_pcs]
+                                freed_quotes = [d["quote_removed"] for d in deleted_pcs if d.get("quote_removed")]
+                                send_alert(
+                                    event_type="pc_recalled",
+                                    title=f"📨 PC recalled: {', '.join(deleted_nums)}",
+                                    body=f"Recall from {sender[:40]}. Deleted {len(deleted_pcs)} PC(s). "
+                                         f"Quote numbers freed: {', '.join(freed_quotes) or 'none'}.",
+                                    urgency="normal",
+                                    cooldown_key=f"recall_{uid}",
+                                )
+                            except Exception:
+                                pass
+                        self._processed.add(uid)
+                        continue
+                    # ── END RECALL DETECTION ──────────────────────────────────
+
                     # ── REPLY DETECTION — fires BEFORE is_rfq_email() ──────────
                     # Prevents pipeline pollution from buyer follow-ups/clarifications
                     # being logged as new PCs/RFQs.
@@ -597,7 +804,7 @@ class EmailPoller:
                                     pre_pc_num = pre_parsed.get("header", {}).get("price_check_number", "")
                                     pre_inst = pre_parsed.get("header", {}).get("institution", "")
                                     if pre_pc_num and pre_pc_num != "unknown" and pre_inst:
-                                        from src.api.modules.routes_rfq import _load_price_checks
+                                        from src.api.dashboard import _load_price_checks
                                         existing_pcs = _load_price_checks()
                                         for eid, epc in existing_pcs.items():
                                             if (epc.get("pc_number", "").strip() == pre_pc_num.strip()
