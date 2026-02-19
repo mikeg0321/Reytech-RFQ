@@ -362,18 +362,22 @@ fetch('/api/intel/revenue',{credentials:'same-origin'}).then(r=>r.json()).then(d
      <th style="width:56px;text-align:center">Items</th>
      <th style="width:74px;text-align:center">Quote</th>
      <th style="width:80px;text-align:center">Status</th>
+     <th style="width:32px"></th>
     </tr>
    </thead>
    <tbody>
     {% for id, pc in price_checks|dictsort(reverse=true) %}
-    <tr class="home-row" onclick="location.href='/pricecheck/{{id}}'">
-     <td><a href="/pricecheck/{{id}}" class="sol">#{{pc.pc_number}}</a></td>
-     <td style="font-weight:600">{{pc.institution}}</td>
+    <tr class="home-row" id="pc-row-{{id}}" onclick="location.href='/pricecheck/{{id}}'">
+     <td><a href="/pricecheck/{{id}}" class="sol">#{{pc.pc_number or '(blank)'}}</a></td>
+     <td style="font-weight:600">{{pc.institution or '—'}}</td>
      <td style="color:var(--tx2)">{{pc.requestor or '—'}}</td>
      <td class="mono">{{pc.due_date or '—'}}</td>
      <td style="text-align:center" class="mono">{{pc.get('items',[])|length}}</td>
      <td style="text-align:center">{% if pc.reytech_quote_number %}<span style="color:var(--gn);font-weight:600;font-family:'JetBrains Mono',monospace;font-size:12px">{{pc.reytech_quote_number}}</span>{% else %}—{% endif %}</td>
      <td style="text-align:center"><span class="badge b-{{pc.status}}">{{pc.status}}</span></td>
+     <td style="text-align:center" onclick="event.stopPropagation()">
+      <button onclick="deletePC('{{id}}',this)" title="Delete this PC" style="background:none;border:none;color:#484f58;cursor:pointer;font-size:14px;padding:2px 5px;border-radius:3px" onmouseover="this.style.color='#f85149'" onmouseout="this.style.color='#484f58'">✕</button>
+     </td>
     </tr>
     {% endfor %}
    </tbody>
@@ -488,6 +492,31 @@ document.querySelectorAll('details').forEach(d=>{
  });
 });
 
+    // ── Delete Price Check ─────────────────────────────────────────────────
+    function deletePC(id, btn) {
+      if (!confirm('Delete this Price Check? This cannot be undone.')) return;
+      btn.textContent = '⏳';
+      fetch('/api/pricecheck/' + id + '/delete', {method: 'POST', credentials: 'same-origin'})
+        .then(r => r.json())
+        .then(d => {
+          if (d.ok) {
+            const row = document.getElementById('pc-row-' + id);
+            if (row) row.remove();
+            // Update count
+            const hdr = document.querySelector('.card-t');
+            if (hdr && hdr.textContent.includes('Price Checks')) {
+              const remaining = document.querySelectorAll('[id^=pc-row-]').length;
+              hdr.textContent = 'Price Checks (' + remaining + ')';
+            }
+          } else {
+            btn.textContent = '✕';
+            alert('Delete failed: ' + (d.error || 'unknown'));
+          }
+        })
+        .catch(() => { btn.textContent = '✕'; });
+    }
+
+
 // ── Manager Brief (loads async) ──
 fetch('/api/manager/brief',{credentials:'same-origin'}).then(function(r){
  if(!r.ok) throw new Error('HTTP '+r.status);
@@ -589,12 +618,19 @@ fetch('/api/manager/brief',{credentials:'same-origin'}).then(function(r){
  }
 }).catch(function(err){
  console.error('Manager brief failed:',err);
+ // Show brief section with a retry-able error state (not a hard crash)
  var sec=document.getElementById('brief-section');
  sec.style.display='block';
- document.getElementById('brief-headline').textContent='Could not load brief — check console';
- document.getElementById('brief-badge').textContent='error';
- document.getElementById('brief-badge').style.background='rgba(248,113,113,.15)';
- document.getElementById('brief-badge').style.color='#f87171';
+ var badge=document.getElementById('brief-badge');
+ badge.textContent='retry';
+ badge.style.background='rgba(251,191,36,.15)';
+ badge.style.color='#fbbf24';
+ badge.style.cursor='pointer';
+ badge.onclick=function(){location.reload();};
+ var hdr=document.getElementById('brief-headline');
+ hdr.textContent='Dashboard loaded — click retry to refresh brief';
+ hdr.style.color='#8b949e';
+ // Still load KPI metrics (those are separate and usually work)
 });
 
 // ── KPI Dashboard (loads async) ──

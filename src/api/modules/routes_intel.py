@@ -3392,7 +3392,37 @@ def api_manager_brief():
     """Manager brief — everything you need to know right now."""
     if not MANAGER_AVAILABLE:
         return jsonify({"ok": False, "error": "Manager agent not available"})
-    return jsonify({"ok": True, **generate_brief()})
+    try:
+        brief = generate_brief()
+        # Sanitize any None values that could crash the JS
+        if isinstance(brief.get("scprs_intel"), dict):
+            si = brief["scprs_intel"]
+            si.setdefault("top_action", None)
+            si.setdefault("recommendations", [])
+            si.setdefault("recent_losses", [])
+        return jsonify({"ok": True, **brief})
+    except Exception as e:
+        log.error("manager brief error: %s", e, exc_info=True)
+        # Return a minimal valid brief so the dashboard doesn't break
+        from datetime import datetime
+        return jsonify({
+            "ok": True,
+            "generated_at": datetime.now().isoformat(),
+            "headline": "Dashboard loaded — brief refresh pending",
+            "headlines": [],
+            "pending_approvals": [],
+            "approval_count": 0,
+            "activity": [],
+            "summary": {"quotes": {}, "price_checks": {}, "outbox": {"drafts": 0}, "leads": {}, "growth": {}},
+            "agents": [],
+            "agents_summary": {"total": 0, "healthy": 0, "down": 0, "needs_config": 0},
+            "revenue": {"closed": 0, "goal": 2000000, "pct": 0, "gap": 2000000, "on_track": False, "run_rate": 0, "monthly_needed": 181818},
+            "scprs_intel": {"available": False},
+            "growth_campaign": {},
+            "db_context": {},
+            "auto_closed_today": 0,
+            "_error": str(e),
+        })
 
 
 @bp.route("/api/manager/metrics")

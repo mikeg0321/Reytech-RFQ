@@ -1150,6 +1150,164 @@ def api_won_quotes_seed_status():
         return jsonify({"error": str(e)})
 
 
+@bp.route("/api/pricecheck/<pcid>/delete", methods=["POST"])
+@auth_required
+def api_pricecheck_delete(pcid):
+    """Delete a price check by ID."""
+    pcs = _load_price_checks()
+    if pcid not in pcs:
+        return jsonify({"ok": False, "error": "PC not found"})
+    pc_num = pcs[pcid].get("pc_number", pcid)
+    del pcs[pcid]
+    _save_price_checks(pcs)
+    # Also remove from SQLite
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            conn.execute("DELETE FROM price_checks WHERE id=?", (pcid,))
+    except Exception as e:
+        log.debug("SQLite PC delete: %s", e)
+    log.info("DELETED PC %s (%s)", pcid, pc_num)
+    return jsonify({"ok": True, "deleted": pcid})
+
+
+@bp.route("/api/admin/cleanup", methods=["POST"])
+@auth_required
+def api_admin_cleanup():
+    """
+    Fix Railway data issues:
+    - Remove duplicate PCs (same pc_number + institution)
+    - Remove test/blank PCs that have no real data
+    - Reset quote counter to match actual highest quote number
+    - Clean up orphaned quote references on PCs
+    """
+    results = {"removed_pcs": [], "kept_pcs": [], "quote_counter_before": None, "quote_counter_after": None, "errors": []}
+
+    try:
+        pcs = _load_price_checks()
+        results["total_before"] = len(pcs)
+
+        # --- Step 1: Remove clearly blank/empty PCs ---
+        to_delete = []
+        for pcid, pc in list(pcs.items()):
+            pc_num = pc.get("pc_number", "").strip()
+            institution = pc.get("institution", "").strip()
+            items = pc.get("items", [])
+            # Blank PC number with no institution and no items = junk
+            if not pc_num and not institution and len(items) == 0:
+                to_delete.append(pcid)
+                results["removed_pcs"].append(f"{pcid[:8]}: blank/empty")
+        for pcid in to_delete:
+            del pcs[pcid]
+
+        # --- Step 2: Deduplicate by (pc_number, institution) ---
+        # Keep the most recent one (highest pcid / latest updated_at)
+        seen = {}  # key -> best pcid
+        for pcid, pc in pcs.items():
+            key = (pc.get("pc_number", "").strip(), pc.get("institution", "").strip())
+            if key not in seen:
+                seen[key] = pcid
+            else:
+                # Keep whichever was updated more recently or has more data
+                existing = pcs[seen[key]]
+                existing_items = len(existing.get("items", []))
+                this_items = len(pc.get("items", []))
+                # Prefer one with more items, then newer by ID string sort
+                if this_items > existing_items or (this_items == existing_items and pcid > seen[key]):
+                    results["removed_pcs"].append(f"{seen[key][:8]}: dup of {pcid[:8]} ({key[0]})")
+                    seen[key] = pcid
+                else:
+                    results["removed_pcs"].append(f"{pcid[:8]}: dup of {seen[key][:8]} ({key[0]})")
+
+        # Rebuild pcs with only kept entries
+        kept_ids = set(seen.values())
+        for pcid in list(pcs.keys()):
+            if pcid not in kept_ids:
+                del pcs[pcid]
+
+        _save_price_checks(pcs)
+        results["total_after"] = len(pcs)
+        results["kept_pcs"] = [f"{pid[:8]}: {pc.get('pc_number','?')}" for pid, pc in pcs.items()]
+
+        # Also sync to SQLite
+        try:
+            from src.core.db import get_db
+            with get_db() as conn:
+                conn.execute("DELETE FROM price_checks WHERE id NOT IN ({})".format(
+                    ",".join("?" * len(pcs))
+                ), list(pcs.keys()))
+        except Exception as e:
+            results["errors"].append(f"SQLite sync: {e}")
+
+    except Exception as e:
+        results["errors"].append(f"PC cleanup: {e}")
+
+    # --- Step 3: Fix quote counter ---
+    try:
+        from src.forms.quote_generator import _load_counter, _save_counter
+        from src.core.db import get_db
+        import re as _re
+        from datetime import datetime as _dt
+
+        counter = _load_counter()
+        results["quote_counter_before"] = counter.copy()
+
+        # Find highest real (non-test) quote number in DB
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT quote_number FROM quotes WHERE is_test=0 OR is_test IS NULL ORDER BY rowid"
+            ).fetchall()
+
+        max_seq = counter.get("seq", 16)
+        year = _dt.now().year % 100  # 26 for 2026
+        for row in rows:
+            qn = row[0] or ""
+            m = _re.match(r"R\d{2}Q(\d+)", qn)
+            if m:
+                max_seq = max(max_seq, int(m.group(1)))
+
+        # Also scan price_checks for reytech_quote_numbers (may have test ones like R26Q1-R26Q8)
+        # Do NOT update counter based on test PCs — only real quotes count
+        new_seq = max_seq  # Already at or beyond highest real quote
+        counter["seq"] = new_seq
+        _save_counter(counter)
+        results["quote_counter_after"] = counter.copy()
+
+    except Exception as e:
+        results["errors"].append(f"Counter fix: {e}")
+
+    results["ok"] = True
+    return jsonify(results)
+
+
+@bp.route("/api/admin/status")
+@auth_required
+def api_admin_status():
+    """Quick system status — quote counter, PC count, quote count."""
+    try:
+        from src.forms.quote_generator import _load_counter
+        from src.core.db import get_db
+        pcs = _load_price_checks()
+        counter = _load_counter()
+        with get_db() as conn:
+            q_count = conn.execute("SELECT COUNT(*) FROM quotes WHERE is_test=0 OR is_test IS NULL").fetchone()[0]
+            quotes = [dict(r) for r in conn.execute(
+                "SELECT quote_number, total, status FROM quotes WHERE is_test=0 ORDER BY rowid DESC LIMIT 10"
+            ).fetchall()]
+        return jsonify({
+            "ok": True,
+            "pc_count": len(pcs),
+            "pc_numbers": sorted([pc.get("pc_number","?") for pc in pcs.values()]),
+            "quote_count": q_count,
+            "recent_quotes": quotes,
+            "counter": counter,
+            "next_quote": f"R{str(counter.get('year',2026))[-2:]}Q{counter.get('seq',0)+1}",
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @bp.route("/api/item-link/lookup", methods=["POST"])
