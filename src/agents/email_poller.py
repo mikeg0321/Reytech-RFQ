@@ -588,6 +588,26 @@ class EmailPoller:
                                 if not pdfs:
                                     log.info("Auto-draft: no PDFs in RFQ — skipping")
                                     return
+
+                                # ── DEDUP: Check if this PDF was already processed ──
+                                # Parse first to get pc_number, then check existing PCs
+                                try:
+                                    from src.parsers.ams704_parser import parse_ams704
+                                    pre_parsed = parse_ams704(pdfs[0])
+                                    pre_pc_num = pre_parsed.get("header", {}).get("price_check_number", "")
+                                    pre_inst = pre_parsed.get("header", {}).get("institution", "")
+                                    if pre_pc_num and pre_pc_num != "unknown" and pre_inst:
+                                        from src.api.modules.routes_rfq import _load_price_checks
+                                        existing_pcs = _load_price_checks()
+                                        for eid, epc in existing_pcs.items():
+                                            if (epc.get("pc_number", "").strip() == pre_pc_num.strip()
+                                                    and epc.get("institution", "").strip().lower() == pre_inst.strip().lower()):
+                                                log.info("Auto-draft dedup: PC #%s from %s already exists as %s — skipping",
+                                                         pre_pc_num, pre_inst, eid)
+                                                return
+                                except Exception as _dp:
+                                    log.debug("Auto-draft dedup pre-check failed (non-fatal): %s", _dp)
+
                                 # Step 1: Create price check from PDF
                                 pc_result = _handle_price_check_upload(pdfs[0], pc_id)
                                 log.info("Auto-draft [Feature 4.2]: PC %s created from %s", pc_id, rfq.get("subject","")[:50])

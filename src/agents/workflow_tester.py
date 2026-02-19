@@ -659,6 +659,73 @@ def test_growth_data_integrity() -> list:
     return results
 
 
+def test_pc_dedup_and_quote_sequence() -> list:
+    """Price checks must not have duplicates; quote numbers must be sequential."""
+    results = []
+    try:
+        import re, json, os
+        from src.core.paths import DATA_DIR
+        pc_path = os.path.join(DATA_DIR, "price_checks.json")
+        if not os.path.exists(pc_path):
+            results.append(_result("pc_dedup", PASS, "No PCs to check"))
+            return results
+        with open(pc_path) as f:
+            pcs = json.load(f)
+        if not pcs:
+            results.append(_result("pc_dedup", PASS, "No PCs to check"))
+            return results
+
+        # ── Test 1: Check for duplicate PCs (same pc_number + institution) ──
+        seen = {}
+        dupes = []
+        for pc_id, pc in pcs.items():
+            key = f"{pc.get('pc_number','').strip()}|{pc.get('institution','').strip().lower()}"
+            if key in seen and key != "unknown|":
+                dupes.append(f"#{pc.get('pc_number','?')} ({pc.get('institution','?')}) appears as {seen[key]} AND {pc_id}")
+            else:
+                seen[key] = pc_id
+
+        if dupes:
+            results.append(_result(
+                "pc_dedup", FAIL,
+                f"{len(dupes)} duplicate PC(s): {'; '.join(dupes[:3])}",
+                fix_hint="Delete duplicate PCs from /pricecheck — dedup guard added for future prevention"
+            ))
+        else:
+            results.append(_result("pc_dedup", PASS, f"{len(pcs)} PCs — no duplicates"))
+
+        # ── Test 2: Quote numbers should be sequential (no gaps in active PCs) ──
+        quote_nums = []
+        for pc in pcs.values():
+            qn = pc.get("reytech_quote_number", "") or ""
+            m = re.search(r'R(\d+)Q(\d+)', qn)
+            if m:
+                quote_nums.append(int(m.group(2)))
+
+        if len(quote_nums) >= 2:
+            quote_nums.sort()
+            gaps = []
+            for i in range(1, len(quote_nums)):
+                if quote_nums[i] - quote_nums[i-1] > 1:
+                    gaps.append(f"Q{quote_nums[i-1]}→Q{quote_nums[i]}")
+            if gaps:
+                results.append(_result(
+                    "quote_sequence", WARN,
+                    f"Quote number gaps: {', '.join(gaps[:5])} (may indicate deleted PCs or counter drift)",
+                ))
+            else:
+                results.append(_result(
+                    "quote_sequence", PASS,
+                    f"Quote numbers sequential: Q{quote_nums[0]}–Q{quote_nums[-1]}"
+                ))
+        else:
+            results.append(_result("quote_sequence", PASS, "Not enough quotes to check sequence"))
+
+    except Exception as e:
+        results.append(_result("pc_dedup", WARN, f"Could not test: {e}"))
+    return results
+
+
 WORKFLOW_TESTS = {
     "queue_isolation": test_queue_isolation,
     "manager_brief_accuracy": test_manager_brief_accuracy,
@@ -672,6 +739,7 @@ WORKFLOW_TESTS = {
     "notification_badge": test_notification_badge_accuracy,
     "reply_detection": test_reply_followup_detection,
     "growth_engine": test_growth_data_integrity,
+    "pc_dedup": test_pc_dedup_and_quote_sequence,
 }
 
 

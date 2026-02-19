@@ -8,7 +8,19 @@ def home():
     all_pcs = _load_price_checks()
     # Auto-draft PCs (source='email_auto_draft') are shown inside the RFQ row, not the PC queue
     user_pcs = {k: v for k, v in all_pcs.items() if v.get('source') != 'email_auto_draft'}
-    return render(PAGE_HOME, rfqs=load_rfqs(), price_checks=user_pcs)
+    # Sort by quote number (R26Q17 → 17) descending so newest quotes appear first
+    def _pc_sort_key(item):
+        pc = item[1]
+        qn = pc.get("reytech_quote_number", "") or ""
+        # Extract numeric part from R26Q17 → 17
+        import re as _re
+        m = _re.search(r'Q(\d+)', qn)
+        if m:
+            return int(m.group(1))
+        # Fallback to created_at timestamp
+        return pc.get("created_at", "")
+    sorted_pcs = dict(sorted(user_pcs.items(), key=_pc_sort_key, reverse=True))
+    return render(PAGE_HOME, rfqs=load_rfqs(), price_checks=sorted_pcs)
 
 @bp.route("/upload", methods=["POST"])
 @auth_required
@@ -132,6 +144,16 @@ def _handle_price_check_upload(pdf_path, pc_id):
     institution = parsed.get("header", {}).get("institution", "")
     due_date = parsed.get("header", {}).get("due_date", "")
 
+    # ── DEDUP CHECK: skip if PC with same number + institution already exists ──
+    pcs = _load_price_checks()
+    for existing_id, existing_pc in pcs.items():
+        if (existing_pc.get("pc_number", "").strip() == pc_num.strip()
+                and existing_pc.get("institution", "").strip().lower() == institution.strip().lower()
+                and pc_num != "unknown"):
+            log.info("Dedup: PC #%s from %s already exists as %s — skipping duplicate",
+                     pc_num, institution, existing_id)
+            return redirect(f"/pricecheck/{existing_id}")
+
     # Auto-assign quote number (draft) on PC intake
     draft_quote_num = ""
     if QUOTE_GEN_AVAILABLE:
@@ -185,7 +207,7 @@ def _handle_price_check_upload(pdf_path, pc_id):
         except Exception as e:
             log.error("Failed to auto-assign quote number: %s", e)
 
-    # Save PC record
+    # Save PC record (include linked_quote_number for downstream _create_quote_from_pc dedup)
     pcs = _load_price_checks()
     pcs[pc_id] = {
         "id": pc_id,
@@ -201,6 +223,7 @@ def _handle_price_check_upload(pdf_path, pc_id):
         "created_at": datetime.now().isoformat(),
         "parsed": parsed,
         "reytech_quote_number": draft_quote_num,
+        "linked_quote_number": draft_quote_num,
     }
     _save_price_checks(pcs)
 

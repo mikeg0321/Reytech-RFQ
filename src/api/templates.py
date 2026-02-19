@@ -380,7 +380,7 @@ fetch('/api/intel/revenue',{credentials:'same-origin'}).then(r=>r.json()).then(d
     </tr>
    </thead>
    <tbody>
-    {% for id, pc in price_checks|dictsort(reverse=true) %}
+    {% for id, pc in price_checks.items() %}
     <tr class="home-row" id="pc-row-{{id}}" onclick="location.href='/pricecheck/{{id}}'">
      <td><a href="/pricecheck/{{id}}" class="sol">#{{pc.pc_number or '(blank)'}}</a></td>
      <td style="font-weight:600">{{pc.institution or '—'}}</td>
