@@ -319,6 +319,39 @@ CREATE TABLE IF NOT EXISTS vendor_orders (
 CREATE INDEX IF NOT EXISTS idx_vendor_orders_quote ON vendor_orders(quote_number);
 CREATE INDEX IF NOT EXISTS idx_vendor_orders_status ON vendor_orders(status);
 CREATE INDEX IF NOT EXISTS idx_vendor_orders_vendor ON vendor_orders(vendor_key);
+
+CREATE TABLE IF NOT EXISTS email_outbox (
+    id              TEXT PRIMARY KEY,
+    created_at      TEXT NOT NULL,
+    status          TEXT DEFAULT 'draft',
+    type            TEXT DEFAULT '',
+    to_address      TEXT,
+    subject         TEXT,
+    body            TEXT,
+    intent          TEXT DEFAULT '',
+    entities        TEXT DEFAULT '{}',
+    approved_at     TEXT DEFAULT '',
+    sent_at         TEXT DEFAULT '',
+    metadata        TEXT DEFAULT '{}'
+);
+
+CREATE INDEX IF NOT EXISTS idx_email_outbox_status ON email_outbox(status);
+CREATE INDEX IF NOT EXISTS idx_email_outbox_created ON email_outbox(created_at);
+
+CREATE TABLE IF NOT EXISTS growth_outreach (
+    id              TEXT PRIMARY KEY,
+    created_at      TEXT NOT NULL,
+    type            TEXT DEFAULT '',
+    dry_run         INTEGER DEFAULT 0,
+    template        TEXT DEFAULT '',
+    context         TEXT DEFAULT '{}',
+    status          TEXT DEFAULT 'draft',
+    sent_count      INTEGER DEFAULT 0,
+    metadata        TEXT DEFAULT '{}'
+);
+
+CREATE INDEX IF NOT EXISTS idx_growth_outreach_status ON growth_outreach(status);
+CREATE INDEX IF NOT EXISTS idx_growth_outreach_created ON growth_outreach(created_at);
 """
 
 def init_db():
@@ -327,6 +360,44 @@ def init_db():
         conn.executescript(SCHEMA)
     log.info("DB initialized at %s", DB_PATH)
     return True
+
+
+def _reconcile_quotes_json():
+    """Sync quotes_log.json statuses from DB (source of truth).
+
+    Fixes drift where DB status was updated but JSON dual-write lagged.
+    Runs once on every boot — safe and idempotent.
+    """
+    json_path = os.path.join(DATA_DIR, "quotes_log.json")
+    if not os.path.exists(json_path):
+        return
+    try:
+        with open(json_path) as f:
+            quotes = json.load(f)
+        if not quotes:
+            return
+
+        conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        db_quotes = {r["quote_number"]: dict(r)
+                     for r in conn.execute("SELECT quote_number, status FROM quotes").fetchall()}
+        conn.close()
+
+        patched = 0
+        for q in quotes:
+            qn = q.get("quote_number")
+            if qn and qn in db_quotes:
+                db_status = db_quotes[qn]["status"]
+                if q.get("status") != db_status:
+                    q["status"] = db_status
+                    patched += 1
+
+        if patched:
+            with open(json_path, "w") as f:
+                json.dump(quotes, f, indent=2, default=str)
+            log.info("Reconciled %d quote statuses (DB → JSON)", patched)
+    except Exception as e:
+        log.warning("_reconcile_quotes_json: %s", e)
 
 # ── Quote operations ──────────────────────────────────────────────────────────
 def upsert_quote(q: dict) -> bool:
@@ -748,6 +819,40 @@ def migrate_json_to_db() -> dict:
                 pass
 
     log.info("JSON→DB migration: %s", counts)
+
+    # ── email_outbox migration ──
+    outbox = _try_load("email_outbox.json")
+    if isinstance(outbox, list):
+        for em in outbox:
+            try:
+                upsert_outbox_email(em)
+                counts["quotes"] += 0  # count it under general migration
+            except Exception:
+                pass
+    elif isinstance(outbox, dict):
+        for eid, em in outbox.items():
+            try:
+                if isinstance(em, dict):
+                    em['id'] = em.get('id', eid)
+                    upsert_outbox_email(em)
+            except Exception:
+                pass
+
+    # ── growth_outreach migration ──
+    growth = _try_load("growth_outreach.json")
+    if isinstance(growth, dict):
+        for camp in growth.get("campaigns", []):
+            try:
+                save_growth_campaign(camp)
+            except Exception:
+                pass
+    elif isinstance(growth, list):
+        for camp in growth:
+            try:
+                save_growth_campaign(camp)
+            except Exception:
+                pass
+
     return counts
 
 
@@ -793,6 +898,10 @@ def startup() -> dict:
             log.info("Volume first-boot seed: copied %d files", len(copied))
 
     init_db()
+
+    # ── Auto-reconcile DB → JSON quote statuses on every boot ──
+    _reconcile_quotes_json()
+
     stats_before = get_db_stats()
     if stats_before.get("quotes", 0) == 0 and stats_before.get("contacts", 0) == 0:
         # First run — migrate from JSON seed files
