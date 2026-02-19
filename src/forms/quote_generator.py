@@ -1065,6 +1065,9 @@ def generate_quote_from_pc(pc: dict, output_path: str, **kwargs) -> dict:
             "uom": item.get("uom", "EA"),
             "description": desc,
             "unit_price": up,
+            # Profit tracking — first-class fields take precedence over pricing dict
+            "vendor_cost": item.get("vendor_cost") or pricing.get("unit_cost") or pricing.get("amazon_price") or 0,
+            "markup_pct":  item.get("markup_pct")  or pricing.get("markup_pct") or 25,
         })
 
     return generate_quote(data, output_path, **kwargs)

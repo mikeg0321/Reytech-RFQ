@@ -1,3 +1,4 @@
+import json as _json
 # Price Check Routes
 # 26 routes, 985 lines
 # Loaded by dashboard.py via load_module()
@@ -129,12 +130,13 @@ def pricecheck_detail(pcid):
     # Pre-compute next quote number preview
     next_quote_preview = peek_next_quote_number() if QUOTE_GEN_AVAILABLE else ""
     
+    profit_summary_json = _json.dumps(pc.get("profit_summary")) if pc.get("profit_summary") else "null"
     html = build_pc_detail_html(
         pcid=pcid, pc=pc, items=items, items_html=items_html,
         download_html=download_html, expiry_date=expiry_date,
         header=header, custom_val=custom_val, custom_display=custom_display,
         del_sel=del_sel, next_quote_preview=next_quote_preview,
-        today_date=today_date
+        today_date=today_date, profit_summary_json=profit_summary_json
     )
     return html
 
@@ -252,13 +254,42 @@ def pricecheck_save_prices(pcid):
                     if not items[idx].get("pricing"):
                         items[idx]["pricing"] = {}
                     if field_type == "price":
-                        items[idx]["pricing"]["recommended_price"] = float(val) if val else None
+                        # Write to both pricing dict (oracle compat) and first-class field
+                        v = float(val) if val else None
+                        items[idx]["pricing"]["recommended_price"] = v
+                        items[idx]["unit_price"] = v
                     elif field_type == "cost":
-                        items[idx]["pricing"]["unit_cost"] = float(val) if val else None
+                        v = float(val) if val else None
+                        items[idx]["pricing"]["unit_cost"] = v
+                        items[idx]["vendor_cost"] = v
                     elif field_type == "markup":
-                        items[idx]["pricing"]["markup_pct"] = float(val) if val else 25
+                        v = float(val) if val else 25
+                        items[idx]["pricing"]["markup_pct"] = v
+                        items[idx]["markup_pct"] = v
+                    # Recalculate derived profit fields whenever any of these change
+                    it = items[idx]
+                    vc = it.get("vendor_cost") or it["pricing"].get("unit_cost") or 0
+                    up = it.get("unit_price") or it["pricing"].get("recommended_price") or 0
+                    qty = it.get("qty", 1) or 1
+                    if up and vc:
+                        it["profit_unit"] = round(up - vc, 4)
+                        it["profit_total"] = round((up - vc) * qty, 2)
+                        it["margin_pct"] = round((up - vc) / up * 100, 1) if up else 0
+                    elif up and not vc:
+                        # Cost unknown — can't calculate profit yet
+                        it["profit_unit"] = None
+                        it["profit_total"] = None
+                        it["margin_pct"] = None
                 elif field_type == "qty":
                     items[idx]["qty"] = int(val) if val else 1
+                    # Recalc profit_total when qty changes
+                    it = items[idx]
+                    vc = it.get("vendor_cost") or it.get("pricing", {}).get("unit_cost") or 0
+                    up = it.get("unit_price") or it.get("pricing", {}).get("recommended_price") or 0
+                    qty = it["qty"]
+                    if up and vc:
+                        it["profit_unit"] = round(up - vc, 4)
+                        it["profit_total"] = round((up - vc) * qty, 2)
                 elif field_type == "desc":
                     items[idx]["description"] = str(val) if val else ""
                 elif field_type == "uom":
@@ -272,8 +303,46 @@ def pricecheck_save_prices(pcid):
 
     pc["items"] = items
     pc["parsed"]["line_items"] = items
+
+    # Compute PC-level profit summary — always kept current
+    total_revenue = 0
+    total_cost = 0
+    total_profit = 0
+    costed_items = 0
+    for it in items:
+        if it.get("no_bid"):
+            continue
+        up = it.get("unit_price") or it.get("pricing", {}).get("recommended_price") or 0
+        vc = it.get("vendor_cost") or it.get("pricing", {}).get("unit_cost") or 0
+        qty = it.get("qty", 1) or 1
+        total_revenue += up * qty
+        if vc:
+            total_cost += vc * qty
+            total_profit += (up - vc) * qty
+            costed_items += 1
+    pc["profit_summary"] = {
+        "total_revenue":    round(total_revenue, 2),
+        "total_cost":       round(total_cost, 2),
+        "gross_profit":     round(total_profit, 2),
+        "margin_pct":       round(total_profit / total_revenue * 100, 1) if total_revenue else 0,
+        "costed_items":     costed_items,
+        "total_items":      len([i for i in items if not i.get("no_bid")]),
+        "fully_costed":     costed_items == len([i for i in items if not i.get("no_bid")]),
+    }
+
     _save_price_checks(pcs)
-    return jsonify({"ok": True})
+
+    # Also mirror to SQLite
+    try:
+        upsert_price_check(pcid, pc)
+    except Exception:
+        pass
+
+    summary = pc["profit_summary"]
+    return jsonify({
+        "ok": True,
+        "profit_summary": summary,
+    })
 
 
 @bp.route("/pricecheck/<pcid>/generate")
@@ -405,19 +474,39 @@ def pricecheck_convert_to_quote(pcid):
     line_items = []
     for item in items:
         pricing = item.get("pricing", {})
+        # First-class fields take precedence over oracle suggestions
+        vendor_cost = item.get("vendor_cost") or pricing.get("unit_cost") or pricing.get("amazon_price") or 0
+        unit_price  = item.get("unit_price")  or pricing.get("recommended_price") or 0
+        markup_pct  = item.get("markup_pct")  or pricing.get("markup_pct", 25)
+        qty         = item.get("qty", 1) or 1
+        profit_unit  = round(unit_price - vendor_cost, 4) if (unit_price and vendor_cost) else None
+        profit_total = round(profit_unit * qty, 2) if profit_unit is not None else None
+        margin_pct   = round((unit_price - vendor_cost) / unit_price * 100, 1) if (unit_price and vendor_cost) else None
+
         li = {
-            "item_number": item.get("item_number", ""),
-            "description": item.get("description", ""),
-            "qty": item.get("qty", 1),
-            "uom": item.get("uom", "ea"),
-            "qty_per_uom": item.get("qty_per_uom", 1),
-            "unit_cost": pricing.get("unit_cost") or pricing.get("amazon_price") or 0,
-            "supplier_cost": pricing.get("unit_cost") or pricing.get("amazon_price") or 0,
-            "our_price": pricing.get("recommended_price") or 0,
-            "markup_pct": pricing.get("markup_pct", 25),
+            "item_number":     item.get("item_number", ""),
+            "description":     item.get("description", ""),
+            "qty":             qty,
+            "uom":             item.get("uom", "ea"),
+            "qty_per_uom":     item.get("qty_per_uom", 1),
+            # Cost & profit (the fields that matter for business intelligence)
+            "vendor_cost":     vendor_cost,
+            "markup_pct":      markup_pct,
+            "unit_price":      unit_price,
+            "extension":       round(unit_price * qty, 2),
+            "profit_unit":     profit_unit,
+            "profit_total":    profit_total,
+            "margin_pct":      margin_pct,
+            # Backwards compat names
+            "unit_cost":       vendor_cost,
+            "supplier_cost":   vendor_cost,
+            "our_price":       unit_price,
+            # Source intelligence
             "scprs_last_price": pricing.get("scprs_price"),
-            "supplier_source": pricing.get("price_source", "price_check"),
-            "supplier_url": pricing.get("amazon_url", ""),
+            "amazon_price":     pricing.get("amazon_price"),
+            "price_source":     pricing.get("price_source", "manual"),
+            "supplier_source":  pricing.get("price_source", "price_check"),
+            "supplier_url":     pricing.get("amazon_url", ""),
         }
         line_items.append(li)
 

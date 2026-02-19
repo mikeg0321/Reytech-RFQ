@@ -1058,7 +1058,8 @@ recalc();
 
 def build_pc_detail_html(pcid, pc, items, items_html, download_html, 
                          expiry_date, header, custom_val, custom_display,
-                         del_sel, next_quote_preview="", today_date=""):
+                         del_sel, next_quote_preview="", today_date="",
+                         profit_summary_json="null"):
     """Build the Price Check detail page HTML.
     
     Extracted from dashboard.py to keep the main module lean.
@@ -1304,6 +1305,7 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
      </div>
 
      <div class="totals" id="totals"></div>
+     <div id="server-profit-panel" style="display:none;background:#21262d;border:1px solid #30363d;border-radius:8px;padding:12px 16px;margin-top:8px;text-align:right"></div>
      <div style="margin-top:12px;display:flex;align-items:center;gap:20px;font-size:14px">
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
        <input type="checkbox" id="taxToggle" onchange="recalcPC()" style="width:18px;height:18px">
@@ -1366,8 +1368,13 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
      .then(r=>r.json()).then(d=>{{
       btn.disabled=false;
       if(d.ok){{
+       if (d.profit_summary) updateProfitPanel(d.profit_summary);
        btn.textContent='✅ Saved!';btn.style.background='#238636';
-       showMsg('✅ All prices, markups, and settings saved.','ok');
+       const ps = d.profit_summary;
+       const profitMsg = ps && ps.gross_profit
+         ? ' · Profit: $' + ps.gross_profit.toFixed(2) + ' (' + ps.margin_pct.toFixed(1) + '% margin)'
+         : '';
+       showMsg('✅ Prices saved.' + profitMsg,'ok');
        setTimeout(()=>{{btn.textContent=origText;btn.style.background=''}},2500);
       }} else {{
        btn.textContent=origText;
@@ -1610,6 +1617,14 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
 
     recalcPC();
 
+    // Load saved profit summary from server if it exists
+    (function loadSavedProfit() {{
+      const saved = {profit_summary_json};
+      if (saved && saved.gross_profit != null) {{
+        updateProfitPanel(saved);
+      }}
+    }})();
+
     function runScprs(btn) {{
      btn.disabled=true;btn.textContent='⏳ Searching SCPRS...';
      showMsg('Searching SCPRS Won Quotes knowledge base...','warn');
@@ -1851,6 +1866,28 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
 
     // ═══ PRD Feature 3.2.1: 1-click Price Check → Quote ═══
     function generateQuote1Click(btn) {{
+     // Pre-flight: check for items missing cost
+     let missingCost = [];
+     document.querySelectorAll('input[name^=price_]').forEach((inp, i) => {{
+      const bidCb = document.querySelector('[name=bid_' + i + ']');
+      const isBid = bidCb ? bidCb.checked : true;
+      if (!isBid) return;
+      const price = parseFloat(inp.value) || 0;
+      const cost = parseFloat(document.querySelector('[name=cost_' + i + ']')?.value) || 0;
+      if (price > 0 && cost === 0) {{
+       const desc = document.querySelector('[name=desc_' + i + ']')?.value || ('Item ' + (i+1));
+       missingCost.push(desc.substring(0, 40));
+      }}
+     }});
+     if (missingCost.length > 0) {{
+      const proceed = confirm(
+       '⚠️ ' + missingCost.length + ' item(s) have a price but no vendor cost entered:\n\n' +
+       missingCost.map((d,i) => (i+1)+'. ' + d).join('\n') +
+       '\n\nProfit cannot be calculated for these items.\n\nProceed anyway?'
+      );
+      if (!proceed) return;
+     }}
+
      const banner = document.getElementById('quote-gen-banner');
      const meta = document.getElementById('quote-gen-meta');
      btn.disabled = true;
@@ -1867,6 +1904,8 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
      .then(r => r.json())
      .then(d => {{
        if (!d.ok) throw new Error('Save failed: ' + (d.error || 'unknown'));
+       // Update profit panel from server response immediately
+       if (d.profit_summary) updateProfitPanel(d.profit_summary);
        meta.textContent = 'Step 2/3: Generating Reytech Quote PDF...';
        btn.textContent = '⏳ Generating PDF...';
 
@@ -1883,13 +1922,18 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
        if (d && d.ok) {{
          const qn = d.quote_number || '?';
          const total = d.total ? ' — $' + parseFloat(d.total).toLocaleString('en-US', {{minimumFractionDigits:2}}) : '';
+         const profitStr = d.gross_profit != null
+           ? ' · <span style="color:#3fb950">Profit: $' + parseFloat(d.gross_profit).toFixed(2) + ' (' + parseFloat(d.margin_pct||0).toFixed(1) + '% margin)</span>'
+           + (d.fully_costed === false ? ' <span style="color:#d29922;font-size:12px">(partial — enter costs for remaining items)</span>' : '')
+           : ' · <span style="color:#8b949e;font-size:13px">Profit unknown — enter vendor costs to track margin</span>';
          banner.style.borderColor = '#3fb950';
          banner.style.background = 'linear-gradient(135deg,#0d2a0d,#0d1117)';
-         meta.innerHTML = `✅ Quote <b style="color:#3fb950">${{qn}}</b>${{total}} generated · <a href="${{d.download}}" style="color:#58a6ff" download>Download PDF</a> · <a href="/quotes" style="color:#58a6ff">View in Quotes →</a>`;
+         meta.innerHTML = `✅ Quote <b style="color:#3fb950">${{qn}}</b>${{total}} generated · <a href="${{d.download}}" style="color:#58a6ff" download>Download PDF</a> · <a href="/quotes" style="color:#58a6ff">View in Quotes →</a>` + profitStr;
          btn.textContent = '✅ ' + qn + ' Generated';
          btn.style.background = '#238636';
          document.getElementById('next-qn-badge').textContent = 'Next: ' + (d.next_quote || '—');
-         showMsg('✅ Quote ' + qn + total + ' generated and logged to CRM + DB', 'ok');
+         const profitLog = d.gross_profit != null ? ' · Profit $' + parseFloat(d.gross_profit).toFixed(2) : '';
+         showMsg('✅ Quote ' + qn + total + profitLog + ' generated and logged to CRM + DB', 'ok');
        }} else {{
          banner.style.borderColor = '#f85149';
          meta.textContent = '❌ ' + (d?.error || 'Generation failed');
@@ -1908,11 +1952,37 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
      }});
     }}
 
+    // Update the server-side profit summary panel from save response
+    function updateProfitPanel(ps) {{
+     if (!ps) return;
+     const costed = ps.costed_items || 0;
+     const total = ps.total_items || 0;
+     const uncostd = total - costed;
+     const warn = uncostd > 0
+       ? '<div style="color:#d29922;font-size:12px;margin-top:4px">⚠️ ' + uncostd + ' item(s) missing vendor cost</div>'
+       : '<div style="color:#3fb950;font-size:12px;margin-top:4px">✅ All items costed</div>';
+     const profitColor = ps.gross_profit > 0 ? '#3fb950' : (ps.gross_profit < 0 ? '#f85149' : '#8b949e');
+     const marginColor = ps.margin_pct >= 20 ? '#3fb950' : (ps.margin_pct >= 10 ? '#d29922' : '#f85149');
+     const panel = document.getElementById('server-profit-panel');
+     if (panel) {{
+      panel.innerHTML =
+       '<div style="font-size:12px;text-transform:uppercase;color:#8b949e;margin-bottom:6px;letter-spacing:0.5px;font-weight:600">Saved Profit Summary</div>' +
+       '<div style="font-size:14px"><span style="color:#8b949e">Revenue:</span> <b>$' + ps.total_revenue.toFixed(2) + '</b></div>' +
+       '<div style="font-size:14px"><span style="color:#8b949e">Cost:</span> <b>$' + ps.total_cost.toFixed(2) + '</b></div>' +
+       '<div style="font-size:15px;margin-top:4px"><span style="color:#8b949e">Gross Profit:</span> ' +
+       '<b style="color:' + profitColor + '">$' + ps.gross_profit.toFixed(2) + '</b>' +
+       ' <span style="color:' + marginColor + ';font-size:13px">(' + ps.margin_pct.toFixed(1) + '% margin)</span></div>' +
+       warn;
+      panel.style.display = 'block';
+     }}
+    }}
+
     function generateReytechQuote(btn) {{
      btn.disabled=true;btn.textContent='⏳ Saving...';
      showMsg('Saving prices and generating Reytech Quote PDF...','warn');
      fetch('/pricecheck/{pcid}/save-prices',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(collectPrices())}})
      .then(r=>r.json()).then(d=>{{
+      if (d.profit_summary) updateProfitPanel(d.profit_summary);
       if(!d.ok){{btn.textContent='📋 Reytech Quote PDF';btn.disabled=false;showMsg('❌ Save failed','err');return;}}
       btn.textContent='⏳ Generating quote...';
       return fetch('/pricecheck/{pcid}/generate-quote');

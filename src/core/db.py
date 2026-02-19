@@ -330,28 +330,65 @@ def init_db():
 
 # ── Quote operations ──────────────────────────────────────────────────────────
 def upsert_quote(q: dict) -> bool:
-    """Insert or update a quote record. Called from _log_quote()."""
+    """Insert or update a quote record. Called from _log_quote().
+    
+    Computes profit fields from line_items if vendor_cost is present.
+    This is the source of truth for per-quote profitability.
+    """
     now = datetime.now().isoformat()
+
+    # Compute profit from line items — use first-class fields if available
+    line_items = q.get("line_items") or q.get("items_detail") or []
+    if isinstance(line_items, str):
+        try: line_items = json.loads(line_items)
+        except Exception: line_items = []
+    total_cost = 0.0
+    gross_profit = 0.0
+    items_costed = 0
+    for li in (line_items if isinstance(line_items, list) else []):
+        vc = li.get("vendor_cost") or li.get("unit_cost") or li.get("supplier_cost") or 0
+        up = li.get("unit_price") or li.get("our_price") or 0
+        qty = li.get("qty", 1) or 1
+        if vc and up:
+            total_cost += float(vc) * qty
+            gross_profit += (float(up) - float(vc)) * qty
+            items_costed += 1
+    subtotal = float(q.get("subtotal") or q.get("total") or 0)
+    margin_pct = round(gross_profit / subtotal * 100, 1) if subtotal and gross_profit else 0
+
     try:
         with get_db() as conn:
             conn.execute("""
                 INSERT INTO quotes
                   (quote_number, created_at, agency, institution, requestor,
-                   contact_email, contact_phone, rfq_number, ship_to_name,
-                   ship_to_address, subtotal, tax, total, items_count,
-                   items_text, items_detail, status, pdf_path,
-                   source_pc_id, source_rfq_id, po_number, is_test, updated_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                   contact_name, contact_email, contact_phone, rfq_number,
+                   ship_to_name, ship_to_address, subtotal, tax, total,
+                   items_count, items_text, items_detail, line_items,
+                   status, pdf_path, source_pc_id, source_rfq_id,
+                   source, sent_at, notes, status_history,
+                   po_number, is_test,
+                   total_cost, gross_profit, margin_pct, items_costed,
+                   updated_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(quote_number) DO UPDATE SET
                   agency=excluded.agency, institution=excluded.institution,
-                  total=excluded.total, subtotal=excluded.subtotal,
-                  items_detail=excluded.items_detail, items_text=excluded.items_text,
-                  status=excluded.status, pdf_path=excluded.pdf_path,
-                  po_number=excluded.po_number, updated_at=excluded.updated_at
+                  requestor=excluded.requestor, contact_name=excluded.contact_name,
+                  contact_email=excluded.contact_email, contact_phone=excluded.contact_phone,
+                  ship_to_name=excluded.ship_to_name, ship_to_address=excluded.ship_to_address,
+                  subtotal=excluded.subtotal, tax=excluded.tax, total=excluded.total,
+                  items_count=excluded.items_count, items_text=excluded.items_text,
+                  items_detail=excluded.items_detail, line_items=excluded.line_items,
+                  status=excluded.status, notes=excluded.notes,
+                  status_history=excluded.status_history,
+                  pdf_path=excluded.pdf_path, po_number=excluded.po_number,
+                  total_cost=excluded.total_cost, gross_profit=excluded.gross_profit,
+                  margin_pct=excluded.margin_pct, items_costed=excluded.items_costed,
+                  updated_at=excluded.updated_at
             """, (
                 q.get("quote_number"), q.get("created_at", now),
                 q.get("agency"), q.get("institution"),
                 q.get("requestor") or q.get("contact_name"),
+                q.get("contact_name") or q.get("requestor"),
                 q.get("email") or q.get("requestor_email") or q.get("contact_email"),
                 q.get("phone") or q.get("contact_phone"),
                 q.get("rfq_number"),
@@ -361,11 +398,17 @@ def upsert_quote(q: dict) -> bool:
                 q.get("items_count", 0),
                 q.get("items_text", ""),
                 json.dumps(q.get("items_detail", [])),
+                json.dumps(line_items),
                 q.get("status", "pending"),
                 q.get("pdf_path") or q.get("path"),
                 q.get("source_pc_id"), q.get("source_rfq_id"),
+                q.get("source", ""),
+                q.get("sent_at", ""),
+                q.get("notes", ""),
+                json.dumps(q.get("status_history", [])),
                 q.get("po_number"),
                 1 if q.get("is_test") else 0,
+                round(total_cost, 2), round(gross_profit, 2), margin_pct, items_costed,
                 now,
             ))
         return True

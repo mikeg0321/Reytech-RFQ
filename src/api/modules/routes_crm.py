@@ -1258,14 +1258,15 @@ def api_quote_from_price_check():
     if not pc:
         return jsonify({"ok": False, "error": f"Price Check {pc_id} not found"})
 
-    # ── Items check ───────────────────────────────────────────────────────
+    # ── Items check — accept manually entered prices too ─────────────────
     items = pc.get("items", [])
     priced_items = [it for it in items if not it.get("no_bid") and
-                    (it.get("pricing", {}).get("recommended_price") or
+                    (it.get("unit_price") or                          # manually entered
+                     it.get("pricing", {}).get("recommended_price") or
                      it.get("pricing", {}).get("amazon_price"))]
     if not priced_items:
         return jsonify({"ok": False,
-                        "error": "No priced items — run price lookup first (⚡ Process Now)"})
+                        "error": "No priced items — enter unit prices first"})
 
     # ── Generate PDF ──────────────────────────────────────────────────────
     pc_num = pc.get("pc_number", "unknown")
@@ -1364,6 +1365,9 @@ def api_quote_from_price_check():
 
     next_qn = peek_next_quote_number() if QUOTE_GEN_AVAILABLE else ""
 
+    # Pull profit summary from the saved PC record
+    profit = pc.get("profit_summary", {})
+
     return jsonify({
         "ok": True,
         "quote_number": qn,
@@ -1377,6 +1381,12 @@ def api_quote_from_price_check():
         "logs": logs,
         "elapsed_ms": round((time.time() - t0) * 1000),
         "feature": "PRD 3.2.1",
+        # Profit intelligence
+        "gross_profit":  profit.get("gross_profit"),
+        "margin_pct":    profit.get("margin_pct"),
+        "total_cost":    profit.get("total_cost"),
+        "fully_costed":  profit.get("fully_costed", False),
+        "costed_items":  profit.get("costed_items", 0),
     })
 
 
