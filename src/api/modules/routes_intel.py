@@ -4771,6 +4771,23 @@ def growth_page():
              <td class="mono" style="color:#3fb950">${info.get('total_value', 0):,.2f}</td>
              <td style="font-size:11px;color:var(--tx2)">{', '.join(info.get('sample_items', [])[:2])[:80]}</td>
             </tr>"""
+    elif prospects:
+        # Derive categories from prospect data when SCPRS hasn't been pulled
+        cat_agg = {}
+        for pr_ in prospects:
+            for cat_ in (pr_.get("categories_matched") or []):
+                if cat_ not in cat_agg:
+                    cat_agg[cat_] = {"spend": 0, "buyers": 0}
+                cat_agg[cat_]["spend"] += (pr_.get("total_spend") or 0)
+                cat_agg[cat_]["buyers"] += 1
+        for cat_name, info_ in sorted(cat_agg.items(), key=lambda x: x[1]["spend"], reverse=True):
+            cat_rows += f"""<tr>
+             <td style="font-weight:600">{cat_name}</td>
+             <td class="mono">{info_['buyers']}</td>
+             <td class="mono">—</td>
+             <td class="mono" style="color:#3fb950">${info_['spend']:,.0f}</td>
+             <td style="font-size:11px;color:var(--tx2)">from prospect data</td>
+            </tr>"""
 
     # Prospect table rows with CRM actions
     prospect_rows = ""
@@ -4929,12 +4946,21 @@ def growth_page():
 
     {'<div class="card"><h3>🎯 Prospect Pipeline (' + str(len(prospects)) + ')</h3><div style="max-height:500px;overflow:auto"><table><thead><tr><th>Agency</th><th>Buyer</th><th>Email</th><th>Phone</th><th>POs</th><th>Spend</th><th>Categories</th><th>Status</th><th>Actions</th></tr></thead><tbody>' + prospect_rows + '</tbody></table></div></div>' if prospect_rows else ''}
 
-    <div id="result" style="display:none;background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px;margin-top:12px;max-height:400px;overflow:auto">
+    <div id="result" style="display:none;background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px;margin-top:12px;max-height:600px;overflow:auto">
      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-      <span style="font-weight:600;font-size:13px">Result</span>
+      <span style="font-weight:600;font-size:13px" id="result-title">Result</span>
       <button onclick="document.getElementById('result').style.display='none'" style="background:none;border:none;color:var(--tx2);cursor:pointer">✕</button>
      </div>
+     <div id="result-emails" style="display:none"></div>
      <pre id="result-content" style="font-size:11px;white-space:pre-wrap;word-break:break-word;margin:0"></pre>
+    </div>
+
+    <!-- Existing Email Drafts -->
+    <div class="card" id="drafts-section">
+     <h3>📨 Email Drafts from Campaigns</h3>
+     <div id="drafts-container">
+      <div style="color:var(--tx2);font-size:12px">Loading drafts...</div>
+     </div>
     </div>
 
     <script>
@@ -4946,24 +4972,57 @@ def growth_page():
         headers: {{'Content-Type': 'application/json'}},
         body: JSON.stringify(body)
       }}).then(r => r.json()).then(data => {{
-        document.getElementById('result').style.display = 'block';
-        document.getElementById('result-content').textContent = JSON.stringify(data, null, 2);
+        showResult(data);
         if (data.ok) pollProgress();
-      }}).catch(e => {{
-        document.getElementById('result').style.display = 'block';
-        document.getElementById('result-content').textContent = 'Error: ' + e;
-      }});
+      }}).catch(e => showResultRaw('Error: ' + e));
     }}
 
     function runStep(url) {{
       fetch(url, {{credentials:'same-origin'}}).then(r=>r.json()).then(data => {{
-        document.getElementById('result').style.display = 'block';
-        document.getElementById('result-content').textContent = JSON.stringify(data, null, 2);
+        showResult(data);
         if (data.message && data.message.includes('Check')) pollProgress();
-      }}).catch(e => {{
-        document.getElementById('result').style.display = 'block';
-        document.getElementById('result-content').textContent = 'Error: ' + e;
-      }});
+      }}).catch(e => showResultRaw('Error: ' + e));
+    }}
+
+    function showResult(data) {{
+      const el = document.getElementById('result');
+      const emails = document.getElementById('result-emails');
+      const pre = document.getElementById('result-content');
+      const title = document.getElementById('result-title');
+      el.style.display = 'block';
+
+      // If response has preview emails, render them as cards
+      if (data.preview && data.preview.length > 0) {{
+        title.textContent = (data.dry_run ? '👁️ Preview' : '📧 Sent') + ': ' + data.emails_built + ' emails';
+        emails.style.display = 'block';
+        pre.style.display = 'none';
+        emails.innerHTML = data.preview.map((e, i) => `
+          <div style="background:var(--sf2);border:1px solid var(--bd);border-radius:8px;padding:12px;margin-bottom:10px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <span style="font-size:11px;color:var(--tx2)">#${{i+1}}</span>
+              <span style="font-size:11px;padding:2px 8px;border-radius:10px;background:${{data.dry_run?'rgba(210,153,34,.1)':'rgba(52,211,153,.1)'}};color:${{data.dry_run?'#d29922':'#3fb950'}};font-weight:600">${{data.dry_run?'DRAFT':'SENT'}}</span>
+            </div>
+            <div style="font-size:12px;margin-bottom:4px"><strong>To:</strong> ${{e.to}} <span style="color:var(--tx2)">(${{e.agency}})</span></div>
+            <div style="font-size:12px;margin-bottom:8px;color:var(--ac)"><strong>Subject:</strong> ${{e.subject}}</div>
+            <div style="font-size:11px;white-space:pre-wrap;line-height:1.5;color:var(--tx);background:var(--sf);padding:10px;border-radius:6px;border:1px solid var(--bd);max-height:200px;overflow:auto">${{e.body || '(no body)'}}</div>
+          </div>
+        `).join('');
+        // Also reload drafts section
+        loadDrafts();
+      }} else {{
+        emails.style.display = 'none';
+        pre.style.display = 'block';
+        title.textContent = 'Result';
+        pre.textContent = JSON.stringify(data, null, 2);
+      }}
+    }}
+
+    function showResultRaw(text) {{
+      const el = document.getElementById('result');
+      el.style.display = 'block';
+      document.getElementById('result-emails').style.display = 'none';
+      document.getElementById('result-content').style.display = 'block';
+      document.getElementById('result-content').textContent = text;
     }}
 
     function crmPost(url, body) {{
@@ -4996,6 +5055,46 @@ def growth_page():
       }});
     }}
 
+    // Load existing email drafts from all campaigns
+    function loadDrafts() {{
+      fetch('/api/growth/campaigns', {{credentials:'same-origin'}}).then(r=>r.json()).then(data => {{
+        const container = document.getElementById('drafts-container');
+        if (!data.ok || !data.campaigns || data.campaigns.length === 0) {{
+          container.innerHTML = '<div style="color:var(--tx2);font-size:12px;padding:8px">No campaigns yet. Click 👁️ Preview Emails or 🚀 Create Campaign.</div>';
+          return;
+        }}
+        let html = '';
+        data.campaigns.forEach((camp, ci) => {{
+          const entries = camp.outreach || [];
+          const sentCount = entries.filter(e => e.email_sent).length;
+          const draftCount = entries.length - sentCount;
+          const isDry = camp.dry_run;
+          html += `<div style="margin-bottom:12px">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+              <span style="font-weight:600;font-size:12px">${{camp.id || 'Campaign '+(ci+1)}}</span>
+              <span style="font-size:10px;padding:2px 6px;border-radius:8px;background:${{isDry?'rgba(210,153,34,.1)':'rgba(52,211,153,.1)'}};color:${{isDry?'#d29922':'#3fb950'}}">${{isDry?'DRY RUN':'LIVE'}}</span>
+              <span style="font-size:10px;color:var(--tx2)">${{entries.length}} emails (${{sentCount}} sent, ${{draftCount}} draft)</span>
+            </div>`;
+          entries.slice(0, 5).forEach((e, ei) => {{
+            const subj = e.subject || e.email_subject || '(no subject)';
+            const body = e.body || e.email_body || '';
+            html += `<details style="margin-bottom:4px;font-size:12px">
+              <summary style="cursor:pointer;padding:4px 8px;border-radius:4px;background:var(--sf2)">
+                <span style="color:var(--tx2)">${{e.email || ''}}</span> — <span style="color:var(--ac)">${{subj.substring(0,60)}}</span>
+                ${{e.email_sent ? '<span style="color:#3fb950;font-size:10px">✅ SENT</span>' : '<span style="color:#d29922;font-size:10px">📝 DRAFT</span>'}}
+              </summary>
+              <div style="padding:8px;margin:4px 0 4px 16px;font-size:11px;white-space:pre-wrap;line-height:1.4;background:var(--sf);border-radius:4px;border:1px solid var(--bd);max-height:180px;overflow:auto">${{body}}</div>
+            </details>`;
+          }});
+          if (entries.length > 5) html += `<div style="font-size:10px;color:var(--tx2);padding-left:8px">...and ${{entries.length-5}} more</div>`;
+          html += '</div>';
+        }});
+        container.innerHTML = html;
+      }}).catch(() => {{
+        document.getElementById('drafts-container').innerHTML = '<div style="color:#f85149;font-size:12px">Failed to load drafts</div>';
+      }});
+    }}
+
     let pollTimer = null;
     function pollProgress() {{
       if (pollTimer) clearInterval(pollTimer);
@@ -5016,6 +5115,8 @@ def growth_page():
         }});
       }}, 3000);
     }}
+    // Load drafts on page load
+    loadDrafts();
     {('pollProgress();' if (pull_running or buyer_running) else '')}
     </script>
     </body></html>"""
@@ -5090,6 +5191,13 @@ def growth_prospect_detail(prospect_id):
 
     # Categories breakdown
     cats_dict = pr.get("categories",{})
+    # Handle categories_matched list format (from sales_intel source)
+    if not cats_dict and pr.get("categories_matched"):
+        cats_list = pr.get("categories_matched", [])
+        total_spend_val = pr.get("total_spend", 0) or 0
+        if isinstance(cats_list, list) and cats_list:
+            per_cat = total_spend_val / len(cats_list) if total_spend_val else 0
+            cats_dict = {c: per_cat for c in cats_list}
     cats_html = ""
     total_cat = sum(cats_dict.values()) or 1
     for cat, spend in sorted(cats_dict.items(), key=lambda x: x[1], reverse=True):

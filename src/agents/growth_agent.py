@@ -711,6 +711,10 @@ def launch_outreach(max_prospects=50, dry_run=True):
     if not new:
         return {"ok": True, "message": "All prospects already contacted", "new_to_contact": 0}
 
+    # Load category data for richer personalization when POs are empty
+    cat_data = _load_json(CATEGORIES_FILE)
+    cat_info = cat_data.get("categories", {}) if isinstance(cat_data, dict) else {}
+
     campaign = {"id": f"GC-{datetime.now().strftime('%Y%m%d-%H%M')}", "created_at": datetime.now().isoformat(), "dry_run": dry_run, "outreach": []}
     sent = 0
 
@@ -719,12 +723,26 @@ def launch_outreach(max_prospects=50, dry_run=True):
         name_greeting = f" {name.split()[0]}" if name else ""
         agency = p.get("agency", "your agency")
         pos = p.get("purchase_orders", [])
-        items_mention = pos[0].get("items", "items we also carry")[:80] if pos else "items we also carry"
-        purchase_date = pos[0].get("date", "recently") if pos else "recently"
         cats = p.get("categories_matched", [])
+        cats_list = list(cats or []) if not isinstance(cats, str) else [cats]
+
+        # Build items_mention — prefer PO data, fall back to category sample items
+        if pos and pos[0].get("items"):
+            items_mention = pos[0]["items"][:80]
+            purchase_date = pos[0].get("date", "recently")
+        elif cats_list and cat_info:
+            # Pull sample items from category data for better personalization
+            sample_items = []
+            for cat_name in cats_list[:2]:
+                ci = cat_info.get(cat_name, {})
+                sample_items.extend(ci.get("sample_items", [])[:2])
+            items_mention = ", ".join(sample_items[:3]) if sample_items else ", ".join(cats_list[:2])
+            purchase_date = "recently"
+        else:
+            items_mention = ", ".join(cats_list[:2]) if cats_list else "items we also carry"
+            purchase_date = "recently"
 
         body = EMAIL_TEMPLATE.format(name_greeting=name_greeting, agency=agency, items_mention=items_mention, purchase_date=purchase_date)
-        cats_list = list(cats or []) if not isinstance(cats, str) else [cats]
         subject = f"Reytech Inc. — Competitive Pricing on {', '.join(cats_list[:2])}" if cats_list else "Reytech Inc. — CA State Vendor Introduction"
 
         entry = {
@@ -765,7 +783,11 @@ def launch_outreach(max_prospects=50, dry_run=True):
         "ok": True, "campaign_id": campaign["id"], "dry_run": dry_run,
         "emails_built": len(new), "emails_sent": sent,
         "follow_up_date": (datetime.now() + timedelta(days=4)).strftime("%Y-%m-%d"),
-        "preview": [{"to": o["email"], "agency": o["agency"], "subject": o["email_subject"]} for o in campaign["outreach"][:5]],
+        "preview": [
+            {"to": o["email"], "agency": o["agency"], "subject": o["email_subject"],
+             "body": o["email_body"]}
+            for o in campaign["outreach"][:10]
+        ],
     }
 
 
@@ -1242,6 +1264,19 @@ def get_campaign_dashboard() -> dict:
             "responded": camp_responded,
             "called": camp_called,
             "pending": max(0, camp_pending),
+            "outreach": [
+                {
+                    "email": o.get("email", ""),
+                    "name": o.get("name", ""),
+                    "agency": o.get("agency", ""),
+                    "subject": o.get("subject", o.get("email_subject", "")),
+                    "body": o.get("body", o.get("email_body", "")),
+                    "email_sent": o.get("email_sent", False),
+                    "email_sent_at": o.get("email_sent_at"),
+                    "error": o.get("error"),
+                }
+                for o in c.get("outreach", [])
+            ],
         })
 
         total_sent += camp_sent

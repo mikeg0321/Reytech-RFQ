@@ -560,6 +560,105 @@ def test_reply_followup_detection() -> list:
     return results
 
 
+def test_growth_data_integrity() -> list:
+    """Growth Engine data must be consistent and operational."""
+    results = []
+    try:
+        from src.agents.growth_agent import (
+            _load_json, PROSPECTS_FILE, OUTREACH_FILE, CATEGORIES_FILE,
+            HISTORY_FILE, get_growth_status,
+        )
+
+        status = get_growth_status()
+        prospects_data = _load_json(PROSPECTS_FILE)
+        outreach_data = _load_json(OUTREACH_FILE)
+
+        # ── Test 1: Prospect data integrity ──
+        if isinstance(prospects_data, dict) and prospects_data.get("prospects"):
+            prospects = prospects_data["prospects"]
+            issues = []
+            for p in prospects:
+                if not p.get("id"):
+                    issues.append("missing id")
+                if not p.get("buyer_email") and p.get("outreach_status") not in ("dead", "bounced"):
+                    issues.append(f"{p.get('agency','?')}: no email")
+                if not p.get("categories_matched"):
+                    issues.append(f"{p.get('buyer_email','?')}: no categories")
+            if issues:
+                results.append(_result(
+                    "growth_data_integrity", WARN,
+                    f"{len(issues)} prospect data issues: {'; '.join(issues[:3])}",
+                    fix_hint="Review prospects in /growth — some missing email or categories"
+                ))
+            else:
+                results.append(_result(
+                    "growth_data_integrity", PASS,
+                    f"All {len(prospects)} prospects have valid data (id, email, categories)"
+                ))
+        else:
+            results.append(_result(
+                "growth_data_integrity", PASS,
+                "No prospect data yet — Growth Engine not activated"
+            ))
+
+        # ── Test 2: Outreach email content quality ──
+        if isinstance(outreach_data, dict) and outreach_data.get("campaigns"):
+            empty_bodies = 0
+            total_entries = 0
+            generic_count = 0
+            for camp in outreach_data["campaigns"]:
+                for entry in camp.get("outreach", []):
+                    total_entries += 1
+                    body = entry.get("body", entry.get("email_body", ""))
+                    if not body or len(body) < 50:
+                        empty_bodies += 1
+                    elif "items we also carry" in body:
+                        generic_count += 1
+
+            if empty_bodies > 0:
+                results.append(_result(
+                    "growth_outreach_quality", FAIL,
+                    f"{empty_bodies}/{total_entries} outreach emails have empty or missing body",
+                    fix_hint="Email bodies must be populated — check launch_outreach template formatting"
+                ))
+            elif generic_count > total_entries * 0.5 and total_entries > 2:
+                results.append(_result(
+                    "growth_outreach_quality", WARN,
+                    f"{generic_count}/{total_entries} emails use generic 'items we also carry' — run SCPRS pull for personalized content",
+                    fix_hint="Click Pull Reytech History → Find Buyers on /growth to populate item data"
+                ))
+            else:
+                results.append(_result(
+                    "growth_outreach_quality", PASS,
+                    f"{total_entries} outreach emails have personalized content"
+                ))
+        else:
+            results.append(_result(
+                "growth_outreach_quality", PASS,
+                "No outreach campaigns yet"
+            ))
+
+        # ── Test 3: Pipeline funnel coherence ──
+        h = status.get("history", {})
+        c = status.get("categories", {})
+        p = status.get("prospects", {})
+        o = status.get("outreach", {})
+        # If we have prospects but no history, that's OK (manual/sales_intel source)
+        # But if we have outreach > prospects, something is wrong
+        if o.get("total_sent", 0) > p.get("total", 0) and p.get("total", 0) > 0:
+            results.append(_result(
+                "growth_funnel", WARN,
+                f"More emails sent ({o['total_sent']}) than prospects ({p['total']}) — data may be stale"
+            ))
+        else:
+            funnel_str = f"History:{h.get('total_pos',0)} → Cats:{c.get('total',0)} → Prospects:{p.get('total',0)} → Sent:{o.get('total_sent',0)}"
+            results.append(_result("growth_funnel", PASS, f"Funnel coherent: {funnel_str}"))
+
+    except Exception as e:
+        results.append(_result("growth_data_integrity", WARN, f"Could not test growth: {e}"))
+    return results
+
+
 WORKFLOW_TESTS = {
     "queue_isolation": test_queue_isolation,
     "manager_brief_accuracy": test_manager_brief_accuracy,
@@ -572,6 +671,7 @@ WORKFLOW_TESTS = {
     "email_routing": test_email_routing,
     "notification_badge": test_notification_badge_accuracy,
     "reply_detection": test_reply_followup_detection,
+    "growth_engine": test_growth_data_integrity,
 }
 
 
