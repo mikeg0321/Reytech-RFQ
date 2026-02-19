@@ -1326,8 +1326,9 @@ def full_report() -> dict:
 
 def get_plain_english_brief() -> str:
     """
-    Returns a 5-bullet plain English brief for the manager dashboard.
-    Designed to answer: 'What should I do today?'
+    Returns a plain English brief for the manager dashboard.
+    Answers: 'What should I do today to grow revenue?'
+    Includes DVBE angle and unconstrained sourcing opportunities.
     """
     intel = get_scprs_growth_intelligence()
     if not intel.get("ok"):
@@ -1338,25 +1339,49 @@ def get_plain_english_brief() -> str:
     summary = intel.get("summary", {})
 
     total_opp = summary.get("total_opportunity", 0)
+    agencies = summary.get("agencies_with_data", 0)
     if total_opp > 0:
-        lines.append(f"💰 ${total_opp:,.0f} in identified opportunities across "
-                     f"{summary.get('agencies_with_data', 0)} agencies from live SCPRS data.")
+        lines.append(
+            f"💰 ${total_opp:,.0f} in identified opportunities across {agencies} agencies. "
+            f"This includes items you already sell AND items you can source. "
+            f"Your DVBE cert is the wildcard — use it."
+        )
 
-    p0_recs = [r for r in recs if r.get("priority") == "P0"][:3]
+    # P0 actions — what to do today
+    p0_recs = [r for r in recs if r.get("priority") == "P0"][:4]
+    icons = {"dvbe_displace": "🏅", "win_back": "⚔️", "add_product": "📦",
+             "pricing": "💲", "dvbe_partner": "🤝", "source_anything": "🔍"}
     for r in p0_recs:
         val = r.get("estimated_annual_value", 0)
-        lines.append(f"🎯 {r.get('action','')} — ${val:,.0f}/yr. {r.get('why','')[:80]}")
+        icon = icons.get(r.get("type", ""), "🎯")
+        lines.append(f"{icon} {r.get('action','')} — ${val:,.0f}/yr estimate. {r.get('how','')[:90]}")
 
+    # DVBE summary
+    dvbe_recs = [r for r in recs if r.get("dvbe_angle")]
+    if dvbe_recs:
+        dvbe_val = sum(r.get("estimated_annual_value",0) for r in dvbe_recs)
+        lines.append(
+            f"🏅 {len(dvbe_recs)} DVBE opportunities worth ~${dvbe_val:,.0f}/yr — "
+            f"Cardinal Health, McKesson and others don't have your DVBE cert. "
+            f"Lead with it in every proposal to CCHCS, CalVet, DSH."
+        )
+
+    # Pricing lessons from auto-closed losses
     losses = intel.get("recent_losses", [])
     if losses:
         l = losses[0]
         delta = (l.get("total") or 0) - (l.get("scprs_total") or 0)
         if delta > 0:
-            lines.append(f"📉 Lost {l.get('quote_number','')} to {l.get('scprs_supplier','')} "
-                         f"— we were ${delta:,.0f} too high. Reprice for {l.get('agency','')}.")
+            lines.append(
+                f"📉 Lost {l.get('quote_number','')} to {l.get('scprs_supplier','')} "
+                f"— overpriced by ${delta:,.0f}. SCPRS saved the intel. Fix pricing before next RFQ."
+            )
 
     if not lines:
-        lines.append("No SCPRS data yet. Pull all agencies to see what they're buying.")
+        lines.append(
+            "No SCPRS data yet. Hit 'Pull All Agencies' on the Growth Intel page — "
+            "it searches every PO every CA agency placed and shows you exactly what to sell."
+        )
 
     return "\n".join(lines)
 

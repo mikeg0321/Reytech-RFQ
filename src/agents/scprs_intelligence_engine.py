@@ -123,72 +123,124 @@ AGENCY_REGISTRY = {
     },
 }
 
-# Product terms → what Reytech sells (True) or could sell (False)
-PRODUCT_SEARCH_PLAN = [
-    # (term, category, reytech_sells, priority)
-    ("nitrile gloves",      "exam_gloves",      True,  "P0"),
-    ("nitrile exam",        "exam_gloves",      True,  "P0"),
-    ("vinyl gloves",        "exam_gloves",      False, "P0"),
-    ("latex gloves",        "exam_gloves",      False, "P0"),
-    ("adult brief",         "incontinence",     True,  "P0"),
-    ("incontinence pad",    "incontinence",     True,  "P0"),
-    ("underpads",           "incontinence",     True,  "P0"),
-    ("chux",                "incontinence",     True,  "P0"),
-    ("N95",                 "respiratory",      True,  "P0"),
-    ("respirator",          "respiratory",      True,  "P0"),
-    ("surgical mask",       "respiratory",      False, "P0"),
-    ("face mask",           "respiratory",      False, "P0"),
-    ("first aid kit",       "first_aid",        True,  "P0"),
-    ("tourniquet",          "trauma",           True,  "P0"),
-    ("hi-vis vest",         "safety",           True,  "P0"),
-    ("safety vest",         "safety",           True,  "P0"),
-    ("wound care",          "wound_care",       False, "P1"),
-    ("gauze",               "wound_care",       False, "P1"),
-    ("ABD pad",             "wound_care",       False, "P1"),
-    ("wound dressing",      "wound_care",       False, "P1"),
-    ("sharps container",    "sharps",           False, "P1"),
-    ("hand sanitizer",      "hand_hygiene",     False, "P1"),
-    ("restraint",           "restraints",       False, "P1"),
-    ("patient restraint",   "restraints",       False, "P1"),
-    ("hard hat",            "safety",           False, "P1"),
-    ("safety glasses",      "safety",           False, "P1"),
-    ("work gloves",         "gloves_safety",    False, "P1"),
-    ("black nitrile",       "exam_gloves_le",   True,  "P1"),
-    ("trash bag",           "janitorial",       False, "P2"),
-    ("paper towel",         "janitorial",       False, "P2"),
-    ("disinfectant",        "janitorial",       False, "P2"),
-    ("exam table paper",    "clinical",         False, "P2"),
-    ("gown",                "clinical",         False, "P2"),
-    ("catheter",            "clinical",         False, "P2"),
-    ("IV bag",              "clinical",         False, "P2"),
-    ("blood pressure",      "clinical",         False, "P2"),
-    ("thermometer",         "clinical",         False, "P2"),
-    ("syringe",             "pharmacy",         False, "P2"),
-    ("compression",         "wound_care",       False, "P2"),
-    ("activity supplies",   "recreational",     False, "P2"),
-    ("recreation",          "recreational",     False, "P2"),
-    ("toner",               "office",           False, "P2"),
-    ("copy paper",          "office",           False, "P2"),
+# ── DVBE / CA certification context ──────────────────────────────────────────
+# Reytech is DVBE + SB certified. CA agencies have a legal 3% DVBE spend mandate.
+# This means even when an incumbent has lower prices, an agency may PREFER a DVBE
+# supplier to satisfy their mandatory quota. This is a structural advantage Mike has.
+KNOWN_NON_DVBE_INCUMBENTS = [
+    "cardinal health", "mckesson", "medline industries", "medline",
+    "grainger", "w.w. grainger", "amazon", "amazon business", "staples",
+    "henry schein", "bound tree", "waxie sanitary", "concordance",
+    "owens & minor", "ims health", "mckesson medical", "cardinal",
+    "patterson", "fisher scientific", "vwr", "thermo fisher",
+    "fastenal", "home depot", "office depot", "office max",
+    "sysco", "us foods", "performance food",
 ]
 
+# CA DVBE partner programs — large primes who NEED DVBE subs to win state contracts
+DVBE_PARTNER_TARGETS = [
+    "cardinal health", "mckesson", "grainger", "medline",
+    "henry schein", "bound tree", "concordance",
+]
 
-# ── DB helpers ────────────────────────────────────────────────────────────────
-def _db():
-    conn = get_db()
-    conn.row_factory = sqlite3.Row
-    return conn
+# Search everything — no pre-filtering by product type.
+# Mike is willing to source anything. Classification happens post-pull.
+# Four layers: (1) blank=all POs, (2) broad category nouns, 
+#              (3) competitor names, (4) specific product families
+# Format: (search_term, category_hint, reytech_sells_now, priority)
+# reytech_sells_now is just a hint — False means "needs sourcing" not "skip"
+PRODUCT_SEARCH_PLAN = [
+    # ── LAYER 1: Blank search = ALL POs for the department ────────────────
+    # The most powerful search. Empty description + dept filter = everything.
+    ("",                "all_pos",             None,  "P0"),
 
+    # ── LAYER 2: Competitor name searches (reveals full picture) ──────────
+    ("cardinal",        "competitor",          None,  "P0"),
+    ("mckesson",        "competitor",          None,  "P0"),
+    ("medline",         "competitor",          None,  "P0"),
+    ("grainger",        "competitor",          None,  "P0"),
+    ("bound tree",      "competitor",          None,  "P0"),
+    ("henry schein",    "competitor",          None,  "P1"),
+    ("concordance",     "competitor",          None,  "P1"),
+    ("waxie",           "competitor",          None,  "P1"),
+    ("amazon",          "competitor",          None,  "P1"),
+    ("staples",         "competitor",          None,  "P1"),
+    ("patterson",       "competitor",          None,  "P1"),
 
-def _is_target_agency(dept_code: str, dept_name: str, agency_key: str) -> bool:
-    """Check if a SCPRS result matches the target agency."""
-    reg = AGENCY_REGISTRY.get(agency_key, {})
-    if dept_code in reg.get("dept_codes", []):
-        return True
-    dn = (dept_name or "").upper()
-    return any(p in dn for p in reg.get("dept_name_patterns", []))
+    # ── LAYER 3: Broad product-family nouns (catches everything) ──────────
+    ("glove",           "gloves",              True,  "P0"),
+    ("mask",            "respiratory",         True,  "P0"),
+    ("brief",           "incontinence",        True,  "P0"),
+    ("pad",             "absorbent",           True,  "P0"),
+    ("supply",          "general_supplies",    None,  "P0"),
+    ("medical",         "medical",             None,  "P0"),
+    ("safety",          "safety",              True,  "P0"),
+    ("vest",            "safety",              True,  "P0"),
+    ("N95",             "respiratory",         True,  "P0"),
+    ("respirator",      "respiratory",         True,  "P0"),
+    ("first aid",       "first_aid",           True,  "P0"),
+    ("tourniquet",      "trauma",              True,  "P0"),
+    ("bag",             "bags_general",        None,  "P0"),
+    ("soap",            "hygiene",             None,  "P0"),
+    ("paper",           "paper_products",      None,  "P0"),
+    ("towel",           "paper_products",      None,  "P1"),
+    ("clean",           "janitorial",          None,  "P1"),
+    ("sanitizer",       "hygiene",             None,  "P1"),
+    ("gown",            "clinical",            None,  "P1"),
+    ("dressing",        "wound_care",          None,  "P1"),
+    ("gauze",           "wound_care",          None,  "P1"),
+    ("bandage",         "wound_care",          None,  "P1"),
+    ("sharps",          "sharps",              None,  "P1"),
+    ("catheter",        "clinical",            None,  "P1"),
+    ("restraint",       "restraints",          None,  "P1"),
 
+    # ── LAYER 4: Broader non-medical categories ────────────────────────────
+    ("uniform",         "apparel",             None,  "P1"),
+    ("clothing",        "apparel",             None,  "P1"),
+    ("equipment",       "equipment",           None,  "P1"),
+    ("tool",            "maintenance",         None,  "P1"),
+    ("furniture",       "furniture",           None,  "P1"),
+    ("office",          "office",              None,  "P1"),
+    ("toner",           "office",              None,  "P1"),
+    ("food",            "food_service",        None,  "P2"),
+    ("beverage",        "food_service",        None,  "P2"),
+    ("chemical",        "chemicals",           None,  "P2"),
+    ("battery",         "electronics",         None,  "P2"),
+    ("flashlight",      "safety",              None,  "P2"),
+    ("signage",         "signage",             None,  "P2"),
+    ("print",           "print_services",      None,  "P2"),
+    ("software",        "it",                  None,  "P2"),
+    ("computer",        "it",                  None,  "P2"),
+    ("phone",           "it",                  None,  "P2"),
+    ("vehicle",         "fleet",               None,  "P2"),
+    ("tire",            "fleet",               None,  "P2"),
+    ("fuel",            "fleet",               None,  "P2"),
+    ("janitorial",      "janitorial",          None,  "P1"),
+    ("disinfect",       "janitorial",          None,  "P1"),
+    ("hand",            "hygiene",             None,  "P1"),
+    ("wipe",            "hygiene",             None,  "P1"),
+    ("liner",           "janitorial",          None,  "P1"),
+    ("health",          "medical",             None,  "P1"),
+    ("clinical",        "medical",             None,  "P1"),
+    ("patient",         "clinical",            None,  "P1"),
+    ("protective",      "ppe",                 None,  "P1"),
+    ("ppe",             "ppe",                 None,  "P1"),
+    ("personal protective", "ppe",             None,  "P1"),
+    ("hard hat",        "safety",              None,  "P1"),
+    ("eyewear",         "safety",              None,  "P1"),
+    ("glasses",         "safety",              None,  "P1"),
+    ("boot",            "safety",              None,  "P2"),
+    ("shoe",            "safety",              None,  "P2"),
+    ("activity",        "recreational",        None,  "P2"),
+    ("recreation",      "recreational",        None,  "P2"),
+    ("game",            "recreational",        None,  "P2"),
+    ("craft",           "recreational",        None,  "P2"),
+    ("art",             "recreational",        None,  "P2"),
+    ("maintenance",     "maintenance",         None,  "P2"),
+    ("repair",          "maintenance",         None,  "P2"),
+    ("janitorial",      "janitorial",          None,  "P1"),
+]
 
-# ── SYSTEM 1: Full Agency SCPRS Pull ─────────────────────────────────────────
 
 def pull_agency(agency_key: str, search_terms: list = None,
                 days_back: int = 365, notify_fn=None) -> dict:
@@ -629,22 +681,34 @@ def get_growth_intelligence() -> dict:
         LIMIT 20
     """).fetchall()
 
-    # Competitor analysis
+    # Competitor analysis — full picture including DVBE angle
     competitors = conn.execute("""
         SELECT p.supplier,
                COUNT(DISTINCT p.agency_key) as agencies_served,
                COUNT(DISTINCT p.po_number) as po_count,
                SUM(p.grand_total) as total_value,
                GROUP_CONCAT(DISTINCT p.agency_key) as agencies,
-               GROUP_CONCAT(DISTINCT l.category) as categories
+               GROUP_CONCAT(DISTINCT l.category) as categories,
+               GROUP_CONCAT(DISTINCT p.buyer_email) as buyer_emails
         FROM scprs_po_master p
-        JOIN scprs_po_lines l ON l.po_id=p.id
+        LEFT JOIN scprs_po_lines l ON l.po_id=p.id
         WHERE p.supplier != ''
         GROUP BY LOWER(p.supplier)
         HAVING total_value > 1000
         ORDER BY total_value DESC
-        LIMIT 15
+        LIMIT 25
     """).fetchall()
+    
+    # Enrich competitors with DVBE context
+    competitors_enriched = []
+    for c in competitors:
+        d = dict(c)
+        name = (d.get("supplier") or "").lower()
+        d["is_dvbe"] = not any(inc in name for inc in KNOWN_NON_DVBE_INCUMBENTS)
+        d["dvbe_displace_opportunity"] = any(inc in name for inc in KNOWN_NON_DVBE_INCUMBENTS)
+        d["partner_candidate"] = any(p in name for p in DVBE_PARTNER_TARGETS)
+        competitors_enriched.append(d)
+    competitors = competitors_enriched
 
     # Recently lost quotes
     recent_losses = conn.execute("""
@@ -670,6 +734,7 @@ def get_growth_intelligence() -> dict:
         top_gaps=[dict(r) for r in top_gaps],
         win_back=[dict(r) for r in win_back],
         recent_losses=[dict(r) for r in recent_losses],
+        competitors=competitors_enriched,
     )
 
     return {
@@ -684,7 +749,7 @@ def get_growth_intelligence() -> dict:
     }
 
 
-def _generate_recommendations(by_agency, top_gaps, win_back, recent_losses) -> list:
+def _generate_recommendations(by_agency, top_gaps, win_back, recent_losses, competitors=None) -> list:
     """
     Generate ranked, actionable recommendations from intelligence data.
     Returns list of {priority, action, why, estimated_value, how}.
@@ -757,10 +822,79 @@ def _generate_recommendations(by_agency, top_gaps, win_back, recent_losses) -> l
                 "agencies": [ag.get("agency_key","")],
             })
 
+    competitors = competitors or []
+    # DVBE partnership and competitive analysis
+    # For every non-DVBE incumbent found: add targeted DVBE recommendation
+    incumbents_seen = set()
+    for comp in competitors[:10]:
+        name = (comp.get("supplier_name") or "").lower()
+        val = comp.get("total_po_value") or 0
+        if val < 5000:
+            continue
+        is_known_non_dvbe = any(inc in name for inc in KNOWN_NON_DVBE_INCUMBENTS)
+        is_partner_candidate = any(p in name for p in DVBE_PARTNER_TARGETS)
+        base_name = name.title()[:30]
+        if is_known_non_dvbe and base_name not in incumbents_seen:
+            incumbents_seen.add(base_name)
+            ags = (comp.get("agencies") or comp.get("agency_list") or "").split(",")
+            # Option A: Displace them directly (DVBE mandate)
+            recs.append({
+                "priority": "P0",
+                "type": "dvbe_displace",
+                "action": f"Quote against {base_name} using your DVBE cert",
+                "why": (f"{base_name} holds ${val:,.0f} in CA government contracts but is NOT DVBE certified. "
+                        f"CA law requires agencies to allocate 3% of spend to DVBEs. "
+                        f"Agencies are under pressure to hit that quota — your DVBE cert is a structural advantage regardless of price."),
+                "estimated_annual_value": round(val * 0.15),  # conservative 15% capture
+                "how": (f"Contact the buyers currently ordering from {base_name}. "
+                        f"Lead with DVBE angle: 'We can help you hit your DVBE spend mandate for {', '.join(ags[:2])} '."
+                        f" Price to within 10-15% — the DVBE credit often closes the gap."),
+                "agencies": ags,
+                "dvbe_angle": True,
+            })
+            if is_partner_candidate:
+                # Option B: Partner with them as DVBE sub
+                recs.append({
+                    "priority": "P1",
+                    "type": "dvbe_partner",
+                    "action": f"Approach {base_name} as their DVBE subcontractor",
+                    "why": (f"{base_name} is a large distributor winning CA state contracts but needs DVBE subs "
+                            f"to qualify for certain bids and satisfy agency DVBE requirements. "
+                            f"You become their CA government DVBE partner — they bring volume, you bring the cert."),
+                    "estimated_annual_value": round(val * 0.08),
+                    "how": (f"Call {base_name}'s CA government sales team. Say: "
+                            f"'We're a DVBE distributor in CA and we'd like to explore a teaming agreement on your state agency bids.' "
+                            f"They likely have active contracts where they need DVBE spend credits."),
+                    "agencies": ags,
+                    "dvbe_angle": True,
+                    "partner_model": True,
+                })
+
+    # Add "unknown item" catch-all sourcing recommendation
+    # If there are items in DB we haven't classified as selling or gap
+    unknown_spend = sum(
+        (g.get("total_spend") or 0) for g in top_gaps
+        if g.get("category") in ("all_pos", "general_supplies", "equipment", "competitor", None)
+    )
+    if unknown_spend > 10000:
+        recs.append({
+            "priority": "P1",
+            "type": "source_anything",
+            "action": f"Source ${unknown_spend:,.0f} in uncategorized spend",
+            "why": (f"SCPRS data shows ${unknown_spend:,.0f} in spend on items you haven't started selling yet. "
+                    f"You don't need existing vendor relationships — you can source anything through "
+                    f"Grainger, Amazon Business, or direct manufacturer outreach to get competitive."),
+            "estimated_annual_value": round(unknown_spend * 0.2),
+            "how": (f"Pull the top items from the gaps tab. For each: (1) search Grainger/Amazon for cost, "
+                    f"(2) check if you can price within 15% of SCPRS, (3) add to your catalog. "
+                    f"Start with the highest-spend items and work down."),
+            "agencies": [],
+        })
+
     # Sort by estimated value
     recs.sort(key=lambda r: (-({'P0': 3, 'P1': 2, 'P2': 1}.get(r['priority'],0) * 1e9
                                 + (r.get('estimated_annual_value') or 0))))
-    return recs[:12]
+    return recs[:20]  # Return top 20 not 12
 
 
 # ── Background scheduler ──────────────────────────────────────────────────────

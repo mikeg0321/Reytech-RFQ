@@ -6269,7 +6269,16 @@ def page_intel_growth():
 
     def rec_icon(rec_type):
         return {"add_product": "📦", "win_back": "⚔️", "pricing": "💲",
-                "expand_agency": "🏛️"}.get(rec_type, "🎯")
+                "expand_agency": "🏛️", "dvbe_displace": "🏅", 
+                "dvbe_partner": "🤝", "source_anything": "🔍"}.get(rec_type, "🎯")
+    
+    def rec_badge(rec):
+        badges = []
+        if rec.get("dvbe_angle"):
+            badges.append('<span style="background:rgba(22,163,74,.15);color:var(--gn);padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700">DVBE</span>')
+        if rec.get("partner_model"):
+            badges.append('<span style="background:rgba(37,99,235,.15);color:var(--ac);padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700">PARTNER</span>')
+        return " ".join(badges)
 
     rec_html = ""
     for i, rec in enumerate(recs[:8]):
@@ -6281,17 +6290,18 @@ def page_intel_growth():
 <div style="border:1px solid var(--bd);border-left:4px solid {rec_color(prio)};border-radius:8px;padding:14px 18px;margin-bottom:10px;background:var(--bg2)">
   <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
     <div style="flex:1">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
         <span style="font-size:16px">{rec_icon(rtype)}</span>
         <span style="font-size:14px;font-weight:700;color:var(--tx)">{rec.get("action","")}</span>
         <span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;background:rgba(0,0,0,.08);color:{rec_color(prio)}">{prio}</span>
+        {rec_badge(rec)}
       </div>
-      <div style="font-size:12px;color:var(--tx2);margin-bottom:4px">{rec.get("why","")}</div>
-      <div style="font-size:11px;color:var(--tx2);font-style:italic">{rec.get("how","")[:100]}</div>
-      {'<div style="font-size:11px;color:var(--tx2);margin-top:4px">Agencies: ' + agencies + '</div>' if agencies else ''}
+      <div style="font-size:12px;color:var(--tx2);margin-bottom:6px;line-height:1.5">{rec.get("why","")}</div>
+      <div style="font-size:12px;color:var(--ac);font-weight:500">▶ {rec.get("how","")[:120]}</div>
+      {'<div style="font-size:11px;color:var(--tx2);margin-top:4px">📍 ' + agencies + '</div>' if agencies else ''}
     </div>
     <div style="text-align:right;flex-shrink:0">
-      <div style="font-size:18px;font-weight:800;color:var(--gn)">${val:,.0f}</div>
+      <div style="font-size:20px;font-weight:800;color:var(--gn)">${val:,.0f}</div>
       <div style="font-size:10px;color:var(--tx2)">est/yr</div>
     </div>
   </div>
@@ -6415,6 +6425,25 @@ table{{width:100%;border-collapse:collapse}}
     <div style="font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Quotes Auto-Closed</div>
     <div style="font-size:28px;font-weight:800;color:var(--tx)">{auto_closed}</div>
     <div style="font-size:10px;color:var(--tx2)">lost via PO monitor</div>
+  </div>
+</div>
+
+<!-- DVBE Insight Banner -->
+<div style="background:linear-gradient(135deg,rgba(22,163,74,.08),rgba(37,99,235,.08));border:1px solid rgba(22,163,74,.3);border-radius:10px;padding:14px 20px;margin-bottom:20px;display:flex;align-items:center;gap:16px">
+  <div style="font-size:28px">🏅</div>
+  <div style="flex:1">
+    <div style="font-size:14px;font-weight:700;color:var(--gn)">Your DVBE Cert is a Revenue Engine</div>
+    <div style="font-size:12px;color:var(--tx2);margin-top:3px;line-height:1.6">
+      CA law mandates that state agencies allocate <strong>3% of spend to DVBE suppliers</strong>. 
+      Cardinal Health, McKesson, Grainger — none of them have this cert. When you quote against them, 
+      lead with DVBE. Agencies NEED your cert to hit their quota. You can be priced higher and still win.
+      <span style="color:var(--ac);font-weight:600"> Also consider approaching these large distributors as their DVBE subcontractor on state bids.</span>
+    </div>
+  </div>
+  <div style="text-align:right;flex-shrink:0">
+    <div style="font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px">DVBE Mandate</div>
+    <div style="font-size:22px;font-weight:800;color:var(--gn)">3%</div>
+    <div style="font-size:11px;color:var(--tx2)">of all state spend</div>
   </div>
 </div>
 
@@ -6906,12 +6935,23 @@ def page_cchcs_intel():
         try: cats = ", ".join(_j.loads(cats_raw))[:50]
         except: cats = str(cats_raw)[:50]
         is_comp = s.get("is_competitor", 0)
+        supplier_lower = (s.get("supplier_name") or "").lower()
+        # Import check — is this a known non-DVBE we can displace?
+        from src.agents.scprs_intelligence_engine import KNOWN_NON_DVBE_INCUMBENTS, DVBE_PARTNER_TARGETS
+        is_dvbe_target = any(inc in supplier_lower for inc in KNOWN_NON_DVBE_INCUMBENTS)
+        is_partner = any(p in supplier_lower for p in DVBE_PARTNER_TARGETS)
+        action_cell = ""
+        if is_dvbe_target:
+            if is_partner:
+                action_cell = '<span style="color:var(--rd);font-size:11px;font-weight:600">⚔️ Displace</span> · <span style="color:var(--ac);font-size:11px;font-weight:600">🤝 Partner</span>'
+            else:
+                action_cell = '<span style="color:var(--rd);font-size:11px;font-weight:600">⚔️ Displace (DVBE)</span>'
         sup_rows += f"""<tr style="border-bottom:1px solid var(--bd)">
-  <td style="padding:8px 12px;font-size:13px;font-weight:{'600' if is_comp else '400'};color:{'var(--rd)' if is_comp else 'var(--tx)'}">{s.get("supplier_name","")[:40]}</td>
+  <td style="padding:8px 12px;font-size:13px;font-weight:{'600' if is_dvbe_target else '400'};color:{'var(--rd)' if is_dvbe_target else 'var(--tx)'}">{s.get("supplier_name","")[:40]}{' 🏅' if is_dvbe_target else ''}</td>
   <td style="padding:8px 12px;font-size:12px;text-align:center">{s.get("po_count",0)}</td>
   <td style="padding:8px 12px;font-size:13px;text-align:right;font-weight:700">${(s.get("total_po_value") or 0):,.0f}</td>
   <td style="padding:8px 12px;font-size:11px;color:var(--tx2)">{cats}</td>
-  <td style="padding:8px 12px;text-align:center">{'<span style="color:var(--rd);font-weight:700">⚔️ Target</span>' if is_comp else '—'}</td>
+  <td style="padding:8px 12px;font-size:11px">{action_cell if action_cell else '—'}</td>
 </tr>"""
 
     # Category chart data
