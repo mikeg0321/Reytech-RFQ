@@ -1,30 +1,24 @@
 {
-  "test_pc1": {
-    "id": "test_pc1",
-    "pc_number": "0S - MH",
+  "auto_test1": {
+    "id": "auto_test1",
+    "pc_number": "OS - MH",
     "institution": "CSP-Sacramento",
-    "due_date": "02/19/2026",
-    "requestor": "Val",
-    "ship_to": "CSP-Sacramento",
+    "ship_to": "100 Prison Road Represa CA 95671",
     "items": [
       {
         "item_number": "1",
-        "qty": 1,
+        "qty": 76,
         "uom": "EA",
         "description": "Test item",
         "pricing": {}
       }
     ],
-    "source_pdf": "",
     "status": "parsed",
     "status_history": [],
-    "created_at": "2026-02-19T10:00:00",
     "parsed": {
-      "header": {
-        "price_check_number": "0S - MH",
-        "institution": "CSP-Sacramento"
-      }
+      "header": {}
     },
-    "reytech_quote_number": "R26Q17"
+    "reytech_quote_number": "R26Q17",
+    "delivery_option": "5-7 business days"
   }
 }
