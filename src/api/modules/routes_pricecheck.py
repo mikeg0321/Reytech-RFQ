@@ -1330,6 +1330,66 @@ def api_pricecheck_clear_quote(pcid):
 
 
 
+@bp.route("/api/admin/rfq-cleanup", methods=["POST"])
+@auth_required
+def api_admin_rfq_cleanup():
+    """Remove AMS 704 price check PDFs that incorrectly landed in the RFQ queue.
+    These appear when the same 704 email was processed before the routing fix.
+    Moves them to PC queue if not already there, then removes from rfq queue.
+    """
+    from src.api.dashboard import load_rfqs, save_rfqs
+    import uuid as _uuid
+
+    rfqs = load_rfqs()
+    removed = []
+    kept = []
+
+    for rid, r in list(rfqs.items()):
+        # Detect if this RFQ entry is actually a 704 price check:
+        # 1. Attachments include a 704 form type
+        atts = r.get("attachments_raw", []) or []
+        templates = r.get("templates", {}) or {}
+        is_704 = (
+            "704" in " ".join(str(a) for a in atts).lower() or
+            "704a" in templates or
+            "704" in str(r.get("email_subject", "")).lower() or
+            # Has no 704B (full RFQ requires 704B)
+            ("704b" not in templates and r.get("source") == "email" and 
+             any("704" in str(a).lower() for a in atts))
+        )
+        
+        # Also flag if it exactly matches a PC we have
+        pcs = _load_price_checks()
+        sol = r.get("solicitation_number", "")
+        matching_pc = any(
+            str(pc.get("pc_number","")).replace("-","").replace(" ","").replace("#","") ==
+            str(sol).replace("-","").replace(" ","").replace("#","")
+            for pc in pcs.values()
+        )
+        
+        if is_704 or matching_pc:
+            removed.append({
+                "rfq_id": rid,
+                "solicitation": sol,
+                "requestor": r.get("requestor_name", r.get("requestor_email", "")),
+                "reason": "matching_pc" if matching_pc else "detected_704_form",
+            })
+            del rfqs[rid]
+        else:
+            kept.append(rid)
+
+    save_rfqs(rfqs)
+    log.info("RFQ cleanup: removed %d entries (%s), kept %d",
+             len(removed), [r["solicitation"] for r in removed], len(kept))
+    return jsonify({
+        "ok": True,
+        "removed": len(removed),
+        "kept": len(kept),
+        "removed_entries": removed,
+    })
+
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @bp.route("/api/item-link/lookup", methods=["POST"])

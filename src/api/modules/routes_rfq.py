@@ -5,7 +5,10 @@
 @bp.route("/")
 @auth_required
 def home():
-    return render(PAGE_HOME, rfqs=load_rfqs(), price_checks=_load_price_checks())
+    all_pcs = _load_price_checks()
+    # Auto-draft PCs (source='email_auto_draft') are shown inside the RFQ row, not the PC queue
+    user_pcs = {k: v for k, v in all_pcs.items() if v.get('source') != 'email_auto_draft'}
+    return render(PAGE_HOME, rfqs=load_rfqs(), price_checks=user_pcs)
 
 @bp.route("/upload", methods=["POST"])
 @auth_required

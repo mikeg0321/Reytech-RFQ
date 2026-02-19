@@ -508,13 +508,18 @@ def _get_auto_closed_count() -> int:
 
 def generate_brief() -> dict:
     """Generate the full manager brief. Everything in one glance.
-    Now uses agent_context for live DB data (Skills Guide Pattern 5).
+    Each sub-call is individually guarded — this function NEVER throws.
     """
-    approvals = _get_pending_approvals()
-    activity = _get_activity_feed(limit=10)
-    summary = _get_pipeline_summary()
-    agents = _check_all_agents()
-    revenue = _get_revenue_status()
+    try: approvals = _get_pending_approvals()
+    except Exception as _e: log.warning("_get_pending_approvals failed: %s", _e); approvals = []
+    try: activity = _get_activity_feed(limit=10)
+    except Exception as _e: log.warning("_get_activity_feed failed: %s", _e); activity = []
+    try: summary = _get_pipeline_summary()
+    except Exception as _e: log.warning("_get_pipeline_summary failed: %s", _e); summary = {"price_checks": {}, "rfqs": {}, "quotes": {}, "leads": {}, "orders": {}, "outbox": {}, "growth": {}}
+    try: agents = _check_all_agents()
+    except Exception as _e: log.warning("_check_all_agents failed: %s", _e); agents = []
+    try: revenue = _get_revenue_status()
+    except Exception as _e: log.warning("_get_revenue_status failed: %s", _e); revenue = {"closed_revenue": 0, "goal": 2000000, "pct_to_goal": 0, "gap_to_goal": 2000000}
 
     # ── Pull live DB context (agent intelligence layer) ────────────────────
     db_ctx = {}
@@ -524,16 +529,21 @@ def generate_brief() -> dict:
         except Exception:
             pass
 
-    # Build headline
+    # Build headline — use .get() everywhere so a partial summary never throws
     headlines = []
+    _ob = summary.get("outbox", {}) or {}
+    _leads = summary.get("leads", {}) or {}
+    _gr = summary.get("growth", {}) or {}
     if approvals:
         headlines.append(f"{len(approvals)} item{'s' if len(approvals)!=1 else ''} need{'s' if len(approvals)==1 else ''} your attention")
-    if summary["outbox"]["drafts"] > 0:
-        headlines.append(f"{summary['outbox']['drafts']} email draft{'s' if summary['outbox']['drafts']!=1 else ''} awaiting review")
-    if summary["leads"]["new"] > 0:
-        headlines.append(f"{summary['leads']['new']} new lead{'s' if summary['leads']['new']!=1 else ''}")
-    if summary.get("growth", {}).get("by_status", {}).get("follow_up_due", 0) > 0:
-        n = summary["growth"]["by_status"]["follow_up_due"]
+    if _ob.get("drafts", 0) > 0:
+        _d = _ob["drafts"]
+        headlines.append(f"{_d} email draft{'s' if _d!=1 else ''} awaiting review")
+    if _leads.get("new", 0) > 0:
+        _n = _leads["new"]
+        headlines.append(f"{_n} new lead{'s' if _n!=1 else ''}")
+    if _gr.get("by_status", {}).get("follow_up_due", 0) > 0:
+        n = _gr["by_status"]["follow_up_due"]
         headlines.append(f"{n} growth prospect{'s' if n!=1 else ''} ready for follow-up call")
 
     # RFQ headlines — highest priority (pending RFQs need filling out)
@@ -562,17 +572,22 @@ def generate_brief() -> dict:
     agents_down = sum(1 for a in agents if a["status"] in ("unavailable", "error"))
     agents_config = sum(1 for a in agents if a["status"] == "not configured")
 
-    # Revenue snapshot (merge DB context if available)
-    rev_db = db_ctx.get("revenue", {})
-    rev_snapshot = {
-        "closed": rev_db.get("closed") or revenue.get("closed_revenue", 0),
-        "goal": rev_db.get("goal") or revenue.get("goal", 2000000),
-        "pct": rev_db.get("pct") or revenue.get("pct_to_goal", 0),
-        "gap": rev_db.get("gap") or revenue.get("gap_to_goal", 0),
-        "on_track": rev_db.get("on_track") or revenue.get("on_track", False),
-        "run_rate": rev_db.get("run_rate_annual") or revenue.get("run_rate_annual", 0),
-        "monthly_needed": rev_db.get("monthly_needed") or revenue.get("monthly_needed", 181818),
-    }
+    # Revenue snapshot — fully guarded
+    try:
+        rev_db = db_ctx.get("revenue", {}) or {}
+        rev_snapshot = {
+            "closed": rev_db.get("closed") or revenue.get("closed_revenue", 0),
+            "goal": rev_db.get("goal") or revenue.get("goal", 2000000),
+            "pct": rev_db.get("pct") or revenue.get("pct_to_goal", 0),
+            "gap": rev_db.get("gap") or revenue.get("gap_to_goal", 0),
+            "on_track": rev_db.get("on_track") or revenue.get("on_track", False),
+            "run_rate": rev_db.get("run_rate_annual") or revenue.get("run_rate_annual", 0),
+            "monthly_needed": rev_db.get("monthly_needed") or revenue.get("monthly_needed", 181818),
+        }
+    except Exception as _e:
+        log.warning("rev_snapshot failed: %s", _e)
+        rev_snapshot = {"closed": 0, "goal": 2000000, "pct": 0, "gap": 2000000,
+                        "on_track": False, "run_rate": 0, "monthly_needed": 181818}
 
     # Growth campaign status
     growth_campaign = {}
@@ -595,8 +610,10 @@ def generate_brief() -> dict:
         pass
 
     # SCPRS intelligence section
-    scprs_intel = get_scprs_brief_section()
-    auto_closed = _get_auto_closed_count()
+    try: scprs_intel = get_scprs_brief_section()
+    except Exception as _e: log.warning("get_scprs_brief_section failed: %s", _e); scprs_intel = {"available": False}
+    try: auto_closed = _get_auto_closed_count()
+    except Exception as _e: auto_closed = 0
 
     # Merge SCPRS signals into headlines
     if scprs_intel.get("available"):

@@ -3271,13 +3271,22 @@ try:
         run_health_check, get_qa_history, get_health_trend, start_qa_monitor,
     )
     QA_AVAILABLE = True
-    # Start background QA monitor
     try:
         start_qa_monitor()
     except Exception:
         pass
 except ImportError:
     QA_AVAILABLE = False
+
+try:
+    from src.agents.workflow_tester import (
+        run_workflow_tests, get_latest_run as get_latest_wf_run,
+        get_run_history as get_wf_history, start_workflow_monitor,
+    )
+    start_workflow_monitor()
+    _WF_AVAILABLE = True
+except Exception:
+    _WF_AVAILABLE = False
 
 
 @bp.route("/api/identify", methods=["POST"])
@@ -3357,6 +3366,113 @@ def api_agents_status():
     return jsonify({"ok": True, "agents": agents,
                     "total": len(agents),
                     "active": sum(1 for a in agents.values() if a.get("status") != "not_available")})
+
+
+@bp.route("/api/qa/workflow", methods=["GET","POST"])
+@auth_required
+def api_qa_workflow_run():
+    if not _WF_AVAILABLE:
+        return jsonify({"ok": False, "error": "workflow_tester not available"}), 503
+    report = run_workflow_tests()
+    return jsonify(report)
+
+
+@bp.route("/api/qa/workflow/latest")
+@auth_required
+def api_qa_workflow_latest():
+    if not _WF_AVAILABLE:
+        return jsonify({"ok": False, "error": "workflow_tester not available"}), 503
+    return jsonify(get_latest_wf_run())
+
+
+@bp.route("/api/qa/workflow/history")
+@auth_required
+def api_qa_workflow_history():
+    if not _WF_AVAILABLE:
+        return jsonify({"ok": False, "error": "workflow_tester not available"}), 503
+    n = int(request.args.get("n", 20))
+    return jsonify(get_wf_history(n))
+
+
+@bp.route("/qa/workflow")
+@auth_required
+def qa_workflow_page():
+    return """<!DOCTYPE html><html><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Workflow Tests — Reytech</title>
+<style>
+:root{--bg:#0d1117;--sf:#161b22;--sf2:#21262d;--bd:#30363d;--tx:#e6edf3;--tx2:#8b949e;--gn:#34d399;--yl:#fbbf24;--rd:#f87171;--ac:#4f8cff}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--tx);padding:20px;max-width:960px;margin:auto}
+.nav{display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap}
+.nav a{padding:5px 12px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;font-size:13px;color:var(--tx);text-decoration:none}
+.card{background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px;margin-bottom:14px}
+.row{display:flex;align-items:flex-start;gap:12px;padding:10px 0;border-bottom:1px solid var(--bd)}
+.row:last-child{border-bottom:none}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px}
+.pass{background:rgba(52,211,153,.15);color:var(--gn)}.warn{background:rgba(251,191,36,.15);color:var(--yl)}.fail{background:rgba(248,113,113,.15);color:var(--rd)}
+.fix{font-size:11px;color:var(--yl);margin-top:4px;font-style:italic}
+h1{font-size:22px;margin-bottom:4px}.sub{color:var(--tx2);font-size:13px;margin-bottom:20px}
+.run-btn{padding:10px 24px;background:var(--ac);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;margin-bottom:16px}
+</style></head><body>
+<div class="nav"><a href="/">🏠 Home</a><a href="/agents">🤖 Agents</a><a href="/qa/intelligence">📊 QA Intel</a></div>
+<h1>🔬 Workflow Tests</h1><p class="sub">End-to-end data flow validation — runs every 10 minutes automatically</p>
+<div id="score-card" class="card" style="text-align:center"><div style="color:var(--tx2)">Loading…</div></div>
+<button class="run-btn" onclick="runTests()" id="run-btn">▶ Run Tests Now</button>
+<div id="results"></div>
+<div id="history"><div class="card"><div style="color:var(--tx2);font-size:13px">Loading history…</div></div></div>
+<script>
+function loadLatest(){
+  fetch('/api/qa/workflow/latest',{credentials:'same-origin'}).then(r=>r.json()).then(function(d){
+    if(d&&d.full_report&&d.full_report.results){renderReport(d.full_report);}else{runTests();}
+  }).catch(function(){runTests();});
+}
+function runTests(){
+  var btn=document.getElementById('run-btn');btn.disabled=true;btn.textContent='⏳ Running…';
+  fetch('/api/qa/workflow',{credentials:'same-origin'}).then(r=>r.json()).then(function(d){
+    renderReport(d);loadHistory();btn.disabled=false;btn.textContent='▶ Run Tests Now';
+  }).catch(function(){btn.disabled=false;btn.textContent='▶ Run Tests Now';});
+}
+function renderReport(d){
+  var sc=d.score||0;var col=sc>=90?'var(--gn)':sc>=70?'var(--yl)':'var(--rd)';
+  document.getElementById('score-card').innerHTML=
+    '<div style="font-size:52px;font-weight:700;color:'+col+';font-family:monospace">'+sc+'/100</div>'+
+    '<div style="font-size:18px;margin:4px 0;color:'+col+'">Grade '+d.grade+'</div>'+
+    '<div style="font-size:12px;color:var(--tx2)">'+d.summary.passed+' pass · '+d.summary.warned+' warn · '+d.summary.failed+' fail · '+d.duration_s+'s</div>'+
+    '<div style="font-size:11px;color:var(--tx2);margin-top:4px">Last run: '+new Date(d.run_at).toLocaleString()+'</div>';
+  var html='<div class="card"><div style="font-weight:600;margin-bottom:8px">Test Results</div>';
+  (d.results||[]).forEach(function(r){
+    var icon=r.status==='pass'?'✅':r.status==='warn'?'⚠️':'❌';
+    html+='<div class="row"><span style="font-size:18px">'+icon+'</span>'+
+      '<div style="flex:1"><div style="font-size:13px;font-weight:600">'+r.test+'<span class="badge '+r.status+'" style="margin-left:8px">'+r.status+'</span></div>'+
+      '<div style="font-size:12px;color:var(--tx2);margin-top:2px">'+r.message+'</div>'+
+      (r.detail?'<div style="font-size:11px;color:var(--tx2);margin-top:2px;font-family:monospace">'+r.detail+'</div>':'')+
+      (r.fix&&r.status!=='pass'?'<div class="fix">💡 '+r.fix+'</div>':'')+
+      '</div></div>';
+  });
+  html+='</div>';
+  document.getElementById('results').innerHTML=html;
+}
+function loadHistory(){
+  fetch('/api/qa/workflow/history?n=10',{credentials:'same-origin'}).then(r=>r.json()).then(function(rows){
+    if(!rows.length)return;
+    var html='<div class="card"><div style="font-weight:600;margin-bottom:8px">Run History (last 10)</div>';
+    rows.forEach(function(r){
+      var col=r.score>=90?'var(--gn)':r.score>=70?'var(--yl)':'var(--rd)';
+      var fails=[];try{fails=JSON.parse(r.critical_failures||'[]');}catch(e){}
+      html+='<div style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--bd)">'+
+        '<div style="font-family:monospace;font-size:18px;font-weight:700;color:'+col+';width:60px">'+r.score+'</div>'+
+        '<div style="flex:1"><div style="font-size:12px;color:var(--tx2)">'+new Date(r.run_at).toLocaleString()+'</div>'+
+        (fails.length?'<div style="font-size:11px;color:var(--rd);margin-top:2px">'+fails[0]+'</div>':'<div style="font-size:11px;color:var(--gn)">All clear</div>')+'</div>'+
+        '<div style="font-size:11px;color:var(--tx2)">'+r.passed+'P '+r.warned+'W '+r.failed+'F</div>'+
+        '</div>';
+    });
+    html+='</div>';
+    document.getElementById('history').innerHTML=html;
+  });
+}
+loadLatest();loadHistory();
+</script></body></html>"""
 
 
 @bp.route("/api/qa/scan")

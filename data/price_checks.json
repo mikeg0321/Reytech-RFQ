@@ -1,9 +1,1 @@
-{
-  "test_448": {
-    "pc_number": "TEST-001",
-    "institution": "CSP-Sacramento (TEST)",
-    "status": "parsed",
-    "items": [],
-    "reytech_quote_number": "TEST-Q627"
-  }
-}
+{"test_448": {"pc_number": "TEST-001", "institution": "CSP-Sacramento (TEST)", "status": "parsed", "items": [], "reytech_quote_number": "TEST-Q627"}}

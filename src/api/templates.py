@@ -311,7 +311,10 @@ fetch('/api/intel/revenue',{credentials:'same-origin'}).then(r=>r.json()).then(d
    </div>
    <div id="brief-headline" style="font-size:15px;font-weight:600;margin-top:8px;line-height:1.4"></div>
   </div>
-  <a href="/agents" class="btn btn-sm btn-s" style="font-size:10px;padding:4px 10px;white-space:nowrap;margin-top:2px">📊 Full Report</a>
+  <div style="display:flex;gap:6px;align-items:center">
+   <a href="/agents" class="btn btn-sm btn-s" style="font-size:10px;padding:4px 10px;white-space:nowrap">📊 Full Report</a>
+   <button onclick="loadBrief()" id="brief-refresh-btn" style="font-size:10px;padding:4px 8px;background:rgba(79,140,255,.1);border:1px solid rgba(79,140,255,.3);color:var(--ac);border-radius:6px;cursor:pointer;white-space:nowrap">🔄 Refresh</button>
+  </div>
  </div>
 
  <!-- Two-column: Approvals | Activity -->
@@ -536,6 +539,9 @@ document.querySelectorAll('details').forEach(d=>{
 
 
 // ── Manager Brief (loads async) ──
+function loadBrief() {
+  var btn = document.getElementById('brief-refresh-btn');
+  if(btn) { btn.disabled=true; btn.textContent='⏳'; }
 fetch('/api/manager/brief',{credentials:'same-origin'}).then(function(r){
  if(!r.ok) throw new Error('HTTP '+r.status);
  return r.json();
@@ -636,7 +642,6 @@ fetch('/api/manager/brief',{credentials:'same-origin'}).then(function(r){
  }
 }).catch(function(err){
  console.error('Manager brief failed:',err);
- // Show brief section with a retry-able error state (not a hard crash)
  var sec=document.getElementById('brief-section');
  sec.style.display='block';
  var badge=document.getElementById('brief-badge');
@@ -644,12 +649,16 @@ fetch('/api/manager/brief',{credentials:'same-origin'}).then(function(r){
  badge.style.background='rgba(251,191,36,.15)';
  badge.style.color='#fbbf24';
  badge.style.cursor='pointer';
- badge.onclick=function(){location.reload();};
+ badge.onclick=function(){loadBrief();};
  var hdr=document.getElementById('brief-headline');
- hdr.textContent='Dashboard loaded — click retry to refresh brief';
+ hdr.textContent='Dashboard loaded — click Refresh to reload brief';
  hdr.style.color='#8b949e';
- // Still load KPI metrics (those are separate and usually work)
+}).finally(function(){
+ var btn=document.getElementById('brief-refresh-btn');
+ if(btn){btn.disabled=false;btn.textContent='🔄 Refresh';}
 });
+}
+loadBrief();
 
 // ── KPI Dashboard (loads async) ──
 fetch('/api/manager/metrics',{credentials:'same-origin'}).then(function(r){
@@ -2680,6 +2689,30 @@ h1 {{ font-size:22px; margin-bottom:4px; }}
 </div>
 
 
+<div class="section" id="wf-section" style="border:2px solid rgba(79,140,255,.3);background:rgba(79,140,255,.04)">
+ <h2>🔬 Workflow QA Tests <span class="tag" id="wf-badge" style="background:var(--sf2);color:var(--tx2)">loading…</span></h2>
+ <p style="color:#8b949e;font-size:12px;margin-bottom:12px">
+   End-to-end data flow tests — runs every 10 minutes. Tests queue isolation, manager brief accuracy, DB consistency, CS visibility, email routing.
+   <a href="/qa/workflow" style="color:var(--blue);margin-left:4px">→ Full Dashboard</a>
+ </p>
+ <div id="wf-latest-preview" style="margin-bottom:12px"></div>
+ <div class="grid">
+  <button class="btn btn-go" onclick="location.href='/qa/workflow'" style="border-color:rgba(79,140,255,.4)">
+   <span class="label">🔬 Test Dashboard</span><span class="desc">Full run history & results</span>
+  </button>
+  <button class="btn" onclick="runWorkflowTests()" id="wf-run-btn" style="border-color:rgba(79,140,255,.4)">
+   <span class="label">▶ Run Now</span><span class="desc">Force immediate test run</span>
+  </button>
+  <button class="btn" onclick="apiGet('/api/qa/health')">
+   <span class="label">📊 Code QA</span><span class="desc">Static code quality scan</span>
+  </button>
+  <button class="btn" onclick="location.href='/qa/intelligence'">
+   <span class="label">📈 QA History</span><span class="desc">Score trends over time</span>
+  </button>
+ </div>
+</div>
+
+
 <div class="section">
  <h2>📧 Email Outreach</h2>
  <div class="grid">
@@ -2945,6 +2978,53 @@ fetch('/api/cs/drafts',{{credentials:'same-origin'}}).then(r=>r.json()).then(fun
   var badge=document.getElementById('cs-badge');
   if(badge){{badge.textContent='unavailable';badge.className='tag tag-off';}}
 }});
+// ── Workflow Tester — load latest score ─────────────────────────────────
+fetch('/api/qa/workflow/latest',{{credentials:'same-origin'}}).then(r=>r.json()).then(function(d){{
+  var badge=document.getElementById('wf-badge');
+  var preview=document.getElementById('wf-latest-preview');
+  if(!d||!d.score){{
+    if(badge)badge.textContent='no runs yet';
+    return;
+  }}
+  var sc=d.score||0;
+  var col=sc>=90?'#34d399':sc>=70?'#fbbf24':'#f87171';
+  var bg=sc>=90?'rgba(52,211,153,.15)':sc>=70?'rgba(251,191,36,.15)':'rgba(248,113,113,.15)';
+  if(badge){{badge.textContent=sc+'/100 '+d.grade;badge.style.background=bg;badge.style.color=col;}}
+  if(preview&&d.full_report){{
+    var fr=d.full_report;
+    var fails=(fr.critical_failures||[]);
+    var warns=(fr.results||[]).filter(function(r){{return r.status==='warn';}});
+    if(fails.length+warns.length>0){{
+      preview.innerHTML=(fails.concat(warns)).slice(0,3).map(function(r){{
+        var ic=r.status==='fail'?'❌':'⚠️';
+        return '<div style="background:rgba('+( r.status==='fail'?'248,113,113':'251,191,36')+', .08);border:1px solid rgba('+( r.status==='fail'?'248,113,113':'251,191,36')+', .25);border-radius:8px;padding:8px 12px;margin-bottom:6px;font-size:12px">'+
+          ic+' <b>'+r.test+'</b>: '+r.message+
+          (r.fix?'<div style="color:#fbbf24;font-size:11px;margin-top:3px">💡 '+r.fix+'</div>':'')+
+          '</div>';
+      }}).join('');
+    }} else {{
+      preview.innerHTML='<div style="color:#34d399;font-size:12px;padding:8px">✅ All workflow tests passing</div>';
+    }}
+  }}
+}}).catch(function(){{
+  var badge=document.getElementById('wf-badge');
+  if(badge){{badge.textContent='unavailable';badge.style.color='var(--tx2)';}}
+}});
+
+function runWorkflowTests(){{
+  var btn=document.getElementById('wf-run-btn');
+  if(btn){{btn.disabled=true;btn.querySelector('.label').textContent='⏳ Running…';}}
+  fetch('/api/qa/workflow',{{method:'POST',credentials:'same-origin'}}).then(r=>r.json()).then(function(d){{
+    var sc=d.score||0;
+    var col=sc>=90?'#34d399':sc>=70?'#fbbf24':'#f87171';
+    var bg=sc>=90?'rgba(52,211,153,.15)':sc>=70?'rgba(251,191,36,.15)':'rgba(248,113,113,.15)';
+    var badge=document.getElementById('wf-badge');
+    if(badge){{badge.textContent=sc+'/100 '+d.grade;badge.style.background=bg;badge.style.color=col;}}
+    if(btn){{btn.disabled=false;btn.querySelector('.label').textContent='▶ Run Now';}}
+    location.href='/qa/workflow';
+  }}).catch(function(){{if(btn){{btn.disabled=false;btn.querySelector('.label').textContent='▶ Run Now';}}}} );
+}}
+
 function apiPost(url, body) {{
   RC.textContent = 'Loading...'; R.style.display = 'block';
   fetch(url, {{
