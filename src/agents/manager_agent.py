@@ -395,6 +395,53 @@ def _get_pipeline_summary() -> dict:
 
 # ─── Manager Brief (main output) ──────────────────────────────────────────
 
+
+
+def get_scprs_brief_section() -> dict:
+    """
+    Pull SCPRS intelligence into manager brief.
+    Returns: {recommendations, gap_total, win_back_total, auto_closed, data_fresh}
+    """
+    try:
+        from src.agents.growth_agent import get_scprs_growth_intelligence
+        intel = get_scprs_growth_intelligence()
+        if not intel.get("ok"):
+            return {"available": False}
+        recs = intel.get("recommendations", [])[:5]
+        summary = intel.get("summary", {})
+        losses = intel.get("recent_losses", [])
+        return {
+            "available": True,
+            "recommendations": recs,
+            "gap_opportunity": summary.get("total_gap_opportunity", 0),
+            "win_back_opportunity": summary.get("total_win_back", 0),
+            "total_opportunity": summary.get("total_opportunity", 0),
+            "agencies_with_data": summary.get("agencies_with_data", 0),
+            "recent_losses": losses[:3],
+            "top_action": recs[0] if recs else None,
+        }
+    except Exception as e:
+        return {"available": False, "error": str(e)}
+
+
+def _get_auto_closed_count() -> int:
+    """How many quotes auto-closed-lost by PO monitor today."""
+    try:
+        import sqlite3
+        from src.core.paths import DATA_DIR
+        import os
+        db = os.path.join(DATA_DIR, "reytech.db")
+        conn = sqlite3.connect(db)
+        today = __import__('datetime').date.today().isoformat()
+        n = conn.execute(
+            "SELECT COUNT(*) FROM quote_po_matches WHERE auto_closed=1 AND matched_at LIKE ?",
+            (f"{today}%",)
+        ).fetchone()[0]
+        conn.close()
+        return n
+    except Exception:
+        return 0
+
 def generate_brief() -> dict:
     """Generate the full manager brief. Everything in one glance.
     Now uses agent_context for live DB data (Skills Guide Pattern 5).
@@ -477,11 +524,33 @@ def generate_brief() -> dict:
     except Exception:
         pass
 
+    # SCPRS intelligence section
+    scprs_intel = get_scprs_brief_section()
+    auto_closed = _get_auto_closed_count()
+
+    # Merge SCPRS signals into headlines
+    if scprs_intel.get("available"):
+        opp = scprs_intel.get("total_opportunity", 0)
+        if opp > 0:
+            headlines.append(f"${opp:,.0f} in SCPRS-identified opportunities — see Growth Intel")
+        if scprs_intel.get("recent_losses"):
+            l = scprs_intel["recent_losses"][0]
+            delta = (l.get("total") or 0) - (l.get("scprs_total") or 0)
+            if delta > 100:
+                headlines.append(
+                    f"Lost {l.get('quote_number','')} to {l.get('scprs_supplier','')} — "
+                    f"we were ${delta:,.0f} too high. Reprice."
+                )
+    if auto_closed > 0:
+        headlines.append(f"{auto_closed} quote{'s' if auto_closed!=1 else ''} auto-closed lost today via SCPRS monitor")
+
     return {
         "ok": True,
         "generated_at": datetime.now().isoformat(),
         "headline": headlines[0] if headlines else "All clear",
         "headlines": headlines,
+        "scprs_intel": scprs_intel,
+        "auto_closed_today": auto_closed,
         "pending_approvals": approvals,
         "approval_count": len(approvals),
         "activity": activity,
@@ -521,4 +590,252 @@ def get_agent_status() -> dict:
             "Email Outbox (drafts, approved)",
             "Agent health (8 agents monitored)",
         ],
+    }
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# INTELLIGENT RECOMMENDATIONS ENGINE (Phase 32)
+# Pulls SCPRS intelligence → generates plain-english what-to-do-next
+# ════════════════════════════════════════════════════════════════════════════════
+
+def get_intelligent_recommendations() -> dict:
+    """
+    The 'what do I do next?' engine.
+    Reads SCPRS intelligence + quote status + QB balances → generates
+    ranked, plain-english action items with dollar amounts attached.
+    """
+    import sqlite3
+
+    try:
+        from src.core.paths import DATA_DIR
+        import os
+        db_path = os.path.join(DATA_DIR, "reytech.db")
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+    now = datetime.now()
+    actions = []
+
+    # ── SIGNAL 1: Outstanding AR (money owed to us NOW) ─────────────────────
+    try:
+        import json, os
+        customers = json.load(open(os.path.join(DATA_DIR, "customers.json")))
+        ar_by_agency = {}
+        for c in customers:
+            bal = float(c.get("open_balance", 0) or 0)
+            if bal > 0:
+                agency = c.get("agency", "Unknown")
+                ar_by_agency[agency] = ar_by_agency.get(agency, 0) + bal
+        for agency, total in sorted(ar_by_agency.items(), key=lambda x: -x[1]):
+            if total > 100:
+                actions.append({
+                    "priority": "P0",
+                    "type": "collect_ar",
+                    "signal": "outstanding_balance",
+                    "agency": agency,
+                    "title": f"Collect ${total:,.0f} AR from {agency}",
+                    "why": f"{agency} owes ${total:,.0f}. Follow up before sending new quotes.",
+                    "action": f"Email billing contact at {agency} with invoice summary",
+                    "dollar_value": total,
+                    "urgency": "THIS WEEK",
+                })
+    except Exception:
+        pass
+
+    # ── SIGNAL 2: Open quotes past 14 days (should be won or lost) ──────────
+    try:
+        old_quotes = conn.execute("""
+            SELECT quote_number, agency, total, created_at
+            FROM quotes
+            WHERE status IN ('sent','pending')
+              AND is_test=0
+              AND created_at < date('now', '-14 days')
+              AND total > 0
+            ORDER BY total DESC LIMIT 5
+        """).fetchall()
+        for q in old_quotes:
+            q = dict(q)
+            age = (now - datetime.fromisoformat(q["created_at"][:10])).days
+            actions.append({
+                "priority": "P0",
+                "type": "follow_up_quote",
+                "signal": "stale_quote",
+                "agency": q.get("agency",""),
+                "title": f"Follow up: Quote {q['quote_number']} ({age}d old, ${q.get('total',0):,.0f})",
+                "why": f"Quote {q['quote_number']} to {q.get('agency','')} sent {age} days ago with no response. Either win it or close it.",
+                "action": f"Call or email {q.get('agency','')} purchasing. Ask: 'Was our quote competitive? Did you award to another vendor?'",
+                "dollar_value": q.get("total", 0),
+                "urgency": "THIS WEEK",
+            })
+    except Exception:
+        pass
+
+    # ── SIGNAL 3: SCPRS gap items — products CCHCS/agencies buy, we don't sell ──
+    try:
+        gap_items = conn.execute("""
+            SELECT l.description, l.category,
+                   COUNT(DISTINCT p.dept_code) as agency_count,
+                   COUNT(*) as times_ordered,
+                   SUM(l.line_total) as total_spend,
+                   AVG(l.unit_price) as avg_price,
+                   GROUP_CONCAT(DISTINCT p.dept_name) as buying_agencies
+            FROM scprs_po_lines l
+            JOIN scprs_po_master p ON l.po_id=p.id
+            WHERE l.opportunity_flag='GAP_ITEM' AND l.line_total > 100
+            GROUP BY LOWER(l.description)
+            HAVING total_spend > 500
+            ORDER BY total_spend DESC LIMIT 10
+        """).fetchall()
+        for item in gap_items:
+            item = dict(item)
+            spend = item.get("total_spend", 0) or 0
+            agencies = (item.get("buying_agencies") or "").split(",")[0]
+            actions.append({
+                "priority": "P1",
+                "type": "add_product",
+                "signal": "scprs_gap",
+                "agency": agencies,
+                "title": f"Add '{item['description'][:45]}' — ${spend:,.0f} visible spend",
+                "why": f"{item.get('agency_count',1)} agencies buying this {item.get('times_ordered',0)}x. "
+                       f"Avg price ${item.get('avg_price',0):.2f}. You're not in this product yet.",
+                "action": f"Source from Cardinal/McKesson/Medline and add to catalog. "
+                          f"Then quote {agencies} — they already buy this.",
+                "dollar_value": spend,
+                "urgency": "NEXT 30 DAYS",
+            })
+    except Exception:
+        pass
+
+    # ── SIGNAL 4: SCPRS win-back — we sell it, competitor is getting the PO ──
+    try:
+        win_back = conn.execute("""
+            SELECT l.description,
+                   p.supplier as their_vendor,
+                   p.dept_name as agency,
+                   SUM(l.line_total) as total_spend,
+                   AVG(l.unit_price) as their_price
+            FROM scprs_po_lines l
+            JOIN scprs_po_master p ON l.po_id=p.id
+            WHERE l.opportunity_flag='WIN_BACK' AND l.line_total > 100
+            GROUP BY LOWER(l.description), p.supplier
+            ORDER BY total_spend DESC LIMIT 8
+        """).fetchall()
+        for item in win_back:
+            item = dict(item)
+            spend = item.get("total_spend", 0) or 0
+            actions.append({
+                "priority": "P0",
+                "type": "displace_competitor",
+                "signal": "scprs_win_back",
+                "agency": item.get("agency",""),
+                "title": f"Displace {item.get('their_vendor','competitor')} on '{item['description'][:40]}'",
+                "why": f"{item.get('agency','')} is buying this from {item.get('their_vendor','')} "
+                       f"at ${item.get('their_price',0):.2f}. You already sell this. "
+                       f"Beat their price by 3-5% and you win ${spend:,.0f}/yr.",
+                "action": f"Quote {item.get('agency','')} on {item['description'][:40]} "
+                          f"at ${(item.get('their_price',0) or 0)*0.96:.2f} (4% below their current price). "
+                          f"Reference your SB/DVBE advantage.",
+                "dollar_value": spend,
+                "urgency": "THIS WEEK",
+            })
+    except Exception:
+        pass
+
+    # ── SIGNAL 5: Inactive CCHCS facilities (32 with $0 balance) ─────────────
+    try:
+        import json, os
+        customers = json.load(open(os.path.join(DATA_DIR, "customers.json")))
+        inactive_cchcs = [c for c in customers
+                          if c.get("agency") in ("CCHCS","CDCR")
+                          and float(c.get("open_balance",0) or 0) == 0]
+        if inactive_cchcs:
+            actions.append({
+                "priority": "P1",
+                "type": "expand_existing_customer",
+                "signal": "inactive_facilities",
+                "agency": "CCHCS",
+                "title": f"Activate {len(inactive_cchcs)} dormant CCHCS facilities",
+                "why": f"You have {len(inactive_cchcs)} CCHCS facilities in QB with $0 balance — "
+                       f"they're customers by name but haven't ordered. "
+                       f"Email Timothy Anderson and ask for supply officer contacts at each facility.",
+                "action": "Email timothy.anderson@cdcr.ca.gov: "
+                          "'I see we have accounts set up for [list 5 facilities]. "
+                          "Can you connect me with the supply officer at each? "
+                          "I'd like to get them on contract for [nitrile gloves / chux].'",
+                "dollar_value": len(inactive_cchcs) * 8000,
+                "urgency": "THIS WEEK",
+            })
+    except Exception:
+        pass
+
+    # ── SIGNAL 6: Quotes auto-closed by SCPRS — pricing intel ────────────────
+    try:
+        lost_to_scprs = conn.execute("""
+            SELECT quote_number, agency, status_notes, total
+            FROM quotes
+            WHERE status='closed_lost'
+              AND status_notes LIKE 'SCPRS:%'
+            ORDER BY updated_at DESC LIMIT 5
+        """).fetchall()
+        for q in lost_to_scprs:
+            q = dict(q)
+            actions.append({
+                "priority": "P1",
+                "type": "reprice_analysis",
+                "signal": "auto_closed_lost",
+                "agency": q.get("agency",""),
+                "title": f"Pricing gap analysis: Quote {q['quote_number']} lost to SCPRS award",
+                "why": q.get("status_notes",""),
+                "action": "Run /pricecheck on these items using SCPRS price as target. "
+                          "Adjust your supplier sourcing to hit 5% below the SCPRS award price.",
+                "dollar_value": q.get("total", 0),
+                "urgency": "THIS WEEK",
+            })
+    except Exception:
+        pass
+
+    # ── SIGNAL 7: No SCPRS data pulled yet ────────────────────────────────────
+    try:
+        po_count = conn.execute("SELECT COUNT(*) FROM scprs_po_master").fetchone()[0]
+        if po_count == 0:
+            actions.append({
+                "priority": "P0",
+                "type": "pull_data",
+                "signal": "no_scprs_data",
+                "agency": "ALL",
+                "title": "Pull SCPRS data — intelligence layer is empty",
+                "why": "No purchase order data has been pulled from SCPRS yet. "
+                       "Without this, gap analysis, price intel, and auto-close are all blind.",
+                "action": "Go to /intel/scprs → click 'Pull All Agencies Now'. "
+                          "Takes 5-10 minutes. Runs in background. "
+                          "After this, every signal above gets real data.",
+                "dollar_value": 0,
+                "urgency": "RIGHT NOW",
+            })
+    except Exception:
+        pass
+
+    conn.close()
+
+    # Sort: P0 first, then by dollar value
+    priority_rank = {"P0": 0, "P1": 1, "P2": 2}
+    actions.sort(key=lambda x: (priority_rank.get(x["priority"],9), -(x.get("dollar_value") or 0)))
+
+    total_opp = sum(a.get("dollar_value",0) for a in actions if a["type"] != "collect_ar")
+    ar_total = sum(a.get("dollar_value",0) for a in actions if a["type"] == "collect_ar")
+
+    return {
+        "ok": True,
+        "generated_at": now.isoformat(),
+        "action_count": len(actions),
+        "actions": actions,
+        "summary": {
+            "outstanding_ar": ar_total,
+            "revenue_opportunity": total_opp,
+            "urgent_count": sum(1 for a in actions if a["urgency"] == "RIGHT NOW" or a["urgency"] == "THIS WEEK"),
+            "next_action": actions[0]["title"] if actions else "No actions — pull SCPRS data to start",
+            "next_action_why": actions[0]["why"] if actions else "",
+        }
     }

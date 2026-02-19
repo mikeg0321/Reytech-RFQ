@@ -1256,3 +1256,107 @@ def get_campaign_dashboard() -> dict:
         },
         "status_breakdown": dict(status_counts),
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SCPRS-POWERED GROWTH INTELLIGENCE  (Phase 32 upgrade)
+# Reads live SCPRS data → gap analysis → ranked recommendations → outreach actions
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def get_scprs_growth_intelligence() -> dict:
+    """
+    Primary intelligence function. Reads SCPRS DB data and returns:
+    - Ranked action list (what Mike should do TODAY vs this week vs this month)
+    - Gap analysis (what agencies buy that we don't sell them)
+    - Win-back targets (we sell it, they're buying from Cardinal/McKesson)
+    - Pricing lessons from auto-closed lost quotes
+    - Agency expansion opportunities
+    """
+    try:
+        from src.agents.scprs_intelligence_engine import get_growth_intelligence
+        data = get_growth_intelligence()
+    except Exception as e:
+        return {"ok": False, "error": str(e), "recommendations": [], "gaps": [], "win_back": []}
+
+    recs = data.get("recommendations", [])
+    gaps = data.get("top_gaps", [])
+    win_back = data.get("win_back", [])
+    competitors = data.get("competitors", [])
+    losses = data.get("recent_losses", [])
+    by_agency = data.get("by_agency", [])
+
+    # Compute total opportunity value
+    total_gap = sum(g.get("total_spend") or 0 for g in gaps)
+    total_wb = sum(w.get("total_spend") or 0 for w in win_back)
+
+    # Compute pull coverage
+    agencies_with_data = [a for a in by_agency if (a.get("po_count") or 0) > 0]
+
+    return {
+        "ok": True,
+        "recommendations": recs,
+        "gaps": gaps,
+        "win_back": win_back,
+        "competitors": competitors,
+        "recent_losses": losses,
+        "by_agency": by_agency,
+        "summary": {
+            "total_gap_opportunity": total_gap,
+            "total_win_back": total_wb,
+            "total_opportunity": total_gap + total_wb,
+            "agencies_with_data": len(agencies_with_data),
+            "rec_count": len(recs),
+        },
+        "pull_schedule": data.get("pull_schedule", []),
+    }
+
+
+def generate_recommendations() -> dict:
+    """Upgraded: returns SCPRS-powered recommendations, falls back to legacy."""
+    scprs = get_scprs_growth_intelligence()
+    if scprs.get("ok") and scprs.get("recommendations"):
+        return scprs
+    return get_growth_status()
+
+
+def full_report() -> dict:
+    """Full growth report with SCPRS intelligence."""
+    return generate_recommendations()
+
+
+def get_plain_english_brief() -> str:
+    """
+    Returns a 5-bullet plain English brief for the manager dashboard.
+    Designed to answer: 'What should I do today?'
+    """
+    intel = get_scprs_growth_intelligence()
+    if not intel.get("ok"):
+        return "Run a full SCPRS pull to generate growth insights."
+
+    lines = []
+    recs = intel.get("recommendations", [])
+    summary = intel.get("summary", {})
+
+    total_opp = summary.get("total_opportunity", 0)
+    if total_opp > 0:
+        lines.append(f"💰 ${total_opp:,.0f} in identified opportunities across "
+                     f"{summary.get('agencies_with_data', 0)} agencies from live SCPRS data.")
+
+    p0_recs = [r for r in recs if r.get("priority") == "P0"][:3]
+    for r in p0_recs:
+        val = r.get("estimated_annual_value", 0)
+        lines.append(f"🎯 {r.get('action','')} — ${val:,.0f}/yr. {r.get('why','')[:80]}")
+
+    losses = intel.get("recent_losses", [])
+    if losses:
+        l = losses[0]
+        delta = (l.get("total") or 0) - (l.get("scprs_total") or 0)
+        if delta > 0:
+            lines.append(f"📉 Lost {l.get('quote_number','')} to {l.get('scprs_supplier','')} "
+                         f"— we were ${delta:,.0f} too high. Reprice for {l.get('agency','')}.")
+
+    if not lines:
+        lines.append("No SCPRS data yet. Pull all agencies to see what they're buying.")
+
+    return "\n".join(lines)
+

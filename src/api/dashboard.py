@@ -5712,6 +5712,234 @@ def api_intel_market():
 
 
 
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# SCPRS PUBLIC SEARCH — No credentials required. 100% public data.
+# ════════════════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/scprs/public/search")
+@auth_required
+def api_scprs_public_search():
+    """Search public SCPRS for what CCHCS/CDCR is buying. No credentials needed."""
+    keyword = request.args.get("keyword", "").strip()
+    if not keyword:
+        return jsonify({"ok": False, "error": "keyword required (e.g. nitrile gloves)"})
+    try:
+        from src.agents.scprs_public_search import search_cchcs_purchases
+        result = search_cchcs_purchases(keyword)
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/scprs/public/sweep")
+@auth_required
+def api_scprs_public_sweep():
+    """Sweep all Reytech keywords against CCHCS. Background job on Railway."""
+    def _run():
+        try:
+            from src.agents.scprs_public_search import get_cchcs_purchase_intelligence
+            result = get_cchcs_purchase_intelligence()
+            _push_notification("SCPRS Sweep Done",
+                f"{result.get('total_po_records', 0)} PO records found across {len(result.get('keywords_searched', []))} keywords",
+                "success")
+        except Exception as e:
+            log.error("SCPRS sweep: %s", e)
+    import threading
+    threading.Thread(target=_run, daemon=True).start()
+    return jsonify({"ok": True, "message": "SCPRS sweep started. Check /api/notifications when done."})
+
+
+@bp.route("/api/scprs/public/ingest", methods=["POST"])
+@auth_required
+def api_scprs_public_ingest():
+    """Ingest CSV downloaded from caleprocure.ca.gov SCPRS search. Finds gaps instantly."""
+    data = request.get_json(force=True) or {}
+    csv_text = data.get("csv_text", "").strip()
+    if not csv_text:
+        return jsonify({"ok": False, "error": "csv_text required"})
+    import csv, io, os
+    reader = csv.DictReader(io.StringIO(csv_text))
+    rows = list(reader)
+    if not rows:
+        return jsonify({"ok": False, "error": "No rows parsed"})
+    OUR_PRODUCTS = ["nitrile","glove","chux","underpad","brief","incontinence",
+                    "n95","respirator","mask","wound","gauze","sanitizer",
+                    "first aid","sharps","gown","vest","hi-vis","janitorial",
+                    "paper towel","trash bag","disinfect","tourniquet"]
+    parsed = []
+    opportunities = []
+    for row in rows:
+        desc = (row.get("Description") or row.get("Commodity Description") or row.get("Item Description") or "").strip()
+        vendor = (row.get("Vendor") or row.get("Supplier") or row.get("Vendor Name") or "").strip()
+        amount_raw = row.get("Amount") or row.get("Total Amount") or row.get("Contract Amount") or "0"
+        dept = (row.get("Department") or row.get("Dept") or row.get("Business Unit") or "").strip()
+        date = (row.get("Date") or row.get("PO Date") or row.get("Award Date") or "").strip()
+        po_num = (row.get("PO Number") or row.get("Document Number") or row.get("Contract Number") or "").strip()
+        acq_type = (row.get("Acquisition Type") or row.get("Procurement Method") or "").strip()
+        try:
+            amt = float(str(amount_raw).replace("$","").replace(",","").strip() or 0)
+        except Exception:
+            amt = 0.0
+        entry = {"description": desc, "vendor": vendor, "amount": amt,
+                 "department": dept, "date": date, "po_number": po_num,
+                 "acquisition_type": acq_type, "can_compete": False}
+        parsed.append(entry)
+        for product in OUR_PRODUCTS:
+            if product in desc.lower():
+                entry["opportunity_match"] = product
+                entry["can_compete"] = True
+                opportunities.append(entry)
+                break
+    ingest_path = os.path.join(DATA_DIR, "scprs_ingested.json")
+    try:
+        existing = json.load(open(ingest_path))
+    except Exception:
+        existing = []
+    existing_pos = {e.get("po_number") for e in existing if e.get("po_number")}
+    new_entries = [e for e in parsed if not e.get("po_number") or e.get("po_number") not in existing_pos]
+    json.dump(existing + new_entries, open(ingest_path, "w"), indent=2, default=str)
+    vendors = {}
+    for opp in opportunities:
+        v = opp.get("vendor", "Unknown")
+        vendors[v] = vendors.get(v, 0) + opp.get("amount", 0)
+    top_vendors = sorted(vendors.items(), key=lambda x: -x[1])[:10]
+    return jsonify({
+        "ok": True,
+        "total_rows": len(rows),
+        "opportunities": len(opportunities),
+        "new_entries_saved": len(new_entries),
+        "top_vendors_to_beat": [{"vendor": v, "total_spend": s} for v, s in top_vendors],
+        "opportunity_items": opportunities[:25],
+        "gap_analysis": (f"Found {len(opportunities)} items you could compete for. "
+                        f"Top competitor: {top_vendors[0][0]} (${top_vendors[0][1]:,.0f})")
+                       if top_vendors else "No matching items found in this dataset",
+    })
+
+
+@bp.route("/scprs/gap-analysis")
+@auth_required
+def page_scprs_gap_analysis():
+    """SCPRS Gap Analysis page — paste CSV from caleprocure, get instant intel."""
+    import os
+    try:
+        ingested = json.load(open(os.path.join(DATA_DIR, "scprs_ingested.json")))
+    except Exception:
+        ingested = []
+    opportunities = [i for i in ingested if i.get("can_compete")]
+    vendors = {}
+    for opp in opportunities:
+        v = opp.get("vendor", "Unknown")
+        vendors[v] = vendors.get(v, 0) + opp.get("amount", 0)
+    top_vendors = sorted(vendors.items(), key=lambda x: -x[1])[:10]
+    total_opp = sum(v for _, v in top_vendors)
+
+    vendor_rows = "".join(
+        f'<tr style="border-bottom:1px solid var(--bd)"><td style="padding:8px 12px;font-size:13px;font-weight:600">{v}</td>'
+        f'<td style="padding:8px 12px;font-size:13px;color:var(--rd);font-weight:700">${s:,.0f}</td>'
+        f'<td style="padding:8px 12px;font-size:12px;color:var(--gn)">✅ We can compete</td></tr>'
+        for v, s in top_vendors
+    )
+    opp_rows = "".join(
+        f'<tr style="border-bottom:1px solid var(--bd)"><td style="padding:7px 10px;font-size:12px">{o.get("description","")[:55]}</td>'
+        f'<td style="padding:7px 10px;font-size:12px;color:var(--tx2)">{o.get("vendor","")[:28]}</td>'
+        f'<td style="padding:7px 10px;font-size:12px;font-weight:700;color:var(--rd)">${o.get("amount",0):,.0f}</td>'
+        f'<td style="padding:7px 10px;font-size:11px;color:var(--ac)">{o.get("opportunity_match","")}</td></tr>'
+        for o in opportunities[:30]
+    )
+
+    no_data_html = ""
+    if not ingested:
+        no_data_html = """<div style="background:rgba(37,99,235,.08);border:1px solid var(--ac);border-radius:10px;padding:20px;margin-bottom:24px">
+  <div style="font-size:15px;font-weight:700;margin-bottom:12px">📋 How to get SCPRS data (2 minutes, no login needed):</div>
+  <ol style="color:var(--tx2);font-size:13px;line-height:2;margin:0;padding-left:20px">
+    <li>Open <a href='https://caleprocure.ca.gov/pages/SCPRSSearch/scprs-search.aspx' target='_blank' style='color:var(--ac);font-weight:600'>caleprocure.ca.gov → Find Past Purchases (SCPRS)</a></li>
+    <li>In <strong>Department</strong> type: <code style='background:var(--bg);padding:1px 6px;border-radius:3px'>CDCR</code> or <code style='background:var(--bg);padding:1px 6px;border-radius:3px'>Correctional Health</code></li>
+    <li>In <strong>Description</strong> type: <code style='background:var(--bg);padding:1px 6px;border-radius:3px'>nitrile gloves</code> (repeat for each product)</li>
+    <li>Click <strong>Search</strong> → <strong>Download</strong> to get CSV</li>
+    <li>Open CSV, select all text (Ctrl+A), copy (Ctrl+C), paste below</li>
+  </ol>
+</div>"""
+
+    stats_html = ""
+    if ingested:
+        stats_html = (
+            f'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:24px">'
+            f'<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:16px">'
+            f'<div style="font-size:11px;color:var(--tx2)">PO RECORDS INGESTED</div>'
+            f'<div style="font-size:32px;font-weight:800;color:var(--ac)">{len(ingested)}</div></div>'
+            f'<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:16px">'
+            f'<div style="font-size:11px;color:var(--tx2)">ITEMS WE CAN COMPETE FOR</div>'
+            f'<div style="font-size:32px;font-weight:800;color:var(--rd)">{len(opportunities)}</div></div>'
+            f'<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:16px">'
+            f'<div style="font-size:11px;color:var(--tx2)">COMPETITOR SPEND TO CAPTURE</div>'
+            f'<div style="font-size:32px;font-weight:800;color:var(--yl)">${total_opp:,.0f}</div></div></div>'
+        )
+        stats_html += (
+            f'<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px">'
+            f'<div><div style="font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Vendors to beat at CCHCS/CDCR</div>'
+            f'<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:0;overflow:hidden">'
+            f'<table style="width:100%;border-collapse:collapse"><thead><tr>'
+            f'<th style="padding:8px 12px;font-size:11px;color:var(--tx2);text-align:left;border-bottom:1px solid var(--bd)">Vendor</th>'
+            f'<th style="padding:8px 12px;font-size:11px;color:var(--tx2);text-align:left;border-bottom:1px solid var(--bd)">Their Spend</th>'
+            f'<th style="padding:8px 12px;font-size:11px;color:var(--tx2);text-align:left;border-bottom:1px solid var(--bd)">Status</th>'
+            f'</tr></thead><tbody>{vendor_rows}</tbody></table></div></div>'
+            f'<div><div style="font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Items to quote (your products)</div>'
+            f'<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:0;overflow:hidden">'
+            f'<table style="width:100%;border-collapse:collapse"><thead><tr>'
+            f'<th style="padding:7px 10px;font-size:11px;color:var(--tx2);text-align:left;border-bottom:1px solid var(--bd)">Description</th>'
+            f'<th style="padding:7px 10px;font-size:11px;color:var(--tx2);text-align:left;border-bottom:1px solid var(--bd)">Curr. Vendor</th>'
+            f'<th style="padding:7px 10px;font-size:11px;color:var(--tx2);text-align:left;border-bottom:1px solid var(--bd)">Amount</th>'
+            f'<th style="padding:7px 10px;font-size:11px;color:var(--tx2);text-align:left;border-bottom:1px solid var(--bd)">Match</th>'
+            f'</tr></thead><tbody>{opp_rows}</tbody></table></div></div></div>'
+        )
+
+    paste_box = """<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:16px;margin-top:16px">
+  <div style="font-size:13px;font-weight:600;margin-bottom:8px">Paste SCPRS CSV here:</div>
+  <textarea id="csvPaste" style="width:100%;height:90px;background:var(--bg);border:1px solid var(--bd);border-radius:6px;padding:10px;font-size:12px;color:var(--tx);font-family:monospace;box-sizing:border-box" placeholder="Paste CSV content from SCPRS download..."></textarea>
+  <button onclick="ingestCSV()" style="margin-top:8px;padding:8px 20px;background:var(--ac);color:#fff;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-weight:600">📊 Find Gaps</button>
+  <span id="ingestStatus" style="margin-left:12px;font-size:12px;color:var(--tx2)"></span>
+</div>"""
+
+    return _header("SCPRS Gap Analysis") + f"""
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+  <div>
+    <h2 style="font-size:22px;font-weight:700">🔍 SCPRS Gap Analysis</h2>
+    <p style="color:var(--tx2);font-size:13px;margin-top:4px">What is CCHCS/CDCR buying that Reytech isn't selling them?</p>
+  </div>
+  <div style="display:flex;gap:8px">
+    <a href="https://caleprocure.ca.gov/pages/SCPRSSearch/scprs-search.aspx" target="_blank" style="padding:5px 12px;border:1px solid var(--ac);border-radius:6px;font-size:12px;text-decoration:none;color:var(--ac)">🔎 Open SCPRS</a>
+    <a href="/" style="padding:5px 12px;border:1px solid var(--bd);border-radius:6px;font-size:12px;text-decoration:none">🏠 Home</a>
+  </div>
+</div>
+{no_data_html}{stats_html}{paste_box}
+<script>
+async function ingestCSV() {{
+  const csv = document.getElementById("csvPaste").value.trim();
+  const st = document.getElementById("ingestStatus");
+  if (!csv) {{ alert("Paste SCPRS CSV first"); return; }}
+  st.textContent = "Analyzing...";
+  try {{
+    const r = await fetch("/api/scprs/public/ingest", {{
+      method: "POST", credentials: "same-origin",
+      headers: {{"Content-Type": "application/json"}},
+      body: JSON.stringify({{csv_text: csv}})
+    }});
+    const d = await r.json();
+    if (d.ok) {{
+      st.textContent = d.gap_analysis;
+      setTimeout(() => location.reload(), 1500);
+    }} else {{
+      st.textContent = "Error: " + d.error;
+    }}
+  }} catch(e) {{ st.textContent = "Error: " + e.message; }}
+}}
+</script>
+</div></body></html>"""
+
+
+
 # ════════════════════════════════════════════════════════════════════════════════
 # QA INTELLIGENCE v2 — Regression tracking, issue history, adaptive patterns
 # ════════════════════════════════════════════════════════════════════════════════
@@ -5947,6 +6175,340 @@ if (scores.length > 0) {{
 </div></body></html>"""
 
 
+
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# GROWTH INTELLIGENCE — Full SCPRS pull + Gap analysis + Auto close-lost
+# ════════════════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/intel/scprs/pull-all", methods=["POST"])
+@auth_required
+def api_intel_pull_all():
+    """Trigger full SCPRS pull for ALL agencies in background."""
+    try:
+        from src.agents.scprs_intelligence_engine import pull_all_agencies_background
+        priority = (request.json or {}).get("priority", "P0")
+        result = pull_all_agencies_background(notify_fn=_push_notification, priority_filter=priority)
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/intel/scprs/engine-status")
+@auth_required
+def api_intel_engine_status():
+    """Full SCPRS engine status — pull progress, record counts, schedule."""
+    try:
+        from src.agents.scprs_intelligence_engine import get_engine_status
+        return jsonify({"ok": True, **get_engine_status()})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/intel/scprs/po-monitor", methods=["POST"])
+@auth_required
+def api_intel_po_monitor():
+    """Run PO award monitor — check open quotes against SCPRS, auto close-lost."""
+    try:
+        from src.agents.scprs_intelligence_engine import run_po_award_monitor
+        result = run_po_award_monitor(notify_fn=_push_notification)
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/intel/growth")
+@auth_required
+def api_intel_growth():
+    """Full growth intelligence JSON — gaps, win-back, competitors, recs."""
+    try:
+        from src.agents.growth_agent import get_scprs_growth_intelligence
+        return jsonify(get_scprs_growth_intelligence())
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/intel/growth")
+@auth_required
+def page_intel_growth():
+    """Growth Intelligence Dashboard — the main 'what should I do?' page."""
+    import json as _j
+    from src.agents.scprs_intelligence_engine import get_engine_status, get_growth_intelligence
+    from src.agents.scprs_intelligence_engine import _engine_status as eng_st
+
+    try:
+        engine = get_engine_status()
+        intel = get_growth_intelligence()
+    except Exception as e:
+        engine = {"running": False, "by_agency": [], "total_line_items": 0, "total_gap_items": 0, "quotes_auto_closed": 0}
+        intel = {"recommendations": [], "top_gaps": [], "win_back": [], "competitors": [], "by_agency": [], "recent_losses": []}
+
+    running = eng_st.get("running", False)
+    current_agency = eng_st.get("current_agency", "")
+    total_lines = engine.get("total_line_items", 0)
+    total_gaps = engine.get("total_gap_items", 0)
+    auto_closed = engine.get("quotes_auto_closed", 0)
+    agencies_data = engine.get("by_agency", [])
+    recs = intel.get("recommendations", [])
+    gaps = intel.get("top_gaps", [])
+    win_back = intel.get("win_back", [])
+    competitors = intel.get("competitors", [])
+    losses = intel.get("recent_losses", [])
+
+    # Compute totals
+    total_gap_spend = sum(g.get("total_spend") or 0 for g in gaps)
+    total_wb_spend = sum(w.get("total_spend") or 0 for w in win_back)
+    agencies_loaded = len([a for a in agencies_data if (a.get("pos") or 0) > 0])
+
+    no_data = total_lines == 0
+
+    # ── Render recommendations ──────────────────────────────────────────────
+    def rec_color(priority):
+        return {"P0": "var(--rd)", "P1": "var(--ac)", "P2": "var(--tx2)"}.get(priority, "var(--tx)")
+
+    def rec_icon(rec_type):
+        return {"add_product": "📦", "win_back": "⚔️", "pricing": "💲",
+                "expand_agency": "🏛️"}.get(rec_type, "🎯")
+
+    rec_html = ""
+    for i, rec in enumerate(recs[:8]):
+        val = rec.get("estimated_annual_value", 0) or 0
+        prio = rec.get("priority", "P1")
+        rtype = rec.get("type", "")
+        agencies = ", ".join(rec.get("agencies", []))
+        rec_html += f"""
+<div style="border:1px solid var(--bd);border-left:4px solid {rec_color(prio)};border-radius:8px;padding:14px 18px;margin-bottom:10px;background:var(--bg2)">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
+    <div style="flex:1">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <span style="font-size:16px">{rec_icon(rtype)}</span>
+        <span style="font-size:14px;font-weight:700;color:var(--tx)">{rec.get("action","")}</span>
+        <span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;background:rgba(0,0,0,.08);color:{rec_color(prio)}">{prio}</span>
+      </div>
+      <div style="font-size:12px;color:var(--tx2);margin-bottom:4px">{rec.get("why","")}</div>
+      <div style="font-size:11px;color:var(--tx2);font-style:italic">{rec.get("how","")[:100]}</div>
+      {'<div style="font-size:11px;color:var(--tx2);margin-top:4px">Agencies: ' + agencies + '</div>' if agencies else ''}
+    </div>
+    <div style="text-align:right;flex-shrink:0">
+      <div style="font-size:18px;font-weight:800;color:var(--gn)">${val:,.0f}</div>
+      <div style="font-size:10px;color:var(--tx2)">est/yr</div>
+    </div>
+  </div>
+</div>"""
+
+    # ── Gap items table ─────────────────────────────────────────────────────
+    gap_rows = ""
+    for g in gaps[:20]:
+        spend = g.get("total_spend") or 0
+        ags = (g.get("agencies") or "").split(",")
+        gap_rows += f"""<tr style="border-bottom:1px solid var(--bd)">
+  <td style="padding:7px 12px;font-size:12px">{g.get("description","")[:50]}</td>
+  <td style="padding:7px 12px;font-size:11px;color:var(--tx2)">{(g.get("category") or "").replace("_"," ").title()}</td>
+  <td style="padding:7px 12px;font-size:11px;text-align:center">{", ".join(ags[:3])}</td>
+  <td style="padding:7px 12px;font-size:11px;text-align:center">{g.get("order_count",0)}</td>
+  <td style="padding:7px 12px;font-size:12px;text-align:right">${g.get("avg_price") or 0:.2f}</td>
+  <td style="padding:7px 12px;font-size:13px;font-weight:700;text-align:right;color:var(--rd)">${spend:,.0f}</td>
+</tr>"""
+
+    # ── Win-back table ──────────────────────────────────────────────────────
+    wb_rows = ""
+    for w in win_back[:15]:
+        spend = w.get("total_spend") or 0
+        vendors = (w.get("incumbent_vendors") or "Unknown").split(",")[:2]
+        ags = (w.get("agencies") or "").split(",")
+        wb_rows += f"""<tr style="border-bottom:1px solid var(--bd)">
+  <td style="padding:7px 12px;font-size:12px">{w.get("description","")[:45]}</td>
+  <td style="padding:7px 12px;font-size:11px;font-weight:600;color:var(--ac)">{w.get("reytech_sku","—")}</td>
+  <td style="padding:7px 12px;font-size:11px;color:var(--rd)">{vendors[0][:25] if vendors else "?"}</td>
+  <td style="padding:7px 12px;font-size:11px;color:var(--tx2)">{", ".join(ags[:3])}</td>
+  <td style="padding:7px 12px;font-size:12px;text-align:right">${w.get("avg_price") or 0:.2f}</td>
+  <td style="padding:7px 12px;font-size:13px;font-weight:700;text-align:right;color:var(--gn)">${spend:,.0f}</td>
+</tr>"""
+
+    # ── Agency coverage ─────────────────────────────────────────────────────
+    schedule = intel.get("pull_schedule", [])
+    sch_map = {s.get("agency_key"): s for s in schedule}
+    ag_rows = ""
+    all_agencies = ["CCHCS", "CalVet", "DSH", "CalFire", "CDPH", "CalTrans", "CHP", "DGS"]
+    for ak in all_agencies:
+        ag_data = next((a for a in agencies_data if a.get("agency_key") == ak), {})
+        pos = ag_data.get("pos") or 0
+        sch = sch_map.get(ak, {})
+        last = (sch.get("last_pull") or "Never")[:10]
+        status_color = "var(--gn)" if pos > 0 else "var(--rd)"
+        status_txt = f"✅ {pos} POs" if pos > 0 else "⬜ No data"
+        ag_rows += f"""<tr style="border-bottom:1px solid var(--bd)">
+  <td style="padding:7px 12px;font-size:13px;font-weight:600">{ak}</td>
+  <td style="padding:7px 12px;font-size:12px;color:{status_color}">{status_txt}</td>
+  <td style="padding:7px 12px;font-size:11px;color:var(--tx2)">{last}</td>
+  <td style="padding:7px 12px;font-size:11px;color:var(--tx2)">Every {sch.get("pull_interval_hours",168)}h</td>
+  <td style="padding:7px 12px">
+    <button onclick="pullAgency('{ak}')" style="font-size:10px;padding:3px 10px;border:1px solid var(--bd);border-radius:4px;background:none;color:var(--tx);cursor:pointer">Pull Now</button>
+  </td>
+</tr>"""
+
+    # ── Lost quotes ─────────────────────────────────────────────────────────
+    loss_rows = ""
+    for l in losses[:6]:
+        our = l.get("total") or 0
+        theirs = l.get("scprs_total") or 0
+        delta = our - theirs
+        loss_rows += f"""<tr style="border-bottom:1px solid var(--bd)">
+  <td style="padding:7px 12px;font-size:12px;font-weight:600">{l.get("quote_number","")}</td>
+  <td style="padding:7px 12px;font-size:12px">{l.get("agency","")} — {l.get("institution","")[:25]}</td>
+  <td style="padding:7px 12px;font-size:12px;color:var(--rd)">{l.get("scprs_supplier","")[:25]}</td>
+  <td style="padding:7px 12px;font-size:12px;text-align:right">${theirs:,.0f}</td>
+  <td style="padding:7px 12px;font-size:12px;text-align:right">${our:,.0f}</td>
+  <td style="padding:7px 12px;font-size:12px;font-weight:700;text-align:right;color:{'var(--rd)' if delta > 0 else 'var(--gn)'}">${abs(delta):,.0f} {'over' if delta > 0 else 'under'}</td>
+</tr>"""
+
+    pull_banner = ""
+    if running:
+        pull_banner = f'<div style="background:rgba(37,99,235,.1);border:1px solid var(--ac);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:13px;font-weight:600;color:var(--ac)">⏳ Pulling {current_agency}... Auto-refreshing every 10s</div>'
+    elif no_data:
+        pull_banner = '<div style="background:rgba(220,38,38,.06);border:1px solid var(--rd);border-radius:8px;padding:14px 18px;margin-bottom:16px"><div style="font-size:14px;font-weight:700;color:var(--rd)">📡 No SCPRS data yet</div><div style="font-size:13px;color:var(--tx2);margin-top:4px">Click "Pull All Agencies" to search public SCPRS records for what every agency is buying. Takes 10-15 min. Runs automatically after that.</div></div>'
+
+    return _header("Growth Intel") + f"""
+<style>
+.card{{background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:16px}}
+th{{padding:7px 12px;font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;border-bottom:2px solid var(--bd);white-space:nowrap}}
+table{{width:100%;border-collapse:collapse}}
+.tab{{padding:6px 14px;border-radius:6px;border:1px solid var(--bd);cursor:pointer;font-size:12px;background:none;color:var(--tx)}}
+.tab.active{{background:var(--ac);color:white;border-color:var(--ac)}}
+</style>
+
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+  <div>
+    <h2 style="font-size:22px;font-weight:700">📈 Growth Intelligence</h2>
+    <p style="color:var(--tx2);font-size:13px;margin-top:2px">SCPRS-powered gap analysis · What to sell · Who to beat · Why we lost</p>
+  </div>
+  <div style="display:flex;gap:8px">
+    <button onclick="pullAll('P0')" style="padding:7px 16px;background:var(--ac);color:white;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">{'⏳ Running...' if running else '📡 Pull All Agencies'}</button>
+    <button onclick="pullAll('all')" style="padding:7px 14px;border:1px solid var(--bd);background:none;color:var(--tx);border-radius:6px;font-size:12px;cursor:pointer">Deep Pull (all products)</button>
+    <button onclick="runMonitor()" style="padding:7px 14px;border:1px solid var(--bd);background:none;color:var(--tx);border-radius:6px;font-size:12px;cursor:pointer">🔍 Check Lost Quotes</button>
+  </div>
+</div>
+
+{pull_banner}
+
+<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:20px">
+  <div class="card" style="text-align:center">
+    <div style="font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Agencies Loaded</div>
+    <div style="font-size:28px;font-weight:800;color:var(--ac)">{agencies_loaded}<span style="font-size:14px;color:var(--tx2)">/8</span></div>
+  </div>
+  <div class="card" style="text-align:center">
+    <div style="font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Line Items</div>
+    <div style="font-size:28px;font-weight:800;color:var(--tx)">{total_lines:,}</div>
+  </div>
+  <div class="card" style="text-align:center">
+    <div style="font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Gap Spend Found</div>
+    <div style="font-size:26px;font-weight:800;color:var(--rd)">${total_gap_spend:,.0f}</div>
+    <div style="font-size:10px;color:var(--tx2)">buying from others</div>
+  </div>
+  <div class="card" style="text-align:center">
+    <div style="font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Win-Back</div>
+    <div style="font-size:26px;font-weight:800;color:var(--gn)">${total_wb_spend:,.0f}</div>
+    <div style="font-size:10px;color:var(--tx2)">we sell, they buy elsewhere</div>
+  </div>
+  <div class="card" style="text-align:center">
+    <div style="font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Quotes Auto-Closed</div>
+    <div style="font-size:28px;font-weight:800;color:var(--tx)">{auto_closed}</div>
+    <div style="font-size:10px;color:var(--tx2)">lost via PO monitor</div>
+  </div>
+</div>
+
+<!-- RECOMMENDATIONS — the heart of it -->
+<div style="margin-bottom:24px">
+  <div style="font-size:13px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">
+    🎯 What To Do Next — Ranked by Revenue Impact
+  </div>
+  {rec_html if rec_html else '<div class="card" style="text-align:center;padding:32px;color:var(--tx2)">Pull SCPRS data to generate recommendations</div>'}
+</div>
+
+<!-- TABS -->
+<div style="display:flex;gap:8px;margin-bottom:14px">
+  <button class="tab active" onclick="showTab(this,'gaps')">🚨 Gaps ({len(gaps)})</button>
+  <button class="tab" onclick="showTab(this,'winback')">⚔️ Win-Back ({len(win_back)})</button>
+  <button class="tab" onclick="showTab(this,'losses')">📉 Lost Quotes ({len(losses)})</button>
+  <button class="tab" onclick="showTab(this,'coverage')">📡 Agency Coverage</button>
+</div>
+
+<div id="tab-gaps" class="card" style="padding:0;overflow-x:auto">
+  <table>
+    <thead><tr><th>Item CCHCS/Agencies Buy</th><th>Category</th><th>Agencies</th><th style="text-align:center">Orders</th><th style="text-align:right">Avg Price</th><th style="text-align:right">Annual Spend</th></tr></thead>
+    <tbody>{gap_rows if gap_rows else '<tr><td colspan="6" style="padding:24px;text-align:center;color:var(--tx2)">Pull data to see gaps →</td></tr>'}</tbody>
+  </table>
+</div>
+
+<div id="tab-winback" class="card" style="padding:0;overflow-x:auto;display:none">
+  <table>
+    <thead><tr><th>Item We Sell</th><th>Our SKU</th><th>Current Vendor</th><th>Agencies</th><th style="text-align:right">Their Price</th><th style="text-align:right">Spend</th></tr></thead>
+    <tbody>{wb_rows if wb_rows else '<tr><td colspan="6" style="padding:16px;text-align:center;color:var(--tx2)">Pull data to see win-back opportunities</td></tr>'}</tbody>
+  </table>
+</div>
+
+<div id="tab-losses" class="card" style="padding:0;overflow-x:auto;display:none">
+  <div style="padding:10px 14px;font-size:12px;color:var(--tx2);border-bottom:1px solid var(--bd)">
+    Auto-detected via SCPRS PO monitor. When SCPRS shows another vendor won a PO you quoted, the quote is automatically closed-lost and their price is saved to your pricing intelligence.
+  </div>
+  <table>
+    <thead><tr><th>Quote</th><th>Agency / Facility</th><th>Who Won</th><th style="text-align:right">Winner Price</th><th style="text-align:right">Our Quote</th><th style="text-align:right">Diff</th></tr></thead>
+    <tbody>{loss_rows if loss_rows else '<tr><td colspan="6" style="padding:16px;text-align:center;color:var(--tx2)">No auto-closed quotes yet — run "Check Lost Quotes"</td></tr>'}</tbody>
+  </table>
+</div>
+
+<div id="tab-coverage" class="card" style="padding:0;overflow-x:auto;display:none">
+  <div style="padding:10px 14px;font-size:12px;color:var(--tx2);border-bottom:1px solid var(--bd)">
+    Pull schedule — SCPRS data freshness per agency
+  </div>
+  <table>
+    <thead><tr><th>Agency</th><th>Status</th><th>Last Pull</th><th>Frequency</th><th>Action</th></tr></thead>
+    <tbody>{ag_rows}</tbody>
+  </table>
+</div>
+
+<script>
+function showTab(btn, name) {{
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  ['gaps','winback','losses','coverage'].forEach(t => {{
+    document.getElementById('tab-' + t).style.display = t === name ? '' : 'none';
+  }});
+}}
+function pullAll(priority) {{
+  fetch('/api/intel/scprs/pull-all', {{
+    method:'POST', headers:{{'Content-Type':'application/json'}},
+    credentials:'same-origin', body: JSON.stringify({{priority}})
+  }}).then(r=>r.json()).then(()=>{{ startPolling(); }});
+}}
+function pullAgency(agency) {{
+  fetch('/api/cchcs/intel/pull', {{
+    method:'POST', headers:{{'Content-Type':'application/json'}},
+    credentials:'same-origin', body: JSON.stringify({{priority:'all', agency}})
+  }}).then(r=>r.json()).then(()=>{{ startPolling(); }});
+}}
+function runMonitor() {{
+  fetch('/api/intel/scprs/po-monitor', {{
+    method:'POST', credentials:'same-origin'
+  }}).then(r=>r.json()).then(d=>{{
+    alert('Monitor complete: ' + (d.auto_closed_lost||0) + ' quotes auto-closed, ' + (d.matches_found||0) + ' matches found');
+    location.reload();
+  }});
+}}
+let pollTimer;
+function startPolling() {{
+  clearInterval(pollTimer);
+  pollTimer = setInterval(()=>{{
+    fetch('/api/intel/scprs/engine-status', {{credentials:'same-origin'}})
+      .then(r=>r.json()).then(d=>{{
+        if (!d.running) {{ clearInterval(pollTimer); location.reload(); }}
+      }});
+  }}, 10000);
+}}
+{'startPolling();' if running else ''}
+</script>
+</div></body></html>"""
 
 # ════════════════════════════════════════════════════════════════════════════════
 # CCHCS PURCHASING INTELLIGENCE — What are they buying? Who from? At what price?
@@ -10631,15 +11193,56 @@ def _scprs_autostart():
         return
     _cron = "" if _env == "auto" else _env
     _label = "Mon 7am PST + Wed 10am PST" if _env == "auto" else _env
-    _threading.Thread(target=_scprs_scheduler_loop, args=(_cron,),
-                      daemon=True, name="scprs-scheduler").start()
-    log.info("SCPRS scheduler started: %s", _label)
-    # Start stale outbox watcher (alerts when drafts sit >4h unreviewed)
+    threading.Thread(target=_full_scprs_scheduler_loop, daemon=True, name="scprs-intel").start()
+    threading.Thread(target=_scprs_scheduler_loop, args=(_cron,), daemon=True, name="scprs-sched").start()
+    log.info("SCPRS schedulers started: %s", _label)
     try:
         from src.agents.notify_agent import start_stale_watcher
         start_stale_watcher()
     except Exception as _sw:
-        log.debug("Stale watcher startup: %s", _sw)
+        log.debug("Stale watcher: %s", _sw)
+
+def _full_scprs_scheduler_loop():
+    """
+    Master SCPRS intelligence scheduler.
+    Runs in background — pulls all agencies on schedule, runs PO monitor daily.
+    """
+    import time as _time
+    from datetime import datetime as _dt, timezone as _tz
+
+    log.info("SCPRS Intelligence Scheduler started")
+
+    # Wait 3 min after startup before first pull
+    _time.sleep(180)
+
+    while True:
+        try:
+            now = _dt.now(_tz.utc)
+            hour = now.hour
+            weekday = now.weekday()  # 0=Mon
+
+            # Run scheduled agency pulls
+            try:
+                from src.agents.scprs_intelligence_engine import run_scheduled_pulls
+                run_scheduled_pulls(notify_fn=_push_notification)
+            except Exception as e:
+                log.error(f"Scheduled pull error: {e}")
+
+            # Run PO award monitor daily at 8am
+            if hour == 8 and now.minute < 30:
+                try:
+                    from src.agents.scprs_intelligence_engine import run_po_award_monitor
+                    result = run_po_award_monitor(notify_fn=_push_notification)
+                    if result.get("auto_closed_lost", 0) > 0:
+                        log.info(f"PO Monitor: {result['auto_closed_lost']} quotes auto-closed")
+                except Exception as e:
+                    log.error(f"PO monitor scheduled: {e}")
+
+        except Exception as e:
+            log.error(f"SCPRS scheduler: {e}")
+
+        # Check every 30 minutes
+        _time.sleep(1800)
 
 _scprs_autostart()
 
