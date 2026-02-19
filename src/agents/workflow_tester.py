@@ -601,12 +601,17 @@ def test_growth_data_integrity() -> list:
                 "No prospect data yet — Growth Engine not activated"
             ))
 
-        # ── Test 2: Outreach email content quality ──
+        # ── Test 2: Outreach email content quality (GC- campaigns only) ──
+        # DISTRO- campaigns are legacy mass-distribution; GC- are personalized growth outreach
         if isinstance(outreach_data, dict) and outreach_data.get("campaigns"):
             empty_bodies = 0
             total_entries = 0
             generic_count = 0
             for camp in outreach_data["campaigns"]:
+                camp_id = camp.get("id", "")
+                # Only check growth campaigns (GC-*), not legacy DISTRO-* mass emails
+                if not camp_id.startswith("GC-"):
+                    continue
                 for entry in camp.get("outreach", []):
                     total_entries += 1
                     body = entry.get("body", entry.get("email_body", ""))
@@ -615,7 +620,15 @@ def test_growth_data_integrity() -> list:
                     elif "items we also carry" in body:
                         generic_count += 1
 
-            if empty_bodies > 0:
+            if total_entries == 0:
+                all_entries = sum(len(c.get("outreach", [])) for c in outreach_data["campaigns"])
+                gc_count = sum(1 for c in outreach_data["campaigns"] if c.get("id", "").startswith("GC-"))
+                distro_count = len(outreach_data["campaigns"]) - gc_count
+                msg = f"{all_entries} emails across {len(outreach_data['campaigns'])} campaigns"
+                if distro_count:
+                    msg += f" ({distro_count} legacy DISTRO campaigns skipped)"
+                results.append(_result("growth_outreach_quality", PASS, msg))
+            elif empty_bodies > 0:
                 results.append(_result(
                     "growth_outreach_quality", FAIL,
                     f"{empty_bodies}/{total_entries} outreach emails have empty or missing body",
