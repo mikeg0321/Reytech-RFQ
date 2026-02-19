@@ -1,35 +1,17 @@
 [
   {
     "quote_number": "R26Q16",
-    "institution": "CSP-Sacramento",
-    "agency": "CCHCS",
-    "requestor": "Valentina Demidenko",
-    "contact_name": "Valentina Demidenko",
-    "email": "",
-    "phone": "916-985-8610 x 6554",
     "status": "sent",
-    "created_at": "2026-02-17T12:00:00",
-    "sent_at": "2026-02-17T12:30:00",
-    "total": 345.84,
-    "line_items": [
-      {
-        "item_number": 1,
-        "description": "Engraved two line name tag, black/white",
-        "qty": 22,
-        "uom": "ea",
-        "qty_per_uom": 1,
-        "unit_price": 15.72,
-        "extension": 345.84
-      }
-    ],
-    "source": "email_pc",
-    "notes": "PC# OS-Den-Feb | Due 2/17/26 08:00 AM PST | Net 45",
-    "is_test": false,
-    "ship_to_name": "CSP-Sacramento",
-    "ship_to_address": "100 Prison Road, Represa, CA 95671",
-    "subtotal": 345.84,
-    "tax": 0.0,
-    "items_count": 1,
-    "items_text": "Engraved two line name tag, black/white (22 ea)"
+    "is_test": false
+  },
+  {
+    "quote_number": "R26Q17",
+    "status": "draft",
+    "source_pc_id": "auto_aaa11111"
+  },
+  {
+    "quote_number": "R26Q18",
+    "status": "draft",
+    "source_pc_id": "auto_bbb22222"
   }
 ]

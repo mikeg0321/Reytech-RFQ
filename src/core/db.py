@@ -104,6 +104,7 @@ CREATE TABLE IF NOT EXISTS quotes (
     agency          TEXT,
     institution     TEXT,
     requestor       TEXT,
+    contact_name    TEXT,
     contact_email   TEXT,
     contact_phone   TEXT,
     rfq_number      TEXT,
@@ -115,13 +116,22 @@ CREATE TABLE IF NOT EXISTS quotes (
     items_count     INTEGER DEFAULT 0,
     items_text      TEXT,
     items_detail    TEXT,           -- JSON array of line items with full pricing
+    line_items      TEXT,           -- JSON array (alias for items_detail, used by upsert)
     status          TEXT DEFAULT 'pending',
     pdf_path        TEXT,
     source_pc_id    TEXT,
     source_rfq_id   TEXT,
+    source          TEXT DEFAULT '',
+    sent_at         TEXT DEFAULT '',
+    notes           TEXT DEFAULT '',
+    status_history  TEXT DEFAULT '[]',
     po_number       TEXT,
     status_notes    TEXT,
     is_test         INTEGER DEFAULT 0,
+    total_cost      REAL DEFAULT 0,
+    gross_profit    REAL DEFAULT 0,
+    margin_pct      REAL DEFAULT 0,
+    items_costed    INTEGER DEFAULT 0,
     updated_at      TEXT
 );
 
@@ -352,14 +362,71 @@ CREATE TABLE IF NOT EXISTS growth_outreach (
 
 CREATE INDEX IF NOT EXISTS idx_growth_outreach_status ON growth_outreach(status);
 CREATE INDEX IF NOT EXISTS idx_growth_outreach_created ON growth_outreach(created_at);
+
+CREATE TABLE IF NOT EXISTS workflow_runs (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    started_at        TEXT,
+    finished_at       TEXT,
+    type              TEXT DEFAULT 'workflow',
+    status            TEXT DEFAULT 'completed',
+    run_at            TEXT,
+    score             INTEGER,
+    grade             TEXT,
+    passed            INTEGER,
+    failed            INTEGER,
+    warned            INTEGER,
+    critical_failures TEXT,
+    full_report       TEXT
+);
 """
 
 def init_db():
     """Create all tables if they don't exist. Safe to call multiple times."""
     with get_db() as conn:
         conn.executescript(SCHEMA)
+    # Migrate existing tables that may be missing new columns
+    _migrate_columns()
     log.info("DB initialized at %s", DB_PATH)
     return True
+
+
+def _migrate_columns():
+    """Add missing columns to existing tables. Safe to call repeatedly."""
+    migrations = [
+        # (table, column, type+default)
+        ("quotes", "contact_name", "TEXT"),
+        ("quotes", "line_items", "TEXT"),
+        ("quotes", "source", "TEXT DEFAULT ''"),
+        ("quotes", "sent_at", "TEXT DEFAULT ''"),
+        ("quotes", "notes", "TEXT DEFAULT ''"),
+        ("quotes", "status_history", "TEXT DEFAULT '[]'"),
+        ("quotes", "status_notes", "TEXT"),
+        ("quotes", "total_cost", "REAL DEFAULT 0"),
+        ("quotes", "gross_profit", "REAL DEFAULT 0"),
+        ("quotes", "margin_pct", "REAL DEFAULT 0"),
+        ("quotes", "items_costed", "INTEGER DEFAULT 0"),
+        ("workflow_runs", "started_at", "TEXT"),
+        ("workflow_runs", "finished_at", "TEXT"),
+        ("workflow_runs", "type", "TEXT DEFAULT 'workflow'"),
+        ("workflow_runs", "status", "TEXT DEFAULT 'completed'"),
+    ]
+    try:
+        conn = sqlite3.connect(DB_PATH, timeout=30)
+        for table, col, col_type in migrations:
+            try:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}")
+                log.info("Migration: added %s.%s", table, col)
+            except sqlite3.OperationalError as e:
+                if "duplicate column" in str(e).lower():
+                    pass  # Already exists — expected on repeat runs
+                elif "no such table" in str(e).lower():
+                    pass  # Table doesn't exist yet — CREATE TABLE will handle it
+                else:
+                    log.warning("Migration %s.%s failed: %s", table, col, e)
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        log.warning("Column migration failed: %s", e)
 
 
 def _reconcile_quotes_json():
@@ -902,6 +969,9 @@ def startup() -> dict:
     # ── Auto-reconcile DB → JSON quote statuses on every boot ──
     _reconcile_quotes_json()
 
+    # ── Auto-dedup price checks on every boot ──
+    _dedup_price_checks_on_boot()
+
     stats_before = get_db_stats()
     if stats_before.get("quotes", 0) == 0 and stats_before.get("contacts", 0) == 0:
         # First run — migrate from JSON seed files
@@ -912,6 +982,106 @@ def startup() -> dict:
     log.info("DB ready [volume=%s]: %s", is_vol,
              {k: v for k, v in stats.items() if k not in ("db_path", "db_size_kb")})
     return {"ok": True, "db_path": DB_PATH, "stats": stats, "is_volume": is_vol}
+
+
+def _dedup_price_checks_on_boot():
+    """Remove duplicate PCs (same pc_number+institution), keep newest. Recalculate quote counter."""
+    import re as _re
+    pc_path = os.path.join(DATA_DIR, "price_checks.json")
+    if not os.path.exists(pc_path):
+        return
+    try:
+        with open(pc_path) as f:
+            pcs = json.load(f)
+        if not pcs or not isinstance(pcs, dict):
+            return
+
+        # Group by (pc_number, institution) — keep OLDEST (original), remove newer dupes
+        seen = {}  # key → (pcid, created_at)
+        dupes_to_remove = []
+        for pcid, pc in pcs.items():
+            key = (pc.get("pc_number", "").strip(), pc.get("institution", "").strip().lower())
+            if key == ("", "") or key == ("unknown", ""):
+                continue
+            created = pc.get("created_at", "")
+            if key not in seen:
+                seen[key] = (pcid, created)
+            else:
+                # Keep the OLDER one (original), remove the newer duplicate
+                existing_id, existing_created = seen[key]
+                if created < existing_created:
+                    # Current is older → keep current, remove existing
+                    dupes_to_remove.append(existing_id)
+                    seen[key] = (pcid, created)
+                else:
+                    # Current is newer → it's the dupe
+                    dupes_to_remove.append(pcid)
+
+        if not dupes_to_remove:
+            return
+
+        # Collect quote numbers being freed
+        freed_quotes = []
+        for dup_id in dupes_to_remove:
+            pc = pcs[dup_id]
+            qn = pc.get("reytech_quote_number", "") or pc.get("linked_quote_number", "")
+            if qn:
+                freed_quotes.append(qn)
+            del pcs[dup_id]
+
+        with open(pc_path, "w") as f:
+            json.dump(pcs, f, indent=2, default=str)
+        log.info("Boot dedup: removed %d duplicate PCs: %s", len(dupes_to_remove), dupes_to_remove)
+
+        # Remove freed draft quotes from quotes_log.json
+        if freed_quotes:
+            ql_path = os.path.join(DATA_DIR, "quotes_log.json")
+            if os.path.exists(ql_path):
+                try:
+                    with open(ql_path) as f:
+                        quotes = json.load(f)
+                    before = len(quotes)
+                    quotes = [q for q in quotes
+                              if not (q.get("quote_number") in freed_quotes
+                                      and q.get("status") in ("draft", "pending"))]
+                    if len(quotes) < before:
+                        with open(ql_path, "w") as f:
+                            json.dump(quotes, f, indent=2, default=str)
+                        log.info("Boot dedup: removed %d freed draft quotes: %s",
+                                 before - len(quotes), freed_quotes)
+                except Exception as e:
+                    log.warning("Boot dedup quotes cleanup: %s", e)
+
+        # Recalculate quote counter to highest remaining quote
+        try:
+            from src.forms.quote_generator import _load_counter, _save_counter
+            max_seq = 0
+            # Check remaining PCs
+            for pc in pcs.values():
+                qn = pc.get("reytech_quote_number", "") or ""
+                m = _re.search(r'R\d{2}Q(\d+)', qn)
+                if m:
+                    max_seq = max(max_seq, int(m.group(1)))
+            # Check remaining quotes
+            ql_path = os.path.join(DATA_DIR, "quotes_log.json")
+            if os.path.exists(ql_path):
+                with open(ql_path) as f:
+                    for q in json.load(f):
+                        if q.get("is_test"):
+                            continue
+                        qn = q.get("quote_number", "")
+                        m = _re.search(r'R\d{2}Q(\d+)', qn)
+                        if m:
+                            max_seq = max(max_seq, int(m.group(1)))
+            old = _load_counter()
+            if max_seq > 0 and max_seq < old.get("seq", 0):
+                _save_counter({"year": old.get("year", 2026), "seq": max_seq})
+                log.info("Boot dedup: counter reset %d → %d (next Q%d)", old["seq"], max_seq, max_seq + 1)
+        except Exception as e:
+            log.warning("Boot dedup counter fix: %s", e)
+
+    except Exception as e:
+        log.warning("Boot dedup failed (non-fatal): %s", e)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

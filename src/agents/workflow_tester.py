@@ -791,6 +791,10 @@ def _persist_run(report: dict):
         conn.execute("""
             CREATE TABLE IF NOT EXISTS workflow_runs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                started_at TEXT,
+                finished_at TEXT,
+                type TEXT DEFAULT 'workflow',
+                status TEXT DEFAULT 'completed',
                 run_at TEXT,
                 score INTEGER,
                 grade TEXT,
