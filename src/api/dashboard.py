@@ -5946,6 +5946,294 @@ if (scores.length > 0) {{
 </script>
 </div></body></html>"""
 
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# CCHCS PURCHASING INTELLIGENCE — What are they buying? Who from? At what price?
+# ════════════════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/cchcs/intel/pull", methods=["POST"])
+@auth_required
+def api_cchcs_intel_pull():
+    """Trigger CCHCS SCPRS purchasing data pull in background."""
+    try:
+        from src.agents.cchcs_intel_puller import pull_in_background
+        priority = request.json.get("priority", "P0") if request.is_json else "P0"
+        result = pull_in_background(priority=priority)
+        _push_notification("bell", f"CCHCS intel pull started (priority={priority})", "info")
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/cchcs/intel/status")
+@auth_required
+def api_cchcs_intel_status():
+    """Check CCHCS intel pull status and DB record counts."""
+    try:
+        from src.agents.cchcs_intel_puller import get_pull_status, _pull_status
+        status = get_pull_status()
+        status["pull_running"] = _pull_status.get("running", False)
+        status["last_result"] = _pull_status.get("last_result")
+        return jsonify({"ok": True, **status})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/cchcs/intel/data")
+@auth_required
+def api_cchcs_intel_data():
+    """Full CCHCS purchasing intelligence: gaps, win-backs, suppliers, facilities."""
+    try:
+        from src.agents.cchcs_intel_puller import get_cchcs_intelligence
+        intel = get_cchcs_intelligence()
+        return jsonify({"ok": True, **intel})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/cchcs/intel")
+@auth_required
+def page_cchcs_intel():
+    """CCHCS Purchasing Intelligence Dashboard."""
+    from src.agents.cchcs_intel_puller import get_cchcs_intelligence, get_pull_status, _pull_status
+    import json as _j
+
+    try:
+        intel = get_cchcs_intelligence()
+        status = get_pull_status()
+    except Exception as e:
+        intel = {"summary": {}, "gap_items": [], "win_back_items": [],
+                 "by_category": [], "suppliers": [], "facilities": [], "top_items": []}
+        status = {"pos_stored": 0, "lines_stored": 0}
+
+    pull_running = _pull_status.get("running", False)
+    pos_stored = status.get("pos_stored", 0)
+    lines_stored = status.get("lines_stored", 0)
+    summary = intel.get("summary", {})
+    gap_spend = summary.get("gap_spend_not_selling", 0) or 0
+    win_back = summary.get("win_back_spend", 0) or 0
+    total_captured = summary.get("total_po_value_captured", 0) or 0
+
+    # Build gap items table
+    gap_rows = ""
+    for item in intel.get("gap_items", [])[:25]:
+        spend = item.get("total_spend") or 0
+        cat = (item.get("category") or "").replace("_", " ").title()
+        gap_rows += f"""<tr style="border-bottom:1px solid var(--bd)">
+  <td style="padding:8px 12px;font-size:13px">{item.get("description","")[:60]}</td>
+  <td style="padding:8px 12px;font-size:12px;color:var(--tx2)">{cat}</td>
+  <td style="padding:8px 12px;font-size:12px;text-align:center">{item.get("times_purchased",0)}</td>
+  <td style="padding:8px 12px;font-size:12px;text-align:right">${item.get("avg_price") or 0:.2f}</td>
+  <td style="padding:8px 12px;font-size:13px;text-align:right;font-weight:700;color:var(--rd)">${spend:,.0f}</td>
+  <td style="padding:8px 12px"><span style="background:rgba(220,38,38,.1);color:var(--rd);padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">MISSING</span></td>
+</tr>"""
+
+    # Build win-back table
+    wb_rows = ""
+    for item in intel.get("win_back_items", [])[:15]:
+        spend = item.get("total_spend") or 0
+        wb_rows += f"""<tr style="border-bottom:1px solid var(--bd)">
+  <td style="padding:8px 12px;font-size:13px">{item.get("description","")[:60]}</td>
+  <td style="padding:8px 12px;font-size:12px;color:var(--tx2)">{(item.get("category") or "").replace("_"," ").title()}</td>
+  <td style="padding:8px 12px;font-size:12px;font-weight:600;color:var(--ac)">{item.get("reytech_sku","—")}</td>
+  <td style="padding:8px 12px;font-size:12px;color:var(--tx2)">{item.get("supplier","Unknown")[:30]}</td>
+  <td style="padding:8px 12px;font-size:12px;text-align:right">${item.get("avg_price") or 0:.2f}</td>
+  <td style="padding:8px 12px;font-size:13px;text-align:right;font-weight:700;color:var(--gn)">${spend:,.0f}</td>
+</tr>"""
+
+    # Supplier table
+    sup_rows = ""
+    for s in intel.get("suppliers", [])[:15]:
+        cats_raw = s.get("categories", "[]")
+        try: cats = ", ".join(_j.loads(cats_raw))[:50]
+        except: cats = str(cats_raw)[:50]
+        is_comp = s.get("is_competitor", 0)
+        sup_rows += f"""<tr style="border-bottom:1px solid var(--bd)">
+  <td style="padding:8px 12px;font-size:13px;font-weight:{'600' if is_comp else '400'};color:{'var(--rd)' if is_comp else 'var(--tx)'}">{s.get("supplier_name","")[:40]}</td>
+  <td style="padding:8px 12px;font-size:12px;text-align:center">{s.get("po_count",0)}</td>
+  <td style="padding:8px 12px;font-size:13px;text-align:right;font-weight:700">${(s.get("total_po_value") or 0):,.0f}</td>
+  <td style="padding:8px 12px;font-size:11px;color:var(--tx2)">{cats}</td>
+  <td style="padding:8px 12px;text-align:center">{'<span style="color:var(--rd);font-weight:700">⚔️ Target</span>' if is_comp else '—'}</td>
+</tr>"""
+
+    # Category chart data
+    cat_labels = _j.dumps([r.get("category","").replace("_"," ").title() for r in intel.get("by_category",[])])
+    cat_values = _j.dumps([round(r.get("total_spend") or 0) for r in intel.get("by_category",[])])
+    cat_colors = _j.dumps(["#DC2626" if r.get("gap_spend",0) > r.get("reytech_sells_spend",0) else "#16A34A"
+                           for r in intel.get("by_category",[])])
+
+    no_data_msg = ""
+    if pos_stored == 0:
+        no_data_msg = f"""
+<div style="background:rgba(37,99,235,.08);border:1px solid var(--ac);border-radius:10px;padding:20px 24px;margin-bottom:24px;display:flex;align-items:center;gap:16px">
+  <div style="font-size:32px">📡</div>
+  <div>
+    <div style="font-size:15px;font-weight:700;color:var(--ac)">No data yet — Pull Required</div>
+    <div style="font-size:13px;color:var(--tx2);margin-top:4px">Click "Pull CCHCS Data Now" to search SCPRS for all CDCR/CCHCS purchase orders. Takes 3-5 minutes. Runs on Railway — no login needed, it's public data.</div>
+  </div>
+</div>"""
+
+    return _header("CCHCS Intel") + f"""
+<style>
+.card{{background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:16px}}
+th{{padding:8px 12px;font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;text-align:left;border-bottom:2px solid var(--bd)}}
+table{{width:100%;border-collapse:collapse}}
+.stat{{display:flex;flex-direction:column;gap:4px}}
+.stat .label{{font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px}}
+.stat .value{{font-size:28px;font-weight:800}}
+</style>
+
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+  <div>
+    <h2 style="font-size:22px;font-weight:700">🔬 CCHCS Purchasing Intelligence</h2>
+    <p style="color:var(--tx2);font-size:13px;margin-top:4px">What is CDCR/CCHCS buying · From whom · At what price · What you're missing</p>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center">
+    {'<div style="background:rgba(22,163,74,.1);color:var(--gn);border:1px solid var(--gn);padding:5px 14px;border-radius:6px;font-size:12px;font-weight:600">⏳ Pull Running...</div>' if pull_running else ''}
+    <button onclick="startPull('P0')" style="padding:6px 16px;background:var(--ac);color:white;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">
+      {'⏳ Pulling...' if pull_running else '📡 Pull CCHCS Data Now'}
+    </button>
+    <button onclick="startPull('all')" style="padding:6px 14px;border:1px solid var(--bd);background:none;color:var(--tx);border-radius:6px;font-size:12px;cursor:pointer">Full Pull (all categories)</button>
+    <a href="/" style="padding:5px 12px;border:1px solid var(--bd);border-radius:6px;font-size:12px;text-decoration:none">🏠</a>
+  </div>
+</div>
+
+{no_data_msg}
+
+<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:24px">
+  <div class="card"><div class="stat">
+    <div class="label">POs Captured</div>
+    <div class="value" style="color:var(--ac)">{pos_stored:,}</div>
+    <div style="font-size:11px;color:var(--tx2)">{lines_stored:,} line items</div>
+  </div></div>
+  <div class="card"><div class="stat">
+    <div class="label">Total PO Value</div>
+    <div class="value" style="color:var(--tx)">${total_captured:,.0f}</div>
+    <div style="font-size:11px;color:var(--tx2)">spend captured</div>
+  </div></div>
+  <div class="card"><div class="stat">
+    <div class="label">Gap Spend</div>
+    <div class="value" style="color:var(--rd)">${gap_spend:,.0f}</div>
+    <div style="font-size:11px;color:var(--rd)">buying from others</div>
+  </div></div>
+  <div class="card"><div class="stat">
+    <div class="label">Win-Back</div>
+    <div class="value" style="color:var(--gn)">${win_back:,.0f}</div>
+    <div style="font-size:11px;color:var(--gn)">items we sell</div>
+  </div></div>
+  <div class="card"><div class="stat">
+    <div class="label">Last Pull</div>
+    <div class="value" style="font-size:16px;color:var(--tx2)">{"Live" if pull_running else (summary.get("data_freshness","Never")[:10] if summary.get("data_freshness") else "Never")}</div>
+    <div style="font-size:11px;color:var(--tx2)">SCPRS public data</div>
+  </div></div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 340px;gap:20px;margin-bottom:24px">
+  <div>
+    <div style="font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">
+      🚨 GAP ITEMS — CCHCS buys these but Reytech doesn't sell them
+    </div>
+    <div class="card" style="padding:0">
+      <table>
+        <thead><tr>
+          <th>Item Description</th><th>Category</th><th style="text-align:center">Orders</th>
+          <th style="text-align:right">Avg Price</th><th style="text-align:right">Total Spend</th><th>Status</th>
+        </tr></thead>
+        <tbody>{gap_rows if gap_rows else '<tr><td colspan="6" style="padding:24px;text-align:center;color:var(--tx2);font-size:13px">Pull CCHCS data to see gap items →</td></tr>'}</tbody>
+      </table>
+    </div>
+  </div>
+  <div>
+    <div style="font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Spend by Category</div>
+    <div class="card"><canvas id="catChart" height="300"></canvas></div>
+  </div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px">
+  <div>
+    <div style="font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">
+      ✅ WIN-BACK ITEMS — We sell these, but they're buying from someone else
+    </div>
+    <div class="card" style="padding:0">
+      <table>
+        <thead><tr>
+          <th>Item</th><th>Category</th><th>Our SKU</th><th>Their Vendor</th>
+          <th style="text-align:right">Their Price</th><th style="text-align:right">Spend</th>
+        </tr></thead>
+        <tbody>{wb_rows if wb_rows else '<tr><td colspan="6" style="padding:16px;text-align:center;color:var(--tx2)">Pull data to see win-back opportunities</td></tr>'}</tbody>
+      </table>
+    </div>
+  </div>
+  <div>
+    <div style="font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">
+      ⚔️ Incumbent Suppliers (Your Competition at CCHCS)
+    </div>
+    <div class="card" style="padding:0">
+      <table>
+        <thead><tr><th>Supplier</th><th style="text-align:center">POs</th><th style="text-align:right">Total $</th><th>Categories</th><th>Action</th></tr></thead>
+        <tbody>{sup_rows if sup_rows else '<tr><td colspan="5" style="padding:16px;text-align:center;color:var(--tx2)">Pull data to see suppliers</td></tr>'}</tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<script>
+const catLabels = {cat_labels};
+const catValues = {cat_values};
+const catColors = {cat_colors};
+
+if (catLabels.length > 0) {{
+  new Chart(document.getElementById('catChart'), {{
+    type: 'bar',
+    data: {{
+      labels: catLabels,
+      datasets: [{{ label: 'Spend ($)', data: catValues, backgroundColor: catColors, borderRadius: 4 }}]
+    }},
+    options: {{
+      indexAxis: 'y',
+      plugins: {{ legend: {{ display: false }} }},
+      scales: {{ x: {{ ticks: {{ callback: v => '$' + (v/1000).toFixed(0) + 'K' }} }},
+                 y: {{ ticks: {{ font: {{ size: 10 }} }} }} }},
+      responsive: true, maintainAspectRatio: false
+    }}
+  }});
+}}
+
+let pollTimer = null;
+
+function startPull(priority) {{
+  fetch('/api/cchcs/intel/pull', {{
+    method: 'POST',
+    headers: {{'Content-Type': 'application/json'}},
+    credentials: 'same-origin',
+    body: JSON.stringify({{priority}})
+  }}).then(r => r.json()).then(d => {{
+    if (d.ok) {{
+      console.log('Pull started');
+      pollStatus();
+    }}
+  }});
+}}
+
+function pollStatus() {{
+  clearTimeout(pollTimer);
+  fetch('/api/cchcs/intel/status', {{credentials:'same-origin'}})
+    .then(r => r.json()).then(d => {{
+      if (d.pull_running) {{
+        pollTimer = setTimeout(pollStatus, 8000);
+      }} else if (d.pos_stored > 0) {{
+        location.reload();
+      }}
+    }});
+}}
+
+// Auto-poll if pull is running
+{f"pollStatus();" if pull_running else ""}
+</script>
+</div></body></html>"""
+
 # ════════════════════════════════════════════════════════════════════════════════
 # VENDOR ORDERING ROUTES
 # ════════════════════════════════════════════════════════════════════════════════
