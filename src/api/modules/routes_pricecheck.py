@@ -9,11 +9,6 @@ import json as _json
 @bp.route("/pricecheck/<pcid>")
 @auth_required
 def pricecheck_detail(pcid):
-    # Force-reload templates to pick up source changes (Railway module cache)
-    import importlib
-    import src.api.templates as _tmpl
-    importlib.reload(_tmpl)
-
     pcs = _load_price_checks()
     pc = pcs.get(pcid)
     if not pc:
@@ -148,7 +143,7 @@ def pricecheck_detail(pcid):
     next_quote_preview = peek_next_quote_number() if QUOTE_GEN_AVAILABLE else ""
     
     profit_summary_json = _json.dumps(pc.get("profit_summary")) if pc.get("profit_summary") else "null"
-    html = _tmpl.build_pc_detail_html(
+    html = build_pc_detail_html(
         pcid=pcid, pc=pc, items=items, items_html=items_html,
         download_html=download_html, expiry_date=expiry_date,
         header=header, custom_val=custom_val, custom_display=custom_display,

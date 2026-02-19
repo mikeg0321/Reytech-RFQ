@@ -5,10 +5,6 @@
 @bp.route("/")
 @auth_required
 def home():
-    # Force-reload templates to pick up source changes
-    import importlib, src.api.templates as _tmpl
-    importlib.reload(_tmpl)
-
     all_pcs = _load_price_checks()
     # Auto-draft PCs (source='email_auto_draft') are shown inside the RFQ row, not the PC queue
     user_pcs = {k: v for k, v in all_pcs.items() if v.get('source') != 'email_auto_draft'}
@@ -24,7 +20,7 @@ def home():
         # Fallback to created_at timestamp
         return pc.get("created_at", "")
     sorted_pcs = dict(sorted(user_pcs.items(), key=_pc_sort_key, reverse=True))
-    return render(_tmpl.PAGE_HOME, rfqs=load_rfqs(), price_checks=sorted_pcs)
+    return render(PAGE_HOME, rfqs=load_rfqs(), price_checks=sorted_pcs)
 
 @bp.route("/upload", methods=["POST"])
 @auth_required

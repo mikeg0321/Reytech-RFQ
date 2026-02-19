@@ -16,7 +16,9 @@
     "status": "parsed",
     "status_history": [],
     "parsed": {
-      "header": {}
+      "header": {
+        "institution": "CSP-Sacramento"
+      }
     },
     "reytech_quote_number": "R26Q17",
     "delivery_option": "5-7 business days"

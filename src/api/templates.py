@@ -2102,9 +2102,9 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
      }});
      if (missingCost.length > 0) {{
       const proceed = confirm(
-       '⚠️ ' + missingCost.length + ' item(s) have a price but no vendor cost entered:\n\n' +
-       missingCost.map((d,i) => (i+1)+'. ' + d).join('\n') +
-       '\n\nProfit cannot be calculated for these items.\n\nProceed anyway?'
+       '⚠️ ' + missingCost.length + ' item(s) have a price but no vendor cost entered:\\n\\n' +
+       missingCost.map((d,i) => (i+1)+'. ' + d).join('\\n') +
+       '\\n\\nProfit cannot be calculated for these items.\\n\\nProceed anyway?'
       );
       if (!proceed) return;
      }}
@@ -2381,7 +2381,7 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
        html += '<div style="display:flex;gap:10px;align-items:center">';
        // Quote number — hyperlinked
        html += '<a href="' + (h.quote_url||'/quotes') + '" class="qh-link" title="' + tooltipContent.replace(/"/g,'&quot;') + '" '
-         + 'style="font-family:\'JetBrains Mono\',monospace;font-weight:700;font-size:13px;color:#58a6ff;text-decoration:none">'
+         + 'style="font-family:JetBrains Mono,monospace;font-weight:700;font-size:13px;color:#58a6ff;text-decoration:none">'
          + h.quote_number + '</a>';
        // Status badge — links to source PC if available
        const statusLink = h.source_pc_url || h.source_rfq_url || '#';
@@ -2393,7 +2393,7 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
        // Date
        html += '<span style="font-size:12px;color:#8b949e;flex:1">' + (h.date||'') + '</span>';
        // Total
-       html += '<span style="font-family:\'JetBrains Mono\',monospace;font-weight:600;font-size:13px;color:var(--tx)">$' 
+       html += '<span style="font-family:JetBrains Mono,monospace;font-weight:600;font-size:13px;color:var(--tx)">$' 
          + (h.total||0).toLocaleString('en',{{minimumFractionDigits:2}}) + '</span>';
        html += '</div>';
        
@@ -3342,14 +3342,14 @@ function catTag(cat) {
 function scoreBar(score) {
  var pct = Math.round((score||0)*100);
  var color = pct>=70?'#3fb950':pct>=40?'#fbbf24':'#f87171';
- return '<div style="display:flex;align-items:center;gap:6px"><div style="width:52px;background:var(--sf2);border-radius:4px;height:6px;overflow:hidden"><div style="width:'+pct+'%;height:100%;background:'+color+';border-radius:4px"></div></div><span style="font-size:11px;font-family:\'JetBrains Mono\',monospace;color:'+color+'">'+pct+'%</span></div>';
+ return '<div style="display:flex;align-items:center;gap:6px"><div style="width:52px;background:var(--sf2);border-radius:4px;height:6px;overflow:hidden"><div style="width:'+pct+'%;height:100%;background:'+color+';border-radius:4px"></div></div><span style="font-size:11px;font-family:JetBrains Mono,monospace;color:'+color+'">'+pct+'%</span></div>';
 }
 
 function fmtSpend(v) {
  if (!v) return '<span style="color:var(--tx2)">—</span>';
- if (v >= 1e6) return '<span style="color:var(--yl);font-weight:700;font-family:\'JetBrains Mono\',monospace">$'+(v/1e6).toFixed(1)+'M</span>';
- if (v >= 1e3) return '<span style="color:var(--yl);font-weight:700;font-family:\'JetBrains Mono\',monospace">$'+(v/1e3).toFixed(0)+'K</span>';
- return '<span style="font-family:\'JetBrains Mono\',monospace">$'+v.toLocaleString()+'</span>';
+ if (v >= 1e6) return '<span style="color:var(--yl);font-weight:700;font-family:JetBrains Mono,monospace">$'+(v/1e6).toFixed(1)+'M</span>';
+ if (v >= 1e3) return '<span style="color:var(--yl);font-weight:700;font-family:JetBrains Mono,monospace">$'+(v/1e3).toFixed(0)+'K</span>';
+ return '<span style="font-family:JetBrains Mono,monospace">$'+v.toLocaleString()+'</span>';
 }
 
 function renderTable(buyers) {
@@ -3366,11 +3366,11 @@ function renderTable(buyers) {
   }).join(', ') + ((b.items||[]).length>3?' <span style="font-size:10px;color:var(--ac)">+'+((b.items||[]).length-3)+' more</span>':'');
   var pid = b.id || b.prospect_id || '';
   var detailLink = pid ? '/growth/prospect/'+pid : '#';
-  return '<tr class="home-row" onclick="location.href=\''+detailLink+'\'">'
+  return '<tr class="home-row" onclick="location.href=\\\''+detailLink+'\'">'
    + '<td style="padding:12px 14px;font-weight:600;font-size:13px">'+b.agency+'</td>'
    + '<td style="padding:12px 14px;font-size:13px">'+(b.buyer_name||'—')+'</td>'
    + '<td style="padding:12px 14px"><a href="mailto:'+(b.buyer_email||'')
-     +'" onclick="event.stopPropagation()" style="font-size:12px;font-family:\'JetBrains Mono\',monospace;color:var(--ac)">'
+     +'" onclick="event.stopPropagation()" style="font-size:12px;font-family:JetBrains Mono,monospace;color:var(--ac)">'
      +(b.buyer_email||'—')+'</a></td>'
    + '<td style="padding:12px 14px"><div style="display:flex;gap:4px;flex-wrap:wrap">'+cats+'</div></td>'
    + '<td style="padding:12px 14px;max-width:220px;overflow:hidden"><div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+items+'</div></td>'
