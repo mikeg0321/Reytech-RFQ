@@ -3581,18 +3581,24 @@ def api_manager_brief():
         err_detail = traceback.format_exc()
         log.error("manager brief error: %s\n%s", e, err_detail)
         # Fallback: build a real brief from individual resilient calls
-        # so the dashboard still shows live data even if generate_brief() throws
+        # Each call is individually guarded — one crash must NOT kill the whole fallback
         from datetime import datetime
         try:
             from src.agents.manager_agent import (
                 _get_pipeline_summary, _get_activity_feed,
                 _get_pending_approvals, _get_revenue_status, _check_all_agents,
             )
-            summary   = _get_pipeline_summary()
-            activity  = _get_activity_feed(limit=8)
-            approvals = _get_pending_approvals()
-            revenue   = _get_revenue_status()
-            agents    = _check_all_agents()
+            _empty_summary = {"price_checks": {}, "rfqs": {}, "quotes": {}, "leads": {}, "orders": {}, "outbox": {"drafts": 0}, "growth": {}}
+            try: summary   = _get_pipeline_summary()
+            except Exception as _se: log.warning("fallback _get_pipeline_summary: %s", _se); summary = _empty_summary
+            try: activity  = _get_activity_feed(limit=8)
+            except Exception as _ae: log.warning("fallback _get_activity_feed: %s", _ae); activity = []
+            try: approvals = _get_pending_approvals()
+            except Exception as _ape: log.warning("fallback _get_pending_approvals: %s", _ape); approvals = []
+            try: revenue   = _get_revenue_status()
+            except Exception as _re: log.warning("fallback _get_revenue_status: %s", _re); revenue = {}
+            try: agents    = _check_all_agents()
+            except Exception as _age: log.warning("fallback _check_all_agents: %s", _age); agents = []
             agents_ok = sum(1 for a in agents if a["status"] in ("active","ready","connected"))
             agents_down = sum(1 for a in agents if a["status"] in ("unavailable","error"))
             q = summary.get("quotes", {})

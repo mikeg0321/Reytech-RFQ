@@ -299,6 +299,7 @@ fetch('/api/intel/revenue',{credentials:'same-origin'}).then(r=>r.json()).then(d
  <a href="/orders" class="btn btn-s" style="padding:14px 18px;font-size:14px;font-weight:600;white-space:nowrap">📦 Orders</a>
  <a href="/growth" class="btn btn-s" style="padding:14px 18px;font-size:14px;font-weight:600;white-space:nowrap">🚀 Growth</a>
  <a href="/agents" class="btn btn-s" style="padding:14px 18px;font-size:14px;font-weight:600;white-space:nowrap">🤖 Agents</a>
+ <a href="/qa/workflow" id="qa-nav-btn" class="btn btn-s" style="padding:14px 18px;font-size:14px;font-weight:600;white-space:nowrap;display:none" title="QA Score">🔬 <span id="qa-nav-score">—</span></a>
 </div>
 
 <!-- Manager Brief — loads via AJAX -->
@@ -343,6 +344,16 @@ fetch('/api/intel/revenue',{credentials:'same-origin'}).then(r=>r.json()).then(d
   <div style="font-size:10px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">Agent Status</div>
   <div id="agents-list" style="display:flex;gap:10px;flex-wrap:wrap"></div>
  </div>
+</div>
+
+<!-- ═══ QA Status Banner (hidden when all clear) ═══ -->
+<div id="qa-banner" style="display:none;margin-bottom:10px;padding:10px 14px;border-radius:8px;border:1px solid rgba(248,113,113,.4);background:rgba(248,113,113,.06);display:flex;align-items:center;gap:10px;font-size:13px">
+ <span style="font-size:18px">⚠️</span>
+ <div style="flex:1">
+  <strong id="qa-banner-title" style="color:#f87171">Workflow tests failing</strong>
+  <span id="qa-banner-detail" style="color:var(--tx2);margin-left:8px;font-size:12px"></span>
+ </div>
+ <a href="/qa/workflow" style="padding:4px 10px;background:rgba(248,113,113,.15);color:#f87171;border:1px solid rgba(248,113,113,.3);border-radius:6px;font-size:11px;font-weight:600;text-decoration:none;white-space:nowrap">View Tests →</a>
 </div>
 
 <!-- ═══ Work Queues — Primary Bento Row ═══ -->
@@ -660,7 +671,41 @@ fetch('/api/manager/brief',{credentials:'same-origin'}).then(function(r){
 }
 loadBrief();
 
-// ── KPI Dashboard (loads async) ──
+// ── QA Status Banner (surfaces failures to main dashboard) ──
+(function loadQABanner(){
+  fetch('/api/qa/workflow/latest',{credentials:'same-origin'}).then(function(r){return r.json();}).then(function(d){
+    var report=d&&d.full_report?d.full_report:d;
+    if(!report||!report.summary)return;
+    var failed=report.summary.failed||0;
+    var warned=report.summary.warned||0;
+    var score=report.score||0;
+    var banner=document.getElementById('qa-banner');
+    // Update nav QA button
+    var navBtn=document.getElementById('qa-nav-btn');
+    var navScore=document.getElementById('qa-nav-score');
+    if(navBtn&&navScore){
+      navScore.textContent=score+'/100';
+      navBtn.style.display='';
+      if(failed>0){navBtn.style.borderColor='rgba(248,113,113,.5)';navBtn.style.color='#f87171';}
+      else if(score<80){navBtn.style.borderColor='rgba(251,191,36,.5)';navBtn.style.color='#fbbf24';}
+      else{navBtn.style.borderColor='rgba(52,211,153,.3)';navBtn.style.color='#34d399';}
+    }
+    if(!banner)return;
+    if(failed>0){
+      banner.style.display='flex';
+      document.getElementById('qa-banner-title').textContent=failed+' workflow test'+(failed>1?'s':'')+' failing';
+      var cf=(report.critical_failures||[]).slice(0,2).map(function(f){return f.message||f;});
+      document.getElementById('qa-banner-detail').textContent=cf.join(' · ').substring(0,120);
+    } else if(score<70&&warned>0){
+      banner.style.display='flex';
+      banner.style.borderColor='rgba(251,191,36,.4)';
+      banner.style.background='rgba(251,191,36,.04)';
+      document.getElementById('qa-banner-title').style.color='#fbbf24';
+      document.getElementById('qa-banner-title').textContent=warned+' warning'+(warned>1?'s':'')+' — score '+score+'/100';
+      var anchor=banner.querySelector('a');if(anchor){anchor.style.color='#fbbf24';anchor.style.borderColor='rgba(251,191,36,.3)';anchor.style.background='rgba(251,191,36,.1)';}
+    }
+  }).catch(function(){});
+})();
 fetch('/api/manager/metrics',{credentials:'same-origin'}).then(function(r){
  if(!r.ok) throw new Error('HTTP '+r.status);
  return r.json();

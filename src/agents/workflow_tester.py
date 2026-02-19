@@ -402,9 +402,115 @@ def test_notification_badge_accuracy() -> list:
 # ORCHESTRATOR
 # ═══════════════════════════════════════════════════════════════════════
 
+def test_manager_brief_includes_pcs() -> list:
+    """Manager brief must surface pending price checks, not just RFQs."""
+    results = []
+    try:
+        pcs = _load_json("price_checks.json", {})
+        pending_pcs = [
+            v for v in pcs.values()
+            if v.get("status") in ("parsed", "new")
+            and v.get("source") != "email_auto_draft"
+            and not v.get("is_test")
+        ]
+        if not pending_pcs:
+            results.append(_result("brief_pc_visibility", PASS, "No pending PCs to check"))
+            return results
+
+        from src.agents.manager_agent import _get_pending_approvals
+        approvals = _get_pending_approvals()
+        pc_approvals = [a for a in approvals if a.get("type") == "pc_pending"]
+
+        if len(pc_approvals) == 0:
+            results.append(_result(
+                "brief_pc_visibility", FAIL,
+                f"Manager brief shows 0 PC approvals but {len(pending_pcs)} unpriced PCs exist",
+                f"PC numbers: {[v.get('pc_number', '?') for v in pending_pcs[:3]]}",
+                "_get_pending_approvals() must include pending price checks — they are real work items"
+            ))
+        elif len(pc_approvals) < len(pending_pcs):
+            results.append(_result(
+                "brief_pc_visibility", WARN,
+                f"Brief shows {len(pc_approvals)} of {len(pending_pcs)} pending PCs",
+            ))
+        else:
+            results.append(_result(
+                "brief_pc_visibility", PASS,
+                f"Brief correctly surfaces {len(pc_approvals)} pending PC(s)"
+            ))
+    except Exception as e:
+        results.append(_result("brief_pc_visibility", WARN, f"Could not test: {e}"))
+    return results
+
+
+def test_activity_feed_not_empty() -> list:
+    """Activity feed must reflect real recent events, not be permanently empty."""
+    results = []
+    try:
+        from src.agents.manager_agent import _get_activity_feed
+        events = _get_activity_feed(limit=20)
+
+        # Check what data sources exist
+        quotes = _load_json("quotes_log.json", [])
+        live_quotes = [q for q in quotes if not q.get("is_test")]
+        pcs = _load_json("price_checks.json", {})
+        live_pcs = [v for v in pcs.values() if not v.get("is_test")]
+        rfqs = _load_json("rfqs.json", {})
+        live_rfqs = list(rfqs.values()) if isinstance(rfqs, dict) else []
+
+        has_data = bool(live_quotes or live_pcs or live_rfqs)
+
+        if has_data and len(events) == 0:
+            results.append(_result(
+                "activity_feed_empty", FAIL,
+                f"Activity feed returned 0 events despite {len(live_quotes)} quotes, {len(live_pcs)} PCs, {len(live_rfqs)} RFQs",
+                "The brief will show 'No recent activity' even though work is happening",
+                "_get_activity_feed() must include PC arrivals and RFQ events, not just quote events"
+            ))
+        elif not has_data:
+            results.append(_result("activity_feed_empty", PASS, "No live data to display — fresh install"))
+        else:
+            results.append(_result(
+                "activity_feed_empty", PASS,
+                f"Activity feed has {len(events)} events from {len(live_quotes)} quotes + {len(live_pcs)} PCs + {len(live_rfqs)} RFQs"
+            ))
+    except Exception as e:
+        results.append(_result("activity_feed_empty", WARN, f"Could not test: {e}"))
+    return results
+
+
+def test_brief_fallback_resilience() -> list:
+    """Manager brief must NOT fall to hardcoded 'Dashboard active' — fallback must return real data."""
+    results = []
+    try:
+        from src.agents.manager_agent import generate_brief
+        brief = generate_brief()
+
+        if brief.get("_fallback") and brief.get("headline") == "Dashboard active":
+            results.append(_result(
+                "brief_fallback", FAIL,
+                "Manager brief hit the hardcoded 'Dashboard active' floor — all data is zeros",
+                f"Error: {brief.get('_error', 'unknown')}",
+                "Each sub-call in api_manager_brief() must be individually guarded with its own try/except"
+            ))
+        elif brief.get("_fallback"):
+            results.append(_result(
+                "brief_fallback", WARN,
+                f"Manager brief used fallback path (generate_brief crashed): {brief.get('_error', '?')[:60]}"
+            ))
+        else:
+            results.append(_result("brief_fallback", PASS, "Manager brief ran via primary generate_brief()"))
+    except Exception as e:
+        results.append(_result("brief_fallback", WARN, f"Could not test: {e}"))
+    return results
+
+
 WORKFLOW_TESTS = {
     "queue_isolation": test_queue_isolation,
     "manager_brief_accuracy": test_manager_brief_accuracy,
+    "brief_pc_visibility": test_manager_brief_includes_pcs,
+    "activity_feed": test_activity_feed_not_empty,
+    "brief_fallback_resilience": test_brief_fallback_resilience,
     "db_json_consistency": test_db_json_consistency,
     "cs_draft_visibility": test_cs_draft_visibility,
     "quote_item_totals": test_quote_item_totals,

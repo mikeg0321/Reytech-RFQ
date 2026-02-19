@@ -384,30 +384,76 @@ def process_rfq_email(rfq_email):
     if pdf_paths and PRICE_CHECK_AVAILABLE:
         try:
             from src.api.modules.routes_rfq import _is_price_check, _handle_price_check_upload
-            # Check first PDF — if it's an AMS 704, route to PC queue
-            if _is_price_check(pdf_paths[0]):
+            # Check ALL PDFs — email may have cover letter first, 704 second
+            pc_pdf = next((p for p in pdf_paths if _is_price_check(p)), None)
+            if pc_pdf:
                 import uuid as _uuid
                 pc_id = f"pc_{str(_uuid.uuid4())[:8]}"
                 log.info("Email %s detected as AMS 704 price check → routing to PC queue (not RFQ)",
                          rfq_email.get("email_uid", "?"))
-                # Also dedup against existing PCs  
+                # Dedup by email UID
                 from src.api.modules.routes_rfq import _load_price_checks
                 existing_pcs = _load_price_checks()
                 email_uid = rfq_email.get("email_uid")
                 if email_uid and any(p.get("email_uid") == email_uid for p in existing_pcs.values()):
                     log.info("Skipping duplicate PC email UID %s", email_uid)
                     return None
-                result = _handle_price_check_upload(pdf_paths[0], pc_id)
-                # Tag the PC with the email UID for dedup
-                pcs = _load_price_checks()
-                if pc_id in pcs:
-                    pcs[pc_id]["email_uid"] = email_uid
-                    pcs[pc_id]["requestor"] = pcs[pc_id].get("requestor") or rfq_email.get("sender_name") or rfq_email.get("sender_email", "")
-                    from src.api.modules.routes_rfq import _save_price_checks
-                    _save_price_checks(pcs)
-                return None  # Don't add to RFQ queue
+                # Dedup by solicitation number — same sol# in PC queue already means same procurement
+                sol_hint = rfq_email.get("solicitation_hint", "")
+                if sol_hint and sol_hint != "unknown":
+                    sol_collision = any(
+                        sol_hint in (p.get("pc_number", "") + p.get("solicitation_number", ""))
+                        for p in existing_pcs.values()
+                    )
+                    if sol_collision:
+                        log.info("Skipping PC — solicitation %s already in PC queue", sol_hint)
+                        return None
+                    # Also block if same sol# is in RFQ queue (routing mistake: belonged in RFQ)
+                    try:
+                        _rfqs_check = load_rfqs()
+                        rfq_collision = any(
+                            sol_hint in (r.get("solicitation_number", ""))
+                            for r in _rfqs_check.values()
+                        )
+                        if rfq_collision:
+                            log.warning("Sol# %s already in RFQ queue — routing new email as RFQ not PC", sol_hint)
+                            # Fall through to RFQ queue below
+                            pc_pdf = None  # cancel PC routing
+                    except Exception:
+                        pass
+                if pc_pdf:  # still routing to PC (not overridden above)
+                    result = _handle_price_check_upload(pc_pdf, pc_id)
+                    pcs = _load_price_checks()
+                    if pc_id in pcs:
+                        pcs[pc_id]["email_uid"] = email_uid
+                        pcs[pc_id]["requestor"] = pcs[pc_id].get("requestor") or rfq_email.get("sender_name") or rfq_email.get("sender_email", "")
+                        from src.api.modules.routes_rfq import _save_price_checks
+                        _save_price_checks(pcs)
+                    return None  # Don't add to RFQ queue
         except Exception as _e:
-            log.debug("704 detection in email polling: %s", _e)
+            log.warning("704 detection in email polling: %s", _e)  # warn not debug — this is actionable
+
+    # ── Solicitation-number dedup against PC queue ──────────────────────────
+    # If this email's solicitation number is already in the PC queue, it's the same
+    # procurement document — don't create a duplicate RFQ entry.
+    try:
+        from src.api.modules.routes_rfq import _load_price_checks
+        _sol_hint = rfq_email.get("solicitation_hint", "")
+        if _sol_hint and _sol_hint != "unknown":
+            _existing_pcs = _load_price_checks()
+            _already_in_pc = any(
+                _sol_hint in (p.get("pc_number", "") + p.get("solicitation_number", ""))
+                for p in _existing_pcs.values()
+                if p.get("source") != "email_auto_draft"
+            )
+            if _already_in_pc:
+                log.warning(
+                    "Duplicate routing blocked: sol# %s already in PC queue, email %s would create RFQ duplicate",
+                    _sol_hint, rfq_email.get("email_uid", "?")
+                )
+                return None
+    except Exception:
+        pass
 
     templates = {}
     for att in rfq_email["attachments"]:

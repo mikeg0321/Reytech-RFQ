@@ -204,6 +204,38 @@ def _get_pending_approvals() -> list:
     except Exception:
         pass
 
+    # 7. Pending price checks (parsed, no quote yet) — these are real work items
+    try:
+        pcs_src = get_all_price_checks(include_test=False) if _HAS_DB_DAL else {}
+        # Fall back to JSON if DB is empty (DB may not be migrated yet or PC table empty)
+        if not pcs_src:
+            pcs_src = _load_json("price_checks.json", {})
+        if isinstance(pcs_src, dict):
+            pending_pcs = [
+                (k, v) for k, v in pcs_src.items()
+                if v.get("status") in ("parsed", "new")
+                and v.get("source") != "email_auto_draft"
+                and not v.get("is_test")
+            ]
+            # Sort by due date
+            pending_pcs.sort(key=lambda x: x[1].get("due_date", "9999"))
+            for pc_id, pc in pending_pcs[:4]:
+                due = pc.get("due_date", "")
+                pc_num = pc.get("pc_number") or pc.get("solicitation_number") or pc_id[:10]
+                inst = pc.get("institution") or pc.get("agency") or "Unknown"
+                requestor = pc.get("requestor") or pc.get("requestor_email") or ""
+                items_n = pc.get("total_items", len(pc.get("items", [])) if isinstance(pc.get("items"), list) else 0)
+                approvals.append({
+                    "type": "pc_pending", "icon": "📋",
+                    "title": f"Price Check #{pc_num} — needs a quote",
+                    "detail": f"{inst}{' · ' + requestor if requestor else ''}{' · ' + str(items_n) + ' item' + ('s' if items_n != 1 else '') if items_n else ''}{' · Due ' + due if due else ''}",
+                    "age": _age_str(pc.get("created_at", "")),
+                    "action_url": f"/pricecheck/{pc_id}",
+                    "action_label": "Price & Quote",
+                })
+    except Exception as _e:
+        log.debug("PC approvals failed: %s", _e)
+
     return approvals
 
 
@@ -224,15 +256,48 @@ def _get_activity_feed(limit: int = 12) -> list:
             "timestamp": ts, "age": _age_str(ts),
         })
 
-    # PC status changes
-    pcs = get_all_price_checks(include_test=True) if _HAS_DB_DAL else _load_json("price_checks.json", {})
-    for pcid, pc in (pcs.items() if isinstance(pcs, dict) else []):
-        for h in (pc.get("status_history", []) or [])[-2:]:
+    # PC arrivals + status changes
+    try:
+        pcs = get_all_price_checks(include_test=False) if _HAS_DB_DAL else _load_json("price_checks.json", {})
+        for pcid, pc in (pcs.items() if isinstance(pcs, dict) else []):
+            if pc.get("is_test"):
+                continue
+            ts_created = pc.get("created_at", "")
+            if ts_created:
+                pc_num = pc.get("pc_number") or pcid[:8]
+                events.append({
+                    "icon": "📥", "text": f"Price Check #{pc_num} received",
+                    "detail": pc.get("institution") or pc.get("requestor") or "",
+                    "timestamp": ts_created, "age": _age_str(ts_created),
+                })
+            for h in (pc.get("status_history", []) or [])[-1:]:
+                events.append({
+                    "icon": "📄", "text": f"PC #{pc.get('pc_number', pcid[:8])} → {h.get('to', '?')}",
+                    "detail": pc.get("institution", ""),
+                    "timestamp": h.get("timestamp", ""), "age": _age_str(h.get("timestamp", "")),
+                })
+    except Exception as _e:
+        log.debug("PC activity events failed: %s", _e)
+
+    # RFQ arrivals
+    try:
+        rfqs_path = os.path.join(DATA_DIR, "rfqs.json")
+        with open(rfqs_path) as _rf:
+            _rfqs = json.load(_rf)
+        for _r in (_rfqs.values() if isinstance(_rfqs, dict) else []):
+            ts_r = _r.get("created_at", _r.get("parsed_at", ""))
+            sol = _r.get("solicitation_number", "?")
+            req = _r.get("requestor_name", _r.get("requestor_email", ""))
+            status = _r.get("status", "new")
+            icon_map = {"new": "📬", "auto_drafted": "🤖", "sent": "📤", "pending": "⏳"}
             events.append({
-                "icon": "📄", "text": f"PC #{pc.get('pc_number', pcid[:8])} → {h.get('to', '?')}",
-                "detail": pc.get("institution", ""),
-                "timestamp": h.get("timestamp", ""), "age": _age_str(h.get("timestamp", "")),
+                "icon": icon_map.get(status, "📋"),
+                "text": f"RFQ #{sol} — {status}",
+                "detail": req,
+                "timestamp": ts_r, "age": _age_str(ts_r),
             })
+    except Exception:
+        pass
 
     # CRM events
     crm = _load_json("crm_activity.json", [])
