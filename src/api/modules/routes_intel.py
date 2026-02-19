@@ -3386,6 +3386,39 @@ def api_qa_trend():
 
 # ─── Manager Brief Routes ───────────────────────────────────────────────────
 
+@bp.route("/api/manager/brief/debug")
+@auth_required
+def api_manager_brief_debug():
+    """Debug endpoint — shows exactly what throws in generate_brief() on this environment."""
+    import traceback
+    results = {}
+    from src.agents.manager_agent import (
+        _get_pending_approvals, _get_activity_feed, _get_pipeline_summary,
+        _check_all_agents, _get_revenue_status, get_scprs_brief_section,
+        generate_brief,
+    )
+    for name, fn, kw in [
+        ("_get_pending_approvals", _get_pending_approvals, {}),
+        ("_get_activity_feed",     _get_activity_feed,     {"limit": 5}),
+        ("_get_pipeline_summary",  _get_pipeline_summary,  {}),
+        ("_check_all_agents",      _check_all_agents,      {}),
+        ("_get_revenue_status",    _get_revenue_status,    {}),
+        ("get_scprs_brief_section",get_scprs_brief_section,{}),
+    ]:
+        try:
+            val = fn(**kw)
+            results[name] = {"ok": True, "type": type(val).__name__}
+        except Exception as e:
+            results[name] = {"ok": False, "error": str(e), "trace": traceback.format_exc()[-500:]}
+    try:
+        generate_brief()
+        results["generate_brief"] = {"ok": True}
+    except Exception as e:
+        results["generate_brief"] = {"ok": False, "error": str(e), "trace": traceback.format_exc()[-1000:]}
+    all_ok = all(v.get("ok") for v in results.values())
+    return jsonify({"ok": all_ok, "results": results})
+
+
 @bp.route("/api/manager/brief")
 @auth_required
 def api_manager_brief():
@@ -3402,27 +3435,75 @@ def api_manager_brief():
             si.setdefault("recent_losses", [])
         return jsonify({"ok": True, **brief})
     except Exception as e:
-        log.error("manager brief error: %s", e, exc_info=True)
-        # Return a minimal valid brief so the dashboard doesn't break
+        import traceback
+        err_detail = traceback.format_exc()
+        log.error("manager brief error: %s\n%s", e, err_detail)
+        # Fallback: build a real brief from individual resilient calls
+        # so the dashboard still shows live data even if generate_brief() throws
         from datetime import datetime
-        return jsonify({
-            "ok": True,
-            "generated_at": datetime.now().isoformat(),
-            "headline": "Dashboard loaded — brief refresh pending",
-            "headlines": [],
-            "pending_approvals": [],
-            "approval_count": 0,
-            "activity": [],
-            "summary": {"quotes": {}, "price_checks": {}, "outbox": {"drafts": 0}, "leads": {}, "growth": {}},
-            "agents": [],
-            "agents_summary": {"total": 0, "healthy": 0, "down": 0, "needs_config": 0},
-            "revenue": {"closed": 0, "goal": 2000000, "pct": 0, "gap": 2000000, "on_track": False, "run_rate": 0, "monthly_needed": 181818},
-            "scprs_intel": {"available": False},
-            "growth_campaign": {},
-            "db_context": {},
-            "auto_closed_today": 0,
-            "_error": str(e),
-        })
+        try:
+            from src.agents.manager_agent import (
+                _get_pipeline_summary, _get_activity_feed,
+                _get_pending_approvals, _get_revenue_status, _check_all_agents,
+            )
+            summary   = _get_pipeline_summary()
+            activity  = _get_activity_feed(limit=8)
+            approvals = _get_pending_approvals()
+            revenue   = _get_revenue_status()
+            agents    = _check_all_agents()
+            agents_ok = sum(1 for a in agents if a["status"] in ("active","ready","connected"))
+            agents_down = sum(1 for a in agents if a["status"] in ("unavailable","error"))
+            q = summary.get("quotes", {})
+            headlines = []
+            if approvals:
+                headlines.append(f"{len(approvals)} item{'s' if len(approvals)!=1 else ''} need your attention")
+            if q.get("total", 0) > 0:
+                headlines.append(f"{q.get('total',0)} quote{'s' if q.get('total',0)!=1 else ''} in pipeline")
+            if not headlines:
+                headlines.append("Pipeline clear — upload a PC to get started")
+            return jsonify({
+                "ok": True,
+                "generated_at": datetime.now().isoformat(),
+                "headline": headlines[0],
+                "headlines": headlines,
+                "pending_approvals": approvals,
+                "approval_count": len(approvals),
+                "activity": activity,
+                "summary": summary,
+                "agents": agents,
+                "agents_summary": {"total": len(agents), "healthy": agents_ok, "down": agents_down, "needs_config": 0},
+                "revenue": {
+                    "closed": revenue.get("closed_revenue", 0),
+                    "goal":   revenue.get("goal", 2000000),
+                    "pct":    revenue.get("pct_to_goal", 0),
+                    "gap":    revenue.get("gap_to_goal", 2000000),
+                    "on_track": revenue.get("on_track", False),
+                    "run_rate": revenue.get("run_rate_annual", 0),
+                    "monthly_needed": revenue.get("monthly_needed", 181818),
+                },
+                "scprs_intel": {"available": False},
+                "growth_campaign": {},
+                "db_context": {},
+                "auto_closed_today": 0,
+                "_error": str(e),
+                "_fallback": True,
+            })
+        except Exception as e2:
+            log.error("manager brief fallback also failed: %s", e2)
+            return jsonify({
+                "ok": True,
+                "generated_at": datetime.now().isoformat(),
+                "headline": "Dashboard active",
+                "headlines": [],
+                "pending_approvals": [], "approval_count": 0,
+                "activity": [],
+                "summary": {"quotes": {}, "price_checks": {}, "outbox": {"drafts": 0}, "leads": {}, "growth": {}},
+                "agents": [], "agents_summary": {"total": 0, "healthy": 0, "down": 0, "needs_config": 0},
+                "revenue": {"closed": 0, "goal": 2000000, "pct": 0, "gap": 2000000, "on_track": False, "run_rate": 0, "monthly_needed": 181818},
+                "scprs_intel": {"available": False},
+                "growth_campaign": {}, "db_context": {}, "auto_closed_today": 0,
+                "_error": f"{e} / {e2}", "_fallback": True,
+            })
 
 
 @bp.route("/api/manager/metrics")

@@ -373,7 +373,7 @@ fetch('/api/intel/revenue',{credentials:'same-origin'}).then(r=>r.json()).then(d
      <td style="color:var(--tx2)">{{pc.requestor or '—'}}</td>
      <td class="mono">{{pc.due_date or '—'}}</td>
      <td style="text-align:center" class="mono">{{pc.get('items',[])|length}}</td>
-     <td style="text-align:center">{% if pc.reytech_quote_number %}<span style="color:var(--gn);font-weight:600;font-family:'JetBrains Mono',monospace;font-size:12px">{{pc.reytech_quote_number}}</span>{% else %}—{% endif %}</td>
+     <td style="text-align:center" onclick="event.stopPropagation()">{% if pc.reytech_quote_number %}<span style="color:var(--gn);font-weight:600;font-family:'JetBrains Mono',monospace;font-size:12px">{{pc.reytech_quote_number}}</span><button onclick="clearPCQuote('{{id}}',this)" title="Clear stale quote number" style="background:none;border:none;color:#484f58;cursor:pointer;font-size:10px;padding:0 3px;vertical-align:middle" onmouseover="this.style.color='#f85149'" onmouseout="this.style.color='#484f58'">&nbsp;✕</button>{% else %}—{% endif %}</td>
      <td style="text-align:center"><span class="badge b-{{pc.status}}">{{pc.status}}</span></td>
      <td style="text-align:center" onclick="event.stopPropagation()">
       <button onclick="deletePC('{{id}}',this)" title="Delete this PC" style="background:none;border:none;color:#484f58;cursor:pointer;font-size:14px;padding:2px 5px;border-radius:3px" onmouseover="this.style.color='#f85149'" onmouseout="this.style.color='#484f58'">✕</button>
@@ -491,6 +491,24 @@ document.querySelectorAll('details').forEach(d=>{
   if(arr) arr.style.transform=d.open?'rotate(90deg)':'rotate(0)';
  });
 });
+
+    // ── Clear stale quote number from PC ──────────────────────────────────
+    function clearPCQuote(id, btn) {
+      if (!confirm('Clear the stale quote number from this PC? The PC will return to "parsed" status so you can generate a fresh quote.')) return;
+      btn.textContent = '⏳';
+      fetch('/api/pricecheck/' + id + '/clear-quote', {method: 'POST', credentials: 'same-origin'})
+        .then(r => r.json())
+        .then(d => {
+          if (d.ok) {
+            // Reload to show updated state
+            location.reload();
+          } else {
+            btn.textContent = '✕';
+            alert('Error: ' + (d.error || 'unknown'));
+          }
+        })
+        .catch(() => { btn.textContent = '✕'; });
+    }
 
     // ── Delete Price Check ─────────────────────────────────────────────────
     function deletePC(id, btn) {

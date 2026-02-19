@@ -1308,6 +1308,28 @@ def api_admin_status():
 
 
 
+@bp.route("/api/pricecheck/<pcid>/clear-quote", methods=["POST"])
+@auth_required
+def api_pricecheck_clear_quote(pcid):
+    """Clear a stale/wrong reytech_quote_number from a PC."""
+    pcs = _load_price_checks()
+    if pcid not in pcs:
+        return jsonify({"ok": False, "error": "PC not found"})
+    old_qnum = pcs[pcid].get("reytech_quote_number", "")
+    pcs[pcid]["reytech_quote_number"] = ""
+    pcs[pcid]["status"] = "parsed"  # Reset to parsed so it can be re-generated
+    _save_price_checks(pcs)
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            conn.execute("UPDATE price_checks SET reytech_quote_number=NULL, status='parsed' WHERE id=?", (pcid,))
+    except Exception as e:
+        log.debug("SQLite clear-quote: %s", e)
+    log.info("CLEARED quote number %s from PC %s", old_qnum, pcid)
+    return jsonify({"ok": True, "cleared": old_qnum})
+
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @bp.route("/api/item-link/lookup", methods=["POST"])
