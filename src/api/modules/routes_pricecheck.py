@@ -1409,6 +1409,34 @@ def api_admin_counter_set():
         return jsonify({"ok": False, "error": str(e)})
 
 
+@bp.route("/api/admin/delete-quotes", methods=["POST"])
+@auth_required
+def api_admin_delete_quotes():
+    """Delete quotes by number. POST body: {"quote_numbers": ["R26Q9","R26Q10"]}"""
+    data = request.get_json(silent=True) or {}
+    qns = data.get("quote_numbers", [])
+    if not qns:
+        return jsonify({"ok": False, "error": "Missing 'quote_numbers' list"})
+    deleted = []
+    try:
+        from src.forms.quote_generator import get_all_quotes, _save_all_quotes
+        from src.core.db import get_db
+        all_q = get_all_quotes()
+        before = len(all_q)
+        all_q = [q for q in all_q if q.get("quote_number") not in qns]
+        _save_all_quotes(all_q)
+        try:
+            with get_db() as conn:
+                for qn in qns:
+                    conn.execute("DELETE FROM quotes WHERE quote_number=?", (qn,))
+                    deleted.append(qn)
+        except Exception as e:
+            log.debug("SQLite quote delete: %s", e)
+        log.info("ADMIN delete-quotes: removed %s", qns)
+        return jsonify({"ok": True, "deleted": qns, "quotes_before": before, "quotes_after": len(all_q)})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
 
 @bp.route("/api/admin/recall", methods=["POST"])
 @auth_required
