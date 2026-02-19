@@ -1872,15 +1872,33 @@ def quote_detail(qn):
 
     st = qt.get("status", "pending")
     fname = os.path.basename(qt.get("pdf_path", ""))
-    items = qt.get("items_detail", [])
+    # items_detail is canonical; line_items is the field in quotes_log.json
+    items = qt.get("items_detail") or qt.get("line_items") or []
     source_link = ""
     source_label = ""
     if qt.get("source_pc_id"):
         source_link = f'/pricecheck/{qt["source_pc_id"]}'
-        source_label = "Price Check"
+        source_label = f"PC # {qt.get('rfq_number', 'Price Check')}"
     elif qt.get("source_rfq_id"):
         source_link = f'/rfq/{qt["source_rfq_id"]}'
         source_label = "RFQ"
+    elif not source_link and qt.get("notes") and "PC#" in str(qt.get("notes", "")):
+        import re as _re2
+        _m = _re2.search(r"PC#\s*([^|\n]+)", str(qt.get("notes", "")))
+        if _m:
+            source_label = f"PC # {_m.group(1).strip()}"
+            # Search for the PC in price_checks.json by pc_number match
+            try:
+                import json as _j2
+                _pcs = _j2.load(open(os.path.join(DATA_DIR, "price_checks.json")))
+                _pc_num = _m.group(1).strip().lower().replace(" ", "").replace("-", "")
+                for _pid, _pc in _pcs.items():
+                    _pnum = str(_pc.get("pc_number","")).lower().replace(" ", "").replace("-", "")
+                    if _pnum == _pc_num:
+                        source_link = f"/pricecheck/{_pid}"
+                        break
+            except Exception:
+                pass
 
     # Status config
     status_cfg = {
@@ -1930,6 +1948,8 @@ def quote_detail(qn):
      <a href="/quotes" class="btn btn-s" style="font-size:13px">← Quotes</a>
      {f'<a href="{source_link}" class="btn btn-s" style="font-size:13px">📎 {source_label}</a>' if source_link else ''}
      {f'<a href="/api/pricecheck/download/{fname}" class="btn btn-s" style="font-size:13px">📥 Download PDF</a>' if fname else ''}
+     {f'<a href="/api/pricecheck/view-pdf/{fname}" target="_blank" class="btn btn-s" style="font-size:13px">📄 View PDF</a>' if fname else ''}
+     <a href="/outbox?filter=cs" class="btn btn-s" style="font-size:13px;background:rgba(251,191,36,.12);color:var(--yl);border:1px solid rgba(251,191,36,.3)">💬 CS Inbox</a>
     </div>
 
     <!-- Header -->
@@ -1964,9 +1984,15 @@ def quote_detail(qn):
      </div>
     </div>
 
+    <!-- PDF Preview -->
+    {f'''<div class="card" style="margin-bottom:14px">
+     <div class="card-t">📄 Quote PDF Preview</div>
+     <iframe src="/api/pricecheck/view-pdf/{fname}" style="width:100%;height:700px;border:none;border-radius:8px;background:var(--sf2)" title="Quote PDF"></iframe>
+    </div>''' if fname else ''}
+
     <!-- Line Items -->
     <div class="card">
-     <div class="card-t">Line Items</div>
+     <div class="card-t">Line Items ({len(items)} item{"s" if len(items)!=1 else ""})</div>
      <div style="overflow-x:auto">
      <table class="home-tbl">
       <thead><tr>

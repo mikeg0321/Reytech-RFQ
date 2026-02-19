@@ -975,7 +975,7 @@ function loadNotifications(){
     var list=document.getElementById('notif-list');
     if(!list)return;
     if(!d.notifications||d.notifications.length===0){
-      list.innerHTML='<div class="notif-empty">No notifications yet.<br><small style="color:var(--tx2)">You\'ll get alerts for new RFQs, CS drafts, and won quotes.</small></div>';
+      list.innerHTML='<div class="notif-empty">No notifications yet.<br><small style="color:var(--tx2)">You’ll get alerts for new RFQs, CS drafts, and won quotes.</small></div>';
       return;
     }
     var URGENCY_ICON={urgent:'🚨',deal:'💰',draft:'📋',warning:'⏰',info:'ℹ️'};

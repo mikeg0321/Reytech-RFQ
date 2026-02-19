@@ -660,6 +660,26 @@ def api_pricecheck_download(filename):
     return send_file(path, as_attachment=True, download_name=safe)
 
 
+@bp.route("/api/pricecheck/view-pdf/<path:filename>")
+@auth_required
+def api_pricecheck_view_pdf(filename):
+    """Serve a PDF inline for the browser PDF viewer (iframes, tabs)."""
+    import mimetypes
+    safe = os.path.basename(filename)
+    # Search: data dir, outputs subfolders, uploads subfolders
+    search_paths = [os.path.join(DATA_DIR, safe)]
+    for search_root in [os.path.join(DATA_DIR, "outputs"), os.path.join(DATA_DIR, "uploads"), DATA_DIR]:
+        if os.path.isdir(search_root):
+            for root, dirs, files in os.walk(search_root):
+                for f in files:
+                    if f == safe:
+                        search_paths.append(os.path.join(root, f))
+    for path in search_paths:
+        if os.path.exists(path):
+            return send_file(path, mimetype="application/pdf", download_name=safe)
+    return jsonify({"error": f"PDF not found: {safe}"}), 404
+
+
 @bp.route("/api/pricecheck/test-parse")
 @auth_required
 def api_pricecheck_test_parse():

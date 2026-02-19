@@ -2656,6 +2656,30 @@ h1 {{ font-size:22px; margin-bottom:4px; }}
  </div>
 </div>
 
+<div class="section" id="cs-agent-section" style="border:2px solid rgba(251,191,36,.4);background:rgba(251,191,36,.04)">
+ <h2>💬 Customer Support Agent <span class="tag tag-warn" id="cs-badge">loading…</span></h2>
+ <p style="color:#8b949e;font-size:12px;margin-bottom:12px">
+   Auto-drafts replies to inbound customer emails (order status, invoice questions, PC follow-ups).
+   Drafts sit here for review before sending. <a href="/outbox" style="color:#fbbf24;margin-left:4px">→ Open CS Inbox</a>
+ </p>
+ <div id="cs-drafts-preview" style="margin-bottom:12px"></div>
+ <div class="grid">
+  <button class="btn btn-go" onclick="location.href='/outbox'" style="border-color:rgba(251,191,36,.4)">
+   <span class="label">💬 CS Inbox</span><span class="desc">Review &amp; approve CS replies</span>
+  </button>
+  <button class="btn" onclick="apiPost('/api/cs/classify',{{}})" style="border-color:rgba(251,191,36,.4)">
+   <span class="label">🔍 Classify Inbound</span><span class="desc">Auto-route new customer emails</span>
+  </button>
+  <button class="btn" onclick="apiGet('/api/cs/status')">
+   <span class="label">📊 CS Status</span><span class="desc">Agent health &amp; stats</span>
+  </button>
+  <button class="btn" onclick="apiGet('/api/cs/drafts')">
+   <span class="label">📋 List Drafts</span><span class="desc">All pending CS reply drafts</span>
+  </button>
+ </div>
+</div>
+
+
 <div class="section">
  <h2>📧 Email Outreach</h2>
  <div class="grid">
@@ -2889,6 +2913,38 @@ function apiGet(url) {{
   fetch(url).then(r => r.json()).then(showResult).catch(e => showResult('Error: ' + e));
 }}
 
+// ── CS Agent — load draft count + preview ───────────────────────────────
+fetch('/api/cs/drafts',{{credentials:'same-origin'}}).then(r=>r.json()).then(function(d){{
+  var badge=document.getElementById('cs-badge');
+  var preview=document.getElementById('cs-drafts-preview');
+  var drafts=Array.isArray(d.drafts)?d.drafts:(d.cs_drafts||[]);
+  if(badge){{
+    if(drafts.length>0){{
+      badge.textContent=drafts.length+' draft'+(drafts.length>1?'s':'')+' pending';
+      badge.className='tag tag-warn';
+    }}else{{
+      badge.textContent='inbox clear';
+      badge.className='tag tag-ok';
+    }}
+  }}
+  if(preview&&drafts.length>0){{
+    preview.innerHTML=drafts.slice(0,3).map(function(dr){{
+      var meta={{}};try{{meta=JSON.parse(dr.metadata||'{{}}')}}catch(e){{}}
+      var from=meta.original_sender||dr.to||dr.to_address||'?';
+      var origSubj=meta.original_subject||dr.subject||dr.label||'Customer email';
+      return '<div style="background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.25);border-radius:8px;padding:10px 12px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:10px">'+
+        '<div>'+
+          '<div style="font-size:12px;font-weight:600;color:#fbbf24">📬 '+origSubj+'</div>'+
+          '<div style="font-size:11px;color:#8b949e;margin-top:2px">From: '+from+'</div>'+
+        '</div>'+
+        '<a href="/outbox" style="font-size:12px;font-weight:600;color:#fbbf24;white-space:nowrap;border:1px solid rgba(251,191,36,.4);padding:4px 10px;border-radius:6px;background:rgba(251,191,36,.1)">Review →</a>'+
+      '</div>';
+    }}).join('');
+  }}
+}}).catch(function(){{
+  var badge=document.getElementById('cs-badge');
+  if(badge){{badge.textContent='unavailable';badge.className='tag tag-off';}}
+}});
 function apiPost(url, body) {{
   RC.textContent = 'Loading...'; R.style.display = 'block';
   fetch(url, {{
