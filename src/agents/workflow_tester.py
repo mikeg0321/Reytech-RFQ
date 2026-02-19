@@ -138,7 +138,7 @@ def test_manager_brief_accuracy() -> list:
         # Check RFQs
         rfqs = _load_json("rfqs.json", {})
         actionable_rfqs = [r for r in rfqs.values()
-                           if r.get("status") in ("new", "pending", "auto_drafted")]
+                           if (r.get("status") or "").lower() in ("new", "pending", "auto_drafted")]
 
         rfq_in_brief = sum(1 for a in brief.get("pending_approvals", [])
                            if a.get("type") == "rfq_pending")
@@ -546,7 +546,7 @@ def test_reply_followup_detection() -> list:
             results.append(_result(
                 "reply_detection", FAIL,
                 "is_reply_followup() not called in check_for_rfqs() — buyer replies will create duplicate PCs",
-                fix_hint="email_poller.check_for_rfqs must call is_reply_followup() BEFORE is_rfq_email()"
+                fix="email_poller.check_for_rfqs must call is_reply_followup() BEFORE is_rfq_email()"
             ))
             return results
 
@@ -588,7 +588,7 @@ def test_growth_data_integrity() -> list:
                 results.append(_result(
                     "growth_data_integrity", WARN,
                     f"{len(issues)} prospect data issues: {'; '.join(issues[:3])}",
-                    fix_hint="Review prospects in /growth — some missing email or categories"
+                    fix="Review prospects in /growth — some missing email or categories"
                 ))
             else:
                 results.append(_result(
@@ -619,13 +619,13 @@ def test_growth_data_integrity() -> list:
                 results.append(_result(
                     "growth_outreach_quality", FAIL,
                     f"{empty_bodies}/{total_entries} outreach emails have empty or missing body",
-                    fix_hint="Email bodies must be populated — check launch_outreach template formatting"
+                    fix="Email bodies must be populated — check launch_outreach template formatting"
                 ))
             elif generic_count > total_entries * 0.5 and total_entries > 2:
                 results.append(_result(
                     "growth_outreach_quality", WARN,
                     f"{generic_count}/{total_entries} emails use generic 'items we also carry' — run SCPRS pull for personalized content",
-                    fix_hint="Click Pull Reytech History → Find Buyers on /growth to populate item data"
+                    fix="Click Pull Reytech History → Find Buyers on /growth to populate item data"
                 ))
             else:
                 results.append(_result(
@@ -689,7 +689,7 @@ def test_pc_dedup_and_quote_sequence() -> list:
             results.append(_result(
                 "pc_dedup", FAIL,
                 f"{len(dupes)} duplicate PC(s): {'; '.join(dupes[:3])}",
-                fix_hint="Delete duplicate PCs from /pricecheck — dedup guard added for future prevention"
+                fix="Delete duplicate PCs from /pricecheck — dedup guard added for future prevention"
             ))
         else:
             results.append(_result("pc_dedup", PASS, f"{len(pcs)} PCs — no duplicates"))

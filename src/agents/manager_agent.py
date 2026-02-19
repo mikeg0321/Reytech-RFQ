@@ -133,7 +133,7 @@ def _get_pending_approvals() -> list:
         with open(rfqs_path) as _f:
             _rfqs = json.load(_f)
         actionable_rfqs = [r for r in (_rfqs.values() if isinstance(_rfqs, dict) else [])
-                           if r.get("status") in ("new", "pending", "auto_drafted")]
+                           if (r.get("status") or "").lower() in ("new", "pending", "auto_drafted")]
         if actionable_rfqs:
             # Sort by due date if available
             actionable_rfqs.sort(key=lambda x: x.get("due_date", "9999"), reverse=False)
