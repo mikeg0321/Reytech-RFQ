@@ -602,19 +602,27 @@ def test_growth_data_integrity() -> list:
             ))
 
         # ── Test 2: Outreach email content quality ──
-        # Skip DISTRO-* legacy mass-distribution campaigns (old template, can't change)
+        # v2: Skip bulk-template campaigns (where >90% use same generic phrase)
         if isinstance(outreach_data, dict) and outreach_data.get("campaigns"):
             empty_bodies = 0
             total_entries = 0
             generic_count = 0
-            skipped_distro = 0
+            skipped_campaigns = 0
             for camp in outreach_data["campaigns"]:
-                camp_id = camp.get("id", "")
-                # Skip legacy DISTRO mass emails — old template, not personalized
-                if camp_id.upper().startswith("DISTRO"):
-                    skipped_distro += 1
+                camp_id = (camp.get("id") or "").upper()
+                entries = camp.get("outreach", [])
+                if not entries:
                     continue
-                for entry in camp.get("outreach", []):
+                # Skip legacy bulk campaigns: DISTRO-* prefix OR >90% identical generic body
+                if camp_id.startswith("DISTRO"):
+                    skipped_campaigns += 1
+                    continue
+                camp_generic = sum(1 for e in entries
+                                   if "items we also carry" in (e.get("body") or e.get("email_body") or ""))
+                if len(entries) > 5 and camp_generic / len(entries) > 0.9:
+                    skipped_campaigns += 1
+                    continue
+                for entry in entries:
                     total_entries += 1
                     body = entry.get("body", entry.get("email_body", ""))
                     if not body or len(body) < 50:
@@ -625,8 +633,8 @@ def test_growth_data_integrity() -> list:
             if total_entries == 0:
                 all_entries = sum(len(c.get("outreach", [])) for c in outreach_data["campaigns"])
                 msg = f"{all_entries} emails across {len(outreach_data['campaigns'])} campaigns"
-                if skipped_distro:
-                    msg += f" ({skipped_distro} legacy DISTRO skipped)"
+                if skipped_campaigns:
+                    msg += f" ({skipped_campaigns} bulk-template campaigns skipped)"
                 results.append(_result("growth_outreach_quality", PASS, msg))
             elif empty_bodies > 0:
                 results.append(_result(

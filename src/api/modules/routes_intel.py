@@ -3373,7 +3373,10 @@ def api_agents_status():
 def api_qa_workflow_run():
     if not _WF_AVAILABLE:
         return jsonify({"ok": False, "error": "workflow_tester not available"}), 503
-    report = run_workflow_tests()
+    # Force-reload to pick up source changes (Railway volume caches stale bytecode)
+    import importlib, src.agents.workflow_tester as _wt
+    importlib.reload(_wt)
+    report = _wt.run_workflow_tests()
     return jsonify(report)
 
 
