@@ -73,7 +73,7 @@ a{color:var(--ac);text-decoration:none}
 .kpi-card-sub{font-size:11px;color:var(--tx2)}
 .kpi-panel{min-height:120px}
 .kpi-panel-title{font-size:11px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px}
-.kpi-big{font-size:26px;font-weight:700;font-family:'JetBrains Mono',monospace;line-height:1}
+.kpi-big{font-size:26px;font-weight:700;font-family:'JetBrains Mono',monospace;line-height:1}.funnel-link:hover{background:rgba(79,140,255,.08)!important}
 .kpi-sub{font-size:10px;color:var(--tx2);font-family:'JetBrains Mono',monospace}
 .progress-track{height:10px;background:var(--sf2);border-radius:5px;overflow:hidden}
 .progress-fill{height:100%;border-radius:5px;transition:width .8s ease}
@@ -233,16 +233,16 @@ fetch('/api/funnel/stats').then(r=>r.json()).then(d=>{
  ];
  const cols = items.map((it,i)=>{
   const fmtVal = it.fmt==='$' ? '$'+(it.val>=1e6?(it.val/1e6).toFixed(1)+'M':it.val>=1e3?(it.val/1e3).toFixed(0)+'K':it.val.toLocaleString()) : it.val;
-  const sep = i<items.length-1 ? '<div style="position:absolute;right:0;top:50%;transform:translateY(-50%);color:var(--bd);font-size:20px;font-weight:300">›</div>' : '';
-  return '<a href="'+it.href+'" style="text-align:center;padding:10px 4px;display:block;text-decoration:none;border-radius:8px;transition:background .15s;position:relative" onmouseover="this.style.background=\'rgba(79,140,255,.08)\'" onmouseout="this.style.background=\'\'">'+
+  const sep = i<items.length-1 ? '<div style="position:absolute;right:0;top:50%;transform:translateY(-50%);color:var(--bd);font-size:20px;font-weight:300">&rsaquo;</div>' : '';
+  return '<a href="'+it.href+'" class="funnel-link" style="text-align:center;padding:10px 4px;display:block;text-decoration:none;border-radius:8px;transition:background .15s;position:relative">'+
    '<div style="font-size:18px;margin-bottom:4px">'+it.icon+'</div>'+
-   '<div style="font-size:26px;font-weight:700;font-family:\'JetBrains Mono\',monospace;color:'+it.color+';line-height:1">'+fmtVal+'</div>'+
+   '<div class="kpi-big" style="color:'+it.color+'">'+fmtVal+'</div>'+
    '<div style="font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:5px;font-weight:600">'+it.label+'</div>'+
    sep+'</a>';
  });
  document.getElementById('funnel-row').style.gridTemplateColumns='repeat(7,1fr)';
  document.getElementById('funnel-row').innerHTML = cols.join('');
- if(d.next_quote){const nb=document.getElementById('next-quote-badge');if(nb)nb.innerHTML='🎯 Next: <b style="color:var(--ac);font-family:\'JetBrains Mono\',monospace">'+d.next_quote+'</b>'+(d.win_rate?' &nbsp;·&nbsp; Win Rate: <b style="color:var(--gn)">'+d.win_rate+'%</b>':'');}
+ if(d.next_quote){const nb=document.getElementById('next-quote-badge');if(nb){nb.innerHTML='';var b=document.createElement('b');b.className='kpi-small';b.style.color='var(--ac)';b.textContent=d.next_quote;nb.appendChild(document.createTextNode('🎯 Next: '));nb.appendChild(b);if(d.win_rate){nb.innerHTML+=' · Win Rate: <b style="color:var(--gn)">'+d.win_rate+'%</b>';};}}
 }).catch(()=>{const nb=document.getElementById('next-quote-badge');if(nb)nb.textContent='';});
 </script>
 
