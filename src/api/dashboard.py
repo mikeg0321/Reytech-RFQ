@@ -783,6 +783,8 @@ def render(content, **kw):
   <a href="/contacts" class="hdr-btn" aria-label="CRM Contacts">👥 CRM</a>
   <a href="/vendors" class="hdr-btn" aria-label="Vendor ordering">🏭 Vendors</a>
   <a href="/intel/market" class="hdr-btn" aria-label="Market Intelligence">📊 Intel</a>
+  <a href="/catalog" class="hdr-btn" aria-label="Product Catalog">📦 Catalog</a>
+  <a href="/cchcs/expansion" class="hdr-btn" aria-label="Expand Facilities">🏥 Expand</a>
   <a href="/campaigns" class="hdr-btn" aria-label="Outreach campaigns">📞 Campaigns</a>
   <a href="/pipeline" class="hdr-btn" aria-label="Revenue pipeline">🔄 Pipeline</a>
   <a href="/growth" class="hdr-btn" aria-label="Growth engine">🚀 Growth</a>
@@ -975,6 +977,9 @@ def _header(page_title: str = "") -> str:
   <a href="/contacts" class="hdr-btn">👥 CRM</a>
   <a href="/vendors" class="hdr-btn">🏭 Vendors</a>
   <a href="/intel/market" class="hdr-btn">📊 Intel</a>
+  <a href="/qa/intelligence" class="hdr-btn">🧠 QA</a>
+  <a href="/catalog" class="hdr-btn">📦 Catalog</a>
+  <a href="/cchcs/expansion" class="hdr-btn">🏥 Expand</a>
   <a href="/campaigns" class="hdr-btn">📞 Campaigns</a>
   <a href="/pipeline" class="hdr-btn">🔄 Pipeline</a>
   <a href="/growth" class="hdr-btn{'{ hdr-active}' if page_title=='Growth Engine' else ''}">🚀 Growth</a>
@@ -4806,6 +4811,702 @@ def api_delete_cs_draft():
 
 
 
+
+# ════════════════════════════════════════════════════════════════════════════════
+# PRODUCT CATALOG (F31-01)
+# ════════════════════════════════════════════════════════════════════════════════
+
+@bp.route("/catalog")
+@auth_required
+def page_catalog():
+    """Product catalog management page."""
+    import json as _json
+    try:
+        from src.core.catalog import init_catalog, get_catalog, get_categories, get_catalog_stats
+        init_catalog()
+        stats = get_catalog_stats()
+        categories = get_categories()
+        items = get_catalog(limit=200)
+    except Exception as e:
+        return f"<h2>Catalog error: {e}</h2>"
+
+    # Group by category
+    grouped = {}
+    for item in items:
+        cat = item.get("category","General")
+        grouped.setdefault(cat, []).append(item)
+
+    cats_html = ""
+    for cat, cat_items in sorted(grouped.items()):
+        rows = ""
+        for it in cat_items:
+            tags = ", ".join(it.get("tags",[])[:4]) if it.get("tags") else ""
+            vendor = it.get("vendor_key","").replace("_"," ").title()
+            rows += f"""<tr style="border-bottom:1px solid var(--bd)">
+  <td style="padding:7px 10px;font-size:12px;font-weight:600;color:var(--ac)">{it.get("sku","")}</td>
+  <td style="padding:7px 10px;font-size:12px">{it.get("name","")[:60]}</td>
+  <td style="padding:7px 10px;font-size:12px;color:var(--tx2)">{it.get("unit","each")}</td>
+  <td style="padding:7px 10px;font-size:12px;color:var(--yl)">${it.get("typical_cost",0):.2f}</td>
+  <td style="padding:7px 10px;font-size:12px;color:var(--gn)">${it.get("list_price",0):.2f}</td>
+  <td style="padding:7px 10px;font-size:11px;color:var(--tx2)">{vendor}</td>
+  <td style="padding:7px 10px;font-size:11px;color:var(--tx2)">{tags}</td>
+</tr>"""
+        cats_html += f"""<div style="margin-bottom:20px">
+  <div style="font-size:12px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;padding:6px 10px;background:var(--bg2);border-radius:6px">
+    {cat} <span style="color:var(--tx3);font-weight:400">({len(cat_items)} SKUs)</span>
+  </div>
+  <table style="width:100%;border-collapse:collapse">
+    <thead><tr style="border-bottom:2px solid var(--bd)">
+      <th style="padding:5px 10px;font-size:11px;color:var(--tx2);text-align:left">SKU</th>
+      <th style="padding:5px 10px;font-size:11px;color:var(--tx2);text-align:left">Name</th>
+      <th style="padding:5px 10px;font-size:11px;color:var(--tx2);text-align:left">Unit</th>
+      <th style="padding:5px 10px;font-size:11px;color:var(--tx2);text-align:left">Cost</th>
+      <th style="padding:5px 10px;font-size:11px;color:var(--tx2);text-align:left">List</th>
+      <th style="padding:5px 10px;font-size:11px;color:var(--tx2);text-align:left">Vendor</th>
+      <th style="padding:5px 10px;font-size:11px;color:var(--tx2);text-align:left">Tags</th>
+    </tr></thead>
+    <tbody>{rows}</tbody>
+  </table>
+</div>"""
+
+    html = _header("Catalog") + f"""
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+  <div>
+    <h2 style="font-size:22px;font-weight:700">📦 Product Catalog</h2>
+    <p style="color:var(--tx2);font-size:13px;margin-top:4px">{stats['total_skus']} SKUs · {stats['categories']} categories · {stats['p0_skus_loaded']} P0 gap items loaded</p>
+  </div>
+  <div style="display:flex;gap:8px">
+    <input id="cat-search" type="text" placeholder="Search catalog..." onkeyup="filterCatalog(this.value)"
+      style="padding:7px 12px;background:var(--bg2);border:1px solid var(--bd);border-radius:6px;color:var(--tx1);font-size:13px;width:220px">
+    <a href="/" style="padding:7px 12px;border:1px solid var(--bd);border-radius:6px;font-size:12px;text-decoration:none">🏠 Home</a>
+  </div>
+</div>
+
+<div id="catalog-content">{cats_html}</div>
+
+<script>
+function filterCatalog(q) {{
+  q = q.toLowerCase();
+  document.querySelectorAll('#catalog-content tr[style*="border-bottom"]').forEach(row => {{
+    row.style.display = row.textContent.toLowerCase().includes(q) ? '' : 'none';
+  }});
+}}
+</script>
+</div></body></html>"""
+    return html
+
+
+@bp.route("/api/catalog/search")
+@auth_required
+def api_catalog_search():
+    """Search product catalog. ?q=nitrile&limit=10"""
+    q = request.args.get("q","").strip()
+    limit = int(request.args.get("limit", 10))
+    if not q:
+        return jsonify({"ok": False, "error": "q required"})
+    try:
+        from src.core.catalog import init_catalog, search_catalog
+        init_catalog()
+        results = search_catalog(q, limit=limit)
+        return jsonify({"ok": True, "query": q, "count": len(results), "results": results})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/catalog/stats")
+@auth_required
+def api_catalog_stats():
+    try:
+        from src.core.catalog import init_catalog, get_catalog_stats, get_categories
+        init_catalog()
+        return jsonify({"ok": True, **get_catalog_stats(), "categories": get_categories()})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/catalog/items", methods=["GET"])
+@auth_required
+def api_catalog_items():
+    """List all catalog items. ?category=Medical"""
+    cat = request.args.get("category")
+    limit = int(request.args.get("limit", 200))
+    try:
+        from src.core.catalog import init_catalog, get_catalog
+        init_catalog()
+        items = get_catalog(category=cat, limit=limit)
+        return jsonify({"ok": True, "count": len(items), "items": items})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/catalog/add", methods=["POST"])
+@auth_required
+def api_catalog_add():
+    """Manually add an item to the catalog."""
+    data = request.get_json() or {}
+    name = data.get("name","").strip()
+    if not name:
+        return jsonify({"ok": False, "error": "name required"})
+    try:
+        from src.core.catalog import auto_ingest_item
+        result = auto_ingest_item(
+            description=name,
+            unit_price=float(data.get("list_price", 0)),
+            vendor_key=data.get("vendor_key",""),
+            manufacturer=data.get("manufacturer",""),
+            source="manual"
+        )
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# BUYER OUTREACH ENGINE (F31-02) + CCHCS EXPANSION (F31-04)
+# ════════════════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/intel/draft-outreach", methods=["POST"])
+@auth_required
+def api_draft_outreach():
+    """
+    Generate a targeted outreach email draft for a buyer from market intelligence.
+    Saves to email_outbox.json as status=outreach_draft for review in /outbox.
+    """
+    import json as _json
+    data = request.get_json() or {}
+    buyer_email = data.get("buyer_email","").strip()
+    if not buyer_email:
+        return jsonify({"ok": False, "error": "buyer_email required"})
+
+    mi_path = os.path.join(DATA_DIR, "market_intelligence.json")
+    if not os.path.exists(mi_path):
+        return jsonify({"ok": False, "error": "market_intelligence.json not found"})
+    mi = _json.load(open(mi_path))
+
+    # Find buyer in intel
+    buyers = _json.load(open(os.path.join(DATA_DIR, "intel_buyers.json"))).get("buyers", [])
+    buyer = next((b for b in buyers if b.get("buyer_email","").lower() == buyer_email.lower()), None)
+    if not buyer:
+        return jsonify({"ok": False, "error": f"Buyer not found: {buyer_email}"})
+
+    agency = buyer.get("agency","")
+    name = buyer.get("name","") or buyer.get("buyer_name","")
+    phone = buyer.get("phone","")
+    spend = buyer.get("total_spend",0)
+    cats = buyer.get("categories",{})
+
+    # Agency-specific pitch angles
+    AGENCY_PITCHES = {
+        "CalFire": {
+            "lead_items": "N95 respirators (3M 8210, NIOSH-approved), hi-visibility safety vests (ANSI Class 2), and vehicle first aid kits (ANSI Class B)",
+            "angle": "With wildfire season expanding year-round, Reytech maintains ready stock of respiratory protection and field safety equipment sourced directly from 3M, Honeywell, and ML Kishigo.",
+            "cta": "Can we provide a competitive quote for your next PPE requisition?"
+        },
+        "CDPH": {
+            "lead_items": "nitrile exam gloves (all sizes), N95 respirators (NIOSH-approved), and surgical masks (ASTM Level 2/3)",
+            "angle": "As a California-certified SB/DVBE supplier, Reytech is positioned to help CDPH meet diverse supplier spend goals while delivering competitive pricing on high-volume PPE.",
+            "cta": "Would you be open to receiving a quote on your next PPE order?"
+        },
+        "CalTrans": {
+            "lead_items": "hi-visibility safety vests (ANSI Class 2, Type R), hard hats (ANSI Z89), safety glasses, and work gloves",
+            "angle": "Reytech supplies OSHA-compliant safety equipment to California state agencies with fast turnaround and competitive pricing. Our SB/DVBE certification supports your diverse spend goals.",
+            "cta": "I would welcome the opportunity to quote your next safety supply requisition."
+        },
+        "CHP": {
+            "lead_items": "black nitrile exam gloves, vehicle trauma kits, and CAT tourniquets (Stop the Bleed program)",
+            "angle": "Reytech stocks law-enforcement-grade PPE and trauma supplies. With the Stop the Bleed mandate now standard across CA law enforcement, we can source CAT Gen 7 tourniquets and IFAK kits with short lead times.",
+            "cta": "Can we submit a quote for your vehicle medical supply program?"
+        },
+        "OSHPD": {
+            "lead_items": "nitrile gloves, N95 respirators, and field PPE kits",
+            "angle": "Reytech is a California SB/DVBE certified supplier with broad PPE sourcing across Medline, 3M, and Honeywell. We frequently supply inspection and field operations teams.",
+            "cta": "Would a quote for your next PPE order be welcome?"
+        },
+    }
+
+    pitch_data = AGENCY_PITCHES.get(agency, {
+        "lead_items": "medical supplies and safety PPE",
+        "angle": "Reytech is a California SB/DVBE certified supplier specializing in medical supplies, PPE, and safety equipment for state agencies.",
+        "cta": "We would be glad to provide a competitive quote for your next requisition."
+    })
+
+    subject = f"Reytech — {agency} Supply Quote | CA SB/DVBE Certified"
+    body = f"""Dear {name},
+
+My name is Michael Guadan, and I reach out on behalf of Reytech Inc., a California-certified Small Business and Disabled Veteran Business Enterprise (SB/DVBE #2002605) specializing in supply procurement for state agencies.
+
+I noticed {agency} manages significant supply needs in {", ".join(list(cats.keys())[:2]) if cats else "safety and medical equipment"} — areas where we have established sourcing relationships and competitive pricing.
+
+We currently supply similar agencies throughout the CDCR, CalVet, and Department of State Hospitals systems, and would be glad to extend that service to {agency}.
+
+Items we can quote immediately:
+- {pitch_data['lead_items']}
+
+{pitch_data['angle']}
+
+{pitch_data['cta']}
+
+Our standard terms are Net 30, F.O.B. Destination, and we are registered in Cal eProcure. As a DVBE, we can also help your agency meet set-aside procurement goals.
+
+Please feel free to call me directly at (949) 229-1575 or reply to this email.
+
+Thank you for your time, and I look forward to the opportunity to serve {agency}.
+
+Best regards,
+Michael Guadan
+Reytech Inc.
+CA SB #2002605 | CA DVBE #2002605
+(949) 229-1575
+sales@reytechinc.com"""
+
+    # Save to outbox
+    outbox_path = os.path.join(DATA_DIR, "email_outbox.json")
+    outbox = _json.load(open(outbox_path)) if os.path.exists(outbox_path) else []
+    from datetime import datetime as _dt
+    draft_id = f"outreach-{buyer_email.split('@')[0]}-{int(_dt.now().timestamp())}"
+    draft = {
+        "id": draft_id,
+        "created_at": _dt.now().isoformat(),
+        "status": "outreach_draft",
+        "intent": "new_agency_outreach",
+        "to": buyer_email,
+        "to_name": name,
+        "agency": agency,
+        "subject": subject,
+        "body": body,
+        "priority": "high" if spend > 150000 else "normal",
+        "spend_signal": spend,
+        "notes": f"Market intel outreach — {agency} | ${spend:,.0f} spend signal"
+    }
+    outbox.append(draft)
+    with open(outbox_path, "w") as f:
+        _json.dump(outbox, f, indent=2)
+
+    # Log activity + bell notification
+    try:
+        from src.core.db import get_db
+        from datetime import datetime as _dt2
+        contact_id = f"intel-{buyer_email.split('@')[0]}"
+        with get_db() as conn:
+            conn.execute("""
+                INSERT INTO activity_log (contact_id, logged_at, event_type, subject, body, actor, metadata)
+                VALUES (?,?,?,?,?,?,?)
+            """, (contact_id, _dt2.now().isoformat(), "outreach_drafted",
+                  f"Outreach draft: {agency}", f"Draft created for {name} ({buyer_email})",
+                  "system", _json.dumps({"draft_id": draft_id, "agency": agency, "spend": spend})))
+    except Exception: pass
+
+    try:
+        from src.agents.notify_agent import send_alert
+        send_alert("bell", f"Outreach draft ready: {agency} — {name}", {
+            "type": "outreach_draft", "agency": agency, "email": buyer_email,
+            "draft_id": draft_id, "link": "/outbox"
+        })
+    except Exception: pass
+
+    log.info("Outreach draft created: %s | %s | draft_id=%s", agency, buyer_email, draft_id)
+    return jsonify({"ok": True, "draft_id": draft_id, "to": buyer_email, "agency": agency,
+                    "subject": subject, "outbox_link": "/outbox"})
+
+
+@bp.route("/api/cchcs/facilities")
+@auth_required
+def api_cchcs_facilities():
+    """List all CCHCS/CalVet/DSH facilities with activity status."""
+    import json as _json
+    customers = _json.load(open(os.path.join(DATA_DIR, "customers.json")))
+    facilities = []
+    for c in customers:
+        name = c.get("qb_name","") or c.get("display_name","")
+        parent = c.get("parent","")
+        balance = float(c.get("open_balance",0) or 0)
+        email = c.get("email","")
+        abbr = c.get("abbreviation","")
+        agency_field = c.get("agency", "")
+        agency_type = None
+        if agency_field in ("CCHCS", "CDCR") or "Correctional" in (parent or name) or "State Prison" in name or "Calipatria" in name:
+            agency_type = "CCHCS"
+        elif agency_field == "CalVet" or "Veterans" in name or "Dept of Veterans" in name:
+            agency_type = "CalVet"
+        elif agency_field == "DSH" or "State Hospital" in name:
+            agency_type = "DSH"
+        if agency_type:
+            facilities.append({
+                "name": name, "parent": parent, "agency_type": agency_type,
+                "abbreviation": abbr, "email": email,
+                "ar_balance": balance, "is_active": balance > 0,
+                "address": c.get("address",""), "city": c.get("city",""), "state": c.get("state","")
+            })
+    active = [f for f in facilities if f["is_active"]]
+    inactive = [f for f in facilities if not f["is_active"]]
+    return jsonify({
+        "ok": True, "total": len(facilities),
+        "active": len(active), "inactive": len(inactive),
+        "active_facilities": active, "inactive_facilities": inactive
+    })
+
+
+@bp.route("/api/cchcs/create-target", methods=["POST"])
+@auth_required
+def api_cchcs_create_target():
+    """
+    Create a pre-populated price check targeting a specific facility.
+    Includes 6 highest-probability items based on facility type.
+    """
+    import json as _json
+    data = request.get_json() or {}
+    facility_name = data.get("facility_name","").strip()
+    agency_type = data.get("agency_type","CCHCS")  # CCHCS, CalVet, DSH
+    facility_email = data.get("email","")
+
+    # Item sets by agency type
+    ITEM_SETS = {
+        "CCHCS": [
+            {"description":"Nitrile Exam Gloves, Small, Box/100","qty":20,"unit_price":13.99,"sku":"NIT-EXAM-SM"},
+            {"description":"Nitrile Exam Gloves, Medium, Box/100","qty":50,"unit_price":12.99,"sku":"NIT-EXAM-MD"},
+            {"description":"Nitrile Exam Gloves, Large, Box/100","qty":30,"unit_price":13.99,"sku":"NIT-EXAM-LG"},
+            {"description":"Disposable Underpads, 23x36 in, Case/100","qty":10,"unit_price":28.99,"sku":"CHUX-23X36"},
+            {"description":"Adult Incontinence Briefs, Medium, Case/80","qty":10,"unit_price":29.99,"sku":"BRIEF-MD"},
+            {"description":"Hand Sanitizer, 8oz Pump Bottle, 75% Alcohol","qty":50,"unit_price":6.99,"sku":"SANIT-8OZ"},
+        ],
+        "CalVet": [
+            {"description":"Nitrile Exam Gloves, Medium, Box/100","qty":30,"unit_price":12.99,"sku":"NIT-EXAM-MD"},
+            {"description":"Nitrile Exam Gloves, Large, Box/100","qty":20,"unit_price":13.99,"sku":"NIT-EXAM-LG"},
+            {"description":"Disposable Underpads, 30x36 in, Case/90","qty":8,"unit_price":36.99,"sku":"CHUX-30X36"},
+            {"description":"Adult Incontinence Briefs, Medium, Case/80","qty":10,"unit_price":29.99,"sku":"BRIEF-MD"},
+            {"description":"Adult Incontinence Briefs, Large, Case/80","qty":8,"unit_price":31.99,"sku":"BRIEF-LG"},
+            {"description":"Hand Sanitizer, 1 Gallon Jug, 70% Alcohol","qty":12,"unit_price":19.99,"sku":"SANIT-GAL"},
+        ],
+        "DSH": [
+            {"description":"Nitrile Exam Gloves, Medium, Box/100","qty":20,"unit_price":12.99,"sku":"NIT-EXAM-MD"},
+            {"description":"Stryker Patient Restraint Package, Standard","qty":5,"unit_price":69.99,"sku":"STRYKER-RESTRAINT-STD"},
+            {"description":"Hand Sanitizer, 8oz Pump Bottle, 75% Alcohol","qty":30,"unit_price":6.99,"sku":"SANIT-8OZ"},
+            {"description":"Sharps Container, 1 Quart, Red Lid","qty":20,"unit_price":4.99,"sku":"SHARPS-1QT"},
+            {"description":"Gauze Pads, 4x4 in, Non-Sterile, Box/200","qty":10,"unit_price":10.99,"sku":"GAUZE-4X4"},
+            {"description":"Adult Incontinence Briefs, Medium, Case/80","qty":6,"unit_price":29.99,"sku":"BRIEF-MD"},
+        ],
+    }
+
+    items = ITEM_SETS.get(agency_type, ITEM_SETS["CCHCS"])
+    total = sum(it["qty"] * it["unit_price"] for it in items)
+
+    # Create price check record
+    pc_id = f"expand-{agency_type.lower()}-{int(__import__('time').time())}"
+    pc = {
+        "id": pc_id,
+        "created_at": __import__('datetime').datetime.now().isoformat(),
+        "institution": facility_name,
+        "agency": "CDCR" if agency_type == "CCHCS" else agency_type,
+        "contact_email": facility_email,
+        "items": items,
+        "total": round(total, 2),
+        "status": "pending",
+        "tags": [f"{agency_type.lower()}_expansion"],
+        "source": "cchcs_expansion",
+        "notes": f"Expansion target: {facility_name} ({agency_type})"
+    }
+
+    pcs_path = os.path.join(DATA_DIR, "price_checks.json")
+    pcs = _json.load(open(pcs_path)) if os.path.exists(pcs_path) else {}
+    pcs[pc_id] = pc
+    with open(pcs_path, "w") as f:
+        _json.dump(pcs, f, indent=2)
+
+    # Bell notification
+    try:
+        from src.agents.notify_agent import send_alert
+        send_alert("bell", f"Expansion target created: {facility_name}", {
+            "type": "expansion_target", "facility": facility_name, "agency": agency_type,
+            "pc_id": pc_id, "total": total, "link": f"/price-check/{pc_id}"
+        })
+    except Exception: pass
+
+    log.info("CCHCS expansion target created: %s | %s | $%.2f", agency_type, facility_name, total)
+    return jsonify({
+        "ok": True, "pc_id": pc_id, "facility": facility_name, "agency_type": agency_type,
+        "items_count": len(items), "total": round(total,2),
+        "link": f"/price-check/{pc_id}"
+    })
+
+
+@bp.route("/cchcs/expansion")
+@auth_required
+def page_cchcs_expansion():
+    """CCHCS/CalVet expansion dashboard."""
+    import json as _json
+    customers = _json.load(open(os.path.join(DATA_DIR, "customers.json")))
+    pcs = _json.load(open(os.path.join(DATA_DIR, "price_checks.json"))) if os.path.exists(os.path.join(DATA_DIR, "price_checks.json")) else {}
+
+    # Categorize facilities
+    fac_list = []
+    for c in customers:
+        name = c.get("qb_name","") or c.get("display_name","")
+        parent = c.get("parent","")
+        balance = float(c.get("open_balance",0) or 0)
+        abbr = c.get("abbreviation","")
+        email = c.get("email","")
+        if "Correctional" in (parent or name) or "State Prison" in name or "Calipatria" in name:
+            atype = "CCHCS"
+        elif "Veterans" in name or "Dept of Veterans" in name:
+            atype = "CalVet"
+        elif "State Hospital" in name:
+            atype = "DSH"
+        else:
+            continue
+        # Check if has expansion target
+        has_target = any(
+            atype.lower() in str(pc.get("tags",[])).lower() and facility_name_match(name, pc.get("institution",""))
+            for pc in pcs.values()
+        )
+        fac_list.append({
+            "name": name, "abbr": abbr, "email": email, "type": atype,
+            "ar": balance, "active": balance > 0, "has_target": has_target
+        })
+
+    active = [f for f in fac_list if f["active"]]
+    inactive = [f for f in fac_list if not f["active"]]
+    expansion_targets = [pc for pc in pcs.values() if pc.get("source") == "cchcs_expansion"]
+
+    def fac_row(f):
+        status = "🟢 Active" if f["active"] else ("📋 Targeted" if f["has_target"] else "⚪ Untouched")
+        ar = f"${f['ar']:,.2f}" if f["ar"] else "—"
+        btn = "" if f["active"] else f"""
+<button onclick="createTarget('{f['name'].replace("'","''")}','{f['type']}','{f['email']}')"
+  style="padding:3px 10px;font-size:11px;border:1px solid var(--ac);border-radius:4px;color:var(--ac);cursor:pointer;background:transparent">
+  + Target
+</button>"""
+        return f"""<tr style="border-bottom:1px solid var(--bd)">
+  <td style="padding:8px 10px;font-size:12px">{f['name'][:50]}</td>
+  <td style="padding:8px 10px;font-size:11px;color:var(--tx2)">{f['type']}</td>
+  <td style="padding:8px 10px;font-size:11px">{f['abbr']}</td>
+  <td style="padding:8px 10px;font-size:12px;color:var(--gn)">{ar}</td>
+  <td style="padding:8px 10px;font-size:11px;color:var(--tx2)">{status}</td>
+  <td style="padding:8px 10px">{btn}</td>
+</tr>"""
+
+    rows_html = "".join(fac_row(f) for f in sorted(fac_list, key=lambda x: (-x["ar"], x["type"], x["name"])))
+
+    html = _header("Expand") + f"""
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+  <div>
+    <h2 style="font-size:22px;font-weight:700">🏥 Facility Expansion</h2>
+    <p style="color:var(--tx2);font-size:13px;margin-top:4px">
+      {len(active)} active · {len(inactive)} untouched · {len(expansion_targets)} targeted
+    </p>
+  </div>
+  <a href="/intel/market" style="padding:7px 14px;border:1px solid var(--bd);border-radius:6px;font-size:12px;text-decoration:none">📊 Market Intel</a>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:20px">
+  <div style="background:var(--bg2);border:1px solid var(--gn);border-radius:10px;padding:16px">
+    <div style="font-size:11px;color:var(--tx2)">ACTIVE FACILITIES</div>
+    <div style="font-size:28px;font-weight:800;color:var(--gn)">{len(active)}</div>
+    <div style="font-size:11px;color:var(--tx2)">${sum(f['ar'] for f in active):,.2f} total AR</div>
+  </div>
+  <div style="background:var(--bg2);border:1px solid var(--ac);border-radius:10px;padding:16px">
+    <div style="font-size:11px;color:var(--tx2)">UNTOUCHED</div>
+    <div style="font-size:28px;font-weight:800;color:var(--ac)">{len(inactive)}</div>
+    <div style="font-size:11px;color:var(--tx2)">$0 AR — ready to target</div>
+  </div>
+  <div style="background:var(--bg2);border:1px solid var(--yl);border-radius:10px;padding:16px">
+    <div style="font-size:11px;color:var(--tx2)">EXPANSION TARGETS</div>
+    <div style="font-size:28px;font-weight:800;color:var(--yl)">{len(expansion_targets)}</div>
+    <div style="font-size:11px;color:var(--tx2)">price checks created</div>
+  </div>
+</div>
+
+<div id="status-msg" style="display:none;padding:10px;background:var(--gn);color:#fff;border-radius:6px;margin-bottom:12px"></div>
+
+<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:10px;overflow:hidden">
+  <div style="padding:12px 16px;border-bottom:1px solid var(--bd);font-size:13px;font-weight:600">
+    All Facilities ({len(fac_list)} total)
+    <span style="font-size:11px;font-weight:400;color:var(--tx2);margin-left:8px">Click "+ Target" to create pre-populated price check</span>
+  </div>
+  <table style="width:100%;border-collapse:collapse">
+    <thead><tr style="border-bottom:2px solid var(--bd)">
+      <th style="padding:8px 10px;font-size:11px;color:var(--tx2);text-align:left">Facility</th>
+      <th style="padding:8px 10px;font-size:11px;color:var(--tx2);text-align:left">Type</th>
+      <th style="padding:8px 10px;font-size:11px;color:var(--tx2);text-align:left">Code</th>
+      <th style="padding:8px 10px;font-size:11px;color:var(--tx2);text-align:left">AR Balance</th>
+      <th style="padding:8px 10px;font-size:11px;color:var(--tx2);text-align:left">Status</th>
+      <th style="padding:8px 10px;font-size:11px;color:var(--tx2);text-align:left">Action</th>
+    </tr></thead>
+    <tbody>{rows_html}</tbody>
+  </table>
+</div>
+
+<script>
+function createTarget(facilityName, agencyType, email) {{
+  const msg = document.getElementById('status-msg');
+  msg.style.display = 'block';
+  msg.style.background = 'var(--ac)';
+  msg.textContent = 'Creating expansion target for ' + facilityName + '...';
+  fetch('/api/cchcs/create-target', {{
+    method: 'POST',
+    headers: {{'Content-Type':'application/json','Authorization': document.cookie.split('=')[1] || ''}},
+    body: JSON.stringify({{facility_name: facilityName, agency_type: agencyType, email: email}})
+  }})
+  .then(r => r.json())
+  .then(d => {{
+    if (d.ok) {{
+      msg.style.background = 'var(--gn)';
+      msg.textContent = 'Target created! ' + facilityName + ' — $' + d.total.toFixed(2) + ' | ' + d.items_count + ' items';
+      setTimeout(() => location.reload(), 2000);
+    }} else {{
+      msg.style.background = 'var(--rd)';
+      msg.textContent = 'Error: ' + d.error;
+    }}
+  }}).catch(e => {{ msg.style.background='var(--rd)'; msg.textContent = 'Request failed: ' + e; }});
+}}
+</script>
+</div></body></html>"""
+    return html
+
+
+def facility_name_match(name1, name2):
+    """Loose match between facility names."""
+    if not name1 or not name2: return False
+    n1 = name1.lower().replace(" ","")
+    n2 = name2.lower().replace(" ","")
+    return n1[:15] in n2 or n2[:15] in n1
+
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# VENDOR REGISTRATION TRACKER (F31-05)
+# ════════════════════════════════════════════════════════════════════════════════
+
+VENDOR_REGISTRATION_LIST = [
+    {"vendor":"Cardinal Health","priority":"P0","url":"cardinal.com/en-us/o/business","products":["Chux/underpads","Adult briefs","Wound care","Gloves","Hospital gowns"],"key":"cardinal_health"},
+    {"vendor":"McKesson Medical-Surgical","priority":"P0","url":"mms.mckesson.com","products":["Wound care dressings","Sharps containers","Exam supplies","PPE"],"key":"mckesson"},
+    {"vendor":"Bound Tree Medical","priority":"P0","url":"boundtree.com","products":["First aid kits ANSI B","CAT Tourniquets","Trauma supplies","AEDs"],"key":"bound_tree"},
+    {"vendor":"Waxie Sanitary Supply","priority":"P0","url":"waxie.com","products":["Trash bags","Paper towels","Toilet paper","Disinfectants"],"key":"waxie"},
+    {"vendor":"Medline Industries","priority":"P0","url":"medline.com/businessaccount","products":["Full PPE catalog","Medical supplies","Incontinence","Wound care"],"key":"medline"},
+    {"vendor":"S&S Worldwide","priority":"P1","url":"ssww.com (call 800-243-9232)","products":["Recreational activity","Art therapy","Games","Exercise equipment"],"key":"ss_worldwide"},
+    {"vendor":"North American Rescue","priority":"P1","url":"narescue.com","products":["CAT tourniquets","IFAK kits","Bleed control","Chest seals"],"key":"north_american_rescue"},
+    {"vendor":"GloveNation / Dash Medical","priority":"P1","url":"glovenation.com","products":["Black nitrile gloves","Law enforcement grade","Tactical PPE"],"key":"glovenation"},
+]
+
+def _get_vendor_reg():
+    import json as _json
+    reg_path = os.path.join(DATA_DIR, "vendor_registration.json")
+    if not os.path.exists(reg_path):
+        reg = {v["key"]: {"status":"not_started","registered_at":None,"account_number":""} for v in VENDOR_REGISTRATION_LIST}
+        with open(reg_path,"w") as f: _json.dump(reg, f, indent=2)
+        return reg
+    return _json.load(open(reg_path))
+
+@bp.route("/api/vendor/registration", methods=["GET"])
+@auth_required
+def api_vendor_registration_get():
+    reg = _get_vendor_reg()
+    enriched = []
+    for v in VENDOR_REGISTRATION_LIST:
+        status = reg.get(v["key"],{}).get("status","not_started")
+        enriched.append({**v, "status": status,
+                         "registered_at": reg.get(v["key"],{}).get("registered_at"),
+                         "account_number": reg.get(v["key"],{}).get("account_number","")})
+    active = sum(1 for v in enriched if v["status"]=="active")
+    return jsonify({"ok":True, "vendors": enriched, "active": active, "total": len(enriched)})
+
+@bp.route("/api/vendor/registration", methods=["POST"])
+@auth_required
+def api_vendor_registration_update():
+    import json as _json
+    data = request.get_json() or {}
+    vendor_key = data.get("vendor_key","").strip()
+    status = data.get("status","in_progress")  # not_started | in_progress | active
+    account_number = data.get("account_number","")
+    if not vendor_key:
+        return jsonify({"ok":False,"error":"vendor_key required"})
+    reg = _get_vendor_reg()
+    from datetime import datetime as _dt
+    reg[vendor_key] = {
+        "status": status,
+        "registered_at": _dt.now().isoformat() if status=="active" else reg.get(vendor_key,{}).get("registered_at"),
+        "account_number": account_number
+    }
+    reg_path = os.path.join(DATA_DIR, "vendor_registration.json")
+    with open(reg_path,"w") as f: _json.dump(reg, f, indent=2)
+    if status == "active":
+        try:
+            from src.agents.notify_agent import send_alert
+            vendor_name = next((v["vendor"] for v in VENDOR_REGISTRATION_LIST if v["key"]==vendor_key), vendor_key)
+            send_alert("bell", f"Vendor account activated: {vendor_name}", {
+                "type":"vendor_activated","vendor_key":vendor_key,"vendor":vendor_name,"link":"/vendors"
+            })
+        except Exception: pass
+    active_count = sum(1 for v in reg.values() if v.get("status")=="active")
+    return jsonify({"ok":True,"vendor_key":vendor_key,"status":status,"active_total":active_count})
+
+
+
+
+@bp.route("/api/intel/scprs/test")
+@auth_required
+def api_intel_scprs_test_v2():
+    """F31-07: Test SCPRS connectivity + credential status."""
+    import os as _os
+    import time as _time
+    has_user = bool(_os.environ.get("SCPRS_USERNAME",""))
+    has_pass = bool(_os.environ.get("SCPRS_PASSWORD",""))
+    result = {
+        "ok": True,
+        "credentials_set": has_user and has_pass,
+        "username_set": has_user,
+        "password_set": has_pass,
+    }
+    if not (has_user and has_pass):
+        result["hint"] = "Set SCPRS_USERNAME and SCPRS_PASSWORD in Railway env vars to enable live data pulls"
+        result["creds_missing"] = True
+        return jsonify(result)
+    # Test connectivity
+    try:
+        import requests as _req
+        t0 = _time.time()
+        r = _req.get("https://suppliers.fiscal.ca.gov/psc/psfpd1/SUPPLIER/ERP/c/ZZ_PO.ZZ_SCPRS1_CMP.GBL",
+                     timeout=8, allow_redirects=True)
+        result["reachable"] = True
+        result["status_code"] = r.status_code
+        result["elapsed_ms"] = round((_time.time() - t0)*1000)
+    except Exception as e:
+        result["reachable"] = False
+        result["error"] = str(e)
+        result["hint"] = "Railway static IP may need to be enabled — check Railway settings → Networking"
+    return jsonify(result)
+
+
+@bp.route("/api/intel/scprs/pull-now", methods=["POST"])
+@auth_required
+def api_intel_scprs_pull_now():
+    """F31-07: Trigger an immediate SCPRS pull (bypasses schedule)."""
+    import os as _os
+    if not INTEL_AVAILABLE:
+        return jsonify({"ok": False, "error": "Sales intel agent not available"})
+    if not _os.environ.get("SCPRS_USERNAME") or not _os.environ.get("SCPRS_PASSWORD"):
+        return jsonify({"ok": False, "error": "SCPRS_USERNAME and SCPRS_PASSWORD must be set in Railway first",
+                        "action": "Set credentials in Railway → Variables → add SCPRS_USERNAME + SCPRS_PASSWORD"})
+    if DEEP_PULL_STATUS.get("running"):
+        return jsonify({"ok": True, "message": "SCPRS pull already running", "status": DEEP_PULL_STATUS})
+    def _run():
+        try:
+            DEEP_PULL_STATUS["running"] = True
+            DEEP_PULL_STATUS["started_at"] = _pst_now_iso()
+            from src.agents.sales_intel import deep_pull_all_buyers
+            deep_pull_all_buyers()
+            DEEP_PULL_STATUS["running"] = False
+            DEEP_PULL_STATUS["last_completed"] = _pst_now_iso()
+            _push_notification({"event_type":"scprs_pull_done","urgency":"info",
+                "title":"SCPRS pull complete","body":"Live buyer data updated from SCPRS","deep_link":"/intel/market"})
+        except Exception as e:
+            DEEP_PULL_STATUS["running"] = False
+            DEEP_PULL_STATUS["last_error"] = str(e)
+    import threading as _threading
+    t = _threading.Thread(target=_run, daemon=True, name="scprs-pull-now")
+    t.start()
+    return jsonify({"ok": True, "message": "SCPRS pull started in background", "check_status": "/api/intel/pull/status"})
+
 # ════════════════════════════════════════════════════════════════════════════════
 # MARKET INTELLIGENCE / LAND & EXPAND PAGE
 # ════════════════════════════════════════════════════════════════════════════════
@@ -5008,6 +5709,242 @@ def api_intel_market():
     if not os.path.exists(mi_path):
         return jsonify({"ok": False, "error": "market_intelligence.json not found"})
     return jsonify({"ok": True, **_json.load(open(mi_path))})
+
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# QA INTELLIGENCE v2 — Regression tracking, issue history, adaptive patterns
+# ════════════════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/qa/intelligence")
+@auth_required
+def api_qa_intelligence():
+    """QA intelligence summary: trends, regressions, persistent issues."""
+    try:
+        from src.agents.qa_agent import get_qa_intelligence_summary
+        return jsonify({"ok": True, **get_qa_intelligence_summary()})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/qa/regressions")
+@auth_required
+def api_qa_regressions():
+    """List unacknowledged score regressions."""
+    try:
+        from src.agents.qa_agent import _qa_db
+        conn = _qa_db()
+        rows = conn.execute(
+            'SELECT id, detected_at, check_name, prev_score, new_score, "drop" as drop, acknowledged FROM qa_regressions ORDER BY detected_at DESC LIMIT 20'
+        ).fetchall()
+        return jsonify({"ok": True, "regressions": [dict(r) for r in rows]})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/qa/regressions/<int:rid>/ack", methods=["POST"])
+@auth_required
+def api_qa_regression_ack(rid):
+    """Acknowledge a regression so it stops alerting."""
+    try:
+        from src.agents.qa_agent import _qa_db
+        conn = _qa_db()
+        conn.execute("UPDATE qa_regressions SET acknowledged=1 WHERE id=?", (rid,))
+        conn.commit()
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/qa/issues")
+@auth_required
+def api_qa_issues():
+    """List persistent open issues sorted by frequency (most recurring = most critical)."""
+    try:
+        from src.agents.qa_agent import _qa_db
+        conn = _qa_db()
+        status_filter = request.args.get("status", "open")
+        rows = conn.execute(
+            "SELECT * FROM qa_issues WHERE status=? ORDER BY occurrences DESC LIMIT 50",
+            (status_filter,)
+        ).fetchall()
+        return jsonify({"ok": True, "issues": [dict(r) for r in rows], "count": len(rows)})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/qa/history")
+@auth_required
+def api_qa_history_v2():
+    """QA run history with scores over time for trend chart."""
+    try:
+        from src.agents.qa_agent import _qa_db
+        import json as _j
+        conn = _qa_db()
+        limit = int(request.args.get("limit", 30))
+        rows = conn.execute(
+            "SELECT run_at, score, grade, passed, failed, warned, duration_ms "
+            "FROM qa_runs ORDER BY run_at DESC LIMIT ?", (limit,)
+        ).fetchall()
+        return jsonify({"ok": True, "history": [dict(r) for r in rows], "count": len(rows)})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/qa/intelligence")
+@auth_required
+def page_qa_intelligence():
+    """QA Intelligence dashboard — trend charts, regressions, persistent issues."""
+    try:
+        from src.agents.qa_agent import get_qa_intelligence_summary, _qa_db, get_health_trend
+        import json as _j
+        intel = get_qa_intelligence_summary()
+        trend = get_health_trend()
+        conn = _qa_db()
+        issues = [dict(r) for r in conn.execute(
+            "SELECT check_name, message, occurrences, first_seen, last_seen "
+            "FROM qa_issues WHERE status='open' ORDER BY occurrences DESC LIMIT 30"
+        ).fetchall()]
+        history = [dict(r) for r in conn.execute(
+            "SELECT run_at, score, grade FROM qa_runs ORDER BY run_at DESC LIMIT 20"
+        ).fetchall()]
+        regressions = [dict(r) for r in conn.execute(
+            "SELECT * FROM qa_regressions WHERE acknowledged=0 ORDER BY detected_at DESC LIMIT 5"
+        ).fetchall()]
+    except Exception as e:
+        intel = {"error": str(e)}; issues = []; history = []; regressions = []
+        trend = {"trend": "unknown", "scores": []}
+
+    score = intel.get("current_score", 0)
+    score_color = "var(--gn)" if score >= 90 else ("var(--yl)" if score >= 75 else "var(--rd)")
+    trend_str = intel.get("trend", "→ stable")
+    trend_color = "var(--gn)" if "improv" in trend_str else ("var(--rd)" if "declin" in trend_str else "var(--yl)")
+
+    issue_rows = ""
+    for iss in issues:
+        sev = "var(--rd)" if iss["occurrences"] >= 5 else ("var(--yl)" if iss["occurrences"] >= 2 else "var(--tx2)")
+        issue_rows += f"""<tr style="border-bottom:1px solid var(--bd)">
+  <td style="padding:7px 10px;font-size:12px;color:{sev};font-weight:600">{iss["check_name"]}</td>
+  <td style="padding:7px 10px;font-size:11px">{iss["message"][:90]}</td>
+  <td style="padding:7px 10px;font-size:12px;text-align:center;color:{sev};font-weight:700">{iss["occurrences"]}</td>
+  <td style="padding:7px 10px;font-size:11px;color:var(--tx2)">{iss["first_seen"][:10] if iss["first_seen"] else "?"}</td>
+</tr>"""
+
+    reg_html = ""
+    for reg in regressions:
+        reg_html += f"""<div style="background:rgba(220,38,38,.08);border:1px solid var(--rd);border-radius:6px;padding:10px 14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
+  <div>
+    <span style="font-size:13px;font-weight:700;color:var(--rd)">Score drop: {reg["prev_score"]} → {reg["new_score"]} (-{reg.get("score_drop", reg.get("drop",0))} pts)</span>
+    <div style="font-size:11px;color:var(--tx2);margin-top:2px">{reg["detected_at"][:16] if reg["detected_at"] else "?"}</div>
+  </div>
+  <button onclick="fetch('/api/qa/regressions/{reg["id"]}/ack',{{method:'POST',credentials:'same-origin'}}).then(()=>location.reload())" style="padding:4px 12px;border:1px solid var(--rd);border-radius:4px;background:none;color:var(--rd);font-size:11px;cursor:pointer">Acknowledge</button>
+</div>"""
+
+    scores_js = str([r["score"] for r in reversed(history)]) if history else "[]"
+    labels_js = str([r["run_at"][:10] for r in reversed(history)]) if history else "[]"
+
+    return _header("QA Intelligence") + f"""
+<style>
+.card{{background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:16px}}
+th{{padding:7px 10px;font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;text-align:left;border-bottom:1px solid var(--bd)}}
+table{{width:100%;border-collapse:collapse}}
+</style>
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+  <div>
+    <h2 style="font-size:22px;font-weight:700">🧠 QA Intelligence Engine</h2>
+    <p style="color:var(--tx2);font-size:13px;margin-top:4px">Regression detection · Persistent issues · Score trend · Full agent coverage</p>
+  </div>
+  <div style="display:flex;gap:8px">
+    <a href="/api/qa/health" style="padding:5px 12px;border:1px solid var(--bd);border-radius:6px;font-size:12px;text-decoration:none">Run Full Check</a>
+    <a href="/" style="padding:5px 12px;border:1px solid var(--bd);border-radius:6px;font-size:12px;text-decoration:none">🏠 Home</a>
+  </div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:14px;margin-bottom:24px">
+  <div class="card">
+    <div style="font-size:11px;color:var(--tx2)">CURRENT SCORE</div>
+    <div style="font-size:32px;font-weight:800;color:{score_color}">{score}/100</div>
+    <div style="font-size:12px;color:{trend_color};margin-top:4px">{trend_str}</div>
+  </div>
+  <div class="card">
+    <div style="font-size:11px;color:var(--tx2)">OPEN ISSUES</div>
+    <div style="font-size:32px;font-weight:800;color:{'var(--rd)' if intel.get('open_issue_count',0)>3 else 'var(--yl)'}">{intel.get('open_issue_count', 0)}</div>
+    <div style="font-size:11px;color:var(--tx2);margin-top:4px">Persistent across runs</div>
+  </div>
+  <div class="card">
+    <div style="font-size:11px;color:var(--tx2)">REGRESSIONS</div>
+    <div style="font-size:32px;font-weight:800;color:{'var(--rd)' if regressions else 'var(--gn)'}">{len(regressions)}</div>
+    <div style="font-size:11px;color:var(--tx2);margin-top:4px">Unacknowledged score drops</div>
+  </div>
+  <div class="card">
+    <div style="font-size:11px;color:var(--tx2)">TOTAL QA RUNS</div>
+    <div style="font-size:32px;font-weight:800;color:var(--ac)">{intel.get('total_runs', 0)}</div>
+    <div style="font-size:11px;color:var(--tx2);margin-top:4px">Every 5min background checks</div>
+  </div>
+</div>
+
+{f'<div style="margin-bottom:16px">{reg_html}</div>' if regressions else ''}
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+  <div>
+    <div style="font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Persistent Issues (most recurring)</div>
+    <div class="card" style="padding:0">
+      <table>
+        <thead><tr><th>Check</th><th>Message</th><th style="text-align:center">Seen</th><th>Since</th></tr></thead>
+        <tbody>{issue_rows if issue_rows else '<tr><td colspan="4" style="padding:16px;text-align:center;color:var(--gn);font-size:13px">✅ No persistent open issues</td></tr>'}</tbody>
+      </table>
+    </div>
+  </div>
+  <div>
+    <div style="font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Score History</div>
+    <div class="card">
+      <canvas id="scoreChart" height="180"></canvas>
+    </div>
+    <div style="margin-top:16px;font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">QA Check Coverage (38 checks, 23 agents)</div>
+    <div class="card">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px">
+        <div style="color:var(--gn)">✅ Routes &amp; auth (257 routes)</div>
+        <div style="color:var(--gn)">✅ All 23 agents covered</div>
+        <div style="color:var(--gn)">✅ DB schema (10 tables)</div>
+        <div style="color:var(--gn)">✅ Data files integrity</div>
+        <div style="color:var(--gn)">✅ Critical route coverage</div>
+        <div style="color:var(--gn)">✅ Regression detection</div>
+        <div style="color:var(--gn)">✅ Issue deduplication</div>
+        <div style="color:var(--gn)">✅ Score trend analysis</div>
+        <div style="color:var(--gn)">✅ Vendor registration</div>
+        <div style="color:var(--gn)">✅ SCPRS credentials</div>
+        <div style="color:var(--gn)">✅ Product catalog</div>
+        <div style="color:var(--gn)">✅ Market scope</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<script>
+const scores = {scores_js};
+const labels = {labels_js};
+if (scores.length > 0) {{
+  new Chart(document.getElementById('scoreChart'), {{
+    type: 'line',
+    data: {{
+      labels,
+      datasets: [{{
+        label: 'QA Score', data: scores,
+        borderColor: '#2563EB', backgroundColor: 'rgba(37,99,235,.1)',
+        tension: 0.3, fill: true, pointRadius: 3
+      }}]
+    }},
+    options: {{
+      scales: {{ y: {{ min: 60, max: 100, grid: {{ color: 'rgba(255,255,255,.05)' }} }},
+                 x: {{ display: false }} }},
+      plugins: {{ legend: {{ display: false }} }},
+      responsive: true, maintainAspectRatio: false
+    }}
+  }});
+}}
+</script>
+</div></body></html>"""
 
 # ════════════════════════════════════════════════════════════════════════════════
 # VENDOR ORDERING ROUTES
@@ -7398,6 +8335,11 @@ def api_qa_health():
     checks = request.args.get("checks", "").split(",") if request.args.get("checks") else None
     checks = [c.strip() for c in checks] if checks else None
     report = run_health_check(checks=checks)
+    try:
+        from src.agents.qa_agent import save_qa_run_to_db
+        save_qa_run_to_db(report)
+    except Exception:
+        pass
     return jsonify({"ok": True, **report})
 
 

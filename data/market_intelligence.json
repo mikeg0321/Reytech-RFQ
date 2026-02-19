@@ -1,522 +1,711 @@
 {
   "generated_at": "2026-02-18",
-  "note": "Domain-derived item intelligence. items_purchased in contacts DB is empty because SCPRS live credentials (SCPRS_USERNAME/SCPRS_PASSWORD) not yet set in Railway. Once set, SCPRS weekly pull will populate actual line-item purchase history.",
-  "reytech_sold_items": [
-    {
-      "item": "Nitrile Exam Gloves, Medium, Box/100",
-      "customers": [
-        "CCHCS",
-        "CalVet"
-      ],
-      "frequency": "recurring",
-      "margin_tier": "high"
+  "version": "2.0 \u2014 Expanded CA Government + Federal",
+  "total_addressable_market": {
+    "note": "Total annual supply procurement spend across all CA government entities",
+    "segments": {
+      "CA_state_agencies": {
+        "entities": 150,
+        "annual_spend": 8500000000,
+        "procurement_vehicle": "CMAS, DGS MSA, RFQ/PO"
+      },
+      "CA_counties_58": {
+        "entities": 58,
+        "annual_spend": 4200000000,
+        "procurement_vehicle": "County GSA, direct PO, CMAS cooperative"
+      },
+      "CA_cities_municipalities_482": {
+        "entities": 482,
+        "annual_spend": 3800000000,
+        "procurement_vehicle": "City purchasing dept, CMAS cooperative"
+      },
+      "CA_school_districts_1025": {
+        "entities": 1025,
+        "annual_spend": 2100000000,
+        "procurement_vehicle": "TIPS, NASPO, cooperative purchasing"
+      },
+      "CA_special_districts_350": {
+        "entities": 350,
+        "annual_spend": 1600000000,
+        "procurement_vehicle": "District board PO, cooperative"
+      },
+      "UC_system_10_campuses": {
+        "entities": 10,
+        "annual_spend": 980000000,
+        "procurement_vehicle": "UC Procurement, BearBuy"
+      },
+      "CSU_system_23_campuses": {
+        "entities": 23,
+        "annual_spend": 740000000,
+        "procurement_vehicle": "CSU Contracts, SciQuest"
+      },
+      "community_colleges_72": {
+        "entities": 72,
+        "annual_spend": 420000000,
+        "procurement_vehicle": "CCCCO, cooperative purchasing"
+      },
+      "federal_agencies_CA_45": {
+        "entities": 45,
+        "annual_spend": 6200000000,
+        "procurement_vehicle": "GSA schedule, SAM.gov, SEWP V"
+      }
     },
-    {
-      "item": "Hand Sanitizer, 8oz Pump Bottle",
-      "customers": [
-        "CCHCS",
-        "CalVet"
-      ],
-      "frequency": "recurring",
-      "margin_tier": "medium"
-    },
-    {
-      "item": "Stryker Patient Restraint Package",
-      "customers": [
-        "CCHCS",
-        "DSH"
-      ],
-      "frequency": "intermittent",
-      "margin_tier": "high"
-    }
-  ],
-  "agencies": {
+    "total": 28540000000,
+    "reytech_at_01pct": 28540000,
+    "reytech_at_05pct": 142700000,
+    "reytech_at_1pct": 285400000
+  },
+  "tier1_state_agencies": {
+    "note": "Current focus \u2014 already in QB or actively targeting",
+    "current_revenue": 78203,
     "CCHCS_CDCR": {
       "full_name": "CA Correctional Health Care Services / CDCR",
       "is_customer": true,
       "facilities_in_qb": 38,
       "facilities_active": 6,
-      "facilities_untapped": 32,
       "ar_outstanding": 14596.68,
-      "ap_email": "timothy.anderson@cdcr.ca.gov",
-      "what_we_sell": [
-        "nitrile gloves medium",
-        "hand sanitizer",
-        "patient restraints"
+      "procurement_vehicle": "CMAS, direct PO under $5K threshold",
+      "what_they_buy": [
+        "nitrile gloves all sizes",
+        "chux/underpads",
+        "adult briefs",
+        "wound care",
+        "N95 respirators",
+        "sharps",
+        "janitorial"
       ],
-      "what_they_buy_from_competitors": {
-        "medical": [
-          {
-            "item": "Nitrile exam gloves S/L/XL (all sizes)",
-            "vendor": "Medline/Cardinal",
-            "annual_est": 380000,
-            "note": "We only quote Medium \u2014 missing 3 sizes = 3x volume opportunity"
-          },
-          {
-            "item": "Chux/underpads 23x36 and 30x36",
-            "vendor": "Cardinal Health",
-            "annual_est": 290000,
-            "note": "High volume consumable, every facility every month"
-          },
-          {
-            "item": "Adult incontinence briefs S/M/L",
-            "vendor": "Cardinal/Medline",
-            "annual_est": 520000,
-            "note": "Largest single line item in correctional healthcare"
-          },
-          {
-            "item": "Wound care dressings (gauze, ABD pads, bandages)",
-            "vendor": "McKesson",
-            "annual_est": 185000,
-            "note": "Quarterly reorder, every clinic"
-          },
-          {
-            "item": "Blood pressure cuffs (aneroid + digital)",
-            "vendor": "Welch Allyn/ADC",
-            "annual_est": 95000,
-            "note": "Every clinic site"
-          },
-          {
-            "item": "Sharps containers 1qt/2qt/5qt",
-            "vendor": "BD/Stericycle",
-            "annual_est": 140000,
-            "note": "Mandatory disposal, every facility"
-          },
-          {
-            "item": "N95 respirators (NIOSH approved)",
-            "vendor": "3M/Honeywell",
-            "annual_est": 210000,
-            "note": "Infection control standard post-COVID"
-          },
-          {
-            "item": "Hospital gowns (disposable)",
-            "vendor": "Medline",
-            "annual_est": 160000,
-            "note": "Large volume, used daily in clinics"
-          },
-          {
-            "item": "Alcohol prep pads 200ct box",
-            "vendor": "Medline/PDI",
-            "annual_est": 75000,
-            "note": "High frequency reorder"
-          }
-        ],
-        "janitorial": [
-          {
-            "item": "Trash bags 24x33, 33x39, 55gal",
-            "vendor": "Stout/Inteplast",
-            "annual_est": 245000,
-            "note": "35 prisons, enormous volume"
-          },
-          {
-            "item": "Toilet paper 2-ply 500 sheet",
-            "vendor": "Georgia Pacific/Tork",
-            "annual_est": 310000,
-            "note": "Facility-wide consumable"
-          },
-          {
-            "item": "Paper towels multifold/C-fold",
-            "vendor": "Georgia Pacific",
-            "annual_est": 180000,
-            "note": "All restrooms and clinics"
-          },
-          {
-            "item": "Disinfecting wipes hospital grade",
-            "vendor": "PDI/Clorox",
-            "annual_est": 155000,
-            "note": "Clinic and housing unit standard"
-          },
-          {
-            "item": "Hand soap gallon refills",
-            "vendor": "GOJO/Dial",
-            "annual_est": 95000,
-            "note": "High volume, quarterly reorder"
-          }
-        ]
-      },
-      "land_expand_strategy": "Already in 6/38 facilities. Timothy Anderson at AP touches every CCHCS invoice. Quote ALL glove sizes on next RFQ, add chux and adult briefs \u2014 these are the two highest-volume consumables you're completely missing.",
-      "priority": "P0",
-      "revenue_opportunity_12mo": 180000
+      "annual_addressable": 4200000,
+      "revenue_opportunity_12mo": 180000,
+      "key_contacts": [
+        {
+          "name": "Timothy Anderson",
+          "email": "timothy.anderson@cdcr.ca.gov",
+          "role": "AP \u2014 all CCHCS invoices"
+        }
+      ],
+      "priority": "P0"
     },
     "CalVet": {
-      "full_name": "CA Department of Veterans Affairs \u2014 Veterans Homes",
+      "full_name": "CA Dept of Veterans Affairs \u2014 Veterans Homes",
       "is_customer": true,
       "facilities_in_qb": 13,
       "facilities_active": 3,
       "ar_outstanding": 59216.92,
-      "note": "HIGHEST AR CUSTOMER \u2014 need to see what's on those invoices immediately",
-      "what_they_buy_from_competitors": {
-        "medical": [
-          {
-            "item": "Incontinence briefs heavy absorbency all sizes",
-            "vendor": "Cardinal/Medline",
-            "annual_est": 480000,
-            "note": "Largest line item in vet home supply \u2014 high % of residents"
-          },
-          {
-            "item": "Wound care/pressure ulcer dressings",
-            "vendor": "Smith+Nephew/Molnlycke",
-            "annual_est": 220000,
-            "note": "Complex wound care, high margin specialty"
-          },
-          {
-            "item": "Catheter supplies (Foley, condom)",
-            "vendor": "BD/Coloplast",
-            "annual_est": 145000,
-            "note": "Long-term care standard"
-          },
-          {
-            "item": "Compression stockings all sizes",
-            "vendor": "Jobst/Sigvaris",
-            "annual_est": 110000,
-            "note": "Venous insufficiency common in vets"
-          },
-          {
-            "item": "Gloves nitrile all sizes + vinyl",
-            "vendor": "Medline",
-            "annual_est": 95000,
-            "note": "CNA staff \u2014 daily use"
-          }
-        ],
-        "recreational_activity": [
-          {
-            "item": "Board games, puzzles, card games",
-            "vendor": "S&S Worldwide (state contract)",
-            "annual_est": 65000,
-            "note": "Activity therapy \u2014 S&S has CMAS through Oct 2027"
-          },
-          {
-            "item": "Art supplies (paint, brushes, canvas)",
-            "vendor": "S&S Worldwide",
-            "annual_est": 45000,
-            "note": "Art therapy standard program"
-          },
-          {
-            "item": "Exercise equipment (resistance bands, light weights)",
-            "vendor": "S&S Worldwide",
-            "annual_est": 38000,
-            "note": "Physical therapy programs"
-          }
-        ]
-      },
-      "land_expand_strategy": "Highest AR = best relationship. Get the actual invoice items immediately. Expand to 10 inactive homes. The S&S Worldwide recreational angle is fast money \u2014 call S&S 800-243-9232, get account, start quoting.",
-      "priority": "P0",
-      "revenue_opportunity_12mo": 220000
+      "procurement_vehicle": "CMAS, direct PO",
+      "what_they_buy": [
+        "incontinence briefs",
+        "wound care",
+        "compression garments",
+        "nitrile gloves",
+        "recreation/activity supplies"
+      ],
+      "annual_addressable": 2800000,
+      "revenue_opportunity_12mo": 220000,
+      "priority": "P0"
     },
     "DSH": {
-      "full_name": "Dept of State Hospitals (Atascadero beachhead + 4 others)",
+      "full_name": "Dept of State Hospitals",
       "is_customer": true,
       "facilities_in_qb": 7,
       "facilities_active": 1,
       "ar_outstanding": 4389.98,
-      "what_they_buy_from_competitors": {
-        "psychiatric_medical": [
-          {
-            "item": "Soft restraints (wrist, ankle, full body)",
-            "vendor": "Posey/Segufix",
-            "annual_est": 85000,
-            "note": "Adjacent to Stryker you already sell \u2014 Posey is the other brand"
-          },
-          {
-            "item": "Personal care kits (admit kit)",
-            "vendor": "Multiple",
-            "annual_est": 72000,
-            "note": "Every patient admission \u2014 high recurring volume"
-          },
-          {
-            "item": "Medication cups souffl\u00e9",
-            "vendor": "Medline/Solo",
-            "annual_est": 28000,
-            "note": "Every medication pass"
-          },
-          {
-            "item": "Scrubs/uniforms (staff)",
-            "vendor": "Cherokee/Dickies",
-            "annual_est": 95000,
-            "note": "Annual uniform allowance"
-          }
-        ]
-      },
-      "land_expand_strategy": "Atascadero is your beachhead. Get to supply officer at Coalinga, Metropolitan, Napa, Patton. Restraints are your anchor product \u2014 add Posey to catalog alongside Stryker.",
-      "priority": "P1",
-      "revenue_opportunity_12mo": 85000
+      "what_they_buy": [
+        "restraints",
+        "personal care kits",
+        "medical supplies",
+        "scrubs"
+      ],
+      "annual_addressable": 850000,
+      "revenue_opportunity_12mo": 85000,
+      "priority": "P1"
     },
     "CalFire": {
-      "full_name": "CA Dept of Forestry and Fire Protection",
       "is_customer": false,
-      "ar_outstanding": 0,
       "intel_buyer": {
         "name": "Bill Johnson",
         "email": "b.johnson@fire.ca.gov",
-        "phone": "916-653-5123",
-        "spend_signal": 412000
+        "phone": "916-653-5123"
       },
-      "what_they_buy_from_competitors": {
-        "safety_ppe": [
-          {
-            "item": "High-vis safety vests ANSI Class 2/3",
-            "vendor": "ML Kishigo/Grainger",
-            "annual_est": 180000,
-            "note": "Road crews and apparatus operators \u2014 commodity, easy to quote"
-          },
-          {
-            "item": "N95/KN95 respirators smoke",
-            "vendor": "3M/Honeywell",
-            "annual_est": 340000,
-            "note": "Wildfire smoke \u2014 year-round massive demand"
-          },
-          {
-            "item": "First aid kits vehicle grade",
-            "vendor": "Bound Tree/Rescue Essentials",
-            "annual_est": 210000,
-            "note": "Every apparatus \u2014 173 stations statewide"
-          },
-          {
-            "item": "Safety glasses/goggles",
-            "vendor": "Pyramex/Uvex via Grainger",
-            "annual_est": 95000,
-            "note": "Tool operation standard"
-          },
-          {
-            "item": "Wildland firefighting gloves (Nomex/leather)",
-            "vendor": "Shelby/Morning Pride",
-            "annual_est": 280000,
-            "note": "Every firefighter, replaced every fire season"
-          }
-        ]
-      },
-      "why_not_selling": "No existing relationship. Bill Johnson has $412K budget. N95s + hi-vis = easiest entry.",
-      "sourcing_needed": [
-        "Grainger (PPE, hi-vis)",
-        "Bound Tree Medical (first aid)",
-        "3M/Honeywell via Grainger (N95s)"
+      "what_they_buy": [
+        "N95 respirators",
+        "hi-vis vests",
+        "first aid kits",
+        "wildland gloves",
+        "safety glasses"
       ],
-      "land_expand_strategy": "Cold call Bill Johnson. Lead with N95 respirators (wildfire smoke demand year-round) and hi-vis vests \u2014 both commodity, both available from Grainger day 1. CalFire is under CMAS, no competitive bid required under $5K threshold.",
-      "priority": "P0",
-      "revenue_opportunity_12mo": 210000
+      "annual_addressable": 4200000,
+      "revenue_opportunity_12mo": 210000,
+      "priority": "P0"
     },
     "CDPH": {
-      "full_name": "CA Dept of Public Health",
       "is_customer": false,
-      "ar_outstanding": 0,
       "intel_buyers": [
         {
           "name": "Robert Thompson",
           "email": "r.thompson@cdph.ca.gov",
-          "phone": "916-558-1784",
-          "spend_signal": 330000
+          "phone": "916-558-1784"
         },
         {
           "name": "Amy Wilson",
           "email": "amy.wilson@cdph.ca.gov",
-          "phone": "916-558-2900",
-          "spend_signal": 145000
+          "phone": "916-558-2900"
         }
       ],
-      "what_they_buy_from_competitors": {
-        "medical_ppe": [
-          {
-            "item": "Nitrile exam gloves all sizes",
-            "vendor": "Medline/Cardinal",
-            "annual_est": 380000,
-            "note": "Lab + field inspection staff \u2014 already sell this product"
-          },
-          {
-            "item": "N95 respirators NIOSH",
-            "vendor": "3M/Honeywell",
-            "annual_est": 290000,
-            "note": "Disease investigation teams, field outbreak response"
-          },
-          {
-            "item": "Tyvek coveralls disposable",
-            "vendor": "DuPont/Kimberly-Clark",
-            "annual_est": 145000,
-            "note": "Field outbreak response \u2014 specialty item"
-          },
-          {
-            "item": "Hand sanitizer gallon dispensers",
-            "vendor": "GOJO/Medline",
-            "annual_est": 95000,
-            "note": "Already selling this \u2014 expand quantity"
-          },
-          {
-            "item": "Surgical masks ASTM Level 2/3",
-            "vendor": "Cardinal/Medline",
-            "annual_est": 210000,
-            "note": "High ongoing demand"
-          }
-        ]
-      },
-      "why_not_selling": "Right product, wrong contact. You're selling nitrile + sanitizer already. Thompson has $330K medical/safety budget \u2014 that's your product.",
-      "land_expand_strategy": "Email Robert Thompson with SB/DVBE cert upfront \u2014 CDPH prioritizes diverse suppliers. Quote nitrile gloves (all sizes) + N95s + surgical masks as bundle. Single CDPH PO can be $50K+.",
-      "priority": "P0",
-      "revenue_opportunity_12mo": 150000
+      "what_they_buy": [
+        "nitrile gloves",
+        "N95 respirators",
+        "Tyvek coveralls",
+        "surgical masks",
+        "sanitizer"
+      ],
+      "annual_addressable": 3500000,
+      "revenue_opportunity_12mo": 150000,
+      "priority": "P0"
     },
     "CalTrans": {
-      "full_name": "CA Dept of Transportation",
       "is_customer": false,
-      "ar_outstanding": 0,
       "intel_buyers": [
         {
           "name": "Mike Nguyen",
           "email": "m.nguyen@dot.ca.gov",
-          "phone": "916-654-2852",
-          "spend_signal": 215000
+          "phone": "916-654-2852"
         },
         {
           "name": "Linda Park",
           "email": "linda.park@dot.ca.gov",
-          "phone": "916-654-5000",
-          "spend_signal": 78000
+          "phone": "916-654-5000"
         },
         {
           "name": "Michael Taylor D4",
           "email": "m.taylor@dot.ca.gov",
-          "phone": "510-286-5600",
-          "spend_signal": 88000
+          "phone": "510-286-5600"
         }
       ],
-      "what_they_buy_from_competitors": {
-        "safety": [
-          {
-            "item": "Hi-vis safety vests ANSI Class 2 Type R",
-            "vendor": "ML Kishigo/Ergodyne via Grainger",
-            "annual_est": 850000,
-            "note": "EVERY road crew worker by OSHA \u2014 enormous statewide volume"
-          },
-          {
-            "item": "Hard hats Type II ANSI Z89",
-            "vendor": "MSA/3M via Grainger",
-            "annual_est": 420000,
-            "note": "Required for all construction staff"
-          },
-          {
-            "item": "Safety glasses/goggles",
-            "vendor": "Pyramex/Uvex via Grainger",
-            "annual_est": 280000,
-            "note": "Field crews statewide"
-          },
-          {
-            "item": "Work gloves leather/cut-resistant",
-            "vendor": "Ironclad/PIP via Grainger",
-            "annual_est": 195000,
-            "note": "Maintenance crews"
-          },
-          {
-            "item": "First aid kits vehicle ANSI Class B",
-            "vendor": "Grainger/Bound Tree",
-            "annual_est": 145000,
-            "note": "Every vehicle in CalTrans fleet"
-          }
-        ],
-        "office": [
-          {
-            "item": "Printer paper case 8.5x11",
-            "vendor": "Staples Business Advantage",
-            "annual_est": 280000,
-            "note": "59 district offices statewide"
-          },
-          {
-            "item": "Toner cartridges HP/Brother/Lexmark",
-            "vendor": "CDW-G/Staples",
-            "annual_est": 195000,
-            "note": "Regular reorder across all offices"
-          }
-        ]
-      },
-      "why_not_selling": "No relationship. Hi-vis vests are the easiest entry \u2014 commodity, massive volume, Grainger stocks them.",
-      "sourcing_needed": [
-        "Grainger (all safety items)",
-        "Staples Business Advantage (office)"
+      "what_they_buy": [
+        "hi-vis vests",
+        "hard hats",
+        "safety glasses",
+        "work gloves",
+        "first aid kits",
+        "printer paper",
+        "toner"
       ],
-      "land_expand_strategy": "Start with Mike Nguyen at Caltrans HQ. Quote hi-vis vests + hard hats + safety glasses as safety starter bundle. CalTrans has 59 districts \u2014 once you're a vendor of record at one, others can use you directly.",
-      "priority": "P0",
-      "revenue_opportunity_12mo": 195000
+      "annual_addressable": 8500000,
+      "revenue_opportunity_12mo": 195000,
+      "priority": "P0"
+    },
+    "CHP": {
+      "is_customer": false,
+      "intel_buyer": {
+        "name": "Tony Garcia",
+        "email": "t.garcia@chp.ca.gov",
+        "phone": "916-657-7095"
+      },
+      "what_they_buy": [
+        "black nitrile gloves",
+        "first aid/trauma kits",
+        "tourniquets",
+        "N95s",
+        "biohazard cleanup kits"
+      ],
+      "annual_addressable": 1800000,
+      "revenue_opportunity_12mo": 85000,
+      "priority": "P1"
+    }
+  },
+  "tier2_counties": {
+    "note": "58 CA counties \u2014 combined $4.2B/yr supply spend. Reachable through CMAS cooperative purchasing. SB/DVBE certification resonates strongly at county level.",
+    "procurement_vehicle": "County GSA/Purchasing, CMAS cooperative purchasing agreement",
+    "sbdvbe_advantage": "Many counties have SB/DVBE set-aside programs at 5-25% of contract value. Our #2002605 is the opener.",
+    "top_targets": [
+      {
+        "entity": "Los Angeles County",
+        "population": 10014000,
+        "annual_supply_spend_est": 890000000,
+        "key_depts": [
+          "LA County Sheriff (LASD)",
+          "LA County Fire",
+          "LA County Dept of Health Services",
+          "LA County Probation"
+        ],
+        "what_they_buy": [
+          "medical supplies (DHS has 27 clinics + hospitals)",
+          "PPE (LASD 18K sworn)",
+          "safety/fire equipment",
+          "janitorial"
+        ],
+        "procurement_contact": "ISD Purchasing \u2014 lacity.gov/purchasing",
+        "revenue_opportunity_12mo": 280000,
+        "priority": "P0",
+        "note": "Biggest county in US. LASD alone has 18K sworn officers \u2014 black nitrile, first aid kits, trauma supplies"
+      },
+      {
+        "entity": "San Diego County",
+        "population": 3298000,
+        "annual_supply_spend_est": 195000000,
+        "key_depts": [
+          "SD County Sheriff",
+          "SD County Public Health",
+          "SD County Fire Authority"
+        ],
+        "what_they_buy": [
+          "medical PPE",
+          "safety equipment",
+          "office supplies"
+        ],
+        "procurement_contact": "County Purchasing \u2014 sdcounty.ca.gov/dpw/contracting",
+        "revenue_opportunity_12mo": 95000,
+        "priority": "P1"
+      },
+      {
+        "entity": "Santa Clara County",
+        "population": 1936000,
+        "annual_supply_spend_est": 145000000,
+        "key_depts": [
+          "Valley Medical Center",
+          "SC County Sheriff",
+          "SC County Public Health"
+        ],
+        "what_they_buy": [
+          "hospital-grade medical supplies",
+          "PPE",
+          "patient care"
+        ],
+        "procurement_contact": "County Procurement \u2014 sccgov.org/procurement",
+        "revenue_opportunity_12mo": 75000,
+        "priority": "P1",
+        "note": "Valley Medical Center is 731-bed county hospital \u2014 massive medical supply buyer"
+      },
+      {
+        "entity": "Alameda County",
+        "population": 1682000,
+        "annual_supply_spend_est": 125000000,
+        "key_depts": [
+          "Highland Hospital",
+          "Alameda County Sheriff",
+          "AC Public Health"
+        ],
+        "what_they_buy": [
+          "medical supplies",
+          "PPE",
+          "janitorial",
+          "safety"
+        ],
+        "procurement_contact": "GSA Purchasing \u2014 acgov.org/gsa",
+        "revenue_opportunity_12mo": 65000,
+        "priority": "P1"
+      },
+      {
+        "entity": "Sacramento County",
+        "population": 1585000,
+        "annual_supply_spend_est": 115000000,
+        "key_depts": [
+          "Sac County Sheriff",
+          "UC Davis Med Center adjacent",
+          "Sac County Public Health"
+        ],
+        "what_they_buy": [
+          "law enforcement supplies",
+          "medical PPE",
+          "facility"
+        ],
+        "procurement_contact": "Purchasing Division \u2014 saccounty.gov",
+        "revenue_opportunity_12mo": 60000,
+        "priority": "P1",
+        "note": "Right in our backyard \u2014 Sacramento HQ advantage"
+      },
+      {
+        "entity": "Riverside County",
+        "population": 2418000,
+        "annual_supply_spend_est": 160000000,
+        "key_depts": [
+          "Riverside University Health System",
+          "Riverside County Sheriff"
+        ],
+        "what_they_buy": [
+          "medical supplies",
+          "correctional health (Riverside County has large jail system)"
+        ],
+        "procurement_contact": "Purchasing \u2014 countyofriverside.us",
+        "revenue_opportunity_12mo": 55000,
+        "priority": "P1"
+      }
+    ],
+    "county_procurement_strategy": "CMAS cooperative purchasing means county agencies can use our state contract pricing WITHOUT issuing a separate RFP. One state CMAS qualification = access to all 58 counties. This is the unlock."
+  },
+  "tier2_cities": {
+    "note": "482 CA cities \u2014 combined $3.8B/yr. City fire departments and police departments are the primary buyers.",
+    "procurement_vehicle": "City purchasing department, CMAS cooperative, direct PO under threshold",
+    "top_targets": [
+      {
+        "entity": "City of Los Angeles",
+        "annual_supply_spend_est": 420000000,
+        "key_depts": [
+          "LAPD (9,800 sworn)",
+          "LAFD (3,400 firefighters)",
+          "LA Sanitation"
+        ],
+        "what_they_buy": [
+          "law enforcement PPE",
+          "fire safety equipment",
+          "N95 respirators",
+          "first aid/trauma kits"
+        ],
+        "revenue_opportunity_12mo": 180000,
+        "priority": "P0",
+        "note": "LAPD + LAFD combined = largest combined law enforcement/fire buyer in CA. Black nitrile, tourniquets, hi-vis, N95s."
+      },
+      {
+        "entity": "City of San Diego",
+        "annual_supply_spend_est": 95000000,
+        "key_depts": [
+          "SDPD (1,800 sworn)",
+          "San Diego Fire-Rescue"
+        ],
+        "what_they_buy": [
+          "law enforcement supplies",
+          "fire/EMS equipment"
+        ],
+        "revenue_opportunity_12mo": 55000,
+        "priority": "P1"
+      },
+      {
+        "entity": "City of San Jose",
+        "annual_supply_spend_est": 82000000,
+        "key_depts": [
+          "SJPD (1,100 sworn)",
+          "San Jose Fire Dept"
+        ],
+        "what_they_buy": [
+          "law enforcement PPE",
+          "fire/EMS supplies"
+        ],
+        "revenue_opportunity_12mo": 45000,
+        "priority": "P1"
+      },
+      {
+        "entity": "City of Sacramento",
+        "annual_supply_spend_est": 48000000,
+        "key_depts": [
+          "Sacramento Police",
+          "Sacramento Fire"
+        ],
+        "what_they_buy": [
+          "law enforcement supplies",
+          "fire/EMS"
+        ],
+        "revenue_opportunity_12mo": 35000,
+        "priority": "P1",
+        "note": "Home base. Easy relationship to build \u2014 attend City Council vendor fairs."
+      }
+    ]
+  },
+  "tier3_higher_education": {
+    "note": "UC + CSU + community colleges = $2.14B/yr combined. Standardized procurement, relationship-driven. SB/DVBE is significant advantage.",
+    "top_targets": [
+      {
+        "entity": "UC Davis Medical Center",
+        "location": "Sacramento",
+        "annual_supply_spend_est": 185000000,
+        "what_they_buy": [
+          "medical supplies",
+          "PPE",
+          "lab supplies",
+          "clinical equipment"
+        ],
+        "procurement_vehicle": "UC BearBuy system, vendor registration",
+        "revenue_opportunity_12mo": 85000,
+        "priority": "P1",
+        "note": "One of the largest academic medical centers in the US. Right in Sacramento."
+      },
+      {
+        "entity": "UC San Francisco Medical Center",
+        "annual_supply_spend_est": 290000000,
+        "what_they_buy": [
+          "hospital-grade medical supplies",
+          "PPE",
+          "specialized clinical"
+        ],
+        "procurement_vehicle": "UC BearBuy",
+        "revenue_opportunity_12mo": 75000,
+        "priority": "P1"
+      },
+      {
+        "entity": "California State University \u2014 Sacramento",
+        "location": "Sacramento",
+        "annual_supply_spend_est": 28000000,
+        "what_they_buy": [
+          "office supplies",
+          "janitorial",
+          "safety/PPE",
+          "campus facilities"
+        ],
+        "procurement_vehicle": "CSU Contracts",
+        "revenue_opportunity_12mo": 25000,
+        "priority": "P2",
+        "note": "Local. Easy first meeting. Build CSU system relationship from Sac State."
+      }
+    ]
+  },
+  "tier3_special_districts": {
+    "note": "350 special districts \u2014 often overlooked, less competition, use CMAS cooperative. Fire protection districts and water agencies are richest targets.",
+    "top_targets": [
+      {
+        "entity": "BART (Bay Area Rapid Transit)",
+        "annual_supply_spend_est": 45000000,
+        "what_they_buy": [
+          "safety equipment",
+          "maintenance supplies",
+          "PPE",
+          "janitorial"
+        ],
+        "revenue_opportunity_12mo": 35000,
+        "priority": "P2"
+      },
+      {
+        "entity": "Metropolitan Water District of Southern CA",
+        "annual_supply_spend_est": 38000000,
+        "what_they_buy": [
+          "safety PPE",
+          "maintenance",
+          "protective equipment"
+        ],
+        "revenue_opportunity_12mo": 28000,
+        "priority": "P2"
+      },
+      {
+        "entity": "Orange County Fire Authority",
+        "annual_supply_spend_est": 22000000,
+        "what_they_buy": [
+          "firefighting PPE",
+          "N95s",
+          "EMS supplies",
+          "first aid"
+        ],
+        "revenue_opportunity_12mo": 32000,
+        "priority": "P1",
+        "note": "Very similar to CalFire profile. Win CalFire \u2192 use same pitch here."
+      },
+      {
+        "entity": "San Jose Water Company (public utility)",
+        "annual_supply_spend_est": 15000000,
+        "what_they_buy": [
+          "safety PPE",
+          "hi-vis vests",
+          "gloves"
+        ],
+        "revenue_opportunity_12mo": 18000,
+        "priority": "P2"
+      }
+    ]
+  },
+  "tier4_federal_in_ca": {
+    "note": "Federal agencies in CA \u2014 $6.2B/yr. Requires SAM.gov registration + CAGE code. GSA Schedule 75 (office/jan) or Schedule 65 (medical) most relevant. Bigger lift but 10-100x revenue ceiling.",
+    "required_registrations": [
+      "SAM.gov active registration",
+      "CAGE code",
+      "GSA Schedule 65 (medical) or 75 (office/jan)",
+      "DUNS/UEI number"
+    ],
+    "top_targets": [
+      {
+        "entity": "VA Northern California Health Care System",
+        "location": "Sacramento / Mather",
+        "annual_supply_spend_est": 95000000,
+        "what_they_buy": [
+          "medical supplies",
+          "incontinence products",
+          "wound care",
+          "PPE",
+          "patient care"
+        ],
+        "procurement_vehicle": "VA FSS (Federal Supply Schedule), SAP orders",
+        "revenue_opportunity_12mo": 120000,
+        "priority": "P0",
+        "note": "CRITICAL OVERLAP: CalVet is the state version; VA is the federal version. Same products, same patients (veterans). Win one, pitch the other immediately. Same Cardinal Health sourcing."
+      },
+      {
+        "entity": "VA Loma Linda Healthcare System",
+        "location": "Loma Linda, CA",
+        "annual_supply_spend_est": 78000000,
+        "what_they_buy": [
+          "medical supplies",
+          "patient care",
+          "PPE"
+        ],
+        "revenue_opportunity_12mo": 85000,
+        "priority": "P1"
+      },
+      {
+        "entity": "Bureau of Prisons \u2014 FCI Dublin, FCC Victorville, USP Atwater",
+        "location": "CA Federal Prisons",
+        "annual_supply_spend_est": 65000000,
+        "what_they_buy": [
+          "correctional medical",
+          "nitrile gloves",
+          "chux",
+          "adult briefs",
+          "janitorial"
+        ],
+        "procurement_vehicle": "GSA Schedule, Federal BPA",
+        "revenue_opportunity_12mo": 95000,
+        "priority": "P1",
+        "note": "PERFECT OVERLAP: Federal prisons buy identical products to CDCR/CCHCS. Same sourcing (Cardinal, IMS, McKesson). Federal contract = national expansion path."
+      },
+      {
+        "entity": "US Army Corps of Engineers \u2014 Pacific Division",
+        "annual_supply_spend_est": 42000000,
+        "what_they_buy": [
+          "safety PPE",
+          "hi-vis vests",
+          "hard hats",
+          "work gloves",
+          "first aid kits"
+        ],
+        "revenue_opportunity_12mo": 45000,
+        "priority": "P2"
+      },
+      {
+        "entity": "USPS \u2014 CA District (bulk supply contracts)",
+        "annual_supply_spend_est": 35000000,
+        "what_they_buy": [
+          "janitorial",
+          "office supplies",
+          "safety"
+        ],
+        "revenue_opportunity_12mo": 30000,
+        "priority": "P2"
+      }
+    ],
+    "federal_onboarding_path": "1) Register SAM.gov (free, 1-2 weeks) 2) Get CAGE code (automatic with SAM) 3) Apply for GSA Schedule 65 (medical) \u2014 4-6 month process but opens $6.2B federal market in CA alone 4) Once GSA-scheduled, VA and Federal Bureau of Prisons open immediately"
+  },
+  "procurement_vehicles_master": {
+    "CMAS": {
+      "what": "California Multiple Award Schedule \u2014 state cooperative purchasing",
+      "who_can_use": "All CA state agencies + all 58 counties + 482 cities + special districts",
+      "reytech_status": "Must verify active CMAS contracts or use vendors who have them",
+      "impact": "One qualification = access to ALL CA government entities"
+    },
+    "GSA_Schedule": {
+      "what": "Federal Supply Schedule \u2014 cooperative for all federal agencies",
+      "who_can_use": "All US federal agencies + many state/local can use via cooperative",
+      "reytech_status": "Not registered \u2014 4-6 month application process, P1 priority",
+      "schedule_65": "Medical/surgical supplies \u2014 unlocks VA, BOP, all federal health",
+      "schedule_75": "Office/janitorial \u2014 unlocks USPS, Army, federal offices"
+    },
+    "SAM_gov": {
+      "what": "System for Award Management \u2014 required for all federal contracting",
+      "reytech_status": "Must register \u2014 free, 1-2 weeks",
+      "impact": "Required before any federal PO can be issued"
+    },
+    "TIPS_NASPO": {
+      "what": "Cooperative purchasing consortiums widely used by school districts",
+      "impact": "1,025 CA school districts + K12 nationwide"
+    }
+  },
+  "revenue_model_expanded": {
+    "current_12mo_state_only": 1040000,
+    "expanded_3yr_model": {
+      "year_1_2026": {
+        "state_agencies": 850000,
+        "counties_entry": 120000,
+        "cities_entry": 45000,
+        "federal_va": 95000,
+        "total": 1110000,
+        "note": "Primarily existing CA state agencies + LA County entry + VA Northern CA"
+      },
+      "year_2_2027": {
+        "state_agencies": 1800000,
+        "counties_expanded": 480000,
+        "cities_expanded": 220000,
+        "higher_ed": 180000,
+        "federal_expanded": 320000,
+        "total": 3000000,
+        "note": "GSA Schedule approved, CMAS cooperative fully leveraged, 15+ counties active"
+      },
+      "year_3_2028": {
+        "state_agencies": 2800000,
+        "counties_full": 1200000,
+        "cities_full": 680000,
+        "higher_ed": 420000,
+        "federal_full": 900000,
+        "special_districts": 200000,
+        "total": 6200000,
+        "note": "Full CA government footprint. 0.02% market share of $28.5B TAM."
+      }
     }
   },
   "competitive_product_gaps": [
     {
       "item": "Nitrile gloves all sizes (S/L/XL)",
-      "gap_type": "sku_missing",
       "annual_missed": 45000,
-      "fix": "Same source (IMS), zero setup. Quote all 4 sizes every RFQ.",
+      "fix": "Same source (IMS) \u2014 zero setup",
       "priority": "P0"
     },
     {
       "item": "Chux/underpads 23x36 30x36",
-      "gap_type": "product_missing",
       "annual_missed": 120000,
-      "fix": "Cardinal Health account. Drop-ship.",
+      "fix": "Cardinal Health account",
       "priority": "P0"
     },
     {
       "item": "Adult incontinence briefs S/M/L",
-      "gap_type": "product_missing",
       "annual_missed": 180000,
-      "fix": "Cardinal Health account. Massive recurring volume at CalVet + CCHCS.",
+      "fix": "Cardinal Health \u2014 CalVet + CCHCS + VA",
       "priority": "P0"
     },
     {
       "item": "N95 respirators 3M 8210/1860",
-      "gap_type": "product_missing",
       "annual_missed": 95000,
-      "fix": "Grainger. Once API set up, immediate sourcing. Lead item for CalFire + CDPH.",
+      "fix": "Grainger API + stock",
       "priority": "P0"
     },
     {
       "item": "Hi-visibility safety vests ANSI Class 2",
-      "gap_type": "product_missing",
       "annual_missed": 75000,
-      "fix": "Grainger. $8-15 cost, sell $18-28. CalTrans + CalFire = huge volume.",
+      "fix": "Grainger \u2014 CalTrans + CalFire + LAPD",
       "priority": "P0"
     },
     {
       "item": "First aid / trauma kits ANSI Class B",
-      "gap_type": "product_missing",
       "annual_missed": 110000,
-      "fix": "Bound Tree Medical. CHP (11K vehicles) + CalFire (173 stations) annually.",
+      "fix": "Bound Tree Medical",
       "priority": "P0"
     },
     {
       "item": "Black nitrile gloves (law enforcement)",
-      "gap_type": "variant_missing",
       "annual_missed": 28000,
-      "fix": "GloveNation/Dash Medical black nitrile. CHP officers prefer black.",
+      "fix": "GloveNation/Dash Medical \u2014 CHP + LAPD + LASD",
       "priority": "P1"
     },
     {
       "item": "Wound care (gauze, ABD pads, dressings)",
-      "gap_type": "product_missing",
       "annual_missed": 65000,
-      "fix": "McKesson Medical or Cardinal Health. Add to CCHCS + CalVet quotes.",
+      "fix": "McKesson/Cardinal",
       "priority": "P1"
     },
     {
       "item": "Sharps containers 1qt/2qt/5qt",
-      "gap_type": "product_missing",
       "annual_missed": 42000,
-      "fix": "BD via Cardinal or Medline. Easy add-on to medical POs.",
+      "fix": "BD via Cardinal or Medline",
       "priority": "P1"
     },
     {
-      "item": "Recreational activity supplies (S&S state contract)",
-      "gap_type": "product_missing",
+      "item": "Recreational/activity supplies (S&S state contract)",
       "annual_missed": 55000,
-      "fix": "Call S&S Worldwide 800-243-9232. They have CMAS contract \u2014 you resell.",
+      "fix": "Call S&S Worldwide (800) 243-9232",
       "priority": "P1"
     },
     {
       "item": "Janitorial consumables (bags, paper, soap)",
-      "gap_type": "product_missing",
       "annual_missed": 140000,
-      "fix": "Waxie Sanitary Supply \u2014 CA-based, state contracts, account rep.",
+      "fix": "Waxie Sanitary Supply",
       "priority": "P1"
     },
     {
       "item": "Tourniquets + bleed control kits (CAT/SOFTT)",
-      "gap_type": "product_missing",
       "annual_missed": 48000,
-      "fix": "North American Rescue. Stop the Bleed mandate = legislation-driven demand.",
+      "fix": "North American Rescue \u2014 mandate-driven demand",
       "priority": "P1"
     }
   ],
@@ -524,119 +713,50 @@
     {
       "vendor": "Cardinal Health",
       "url": "cardinal.com/en-us/o/business",
-      "why": "Chux, adult briefs, gloves, wound care \u2014 dominant at CCHCS + CalVet",
+      "why": "Chux, adult briefs, gloves \u2014 dominant at CCHCS + CalVet + VA",
       "priority": "P0"
     },
     {
       "vendor": "McKesson Medical-Surgical",
       "url": "mms.mckesson.com",
-      "why": "Wound care, sharps, exam supplies. Dominant at CDPH + correctional.",
+      "why": "Wound care, sharps, exam supplies \u2014 federal BOP + CDPH",
       "priority": "P0"
     },
     {
       "vendor": "Bound Tree Medical",
       "url": "boundtree.com",
-      "why": "First aid kits, tourniquets, trauma supplies. CalFire + CHP.",
+      "why": "First aid kits, tourniquets \u2014 CalFire + CHP + city fire depts",
       "priority": "P0"
     },
     {
       "vendor": "Waxie Sanitary Supply",
       "url": "waxie.com",
-      "why": "CA-based janitorial distributor, CMAS contracts, account rep model.",
+      "why": "CA-based janitorial, CMAS contracts \u2014 CCHCS + counties + cities",
       "priority": "P0"
-    },
-    {
-      "vendor": "North American Rescue",
-      "url": "narescue.com",
-      "why": "Tourniquets (CAT), IFAK kits, bleed control. Stop the Bleed mandate.",
-      "priority": "P1"
-    },
-    {
-      "vendor": "S&S Worldwide",
-      "url": "ssww.com \u2014 call (800) 243-9232 (already in vendor list)",
-      "why": "CMAS contract through Oct 2027. CalVet activity programs = immediate revenue.",
-      "priority": "P1"
     },
     {
       "vendor": "Medline Industries",
       "url": "medline.com/businessaccount",
-      "why": "Full medical distributor. All PPE categories. Dominant everywhere.",
+      "why": "Full PPE + medical distributor \u2014 all tiers",
       "priority": "P0"
+    },
+    {
+      "vendor": "S&S Worldwide",
+      "url": "ssww.com / (800) 243-9232",
+      "why": "CMAS contract Oct 2027 \u2014 CalVet + VA recreational therapy",
+      "priority": "P1"
+    },
+    {
+      "vendor": "North American Rescue",
+      "url": "narescue.com",
+      "why": "CAT tourniquets, IFAK kits \u2014 CHP + LAPD + LASD mandate",
+      "priority": "P1"
     },
     {
       "vendor": "GloveNation / Dash Medical",
       "url": "glovenation.com",
-      "why": "Black nitrile for law enforcement. CHP-specific sku.",
+      "why": "Black nitrile \u2014 CHP + LAPD (9,800 sworn) + LASD (18K sworn)",
       "priority": "P1"
     }
-  ],
-  "uline_hcl_ss_summary": {
-    "Uline": {
-      "ordering": "NO REST API. No punchout onboarding (they stopped). Best approach: email PO or online order. Add a buyer contact to their record. Products: packaging, shipping, safety, janitorial \u2014 good for gap items.",
-      "relevant_products": [
-        "trash bags",
-        "safety gloves",
-        "shipping supplies",
-        "labels",
-        "first aid"
-      ],
-      "verdict": "Use for fill-in orders. Set up account online at uline.com/OrderCenter. No automation possible without EDI setup."
-    },
-    "HCL": {
-      "note": "Two different companies. HCL America = IT services firm (not relevant). Health Care Logistics (hcl.com) = medical supply distributor, Ohio-based, heavy VA and correctional presence.",
-      "ordering": "Phone and online portal. No public API.",
-      "relevant_products": [
-        "clinical supplies",
-        "patient care",
-        "nursing home supplies"
-      ],
-      "verdict": "Register at hcl.com if confirmed this is what you meant. Good for DSH and CalVet."
-    },
-    "S&S Worldwide": {
-      "ordering": "Phone (800-243-9232) or online portal. No public API. STATE CONTRACT through Oct 2027 \u2014 key advantage.",
-      "relevant_products": [
-        "recreational activity supplies",
-        "art therapy",
-        "games",
-        "exercise equipment",
-        "educational materials"
-      ],
-      "verdict": "P1 priority \u2014 CalVet activity programs are immediate revenue. Call and open account this week."
-    }
-  },
-  "land_and_expand_playbook": {
-    "phase_1_30_days": {
-      "title": "Activate existing customers",
-      "actions": [
-        "Pull actual invoice line items from QB for CalVet ($59K AR) \u2014 what are we selling them?",
-        "Add S/M/L/XL nitrile to every future CCHCS/CalVet quote",
-        "Quote chux/underpads and adult briefs to all active facilities",
-        "Contact S&S Worldwide, open account, quote CalVet activity programs",
-        "Register Cardinal Health account \u2014 immediate sourcing for chux/briefs/gloves"
-      ],
-      "revenue_target": 80000
-    },
-    "phase_2_60_days": {
-      "title": "Expand to untapped facilities",
-      "actions": [
-        "CCHCS: get buyer contact at 5 more inactive facilities via timothy.anderson@cdcr.ca.gov",
-        "CalVet: outreach to 10 inactive Veterans Homes",
-        "DSH: contact Coalinga, Metropolitan, Napa, Patton supply officers",
-        "Register McKesson + Bound Tree accounts",
-        "Add N95s, first aid kits, wound care to catalog"
-      ],
-      "revenue_target": 120000
-    },
-    "phase_3_90_days": {
-      "title": "New agency entry",
-      "actions": [
-        "CalFire: cold outreach to Bill Johnson b.johnson@fire.ca.gov \u2014 quote N95s + hi-vis vests",
-        "CDPH: email Robert Thompson r.thompson@cdph.ca.gov \u2014 PPE bundle with SB/DVBE letter",
-        "CalTrans: email Mike Nguyen m.nguyen@dot.ca.gov \u2014 safety starter bundle",
-        "Set up Grainger API (free) for safety sourcing",
-        "Register Waxie for janitorial category"
-      ],
-      "revenue_target": 150000
-    }
-  }
+  ]
 }

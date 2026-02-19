@@ -14,6 +14,13 @@ def create_app():
     app.secret_key = os.environ.get("SECRET_KEY", "reytech-rfq-2026")
 
     # ── Persistent database init ──────────────────────────────────────────────
+    # ── Product catalog init ──────────────────────────────────────────────────
+    try:
+        from src.core.catalog import init_catalog
+        init_catalog()
+    except Exception as e:
+        logging.getLogger("reytech").warning("Catalog init skipped: %s", e)
+
     try:
         from src.core.db import startup as db_startup
         result = db_startup()

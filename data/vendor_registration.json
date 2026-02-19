@@ -1,0 +1,42 @@
+{
+  "cardinal_health": {
+    "status": "not_started",
+    "registered_at": null,
+    "account_number": ""
+  },
+  "mckesson": {
+    "status": "not_started",
+    "registered_at": null,
+    "account_number": ""
+  },
+  "bound_tree": {
+    "status": "not_started",
+    "registered_at": null,
+    "account_number": ""
+  },
+  "waxie": {
+    "status": "not_started",
+    "registered_at": null,
+    "account_number": ""
+  },
+  "medline": {
+    "status": "not_started",
+    "registered_at": null,
+    "account_number": ""
+  },
+  "ss_worldwide": {
+    "status": "not_started",
+    "registered_at": null,
+    "account_number": ""
+  },
+  "north_american_rescue": {
+    "status": "not_started",
+    "registered_at": null,
+    "account_number": ""
+  },
+  "glovenation": {
+    "status": "not_started",
+    "registered_at": null,
+    "account_number": ""
+  }
+}
