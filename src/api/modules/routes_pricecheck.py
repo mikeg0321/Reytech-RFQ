@@ -1372,6 +1372,121 @@ def api_admin_status():
 
 
 
+@bp.route("/api/admin/recall", methods=["POST"])
+@auth_required
+def api_admin_recall():
+    """Retroactive recall: delete PCs matching a pattern + free quote numbers.
+    
+    POST body: {"pattern": "02.17.26"} or {"pc_ids": ["auto_xxx", ...]}
+    Deletes matching PCs, removes linked draft quotes, resets counter.
+    """
+    data = request.get_json(silent=True) or {}
+    pattern = data.get("pattern", "").strip()
+    pc_ids = data.get("pc_ids", [])
+    
+    results = {"deleted": [], "errors": [], "before": {}, "after": {}}
+    
+    try:
+        from src.forms.quote_generator import get_all_quotes, _save_all_quotes, _load_counter, _save_counter
+        from src.core.db import get_db
+        
+        pcs = _load_price_checks()
+        results["before"]["pc_count"] = len(pcs)
+        results["before"]["counter"] = _load_counter()
+        results["before"]["pc_list"] = {k: {"num": v.get("pc_number",""), "qn": v.get("reytech_quote_number","")} for k,v in pcs.items()}
+        
+        # Find PCs to delete
+        to_delete = []
+        if pc_ids:
+            to_delete = [pid for pid in pc_ids if pid in pcs]
+        elif pattern:
+            for pcid, pc in pcs.items():
+                searchable = f"{pc.get('pc_number','')} {pc.get('email_subject','')} {pc.get('source_pdf','')}".lower()
+                if pattern.lower() in searchable:
+                    to_delete.append(pcid)
+        
+        if not to_delete:
+            return jsonify({"ok": False, "error": f"No PCs match pattern='{pattern}' ids={pc_ids}", "pcs": results["before"]["pc_list"]})
+        
+        # Delete each PC + cascade
+        for pcid in to_delete:
+            pc = pcs[pcid]
+            pc_num = pc.get("pc_number", pcid)
+            linked_qn = pc.get("reytech_quote_number", "") or pc.get("linked_quote_number", "")
+            
+            del pcs[pcid]
+            
+            # SQLite cleanup
+            try:
+                with get_db() as conn:
+                    conn.execute("DELETE FROM price_checks WHERE id=?", (pcid,))
+            except Exception:
+                pass
+            
+            # Remove linked draft quote
+            quote_freed = None
+            if linked_qn:
+                try:
+                    all_quotes = get_all_quotes()
+                    before_len = len(all_quotes)
+                    all_quotes = [q for q in all_quotes
+                                  if not (q.get("quote_number") == linked_qn
+                                          and q.get("status") in ("draft", "pending"))]
+                    if len(all_quotes) < before_len:
+                        _save_all_quotes(all_quotes)
+                        quote_freed = linked_qn
+                        try:
+                            with get_db() as conn:
+                                conn.execute("DELETE FROM quotes WHERE quote_number=? AND status IN ('draft','pending')", (linked_qn,))
+                        except Exception:
+                            pass
+                except Exception as e:
+                    results["errors"].append(f"Quote cleanup for {linked_qn}: {e}")
+            
+            results["deleted"].append({
+                "pcid": pcid, "pc_number": pc_num,
+                "quote_freed": quote_freed,
+            })
+        
+        # Save updated PCs
+        _save_price_checks(pcs)
+        
+        # Recalculate counter
+        import re as _re
+        all_quotes = get_all_quotes()
+        max_seq = 0
+        for q in all_quotes:
+            qn = q.get("quote_number", "")
+            m = _re.search(r'R\d{2}Q(\d+)', qn)
+            if m and not q.get("is_test"):
+                max_seq = max(max_seq, int(m.group(1)))
+        for rpc in pcs.values():
+            qn = rpc.get("reytech_quote_number", "") or ""
+            m = _re.search(r'R\d{2}Q(\d+)', qn)
+            if m:
+                max_seq = max(max_seq, int(m.group(1)))
+        
+        old_counter = _load_counter()
+        if max_seq < old_counter.get("seq", 0):
+            _save_counter({"year": old_counter.get("year", 2026), "seq": max_seq})
+        
+        results["after"]["pc_count"] = len(pcs)
+        results["after"]["counter"] = _load_counter()
+        results["after"]["next_quote"] = f"R{str(results['after']['counter'].get('year',2026))[-2:]}Q{results['after']['counter'].get('seq',0)+1}"
+        results["after"]["pc_list"] = {k: {"num": v.get("pc_number",""), "qn": v.get("reytech_quote_number","")} for k,v in pcs.items()}
+        results["ok"] = True
+        
+        log.info("ADMIN RECALL: deleted %d PCs matching '%s', counter %s → %s",
+                 len(results["deleted"]), pattern or pc_ids,
+                 results["before"]["counter"], results["after"]["counter"])
+        
+    except Exception as e:
+        results["ok"] = False
+        results["errors"].append(str(e))
+    
+    return jsonify(results)
+
+
 @bp.route("/api/pricecheck/<pcid>/clear-quote", methods=["POST"])
 @auth_required
 def api_pricecheck_clear_quote(pcid):
