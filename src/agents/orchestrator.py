@@ -18,6 +18,13 @@ the entire pipeline auditable and replayable.
 import logging
 import os
 import json
+
+try:
+    from src.core.db import (get_all_customers, get_all_price_checks, upsert_price_check,
+                              get_outbox, upsert_outbox_email)
+    _HAS_DB_DAL = True
+except ImportError:
+    _HAS_DB_DAL = False
 from datetime import datetime
 from typing import TypedDict, Any, Optional
 
@@ -131,7 +138,7 @@ def _pc_load_node(state: PCPipelineState) -> PCPipelineState:
     state["started_at"] = datetime.now().isoformat()
     state["steps_completed"] = []
     pc_id = state.get("pc_id", "")
-    pcs = _load_json("price_checks.json", {})
+    pcs = get_all_price_checks(include_test=True) if _HAS_DB_DAL else _load_json("price_checks.json", {})
     pc = pcs.get(pc_id)
     if not pc:
         state["error"] = f"PC {pc_id} not found"
@@ -194,12 +201,16 @@ def _pc_pricing_node(state: PCPipelineState) -> PCPipelineState:
     state["pricing_applied"] = True
 
     # Persist updated items back to PC
-    pcs = _load_json("price_checks.json", {})
+    pcs = get_all_price_checks(include_test=True) if _HAS_DB_DAL else _load_json("price_checks.json", {})
     pc_id = state.get("pc_id", "")
     if pc_id in pcs:
         pcs[pc_id]["items"] = items
         pcs[pc_id]["status"] = "priced"
         _save_json("price_checks.json", pcs)
+        if _HAS_DB_DAL:
+            for _pid, _pc in pcs.items():
+                try: upsert_price_check(_pid, _pc)
+                except Exception: pass
 
     return _step(state, "pricing")
 
@@ -212,7 +223,7 @@ def _pc_generate_node(state: PCPipelineState) -> PCPipelineState:
         from src.forms.price_check import fill_ams704
         import re
 
-        pcs = _load_json("price_checks.json", {})
+        pcs = get_all_price_checks(include_test=True) if _HAS_DB_DAL else _load_json("price_checks.json", {})
         pc_id = state.get("pc_id", "")
         pc = pcs.get(pc_id, {})
         source_pdf = pc.get("source_pdf", "")
@@ -238,6 +249,10 @@ def _pc_generate_node(state: PCPipelineState) -> PCPipelineState:
             pcs[pc_id]["status"] = "completed"
             pcs[pc_id]["output_pdf"] = output_path
             _save_json("price_checks.json", pcs)
+        if _HAS_DB_DAL:
+            for _pid, _pc in pcs.items():
+                try: upsert_price_check(_pid, _pc)
+                except Exception: pass
         else:
             state["error"] = result.get("error", "PDF generation failed")
         return _step(state, "generate_704")

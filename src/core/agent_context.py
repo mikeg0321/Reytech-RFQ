@@ -448,7 +448,7 @@ def _get_cs_context() -> dict:
     result = {"pending_drafts": 0, "recent_intents": []}
     try:
         import os as _os, json as _json
-        outbox_path = _os.path.join(DATA_DIR, "email_outbox.json")
+        # email_outbox now in SQLite via get_outbox()
         with open(outbox_path) as f:
             outbox = _json.load(f)
         cs_drafts = [e for e in outbox if e.get("type") == "cs_response" or e.get("status") == "cs_draft"]
@@ -489,7 +489,7 @@ def _get_outbox_context() -> dict:
     result = {"total": 0, "drafts": 0, "cs_drafts": 0, "approved": 0}
     try:
         import os as _os, json as _json
-        outbox_path = _os.path.join(DATA_DIR, "email_outbox.json")
+        # email_outbox now in SQLite via get_outbox()
         with open(outbox_path) as f:
             outbox = _json.load(f)
         result["total"] = len(outbox)

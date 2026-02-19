@@ -90,8 +90,8 @@ def run_startup_checks(app=None) -> dict:
     try:
         from src.core.paths import DATA_DIR
         critical_files = {
-            "customers.json": os.path.join(DATA_DIR, "customers.json"),
-            "quotes_log.json": os.path.join(DATA_DIR, "quotes_log.json"),
+            "customers.json": os.path.join(DATA_DIR, "customers.json"),  # also in SQLite
+            "quotes_log.json": os.path.join(DATA_DIR, "quotes_log.json"),  # also in SQLite
             "quote_counter.json": os.path.join(DATA_DIR, "quote_counter.json"),
         }
         for name, path in critical_files.items():

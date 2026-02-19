@@ -47,7 +47,7 @@ except ImportError:
     DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(
         os.path.dirname(os.path.abspath(__file__)))), "data")
 
-BUYERS_FILE = os.path.join(DATA_DIR, "intel_buyers.json")
+BUYERS_FILE = os.path.join(DATA_DIR, "intel_buyers.json")  # Legacy - contacts now in SQLite
 AGENCIES_FILE = os.path.join(DATA_DIR, "intel_agencies.json")
 REVENUE_FILE = os.path.join(DATA_DIR, "intel_revenue.json")
 

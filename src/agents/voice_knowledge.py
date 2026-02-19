@@ -24,6 +24,13 @@ Two modes:
 import os
 import json
 import logging
+
+try:
+    from src.core.db import (get_all_customers, get_all_price_checks, upsert_price_check,
+                              get_outbox, upsert_outbox_email)
+    _HAS_DB_DAL = True
+except ImportError:
+    _HAS_DB_DAL = False
 from datetime import datetime, timedelta
 
 log = logging.getLogger("voice_knowledge")

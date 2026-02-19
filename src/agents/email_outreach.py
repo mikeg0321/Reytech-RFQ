@@ -24,6 +24,22 @@ from datetime import datetime
 from typing import Optional
 
 log = logging.getLogger("outreach")
+
+# ── JSON→SQLite compatibility (Phase 32c migration) ──────────────────────────
+try:
+    from src.core.db import (
+        get_all_customers, get_all_vendors, get_all_price_checks, get_price_check,
+        upsert_price_check, get_outbox, upsert_outbox_email, update_outbox_status,
+        get_email_templates, upsert_email_template, get_vendor_registrations,
+        upsert_vendor_registration, get_market_intelligence, upsert_market_intelligence,
+        get_intel_agencies, upsert_intel_agency, get_growth_outreach, save_growth_campaign,
+        get_qa_reports, save_qa_report, get_latest_qa_report,
+        upsert_customer, upsert_vendor,
+    )
+    _HAS_DB_DAL = True
+except ImportError:
+    _HAS_DB_DAL = False
+# ─────────────────────────────────────────────────────────────────────────────
 # ── Shared DB Context (Anthropic Skills Guide: Pattern 5 — Domain Intelligence) ──
 # Gives this agent access to live CRM, quotes, revenue, price history from SQLite.
 # Eliminates file loading duplication and ensures consistent ground truth.

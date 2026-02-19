@@ -15,6 +15,22 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 
 log = logging.getLogger("manager")
+# ── JSON→SQLite compatibility (Phase 32c migration) ──────────────────────────
+try:
+    from src.core.db import (
+        get_all_customers, get_all_vendors, get_all_price_checks, get_price_check,
+        upsert_price_check, get_outbox, upsert_outbox_email, update_outbox_status,
+        get_email_templates, upsert_email_template, get_vendor_registrations,
+        upsert_vendor_registration, get_market_intelligence, upsert_market_intelligence,
+        get_intel_agencies, upsert_intel_agency, get_growth_outreach, save_growth_campaign,
+        get_qa_reports, save_qa_report, get_latest_qa_report,
+        upsert_customer, upsert_vendor,
+    )
+    _HAS_DB_DAL = True
+except ImportError:
+    _HAS_DB_DAL = False
+# ─────────────────────────────────────────────────────────────────────────────
+
 # ── Shared DB Context (Anthropic Skills Guide: Pattern 5 — Domain Intelligence) ──
 # Gives this agent access to live CRM, quotes, revenue, price history from SQLite.
 # Eliminates file loading duplication and ensures consistent ground truth.
@@ -76,7 +92,7 @@ def _get_pending_approvals() -> list:
     approvals = []
 
     # 1. Draft emails in outbox
-    outbox = _load_json("email_outbox.json", [])
+    outbox = get_outbox() if _HAS_DB_DAL else _load_json("email_outbox.json", [])
     drafts = [e for e in outbox if e.get("status") == "draft"]
     for d in drafts[:5]:
         approvals.append({
@@ -181,7 +197,7 @@ def _get_activity_feed(limit: int = 12) -> list:
         })
 
     # PC status changes
-    pcs = _load_json("price_checks.json", {})
+    pcs = get_all_price_checks(include_test=True) if _HAS_DB_DAL else _load_json("price_checks.json", {})
     for pcid, pc in (pcs.items() if isinstance(pcs, dict) else []):
         for h in (pc.get("status_history", []) or [])[-2:]:
             events.append({
@@ -335,11 +351,11 @@ def _get_revenue_status() -> dict:
 # ─── Pipeline Summary ─────────────────────────────────────────────────────
 
 def _get_pipeline_summary() -> dict:
-    pcs = _load_json("price_checks.json", {})
+    pcs = get_all_price_checks(include_test=True) if _HAS_DB_DAL else _load_json("price_checks.json", {})
     quotes = _load_json("quotes_log.json", [])
     live_quotes = [q for q in quotes if not q.get("is_test")]
     leads = _load_json("leads.json", [])
-    outbox = _load_json("email_outbox.json", [])
+    outbox = get_outbox() if _HAS_DB_DAL else _load_json("email_outbox.json", [])
     orders = _load_json("orders.json", {})
     live_orders = {k: v for k, v in (orders.items() if isinstance(orders, dict) else [])}
 

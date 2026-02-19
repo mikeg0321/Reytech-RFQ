@@ -1,4 +1,18 @@
-# Intelligence + SCPRS + Vendor + Scheduler
+# routes_intel.py
+
+# ── JSON→SQLite compatibility (Phase 32c migration) ──────────────────────────
+try:
+    from src.core.db import (
+        get_all_customers, get_all_price_checks, get_price_check, upsert_price_check,
+        get_outbox, upsert_outbox_email, update_outbox_status, get_email_templates,
+        get_market_intelligence, upsert_market_intelligence, get_intel_agencies,
+        get_all_vendors, get_vendor_registrations, get_qa_reports, save_qa_report,
+        get_growth_outreach, save_growth_campaign,
+    )
+    _HAS_DB_DAL = True
+except ImportError:
+    _HAS_DB_DAL = False
+# ─────────────────────────────────────────────────────────────────────────────
 # 170 routes, 7596 lines
 # Loaded by dashboard.py via load_module()
 

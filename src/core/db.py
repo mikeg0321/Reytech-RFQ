@@ -760,3 +760,530 @@ def startup() -> dict:
     log.info("DB ready [volume=%s]: %s", is_vol,
              {k: v for k, v in stats.items() if k not in ("db_path", "db_size_kb")})
     return {"ok": True, "db_path": DB_PATH, "stats": stats, "is_volume": is_vol}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FULL DATA ACCESS LAYER  (Phase 32c — JSON elimination)
+# Every function here is a drop-in replacement for a JSON file read/write.
+# All consumers should import from here instead of touching .json files.
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _row_to_dict(row) -> dict:
+    """Convert sqlite3.Row or tuple+description to dict."""
+    if row is None:
+        return {}
+    if hasattr(row, 'keys'):
+        return dict(row)
+    return dict(row)
+
+
+def _jl(val, default=None):
+    """JSON-load a DB column value safely."""
+    if val is None:
+        return default if default is not None else []
+    if isinstance(val, (dict, list)):
+        return val
+    try:
+        return json.loads(val)
+    except Exception:
+        return default if default is not None else []
+
+
+def _jd(val) -> str:
+    """JSON-dump a value for DB storage."""
+    if val is None:
+        return '[]'
+    if isinstance(val, str):
+        return val
+    return json.dumps(val, default=str)
+
+
+# ── CUSTOMERS ─────────────────────────────────────────────────────────────────
+
+def get_all_customers(agency: str = None) -> list:
+    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    if agency:
+        rows = conn.execute(
+            "SELECT * FROM customers WHERE agency=? ORDER BY display_name", (agency,)
+        ).fetchall()
+    else:
+        rows = conn.execute("SELECT * FROM customers ORDER BY agency, display_name").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def upsert_customer(c: dict) -> bool:
+    """Insert or update a customer record."""
+    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        conn.execute("""
+            INSERT INTO customers
+              (qb_name, display_name, company, parent, agency, address, city, state, zip,
+               bill_to, bill_to_city, bill_to_state, bill_to_zip, phone, email,
+               open_balance, abbreviation, source, updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(qb_name) DO UPDATE SET
+              display_name=excluded.display_name, company=excluded.company,
+              parent=excluded.parent, agency=excluded.agency, address=excluded.address,
+              city=excluded.city, state=excluded.state, zip=excluded.zip,
+              phone=excluded.phone, email=excluded.email,
+              open_balance=excluded.open_balance, updated_at=excluded.updated_at
+        """, (c.get('qb_name',''), c.get('display_name',''), c.get('company',''),
+              c.get('parent',''), c.get('agency','DEFAULT'),
+              c.get('address',''), c.get('city',''), c.get('state',''), c.get('zip',''),
+              c.get('bill_to',''), c.get('bill_to_city',''), c.get('bill_to_state',''),
+              c.get('bill_to_zip',''), c.get('phone',''), c.get('email',''),
+              float(c.get('open_balance',0) or 0), c.get('abbreviation',''),
+              c.get('source','quickbooks'), now))
+        conn.commit()
+        return True
+    except Exception as e:
+        log.error("upsert_customer: %s", e)
+        return False
+    finally:
+        conn.close()
+
+
+def get_customer(qb_name: str) -> dict:
+    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False); conn.row_factory = sqlite3.Row
+    row = conn.execute("SELECT * FROM customers WHERE qb_name=?", (qb_name,)).fetchone()
+    conn.close()
+    return dict(row) if row else {}
+
+
+def get_customers_by_agency() -> dict:
+    """Return {agency: [customers]} grouped dict."""
+    rows = get_all_customers()
+    out = {}
+    for r in rows:
+        ag = r.get('agency','DEFAULT')
+        out.setdefault(ag, []).append(r)
+    return out
+
+
+# ── VENDORS ───────────────────────────────────────────────────────────────────
+
+def get_all_vendors() -> list:
+    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False); conn.row_factory = sqlite3.Row
+    rows = conn.execute("SELECT * FROM vendors ORDER BY name").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def upsert_vendor(v: dict) -> bool:
+    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        conn.execute("""
+            INSERT INTO vendors (name, company, address, city, state, zip, phone, email,
+                                  open_balance, source, updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(name) DO UPDATE SET
+              company=excluded.company, phone=excluded.phone, email=excluded.email,
+              open_balance=excluded.open_balance, updated_at=excluded.updated_at
+        """, (v.get('name',''), v.get('company',''), v.get('address',''),
+              v.get('city',''), v.get('state',''), v.get('zip',''),
+              v.get('phone',''), v.get('email',''),
+              float(v.get('open_balance',0) or 0), v.get('source','quickbooks'), now))
+        conn.commit()
+        return True
+    except Exception as e:
+        log.error("upsert_vendor: %s", e)
+        return False
+    finally:
+        conn.close()
+
+
+# ── PRICE CHECKS ──────────────────────────────────────────────────────────────
+
+def get_all_price_checks(include_test: bool = False) -> dict:
+    """Return {pc_id: pc_dict} matching the old price_checks.json format."""
+    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False); conn.row_factory = sqlite3.Row
+    q = "SELECT * FROM price_checks ORDER BY created_at DESC"
+    rows = conn.execute(q).fetchall()
+    conn.close()
+    result = {}
+    for r in rows:
+        d = dict(r)
+        if not include_test and d.get('is_test'):
+            continue
+        pid = d.get('id') or d.get('pc_number') or str(d.get('rowid',''))
+        d['items'] = _jl(d.get('items'), [])
+        d['status_history'] = _jl(d.get('status_history'), [])
+        d['ship_to'] = _jl(d.get('ship_to'), {})
+        result[pid] = d
+    return result
+
+
+def upsert_price_check(pc_id: str, pc: dict) -> bool:
+    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        conn.execute("""
+            INSERT INTO price_checks
+              (id, created_at, pc_number, requestor, agency, institution, due_date,
+               ship_to, items, source_file, quote_number, total_items, status,
+               status_history, parsed, reytech_quote_number, is_test, updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(id) DO UPDATE SET
+              status=excluded.status, status_history=excluded.status_history,
+              items=excluded.items, quote_number=excluded.quote_number,
+              reytech_quote_number=excluded.reytech_quote_number,
+              parsed=excluded.parsed, updated_at=excluded.updated_at
+        """, (pc_id, pc.get('created_at', now), pc.get('pc_number',''),
+              pc.get('requestor',''), pc.get('agency',''), pc.get('institution',''),
+              pc.get('due_date',''), _jd(pc.get('ship_to',{})),
+              _jd(pc.get('items',[])), pc.get('source_pdf', pc.get('source_file','')),
+              pc.get('reytech_quote_number', pc.get('quote_number','')),
+              len(pc.get('items',[])), pc.get('status','parsed'),
+              _jd(pc.get('status_history',[])), 1 if pc.get('parsed') else 0,
+              pc.get('reytech_quote_number',''), 1 if pc.get('is_test') else 0, now))
+        conn.commit()
+        return True
+    except Exception as e:
+        log.error("upsert_price_check %s: %s", pc_id, e)
+        return False
+    finally:
+        conn.close()
+
+
+def get_price_check(pc_id: str) -> dict:
+    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False); conn.row_factory = sqlite3.Row
+    row = conn.execute("SELECT * FROM price_checks WHERE id=?", (pc_id,)).fetchone()
+    conn.close()
+    if not row:
+        return {}
+    d = dict(row)
+    d['items'] = _jl(d.get('items'), [])
+    d['status_history'] = _jl(d.get('status_history'), [])
+    d['ship_to'] = _jl(d.get('ship_to'), {})
+    return d
+
+
+# ── EMAIL OUTBOX ──────────────────────────────────────────────────────────────
+
+def get_outbox(status: str = None, limit: int = 200) -> list:
+    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False); conn.row_factory = sqlite3.Row
+    if status:
+        rows = conn.execute(
+            "SELECT * FROM email_outbox WHERE status=? ORDER BY created_at DESC LIMIT ?",
+            (status, limit)
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM email_outbox ORDER BY created_at DESC LIMIT ?", (limit,)
+        ).fetchall()
+    conn.close()
+    result = []
+    for r in rows:
+        d = dict(r)
+        d['entities_resolved'] = _jl(d.pop('entities', None), {})
+        d['to'] = d.pop('to_address', '')
+        meta = _jl(d.pop('metadata', None), {})
+        d.update({k: v for k, v in meta.items() if k not in d})
+        result.append(d)
+    return result
+
+
+def upsert_outbox_email(em: dict) -> str:
+    """Insert or update an outbox email. Returns the id."""
+    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    now = datetime.now(timezone.utc).isoformat()
+    eid = em.get('id') or f"em-{__import__('uuid').uuid4().hex[:12]}"
+    try:
+        conn.execute("""
+            INSERT INTO email_outbox
+              (id, created_at, status, type, to_address, subject, body, intent,
+               entities, approved_at, sent_at, metadata)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(id) DO UPDATE SET
+              status=excluded.status, body=excluded.body,
+              approved_at=excluded.approved_at, sent_at=excluded.sent_at
+        """, (eid, em.get('created_at', now), em.get('status','draft'),
+              em.get('type',''), em.get('to', em.get('to_address','')),
+              em.get('subject',''), em.get('body',''), em.get('intent',''),
+              _jd(em.get('entities_resolved', em.get('entities',{}))),
+              em.get('approved_at',''), em.get('sent_at',''),
+              _jd({k: v for k, v in em.items()
+                   if k not in ('id','created_at','status','type','to','to_address',
+                                'subject','body','intent','entities_resolved',
+                                'entities','approved_at','sent_at')})))
+        conn.commit()
+    except Exception as e:
+        log.error("upsert_outbox_email: %s", e)
+    finally:
+        conn.close()
+    return eid
+
+
+def update_outbox_status(email_id: str, status: str, **kwargs):
+    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    now = datetime.now(timezone.utc).isoformat()
+    updates = {'status': status}
+    if status == 'approved':
+        updates['approved_at'] = now
+    elif status == 'sent':
+        updates['sent_at'] = kwargs.get('sent_at', now)
+    sets = ', '.join(f"{k}=?" for k in updates)
+    conn.execute(f"UPDATE email_outbox SET {sets} WHERE id=?",
+                 list(updates.values()) + [email_id])
+    conn.commit()
+    conn.close()
+
+
+# ── QA REPORTS ────────────────────────────────────────────────────────────────
+
+def save_qa_report(report: dict) -> bool:
+    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    now = report.get('timestamp', datetime.now(timezone.utc).isoformat())
+    try:
+        conn.execute("""
+            INSERT INTO qa_reports (timestamp, health_score, grade, summary, critical_count, checks)
+            VALUES (?,?,?,?,?,?)
+        """, (now, report.get('health_score',0), report.get('grade','?'),
+              _jd(report.get('summary',{})), report.get('critical_count',0),
+              _jd(report.get('checks',[]))))
+        conn.commit()
+        return True
+    except Exception as e:
+        log.error("save_qa_report: %s", e)
+        return False
+    finally:
+        conn.close()
+
+
+def get_qa_reports(limit: int = 50) -> list:
+    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False); conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        "SELECT * FROM qa_reports ORDER BY timestamp DESC LIMIT ?", (limit,)
+    ).fetchall()
+    conn.close()
+    result = []
+    for r in rows:
+        d = dict(r)
+        d['summary'] = _jl(d.get('summary'), {})
+        d['checks'] = _jl(d.get('checks'), [])
+        result.append(d)
+    return result
+
+
+def get_latest_qa_report() -> dict:
+    reports = get_qa_reports(limit=1)
+    return reports[0] if reports else {}
+
+
+# ── EMAIL TEMPLATES ───────────────────────────────────────────────────────────
+
+def get_email_templates() -> dict:
+    """Return {id: template_dict} matching old email_templates.json['templates']."""
+    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False); conn.row_factory = sqlite3.Row
+    rows = conn.execute("SELECT * FROM email_templates").fetchall()
+    conn.close()
+    return {r['id']: dict(r) for r in rows}
+
+
+def upsert_email_template(tid: str, tmpl: dict) -> bool:
+    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        conn.execute("""
+            INSERT INTO email_templates (id, name, subject, body, category, updated_at)
+            VALUES (?,?,?,?,?,?)
+            ON CONFLICT(id) DO UPDATE SET
+              name=excluded.name, subject=excluded.subject,
+              body=excluded.body, updated_at=excluded.updated_at
+        """, (tid, tmpl.get('name', tid), tmpl.get('subject',''),
+              tmpl.get('body', tmpl.get('template','')), tmpl.get('category',''), now))
+        conn.commit()
+        return True
+    except Exception as e:
+        log.error("upsert_email_template: %s", e)
+        return False
+    finally:
+        conn.close()
+
+
+# ── VENDOR REGISTRATION ───────────────────────────────────────────────────────
+
+def get_vendor_registrations() -> dict:
+    """Return {vendor_key: data} matching old vendor_registration.json."""
+    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False); conn.row_factory = sqlite3.Row
+    rows = conn.execute("SELECT * FROM vendor_registration").fetchall()
+    conn.close()
+    result = {}
+    for r in rows:
+        d = dict(r)
+        meta = _jl(d.pop('metadata', None), {})
+        d.update({k: v for k, v in meta.items() if k not in d})
+        result[d['vendor_key']] = d
+    return result
+
+
+def upsert_vendor_registration(key: str, data: dict) -> bool:
+    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        conn.execute("""
+            INSERT INTO vendor_registration
+              (vendor_key, vendor_name, status, account_number, rep_name,
+               rep_email, rep_phone, notes, metadata, updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(vendor_key) DO UPDATE SET
+              status=excluded.status, account_number=excluded.account_number,
+              rep_name=excluded.rep_name, rep_email=excluded.rep_email,
+              notes=excluded.notes, updated_at=excluded.updated_at
+        """, (key, data.get('name', key), data.get('status','pending'),
+              data.get('account_number',''), data.get('rep_name',''),
+              data.get('rep_email',''), data.get('rep_phone',''),
+              data.get('notes',''), _jd(data), now))
+        conn.commit()
+        return True
+    except Exception as e:
+        log.error("upsert_vendor_registration: %s", e)
+        return False
+    finally:
+        conn.close()
+
+
+# ── MARKET INTELLIGENCE ───────────────────────────────────────────────────────
+
+def get_market_intelligence() -> dict:
+    """Return the full market intelligence dict (all sections)."""
+    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False); conn.row_factory = sqlite3.Row
+    rows = conn.execute("SELECT * FROM market_intelligence").fetchall()
+    conn.close()
+    return {r['section']: _jl(r['data']) for r in rows}
+
+
+def upsert_market_intelligence(section: str, data) -> bool:
+    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        conn.execute("""
+            INSERT INTO market_intelligence (section, data, updated_at)
+            VALUES (?,?,?)
+            ON CONFLICT(section) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at
+        """, (section, _jd(data), now))
+        conn.commit()
+        return True
+    except Exception as e:
+        log.error("upsert_market_intelligence: %s", e)
+        return False
+    finally:
+        conn.close()
+
+
+# ── INTEL AGENCIES ────────────────────────────────────────────────────────────
+
+def get_intel_agencies() -> list:
+    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False); conn.row_factory = sqlite3.Row
+    rows = conn.execute("SELECT * FROM intel_agencies ORDER BY total_spend DESC").fetchall()
+    conn.close()
+    result = []
+    for r in rows:
+        d = dict(r)
+        d['buyers'] = _jl(d.get('buyers'), [])
+        d['categories'] = _jl(d.get('categories'), [])
+        result.append(d)
+    return result
+
+
+def upsert_intel_agency(ag: dict) -> bool:
+    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        conn.execute("""
+            INSERT INTO intel_agencies
+              (dept_code, dept_name, total_spend, buyers, categories,
+               is_customer, opportunity_score, updated_at)
+            VALUES (?,?,?,?,?,?,?,?)
+            ON CONFLICT(dept_code) DO UPDATE SET
+              total_spend=excluded.total_spend, buyers=excluded.buyers,
+              categories=excluded.categories, opportunity_score=excluded.opportunity_score,
+              updated_at=excluded.updated_at
+        """, (ag.get('dept_code',''), ag.get('dept_name', ag.get('agency','')),
+              float(ag.get('total_spend',0) or 0),
+              _jd(ag.get('buyers',[])), _jd(ag.get('categories',[])),
+              1 if ag.get('is_customer') else 0,
+              float(ag.get('opportunity_score',0) or 0), now))
+        conn.commit()
+        return True
+    except Exception as e:
+        log.error("upsert_intel_agency: %s", e)
+        return False
+    finally:
+        conn.close()
+
+
+# ── GROWTH OUTREACH ───────────────────────────────────────────────────────────
+
+def get_growth_outreach() -> dict:
+    """Return {'campaigns': [...]} matching old growth_outreach.json format."""
+    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False); conn.row_factory = sqlite3.Row
+    rows = conn.execute("SELECT * FROM growth_outreach ORDER BY created_at DESC").fetchall()
+    conn.close()
+    campaigns = []
+    for r in rows:
+        d = dict(r)
+        d['context_summary'] = _jl(d.pop('context', None), {})
+        meta = _jl(d.pop('metadata', None), {})
+        d.update({k: v for k, v in meta.items() if k not in d})
+        campaigns.append(d)
+    return {'campaigns': campaigns, 'total_sent': sum(c.get('sent_count',0) for c in campaigns)}
+
+
+def save_growth_campaign(camp: dict) -> bool:
+    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    now = datetime.now(timezone.utc).isoformat()
+    cid = camp.get('id') or f"camp-{__import__('uuid').uuid4().hex[:8]}"
+    try:
+        conn.execute("""
+            INSERT INTO growth_outreach
+              (id, created_at, type, dry_run, template, context, status, sent_count, metadata)
+            VALUES (?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(id) DO UPDATE SET
+              status=excluded.status, sent_count=excluded.sent_count,
+              metadata=excluded.metadata
+        """, (cid, camp.get('created_at', now), camp.get('type',''),
+              1 if camp.get('dry_run') else 0, camp.get('template',''),
+              _jd(camp.get('context_summary', camp.get('context',{}))),
+              camp.get('status','draft'), len(camp.get('outreach',[])),
+              _jd({k: v for k, v in camp.items()
+                   if k not in ('id','created_at','type','dry_run','template',
+                                'context_summary','context','status','outreach')})))
+        conn.commit()
+        return True
+    except Exception as e:
+        log.error("save_growth_campaign: %s", e)
+        return False
+    finally:
+        conn.close()
+
+
+# ── JSON COMPATIBILITY SHIMS ──────────────────────────────────────────────────
+# These functions write-through to SQLite AND keep JSON in sync during transition.
+# Once all consumers are migrated, the JSON writes can be removed.
+
+def sync_customers_to_json():
+    """Write customers table back to customers.json (for QB sync backwards compat)."""
+    customers = get_all_customers()
+    path = os.path.join(DATA_DIR, 'customers.json')
+    try:
+        with open(path, 'w') as f:
+            json.dump(customers, f, indent=2, default=str)
+    except Exception as e:
+        log.warning("sync_customers_to_json: %s", e)
+
+
+def sync_outbox_to_json():
+    """Write email_outbox table back to email_outbox.json."""
+    emails = get_outbox(limit=500)
+    path = os.path.join(DATA_DIR, 'email_outbox.json')
+    try:
+        with open(path, 'w') as f:
+            json.dump(emails, f, indent=2, default=str)
+    except Exception as e:
+        log.warning("sync_outbox_to_json: %s", e)
+

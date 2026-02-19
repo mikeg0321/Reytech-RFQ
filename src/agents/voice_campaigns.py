@@ -19,6 +19,13 @@ Campaign types:
 import os
 import json
 import logging
+
+try:
+    from src.core.db import (get_all_customers, get_all_price_checks, upsert_price_check,
+                              get_outbox, upsert_outbox_email)
+    _HAS_DB_DAL = True
+except ImportError:
+    _HAS_DB_DAL = False
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -372,8 +379,7 @@ def _build_target_list(target_type: str, filters: dict) -> list:
 
     if target_type in ("cdcr", "calvet", "all_customers"):
         try:
-            with open(os.path.join(DATA_DIR, "customers.json")) as f:
-                customers = json.load(f)
+            customers = get_all_customers() if _HAS_DB_DAL else json.load(open(os.path.join(DATA_DIR, "customers.json")))
         except (FileNotFoundError, json.JSONDecodeError):
             customers = []
 
@@ -429,8 +435,7 @@ def _build_target_list(target_type: str, filters: dict) -> list:
 
         # Match quotes to customer phones
         try:
-            with open(os.path.join(DATA_DIR, "customers.json")) as f:
-                customers = json.load(f)
+            customers = get_all_customers() if _HAS_DB_DAL else json.load(open(os.path.join(DATA_DIR, "customers.json")))
         except (FileNotFoundError, json.JSONDecodeError):
             customers = []
 
