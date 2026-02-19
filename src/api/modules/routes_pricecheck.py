@@ -1153,13 +1153,19 @@ def api_won_quotes_seed_status():
 @bp.route("/api/pricecheck/<pcid>/delete", methods=["POST"])
 @auth_required
 def api_pricecheck_delete(pcid):
-    """Delete a price check by ID."""
+    """Delete a price check by ID. Also removes linked quote draft and recalculates counter."""
     pcs = _load_price_checks()
     if pcid not in pcs:
         return jsonify({"ok": False, "error": "PC not found"})
-    pc_num = pcs[pcid].get("pc_number", pcid)
+
+    pc = pcs[pcid]
+    pc_num = pc.get("pc_number", pcid)
+    linked_qn = pc.get("reytech_quote_number", "") or pc.get("linked_quote_number", "")
+
+    # Remove the PC
     del pcs[pcid]
     _save_price_checks(pcs)
+
     # Also remove from SQLite
     try:
         from src.core.db import get_db
@@ -1167,8 +1173,66 @@ def api_pricecheck_delete(pcid):
             conn.execute("DELETE FROM price_checks WHERE id=?", (pcid,))
     except Exception as e:
         log.debug("SQLite PC delete: %s", e)
-    log.info("DELETED PC %s (%s)", pcid, pc_num)
-    return jsonify({"ok": True, "deleted": pcid})
+
+    # Remove the linked draft quote from quotes_log.json so the number is freed
+    quote_removed = False
+    if linked_qn:
+        try:
+            from src.forms.quote_generator import get_all_quotes, _save_all_quotes
+            all_quotes = get_all_quotes()
+            before = len(all_quotes)
+            all_quotes = [q for q in all_quotes
+                          if not (q.get("quote_number") == linked_qn
+                                  and q.get("status") in ("draft", "pending"))]
+            if len(all_quotes) < before:
+                _save_all_quotes(all_quotes)
+                quote_removed = True
+                log.info("Removed draft quote %s (linked to deleted PC %s)", linked_qn, pcid)
+
+                # Also remove from SQLite quotes table
+                try:
+                    with get_db() as conn:
+                        conn.execute("DELETE FROM quotes WHERE quote_number=? AND status IN ('draft','pending')", (linked_qn,))
+                except Exception:
+                    pass
+        except Exception as e:
+            log.debug("Quote cleanup: %s", e)
+
+    # Recalculate counter — set to highest remaining quote number
+    counter_reset = None
+    if quote_removed:
+        try:
+            import re as _re
+            from src.forms.quote_generator import get_all_quotes, _load_counter, _save_counter
+            all_quotes = get_all_quotes()
+            max_seq = 0
+            for q in all_quotes:
+                qn = q.get("quote_number", "")
+                m = _re.search(r'R\d{2}Q(\d+)', qn)
+                if m and not q.get("is_test"):
+                    max_seq = max(max_seq, int(m.group(1)))
+            # Also check remaining PCs
+            remaining_pcs = _load_price_checks()
+            for rpc in remaining_pcs.values():
+                qn = rpc.get("reytech_quote_number", "") or ""
+                m = _re.search(r'R\d{2}Q(\d+)', qn)
+                if m:
+                    max_seq = max(max_seq, int(m.group(1)))
+            old_counter = _load_counter()
+            if max_seq < old_counter.get("seq", 0):
+                _save_counter({"year": old_counter.get("year", 2026), "seq": max_seq})
+                counter_reset = f"Q{old_counter['seq']} → Q{max_seq} (next will be Q{max_seq + 1})"
+                log.info("Quote counter reset: %s", counter_reset)
+        except Exception as e:
+            log.debug("Counter recalc: %s", e)
+
+    log.info("DELETED PC %s (%s)%s", pcid, pc_num,
+             f" + quote {linked_qn}" if quote_removed else "")
+    return jsonify({
+        "ok": True, "deleted": pcid,
+        "quote_removed": linked_qn if quote_removed else None,
+        "counter_reset": counter_reset,
+    })
 
 
 @bp.route("/api/admin/cleanup", methods=["POST"])

@@ -526,7 +526,7 @@ document.querySelectorAll('details').forEach(d=>{
 
     // ── Delete Price Check ─────────────────────────────────────────────────
     function deletePC(id, btn) {
-      if (!confirm('Delete this Price Check? This cannot be undone.')) return;
+      if (!confirm('Delete this Price Check? This will also remove its linked draft quote and reclaim the quote number.')) return;
       btn.textContent = '⏳';
       fetch('/api/pricecheck/' + id + '/delete', {method: 'POST', credentials: 'same-origin'})
         .then(r => r.json())
@@ -540,6 +540,11 @@ document.querySelectorAll('details').forEach(d=>{
               const remaining = document.querySelectorAll('[id^=pc-row-]').length;
               hdr.textContent = 'Price Checks (' + remaining + ')';
             }
+            // Show what was cleaned up
+            let msg = 'Deleted.';
+            if (d.quote_removed) msg += ' Quote ' + d.quote_removed + ' removed.';
+            if (d.counter_reset) msg += ' Counter reset: ' + d.counter_reset;
+            if (d.quote_removed || d.counter_reset) alert(msg);
           } else {
             btn.textContent = '✕';
             alert('Delete failed: ' + (d.error || 'unknown'));
