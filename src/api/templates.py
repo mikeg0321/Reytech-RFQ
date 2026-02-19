@@ -347,7 +347,7 @@ fetch('/api/intel/revenue',{credentials:'same-origin'}).then(r=>r.json()).then(d
 </div>
 
 <!-- ═══ QA Status Banner (hidden when all clear) ═══ -->
-<div id="qa-banner" style="display:none;margin-bottom:10px;padding:10px 14px;border-radius:8px;border:1px solid rgba(248,113,113,.4);background:rgba(248,113,113,.06);display:flex;align-items:center;gap:10px;font-size:13px">
+<div id="qa-banner" style="display:none;margin-bottom:10px;padding:10px 14px;border-radius:8px;border:1px solid rgba(248,113,113,.4);background:rgba(248,113,113,.06);align-items:center;gap:10px;font-size:13px">
  <span style="font-size:18px">⚠️</span>
  <div style="flex:1">
   <strong id="qa-banner-title" style="color:#f87171">Workflow tests failing</strong>
@@ -711,6 +711,8 @@ loadBrief();
       document.getElementById('qa-banner-title').style.color='#fbbf24';
       document.getElementById('qa-banner-title').textContent=warned+' warning'+(warned>1?'s':'')+' — score '+score+'/100';
       var anchor=banner.querySelector('a');if(anchor){anchor.style.color='#fbbf24';anchor.style.borderColor='rgba(251,191,36,.3)';anchor.style.background='rgba(251,191,36,.1)';}
+    } else {
+      banner.style.display='none';
     }
   }).catch(function(){});
 })();
@@ -2054,7 +2056,7 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
      modal.style.alignItems='flex-start';
     }}
 
-    function closePreview()    function closePreview() {{
+    function closePreview() {{
      document.getElementById('previewModal').style.display='none';
     }}
     // Close on Esc or click outside
@@ -2260,7 +2262,7 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
     function fetchWithTimeout(url, ms=8000) {{
       const ctrl = new AbortController();
       const timer = setTimeout(()=>ctrl.abort(), ms);
-      return fetch(url, {{signal:ctrl.signal}}).finally(()=>clearTimeout(timer));
+      return fetch(url, {{signal:ctrl.signal, credentials:'same-origin'}}).finally(()=>clearTimeout(timer));
     }}
     function retryFetch(url, attempts=2, ms=8000) {{
       return fetchWithTimeout(url, ms).catch(err => {{
