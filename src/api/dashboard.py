@@ -1914,9 +1914,9 @@ def render(content, **kw):
 {{% with messages = get_flashed_messages(with_categories=true) %}}
  {{% for cat, msg in messages %}}<div class="alert al-{{'s' if cat=='success' else 'e' if cat=='error' else 'i'}}" role="alert" aria-live="assertive">{{% if cat=='success' %}}✅{{% elif cat=='error' %}}❌{{% else %}}ℹ️{{% endif %}} {{{{msg}}}}</div>{{% endfor %}}
 {{% endwith %}}
-""" + content + BRIEF_HTML + """
+""" + content + (BRIEF_HTML if content is PAGE_HOME else "") + """
 </main>
-<script>""" + SHARED_HEADER_JS + BRIEF_JS + """</script>
+<script>""" + SHARED_HEADER_JS + (BRIEF_JS if content is PAGE_HOME else "") + """</script>
 </div></body></html>"""
 
     # Add volume warning if on Railway without persistent storage
