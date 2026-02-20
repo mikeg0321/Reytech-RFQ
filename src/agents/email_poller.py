@@ -829,6 +829,7 @@ class EmailPoller:
                         rfq_info = {
                             "id": rfq_id,
                             "email_uid": uid,
+                            "message_id": msg.get("Message-ID", ""),
                             "subject": subject,
                             "sender": sender,
                             "sender_email": self._extract_email(sender),
@@ -1066,6 +1067,17 @@ SB/DVBE Cert #2002605"""
         msg["From"] = f"{self.from_name} <{self.email_addr}>"
         msg["To"] = draft["to"]
         msg["Subject"] = draft["subject"]
+        
+        # CC / BCC
+        cc_list = [x.strip() for x in draft.get("cc", "").split(",") if x.strip()]
+        bcc_list = [x.strip() for x in draft.get("bcc", "").split(",") if x.strip()]
+        if cc_list:
+            msg["Cc"] = ", ".join(cc_list)
+        
+        # Threading — reply to original email thread
+        if draft.get("in_reply_to"):
+            msg["In-Reply-To"] = draft["in_reply_to"]
+            msg["References"] = draft.get("references", draft["in_reply_to"])
 
         # Build alternative part (plain + HTML) if HTML body provided
         body_html = draft.get("body_html", "")
@@ -1087,9 +1099,12 @@ SB/DVBE Cert #2002605"""
                 part.add_header("Content-Disposition", f"attachment; filename={os.path.basename(filepath)}")
                 msg.attach(part)
         
+        # All recipients for SMTP envelope
+        all_recipients = [draft["to"]] + cc_list + bcc_list
+        
         with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
             server.starttls()
             server.login(self.email_addr, self.password)
-            server.send_message(msg)
+            server.send_message(msg, to_addrs=all_recipients)
         
         return True

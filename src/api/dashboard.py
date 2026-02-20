@@ -1037,6 +1037,7 @@ def process_rfq_email(rfq_email):
             "email_uid": rfq_email.get("email_uid"),
             "email_subject": rfq_email["subject"],
             "email_sender": rfq_email["sender_email"],
+            "email_message_id": rfq_email.get("message_id", ""),
             "requestor_name": rfq_email["sender_email"],
             "requestor_email": rfq_email["sender_email"],
             "due_date": "TBD",
@@ -1053,6 +1054,7 @@ def process_rfq_email(rfq_email):
         rfq_data["email_uid"] = rfq_email.get("email_uid")
         rfq_data["email_subject"] = rfq_email["subject"]
         rfq_data["email_sender"] = rfq_email["sender_email"]
+        rfq_data["email_message_id"] = rfq_email.get("message_id", "")
         rfq_data["line_items"] = bulk_lookup(rfq_data.get("line_items", []))
     
     rfqs[rfq_data["id"]] = rfq_data

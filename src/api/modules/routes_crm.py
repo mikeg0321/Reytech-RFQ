@@ -751,7 +751,7 @@ def api_build_version():
         counter = {}
         next_qn = "?"
     return jsonify({
-        "build": "v20260220-1050-label-spacing", "ok": True,
+        "build": "v20260220-1100-ui-overhaul", "ok": True,
         "storage": vol, "data_dir": str(DATA_DIR),
         "quote_counter": counter, "next_quote": next_qn,
     })

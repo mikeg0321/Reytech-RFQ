@@ -689,7 +689,7 @@ PAGE_DETAIL = """
  <form method="POST" action="/rfq/{{rid}}/update" id="pf">
  <table class="it">
   <thead><tr>
-   <th>#</th><th>Qty</th><th style="min-width:220px">Description</th><th>Part #</th>
+   <th>#</th><th style="width:55px">Qty</th><th style="width:55px">UOM</th><th style="min-width:220px">Description</th><th>Part #</th>
    <th style="min-width:220px">Item Link</th>
    <th>Your Cost</th><th>SCPRS</th><th>Amazon</th><th>Bid Price</th><th>Subtotal</th><th>Margin</th><th>Profit</th>
   </tr></thead>
@@ -697,13 +697,16 @@ PAGE_DETAIL = """
   {% for i in r.line_items %}
   <tr>
    <td style="font-size:13px">{{i.line_number}}</td>
-   <td style="white-space:nowrap;font-size:13px;font-weight:600">{{i.qty}} {{i.uom}}</td>
+   <td><input type="number" name="qty_{{loop.index0}}" value="{{i.qty}}" min="1" class="num-in" style="width:55px;font-size:14px;font-weight:700;padding:6px 4px;text-align:center" oninput="recalc()"></td>
+   <td><input type="text" name="uom_{{loop.index0}}" value="{{(i.uom or 'EA')|upper}}" class="text-in" style="width:55px;font-size:13px;font-weight:600;padding:6px 4px;text-align:center;text-transform:uppercase" maxlength="6"></td>
    <td style="max-width:260px"><input type="text" name="desc_{{loop.index0}}" value="{{i.description.split('\n')[0]}}" class="text-in" style="width:100%;font-size:13px;padding:6px 8px" title="{{i.description}}"></td>
-   <td class="mono" style="font-size:12px">{{i.item_number}}</td>
+   <td><input type="text" name="part_{{loop.index0}}" value="{{i.item_number}}" class="text-in mono" style="width:90px;font-size:12px;padding:6px 8px"></td>
    <td style="min-width:220px">
     <div style="display:flex;align-items:center;gap:4px">
      <input type="text" name="link_{{loop.index0}}" value="{{i.get('item_link','')}}" placeholder="Paste supplier URL..." class="text-in" style="width:100%;font-size:13px;padding:6px 8px;color:#58a6ff" oninput="handleRfqLinkInput({{loop.index0}}, this)">
-     {% if i.get('item_supplier') %}<span style="font-size:11px;color:#8b949e;white-space:nowrap">{{i.item_supplier}}</span>{% endif %}
+    </div>
+    <div id="rfq_link_meta_{{loop.index0}}" style="font-size:11px;margin-top:2px;min-height:14px">
+     {% if i.get('item_supplier') %}<span style="color:#8b949e">{{i.item_supplier}}</span>{% endif %}
     </div>
    </td>
    <td><input type="number" step="0.01" name="cost_{{loop.index0}}" value="{{i.supplier_cost or ''}}" placeholder="0.00" class="num-in" style="width:90px;font-size:15px;font-weight:700;padding:6px 8px" oninput="recalc()"></td>
@@ -736,6 +739,12 @@ PAGE_DETAIL = """
   <button type="submit" formaction="/rfq/{{rid}}/generate-package" data-testid="rfq-generate-package" class="btn btn-g" style="font-size:14px;padding:10px 24px">📦 Generate RFQ Package</button>
  </div>
  </form>
+</div>
+
+<!-- RFQ Files (from DB - survives redeploys) with PDF Preview -->
+<div class="card" id="rfq-files-card" style="display:none">
+ <div class="card-t" style="font-size:15px">📎 All RFQ Files</div>
+ <div id="rfq-files-list"></div>
 </div>
 
 <!-- Template Status — shows what forms are available for generation -->
@@ -826,9 +835,24 @@ PAGE_DETAIL = """
  <form method="POST" action="/rfq/{{rid}}/send-email" id="emailForm">
   <div style="display:grid;grid-template-columns:60px 1fr;gap:8px;margin-bottom:10px;align-items:center">
    <label style="font-size:13px;color:var(--tx2);font-weight:600">To:</label>
-   <input type="email" name="to" id="emailTo" value="{{r.requestor_email or (r.draft_email.to if r.draft_email else '')}}" class="text-in" style="font-size:14px;padding:8px 12px">
+   <div style="display:flex;gap:6px;align-items:center">
+    <input type="email" name="to" id="emailTo" value="{{r.requestor_email or (r.draft_email.to if r.draft_email else '')}}" class="text-in" style="font-size:14px;padding:8px 12px;flex:1">
+    <button type="button" class="btn btn-sm" onclick="document.getElementById('ccBccFields').style.display=document.getElementById('ccBccFields').style.display==='none'?'contents':'none'" style="font-size:11px;padding:4px 8px;background:var(--sf2);color:var(--tx2);border:1px solid var(--bd)">CC/BCC ▾</button>
+   </div>
+   <div id="ccBccFields" style="display:none;grid-column:1/-1">
+    <div style="display:grid;grid-template-columns:60px 1fr;gap:8px;align-items:center">
+     <label style="font-size:13px;color:var(--tx2);font-weight:600">CC:</label>
+     <input type="text" name="cc" id="emailCc" value="{{r.draft_email.cc if r.draft_email and r.draft_email.cc else ''}}" placeholder="cc@example.com, cc2@example.com" class="text-in" style="font-size:13px;padding:6px 12px">
+     <label style="font-size:13px;color:var(--tx2);font-weight:600">BCC:</label>
+     <input type="text" name="bcc" id="emailBcc" value="{{r.draft_email.bcc if r.draft_email and r.draft_email.bcc else ''}}" placeholder="bcc@example.com" class="text-in" style="font-size:13px;padding:6px 12px">
+    </div>
+   </div>
    <label style="font-size:13px;color:var(--tx2);font-weight:600">Subject:</label>
-   <input type="text" name="subject" id="emailSubject" value="{{r.draft_email.subject if r.draft_email else ('Reytech Inc. - Bid Response - Solicitation #' + r.get('solicitation_number',''))}}" class="text-in" style="font-size:14px;padding:8px 12px">
+   {% set orig_subj = r.get('email_subject', '') %}
+   {% set reply_subj = ('Re: ' + orig_subj) if orig_subj and not orig_subj.startswith('Re:') else orig_subj %}
+   {% set draft_subj = r.draft_email.subject if r.draft_email else '' %}
+   {% set default_subj = draft_subj or reply_subj or ('Reytech Inc. - Bid Response - Solicitation #' + r.get('solicitation_number','')) %}
+   <input type="text" name="subject" id="emailSubject" value="{{default_subj}}" class="text-in" style="font-size:14px;padding:8px 12px">
   </div>
   <textarea name="body" id="emailBody" class="text-in" style="width:100%;min-height:260px;font-size:14px;line-height:1.6;padding:12px 14px;resize:vertical;font-family:'Segoe UI',system-ui,sans-serif">{{r.draft_email.body if r.draft_email else ''}}</textarea>
   
@@ -844,9 +868,11 @@ PAGE_DETAIL = """
    <div id="sigPreview" style="padding:8px 10px;background:var(--bg);border-radius:6px;border:1px solid var(--bd);font-size:12px;max-height:160px;overflow-y:auto"></div>
    <div id="sigEditor" style="display:none;margin-top:6px">
     <textarea id="sigHtml" class="text-in" style="width:100%;min-height:120px;font-size:12px;font-family:'JetBrains Mono',monospace;padding:8px;resize:vertical"></textarea>
-    <div style="display:flex;gap:6px;margin-top:6px">
+    <div style="display:flex;gap:6px;margin-top:6px;align-items:center;flex-wrap:wrap">
      <button type="button" class="btn btn-sm btn-go" onclick="saveSignature()" style="font-size:12px">💾 Save Signature</button>
      <button type="button" class="btn btn-sm" onclick="cancelSigEdit()" style="font-size:12px">Cancel</button>
+     <button type="button" class="btn btn-sm" onclick="insertSigImage()" style="font-size:11px;background:var(--sf2);color:var(--tx2);border:1px solid var(--bd)">🖼️ Insert Image URL</button>
+     <span style="font-size:10px;color:var(--tx2)">Supports HTML: &lt;img&gt;, &lt;a&gt;, styles</span>
     </div>
    </div>
   </div>
@@ -869,12 +895,6 @@ PAGE_DETAIL = """
  </form>
 </div>
 {% endif %}
-
-<!-- RFQ Files (from DB - survives redeploys) with PDF Preview -->
-<div class="card" id="rfq-files-card" style="display:none">
- <div class="card-t" style="font-size:15px">📎 All RFQ Files</div>
- <div id="rfq-files-list"></div>
-</div>
 
 <!-- Status Management -->
 {% if r.status not in ('new',) %}
@@ -919,7 +939,7 @@ const n=items.length;
 function recalc(){
  let tb=0,tc=0;
  for(let i=0;i<n;i++){
-  const q=items[i].qty||0;
+  const q=parseFloat(document.querySelector(`[name=qty_${i}]`).value)||0;
   const c=parseFloat(document.querySelector(`[name=cost_${i}]`).value)||0;
   const p=parseFloat(document.querySelector(`[name=price_${i}]`).value)||0;
   const s=p*q; tb+=s; tc+=c*q;
@@ -928,7 +948,6 @@ function recalc(){
   const el=document.getElementById(`mg_${i}`);
   if(m!==null){el.textContent=m.toFixed(1)+'%';el.style.color=m>=20?'#3fb950':m>=10?'#d29922':'#f85149'}
   else{el.textContent='—';el.style.color='#8b949e'}
-  // Per-item profit
   const pf=document.getElementById(`pf_${i}`);
   if(pf){
    const ip=(p-c)*q;
@@ -1319,9 +1338,19 @@ function saveSignature(){
    _sigHtml=html;
    document.getElementById('sigPreview').innerHTML=html||'<span style="color:var(--tx2)">No signature</span>';
    document.getElementById('sigEditor').style.display='none';
-   typeof showMsg==='function'&&showMsg('✅ Signature saved','ok');
+   typeof showMsg==='function'&&showMsg('\u2705 Signature saved','ok');
   }
  });
+}
+function insertSigImage(){
+ var url=prompt('Enter image URL (logo, banner, etc):');
+ if(!url) return;
+ var w=prompt('Width in pixels (e.g. 180, or leave blank for auto):','180');
+ var tag='<img src="'+url+'" alt="Logo"'+(w?' width="'+w+'"':'')+' style="display:block;margin:4px 0">';
+ var ta=document.getElementById('sigHtml');
+ var pos=ta.selectionStart||0;
+ ta.value=ta.value.substring(0,pos)+tag+ta.value.substring(pos);
+ ta.focus();
 }
 
 // ── Email History ──
@@ -1868,13 +1897,15 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
 
     function handleRfqLinkInput(idx, inp) {{
       const url = inp.value.trim();
+      const metaEl = document.getElementById('rfq_link_meta_'+idx);
       if (!url || !_isUrl(url)) return;
+      if (metaEl) metaEl.innerHTML='<span style="color:#d29922">\u23F3 Looking up…</span>';
       clearTimeout(_linkDebounce['rfq_'+idx]);
       _linkDebounce['rfq_'+idx] = setTimeout(() => _fireLinkLookup(idx, url, 'rfq'), 800);
     }}
 
     function _fireLinkLookup(idx, url, mode) {{
-      const metaEl = mode==='pc' ? document.getElementById('link_meta_'+idx) : null;
+      const metaEl = mode==='pc' ? document.getElementById('link_meta_'+idx) : document.getElementById('rfq_link_meta_'+idx);
       if (metaEl) metaEl.innerHTML='<span style="color:#d29922">\u23F3 Looking up…</span>';
       fetch('/api/item-link/lookup',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{url}})}})
       .then(r=>r.json()).then(d=>{{
@@ -1888,28 +1919,35 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
 
     function _applyLinkData(idx, d, mode) {{
       const filled = [];
-      if (mode==='pc') {{
-        const descEl = document.querySelector('[name=desc_'+idx+']');
-        if (descEl && !descEl.value.trim() && d.description) {{ descEl.value=d.description; filled.push('description'); }}
-        const costEl = document.querySelector('[name=cost_'+idx+']');
-        if (costEl && d.price) {{ costEl.value=d.price.toFixed(2); filled.push('cost $'+d.price.toFixed(2)); recalcRow(idx); }}
-        const metaEl = document.getElementById('link_meta_'+idx);
-        if (metaEl) {{
-          const supStr = d.supplier ? '<b style="color:#c9d1d9">'+d.supplier+'</b>' : '';
-          const shipStr = d.shipping===0 ? ' \u00B7 <span style="color:#3fb950">Free shipping</span>'
-                        : d.shipping>0 ? ' \u00B7 Ship $'+d.shipping.toFixed(2) : '';
-          const partStr = d.part_number ? ' \u00B7 Part: <span style="font-family:monospace;color:#58a6ff">'+d.part_number+'</span>' : '';
-          const fillStr = filled.length ? ' <span style="color:#3fb950">\u2713 '+filled.join(', ')+'</span>' : '';
-          metaEl.innerHTML = supStr+shipStr+partStr+fillStr;
-        }}
-      }} else {{
-        const descEl = document.querySelector('[name=desc_'+idx+']');
-        if (descEl && !descEl.value.trim() && d.description) descEl.value=d.description;
-        const costEl = document.querySelector('[name=cost_'+idx+']');
-        if (costEl && d.price) {{ costEl.value=d.price.toFixed(2); typeof recalc==='function' && recalc(); }}
+      const metaEl = mode==='pc' ? document.getElementById('link_meta_'+idx) : document.getElementById('rfq_link_meta_'+idx);
+      
+      // Fill description if empty
+      const descEl = document.querySelector('[name=desc_'+idx+']');
+      if (descEl && !descEl.value.trim() && d.description) {{ descEl.value=d.description; filled.push('description'); }}
+      
+      // Fill cost
+      const costEl = document.querySelector('[name=cost_'+idx+']');
+      if (costEl && d.price) {{ costEl.value=d.price.toFixed(2); filled.push('cost $'+d.price.toFixed(2)); }}
+      
+      // Fill part number
+      const partEl = document.querySelector('[name=part_'+idx+']');
+      if (partEl && !partEl.value.trim() && d.part_number) {{ partEl.value=d.part_number; filled.push('part#'); }}
+      
+      // Recalc
+      if (mode==='pc' && typeof recalcPC==='function') recalcPC();
+      else if (typeof recalc==='function') recalc();
+      
+      // Show meta info
+      if (metaEl) {{
+        const supStr = d.supplier ? '<b style="color:#c9d1d9">'+d.supplier+'</b>' : '';
+        const shipStr = d.shipping===0 ? ' \u00B7 <span style="color:#3fb950">Free shipping</span>'
+                      : d.shipping>0 ? ' \u00B7 Ship $'+d.shipping.toFixed(2) : '';
+        const partStr = d.part_number ? ' \u00B7 Part: <span style="font-family:monospace;color:#58a6ff">'+d.part_number+'</span>' : '';
+        const fillStr = filled.length ? ' <span style="color:#3fb950">\u2713 '+filled.join(', ')+'</span>' : '';
+        metaEl.innerHTML = supStr+shipStr+partStr+fillStr;
       }}
       if (filled.length > 0 && typeof showMsg==='function') {{
-        showMsg('🔗 Auto-filled from '+d.supplier+': '+filled.join(', '),'ok');
+        showMsg('\uD83D\uDD17 Auto-filled from '+(d.supplier||'URL')+': '+filled.join(', '),'ok');
       }}
     }}
 

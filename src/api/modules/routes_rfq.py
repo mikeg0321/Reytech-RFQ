@@ -324,10 +324,22 @@ def update(rid):
                 except Exception as e:
 
                     log.debug("Suppressed: %s", e)
+        # Save qty and uom from separate inputs
+        qty_val = request.form.get(f"qty_{i}")
+        if qty_val:
+            try: item["qty"] = int(float(qty_val))
+            except Exception: pass
+        uom_val = request.form.get(f"uom_{i}")
+        if uom_val is not None:
+            item["uom"] = uom_val.strip().upper()
         # Save edited description
         desc_val = request.form.get(f"desc_{i}")
         if desc_val is not None:
             item["description"] = desc_val
+        # Save part number
+        part_val = request.form.get(f"part_{i}")
+        if part_val is not None:
+            item["item_number"] = part_val.strip()
         # Save item link and auto-detect supplier
         link_val = request.form.get(f"link_{i}", "").strip()
         item["item_link"] = link_val
@@ -1061,6 +1073,8 @@ def send_email_enhanced(rid):
     to_addr = request.form.get("to", "").strip()
     subject = request.form.get("subject", "").strip()
     body = request.form.get("body", "").strip()
+    cc = request.form.get("cc", "").strip()
+    bcc = request.form.get("bcc", "").strip()
     attach_ids = [x.strip() for x in request.form.get("attach_files", "").split(",") if x.strip()]
     
     if not to_addr or not subject:
@@ -1100,8 +1114,16 @@ def send_email_enhanced(rid):
             "to": to_addr,
             "subject": subject,
             "body": body,
+            "cc": cc,
+            "bcc": bcc,
             "attachments": attachment_paths,
         }
+        
+        # Threading: if RFQ came from email, reply to that thread
+        msg_id = r.get("email_message_id", "")
+        if msg_id:
+            draft["in_reply_to"] = msg_id
+            draft["references"] = msg_id
         
         include_sig = request.form.get("include_signature") == "1"
         email_cfg = CONFIG.get("email", {})
@@ -1126,7 +1148,7 @@ def send_email_enhanced(rid):
         # Transition status
         _transition_status(r, "sent", actor="user", notes=f"Email sent to {to_addr}")
         r["sent_at"] = datetime.now().isoformat()
-        r["draft_email"] = {"to": to_addr, "subject": subject, "body": body}
+        r["draft_email"] = {"to": to_addr, "subject": subject, "body": body, "cc": cc, "bcc": bcc}
         save_rfqs(rfqs)
         
         # ── Log to email_log table ──
