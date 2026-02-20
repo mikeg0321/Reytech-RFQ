@@ -2474,6 +2474,14 @@ def api_admin_reset_and_poll():
         except Exception:
             pass
         steps["quotes_cleaned"] = q_removed
+        # Invalidate quotes cache
+        try:
+            from src.api.dashboard import _invalidate_cache
+            _invalidate_cache(q_path)
+            if os.path.exists(legacy_q):
+                _invalidate_cache(legacy_q)
+        except Exception:
+            pass
         
         # Clean ALL PCs — full reset means clean slate
         pcs = _load_price_checks()
@@ -2481,10 +2489,28 @@ def api_admin_reset_and_poll():
         _save_price_checks({})  # Empty — all PCs will be recreated from email
         steps["pcs_after"] = 0
         
-        # Clear RFQs — ensure file exists as empty dict
+        # Also clear any cached PC data
+        try:
+            pc_path = os.path.join(DATA_DIR, 'price_checks.json')
+            from src.api.dashboard import _invalidate_cache
+            _invalidate_cache(pc_path)
+        except Exception:
+            pass
+        
+        # Clear RFQs — ensure file exists as empty dict AND invalidate cache
         rfq_path = os.path.join(DATA_DIR, 'rfq_queue.json')
         with open(rfq_path, "w") as f:
             json.dump({}, f)
+        # CRITICAL: invalidate the in-memory cache or load_rfqs() returns stale data
+        try:
+            from src.api.dashboard import _invalidate_cache, _json_cache, _json_cache_lock
+            _invalidate_cache(rfq_path)
+            # Also nuke the entire cache to be safe
+            with _json_cache_lock:
+                _json_cache.clear()
+            log.info("RESET+POLL: Cache invalidated")
+        except Exception as ce:
+            log.warning("RESET+POLL: Cache invalidation failed: %s", ce)
         steps["rfqs_cleared"] = True
         
         # Set counter
