@@ -967,7 +967,7 @@ function loadBrief(force){
   if(badge){badge.textContent='retry';badge.style.background='rgba(251,191,36,.15)';badge.style.color='#fbbf24';badge.style.cursor='pointer';badge.onclick=function(){loadBrief(true);};}
   var hdr=document.getElementById('brief-headline');
   if(hdr){hdr.textContent='Click Refresh to load brief';hdr.style.color='#8b949e';}
- }).finally(function(){if(btn){btn.disabled=false;btn.textContent='\\u1F504 Refresh';}});
+ }).finally(function(){if(btn){btn.disabled=false;btn.textContent='🔄 Refresh';}});
 }
 function renderBrief(data){
  var sec=document.getElementById('brief-section');if(!sec)return;sec.style.display='block';

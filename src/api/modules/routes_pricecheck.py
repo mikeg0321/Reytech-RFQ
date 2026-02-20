@@ -1633,6 +1633,56 @@ def api_admin_purge_rfqs():
     })
 
 
+@bp.route("/api/admin/clean-activity", methods=["POST"])
+@auth_required
+def api_admin_clean_activity():
+    """Remove entries from crm_activity.json.
+    
+    POST body options:
+      {"event_types": ["quote_lost"]}       — remove by event type
+      {"pattern": "R26Q19"}                 — remove entries matching pattern in detail
+      {"before": "2026-02-18"}              — remove entries before date
+      {"all": true}                         — nuclear: clear all activity
+    Returns before/after counts.
+    """
+    data = request.get_json(silent=True) or {}
+    crm_path = os.path.join(DATA_DIR, "crm_activity.json")
+    try:
+        with open(crm_path) as f:
+            activities = json.load(f)
+    except Exception:
+        activities = []
+    
+    before_count = len(activities)
+    
+    if data.get("all"):
+        activities = []
+    elif data.get("event_types"):
+        types = set(data["event_types"])
+        activities = [a for a in activities if a.get("event_type") not in types]
+    elif data.get("pattern"):
+        pat = data["pattern"].lower()
+        activities = [a for a in activities
+                      if pat not in (a.get("detail","") + " " + a.get("event_type","")).lower()]
+    elif data.get("before"):
+        cutoff = data["before"]
+        activities = [a for a in activities if a.get("timestamp","") >= cutoff]
+    else:
+        return jsonify({"ok": False, "error": "Provide event_types, pattern, before, or all:true"})
+    
+    with open(crm_path, "w") as f:
+        json.dump(activities, f, indent=2, default=str)
+    
+    log.info("ADMIN CLEAN-ACTIVITY: %d → %d entries", before_count, len(activities))
+    
+    return jsonify({
+        "ok": True,
+        "before": before_count,
+        "after": len(activities),
+        "removed": before_count - len(activities),
+    })
+
+
 @bp.route("/api/pricecheck/<pcid>/clear-quote", methods=["POST"])
 @auth_required
 def api_pricecheck_clear_quote(pcid):
