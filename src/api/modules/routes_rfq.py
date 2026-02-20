@@ -6,11 +6,9 @@
 @auth_required
 def home():
     all_pcs = _load_price_checks()
-    # Auto PCs (from RFQ auto-price) are shown inside the RFQ row, not the PC queue
-    user_pcs = {k: v for k, v in all_pcs.items()
-                if v.get('source') not in ('email_auto_draft', 'email_auto')
-                and not v.get('is_auto_draft')
-                and not v.get('rfq_id')}
+    # Use canonical filter — auto-price PCs belong to RFQ rows, not PC queue
+    from src.api.dashboard import _is_user_facing_pc
+    user_pcs = {k: v for k, v in all_pcs.items() if _is_user_facing_pc(v)}
     # Sort by quote number (R26Q17 → 17) descending so newest quotes appear first
     def _pc_sort_key(item):
         pc = item[1]

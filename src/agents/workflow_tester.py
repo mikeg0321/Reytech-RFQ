@@ -78,9 +78,14 @@ def test_queue_isolation() -> list:
     pcs = _load_json("price_checks.json", {})
     rfqs = _load_json("rfqs.json", {})
 
-    # Auto-draft PCs (created by _auto_draft_pipeline) should have source='email_auto_draft'
-    auto_draft_pcs = {k: v for k, v in pcs.items() if v.get("source") == "email_auto_draft"}
-    user_pcs = {k: v for k, v in pcs.items() if v.get("source") != "email_auto_draft"}
+    # Canonical filter: auto-price PCs belong to RFQ rows, not the PC queue
+    try:
+        from src.api.dashboard import _is_user_facing_pc
+        _pc_filter = _is_user_facing_pc
+    except ImportError:
+        _pc_filter = lambda pc: pc.get("source") not in ("email_auto_draft", "email_auto") and not pc.get("rfq_id") and not pc.get("is_auto_draft")
+    auto_draft_pcs = {k: v for k, v in pcs.items() if not _pc_filter(v)}
+    user_pcs = {k: v for k, v in pcs.items() if _pc_filter(v)}
 
     if auto_draft_pcs:
         # Check each auto_draft PC is linked to an actual RFQ
@@ -110,10 +115,7 @@ def test_queue_isolation() -> list:
 
     # Check for solicitation number collision (same sol number in both queues)
     rfq_sols = {v.get("solicitation_number") for v in rfqs.values()}
-    pc_nums = {v.get("pc_number", "").replace("AD-", "") for v in user_pcs.values()
-               if not v.get("is_auto_draft")
-               and v.get("source") not in ("email_auto_draft", "email_auto")
-               and not v.get("rfq_id")}
+    pc_nums = {v.get("pc_number", "").replace("AD-", "") for v in user_pcs.values()}
     collision = rfq_sols & pc_nums
     if collision:
         results.append(_result(
@@ -186,7 +188,7 @@ def test_manager_brief_accuracy() -> list:
         ]) > 0
         pcs = _load_json("price_checks.json", {})
         pending_pcs = [p for p in pcs.values()
-                       if p.get("status") in ("parsed", "new") and p.get("source") != "email_auto_draft"]
+                       if p.get("status") in ("parsed", "new") and _pc_filter(p)]
 
         if is_all_clear and (rfq_actual > 0 or pending_pcs):
             results.append(_result(
@@ -409,10 +411,15 @@ def test_manager_brief_includes_pcs() -> list:
     results = []
     try:
         pcs = _load_json("price_checks.json", {})
+        try:
+            from src.api.dashboard import _is_user_facing_pc
+            _pc_filter = _is_user_facing_pc
+        except ImportError:
+            _pc_filter = lambda pc: pc.get("source") not in ("email_auto_draft", "email_auto") and not pc.get("rfq_id") and not pc.get("is_auto_draft")
         pending_pcs = [
             v for v in pcs.values()
             if v.get("status") in ("parsed", "new")
-            and v.get("source") != "email_auto_draft"
+            and _pc_filter(v)
             and not v.get("is_test")
         ]
         if not pending_pcs:

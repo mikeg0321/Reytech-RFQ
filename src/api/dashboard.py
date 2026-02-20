@@ -666,6 +666,19 @@ def _save_price_checks(pcs):
         json.dump(pcs, f, indent=2, default=str)
 
 
+def _is_user_facing_pc(pc: dict) -> bool:
+    """Canonical filter: is this PC for the standalone PC queue?
+    Auto-price PCs (created from RFQ imports) belong to the RFQ row, not the PC queue.
+    Used by: home page, manager brief, workflow tester, pipeline summary."""
+    if pc.get("source") in ("email_auto_draft", "email_auto"):
+        return False
+    if pc.get("is_auto_draft"):
+        return False
+    if pc.get("rfq_id"):
+        return False
+    return True
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # Email Polling Thread
 # ═══════════════════════════════════════════════════════════════════════

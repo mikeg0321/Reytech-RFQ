@@ -211,10 +211,16 @@ def _get_pending_approvals() -> list:
         if not pcs_src:
             pcs_src = _load_json("price_checks.json", {})
         if isinstance(pcs_src, dict):
+            # Use canonical filter — only show standalone PCs, not auto-price PCs from RFQs
+            try:
+                from src.api.dashboard import _is_user_facing_pc
+                _pc_filter = _is_user_facing_pc
+            except ImportError:
+                _pc_filter = lambda pc: pc.get("source") not in ("email_auto_draft", "email_auto") and not pc.get("rfq_id")
             pending_pcs = [
                 (k, v) for k, v in pcs_src.items()
                 if v.get("status") in ("parsed", "new")
-                and v.get("source") != "email_auto_draft"
+                and _pc_filter(v)
                 and not v.get("is_test")
             ]
             # Sort by due date
@@ -444,7 +450,17 @@ def _get_revenue_status() -> dict:
 # ─── Pipeline Summary ─────────────────────────────────────────────────────
 
 def _get_pipeline_summary() -> dict:
-    pcs = get_all_price_checks(include_test=True) if _HAS_DB_DAL else _load_json("price_checks.json", {})
+    pcs = get_all_price_checks(include_test=True) if _HAS_DB_DAL else {}
+    # Fall back to JSON if DB is empty (PCs are stored in JSON, not DB)
+    if not pcs:
+        pcs = _load_json("price_checks.json", {})
+    # Only count user-facing PCs (not auto-price PCs from RFQ imports)
+    try:
+        from src.api.dashboard import _is_user_facing_pc
+        _pc_filter = _is_user_facing_pc
+    except ImportError:
+        _pc_filter = lambda pc: pc.get("source") not in ("email_auto_draft", "email_auto") and not pc.get("rfq_id")
+    user_pcs = {k: v for k, v in (pcs.items() if isinstance(pcs, dict) else {}.items()) if _pc_filter(v)}
     quotes = _load_json("quotes_log.json", [])
     live_quotes = [q for q in quotes if not q.get("is_test")]
     leads = _load_json("leads.json", [])
@@ -453,7 +469,7 @@ def _get_pipeline_summary() -> dict:
     live_orders = {k: v for k, v in (orders.items() if isinstance(orders, dict) else [])}
 
     pc_by_status = defaultdict(int)
-    for pc in (pcs.values() if isinstance(pcs, dict) else []):
+    for pc in (user_pcs.values() if isinstance(user_pcs, dict) else []):
         pc_by_status[pc.get("status", "unknown")] += 1
 
     q_by_status = defaultdict(int)
@@ -483,7 +499,7 @@ def _get_pipeline_summary() -> dict:
 
     return {
         "price_checks": {
-            "total": len(pcs) if isinstance(pcs, dict) else 0,
+            "total": len(user_pcs) if isinstance(user_pcs, dict) else 0,
             **dict(pc_by_status),
         },
         "rfqs": {
