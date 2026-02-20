@@ -184,6 +184,9 @@ def _cached_json_load(path: str, fallback=None):
     """Load JSON with mtime-aware caching. Avoids re-reading unchanged files.
     Falls back to `fallback` on missing/corrupt file.
     Thread-safe via _json_cache_lock.
+    
+    Multi-worker safe: max cache age of 2s ensures stale data from other
+    workers' writes gets picked up even if mtime resolution is coarse.
     """
     if fallback is None:
         fallback = {}
@@ -191,14 +194,16 @@ def _cached_json_load(path: str, fallback=None):
         return fallback
     try:
         mtime = os.path.getmtime(path)
+        now = time.time()
         with _json_cache_lock:
             cached = _json_cache.get(path)
-            if cached and cached["mtime"] == mtime:
+            # Use cache only if mtime matches AND cache is <2s old
+            if cached and cached["mtime"] == mtime and (now - cached["ts"]) < 2.0:
                 return cached["data"]
         with open(path) as f:
             data = json.load(f)
         with _json_cache_lock:
-            _json_cache[path] = {"data": data, "mtime": mtime, "ts": time.time()}
+            _json_cache[path] = {"data": data, "mtime": mtime, "ts": now}
             # Evict oldest entries if cache grows large
             if len(_json_cache) > 50:
                 oldest = sorted(_json_cache.items(), key=lambda x: x[1]["ts"])[:10]
@@ -354,7 +359,13 @@ def load_rfqs():
     return _cached_json_load(rfq_db_path(), fallback={})
 def save_rfqs(rfqs):
     p = rfq_db_path()
-    json.dump(rfqs, open(p, "w"), indent=2, default=str)
+    # Atomic write: temp file → fsync → rename (prevents partial reads by other workers)
+    tmp = p + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(rfqs, f, indent=2, default=str)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, p)  # atomic on POSIX
     _invalidate_cache(p)
 
 # ═══════════════════════════════════════════════════════════════════════

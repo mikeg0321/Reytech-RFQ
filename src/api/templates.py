@@ -123,12 +123,14 @@ a{color:var(--ac);text-decoration:none}
 .meta-i{background:var(--sf2);border-radius:8px;padding:10px 12px}
 .meta-l{font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px}
 .meta-v{font-size:13px;font-weight:500;margin-top:3px}
-table.it{width:100%;border-collapse:collapse;font-size:12px}
-table.it th{text-align:left;padding:8px;font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--bd)}
-table.it td{padding:8px;border-bottom:1px solid var(--bd);vertical-align:middle}
-table.it input[type=number]{background:var(--sf2);border:1px solid var(--bd);color:var(--tx);padding:5px 8px;border-radius:6px;width:88px;font-family:'JetBrains Mono',monospace;font-size:12px}
+table.it{width:100%;border-collapse:collapse;font-size:13px}
+table.it th{text-align:left;padding:10px 8px;font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--bd)}
+table.it td{padding:10px 8px;border-bottom:1px solid var(--bd);vertical-align:middle}
+table.it input[type=number]{background:var(--sf2);border:1px solid var(--bd);color:var(--tx);padding:6px 8px;border-radius:6px;width:90px;font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:700}
 table.it input:focus{outline:none;border-color:var(--ac)}
-.mono{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--tx2)}
+table.it .text-in{background:var(--sf2);border:1px solid var(--bd);color:var(--tx);padding:6px 8px;border-radius:6px;font-size:13px;font-family:'Segoe UI',system-ui,sans-serif}
+table.it .text-in:focus{border-color:var(--ac);outline:none}
+.mono{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--tx2)}
 .btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:.15s;text-decoration:none}
 .btn-p{background:var(--ac);color:#fff}.btn-p:hover{background:var(--ac2)}
 .btn-s{background:var(--sf2);color:var(--tx);border:1px solid var(--bd)}.btn-s:hover{border-color:var(--ac)}
@@ -140,8 +142,8 @@ table.it input:focus{outline:none;border-color:var(--ac)}
 .al-s{background:rgba(52,211,153,.1);border:1px solid rgba(52,211,153,.3);color:var(--gn)}
 .al-e{background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.3);color:var(--rd)}
 .al-i{background:rgba(79,140,255,.1);border:1px solid rgba(79,140,255,.3);color:var(--ac)}
-.markup-bar{display:flex;gap:6px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
-.markup-bar span{font-size:11px;color:var(--tx2);margin-right:4px}
+.markup-bar{display:flex;gap:6px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+.markup-bar span{font-size:12px;color:var(--tx2);margin-right:4px}
 .g-good{color:var(--gn)}.g-low{color:var(--yl)}.g-bad{color:var(--rd)}
 .empty{text-align:center;padding:48px 20px;color:var(--tx2)}
 .draft-box{background:var(--sf2);border:1px solid var(--bd);border-radius:8px;padding:16px;margin-top:16px;font-size:13px;white-space:pre-wrap;line-height:1.6}
@@ -687,35 +689,35 @@ PAGE_DETAIL = """
  <form method="POST" action="/rfq/{{rid}}/update" id="pf">
  <table class="it">
   <thead><tr>
-   <th>#</th><th>Qty</th><th style="min-width:180px">Description</th><th>Part #</th>
-   <th style="min-width:200px">Item Link</th>
+   <th>#</th><th>Qty</th><th style="min-width:220px">Description</th><th>Part #</th>
+   <th style="min-width:220px">Item Link</th>
    <th>Your Cost</th><th>SCPRS</th><th>Amazon</th><th>Bid Price</th><th>Subtotal</th><th>Margin</th><th>Profit</th>
   </tr></thead>
   <tbody>
   {% for i in r.line_items %}
   <tr>
-   <td>{{i.line_number}}</td>
-   <td style="white-space:nowrap">{{i.qty}} {{i.uom}}</td>
-   <td style="max-width:220px;font-size:12px"><input type="text" name="desc_{{loop.index0}}" value="{{i.description.split('\n')[0]}}" class="text-in" style="width:100%;font-size:12px" title="{{i.description}}"></td>
-   <td class="mono" style="font-size:11px">{{i.item_number}}</td>
-   <td style="min-width:200px">
+   <td style="font-size:13px">{{i.line_number}}</td>
+   <td style="white-space:nowrap;font-size:13px;font-weight:600">{{i.qty}} {{i.uom}}</td>
+   <td style="max-width:260px"><input type="text" name="desc_{{loop.index0}}" value="{{i.description.split('\n')[0]}}" class="text-in" style="width:100%;font-size:13px;padding:6px 8px" title="{{i.description}}"></td>
+   <td class="mono" style="font-size:12px">{{i.item_number}}</td>
+   <td style="min-width:220px">
     <div style="display:flex;align-items:center;gap:4px">
-     <input type="text" name="link_{{loop.index0}}" value="{{i.get('item_link','')}}" placeholder="Paste supplier URL..." class="text-in" style="width:100%;font-size:12px;color:#58a6ff" oninput="handleRfqLinkInput({{loop.index0}}, this)">
-     {% if i.get('item_supplier') %}<span style="font-size:10px;color:#8b949e;white-space:nowrap">{{i.item_supplier}}</span>{% endif %}
+     <input type="text" name="link_{{loop.index0}}" value="{{i.get('item_link','')}}" placeholder="Paste supplier URL..." class="text-in" style="width:100%;font-size:13px;padding:6px 8px;color:#58a6ff" oninput="handleRfqLinkInput({{loop.index0}}, this)">
+     {% if i.get('item_supplier') %}<span style="font-size:11px;color:#8b949e;white-space:nowrap">{{i.item_supplier}}</span>{% endif %}
     </div>
    </td>
-   <td><input type="number" step="0.01" name="cost_{{loop.index0}}" value="{{i.supplier_cost or ''}}" placeholder="0.00" class="num-in" style="width:80px;font-size:14px;font-weight:600" oninput="recalc()"></td>
-   <td style="font-size:13px;font-weight:600">
+   <td><input type="number" step="0.01" name="cost_{{loop.index0}}" value="{{i.supplier_cost or ''}}" placeholder="0.00" class="num-in" style="width:90px;font-size:15px;font-weight:700;padding:6px 8px" oninput="recalc()"></td>
+   <td style="font-size:14px;font-weight:600">
     {% if i.scprs_last_price %}${{'{:.2f}'.format(i.scprs_last_price)}}{% else %}—{% endif %}
     {% if i.scprs_source %}<span class="scprs-tag scprs-{{'hi' if i.scprs_confidence=='high' else 'med'}}" title="{{i.scprs_vendor|default('')}}">{{i.scprs_source|replace('_',' ')}}</span>{% endif %}
    </td>
-   <td style="font-size:13px;font-weight:600">
+   <td style="font-size:14px;font-weight:600">
     {% if i.get('amazon_price') %}${{'{:.2f}'.format(i.amazon_price)}}{% elif i.get('supplier_cost') %}${{'{:.2f}'.format(i.supplier_cost)}}{% else %}—{% endif %}
    </td>
-   <td><input type="number" step="0.01" name="price_{{loop.index0}}" value="{{i.price_per_unit or ''}}" placeholder="0.00" class="num-in" style="width:80px;font-size:14px;font-weight:600" oninput="recalc()"></td>
-   <td class="mono" style="font-size:14px;font-weight:600" id="sub_{{loop.index0}}">—</td>
-   <td id="mg_{{loop.index0}}" style="font-weight:700;font-size:13px">—</td>
-   <td id="pf_{{loop.index0}}" style="font-weight:600;font-size:13px">—</td>
+   <td><input type="number" step="0.01" name="price_{{loop.index0}}" value="{{i.price_per_unit or ''}}" placeholder="0.00" class="num-in" style="width:90px;font-size:15px;font-weight:700;padding:6px 8px" oninput="recalc()"></td>
+   <td class="mono" style="font-size:15px;font-weight:700" id="sub_{{loop.index0}}">—</td>
+   <td id="mg_{{loop.index0}}" style="font-weight:700;font-size:14px">—</td>
+   <td id="pf_{{loop.index0}}" style="font-weight:700;font-size:14px">—</td>
   </tr>
   {% endfor %}
   </tbody>

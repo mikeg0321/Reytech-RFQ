@@ -2854,7 +2854,8 @@ def api_scprs_public_ingest():
         existing = []
     existing_pos = {e.get("po_number") for e in existing if e.get("po_number")}
     new_entries = [e for e in parsed if not e.get("po_number") or e.get("po_number") not in existing_pos]
-    json.dump(existing + new_entries, open(ingest_path, "w"), indent=2, default=str)
+    with open(ingest_path, "w") as _f:
+        json.dump(existing + new_entries, _f, indent=2, default=str)
     vendors = {}
     for opp in opportunities:
         v = opp.get("vendor", "Unknown")
