@@ -688,15 +688,17 @@ def generate_quote(
         c.drawPath(p, fill=1, stroke=0)
         logo_text_x = ML + 34
 
-    # Always render "Reytech Inc." as selectable text (even when logo present)
-    c.setFont("Helvetica-Bold", 13)
-    c.setFillColor(NAVY)
-    c.drawString(logo_text_x, Y(166), "Reytech Inc.")
+    # Always render "Reytech Inc." as selectable text ONLY when no logo
+    # (the logo image already includes the company name and branding)
+    if not logo_path:
+        c.setFont("Helvetica-Bold", 13)
+        c.setFillColor(NAVY)
+        c.drawString(logo_text_x, Y(166), "Reytech Inc.")
 
-    # PRD Feature P2: Enhanced branding — SB/DVBE tagline
-    c.setFont("Helvetica-Oblique", 7.5)
-    c.setFillColor(HexColor("#4f8cff"))
-    c.drawString(logo_text_x, Y(178), "CA Certified Small Business (SB) & DVBE")
+        # PRD Feature P2: Enhanced branding — SB/DVBE tagline
+        c.setFont("Helvetica-Oblique", 7.5)
+        c.setFillColor(HexColor("#4f8cff"))
+        c.drawString(logo_text_x, Y(178), "CA Certified Small Business (SB) & DVBE")
 
     # Company details — y positions matched to QuoteWerks extraction
     # Combined "Michael Guadan, Owner" saves a line

@@ -995,6 +995,49 @@ def rfq_preview_pdf(rid, file_id):
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# Email Signature — get/save HTML signature for outbound emails
+# ═══════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/email-signature")
+@auth_required
+def get_email_signature():
+    """Get current email signature config."""
+    email_cfg = CONFIG.get("email", {})
+    return jsonify({
+        "ok": True,
+        "signature_html": email_cfg.get("signature_html", ""),
+        "signature_enabled": email_cfg.get("signature_enabled", True),
+    })
+
+@bp.route("/api/email-signature", methods=["POST"])
+@auth_required
+def save_email_signature():
+    """Save email signature HTML."""
+    data = request.get_json(force=True)
+    sig_html = data.get("signature_html", "")
+    
+    CONFIG.setdefault("email", {})["signature_html"] = sig_html
+    CONFIG["email"]["signature_enabled"] = True
+    
+    # Persist to config file
+    import json as _json
+    for cfg_path in [
+        os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "reytech_config.json"),
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "forms", "reytech_config.json"),
+    ]:
+        try:
+            with open(cfg_path) as f:
+                cfg = _json.load(f)
+            cfg.setdefault("email", {})["signature_html"] = sig_html
+            cfg["email"]["signature_enabled"] = True
+            with open(cfg_path, "w") as f:
+                _json.dump(cfg, f, indent=2)
+        except Exception:
+            pass
+    
+    return jsonify({"ok": True})
+
+# ═══════════════════════════════════════════════════════════════════════
 # Enhanced Email Send — DB attachments + email logging + CRM tracking
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -1052,13 +1095,30 @@ def send_email_enhanced(rid):
                     attachment_paths.append(fpath)
                     attachment_names.append(fname)
         
-        # Send via SMTP
+        # Send via SMTP — include HTML signature if enabled
         draft = {
             "to": to_addr,
             "subject": subject,
             "body": body,
             "attachments": attachment_paths,
         }
+        
+        include_sig = request.form.get("include_signature") == "1"
+        email_cfg = CONFIG.get("email", {})
+        sig_html = email_cfg.get("signature_html", "")
+        
+        if include_sig and sig_html:
+            # Build HTML body: plain text body + signature
+            import html as _html
+            body_escaped = _html.escape(body).replace("\n", "<br>")
+            draft["body_html"] = f"""<div style="font-family:'Segoe UI',Arial,sans-serif;font-size:14px;color:#222;line-height:1.6">
+{body_escaped}
+<br><br>
+<div style="border-top:1px solid #ddd;padding-top:10px;margin-top:10px">
+{sig_html}
+</div>
+</div>"""
+            t.step("HTML signature included")
         
         sender = EmailSender(CONFIG.get("email", {}))
         sender.send(draft)

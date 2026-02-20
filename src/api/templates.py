@@ -830,6 +830,25 @@ PAGE_DETAIL = """
   </div>
   <textarea name="body" id="emailBody" class="text-in" style="width:100%;min-height:260px;font-size:14px;line-height:1.6;padding:12px 14px;resize:vertical;font-family:'Segoe UI',system-ui,sans-serif">{{r.draft_email.body if r.draft_email else ''}}</textarea>
   
+  <!-- Email Signature -->
+  <div style="margin-top:10px;padding:10px 14px;background:var(--sf2);border-radius:8px;border:1px solid var(--bd)">
+   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+    <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--tx);cursor:pointer">
+     <input type="checkbox" id="sigToggle" name="include_signature" value="1" checked onchange="toggleSigPreview()" style="accent-color:var(--ac)">
+     <span style="font-weight:600">Include Signature</span>
+    </label>
+    <button type="button" class="btn btn-sm" onclick="editSignature()" style="font-size:11px;padding:3px 8px">✏️ Edit</button>
+   </div>
+   <div id="sigPreview" style="padding:8px 10px;background:var(--bg);border-radius:6px;border:1px solid var(--bd);font-size:12px;max-height:160px;overflow-y:auto"></div>
+   <div id="sigEditor" style="display:none;margin-top:6px">
+    <textarea id="sigHtml" class="text-in" style="width:100%;min-height:120px;font-size:12px;font-family:'JetBrains Mono',monospace;padding:8px;resize:vertical"></textarea>
+    <div style="display:flex;gap:6px;margin-top:6px">
+     <button type="button" class="btn btn-sm btn-go" onclick="saveSignature()" style="font-size:12px">💾 Save Signature</button>
+     <button type="button" class="btn btn-sm" onclick="cancelSigEdit()" style="font-size:12px">Cancel</button>
+    </div>
+   </div>
+  </div>
+  
   <!-- Attachment Selector -->
   <div style="margin-top:12px;padding:12px;background:var(--sf2);border-radius:8px;border:1px solid var(--bd)">
    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
@@ -1244,6 +1263,48 @@ function saveCurrentAsTemplate(){
  }).then(function(r){return r.json()}).then(function(d){
   if(d.ok) alert('Template saved: '+name);
   else alert('Save failed');
+ });
+}
+
+// ── Email Signature ──
+var _sigHtml='';
+(function(){
+ fetch('/api/email-signature',{credentials:'same-origin'})
+ .then(function(r){return r.json()}).then(function(d){
+  if(d.ok){
+   _sigHtml=d.signature_html||'';
+   var prev=document.getElementById('sigPreview');
+   if(prev) prev.innerHTML=_sigHtml||'<span style="color:var(--tx2);font-style:italic">No signature configured</span>';
+   var tog=document.getElementById('sigToggle');
+   if(tog) tog.checked=d.signature_enabled!==false;
+   toggleSigPreview();
+  }
+ }).catch(function(){});
+})();
+function toggleSigPreview(){
+ var on=document.getElementById('sigToggle').checked;
+ var prev=document.getElementById('sigPreview');
+ if(prev) prev.style.display=on?'':'none';
+}
+function editSignature(){
+ document.getElementById('sigEditor').style.display='';
+ document.getElementById('sigHtml').value=_sigHtml;
+}
+function cancelSigEdit(){
+ document.getElementById('sigEditor').style.display='none';
+}
+function saveSignature(){
+ var html=document.getElementById('sigHtml').value;
+ fetch('/api/email-signature',{method:'POST',credentials:'same-origin',
+  headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({signature_html:html})
+ }).then(function(r){return r.json()}).then(function(d){
+  if(d.ok){
+   _sigHtml=html;
+   document.getElementById('sigPreview').innerHTML=html||'<span style="color:var(--tx2)">No signature</span>';
+   document.getElementById('sigEditor').style.display='none';
+   typeof showMsg==='function'&&showMsg('✅ Signature saved','ok');
+  }
  });
 }
 
