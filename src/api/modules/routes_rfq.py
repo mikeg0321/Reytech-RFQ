@@ -75,19 +75,35 @@ def upload():
 
 
 def _is_price_check(pdf_path):
-    """Detect if a PDF is an AMS 704 Price Check (NOT 704B quote worksheet)."""
+    """Detect if a PDF is an AMS 704 Price Check (NOT 704B quote worksheet).
+    
+    Uses filename first (fast, reliable), falls back to PDF content parsing.
+    """
+    basename = os.path.basename(pdf_path).lower()
+    
+    # ── Filename-based detection (fast path) ──
+    # Exclude 704B / 703B / bid package by filename
+    if any(x in basename for x in ["704b", "703b", "bid package", "bid_package", "quote worksheet"]):
+        return False
+    
+    # Positive filename match: "AMS 704" or "ams704" in filename (but NOT 704B)
+    if "704" in basename and "ams" in basename:
+        return True
+    # Also match "Quote - [Name] - [Date]" pattern (Valentina's format)
+    # These always carry a single AMS 704 attachment
+    if basename.startswith("quote") and basename.endswith(".pdf") and "704b" not in basename:
+        # Only if filename looks like a price check attachment, not a generated quote
+        if any(x in basename for x in ["ams", "704", "price"]):
+            return True
+    
+    # ── PDF content fallback ──
     try:
-        # Exclude 704B by filename first
-        basename = os.path.basename(pdf_path).lower()
-        if "704b" in basename:
-            return False
-        
         from pypdf import PdfReader
         reader = PdfReader(pdf_path)
         text = reader.pages[0].extract_text() or ""
         text_lower = text.lower()
         
-        # Exclude 704B forms (quote worksheet / acquisition response)
+        # Exclude 704B forms
         if any(marker in text_lower for marker in ["704b", "quote worksheet", "acquisition quote"]):
             return False
         
@@ -101,8 +117,7 @@ def _is_price_check(pdf_path):
             if len(ams704_markers & field_names) >= 3:
                 return True
     except Exception as e:
-        log.debug("Suppressed: %s", e)
-        pass
+        log.debug("PDF parse fallback failed for %s: %s", basename, e)
     return False
 
 
