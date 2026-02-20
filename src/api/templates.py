@@ -58,6 +58,11 @@ a{color:var(--ac);text-decoration:none}
 .home-row a{text-decoration:none}
 .dismiss-opt{display:block;width:100%;text-align:left;padding:6px 12px;font-size:11px;background:none;border:none;color:var(--tx1);cursor:pointer;white-space:nowrap}
 .dismiss-opt:hover{background:rgba(79,140,255,.1)}
+.info-tip{position:relative;display:inline-flex;cursor:help;margin-left:4px;vertical-align:middle}
+.info-tip .tip-icon{width:14px;height:14px;border-radius:50%;background:rgba(79,140,255,.15);color:var(--ac);font-size:9px;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-style:normal;border:1px solid rgba(79,140,255,.3)}
+.info-tip .tip-box{display:none;position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);background:var(--sf2);border:1px solid var(--bd);border-radius:8px;padding:10px 14px;font-size:12px;color:var(--tx);line-height:1.5;min-width:220px;max-width:300px;z-index:100;box-shadow:0 4px 16px rgba(0,0,0,.4);font-weight:400;text-transform:none;letter-spacing:0;white-space:normal}
+.info-tip .tip-box::after{content:'';position:absolute;top:100%;left:50%;transform:translateX(-50%);border:6px solid transparent;border-top-color:var(--bd)}
+.info-tip:hover .tip-box{display:block}
 .brief-item{display:flex;justify-content:space-between;align-items:flex-start;padding:8px 10px;border-radius:8px;transition:background .12s;margin-bottom:2px}
 .brief-item:hover{background:var(--sf2)}
 .brief-item-left{display:flex;gap:10px;align-items:flex-start;min-width:0}
@@ -3546,23 +3551,33 @@ PAGE_CRM = """
 <!-- CRM Summary Stats -->
 <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:20px" id="crm-stats">
  <div class="card" style="text-align:center;padding:16px;margin:0">
-  <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Total Buyers</div>
+  <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Total Buyers
+   <span class="info-tip"><span class="tip-icon">i</span><span class="tip-box">Total unique buyers discovered from SCPRS purchase data + email contacts. Includes anyone who buys products in Reytech's categories.</span></span>
+  </div>
   <div id="stat-total" style="font-size:28px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--ac)">—</div>
  </div>
  <div class="card" style="text-align:center;padding:16px;margin:0">
-  <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Agencies</div>
+  <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Agencies
+   <span class="info-tip"><span class="tip-icon">i</span><span class="tip-box">Distinct CA state agencies with at least one buyer in the CRM. Each agency may have multiple individual buyers.</span></span>
+  </div>
   <div id="stat-agencies" style="font-size:28px;font-weight:700;font-family:'JetBrains Mono',monospace;color:#a78bfa">—</div>
  </div>
  <div class="card" style="text-align:center;padding:16px;margin:0">
-  <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Total SCPRS Spend</div>
+  <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Total SCPRS Spend
+   <span class="info-tip"><span class="tip-icon">i</span><span class="tip-box">Combined annual spend across all buyers in the CRM. Sourced from SCPRS purchase order data. Represents the total addressable market for Reytech.</span></span>
+  </div>
   <div id="stat-spend" style="font-size:28px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--yl)">—</div>
  </div>
  <div class="card" style="text-align:center;padding:16px;margin:0">
-  <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">In Outreach</div>
+  <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">In Outreach
+   <span class="info-tip"><span class="tip-icon">i</span><span class="tip-box">Buyers who have been contacted via email, phone, or other channels. Includes emailed, called, and responded statuses.</span></span>
+  </div>
   <div id="stat-outreach" style="font-size:28px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--or)">—</div>
  </div>
  <div class="card" style="text-align:center;padding:16px;margin:0">
-  <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Won</div>
+  <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Won
+   <span class="info-tip"><span class="tip-icon">i</span><span class="tip-box">Buyers who have converted to active Reytech customers. They've submitted at least one RFQ or purchase order.</span></span>
+  </div>
   <div id="stat-won" style="font-size:28px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--gn)">—</div>
  </div>
 </div>
@@ -3595,6 +3610,10 @@ PAGE_CRM = """
 
 <!-- Buyers Table -->
 <div class="card" style="padding:0;overflow:hidden">
+ <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--bd)">
+  <span id="crm-freshness" style="font-size:11px;color:var(--tx2);font-family:'JetBrains Mono',monospace">Loading data...</span>
+  <button onclick="refreshCRM(this)" style="font-size:11px;padding:4px 12px;background:rgba(79,140,255,.1);border:1px solid rgba(79,140,255,.3);color:var(--ac);border-radius:6px;cursor:pointer;font-weight:600">🔄 Refresh Data</button>
+ </div>
  <div style="overflow-x:auto">
   <table class="home-tbl" id="crm-table">
    <thead>
@@ -3602,11 +3621,21 @@ PAGE_CRM = """
      <th style="padding:12px 14px">Agency</th>
      <th style="padding:12px 14px">Buyer</th>
      <th style="padding:12px 14px">Email</th>
-     <th style="padding:12px 14px">Categories</th>
-     <th style="padding:12px 14px">Items Bought (SCPRS)</th>
-     <th style="padding:12px 14px;text-align:right">Annual Spend</th>
-     <th style="padding:12px 14px">Score</th>
-     <th style="padding:12px 14px;text-align:center">Status</th>
+     <th style="padding:12px 14px">Categories
+      <span class="info-tip"><span class="tip-icon">i</span><span class="tip-box"><b>Product Categories</b><br>Auto-classified from SCPRS purchase history. Shows what product types this buyer regularly orders (Medical, Janitorial, Office, IT, etc).</span></span>
+     </th>
+     <th style="padding:12px 14px">Items Bought
+      <span class="info-tip"><span class="tip-icon">i</span><span class="tip-box"><b>SCPRS Purchase History</b><br>Actual items this buyer has purchased through CA state procurement (SCPRS). Sourced from historical purchase orders. Shows top 3 items.</span></span>
+     </th>
+     <th style="padding:12px 14px;text-align:right">Annual Spend
+      <span class="info-tip"><span class="tip-icon">i</span><span class="tip-box"><b>Annual SCPRS Spend</b><br>Total dollar amount this buyer spent through SCPRS in the last 12 months. Higher spend = higher-value prospect for Reytech.</span></span>
+     </th>
+     <th style="padding:12px 14px">Score
+      <span class="info-tip"><span class="tip-icon">i</span><span class="tip-box"><b>Opportunity Score (0–100%)</b><br>Composite ranking based on:<br>• Annual spend volume<br>• Category overlap with Reytech products<br>• Number of matching items<br>• Recency of purchases<br><br>Higher score = better fit for outreach.</span></span>
+     </th>
+     <th style="padding:12px 14px;text-align:center">Status
+      <span class="info-tip"><span class="tip-icon">i</span><span class="tip-box"><b>Outreach Status</b><br>Tracks where this contact is in the sales pipeline:<br>• <b>New</b> — Not yet contacted<br>• <b>Emailed</b> — Initial outreach sent<br>• <b>Called</b> — Phone follow-up made<br>• <b>Responded</b> — Buyer replied<br>• <b>Won</b> — Converted to customer<br>• <b>Lost</b> — Declined or inactive</span></span>
+     </th>
      <th style="padding:12px 14px;text-align:center">Action</th>
     </tr>
    </thead>
@@ -3712,48 +3741,123 @@ function filterTable() {
  renderTable(filtered);
 }
 
-// Load buyers from growth prospects API
-fetch('/api/growth/status', {credentials:'same-origin'}).then(r=>r.json()).then(function(d) {
- var buyers = d.prospects || d.pipeline || [];
- ALL_BUYERS = buyers;
+// Load buyers from BOTH growth prospects + CRM contacts (email interactions)
+var _loadTs = null;
+function loadCRMData() {
+ Promise.all([
+  fetch('/api/growth/status', {credentials:'same-origin'}).then(function(r){return r.json()}).catch(function(){return {}}),
+  fetch('/api/crm/contacts', {credentials:'same-origin'}).then(function(r){return r.json()}).catch(function(){return {}})
+ ]).then(function(results) {
+  var growth = results[0], crm = results[1];
+  var growthBuyers = growth.prospects || growth.pipeline || [];
+  if (!Array.isArray(growthBuyers)) growthBuyers = [];
+  var crmContacts = (crm.contacts || []);
 
- if (!buyers.length) {
-  document.getElementById('crm-table').style.display = 'none';
+  // Merge: CRM contacts enrich growth data (email interactions, recent activity)
+  var merged = {};
+  // Start with growth prospects
+  growthBuyers.forEach(function(b) {
+   var key = (b.buyer_email||b.buyer_name||b.agency||'').toLowerCase();
+   if (key) merged[key] = Object.assign({}, b);
+  });
+  // Overlay CRM contacts — adds interaction counts, last activity, updated status
+  crmContacts.forEach(function(c) {
+   var key = (c.buyer_email||c.buyer_name||c.agency||'').toLowerCase();
+   if (key && merged[key]) {
+    // Enrich existing
+    if (c.activity_count) merged[key].interactions = c.activity_count;
+    if (c.last_activity) merged[key].last_activity = c.last_activity;
+    if (c.outreach_status && c.outreach_status !== 'new') merged[key].outreach_status = c.outreach_status;
+    if (c.total_spend && !merged[key].annual_spend) merged[key].annual_spend = c.total_spend;
+   } else if (key) {
+    // New contact from email only
+    merged[key] = {
+     agency: c.agency||'',
+     buyer_name: c.buyer_name||'',
+     buyer_email: c.buyer_email||'',
+     categories: c.categories||[],
+     items: [],
+     annual_spend: c.total_spend||0,
+     score: c.score||0,
+     outreach_status: c.outreach_status||'new',
+     interactions: c.activity_count||0,
+     last_activity: c.last_activity||'',
+     id: c.id||'',
+    };
+   }
+  });
+
+  var buyers = Object.values(merged);
+  ALL_BUYERS = buyers;
+  _loadTs = new Date();
+
+  // Freshness indicator
+  var freshEl = document.getElementById('crm-freshness');
+  if (freshEl) {
+   var genAt = (growth.prospects||{}).generated_at || (growth.history||{}).pulled_at || '';
+   var crmCount = crmContacts.length;
+   var msg = buyers.length + ' buyers';
+   if (genAt) {
+    try {
+     var d = new Date(genAt);
+     var age = Math.round((Date.now() - d.getTime())/3600000);
+     msg += ' · SCPRS data: ' + (age < 24 ? age+'h ago' : Math.round(age/24)+'d ago');
+    } catch(e) {}
+   }
+   if (crmCount > 0) msg += ' · ' + crmCount + ' email contacts merged';
+   freshEl.textContent = msg;
+  }
+
+  if (!buyers.length) {
+   document.getElementById('crm-table').parentElement.style.display = 'none';
+   document.getElementById('crm-empty').style.display = 'block';
+   document.getElementById('stat-total').textContent = '0';
+   document.getElementById('stat-agencies').textContent = '0';
+   document.getElementById('stat-spend').textContent = '$0';
+   document.getElementById('stat-outreach').textContent = '0';
+   document.getElementById('stat-won').textContent = '0';
+   return;
+  }
+
+  // Stats
+  var agencies = new Set(buyers.map(function(b){return b.agency})).size;
+  var totalSpend = buyers.reduce(function(s,b){return s+(b.annual_spend||b.spend||0)}, 0);
+  var inOutreach = buyers.filter(function(b){return b.outreach_status&&b.outreach_status!=='new'}).length;
+  var won = buyers.filter(function(b){return b.outreach_status==='won'}).length;
+
+  document.getElementById('stat-total').textContent = buyers.length;
+  document.getElementById('stat-agencies').textContent = agencies;
+  document.getElementById('stat-spend').textContent = totalSpend>=1e6?'$'+(totalSpend/1e6).toFixed(1)+'M':totalSpend>=1e3?'$'+(totalSpend/1e3).toFixed(0)+'K':'$'+totalSpend;
+  document.getElementById('stat-outreach').textContent = inOutreach;
+  document.getElementById('stat-won').textContent = won;
+
+  // Populate category filter with actual categories
+  var cats = new Set();
+  buyers.forEach(function(b){(b.categories||[]).forEach(function(c){cats.add(c)})});
+  var sel = document.getElementById('crm-cat');
+  sel.innerHTML = '<option value="">All Categories</option>';
+  Array.from(cats).sort().forEach(function(c){
+   sel.innerHTML += '<option value="'+c+'">'+c+'</option>';
+  });
+
+  renderTable(buyers);
+ }).catch(function() {
+  document.getElementById('crm-table').parentElement.style.display = 'none';
   document.getElementById('crm-empty').style.display = 'block';
-  document.getElementById('stat-total').textContent = '0';
-  document.getElementById('stat-agencies').textContent = '0';
-  document.getElementById('stat-spend').textContent = '$0';
-  document.getElementById('stat-outreach').textContent = '0';
-  document.getElementById('stat-won').textContent = '0';
-  return;
- }
-
- // Stats
- var agencies = new Set(buyers.map(function(b){return b.agency})).size;
- var totalSpend = buyers.reduce(function(s,b){return s+(b.annual_spend||b.spend||0)}, 0);
- var inOutreach = buyers.filter(function(b){return b.outreach_status&&b.outreach_status!=='new'}).length;
- var won = buyers.filter(function(b){return b.outreach_status==='won'}).length;
-
- document.getElementById('stat-total').textContent = buyers.length;
- document.getElementById('stat-agencies').textContent = agencies;
- document.getElementById('stat-spend').textContent = totalSpend>=1e6?'$'+(totalSpend/1e6).toFixed(1)+'M':totalSpend>=1e3?'$'+(totalSpend/1e3).toFixed(0)+'K':'$'+totalSpend;
- document.getElementById('stat-outreach').textContent = inOutreach;
- document.getElementById('stat-won').textContent = won;
-
- // Populate category filter with actual categories
- var cats = new Set();
- buyers.forEach(function(b){(b.categories||[]).forEach(function(c){cats.add(c)})});
- var sel = document.getElementById('crm-cat');
- sel.innerHTML = '<option value="">All Categories</option>';
- Array.from(cats).sort().forEach(function(c){
-  sel.innerHTML += '<option value="'+c+'">'+c+'</option>';
  });
+}
 
- renderTable(buyers);
-}).catch(function() {
- document.getElementById('crm-table').style.display = 'none';
- document.getElementById('crm-empty').style.display = 'block';
-});
+function refreshCRM(btn) {
+ btn.disabled = true; btn.textContent = '⏳ Refreshing...';
+ // First sync intel → CRM contacts, then reload
+ fetch('/api/crm/sync-intel', {method:'POST', credentials:'same-origin'})
+  .then(function(r){return r.json()})
+  .then(function() { return loadCRMData(); })
+  .catch(function() { loadCRMData(); })
+  .finally(function() { btn.disabled = false; btn.textContent = '🔄 Refresh Data'; });
+}
+
+loadCRMData();
 </script>
 """
 
