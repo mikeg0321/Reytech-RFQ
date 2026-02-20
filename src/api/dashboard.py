@@ -851,88 +851,108 @@ def process_rfq_email(rfq_email):
                     t.ok("Skipped: duplicate email_uid in PC queue")
                     return None
                 
-                # Create the PC inline (can't import from routes_rfq — bp issue)
-                try:
-                    import shutil as _shutil
-                    pc_file = os.path.join(DATA_DIR, f"pc_upload_{os.path.basename(pc_pdf)}")
-                    _shutil.copy2(pc_pdf, pc_file)
-                    parsed = parse_ams704(pc_file)
-                    parse_error = parsed.get("error")
-                    
-                    if parse_error:
-                        # Still create minimal PC so email isn't lost
-                        _trace.append(f"parse_ams704 error: {parse_error} — creating minimal PC")
-                        pcs = _load_price_checks()
-                        pcs[pc_id] = {
-                            "id": pc_id,
-                            "pc_number": os.path.basename(pc_pdf).replace(".pdf","")[:40],
-                            "institution": "", "due_date": "", "requestor": "",
-                            "ship_to": "", "items": [], "source_pdf": pc_file,
-                            "status": "parse_error", "parse_error": parse_error,
-                            "created_at": datetime.now().isoformat(),
-                            "reytech_quote_number": "", "linked_quote_number": "",
-                        }
-                        _save_price_checks(pcs)
-                        result = {"ok": True, "pc_id": pc_id, "parse_error": parse_error}
-                    else:
-                        items = parsed.get("line_items", [])
-                        header = parsed.get("header", {})
-                        pc_num = header.get("price_check_number", "unknown")
-                        institution = header.get("institution", "")
-                        due_date = header.get("due_date", "")
+                # ── Cross-queue dedup: if this email has RFQ templates (703B/704B/BidPkg),
+                # it's an RFQ, not a PC. Don't create a PC entry for it.
+                _has_rfq_forms = any(
+                    any(x in os.path.basename(p).lower() for x in ["703b", "bid package", "bid_package"])
+                    for p in pdf_paths
+                )
+                if _has_rfq_forms:
+                    _trace.append(f"SKIP PC: email has RFQ forms (703B/BidPkg) alongside 704 — routing to RFQ queue instead")
+                    log.info("Skipping PC for %s — email has RFQ forms, will create RFQ instead", _subj)
+                    # Fall through to RFQ creation below
+                else:
+                    # Create the PC inline (can't import from routes_rfq — bp issue)
+                    try:
+                        import shutil as _shutil
+                        pc_file = os.path.join(DATA_DIR, f"pc_upload_{os.path.basename(pc_pdf)}")
+                        _shutil.copy2(pc_pdf, pc_file)
+                        parsed = parse_ams704(pc_file)
+                        parse_error = parsed.get("error")
                         
-                        # Dedup: same PC# + institution + due_date
-                        pcs = _load_price_checks()
-                        dup_id = None
-                        for eid, epc in pcs.items():
-                            if (epc.get("pc_number","").strip() == pc_num.strip()
-                                    and epc.get("institution","").strip().lower() == institution.strip().lower()
-                                    and epc.get("due_date","").strip() == due_date.strip()
-                                    and pc_num != "unknown"):
-                                dup_id = eid
-                                break
-                        
-                        if dup_id:
-                            _trace.append(f"DEDUP: PC #{pc_num} already exists as {dup_id}")
-                            result = {"dedup": True, "existing_id": dup_id}
-                        else:
+                        if parse_error:
+                            # Still create minimal PC so email isn't lost
+                            _trace.append(f"parse_ams704 error: {parse_error} — creating minimal PC")
+                            pcs = _load_price_checks()
                             pcs[pc_id] = {
-                                "id": pc_id, "pc_number": pc_num,
-                                "institution": institution, "due_date": due_date,
-                                "requestor": header.get("requestor", ""),
-                                "ship_to": header.get("ship_to", ""),
-                                "items": items, "source_pdf": pc_file,
-                                "status": "parsed", "parsed": parsed,
+                                "id": pc_id,
+                                "pc_number": os.path.basename(pc_pdf).replace(".pdf","")[:40],
+                                "institution": "", "due_date": "", "requestor": "",
+                                "ship_to": "", "items": [], "source_pdf": pc_file,
+                                "status": "parse_error", "parse_error": parse_error,
                                 "created_at": datetime.now().isoformat(),
-                                "source": "email_auto",
-                                "reytech_quote_number": "",
-                                "linked_quote_number": "",
+                                "reytech_quote_number": "", "linked_quote_number": "",
                             }
                             _save_price_checks(pcs)
-                            result = {"ok": True, "pc_id": pc_id, "items": len(items)}
-                    _trace.append(f"PC result: {result}")
-                except Exception as he:
-                    _trace.append(f"PC create EXCEPTION: {he}")
-                    result = {"error": str(he)}
-                
-                pcs = _load_price_checks()
-                _trace.append(f"PCs after create: {len(pcs)} ids={list(pcs.keys())[:5]}")
-                
-                if pc_id in pcs:
-                    pcs[pc_id]["email_uid"] = email_uid
-                    pcs[pc_id]["email_subject"] = rfq_email.get("subject", "")
-                    pcs[pc_id]["requestor"] = pcs[pc_id].get("requestor") or rfq_email.get("sender_name") or rfq_email.get("sender_email", "")
-                    _save_price_checks(pcs)
-                    _ensure_contact_from_email(rfq_email)
-                    _trace.append(f"PC CREATED: {pc_id}")
-                    log.info("PC %s created successfully from email %s", pc_id, email_uid)
-                    POLL_STATUS.setdefault("_email_traces", []).append(_trace)
-                    t.ok("PC created", pc_id=pc_id, pc_number=pcs[pc_id].get("pc_number","?"))
-                    return None
-                else:
-                    _trace.append(f"PC NOT in storage — falling through to RFQ")
-                    log.warning("PC creation failed for %s (result=%s) — falling through to RFQ queue",
-                                _subj, result)
+                            result = {"ok": True, "pc_id": pc_id, "parse_error": parse_error}
+                        else:
+                            items = parsed.get("line_items", [])
+                            header = parsed.get("header", {})
+                            pc_num = header.get("price_check_number", "unknown")
+                            institution = header.get("institution", "")
+                            due_date = header.get("due_date", "")
+                            
+                            # Dedup: same PC# + institution + due_date
+                            pcs = _load_price_checks()
+                            dup_id = None
+                            for eid, epc in pcs.items():
+                                if (epc.get("pc_number","").strip() == pc_num.strip()
+                                        and epc.get("institution","").strip().lower() == institution.strip().lower()
+                                        and epc.get("due_date","").strip() == due_date.strip()
+                                        and pc_num != "unknown"):
+                                    dup_id = eid
+                                    break
+                            
+                            if dup_id:
+                                _trace.append(f"DEDUP: PC #{pc_num} already exists as {dup_id}")
+                                result = {"dedup": True, "existing_id": dup_id}
+                            else:
+                                # Cross-queue dedup: check if this PC number exists as an RFQ solicitation
+                                _rfq_sols = {v.get("solicitation_number") for v in rfqs.values() if v.get("solicitation_number")}
+                                if pc_num in _rfq_sols:
+                                    _trace.append(f"SKIP PC: pc_number '{pc_num}' already in RFQ queue as solicitation")
+                                    log.info("Cross-queue dedup: PC %s matches RFQ sol %s — skipping PC", pc_num, pc_num)
+                                    POLL_STATUS.setdefault("_email_traces", []).append(_trace)
+                                    t.ok("Skipped: cross-queue dedup (PC matches existing RFQ sol)")
+                                    return None
+                                
+                                pcs[pc_id] = {
+                                    "id": pc_id, "pc_number": pc_num,
+                                    "institution": institution, "due_date": due_date,
+                                    "requestor": header.get("requestor", ""),
+                                    "ship_to": header.get("ship_to", ""),
+                                    "items": items, "source_pdf": pc_file,
+                                    "status": "parsed", "parsed": parsed,
+                                    "created_at": datetime.now().isoformat(),
+                                    "source": "email_auto",
+                                    "reytech_quote_number": "",
+                                    "linked_quote_number": "",
+                                }
+                                _save_price_checks(pcs)
+                                result = {"ok": True, "pc_id": pc_id, "items": len(items)}
+                        _trace.append(f"PC result: {result}")
+                    except Exception as he:
+                        _trace.append(f"PC create EXCEPTION: {he}")
+                        result = {"error": str(he)}
+                    
+                    pcs = _load_price_checks()
+                    _trace.append(f"PCs after create: {len(pcs)} ids={list(pcs.keys())[:5]}")
+                    
+                    if pc_id in pcs:
+                        pcs[pc_id]["email_uid"] = email_uid
+                        pcs[pc_id]["email_subject"] = rfq_email.get("subject", "")
+                        pcs[pc_id]["requestor"] = pcs[pc_id].get("requestor") or rfq_email.get("sender_name") or rfq_email.get("sender_email", "")
+                        _save_price_checks(pcs)
+                        _ensure_contact_from_email(rfq_email)
+                        _trace.append(f"PC CREATED: {pc_id}")
+                        log.info("PC %s created successfully from email %s", pc_id, email_uid)
+                        POLL_STATUS.setdefault("_email_traces", []).append(_trace)
+                        t.ok("PC created", pc_id=pc_id, pc_number=pcs[pc_id].get("pc_number","?"))
+                        return None
+                    else:
+                        _trace.append(f"PC NOT in storage — falling through to RFQ")
+                        log.warning("PC creation failed for %s (result=%s) — falling through to RFQ queue",
+                                    _subj, result)
         except Exception as _e:
             _trace.append(f"EXCEPTION in PC block: {_e}")
             log.warning("704 detection in email polling: %s", _e)
@@ -1026,6 +1046,24 @@ def process_rfq_email(rfq_email):
     save_rfqs(rfqs)
     POLL_STATUS["emails_found"] += 1
     _trace.append(f"RFQ CREATED: sol={rfq_data.get('solicitation_number','?')}")
+    
+    # ── Cross-queue cleanup: remove any PC with the same solicitation number ──
+    # RFQ takes precedence (has all forms: 703B + 704B + Bid Package)
+    sol_num = rfq_data.get("solicitation_number", "")
+    if sol_num and sol_num != "unknown":
+        try:
+            pcs = _load_price_checks()
+            pc_dups = [pid for pid, pc in pcs.items()
+                       if pc.get("pc_number", "").replace("AD-", "").strip() == sol_num.strip()]
+            if pc_dups:
+                for pid in pc_dups:
+                    del pcs[pid]
+                _save_price_checks(pcs)
+                _trace.append(f"Cross-queue cleanup: removed {len(pc_dups)} duplicate PC entries: {pc_dups}")
+                log.info("Cross-queue cleanup: removed PCs %s (same sol# as RFQ %s)", pc_dups, sol_num)
+        except Exception as _xqe:
+            _trace.append(f"Cross-queue cleanup error: {_xqe}")
+    
     POLL_STATUS.setdefault("_email_traces", []).append(_trace)
     t.ok("RFQ created", sol=rfq_data.get("solicitation_number","?"), rfq_id=rfq_data.get("id","?"))
     log.info(f"Auto-imported RFQ #{rfq_data.get('solicitation_number', 'unknown')}")

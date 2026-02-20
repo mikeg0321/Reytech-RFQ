@@ -2597,6 +2597,25 @@ def api_admin_reset_and_poll():
                 pass
                 
             log.info("RESET+POLL background: PCs=%d RFQs=%d", new_pcs, len(imported))
+            
+            # ── Post-poll collision resolver: RFQ takes precedence over PC ──
+            try:
+                final_pcs = _load_price_checks()
+                final_rfqs_data = load_rfqs()
+                rfq_sols = {v.get("solicitation_number") for v in final_rfqs_data.values() if v.get("solicitation_number")}
+                collisions = []
+                for pid, pc in list(final_pcs.items()):
+                    pc_num = pc.get("pc_number", "").replace("AD-", "").strip()
+                    if pc_num in rfq_sols:
+                        del final_pcs[pid]
+                        collisions.append(f"{pid} (pc#{pc_num})")
+                if collisions:
+                    _save_price_checks(final_pcs)
+                    POLL_STATUS["_reset_poll_result"]["collisions_resolved"] = collisions
+                    POLL_STATUS["_reset_poll_result"]["final_pcs"] = len(final_pcs)
+                    log.info("Post-poll collision: removed %d PCs that matched RFQ sols: %s", len(collisions), collisions)
+            except Exception as _cre:
+                log.warning("Post-poll collision check: %s", _cre)
         except Exception as e:
             POLL_STATUS["_reset_poll_result"] = {"error": str(e), "completed": True}
             log.error("RESET+POLL background error: %s", e, exc_info=True)
