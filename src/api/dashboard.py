@@ -569,6 +569,8 @@ def process_rfq_email(rfq_email):
         if att["type"] != "unknown":
             templates[att["type"]] = att["path"]
     
+    _trace.append(f"→ RFQ PATH: templates={list(templates.keys())}, attachments={[a.get('filename','?') for a in rfq_email.get('attachments',[])]}")
+    
     if "704b" not in templates:
         rfq_data = {
             "id": rfq_email["id"],
@@ -599,6 +601,8 @@ def process_rfq_email(rfq_email):
     rfqs[rfq_data["id"]] = rfq_data
     save_rfqs(rfqs)
     POLL_STATUS["emails_found"] += 1
+    _trace.append(f"RFQ CREATED: sol={rfq_data.get('solicitation_number','?')}")
+    POLL_STATUS.setdefault("_email_traces", []).append(_trace)
     log.info(f"Auto-imported RFQ #{rfq_data.get('solicitation_number', 'unknown')}")
     
     # Ensure sender is in CRM
