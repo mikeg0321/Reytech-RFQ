@@ -1,4 +1,5 @@
 # routes_crm.py
+from datetime import datetime
 
 # ── JSON→SQLite compatibility (Phase 32c migration) ──────────────────────────
 try:
@@ -742,21 +743,39 @@ def api_build_version():
     except Exception:
         vol = "unknown"
         DATA_DIR = "?"
-    return jsonify({"build": "v20260220-1005-pdf-v4", "ok": True, "storage": vol, "data_dir": str(DATA_DIR)})
-    
-    # Path validation
     try:
-        from src.core.paths import validate_paths
-        path_check = validate_paths()
-        health["checks"]["paths"] = {
-            "ok": path_check["ok"],
-            "errors": path_check["errors"],
-            "warnings": path_check["warnings"],
-        }
-        if not path_check["ok"]:
-            health["status"] = "degraded"
-    except Exception as e:
-        health["checks"]["paths"] = {"ok": False, "error": str(e)}
+        from src.forms.quote_generator import peek_next_quote_number, _load_counter
+        counter = _load_counter()
+        next_qn = peek_next_quote_number()
+    except Exception:
+        counter = {}
+        next_qn = "?"
+    return jsonify({
+        "build": "v20260220-1040-counter-fix", "ok": True,
+        "storage": vol, "data_dir": str(DATA_DIR),
+        "quote_counter": counter, "next_quote": next_qn,
+    })
+
+
+@bp.route("/api/admin/set-counter", methods=["POST"])
+@auth_required
+def api_set_counter():
+    """Set the quote counter to a specific value.
+    POST {"seq": 16} → next quote will be R26Q17
+    POST {"seq": 16, "year": 2026}
+    """
+    data = request.get_json(force=True)
+    seq = data.get("seq")
+    if seq is None or not isinstance(seq, int):
+        return jsonify({"ok": False, "error": "seq (integer) required"}), 400
+    year = data.get("year", datetime.now().year)
+    from src.forms.quote_generator import set_quote_counter, peek_next_quote_number
+    set_quote_counter(seq, year)
+    return jsonify({
+        "ok": True,
+        "set_to": {"year": year, "seq": seq},
+        "next_quote": peek_next_quote_number(),
+    })
     
     # Data file checks
     data_checks = {}

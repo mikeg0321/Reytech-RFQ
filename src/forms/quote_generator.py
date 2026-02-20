@@ -651,7 +651,7 @@ def generate_quote(
     # PAGE 1 HEADER  (all y values are "from top of page")
     # ══════════════════════════════════════════════════════════════════════════
 
-    TOP = 62   # start content higher up (saves ~80pt vs old layout)
+    TOP = 50   # start content near top (saves ~100pt vs original QuoteWerks layout)
 
     # -- "QUOTE" title -- right-aligned
     text(MR, TOP, "QUOTE", "Helvetica-Bold", 22, BLACK, "right")
@@ -661,7 +661,7 @@ def generate_quote(
     c.setLineWidth(1.5)
     c.line(ML, Y(TOP + 2), MR, Y(TOP + 2))
 
-    # -- QUOTE # / DATE boxes -- right column
+    # -- QUOTE # / DATE boxes -- right column (tight to header)
     qbox_y = TOP + 6
     box(396, qbox_y, 67, 20, fill=True, border_color=LBL_BD)
     text(400, qbox_y + 15, "QUOTE #", "Helvetica-Bold", 10)
@@ -672,6 +672,8 @@ def generate_quote(
     text(400, qbox_y + 36, "DATE", "Helvetica-Bold", 10)
     box(463, qbox_y + 21, 131, 20, fill=False, border_color=VAL_BD)
     text(MR - 6, qbox_y + 36, quote_date, "Helvetica-Bold", 10, BLACK, "right")
+
+    qbox_bottom = qbox_y + 42   # bottom of DATE box, used for Bill To spacing
 
     # -- Reytech logo + company info (left column)
     logo_path = _find_logo()
@@ -728,10 +730,10 @@ def generate_quote(
     BILL_X = 396
     bill_bottom_y = info_y
     if show_bill:
-        bill_y = logo_y + 50
+        bill_y = qbox_bottom + 12   # comfortable gap below DATE box
         text(BILL_X, bill_y, "Bill to:", "Helvetica-Bold", 10)
-        text(BILL_X, bill_y + 12, bill_name, "Helvetica", 9)
-        by = bill_y + 23
+        text(BILL_X, bill_y + 13, bill_name, "Helvetica", 9)
+        by = bill_y + 24
         for bl in bill_lines:
             text(BILL_X, by, bl, "Helvetica", 9)
             by += 11
