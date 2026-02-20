@@ -362,6 +362,115 @@ def save_rfqs(rfqs):
 
 _shared_poller = None  # Shared poller instance for manual checks
 
+def _ensure_contact_from_email(rfq_email: dict):
+    """Auto-create/update CRM contact from inbound email sender.
+    Called on every PC/RFQ arrival so the buyer is always in CRM.
+    Writes to both SQLite (contacts table) and crm_contacts.json (CRM page source).
+    """
+    try:
+        from src.core.db import upsert_contact
+        import re as _re, hashlib
+        
+        sender_str = rfq_email.get("sender", "")
+        sender_email = rfq_email.get("sender_email", "")
+        if not sender_email:
+            m = _re.search(r'[\w.+-]+@[\w.-]+', sender_str)
+            sender_email = m.group(0).lower() if m else ""
+        if not sender_email:
+            return
+        sender_email = sender_email.lower().strip()
+        
+        # Extract display name: "Valentina Demidenko <email>" → "Valentina Demidenko"
+        sender_name = ""
+        if "<" in sender_str:
+            sender_name = sender_str.split("<")[0].strip().strip('"').strip("'")
+        if not sender_name:
+            local = sender_email.split("@")[0]
+            sender_name = " ".join(w.capitalize() for w in _re.split(r'[._-]', local))
+        
+        # Derive agency from domain
+        domain = sender_email.split("@")[-1].lower()
+        agency_map = {
+            "cdcr.ca.gov": "CDCR", "cdph.ca.gov": "CDPH", "dgs.ca.gov": "DGS",
+            "dhcs.ca.gov": "DHCS", "cchcs.org": "CCHCS",
+        }
+        agency = agency_map.get(domain, domain.split(".")[0].upper() if ".gov" in domain else "")
+        
+        # Stable ID from email
+        contact_id = hashlib.md5(sender_email.encode()).hexdigest()[:16]
+        
+        contact_data = {
+            "id": contact_id,
+            "buyer_name": sender_name,
+            "buyer_email": sender_email,
+            "agency": agency,
+            "source": "email_inbound",
+            "outreach_status": "active",
+            "is_reytech_customer": True,
+            "tags": ["email_sender", "buyer"],
+        }
+        
+        # 1) SQLite
+        upsert_contact(contact_data)
+        
+        # 2) crm_contacts.json (what the CRM page actually reads)
+        crm_path = os.path.join(DATA_DIR, "crm_contacts.json")
+        try:
+            with open(crm_path) as f:
+                crm = json.load(f)
+        except Exception:
+            crm = {}
+        
+        if contact_id not in crm:
+            crm[contact_id] = {
+                "id": contact_id,
+                "buyer_name": sender_name,
+                "buyer_email": sender_email,
+                "buyer_phone": "",
+                "agency": agency,
+                "title": "",
+                "department": "",
+                "linkedin": "",
+                "notes": f"Auto-added from email {rfq_email.get('subject', '')[:60]}",
+                "tags": ["email_sender", "buyer"],
+                "total_spend": 0,
+                "po_count": 0,
+                "categories": {},
+                "items_purchased": [],
+                "purchase_orders": [],
+                "last_purchase": "",
+                "score": 50,
+                "opportunity_score": 0,
+                "outreach_status": "active",
+                "activity": [{
+                    "type": "email_received",
+                    "detail": f"Inbound: {rfq_email.get('subject', '')[:80]}",
+                    "timestamp": datetime.now().isoformat(),
+                }],
+            }
+            with open(crm_path, "w") as f:
+                json.dump(crm, f, indent=2, default=str)
+            log.info("CRM contact created: %s <%s> → %s", sender_name, sender_email, agency)
+        else:
+            # Update existing: add activity, refresh name/agency if better
+            existing = crm[contact_id]
+            if not existing.get("buyer_name") or existing["buyer_name"] == sender_email:
+                existing["buyer_name"] = sender_name
+            if agency and not existing.get("agency"):
+                existing["agency"] = agency
+            existing.setdefault("activity", []).append({
+                "type": "email_received",
+                "detail": f"Inbound: {rfq_email.get('subject', '')[:80]}",
+                "timestamp": datetime.now().isoformat(),
+            })
+            existing["outreach_status"] = "active"
+            with open(crm_path, "w") as f:
+                json.dump(crm, f, indent=2, default=str)
+            log.info("CRM contact updated: %s <%s>", sender_name, sender_email)
+    except Exception as e:
+        log.debug("Contact auto-create failed (non-critical): %s", e)
+
+
 def process_rfq_email(rfq_email):
     """Process a single RFQ email into the queue. Returns rfq_data or None.
     Deduplicates by checking email_uid against existing RFQs.
@@ -430,6 +539,7 @@ def process_rfq_email(rfq_email):
                         pcs[pc_id]["requestor"] = pcs[pc_id].get("requestor") or rfq_email.get("sender_name") or rfq_email.get("sender_email", "")
                         from src.api.modules.routes_rfq import _save_price_checks
                         _save_price_checks(pcs)
+                    _ensure_contact_from_email(rfq_email)
                     return None  # Don't add to RFQ queue
         except Exception as _e:
             log.warning("704 detection in email polling: %s", _e)  # warn not debug — this is actionable
@@ -492,6 +602,9 @@ def process_rfq_email(rfq_email):
     save_rfqs(rfqs)
     POLL_STATUS["emails_found"] += 1
     log.info(f"Auto-imported RFQ #{rfq_data.get('solicitation_number', 'unknown')}")
+    
+    # Ensure sender is in CRM
+    _ensure_contact_from_email(rfq_email)
 
     # ── PRD Feature 4.2: Auto Price Check + Draft Quote ───────────────────
     # Runs in background thread so polling isn't blocked.

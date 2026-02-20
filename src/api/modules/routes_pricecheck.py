@@ -1683,6 +1683,96 @@ def api_admin_clean_activity():
     })
 
 
+@bp.route("/api/admin/backfill-contacts", methods=["POST"])
+@auth_required
+def api_admin_backfill_contacts():
+    """Backfill CRM contacts from existing price checks and RFQ senders.
+    Scans all PCs/RFQs for requestor emails and creates CRM contacts.
+    """
+    import re as _re, hashlib
+    from src.core.db import upsert_contact
+    
+    crm_path = os.path.join(DATA_DIR, "crm_contacts.json")
+    try:
+        with open(crm_path) as f:
+            crm = json.load(f)
+    except Exception:
+        crm = {}
+    
+    before_count = len(crm)
+    created = []
+    
+    agency_map = {
+        "cdcr.ca.gov": "CDCR", "cdph.ca.gov": "CDPH", "dgs.ca.gov": "DGS",
+        "dhcs.ca.gov": "DHCS", "cchcs.org": "CCHCS",
+    }
+    
+    def _add_contact(email_raw, name_hint=""):
+        if not email_raw:
+            return
+        m = _re.search(r'[\w.+-]+@[\w.-]+', str(email_raw))
+        if not m:
+            return
+        em = m.group(0).lower().strip()
+        cid = hashlib.md5(em.encode()).hexdigest()[:16]
+        if cid in crm:
+            return  # already exists
+        
+        # Derive name
+        if name_hint and name_hint != em and "@" not in name_hint:
+            name = name_hint
+        else:
+            local = em.split("@")[0]
+            name = " ".join(w.capitalize() for w in _re.split(r'[._-]', local))
+        
+        domain = em.split("@")[-1].lower()
+        agency = agency_map.get(domain, domain.split(".")[0].upper() if ".gov" in domain else "")
+        
+        crm[cid] = {
+            "id": cid, "buyer_name": name, "buyer_email": em,
+            "buyer_phone": "", "agency": agency, "title": "", "department": "",
+            "linkedin": "", "notes": "Backfilled from PC/RFQ records",
+            "tags": ["email_sender", "buyer"], "total_spend": 0, "po_count": 0,
+            "categories": {}, "items_purchased": [], "purchase_orders": [],
+            "last_purchase": "", "score": 50, "opportunity_score": 0,
+            "outreach_status": "active", "activity": [],
+        }
+        upsert_contact({"id": cid, "buyer_name": name, "buyer_email": em,
+                        "agency": agency, "source": "backfill",
+                        "outreach_status": "active", "is_reytech_customer": True})
+        created.append({"email": em, "name": name, "agency": agency})
+    
+    # Scan price checks
+    pcs = _load_price_checks()
+    for pc in pcs.values():
+        req = pc.get("requestor", "")
+        req_email = pc.get("contact_email", "") or pc.get("requestor_email", "")
+        if "@" in req:
+            _add_contact(req)
+        elif req_email:
+            _add_contact(req_email, req)
+    
+    # Scan RFQs
+    rfqs = load_rfqs()
+    for r in rfqs.values():
+        _add_contact(r.get("email_sender", ""), r.get("requestor_name", ""))
+        _add_contact(r.get("requestor_email", ""), r.get("requestor_name", ""))
+    
+    if created:
+        with open(crm_path, "w") as f:
+            json.dump(crm, f, indent=2, default=str)
+    
+    log.info("ADMIN BACKFILL-CONTACTS: created %d new contacts from PC/RFQ data", len(created))
+    
+    return jsonify({
+        "ok": True,
+        "created": created,
+        "created_count": len(created),
+        "before": before_count,
+        "after": len(crm),
+    })
+
+
 @bp.route("/api/pricecheck/<pcid>/clear-quote", methods=["POST"])
 @auth_required
 def api_pricecheck_clear_quote(pcid):
