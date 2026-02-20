@@ -372,6 +372,162 @@ def upload_templates(rid):
     return redirect(f"/rfq/{rid}")
 
 
+@bp.route("/rfq/<rid>/generate-package", methods=["POST"])
+@auth_required
+def generate_rfq_package(rid):
+    """ONE BUTTON — generates complete RFQ package:
+    1. Filled 703B (RFQ form)
+    2. Filled 704B (Quote Worksheet)
+    3. Filled Bid Package
+    4. Reytech Quote on letterhead
+    5. Draft email with all attachments
+    """
+    from src.api.trace import Trace
+    t = Trace("rfq_package", rfq_id=rid)
+    
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        t.fail("RFQ not found")
+        flash("RFQ not found", "error")
+        return redirect("/")
+    
+    sol = r.get("solicitation_number", "unknown")
+    t.step("Starting", sol=sol, items=len(r.get("line_items", [])))
+    
+    # ── Step 1: Save pricing from form ──
+    for i, item in enumerate(r.get("line_items", [])):
+        for field, key in [("cost", "supplier_cost"), ("scprs", "scprs_last_price"), ("price", "price_per_unit")]:
+            v = request.form.get(f"{field}_{i}")
+            if v:
+                try:
+                    item[key] = float(v)
+                except Exception:
+                    pass
+    
+    r["sign_date"] = get_pst_date()
+    safe_sol = re.sub(r'[^a-zA-Z0-9_-]', '_', sol.strip())
+    out_dir = os.path.join(OUTPUT_DIR, sol)
+    os.makedirs(out_dir, exist_ok=True)
+    
+    output_files = []
+    errors = []
+    
+    # ── Step 2: Fill State Forms (703B, 704B, Bid Package) ──
+    try:
+        tmpl = r.get("templates", {})
+        
+        if "703b" in tmpl and os.path.exists(tmpl["703b"]):
+            try:
+                fill_703b(tmpl["703b"], r, CONFIG, f"{out_dir}/{sol}_703B_Reytech.pdf")
+                output_files.append(f"{sol}_703B_Reytech.pdf")
+                t.step("703B filled")
+            except Exception as e:
+                errors.append(f"703B: {e}")
+                t.warn("703B fill failed", error=str(e))
+        else:
+            t.step("703B skipped — no template")
+        
+        if "704b" in tmpl and os.path.exists(tmpl["704b"]):
+            try:
+                fill_704b(tmpl["704b"], r, CONFIG, f"{out_dir}/{sol}_704B_Reytech.pdf")
+                output_files.append(f"{sol}_704B_Reytech.pdf")
+                t.step("704B filled")
+            except Exception as e:
+                errors.append(f"704B: {e}")
+                t.warn("704B fill failed", error=str(e))
+        else:
+            t.step("704B skipped — no template")
+        
+        if "bidpkg" in tmpl and os.path.exists(tmpl["bidpkg"]):
+            try:
+                fill_bid_package(tmpl["bidpkg"], r, CONFIG, f"{out_dir}/{sol}_BidPackage_Reytech.pdf")
+                output_files.append(f"{sol}_BidPackage_Reytech.pdf")
+                t.step("Bid Package filled")
+            except Exception as e:
+                errors.append(f"Bid Package: {e}")
+                t.warn("Bid Package fill failed", error=str(e))
+        else:
+            t.step("Bid Package skipped — no template")
+    except Exception as e:
+        errors.append(f"State forms: {e}")
+        t.warn("State forms exception", error=str(e))
+    
+    # ── Step 3: Generate Reytech Quote on letterhead ──
+    if QUOTE_GEN_AVAILABLE:
+        try:
+            quote_path = os.path.join(out_dir, f"{safe_sol}_Quote_Reytech.pdf")
+            locked_qn = r.get("reytech_quote_number", "")
+            
+            result = generate_quote_from_rfq(
+                r, quote_path,
+                include_tax=r.get("tax_enabled", False),
+                tax_rate=r.get("tax_rate", 0.0725) if r.get("tax_enabled") else 0.0,
+                quote_number=locked_qn if locked_qn else None,
+            )
+            
+            if result.get("ok"):
+                qn = result.get("quote_number", "")
+                r["reytech_quote_number"] = qn
+                output_files.append(f"{safe_sol}_Quote_Reytech.pdf")
+                t.step("Reytech Quote generated", quote_number=qn, total=result.get("total", 0))
+                # CRM log
+                _log_crm_activity(qn, "quote_generated",
+                                  f"Quote {qn} generated for RFQ {sol} — ${result.get('total',0):,.2f}",
+                                  actor="user", metadata={"rfq_id": rid})
+            else:
+                errors.append(f"Quote: {result.get('error', 'unknown')}")
+                t.warn("Quote generation failed", error=result.get("error", "unknown"))
+        except Exception as e:
+            errors.append(f"Quote: {e}")
+            t.warn("Quote exception", error=str(e))
+    else:
+        t.step("Quote generator not available — skipped")
+    
+    if not output_files:
+        t.fail("No files generated", errors=errors)
+        flash(f"No files generated — {'; '.join(errors) if errors else 'No templates found'}", "error")
+        return redirect(f"/rfq/{rid}")
+    
+    # ── Step 4: Save, transition, create draft email ──
+    _transition_status(r, "generated", actor="user", notes=f"Package: {len(output_files)} files")
+    r["output_files"] = output_files
+    r["generated_at"] = datetime.now().isoformat()
+    
+    # Draft email with ALL files attached
+    try:
+        sender = EmailSender(CONFIG.get("email", {}))
+        all_paths = [f"{out_dir}/{f}" for f in output_files]
+        r["draft_email"] = sender.create_draft_email(r, all_paths)
+        t.step("Draft email created", attachments=len(all_paths))
+    except Exception as e:
+        t.warn("Draft email failed", error=str(e))
+    
+    # Save SCPRS prices for history
+    try:
+        save_prices_from_rfq(r)
+    except Exception:
+        pass
+    
+    save_rfqs(rfqs)
+    
+    # Build success message
+    parts = []
+    for f in output_files:
+        if "703B" in f: parts.append("703B")
+        elif "704B" in f: parts.append("704B")
+        elif "BidPackage" in f: parts.append("Bid Package")
+        elif "Quote" in f: parts.append(f"Quote #{r.get('reytech_quote_number', '?')}")
+    
+    msg = f"✅ RFQ Package generated: {', '.join(parts)}"
+    if errors:
+        msg += f" | ⚠️ {'; '.join(errors)}"
+    
+    t.ok("Package complete", files=len(output_files), errors=len(errors))
+    flash(msg, "success" if not errors else "info")
+    return redirect(f"/rfq/{rid}")
+
+
 @bp.route("/rfq/<rid>/generate", methods=["POST"])
 @auth_required
 def generate(rid):
