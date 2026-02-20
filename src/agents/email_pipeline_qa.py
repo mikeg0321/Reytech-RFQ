@@ -536,20 +536,23 @@ def full_inbox_audit(email_config: dict = None) -> dict:
     for uid_bytes in uids:
         uid = uid_bytes.decode()
         try:
-            status, data = mail.uid("fetch", uid_bytes, "(BODY.PEEK[HEADER] BODY.PEEK[TEXT])")
-            if status != "OK":
+            # Use same fetch approach as EmailPoller (known working)
+            status, data = mail.uid("fetch", uid_bytes, "(BODY.PEEK[])")
+            if status != "OK" or not data or not data[0]:
                 continue
             
-            # Parse header
-            header_data = data[0][1] if data[0] else b""
-            msg = email_lib.message_from_bytes(header_data)
+            raw_email = data[0][1] if isinstance(data[0], tuple) else None
+            if not raw_email:
+                continue
+            
+            msg = email_lib.message_from_bytes(raw_email)
             
             # Decode subject
             raw_subj = msg.get("Subject", "")
             if raw_subj:
                 parts = decode_header(raw_subj)
                 subject = "".join(
-                    p.decode(enc or "utf-8") if isinstance(p, bytes) else p
+                    p.decode(enc or "utf-8", errors="replace") if isinstance(p, bytes) else str(p)
                     for p, enc in parts
                 )
             else:
@@ -560,7 +563,7 @@ def full_inbox_audit(email_config: dict = None) -> dict:
             if raw_from:
                 parts = decode_header(raw_from)
                 sender = "".join(
-                    p.decode(enc or "utf-8") if isinstance(p, bytes) else p
+                    p.decode(enc or "utf-8", errors="replace") if isinstance(p, bytes) else str(p)
                     for p, enc in parts
                 )
             else:
@@ -571,42 +574,31 @@ def full_inbox_audit(email_config: dict = None) -> dict:
             if em:
                 sender_email = em.group(0)
             
-            # Get PDF attachment names from header Content-Type
+            # Get PDF attachment names and body text
             pdf_names = []
             body_text = ""
-            try:
-                body_data = data[1][1] if len(data) > 1 and data[1] else b""
-                body_text = body_data.decode("utf-8", errors="ignore")[:500]
-            except Exception:
-                pass
             
-            # Re-fetch full message to get attachment names
-            try:
-                status2, data2 = mail.uid("fetch", uid_bytes, "(BODY.PEEK[])")
-                if status2 == "OK":
-                    full_msg = email_lib.message_from_bytes(data2[0][1])
-                    for part in full_msg.walk():
-                        fn = part.get_filename()
-                        if fn and fn.lower().endswith(".pdf"):
-                            # Decode filename
-                            if isinstance(fn, bytes):
-                                fn = fn.decode("utf-8", errors="ignore")
-                            fn_parts = decode_header(fn)
-                            fn_decoded = "".join(
-                                p.decode(enc or "utf-8") if isinstance(p, bytes) else p
-                                for p, enc in fn_parts
-                            )
-                            pdf_names.append(fn_decoded)
-                    # Also get body text
-                    for part in full_msg.walk():
-                        if part.get_content_type() == "text/plain":
-                            try:
-                                body_text = part.get_payload(decode=True).decode("utf-8", errors="ignore")[:800]
-                            except Exception:
-                                pass
-                            break
-            except Exception:
-                pass
+            for part in msg.walk():
+                # Get PDF filenames
+                fn = part.get_filename()
+                if fn:
+                    # Decode filename
+                    fn_parts = decode_header(fn)
+                    fn_decoded = "".join(
+                        p.decode(enc or "utf-8", errors="replace") if isinstance(p, bytes) else str(p)
+                        for p, enc in fn_parts
+                    )
+                    if fn_decoded.lower().endswith(".pdf"):
+                        pdf_names.append(fn_decoded)
+                
+                # Get body text (first text/plain part)
+                if not body_text and part.get_content_type() == "text/plain":
+                    try:
+                        payload = part.get_payload(decode=True)
+                        if payload:
+                            body_text = payload.decode("utf-8", errors="replace")[:800]
+                    except Exception:
+                        pass
             
             emails.append({
                 "uid": uid,
@@ -655,10 +647,22 @@ def full_inbox_audit(email_config: dict = None) -> dict:
     # Run audit
     result = audit_pipeline(expectations, pcs, rfqs, cs_drafts)
     result["emails_scanned"] = len(emails)
+    result["system_state"] = {
+        "pcs": len(pcs),
+        "rfqs": len(rfqs),
+        "cs_drafts": len(cs_drafts),
+        "pc_names": [pc.get("pc_number", "?")[:30] for pc in pcs.values()][:10],
+        "rfq_sols": [r.get("solicitation_number", "?") for r in rfqs.values()][:10],
+    }
     result["inbox_summary"] = [
         {"subject": e["subject"][:60], "sender": e["sender_email"],
-         "pdfs": e["pdf_count"], "date": e["date"][:20]}
+         "pdfs": e["pdf_count"], "date": e["date"][:25]}
         for e in emails
+    ]
+    result["expectations_summary"] = [
+        {"subject": e["subject"][:60], "type": e["expected_type"],
+         "confidence": e["confidence"], "id": e.get("expected_id", "")[:30]}
+        for e in expectations
     ]
     
     # Log failures for learning
