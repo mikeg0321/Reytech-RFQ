@@ -854,6 +854,39 @@ def api_poll_now():
         return jsonify({"ok": False, "found": 0, "error": str(e)})
 
 
+@bp.route("/api/poll/reset-processed", methods=["POST"])
+@auth_required
+def api_reset_processed():
+    """Clear the processed emails list so the poller re-scans the last 3 days.
+    Use after fixing classification bugs to re-process missed emails.
+    """
+    import json as _json
+    processed_file = os.path.join(DATA_DIR, "processed_emails.json")
+    try:
+        # Load current count before clearing
+        old_count = 0
+        if os.path.exists(processed_file):
+            with open(processed_file) as f:
+                old_count = len(_json.load(f))
+        
+        # Clear the file
+        with open(processed_file, "w") as f:
+            _json.dump([], f)
+        
+        # Also clear the in-memory set on the shared poller if it exists
+        from src.api.dashboard import _shared_poller
+        if _shared_poller and hasattr(_shared_poller, '_processed'):
+            _shared_poller._processed = set()
+        
+        return jsonify({
+            "ok": True,
+            "cleared": old_count,
+            "message": f"Cleared {old_count} processed UIDs. Next poll will re-scan last 3 days.",
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
 @bp.route("/api/diag")
 @auth_required
 def api_diag():
