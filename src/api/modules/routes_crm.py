@@ -751,7 +751,7 @@ def api_build_version():
         counter = {}
         next_qn = "?"
     return jsonify({
-        "build": "v20260220-1100-ui-overhaul", "ok": True,
+        "build": "v20260220-1130-pc-detection", "ok": True,
         "storage": vol, "data_dir": str(DATA_DIR),
         "quote_counter": counter, "next_quote": next_qn,
     })
@@ -776,41 +776,81 @@ def api_set_counter():
         "set_to": {"year": year, "seq": seq},
         "next_quote": peek_next_quote_number(),
     })
+
+
+@bp.route("/api/admin/reclassify-to-pc", methods=["POST"])
+@auth_required
+def api_reclassify_to_pc():
+    """Move stuck #unknown RFQs to the Price Check queue.
+    POST {"rfq_ids": ["id1", "id2"]} or {"rfq_ids": "all_unknown"}
+    """
+    data = request.get_json(force=True)
+    rfq_ids = data.get("rfq_ids", [])
     
-    # Data file checks
-    data_checks = {}
-    for name, path in [("customers", os.path.join(DATA_DIR, "customers.json")),
-                       ("quotes_log", os.path.join(DATA_DIR, "quotes_log.json")),
-                       ("quote_counter", os.path.join(DATA_DIR, "quote_counter.json"))]:
-        if os.path.exists(path):
-            try:
-                with open(path) as f:
-                    d = json.load(f)
-                data_checks[name] = {"ok": True, "records": len(d) if isinstance(d, (list, dict)) else "?"}
-            except Exception as e:
-                data_checks[name] = {"ok": False, "error": str(e)}
-                health["status"] = "degraded"
-        else:
-            data_checks[name] = {"ok": False, "error": "not found"}
-    health["checks"]["data_files"] = data_checks
+    from src.api.dashboard import load_rfqs, save_rfqs, _load_price_checks, _save_price_checks
     
-    # Module availability
-    health["checks"]["modules"] = {
-        "quote_generator": QUOTE_GEN_AVAILABLE,
-        "price_check": PRICE_CHECK_AVAILABLE,
-        "auto_processor": AUTO_PROCESSOR_AVAILABLE,
-        "email_poller": bool(EmailPoller),
-    }
+    rfqs = load_rfqs()
+    pcs = _load_price_checks()
+    moved = []
     
-    # Auto-processor health
-    if AUTO_PROCESSOR_AVAILABLE:
+    # "all_unknown" = move all #unknown solicitation RFQs with 0 items
+    if rfq_ids == "all_unknown":
+        rfq_ids = [rid for rid, r in rfqs.items()
+                   if r.get("solicitation_number") in ("unknown", "#unknown", "")
+                   and len(r.get("line_items", [])) == 0]
+    
+    for rid in rfq_ids:
+        r = rfqs.get(rid)
+        if not r:
+            continue
+        
+        import uuid as _uuid
+        pc_id = f"pc_{str(_uuid.uuid4())[:8]}"
+        
+        # Try to find the source PDF for parsing
+        source_pdf = ""
         try:
-            health["checks"]["auto_processor"] = system_health_check()
-        except Exception as e:
-            log.debug("Suppressed: %s", e)
+            from src.core.db import get_db
+            with get_db() as conn:
+                files = conn.execute(
+                    "SELECT id, filename FROM rfq_files WHERE rfq_id=? AND filename LIKE '%.pdf'",
+                    (rid,)
+                ).fetchall()
+                if files:
+                    source_pdf = files[0]["filename"]
+        except Exception:
             pass
+        
+        pcs[pc_id] = {
+            "id": pc_id,
+            "pc_number": r.get("solicitation_number", "unknown"),
+            "institution": r.get("institution", ""),
+            "due_date": r.get("due_date", ""),
+            "requestor": r.get("requestor_email", r.get("requestor_name", "")),
+            "ship_to": r.get("delivery_location", ""),
+            "items": r.get("line_items", []),
+            "source_pdf": source_pdf,
+            "status": "parse_error" if not r.get("line_items") else "parsed",
+            "parse_error": "Reclassified from RFQ queue",
+            "created_at": r.get("created_at", datetime.now().isoformat()),
+            "email_uid": r.get("email_uid", ""),
+            "email_subject": r.get("email_subject", ""),
+            "source": "reclassified",
+            "reytech_quote_number": "",
+            "linked_quote_number": "",
+        }
+        del rfqs[rid]
+        moved.append({"rfq_id": rid, "pc_id": pc_id, "subject": r.get("email_subject", "")})
     
-    return jsonify(health)
+    if moved:
+        save_rfqs(rfqs)
+        _save_price_checks(pcs)
+    
+    return jsonify({
+        "ok": True,
+        "moved": len(moved),
+        "details": moved,
+    })
 
 
 @bp.route("/api/metrics")

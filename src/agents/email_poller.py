@@ -42,6 +42,22 @@ RFQ_STRONG = [
     "acquisition quote", "quote worksheet", "bid response",
 ]
 
+# Known Price Check sender patterns (first/last name fragments)
+# These senders always send AMS 704 price checks, NOT RFQs
+PC_KNOWN_SENDERS = [
+    "demidenko", "valentina.demidenko",   # Valentina Demidenko — CSP-Sacramento
+    "delgado", "matt.delgado",            # Matt Delgado
+]
+
+# Subject patterns that indicate a Price Check (not an RFQ)
+PC_SUBJECT_PATTERNS = [
+    r"^quote\s*-\s*",                     # "Quote - Airway Adapter - 02.19.26"
+    r"^price\s*quote\s*\d*",              # "Price Quote 001"
+    r"^pc\s*[-#]",                        # "PC - Something" or "PC #123"
+    r"^price\s*check\s*[-#]",             # "Price Check - Something"
+    r"^ams\s*704\s*[-#]",                 # "AMS 704 - Something"
+]
+
 # PDF filename patterns that indicate RFQ attachments
 RFQ_PDF_PATTERNS = [
     r"703b", r"704b", r"bid.?package", r"rfq", r"solicitation",
@@ -458,6 +474,76 @@ def is_reply_followup(msg, subject, body, sender, pdf_names):
     return result
 
 
+def is_price_check_email(subject, body, sender, pdf_names):
+    """Detect if this email is a Price Check (AMS 704, no B).
+    
+    Fires BEFORE is_rfq_email() to route PCs directly to the PC queue
+    instead of accidentally creating broken RFQs.
+    
+    Returns dict with classification or None if not a PC.
+    """
+    subj_lower = (subject or "").strip().lower()
+    sender_lower = (sender or "").lower()
+    combined = f"{subject} {body}".lower()
+    
+    signals = []
+    score = 0
+    
+    # ── Signal 1: Known PC sender ──
+    sender_email = _extract_email_addr(sender).lower()
+    for pattern in PC_KNOWN_SENDERS:
+        if pattern in sender_email or pattern in sender_lower:
+            signals.append(f"known_sender:{pattern}")
+            score += 3
+            break
+    
+    # ── Signal 2: Subject matches PC pattern ──
+    for pat in PC_SUBJECT_PATTERNS:
+        if re.match(pat, subj_lower):
+            signals.append(f"subject_pattern:{pat}")
+            score += 3
+            break
+    
+    # ── Signal 3: PDF filename contains "704" but NOT "704b" ──
+    for pdf in pdf_names:
+        pl = pdf.lower()
+        if "704" in pl and "704b" not in pl:
+            if "ams" in pl or "quote" in combined:
+                signals.append(f"pdf_ams704:{pdf}")
+                score += 4
+                break
+    
+    # ── Signal 4: Body contains PC-like phrases ──
+    pc_phrases = ["please email me a quote", "price your response",
+                  "price check", "please quote", "email me a quote",
+                  "attached request", "attached items"]
+    for phrase in pc_phrases:
+        if phrase in combined:
+            signals.append(f"body_phrase:{phrase}")
+            score += 1
+            break
+    
+    # ── Negative: Has 703B/704B/Bid Package forms → NOT a PC ──
+    for pdf in pdf_names:
+        pl = pdf.lower()
+        if "703b" in pl or "704b" in pl or "bid package" in pl or "bid_package" in pl:
+            log.debug("PC check: has RFQ form (%s) → not a PC", pdf)
+            return None
+    
+    # Threshold: need at least 4 points to be confident it's a PC
+    if score >= 4:
+        log.info("📋 PRICE CHECK detected (score=%d signals=%s): %s",
+                 score, signals, subject[:60])
+        return {
+            "is_price_check": True,
+            "score": score,
+            "signals": signals,
+            "sender_email": sender_email,
+        }
+    
+    return None
+
+
 def is_rfq_email(subject, body, attachments):
     """
     Determine if an email is an RFQ. Uses tiered detection:
@@ -729,6 +815,42 @@ class EmailPoller:
                         self._diag["followup"] += 1
                         continue
                     # ── END REPLY DETECTION ────────────────────────────────────
+
+                    # ── EARLY PC DETECTION — fires BEFORE is_rfq_email() ──────
+                    # Catches known sender + subject patterns (Valentina "Quote - ..." emails)
+                    # to route directly to PC queue, avoiding broken RFQ creation.
+                    pc_detect = is_price_check_email(subject, body, sender, pdf_names)
+                    if pc_detect:
+                        log.info("📋 Routing to PC queue via early detection: %s", subject[:60])
+                        # Save attachments for PC processing
+                        pc_rfq_id = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + uid[:6]
+                        pc_rfq_dir = os.path.join(save_dir, pc_rfq_id)
+                        os.makedirs(pc_rfq_dir, exist_ok=True)
+                        pc_attachments = self._save_attachments(msg, pc_rfq_dir)
+                        pc_attachments.extend(self._extract_forwarded_attachments(msg, pc_rfq_dir))
+                        
+                        # Build minimal rfq_email dict for process_rfq_email's PC path
+                        pc_email_info = {
+                            "id": pc_rfq_id,
+                            "email_uid": uid,
+                            "message_id": msg.get("Message-ID", ""),
+                            "subject": subject,
+                            "sender": sender,
+                            "sender_email": self._extract_email(sender),
+                            "date": msg.get("Date"),
+                            "solicitation_hint": extract_solicitation_number(subject, body, pdf_names),
+                            "attachments": pc_attachments,
+                            "rfq_dir": pc_rfq_dir,
+                            "body_preview": body[:500] if body else "",
+                            "_pc_early_detect": True,  # Flag for process_rfq_email
+                            "_pc_signals": pc_detect.get("signals", []),
+                        }
+                        results.append(pc_email_info)
+                        self._processed.add(uid)
+                        self._diag["rfq_captured"] += 1
+                        log.info("PC captured (early): %s (%d PDFs)", subject[:60], len(pc_attachments))
+                        continue
+                    # ── END EARLY PC DETECTION ─────────────────────────────────
 
                     if not is_rfq_email(subject, body, pdf_names):
                         # Not an RFQ — classify what kind of email it is

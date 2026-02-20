@@ -819,6 +819,11 @@ def process_rfq_email(rfq_email):
     pdf_paths = [a["path"] for a in attachments if a.get("path") and a["path"].lower().endswith(".pdf")]
     _trace.append(f"PDFs: {len(pdf_paths)} paths, PRICE_CHECK_AVAILABLE={PRICE_CHECK_AVAILABLE}")
     
+    # Early PC detection flag from poller (known sender + subject patterns)
+    is_early_pc = rfq_email.get("_pc_early_detect", False)
+    if is_early_pc:
+        _trace.append(f"EARLY PC DETECT: signals={rfq_email.get('_pc_signals', [])}")
+    
     if pdf_paths and PRICE_CHECK_AVAILABLE:
         try:
             # Inline PC detection — can't import from routes_rfq (bp not defined at import time)
@@ -827,8 +832,11 @@ def process_rfq_email(rfq_email):
                 # Exclude 704B / 703B / bid package
                 if any(x in bn for x in ["704b", "703b", "bid package", "bid_package", "quote worksheet"]):
                     return False
-                # Match "AMS 704" pattern in filename
+                # Match "AMS 704" pattern in filename (no B suffix)
                 if "704" in bn and "ams" in bn:
+                    return True
+                # Match "704" alone (common for AMS 704 price checks)
+                if "704" in bn and "704b" not in bn:
                     return True
                 # Fallback: try PDF content
                 try:
@@ -839,6 +847,7 @@ def process_rfq_email(rfq_email):
                         return False
                     if "price check" in text and ("ams 704" in text or "worksheet" in text):
                         return True
+                    # Check for AMS 704 form fields
                     fields = reader.get_fields()
                     if fields:
                         fnames = set(fields.keys())
@@ -848,7 +857,13 @@ def process_rfq_email(rfq_email):
                     pass
                 return False
             
-            pc_pdf = next((p for p in pdf_paths if _is_pc_filename(p)), None)
+            # If early PC detect, try ALL PDFs as PC candidates (don't require filename match)
+            if is_early_pc:
+                pc_pdf = pdf_paths[0] if pdf_paths else None
+                _trace.append(f"Early PC: using first PDF as PC form: {os.path.basename(pc_pdf) if pc_pdf else 'none'}")
+            else:
+                pc_pdf = next((p for p in pdf_paths if _is_pc_filename(p)), None)
+            
             pc_checks = [f"{os.path.basename(p)}={'PC' if _is_pc_filename(p) else 'NO'}" for p in pdf_paths]
             _trace.append(f"PC checks: {pc_checks}")
             if pc_pdf:
@@ -963,12 +978,68 @@ def process_rfq_email(rfq_email):
                         t.ok("PC created", pc_id=pc_id, pc_number=pcs[pc_id].get("pc_number","?"))
                         return None
                     else:
+                        # PC wasn't saved — if early detect, force-create a minimal PC
+                        if is_early_pc:
+                            _trace.append("PC NOT in storage but early-detect → force-creating minimal PC")
+                            pcs = _load_price_checks()
+                            pcs[pc_id] = {
+                                "id": pc_id,
+                                "pc_number": rfq_email.get("solicitation_hint", "unknown"),
+                                "institution": "", "due_date": "", 
+                                "requestor": rfq_email.get("sender_email", ""),
+                                "ship_to": "", "items": [],
+                                "source_pdf": pc_pdf if pc_pdf else "",
+                                "status": "parse_error",
+                                "parse_error": "Early-detect PC: parsing failed but sender/subject matched",
+                                "created_at": datetime.now().isoformat(),
+                                "email_uid": email_uid,
+                                "email_subject": rfq_email.get("subject", ""),
+                                "source": "email_auto",
+                                "reytech_quote_number": "", "linked_quote_number": "",
+                            }
+                            _save_price_checks(pcs)
+                            _ensure_contact_from_email(rfq_email)
+                            _trace.append(f"FORCE PC CREATED: {pc_id}")
+                            log.info("Force-created PC %s from early-detect email", pc_id)
+                            POLL_STATUS.setdefault("_email_traces", []).append(_trace)
+                            t.ok("PC force-created (early detect)", pc_id=pc_id)
+                            return None
                         _trace.append(f"PC NOT in storage — falling through to RFQ")
                         log.warning("PC creation failed for %s (result=%s) — falling through to RFQ queue",
                                     _subj, result)
         except Exception as _e:
             _trace.append(f"EXCEPTION in PC block: {_e}")
             log.warning("704 detection in email polling: %s", _e)
+            # If early-detect flagged this as a PC, create minimal PC rather than broken RFQ
+            if is_early_pc:
+                try:
+                    import uuid as _uuid2
+                    _force_id = f"pc_{str(_uuid2.uuid4())[:8]}"
+                    pcs = _load_price_checks()
+                    pcs[_force_id] = {
+                        "id": _force_id,
+                        "pc_number": rfq_email.get("solicitation_hint", "unknown"),
+                        "institution": "", "due_date": "",
+                        "requestor": rfq_email.get("sender_email", rfq_email.get("sender", "")),
+                        "ship_to": "", "items": [],
+                        "source_pdf": pdf_paths[0] if pdf_paths else "",
+                        "status": "parse_error",
+                        "parse_error": f"Early-detect exception: {_e}",
+                        "created_at": datetime.now().isoformat(),
+                        "email_uid": rfq_email.get("email_uid", ""),
+                        "email_subject": rfq_email.get("subject", ""),
+                        "source": "email_auto",
+                        "reytech_quote_number": "", "linked_quote_number": "",
+                    }
+                    _save_price_checks(pcs)
+                    _trace.append(f"FORCE PC on exception: {_force_id}")
+                    log.info("Force-created PC %s after exception in early-detect path", _force_id)
+                    POLL_STATUS.setdefault("_email_traces", []).append(_trace)
+                    t.ok("PC force-created after exception", pc_id=_force_id)
+                    return None
+                except Exception as _fe:
+                    _trace.append(f"Force PC also failed: {_fe}")
+                    log.error("Force PC creation failed: %s", _fe)
 
     # ── Solicitation-number dedup against PC queue ──────────────────────────
     # If this email's solicitation number is already in the PC queue, it's the same

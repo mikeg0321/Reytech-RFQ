@@ -59,5 +59,14 @@
       "institution": "CSP-Sacramento (TEST)",
       "agency": "CDCR"
     }
+  },
+  {
+    "id": "crm-20260220162708-5",
+    "ref_id": "test_save",
+    "event_type": "rfq_pricing_saved",
+    "description": "Pricing updated for #SAVE-TEST (1 items)",
+    "actor": "user",
+    "timestamp": "2026-02-20T16:27:08.868895",
+    "metadata": {}
   }
 ]
