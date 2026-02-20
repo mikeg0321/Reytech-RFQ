@@ -2237,3 +2237,172 @@ def api_item_link_lookup():
     except Exception as e:
         log.error("item_link_lookup API error: %s", e)
         return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/admin/system-reset", methods=["POST"])
+@auth_required
+def api_admin_system_reset():
+    """Full system reset: clean slate, re-process inbox through new auto-price pipeline.
+    
+    Steps:
+    1. Delete all ghost/auto-draft quotes (keep real sent ones)
+    2. Delete all auto-draft PCs (keep manually uploaded)
+    3. Clear RFQ queue
+    4. Reset quote counter to highest real quote
+    5. Clear processed_emails.json → poller re-fetches all emails
+    6. Clear stale CRM activity
+    7. New emails flow through auto-PRICE pipeline (no ghost quotes)
+    
+    POST body (all optional):
+      keep_quotes: list of quote numbers to keep (e.g. ["R26Q16"])
+      keep_pcs: list of PC IDs to keep
+      reset_processed: true/false (default true — clears processed emails)
+      dry_run: true/false (default false)
+    """
+    data = request.get_json(silent=True) or {}
+    keep_quotes = set(data.get("keep_quotes", []))
+    keep_pcs = set(data.get("keep_pcs", []))
+    reset_processed = data.get("reset_processed", True)
+    dry_run = data.get("dry_run", False)
+    
+    results = {
+        "dry_run": dry_run,
+        "quotes_before": 0, "quotes_after": 0, "quotes_removed": [],
+        "pcs_before": 0, "pcs_after": 0, "pcs_removed": [],
+        "rfqs_before": 0, "rfqs_cleared": False,
+        "counter_before": 0, "counter_after": 0,
+        "processed_cleared": False,
+        "activity_cleaned": 0,
+    }
+    
+    # Step 1: Clean quotes — keep only real (sent/won) and explicitly kept
+    try:
+        q_path = os.path.join(DATA_DIR, 'quotes.json')
+        if os.path.exists(q_path):
+            with open(q_path) as f:
+                all_q = json.load(f)
+            if isinstance(all_q, list):
+                results["quotes_before"] = len(all_q)
+                kept = []
+                for q in all_q:
+                    qn = q.get("quote_number", "")
+                    st = q.get("status", "")
+                    auto = q.get("auto_draft", False) or q.get("is_auto_draft", False)
+                    # Keep: explicitly kept, sent status, non-auto with real status
+                    if qn in keep_quotes or st in ("sent", "won", "closed_won"):
+                        kept.append(q)
+                    elif not auto and st not in ("draft", "") and q.get("total", 0) > 0:
+                        kept.append(q)
+                    else:
+                        results["quotes_removed"].append(qn or "(blank)")
+                if not dry_run:
+                    with open(q_path, "w") as f:
+                        json.dump(kept, f, indent=2, default=str)
+                results["quotes_after"] = len(kept)
+    except Exception as e:
+        results["quotes_error"] = str(e)
+    
+    # Step 2: Clean PCs — remove auto-draft source PCs, keep manual uploads
+    try:
+        pcs = _load_price_checks()
+        results["pcs_before"] = len(pcs)
+        cleaned = {}
+        for pid, pc in pcs.items():
+            src = pc.get("source", "")
+            if pid in keep_pcs:
+                cleaned[pid] = pc
+            elif src in ("email_auto_draft", "email_auto"):
+                results["pcs_removed"].append(f'{pid[:12]} ({pc.get("pc_number","?")})')
+            elif pc.get("is_auto_draft"):
+                results["pcs_removed"].append(f'{pid[:12]} ({pc.get("pc_number","?")})')
+            else:
+                cleaned[pid] = pc
+        if not dry_run:
+            _save_price_checks(cleaned)
+        results["pcs_after"] = len(cleaned)
+    except Exception as e:
+        results["pcs_error"] = str(e)
+    
+    # Step 3: Clear RFQ queue
+    try:
+        rfq_path = os.path.join(DATA_DIR, 'rfq_queue.json')
+        if os.path.exists(rfq_path):
+            with open(rfq_path) as f:
+                rfqs = json.load(f)
+            results["rfqs_before"] = len(rfqs)
+            if not dry_run:
+                with open(rfq_path, "w") as f:
+                    json.dump({}, f)
+                results["rfqs_cleared"] = True
+    except Exception as e:
+        results["rfqs_error"] = str(e)
+    
+    # Step 4: Reset quote counter to highest real quote
+    try:
+        counter_path = os.path.join(DATA_DIR, 'quote_counter.json')
+        if os.path.exists(counter_path):
+            with open(counter_path) as f:
+                counter = json.load(f)
+            results["counter_before"] = counter.get("seq", 0)
+        
+        # Find highest real quote number
+        highest = 0
+        if keep_quotes:
+            import re as _re
+            for qn in keep_quotes:
+                m = _re.search(r'Q(\d+)', qn)
+                if m:
+                    highest = max(highest, int(m.group(1)))
+        
+        # Also check kept quotes
+        if os.path.exists(os.path.join(DATA_DIR, 'quotes.json')):
+            with open(os.path.join(DATA_DIR, 'quotes.json')) as f:
+                kept_q = json.load(f)
+            if isinstance(kept_q, list):
+                for q in kept_q:
+                    import re as _re
+                    m = _re.search(r'Q(\d+)', q.get("quote_number", ""))
+                    if m:
+                        highest = max(highest, int(m.group(1)))
+        
+        results["counter_after"] = highest
+        if not dry_run:
+            with open(counter_path, "w") as f:
+                json.dump({"year": 2026, "seq": highest}, f)
+    except Exception as e:
+        results["counter_error"] = str(e)
+    
+    # Step 5: Clear processed emails → poller re-fetches everything
+    if reset_processed:
+        try:
+            proc_path = os.path.join(DATA_DIR, 'processed_emails.json')
+            if os.path.exists(proc_path):
+                if not dry_run:
+                    with open(proc_path, "w") as f:
+                        json.dump([], f)
+                results["processed_cleared"] = True
+        except Exception as e:
+            results["processed_error"] = str(e)
+    
+    # Step 6: Clean stale CRM activity (auto_draft entries)
+    try:
+        act_path = os.path.join(DATA_DIR, 'crm_activity.json')
+        if os.path.exists(act_path):
+            with open(act_path) as f:
+                acts = json.load(f)
+            before = len(acts)
+            cleaned_acts = [a for a in acts if a.get("event_type") not in ("auto_draft_generated", "auto_draft_ready")]
+            results["activity_cleaned"] = before - len(cleaned_acts)
+            if not dry_run:
+                with open(act_path, "w") as f:
+                    json.dump(cleaned_acts, f, indent=2, default=str)
+    except Exception:
+        pass
+    
+    action = "DRY RUN" if dry_run else "EXECUTED"
+    log.info(f"SYSTEM RESET {action}: quotes {results['quotes_before']}→{results['quotes_after']}, "
+             f"PCs {results['pcs_before']}→{results['pcs_after']}, "
+             f"RFQs {results['rfqs_before']}→cleared, "
+             f"counter {results['counter_before']}→{results['counter_after']}")
+    
+    return jsonify({"ok": True, **results})
