@@ -1,0 +1,56 @@
+[
+  {
+    "id": "bd2c2d110e5adcc9",
+    "email": "apa.invoices@cdcr.ca.gov",
+    "name": "Apa Invoices",
+    "agency": "CDCR"
+  },
+  {
+    "id": "293bc6a1f4dfc569",
+    "email": "apinvoices@calvet.ca.gov",
+    "name": "Apinvoices",
+    "agency": "CalVet"
+  },
+  {
+    "id": "739e1be03dac6faf",
+    "email": "devon.young@calvet.ca.gov",
+    "name": "Devon Young",
+    "agency": "CalVet"
+  },
+  {
+    "id": "d7b968fb79e49859",
+    "email": "emily.rodriguez@calvet.ca.gov",
+    "name": "emily rodriguez",
+    "agency": "CalVet"
+  },
+  {
+    "id": "7572bafa2838487e",
+    "email": "eva.davis@calvet.ca.gov",
+    "name": "Eva@CalVet Davis",
+    "agency": "CalVet"
+  },
+  {
+    "id": "1ebea8f54809a3c3",
+    "email": "guillermo.garcia@calvet.ca.gov",
+    "name": "Guillermo Garcia",
+    "agency": "CalVet"
+  },
+  {
+    "id": "a632f453609294be",
+    "email": "jacqueline.kubica@calvet.ca.gov",
+    "name": "Jacqueline@CalVet Kubica",
+    "agency": "CalVet"
+  },
+  {
+    "id": "bdbf755d2105de67",
+    "email": "joseph.deas@calvet.ca.gov",
+    "name": "Joseph Deas",
+    "agency": "CalVet"
+  },
+  {
+    "id": "216a6a7bc24c5d46",
+    "email": "stephanie.johnson@calvet.ca.gov",
+    "name": "Stephanie Johnson",
+    "agency": "CalVet"
+  }
+]

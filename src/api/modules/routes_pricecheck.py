@@ -1773,6 +1773,78 @@ def api_admin_backfill_contacts():
     })
 
 
+@bp.route("/api/admin/import-contacts", methods=["POST"])
+@auth_required
+def api_admin_import_contacts():
+    """Import contacts from a list.
+    
+    POST body: {"contacts": [{"email": "...", "name": "...", "agency": "..."}, ...]}
+    Deduplicates by email. Merges with existing CRM contacts.
+    """
+    import re as _re, hashlib
+    from src.core.db import upsert_contact
+    
+    data = request.get_json(silent=True) or {}
+    incoming = data.get("contacts", [])
+    if not incoming:
+        return jsonify({"ok": False, "error": "No contacts provided"})
+    
+    crm_path = os.path.join(DATA_DIR, "crm_contacts.json")
+    try:
+        with open(crm_path) as f:
+            crm = json.load(f)
+    except Exception:
+        crm = {}
+    
+    before_count = len(crm)
+    created = []
+    skipped = []
+    
+    for c in incoming:
+        em = (c.get("email") or "").lower().strip()
+        if not em or "@" not in em:
+            continue
+        cid = hashlib.md5(em.encode()).hexdigest()[:16]
+        
+        if cid in crm:
+            skipped.append(em)
+            continue
+        
+        name = c.get("name", "")
+        agency = c.get("agency", "")
+        tags = c.get("tags", ["imported"])
+        
+        crm[cid] = {
+            "id": cid, "buyer_name": name, "buyer_email": em,
+            "buyer_phone": c.get("phone", ""), "agency": agency,
+            "title": c.get("title", ""), "department": c.get("department", ""),
+            "linkedin": "", "notes": c.get("notes", "Imported from Google Contacts"),
+            "tags": tags, "total_spend": 0, "po_count": 0,
+            "categories": {}, "items_purchased": [], "purchase_orders": [],
+            "last_purchase": "", "score": 40, "opportunity_score": 0,
+            "outreach_status": "new", "activity": [],
+        }
+        upsert_contact({"id": cid, "buyer_name": name, "buyer_email": em,
+                        "agency": agency, "source": "google_import",
+                        "outreach_status": "new", "is_reytech_customer": False})
+        created.append({"email": em, "name": name, "agency": agency})
+    
+    if created:
+        with open(crm_path, "w") as f:
+            json.dump(crm, f, indent=2, default=str)
+    
+    log.info("ADMIN IMPORT-CONTACTS: %d created, %d skipped (already exist)", len(created), len(skipped))
+    
+    return jsonify({
+        "ok": True,
+        "created": created,
+        "created_count": len(created),
+        "skipped": skipped,
+        "before": before_count,
+        "after": len(crm),
+    })
+
+
 @bp.route("/api/pricecheck/<pcid>/clear-quote", methods=["POST"])
 @auth_required
 def api_pricecheck_clear_quote(pcid):
