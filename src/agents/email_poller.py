@@ -474,6 +474,10 @@ def is_rfq_email(subject, body, attachments):
     """
     combined = f"{subject} {body}".lower()
     
+    # Guard: recall emails are NOT RFQs even if they contain keywords like "cdcr"
+    if subject.lower().startswith("recall:") or "would like to recall" in combined:
+        return False
+    
     # Tier 1: Strong keyword match
     if any(kw in combined for kw in RFQ_STRONG):
         log.info(f"RFQ detected (keyword match): {subject[:60]}")

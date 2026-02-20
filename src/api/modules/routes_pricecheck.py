@@ -2410,3 +2410,151 @@ def api_admin_system_reset():
              f"counter {results['counter_before']}→{results['counter_after']}")
     
     return jsonify({"ok": True, **results})
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Email Pipeline QA
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/qa/email-pipeline", methods=["GET", "POST"])
+@auth_required
+def api_qa_email_pipeline():
+    """Run full email pipeline QA: inbox audit + classification tests."""
+    try:
+        from src.agents.email_pipeline_qa import full_inbox_audit
+        result = full_inbox_audit()
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        log.error("Email pipeline QA error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/qa/classification-test")
+@auth_required
+def api_qa_classification_test():
+    """Run offline classification tests only (no IMAP needed)."""
+    try:
+        from src.agents.email_pipeline_qa import test_classification
+        return jsonify({"ok": True, **test_classification()})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/qa/trends")
+@auth_required
+def api_qa_trends():
+    """Get QA score trends over time."""
+    try:
+        from src.agents.email_pipeline_qa import get_qa_trends
+        return jsonify({"ok": True, **get_qa_trends()})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/qa/email-pipeline")
+@auth_required
+def qa_email_pipeline_page():
+    """Email Pipeline QA dashboard page."""
+    try:
+        from src.agents.email_pipeline_qa import get_qa_trends
+        trends = get_qa_trends()
+    except Exception:
+        trends = {"runs": 0, "trend": "no_data"}
+
+    content = f'''
+    <h2>Email Pipeline QA</h2>
+    <p style="color:var(--tx2);margin-bottom:16px">
+      Tests the full email intake pipeline: classification accuracy, inbox vs system state, gap detection.
+    </p>
+
+    <div style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap">
+      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px 20px;text-align:center;min-width:110px">
+        <div style="font-size:28px;font-weight:800;color:var(--tx)">{trends.get('latest_score','—')}</div>
+        <div style="font-size:11px;color:var(--tx2)">LATEST SCORE</div></div>
+      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px 20px;text-align:center;min-width:110px">
+        <div style="font-size:28px;font-weight:800;color:var(--tx)">{trends.get('latest_grade','—')}</div>
+        <div style="font-size:11px;color:var(--tx2)">GRADE</div></div>
+      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px 20px;text-align:center;min-width:110px">
+        <div style="font-size:28px;font-weight:800;color:var(--tx)">{trends.get('runs',0)}</div>
+        <div style="font-size:11px;color:var(--tx2)">QA RUNS</div></div>
+      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px 20px;text-align:center;min-width:110px">
+        <div style="font-size:28px;font-weight:800;color:var(--tx)">{trends.get('trend','—')}</div>
+        <div style="font-size:11px;color:var(--tx2)">TREND</div></div>
+    </div>
+
+    <div style="display:flex;gap:12px;margin-bottom:20px">
+      <button onclick="runFullQA()" style="background:#238636;color:white;padding:10px 20px;border:none;border-radius:6px;cursor:pointer;font-weight:600">
+        Run Full Inbox Audit</button>
+      <button onclick="runClassTests()" style="background:#1f6feb;color:white;padding:10px 20px;border:none;border-radius:6px;cursor:pointer;font-weight:600">
+        Run Classification Tests</button>
+    </div>
+
+    <div id="qa-results" style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:16px;min-height:200px">
+      <p style="color:var(--tx2)">Click a button above to run QA tests...</p>
+    </div>
+
+    <script>
+    function runFullQA() {{
+      var el = document.getElementById('qa-results');
+      el.innerHTML = '<p style="color:var(--yl)">Running full inbox audit... (connects to Gmail, may take 10-30s)</p>';
+      fetch('/api/qa/email-pipeline', {{method:'POST'}})
+        .then(function(r) {{ return r.json(); }})
+        .then(function(d) {{
+          if (!d.ok) {{ el.innerHTML = '<p style="color:#f85149">Error: ' + (d.error||'unknown') + '</p>'; return; }}
+          var h = '<h3>Score: ' + d.score + '/100 (Grade ' + d.grade + ')</h3>';
+          h += '<p>Emails scanned: ' + d.emails_scanned + ' | Actionable: ' + d.total_actionable + ' | Matched: ' + d.matched + ' | Gaps: ' + d.gap_count + '</p>';
+          if (d.gaps && d.gaps.length > 0) {{
+            h += '<h4 style="color:#f85149;margin-top:12px">GAPS (missing from system):</h4><table style="width:100%;font-size:13px;border-collapse:collapse">';
+            h += '<tr style="border-bottom:1px solid var(--bd)"><th style="text-align:left;padding:6px">Subject</th><th>Expected</th><th>Sender</th><th>PDFs</th><th>Confidence</th></tr>';
+            d.gaps.forEach(function(g) {{
+              h += '<tr style="border-bottom:1px solid var(--bd);color:#f85149"><td style="padding:6px">' + g.subject + '</td><td>' + g.expected_type + '</td><td>' + (g.sender||'').substring(0,30) + '</td><td>' + g.pdf_count + '</td><td>' + g.confidence + '%</td></tr>';
+            }});
+            h += '</table>';
+          }}
+          if (d.classification_tests) {{
+            var ct = d.classification_tests;
+            h += '<h4 style="margin-top:16px">Classification Tests: ' + ct.passed + '/' + ct.total_tests + ' (' + ct.score + '%)</h4>';
+            if (ct.results) {{
+              h += '<table style="width:100%;font-size:12px;border-collapse:collapse">';
+              h += '<tr style="border-bottom:1px solid var(--bd)"><th style="text-align:left;padding:4px">Test</th><th>RFQ</th><th>Recall</th><th>CS</th><th>Pass</th></tr>';
+              ct.results.forEach(function(t) {{
+                var color = t.passed ? '#3fb950' : '#f85149';
+                h += '<tr style="border-bottom:1px solid var(--bd);color:' + color + '"><td style="padding:4px">' + t.label + '</td>';
+                h += '<td>' + (t.rfq.ok ? 'OK' : 'FAIL') + '</td>';
+                h += '<td>' + (t.recall.ok ? 'OK' : 'FAIL') + '</td>';
+                h += '<td>' + (t.cs.ok ? 'OK' : 'FAIL') + '</td>';
+                h += '<td>' + (t.passed ? 'PASS' : 'FAIL') + '</td></tr>';
+              }});
+              h += '</table>';
+            }}
+          }}
+          el.innerHTML = h;
+        }})
+        .catch(function(e) {{ el.innerHTML = '<p style="color:#f85149">Error: ' + e + '</p>'; }});
+    }}
+    function runClassTests() {{
+      var el = document.getElementById('qa-results');
+      el.innerHTML = '<p style="color:var(--yl)">Running classification tests...</p>';
+      fetch('/api/qa/classification-test')
+        .then(function(r) {{ return r.json(); }})
+        .then(function(d) {{
+          var h = '<h3>Classification: ' + d.passed + '/' + d.total_tests + ' passed (' + d.score + '% — Grade ' + d.grade + ')</h3>';
+          h += '<table style="width:100%;font-size:13px;border-collapse:collapse">';
+          h += '<tr style="border-bottom:1px solid var(--bd)"><th style="text-align:left;padding:6px">Test</th><th>Subject</th><th>RFQ</th><th>Recall</th><th>CS</th><th>Result</th></tr>';
+          (d.results||[]).forEach(function(t) {{
+            var color = t.passed ? '#3fb950' : '#f85149';
+            h += '<tr style="border-bottom:1px solid var(--bd)"><td style="padding:6px;color:' + color + ';font-weight:600">' + t.label + '</td>';
+            h += '<td style="font-size:12px">' + t.subject + '</td>';
+            h += '<td style="text-align:center;color:' + (t.rfq.ok ? '#3fb950' : '#f85149') + '">' + (t.rfq.ok ? 'OK' : t.rfq.expected + '!=' + t.rfq.actual) + '</td>';
+            h += '<td style="text-align:center;color:' + (t.recall.ok ? '#3fb950' : '#f85149') + '">' + (t.recall.ok ? 'OK' : 'FAIL') + '</td>';
+            h += '<td style="text-align:center;color:' + (t.cs.ok ? '#3fb950' : '#f85149') + '">' + (t.cs.ok ? 'OK' : 'FAIL') + '</td>';
+            h += '<td style="text-align:center;color:' + color + ';font-weight:700">' + (t.passed ? 'PASS' : 'FAIL') + '</td></tr>';
+          }});
+          h += '</table>';
+          el.innerHTML = h;
+        }});
+    }}
+    </script>
+    '''
+
+    return _header("Email Pipeline QA") + content + "</div></body></html>"
