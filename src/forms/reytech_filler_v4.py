@@ -225,12 +225,21 @@ def fill_703b(input_path, rfq_data, config, output_path):
     company = config["company"]
     sign_date = rfq_data.get("sign_date", get_pst_date())
 
-    bid_exp = ""
+    # Bid expiration = always 45 days from generation date (today)
     try:
-        due = datetime.strptime(rfq_data["due_date"], "%m/%d/%Y")
-        bid_exp = (due + timedelta(days=45)).strftime("%m/%d/%Y")
+        gen_date = datetime.strptime(sign_date, "%m/%d/%Y")
     except Exception:
-        pass
+        gen_date = datetime.now()
+    bid_exp = (gen_date + timedelta(days=45)).strftime("%m/%d/%Y")
+
+    # Parse due_date flexibly (handles both 2-digit and 4-digit year)
+    due_date_str = rfq_data.get("due_date", "")
+    for fmt in ("%m/%d/%Y", "%m/%d/%y", "%Y-%m-%d"):
+        try:
+            datetime.strptime(due_date_str, fmt)
+            break
+        except Exception:
+            pass
 
     values = {
         "703B_Business Name": company["name"],

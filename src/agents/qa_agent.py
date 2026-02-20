@@ -1180,7 +1180,7 @@ def _check_quote_pdf_branding() -> list:
 
 
 def _check_rfq_lifecycle() -> list:
-    """Validate RFQ lifecycle features: DB file storage, status management, activity logging."""
+    """Validate RFQ lifecycle features: DB file storage, status management, activity logging, email templates."""
     results = []
     
     # 1. Check rfq_files table exists
@@ -1200,7 +1200,27 @@ def _check_rfq_lifecycle() -> list:
         results.append({"check": "rfq_lifecycle", "status": "fail",
                         "message": f"rfq_files table check failed: {e}"})
     
-    # 2. Check key routes exist
+    # 2. Check email_templates table and seed data
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            count = conn.execute("SELECT COUNT(*) FROM email_templates").fetchone()[0]
+            cats = conn.execute("SELECT DISTINCT category FROM email_templates").fetchall()
+            cat_list = [c[0] for c in cats]
+            if count >= 3 and "rfq" in cat_list and "pc" in cat_list:
+                results.append({"check": "rfq_lifecycle", "status": "pass",
+                                "message": f"Email templates: {count} templates in {len(cat_list)} categories ({', '.join(cat_list)})"})
+            elif count > 0:
+                results.append({"check": "rfq_lifecycle", "status": "warn",
+                                "message": f"Email templates: {count} templates, categories: {cat_list}"})
+            else:
+                results.append({"check": "rfq_lifecycle", "status": "fail",
+                                "message": "Email templates table empty — seed data missing"})
+    except Exception as e:
+        results.append({"check": "rfq_lifecycle", "status": "fail",
+                        "message": f"email_templates check: {e}"})
+    
+    # 3. Check key routes exist
     try:
         from flask import current_app
         rules = [r.rule for r in current_app.url_map.iter_rules()]
@@ -1209,22 +1229,32 @@ def _check_rfq_lifecycle() -> list:
             "/rfq/<rid>/reopen": "Reopen for editing",
             "/rfq/<rid>/update-status": "Status management",
             "/rfq/<rid>/file/<file_id>": "File download from DB",
+            "/rfq/<rid>/preview/<file_id>": "PDF preview",
+            "/rfq/<rid>/send-email": "Enhanced email send",
             "/api/rfq/<rid>/files": "File list API",
             "/api/rfq/<rid>/activity": "Activity log API",
+            "/api/email-templates": "Email templates API",
+            "/api/email-templates/render": "Template rendering API",
+            "/api/email-history": "Email history API",
         }
+        missing = []
         for route, desc in required_routes.items():
             if route in rules:
-                results.append({"check": "rfq_lifecycle", "status": "pass",
-                                "message": f"Route OK: {desc}"})
+                pass
             else:
-                results.append({"check": "rfq_lifecycle", "status": "fail",
-                                "message": f"Missing route: {route} ({desc})"})
+                missing.append(desc)
+        if not missing:
+            results.append({"check": "rfq_lifecycle", "status": "pass",
+                            "message": f"All {len(required_routes)} routes verified"})
+        else:
+            results.append({"check": "rfq_lifecycle", "status": "fail",
+                            "message": f"Missing routes: {', '.join(missing)}"})
     except Exception:
         pass
     
-    # 3. Check activity logging works
+    # 4. Check activity logging + email logging work
     try:
-        from src.api.dashboard import _log_crm_activity, _get_crm_activity, _load_crm_activity
+        from src.api.dashboard import _log_crm_activity, _get_crm_activity, _load_crm_activity, log_email_sent_db
         activity = _load_crm_activity()
         rfq_activities = [a for a in activity if a.get("event_type", "").startswith("rfq_")]
         results.append({"check": "rfq_lifecycle", "status": "pass",
@@ -1233,14 +1263,14 @@ def _check_rfq_lifecycle() -> list:
         results.append({"check": "rfq_lifecycle", "status": "warn",
                         "message": f"Activity log check: {e}"})
     
-    # 4. Check save_rfq_file function exists and is callable
+    # 5. Check file storage + email template functions available
     try:
-        from src.api.dashboard import save_rfq_file, get_rfq_file, list_rfq_files
+        from src.api.dashboard import save_rfq_file, get_rfq_file, list_rfq_files, get_email_templates_db, save_email_template_db, log_email_sent_db
         results.append({"check": "rfq_lifecycle", "status": "pass",
-                        "message": "File storage functions available"})
-    except ImportError:
+                        "message": "All storage + template functions available"})
+    except ImportError as e:
         results.append({"check": "rfq_lifecycle", "status": "fail",
-                        "message": "File storage functions not importable"})
+                        "message": f"Missing functions: {e}"})
     
     return results
 

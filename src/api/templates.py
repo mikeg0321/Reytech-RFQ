@@ -29,15 +29,15 @@ a{color:var(--ac);text-decoration:none}
 .bento-4{grid-template-columns:repeat(4,1fr)}
 .bento-2e{grid-template-columns:1fr 1fr}
 .card{background:var(--sf);border:1px solid var(--bd);border-radius:var(--r);padding:20px;margin-bottom:16px}
-.card-t{font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:1px;margin-bottom:14px}
+.card-t{font-size:13px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:1px;margin-bottom:14px}
 .upl{border:2px dashed var(--bd);border-radius:var(--r);padding:36px;text-align:center;cursor:pointer;transition:.2s}
 .upl:hover{border-color:var(--ac);background:rgba(79,140,255,.05)}
 .upl h3{font-size:16px;margin-bottom:4px}.upl p{color:var(--tx2);font-size:13px}
 .rfq-i{background:var(--sf2);border:1px solid var(--bd);border-radius:var(--r);padding:14px 18px;display:grid;grid-template-columns:auto 1fr auto auto;gap:14px;align-items:center;text-decoration:none;color:var(--tx);transition:.15s;margin-bottom:8px}
 .rfq-i:hover{border-color:var(--ac);transform:translateY(-1px)}
-.sol{font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:600;color:var(--ac)}
-.det{font-size:12px;color:var(--tx2)}.det b{color:var(--tx)}
-.badge{padding:3px 9px;border-radius:16px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+.sol{font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:600;color:var(--ac)}
+.det{font-size:13px;color:var(--tx2)}.det b{color:var(--tx)}
+.badge{padding:4px 10px;border-radius:16px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
 .b-new{background:rgba(251,191,36,.15);color:var(--yl)}.b-pending{background:rgba(251,191,36,.15);color:var(--yl)}
 .b-ready{background:rgba(52,211,153,.15);color:var(--gn)}.b-generated{background:rgba(79,140,255,.15);color:var(--ac)}
 .b-sent{background:rgba(52,211,153,.2);color:var(--gn)}
@@ -121,8 +121,8 @@ a{color:var(--ac);text-decoration:none}
 }
 .meta-g{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:20px}
 .meta-i{background:var(--sf2);border-radius:8px;padding:10px 12px}
-.meta-l{font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px}
-.meta-v{font-size:13px;font-weight:500;margin-top:3px}
+.meta-l{font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px}
+.meta-v{font-size:14px;font-weight:500;margin-top:3px}
 table.it{width:100%;border-collapse:collapse;font-size:13px}
 table.it th{text-align:left;padding:10px 8px;font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--bd)}
 table.it td{padding:10px 8px;border-bottom:1px solid var(--bd);vertical-align:middle}
@@ -131,14 +131,14 @@ table.it input:focus{outline:none;border-color:var(--ac)}
 table.it .text-in{background:var(--sf2);border:1px solid var(--bd);color:var(--tx);padding:6px 8px;border-radius:6px;font-size:13px;font-family:'Segoe UI',system-ui,sans-serif}
 table.it .text-in:focus{border-color:var(--ac);outline:none}
 .mono{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--tx2)}
-.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:.15s;text-decoration:none}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 18px;border-radius:7px;font-size:14px;font-weight:600;cursor:pointer;border:none;transition:.15s;text-decoration:none}
 .btn-p{background:var(--ac);color:#fff}.btn-p:hover{background:var(--ac2)}
 .btn-s{background:var(--sf2);color:var(--tx);border:1px solid var(--bd)}.btn-s:hover{border-color:var(--ac)}
 .btn-g{background:var(--gn);color:#0f1117}.btn-g:hover{opacity:.9}
 .btn-o{background:var(--or);color:#0f1117}.btn-o:hover{opacity:.9}
 .btn-sm{padding:5px 10px;font-size:11px;border-radius:5px}
 .bg{display:flex;gap:8px;margin-top:16px;flex-wrap:wrap}
-.alert{padding:10px 14px;border-radius:8px;font-size:12px;margin-bottom:12px}
+.alert{padding:12px 16px;border-radius:8px;font-size:13px;margin-bottom:12px}
 .al-s{background:rgba(52,211,153,.1);border:1px solid rgba(52,211,153,.3);color:var(--gn)}
 .al-e{background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.3);color:var(--rd)}
 .al-i{background:rgba(79,140,255,.1);border:1px solid rgba(79,140,255,.3);color:var(--ac)}
@@ -785,45 +785,84 @@ PAGE_DETAIL = """
  <div style="display:flex;justify-content:space-between;align-items:center">
   <div class="card-t" style="margin-bottom:0">📦 Generated Package</div>
   <form method="POST" action="/rfq/{{rid}}/reopen" style="display:inline">
-   <button type="submit" class="btn btn-sm" style="background:var(--wn);color:#000;font-size:11px" onclick="return confirm('Reopen this RFQ for editing?')">✏️ Reopen for Editing</button>
+   <button type="submit" class="btn btn-sm" style="background:var(--wn);color:#000;font-size:12px" onclick="return confirm('Reopen this RFQ for editing?')">✏️ Reopen for Editing</button>
   </form>
  </div>
- <div class="bg" style="margin-top:10px">
-  {% for f in r.output_files %}<a href="/dl/{{rid}}/{{f}}" class="btn btn-s" target="_blank">📄 {{f}}</a>{% endfor %}
+ <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px">
+  {% for f in r.output_files %}
+  <a href="/dl/{{rid}}/{{f}}" class="btn btn-s" target="_blank" style="font-size:13px;padding:8px 14px">📄 {{f}}</a>
+  {% endfor %}
  </div>
 </div>
 
+<!-- PDF Preview Modal -->
+<div id="pdfPreviewModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:1100;padding:20px">
+ <div style="max-width:900px;margin:0 auto;height:100%;display:flex;flex-direction:column">
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;background:var(--sf);border-radius:10px 10px 0 0">
+   <span id="pdfPreviewTitle" style="font-size:14px;font-weight:600;color:var(--tx)">PDF Preview</span>
+   <div>
+    <a id="pdfPreviewDownload" href="#" target="_blank" class="btn btn-sm btn-s" style="margin-right:8px">⬇️ Download</a>
+    <button class="btn btn-sm" style="background:none;border:none;color:var(--tx);font-size:22px;cursor:pointer" onclick="document.getElementById('pdfPreviewModal').style.display='none'">✕</button>
+   </div>
+  </div>
+  <iframe id="pdfPreviewFrame" style="flex:1;border:none;border-radius:0 0 10px 10px;background:#fff" src="about:blank"></iframe>
+ </div>
+</div>
+
+<!-- Email Composer with Template Selector -->
 <div class="card">
- <div class="card-t">📧 Draft Response Email</div>
- {% if r.draft_email %}
- <div style="font-size:12px;color:var(--tx2);margin-bottom:8px">
-  <b>To:</b> {{r.draft_email.to}} · <b>Subject:</b> {{r.draft_email.subject}}
+ <div class="card-t" style="font-size:15px">📧 Email Composer</div>
+ 
+ <div style="margin-bottom:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+  <label style="font-size:13px;color:var(--tx2);font-weight:600">Template:</label>
+  <select id="emailTemplateSelect" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd);border-radius:6px;padding:6px 10px;font-size:13px;min-width:200px" onchange="loadEmailTemplate()">
+   <option value="">— Select Template —</option>
+  </select>
+  <button type="button" class="btn btn-sm btn-s" onclick="saveCurrentAsTemplate()" style="font-size:12px">💾 Save as Template</button>
  </div>
- <div class="draft-box">{{r.draft_email.body}}</div>
- <div class="bg">
-  <form method="POST" action="/rfq/{{rid}}/send" style="display:inline">
-   <button type="submit" class="btn btn-o">📤 Send Email</button>
-  </form>
-  <a href="mailto:{{r.draft_email.to}}?subject={{r.draft_email.subject|urlencode}}&body={{r.draft_email.body|urlencode}}" class="btn btn-s">📋 Open in Mail App</a>
- </div>
- {% endif %}
+ 
+ <form method="POST" action="/rfq/{{rid}}/send-email" id="emailForm">
+  <div style="display:grid;grid-template-columns:60px 1fr;gap:8px;margin-bottom:10px;align-items:center">
+   <label style="font-size:13px;color:var(--tx2);font-weight:600">To:</label>
+   <input type="email" name="to" id="emailTo" value="{{r.requestor_email or (r.draft_email.to if r.draft_email else '')}}" class="text-in" style="font-size:14px;padding:8px 12px">
+   <label style="font-size:13px;color:var(--tx2);font-weight:600">Subject:</label>
+   <input type="text" name="subject" id="emailSubject" value="{{r.draft_email.subject if r.draft_email else ('Reytech Inc. - Bid Response - Solicitation #' + r.get('solicitation_number',''))}}" class="text-in" style="font-size:14px;padding:8px 12px">
+  </div>
+  <textarea name="body" id="emailBody" class="text-in" style="width:100%;min-height:260px;font-size:14px;line-height:1.6;padding:12px 14px;resize:vertical;font-family:'Segoe UI',system-ui,sans-serif">{{r.draft_email.body if r.draft_email else ''}}</textarea>
+  
+  <!-- Attachment Selector -->
+  <div style="margin-top:12px;padding:12px;background:var(--sf2);border-radius:8px;border:1px solid var(--bd)">
+   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+    <span style="font-size:13px;font-weight:600;color:var(--tx)">📎 Attachments</span>
+    <button type="button" class="btn btn-sm btn-p" onclick="toggleAllAttachments(true)" style="font-size:12px">Attach All Generated</button>
+   </div>
+   <div id="attachmentList" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+  </div>
+  <input type="hidden" name="attach_files" id="attachFilesInput" value="">
+  
+  <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;align-items:center">
+   <button type="submit" class="btn btn-o" style="font-size:14px;padding:10px 24px">📤 Send Email</button>
+   <a id="mailAppLink" href="#" class="btn btn-s" style="font-size:13px;padding:8px 16px">📋 Open in Mail App</a>
+   <span id="emailStatus" style="font-size:12px;color:var(--tx2)"></span>
+  </div>
+ </form>
 </div>
 {% endif %}
 
-<!-- RFQ Files (from DB - survives redeploys) -->
+<!-- RFQ Files (from DB - survives redeploys) with PDF Preview -->
 <div class="card" id="rfq-files-card" style="display:none">
- <div class="card-t">📎 All RFQ Files</div>
+ <div class="card-t" style="font-size:15px">📎 All RFQ Files</div>
  <div id="rfq-files-list"></div>
 </div>
 
 <!-- Status Management -->
 {% if r.status not in ('new',) %}
 <div class="card">
- <div class="card-t">⚙️ Status Management</div>
- <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-  <span style="font-size:12px;color:var(--tx2)">Current: <b>{{r.status}}</b></span>
+ <div class="card-t" style="font-size:14px">⚙️ Status Management</div>
+ <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+  <span style="font-size:13px;color:var(--tx2)">Current: <b>{{r.status}}</b></span>
   <form method="POST" action="/rfq/{{rid}}/update-status" style="display:inline;margin-left:8px">
-   <select name="status" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd);border-radius:6px;padding:4px 8px;font-size:12px">
+   <select name="status" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd);border-radius:6px;padding:6px 10px;font-size:13px">
     <option value="new">New</option>
     <option value="ready">Ready</option>
     <option value="generated">Generated</option>
@@ -833,17 +872,23 @@ PAGE_DETAIL = """
     <option value="no_bid">No Bid</option>
     <option value="cancelled">Cancelled</option>
    </select>
-   <input name="notes" placeholder="Notes (optional)" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd);border-radius:6px;padding:4px 8px;font-size:12px;width:180px">
-   <button type="submit" class="btn btn-sm btn-s">Update</button>
+   <input name="notes" placeholder="Notes (optional)" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd);border-radius:6px;padding:6px 10px;font-size:13px;width:200px">
+   <button type="submit" class="btn btn-sm btn-s" style="font-size:12px">Update</button>
   </form>
  </div>
 </div>
 {% endif %}
 
+<!-- Email History -->
+<div class="card" id="email-history-card" style="display:none">
+ <div class="card-t" style="font-size:14px">📬 Email History</div>
+ <div id="email-history-list"></div>
+</div>
+
 <!-- Activity Log -->
 <div class="card">
- <div class="card-t">📋 Activity Log</div>
- <div id="rfq-activity" style="font-size:12px;color:var(--tx2)">Loading...</div>
+ <div class="card-t" style="font-size:14px">📋 Activity Log</div>
+ <div id="rfq-activity" style="font-size:13px;color:var(--tx2)">Loading...</div>
 </div>
 
 <script>
@@ -1054,13 +1099,31 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape'){const m=doc
 
 recalc();
 
-// ── Load RFQ files from DB ──
+var RID='{{rid}}';
+var _allDbFiles=[];
+var _emailTemplates=[];
+
+// ── PDF Preview ──
+function previewPdf(url, title){
+ document.getElementById('pdfPreviewTitle').textContent=title;
+ document.getElementById('pdfPreviewFrame').src=url;
+ document.getElementById('pdfPreviewDownload').href=url;
+ document.getElementById('pdfPreviewModal').style.display='block';
+}
+document.addEventListener('keydown',function(e){
+ if(e.key==='Escape'){
+  var m=document.getElementById('pdfPreviewModal');if(m) m.style.display='none';
+  var m2=document.getElementById('previewModal');if(m2) m2.style.display='none';
+ }
+});
+
+// ── Load RFQ files from DB (with preview buttons) ──
 (function(){
- var rid='{{rid}}';
- fetch('/api/rfq/'+rid+'/files',{credentials:'same-origin'})
+ fetch('/api/rfq/'+RID+'/files',{credentials:'same-origin'})
  .then(function(r){return r.json()})
  .then(function(d){
   if(!d.ok||!d.files||d.files.length===0) return;
+  _allDbFiles=d.files;
   var card=document.getElementById('rfq-files-card');
   card.style.display='';
   var cats={template:[],generated:[],attachment:[]};
@@ -1071,26 +1134,140 @@ recalc();
   });
   function renderSection(label,icon,files){
    if(!files||files.length===0) return '';
-   var s='<div style="margin-bottom:8px"><div style="font-size:11px;font-weight:700;color:var(--tx2);margin-bottom:4px">'+icon+' '+label+'</div>';
+   var s='<div style="margin-bottom:10px"><div style="font-size:12px;font-weight:700;color:var(--tx2);margin-bottom:6px">'+icon+' '+label+'</div><div style="display:flex;flex-wrap:wrap;gap:6px">';
    files.forEach(function(f){
     var kb=Math.round((f.file_size||0)/1024);
-    s+='<a href="/rfq/'+rid+'/file/'+f.id+'" target="_blank" style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;margin:2px 4px 2px 0;font-size:12px;color:var(--tx);text-decoration:none">';
-    s+='📄 '+f.filename+' <span style="color:var(--tx2);font-size:10px">('+kb+'KB)</span></a>';
+    var previewUrl='/rfq/'+RID+'/preview/'+f.id;
+    s+='<span style="display:inline-flex;align-items:center;gap:4px;padding:6px 12px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;font-size:13px;color:var(--tx)">';
+    s+='<a href="#" onclick="previewPdf(\''+previewUrl+'\',\''+f.filename.replace(/'/g,"\\'")+'\');return false" style="color:var(--ac);text-decoration:none;cursor:pointer" title="Preview">👁️</a> ';
+    s+='<a href="/rfq/'+RID+'/file/'+f.id+'" target="_blank" style="color:var(--tx);text-decoration:none">'+f.filename+'</a>';
+    s+=' <span style="color:var(--tx2);font-size:11px">('+kb+'KB)</span></span>';
    });
-   return s+'</div>';
+   return s+'</div></div>';
   }
   var html='';
   html+=renderSection('Source Templates','📋',cats.template);
   html+=renderSection('Generated Files','📦',cats.generated);
   html+=renderSection('Other Attachments','📎',cats.attachment);
   document.getElementById('rfq-files-list').innerHTML=html;
+  // Populate attachment checkboxes for email
+  buildAttachmentList(cats.generated);
+ }).catch(function(){});
+})();
+
+// ── Attachment Selector for Email ──
+function buildAttachmentList(generated){
+ var el=document.getElementById('attachmentList');
+ if(!el||!generated||generated.length===0){if(el) el.innerHTML='<span style="font-size:12px;color:var(--tx2)">Generate package first to attach files</span>';return;}
+ var html='';
+ generated.forEach(function(f){
+  var kb=Math.round((f.file_size||0)/1024);
+  html+='<label style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;cursor:pointer;font-size:13px">';
+  html+='<input type="checkbox" class="attach-cb" value="'+f.id+'" checked onchange="updateAttachInput()"> ';
+  html+='📄 '+f.filename+' <span style="color:var(--tx2);font-size:11px">('+kb+'KB)</span></label>';
+ });
+ el.innerHTML=html;
+ updateAttachInput();
+}
+function toggleAllAttachments(on){
+ document.querySelectorAll('.attach-cb').forEach(function(cb){cb.checked=on});
+ updateAttachInput();
+}
+function updateAttachInput(){
+ var ids=[];
+ document.querySelectorAll('.attach-cb:checked').forEach(function(cb){ids.push(cb.value)});
+ var inp=document.getElementById('attachFilesInput');
+ if(inp) inp.value=ids.join(',');
+ // Update mail app link
+ var to=document.getElementById('emailTo');
+ var subj=document.getElementById('emailSubject');
+ var body=document.getElementById('emailBody');
+ var link=document.getElementById('mailAppLink');
+ if(to&&subj&&body&&link){
+  link.href='mailto:'+encodeURIComponent(to.value)+'?subject='+encodeURIComponent(subj.value)+'&body='+encodeURIComponent(body.value);
+ }
+}
+
+// ── Email Templates ──
+(function(){
+ fetch('/api/email-templates?category=rfq',{credentials:'same-origin'})
+ .then(function(r){return r.json()})
+ .then(function(d){
+  if(!d.ok) return;
+  _emailTemplates=d.templates;
+  var sel=document.getElementById('emailTemplateSelect');
+  if(!sel) return;
+  d.templates.forEach(function(t){
+   var opt=document.createElement('option');
+   opt.value=t.id;
+   opt.textContent=t.name+(t.is_default?' ★':'');
+   sel.appendChild(opt);
+  });
+ }).catch(function(){});
+})();
+
+function loadEmailTemplate(){
+ var sel=document.getElementById('emailTemplateSelect');
+ if(!sel||!sel.value) return;
+ var vars={
+  solicitation:'{{r.get("solicitation_number","")}}',
+  requestor:'{{r.get("requestor_name","")}}',
+  requestor_email:'{{r.get("requestor_email","")}}',
+  quote_number:'{{r.get("reytech_quote_number","")}}',
+  institution:'{{r.get("institution","")}}',
+  due_date:'{{r.get("due_date","")}}'
+ };
+ fetch('/api/email-templates/render',{method:'POST',credentials:'same-origin',
+  headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({template_id:sel.value,variables:vars})
+ }).then(function(r){return r.json()}).then(function(d){
+  if(d.ok){
+   document.getElementById('emailSubject').value=d.subject;
+   document.getElementById('emailBody').value=d.body;
+   updateAttachInput();
+  }
+ });
+}
+
+function saveCurrentAsTemplate(){
+ var name=prompt('Template name:');
+ if(!name) return;
+ var subj=document.getElementById('emailSubject').value;
+ var body=document.getElementById('emailBody').value;
+ fetch('/api/email-templates',{method:'POST',credentials:'same-origin',
+  headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({name:name,category:'rfq',subject:subj,body:body})
+ }).then(function(r){return r.json()}).then(function(d){
+  if(d.ok) alert('Template saved: '+name);
+  else alert('Save failed');
+ });
+}
+
+// ── Email History ──
+(function(){
+ fetch('/api/email-history?rfq_id='+RID,{credentials:'same-origin'})
+ .then(function(r){return r.json()})
+ .then(function(d){
+  if(!d.ok||!d.emails||d.emails.length===0) return;
+  var card=document.getElementById('email-history-card');
+  card.style.display='';
+  var html='';
+  d.emails.forEach(function(e){
+   var dt=e.logged_at?new Date(e.logged_at).toLocaleString():'';
+   var dir=e.direction==='outbound'?'📤':'📥';
+   html+='<div style="padding:8px 0;border-bottom:1px solid var(--bd);font-size:13px">';
+   html+=dir+' <b>'+e.recipient+'</b> — '+e.subject;
+   html+='<div style="font-size:11px;color:var(--tx2);margin-top:2px">'+dt;
+   if(e.attachments_json){try{var a=JSON.parse(e.attachments_json);if(a.length) html+=' · '+a.length+' attachments';}catch(x){}}
+   html+='</div></div>';
+  });
+  document.getElementById('email-history-list').innerHTML=html;
  }).catch(function(){});
 })();
 
 // ── Load Activity Log ──
 (function(){
- var rid='{{rid}}';
- fetch('/api/rfq/'+rid+'/activity',{credentials:'same-origin'})
+ fetch('/api/rfq/'+RID+'/activity',{credentials:'same-origin'})
  .then(function(r){return r.json()})
  .then(function(d){
   if(!d.ok||!d.activities||d.activities.length===0){
@@ -1110,10 +1287,10 @@ recalc();
    else if(et.indexOf('status')>=0) icon='🔄';
    else if(et.indexOf('template')>=0) icon='📎';
    else if(et.indexOf('delete')>=0) icon='🗑️';
-   html+='<div style="display:flex;gap:8px;padding:6px 0;border-bottom:1px solid var(--bd)">';
-   html+='<span>'+icon+'</span>';
-   html+='<div style="flex:1"><div style="font-size:12px">'+a.description+'</div>';
-   html+='<div style="font-size:10px;color:var(--tx2);margin-top:2px">'+dt+' · '+a.actor+'</div></div></div>';
+   html+='<div style="display:flex;gap:8px;padding:8px 0;border-bottom:1px solid var(--bd)">';
+   html+='<span style="font-size:16px">'+icon+'</span>';
+   html+='<div style="flex:1"><div style="font-size:13px">'+a.description+'</div>';
+   html+='<div style="font-size:11px;color:var(--tx2);margin-top:3px">'+dt+' · '+a.actor+'</div></div></div>';
   });
   document.getElementById('rfq-activity').innerHTML=html;
  }).catch(function(){

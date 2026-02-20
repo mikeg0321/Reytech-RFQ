@@ -839,3 +839,244 @@ def api_rfq_activity(rid):
     """Get activity log for an RFQ."""
     activities = _get_crm_activity(ref_id=rid, limit=50)
     return jsonify({"ok": True, "activities": activities, "count": len(activities)})
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Email Templates API
+# ═══════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/email-templates")
+@auth_required
+def api_list_email_templates():
+    """List email templates, optionally filtered by category."""
+    category = request.args.get("category")
+    templates = get_email_templates_db(category)
+    return jsonify({"ok": True, "templates": templates})
+
+
+@bp.route("/api/email-templates/<tid>", methods=["GET"])
+@auth_required
+def api_get_email_template(tid):
+    """Get a single email template by ID."""
+    templates = get_email_templates_db()
+    t = next((t for t in templates if t["id"] == tid), None)
+    if not t:
+        return jsonify({"ok": False, "error": "Template not found"}), 404
+    return jsonify({"ok": True, "template": t})
+
+
+@bp.route("/api/email-templates", methods=["POST"])
+@auth_required
+def api_create_email_template():
+    """Create or update an email template."""
+    data = request.get_json() or request.form
+    tid = save_email_template_db(
+        data.get("id", ""), data.get("name", ""), data.get("category", "rfq"),
+        data.get("subject", ""), data.get("body", ""), int(data.get("is_default", 0)))
+    if tid:
+        return jsonify({"ok": True, "id": tid})
+    return jsonify({"ok": False, "error": "Save failed"}), 500
+
+
+@bp.route("/api/email-templates/<tid>", methods=["DELETE"])
+@auth_required
+def api_delete_email_template(tid):
+    """Delete an email template."""
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            conn.execute("DELETE FROM email_templates WHERE id = ?", (tid,))
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route("/api/email-templates/render", methods=["POST"])
+@auth_required
+def api_render_email_template():
+    """Render a template with variables. POST {template_id, variables: {...}}"""
+    data = request.get_json()
+    tid = data.get("template_id", "")
+    variables = data.get("variables", {})
+    
+    templates = get_email_templates_db()
+    t = next((t for t in templates if t["id"] == tid), None)
+    if not t:
+        return jsonify({"ok": False, "error": "Template not found"}), 404
+    
+    subject = t["subject"]
+    body = t["body"]
+    for key, val in variables.items():
+        subject = subject.replace("{{" + key + "}}", str(val))
+        body = body.replace("{{" + key + "}}", str(val))
+    
+    return jsonify({"ok": True, "subject": subject, "body": body})
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# PDF Preview from DB
+# ═══════════════════════════════════════════════════════════════════════
+
+@bp.route("/rfq/<rid>/preview/<file_id>")
+@auth_required
+def rfq_preview_pdf(rid, file_id):
+    """Serve a PDF for inline preview (Content-Disposition: inline)."""
+    f = get_rfq_file(file_id)
+    if not f or f.get("rfq_id") != rid:
+        return "File not found", 404
+    from flask import Response
+    return Response(
+        f["data"],
+        mimetype="application/pdf",
+        headers={"Content-Disposition": f"inline; filename=\"{f['filename']}\""}
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Enhanced Email Send — DB attachments + email logging + CRM tracking
+# ═══════════════════════════════════════════════════════════════════════
+
+@bp.route("/rfq/<rid>/send-email", methods=["POST"])
+@auth_required
+def send_email_enhanced(rid):
+    """Send email with editable fields and DB-stored attachments.
+    Form fields: to, subject, body, attach_files (comma-separated file IDs)
+    """
+    from src.api.trace import Trace
+    t = Trace("email_send", rfq_id=rid)
+    
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        t.fail("RFQ not found")
+        flash("RFQ not found", "error")
+        return redirect("/")
+    
+    # Get editable fields from form
+    to_addr = request.form.get("to", "").strip()
+    subject = request.form.get("subject", "").strip()
+    body = request.form.get("body", "").strip()
+    attach_ids = [x.strip() for x in request.form.get("attach_files", "").split(",") if x.strip()]
+    
+    if not to_addr or not subject:
+        flash("Email requires To and Subject", "error")
+        return redirect(f"/rfq/{rid}")
+    
+    t.step("Preparing email", to=to_addr, attachments=len(attach_ids))
+    
+    # Build attachment list from DB files
+    import tempfile, shutil
+    tmp_dir = tempfile.mkdtemp(prefix="rfq_send_")
+    attachment_paths = []
+    attachment_names = []
+    
+    try:
+        for fid in attach_ids:
+            f = get_rfq_file(fid)
+            if f and f.get("data"):
+                path = os.path.join(tmp_dir, f["filename"])
+                with open(path, "wb") as _fw:
+                    _fw.write(f["data"])
+                attachment_paths.append(path)
+                attachment_names.append(f["filename"])
+                t.step(f"Attached: {f['filename']}")
+        
+        # Also check filesystem for any files not in DB yet
+        if not attach_ids and r.get("output_files"):
+            out_dir = os.path.join(UPLOAD_DIR, rid)
+            for fname in r["output_files"]:
+                fpath = os.path.join(out_dir, fname)
+                if os.path.exists(fpath):
+                    attachment_paths.append(fpath)
+                    attachment_names.append(fname)
+        
+        # Send via SMTP
+        draft = {
+            "to": to_addr,
+            "subject": subject,
+            "body": body,
+            "attachments": attachment_paths,
+        }
+        
+        sender = EmailSender(CONFIG.get("email", {}))
+        sender.send(draft)
+        
+        # Transition status
+        _transition_status(r, "sent", actor="user", notes=f"Email sent to {to_addr}")
+        r["sent_at"] = datetime.now().isoformat()
+        r["draft_email"] = {"to": to_addr, "subject": subject, "body": body}
+        save_rfqs(rfqs)
+        
+        # ── Log to email_log table ──
+        sol = r.get("solicitation_number", "")
+        qn = r.get("reytech_quote_number", "")
+        
+        # Find contact_id from recipient email
+        contact_id = ""
+        try:
+            from src.core.db import get_db
+            with get_db() as conn:
+                row = conn.execute("SELECT id FROM contacts WHERE buyer_email = ?", (to_addr.lower(),)).fetchone()
+                if row:
+                    contact_id = row[0]
+        except Exception:
+            pass
+        
+        email_log_id = log_email_sent_db(
+            direction="outbound", sender=sender.email_addr, recipient=to_addr,
+            subject=subject, body=body, attachments=attachment_names,
+            quote_number=qn, rfq_id=rid, contact_id=contact_id)
+        t.step(f"Email logged (id={email_log_id})")
+        
+        # ── CRM activity: log against quote AND contact ──
+        _log_rfq_activity(rid, "email_sent",
+            f"Bid response emailed to {to_addr} for Sol #{sol} ({len(attachment_names)} attachments)",
+            actor="user", metadata={"to": to_addr, "quote": qn, "files": attachment_names, "email_log_id": email_log_id})
+        
+        if qn:
+            _log_crm_activity(qn, "email_sent",
+                f"Quote {qn} emailed to {to_addr} for Sol #{sol}",
+                actor="user", metadata={"to": to_addr, "rfq_id": rid})
+            if QUOTE_GEN_AVAILABLE:
+                update_quote_status(qn, "sent", actor="system")
+        
+        if contact_id:
+            _log_crm_activity(contact_id, "email_sent",
+                f"Bid response for Sol #{sol} (Quote {qn}) sent to {to_addr}",
+                actor="user", metadata={"rfq_id": rid, "quote": qn, "solicitation": sol})
+        
+        t.ok("Email sent", to=to_addr, attachments=len(attachment_names))
+        flash(f"✅ Email sent to {to_addr} with {len(attachment_names)} attachments", "success")
+        
+    except Exception as e:
+        t.fail("Send failed", error=str(e))
+        flash(f"Send failed: {e}. Try 'Open in Mail App' instead.", "error")
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+    
+    return redirect(f"/rfq/{rid}")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Email History API (for contact/quote level)
+# ═══════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/email-history")
+@auth_required
+def api_email_history():
+    """Get email history. Filter by ?rfq_id=, ?quote_number=, ?contact_id="""
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            query = "SELECT id, logged_at, direction, sender, recipient, subject, body_preview, attachments_json, quote_number, rfq_id, contact_id, status FROM email_log WHERE 1=1"
+            params = []
+            for field in ("rfq_id", "quote_number", "contact_id"):
+                val = request.args.get(field)
+                if val:
+                    query += f" AND {field} = ?"
+                    params.append(val)
+            query += " ORDER BY logged_at DESC LIMIT 50"
+            rows = conn.execute(query, params).fetchall()
+            return jsonify({"ok": True, "emails": [dict(r) for r in rows], "count": len(rows)})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500

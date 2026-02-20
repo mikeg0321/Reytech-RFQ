@@ -459,6 +459,192 @@ def _log_rfq_activity(rfq_id: str, action: str, details: str, actor: str = "syst
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# Email Templates — saveable/editable templates for PC, RFQ, customer svc
+# ═══════════════════════════════════════════════════════════════════════
+
+def _init_email_templates_table():
+    """Create email_templates table and seed defaults."""
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS email_templates (
+                    id          TEXT PRIMARY KEY,
+                    name        TEXT NOT NULL,
+                    category    TEXT NOT NULL,
+                    subject     TEXT NOT NULL,
+                    body        TEXT NOT NULL,
+                    is_default  INTEGER DEFAULT 0,
+                    created_at  TEXT NOT NULL,
+                    updated_at  TEXT NOT NULL
+                )
+            """)
+            # Seed defaults if empty
+            count = conn.execute("SELECT COUNT(*) FROM email_templates").fetchone()[0]
+            if count == 0:
+                now = datetime.now().isoformat()
+                defaults = [
+                    ("et_rfq_bid", "RFQ Bid Response", "rfq",
+                     "Reytech Inc. - Bid Response - Solicitation #{{solicitation}}",
+                     """Dear {{requestor}},
+
+Please find attached our bid response for Solicitation #{{solicitation}}.
+
+Bid Package includes:
+- AMS 703B - Request for Quotation (signed)
+- AMS 704B - CCHCS Acquisition Quote Worksheet (with pricing)
+- Bid Package & Forms (all required forms completed)
+- Reytech Quote #{{quote_number}} on company letterhead
+
+All items are quoted F.O.B. Destination, freight prepaid and included.
+Pricing is valid for 45 calendar days from the due date.
+
+Please let us know if you need any additional information.
+
+Best regards,
+Michael Guadan
+Reytech Inc.
+949-229-1575
+sales@reytechinc.com
+SB/DVBE Cert #2002605""", 1),
+                    ("et_rfq_nobid", "RFQ No Bid", "rfq",
+                     "Reytech Inc. - No Bid - Solicitation #{{solicitation}}",
+                     """Dear {{requestor}},
+
+Thank you for the opportunity to bid on Solicitation #{{solicitation}}.
+
+After careful review, we have decided not to submit a bid for this solicitation at this time.
+
+We look forward to future opportunities.
+
+Best regards,
+Michael Guadan
+Reytech Inc.
+949-229-1575
+sales@reytechinc.com""", 0),
+                    ("et_pc_quote", "Price Check Quote", "pc",
+                     "Reytech Inc. - Quote #{{quote_number}} - {{institution}}",
+                     """Dear {{requestor}},
+
+Please find attached our quote for the requested items.
+
+Quote #{{quote_number}}
+Institution: {{institution}}
+
+All items are quoted F.O.B. Destination, freight prepaid and included.
+Pricing is valid for 45 calendar days.
+
+Please let us know if you need any additional information.
+
+Best regards,
+Michael Guadan
+Reytech Inc.
+949-229-1575
+sales@reytechinc.com
+SB/DVBE Cert #2002605""", 1),
+                    ("et_followup", "Follow-Up", "customer_service",
+                     "Reytech Inc. - Following Up - {{subject}}",
+                     """Dear {{requestor}},
+
+I wanted to follow up on our recent communication regarding {{subject}}.
+
+Please let us know if you have any questions or need additional information.
+
+Best regards,
+Michael Guadan
+Reytech Inc.
+949-229-1575
+sales@reytechinc.com""", 0),
+                    ("et_thankyou", "Thank You / Order Confirmation", "customer_service",
+                     "Reytech Inc. - Order Confirmation - PO #{{po_number}}",
+                     """Dear {{requestor}},
+
+Thank you for your order (PO #{{po_number}}). We have received your purchase order and will begin processing immediately.
+
+Estimated delivery: {{delivery_estimate}}
+
+Please let us know if you have any questions.
+
+Best regards,
+Michael Guadan
+Reytech Inc.
+949-229-1575
+sales@reytechinc.com""", 0),
+                ]
+                for tid, name, cat, subj, body, is_default in defaults:
+                    conn.execute(
+                        "INSERT INTO email_templates (id, name, category, subject, body, is_default, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)",
+                        (tid, name, cat, subj, body, is_default, now, now))
+    except Exception as e:
+        log.debug("email_templates init: %s", e)
+
+_init_email_templates_table()
+
+
+def get_email_templates_db(category: str = None) -> list:
+    """Get email templates, optionally filtered by category."""
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            if category:
+                rows = conn.execute(
+                    "SELECT id, name, category, subject, body, is_default FROM email_templates WHERE category = ? ORDER BY is_default DESC, name",
+                    (category,)).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT id, name, category, subject, body, is_default FROM email_templates ORDER BY category, is_default DESC, name"
+                ).fetchall()
+            return [dict(r) for r in rows]
+    except Exception as e:
+        log.error("get_email_templates: %s", e)
+    return []
+
+
+def save_email_template_db(template_id: str, name: str, category: str, subject: str, body: str, is_default: int = 0) -> str:
+    """Save or update an email template."""
+    try:
+        from src.core.db import get_db
+        import uuid
+        if not template_id:
+            template_id = f"et_{uuid.uuid4().hex[:8]}"
+        now = datetime.now().isoformat()
+        with get_db() as conn:
+            existing = conn.execute("SELECT id FROM email_templates WHERE id = ?", (template_id,)).fetchone()
+            if existing:
+                conn.execute(
+                    "UPDATE email_templates SET name=?, category=?, subject=?, body=?, is_default=?, updated_at=? WHERE id=?",
+                    (name, category, subject, body, is_default, now, template_id))
+            else:
+                conn.execute(
+                    "INSERT INTO email_templates (id, name, category, subject, body, is_default, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)",
+                    (template_id, name, category, subject, body, is_default, now, now))
+        return template_id
+    except Exception as e:
+        log.error("save_email_template: %s", e)
+    return ""
+
+
+def log_email_sent_db(direction: str, sender: str, recipient: str, subject: str,
+                    body: str, attachments: list = None, quote_number: str = "",
+                    rfq_id: str = "", contact_id: str = "") -> int:
+    """Log an email to the email_log table. Returns row ID."""
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            cur = conn.execute("""
+                INSERT INTO email_log (logged_at, direction, sender, recipient, subject, body_preview, full_body, attachments_json, quote_number, rfq_id, contact_id, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (datetime.now().isoformat(), direction, sender, recipient, subject,
+                  body[:200] if body else "", body or "",
+                  json.dumps(attachments or []), quote_number, rfq_id,
+                  contact_id, "sent" if direction == "outbound" else "received"))
+            return cur.lastrowid
+    except Exception as e:
+        log.error("log_email_sent: %s", e)
+    return 0
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # Price Check JSON helpers
 # ═══════════════════════════════════════════════════════════════════════ (defined here to avoid import from routes_rfq
 # which can't be imported directly because bp isn't defined at import time)
