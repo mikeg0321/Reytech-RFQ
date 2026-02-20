@@ -1758,7 +1758,7 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
 
     function _detectSupplierJS(url) {{
       try {{
-        const host = new URL(url).hostname.replace(/^www\./,'');
+        const host = new URL(url).hostname.replace(/^www\\./,'');
         for (const [dom, name] of Object.entries(_KNOWN_DOMAINS)) {{
           if (host.includes(dom)) return name;
         }}
@@ -1770,7 +1770,7 @@ def build_pc_detail_html(pcid, pc, items, items_html, download_html,
     }}
 
     function _isUrl(v) {{
-      return /^https?:\/\//i.test(v) || /^[a-z0-9-]+\.[a-z]{{2,}}\//i.test(v);
+      return /^https?:\\/\\//i.test(v) || /^[a-z0-9-]+\\.[a-z]{{2,}}\\//i.test(v);
     }}
 
     function handleLinkInput(idx, inp) {{
