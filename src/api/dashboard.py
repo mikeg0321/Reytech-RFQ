@@ -669,8 +669,9 @@ def _save_price_checks(pcs):
 def _is_user_facing_pc(pc: dict) -> bool:
     """Canonical filter: is this PC for the standalone PC queue?
     Auto-price PCs (created from RFQ imports) belong to the RFQ row, not the PC queue.
+    Standalone email PCs (Valentina's 704s) DO belong in the PC queue.
     Used by: home page, manager brief, workflow tester, pipeline summary."""
-    if pc.get("source") in ("email_auto_draft", "email_auto"):
+    if pc.get("source") == "email_auto_draft":
         return False
     if pc.get("is_auto_draft"):
         return False
