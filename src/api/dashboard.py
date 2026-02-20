@@ -476,59 +476,80 @@ def process_rfq_email(rfq_email):
     Deduplicates by checking email_uid against existing RFQs.
     PRD Feature 4.2: After parsing, auto-triggers price check + draft quote generation.
     """
+    _trace = []  # Per-email trace for diagnostics
+    _subj = rfq_email.get("subject", "?")[:50]
+    _trace.append(f"START: {_subj}")
     
     # Dedup: check if this email UID is already in the queue
     rfqs = load_rfqs()
     for existing in rfqs.values():
         if existing.get("email_uid") == rfq_email.get("email_uid"):
+            _trace.append("SKIP: duplicate email_uid in RFQ queue")
             log.info(f"Skipping duplicate email UID {rfq_email.get('email_uid')}: already in queue")
+            POLL_STATUS.setdefault("_email_traces", []).append(_trace)
             return None
     
     # ── Route 704 price checks to PC queue, NOT the RFQ queue ──────────────
-    # A 704 is procurement asking "what's your price?" → PC queue
-    # An RFQ is procurement saying "your price was approved, send full bid package" → RFQ queue
-    # The two queues serve different purposes and must stay separate.
     attachments = rfq_email.get("attachments", [])
     pdf_paths = [a["path"] for a in attachments if a.get("path") and a["path"].lower().endswith(".pdf")]
+    _trace.append(f"PDFs: {len(pdf_paths)} paths, PRICE_CHECK_AVAILABLE={PRICE_CHECK_AVAILABLE}")
+    
     if pdf_paths and PRICE_CHECK_AVAILABLE:
         try:
             from src.api.modules.routes_rfq import _is_price_check, _handle_price_check_upload
-            # Check ALL PDFs — email may have cover letter first, 704 second
+            # Check each PDF
+            pc_checks = []
+            for p in pdf_paths:
+                try:
+                    is_pc = _is_price_check(p)
+                    pc_checks.append(f"{os.path.basename(p)}={'PC' if is_pc else 'NO'}")
+                except Exception as e:
+                    pc_checks.append(f"{os.path.basename(p)}=ERR:{e}")
+            _trace.append(f"PC checks: {pc_checks}")
+            
             pc_pdf = next((p for p in pdf_paths if _is_price_check(p)), None)
             if pc_pdf:
                 import uuid as _uuid
                 pc_id = f"pc_{str(_uuid.uuid4())[:8]}"
-                log.info("Email %s detected as AMS 704 price check → routing to PC queue (not RFQ)",
-                         rfq_email.get("email_uid", "?"))
-                # Dedup by email UID only — _handle_price_check_upload has its own
-                # (pc_number, institution, due_date) dedup for content-level duplicates
+                _trace.append(f"PC detected: {os.path.basename(pc_pdf)} → {pc_id}")
+                
                 from src.api.modules.routes_rfq import _load_price_checks
                 existing_pcs = _load_price_checks()
                 email_uid = rfq_email.get("email_uid")
                 if email_uid and any(p.get("email_uid") == email_uid for p in existing_pcs.values()):
-                    log.info("Skipping duplicate PC email UID %s", email_uid)
+                    _trace.append("SKIP: duplicate email_uid in PC queue")
+                    POLL_STATUS.setdefault("_email_traces", []).append(_trace)
                     return None
-                if pc_pdf:  # still routing to PC
+                
+                # Create the PC
+                try:
                     result = _handle_price_check_upload(pc_pdf, pc_id, from_email=True)
-                    pcs = _load_price_checks()
-                    if pc_id in pcs:
-                        # PC was successfully created — add email metadata
-                        pcs[pc_id]["email_uid"] = email_uid
-                        pcs[pc_id]["email_subject"] = rfq_email.get("subject", "")
-                        pcs[pc_id]["requestor"] = pcs[pc_id].get("requestor") or rfq_email.get("sender_name") or rfq_email.get("sender_email", "")
-                        from src.api.modules.routes_rfq import _save_price_checks
-                        _save_price_checks(pcs)
-                        _ensure_contact_from_email(rfq_email)
-                        log.info("PC %s created successfully from email %s", pc_id, email_uid)
-                        return None  # Don't add to RFQ queue — PC created
-                    else:
-                        # PC creation FAILED (parse error etc) — fall through to RFQ queue
-                        # so the email isn't silently lost
-                        log.warning("PC creation failed for %s (result=%s) — falling through to RFQ queue",
-                                    rfq_email.get("subject", "?")[:50], result)
-                        # Don't return None — let it create an RFQ instead
+                    _trace.append(f"_handle result: {result}")
+                except Exception as he:
+                    _trace.append(f"_handle EXCEPTION: {he}")
+                    result = {"error": str(he)}
+                
+                pcs = _load_price_checks()
+                _trace.append(f"PCs after create: {len(pcs)} ids={list(pcs.keys())[:5]}")
+                
+                if pc_id in pcs:
+                    pcs[pc_id]["email_uid"] = email_uid
+                    pcs[pc_id]["email_subject"] = rfq_email.get("subject", "")
+                    pcs[pc_id]["requestor"] = pcs[pc_id].get("requestor") or rfq_email.get("sender_name") or rfq_email.get("sender_email", "")
+                    from src.api.modules.routes_rfq import _save_price_checks
+                    _save_price_checks(pcs)
+                    _ensure_contact_from_email(rfq_email)
+                    _trace.append(f"PC CREATED: {pc_id}")
+                    log.info("PC %s created successfully from email %s", pc_id, email_uid)
+                    POLL_STATUS.setdefault("_email_traces", []).append(_trace)
+                    return None
+                else:
+                    _trace.append(f"PC NOT in storage — falling through to RFQ")
+                    log.warning("PC creation failed for %s (result=%s) — falling through to RFQ queue",
+                                _subj, result)
         except Exception as _e:
-            log.warning("704 detection in email polling: %s", _e)  # warn not debug — this is actionable
+            _trace.append(f"EXCEPTION in PC block: {_e}")
+            log.warning("704 detection in email polling: %s", _e)
 
     # ── Solicitation-number dedup against PC queue ──────────────────────────
     # If this email's solicitation number is already in the PC queue, it's the same
@@ -778,6 +799,7 @@ def do_poll_check():
         "pcs_routed": 0,
         "errors": [],
     }
+    POLL_STATUS["_email_traces"] = []  # Per-email traces from process_rfq_email
     
     imported = []
     try:

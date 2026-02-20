@@ -2536,6 +2536,8 @@ def api_admin_reset_and_poll():
                 steps["poller_diag"] = _shared_poller._diag
         except Exception:
             pass
+        # Include per-email traces
+        steps["email_traces"] = POLL_STATUS.get("_email_traces", [])
         log.info("RESET+POLL: Step 3 — poll created %d PCs + %d RFQs", new_pcs, len(imported))
     except Exception as e:
         steps["poll_error"] = str(e)
