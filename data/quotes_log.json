@@ -291,5 +291,176 @@
         "actor": "system"
       }
     ]
+  },
+  {
+    "quote_number": "R26Q22",
+    "date": "Feb 20, 2026",
+    "agency": "CDCR",
+    "institution": "CDCR",
+    "rfq_number": "10838349",
+    "total": 562.68,
+    "subtotal": 524.64,
+    "tax": 38.04,
+    "items_count": 1,
+    "items_text": "Assistina Universal Adapter Ea 2380066 | W&H Impex Inc - 02685000",
+    "items_detail": [
+      {
+        "description": "Assistina Universal Adapter Ea 2380066 | W&H Impex Inc - 02685000",
+        "part_number": "02685000",
+        "qty": 2,
+        "unit_price": 262.32
+      }
+    ],
+    "pdf_path": "/mnt/user-data/outputs/quote_compact.pdf",
+    "source_pc_id": "",
+    "source_rfq_id": "test_v3",
+    "ship_to_name": "CCWF - Central California Women's Facility",
+    "ship_to_address": [
+      "23370 Road 22",
+      "Chowchilla",
+      "CA 93610"
+    ],
+    "requestor": "",
+    "contact_name": "",
+    "email": "",
+    "phone": "",
+    "source": "",
+    "is_test": false,
+    "status": "pending",
+    "created_at": "2026-02-20T10:24:06.137211",
+    "status_history": [
+      {
+        "status": "pending",
+        "timestamp": "2026-02-20T10:24:06.137211",
+        "actor": "system"
+      }
+    ]
+  },
+  {
+    "quote_number": "R26Q99",
+    "date": "Feb 20, 2026",
+    "agency": "CDCR",
+    "institution": "SCC - Sierra Conservation Center",
+    "rfq_number": "10838099",
+    "total": 74131.2,
+    "subtotal": 69120.0,
+    "tax": 5011.2,
+    "items_count": 15,
+    "items_text": "Medical Supply Item #1 - Long description for testing multi-page layout with wra | Medical Supply Item #2 - Long description for testing multi-page layout with wra | Medical Supply Item #3 - Long description for testing multi-page layout with wra | Medical Supply Item #4 - Long description for testing multi-page layout with wra | Medical Supply Item #5 - Long description for testing multi-page layout with wra | Medical Supply Item #6 - Long description for testing multi-page layout with wra | Medical Supply Item #7 - Long description for testing multi-page layout with wra | Medical Supply Item #8 - Long description for testing multi-page layout with wra | Medical Supply Item #9 - Long description for testing multi-page layout with wra | Medical Supply Item #10 - Long description for testing multi-page layout with wr | Medical Supply Item #11 - Long description for testing multi-page layout with wr | Medical Supply Item #12 - Long description for testing multi-page layout with wr | Medical Supply Item #13 - Long description for testing multi-page layout with wr | Medical Supply Item #14 - Long description for testing multi-page layout with wr | Medical Supply Item #15 - Long description for testing multi-page layout with wr",
+    "items_detail": [
+      {
+        "description": "Medical Supply Item #1 - Long description for testing multi-page layout with wrapping text that exceeds the column width",
+        "part_number": "MFG-1000",
+        "qty": 2,
+        "unit_price": 50.0
+      },
+      {
+        "description": "Medical Supply Item #2 - Long description for testing multi-page layout with wrapping text that exceeds the column width",
+        "part_number": "MFG-1001",
+        "qty": 4,
+        "unit_price": 75.5
+      },
+      {
+        "description": "Medical Supply Item #3 - Long description for testing multi-page layout with wrapping text that exceeds the column width",
+        "part_number": "MFG-1002",
+        "qty": 6,
+        "unit_price": 101.0
+      },
+      {
+        "description": "Medical Supply Item #4 - Long description for testing multi-page layout with wrapping text that exceeds the column width",
+        "part_number": "MFG-1003",
+        "qty": 8,
+        "unit_price": 126.5
+      },
+      {
+        "description": "Medical Supply Item #5 - Long description for testing multi-page layout with wrapping text that exceeds the column width",
+        "part_number": "MFG-1004",
+        "qty": 10,
+        "unit_price": 152.0
+      },
+      {
+        "description": "Medical Supply Item #6 - Long description for testing multi-page layout with wrapping text that exceeds the column width",
+        "part_number": "MFG-1005",
+        "qty": 12,
+        "unit_price": 177.5
+      },
+      {
+        "description": "Medical Supply Item #7 - Long description for testing multi-page layout with wrapping text that exceeds the column width",
+        "part_number": "MFG-1006",
+        "qty": 14,
+        "unit_price": 203.0
+      },
+      {
+        "description": "Medical Supply Item #8 - Long description for testing multi-page layout with wrapping text that exceeds the column width",
+        "part_number": "MFG-1007",
+        "qty": 16,
+        "unit_price": 228.5
+      },
+      {
+        "description": "Medical Supply Item #9 - Long description for testing multi-page layout with wrapping text that exceeds the column width",
+        "part_number": "MFG-1008",
+        "qty": 18,
+        "unit_price": 254.0
+      },
+      {
+        "description": "Medical Supply Item #10 - Long description for testing multi-page layout with wrapping text that exceeds the column widt",
+        "part_number": "MFG-1009",
+        "qty": 20,
+        "unit_price": 279.5
+      },
+      {
+        "description": "Medical Supply Item #11 - Long description for testing multi-page layout with wrapping text that exceeds the column widt",
+        "part_number": "MFG-1010",
+        "qty": 22,
+        "unit_price": 305.0
+      },
+      {
+        "description": "Medical Supply Item #12 - Long description for testing multi-page layout with wrapping text that exceeds the column widt",
+        "part_number": "MFG-1011",
+        "qty": 24,
+        "unit_price": 330.5
+      },
+      {
+        "description": "Medical Supply Item #13 - Long description for testing multi-page layout with wrapping text that exceeds the column widt",
+        "part_number": "MFG-1012",
+        "qty": 26,
+        "unit_price": 356.0
+      },
+      {
+        "description": "Medical Supply Item #14 - Long description for testing multi-page layout with wrapping text that exceeds the column widt",
+        "part_number": "MFG-1013",
+        "qty": 28,
+        "unit_price": 381.5
+      },
+      {
+        "description": "Medical Supply Item #15 - Long description for testing multi-page layout with wrapping text that exceeds the column widt",
+        "part_number": "MFG-1014",
+        "qty": 30,
+        "unit_price": 407.0
+      }
+    ],
+    "pdf_path": "/mnt/user-data/outputs/quote_multipage.pdf",
+    "source_pc_id": "",
+    "source_rfq_id": "",
+    "ship_to_name": "SCC - Sierra Conservation Center",
+    "ship_to_address": [
+      "5100 O'Byrnes Ferry Road",
+      "Jamestown, CA 95327"
+    ],
+    "requestor": "",
+    "contact_name": "",
+    "email": "",
+    "phone": "",
+    "source": "",
+    "is_test": false,
+    "status": "pending",
+    "created_at": "2026-02-20T10:24:06.237018",
+    "status_history": [
+      {
+        "status": "pending",
+        "timestamp": "2026-02-20T10:24:06.237018",
+        "actor": "system"
+      }
+    ]
   }
 ]

@@ -648,135 +648,123 @@ def generate_quote(
             c.drawString(x, rl_y, s)
 
     # ══════════════════════════════════════════════════════════════════════════
-    # PAGE 1 HEADER
+    # PAGE 1 HEADER  (all y values are "from top of page")
     # ══════════════════════════════════════════════════════════════════════════
 
-    # ── "QUOTE" title — y=129, right-aligned, ~20pt bold ──────────────────────
-    text(MR, 148, "QUOTE", "Helvetica-Bold", 22, BLACK, "right")
+    TOP = 62   # start content higher up (saves ~80pt vs old layout)
 
-    # ── Horizontal rule at y=148 (dark purple-navy) ───────────────────────────
+    # -- "QUOTE" title -- right-aligned
+    text(MR, TOP, "QUOTE", "Helvetica-Bold", 22, BLACK, "right")
+
+    # -- Horizontal rule
     c.setStrokeColor(LBL_BD)
     c.setLineWidth(1.5)
-    c.line(ML, Y(149), MR, Y(149))
+    c.line(ML, Y(TOP + 2), MR, Y(TOP + 2))
 
-    # ── QUOTE # box: y=155.5→177, label=396→463, value=464→594 ───────────────
-    # Label cell (filled)
-    box(396, 155, 67, 22, fill=True, border_color=LBL_BD)
-    text(400, 172, "QUOTE #", "Helvetica-Bold", 10)
-    # Value cell (white)
-    box(463, 155, 131, 22, fill=False, border_color=VAL_BD)
-    text(MR - 6, 172, quote_number, "Helvetica-Bold", 12, BLACK, "right")
+    # -- QUOTE # / DATE boxes -- right column
+    qbox_y = TOP + 6
+    box(396, qbox_y, 67, 20, fill=True, border_color=LBL_BD)
+    text(400, qbox_y + 15, "QUOTE #", "Helvetica-Bold", 10)
+    box(463, qbox_y, 131, 20, fill=False, border_color=VAL_BD)
+    text(MR - 6, qbox_y + 15, quote_number, "Helvetica-Bold", 12, BLACK, "right")
 
-    # ── DATE box: y=178→200 ───────────────────────────────────────────────────
-    box(396, 178, 67, 22, fill=True, border_color=LBL_BD)
-    text(400, 195, "DATE", "Helvetica-Bold", 10)
-    box(463, 178, 131, 22, fill=False, border_color=VAL_BD)
-    text(MR - 6, 195, quote_date, "Helvetica-Bold", 10, BLACK, "right")
+    box(396, qbox_y + 21, 67, 20, fill=True, border_color=LBL_BD)
+    text(400, qbox_y + 36, "DATE", "Helvetica-Bold", 10)
+    box(463, qbox_y + 21, 131, 20, fill=False, border_color=VAL_BD)
+    text(MR - 6, qbox_y + 36, quote_date, "Helvetica-Bold", 10, BLACK, "right")
 
-    # ── Reytech logo + company info (left column) ──────────────────────────────
-    # Original QuoteWerks logo: x=48, top=152, w=135, h=35
+    # -- Reytech logo + company info (left column)
     logo_path = _find_logo()
-    logo_text_x = ML + 34  # default text position if no logo
+    logo_y = TOP + 5
+    logo_text_x = ML + 34
     if logo_path:
         try:
             img = ImageReader(logo_path)
             iw, ih = img.getSize()
-            max_w, max_h = 130, 32
+            max_w, max_h = 130, 30
             scale = min(max_w / iw, max_h / ih)
             dw, dh = iw * scale, ih * scale
-            logo_rl_y = Y(152) - dh
-            c.drawImage(logo_path, ML + 8, logo_rl_y, width=dw, height=dh,
+            c.drawImage(logo_path, ML + 8, Y(logo_y) - dh, width=dw, height=dh,
                         preserveAspectRatio=True, mask='auto')
-            logo_text_x = ML + 8 + dw + 6  # text right of logo
+            logo_text_x = ML + 8 + dw + 6
         except Exception as e:
             log.warning(f"Logo load failed: {e}")
             logo_path = None
 
     if not logo_path:
-        # Text-only fallback — navy chevron
         p = c.beginPath()
-        bx, by = ML + 8, Y(164)
-        p.moveTo(bx, by)
-        p.lineTo(bx + 10, by + 14)
-        p.lineTo(bx + 20, by)
-        p.lineTo(bx + 10, by - 3)
-        p.close()
+        bx, by = ML + 8, Y(logo_y + 12)
+        p.moveTo(bx, by); p.lineTo(bx + 10, by + 14)
+        p.lineTo(bx + 20, by); p.lineTo(bx + 10, by - 3); p.close()
         c.setFillColor(NAVY)
         c.drawPath(p, fill=1, stroke=0)
         logo_text_x = ML + 34
-
-    # Always render "Reytech Inc." as selectable text ONLY when no logo
-    # (the logo image already includes the company name and branding)
-    if not logo_path:
         c.setFont("Helvetica-Bold", 13)
         c.setFillColor(NAVY)
-        c.drawString(logo_text_x, Y(166), "Reytech Inc.")
-
-        # PRD Feature P2: Enhanced branding — SB/DVBE tagline
+        c.drawString(logo_text_x, Y(logo_y + 14), "Reytech Inc.")
         c.setFont("Helvetica-Oblique", 7.5)
         c.setFillColor(HexColor("#4f8cff"))
-        c.drawString(logo_text_x, Y(178), "CA Certified Small Business (SB) & DVBE")
+        c.drawString(logo_text_x, Y(logo_y + 25), "CA Certified Small Business (SB) & DVBE")
 
-    # Company details — positioned below logo area
+    # Company details -- compact 10pt line spacing
     c.setFillColor(BLACK)
     c.setFont("Helvetica", 9)
-    info_y = 192  # start y for company info
+    info_y = logo_y + 36
     info_lines = [
-        REYTECH["line1"],                              # 30 Carnoustie Way
-        REYTECH["line2"],                              # Trabuco Canyon, CA 92679
-        f"{REYTECH['contact']}, {REYTECH['title']}",   # Michael Guadan, Owner
-        REYTECH["phone"],                              # 949-229-1575
-        REYTECH["email"],                              # sales@reytechinc.com
-        "www.reytechinc.com",                          # website
+        REYTECH["line1"],
+        REYTECH["line2"],
+        f"{REYTECH['contact']}, {REYTECH['title']}",
+        REYTECH["phone"],
+        REYTECH["email"],
+        "www.reytechinc.com",
     ]
-    # Sellers Permit — add as final line (agency-dependent)
     if cfg["show_permit"]:
         info_lines.append(f"CA Sellers Permit: {REYTECH['permit']}")
-
     for itxt in info_lines:
         text(TXT_X, info_y, itxt, "Helvetica", 9)
-        info_y += 11
+        info_y += 10
 
-    # ── Bill To (right side, y≈221, only for CDCR/CalVet) ─────────────────────
-    # Aligned with left edge of QUOTE#/DATE box (x=396)
-    BILL_X = 396   # left edge of QUOTE#/DATE box
-    BILL_VX = 396  # value text same x, just below label
+    # -- Bill To (right column, only for CDCR/CalVet)
+    BILL_X = 396
+    bill_bottom_y = info_y
     if show_bill:
-        text(BILL_X, 221, "Bill to:", "Helvetica-Bold", 10)
-        text(BILL_VX, 235, bill_name, "Helvetica", 9)
-        by = 247
+        bill_y = logo_y + 50
+        text(BILL_X, bill_y, "Bill to:", "Helvetica-Bold", 10)
+        text(BILL_X, bill_y + 12, bill_name, "Helvetica", 9)
+        by = bill_y + 23
         for bl in bill_lines:
-            text(BILL_VX, by, bl, "Helvetica", 9)
-            by += 12
+            text(BILL_X, by, bl, "Helvetica", 9)
+            by += 11
+        bill_bottom_y = max(bill_bottom_y, by)
 
-    # ── To: / Ship to Location: — positioned in white space ──────────────────
-    # CDCR: text top=312, CCHCS: text top=297 (add baseline offset)
-    addr_y = 319 if show_bill else 304
+    # -- To: / Ship to Location:
+    addr_y = max(info_y, bill_bottom_y) + 4
 
     text(ML + 7, addr_y, "To:", "Helvetica-Bold", 10)
     text(TXT_X, addr_y, to_name, "Helvetica", 10)
-    ay = addr_y + 14
+    ay = addr_y + 12
     for line in to_addr:
         text(TXT_X, ay, line, "Helvetica", 10)
-        ay += 12
+        ay += 11
     if to_addr and "united states" not in " ".join(to_addr).lower():
         text(TXT_X, ay, "United States", "Helvetica", 10)
-        ay += 12
+        ay += 11
 
     text(BILL_X, addr_y, "Ship to Location:", "Helvetica-Bold", 10)
-    text(BILL_X, addr_y + 14, ship_name, "Helvetica", 10)
-    sy = addr_y + 26
+    text(BILL_X, addr_y + 12, ship_name, "Helvetica", 10)
+    sy = addr_y + 23
     for line in ship_addr:
         text(BILL_X, sy, line, "Helvetica", 10)
-        sy += 12
+        sy += 11
     if ship_addr and "united states" not in " ".join(ship_addr).lower():
         text(BILL_X, sy, "United States", "Helvetica", 10)
-        sy += 12
+        sy += 11
+
 
     # ── Salesperson / RFQ / Terms / Expiry bar ────────────────────────────────
     # 4-column bar, each column is a filled+bordered cell with header+value
-    bar_y = max(ay, sy) - 8  # top of bar — tight gap matching QuoteWerks
-    bar_h = 30
+    bar_y = max(ay, sy) + 2  # tight gap after addresses
+    bar_h = 28
     col_positions = [
         (ML,      143),  # Salesperson
         (ML+144,  143),  # RFQ Number
@@ -815,7 +803,7 @@ def generate_quote(
         ("TOTAL PRICE", ML + 497, 79),   # 515 → 594
     ]
 
-    table_top_y = bar_y + bar_h + 8  # top-origin y where table starts
+    table_top_y = bar_y + bar_h + 4  # compact gap before line items
     hdr_h = 22
 
     def _draw_table_header(ty):
@@ -863,13 +851,21 @@ def generate_quote(
 
         # ── Page break if needed (leave 100pt for totals) ─────────────────────
         if Y(cur_y) - row_h < 100:
-            # Footer on current page
+            # Footer on current page (use placeholder for total pages)
             c.setFillColor(GRAY)
             c.setFont("Helvetica", 8)
-            c.drawRightString(MR, 20, f"{page_num} of {{PAGES}}")
+            c.drawRightString(MR, 20, f"Page {page_num}")
+            # Continuation header on new page
             c.showPage()
             page_num += 1
             total_pages += 1
+            # Mini header on continuation pages
+            c.setFont("Helvetica-Bold", 10)
+            c.setFillColor(NAVY)
+            c.drawString(ML, Y(25), f"Reytech Quote {quote_number}")
+            c.setFont("Helvetica", 8)
+            c.setFillColor(GRAY)
+            c.drawRightString(MR, Y(25), f"(continued)")
             cur_y = 40  # start near top of new page
             cur_y = _draw_table_header(cur_y)
 
@@ -955,7 +951,7 @@ def generate_quote(
         if rl_y < 30:
             c.setFillColor(GRAY)
             c.setFont("Helvetica", 8)
-            c.drawRightString(MR, 20, f"{page_num} of {{PAGES}}")
+            c.drawRightString(MR, 20, f"Page {page_num}")
             c.showPage()
             page_num += 1
             total_pages += 1
@@ -989,19 +985,12 @@ def generate_quote(
     # ── Footer ────────────────────────────────────────────────────────────────
     c.setFillColor(GRAY)
     c.setFont("Helvetica", 8)
-    c.drawRightString(MR, 20, f"{page_num} of {total_pages}")
+    if total_pages > 1:
+        c.drawRightString(MR, 20, f"Page {page_num} of {total_pages}")
+    else:
+        c.drawRightString(MR, 20, f"Quote {quote_number}")
 
     c.save()
-
-    # ── Fix up page numbers if multi-page (replace {PAGES}) ──────────────────
-    if total_pages > 1:
-        try:
-            from pypdf import PdfReader, PdfWriter
-            # Simple approach: just leave the last page correct
-            # For full fix, would need to post-process all page footers
-            pass
-        except ImportError:
-            pass
 
     result = {
         "ok": True,
