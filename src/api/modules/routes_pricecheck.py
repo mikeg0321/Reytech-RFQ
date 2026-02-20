@@ -2549,63 +2549,71 @@ def api_admin_reset_and_poll():
         steps["reset_error"] = str(e)
         log.error("RESET+POLL: reset error: %s", e, exc_info=True)
     
-    # Step 3: Run poll — count BOTH PCs and RFQs created
-    try:
-        pcs_before_poll = len(_load_price_checks())
-        imported = do_poll_check()
-        pcs_after_poll = _load_price_checks()
-        new_pcs = len(pcs_after_poll) - pcs_before_poll
-        steps["poll_rfqs_imported"] = len(imported)
-        steps["poll_pcs_created"] = new_pcs
-        steps["poll_found"] = len(imported) + new_pcs
-        steps["poll_subjects"] = [r.get("email_subject", "")[:50] for r in imported[:10]]
-        # Include diagnostic info from poller
-        steps["poll_diag"] = POLL_STATUS.get("_diag", {})
-        # Also grab poller-level diagnostics if available
+    # Step 3: Kick off poll in background thread (IMAP takes >30s, would timeout Railway proxy)
+    import threading
+    
+    def _background_poll():
+        """Run poll in background, store results in POLL_STATUS."""
         try:
-            from src.api.dashboard import _shared_poller
-            if _shared_poller and hasattr(_shared_poller, '_diag'):
-                steps["poller_diag"] = _shared_poller._diag
-        except Exception:
-            pass
-        # Include per-email traces
-        steps["email_traces"] = POLL_STATUS.get("_email_traces", [])
-        log.info("RESET+POLL: Step 3 — poll created %d PCs + %d RFQs", new_pcs, len(imported))
-    except Exception as e:
-        steps["poll_error"] = str(e)
-        log.error("RESET+POLL: poll error: %s", e, exc_info=True)
+            pcs_before = len(_load_price_checks())
+            imported = do_poll_check()
+            pcs_after = _load_price_checks()
+            new_pcs = len(pcs_after) - pcs_before
+            
+            POLL_STATUS["_reset_poll_result"] = {
+                "poll_pcs_created": new_pcs,
+                "poll_rfqs_imported": len(imported),
+                "poll_found": len(imported) + new_pcs,
+                "final_pcs": len(pcs_after),
+                "pc_names": [pc.get("pc_number", "?")[:40] for pc in pcs_after.values()],
+                "final_rfqs": 0,
+                "rfq_sols": [],
+                "email_traces": POLL_STATUS.get("_email_traces", []),
+                "poll_diag": POLL_STATUS.get("_diag", {}),
+                "completed": True,
+            }
+            # Count RFQs
+            try:
+                rfq_path = os.path.join(DATA_DIR, 'rfqs.json')
+                if os.path.exists(rfq_path):
+                    with open(rfq_path) as f:
+                        final_rfqs = json.load(f)
+                    POLL_STATUS["_reset_poll_result"]["final_rfqs"] = len(final_rfqs)
+                    POLL_STATUS["_reset_poll_result"]["rfq_sols"] = [r.get("solicitation_number", "?") for r in final_rfqs.values()]
+            except Exception:
+                pass
+            # Grab poller diag
+            try:
+                from src.api.dashboard import _shared_poller
+                if _shared_poller and hasattr(_shared_poller, '_diag'):
+                    POLL_STATUS["_reset_poll_result"]["poller_diag"] = _shared_poller._diag
+            except Exception:
+                pass
+                
+            log.info("RESET+POLL background: PCs=%d RFQs=%d", new_pcs, len(imported))
+        except Exception as e:
+            POLL_STATUS["_reset_poll_result"] = {"error": str(e), "completed": True}
+            log.error("RESET+POLL background error: %s", e, exc_info=True)
+        finally:
+            POLL_STATUS["paused"] = False
+            log.info("RESET+POLL: poller unpaused")
     
-    # Step 4: Final system state
-    try:
-        final_pcs = _load_price_checks()
-        steps["final_pcs"] = len(final_pcs)
-        steps["pc_names"] = [pc.get("pc_number", "?")[:40] for pc in final_pcs.values()]
-    except Exception as e:
-        steps["final_pcs"] = 0
-        steps["pc_names"] = []
-        steps["pcs_error"] = str(e)
-    
-    try:
-        rfq_path = os.path.join(DATA_DIR, 'rfqs.json')
-        if os.path.exists(rfq_path):
-            with open(rfq_path) as f:
-                final_rfqs = json.load(f)
-        else:
-            final_rfqs = {}
-        steps["final_rfqs"] = len(final_rfqs)
-        steps["rfq_sols"] = [r.get("solicitation_number", "?") for r in final_rfqs.values()]
-    except Exception as e:
-        steps["final_rfqs"] = 0
-        steps["rfq_sols"] = []
-        steps["rfqs_error"] = str(e)
-    
-    # Step 5: Unpause poller
-    POLL_STATUS["paused"] = False
-    steps["poller_unpaused"] = True
-    log.info("RESET+POLL: Step 5 — poller unpaused. PCs=%s RFQs=%s",
-             steps.get("final_pcs"), steps.get("final_rfqs"))
+    POLL_STATUS["_reset_poll_result"] = {"completed": False, "status": "polling..."}
+    t = threading.Thread(target=_background_poll, daemon=True, name="reset-poll")
+    t.start()
+    steps["poll_status"] = "started_async"
+    steps["check_results"] = "GET /api/admin/poll-result"
     
     return jsonify({"ok": True, **steps})
+
+
+@bp.route("/api/admin/poll-result", methods=["GET"])
+@auth_required
+def api_admin_poll_result():
+    """Check the result of the async poll triggered by reset-and-poll."""
+    from src.api.dashboard import POLL_STATUS
+    result = POLL_STATUS.get("_reset_poll_result", {"completed": False, "status": "no poll running"})
+    return jsonify(result)
 
 
 @bp.route("/api/admin/poller-control", methods=["POST"])
