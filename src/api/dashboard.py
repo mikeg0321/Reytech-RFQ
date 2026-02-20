@@ -500,37 +500,15 @@ def process_rfq_email(rfq_email):
                 pc_id = f"pc_{str(_uuid.uuid4())[:8]}"
                 log.info("Email %s detected as AMS 704 price check → routing to PC queue (not RFQ)",
                          rfq_email.get("email_uid", "?"))
-                # Dedup by email UID
+                # Dedup by email UID only — _handle_price_check_upload has its own
+                # (pc_number, institution, due_date) dedup for content-level duplicates
                 from src.api.modules.routes_rfq import _load_price_checks
                 existing_pcs = _load_price_checks()
                 email_uid = rfq_email.get("email_uid")
                 if email_uid and any(p.get("email_uid") == email_uid for p in existing_pcs.values()):
                     log.info("Skipping duplicate PC email UID %s", email_uid)
                     return None
-                # Dedup by solicitation number — same sol# in PC queue already means same procurement
-                sol_hint = rfq_email.get("solicitation_hint", "")
-                if sol_hint and sol_hint != "unknown":
-                    sol_collision = any(
-                        sol_hint in (p.get("pc_number", "") + p.get("solicitation_number", ""))
-                        for p in existing_pcs.values()
-                    )
-                    if sol_collision:
-                        log.info("Skipping PC — solicitation %s already in PC queue", sol_hint)
-                        return None
-                    # Also block if same sol# is in RFQ queue (routing mistake: belonged in RFQ)
-                    try:
-                        _rfqs_check = load_rfqs()
-                        rfq_collision = any(
-                            sol_hint in (r.get("solicitation_number", ""))
-                            for r in _rfqs_check.values()
-                        )
-                        if rfq_collision:
-                            log.warning("Sol# %s already in RFQ queue — routing new email as RFQ not PC", sol_hint)
-                            # Fall through to RFQ queue below
-                            pc_pdf = None  # cancel PC routing
-                    except Exception:
-                        pass
-                if pc_pdf:  # still routing to PC (not overridden above)
+                if pc_pdf:  # still routing to PC
                     result = _handle_price_check_upload(pc_pdf, pc_id, from_email=True)
                     pcs = _load_price_checks()
                     if pc_id in pcs:
