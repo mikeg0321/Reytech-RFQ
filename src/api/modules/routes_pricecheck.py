@@ -856,7 +856,7 @@ def api_poll_now():
 
 @bp.route("/api/poll/reset-processed", methods=["POST"])
 @auth_required
-def api_reset_processed():
+def api_poll_reset_processed():
     """Clear the processed emails list so the poller re-scans the last 3 days.
     Use after fixing classification bugs to re-process missed emails.
     """
