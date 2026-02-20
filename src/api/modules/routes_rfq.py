@@ -75,13 +75,22 @@ def upload():
 
 
 def _is_price_check(pdf_path):
-    """Detect if a PDF is an AMS 704 Price Check."""
+    """Detect if a PDF is an AMS 704 Price Check (NOT 704B quote worksheet)."""
     try:
+        # Exclude 704B by filename first
+        basename = os.path.basename(pdf_path).lower()
+        if "704b" in basename:
+            return False
+        
         from pypdf import PdfReader
         reader = PdfReader(pdf_path)
-        # Check first page text
         text = reader.pages[0].extract_text() or ""
         text_lower = text.lower()
+        
+        # Exclude 704B forms (quote worksheet / acquisition response)
+        if any(marker in text_lower for marker in ["704b", "quote worksheet", "acquisition quote"]):
+            return False
+        
         if "price check" in text_lower and ("ams 704" in text_lower or "worksheet" in text_lower):
             return True
         # Check form fields for AMS 704 patterns
@@ -127,8 +136,15 @@ def _transition_status(record, new_status, actor="system", notes=""):
     return record
 
 
-def _handle_price_check_upload(pdf_path, pc_id):
-    """Process an uploaded Price Check PDF."""
+def _handle_price_check_upload(pdf_path, pc_id, from_email=False):
+    """Process an uploaded Price Check PDF.
+    
+    Option C: Creates PC record ONLY. No quote number assigned.
+    User clicks "Generate Quote" when ready → that's when R26Qxx is consumed.
+    
+    Args:
+        from_email: If True, returns dict instead of redirect (email pipeline call)
+    """
     # Save to data dir for persistence
     pc_file = os.path.join(DATA_DIR, f"pc_upload_{os.path.basename(pdf_path)}")
     shutil.copy2(pdf_path, pc_file)
@@ -136,6 +152,8 @@ def _handle_price_check_upload(pdf_path, pc_id):
     # Parse
     parsed = parse_ams704(pc_file)
     if parsed.get("error"):
+        if from_email:
+            return {"error": parsed["error"]}
         flash(f"Price Check parse error: {parsed['error']}", "error")
         return redirect("/")
 
@@ -144,70 +162,23 @@ def _handle_price_check_upload(pdf_path, pc_id):
     institution = parsed.get("header", {}).get("institution", "")
     due_date = parsed.get("header", {}).get("due_date", "")
 
-    # ── DEDUP CHECK: skip if PC with same number + institution already exists ──
+    # ── DEDUP CHECK: same PC number + institution + due date = true duplicate ──
+    # Must include due_date because same institution sends different PCs
+    # (e.g. Valentina sends Airway Adapter AND BLS Med from CSP-Sacramento)
     pcs = _load_price_checks()
     for existing_id, existing_pc in pcs.items():
         if (existing_pc.get("pc_number", "").strip() == pc_num.strip()
                 and existing_pc.get("institution", "").strip().lower() == institution.strip().lower()
+                and existing_pc.get("due_date", "").strip() == due_date.strip()
                 and pc_num != "unknown"):
-            log.info("Dedup: PC #%s from %s already exists as %s — skipping duplicate",
-                     pc_num, institution, existing_id)
+            log.info("Dedup: PC #%s from %s (due %s) already exists as %s — skipping",
+                     pc_num, institution, due_date, existing_id)
+            if from_email:
+                return {"dedup": True, "existing_id": existing_id}
             return redirect(f"/pricecheck/{existing_id}")
 
-    # Auto-assign quote number (draft) on PC intake
-    draft_quote_num = ""
-    if QUOTE_GEN_AVAILABLE:
-        try:
-            from src.forms.quote_generator import _next_quote_number, _save_all_quotes, get_all_quotes
-            draft_quote_num = _next_quote_number()
-            # Check for previous PCs from same institution
-            existing_quotes = get_all_quotes()
-            prev_pcs = [q for q in existing_quotes 
-                        if q.get("institution", "").lower() == institution.lower() 
-                        and q.get("status") in ("pending", "draft")]
-            if prev_pcs:
-                log.info("Found %d previous quote(s) for %s: %s", 
-                         len(prev_pcs), institution,
-                         ", ".join(q.get("quote_number", "") for q in prev_pcs))
-            # Detect agency from all available data
-            ship_to_raw = parsed.get("ship_to", "") or ""
-            ship_parts = [p.strip() for p in ship_to_raw.split(",") if p.strip()]
-            detect_data = {
-                "institution": institution,
-                "ship_to": ship_to_raw,
-                "ship_to_name": ship_parts[0] if ship_parts else "",
-                "requestor": parsed.get("header", {}).get("requestor", ""),
-            }
-            detected_agency = _detect_agency(detect_data)
-
-            # Save as draft in quotes log
-            draft_entry = {
-                "quote_number": draft_quote_num,
-                "date": datetime.now().strftime("%b %d, %Y"),
-                "agency": detected_agency if detected_agency != "DEFAULT" else "",
-                "institution": institution or (ship_parts[0] if ship_parts else ""),
-                "rfq_number": pc_num,
-                "total": 0,
-                "subtotal": 0,
-                "tax": 0,
-                "items_count": len(items),
-                "pdf_path": "",
-                "created_at": datetime.now().isoformat(),
-                "status": "draft",
-                "source_pc_id": pc_id,
-                "is_test": pc_id.startswith("test_"),
-                "ship_to_name": ship_parts[0] if ship_parts else "",
-                "ship_to_address": ship_parts[1:] if len(ship_parts) > 1 else ship_parts,
-                "items_text": " | ".join(i.get("description", "")[:50] for i in items[:5]),
-            }
-            all_quotes = get_all_quotes()
-            all_quotes.append(draft_entry)
-            _save_all_quotes(all_quotes)
-            log.info("Auto-assigned draft quote %s to PC #%s (%s)", draft_quote_num, pc_num, institution)
-        except Exception as e:
-            log.error("Failed to auto-assign quote number: %s", e)
-
-    # Save PC record (include linked_quote_number for downstream _create_quote_from_pc dedup)
+    # Option C: NO quote number assigned here. User generates manually.
+    # Save PC record
     pcs = _load_price_checks()
     pcs[pc_id] = {
         "id": pc_id,
@@ -222,11 +193,17 @@ def _handle_price_check_upload(pdf_path, pc_id):
         "status_history": [{"from": "", "to": "parsed", "timestamp": datetime.now().isoformat(), "actor": "system"}],
         "created_at": datetime.now().isoformat(),
         "parsed": parsed,
-        "reytech_quote_number": draft_quote_num,
-        "linked_quote_number": draft_quote_num,
+        "reytech_quote_number": "",  # Empty until user clicks Generate Quote
+        "linked_quote_number": "",
     }
     _save_price_checks(pcs)
 
+    log.info("PC #%s created from %s — %d items, due %s (no quote assigned — Option C)",
+             pc_num, institution, len(items), due_date)
+    
+    if from_email:
+        return {"ok": True, "pc_id": pc_id, "pc_number": pc_num, "items": len(items)}
+    
     flash(f"Price Check #{pc_num} parsed — {len(items)} items from {institution}. Due {due_date}", "success")
     return redirect(f"/pricecheck/{pc_id}")
 

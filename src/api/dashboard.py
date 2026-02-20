@@ -531,7 +531,7 @@ def process_rfq_email(rfq_email):
                     except Exception:
                         pass
                 if pc_pdf:  # still routing to PC (not overridden above)
-                    result = _handle_price_check_upload(pc_pdf, pc_id)
+                    result = _handle_price_check_upload(pc_pdf, pc_id, from_email=True)
                     pcs = _load_price_checks()
                     if pc_id in pcs:
                         pcs[pc_id]["email_uid"] = email_uid
