@@ -168,7 +168,7 @@ if os.environ.get("GMAIL_PASSWORD"):
 if os.environ.get("GMAIL_ADDRESS"):
     CONFIG.setdefault("email", {})["email"] = os.environ["GMAIL_ADDRESS"]
 
-POLL_STATUS = {"running": False, "last_check": None, "emails_found": 0, "error": None}
+POLL_STATUS = {"running": False, "last_check": None, "emails_found": 0, "error": None, "paused": False}
 
 # ── Thread-safe locks for all mutated global state ──────────────────────────
 _poll_status_lock   = threading.Lock()
@@ -798,7 +798,10 @@ def email_poll_loop():
     POLL_STATUS["running"] = True
     
     while POLL_STATUS["running"]:
-        do_poll_check()
+        if not POLL_STATUS.get("paused"):
+            do_poll_check()
+        else:
+            log.debug("Email poller paused (system reset in progress)")
         time.sleep(interval)
 
 # ═══════════════════════════════════════════════════════════════════════

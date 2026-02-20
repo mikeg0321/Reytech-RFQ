@@ -2265,6 +2265,15 @@ def api_admin_system_reset():
     reset_processed = data.get("reset_processed", True)
     dry_run = data.get("dry_run", False)
     
+    # Pause background poller so it doesn't race with reset
+    if not dry_run:
+        try:
+            from src.api.dashboard import POLL_STATUS
+            POLL_STATUS["paused"] = True
+            log.info("Background poller paused for system reset")
+        except Exception:
+            pass
+    
     results = {
         "dry_run": dry_run,
         "quotes_before": 0, "quotes_after": 0, "quotes_removed": [],
@@ -2410,6 +2419,159 @@ def api_admin_system_reset():
              f"counter {results['counter_before']}→{results['counter_after']}")
     
     return jsonify({"ok": True, **results})
+
+
+@bp.route("/api/admin/reset-and-poll", methods=["POST"])
+@auth_required
+def api_admin_reset_and_poll():
+    """Atomic operation: pause poller → reset → set counter → poll → unpause.
+    
+    This is the correct way to do a full system restart.
+    Prevents background poller from racing with the reset.
+    
+    POST body:
+      keep_quotes: [] (default empty)  
+      counter: 15 (default — next = R26Q16)
+    """
+    data = request.get_json(silent=True) or {}
+    keep_quotes = data.get("keep_quotes", [])
+    counter = data.get("counter", 15)
+    
+    from src.api.dashboard import POLL_STATUS, do_poll_check
+    
+    steps = {}
+    
+    # Step 1: Pause background poller
+    POLL_STATUS["paused"] = True
+    steps["poller_paused"] = True
+    log.info("RESET+POLL: Step 1 — poller paused")
+    
+    # Step 2: Run system reset (reuse existing endpoint logic)
+    try:
+        # Clean quotes
+        q_path = os.path.join(DATA_DIR, 'quotes_log.json')
+        q_removed = 0
+        if os.path.exists(q_path):
+            with open(q_path) as f:
+                all_q = json.load(f)
+            q_removed = len(all_q)
+            kept = [q for q in all_q if q.get("quote_number") in set(keep_quotes)]
+            with open(q_path, "w") as f:
+                json.dump(kept, f, indent=2, default=str)
+        # Clean legacy quotes.json
+        legacy_q = os.path.join(DATA_DIR, 'quotes.json')
+        if os.path.exists(legacy_q):
+            with open(legacy_q, "w") as f:
+                json.dump([], f)
+        # Clean SQLite
+        try:
+            from src.core.db import get_db
+            with get_db() as conn:
+                if keep_quotes:
+                    placeholders = ",".join("?" for _ in keep_quotes)
+                    conn.execute(f"DELETE FROM quotes WHERE quote_number NOT IN ({placeholders})", list(keep_quotes))
+                else:
+                    conn.execute("DELETE FROM quotes")
+                conn.commit()
+        except Exception:
+            pass
+        steps["quotes_cleaned"] = q_removed
+        
+        # Clean PCs (remove auto-sourced only)
+        pcs = _load_price_checks()
+        pc_before = len(pcs)
+        cleaned = {pid: pc for pid, pc in pcs.items()
+                   if pc.get("source") not in ("email_auto_draft", "email_auto") 
+                   and not pc.get("is_auto_draft")}
+        _save_price_checks(cleaned)
+        steps["pcs_before"] = pc_before
+        steps["pcs_after"] = len(cleaned)
+        
+        # Clear RFQs
+        rfq_path = os.path.join(DATA_DIR, 'rfq_queue.json')
+        if os.path.exists(rfq_path):
+            with open(rfq_path, "w") as f:
+                json.dump({}, f)
+        steps["rfqs_cleared"] = True
+        
+        # Set counter
+        counter_path = os.path.join(DATA_DIR, 'quote_counter.json')
+        with open(counter_path, "w") as f:
+            json.dump({"year": 2026, "seq": counter}, f)
+        steps["counter"] = counter
+        steps["next_quote"] = f"R26Q{counter + 1}"
+        
+        # Clear processed emails
+        proc_path = os.path.join(DATA_DIR, 'processed_emails.json')
+        with open(proc_path, "w") as f:
+            json.dump([], f)
+        steps["processed_cleared"] = True
+        
+        # Clean CRM activity
+        act_path = os.path.join(DATA_DIR, 'crm_activity.json')
+        if os.path.exists(act_path):
+            with open(act_path) as f:
+                acts = json.load(f)
+            cleaned_acts = [a for a in acts if a.get("event_type") not in ("auto_draft_generated", "auto_draft_ready")]
+            with open(act_path, "w") as f:
+                json.dump(cleaned_acts, f, indent=2, default=str)
+        
+        log.info("RESET+POLL: Step 2 — reset complete")
+    except Exception as e:
+        steps["reset_error"] = str(e)
+        log.error("RESET+POLL: reset error: %s", e)
+    
+    # Step 3: Run poll
+    try:
+        imported = do_poll_check()
+        steps["poll_found"] = len(imported)
+        steps["poll_subjects"] = [r.get("email_subject", "")[:50] for r in imported[:10]]
+        log.info("RESET+POLL: Step 3 — poll found %d emails", len(imported))
+    except Exception as e:
+        steps["poll_error"] = str(e)
+        log.error("RESET+POLL: poll error: %s", e)
+    
+    # Step 4: Count what was created
+    try:
+        final_pcs = _load_price_checks()
+        rfq_path = os.path.join(DATA_DIR, 'rfq_queue.json')
+        with open(rfq_path) as f:
+            final_rfqs = json.load(f)
+        steps["final_pcs"] = len(final_pcs)
+        steps["final_rfqs"] = len(final_rfqs)
+        steps["pc_names"] = [pc.get("pc_number", "?")[:40] for pc in final_pcs.values()]
+        steps["rfq_sols"] = [r.get("solicitation_number", "?") for r in final_rfqs.values()]
+    except Exception:
+        pass
+    
+    # Step 5: Unpause poller
+    POLL_STATUS["paused"] = False
+    steps["poller_unpaused"] = True
+    log.info("RESET+POLL: Step 5 — poller unpaused. PCs=%s RFQs=%s",
+             steps.get("final_pcs"), steps.get("final_rfqs"))
+    
+    return jsonify({"ok": True, **steps})
+
+
+@bp.route("/api/admin/poller-control", methods=["POST"])
+@auth_required
+def api_admin_poller_control():
+    """Pause or unpause the background email poller.
+    POST {"action": "pause"} or {"action": "unpause"}
+    """
+    data = request.get_json(silent=True) or {}
+    action = data.get("action", "")
+    from src.api.dashboard import POLL_STATUS
+    
+    if action == "pause":
+        POLL_STATUS["paused"] = True
+        return jsonify({"ok": True, "paused": True})
+    elif action == "unpause":
+        POLL_STATUS["paused"] = False
+        return jsonify({"ok": True, "paused": False})
+    else:
+        return jsonify({"ok": False, "error": "action must be 'pause' or 'unpause'",
+                        "paused": POLL_STATUS.get("paused", False)})
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

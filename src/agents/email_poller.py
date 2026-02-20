@@ -390,20 +390,15 @@ def is_reply_followup(msg, subject, body, sender, pdf_names):
     if not is_reply:
         return None  # Not a reply — let is_rfq_email() handle it
 
-    # ── Step 2: Check for NEW RFQ form attachments ──
-    # If the reply carries fresh 704B/703B forms, it IS a new submission
-    # even though it's threaded as a reply (buyer sometimes replies with new RFQ)
-    has_new_forms = False
+    # ── Step 2: Check for attachments ──
+    # If the reply carries ANY PDF attachments, it's a new submission
+    # (buyer sending a new PC/RFQ even if replying to old thread).
+    # Follow-ups/clarifications never carry PDF attachments.
     if pdf_names:
-        for name in pdf_names:
-            name_lower = name.lower().replace(" ", ".").replace("-", ".")
-            if any(re.search(p, name_lower) for p in [r"703b", r"704b", r"bid.?package", r"quote.?worksheet"]):
-                has_new_forms = True
-                break
-
-    if has_new_forms:
-        log.info("Reply has new RFQ form attachments — treating as NEW RFQ: %s", subject[:60])
-        return None  # Let is_rfq_email() process it as a genuine new submission
+        pdf_count = len(pdf_names)
+        log.info("Reply has %d PDF attachment(s) — treating as NEW submission: %s",
+                 pdf_count, subject[:60])
+        return None  # Let is_rfq_email() process it
 
     # ── Step 3: Sender has active item? ──
     sender_email = _extract_email_addr(sender)

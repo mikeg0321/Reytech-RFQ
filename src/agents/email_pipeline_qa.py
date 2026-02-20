@@ -310,6 +310,7 @@ def test_classification() -> dict:
     
     tests = [
         # (subject, body, pdfs, expected_rfq, expected_recall, expected_cs, label)
+        # === Valentina price checks ===
         ("Quote - Airway Adapter - 02.19.26", "Please email me quote", ["AMS 704 - Airway Adapter.pdf"],
          True, False, False, "Valentina PC"),
         ("Quote - MH OS - 02.19.26", "Please email me quote", ["AMS 704 - MH OS.pdf"],
@@ -320,28 +321,42 @@ def test_classification() -> dict:
          True, False, False, "Valentina PC (BLS IT Med)"),
         ("Quote - Med OS - 02.19.26", "Please email me quote", ["AMS 704 - Med OS.pdf"],
          True, False, False, "Valentina PC (Med OS)"),
+        # === Formal RFQs ===
         ("REQUEST FOR QUOTE PR 10838349", "Please sign and quote for CCWF",
          ["AMS 704B - PR 10838349.pdf", "BID PACKAGE & FORMS.pdf", "AMS 703B - PR 10838349.pdf"],
          True, False, False, "Janie formal RFQ"),
         ("SAC RFQ 10837794", "update your vendor record",
          ["204, 205, SUPP.pdf", "R26Q8_10837794.pdf", "10837794 AMS 704B.pdf"],
          True, False, False, "Jessica formal RFQ"),
+        # === Recalls ===
         ("Recall: Quote - Med OS - 02.17.26",
          'Demidenko, Valentina@CDCR would like to recall the message, "Quote - Med OS - 02.17.26".',
          [], False, True, False, "Recall Med OS"),
         ("Recall: Quote request - MH OS - 02.17.26",
          'Demidenko, Valentina@CDCR would like to recall the message, "Quote request - MH OS - 02.17.26".',
          [], False, True, False, "Recall MH OS"),
+        # === CS requests ===
         ("Question about pricing", "Can you send me pricing for nitrile gloves?",
          [], False, False, True, "CS pricing question"),
         ("Invoice status", "When will the invoice be ready for PO 12345?",
          [], False, False, True, "CS invoice question"),
         ("Following up on quote", "Following up on quote R26Q16, any update?",
          [], False, False, True, "CS follow-up"),
+        # === Edge cases ===
         ("Meeting notes", "Here are the meeting notes from today",
          [], False, False, False, "Non-actionable email"),
         ("FW: Quote request", "Please see attached", ["forwarded_704.pdf"],
          True, False, False, "Forwarded RFQ"),
+        # === RE: prefix with PDFs (buyer replying with new submission) ===
+        ("RE: Quote - Med OS - 02.19.26", "Please email me quote", ["AMS 704 - Med OS.pdf"],
+         True, False, False, "RE: prefix with AMS 704 PDF"),
+        ("RE: SAC RFQ 10837794", "update your vendor record",
+         ["10837794 AMS 704B.pdf"], True, False, False, "RE: prefix with 704B PDF"),
+        ("RE: Quote Request - OS Den - 02.13.2026", "Please email me quote",
+         ["AMS 704 - OS Den.pdf"], True, False, False, "RE: prefix with 704 (OS Den)"),
+        # === Reply with NO PDF = CS follow-up ===
+        ("RE: Quote - Med OS - 02.19.26", "What is the status of this quote?",
+         [], False, False, True, "RE: no PDF = CS follow-up"),
     ]
     
     results = []
