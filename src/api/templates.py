@@ -23,13 +23,13 @@ a{color:var(--ac);text-decoration:none}
 .poll-on{background:var(--gn);box-shadow:0 0 8px var(--gn),0 0 16px rgba(52,211,153,.3);animation:pulse 2s infinite}.poll-off{background:var(--rd);box-shadow:0 0 6px var(--rd)}
 .poll-wait{background:var(--yl);box-shadow:0 0 6px var(--yl)}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
-.ctr{max-width:1600px;margin:0 auto;padding:20px 28px}
+.ctr{max-width:1680px;margin:0 auto;padding:22px 32px}
 .bento{display:grid;gap:14px}
 .bento-2{grid-template-columns:1.2fr 0.8fr}
 .bento-4{grid-template-columns:repeat(4,1fr)}
 .bento-2e{grid-template-columns:1fr 1fr}
 .card{background:var(--sf);border:1px solid var(--bd);border-radius:var(--r);padding:20px;margin-bottom:16px}
-.card-t{font-size:13px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:1px;margin-bottom:14px}
+.card-t{font-size:14px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:1px;margin-bottom:14px}
 .upl{border:2px dashed var(--bd);border-radius:var(--r);padding:36px;text-align:center;cursor:pointer;transition:.2s}
 .upl:hover{border-color:var(--ac);background:rgba(79,140,255,.05)}
 .upl h3{font-size:16px;margin-bottom:4px}.upl p{color:var(--tx2);font-size:13px}
@@ -37,7 +37,7 @@ a{color:var(--ac);text-decoration:none}
 .rfq-i:hover{border-color:var(--ac);transform:translateY(-1px)}
 .sol{font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:600;color:var(--ac)}
 .det{font-size:13px;color:var(--tx2)}.det b{color:var(--tx)}
-.badge{padding:4px 10px;border-radius:16px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+.badge{padding:5px 12px;border-radius:16px;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
 .b-new{background:rgba(251,191,36,.15);color:var(--yl)}.b-pending{background:rgba(251,191,36,.15);color:var(--yl)}
 .b-ready{background:rgba(52,211,153,.15);color:var(--gn)}.b-generated{background:rgba(79,140,255,.15);color:var(--ac)}
 .b-sent{background:rgba(52,211,153,.2);color:var(--gn)}
@@ -50,9 +50,9 @@ a{color:var(--ac);text-decoration:none}
 .b-lost{background:rgba(248,113,113,.15);color:var(--rd)}
 .b-expired{background:rgba(139,144,160,.15);color:var(--tx2)}
 .b-draft{background:rgba(251,191,36,.25);color:#f59e0b;border:1px solid rgba(251,191,36,.4)}
-.home-tbl{width:100%;border-collapse:collapse;font-size:13px}
-.home-tbl thead th{text-align:left;padding:8px 10px;font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--bd);font-weight:600}
-.home-tbl tbody td{padding:10px;border-bottom:1px solid rgba(46,51,69,.5);vertical-align:middle}
+.home-tbl{width:100%;border-collapse:collapse;font-size:14px}
+.home-tbl thead th{text-align:left;padding:10px 12px;font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--bd);font-weight:600}
+.home-tbl tbody td{padding:12px;border-bottom:1px solid rgba(46,51,69,.5);vertical-align:middle}
 .home-row{cursor:pointer;transition:background .12s}
 .home-row:hover{background:rgba(79,140,255,.06)}
 .home-row a{text-decoration:none}
@@ -210,94 +210,12 @@ table.it .text-in:focus{border-color:var(--ac);outline:none}
 """
 
 PAGE_HOME = """
-<!-- ═══ Bar 1: Pipeline Funnel — full-width stat strip ═══ -->
-<div class="card" style="margin-bottom:12px;padding:18px 24px">
- <div style="display:flex;align-items:center;gap:6px;margin-bottom:14px">
-  <span style="font-size:11px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:1px">📊 Pipeline</span>
-  <span style="flex:1;height:1px;background:var(--bd)"></span>
-  <span id="next-quote-badge" style="font-size:11px;color:var(--tx2)">—</span>
-  <span style="width:1px;height:14px;background:var(--bd);margin:0 8px"></span>
-  <a href="/pipeline" style="font-size:11px;color:var(--ac);font-weight:600">View Full Pipeline →</a>
- </div>
- <div id="funnel-row" style="display:grid;grid-template-columns:repeat(7,1fr);gap:0">
-  <!-- loading skeleton -->
-  <div style="text-align:center;padding:10px 0"><div style="font-size:28px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--tx2)">—</div><div style="font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Loading</div></div>
- </div>
-</div>
-<script>
-fetch('/api/funnel/stats').then(r=>r.json()).then(d=>{
- if(!d.ok) return;
- const items = [
-  {icon:'📥', val:d.rfqs_active||0, label:'RFQs', href:'/rfq/', color:'var(--ac)', fmt:'n'},
-  {icon:'💰', val:d.quotes_pending||0, label:'Pending', href:'/quotes?status=pending', color:'var(--yl)', fmt:'n'},
-  {icon:'📤', val:d.quotes_sent||0, label:'Sent', href:'/quotes?status=sent', color:'#a78bfa', fmt:'n'},
-  {icon:'✅', val:d.quotes_won||0, label:'Won', href:'/quotes?status=won', color:'var(--gn)', fmt:'n'},
-  {icon:'📦', val:d.orders_active||0, label:'Orders', href:'/orders', color:'var(--or)', fmt:'n'},
-  {icon:'👥', val:d.crm_contacts||0, label:'Contacts', href:'/contacts', color:'#a78bfa', fmt:'n'},
-  {icon:'💵', val:d.pipeline_value||0, label:'Pipeline $', href:'/pipeline', color:'var(--gn)', fmt:'$'},
- ];
- const cols = items.map((it,i)=>{
-  const fmtVal = it.fmt==='$' ? '$'+(it.val>=1e6?(it.val/1e6).toFixed(1)+'M':it.val>=1e3?(it.val/1e3).toFixed(0)+'K':it.val.toLocaleString()) : it.val;
-  const sep = i<items.length-1 ? '<div style="position:absolute;right:0;top:50%;transform:translateY(-50%);color:var(--bd);font-size:20px;font-weight:300">&rsaquo;</div>' : '';
-  return '<a href="'+it.href+'" class="funnel-link" style="text-align:center;padding:10px 4px;display:block;text-decoration:none;border-radius:8px;transition:background .15s;position:relative">'+
-   '<div style="font-size:18px;margin-bottom:4px">'+it.icon+'</div>'+
-   '<div class="kpi-big" style="color:'+it.color+'">'+fmtVal+'</div>'+
-   '<div style="font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:5px;font-weight:600">'+it.label+'</div>'+
-   sep+'</a>';
- });
- document.getElementById('funnel-row').style.gridTemplateColumns='repeat(7,1fr)';
- document.getElementById('funnel-row').innerHTML = cols.join('');
- if(d.next_quote){const nb=document.getElementById('next-quote-badge');if(nb){nb.innerHTML='';var b=document.createElement('b');b.className='kpi-small';b.style.color='var(--ac)';b.textContent=d.next_quote;nb.appendChild(document.createTextNode('🎯 Next: '));nb.appendChild(b);if(d.win_rate){nb.innerHTML+=' · Win Rate: <b style="color:var(--gn)">'+d.win_rate+'%</b>';};}}
-}).catch(()=>{const nb=document.getElementById('next-quote-badge');if(nb)nb.textContent='';});
-</script>
-
-<!-- ═══ Bar 2: Annual Revenue Goal ═══ -->
-<div id="rev-bi" class="card" style="margin-bottom:12px;padding:18px 24px;display:block">
- <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
-  <span style="font-size:11px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:1px">📈 Annual Revenue Goal</span>
-  <div style="display:flex;gap:20px;align-items:center" id="rev-meta">
-   <span style="font-size:12px;color:var(--tx2)">Gap: <b id="rev-gap" style="color:var(--rd);font-family:'JetBrains Mono',monospace">$2,000,000</b></span>
-   <span style="font-size:12px;color:var(--tx2)">Run Rate: <b id="rev-rate" style="font-family:'JetBrains Mono',monospace;color:var(--rd)">$0</b></span>
-   <span style="font-size:12px;color:var(--tx2)">Status: <b id="rev-track" style="color:var(--rd)">Behind</b></span>
-  </div>
- </div>
- <div style="display:flex;align-items:center;gap:16px">
-  <span id="rev-closed" style="font-size:28px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--gn);white-space:nowrap">$0</span>
-  <div style="flex:1">
-   <div style="background:var(--sf2);border-radius:10px;height:28px;overflow:hidden;position:relative;border:1px solid var(--bd)">
-    <div id="rev-bar" style="height:100%;border-radius:10px;transition:width .8s ease;background:var(--rd);min-width:2px"></div>
-    <span id="rev-label" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:12px;font-weight:700;color:#fff;white-space:nowrap;text-shadow:0 1px 3px rgba(0,0,0,.5)">$0 / $2M (0%)</span>
-   </div>
-  </div>
-  <span style="font-size:14px;color:var(--tx2);white-space:nowrap">$2M Goal</span>
- </div>
-</div>
-<script>
-fetch('/api/intel/revenue',{credentials:'same-origin'}).then(r=>r.json()).then(d=>{
- if(!d.ok) return;
- const pct = Math.min(100, d.pct_to_goal||0);
- const color = pct>=50?'#3fb950':pct>=25?'#d29922':'#f85149';
- const bar = document.getElementById('rev-bar');
- bar.style.width = Math.max(pct,0.5)+'%';
- bar.style.background = 'linear-gradient(90deg, '+color+', '+color+'aa)';
- document.getElementById('rev-label').textContent = '$'+(d.closed_revenue||0).toLocaleString()+' / $'+(d.goal/1e6).toFixed(0)+'M ('+pct.toFixed(1)+'%)';
- document.getElementById('rev-closed').textContent = '$'+(d.closed_revenue||0).toLocaleString();
- document.getElementById('rev-closed').style.color = color;
- document.getElementById('rev-gap').textContent = '$'+(d.gap_to_goal||0).toLocaleString();
- document.getElementById('rev-rate').textContent = '$'+(d.run_rate_annual||0).toLocaleString()+'/yr';
- document.getElementById('rev-rate').style.color = d.on_track?'#3fb950':'#f85149';
- document.getElementById('rev-track').textContent = d.on_track?'On Track ✅':'Behind 🔴';
- document.getElementById('rev-track').style.color = d.on_track?'#3fb950':'#f85149';
- document.getElementById('rev-gap').style.color = d.gap_to_goal>0?'#f85149':'#3fb950';
-}).catch(()=>{});
-</script>
-
-<!-- ═══ Bar 3: Search + Quick Nav ═══ -->
+<!-- ═══ Bar 1: Search + Quick Nav — PRIMARY ═══ -->
 <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
- <form method="get" action="/search" style="display:flex;gap:0;flex:1;min-width:320px;background:var(--sf);border:1.5px solid var(--bd);border-radius:10px;overflow:hidden;transition:border-color .2s" onfocusin="this.style.borderColor='var(--ac)'" onfocusout="this.style.borderColor='var(--bd)'">
-  <span style="padding:0 14px;font-size:18px;display:flex;align-items:center;color:var(--tx2)">🔍</span>
-  <input name="q" placeholder="Search quotes, agencies, PO numbers, items, contacts..." style="flex:1;padding:14px 4px 14px 0;background:transparent;border:none;color:var(--tx);font-size:15px;outline:none" autocomplete="off">
-  <button type="submit" style="padding:14px 22px;background:var(--ac);border:none;color:#fff;font-size:14px;font-weight:700;cursor:pointer;transition:.15s;letter-spacing:.3px" onmouseover="this.style.background='var(--ac2)'" onmouseout="this.style.background='var(--ac)'">Search</button>
+ <form method="get" action="/search" style="display:flex;gap:0;flex:1;min-width:360px;background:var(--sf);border:2px solid var(--bd);border-radius:12px;overflow:hidden;transition:border-color .2s" onfocusin="this.style.borderColor='var(--ac)'" onfocusout="this.style.borderColor='var(--bd)'">
+  <span style="padding:0 16px;font-size:20px;display:flex;align-items:center;color:var(--tx2)">🔍</span>
+  <input name="q" placeholder="Search quotes, agencies, PO numbers, items, contacts..." style="flex:1;padding:16px 4px 16px 0;background:transparent;border:none;color:var(--tx);font-size:16px;outline:none" autocomplete="off">
+  <button type="submit" style="padding:16px 26px;background:var(--ac);border:none;color:#fff;font-size:15px;font-weight:700;cursor:pointer;transition:.15s;letter-spacing:.3px" onmouseover="this.style.background='var(--ac2)'" onmouseout="this.style.background='var(--ac)'">Search</button>
  </form>
  <a href="/quotes" class="btn btn-s" style="padding:14px 18px;font-size:14px;font-weight:600;white-space:nowrap">📋 Quotes DB</a>
  <a href="/contacts" class="btn btn-s" style="padding:14px 18px;font-size:14px;font-weight:600;white-space:nowrap;border-color:rgba(167,139,250,.4);color:#a78bfa" onmouseover="this.style.borderColor='#a78bfa'" onmouseout="this.style.borderColor='rgba(167,139,250,.4)'">👥 CRM</a>
@@ -427,6 +345,89 @@ fetch('/api/intel/revenue',{credentials:'same-origin'}).then(r=>r.json()).then(d
 </div>
 
 <!-- ═══ KPI Dashboard — Bento analytics ═══ -->
+
+<!-- Pipeline Funnel — stat strip -->
+<div class="card" style="margin-bottom:12px;padding:18px 24px">
+ <div style="display:flex;align-items:center;gap:6px;margin-bottom:14px">
+  <span style="font-size:11px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:1px">📊 Pipeline</span>
+  <span style="flex:1;height:1px;background:var(--bd)"></span>
+  <span id="next-quote-badge" style="font-size:11px;color:var(--tx2)">—</span>
+  <span style="width:1px;height:14px;background:var(--bd);margin:0 8px"></span>
+  <a href="/pipeline" style="font-size:11px;color:var(--ac);font-weight:600">View Full Pipeline →</a>
+ </div>
+ <div id="funnel-row" style="display:grid;grid-template-columns:repeat(7,1fr);gap:0">
+  <div style="text-align:center;padding:10px 0"><div style="font-size:28px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--tx2)">—</div><div style="font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Loading</div></div>
+ </div>
+</div>
+<script>
+fetch('/api/funnel/stats').then(r=>r.json()).then(d=>{
+ if(!d.ok) return;
+ const items = [
+  {icon:'📥', val:d.rfqs_active||0, label:'RFQs', href:'/rfq/', color:'var(--ac)', fmt:'n'},
+  {icon:'💰', val:d.quotes_pending||0, label:'Pending', href:'/quotes?status=pending', color:'var(--yl)', fmt:'n'},
+  {icon:'📤', val:d.quotes_sent||0, label:'Sent', href:'/quotes?status=sent', color:'#a78bfa', fmt:'n'},
+  {icon:'✅', val:d.quotes_won||0, label:'Won', href:'/quotes?status=won', color:'var(--gn)', fmt:'n'},
+  {icon:'📦', val:d.orders_active||0, label:'Orders', href:'/orders', color:'var(--or)', fmt:'n'},
+  {icon:'👥', val:d.crm_contacts||0, label:'Contacts', href:'/contacts', color:'#a78bfa', fmt:'n'},
+  {icon:'💵', val:d.pipeline_value||0, label:'Pipeline $', href:'/pipeline', color:'var(--gn)', fmt:'$'},
+ ];
+ const cols = items.map((it,i)=>{
+  const fmtVal = it.fmt==='$' ? '$'+(it.val>=1e6?(it.val/1e6).toFixed(1)+'M':it.val>=1e3?(it.val/1e3).toFixed(0)+'K':it.val.toLocaleString()) : it.val;
+  const sep = i<items.length-1 ? '<div style="position:absolute;right:0;top:50%;transform:translateY(-50%);color:var(--bd);font-size:20px;font-weight:300">&rsaquo;</div>' : '';
+  return '<a href="'+it.href+'" class="funnel-link" style="text-align:center;padding:10px 4px;display:block;text-decoration:none;border-radius:8px;transition:background .15s;position:relative">'+
+   '<div style="font-size:18px;margin-bottom:4px">'+it.icon+'</div>'+
+   '<div class="kpi-big" style="color:'+it.color+'">'+fmtVal+'</div>'+
+   '<div style="font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:5px;font-weight:600">'+it.label+'</div>'+
+   sep+'</a>';
+ });
+ document.getElementById('funnel-row').style.gridTemplateColumns='repeat(7,1fr)';
+ document.getElementById('funnel-row').innerHTML = cols.join('');
+ if(d.next_quote){const nb=document.getElementById('next-quote-badge');if(nb){nb.innerHTML='';var b=document.createElement('b');b.className='kpi-small';b.style.color='var(--ac)';b.textContent=d.next_quote;nb.appendChild(document.createTextNode('🎯 Next: '));nb.appendChild(b);if(d.win_rate){nb.innerHTML+=' · Win Rate: <b style="color:var(--gn)">'+d.win_rate+'%</b>';};}}
+}).catch(()=>{const nb=document.getElementById('next-quote-badge');if(nb)nb.textContent='';});
+</script>
+
+<!-- Annual Revenue Goal -->
+<div id="rev-bi" class="card" style="margin-bottom:12px;padding:18px 24px;display:block">
+ <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+  <span style="font-size:11px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:1px">📈 Annual Revenue Goal</span>
+  <div style="display:flex;gap:20px;align-items:center" id="rev-meta">
+   <span style="font-size:12px;color:var(--tx2)">Gap: <b id="rev-gap" style="color:var(--rd);font-family:'JetBrains Mono',monospace">$2,000,000</b></span>
+   <span style="font-size:12px;color:var(--tx2)">Run Rate: <b id="rev-rate" style="font-family:'JetBrains Mono',monospace;color:var(--rd)">$0</b></span>
+   <span style="font-size:12px;color:var(--tx2)">Status: <b id="rev-track" style="color:var(--rd)">Behind</b></span>
+  </div>
+ </div>
+ <div style="display:flex;align-items:center;gap:16px">
+  <span id="rev-closed" style="font-size:28px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--gn);white-space:nowrap">$0</span>
+  <div style="flex:1">
+   <div style="background:var(--sf2);border-radius:10px;height:28px;overflow:hidden;position:relative;border:1px solid var(--bd)">
+    <div id="rev-bar" style="height:100%;border-radius:10px;transition:width .8s ease;background:var(--rd);min-width:2px"></div>
+    <span id="rev-label" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:12px;font-weight:700;color:#fff;white-space:nowrap;text-shadow:0 1px 3px rgba(0,0,0,.5)">$0 / $2M (0%)</span>
+   </div>
+  </div>
+  <span style="font-size:14px;color:var(--tx2);white-space:nowrap">$2M Goal</span>
+ </div>
+</div>
+<script>
+fetch('/api/intel/revenue',{credentials:'same-origin'}).then(r=>r.json()).then(d=>{
+ if(!d.ok) return;
+ const pct = Math.min(100, d.pct_to_goal||0);
+ const color = pct>=50?'#3fb950':pct>=25?'#d29922':'#f85149';
+ const bar = document.getElementById('rev-bar');
+ bar.style.width = Math.max(pct,0.5)+'%';
+ bar.style.background = 'linear-gradient(90deg, '+color+', '+color+'aa)';
+ document.getElementById('rev-label').textContent = '$'+(d.closed_revenue||0).toLocaleString()+' / $'+(d.goal/1e6).toFixed(0)+'M ('+pct.toFixed(1)+'%)';
+ document.getElementById('rev-closed').textContent = '$'+(d.closed_revenue||0).toLocaleString();
+ document.getElementById('rev-closed').style.color = color;
+ document.getElementById('rev-gap').textContent = '$'+(d.gap_to_goal||0).toLocaleString();
+ document.getElementById('rev-rate').textContent = '$'+(d.run_rate_annual||0).toLocaleString()+'/yr';
+ document.getElementById('rev-rate').style.color = d.on_track?'#3fb950':'#f85149';
+ document.getElementById('rev-track').textContent = d.on_track?'On Track ✅':'Behind 🔴';
+ document.getElementById('rev-track').style.color = d.on_track?'#3fb950':'#f85149';
+ document.getElementById('rev-gap').style.color = d.gap_to_goal>0?'#f85149':'#3fb950';
+}).catch(()=>{});
+</script>
+
+<!-- KPI Detail Panels -->
 <div id="kpi-section" style="display:none">
  <!-- Row 1: Big KPI cards -->
  <div class="bento bento-4" style="margin-bottom:14px" id="kpi-cards"></div>
