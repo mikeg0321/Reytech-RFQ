@@ -467,18 +467,23 @@ def pricecheck_generate(pcid):
 @auth_required
 def pricecheck_generate_quote(pcid):
     """Generate a standalone Reytech-branded quote PDF from a Price Check."""
+    from src.api.trace import Trace
+    t = Trace("quote_generation", pc_id=pcid)
+    
     if not QUOTE_GEN_AVAILABLE:
+        t.fail("quote_generator.py not available")
         return jsonify({"ok": False, "error": "quote_generator.py not available"})
     pcs = _load_price_checks()
     pc = pcs.get(pcid)
     if not pc:
+        t.fail("PC not found", pc_id=pcid)
         return jsonify({"ok": False, "error": "PC not found"})
 
     pc_num = pc.get("pc_number", "unknown")
+    t.step("Starting", pc_number=pc_num, institution=pc.get("institution",""), items=len(pc.get("items",[])))
     safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', pc_num.strip())
     output_path = os.path.join(DATA_DIR, f"Quote_{safe_name}_Reytech.pdf")
 
-    # Lock-in: reuse existing quote number if already assigned
     locked_qn = pc.get("reytech_quote_number", "")
 
     result = generate_quote_from_pc(
@@ -493,15 +498,16 @@ def pricecheck_generate_quote(pcid):
         pc["reytech_quote_number"] = result.get("quote_number", "")
         pc["status"] = "quoted"
         _save_price_checks(pcs)
-        # CRM: log quote generation
         _log_crm_activity(result.get("quote_number", ""), "quote_generated",
                           f"Quote {result.get('quote_number','')} generated — ${result.get('total',0):,.2f} for {pc.get('institution','')}",
                           actor="user", metadata={"institution": pc.get("institution",""), "agency": result.get("agency","")})
+        t.ok("Quote generated", quote_number=result.get("quote_number",""), total=result.get("total",0))
         return jsonify({
             "ok": True,
             "download": f"/api/pricecheck/download/{os.path.basename(output_path)}",
             "quote_number": result.get("quote_number"),
         })
+    t.fail("Quote generation failed", error=result.get("error", "Unknown"))
     return jsonify({"ok": False, "error": result.get("error", "Unknown error")})
 
 

@@ -450,27 +450,31 @@ def generate(rid):
 @auth_required
 def rfq_generate_quote(rid):
     """Generate a standalone Reytech-branded quote PDF from an RFQ."""
+    from src.api.trace import Trace
+    t = Trace("quote_generation", rfq_id=rid)
+    
     if not QUOTE_GEN_AVAILABLE:
+        t.fail("Quote generator not available")
         flash("Quote generator not available", "error")
         return redirect(f"/rfq/{rid}")
     rfqs = load_rfqs()
     r = rfqs.get(rid)
     if not r:
+        t.fail("RFQ not found")
         flash("RFQ not found", "error"); return redirect("/")
 
     sol = r.get("solicitation_number", "unknown")
+    t.step("Starting", sol=sol, items=len(r.get("line_items",[])))
     safe_sol = re.sub(r'[^a-zA-Z0-9_-]', '_', sol.strip())
     out_dir = os.path.join(OUTPUT_DIR, sol)
     os.makedirs(out_dir, exist_ok=True)
     output_path = os.path.join(out_dir, f"{safe_sol}_Quote_Reytech.pdf")
 
-    # Lock-in: reuse existing quote number if already assigned
     locked_qn = r.get("reytech_quote_number", "")
     result = generate_quote_from_rfq(r, output_path,
                                       quote_number=locked_qn if locked_qn else None)
 
     if result.get("ok"):
-        # Add to output_files list
         fname = os.path.basename(output_path)
         if "output_files" not in r:
             r["output_files"] = []
@@ -478,13 +482,14 @@ def rfq_generate_quote(rid):
             r["output_files"].append(fname)
         r["reytech_quote_number"] = result.get("quote_number", "")
         save_rfqs(rfqs)
+        t.ok("Quote generated", quote_number=result.get("quote_number",""), total=result.get("total",0))
         log.info("Quote #%s generated for RFQ %s — $%s", result.get("quote_number"), rid, f"{result['total']:,.2f}")
         flash(f"Reytech Quote #{result['quote_number']} generated — ${result['total']:,.2f}", "success")
-        # CRM: log
         _log_crm_activity(result.get("quote_number", ""), "quote_generated",
                           f"Quote {result.get('quote_number','')} generated from RFQ {sol} — ${result.get('total',0):,.2f}",
                           actor="user", metadata={"rfq_id": rid, "agency": result.get("agency","")})
     else:
+        t.fail("Quote generation failed", error=result.get("error","unknown"))
         log.error("Quote generation failed for RFQ %s: %s", rid, result.get("error", "unknown"))
         flash(f"Quote generation failed: {result.get('error', 'unknown')}", "error")
 
@@ -493,9 +498,12 @@ def rfq_generate_quote(rid):
 @bp.route("/rfq/<rid>/send", methods=["POST"])
 @auth_required
 def send_email(rid):
+    from src.api.trace import Trace
+    t = Trace("email_send", rfq_id=rid)
     rfqs = load_rfqs()
     r = rfqs.get(rid)
     if not r or not r.get("draft_email"):
+        t.fail("No draft to send")
         flash("No draft to send", "error"); return redirect(f"/rfq/{rid}")
     
     try:
@@ -504,8 +512,8 @@ def send_email(rid):
         _transition_status(r, "sent", actor="user", notes="Email sent to buyer")
         r["sent_at"] = datetime.now().isoformat()
         save_rfqs(rfqs)
+        t.ok("Email sent", to=r["draft_email"].get("to",""), sol=r.get("solicitation_number","?"))
         flash(f"Bid response sent to {r['draft_email']['to']}", "success")
-        # CRM: log email sent + update quote status to sent
         qn = r.get("reytech_quote_number", "")
         if qn and QUOTE_GEN_AVAILABLE:
             update_quote_status(qn, "sent", actor="system")
@@ -513,6 +521,7 @@ def send_email(rid):
                               f"Quote {qn} emailed to {r['draft_email'].get('to','')}",
                               actor="user", metadata={"to": r['draft_email'].get('to','')})
     except Exception as e:
+        t.fail("Send failed", error=str(e))
         flash(f"Send failed: {e}. Use 'Open in Mail App' instead.", "error")
     
     return redirect(f"/rfq/{rid}")

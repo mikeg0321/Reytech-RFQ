@@ -7,6 +7,7 @@ All route handlers live here; app creation is in app.py.
 
 import os, json, uuid, sys, threading, time, logging, functools, re, shutil, glob
 from datetime import datetime, timezone, timedelta
+from src.api.trace import Trace
 from flask import (Blueprint, request, redirect, url_for, render_template_string,
                    send_file, jsonify, flash, Response, current_app)
 
@@ -497,9 +498,10 @@ def process_rfq_email(rfq_email):
     Deduplicates by checking email_uid against existing RFQs.
     PRD Feature 4.2: After parsing, auto-triggers price check + draft quote generation.
     """
-    _trace = []  # Per-email trace for diagnostics
+    _trace = []  # Legacy trace for poll_diag compatibility
     _subj = rfq_email.get("subject", "?")[:50]
     _trace.append(f"START: {_subj}")
+    t = Trace("email_pipeline", subject=_subj, email_uid=rfq_email.get("email_uid", "?"))
     
     # Dedup: check if this email UID is already in the queue
     rfqs = load_rfqs()
@@ -508,6 +510,7 @@ def process_rfq_email(rfq_email):
             _trace.append("SKIP: duplicate email_uid in RFQ queue")
             log.info(f"Skipping duplicate email UID {rfq_email.get('email_uid')}: already in queue")
             POLL_STATUS.setdefault("_email_traces", []).append(_trace)
+            t.ok("Skipped: duplicate email_uid in RFQ queue")
             return None
     
     # ── Route 704 price checks to PC queue, NOT the RFQ queue ──────────────
@@ -557,6 +560,7 @@ def process_rfq_email(rfq_email):
                 if email_uid and any(p.get("email_uid") == email_uid for p in existing_pcs.values()):
                     _trace.append("SKIP: duplicate email_uid in PC queue")
                     POLL_STATUS.setdefault("_email_traces", []).append(_trace)
+                    t.ok("Skipped: duplicate email_uid in PC queue")
                     return None
                 
                 # Create the PC inline (can't import from routes_rfq — bp issue)
@@ -635,6 +639,7 @@ def process_rfq_email(rfq_email):
                     _trace.append(f"PC CREATED: {pc_id}")
                     log.info("PC %s created successfully from email %s", pc_id, email_uid)
                     POLL_STATUS.setdefault("_email_traces", []).append(_trace)
+                    t.ok("PC created", pc_id=pc_id, pc_number=pcs[pc_id].get("pc_number","?"))
                     return None
                 else:
                     _trace.append(f"PC NOT in storage — falling through to RFQ")
@@ -696,6 +701,7 @@ def process_rfq_email(rfq_email):
     POLL_STATUS["emails_found"] += 1
     _trace.append(f"RFQ CREATED: sol={rfq_data.get('solicitation_number','?')}")
     POLL_STATUS.setdefault("_email_traces", []).append(_trace)
+    t.ok("RFQ created", sol=rfq_data.get("solicitation_number","?"), rfq_id=rfq_data.get("id","?"))
     log.info(f"Auto-imported RFQ #{rfq_data.get('solicitation_number', 'unknown')}")
     
     # Ensure sender is in CRM
@@ -743,6 +749,7 @@ def _auto_price_pipeline(rfq_data: dict):
     sol = rfq_data.get("solicitation_number", "?")
     items = rfq_data.get("line_items", [])
 
+    t = Trace("auto_price", rfq_id=rfq_id, sol=sol, item_count=len(items))
     log.info("[AutoPrice] Starting pipeline for RFQ %s (%d items)", sol, len(items))
     t0 = _time.time()
 
@@ -754,6 +761,7 @@ def _auto_price_pipeline(rfq_data: dict):
         match = smart_match_pc(rfq_data, pcs)
         if match:
             revision_of = match["pc_id"]
+            t.step("Revision detected", revision_of=revision_of, score=match["score"])
             log.info("[AutoPrice] Revision detected: %s is update of PC %s (score=%d: %s)",
                      sol, revision_of, match["score"], ", ".join(match["reasons"]))
     except Exception as e:
@@ -803,8 +811,10 @@ def _auto_price_pipeline(rfq_data: dict):
         pcs[pc_id] = pc
         _save_price_checks(pcs)
         priced = sum(1 for it in pc.get("items", []) if it.get("pricing", {}).get("recommended_price"))
+        t.step("Prices looked up", priced=priced, total=len(pc_items))
         log.info("[AutoPrice] Prices found: %d/%d items", priced, len(pc_items))
     except Exception as pe:
+        t.warn("Price lookup failed", error=str(pe))
         log.warning("[AutoPrice] Price lookup failed: %s", pe)
 
     # Step 4: Check for competitor price suggestions
@@ -861,12 +871,14 @@ def _auto_price_pipeline(rfq_data: dict):
 
     log.info("[AutoPrice] Complete for %s in %.1fs (no quote generated — user action required)",
              sol, _time.time() - t0)
+    t.ok("Auto-price complete", duration_s=round(_time.time() - t0, 1), pc_id=pc_id)
 
 
 
 def do_poll_check():
     """Run a single email poll check. Used by both background thread and manual trigger."""
     global _shared_poller
+    t = Trace("email_poll")
     email_cfg = CONFIG.get("email", {})
     
     if not email_cfg.get("email_password"):
@@ -930,9 +942,12 @@ def do_poll_check():
         POLL_STATUS["error"] = str(e)
         POLL_STATUS["_diag"]["errors"].append(str(e))
         log.error(f"Poll error: {e}", exc_info=True)
-        # Reset poller on error so next call creates a fresh one
         _shared_poller = None
+        t.fail("Poll error", error=str(e))
     
+    if t.status == "running":
+        pcs_routed = POLL_STATUS.get("_diag", {}).get("pcs_routed", 0)
+        t.ok("Poll complete", rfqs_imported=len(imported), pcs_routed=pcs_routed)
     return imported
 
 
@@ -1495,6 +1510,44 @@ def _header(page_title: str = "") -> str:
  </div>
 </div>
 <div class="ctr">""" + BRIEF_HTML + "<script>" + SHARED_HEADER_JS + BRIEF_JS + "</script>"
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Trace API — view workflow diagnostics
+# ═══════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/admin/traces")
+@auth_required
+def api_admin_traces():
+    """View recent workflow traces. ?workflow=X to filter, ?status=fail for failures only."""
+    from src.api.trace import get_traces, get_summary
+    workflow = request.args.get("workflow")
+    status = request.args.get("status")
+    limit = int(request.args.get("limit", 50))
+    
+    if request.args.get("summary") == "1":
+        return jsonify(get_summary())
+    
+    traces = get_traces(workflow=workflow, status=status, limit=limit)
+    return jsonify({"traces": traces, "count": len(traces)})
+
+@bp.route("/api/admin/traces/<trace_id>")
+@auth_required
+def api_admin_trace_detail(trace_id):
+    """View a single trace with full step details."""
+    from src.api.trace import get_trace
+    t = get_trace(trace_id)
+    if not t:
+        return jsonify({"error": "Trace not found"}), 404
+    return jsonify(t)
+
+@bp.route("/api/admin/traces", methods=["DELETE"])
+@auth_required
+def api_admin_traces_clear():
+    """Clear all traces."""
+    from src.api.trace import clear_traces
+    clear_traces()
+    return jsonify({"ok": True, "cleared": True})
 
 
 # ══════════════════════════════════════════════════════════════════════════════
