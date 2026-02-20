@@ -162,5 +162,90 @@
         "actor": "system"
       }
     ]
+  },
+  {
+    "quote_number": "R26Q19",
+    "date": "Feb 20, 2026",
+    "agency": "CDCR",
+    "institution": "CDCR",
+    "rfq_number": "10838349",
+    "total": 562.68,
+    "subtotal": 524.64,
+    "tax": 38.04,
+    "items_count": 1,
+    "items_text": "Assistina Universal Adapter Ea 2380066 | W&H Impex Inc - 02685000",
+    "items_detail": [
+      {
+        "description": "Assistina Universal Adapter Ea 2380066 | W&H Impex Inc - 02685000",
+        "part_number": "02685000",
+        "qty": 2,
+        "unit_price": 262.32
+      }
+    ],
+    "pdf_path": "/mnt/user-data/outputs/quote_R26Q16_v3.pdf",
+    "source_pc_id": "",
+    "source_rfq_id": "test_pdf2",
+    "ship_to_name": "23370 Road 22\nChowchilla\nCA 93610",
+    "ship_to_address": [
+      "23370 Road 22\nChowchilla\nCA 93610"
+    ],
+    "requestor": "",
+    "contact_name": "",
+    "email": "",
+    "phone": "",
+    "source": "",
+    "is_test": false,
+    "status": "pending",
+    "created_at": "2026-02-20T10:13:44.154618",
+    "status_history": [
+      {
+        "status": "pending",
+        "timestamp": "2026-02-20T10:13:44.154618",
+        "actor": "system"
+      }
+    ]
+  },
+  {
+    "quote_number": "R26Q20",
+    "date": "Feb 20, 2026",
+    "agency": "CDCR",
+    "institution": "CDCR",
+    "rfq_number": "10838349",
+    "total": 562.68,
+    "subtotal": 524.64,
+    "tax": 38.04,
+    "items_count": 1,
+    "items_text": "Assistina Universal Adapter Ea 2380066 | W&H Impex Inc - 02685000",
+    "items_detail": [
+      {
+        "description": "Assistina Universal Adapter Ea 2380066 | W&H Impex Inc - 02685000",
+        "part_number": "02685000",
+        "qty": 2,
+        "unit_price": 262.32
+      }
+    ],
+    "pdf_path": "/mnt/user-data/outputs/quote_R26Q16_v4.pdf",
+    "source_pc_id": "",
+    "source_rfq_id": "test_v4",
+    "ship_to_name": "23370 Road 22",
+    "ship_to_address": [
+      "Chowchilla",
+      "CA 93610"
+    ],
+    "requestor": "",
+    "contact_name": "",
+    "email": "",
+    "phone": "",
+    "source": "",
+    "is_test": false,
+    "status": "pending",
+    "created_at": "2026-02-20T10:16:06.189469",
+    "status_history": [
+      {
+        "status": "pending",
+        "timestamp": "2026-02-20T10:16:06.189469",
+        "actor": "system"
+      }
+    ]
   }
 ]

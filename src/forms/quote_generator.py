@@ -619,10 +619,26 @@ def generate_quote(
         c.rect(x, rl_y, w, h, fill=0, stroke=1)
         return rl_y  # bottom of box in rl coords
 
+    def _sanitize(s):
+        """Replace unicode chars that Helvetica renders as squares."""
+        if not s:
+            return ""
+        s = str(s)
+        # Smart quotes → straight quotes
+        s = s.replace("\u2018", "'").replace("\u2019", "'")   # '' → '
+        s = s.replace("\u201c", '"').replace("\u201d", '"')   # "" → "
+        # Dashes
+        s = s.replace("\u2013", "-").replace("\u2014", "-")   # – — → -
+        # Other common unicode
+        s = s.replace("\u2026", "...").replace("\u00a0", " ") # … and nbsp
+        s = s.replace("\u2022", "-")                          # bullet
+        s = s.replace("\u00b7", "-")                          # middle dot
+        return s
+
     def text(x, yt, txt, font="Helvetica", size=9, color=BLACK, align="left"):
         c.setFont(font, size)
         c.setFillColor(color)
-        s = str(txt) if txt else ""
+        s = _sanitize(txt)
         rl_y = Y(yt)
         if align == "right":
             c.drawRightString(x, rl_y, s)
@@ -722,12 +738,15 @@ def generate_quote(
         info_y += 11
 
     # ── Bill To (right side, y≈221, only for CDCR/CalVet) ─────────────────────
+    # Aligned with left edge of QUOTE#/DATE box (x=396)
+    BILL_X = 396   # left edge of QUOTE#/DATE box
+    BILL_VX = 396  # value text same x, just below label
     if show_bill:
-        text(308, 228, "Bill to:", "Helvetica-Bold", 10)
-        text(405, 228, bill_name, "Helvetica", 9)
-        by = 242
+        text(BILL_X, 221, "Bill to:", "Helvetica-Bold", 10)
+        text(BILL_VX, 235, bill_name, "Helvetica", 9)
+        by = 247
         for bl in bill_lines:
-            text(405, by, bl, "Helvetica", 9)
+            text(BILL_VX, by, bl, "Helvetica", 9)
             by += 12
 
     # ── To: / Ship to Location: — positioned in white space ──────────────────
@@ -744,14 +763,14 @@ def generate_quote(
         text(TXT_X, ay, "United States", "Helvetica", 10)
         ay += 12
 
-    text(305, addr_y, "Ship to Location:", "Helvetica-Bold", 10)
-    text(402, addr_y, ship_name, "Helvetica", 10)
-    sy = addr_y + 14
+    text(BILL_X, addr_y, "Ship to Location:", "Helvetica-Bold", 10)
+    text(BILL_X, addr_y + 14, ship_name, "Helvetica", 10)
+    sy = addr_y + 26
     for line in ship_addr:
-        text(402, sy, line, "Helvetica", 10)
+        text(BILL_X, sy, line, "Helvetica", 10)
         sy += 12
     if ship_addr and "united states" not in " ".join(ship_addr).lower():
-        text(402, sy, "United States", "Helvetica", 10)
+        text(BILL_X, sy, "United States", "Helvetica", 10)
         sy += 12
 
     # ── Salesperson / RFQ / Terms / Expiry bar ────────────────────────────────
@@ -1080,14 +1099,33 @@ def generate_quote_from_pc(pc: dict, output_path: str, **kwargs) -> dict:
 def generate_quote_from_rfq(rfq: dict, output_path: str, **kwargs) -> dict:
     """Generate Reytech quote from an RFQ record."""
     institution = rfq.get("department", rfq.get("requestor_name", ""))
-    delivery = rfq.get("ship_to", rfq.get("delivery_location", "")) or ""
-    del_parts = [p.strip() for p in delivery.split(",") if p.strip()]
+    delivery = rfq.get("delivery_location", "") or ""
+    ship_to_raw = rfq.get("ship_to", "") or delivery
+
+    # Parse address: split on newlines first, then commas within each line
+    def _parse_addr(raw):
+        if not raw:
+            return []
+        # Split on newlines first
+        lines = [l.strip() for l in raw.replace("\r\n", "\n").split("\n") if l.strip()]
+        if len(lines) > 1:
+            return lines
+        # Fall back to comma splitting if single line
+        parts = [p.strip() for p in raw.split(",") if p.strip()]
+        return parts
+
+    ship_parts = _parse_addr(ship_to_raw)
+    del_parts = _parse_addr(delivery) if delivery != ship_to_raw else ship_parts
+
+    # First part is the facility name, rest is the address
+    ship_name = ship_parts[0] if ship_parts else institution
+    ship_addr = ship_parts[1:] if len(ship_parts) > 1 else ship_parts
 
     data = {
         "institution": institution,
         "to_address": del_parts[1:] if len(del_parts) > 1 else del_parts,
-        "ship_to_name": del_parts[0] if del_parts else institution,
-        "ship_to_address": del_parts[1:] if len(del_parts) > 1 else del_parts,
+        "ship_to_name": ship_name,
+        "ship_to_address": ship_addr,
         "rfq_number": rfq.get("solicitation_number", ""),
         "source_rfq_id": rfq.get("id", ""),
         "line_items": [],
