@@ -111,7 +111,9 @@ def test_queue_isolation() -> list:
     # Check for solicitation number collision (same sol number in both queues)
     rfq_sols = {v.get("solicitation_number") for v in rfqs.values()}
     pc_nums = {v.get("pc_number", "").replace("AD-", "") for v in user_pcs.values()
-               if not v.get("is_auto_draft")}
+               if not v.get("is_auto_draft")
+               and v.get("source") not in ("email_auto_draft", "email_auto")
+               and not v.get("rfq_id")}
     collision = rfq_sols & pc_nums
     if collision:
         results.append(_result(

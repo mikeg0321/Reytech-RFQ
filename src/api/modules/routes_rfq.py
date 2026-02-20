@@ -6,8 +6,11 @@
 @auth_required
 def home():
     all_pcs = _load_price_checks()
-    # Auto-draft PCs (source='email_auto_draft') are shown inside the RFQ row, not the PC queue
-    user_pcs = {k: v for k, v in all_pcs.items() if v.get('source') != 'email_auto_draft'}
+    # Auto PCs (from RFQ auto-price) are shown inside the RFQ row, not the PC queue
+    user_pcs = {k: v for k, v in all_pcs.items()
+                if v.get('source') not in ('email_auto_draft', 'email_auto')
+                and not v.get('is_auto_draft')
+                and not v.get('rfq_id')}
     # Sort by quote number (R26Q17 → 17) descending so newest quotes appear first
     def _pc_sort_key(item):
         pc = item[1]
@@ -275,6 +278,36 @@ def detail(rid):
     rfqs = load_rfqs()
     r = rfqs.get(rid)
     if not r: flash("Not found", "error"); return redirect("/")
+    
+    # ── Restore template paths from DB if files missing from disk (post-redeploy) ──
+    tmpl = r.get("templates", {})
+    db_files = list_rfq_files(rid, category="template")
+    restored = False
+    for db_f in db_files:
+        ft = db_f.get("file_type", "").lower().replace("template_", "")
+        fname = db_f.get("filename", "").lower()
+        ttype = None
+        if "703b" in ft or "703b" in fname:
+            ttype = "703b"
+        elif "704b" in ft or "704b" in fname:
+            ttype = "704b"
+        elif "bid" in ft or "bid" in fname:
+            ttype = "bidpkg"
+        if ttype and (ttype not in tmpl or not os.path.exists(tmpl.get(ttype, ""))):
+            full_f = get_rfq_file(db_f["id"])
+            if full_f and full_f.get("data"):
+                restore_dir = os.path.join(DATA_DIR, "rfq_templates", rid)
+                os.makedirs(restore_dir, exist_ok=True)
+                restore_path = os.path.join(restore_dir, db_f["filename"])
+                with open(restore_path, "wb") as _fw:
+                    _fw.write(full_f["data"])
+                tmpl[ttype] = restore_path
+                restored = True
+    if restored:
+        r["templates"] = tmpl
+        rfqs[rid] = r
+        save_rfqs(rfqs)
+    
     return render(PAGE_DETAIL, r=r, rid=rid)
 
 
@@ -437,6 +470,37 @@ def generate_rfq_package(rid):
     # ── Step 2: Fill State Forms (703B, 704B, Bid Package) ──
     try:
         tmpl = r.get("templates", {})
+        
+        # ── DB Fallback: if template files don't exist on disk (post-redeploy),
+        # reconstruct them from rfq_files DB table ──
+        db_files = list_rfq_files(rid, category="template")
+        type_map = {"703b": "703b", "704b": "704b", "bidpkg": "bidpkg", "bid_package": "bidpkg"}
+        for db_f in db_files:
+            # Determine template type from filename or file_type
+            ft = db_f.get("file_type", "").lower().replace("template_", "")
+            fname = db_f.get("filename", "").lower()
+            ttype = None
+            if "703b" in ft or "703b" in fname:
+                ttype = "703b"
+            elif "704b" in ft or "704b" in fname:
+                ttype = "704b"
+            elif "bid" in ft or "bid" in fname:
+                ttype = "bidpkg"
+            
+            if ttype and (ttype not in tmpl or not os.path.exists(tmpl.get(ttype, ""))):
+                # Restore from DB to temp location
+                full_f = get_rfq_file(db_f["id"])
+                if full_f and full_f.get("data"):
+                    restore_dir = os.path.join(DATA_DIR, "rfq_templates", rid)
+                    os.makedirs(restore_dir, exist_ok=True)
+                    restore_path = os.path.join(restore_dir, db_f["filename"])
+                    with open(restore_path, "wb") as _fw:
+                        _fw.write(full_f["data"])
+                    tmpl[ttype] = restore_path
+                    t.step(f"Restored {ttype} from DB: {db_f['filename']}")
+        
+        # Update templates in RFQ data
+        r["templates"] = tmpl
         
         if "703b" in tmpl and os.path.exists(tmpl["703b"]):
             try:
