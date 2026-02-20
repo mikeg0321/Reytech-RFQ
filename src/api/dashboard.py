@@ -1747,7 +1747,7 @@ def render(content, **kw):
     _poll_status = "Polling" if _poll_running else ("Email not configured" if not _has_email else "Starting...")
     _poll_class = "poll-on" if _poll_running else ("poll-off" if not _has_email else "poll-wait")
     html = f"""<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<!-- BUILD: v20260220-0944-quote-sig -->
+<!-- BUILD: v20260220-0952-persist -->
 <title>Reytech RFQ</title>
 <meta name="description" content="Reytech RFQ Dashboard — AI-powered sales automation for CA state agency reseller">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -1820,6 +1820,16 @@ def render(content, **kw):
 </main>
 <script>""" + SHARED_HEADER_JS + BRIEF_JS + """</script>
 </div></body></html>"""
+
+    # Add volume warning if on Railway without persistent storage
+    try:
+        from src.core.paths import _USING_VOLUME
+        if not _USING_VOLUME and os.environ.get("RAILWAY_ENVIRONMENT"):
+            _warn_html = '<div style="background:#f8514920;border:1px solid #f85149;color:#f85149;padding:8px 16px;text-align:center;font-size:13px;font-weight:600;position:fixed;bottom:0;left:0;right:0;z-index:9999">⚠️ No persistent volume — data resets on each deploy. Add volume in Railway: Service → Storage → Mount: /data</div>'
+            html = html.replace('</body>', _warn_html + '</body>')
+    except Exception:
+        pass
+
     return render_template_string(html, **kw)
 
 

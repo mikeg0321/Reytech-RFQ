@@ -42,35 +42,13 @@ from contextlib import contextmanager
 log = logging.getLogger("reytech.db")
 
 # ── Path resolution ───────────────────────────────────────────────────────────
-# Priority: REYTECH_DATA_DIR env var (Railway volume) → project /data directory
-def _resolve_data_dir() -> str:
-    """Return the persistent data directory path."""
-    # Explicit override (optional)
-    env_path = os.environ.get("REYTECH_DATA_DIR", "")
-    if env_path and os.path.isdir(env_path):
-        return env_path
-    # Railway auto-mounts volume — check both common paths
-    for candidate in ("/app/data", "/data"):
-        if os.path.isdir(candidate):
-            # Confirm it's a real volume mount (not just the git data dir baked into image)
-            # Railway sets RAILWAY_VOLUME_NAME or RAILWAY_VOLUME_MOUNT_PATH when a volume is attached
-            if (os.environ.get("RAILWAY_VOLUME_NAME") or
-                os.environ.get("RAILWAY_VOLUME_MOUNT_PATH") or
-                os.environ.get("RAILWAY_ENVIRONMENT")):
-                return candidate
-    # Fall back to project /data directory (local dev)
-    _here = os.path.abspath(__file__)
-    project_root = os.path.dirname(os.path.dirname(os.path.dirname(_here)))
-    return os.path.join(project_root, "data")
+# Use the centralized DATA_DIR from paths.py (handles Railway volume detection)
+from src.core.paths import DATA_DIR, _USING_VOLUME
 
 def _is_railway_volume() -> bool:
     """True when running on Railway with a volume actually mounted."""
-    return bool(
-        os.environ.get("RAILWAY_VOLUME_NAME") or
-        os.environ.get("RAILWAY_VOLUME_MOUNT_PATH")
-    )
+    return _USING_VOLUME
 
-DATA_DIR = _resolve_data_dir()
 DB_PATH = os.path.join(DATA_DIR, "reytech.db")
 os.makedirs(DATA_DIR, exist_ok=True)
 

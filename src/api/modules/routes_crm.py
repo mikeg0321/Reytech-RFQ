@@ -730,13 +730,19 @@ def api_tax_rate():
 @auth_required
 def api_health():
     """Comprehensive system health check with path validation."""
-    health = {"status": "ok", "build": "v20260220-0944-quote-sig", "checks": {}}
+    health = {"status": "ok", "build": "v20260220-0952-persist", "checks": {}}
 
 
 @bp.route("/api/build")
 def api_build_version():
     """Quick build version check (no auth) to verify deploys."""
-    return jsonify({"build": "v20260220-0944-quote-sig", "ok": True})
+    try:
+        from src.core.paths import DATA_DIR, _USING_VOLUME
+        vol = "persistent" if _USING_VOLUME else "ephemeral"
+    except Exception:
+        vol = "unknown"
+        DATA_DIR = "?"
+    return jsonify({"build": "v20260220-0952-persist", "ok": True, "storage": vol, "data_dir": str(DATA_DIR)})
     
     # Path validation
     try:
