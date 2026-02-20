@@ -546,23 +546,14 @@ def process_rfq_email(rfq_email):
 
     # ── Solicitation-number dedup against PC queue ──────────────────────────
     # If this email's solicitation number is already in the PC queue, it's the same
-    # procurement document — don't create a duplicate RFQ entry.
+    # Block true duplicates: if this exact email UID was already imported as an RFQ
     try:
-        from src.api.modules.routes_rfq import _load_price_checks
-        _sol_hint = rfq_email.get("solicitation_hint", "")
-        if _sol_hint and _sol_hint != "unknown":
-            _existing_pcs = _load_price_checks()
-            _already_in_pc = any(
-                _sol_hint in (p.get("pc_number", "") + p.get("solicitation_number", ""))
-                for p in _existing_pcs.values()
-                if p.get("source") != "email_auto_draft"
-            )
-            if _already_in_pc:
-                log.warning(
-                    "Duplicate routing blocked: sol# %s already in PC queue, email %s would create RFQ duplicate",
-                    _sol_hint, rfq_email.get("email_uid", "?")
-                )
-                return None
+        _email_uid = rfq_email.get("email_uid", "")
+        if _email_uid:
+            for _eid, _erfq in rfqs.items():
+                if _erfq.get("email_uid") == _email_uid:
+                    log.info("Duplicate RFQ blocked: email UID %s already imported as %s", _email_uid, _eid)
+                    return None
     except Exception:
         pass
 
@@ -779,12 +770,16 @@ def do_poll_check():
         log.error("Poll check failed: no email_password in config")
         return []
     
-    if _shared_poller is None:
-        # Force absolute path for processed file
-        email_cfg = dict(email_cfg)  # copy so we don't mutate
-        email_cfg["processed_file"] = os.path.join(DATA_DIR, "processed_emails.json")
-        _shared_poller = EmailPoller(email_cfg)
-        log.info(f"Created poller for {email_cfg.get('email', 'NO EMAIL SET')}, processed file: {email_cfg['processed_file']}")
+    # Always destroy and recreate poller to pick up fresh processed_emails.json
+    # (system-reset clears the file but old poller has stale in-memory set)
+    _shared_poller = None
+    
+    # Force absolute path for processed file
+    email_cfg = dict(email_cfg)  # copy so we don't mutate
+    email_cfg["processed_file"] = os.path.join(DATA_DIR, "processed_emails.json")
+    _shared_poller = EmailPoller(email_cfg)
+    log.info(f"Created fresh poller for {email_cfg.get('email', 'NO EMAIL SET')}, "
+             f"processed: {len(_shared_poller._processed)} UIDs loaded")
     
     imported = []
     try:

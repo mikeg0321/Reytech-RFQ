@@ -102,6 +102,15 @@ UPDATE_REQUEST_PATTERNS = [
     # General CS signals
     r"(?:need to know|please advise|please update|let me know).{0,50}(?:status|update|when|where)",
     r"(?:have not|haven't).{0,30}(?:received|heard|seen|gotten)",
+    # Broader customer service patterns
+    r"(?:can you|could you|would you).{0,30}(?:send|provide|check|confirm|verify|update|help)",
+    r"(?:question|inquiry|asking).{0,30}(?:about|regarding|on|for)",
+    r"(?:need|looking for|requesting).{0,30}(?:information|help|assistance|clarification)",
+    r"(?:do you|can you).{0,20}(?:carry|stock|sell|have|offer)",
+    r"(?:price|pricing|cost|how much).{0,30}(?:for|on|of)\b",
+    r"(?:catalog|product list|item list|availability)",
+    r"(?:return|exchange|credit|refund|warranty|replacement)",
+    r"(?:urgent|asap|rush|expedite|time sensitive|priority)",
 ]
 
 UPDATE_PATTERNS_COMPILED = [re.compile(p, re.I) for p in UPDATE_REQUEST_PATTERNS]

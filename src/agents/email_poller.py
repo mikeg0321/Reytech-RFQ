@@ -714,14 +714,16 @@ class EmailPoller:
                     # ── END REPLY DETECTION ────────────────────────────────────
 
                     if not is_rfq_email(subject, body, pdf_names):
+                        # Not an RFQ — classify what kind of email it is
+                        email_handled = False
+
                         # Check if it's a shipping/tracking email
                         try:
                             from src.agents.predictive_intel import detect_shipping_email
                             ship_info = detect_shipping_email(subject, body, sender)
                             if ship_info.get("is_shipping") and ship_info.get("tracking_numbers"):
-                                log.info("📦 Shipping email detected: %s tracking=%s",
+                                log.info("Shipping email detected: %s tracking=%s",
                                          subject[:60], ship_info["tracking_numbers"][:2])
-                                # Save for order matching
                                 _ship_file = os.path.join(os.path.dirname(os.path.dirname(
                                     os.path.dirname(os.path.abspath(__file__)))), "data", "detected_shipments.json")
                                 try:
@@ -739,18 +741,16 @@ class EmailPoller:
                                     _ships = _ships[-500:]
                                 with open(_ship_file, "w") as _sf:
                                     json.dump(_ships, _sf, indent=2, default=str)
+                                email_handled = True
                         except Exception as _e:
-                            pass  # Non-critical
+                            pass
 
-                        # ── CS Agent: Inbound Update Request Detection ──────────────
-                        # After ruling out RFQ + shipping, check if this is a customer
-                        # asking for an order/quote/delivery/invoice update.
-                        # Auto-drafts a professional CS reply for Mike to review.
+                        # CS Agent: check for customer service requests
                         try:
                             from src.agents.cs_agent import classify_inbound_email, build_cs_response_draft
                             cs_class = classify_inbound_email(subject, body, sender)
-                            if cs_class.get("is_update_request"):
-                                log.info("📬 CS update request detected: intent=%s from=%s subject=%s",
+                            if cs_class.get("is_update_request") or cs_class.get("intent") != "general":
+                                log.info("CS request detected: intent=%s from=%s subject=%s",
                                          cs_class.get("intent"), sender[:40], subject[:50])
                                 def _cs_draft(cls=cs_class, subj=subject, bdy=body, snd=sender):
                                     try:
@@ -762,8 +762,34 @@ class EmailPoller:
                                         log.debug("CS draft error: %s", _ce)
                                 import threading as _cst
                                 _cst.Thread(target=_cs_draft, daemon=True, name="cs-draft").start()
+                                email_handled = True
                         except Exception as _cse:
-                            pass  # Non-critical — CS agent is additive
+                            log.debug("CS classification error: %s", _cse)
+
+                        # SAFETY NET: Never silently drop emails from .gov / known buyer domains
+                        sender_email = self._extract_email(sender).lower()
+                        is_buyer = any(d in sender_email for d in [
+                            ".ca.gov", "cdcr", "calvet", "cdph", "cchcs", "dsh",
+                            "calfire", "caltrans", "chp", "dgs",
+                        ])
+                        if not email_handled and is_buyer:
+                            log.warning("UNCLASSIFIED buyer email — notifying: from=%s subj=%s",
+                                        sender[:40], subject[:60])
+                            try:
+                                from src.agents.notify_agent import send_alert
+                                send_alert(
+                                    event_type="unclassified_buyer_email",
+                                    title=f"Unclassified email from buyer",
+                                    body=f"From: {sender[:50]} — Subject: {subject[:60]}. "
+                                         f"Not RFQ, not CS pattern. Needs manual review.",
+                                    urgency="urgent",
+                                    context={"sender": sender, "subject": subject},
+                                    cooldown_key=f"unclass_{uid}",
+                                )
+                            except Exception:
+                                pass
+                        elif not email_handled:
+                            log.debug("Non-buyer email skipped: %s — %s", sender[:30], subject[:50])
 
                         self._processed.add(uid)
                         continue
@@ -798,67 +824,16 @@ class EmailPoller:
                         results.append(rfq_info)
                         log.info(f"RFQ captured: {subject[:60]} ({len(attachments)} PDFs, sol #{sol_num})")
 
-                        # ── PRD Feature 4.2: Auto Price Check + Draft Quote ──
-                        # Trigger in background thread so polling doesn't block.
-                        # Creates a draft quote the user can review and approve.
-                        def _auto_draft(rfq=rfq_info):
-                            """Email → Auto Price Check (no quote generation — user does that)."""
-                            try:
-                                from src.api.dashboard import _handle_price_check_upload, _push_notification
-                                import uuid as _uuid
-                                pc_id = f"auto_{_uuid.uuid4().hex[:8]}"
-                                pdfs = [a["path"] for a in rfq.get("attachments", [])
-                                        if a.get("path") and a["path"].endswith(".pdf")]
-                                if not pdfs:
-                                    log.info("Auto-price: no PDFs in RFQ — skipping")
-                                    return
+                        # PC creation is handled by process_rfq_email() → _trigger_auto_price()
+                        # in dashboard.py. Do NOT create PCs here to avoid duplicates.
 
-                                # ── DEDUP: Check if this PDF was already processed ──
-                                try:
-                                    from src.parsers.ams704_parser import parse_ams704
-                                    pre_parsed = parse_ams704(pdfs[0])
-                                    pre_pc_num = pre_parsed.get("header", {}).get("price_check_number", "")
-                                    pre_inst = pre_parsed.get("header", {}).get("institution", "")
-                                    if pre_pc_num and pre_pc_num != "unknown" and pre_inst:
-                                        from src.api.dashboard import _load_price_checks
-                                        existing_pcs = _load_price_checks()
-                                        for eid, epc in existing_pcs.items():
-                                            if (epc.get("pc_number", "").strip() == pre_pc_num.strip()
-                                                    and epc.get("institution", "").strip().lower() == pre_inst.strip().lower()):
-                                                log.info("Auto-price dedup: PC #%s from %s already exists as %s — skipping",
-                                                         pre_pc_num, pre_inst, eid)
-                                                return
-                                except Exception as _dp:
-                                    log.debug("Auto-price dedup pre-check failed (non-fatal): %s", _dp)
-
-                                # Step 1: Create price check from PDF
-                                pc_result = _handle_price_check_upload(pdfs[0], pc_id)
-                                log.info("Auto-price: PC %s created from %s", pc_id, rfq.get("subject","")[:50])
-                                # Step 2: Auto-run price lookup (NO quote generation)
-                                try:
-                                    from src.auto.auto_processor import auto_process_price_check
-                                    auto_process_price_check(pdfs[0], pc_id=pc_id)
-                                    log.info("Auto-price: price lookup complete for %s", pc_id)
-                                except Exception as _ape:
-                                    log.debug("Auto-price lookup skipped: %s", _ape)
-                                # Step 3: Notify — PC ready for review (user generates quote manually)
-                                agency = rfq.get("agency","") or rfq.get("institution","") or "Unknown Agency"
-                                _push_notification({
-                                    "type": "pc_ready",
-                                    "title": f"Price check ready from {agency}",
-                                    "message": f"PC {pc_id[:12]} priced — click Generate Quote when ready",
-                                    "pc_id": pc_id,
-                                    "url": f"/pricecheck/{pc_id}",
-                                })
-                            except Exception as _ae:
-                                log.debug("Auto-price pipeline failed: %s", _ae)
-                        # 🔔 RFQ arrival alert (before spawning auto-draft thread)
+                        # 🔔 RFQ arrival alert
                         try:
                             from src.agents.notify_agent import send_alert, log_email_event
                             send_alert(
                                 event_type="rfq_arrived",
-                                title=f"🚨 New RFQ: {subject[:50]}",
-                                body=f"From: {sender} — {len(rfq_info.get('items',[]))} line items. Auto-pricing started.",
+                                title=f"New RFQ: {subject[:50]}",
+                                body=f"From: {sender} — auto-pricing started.",
                                 urgency="urgent",
                                 context={"contact": sender, "entity_id": rfq_id},
                                 cooldown_key=f"rfq_{rfq_id}",
@@ -875,8 +850,6 @@ class EmailPoller:
                             )
                         except Exception as _ne:
                             pass
-                        import threading as _t
-                        _t.Thread(target=_auto_draft, daemon=True, name="auto-draft").start()
                     else:
                         log.info(f"RFQ email but no PDFs saved: {subject[:60]}")
                     
