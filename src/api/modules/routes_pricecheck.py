@@ -2347,17 +2347,18 @@ def api_admin_system_reset():
     except Exception as e:
         results["pcs_error"] = str(e)
     
-    # Step 3: Clear RFQ queue
+    # Step 3: Clear RFQ queue (rfqs.json is what load_rfqs() reads)
     try:
-        rfq_path = os.path.join(DATA_DIR, 'rfq_queue.json')
-        if os.path.exists(rfq_path):
-            with open(rfq_path) as f:
-                rfqs = json.load(f)
-            results["rfqs_before"] = len(rfqs)
-            if not dry_run:
-                with open(rfq_path, "w") as f:
-                    json.dump({}, f)
-                results["rfqs_cleared"] = True
+        for rfq_file in ['rfqs.json', 'rfq_queue.json']:
+            rfq_path = os.path.join(DATA_DIR, rfq_file)
+            if os.path.exists(rfq_path):
+                with open(rfq_path) as f:
+                    rfqs = json.load(f)
+                results["rfqs_before"] = max(results.get("rfqs_before", 0), len(rfqs))
+                if not dry_run:
+                    with open(rfq_path, "w") as f:
+                        json.dump({}, f)
+                    results["rfqs_cleared"] = True
     except Exception as e:
         results["rfqs_error"] = str(e)
     
@@ -2497,18 +2498,23 @@ def api_admin_reset_and_poll():
         except Exception:
             pass
         
-        # Clear RFQs — ensure file exists as empty dict AND invalidate cache
-        rfq_path = os.path.join(DATA_DIR, 'rfq_queue.json')
+        # Clear RFQs — must match rfq_db_path() which is rfqs.json
+        rfq_path = os.path.join(DATA_DIR, 'rfqs.json')
         with open(rfq_path, "w") as f:
             json.dump({}, f)
+        # Also clear rfq_queue.json in case anything reads from there
+        rfq_queue_path = os.path.join(DATA_DIR, 'rfq_queue.json')
+        if os.path.exists(rfq_queue_path):
+            with open(rfq_queue_path, "w") as f:
+                json.dump({}, f)
         # CRITICAL: invalidate the in-memory cache or load_rfqs() returns stale data
         try:
             from src.api.dashboard import _invalidate_cache, _json_cache, _json_cache_lock
             _invalidate_cache(rfq_path)
-            # Also nuke the entire cache to be safe
+            _invalidate_cache(rfq_queue_path)
             with _json_cache_lock:
                 _json_cache.clear()
-            log.info("RESET+POLL: Cache invalidated")
+            log.info("RESET+POLL: Cleared rfqs.json + rfq_queue.json + cache")
         except Exception as ce:
             log.warning("RESET+POLL: Cache invalidation failed: %s", ce)
         steps["rfqs_cleared"] = True
@@ -2580,7 +2586,7 @@ def api_admin_reset_and_poll():
         steps["pcs_error"] = str(e)
     
     try:
-        rfq_path = os.path.join(DATA_DIR, 'rfq_queue.json')
+        rfq_path = os.path.join(DATA_DIR, 'rfqs.json')
         if os.path.exists(rfq_path):
             with open(rfq_path) as f:
                 final_rfqs = json.load(f)
