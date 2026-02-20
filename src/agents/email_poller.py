@@ -738,6 +738,24 @@ class EmailPoller:
                     # Track for diagnostics
                     self._diag["subjects_seen"].append(subject[:60])
                     
+                    # ── SELF-EMAIL FILTER — skip our own sent emails ──────────
+                    # Gmail threads sent replies into INBOX view. The poller must
+                    # never process emails FROM our own address.
+                    sender_email_raw = self._extract_email(sender).lower()
+                    our_email = self.email_addr.lower()
+                    our_domains = ["reytechinc.com", "reytech.com"]
+                    is_self = (
+                        sender_email_raw == our_email
+                        or any(sender_email_raw.endswith(f"@{d}") for d in our_domains)
+                    )
+                    if is_self:
+                        log.debug("Skipping own email: %s — %s", sender_email_raw, subject[:50])
+                        self._diag.setdefault("self_skipped", 0)
+                        self._diag["self_skipped"] = self._diag.get("self_skipped", 0) + 1
+                        self._processed.add(uid)
+                        continue
+                    # ── END SELF-EMAIL FILTER ──────────────────────────────────
+                    
                     # Get PDF names without saving
                     pdf_names = self._get_pdf_names(msg)
                     

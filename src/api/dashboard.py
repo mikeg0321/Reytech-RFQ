@@ -1045,9 +1045,8 @@ def process_rfq_email(rfq_email):
                     _trace.append(f"Force PC also failed: {_fe}")
                     log.error("Force PC creation failed: %s", _fe)
 
-    # ── Solicitation-number dedup against PC queue ──────────────────────────
-    # If this email's solicitation number is already in the PC queue, it's the same
-    # Block true duplicates: if this exact email UID was already imported as an RFQ
+    # ── Solicitation-number dedup + self-email guard ────────────────────────
+    # Block: exact email UID already imported as RFQ
     try:
         _email_uid = rfq_email.get("email_uid", "")
         if _email_uid:
@@ -1057,6 +1056,28 @@ def process_rfq_email(rfq_email):
                     return None
     except Exception:
         pass
+    
+    # Block: self-email (our own sent replies picked up by poller)
+    _sender_email = rfq_email.get("sender_email", rfq_email.get("sender", "")).lower()
+    _our_domains = ["reytechinc.com", "reytech.com"]
+    if any(_sender_email.endswith(f"@{d}") for d in _our_domains):
+        _trace.append(f"SKIP: self-email from {_sender_email}")
+        log.info("Blocking self-email from %s: %s", _sender_email, _subj)
+        POLL_STATUS.setdefault("_email_traces", []).append(_trace)
+        t.ok("Skipped: self-email")
+        return None
+    
+    # Block: solicitation number already exists in active RFQ queue
+    _sol_hint = rfq_email.get("solicitation_hint", "")
+    if _sol_hint and _sol_hint != "unknown":
+        for _eid, _erfq in rfqs.items():
+            if (_erfq.get("solicitation_number") == _sol_hint 
+                    and _erfq.get("status") not in ("dismissed",)):
+                _trace.append(f"DEDUP: sol {_sol_hint} already in RFQ queue as {_eid}")
+                log.info("Solicitation dedup: #%s already exists (id=%s) — skipping", _sol_hint, _eid)
+                POLL_STATUS.setdefault("_email_traces", []).append(_trace)
+                t.ok("Skipped: solicitation dedup", existing_id=_eid, sol=_sol_hint)
+                return None
 
     templates = {}
     for att in rfq_email["attachments"]:
