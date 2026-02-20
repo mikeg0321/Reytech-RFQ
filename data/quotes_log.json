@@ -93,9 +93,9 @@
         "unit_price": 262.32
       }
     ],
-    "pdf_path": "/mnt/user-data/outputs/quote_R26Q16_final.pdf",
+    "pdf_path": "/mnt/user-data/outputs/quote_spacing_fix.pdf",
     "source_pc_id": "",
-    "source_rfq_id": "test_layout",
+    "source_rfq_id": "test_spacing",
     "ship_to_name": "CCWF - Central California Women's Facility",
     "ship_to_address": [
       "23370 Road 22",
@@ -112,7 +112,7 @@
     "created_at": "2026-02-20T10:29:51.765768",
     "status_history": [],
     "po_number": "",
-    "regenerated_at": "2026-02-20T10:29:51.765768",
-    "regeneration_count": 1
+    "regenerated_at": "2026-02-20T10:32:49.704719",
+    "regeneration_count": 2
   }
 ]

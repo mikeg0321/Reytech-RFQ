@@ -728,33 +728,40 @@ def generate_quote(
 
     # -- Bill To (right column, only for CDCR/CalVet)
     BILL_X = 396
+    ADDR_LBL_X = ML + 10   # label "To:" indented slightly from margin
+    ADDR_VAL_X = ML + 10   # address content same x, line below label
     bill_bottom_y = info_y
     if show_bill:
         bill_y = qbox_bottom + 12   # comfortable gap below DATE box
         text(BILL_X, bill_y, "Bill to:", "Helvetica-Bold", 10)
-        text(BILL_X, bill_y + 13, bill_name, "Helvetica", 9)
-        by = bill_y + 24
+        by = bill_y + 15            # 15pt gap: label to first content line
+        text(BILL_X, by, bill_name, "Helvetica", 9)
+        by += 12
         for bl in bill_lines:
             text(BILL_X, by, bl, "Helvetica", 9)
             by += 11
         bill_bottom_y = max(bill_bottom_y, by)
 
     # -- To: / Ship to Location:
-    addr_y = max(info_y, bill_bottom_y) + 4
+    addr_y = max(info_y, bill_bottom_y) + 6
 
-    text(ML + 7, addr_y, "To:", "Helvetica-Bold", 10)
-    text(TXT_X, addr_y, to_name, "Helvetica", 10)
-    ay = addr_y + 12
+    # Left column: "To:" label, then name + address below
+    text(ADDR_LBL_X, addr_y, "To:", "Helvetica-Bold", 10)
+    ay = addr_y + 15                 # 15pt gap below label
+    text(ADDR_VAL_X, ay, to_name, "Helvetica", 10)
+    ay += 12
     for line in to_addr:
-        text(TXT_X, ay, line, "Helvetica", 10)
+        text(ADDR_VAL_X, ay, line, "Helvetica", 10)
         ay += 11
     if to_addr and "united states" not in " ".join(to_addr).lower():
-        text(TXT_X, ay, "United States", "Helvetica", 10)
+        text(ADDR_VAL_X, ay, "United States", "Helvetica", 10)
         ay += 11
 
+    # Right column: "Ship to Location:" label, then facility + address below
     text(BILL_X, addr_y, "Ship to Location:", "Helvetica-Bold", 10)
-    text(BILL_X, addr_y + 12, ship_name, "Helvetica", 10)
-    sy = addr_y + 23
+    sy = addr_y + 15                 # 15pt gap below label
+    text(BILL_X, sy, ship_name, "Helvetica", 10)
+    sy += 12
     for line in ship_addr:
         text(BILL_X, sy, line, "Helvetica", 10)
         sy += 11
