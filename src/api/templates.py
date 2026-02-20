@@ -1031,13 +1031,12 @@ function showRfqPreview(){
    <td style="text-align:right;border:1px solid #000;padding:4px">$${ext.toFixed(2)}</td>
   </tr>`;
  }
- const sol='{{r.solicitation_number}}';
- const dept='{{r.get("department","")}}';
- const reqName='{{r.requestor_name}}';
- const due='{{r.due_date}}';
- const delivery='{{r.get("delivery_location","")}}';
- const shipTo='{{r.get("ship_to","")}}';
-
+ const sol={{r.solicitation_number|tojson}};
+ const dept={{r.get("department","")|tojson}};
+ const reqName={{r.requestor_name|tojson}};
+ const due={{r.due_date|tojson}};
+ const delivery={{r.get("delivery_location","")|tojson}};
+ const shipTo={{r.get("ship_to","")|tojson}};
  const html=`<div style="font-family:'Times New Roman',Times,serif;font-size:13px;color:#000;line-height:1.4;padding:20px">
   <div style="display:flex;justify-content:space-between;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#444">
    <span>STATE OF CALIFORNIA</span><span>${dept||'CALIFORNIA CORRECTIONAL HEALTH CARE SERVICES'}</span>
@@ -1099,7 +1098,7 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape'){const m=doc
 
 recalc();
 
-var RID='{{rid}}';
+var RID={{rid|tojson}};
 var _allDbFiles=[];
 var _emailTemplates=[];
 
@@ -1210,12 +1209,12 @@ function loadEmailTemplate(){
  var sel=document.getElementById('emailTemplateSelect');
  if(!sel||!sel.value) return;
  var vars={
-  solicitation:'{{r.get("solicitation_number","")}}',
-  requestor:'{{r.get("requestor_name","")}}',
-  requestor_email:'{{r.get("requestor_email","")}}',
-  quote_number:'{{r.get("reytech_quote_number","")}}',
-  institution:'{{r.get("institution","")}}',
-  due_date:'{{r.get("due_date","")}}'
+  solicitation:{{r.get("solicitation_number","")|tojson}},
+  requestor:{{r.get("requestor_name","")|tojson}},
+  requestor_email:{{r.get("requestor_email","")|tojson}},
+  quote_number:{{r.get("reytech_quote_number","")|tojson}},
+  institution:{{r.get("institution","")|tojson}},
+  due_date:{{r.get("due_date","")|tojson}}
  };
  fetch('/api/email-templates/render',{method:'POST',credentials:'same-origin',
   headers:{'Content-Type':'application/json'},
