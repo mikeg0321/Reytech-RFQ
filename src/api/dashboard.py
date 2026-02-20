@@ -1747,7 +1747,7 @@ def render(content, **kw):
     _poll_status = "Polling" if _poll_running else ("Email not configured" if not _has_email else "Starting...")
     _poll_class = "poll-on" if _poll_running else ("poll-off" if not _has_email else "poll-wait")
     html = f"""<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<!-- BUILD: v20260220-0840-tojson-fix -->
+<!-- BUILD: v20260220-0918-onclick-fix -->
 <title>Reytech RFQ</title>
 <meta name="description" content="Reytech RFQ Dashboard — AI-powered sales automation for CA state agency reseller">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">

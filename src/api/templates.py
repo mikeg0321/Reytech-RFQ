@@ -1138,7 +1138,7 @@ document.addEventListener('keydown',function(e){
     var kb=Math.round((f.file_size||0)/1024);
     var previewUrl='/rfq/'+RID+'/preview/'+f.id;
     s+='<span style="display:inline-flex;align-items:center;gap:4px;padding:6px 12px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;font-size:13px;color:var(--tx)">';
-    s+='<a href="#" onclick="previewPdf(\''+previewUrl+'\',\''+f.filename.replace(/'/g,"\\'")+'\');return false" style="color:var(--ac);text-decoration:none;cursor:pointer" title="Preview">👁️</a> ';
+    s+='<a href="#" class="rfq-file-preview" data-url="'+previewUrl.replace(/"/g,'&quot;')+'" data-title="'+f.filename.replace(/"/g,'&quot;')+'" style="color:var(--ac);text-decoration:none;cursor:pointer" title="Preview">👁️</a> ';
     s+='<a href="/rfq/'+RID+'/file/'+f.id+'" target="_blank" style="color:var(--tx);text-decoration:none">'+f.filename+'</a>';
     s+=' <span style="color:var(--tx2);font-size:11px">('+kb+'KB)</span></span>';
    });
@@ -1149,6 +1149,11 @@ document.addEventListener('keydown',function(e){
   html+=renderSection('Generated Files','📦',cats.generated);
   html+=renderSection('Other Attachments','📎',cats.attachment);
   document.getElementById('rfq-files-list').innerHTML=html;
+  // Attach preview click handlers via delegation (avoids inline onclick quoting issues)
+  document.getElementById('rfq-files-list').addEventListener('click',function(e){
+   var link=e.target.closest('.rfq-file-preview');
+   if(link){e.preventDefault();previewPdf(link.getAttribute('data-url'),link.getAttribute('data-title'));}
+  });
   // Populate attachment checkboxes for email
   buildAttachmentList(cats.generated);
  }).catch(function(){});
