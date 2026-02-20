@@ -249,6 +249,23 @@ def handle_recall(original_subject):
         log.info("📨 Recall processed: deleted %d PCs for '%s': %s",
                  len(deleted), original_subject, [d["pcid"] for d in deleted])
         
+        # Also clean matching RFQs
+        try:
+            from src.api.dashboard import load_rfqs, save_rfqs
+            rfqs = load_rfqs()
+            rfq_deleted = []
+            for rid in list(rfqs.keys()):
+                r = rfqs[rid]
+                searchable = f"{r.get('requestor','')} {r.get('email_subject','')} {r.get('solicitation','')}".lower()
+                if recall_clean and recall_clean in searchable:
+                    rfq_deleted.append(rid)
+                    del rfqs[rid]
+            if rfq_deleted:
+                save_rfqs(rfqs)
+                log.info("📨 Recall also removed %d RFQs: %s", len(rfq_deleted), rfq_deleted)
+        except Exception as e2:
+            log.warning("Recall RFQ cleanup error: %s", e2)
+        
     except Exception as e:
         log.error("Recall handling error: %s", e, exc_info=True)
     

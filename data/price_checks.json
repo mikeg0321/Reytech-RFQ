@@ -1,1 +1,1 @@
-{"t": {"id": "t", "pc_number": "Test", "institution": "X", "ship_to": "123", "items": [{"item_number": "1", "qty": 1, "uom": "EA", "description": "Test", "pricing": {}}], "status": "parsed", "status_history": [], "parsed": {"header": {}}, "reytech_quote_number": "", "delivery_option": "5-7 business days"}}
+{}

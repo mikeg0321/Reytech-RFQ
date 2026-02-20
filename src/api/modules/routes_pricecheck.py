@@ -1347,18 +1347,19 @@ def api_admin_cleanup():
 @bp.route("/api/admin/status")
 @auth_required
 def api_admin_status():
-    """Quick system status — quote counter, PC count, quote count, full PC detail."""
+    """Quick system status — quote counter, PC count, quote count, full PC detail, RFQ queue."""
     try:
         from src.forms.quote_generator import _load_counter
         from src.core.db import get_db
         pcs = _load_price_checks()
         counter = _load_counter()
+        rfqs = load_rfqs()
         with get_db() as conn:
             q_count = conn.execute("SELECT COUNT(*) FROM quotes WHERE is_test=0 OR is_test IS NULL").fetchone()[0]
             quotes = [dict(r) for r in conn.execute(
                 "SELECT quote_number, total, status FROM quotes WHERE is_test=0 ORDER BY rowid DESC LIMIT 20"
             ).fetchall()]
-        # Full PC detail — show quote numbers so we can see what's holding the counter
+        # Full PC detail
         pc_detail = {}
         for pcid, pc in pcs.items():
             pc_detail[pcid] = {
@@ -1369,10 +1370,23 @@ def api_admin_status():
                 "items_count": len(pc.get("items", [])),
                 "email_subject": pc.get("email_subject", ""),
             }
+        # RFQ detail
+        rfq_detail = {}
+        for rid, r in rfqs.items():
+            rfq_detail[rid] = {
+                "solicitation": r.get("solicitation", "?"),
+                "requestor": r.get("requestor", "?"),
+                "status": r.get("status", "?"),
+                "items_count": len(r.get("items", [])),
+                "email_uid": r.get("email_uid", ""),
+                "email_subject": r.get("email_subject", ""),
+            }
         return jsonify({
             "ok": True,
             "pc_count": len(pcs),
             "pcs": pc_detail,
+            "rfq_count": len(rfqs),
+            "rfqs": rfq_detail,
             "quote_count": q_count,
             "all_quotes": quotes,
             "counter": counter,
@@ -1551,6 +1565,72 @@ def api_admin_recall():
         results["errors"].append(str(e))
     
     return jsonify(results)
+
+
+@bp.route("/api/admin/purge-rfqs", methods=["POST"])
+@auth_required
+def api_admin_purge_rfqs():
+    """Delete RFQs from the queue.
+    
+    POST body options:
+      {"rfq_ids": ["rfq_0", "rfq_1"]}  — delete specific IDs
+      {"empty": true}                   — delete all RFQs with 0 items
+      {"pattern": "valentina"}          — delete RFQs matching pattern in requestor/subject
+      {"all": true}                     — nuclear: delete ALL RFQs
+    Returns before/after counts.
+    """
+    data = request.get_json(silent=True) or {}
+    rfqs = load_rfqs()
+    before_count = len(rfqs)
+    before_list = {k: {"sol": v.get("solicitation","?"), "req": v.get("requestor","?"),
+                       "items": len(v.get("items",[])), "status": v.get("status","?")}
+                   for k, v in rfqs.items()}
+    
+    to_delete = set()
+    
+    if data.get("rfq_ids"):
+        to_delete = {rid for rid in data["rfq_ids"] if rid in rfqs}
+    elif data.get("empty"):
+        to_delete = {rid for rid, r in rfqs.items() if len(r.get("items", [])) == 0}
+    elif data.get("pattern"):
+        pat = data["pattern"].lower()
+        for rid, r in rfqs.items():
+            searchable = f"{r.get('requestor','')} {r.get('email_subject','')} {r.get('solicitation','')}".lower()
+            if pat in searchable:
+                to_delete.add(rid)
+    elif data.get("all"):
+        to_delete = set(rfqs.keys())
+    else:
+        return jsonify({"ok": False, "error": "Provide rfq_ids, empty:true, pattern, or all:true",
+                        "rfqs": before_list})
+    
+    deleted = []
+    for rid in to_delete:
+        r = rfqs.pop(rid, None)
+        if r:
+            deleted.append({"id": rid, "sol": r.get("solicitation","?"),
+                           "req": r.get("requestor","?"), "items": len(r.get("items",[]))})
+    
+    save_rfqs(rfqs)
+    
+    # Also clean SQLite
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            for d in deleted:
+                conn.execute("DELETE FROM rfqs WHERE id=?", (d["id"],))
+    except Exception:
+        pass
+    
+    log.info("ADMIN PURGE-RFQS: deleted %d of %d RFQs", len(deleted), before_count)
+    
+    return jsonify({
+        "ok": True,
+        "deleted": deleted,
+        "deleted_count": len(deleted),
+        "before": before_count,
+        "after": len(rfqs),
+    })
 
 
 @bp.route("/api/pricecheck/<pcid>/clear-quote", methods=["POST"])
