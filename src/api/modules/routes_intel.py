@@ -5156,8 +5156,37 @@ def growth_prospect_detail(prospect_id):
     if not GROWTH_AVAILABLE:
         flash("Growth agent not available", "error"); return redirect("/contacts")
     result = get_prospect(prospect_id)
+    
+    # Fallback: check CRM contacts if not in growth prospects
     if not result.get("ok"):
-        flash("Prospect not found", "error"); return redirect("/contacts")
+        crm_contacts = _load_crm_contacts()
+        crm_c = crm_contacts.get(prospect_id)
+        if crm_c:
+            # Synthesize a prospect object from CRM contact
+            result = {
+                "ok": True,
+                "prospect": {
+                    "id": prospect_id,
+                    "buyer_name": crm_c.get("buyer_name", ""),
+                    "buyer_email": crm_c.get("buyer_email", ""),
+                    "buyer_phone": crm_c.get("buyer_phone", ""),
+                    "agency": crm_c.get("agency", ""),
+                    "categories": crm_c.get("categories", {}),
+                    "items_purchased": crm_c.get("items_purchased", []),
+                    "total_spend": crm_c.get("total_spend", 0),
+                    "score": crm_c.get("score", 0),
+                    "outreach_status": crm_c.get("outreach_status", "new"),
+                    "po_count": crm_c.get("po_count", 0),
+                    "last_purchase": crm_c.get("last_purchase", ""),
+                    "purchase_orders": crm_c.get("purchase_orders", []),
+                    "notes": crm_c.get("notes", ""),
+                },
+                "timeline": [],
+                "outreach_records": [],
+            }
+    
+    if not result.get("ok"):
+        flash("Contact not found", "error"); return redirect("/contacts")
 
     pr = result["prospect"]
     timeline = result.get("timeline", [])
