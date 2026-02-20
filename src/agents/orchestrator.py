@@ -28,7 +28,13 @@ except ImportError:
 from datetime import datetime
 from typing import TypedDict, Any, Optional
 
-from langgraph.graph import StateGraph, END
+try:
+    from langgraph.graph import StateGraph, END
+    LANGGRAPH_AVAILABLE = True
+except ImportError:
+    StateGraph = None
+    END = "end"
+    LANGGRAPH_AVAILABLE = False
 
 log = logging.getLogger("orchestrator")
 
