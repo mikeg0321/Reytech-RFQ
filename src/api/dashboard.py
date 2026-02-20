@@ -1914,7 +1914,7 @@ def render(content, **kw):
 {{% with messages = get_flashed_messages(with_categories=true) %}}
  {{% for cat, msg in messages %}}<div class="alert al-{{'s' if cat=='success' else 'e' if cat=='error' else 'i'}}" role="alert" aria-live="assertive">{{% if cat=='success' %}}✅{{% elif cat=='error' %}}❌{{% else %}}ℹ️{{% endif %}} {{{{msg}}}}</div>{{% endfor %}}
 {{% endwith %}}
-""" + BRIEF_HTML + content + """
+""" + content + BRIEF_HTML + """
 </main>
 <script>""" + SHARED_HEADER_JS + BRIEF_JS + """</script>
 </div></body></html>"""
