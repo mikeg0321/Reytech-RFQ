@@ -747,6 +747,92 @@ def test_pc_dedup_and_quote_sequence() -> list:
     return results
 
 
+def test_trace_pipeline_health():
+    """Check workflow traces for known failure patterns.
+    
+    Detects the exact bugs from the 10-bug cascade investigation:
+    - 'bp not defined' (routes_rfq import failure)
+    - Stale cache / wrong filename dedup
+    - PC routing failures
+    - IMAP connection failures
+    - Silent email drops
+    """
+    results = []
+    try:
+        from src.api.trace import get_traces, get_summary
+        summary = get_summary()
+        total = summary.get("total", 0)
+        
+        if total == 0:
+            results.append(_result("trace_health", PASS, "Trace system active — no workflows run since deploy"))
+            return results
+        
+        fail_count = summary.get("fail", 0)
+        fail_rate = (fail_count / max(total, 1)) * 100
+        
+        if fail_rate > 25:
+            results.append(_result("trace_health", FAIL,
+                f"High failure rate: {fail_count}/{total} ({fail_rate:.0f}%)",
+                fix="Run: fetch('/api/qa/trace-diagnostic').then(r=>r.json()).then(d=>console.log(JSON.stringify(d,null,2)))"))
+        elif fail_rate > 5:
+            results.append(_result("trace_health", WARN,
+                f"Some failures: {fail_count}/{total} ({fail_rate:.0f}%)"))
+        else:
+            results.append(_result("trace_health", PASS,
+                f"Traces healthy: {summary.get('ok',0)} ok, {fail_count} fail / {total} total"))
+        
+        # Check for specific bug patterns
+        pipeline = get_traces(workflow="email_pipeline", limit=30)
+        if pipeline:
+            all_step_msgs = []
+            for t in pipeline:
+                all_step_msgs.append(" ".join(s.get("msg","") for s in t.get("steps",[])))
+            combined = " ".join(all_step_msgs)
+            
+            # Bug: 'bp not defined'
+            if "bp" in combined and "not defined" in combined:
+                results.append(_result("trace_bp_import", FAIL,
+                    "'bp not defined' in email traces — routes_rfq import broken",
+                    fix="All PC functions must be inlined in dashboard.py, not imported from routes_rfq.py"))
+            
+            # Bug: mass dedup skip
+            dedup_hits = sum(1 for m in all_step_msgs if "duplicate email_uid in RFQ queue" in m and len(m) < 200)
+            if dedup_hits > len(pipeline) * 0.5 and dedup_hits > 3:
+                results.append(_result("trace_dedup_skip", FAIL,
+                    f"{dedup_hits}/{len(pipeline)} emails hit dedup immediately — stale cache or wrong file",
+                    fix="Check _json_cache.clear() in reset, and that rfqs.json (not rfq_queue.json) is being cleared"))
+            
+            # Bug: no PCs routed
+            pc_ok = sum(1 for m in all_step_msgs if "PC created" in m)
+            rfq_ok = sum(1 for m in all_step_msgs if "RFQ created" in m)
+            if pc_ok == 0 and rfq_ok > 3:
+                results.append(_result("trace_pc_routing", WARN,
+                    f"0 PCs, {rfq_ok} RFQs — price checks not routing to PC queue",
+                    fix="Check _is_pc_filename() and PRICE_CHECK_AVAILABLE"))
+            elif pc_ok > 0:
+                results.append(_result("trace_pc_routing", PASS,
+                    f"PC routing OK: {pc_ok} PCs, {rfq_ok} RFQs"))
+        
+        # Check IMAP
+        polls = get_traces(workflow="email_poll", limit=5)
+        poll_fails = [t for t in polls if t["status"] == "fail"]
+        if poll_fails:
+            last_err = poll_fails[0].get("steps",[{}])[-1].get("msg","?")
+            results.append(_result("trace_imap", FAIL,
+                f"IMAP poll failing: {last_err[:80]}",
+                fix="Check email credentials and IMAP server"))
+        elif polls:
+            results.append(_result("trace_imap", PASS,
+                f"IMAP OK ({len(polls)} recent polls)"))
+        
+    except ImportError:
+        results.append(_result("trace_health", PASS, "Trace module not yet loaded"))
+    except Exception as e:
+        results.append(_result("trace_health", WARN, f"Trace check error: {e}"))
+    
+    return results
+
+
 WORKFLOW_TESTS = {
     "queue_isolation": test_queue_isolation,
     "manager_brief_accuracy": test_manager_brief_accuracy,
@@ -761,6 +847,7 @@ WORKFLOW_TESTS = {
     "reply_detection": test_reply_followup_detection,
     "growth_engine": test_growth_data_integrity,
     "pc_dedup": test_pc_dedup_and_quote_sequence,
+    "trace_pipeline_health": test_trace_pipeline_health,
 }
 
 

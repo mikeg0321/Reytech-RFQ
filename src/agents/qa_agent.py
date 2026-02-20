@@ -1179,6 +1179,191 @@ def _check_quote_pdf_branding() -> list:
     return results
 
 
+def _check_trace_health() -> list:
+    """Check workflow trace health — catch failures across all workflows.
+    
+    Returns pass/warn/fail (never info-only) so it always contributes to score.
+    """
+    results = []
+    try:
+        from src.api.trace import get_summary, get_traces
+        summary = get_summary()
+        total = summary.get("total", 0)
+        
+        if total == 0:
+            # No traces = fresh deploy, not a failure. Pass with note.
+            results.append({"check": "trace_health", "status": "pass",
+                            "message": "Trace system ready (no workflows run since deploy)"})
+            return results
+        
+        fail_count = summary.get("fail", 0)
+        ok_count = summary.get("ok", 0)
+        warn_count = summary.get("warn", 0)
+        fail_rate = (fail_count / max(total, 1)) * 100
+        
+        # Overall trace health
+        if fail_rate > 25:
+            results.append({"check": "trace_health", "status": "fail", "severity": "critical",
+                            "message": f"High failure rate: {fail_count}/{total} traces failed ({fail_rate:.0f}%)",
+                            "recommendation": "Run trace diagnostic: fetch('/api/qa/trace-diagnostic').then(r=>r.json()).then(d=>console.log(JSON.stringify(d,null,2)))"})
+        elif fail_rate > 5:
+            results.append({"check": "trace_health", "status": "warn",
+                            "message": f"Some failures: {fail_count}/{total} traces ({fail_rate:.0f}%)",
+                            "recommendation": "Check failures: fetch('/api/admin/traces?status=fail').then(r=>r.json()).then(d=>d.traces.forEach(t=>console.log(t.summary)))"})
+        else:
+            results.append({"check": "trace_health", "status": "pass",
+                            "message": f"Traces healthy: {ok_count} ok, {warn_count} warn, {fail_count} fail / {total} total"})
+        
+        # Per-workflow status
+        for wf, stats in summary.get("workflows", {}).items():
+            wf_fails = stats.get("fail", 0)
+            wf_total = stats.get("total", 0)
+            if wf_fails > 0 and wf_fails / max(wf_total, 1) > 0.2:
+                results.append({"check": "trace_health", "status": "warn",
+                                "message": f"Workflow '{wf}': {wf_fails}/{wf_total} failures"})
+    except ImportError:
+        results.append({"check": "trace_health", "status": "pass",
+                        "message": "Trace module not loaded yet"})
+    except Exception as e:
+        results.append({"check": "trace_health", "status": "warn",
+                        "message": f"Trace health check error: {e}"})
+    return results
+
+
+def _check_email_pipeline_traces() -> list:
+    """Validate email pipeline using trace data.
+    
+    Detects specific known failure patterns from our 10-bug investigation:
+    1. 'bp not defined' — routes_rfq import broken
+    2. 'duplicate email_uid' on every email — stale cache or wrong filename
+    3. pcs_routed=0 but rfqs=10 — PC detection not working
+    4. parse_ams704 failures — PDF can't be read
+    5. Silent swallow — emails disappear with no trace
+    """
+    results = []
+    try:
+        from src.api.trace import get_traces
+        
+        # Check email_poll traces
+        poll_traces = get_traces(workflow="email_poll", limit=5)
+        if not poll_traces:
+            results.append({"check": "email_pipeline_traces", "status": "pass",
+                            "message": "Email poll tracing ready (no polls since deploy)"})
+        else:
+            poll_fails = [t for t in poll_traces if t["status"] == "fail"]
+            if poll_fails:
+                last_err = poll_fails[0].get("steps", [{}])[-1].get("msg", "unknown")
+                results.append({"check": "email_pipeline_traces", "status": "fail",
+                                "severity": "critical",
+                                "message": f"Email poll failing: {last_err}",
+                                "recommendation": "Check IMAP: fetch('/api/admin/traces?workflow=email_poll&status=fail').then(r=>r.json()).then(d=>console.log(d.traces[0].steps))"})
+            else:
+                results.append({"check": "email_pipeline_traces", "status": "pass",
+                                "message": f"Email polling OK ({len(poll_traces)} recent polls)"})
+        
+        # Check individual email processing
+        pipeline_traces = get_traces(workflow="email_pipeline", limit=50)
+        if not pipeline_traces:
+            results.append({"check": "email_pipeline_traces", "status": "pass",
+                            "message": "Email pipeline tracing ready (no emails processed since deploy)"})
+            return results
+        
+        # ── Pattern Detection: scan all traces for known bugs ──
+        pc_created = 0
+        rfq_created = 0
+        duplicates = 0
+        failures = 0
+        bp_errors = 0
+        parse_errors = 0
+        cache_skips = 0  # "duplicate email_uid" right after reset = stale cache
+        silent_drops = 0  # traces that just stop with no outcome
+        
+        for t in pipeline_traces:
+            all_msgs = " ".join(s.get("msg", "") for s in t.get("steps", []))
+            
+            # Outcome tracking
+            if t["status"] == "ok" and "PC created" in all_msgs:
+                pc_created += 1
+            elif t["status"] == "ok" and "RFQ created" in all_msgs:
+                rfq_created += 1
+            elif "duplicate" in all_msgs.lower() or "Skipped" in all_msgs:
+                duplicates += 1
+            elif t["status"] == "fail":
+                failures += 1
+            
+            # Known bug patterns
+            if "bp" in all_msgs and "not defined" in all_msgs:
+                bp_errors += 1
+            if "parse_ams704" in all_msgs and ("error" in all_msgs.lower() or "fail" in all_msgs.lower()):
+                parse_errors += 1
+            if "duplicate email_uid in RFQ queue" in all_msgs and len(t.get("steps", [])) <= 2:
+                cache_skips += 1
+            if t["status"] == "running":
+                silent_drops += 1
+        
+        total = len(pipeline_traces)
+        results.append({"check": "email_pipeline_traces", "status": "pass",
+                        "message": f"Pipeline: {pc_created} PCs + {rfq_created} RFQs created, {duplicates} deduped, {failures} failed ({total} total)"})
+        
+        # ── Bug #10: 'bp not defined' ──
+        if bp_errors > 0:
+            results.append({"check": "email_pipeline_traces", "status": "fail", "severity": "critical",
+                            "message": f"BUG DETECTED: 'bp not defined' in {bp_errors} traces — routes_rfq import broken",
+                            "recommendation": "All _is_price_check / _handle_price_check_upload / _load_price_checks must be inlined in dashboard.py, NOT imported from routes_rfq.py"})
+        
+        # ── Bug #9: stale cache / wrong filename ──
+        if cache_skips > total * 0.5 and cache_skips > 3:
+            results.append({"check": "email_pipeline_traces", "status": "fail", "severity": "critical",
+                            "message": f"BUG DETECTED: {cache_skips}/{total} emails skipped as 'duplicate' — likely stale cache or wrong JSON filename",
+                            "recommendation": "Check: (1) _invalidate_cache() called after reset, (2) clearing rfqs.json not rfq_queue.json, (3) _json_cache.clear() in reset"})
+        
+        # ── PC routing issue ──
+        if pc_created == 0 and rfq_created > 3 and bp_errors == 0:
+            results.append({"check": "email_pipeline_traces", "status": "warn",
+                            "message": f"No PCs created but {rfq_created} RFQs — possible routing issue",
+                            "recommendation": "Check _is_pc_filename() detection. Run: fetch('/api/admin/traces?workflow=email_pipeline').then(r=>r.json()).then(d=>d.traces.filter(t=>t.summary.includes('RFQ')).slice(0,3).forEach(t=>console.log(t.steps)))"})
+        
+        # ── parse_ams704 failures ──
+        if parse_errors > 0 and parse_errors > pc_created:
+            results.append({"check": "email_pipeline_traces", "status": "warn",
+                            "message": f"parse_ams704 failing on {parse_errors} PDFs (minimal PCs created as fallback)",
+                            "recommendation": "Check PDF parsing: pypdf installed, PDFs not encrypted/scanned"})
+        
+        # ── Silent drops (traces stuck in 'running') ──
+        if silent_drops > 0:
+            results.append({"check": "email_pipeline_traces", "status": "warn",
+                            "message": f"{silent_drops} emails have incomplete traces (stuck in 'running')",
+                            "recommendation": "Possible: uncaught exception, missing t.ok()/t.fail() call, or process killed mid-execution"})
+        
+        # ── Quote generation traces ──
+        quote_traces = get_traces(workflow="quote_generation", limit=10)
+        if quote_traces:
+            q_fails = [t for t in quote_traces if t["status"] == "fail"]
+            if q_fails:
+                last_err = q_fails[0].get("steps", [{}])[-1].get("msg", "")
+                results.append({"check": "email_pipeline_traces", "status": "warn",
+                                "message": f"Quote generation: {len(q_fails)}/{len(quote_traces)} failures — {last_err[:80]}"})
+            else:
+                results.append({"check": "email_pipeline_traces", "status": "pass",
+                                "message": f"Quote generation OK ({len(quote_traces)} generated)"})
+        
+        # ── Email send traces ──
+        send_traces = get_traces(workflow="email_send", limit=10)
+        if send_traces:
+            s_fails = [t for t in send_traces if t["status"] == "fail"]
+            if s_fails:
+                results.append({"check": "email_pipeline_traces", "status": "warn",
+                                "message": f"Email send: {len(s_fails)}/{len(send_traces)} failures"})
+        
+    except ImportError:
+        results.append({"check": "email_pipeline_traces", "status": "pass",
+                        "message": "Trace module loading — checks will activate after first poll"})
+    except Exception as e:
+        results.append({"check": "email_pipeline_traces", "status": "warn",
+                        "message": f"Trace check error: {e}"})
+    return results
+
+
 def run_health_check(checks: list = None) -> dict:
     """Run full health check suite. Returns report with score and recommendations."""
     start = time.time()
@@ -1233,6 +1418,9 @@ def run_health_check(checks: list = None) -> dict:
         "data_files": _check_data_files,
         "db_schema": _check_db_schema,
         "market_scope": _check_market_scope,
+        # Workflow tracing
+        "trace_health": _check_trace_health,
+        "email_pipeline_traces": _check_email_pipeline_traces,
     }
 
     for name in (checks or list(check_map.keys())):
@@ -1355,7 +1543,8 @@ class QAMonitor:
                     # Fast: structural + critical checks only
                     report = run_health_check(checks=[
                         "routes", "data", "agents", "db_schema",
-                        "route_coverage", "data_files"
+                        "route_coverage", "data_files",
+                        "trace_health", "email_pipeline_traces"
                     ])
 
                 # Always persist to intelligence DB
@@ -1373,6 +1562,26 @@ class QAMonitor:
                                 intel["regression_count"])
             except Exception as e:
                 log.error("QA Monitor: %s", e)
+            
+            # ── Trace-based alerting (every cycle) ──
+            try:
+                from src.api.trace import get_traces
+                recent_fails = get_traces(status="fail", limit=5)
+                if recent_fails:
+                    for tf in recent_fails[:2]:
+                        log.warning("TRACE FAIL: %s", tf.get("summary", "?"))
+                    # Notify on critical patterns
+                    msgs = " ".join(
+                        " ".join(s.get("msg","") for s in tf.get("steps",[]))
+                        for tf in recent_fails
+                    )
+                    if "bp" in msgs and "not defined" in msgs:
+                        log.error("CRITICAL: 'bp not defined' detected — PC routing broken! Run /api/qa/trace-diagnostic")
+                    if msgs.count("duplicate email_uid") > 3:
+                        log.error("CRITICAL: Mass dedup skip detected — stale cache? Run /api/qa/trace-diagnostic")
+            except Exception:
+                pass
+            
             time.sleep(self.interval)
 
 

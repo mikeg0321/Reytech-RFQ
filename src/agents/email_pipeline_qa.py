@@ -691,4 +691,30 @@ def full_inbox_audit(email_config: dict = None) -> dict:
     class_results = test_classification()
     result["classification_tests"] = class_results
     
+    # Include recent trace diagnostics
+    try:
+        from src.api.trace import get_traces, get_summary
+        trace_summary = get_summary()
+        pipeline_traces = get_traces(workflow="email_pipeline", limit=20)
+        
+        result["trace_diagnostics"] = {
+            "summary": {
+                "total": trace_summary.get("total", 0),
+                "ok": trace_summary.get("ok", 0),
+                "fail": trace_summary.get("fail", 0),
+                "warn": trace_summary.get("warn", 0),
+                "workflows": trace_summary.get("workflows", {}),
+            },
+            "recent_pipeline": [
+                {"status": t["status"], "summary": t.get("summary", ""), "duration_ms": t.get("duration_ms")}
+                for t in pipeline_traces[:10]
+            ],
+            "recent_failures": [
+                {"summary": t.get("summary", ""), "steps": t.get("steps", []), "context": t.get("context", {})}
+                for t in get_traces(status="fail", limit=5)
+            ],
+        }
+    except Exception as te:
+        result["trace_diagnostics"] = {"error": str(te)}
+    
     return result

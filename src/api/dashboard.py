@@ -1550,6 +1550,172 @@ def api_admin_traces_clear():
     return jsonify({"ok": True, "cleared": True})
 
 
+@bp.route("/api/qa/trace-diagnostic")
+@auth_required
+def api_qa_trace_diagnostic():
+    """One-command auto-diagnosis. Analyzes traces for known failure patterns
+    and returns specific fix instructions.
+    
+    Usage: fetch('/api/qa/trace-diagnostic').then(r=>r.json()).then(d=>console.log(JSON.stringify(d,null,2)))
+    """
+    from src.api.trace import get_traces, get_summary
+    
+    diag = {
+        "status": "healthy",
+        "bugs_detected": [],
+        "warnings": [],
+        "stats": {},
+        "fix_commands": [],
+        "raw_failures": [],
+    }
+    
+    summary = get_summary()
+    diag["stats"] = {
+        "total_traces": summary.get("total", 0),
+        "ok": summary.get("ok", 0),
+        "fail": summary.get("fail", 0),
+        "warn": summary.get("warn", 0),
+        "running": summary.get("running", 0),
+        "workflows": summary.get("workflows", {}),
+    }
+    
+    if summary.get("total", 0) == 0:
+        diag["status"] = "no_data"
+        diag["fix_commands"].append({
+            "description": "Run email poll to generate trace data",
+            "command": "fetch('/api/admin/reset-and-poll',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({keep_quotes:[],counter:15})}).then(r=>r.json()).then(d=>console.log(d))",
+        })
+        diag["fix_commands"].append({
+            "description": "Then check results (wait 30s)",
+            "command": "fetch('/api/admin/poll-result').then(r=>r.json()).then(d=>console.log(JSON.stringify(d,null,2)))",
+        })
+        return jsonify(diag)
+    
+    # ── Analyze all traces for known bug patterns ──
+    all_fails = get_traces(status="fail", limit=50)
+    pipeline = get_traces(workflow="email_pipeline", limit=50)
+    polls = get_traces(workflow="email_poll", limit=10)
+    
+    # Bug #10: 'bp not defined'
+    bp_count = 0
+    for t in pipeline:
+        msgs = " ".join(s.get("msg", "") for s in t.get("steps", []))
+        if "bp" in msgs and "not defined" in msgs:
+            bp_count += 1
+    if bp_count > 0:
+        diag["status"] = "critical"
+        diag["bugs_detected"].append({
+            "id": "BUG_BP_NOT_DEFINED",
+            "severity": "critical",
+            "count": bp_count,
+            "description": "Import from routes_rfq.py fails because @bp.route decorators execute at import time before bp is injected. Every _is_price_check and _handle_price_check_upload call throws NameError.",
+            "fix": "All PC logic must be inlined in dashboard.py — never import from routes_rfq.py at runtime.",
+        })
+    
+    # Bug #9: stale cache / wrong filename
+    cache_skip_count = 0
+    for t in pipeline:
+        msgs = " ".join(s.get("msg", "") for s in t.get("steps", []))
+        if "duplicate email_uid in RFQ queue" in msgs and len(t.get("steps", [])) <= 3:
+            cache_skip_count += 1
+    if cache_skip_count > len(pipeline) * 0.5 and cache_skip_count > 3:
+        diag["status"] = "critical"
+        diag["bugs_detected"].append({
+            "id": "BUG_STALE_CACHE_OR_WRONG_FILE",
+            "severity": "critical",
+            "count": cache_skip_count,
+            "description": f"{cache_skip_count}/{len(pipeline)} emails hit dedup immediately — either JSON cache is stale (not invalidated after reset) or reset cleared rfq_queue.json but code reads rfqs.json.",
+            "fix": "Verify: (1) _json_cache.clear() after file reset, (2) rfq_db_path() returns rfqs.json and that's what reset clears.",
+        })
+    
+    # PC routing: all going to RFQ
+    pc_count = sum(1 for t in pipeline if any("PC created" in s.get("msg","") for s in t.get("steps",[])))
+    rfq_count = sum(1 for t in pipeline if any("RFQ created" in s.get("msg","") for s in t.get("steps",[])))
+    if pc_count == 0 and rfq_count > 3:
+        sev = "warn" if bp_count > 0 else "critical"  # if bp error explains it, just warn
+        diag["bugs_detected"].append({
+            "id": "BUG_NO_PC_ROUTING",
+            "severity": sev,
+            "description": f"0 PCs created, {rfq_count} RFQs — price checks not being detected or routing to PC queue fails.",
+            "fix": "Check _is_pc_filename() detection. Verify PRICE_CHECK_AVAILABLE=True and filename pattern 'ams' + '704' matches.",
+        })
+        if diag["status"] != "critical":
+            diag["status"] = "degraded"
+    
+    # IMAP failures
+    poll_fails = [t for t in polls if t["status"] == "fail"]
+    if poll_fails:
+        diag["status"] = "critical" if not diag["bugs_detected"] else diag["status"]
+        last_err = poll_fails[0].get("steps", [{}])[-1].get("msg", "unknown")
+        diag["bugs_detected"].append({
+            "id": "BUG_IMAP_FAILURE",
+            "severity": "critical",
+            "description": f"IMAP poll failing: {last_err}",
+            "fix": "Check email credentials in reytech_config.json and IMAP server connectivity.",
+        })
+    
+    # Parse errors
+    parse_err_count = 0
+    for t in pipeline:
+        msgs = " ".join(s.get("msg", "") for s in t.get("steps", []))
+        if "parse_ams704" in msgs and ("error" in msgs.lower() or "FAIL" in msgs):
+            parse_err_count += 1
+    if parse_err_count > 2:
+        diag["warnings"].append({
+            "id": "WARN_PARSE_ERRORS",
+            "count": parse_err_count,
+            "description": f"parse_ams704 failed on {parse_err_count} PDFs (minimal PCs created as fallback).",
+            "fix": "Check: pypdf installed, PDFs not encrypted/scanned. Fallback creates parse_error PCs.",
+        })
+    
+    # Silent drops (traces stuck in 'running')
+    running_count = sum(1 for t in pipeline if t["status"] == "running")
+    if running_count > 0:
+        diag["warnings"].append({
+            "id": "WARN_INCOMPLETE_TRACES",
+            "count": running_count,
+            "description": f"{running_count} emails have traces stuck in 'running' — never reached ok/fail.",
+            "fix": "Missing t.ok() or t.fail() call, or uncaught exception killed processing mid-trace.",
+        })
+    
+    # Set overall status if no bugs found
+    if not diag["bugs_detected"] and not diag["warnings"]:
+        diag["status"] = "healthy"
+    elif not diag["bugs_detected"]:
+        diag["status"] = "minor_issues"
+    
+    # Add raw failure summaries
+    diag["raw_failures"] = [
+        {"summary": t.get("summary", ""), "workflow": t.get("workflow", ""), "id": t.get("id", "")}
+        for t in all_fails[:10]
+    ]
+    
+    # Generate actionable fix commands
+    if diag["bugs_detected"]:
+        diag["fix_commands"].append({
+            "description": "View all failure traces",
+            "command": "fetch('/api/admin/traces?status=fail').then(r=>r.json()).then(d=>d.traces.forEach(t=>console.log(t.summary)))",
+        })
+    diag["fix_commands"].append({
+        "description": "View email pipeline traces",
+        "command": "fetch('/api/admin/traces?workflow=email_pipeline').then(r=>r.json()).then(d=>d.traces.forEach(t=>console.log(t.summary)))",
+    })
+    diag["fix_commands"].append({
+        "description": "Re-run full pipeline (reset + poll)",
+        "command": "fetch('/api/admin/reset-and-poll',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({keep_quotes:[],counter:15})}).then(r=>r.json()).then(d=>console.log(d))",
+    })
+    diag["fix_commands"].append({
+        "description": "Check poll result (30s later)",
+        "command": "fetch('/api/admin/poll-result').then(r=>r.json()).then(d=>{console.log('PCs:',d.final_pcs,'RFQs:',d.final_rfqs);(d.email_traces||[]).forEach((t,i)=>console.log('E'+(i+1)+':',t.join(' → ')))})",
+    })
+    diag["fix_commands"].append({
+        "description": "Run full QA health check",
+        "command": "fetch('/api/qa/health').then(r=>r.json()).then(d=>console.log(d.grade, d.health_score+'/100', d.recommendations.join('; ')))",
+    })
+    
+    return jsonify(diag)
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # Route Modules — loaded at import time, register routes onto this Blueprint
 # Split from dashboard.py for maintainability (was 13,831 lines)
