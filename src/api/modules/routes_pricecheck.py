@@ -2275,9 +2275,9 @@ def api_admin_system_reset():
         "activity_cleaned": 0,
     }
     
-    # Step 1: Clean quotes — keep only real (sent/won) and explicitly kept
+    # Step 1: Clean quotes — quotes_log.json is the source of truth
     try:
-        q_path = os.path.join(DATA_DIR, 'quotes.json')
+        q_path = os.path.join(DATA_DIR, 'quotes_log.json')
         if os.path.exists(q_path):
             with open(q_path) as f:
                 all_q = json.load(f)
@@ -2286,12 +2286,7 @@ def api_admin_system_reset():
                 kept = []
                 for q in all_q:
                     qn = q.get("quote_number", "")
-                    st = q.get("status", "")
-                    auto = q.get("auto_draft", False) or q.get("is_auto_draft", False)
-                    # Keep: explicitly kept, sent status, non-auto with real status
-                    if qn in keep_quotes or st in ("sent", "won", "closed_won"):
-                        kept.append(q)
-                    elif not auto and st not in ("draft", "") and q.get("total", 0) > 0:
+                    if qn in keep_quotes:
                         kept.append(q)
                     else:
                         results["quotes_removed"].append(qn or "(blank)")
@@ -2299,6 +2294,26 @@ def api_admin_system_reset():
                     with open(q_path, "w") as f:
                         json.dump(kept, f, indent=2, default=str)
                 results["quotes_after"] = len(kept)
+        # Also clean quotes.json if it exists (legacy)
+        legacy_q = os.path.join(DATA_DIR, 'quotes.json')
+        if os.path.exists(legacy_q) and not dry_run:
+            with open(legacy_q, "w") as f:
+                json.dump([], f)
+        # Also clean SQLite quotes table
+        if not dry_run:
+            try:
+                from src.core.db import get_db
+                with get_db() as conn:
+                    if keep_quotes:
+                        placeholders = ",".join("?" for _ in keep_quotes)
+                        conn.execute(f"DELETE FROM quotes WHERE quote_number NOT IN ({placeholders})",
+                                     list(keep_quotes))
+                    else:
+                        conn.execute("DELETE FROM quotes")
+                    conn.commit()
+                results["sqlite_cleaned"] = True
+            except Exception as dbe:
+                results["sqlite_error"] = str(dbe)
     except Exception as e:
         results["quotes_error"] = str(e)
     
@@ -2337,7 +2352,7 @@ def api_admin_system_reset():
     except Exception as e:
         results["rfqs_error"] = str(e)
     
-    # Step 4: Reset quote counter to highest real quote
+    # Step 4: Reset quote counter
     try:
         counter_path = os.path.join(DATA_DIR, 'quote_counter.json')
         if os.path.exists(counter_path):
@@ -2345,25 +2360,14 @@ def api_admin_system_reset():
                 counter = json.load(f)
             results["counter_before"] = counter.get("seq", 0)
         
-        # Find highest real quote number
-        highest = 0
+        # Find highest kept quote number, or default to 15 (next = R26Q16)
+        highest = 15  # default: next quote will be R26Q16
         if keep_quotes:
             import re as _re
             for qn in keep_quotes:
                 m = _re.search(r'Q(\d+)', qn)
                 if m:
                     highest = max(highest, int(m.group(1)))
-        
-        # Also check kept quotes
-        if os.path.exists(os.path.join(DATA_DIR, 'quotes.json')):
-            with open(os.path.join(DATA_DIR, 'quotes.json')) as f:
-                kept_q = json.load(f)
-            if isinstance(kept_q, list):
-                for q in kept_q:
-                    import re as _re
-                    m = _re.search(r'Q(\d+)', q.get("quote_number", ""))
-                    if m:
-                        highest = max(highest, int(m.group(1)))
         
         results["counter_after"] = highest
         if not dry_run:
