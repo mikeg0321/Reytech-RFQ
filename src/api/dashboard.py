@@ -357,6 +357,27 @@ def save_rfqs(rfqs):
     _invalidate_cache(p)
 
 # ═══════════════════════════════════════════════════════════════════════
+# Price Check JSON helpers (defined here to avoid import from routes_rfq
+# which can't be imported directly because bp isn't defined at import time)
+# ═══════════════════════════════════════════════════════════════════════
+
+def _load_price_checks():
+    path = os.path.join(DATA_DIR, "price_checks.json")
+    if os.path.exists(path):
+        try:
+            with open(path) as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+def _save_price_checks(pcs):
+    path = os.path.join(DATA_DIR, "price_checks.json")
+    with open(path, "w") as f:
+        json.dump(pcs, f, indent=2, default=str)
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # Email Polling Thread
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -496,24 +517,41 @@ def process_rfq_email(rfq_email):
     
     if pdf_paths and PRICE_CHECK_AVAILABLE:
         try:
-            from src.api.modules.routes_rfq import _is_price_check, _handle_price_check_upload
-            # Check each PDF
-            pc_checks = []
-            for p in pdf_paths:
+            # Inline PC detection — can't import from routes_rfq (bp not defined at import time)
+            def _is_pc_filename(path):
+                bn = os.path.basename(path).lower()
+                # Exclude 704B / 703B / bid package
+                if any(x in bn for x in ["704b", "703b", "bid package", "bid_package", "quote worksheet"]):
+                    return False
+                # Match "AMS 704" pattern in filename
+                if "704" in bn and "ams" in bn:
+                    return True
+                # Fallback: try PDF content
                 try:
-                    is_pc = _is_price_check(p)
-                    pc_checks.append(f"{os.path.basename(p)}={'PC' if is_pc else 'NO'}")
-                except Exception as e:
-                    pc_checks.append(f"{os.path.basename(p)}=ERR:{e}")
-            _trace.append(f"PC checks: {pc_checks}")
+                    from pypdf import PdfReader
+                    reader = PdfReader(path)
+                    text = (reader.pages[0].extract_text() or "").lower()
+                    if any(m in text for m in ["704b", "quote worksheet", "acquisition quote"]):
+                        return False
+                    if "price check" in text and ("ams 704" in text or "worksheet" in text):
+                        return True
+                    fields = reader.get_fields()
+                    if fields:
+                        fnames = set(fields.keys())
+                        if len({"COMPANY NAME", "Requestor", "PRICE PER UNITRow1", "EXTENSIONRow1"} & fnames) >= 3:
+                            return True
+                except Exception:
+                    pass
+                return False
             
-            pc_pdf = next((p for p in pdf_paths if _is_price_check(p)), None)
+            pc_pdf = next((p for p in pdf_paths if _is_pc_filename(p)), None)
+            pc_checks = [f"{os.path.basename(p)}={'PC' if _is_pc_filename(p) else 'NO'}" for p in pdf_paths]
+            _trace.append(f"PC checks: {pc_checks}")
             if pc_pdf:
                 import uuid as _uuid
                 pc_id = f"pc_{str(_uuid.uuid4())[:8]}"
                 _trace.append(f"PC detected: {os.path.basename(pc_pdf)} → {pc_id}")
                 
-                from src.api.modules.routes_rfq import _load_price_checks
                 existing_pcs = _load_price_checks()
                 email_uid = rfq_email.get("email_uid")
                 if email_uid and any(p.get("email_uid") == email_uid for p in existing_pcs.values()):
@@ -521,12 +559,68 @@ def process_rfq_email(rfq_email):
                     POLL_STATUS.setdefault("_email_traces", []).append(_trace)
                     return None
                 
-                # Create the PC
+                # Create the PC inline (can't import from routes_rfq — bp issue)
                 try:
-                    result = _handle_price_check_upload(pc_pdf, pc_id, from_email=True)
-                    _trace.append(f"_handle result: {result}")
+                    import shutil as _shutil
+                    pc_file = os.path.join(DATA_DIR, f"pc_upload_{os.path.basename(pc_pdf)}")
+                    _shutil.copy2(pc_pdf, pc_file)
+                    parsed = parse_ams704(pc_file)
+                    parse_error = parsed.get("error")
+                    
+                    if parse_error:
+                        # Still create minimal PC so email isn't lost
+                        _trace.append(f"parse_ams704 error: {parse_error} — creating minimal PC")
+                        pcs = _load_price_checks()
+                        pcs[pc_id] = {
+                            "id": pc_id,
+                            "pc_number": os.path.basename(pc_pdf).replace(".pdf","")[:40],
+                            "institution": "", "due_date": "", "requestor": "",
+                            "ship_to": "", "items": [], "source_pdf": pc_file,
+                            "status": "parse_error", "parse_error": parse_error,
+                            "created_at": datetime.now().isoformat(),
+                            "reytech_quote_number": "", "linked_quote_number": "",
+                        }
+                        _save_price_checks(pcs)
+                        result = {"ok": True, "pc_id": pc_id, "parse_error": parse_error}
+                    else:
+                        items = parsed.get("line_items", [])
+                        header = parsed.get("header", {})
+                        pc_num = header.get("price_check_number", "unknown")
+                        institution = header.get("institution", "")
+                        due_date = header.get("due_date", "")
+                        
+                        # Dedup: same PC# + institution + due_date
+                        pcs = _load_price_checks()
+                        dup_id = None
+                        for eid, epc in pcs.items():
+                            if (epc.get("pc_number","").strip() == pc_num.strip()
+                                    and epc.get("institution","").strip().lower() == institution.strip().lower()
+                                    and epc.get("due_date","").strip() == due_date.strip()
+                                    and pc_num != "unknown"):
+                                dup_id = eid
+                                break
+                        
+                        if dup_id:
+                            _trace.append(f"DEDUP: PC #{pc_num} already exists as {dup_id}")
+                            result = {"dedup": True, "existing_id": dup_id}
+                        else:
+                            pcs[pc_id] = {
+                                "id": pc_id, "pc_number": pc_num,
+                                "institution": institution, "due_date": due_date,
+                                "requestor": header.get("requestor", ""),
+                                "ship_to": header.get("ship_to", ""),
+                                "items": items, "source_pdf": pc_file,
+                                "status": "parsed", "parsed": parsed,
+                                "created_at": datetime.now().isoformat(),
+                                "source": "email_auto",
+                                "reytech_quote_number": "",
+                                "linked_quote_number": "",
+                            }
+                            _save_price_checks(pcs)
+                            result = {"ok": True, "pc_id": pc_id, "items": len(items)}
+                    _trace.append(f"PC result: {result}")
                 except Exception as he:
-                    _trace.append(f"_handle EXCEPTION: {he}")
+                    _trace.append(f"PC create EXCEPTION: {he}")
                     result = {"error": str(he)}
                 
                 pcs = _load_price_checks()
@@ -536,7 +630,6 @@ def process_rfq_email(rfq_email):
                     pcs[pc_id]["email_uid"] = email_uid
                     pcs[pc_id]["email_subject"] = rfq_email.get("subject", "")
                     pcs[pc_id]["requestor"] = pcs[pc_id].get("requestor") or rfq_email.get("sender_name") or rfq_email.get("sender_email", "")
-                    from src.api.modules.routes_rfq import _save_price_checks
                     _save_price_checks(pcs)
                     _ensure_contact_from_email(rfq_email)
                     _trace.append(f"PC CREATED: {pc_id}")
