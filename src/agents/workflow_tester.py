@@ -187,8 +187,13 @@ def test_manager_brief_accuracy() -> list:
             e for e in (summary.get("price_checks", {}).get("by_status", {})).items()
         ]) > 0
         pcs = _load_json("price_checks.json", {})
+        try:
+            from src.api.dashboard import _is_user_facing_pc
+            _pc_filt = _is_user_facing_pc
+        except ImportError:
+            _pc_filt = lambda pc: pc.get("source") != "email_auto_draft" and not pc.get("is_auto_draft")
         pending_pcs = [p for p in pcs.values()
-                       if p.get("status") in ("parsed", "new") and _pc_filter(p)]
+                       if p.get("status") in ("parsed", "new") and _pc_filt(p)]
 
         if is_all_clear and (rfq_actual > 0 or pending_pcs):
             results.append(_result(
@@ -352,10 +357,13 @@ def test_email_routing() -> list:
                 "704 detection code present in email routing"
             ))
 
-        # Check that auto_draft filter is in routes_rfq
+        # Check that auto_draft filter is in routes_rfq or dashboard._is_user_facing_pc
         rfq_route = open(os.path.join(os.path.dirname(os.path.dirname(
             os.path.abspath(__file__))), "api", "modules", "routes_rfq.py")).read()
-        if "email_auto_draft" not in rfq_route:
+        dash_src = open(os.path.join(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))), "api", "dashboard.py")).read()
+        has_filter = "email_auto_draft" in rfq_route or "email_auto_draft" in dash_src
+        if not has_filter:
             results.append(_result(
                 "email_routing_auto_draft_filter", FAIL,
                 "Auto-draft PC filter missing from home page route",

@@ -225,7 +225,7 @@ def _get_pending_approvals() -> list:
             ]
             # Sort by due date
             pending_pcs.sort(key=lambda x: x[1].get("due_date", "9999"))
-            for pc_id, pc in pending_pcs[:4]:
+            for pc_id, pc in pending_pcs[:8]:
                 due = pc.get("due_date", "")
                 pc_num = pc.get("pc_number") or pc.get("solicitation_number") or pc_id[:10]
                 inst = pc.get("institution") or pc.get("agency") or "Unknown"
