@@ -730,7 +730,7 @@ def api_tax_rate():
 @auth_required
 def api_health():
     """Comprehensive system health check with path validation."""
-    health = {"status": "ok", "build": "v20260220-0952-persist", "checks": {}}
+    health = {"status": "ok", "build": "v20260220-0958-pdf-fix", "checks": {}}
 
 
 @bp.route("/api/build")
@@ -742,7 +742,7 @@ def api_build_version():
     except Exception:
         vol = "unknown"
         DATA_DIR = "?"
-    return jsonify({"build": "v20260220-0952-persist", "ok": True, "storage": vol, "data_dir": str(DATA_DIR)})
+    return jsonify({"build": "v20260220-0958-pdf-fix", "ok": True, "storage": vol, "data_dir": str(DATA_DIR)})
     
     # Path validation
     try:

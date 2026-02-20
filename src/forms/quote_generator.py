@@ -525,8 +525,9 @@ def _detect_agency(data: dict) -> str:
     return "DEFAULT"
 
 def _find_logo() -> Optional[str]:
-    """Find logo: data/reytech_logo.{png,jpg,jpeg,gif}"""
-    for d in [DATA_DIR, os.path.dirname(__file__), "/app/data", "/app"]:
+    """Find logo: reytech_logo.{png,jpg,jpeg,gif} in project root, data dir, or forms dir."""
+    from src.core.paths import PROJECT_ROOT
+    for d in [PROJECT_ROOT, DATA_DIR, os.path.dirname(__file__), "/app/data", "/app", "/data"]:
         for ext in ("png", "jpg", "jpeg", "gif"):
             for name in ("reytech_logo", "logo"):
                 p = os.path.join(d, f"{name}.{ext}")
@@ -700,24 +701,25 @@ def generate_quote(
         c.setFillColor(HexColor("#4f8cff"))
         c.drawString(logo_text_x, Y(178), "CA Certified Small Business (SB) & DVBE")
 
-    # Company details — y positions matched to QuoteWerks extraction
-    # Combined "Michael Guadan, Owner" saves a line
+    # Company details — positioned below logo area
     c.setFillColor(BLACK)
     c.setFont("Helvetica", 9)
+    info_y = 192  # start y for company info
     info_lines = [
-        (195, REYTECH["line1"]),                              # 30 Carnoustie Way
-        (207, REYTECH["line2"]),                              # Trabuco Canyon, CA 92679
-        (219, f"{REYTECH['contact']}, {REYTECH['title']}"),   # Michael Guadan, Owner
-        (231, REYTECH["phone"]),                              # 949-229-1575
-        (243, REYTECH["email"]),                              # sales@reytechinc.com
-        (255, "www.reytechinc.com"),                          # website
+        REYTECH["line1"],                              # 30 Carnoustie Way
+        REYTECH["line2"],                              # Trabuco Canyon, CA 92679
+        f"{REYTECH['contact']}, {REYTECH['title']}",   # Michael Guadan, Owner
+        REYTECH["phone"],                              # 949-229-1575
+        REYTECH["email"],                              # sales@reytechinc.com
+        "www.reytechinc.com",                          # website
     ]
-    for iy, itxt in info_lines:
-        text(TXT_X, iy, itxt, "Helvetica", 9)
-
-    # Sellers Permit — same 9pt style as other company info (agency-dependent)
+    # Sellers Permit — add as final line (agency-dependent)
     if cfg["show_permit"]:
-        text(TXT_X, 255, f"CA Sellers Permit: {REYTECH['permit']}", "Helvetica", 9)
+        info_lines.append(f"CA Sellers Permit: {REYTECH['permit']}")
+
+    for itxt in info_lines:
+        text(TXT_X, info_y, itxt, "Helvetica", 9)
+        info_y += 11
 
     # ── Bill To (right side, y≈221, only for CDCR/CalVet) ─────────────────────
     if show_bill:
