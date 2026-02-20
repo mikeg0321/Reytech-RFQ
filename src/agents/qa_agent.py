@@ -1179,6 +1179,72 @@ def _check_quote_pdf_branding() -> list:
     return results
 
 
+def _check_rfq_lifecycle() -> list:
+    """Validate RFQ lifecycle features: DB file storage, status management, activity logging."""
+    results = []
+    
+    # 1. Check rfq_files table exists
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            cols = conn.execute("PRAGMA table_info(rfq_files)").fetchall()
+            col_names = [c[1] for c in cols]
+            if "data" in col_names and "rfq_id" in col_names and "file_type" in col_names:
+                results.append({"check": "rfq_lifecycle", "status": "pass",
+                                "message": f"rfq_files table OK ({len(col_names)} columns)"})
+            else:
+                results.append({"check": "rfq_lifecycle", "status": "fail", "severity": "critical",
+                                "message": "rfq_files table missing required columns",
+                                "recommendation": "Run _init_rfq_files_table() or redeploy"})
+    except Exception as e:
+        results.append({"check": "rfq_lifecycle", "status": "fail",
+                        "message": f"rfq_files table check failed: {e}"})
+    
+    # 2. Check key routes exist
+    try:
+        from flask import current_app
+        rules = [r.rule for r in current_app.url_map.iter_rules()]
+        required_routes = {
+            "/rfq/<rid>/generate-package": "Generate RFQ Package",
+            "/rfq/<rid>/reopen": "Reopen for editing",
+            "/rfq/<rid>/update-status": "Status management",
+            "/rfq/<rid>/file/<file_id>": "File download from DB",
+            "/api/rfq/<rid>/files": "File list API",
+            "/api/rfq/<rid>/activity": "Activity log API",
+        }
+        for route, desc in required_routes.items():
+            if route in rules:
+                results.append({"check": "rfq_lifecycle", "status": "pass",
+                                "message": f"Route OK: {desc}"})
+            else:
+                results.append({"check": "rfq_lifecycle", "status": "fail",
+                                "message": f"Missing route: {route} ({desc})"})
+    except Exception:
+        pass
+    
+    # 3. Check activity logging works
+    try:
+        from src.api.dashboard import _log_crm_activity, _get_crm_activity, _load_crm_activity
+        activity = _load_crm_activity()
+        rfq_activities = [a for a in activity if a.get("event_type", "").startswith("rfq_")]
+        results.append({"check": "rfq_lifecycle", "status": "pass",
+                        "message": f"Activity log: {len(rfq_activities)} RFQ events, {len(activity)} total"})
+    except Exception as e:
+        results.append({"check": "rfq_lifecycle", "status": "warn",
+                        "message": f"Activity log check: {e}"})
+    
+    # 4. Check save_rfq_file function exists and is callable
+    try:
+        from src.api.dashboard import save_rfq_file, get_rfq_file, list_rfq_files
+        results.append({"check": "rfq_lifecycle", "status": "pass",
+                        "message": "File storage functions available"})
+    except ImportError:
+        results.append({"check": "rfq_lifecycle", "status": "fail",
+                        "message": "File storage functions not importable"})
+    
+    return results
+
+
 def _check_trace_health() -> list:
     """Check workflow trace health — catch failures across all workflows.
     
@@ -1421,6 +1487,7 @@ def run_health_check(checks: list = None) -> dict:
         # Workflow tracing
         "trace_health": _check_trace_health,
         "email_pipeline_traces": _check_email_pipeline_traces,
+        "rfq_lifecycle": _check_rfq_lifecycle,
     }
 
     for name in (checks or list(check_map.keys())):

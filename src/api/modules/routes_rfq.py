@@ -313,6 +313,10 @@ def update(rid):
     # Save SCPRS prices for future lookups
     save_prices_from_rfq(r)
     
+    _log_rfq_activity(rid, "pricing_saved",
+        f"Pricing updated for #{r.get('solicitation_number','?')} ({len(r.get('line_items',[]))} items)",
+        actor="user")
+    
     flash("Pricing saved", "success")
     return redirect(f"/rfq/{rid}")
 
@@ -340,6 +344,20 @@ def upload_templates(rid):
             p = os.path.join(rfq_dir, safe_fn)
             f.save(p)
             saved.append(p)
+            # Store in DB
+            try:
+                f.seek(0)
+                file_data = f.read()
+                if not file_data:
+                    with open(p, "rb") as _rb:
+                        file_data = _rb.read()
+                save_rfq_file(rid, safe_fn, "template_upload", file_data, category="template", uploaded_by="user")
+            except Exception:
+                try:
+                    with open(p, "rb") as _rb:
+                        save_rfq_file(rid, safe_fn, "template_upload", _rb.read(), category="template", uploaded_by="user")
+                except Exception:
+                    pass
 
     if not saved:
         flash("No PDFs found in upload", "error"); return redirect(f"/rfq/{rid}")
@@ -368,6 +386,9 @@ def upload_templates(rid):
     save_rfqs(rfqs)
 
     found = [k for k in new_templates.keys()]
+    _log_rfq_activity(rid, "templates_uploaded",
+        f"Templates uploaded: {', '.join(found).upper()} for #{r.get('solicitation_number','?')}",
+        actor="user", metadata={"templates": found})
     flash(f"Templates uploaded: {', '.join(found).upper()}", "success")
     return redirect(f"/rfq/{rid}")
 
@@ -489,7 +510,22 @@ def generate_rfq_package(rid):
         flash(f"No files generated — {'; '.join(errors) if errors else 'No templates found'}", "error")
         return redirect(f"/rfq/{rid}")
     
-    # ── Step 4: Save, transition, create draft email ──
+    # ── Step 4: Store generated PDFs in DB (survive redeploys) ──
+    for f in output_files:
+        fpath = f"{out_dir}/{f}"
+        try:
+            if os.path.exists(fpath):
+                with open(fpath, "rb") as _fb:
+                    ftype = "generated_quote" if "Quote" in f else \
+                            "generated_703b" if "703B" in f else \
+                            "generated_704b" if "704B" in f else \
+                            "generated_bidpkg" if "BidPackage" in f else "generated_other"
+                    save_rfq_file(rid, f, ftype, _fb.read(), category="generated", uploaded_by="user")
+                    t.step(f"DB stored: {f}")
+        except Exception as _de:
+            t.warn(f"DB store failed: {f}", error=str(_de))
+    
+    # ── Step 5: Save, transition, create draft email ──
     _transition_status(r, "generated", actor="user", notes=f"Package: {len(output_files)} files")
     r["output_files"] = output_files
     r["generated_at"] = datetime.now().isoformat()
@@ -522,6 +558,10 @@ def generate_rfq_package(rid):
     msg = f"✅ RFQ Package generated: {', '.join(parts)}"
     if errors:
         msg += f" | ⚠️ {'; '.join(errors)}"
+    
+    # Log activity
+    _log_rfq_activity(rid, "package_generated", msg, actor="user",
+        metadata={"files": output_files, "quote_number": r.get("reytech_quote_number",""), "errors": errors})
     
     t.ok("Package complete", files=len(output_files), errors=len(errors))
     flash(msg, "success" if not errors else "info")
@@ -670,6 +710,9 @@ def send_email(rid):
         save_rfqs(rfqs)
         t.ok("Email sent", to=r["draft_email"].get("to",""), sol=r.get("solicitation_number","?"))
         flash(f"Bid response sent to {r['draft_email']['to']}", "success")
+        _log_rfq_activity(rid, "email_sent",
+            f"Bid response emailed to {r['draft_email'].get('to','')} for #{r.get('solicitation_number','?')}",
+            actor="user", metadata={"to": r["draft_email"].get("to",""), "quote": r.get("reytech_quote_number","")})
         qn = r.get("reytech_quote_number", "")
         if qn and QUOTE_GEN_AVAILABLE:
             update_quote_status(qn, "sent", actor="system")
@@ -697,8 +740,102 @@ def delete_rfq(rid):
         del rfqs[rid]
         save_rfqs(rfqs)
         log.info("Deleted RFQ #%s (id=%s)", sol, rid)
+        _log_rfq_activity(rid, "deleted", f"RFQ #{sol} deleted", actor="user")
         flash(f"Deleted RFQ #{sol}", "success")
     return redirect("/")
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# RFQ File Management — download from DB
+# ═══════════════════════════════════════════════════════════════════════
+
+@bp.route("/rfq/<rid>/file/<file_id>")
+@auth_required
+def rfq_download_file(rid, file_id):
+    """Download an RFQ file from the database."""
+    f = get_rfq_file(file_id)
+    if not f or f.get("rfq_id") != rid:
+        flash("File not found", "error")
+        return redirect(f"/rfq/{rid}")
+    from flask import Response
+    return Response(
+        f["data"],
+        mimetype=f.get("mime_type", "application/pdf"),
+        headers={"Content-Disposition": f"inline; filename=\"{f['filename']}\""}
+    )
+
+
+@bp.route("/api/rfq/<rid>/files")
+@auth_required
+def api_rfq_files(rid):
+    """List all files for an RFQ."""
+    category = request.args.get("category")
+    files = list_rfq_files(rid, category=category)
+    return jsonify({"ok": True, "files": files, "count": len(files)})
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# RFQ Status Management — reopen, edit, resubmit
+# ═══════════════════════════════════════════════════════════════════════
+
+@bp.route("/rfq/<rid>/reopen", methods=["POST"])
+@auth_required
+def rfq_reopen(rid):
+    """Reopen an RFQ for editing. Changes status back to 'ready'."""
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        flash("RFQ not found", "error")
+        return redirect("/")
+    
+    old_status = r.get("status", "?")
+    _transition_status(r, "ready", actor="user", notes=f"Reopened from '{old_status}'")
+    save_rfqs(rfqs)
+    
+    _log_rfq_activity(rid, "reopened",
+        f"RFQ #{r.get('solicitation_number','?')} reopened for editing (was: {old_status})",
+        actor="user", metadata={"old_status": old_status})
+    
+    flash(f"RFQ reopened for editing (was: {old_status})", "info")
+    return redirect(f"/rfq/{rid}")
+
+
+@bp.route("/rfq/<rid>/update-status", methods=["POST"])
+@auth_required
+def rfq_update_status(rid):
+    """Change RFQ status to any valid state."""
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        flash("RFQ not found", "error")
+        return redirect("/")
+    
+    new_status = request.form.get("status", "").strip()
+    valid = {"new", "ready", "generated", "sent", "won", "lost", "no_bid", "cancelled"}
+    if new_status not in valid:
+        flash(f"Invalid status: {new_status}", "error")
+        return redirect(f"/rfq/{rid}")
+    
+    old_status = r.get("status", "?")
+    notes = request.form.get("notes", "").strip()
+    _transition_status(r, new_status, actor="user", notes=notes or f"Changed from {old_status}")
+    save_rfqs(rfqs)
+    
+    _log_rfq_activity(rid, "status_changed",
+        f"RFQ #{r.get('solicitation_number','?')} status: {old_status} → {new_status}" + (f" ({notes})" if notes else ""),
+        actor="user", metadata={"old_status": old_status, "new_status": new_status, "notes": notes})
+    
+    flash(f"Status changed: {old_status} → {new_status}", "success")
+    return redirect(f"/rfq/{rid}")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# RFQ Activity Log
+# ═══════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/rfq/<rid>/activity")
+@auth_required
+def api_rfq_activity(rid):
+    """Get activity log for an RFQ."""
+    activities = _get_crm_activity(ref_id=rid, limit=50)
+    return jsonify({"ok": True, "activities": activities, "count": len(activities)})

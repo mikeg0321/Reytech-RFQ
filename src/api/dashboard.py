@@ -358,7 +358,98 @@ def save_rfqs(rfqs):
     _invalidate_cache(p)
 
 # ═══════════════════════════════════════════════════════════════════════
-# Price Check JSON helpers (defined here to avoid import from routes_rfq
+# RFQ File Storage — PDFs stored as BLOBs in SQLite (survives redeploys)
+# ═══════════════════════════════════════════════════════════════════════
+
+def _init_rfq_files_table():
+    """Create rfq_files table if it doesn't exist."""
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            # Drop old table with FK constraint if it exists (new feature, no data to preserve)
+            existing = conn.execute("SELECT sql FROM sqlite_master WHERE name='rfq_files'").fetchone()
+            if existing and "FOREIGN KEY" in (existing[0] or ""):
+                conn.execute("DROP TABLE rfq_files")
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS rfq_files (
+                    id          TEXT PRIMARY KEY,
+                    rfq_id      TEXT NOT NULL,
+                    filename    TEXT NOT NULL,
+                    file_type   TEXT NOT NULL,
+                    category    TEXT DEFAULT 'template',
+                    mime_type   TEXT DEFAULT 'application/pdf',
+                    file_size   INTEGER DEFAULT 0,
+                    data        BLOB,
+                    uploaded_by TEXT DEFAULT 'system',
+                    created_at  TEXT NOT NULL
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_rfq_files_rfq ON rfq_files(rfq_id)")
+    except Exception as e:
+        log.debug("rfq_files table init: %s", e)
+
+# Init on import
+_init_rfq_files_table()
+
+
+def save_rfq_file(rfq_id: str, filename: str, file_type: str, data: bytes,
+                   category: str = "template", uploaded_by: str = "system") -> str:
+    """Save a PDF to the rfq_files table. Returns file_id."""
+    import uuid
+    file_id = f"rf_{uuid.uuid4().hex[:10]}"
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO rfq_files (id, rfq_id, filename, file_type, category, file_size, data, uploaded_by, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (file_id, rfq_id, filename, file_type, category, len(data), data, uploaded_by, datetime.now().isoformat()))
+        log.info("Saved file %s (%s, %d bytes) for RFQ %s", filename, file_type, len(data), rfq_id)
+    except Exception as e:
+        log.error("Failed to save file %s for RFQ %s: %s", filename, rfq_id, e)
+    return file_id
+
+
+def get_rfq_file(file_id: str) -> dict:
+    """Get a file by ID. Returns {id, filename, data, mime_type, ...} or None."""
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            row = conn.execute("SELECT * FROM rfq_files WHERE id = ?", (file_id,)).fetchone()
+            if row:
+                return dict(row)
+    except Exception as e:
+        log.error("get_rfq_file error: %s", e)
+    return None
+
+
+def list_rfq_files(rfq_id: str, category: str = None) -> list:
+    """List files for an RFQ. Returns list of dicts (without BLOB data)."""
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            if category:
+                rows = conn.execute(
+                    "SELECT id, rfq_id, filename, file_type, category, file_size, uploaded_by, created_at FROM rfq_files WHERE rfq_id = ? AND category = ? ORDER BY created_at",
+                    (rfq_id, category)).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT id, rfq_id, filename, file_type, category, file_size, uploaded_by, created_at FROM rfq_files WHERE rfq_id = ? ORDER BY created_at",
+                    (rfq_id,)).fetchall()
+            return [dict(r) for r in rows]
+    except Exception as e:
+        log.error("list_rfq_files error: %s", e)
+    return []
+
+
+def _log_rfq_activity(rfq_id: str, action: str, details: str, actor: str = "system", metadata: dict = None):
+    """Log an activity event for an RFQ."""
+    _log_crm_activity(rfq_id, f"rfq_{action}", details, actor=actor, metadata=metadata or {})
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Price Check JSON helpers
+# ═══════════════════════════════════════════════════════════════════════ (defined here to avoid import from routes_rfq
 # which can't be imported directly because bp isn't defined at import time)
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -675,6 +766,35 @@ def process_rfq_email(rfq_email):
                 templates[att["type"]] = dest
             except Exception:
                 templates[att["type"]] = att["path"]  # fallback to original
+            # Also persist to DB (survives redeploys)
+            try:
+                src_path = templates.get(att["type"]) or att["path"]
+                if os.path.exists(src_path):
+                    with open(src_path, "rb") as _f:
+                        save_rfq_file(
+                            rfq_email.get("id", "unknown"),
+                            att.get("filename", os.path.basename(src_path)),
+                            f"template_{att['type']}",
+                            _f.read(),
+                            category="template",
+                        )
+            except Exception as _fe:
+                log.debug("DB file save for template %s: %s", att.get("filename"), _fe)
+    
+    # Also store any non-template attachments (e.g. other PDFs)
+    for att in rfq_email["attachments"]:
+        if att["type"] == "unknown" and att.get("path") and os.path.exists(att["path"]):
+            try:
+                with open(att["path"], "rb") as _f:
+                    save_rfq_file(
+                        rfq_email.get("id", "unknown"),
+                        att.get("filename", os.path.basename(att["path"])),
+                        "attachment",
+                        _f.read(),
+                        category="attachment",
+                    )
+            except Exception:
+                pass
     
     _trace.append(f"→ RFQ PATH: templates={list(templates.keys())}, attachments={[a.get('filename','?') for a in rfq_email.get('attachments',[])]}")
     
@@ -712,6 +832,13 @@ def process_rfq_email(rfq_email):
     POLL_STATUS.setdefault("_email_traces", []).append(_trace)
     t.ok("RFQ created", sol=rfq_data.get("solicitation_number","?"), rfq_id=rfq_data.get("id","?"))
     log.info(f"Auto-imported RFQ #{rfq_data.get('solicitation_number', 'unknown')}")
+    
+    # Log activity
+    _log_rfq_activity(rfq_data["id"], "created",
+        f"RFQ #{rfq_data.get('solicitation_number','?')} imported from email: {rfq_email.get('subject','')}",
+        actor="system",
+        metadata={"source": "email", "templates": list(templates.keys()),
+                  "attachments": [a.get("filename","?") for a in rfq_email.get("attachments",[])]})
     
     # Ensure sender is in CRM
     _ensure_contact_from_email(rfq_email)

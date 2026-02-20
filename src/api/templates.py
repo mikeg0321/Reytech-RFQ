@@ -778,11 +778,16 @@ PAGE_DETAIL = """
  <div id="scprs-body" style="margin-top:12px"></div>
 </div>
 
-{% if r.status in ('generated','sent') and r.output_files %}
+{% if r.status in ('generated','sent','won','lost') and r.output_files %}
 <div class="card">
- <div class="card-t">📦 Bid Package</div>
- <div class="bg">
-  {% for f in r.output_files %}<a href="/dl/{{rid}}/{{f}}" class="btn btn-s">📄 {{f}}</a>{% endfor %}
+ <div style="display:flex;justify-content:space-between;align-items:center">
+  <div class="card-t" style="margin-bottom:0">📦 Generated Package</div>
+  <form method="POST" action="/rfq/{{rid}}/reopen" style="display:inline">
+   <button type="submit" class="btn btn-sm" style="background:var(--wn);color:#000;font-size:11px" onclick="return confirm('Reopen this RFQ for editing?')">✏️ Reopen for Editing</button>
+  </form>
+ </div>
+ <div class="bg" style="margin-top:10px">
+  {% for f in r.output_files %}<a href="/dl/{{rid}}/{{f}}" class="btn btn-s" target="_blank">📄 {{f}}</a>{% endfor %}
  </div>
 </div>
 
@@ -802,6 +807,42 @@ PAGE_DETAIL = """
  {% endif %}
 </div>
 {% endif %}
+
+<!-- RFQ Files (from DB - survives redeploys) -->
+<div class="card" id="rfq-files-card" style="display:none">
+ <div class="card-t">📎 All RFQ Files</div>
+ <div id="rfq-files-list"></div>
+</div>
+
+<!-- Status Management -->
+{% if r.status not in ('new',) %}
+<div class="card">
+ <div class="card-t">⚙️ Status Management</div>
+ <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+  <span style="font-size:12px;color:var(--tx2)">Current: <b>{{r.status}}</b></span>
+  <form method="POST" action="/rfq/{{rid}}/update-status" style="display:inline;margin-left:8px">
+   <select name="status" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd);border-radius:6px;padding:4px 8px;font-size:12px">
+    <option value="new">New</option>
+    <option value="ready">Ready</option>
+    <option value="generated">Generated</option>
+    <option value="sent">Sent</option>
+    <option value="won">Won</option>
+    <option value="lost">Lost</option>
+    <option value="no_bid">No Bid</option>
+    <option value="cancelled">Cancelled</option>
+   </select>
+   <input name="notes" placeholder="Notes (optional)" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd);border-radius:6px;padding:4px 8px;font-size:12px;width:180px">
+   <button type="submit" class="btn btn-sm btn-s">Update</button>
+  </form>
+ </div>
+</div>
+{% endif %}
+
+<!-- Activity Log -->
+<div class="card">
+ <div class="card-t">📋 Activity Log</div>
+ <div id="rfq-activity" style="font-size:12px;color:var(--tx2)">Loading...</div>
+</div>
 
 <script>
 const items={{r.line_items|tojson}};
@@ -1010,6 +1051,73 @@ function showRfqPreview(){
 document.addEventListener('keydown',function(e){if(e.key==='Escape'){const m=document.getElementById('previewModal');if(m)m.style.display='none';}});
 
 recalc();
+
+// ── Load RFQ files from DB ──
+(function(){
+ var rid='{{rid}}';
+ fetch('/api/rfq/'+rid+'/files',{credentials:'same-origin'})
+ .then(function(r){return r.json()})
+ .then(function(d){
+  if(!d.ok||!d.files||d.files.length===0) return;
+  var card=document.getElementById('rfq-files-card');
+  card.style.display='';
+  var cats={template:[],generated:[],attachment:[]};
+  d.files.forEach(function(f){
+   var cat=f.category||'attachment';
+   if(!cats[cat]) cats[cat]=[];
+   cats[cat].push(f);
+  });
+  function renderSection(label,icon,files){
+   if(!files||files.length===0) return '';
+   var s='<div style="margin-bottom:8px"><div style="font-size:11px;font-weight:700;color:var(--tx2);margin-bottom:4px">'+icon+' '+label+'</div>';
+   files.forEach(function(f){
+    var kb=Math.round((f.file_size||0)/1024);
+    s+='<a href="/rfq/'+rid+'/file/'+f.id+'" target="_blank" style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;margin:2px 4px 2px 0;font-size:12px;color:var(--tx);text-decoration:none">';
+    s+='📄 '+f.filename+' <span style="color:var(--tx2);font-size:10px">('+kb+'KB)</span></a>';
+   });
+   return s+'</div>';
+  }
+  var html='';
+  html+=renderSection('Source Templates','📋',cats.template);
+  html+=renderSection('Generated Files','📦',cats.generated);
+  html+=renderSection('Other Attachments','📎',cats.attachment);
+  document.getElementById('rfq-files-list').innerHTML=html;
+ }).catch(function(){});
+})();
+
+// ── Load Activity Log ──
+(function(){
+ var rid='{{rid}}';
+ fetch('/api/rfq/'+rid+'/activity',{credentials:'same-origin'})
+ .then(function(r){return r.json()})
+ .then(function(d){
+  if(!d.ok||!d.activities||d.activities.length===0){
+   document.getElementById('rfq-activity').innerHTML='<div style="color:var(--tx2);font-style:italic">No activity recorded yet</div>';
+   return;
+  }
+  var html='';
+  d.activities.forEach(function(a){
+   var dt=a.timestamp?new Date(a.timestamp).toLocaleString():'';
+   var icon='📝';
+   var et=a.event_type||'';
+   if(et.indexOf('created')>=0) icon='🆕';
+   else if(et.indexOf('email')>=0) icon='📧';
+   else if(et.indexOf('generated')>=0||et.indexOf('package')>=0) icon='📦';
+   else if(et.indexOf('pricing')>=0) icon='💰';
+   else if(et.indexOf('reopen')>=0) icon='✏️';
+   else if(et.indexOf('status')>=0) icon='🔄';
+   else if(et.indexOf('template')>=0) icon='📎';
+   else if(et.indexOf('delete')>=0) icon='🗑️';
+   html+='<div style="display:flex;gap:8px;padding:6px 0;border-bottom:1px solid var(--bd)">';
+   html+='<span>'+icon+'</span>';
+   html+='<div style="flex:1"><div style="font-size:12px">'+a.description+'</div>';
+   html+='<div style="font-size:10px;color:var(--tx2);margin-top:2px">'+dt+' · '+a.actor+'</div></div></div>';
+  });
+  document.getElementById('rfq-activity').innerHTML=html;
+ }).catch(function(){
+  document.getElementById('rfq-activity').innerHTML='<div style="color:var(--tx2)">Could not load activity</div>';
+ });
+})();
 </script>
 """
 
