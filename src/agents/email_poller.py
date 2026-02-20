@@ -71,6 +71,120 @@ ATTACHMENT_PATTERNS = {
     "bidpkg": ["bid_package", "bid package", "forms", "attachment_3", "attachment3", "under_100k", "under 100k"],
 }
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# Purchase Order (PO) / Award Detection
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Strong PO indicators in subject or body
+PO_STRONG_SUBJECT = [
+    "purchase order", "p.o.", "po #", "po#", "po number",
+    "notice of award", "award notice", "award notification",
+    "std 65", "std65", "std-65",
+    "you have been awarded", "contract award",
+    "order confirmation",
+]
+
+PO_BODY_PHRASES = [
+    "purchase order number", "po number", "purchase order #",
+    "you have been awarded", "notice of award", "award notification",
+    "pleased to inform you", "contract has been awarded",
+    "std 65", "std65", "order is confirmed",
+    "purchase order is attached", "attached purchase order",
+    "po is attached", "attached po",
+]
+
+# PDF filenames that suggest a PO document
+PO_PDF_PATTERNS = [
+    r"purchase.?order", r"^po[_\-\s]", r"std.?65", r"award",
+    r"p\.?o\.?\s*\d", r"order.?confirm",
+]
+
+
+def is_purchase_order_email(subject, body, sender, pdf_names):
+    """
+    Detect incoming Purchase Order / Award emails.
+    Fires BEFORE reply and RFQ detection to catch POs in existing threads.
+    
+    Returns dict with classification or None if not a PO.
+    """
+    subj_lower = subject.lower()
+    body_lower = (body or "").lower()[:3000]
+    combined = f"{subj_lower} {body_lower}"
+    signals = []
+    
+    # 1. Subject match — strongest signal
+    for kw in PO_STRONG_SUBJECT:
+        if kw in subj_lower:
+            signals.append(f"subject_kw:{kw}")
+            break
+    
+    # 2. Body phrase match
+    body_hits = 0
+    for phrase in PO_BODY_PHRASES:
+        if phrase in body_lower:
+            body_hits += 1
+            if body_hits <= 2:
+                signals.append(f"body_phrase:{phrase}")
+    
+    # 3. PDF filename match
+    for pdf in (pdf_names or []):
+        pdf_low = pdf.lower()
+        for pat in PO_PDF_PATTERNS:
+            if re.search(pat, pdf_low):
+                signals.append(f"pdf:{pdf}")
+                break
+    
+    # 4. Sender is .gov or known buyer domain (boosts confidence)
+    sender_email = ""
+    if "<" in sender:
+        sender_email = sender.split("<")[-1].split(">")[0].lower()
+    else:
+        sender_email = sender.lower()
+    is_gov = any(d in sender_email for d in [".ca.gov", ".gov", "cdcr", "cchcs", "calvet", "cdph", "dsh"])
+    if is_gov:
+        signals.append("gov_sender")
+    
+    # Must NOT be a recall
+    if "recall:" in subj_lower or "would like to recall" in combined:
+        return None
+    
+    # Scoring: need at least subject match OR (body + pdf) OR (body + gov sender)
+    has_subject = any(s.startswith("subject_kw") for s in signals)
+    has_body = body_hits > 0
+    has_pdf = any(s.startswith("pdf:") for s in signals)
+    has_gov = "gov_sender" in signals
+    
+    if has_subject:
+        pass  # Subject match alone is sufficient
+    elif has_body and (has_pdf or has_gov):
+        pass  # Body phrase + supporting evidence
+    elif has_pdf and has_gov:
+        pass  # PO PDF from gov sender
+    else:
+        return None
+    
+    # Extract PO number
+    po_number = None
+    po_patterns = [
+        r'(?:purchase\s*order|p\.?o\.?)\s*#?\s*(\d[\w\-]{3,20})',
+        r'(?:po\s*number|po#|po\s*#)\s*:?\s*(\d[\w\-]{3,20})',
+        r'std\s*65\s*#?\s*(\d[\w\-]{3,20})',
+    ]
+    for pat in po_patterns:
+        m = re.search(pat, combined, re.IGNORECASE)
+        if m:
+            po_number = m.group(1)
+            break
+    
+    log.info("🏆 PO/Award detected: subject='%s' signals=%s po=%s", subject[:60], signals, po_number)
+    return {
+        "is_po": True,
+        "signals": signals,
+        "po_number": po_number,
+        "sender_email": sender_email,
+        "confidence": "high" if has_subject else "medium",
+    }
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Reply / Follow-Up Detection — must fire BEFORE is_rfq_email()
@@ -785,6 +899,170 @@ class EmailPoller:
                         self._diag["recalled"] += 1
                         continue
                     # ── END RECALL DETECTION ──────────────────────────────────
+
+                    # ── PO / AWARD DETECTION — fires BEFORE reply + RFQ ───────
+                    # A Purchase Order email in a reply thread is still a PO.
+                    # Auto-marks quote as Won and triggers vendor ordering.
+                    po_detect = is_purchase_order_email(subject, body, sender, pdf_names)
+                    if po_detect:
+                        log.info("🏆 PO/Award email: %s from %s", subject[:60], sender[:40])
+                        po_number = po_detect.get("po_number", "")
+                        sol_number = extract_solicitation_number(subject, body or "", pdf_names)
+                        
+                        # Save attachments for PO records
+                        po_rfq_id = "PO_" + datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + uid[:6]
+                        po_dir = os.path.join(save_dir, po_rfq_id)
+                        os.makedirs(po_dir, exist_ok=True)
+                        po_attachments = self._save_attachments(msg, po_dir)
+                        po_attachments.extend(self._extract_forwarded_attachments(msg, po_dir))
+                        
+                        # Try to match to existing quote/RFQ and mark as won
+                        matched_quote = None
+                        try:
+                            from src.core.paths import DATA_DIR
+                            import json as _json
+                            
+                            # 1. Match by solicitation number to RFQ → quote
+                            if sol_number:
+                                rfqs_path = os.path.join(DATA_DIR, "rfqs.json")
+                                try:
+                                    with open(rfqs_path) as _rf:
+                                        _rfqs = _json.load(_rf)
+                                    for rid, rfq in (_rfqs.items() if isinstance(_rfqs, dict) else []):
+                                        if rfq.get("solicitation_number") == sol_number:
+                                            matched_quote = rfq.get("reytech_quote_number", "")
+                                            log.info("PO matched to RFQ sol#%s → quote %s", sol_number, matched_quote)
+                                            break
+                                except (FileNotFoundError, _json.JSONDecodeError):
+                                    pass
+                            
+                            # 2. Also check quotes_log directly by solicitation
+                            if not matched_quote:
+                                quotes_path = os.path.join(DATA_DIR, "quotes_log.json")
+                                try:
+                                    with open(quotes_path) as _qf:
+                                        _quotes = _json.load(_qf)
+                                    for q in (_quotes if isinstance(_quotes, list) else []):
+                                        q_sol = q.get("solicitation_number", "") or q.get("sol", "")
+                                        if sol_number and q_sol == sol_number:
+                                            matched_quote = q.get("quote_number", "")
+                                            log.info("PO matched to quote %s via sol#%s", matched_quote, sol_number)
+                                            break
+                                except (FileNotFoundError, _json.JSONDecodeError):
+                                    pass
+                            
+                            # 3. Mark quote as won + trigger vendor ordering
+                            if matched_quote:
+                                log.info("🏆 Auto-marking quote %s as WON (PO: %s)", matched_quote, po_number)
+                                # Update quotes_log.json
+                                try:
+                                    with open(os.path.join(DATA_DIR, "quotes_log.json")) as _qf2:
+                                        _all_quotes = _json.load(_qf2)
+                                    for q in _all_quotes:
+                                        if q.get("quote_number") == matched_quote:
+                                            q["status"] = "won"
+                                            q["won_at"] = datetime.now().isoformat()
+                                            q["po_number"] = po_number or ""
+                                            q["won_source"] = "email_auto"
+                                            break
+                                    with open(os.path.join(DATA_DIR, "quotes_log.json"), "w") as _qf3:
+                                        _json.dump(_all_quotes, _qf3, indent=2, default=str)
+                                    log.info("Quote %s marked WON in quotes_log.json", matched_quote)
+                                except Exception as _qe:
+                                    log.error("Failed to update quote status: %s", _qe)
+                                
+                                # Update SQLite too
+                                try:
+                                    from src.core.db_dal import update_quote_status
+                                    update_quote_status(matched_quote, "won")
+                                except Exception:
+                                    pass
+                                
+                                # Trigger vendor ordering pipeline
+                                try:
+                                    from src.agents.vendor_ordering_agent import process_won_quote_ordering
+                                    # Find quote items
+                                    qt_items = []
+                                    agency = ""
+                                    for q in _all_quotes:
+                                        if q.get("quote_number") == matched_quote:
+                                            qt_items = q.get("items_detail", q.get("items", []))
+                                            agency = q.get("agency", "") or q.get("institution", "")
+                                            break
+                                    if qt_items:
+                                        process_won_quote_ordering(
+                                            quote_number=matched_quote,
+                                            items=qt_items,
+                                            agency=agency,
+                                            po_number=po_number or "",
+                                            run_async=True,
+                                        )
+                                        log.info("Vendor ordering triggered for %s", matched_quote)
+                                except Exception as _voe:
+                                    log.debug("Vendor ordering trigger: %s", _voe)
+                                
+                                # Log revenue
+                                try:
+                                    from src.core.db_dal import log_revenue
+                                    for q in _all_quotes:
+                                        if q.get("quote_number") == matched_quote:
+                                            total = q.get("total", 0)
+                                            if total:
+                                                log_revenue(
+                                                    amount=total,
+                                                    source="quote_won",
+                                                    quote_number=matched_quote,
+                                                    po_number=po_number or "",
+                                                    agency=agency,
+                                                    date=datetime.now().strftime("%Y-%m-%d"),
+                                                )
+                                            break
+                                except Exception:
+                                    pass
+                        except Exception as _pe:
+                            log.error("PO processing error: %s", _pe)
+                        
+                        # Notify Mike
+                        try:
+                            from src.agents.notify_agent import send_alert
+                            title = f"🏆 Purchase Order received!"
+                            body_msg = f"PO: {po_number or 'see email'}"
+                            if matched_quote:
+                                body_msg += f" · Quote {matched_quote} auto-marked WON"
+                                body_msg += " · Vendor ordering triggered"
+                            else:
+                                body_msg += f" · Sol: {sol_number or 'unknown'}"
+                                body_msg += " · ⚠️ Could not match to existing quote — review manually"
+                            body_msg += f"\nFrom: {po_detect.get('sender_email','')}"
+                            body_msg += f"\nSubject: {subject[:80]}"
+                            send_alert(
+                                event_type="po_received",
+                                title=title,
+                                body=body_msg,
+                                urgency="deal",
+                                cooldown_key=f"po_{uid}",
+                            )
+                        except Exception:
+                            pass
+                        
+                        # Log to activity
+                        try:
+                            from src.core.db_dal import log_activity
+                            log_activity(
+                                event_type="po_received",
+                                ref_type="quote",
+                                ref_id=matched_quote or sol_number or "",
+                                detail=f"PO {po_number or '?'} from {po_detect.get('sender_email','')}. "
+                                       f"{'Auto-marked ' + matched_quote + ' as WON.' if matched_quote else 'No matching quote found.'}",
+                            )
+                        except Exception:
+                            pass
+                        
+                        self._processed.add(uid)
+                        self._diag.setdefault("po_received", 0)
+                        self._diag["po_received"] = self._diag.get("po_received", 0) + 1
+                        continue
+                    # ── END PO / AWARD DETECTION ──────────────────────────────
 
                     # ── REPLY DETECTION — fires BEFORE is_rfq_email() ──────────
                     # Prevents pipeline pollution from buyer follow-ups/clarifications
