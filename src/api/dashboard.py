@@ -606,54 +606,66 @@ def process_rfq_email(rfq_email):
     # Ensure sender is in CRM
     _ensure_contact_from_email(rfq_email)
 
-    # ── PRD Feature 4.2: Auto Price Check + Draft Quote ───────────────────
-    # Runs in background thread so polling isn't blocked.
-    # Guardrails: never sends, creates draft status, skips if parser confidence < 70%
-    _trigger_auto_draft(rfq_data)
+    # ── Auto Price Lookup (no quote generation) ─────────────────────────────
+    # Creates PC + runs price lookup, but STOPS there.
+    # User manually clicks "Generate Quote" when ready → that's when R26Qxx is assigned.
+    _trigger_auto_price(rfq_data)
 
     return rfq_data
 
 
-def _trigger_auto_draft(rfq_data: dict):
-    """PRD Feature 4.2: Background auto-draft pipeline for inbound RFQ emails.
-
-    Pipeline: RFQ parsed → create PC → run price lookup → generate draft quote
-    Guardrails:
-      - Never auto-sends anything
-      - Creates quotes with status='draft' (yellow badge, needs review)
-      - Skips if line_items < 1 (parser failed)
-      - Skips if already has an auto_draft_pc_id (dedup)
-      - If price lookup fails, still creates draft with $0 prices flagged
+def _trigger_auto_price(rfq_data: dict):
+    """Auto-price pipeline: Email → PC → price lookup → STOP (no quote).
+    
+    User manually clicks "Generate Quote" when ready.
+    No quote numbers consumed until user action.
     """
-    if rfq_data.get("auto_draft_pc_id"):
+    if rfq_data.get("auto_price_pc_id"):
         return  # already processed
     if not rfq_data.get("line_items"):
-        log.info("Auto-draft skipped: no line items in RFQ %s", rfq_data.get("id"))
+        log.info("Auto-price skipped: no line items in RFQ %s", rfq_data.get("id"))
         return
 
     import threading as _t
     def _run():
         try:
-            _auto_draft_pipeline(rfq_data)
+            _auto_price_pipeline(rfq_data)
         except Exception as e:
-            log.error("Auto-draft pipeline error for %s: %s", rfq_data.get("id"), e)
+            log.error("Auto-price pipeline error for %s: %s", rfq_data.get("id"), e)
 
-    _t.Thread(target=_run, daemon=True, name=f"auto-draft-{rfq_data.get('id','?')[:8]}").start()
-    log.info("Auto-draft pipeline started for RFQ %s", rfq_data.get("solicitation_number"))
+    _t.Thread(target=_run, daemon=True, name=f"auto-price-{rfq_data.get('id','?')[:8]}").start()
+    log.info("Auto-price pipeline started for RFQ %s", rfq_data.get("solicitation_number"))
 
 
-def _auto_draft_pipeline(rfq_data: dict):
-    """Execute the full auto-draft pipeline (runs in background thread)."""
+def _auto_price_pipeline(rfq_data: dict):
+    """Execute auto-price pipeline (runs in background thread).
+    
+    Steps: Create PC → smart match for revisions → price lookup → notify user.
+    Does NOT generate a quote — user does that manually.
+    """
     import time as _time
     rfq_id = rfq_data.get("id", "")
     sol = rfq_data.get("solicitation_number", "?")
     items = rfq_data.get("line_items", [])
 
-    log.info("[AutoDraft] Starting pipeline for RFQ %s (%d items)", sol, len(items))
+    log.info("[AutoPrice] Starting pipeline for RFQ %s (%d items)", sol, len(items))
     t0 = _time.time()
 
-    # Step 1: Create a Price Check record from the RFQ
-    pc_id = f"autodraft_{rfq_id[:8]}_{int(_time.time())}"
+    # Step 1: Smart match — check if this is a revision of an existing PC
+    pcs = _load_price_checks()
+    revision_of = None
+    try:
+        from src.agents.award_monitor import smart_match_pc
+        match = smart_match_pc(rfq_data, pcs)
+        if match:
+            revision_of = match["pc_id"]
+            log.info("[AutoPrice] Revision detected: %s is update of PC %s (score=%d: %s)",
+                     sol, revision_of, match["score"], ", ".join(match["reasons"]))
+    except Exception as e:
+        log.debug("Smart match error (non-critical): %s", e)
+
+    # Step 2: Create Price Check record
+    pc_id = f"auto_{rfq_id[:8]}_{int(_time.time())}"
     pc_items = []
     for li in items:
         pc_items.append({
@@ -668,12 +680,14 @@ def _auto_draft_pipeline(rfq_data: dict):
 
     pc = {
         "id": pc_id,
-        "pc_number": f"AD-{sol[:20]}",
+        "pc_number": sol if sol != "?" else f"PC-{pc_id[:8]}",
         "status": "parsed",
-        "source": "email_auto_draft",
+        "source": "email_auto",
         "rfq_id": rfq_id,
         "solicitation_number": sol,
         "institution": rfq_data.get("department", rfq_data.get("requestor_name", "")),
+        "requestor": rfq_data.get("requestor_name", rfq_data.get("requestor_email", "")),
+        "contact_email": rfq_data.get("requestor_email", ""),
         "items": pc_items,
         "parsed": {"header": {
             "institution": rfq_data.get("department", ""),
@@ -681,81 +695,77 @@ def _auto_draft_pipeline(rfq_data: dict):
             "phone": rfq_data.get("phone", ""),
         }},
         "created_at": datetime.now().isoformat(),
-        "is_auto_draft": True,
+        "revision_of": revision_of,
     }
-    pcs = _load_price_checks()
     pcs[pc_id] = pc
     _save_price_checks(pcs)
 
-    # Step 2: Run SCPRS + Amazon price lookup
+    # Step 3: Run SCPRS + Amazon price lookup
     try:
         from src.forms.price_check import lookup_prices
         pc = lookup_prices(pc)
+        pc["status"] = "priced"
         pcs[pc_id] = pc
         _save_price_checks(pcs)
         priced = sum(1 for it in pc.get("items", []) if it.get("pricing", {}).get("recommended_price"))
-        log.info("[AutoDraft] Prices found: %d/%d items", priced, len(pc_items))
+        log.info("[AutoPrice] Prices found: %d/%d items", priced, len(pc_items))
     except Exception as pe:
-        log.warning("[AutoDraft] Price lookup failed (will draft with $0): %s", pe)
+        log.warning("[AutoPrice] Price lookup failed: %s", pe)
 
-    # Step 3: Generate draft Reytech quote PDF
-    draft_result = {}
-    if QUOTE_GEN_AVAILABLE:
-        try:
-            from src.forms.quote_generator import generate_quote_from_pc, _next_quote_number
-            output_path = os.path.join(DATA_DIR, f"Draft_{pc_id}_Reytech.pdf")
-            draft_result = generate_quote_from_pc(pc, output_path, include_tax=False)
-            if draft_result.get("ok"):
-                # Mark as draft status (not pending — needs review)
-                from src.forms.quote_generator import get_all_quotes, _save_all_quotes
-                all_q = get_all_quotes()
-                for q in all_q:
-                    if q.get("quote_number") == draft_result.get("quote_number"):
-                        q["status"] = "draft"
-                        q["auto_draft"] = True
-                        q["source_rfq_id"] = rfq_id
-                        q["requires_review"] = True
-                        q["review_note"] = "Auto-generated from email RFQ — review prices before sending"
-                        break
-                _save_all_quotes(all_q)
-                log.info("[AutoDraft] Draft quote %s generated in %.1fs",
-                         draft_result.get("quote_number"), _time.time() - t0)
-        except Exception as qe:
-            log.warning("[AutoDraft] Quote generation failed: %s", qe)
+    # Step 4: Check for competitor price suggestions
+    suggestions = []
+    try:
+        from src.agents.award_monitor import get_price_suggestions
+        suggestions = get_price_suggestions(pc_items, pc.get("institution", ""))
+        if suggestions:
+            pc["price_suggestions"] = suggestions
+            pcs[pc_id] = pc
+            _save_price_checks(pcs)
+            log.info("[AutoPrice] %d price suggestions from competitor history", len(suggestions))
+    except Exception:
+        pass
 
-    # Step 4: Update RFQ with auto_draft link
+    # Step 5: Update RFQ with PC link
     rfqs = load_rfqs()
     if rfq_id in rfqs:
-        rfqs[rfq_id]["auto_draft_pc_id"] = pc_id
-        rfqs[rfq_id]["auto_draft_quote"] = draft_result.get("quote_number", "")
-        rfqs[rfq_id]["auto_draft_at"] = datetime.now().isoformat()
-        rfqs[rfq_id]["status"] = "auto_drafted"
+        rfqs[rfq_id]["auto_price_pc_id"] = pc_id
+        rfqs[rfq_id]["auto_priced_at"] = datetime.now().isoformat()
+        rfqs[rfq_id]["status"] = "priced"
         save_rfqs(rfqs)
 
-    # Step 5: Log to CRM activity
+    # Step 6: Log activity
     _log_crm_activity(
-        draft_result.get("quote_number") or rfq_id,
-        "auto_draft_generated",
-        f"Auto-draft from email RFQ {sol}: {len(pc_items)} items, {draft_result.get('quote_number','pending')}",
+        pc_id,
+        "pc_auto_priced",
+        f"PC {pc.get('pc_number','')} auto-priced from email: {len(pc_items)} items"
+        + (f" (revision of {revision_of})" if revision_of else "")
+        + (f", {len(suggestions)} price warnings" if suggestions else ""),
         actor="system",
-        metadata={"rfq_id": rfq_id, "pc_id": pc_id, "feature": "4.2"},
+        metadata={"rfq_id": rfq_id, "pc_id": pc_id, "revision_of": revision_of},
     )
-    log.info("[AutoDraft] Complete for RFQ %s in %.1fs", sol, _time.time() - t0)
-    # 🔔 Proactive alert — auto-draft ready for review
+
+    # Step 7: Notify user — PC is ready for review (NOT a draft quote)
     try:
         from src.agents.notify_agent import send_alert
-        qnum = draft_result.get("quote_number","?")
-        contact = rfq_data.get("requestor_email","") or rfq_data.get("requestor_name","")
+        contact = rfq_data.get("requestor_email", "") or rfq_data.get("requestor_name", "")
+        title = f"📋 PC Ready: {pc.get('pc_number', sol)}"
+        body = f"Price check from {contact}: {len(pc_items)} items priced."
+        if revision_of:
+            body += f" ⚠️ Revision of existing PC."
+        if suggestions:
+            body += f" ⚠️ {len(suggestions)} competitive price warnings."
+        body += " Review and click Generate Quote when ready."
         send_alert(
-            event_type="auto_draft_ready",
-            title=f"📋 Auto-Draft Ready: {qnum}",
-            body=f"Quote {qnum} auto-drafted from email RFQ {sol} ({contact}). Review and send when ready.",
-            urgency="draft",
-            context={"quote_number": qnum, "contact": contact, "entity_id": qnum},
-            cooldown_key=f"auto_draft_{qnum}",
+            event_type="pc_ready",
+            title=title, body=body, urgency="info",
+            context={"pc_id": pc_id, "contact": contact},
+            cooldown_key=f"pc_ready_{pc_id}",
         )
     except Exception as _ne:
-        log.debug("Auto-draft alert error: %s", _ne)
+        log.debug("PC ready alert error: %s", _ne)
+
+    log.info("[AutoPrice] Complete for %s in %.1fs (no quote generated — user action required)",
+             sol, _time.time() - t0)
 
 
 
@@ -1230,6 +1240,8 @@ def render(content, **kw):
   <a href="/vendors" class="hdr-btn" aria-label="Vendor ordering">🏭 Vendors</a>
   <a href="/intel/market" class="hdr-btn" aria-label="Market Intelligence">📊 Intel</a>
   <a href="/catalog" class="hdr-btn" aria-label="Product Catalog">📦 Catalog</a>
+  <a href="/pricechecks" class="hdr-btn" aria-label="PC Archive">📋 PCs</a>
+  <a href="/competitors" class="hdr-btn" aria-label="Competitor Intelligence">🎯 Compete</a>
   <a href="/cchcs/expansion" class="hdr-btn" aria-label="Expand Facilities">🏥 Expand</a>
   <a href="/campaigns" class="hdr-btn" aria-label="Outreach campaigns">📞 Campaigns</a>
   <a href="/pipeline" class="hdr-btn" aria-label="Revenue pipeline">🔄 Pipeline</a>
@@ -1312,6 +1324,8 @@ def _header(page_title: str = "") -> str:
   <a href="/intel/market" class="hdr-btn">📊 Intel</a>
   <a href="/qa/intelligence" class="hdr-btn">🧠 QA</a>
   <a href="/catalog" class="hdr-btn">📦 Catalog</a>
+  <a href="/pricechecks" class="hdr-btn">📋 PCs</a>
+  <a href="/competitors" class="hdr-btn">🎯 Compete</a>
   <a href="/cchcs/expansion" class="hdr-btn">🏥 Expand</a>
   <a href="/campaigns" class="hdr-btn">📞 Campaigns</a>
   <a href="/pipeline" class="hdr-btn">🔄 Pipeline</a>
@@ -1389,3 +1403,11 @@ for _mod in _ROUTE_MODULES:
         import traceback; traceback.print_exc()
 
 log.info(f"Dashboard: {len(_ROUTE_MODULES)} route modules loaded, {len([r for r in bp.deferred_functions])} deferred fns")
+
+# ── Start Award Monitor (checks SCPRS for PO awards on sent quotes) ─────
+try:
+    from src.agents.award_monitor import start_monitor as _start_award_monitor
+    _start_award_monitor()
+    log.info("Award monitor started (checks every 1h, SCPRS every 3 biz days)")
+except Exception as _e:
+    log.warning("Award monitor failed to start: %s", _e)

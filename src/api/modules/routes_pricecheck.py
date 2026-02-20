@@ -491,6 +491,7 @@ def pricecheck_generate_quote(pcid):
     if result.get("ok"):
         pc["reytech_quote_pdf"] = output_path
         pc["reytech_quote_number"] = result.get("quote_number", "")
+        pc["status"] = "quoted"
         _save_price_checks(pcs)
         # CRM: log quote generation
         _log_crm_activity(result.get("quote_number", ""), "quote_generated",
@@ -1233,6 +1234,293 @@ def api_pricecheck_delete(pcid):
         "quote_removed": linked_qn if quote_removed else None,
         "counter_reset": counter_reset,
     })
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PC Lifecycle Endpoints + Award Monitor + Competitors
+# ═══════════════════════════════════════════════════════════════════════════════
+
+PC_STATUS_LABELS = {
+    "new": ("New", "#4f8cff"), "parsed": ("Parsed", "#a78bfa"),
+    "priced": ("Priced", "#fbbf24"), "quoted": ("Quoted", "#58a6ff"),
+    "sent": ("Sent", "#3fb950"), "pending_award": ("Pending Award", "#d29922"),
+    "won": ("Won", "#3fb950"), "lost": ("Lost", "#f85149"),
+    "expired": ("Expired", "#8b90a0"), "archived": ("Archived", "#6e7681"),
+}
+
+
+@bp.route("/pricechecks")
+@auth_required
+def pricechecks_archive():
+    """PC Archive — searchable, filterable list of all price checks."""
+    pcs = _load_price_checks()
+    pc_list = []
+    for pcid, pc in pcs.items():
+        pc_list.append({
+            "id": pcid, "pc_number": pc.get("pc_number", "?"),
+            "institution": pc.get("institution", ""), "requestor": pc.get("requestor", ""),
+            "status": pc.get("status", "new"), "items_count": len(pc.get("items", [])),
+            "quote_number": pc.get("reytech_quote_number", ""),
+            "created_at": pc.get("created_at", ""), "sent_at": pc.get("sent_at", ""),
+            "competitor_name": pc.get("competitor_name", ""),
+            "competitor_price": pc.get("competitor_price", 0),
+            "revision_of": pc.get("revision_of", ""),
+            "due_date": pc.get("parsed", {}).get("header", {}).get("due_date", ""),
+            "total": sum((it.get("pricing", {}).get("recommended_price", 0) or 0) * it.get("qty", 1)
+                        for it in pc.get("items", [])),
+        })
+    pc_list.sort(key=lambda x: x["created_at"], reverse=True)
+    total = len(pc_list)
+    by_status = {}
+    for p in pc_list:
+        by_status[p["status"]] = by_status.get(p["status"], 0) + 1
+    total_won = by_status.get("won", 0)
+    total_lost = by_status.get("lost", 0)
+    win_rate = f"{total_won / max(total_won + total_lost, 1) * 100:.0f}%" if (total_won + total_lost) else "—"
+
+    status_options = "".join(f'<option value="{s}">{PC_STATUS_LABELS.get(s,(s,))[0]} ({c})</option>'
+                             for s, c in sorted(by_status.items()))
+    rows = ""
+    for p in pc_list:
+        st = p["status"]
+        label, color = PC_STATUS_LABELS.get(st, (st, "#8b90a0"))
+        date_str = p["created_at"][:10] if p["created_at"] else "—"
+        total_str = f"${p['total']:,.2f}" if p["total"] else "—"
+        qn = p.get("quote_number", "")
+        comp = p.get("competitor_name", "")
+        rev = " \\u1F504" if p.get("revision_of") else ""
+        rows += f'''<tr data-status="{st}" data-search="{p['pc_number'].lower()} {p['institution'].lower()} {p['requestor'].lower()} {qn.lower()}" style="cursor:pointer" onclick="location.href='/pricecheck/{p['id']}'">
+         <td><a href="/pricecheck/{p['id']}" style="color:#58a6ff;font-family:'JetBrains Mono',monospace;font-weight:600">#{p['pc_number']}</a></td>
+         <td>{p['institution']}</td><td>{p['requestor'][:25]}</td>
+         <td>{date_str}</td><td style="text-align:center">{p['items_count']}</td>
+         <td style="text-align:right">{total_str}</td>
+         <td style="text-align:center">{f'<span style="color:#58a6ff;font-family:JetBrains Mono,monospace;font-weight:600">{qn}</span>' if qn else chr(8212)}</td>
+         <td style="text-align:center"><span style="background:{color};color:#0d1117;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">{label}</span></td>
+         <td style="color:#f85149">{comp}</td></tr>'''
+
+    content = f'''
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h2 style="margin:0">Price Check Archive</h2>
+      <div style="display:flex;gap:8px">
+        <a href="/competitors" style="background:#1f6feb;color:white;padding:6px 14px;border-radius:6px;text-decoration:none;font-size:13px;font-weight:600">Competitors</a>
+      </div>
+    </div>
+    <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px 20px;text-align:center;min-width:90px">
+        <div style="font-size:24px;font-weight:800;color:#4f8cff">{total}</div><div style="font-size:11px;color:var(--tx2)">TOTAL</div></div>
+      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px 20px;text-align:center;min-width:90px">
+        <div style="font-size:24px;font-weight:800;color:#3fb950">{total_won}</div><div style="font-size:11px;color:var(--tx2)">WON</div></div>
+      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px 20px;text-align:center;min-width:90px">
+        <div style="font-size:24px;font-weight:800;color:#f85149">{total_lost}</div><div style="font-size:11px;color:var(--tx2)">LOST</div></div>
+      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px 20px;text-align:center;min-width:90px">
+        <div style="font-size:24px;font-weight:800;color:var(--tx)">{win_rate}</div><div style="font-size:11px;color:var(--tx2)">WIN RATE</div></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center">
+      <input id="pc-search" placeholder="Search PCs..." oninput="filterPCs()" style="flex:1;padding:8px 12px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:13px">
+      <select id="pc-status" onchange="filterPCs()" style="padding:8px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:13px">
+        <option value="">All Statuses</option>{status_options}</select>
+      <span id="pc-count" style="font-size:12px;color:var(--tx2)">{total} PCs</span>
+    </div>
+    <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead><tr style="border-bottom:1px solid var(--bd);text-transform:uppercase;font-size:11px;color:var(--tx2)">
+          <th style="padding:10px;text-align:left">PC #</th><th style="padding:10px;text-align:left">Institution</th>
+          <th style="padding:10px;text-align:left">Requestor</th><th style="padding:10px;text-align:left">Date</th>
+          <th style="padding:10px;text-align:center">Items</th><th style="padding:10px;text-align:right">Total</th>
+          <th style="padding:10px;text-align:center">Quote</th><th style="padding:10px;text-align:center">Status</th>
+          <th style="padding:10px;text-align:left">Competitor</th>
+        </tr></thead>
+        <tbody id="pc-tbody">{rows}</tbody>
+      </table>
+    </div>
+    <script>
+    function filterPCs(){{var q=document.getElementById('pc-search').value.toLowerCase();var st=document.getElementById('pc-status').value;var rows=document.querySelectorAll('#pc-tbody tr');var v=0;rows.forEach(function(r){{var ok=(!q||r.dataset.search.includes(q))&&(!st||r.dataset.status===st);r.style.display=ok?'':'none';if(ok)v++;}});document.getElementById('pc-count').textContent=v+' PCs';}}
+    </script>'''
+
+    return _header("Price Checks") + content + "</div></body></html>"
+
+
+@bp.route("/api/pricechecks")
+@auth_required
+def api_pricechecks_list():
+    """API: List all PCs with optional status filter."""
+    pcs = _load_price_checks()
+    status_filter = request.args.get("status", "")
+    result = []
+    for pcid, pc in pcs.items():
+        if status_filter and pc.get("status", "new") != status_filter:
+            continue
+        result.append({"id": pcid, "pc_number": pc.get("pc_number", "?"),
+            "institution": pc.get("institution", ""), "status": pc.get("status", "new"),
+            "items_count": len(pc.get("items", [])), "quote_number": pc.get("reytech_quote_number", ""),
+            "created_at": pc.get("created_at", ""), "competitor_name": pc.get("competitor_name", "")})
+    result.sort(key=lambda x: x["created_at"], reverse=True)
+    return jsonify({"ok": True, "pcs": result, "count": len(result)})
+
+
+@bp.route("/api/pricecheck/<pcid>/mark-sent", methods=["POST"])
+@auth_required
+def api_pricecheck_mark_sent(pcid):
+    """Mark PC as sent — starts award monitoring clock."""
+    pcs = _load_price_checks()
+    if pcid not in pcs: return jsonify({"ok": False, "error": "PC not found"})
+    pcs[pcid]["status"] = "sent"
+    pcs[pcid]["sent_at"] = datetime.now().isoformat()
+    pcs[pcid]["award_status"] = "pending"
+    _save_price_checks(pcs)
+    _log_crm_activity(pcs[pcid].get("reytech_quote_number", pcid), "quote_sent",
+        f"Quote sent for PC #{pcs[pcid].get('pc_number','')}", actor="user")
+    return jsonify({"ok": True, "status": "sent"})
+
+
+@bp.route("/api/pricecheck/<pcid>/mark-won", methods=["POST"])
+@auth_required
+def api_pricecheck_mark_won(pcid):
+    """Manually mark PC as won."""
+    pcs = _load_price_checks()
+    if pcid not in pcs: return jsonify({"ok": False, "error": "PC not found"})
+    data = request.get_json(silent=True) or {}
+    pcs[pcid].update({"status": "won", "award_status": "won",
+        "closed_at": datetime.now().isoformat(), "closed_reason": data.get("notes", "Won")})
+    _save_price_checks(pcs)
+    _log_crm_activity(pcs[pcid].get("reytech_quote_number", pcid), "quote_won",
+        f"WON: PC #{pcs[pcid].get('pc_number','')}", actor="user")
+    return jsonify({"ok": True, "status": "won"})
+
+
+@bp.route("/api/pricecheck/<pcid>/mark-lost", methods=["POST"])
+@auth_required
+def api_pricecheck_mark_lost(pcid):
+    """Mark PC as lost with competitor details."""
+    pcs = _load_price_checks()
+    if pcid not in pcs: return jsonify({"ok": False, "error": "PC not found"})
+    data = request.get_json(silent=True) or {}
+    pc = pcs[pcid]
+    pc.update({"status": "lost", "award_status": "lost",
+        "competitor_name": data.get("competitor_name", "Unknown"),
+        "competitor_price": data.get("competitor_price", 0),
+        "competitor_po": data.get("po_number", ""),
+        "closed_at": datetime.now().isoformat(),
+        "closed_reason": f"Lost to {data.get('competitor_name', 'Unknown')}"})
+    _save_price_checks(pcs)
+    try:
+        from src.agents.award_monitor import log_competitor
+        our_total = sum((it.get("pricing", {}).get("recommended_price", 0) or 0) * it.get("qty", 1)
+                       for it in pc.get("items", []))
+        log_competitor(pc, {"supplier": pc["competitor_name"], "total": pc["competitor_price"],
+            "po_number": pc.get("competitor_po", "")}, our_total)
+    except Exception: pass
+    _log_crm_activity(pc.get("reytech_quote_number", pcid), "quote_lost",
+        f"LOST: PC #{pc.get('pc_number','')} to {pc['competitor_name']}", actor="user")
+    return jsonify({"ok": True, "status": "lost"})
+
+
+@bp.route("/api/award-monitor/run", methods=["GET", "POST"])
+@auth_required
+def api_award_monitor_run():
+    """Manually trigger award check cycle."""
+    try:
+        from src.agents.award_monitor import run_award_check
+        return jsonify({"ok": True, **run_award_check()})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/award-monitor/status")
+@auth_required
+def api_award_monitor_status():
+    try:
+        from src.agents.award_monitor import get_monitor_status
+        return jsonify({"ok": True, **get_monitor_status()})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/competitors")
+@auth_required
+def api_competitors():
+    try:
+        from src.agents.award_monitor import get_competitor_dashboard
+        return jsonify({"ok": True, **get_competitor_dashboard()})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/pricecheck/<pcid>/suggestions")
+@auth_required
+def api_pricecheck_suggestions(pcid):
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc: return jsonify({"ok": False, "error": "PC not found"})
+    try:
+        from src.agents.award_monitor import get_price_suggestions
+        suggestions = get_price_suggestions(pc.get("items", []), pc.get("institution", ""))
+        return jsonify({"ok": True, "suggestions": suggestions, "count": len(suggestions)})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/competitors")
+@auth_required
+def competitors_page():
+    """Competitor Intelligence Dashboard."""
+    try:
+        from src.agents.award_monitor import get_competitor_dashboard
+        data = get_competitor_dashboard()
+    except Exception:
+        data = {"top_competitors": [], "by_agency": [], "recent_losses": [], "stats": {}}
+
+    stats = data.get("stats", {})
+    total_losses = stats.get("total_losses", 0) or 0
+    avg_delta = stats.get("avg_delta_pct", 0) or 0
+    unique_comp = stats.get("unique_competitors", 0) or 0
+
+    comp_rows = ""
+    for c in data.get("top_competitors", []):
+        comp_rows += f'''<tr><td style="font-weight:600">{c.get('competitor_name','?')}</td>
+          <td style="text-align:center">{c.get('losses',0)}</td>
+          <td style="text-align:center;color:{'#f85149' if (c.get('avg_delta_pct') or 0) > 0 else '#3fb950'}">{c.get('avg_delta_pct',0):+.1f}%</td>
+          <td style="text-align:right">${c.get('total_won',0):,.0f}</td>
+          <td>{c.get('agencies','')}</td></tr>'''
+
+    loss_rows = ""
+    for l in data.get("recent_losses", []):
+        loss_rows += f'''<tr><td>{(l.get('found_at') or '')[:10]}</td>
+          <td>{l.get('institution','')}</td>
+          <td style="font-weight:600;color:#f85149">{l.get('competitor_name','?')}</td>
+          <td style="text-align:right">${l.get('competitor_price',0):,.2f}</td>
+          <td style="text-align:right">${l.get('our_price',0):,.2f}</td>
+          <td style="text-align:center;color:{'#f85149' if (l.get('price_delta_pct') or 0) > 0 else '#3fb950'}">{l.get('price_delta_pct',0):+.1f}%</td></tr>'''
+
+    empty = '<tr><td colspan="6" style="text-align:center;color:var(--tx2);padding:20px">No data yet — populates as awards are tracked</td></tr>'
+    content = f'''
+    <h2>Competitor Intelligence</h2>
+    <div style="display:flex;gap:12px;margin:16px 0;flex-wrap:wrap">
+      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px 20px;text-align:center;min-width:110px">
+        <div style="font-size:28px;font-weight:800;color:#f85149">{total_losses}</div><div style="font-size:11px;color:var(--tx2)">LOSSES</div></div>
+      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px 20px;text-align:center;min-width:110px">
+        <div style="font-size:28px;font-weight:800;color:var(--tx)">{unique_comp}</div><div style="font-size:11px;color:var(--tx2)">COMPETITORS</div></div>
+      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px 20px;text-align:center;min-width:110px">
+        <div style="font-size:28px;font-weight:800;color:{'#f85149' if avg_delta > 0 else '#3fb950'}">{avg_delta:+.1f}%</div><div style="font-size:11px;color:var(--tx2)">AVG GAP</div></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
+      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:16px">
+        <h3 style="margin:0 0 12px;font-size:14px;color:var(--tx2)">TOP COMPETITORS</h3>
+        <table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="border-bottom:1px solid var(--bd);font-size:11px;color:var(--tx2)">
+          <th style="text-align:left;padding:6px">Vendor</th><th style="text-align:center;padding:6px">Losses</th>
+          <th style="text-align:center;padding:6px">Avg Gap</th><th style="text-align:right;padding:6px">$ Won</th>
+          <th style="text-align:left;padding:6px">Agencies</th>
+        </tr></thead><tbody>{comp_rows or empty}</tbody></table></div>
+      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:16px">
+        <h3 style="margin:0 0 12px;font-size:14px;color:var(--tx2)">RECENT LOSSES</h3>
+        <table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="border-bottom:1px solid var(--bd);font-size:11px;color:var(--tx2)">
+          <th style="text-align:left;padding:6px">Date</th><th style="text-align:left;padding:6px">Institution</th>
+          <th style="text-align:left;padding:6px">Winner</th><th style="text-align:right;padding:6px">Their $</th>
+          <th style="text-align:right;padding:6px">Our $</th><th style="text-align:center;padding:6px">Gap</th>
+        </tr></thead><tbody>{loss_rows or empty}</tbody></table></div>
+    </div>'''
+
+    return _header("Competitors") + content + "</div></body></html>"
 
 
 @bp.route("/api/admin/cleanup", methods=["POST"])

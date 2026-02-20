@@ -802,7 +802,7 @@ class EmailPoller:
                         # Trigger in background thread so polling doesn't block.
                         # Creates a draft quote the user can review and approve.
                         def _auto_draft(rfq=rfq_info):
-                            """PRD Feature 4.2: Email RFQ → Auto Price Check → Draft Quote."""
+                            """Email → Auto Price Check (no quote generation — user does that)."""
                             try:
                                 from src.api.dashboard import _handle_price_check_upload, _push_notification
                                 import uuid as _uuid
@@ -810,11 +810,10 @@ class EmailPoller:
                                 pdfs = [a["path"] for a in rfq.get("attachments", [])
                                         if a.get("path") and a["path"].endswith(".pdf")]
                                 if not pdfs:
-                                    log.info("Auto-draft: no PDFs in RFQ — skipping")
+                                    log.info("Auto-price: no PDFs in RFQ — skipping")
                                     return
 
                                 # ── DEDUP: Check if this PDF was already processed ──
-                                # Parse first to get pc_number, then check existing PCs
                                 try:
                                     from src.parsers.ams704_parser import parse_ams704
                                     pre_parsed = parse_ams704(pdfs[0])
@@ -826,51 +825,40 @@ class EmailPoller:
                                         for eid, epc in existing_pcs.items():
                                             if (epc.get("pc_number", "").strip() == pre_pc_num.strip()
                                                     and epc.get("institution", "").strip().lower() == pre_inst.strip().lower()):
-                                                log.info("Auto-draft dedup: PC #%s from %s already exists as %s — skipping",
+                                                log.info("Auto-price dedup: PC #%s from %s already exists as %s — skipping",
                                                          pre_pc_num, pre_inst, eid)
                                                 return
                                 except Exception as _dp:
-                                    log.debug("Auto-draft dedup pre-check failed (non-fatal): %s", _dp)
+                                    log.debug("Auto-price dedup pre-check failed (non-fatal): %s", _dp)
 
                                 # Step 1: Create price check from PDF
                                 pc_result = _handle_price_check_upload(pdfs[0], pc_id)
-                                log.info("Auto-draft [Feature 4.2]: PC %s created from %s", pc_id, rfq.get("subject","")[:50])
-                                # Step 2: Auto-run price lookup
+                                log.info("Auto-price: PC %s created from %s", pc_id, rfq.get("subject","")[:50])
+                                # Step 2: Auto-run price lookup (NO quote generation)
                                 try:
                                     from src.auto.auto_processor import auto_process_price_check
                                     auto_process_price_check(pdfs[0], pc_id=pc_id)
-                                    log.info("Auto-draft: price lookup complete for %s", pc_id)
+                                    log.info("Auto-price: price lookup complete for %s", pc_id)
                                 except Exception as _ape:
-                                    log.debug("Auto-draft price lookup skipped: %s", _ape)
-                                # Step 3: Create draft quote
-                                try:
-                                    from src.api.dashboard import _create_quote_from_pc
-                                    q_result = _create_quote_from_pc(pc_id, status="draft")
-                                    if q_result and q_result.get("ok"):
-                                        qnum = q_result.get("quote_number","")
-                                        log.info("Auto-draft: quote %s created (draft) from RFQ", qnum)
-                                        # Step 4: Push dashboard notification
-                                        agency = rfq.get("agency","") or rfq.get("institution","") or "Unknown Agency"
-                                        _push_notification({
-                                            "type": "auto_draft",
-                                            "title": f"New draft quote from {agency}",
-                                            "message": f"Quote {qnum} ready to review",
-                                            "quote_number": qnum,
-                                            "pc_id": pc_id,
-                                            "url": f"/quotes",
-                                            "feature": "PRD 4.2",
-                                        })
-                                except Exception as _qe:
-                                    log.debug("Auto-draft quote creation skipped: %s", _qe)
+                                    log.debug("Auto-price lookup skipped: %s", _ape)
+                                # Step 3: Notify — PC ready for review (user generates quote manually)
+                                agency = rfq.get("agency","") or rfq.get("institution","") or "Unknown Agency"
+                                _push_notification({
+                                    "type": "pc_ready",
+                                    "title": f"Price check ready from {agency}",
+                                    "message": f"PC {pc_id[:12]} priced — click Generate Quote when ready",
+                                    "pc_id": pc_id,
+                                    "url": f"/pricecheck/{pc_id}",
+                                })
                             except Exception as _ae:
-                                log.debug("Auto-draft pipeline failed: %s", _ae)
+                                log.debug("Auto-price pipeline failed: %s", _ae)
                         # 🔔 RFQ arrival alert (before spawning auto-draft thread)
                         try:
                             from src.agents.notify_agent import send_alert, log_email_event
                             send_alert(
                                 event_type="rfq_arrived",
                                 title=f"🚨 New RFQ: {subject[:50]}",
-                                body=f"From: {sender} — {len(rfq_info.get('items',[]))} line items. Auto-draft starting.",
+                                body=f"From: {sender} — {len(rfq_info.get('items',[]))} line items. Auto-pricing started.",
                                 urgency="urgent",
                                 context={"contact": sender, "entity_id": rfq_id},
                                 cooldown_key=f"rfq_{rfq_id}",

@@ -378,6 +378,30 @@ CREATE TABLE IF NOT EXISTS workflow_runs (
     critical_failures TEXT,
     full_report       TEXT
 );
+
+CREATE TABLE IF NOT EXISTS competitor_intel (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    found_at          TEXT NOT NULL,
+    pc_id             TEXT,
+    quote_number      TEXT,
+    our_price         REAL DEFAULT 0,
+    competitor_name   TEXT NOT NULL,
+    competitor_price  REAL DEFAULT 0,
+    price_delta       REAL DEFAULT 0,
+    price_delta_pct   REAL DEFAULT 0,
+    po_number         TEXT,
+    agency            TEXT,
+    institution       TEXT,
+    item_summary      TEXT,
+    items_detail      TEXT,
+    solicitation      TEXT,
+    outcome           TEXT DEFAULT 'lost',
+    notes             TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_competitor_name ON competitor_intel(competitor_name);
+CREATE INDEX IF NOT EXISTS idx_competitor_agency ON competitor_intel(agency);
+CREATE INDEX IF NOT EXISTS idx_competitor_pc ON competitor_intel(pc_id);
 """
 
 def init_db():
@@ -409,6 +433,18 @@ def _migrate_columns():
         ("workflow_runs", "finished_at", "TEXT"),
         ("workflow_runs", "type", "TEXT DEFAULT 'workflow'"),
         ("workflow_runs", "status", "TEXT DEFAULT 'completed'"),
+        # PC award tracking (Phase: Option C workflow)
+        ("price_checks", "status", "TEXT DEFAULT 'new'"),
+        ("price_checks", "sent_at", "TEXT"),
+        ("price_checks", "last_scprs_check", "TEXT"),
+        ("price_checks", "scprs_check_count", "INTEGER DEFAULT 0"),
+        ("price_checks", "award_status", "TEXT DEFAULT 'pending'"),
+        ("price_checks", "competitor_name", "TEXT"),
+        ("price_checks", "competitor_price", "REAL"),
+        ("price_checks", "competitor_po", "TEXT"),
+        ("price_checks", "revision_of", "TEXT"),
+        ("price_checks", "closed_at", "TEXT"),
+        ("price_checks", "closed_reason", "TEXT"),
     ]
     try:
         conn = sqlite3.connect(DB_PATH, timeout=30)
