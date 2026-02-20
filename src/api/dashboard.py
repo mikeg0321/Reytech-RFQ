@@ -665,7 +665,16 @@ def process_rfq_email(rfq_email):
     templates = {}
     for att in rfq_email["attachments"]:
         if att["type"] != "unknown":
-            templates[att["type"]] = att["path"]
+            # Copy template to DATA_DIR so it survives within deploy
+            try:
+                import shutil as _sh
+                tmpl_dir = os.path.join(DATA_DIR, "rfq_templates", rfq_email.get("id", "unknown"))
+                os.makedirs(tmpl_dir, exist_ok=True)
+                dest = os.path.join(tmpl_dir, os.path.basename(att["path"]))
+                _sh.copy2(att["path"], dest)
+                templates[att["type"]] = dest
+            except Exception:
+                templates[att["type"]] = att["path"]  # fallback to original
     
     _trace.append(f"→ RFQ PATH: templates={list(templates.keys())}, attachments={[a.get('filename','?') for a in rfq_email.get('attachments',[])]}")
     
