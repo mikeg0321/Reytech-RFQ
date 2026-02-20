@@ -730,7 +730,13 @@ def api_tax_rate():
 @auth_required
 def api_health():
     """Comprehensive system health check with path validation."""
-    health = {"status": "ok", "checks": {}}
+    health = {"status": "ok", "build": "v20260220-0840-tojson-fix", "checks": {}}
+
+
+@bp.route("/api/build")
+def api_build_version():
+    """Quick build version check (no auth) to verify deploys."""
+    return jsonify({"build": "v20260220-0840-tojson-fix", "ok": True})
     
     # Path validation
     try:
