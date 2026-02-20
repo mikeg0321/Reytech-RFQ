@@ -241,7 +241,7 @@ PAGE_HOME = """
 </div>
 
 <!-- ═══ Work Queues — Primary Bento Row ═══ -->
-<div class="bento bento-2" style="margin-bottom:14px">
+<div id="queues" class="bento bento-2" style="margin-bottom:14px">
 
  <!-- Price Checks — primary work queue (wider column) -->
  <div class="card" style="margin:0;overflow:hidden">
@@ -368,18 +368,18 @@ PAGE_HOME = """
 fetch('/api/funnel/stats').then(r=>r.json()).then(d=>{
  if(!d.ok) return;
  const items = [
-  {icon:'📥', val:d.rfqs_active||0, label:'RFQs', href:'/rfq/', color:'var(--ac)', fmt:'n'},
-  {icon:'💰', val:d.quotes_pending||0, label:'Pending', href:'/quotes?status=pending', color:'var(--yl)', fmt:'n'},
-  {icon:'📤', val:d.quotes_sent||0, label:'Sent', href:'/quotes?status=sent', color:'#a78bfa', fmt:'n'},
-  {icon:'✅', val:d.quotes_won||0, label:'Won', href:'/quotes?status=won', color:'var(--gn)', fmt:'n'},
-  {icon:'📦', val:d.orders_active||0, label:'Orders', href:'/orders', color:'var(--or)', fmt:'n'},
-  {icon:'👥', val:d.crm_contacts||0, label:'Contacts', href:'/contacts', color:'#a78bfa', fmt:'n'},
-  {icon:'💵', val:d.pipeline_value||0, label:'Pipeline $', href:'/pipeline', color:'var(--gn)', fmt:'$'},
+  {icon:'📥', val:d.rfqs_active||0, label:'RFQs', href:'/#queues', color:'var(--ac)', fmt:'n', tip:'Active RFQs in your work queue awaiting quotes'},
+  {icon:'💰', val:d.quotes_pending||0, label:'Pending', href:'/quotes?status=pending', color:'var(--yl)', fmt:'n', tip:'Quotes created but not yet sent to the customer'},
+  {icon:'📤', val:d.quotes_sent||0, label:'Sent', href:'/quotes?status=sent', color:'#a78bfa', fmt:'n', tip:'Quotes emailed to customers, awaiting response'},
+  {icon:'✅', val:d.quotes_won||0, label:'Won', href:'/quotes?status=won', color:'var(--gn)', fmt:'n', tip:'Quotes accepted — converted to purchase orders'},
+  {icon:'📦', val:d.orders_active||0, label:'Orders', href:'/orders', color:'var(--or)', fmt:'n', tip:'Active purchase orders being fulfilled'},
+  {icon:'👥', val:d.crm_contacts||0, label:'Contacts', href:'/contacts', color:'#a78bfa', fmt:'n', tip:'Total buyers in the CRM from SCPRS + email contacts'},
+  {icon:'💵', val:d.pipeline_value||0, label:'Pipeline $', href:'/pipeline', color:'var(--gn)', fmt:'$', tip:'Total dollar value of all pending + sent quotes'},
  ];
  const cols = items.map((it,i)=>{
   const fmtVal = it.fmt==='$' ? '$'+(it.val>=1e6?(it.val/1e6).toFixed(1)+'M':it.val>=1e3?(it.val/1e3).toFixed(0)+'K':it.val.toLocaleString()) : it.val;
   const sep = i<items.length-1 ? '<div style="position:absolute;right:0;top:50%;transform:translateY(-50%);color:var(--bd);font-size:20px;font-weight:300">&rsaquo;</div>' : '';
-  return '<a href="'+it.href+'" class="funnel-link" style="text-align:center;padding:10px 4px;display:block;text-decoration:none;border-radius:8px;transition:background .15s;position:relative">'+
+  return '<a href="'+it.href+'" class="funnel-link" title="'+it.tip+'" style="text-align:center;padding:10px 4px;display:block;text-decoration:none;border-radius:8px;transition:background .15s;position:relative">'+
    '<div style="font-size:18px;margin-bottom:4px">'+it.icon+'</div>'+
    '<div class="kpi-big" style="color:'+it.color+'">'+fmtVal+'</div>'+
    '<div style="font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:5px;font-weight:600">'+it.label+'</div>'+
