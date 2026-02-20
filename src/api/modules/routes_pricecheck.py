@@ -1196,6 +1196,54 @@ def api_won_quotes_seed_status():
         return jsonify({"error": str(e)})
 
 
+@bp.route("/api/pricecheck/<pcid>/dismiss", methods=["POST"])
+@auth_required
+def api_pricecheck_dismiss(pcid):
+    """Dismiss a PC from the active queue with a reason.
+    Keeps data for SCPRS intelligence. reason=delete does hard delete."""
+    data = request.get_json(force=True) if request.data else {}
+    reason = data.get("reason", "other")
+    
+    # Hard delete path
+    if reason == "delete":
+        return api_pricecheck_delete(pcid)
+    
+    pcs = _load_price_checks()
+    if pcid not in pcs:
+        return jsonify({"ok": False, "error": "PC not found"})
+    
+    pc = pcs[pcid]
+    pc["status"] = "dismissed"
+    pc["dismiss_reason"] = reason
+    pc["dismissed_at"] = datetime.now().isoformat()
+    pcs[pcid] = pc
+    _save_price_checks(pcs)
+    
+    log.info("PC %s dismissed: reason=%s pc_number=%s", pcid, reason, pc.get("pc_number","?"))
+    
+    # Queue SCPRS price intelligence pull on the items (async)
+    scprs_queued = False
+    items = pc.get("items", [])
+    if items:
+        try:
+            from src.agents.scprs_lookup import queue_background_lookup
+            for item in items[:20]:  # Cap at 20 items
+                desc = item.get("description", "")
+                if desc and len(desc) > 3:
+                    queue_background_lookup(desc, source=f"dismissed_pc_{pcid}")
+            scprs_queued = True
+            log.info("SCPRS intel queued for %d items from dismissed PC %s", len(items), pcid)
+        except Exception as e:
+            log.debug("SCPRS queue for dismissed PC: %s", e)
+    
+    return jsonify({
+        "ok": True,
+        "dismissed": pcid,
+        "reason": reason,
+        "scprs_queued": scprs_queued,
+    })
+
+
 @bp.route("/api/pricecheck/<pcid>/delete", methods=["POST"])
 @auth_required
 def api_pricecheck_delete(pcid):

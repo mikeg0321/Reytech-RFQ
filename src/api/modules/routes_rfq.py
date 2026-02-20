@@ -21,7 +21,9 @@ def home():
         # Fallback to created_at timestamp
         return pc.get("created_at", "")
     sorted_pcs = dict(sorted(user_pcs.items(), key=_pc_sort_key, reverse=True))
-    return render(PAGE_HOME, rfqs=load_rfqs(), price_checks=sorted_pcs)
+    # Filter dismissed RFQs from active queue
+    active_rfqs = {k: v for k, v in load_rfqs().items() if v.get("status") != "dismissed"}
+    return render(PAGE_HOME, rfqs=active_rfqs, price_checks=sorted_pcs)
 
 @bp.route("/upload", methods=["POST"])
 @auth_required
@@ -798,6 +800,63 @@ def send_email(rid):
         flash(f"Send failed: {e}. Use 'Open in Mail App' instead.", "error")
     
     return redirect(f"/rfq/{rid}")
+
+
+@bp.route("/api/rfq/<rid>/dismiss", methods=["POST"])
+@auth_required
+def api_rfq_dismiss(rid):
+    """Dismiss an RFQ from the active queue with a reason.
+    Keeps data for SCPRS intelligence. reason=delete does hard delete."""
+    data = request.get_json(force=True) if request.data else {}
+    reason = data.get("reason", "other")
+    
+    rfqs = load_rfqs()
+    if rid not in rfqs:
+        return jsonify({"ok": False, "error": "RFQ not found"})
+    
+    # Hard delete path
+    if reason == "delete":
+        sol = rfqs[rid].get("solicitation_number", "?")
+        email_uid = rfqs[rid].get("email_uid")
+        if email_uid:
+            _remove_processed_uid(email_uid)
+        del rfqs[rid]
+        save_rfqs(rfqs)
+        log.info("Hard deleted RFQ #%s (id=%s)", sol, rid)
+        return jsonify({"ok": True, "deleted": rid})
+    
+    r = rfqs[rid]
+    r["status"] = "dismissed"
+    r["dismiss_reason"] = reason
+    r["dismissed_at"] = datetime.now().isoformat()
+    rfqs[rid] = r
+    save_rfqs(rfqs)
+    
+    sol = r.get("solicitation_number", "?")
+    log.info("RFQ #%s dismissed: reason=%s", sol, reason)
+    _log_rfq_activity(rid, "dismissed", f"RFQ #{sol} dismissed: {reason}", actor="user")
+    
+    # Queue SCPRS price intelligence on line items (async)
+    scprs_queued = False
+    items = r.get("line_items", [])
+    if items:
+        try:
+            from src.agents.scprs_lookup import queue_background_lookup
+            for item in items[:20]:
+                desc = item.get("description", "")
+                if desc and len(desc) > 3:
+                    queue_background_lookup(desc, source=f"dismissed_rfq_{rid}")
+            scprs_queued = True
+        except Exception:
+            pass
+    
+    return jsonify({
+        "ok": True,
+        "dismissed": rid,
+        "solicitation": sol,
+        "reason": reason,
+        "scprs_queued": scprs_queued,
+    })
 
 
 @bp.route("/rfq/<rid>/delete", methods=["POST"])

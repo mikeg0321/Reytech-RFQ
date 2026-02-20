@@ -45,6 +45,7 @@ a{color:var(--ac);text-decoration:none}
 .b-completed{background:rgba(52,211,153,.15);color:var(--gn)}
 .b-converted{background:rgba(52,211,153,.2);color:var(--gn)}
 .b-parsed{background:rgba(251,191,36,.15);color:var(--yl)}
+.b-dismissed{background:rgba(139,148,158,.15);color:#8b949e}
 .b-won{background:rgba(52,211,153,.2);color:var(--gn)}
 .b-lost{background:rgba(248,113,113,.15);color:var(--rd)}
 .b-expired{background:rgba(139,144,160,.15);color:var(--tx2)}
@@ -55,6 +56,8 @@ a{color:var(--ac);text-decoration:none}
 .home-row{cursor:pointer;transition:background .12s}
 .home-row:hover{background:rgba(79,140,255,.06)}
 .home-row a{text-decoration:none}
+.dismiss-opt{display:block;width:100%;text-align:left;padding:6px 12px;font-size:11px;background:none;border:none;color:var(--tx1);cursor:pointer;white-space:nowrap}
+.dismiss-opt:hover{background:rgba(79,140,255,.1)}
 .brief-item{display:flex;justify-content:space-between;align-items:flex-start;padding:8px 10px;border-radius:8px;transition:background .12s;margin-bottom:2px}
 .brief-item:hover{background:var(--sf2)}
 .brief-item-left{display:flex;gap:10px;align-items:flex-start;min-width:0}
@@ -348,7 +351,19 @@ fetch('/api/intel/revenue',{credentials:'same-origin'}).then(r=>r.json()).then(d
      <td style="text-align:center" onclick="event.stopPropagation()">{% if pc.reytech_quote_number %}<span style="color:var(--gn);font-weight:600;font-family:'JetBrains Mono',monospace;font-size:12px">{{pc.reytech_quote_number}}</span>{% else %}—{% endif %}</td>
      <td style="text-align:center"><span class="badge b-{{pc.status}}">{{pc.status}}</span></td>
      <td style="text-align:center" onclick="event.stopPropagation()">
-      <button onclick="deletePC('{{id}}',this)" title="Delete this Price Check" style="background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.2);color:#f85149;cursor:pointer;font-size:10px;padding:2px 8px;border-radius:4px;font-weight:600" onmouseover="this.style.background='rgba(248,81,73,.2)'" onmouseout="this.style.background='rgba(248,81,73,.08)'">Delete</button>
+      <div style="position:relative;display:inline-block" class="dismiss-wrap">
+       <button onclick="event.stopPropagation();this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'" title="Dismiss this Price Check" style="background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.2);color:#f85149;cursor:pointer;font-size:10px;padding:2px 6px;border-radius:4px;font-weight:600" onmouseover="this.style.background='rgba(248,81,73,.2)'" onmouseout="this.style.background='rgba(248,81,73,.08)'">✕</button>
+       <div style="display:none;position:absolute;right:0;top:22px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;padding:4px 0;min-width:180px;z-index:99;box-shadow:0 4px 12px rgba(0,0,0,.3)">
+        <div style="padding:4px 10px;font-size:10px;color:var(--tx2);font-weight:600;text-transform:uppercase;letter-spacing:.5px">Dismiss reason</div>
+        <button onclick="dismissItem('pc','{{id}}','cs_question',this)" class="dismiss-opt">CS / Admin Question</button>
+        <button onclick="dismissItem('pc','{{id}}','no_response',this)" class="dismiss-opt">Reytech Did Not Respond</button>
+        <button onclick="dismissItem('pc','{{id}}','not_responding',this)" class="dismiss-opt">Customer Not Responding</button>
+        <button onclick="dismissItem('pc','{{id}}','duplicate',this)" class="dismiss-opt">Duplicate</button>
+        <button onclick="dismissItem('pc','{{id}}','other',this)" class="dismiss-opt">Other</button>
+        <div style="border-top:1px solid var(--bd);margin:4px 0"></div>
+        <button onclick="dismissItem('pc','{{id}}','delete',this)" class="dismiss-opt" style="color:#f85149">🗑 Permanently Delete</button>
+       </div>
+      </div>
      </td>
     </tr>
     {% endfor %}
@@ -373,6 +388,7 @@ fetch('/api/intel/revenue',{credentials:'same-origin'}).then(r=>r.json()).then(d
      <th style="width:90px">Due</th>
      <th style="width:56px;text-align:center">Items</th>
      <th style="width:80px;text-align:center">Status</th>
+     <th style="width:32px"></th>
     </tr>
    </thead>
    <tbody>
@@ -383,6 +399,21 @@ fetch('/api/intel/revenue',{credentials:'same-origin'}).then(r=>r.json()).then(d
      <td class="mono">{{r.due_date}}</td>
      <td style="text-align:center" class="mono">{{r.line_items|length}}</td>
      <td style="text-align:center"><span class="badge b-{{r.status}}">{{r.status}}</span></td>
+     <td style="text-align:center" onclick="event.stopPropagation()">
+      <div style="position:relative;display:inline-block" class="dismiss-wrap">
+       <button onclick="event.stopPropagation();this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'" title="Dismiss this RFQ" style="background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.2);color:#f85149;cursor:pointer;font-size:10px;padding:2px 6px;border-radius:4px;font-weight:600" onmouseover="this.style.background='rgba(248,81,73,.2)'" onmouseout="this.style.background='rgba(248,81,73,.08)'">✕</button>
+       <div style="display:none;position:absolute;right:0;top:22px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;padding:4px 0;min-width:180px;z-index:99;box-shadow:0 4px 12px rgba(0,0,0,.3)">
+        <div style="padding:4px 10px;font-size:10px;color:var(--tx2);font-weight:600;text-transform:uppercase;letter-spacing:.5px">Dismiss reason</div>
+        <button onclick="dismissItem('rfq','{{id}}','cs_question',this)" class="dismiss-opt">CS / Admin Question</button>
+        <button onclick="dismissItem('rfq','{{id}}','no_response',this)" class="dismiss-opt">Reytech Did Not Respond</button>
+        <button onclick="dismissItem('rfq','{{id}}','not_responding',this)" class="dismiss-opt">Customer Not Responding</button>
+        <button onclick="dismissItem('rfq','{{id}}','duplicate',this)" class="dismiss-opt">Duplicate</button>
+        <button onclick="dismissItem('rfq','{{id}}','other',this)" class="dismiss-opt">Other</button>
+        <div style="border-top:1px solid var(--bd);margin:4px 0"></div>
+        <button onclick="dismissItem('rfq','{{id}}','delete',this)" class="dismiss-opt" style="color:#f85149">🗑 Permanently Delete</button>
+       </div>
+      </div>
+     </td>
     </tr>
     {% endfor %}
    </tbody>
@@ -483,35 +514,55 @@ document.querySelectorAll('details').forEach(d=>{
     }
 
     // ── Delete Price Check ─────────────────────────────────────────────────
-    function deletePC(id, btn) {
-      if (!confirm('Are you sure you want to delete this Price Check?')) return;
-      if (!confirm('This will permanently remove the PC, its linked draft quote, and reclaim the quote number. Continue?')) return;
-      btn.textContent = '⏳';
-      btn.disabled = true;
-      fetch('/api/pricecheck/' + id + '/delete', {method: 'POST', credentials: 'same-origin'})
-        .then(r => r.json())
-        .then(d => {
-          if (d.ok) {
-            const row = document.getElementById('pc-row-' + id);
-            if (row) row.remove();
-            // Update count
-            const hdr = document.querySelector('.card-t');
-            if (hdr && hdr.textContent.includes('Price Checks')) {
-              const remaining = document.querySelectorAll('[id^=pc-row-]').length;
-              hdr.textContent = 'Price Checks (' + remaining + ')';
-            }
-            // Show what was cleaned up
-            let msg = '✅ Price Check deleted.';
-            if (d.quote_removed) msg += '\\nQuote ' + d.quote_removed + ' removed.';
-            if (d.counter_reset) msg += '\\nQuote counter adjusted — ' + d.counter_reset;
-            alert(msg);
-          } else {
-            btn.textContent = 'Delete';
-            btn.disabled = false;
-            alert('Delete failed: ' + (d.error || 'unknown'));
+    // Close dismiss dropdowns when clicking outside
+    document.addEventListener('click', function(e) {
+      if (!e.target.closest('.dismiss-wrap')) {
+        document.querySelectorAll('.dismiss-wrap > div:last-child').forEach(function(d){ d.style.display='none'; });
+      }
+    });
+
+    function dismissItem(type, id, reason, btn) {
+      event.stopPropagation();
+      if (reason === 'delete') {
+        if (!confirm('Permanently delete this ' + (type==='pc'?'Price Check':'RFQ') + '? This cannot be undone.')) return;
+      }
+      // Disable all buttons in this dropdown
+      var wrap = btn.closest('.dismiss-wrap');
+      wrap.querySelectorAll('button').forEach(function(b){ b.disabled=true; b.style.opacity='.5'; });
+      
+      var endpoint = type === 'pc' 
+        ? '/api/pricecheck/' + id + '/dismiss'
+        : '/api/rfq/' + id + '/dismiss';
+      
+      fetch(endpoint, {
+        method: 'POST', 
+        credentials: 'same-origin',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({reason: reason})
+      })
+      .then(function(r){ return r.json(); })
+      .then(function(d) {
+        if (d.ok) {
+          // Fade and remove row
+          var row = type === 'pc' 
+            ? document.getElementById('pc-row-' + id)
+            : btn.closest('tr');
+          if (row) {
+            row.style.transition = 'opacity .3s';
+            row.style.opacity = '0';
+            setTimeout(function(){ row.remove(); }, 300);
           }
-        })
-        .catch(() => { btn.textContent = 'Delete'; btn.disabled = false; });
+          if (d.scprs_queued) {
+            console.log('SCPRS price intel queued for dismissed items');
+          }
+        } else {
+          alert('Failed: ' + (d.error || 'unknown'));
+          wrap.querySelectorAll('button').forEach(function(b){ b.disabled=false; b.style.opacity='1'; });
+        }
+      })
+      .catch(function(){ 
+        wrap.querySelectorAll('button').forEach(function(b){ b.disabled=false; b.style.opacity='1'; }); 
+      });
     }
 
 
