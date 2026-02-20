@@ -2446,9 +2446,9 @@ def api_admin_reset_and_poll():
     steps["poller_paused"] = True
     log.info("RESET+POLL: Step 1 — poller paused")
     
-    # Step 2: Run system reset (reuse existing endpoint logic)
+    # Step 2: Run system reset
     try:
-        # Clean quotes
+        # Clean ALL quotes
         q_path = os.path.join(DATA_DIR, 'quotes_log.json')
         q_removed = 0
         if os.path.exists(q_path):
@@ -2458,12 +2458,10 @@ def api_admin_reset_and_poll():
             kept = [q for q in all_q if q.get("quote_number") in set(keep_quotes)]
             with open(q_path, "w") as f:
                 json.dump(kept, f, indent=2, default=str)
-        # Clean legacy quotes.json
         legacy_q = os.path.join(DATA_DIR, 'quotes.json')
         if os.path.exists(legacy_q):
             with open(legacy_q, "w") as f:
                 json.dump([], f)
-        # Clean SQLite
         try:
             from src.core.db import get_db
             with get_db() as conn:
@@ -2477,21 +2475,16 @@ def api_admin_reset_and_poll():
             pass
         steps["quotes_cleaned"] = q_removed
         
-        # Clean PCs (remove auto-sourced only)
+        # Clean ALL PCs — full reset means clean slate
         pcs = _load_price_checks()
-        pc_before = len(pcs)
-        cleaned = {pid: pc for pid, pc in pcs.items()
-                   if pc.get("source") not in ("email_auto_draft", "email_auto") 
-                   and not pc.get("is_auto_draft")}
-        _save_price_checks(cleaned)
-        steps["pcs_before"] = pc_before
-        steps["pcs_after"] = len(cleaned)
+        steps["pcs_before"] = len(pcs)
+        _save_price_checks({})  # Empty — all PCs will be recreated from email
+        steps["pcs_after"] = 0
         
-        # Clear RFQs
+        # Clear RFQs — ensure file exists as empty dict
         rfq_path = os.path.join(DATA_DIR, 'rfq_queue.json')
-        if os.path.exists(rfq_path):
-            with open(rfq_path, "w") as f:
-                json.dump({}, f)
+        with open(rfq_path, "w") as f:
+            json.dump({}, f)
         steps["rfqs_cleared"] = True
         
         # Set counter
@@ -2510,39 +2503,58 @@ def api_admin_reset_and_poll():
         # Clean CRM activity
         act_path = os.path.join(DATA_DIR, 'crm_activity.json')
         if os.path.exists(act_path):
-            with open(act_path) as f:
-                acts = json.load(f)
-            cleaned_acts = [a for a in acts if a.get("event_type") not in ("auto_draft_generated", "auto_draft_ready")]
-            with open(act_path, "w") as f:
-                json.dump(cleaned_acts, f, indent=2, default=str)
+            try:
+                with open(act_path) as f:
+                    acts = json.load(f)
+                cleaned_acts = [a for a in acts if a.get("event_type") not in ("auto_draft_generated", "auto_draft_ready")]
+                with open(act_path, "w") as f:
+                    json.dump(cleaned_acts, f, indent=2, default=str)
+            except Exception:
+                pass
         
-        log.info("RESET+POLL: Step 2 — reset complete")
+        log.info("RESET+POLL: Step 2 — reset complete (cleared %d PCs, %d quotes)", steps["pcs_before"], q_removed)
     except Exception as e:
         steps["reset_error"] = str(e)
-        log.error("RESET+POLL: reset error: %s", e)
+        log.error("RESET+POLL: reset error: %s", e, exc_info=True)
     
-    # Step 3: Run poll
+    # Step 3: Run poll — count BOTH PCs and RFQs created
     try:
+        pcs_before_poll = len(_load_price_checks())
         imported = do_poll_check()
-        steps["poll_found"] = len(imported)
+        pcs_after_poll = _load_price_checks()
+        new_pcs = len(pcs_after_poll) - pcs_before_poll
+        steps["poll_rfqs_imported"] = len(imported)
+        steps["poll_pcs_created"] = new_pcs
+        steps["poll_found"] = len(imported) + new_pcs
         steps["poll_subjects"] = [r.get("email_subject", "")[:50] for r in imported[:10]]
-        log.info("RESET+POLL: Step 3 — poll found %d emails", len(imported))
+        log.info("RESET+POLL: Step 3 — poll created %d PCs + %d RFQs", new_pcs, len(imported))
     except Exception as e:
         steps["poll_error"] = str(e)
-        log.error("RESET+POLL: poll error: %s", e)
+        log.error("RESET+POLL: poll error: %s", e, exc_info=True)
     
-    # Step 4: Count what was created
+    # Step 4: Final system state
     try:
         final_pcs = _load_price_checks()
-        rfq_path = os.path.join(DATA_DIR, 'rfq_queue.json')
-        with open(rfq_path) as f:
-            final_rfqs = json.load(f)
         steps["final_pcs"] = len(final_pcs)
-        steps["final_rfqs"] = len(final_rfqs)
         steps["pc_names"] = [pc.get("pc_number", "?")[:40] for pc in final_pcs.values()]
+    except Exception as e:
+        steps["final_pcs"] = 0
+        steps["pc_names"] = []
+        steps["pcs_error"] = str(e)
+    
+    try:
+        rfq_path = os.path.join(DATA_DIR, 'rfq_queue.json')
+        if os.path.exists(rfq_path):
+            with open(rfq_path) as f:
+                final_rfqs = json.load(f)
+        else:
+            final_rfqs = {}
+        steps["final_rfqs"] = len(final_rfqs)
         steps["rfq_sols"] = [r.get("solicitation_number", "?") for r in final_rfqs.values()]
-    except Exception:
-        pass
+    except Exception as e:
+        steps["final_rfqs"] = 0
+        steps["rfq_sols"] = []
+        steps["rfqs_error"] = str(e)
     
     # Step 5: Unpause poller
     POLL_STATUS["paused"] = False
