@@ -512,13 +512,21 @@ def process_rfq_email(rfq_email):
                     result = _handle_price_check_upload(pc_pdf, pc_id, from_email=True)
                     pcs = _load_price_checks()
                     if pc_id in pcs:
+                        # PC was successfully created — add email metadata
                         pcs[pc_id]["email_uid"] = email_uid
                         pcs[pc_id]["email_subject"] = rfq_email.get("subject", "")
                         pcs[pc_id]["requestor"] = pcs[pc_id].get("requestor") or rfq_email.get("sender_name") or rfq_email.get("sender_email", "")
                         from src.api.modules.routes_rfq import _save_price_checks
                         _save_price_checks(pcs)
-                    _ensure_contact_from_email(rfq_email)
-                    return None  # Don't add to RFQ queue
+                        _ensure_contact_from_email(rfq_email)
+                        log.info("PC %s created successfully from email %s", pc_id, email_uid)
+                        return None  # Don't add to RFQ queue — PC created
+                    else:
+                        # PC creation FAILED (parse error etc) — fall through to RFQ queue
+                        # so the email isn't silently lost
+                        log.warning("PC creation failed for %s (result=%s) — falling through to RFQ queue",
+                                    rfq_email.get("subject", "?")[:50], result)
+                        # Don't return None — let it create an RFQ instead
         except Exception as _e:
             log.warning("704 detection in email polling: %s", _e)  # warn not debug — this is actionable
 
@@ -794,8 +802,8 @@ def do_poll_check():
                     else:
                         POLL_STATUS["_diag"]["pcs_routed"] += 1
                 except Exception as pe:
-                    POLL_STATUS["_diag"]["errors"].append(f"process_rfq: {pe}")
-                    log.error("process_rfq_email error: %s", pe, exc_info=True)
+                    POLL_STATUS["_diag"]["errors"].append(f"process_rfq({rfq_email.get('subject','?')[:40]}): {pe}")
+                    log.error("process_rfq_email error for '%s': %s", rfq_email.get("subject","?")[:50], pe, exc_info=True)
         else:
             POLL_STATUS["error"] = f"IMAP connect failed for {email_cfg.get('email', '?')}"
             log.error(POLL_STATUS["error"])

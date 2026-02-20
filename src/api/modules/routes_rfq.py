@@ -151,10 +151,34 @@ def _handle_price_check_upload(pdf_path, pc_id, from_email=False):
 
     # Parse
     parsed = parse_ams704(pc_file)
-    if parsed.get("error"):
+    parse_error = parsed.get("error")
+    
+    if parse_error:
         if from_email:
-            return {"error": parsed["error"]}
-        flash(f"Price Check parse error: {parsed['error']}", "error")
+            # Still create a minimal PC so the email isn't lost
+            log.warning("PC parse failed for %s: %s — creating minimal PC with PDF attached",
+                        os.path.basename(pdf_path), parse_error)
+            pcs = _load_price_checks()
+            pcs[pc_id] = {
+                "id": pc_id,
+                "pc_number": os.path.basename(pdf_path).replace(".pdf", "").replace("pc_upload_", "")[:40],
+                "institution": "",
+                "due_date": "",
+                "requestor": "",
+                "ship_to": "",
+                "items": [],
+                "source_pdf": pc_file,
+                "status": "parse_error",
+                "status_history": [{"from": "", "to": "parse_error", "timestamp": datetime.now().isoformat(), "actor": "system"}],
+                "created_at": datetime.now().isoformat(),
+                "parsed": {"error": parse_error},
+                "parse_error": parse_error,
+                "reytech_quote_number": "",
+                "linked_quote_number": "",
+            }
+            _save_price_checks(pcs)
+            return {"ok": True, "pc_id": pc_id, "parse_error": parse_error, "items": 0}
+        flash(f"Price Check parse error: {parse_error}", "error")
         return redirect("/")
 
     items = parsed.get("line_items", [])
