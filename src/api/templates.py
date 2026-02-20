@@ -796,16 +796,18 @@ PAGE_DETAIL = """
 </div>
 
 <!-- PDF Preview Modal -->
-<div id="pdfPreviewModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:1100;padding:20px">
+<div id="pdfPreviewModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:1100;padding:20px" onclick="if(event.target===this)this.style.display='none'">
  <div style="max-width:900px;margin:0 auto;height:100%;display:flex;flex-direction:column">
   <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;background:var(--sf);border-radius:10px 10px 0 0">
    <span id="pdfPreviewTitle" style="font-size:14px;font-weight:600;color:var(--tx)">PDF Preview</span>
    <div>
     <a id="pdfPreviewDownload" href="#" target="_blank" class="btn btn-sm btn-s" style="margin-right:8px">⬇️ Download</a>
-    <button class="btn btn-sm" style="background:none;border:none;color:var(--tx);font-size:22px;cursor:pointer" onclick="document.getElementById('pdfPreviewModal').style.display='none'">✕</button>
+    <a id="pdfPreviewNewTab" href="#" target="_blank" class="btn btn-sm btn-s" style="margin-right:8px">↗️ Open</a>
+    <button class="btn btn-sm" style="background:none;border:none;color:var(--tx);font-size:22px;cursor:pointer" onclick="closePdfPreview()">✕</button>
    </div>
   </div>
-  <iframe id="pdfPreviewFrame" style="flex:1;border:none;border-radius:0 0 10px 10px;background:#fff" src="about:blank"></iframe>
+  <div id="pdfPreviewLoading" style="flex:1;display:flex;align-items:center;justify-content:center;background:#fff;border-radius:0 0 10px 10px;color:#666">Loading PDF...</div>
+  <iframe id="pdfPreviewFrame" style="flex:1;border:none;border-radius:0 0 10px 10px;background:#fff;display:none" src="about:blank" onload="if(this.src!=='about:blank'){this.style.display='';document.getElementById('pdfPreviewLoading').style.display='none';}"></iframe>
  </div>
 </div>
 
@@ -1123,14 +1125,28 @@ var _emailTemplates=[];
 
 // ── PDF Preview ──
 function previewPdf(url, title){
+ var frame=document.getElementById('pdfPreviewFrame');
+ var loading=document.getElementById('pdfPreviewLoading');
+ // Reset: hide old frame, show loading
+ frame.style.display='none';
+ frame.src='about:blank';
+ loading.style.display='flex';
  document.getElementById('pdfPreviewTitle').textContent=title;
- document.getElementById('pdfPreviewFrame').src=url;
  document.getElementById('pdfPreviewDownload').href=url;
+ document.getElementById('pdfPreviewNewTab').href=url;
  document.getElementById('pdfPreviewModal').style.display='block';
+ // Small delay to ensure blank frame is cleared before loading new URL
+ setTimeout(function(){ frame.src=url; },50);
+}
+function closePdfPreview(){
+ var m=document.getElementById('pdfPreviewModal');
+ var f=document.getElementById('pdfPreviewFrame');
+ if(m) m.style.display='none';
+ if(f){f.src='about:blank';f.style.display='none';}
 }
 document.addEventListener('keydown',function(e){
  if(e.key==='Escape'){
-  var m=document.getElementById('pdfPreviewModal');if(m) m.style.display='none';
+  closePdfPreview();
   var m2=document.getElementById('previewModal');if(m2) m2.style.display='none';
  }
 });

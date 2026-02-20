@@ -1100,32 +1100,34 @@ def generate_quote_from_rfq(rfq: dict, output_path: str, **kwargs) -> dict:
     """Generate Reytech quote from an RFQ record."""
     institution = rfq.get("department", rfq.get("requestor_name", ""))
     delivery = rfq.get("delivery_location", "") or ""
-    ship_to_raw = rfq.get("ship_to", "") or delivery
+    ship_to_raw = rfq.get("ship_to", "") or ""
 
     # Parse address: split on newlines first, then commas within each line
     def _parse_addr(raw):
         if not raw:
             return []
-        # Split on newlines first
         lines = [l.strip() for l in raw.replace("\r\n", "\n").split("\n") if l.strip()]
         if len(lines) > 1:
             return lines
-        # Fall back to comma splitting if single line
         parts = [p.strip() for p in raw.split(",") if p.strip()]
         return parts
 
-    ship_parts = _parse_addr(ship_to_raw)
-    del_parts = _parse_addr(delivery) if delivery != ship_to_raw else ship_parts
+    ship_addr_lines = _parse_addr(ship_to_raw)
+    del_parts = _parse_addr(delivery) if delivery else ship_addr_lines
 
-    # First part is the facility name, rest is the address
-    ship_name = ship_parts[0] if ship_parts else institution
-    ship_addr = ship_parts[1:] if len(ship_parts) > 1 else ship_parts
+    # Facility name: delivery_location is the canonical source (e.g. "CCWF - Central California Women's Facility")
+    # Ship-to address is just the street/city/state — don't use its first line as the name
+    ship_name = delivery or (ship_addr_lines[0] if ship_addr_lines else institution)
+    
+    # If ship_to_raw is empty, try extracting address from delivery_location parts
+    if not ship_addr_lines and len(del_parts) > 1:
+        ship_addr_lines = del_parts[1:]
 
     data = {
         "institution": institution,
         "to_address": del_parts[1:] if len(del_parts) > 1 else del_parts,
         "ship_to_name": ship_name,
-        "ship_to_address": ship_addr,
+        "ship_to_address": ship_addr_lines,
         "rfq_number": rfq.get("solicitation_number", ""),
         "source_rfq_id": rfq.get("id", ""),
         "line_items": [],
