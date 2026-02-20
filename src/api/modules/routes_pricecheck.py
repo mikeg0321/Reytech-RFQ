@@ -857,34 +857,40 @@ def api_poll_now():
 @bp.route("/api/poll/reset-processed", methods=["POST"])
 @auth_required
 def api_poll_reset_processed():
-    """Clear the processed emails list so the poller re-scans the last 3 days.
-    Use after fixing classification bugs to re-process missed emails.
+    """Atomic: clear processed UIDs → immediately re-poll → return results.
+    Prevents background thread from re-saving UIDs between reset and poll.
     """
-    import json as _json
-    processed_file = os.path.join(DATA_DIR, "processed_emails.json")
+    global _shared_poller
+    
+    # Step 1: Delete the processed emails file
+    proc_file = os.path.join(DATA_DIR, "processed_emails.json")
+    old_count = 0
     try:
-        # Load current count before clearing
-        old_count = 0
-        if os.path.exists(processed_file):
-            with open(processed_file) as f:
-                old_count = len(_json.load(f))
-        
-        # Clear the file
-        with open(processed_file, "w") as f:
-            _json.dump([], f)
-        
-        # Also clear the in-memory set on the shared poller if it exists
-        from src.api.dashboard import _shared_poller
-        if _shared_poller and hasattr(_shared_poller, '_processed'):
-            _shared_poller._processed = set()
-        
+        if os.path.exists(proc_file):
+            import json as _json2
+            with open(proc_file) as f:
+                old_count = len(_json2.load(f))
+            os.remove(proc_file)
+    except Exception:
+        pass
+    
+    # Step 2: Kill the shared poller so a fresh one gets created
+    _shared_poller = None
+    
+    # Step 3: Immediately run poll (creates new poller with empty processed set)
+    try:
+        imported = do_poll_check()
         return jsonify({
             "ok": True,
             "cleared": old_count,
-            "message": f"Cleared {old_count} processed UIDs. Next poll will re-scan last 3 days.",
+            "found": len(imported),
+            "items": [{"id": r.get("id","?"), "sol": r.get("solicitation_number","?"), 
+                       "subject": r.get("email_subject", r.get("subject",""))[:60]}
+                      for r in imported],
+            "poll_diag": POLL_STATUS.get("_diag", {}),
         })
     except Exception as e:
-        return jsonify({"ok": False, "error": str(e)})
+        return jsonify({"ok": False, "cleared": old_count, "error": str(e)})
 
 
 @bp.route("/api/diag")
