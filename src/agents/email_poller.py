@@ -620,6 +620,19 @@ class EmailPoller:
             new_uids = [u for u in uids if u.decode() not in self._processed]
             if uids:
                 log.info(f"Found {len(uids)} emails from last 3 days, {len(new_uids)} new to process")
+            
+            # Diagnostic counters
+            self._diag = {
+                "total_uids": len(uids),
+                "new_uids": len(new_uids),
+                "recalled": 0,
+                "followup": 0,
+                "not_rfq": 0,
+                "rfq_captured": 0,
+                "no_attachments": 0,
+                "parse_errors": 0,
+                "subjects_seen": [],
+            }
 
             for uid_bytes in new_uids:
                 uid = uid_bytes.decode()
@@ -635,6 +648,9 @@ class EmailPoller:
                     subject = self._decode_header(msg["Subject"]) or ""
                     sender = self._decode_header(msg["From"]) or ""
                     body = self._get_body(msg)
+                    
+                    # Track for diagnostics
+                    self._diag["subjects_seen"].append(subject[:60])
                     
                     # Get PDF names without saving
                     pdf_names = self._get_pdf_names(msg)
@@ -662,6 +678,7 @@ class EmailPoller:
                             except Exception:
                                 pass
                         self._processed.add(uid)
+                        self._diag["recalled"] += 1
                         continue
                     # ── END RECALL DETECTION ──────────────────────────────────
 
@@ -709,6 +726,7 @@ class EmailPoller:
                         except Exception:
                             pass
                         self._processed.add(uid)
+                        self._diag["followup"] += 1
                         continue
                     # ── END REPLY DETECTION ────────────────────────────────────
 
@@ -791,8 +809,8 @@ class EmailPoller:
                             log.debug("Non-buyer email skipped: %s — %s", sender[:30], subject[:50])
 
                         self._processed.add(uid)
+                        self._diag["not_rfq"] += 1
                         continue
-
                     # Save attachments
                     rfq_id = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + uid[:6]
                     rfq_dir = os.path.join(save_dir, rfq_id)
@@ -821,6 +839,7 @@ class EmailPoller:
                             "body_preview": body[:500] if body else "",
                         }
                         results.append(rfq_info)
+                        self._diag["rfq_captured"] += 1
                         log.info(f"RFQ captured: {subject[:60]} ({len(attachments)} PDFs, sol #{sol_num})")
 
                         # PC creation is handled by process_rfq_email() → _trigger_auto_price()

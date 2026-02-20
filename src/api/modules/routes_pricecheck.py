@@ -2527,6 +2527,15 @@ def api_admin_reset_and_poll():
         steps["poll_pcs_created"] = new_pcs
         steps["poll_found"] = len(imported) + new_pcs
         steps["poll_subjects"] = [r.get("email_subject", "")[:50] for r in imported[:10]]
+        # Include diagnostic info from poller
+        steps["poll_diag"] = POLL_STATUS.get("_diag", {})
+        # Also grab poller-level diagnostics if available
+        try:
+            from src.api.dashboard import _shared_poller
+            if _shared_poller and hasattr(_shared_poller, '_diag'):
+                steps["poller_diag"] = _shared_poller._diag
+        except Exception:
+            pass
         log.info("RESET+POLL: Step 3 — poll created %d PCs + %d RFQs", new_pcs, len(imported))
     except Exception as e:
         steps["poll_error"] = str(e)

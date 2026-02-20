@@ -756,28 +756,52 @@ def do_poll_check():
     email_cfg = dict(email_cfg)  # copy so we don't mutate
     email_cfg["processed_file"] = os.path.join(DATA_DIR, "processed_emails.json")
     _shared_poller = EmailPoller(email_cfg)
+    processed_count = len(_shared_poller._processed)
     log.info(f"Created fresh poller for {email_cfg.get('email', 'NO EMAIL SET')}, "
-             f"processed: {len(_shared_poller._processed)} UIDs loaded")
+             f"processed: {processed_count} UIDs loaded")
+    
+    # Store diagnostics for debugging
+    POLL_STATUS["_diag"] = {
+        "processed_loaded": processed_count,
+        "imap_connected": False,
+        "uids_found": 0,
+        "uids_new": 0,
+        "rfqs_returned": 0,
+        "pcs_routed": 0,
+        "errors": [],
+    }
     
     imported = []
     try:
         connected = _shared_poller.connect()
+        POLL_STATUS["_diag"]["imap_connected"] = connected
         if connected:
             log.info("IMAP connected, checking for RFQs...")
             rfq_emails = _shared_poller.check_for_rfqs(save_dir=UPLOAD_DIR)
             POLL_STATUS["last_check"] = _pst_now_iso()
             POLL_STATUS["error"] = None
+            POLL_STATUS["_diag"]["rfqs_returned"] = len(rfq_emails)
+            # Capture poller-level diagnostics
+            if hasattr(_shared_poller, '_diag'):
+                POLL_STATUS["_diag"]["poller"] = _shared_poller._diag
             log.info(f"Poll check complete: {len(rfq_emails)} RFQ emails found")
             
             for rfq_email in rfq_emails:
-                rfq_data = process_rfq_email(rfq_email)
-                if rfq_data:
-                    imported.append(rfq_data)
+                try:
+                    rfq_data = process_rfq_email(rfq_email)
+                    if rfq_data:
+                        imported.append(rfq_data)
+                    else:
+                        POLL_STATUS["_diag"]["pcs_routed"] += 1
+                except Exception as pe:
+                    POLL_STATUS["_diag"]["errors"].append(f"process_rfq: {pe}")
+                    log.error("process_rfq_email error: %s", pe, exc_info=True)
         else:
             POLL_STATUS["error"] = f"IMAP connect failed for {email_cfg.get('email', '?')}"
             log.error(POLL_STATUS["error"])
     except Exception as e:
         POLL_STATUS["error"] = str(e)
+        POLL_STATUS["_diag"]["errors"].append(str(e))
         log.error(f"Poll error: {e}", exc_info=True)
         # Reset poller on error so next call creates a fresh one
         _shared_poller = None
