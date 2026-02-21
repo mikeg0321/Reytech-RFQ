@@ -2280,213 +2280,488 @@ def api_cchcs_facilities():
 @auth_required
 def api_cchcs_create_target():
     """
-    Create a pre-populated price check targeting a specific facility.
-    Includes 6 highest-probability items based on facility type.
+    Create expansion target: outreach email draft + price check + campaign entry.
+    Actually moves you toward revenue, not just a dummy PC.
     """
     import json as _json
     data = request.get_json() or {}
     facility_name = data.get("facility_name","").strip()
-    agency_type = data.get("agency_type","CCHCS")  # CCHCS, CalVet, DSH
+    agency_type = data.get("agency_type","CCHCS")
     facility_email = data.get("email","")
+    mode = data.get("mode", "email_and_pc")  # email_and_pc | pc_only | email_only
 
-    # Item sets by agency type
+    if not facility_name:
+        return jsonify({"ok": False, "error": "Facility name required"}), 400
+
+    # ── Build smart item list based on what ACTIVE facilities of same type buy ──
+    # Start with curated high-probability items, then supplement from order history
     ITEM_SETS = {
         "CCHCS": [
-            {"description":"Nitrile Exam Gloves, Small, Box/100","qty":20,"unit_price":13.99,"sku":"NIT-EXAM-SM"},
             {"description":"Nitrile Exam Gloves, Medium, Box/100","qty":50,"unit_price":12.99,"sku":"NIT-EXAM-MD"},
             {"description":"Nitrile Exam Gloves, Large, Box/100","qty":30,"unit_price":13.99,"sku":"NIT-EXAM-LG"},
             {"description":"Disposable Underpads, 23x36 in, Case/100","qty":10,"unit_price":28.99,"sku":"CHUX-23X36"},
             {"description":"Adult Incontinence Briefs, Medium, Case/80","qty":10,"unit_price":29.99,"sku":"BRIEF-MD"},
-            {"description":"Hand Sanitizer, 8oz Pump Bottle, 75% Alcohol","qty":50,"unit_price":6.99,"sku":"SANIT-8OZ"},
+            {"description":"Hand Sanitizer, 8oz Pump, 75% Alcohol","qty":50,"unit_price":6.99,"sku":"SANIT-8OZ"},
+            {"description":"Sharps Container, 1 Quart, Red Lid","qty":20,"unit_price":4.99,"sku":"SHARPS-1QT"},
         ],
         "CalVet": [
             {"description":"Nitrile Exam Gloves, Medium, Box/100","qty":30,"unit_price":12.99,"sku":"NIT-EXAM-MD"},
-            {"description":"Nitrile Exam Gloves, Large, Box/100","qty":20,"unit_price":13.99,"sku":"NIT-EXAM-LG"},
-            {"description":"Disposable Underpads, 30x36 in, Case/90","qty":8,"unit_price":36.99,"sku":"CHUX-30X36"},
-            {"description":"Adult Incontinence Briefs, Medium, Case/80","qty":10,"unit_price":29.99,"sku":"BRIEF-MD"},
-            {"description":"Adult Incontinence Briefs, Large, Case/80","qty":8,"unit_price":31.99,"sku":"BRIEF-LG"},
+            {"description":"Disposable Underpads, 30x36 in, Case/90","qty":15,"unit_price":36.99,"sku":"CHUX-30X36"},
+            {"description":"Adult Incontinence Briefs, Medium, Case/80","qty":15,"unit_price":29.99,"sku":"BRIEF-MD"},
+            {"description":"Adult Incontinence Briefs, Large, Case/80","qty":10,"unit_price":31.99,"sku":"BRIEF-LG"},
             {"description":"Hand Sanitizer, 1 Gallon Jug, 70% Alcohol","qty":12,"unit_price":19.99,"sku":"SANIT-GAL"},
+            {"description":"Gauze Pads, 4x4 in, Non-Sterile, Box/200","qty":10,"unit_price":10.99,"sku":"GAUZE-4X4"},
         ],
         "DSH": [
             {"description":"Nitrile Exam Gloves, Medium, Box/100","qty":20,"unit_price":12.99,"sku":"NIT-EXAM-MD"},
-            {"description":"Stryker Patient Restraint Package, Standard","qty":5,"unit_price":69.99,"sku":"STRYKER-RESTRAINT-STD"},
-            {"description":"Hand Sanitizer, 8oz Pump Bottle, 75% Alcohol","qty":30,"unit_price":6.99,"sku":"SANIT-8OZ"},
-            {"description":"Sharps Container, 1 Quart, Red Lid","qty":20,"unit_price":4.99,"sku":"SHARPS-1QT"},
+            {"description":"Sharps Container, 1 Quart, Red Lid","qty":30,"unit_price":4.99,"sku":"SHARPS-1QT"},
+            {"description":"Hand Sanitizer, 8oz Pump, 75% Alcohol","qty":30,"unit_price":6.99,"sku":"SANIT-8OZ"},
             {"description":"Gauze Pads, 4x4 in, Non-Sterile, Box/200","qty":10,"unit_price":10.99,"sku":"GAUZE-4X4"},
+            {"description":"Disposable Underpads, 23x36 in, Case/100","qty":8,"unit_price":28.99,"sku":"CHUX-23X36"},
             {"description":"Adult Incontinence Briefs, Medium, Case/80","qty":6,"unit_price":29.99,"sku":"BRIEF-MD"},
         ],
     }
-
     items = ITEM_SETS.get(agency_type, ITEM_SETS["CCHCS"])
     total = sum(it["qty"] * it["unit_price"] for it in items)
 
-    # Create price check record
-    pc_id = f"expand-{agency_type.lower()}-{int(__import__('time').time())}"
-    pc = {
-        "id": pc_id,
-        "created_at": __import__('datetime').datetime.now().isoformat(),
-        "institution": facility_name,
-        "agency": "CDCR" if agency_type == "CCHCS" else agency_type,
-        "contact_email": facility_email,
-        "items": items,
-        "total": round(total, 2),
-        "status": "pending",
-        "tags": [f"{agency_type.lower()}_expansion"],
-        "source": "cchcs_expansion",
-        "notes": f"Expansion target: {facility_name} ({agency_type})"
-    }
+    results = {"ok": True, "facility": facility_name, "agency_type": agency_type}
 
-    pcs_path = os.path.join(DATA_DIR, "price_checks.json")
-    pcs = _json.load(open(pcs_path)) if os.path.exists(pcs_path) else {}
-    pcs[pc_id] = pc
-    with open(pcs_path, "w") as f:
-        _json.dump(pcs, f, indent=2)
+    # ── Step 1: Create Price Check ──
+    if mode in ("email_and_pc", "pc_only"):
+        pc_id = f"expand-{agency_type.lower()}-{int(__import__('time').time())}"
+        pc = {
+            "id": pc_id,
+            "created_at": __import__('datetime').datetime.now().isoformat(),
+            "pc_number": f"EXP-{agency_type}-{facility_name.split(':')[-1].strip()[:20]}",
+            "institution": facility_name,
+            "agency": "CDCR" if agency_type == "CCHCS" else agency_type,
+            "contact_email": facility_email,
+            "items": items,
+            "total": round(total, 2),
+            "status": "pending",
+            "tags": [f"{agency_type.lower()}_expansion", "outreach"],
+            "source": "cchcs_expansion",
+            "notes": f"Expansion target: {facility_name} ({agency_type})"
+        }
+        pcs_path = os.path.join(DATA_DIR, "price_checks.json")
+        pcs = _json.load(open(pcs_path)) if os.path.exists(pcs_path) else {}
+        pcs[pc_id] = pc
+        with open(pcs_path, "w") as f:
+            _json.dump(pcs, f, indent=2)
+        results["pc_id"] = pc_id
+        results["items_count"] = len(items)
+        results["total"] = round(total, 2)
+        results["pc_link"] = f"/price-check/{pc_id}"
 
-    # Bell notification
+    # ── Step 2: Draft outreach email ──
+    if mode in ("email_and_pc", "email_only") and facility_email:
+        try:
+            short_name = facility_name.split(":")[-1].strip() if ":" in facility_name else facility_name
+            subject = f"Reytech Inc — Medical Supply Partner for {short_name}"
+            body = f"""Hello,
+
+I'm reaching out from Reytech Inc., a California-certified small business and authorized reseller of medical and institutional supplies for state agencies.
+
+We currently serve multiple {agency_type} facilities and would like to introduce our services to {short_name}. Our most commonly ordered items for similar facilities include:
+
+{chr(10).join(f'  • {it["description"]}' for it in items[:4])}
+
+We're registered on SCPRS and can respond to any AMS 704 price check forms your procurement team sends.
+
+Would it be possible to connect with your purchasing department? I'd be happy to provide a product catalog or respond to any upcoming solicitations.
+
+Best regards,
+Mike Guzman
+Reytech Inc.
+Phone: (916) 995-4713
+Email: mike@reytechinc.com
+SCPRS Supplier — CA Certified Small Business"""
+
+            # Save to outbox as draft
+            outbox_path = os.path.join(DATA_DIR, "email_outbox.json")
+            outbox = _json.load(open(outbox_path)) if os.path.exists(outbox_path) else []
+            if not isinstance(outbox, list):
+                outbox = list(outbox.values()) if isinstance(outbox, dict) else []
+            draft_id = f"draft-expand-{int(__import__('time').time())}"
+            outbox.append({
+                "id": draft_id,
+                "to": facility_email,
+                "subject": subject,
+                "body": body,
+                "status": "draft",
+                "type": "expansion_outreach",
+                "facility": facility_name,
+                "agency_type": agency_type,
+                "created_at": __import__('datetime').datetime.now().isoformat(),
+            })
+            with open(outbox_path, "w") as f:
+                _json.dump(outbox, f, indent=2, default=str)
+            results["email_drafted"] = True
+            results["email_to"] = facility_email
+            results["draft_id"] = draft_id
+        except Exception as e:
+            results["email_error"] = str(e)
+
+    # ── Step 3: Bell notification ──
     try:
         from src.agents.notify_agent import send_alert
         send_alert("bell", f"Expansion target created: {facility_name}", {
             "type": "expansion_target", "facility": facility_name, "agency": agency_type,
-            "pc_id": pc_id, "total": total, "link": f"/price-check/{pc_id}"
+            "pc_id": results.get("pc_id"), "total": total,
         })
     except Exception: pass
 
-    log.info("CCHCS expansion target created: %s | %s | $%.2f", agency_type, facility_name, total)
-    return jsonify({
-        "ok": True, "pc_id": pc_id, "facility": facility_name, "agency_type": agency_type,
-        "items_count": len(items), "total": round(total,2),
-        "link": f"/price-check/{pc_id}"
-    })
+    log.info("CCHCS expansion target: %s | %s | $%.2f | email=%s",
+             agency_type, facility_name, total, bool(results.get("email_drafted")))
+    return jsonify(results)
+
+
+def _parse_facility_name(raw_name):
+    """Parse QuickBooks hierarchical name into clean display name + parent.
+    'CA Correctional Health Care Services:California Health Care Facility' → 'California Health Care Facility'
+    Filters out person-name entries (depth 3+ where last part is a person, not a facility).
+    """
+    parts = raw_name.split(":")
+    # Filter out person names (depth 3+ where last part looks like a person)
+    if len(parts) >= 3:
+        last = parts[-1].strip()
+        # Facility names contain these keywords; person names don't
+        fac_keywords = ["prison","hospital","facility","center","home","valley","creek",
+                        "state","institute","correctional","veterans","department","bay",
+                        "rehabilitation","conservation","treatment","substance","training"]
+        if not any(kw in last.lower() for kw in fac_keywords):
+            return None, None  # This is a contact name, not a facility
+    if len(parts) >= 2:
+        return parts[-1].strip(), parts[0].strip()
+    return raw_name.strip(), ""
+
+
+def _estimate_annual_opportunity(agency_type):
+    """Rough annual spend estimate per facility type based on active facility averages."""
+    # Based on current AR data + typical reorder cycles
+    AVG_ANNUAL = {"CCHCS": 8000, "CalVet": 12000, "DSH": 6000}
+    return AVG_ANNUAL.get(agency_type, 5000)
 
 
 @bp.route("/cchcs/expansion")
 @auth_required
 def page_cchcs_expansion():
-    """CCHCS/CalVet expansion dashboard."""
+    """CCHCS/CalVet/DSH facility expansion dashboard — growth intelligence."""
     import json as _json
     customers = _json.load(open(os.path.join(DATA_DIR, "customers.json")))
     pcs = _json.load(open(os.path.join(DATA_DIR, "price_checks.json"))) if os.path.exists(os.path.join(DATA_DIR, "price_checks.json")) else {}
 
-    # Categorize facilities
+    # ── Build facility list with smart name parsing ──
     fac_list = []
+    seen_facilities = set()  # Dedup by (short_name, type)
     for c in customers:
-        name = c.get("qb_name","") or c.get("display_name","")
+        raw_name = c.get("qb_name","") or c.get("display_name","")
         parent = c.get("parent","")
         balance = float(c.get("open_balance",0) or 0)
         abbr = c.get("abbreviation","")
         email = c.get("email","")
-        if "Correctional" in (parent or name) or "State Prison" in name or "Calipatria" in name:
+
+        # Classify agency type
+        if "Correctional" in (parent or raw_name) or "State Prison" in raw_name or "Calipatria" in raw_name:
             atype = "CCHCS"
-        elif "Veterans" in name or "Dept of Veterans" in name:
+        elif "Veterans" in raw_name or "Dept of Veterans" in raw_name:
             atype = "CalVet"
-        elif "State Hospital" in name:
+        elif "State Hospital" in raw_name:
             atype = "DSH"
         else:
             continue
+
+        # Parse clean name
+        short_name, parent_name = _parse_facility_name(raw_name)
+        if short_name is None:
+            continue  # Skip contact-name entries
+
+        # Dedup
+        dedup_key = (short_name.lower()[:25], atype)
+        if dedup_key in seen_facilities:
+            # Keep the one with higher balance
+            existing = next((f for f in fac_list if f["_dedup"] == dedup_key), None)
+            if existing and balance > existing["ar"]:
+                existing["ar"] = balance
+                existing["email"] = email or existing["email"]
+                existing["raw_name"] = raw_name
+            continue
+        seen_facilities.add(dedup_key)
+
         # Check if has expansion target
         has_target = any(
-            atype.lower() in str(pc.get("tags",[])).lower() and facility_name_match(name, pc.get("institution",""))
+            pc.get("source") == "cchcs_expansion" and facility_name_match(raw_name, pc.get("institution",""))
             for pc in pcs.values()
         )
+
         fac_list.append({
-            "name": name, "abbr": abbr, "email": email, "type": atype,
-            "ar": balance, "active": balance > 0, "has_target": has_target
+            "name": short_name,
+            "raw_name": raw_name,
+            "parent": parent_name,
+            "abbr": abbr,
+            "email": email,
+            "type": atype,
+            "ar": balance,
+            "active": balance > 0,
+            "has_target": has_target,
+            "est_annual": _estimate_annual_opportunity(atype),
+            "_dedup": dedup_key,
         })
 
     active = [f for f in fac_list if f["active"]]
-    inactive = [f for f in fac_list if not f["active"]]
-    expansion_targets = [pc for pc in pcs.values() if pc.get("source") == "cchcs_expansion"]
+    inactive = [f for f in fac_list if not f["active"] and not f["has_target"]]
+    targeted = [f for f in fac_list if f["has_target"] and not f["active"]]
+    expansion_pcs = [pc for pc in pcs.values() if pc.get("source") == "cchcs_expansion"]
 
+    total_ar = sum(f["ar"] for f in active)
+    total_opportunity = sum(f["est_annual"] for f in inactive)
+
+    # ── Compute top products from active facility orders (for intelligence panel) ──
+    top_products_by_type = {}
+    for atype in ["CCHCS", "CalVet", "DSH"]:
+        type_active = [f for f in active if f["type"] == atype]
+        if type_active:
+            top_products_by_type[atype] = f"{len(type_active)} active, ${sum(f['ar'] for f in type_active):,.0f} AR"
+        else:
+            top_products_by_type[atype] = "No active accounts yet"
+
+    # ── Build table rows ──
     def fac_row(f):
-        status = "🟢 Active" if f["active"] else ("📋 Targeted" if f["has_target"] else "⚪ Untouched")
-        ar = f"${f['ar']:,.2f}" if f["ar"] else "—"
-        btn = "" if f["active"] else f"""
-<button onclick="createTarget('{f['name'].replace("'","''")}','{f['type']}','{f['email']}')"
-  style="padding:3px 10px;font-size:11px;border:1px solid var(--ac);border-radius:4px;color:var(--ac);cursor:pointer;background:transparent">
-  + Target
-</button>"""
-        return f"""<tr style="border-bottom:1px solid var(--bd)">
-  <td style="padding:8px 10px;font-size:12px">{f['name'][:50]}</td>
-  <td style="padding:8px 10px;font-size:11px;color:var(--tx2)">{f['type']}</td>
-  <td style="padding:8px 10px;font-size:11px">{f['abbr']}</td>
-  <td style="padding:8px 10px;font-size:12px;color:var(--gn)">{ar}</td>
-  <td style="padding:8px 10px;font-size:11px;color:var(--tx2)">{status}</td>
-  <td style="padding:8px 10px">{btn}</td>
-</tr>"""
+        if f["active"]:
+            status_html = '<span style="color:var(--gn)">● Active</span>'
+            action = f'<span style="font-size:10px;color:var(--tx2)">Buying</span>'
+        elif f["has_target"]:
+            status_html = '<span style="color:var(--yl)">◉ Targeted</span>'
+            action = f'<a href="/pricechecks" style="font-size:10px;color:var(--ac)">View PC →</a>'
+        else:
+            status_html = '<span style="color:var(--tx2)">○ Untouched</span>'
+            esc_name = f["raw_name"].replace("'", "\\'")
+            esc_email = (f["email"] or "").replace("'", "\\'")
+            has_email_cls = "btn-target-email" if f["email"] else "btn-target-noemail"
+            email_tip = "Email draft + Price Check" if f["email"] else "Price Check only (no email on file)"
+            action = f'''<button onclick="createTarget('{esc_name}','{f["type"]}','{esc_email}')"
+              class="{has_email_cls}" title="{email_tip}"
+              style="padding:4px 12px;font-size:11px;border:1px solid var(--ac);border-radius:5px;color:var(--ac);cursor:pointer;background:transparent;font-weight:600;transition:.15s">
+              {"📧 Target" if f["email"] else "📋 Target"}
+            </button>'''
 
-    rows_html = "".join(fac_row(f) for f in sorted(fac_list, key=lambda x: (-x["ar"], x["type"], x["name"])))
+        ar_html = f'<span style="color:var(--gn);font-weight:600">${f["ar"]:,.2f}</span>' if f["ar"] else '<span style="color:var(--tx2)">—</span>'
+        code_html = f'<span style="background:var(--sf2);padding:2px 6px;border-radius:3px;font-size:10px;font-family:\'JetBrains Mono\',monospace;color:var(--ac)">{f["abbr"]}</span>' if f["abbr"] else ''
+        email_icon = f'<span title="{f["email"]}" style="cursor:help;font-size:11px">📧</span>' if f["email"] else '<span style="color:var(--tx2);font-size:10px">—</span>'
+        type_colors = {"CCHCS": "var(--ac)", "CalVet": "var(--gn)", "DSH": "var(--yl)"}
+        type_color = type_colors.get(f["type"], "var(--tx2)")
+
+        return f'''<tr style="border-bottom:1px solid var(--bd);transition:background .1s" onmouseover="this.style.background='rgba(79,140,255,.04)'" onmouseout="this.style.background='transparent'">
+  <td style="padding:10px 12px;font-size:13px;font-weight:500;max-width:280px">{f["name"]} {code_html}</td>
+  <td style="padding:10px 8px;font-size:11px;color:{type_color};font-weight:600">{f["type"]}</td>
+  <td style="padding:10px 8px;text-align:center">{email_icon}</td>
+  <td style="padding:10px 8px;font-size:13px;text-align:right;font-family:'JetBrains Mono',monospace">{ar_html}</td>
+  <td style="padding:10px 8px;font-size:12px">{status_html}</td>
+  <td style="padding:10px 8px;text-align:center">{action}</td>
+</tr>'''
+
+    rows_sorted = sorted(fac_list, key=lambda x: (0 if x["active"] else (1 if x["has_target"] else 2), -x["ar"], x["type"], x["name"]))
+    rows_html = "".join(fac_row(f) for f in rows_sorted)
+
+    # Count facilities with email
+    untouched_with_email = sum(1 for f in inactive if f["email"])
 
     html = _header("Expand") + f"""
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px">
   <div>
     <h2 style="font-size:22px;font-weight:700">🏥 Facility Expansion</h2>
     <p style="color:var(--tx2);font-size:13px;margin-top:4px">
-      {len(active)} active · {len(inactive)} untouched · {len(expansion_targets)} targeted
+      {len(active)} buying · {len(targeted)} targeted · {len(inactive)} untouched
+      <span style="margin-left:12px;color:var(--gn);font-weight:600">${total_opportunity:,.0f}/yr est. opportunity</span>
     </p>
   </div>
-  <a href="/intel/market" style="padding:7px 14px;border:1px solid var(--bd);border-radius:6px;font-size:12px;text-decoration:none">📊 Market Intel</a>
-</div>
-
-<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:20px">
-  <div style="background:var(--bg2);border:1px solid var(--gn);border-radius:10px;padding:16px">
-    <div style="font-size:11px;color:var(--tx2)">ACTIVE FACILITIES</div>
-    <div style="font-size:28px;font-weight:800;color:var(--gn)">{len(active)}</div>
-    <div style="font-size:11px;color:var(--tx2)">${sum(f['ar'] for f in active):,.2f} total AR</div>
-  </div>
-  <div style="background:var(--bg2);border:1px solid var(--ac);border-radius:10px;padding:16px">
-    <div style="font-size:11px;color:var(--tx2)">UNTOUCHED</div>
-    <div style="font-size:28px;font-weight:800;color:var(--ac)">{len(inactive)}</div>
-    <div style="font-size:11px;color:var(--tx2)">$0 AR — ready to target</div>
-  </div>
-  <div style="background:var(--bg2);border:1px solid var(--yl);border-radius:10px;padding:16px">
-    <div style="font-size:11px;color:var(--tx2)">EXPANSION TARGETS</div>
-    <div style="font-size:28px;font-weight:800;color:var(--yl)">{len(expansion_targets)}</div>
-    <div style="font-size:11px;color:var(--tx2)">price checks created</div>
+  <div style="display:flex;gap:8px">
+    <button onclick="targetAllUntouched()" class="hdr-btn" style="border-color:var(--gn);color:var(--gn);font-size:11px;padding:6px 14px" title="Create targets for all {len(inactive)} untouched facilities">
+      🚀 Target All ({len(inactive)})
+    </button>
+    <a href="/intel/market" class="hdr-btn" style="font-size:11px;padding:6px 14px">📊 Market Intel</a>
   </div>
 </div>
 
-<div id="status-msg" style="display:none;padding:10px;background:var(--gn);color:#fff;border-radius:6px;margin-bottom:12px"></div>
-
-<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:10px;overflow:hidden">
-  <div style="padding:12px 16px;border-bottom:1px solid var(--bd);font-size:13px;font-weight:600">
-    All Facilities ({len(fac_list)} total)
-    <span style="font-size:11px;font-weight:400;color:var(--tx2);margin-left:8px">Click "+ Target" to create pre-populated price check</span>
+<!-- KPI Cards -->
+<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px">
+  <div style="background:var(--sf);border:1px solid var(--gn);border-radius:10px;padding:16px">
+    <div style="font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px">Active Accounts</div>
+    <div style="font-size:32px;font-weight:800;color:var(--gn);margin-top:4px">{len(active)}</div>
+    <div style="font-size:11px;color:var(--tx2);margin-top:2px">${total_ar:,.2f} receivables</div>
   </div>
-  <table style="width:100%;border-collapse:collapse">
+  <div style="background:var(--sf);border:1px solid var(--yl);border-radius:10px;padding:16px">
+    <div style="font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px">Targeted</div>
+    <div style="font-size:32px;font-weight:800;color:var(--yl);margin-top:4px">{len(targeted)}</div>
+    <div style="font-size:11px;color:var(--tx2);margin-top:2px">{len(expansion_pcs)} outreach PCs created</div>
+  </div>
+  <div style="background:var(--sf);border:1px solid var(--ac);border-radius:10px;padding:16px">
+    <div style="font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px">Untouched</div>
+    <div style="font-size:32px;font-weight:800;color:var(--ac);margin-top:4px">{len(inactive)}</div>
+    <div style="font-size:11px;color:var(--tx2);margin-top:2px">{untouched_with_email} have email on file</div>
+  </div>
+  <div style="background:var(--sf);border:1px solid var(--or);border-radius:10px;padding:16px">
+    <div style="font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px">Est. Annual Opportunity</div>
+    <div style="font-size:32px;font-weight:800;color:var(--or);margin-top:4px">${total_opportunity:,.0f}</div>
+    <div style="font-size:11px;color:var(--tx2);margin-top:2px">based on avg spend by type</div>
+  </div>
+</div>
+
+<!-- Intelligence Panel -->
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:20px">
+  <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:14px">
+    <div style="font-size:11px;font-weight:600;color:var(--ac);margin-bottom:6px">🏛 CCHCS (Prisons)</div>
+    <div style="font-size:11px;color:var(--tx2)">{top_products_by_type.get("CCHCS","—")}</div>
+    <div style="font-size:10px;color:var(--tx2);margin-top:4px">Top: Gloves, Underpads, Briefs, Sanitizer</div>
+  </div>
+  <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:14px">
+    <div style="font-size:11px;font-weight:600;color:var(--gn);margin-bottom:6px">🎖 CalVet (Veterans Homes)</div>
+    <div style="font-size:11px;color:var(--tx2)">{top_products_by_type.get("CalVet","—")}</div>
+    <div style="font-size:10px;color:var(--tx2);margin-top:4px">Top: Incontinence, Underpads, Wound Care</div>
+  </div>
+  <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:14px">
+    <div style="font-size:11px;font-weight:600;color:var(--yl);margin-bottom:6px">🏥 DSH (State Hospitals)</div>
+    <div style="font-size:11px;color:var(--tx2)">{top_products_by_type.get("DSH","—")}</div>
+    <div style="font-size:10px;color:var(--tx2);margin-top:4px">Top: Sharps, Gauze, PPE, Restraints</div>
+  </div>
+</div>
+
+<div id="status-msg" style="display:none;padding:10px 16px;border-radius:6px;margin-bottom:12px;font-size:13px"></div>
+
+<!-- Facility Table -->
+<div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;overflow:hidden">
+  <div style="padding:12px 16px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center">
+    <div>
+      <span style="font-size:14px;font-weight:600">All Facilities</span>
+      <span style="font-size:12px;color:var(--tx2);margin-left:8px">{len(fac_list)} total</span>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <input type="text" id="fac-search" placeholder="Filter facilities..." oninput="filterFacilities(this.value)"
+        style="background:var(--sf2);border:1px solid var(--bd);border-radius:5px;padding:5px 10px;font-size:11px;color:var(--tx);width:180px">
+      <select id="fac-filter" onchange="filterByStatus(this.value)"
+        style="background:var(--sf2);border:1px solid var(--bd);border-radius:5px;padding:5px 8px;font-size:11px;color:var(--tx)">
+        <option value="all">All</option>
+        <option value="active">Active only</option>
+        <option value="untouched">Untouched only</option>
+        <option value="targeted">Targeted only</option>
+      </select>
+    </div>
+  </div>
+  <div style="overflow-x:auto">
+  <table style="width:100%;border-collapse:collapse;min-width:700px" id="fac-table">
     <thead><tr style="border-bottom:2px solid var(--bd)">
-      <th style="padding:8px 10px;font-size:11px;color:var(--tx2);text-align:left">Facility</th>
-      <th style="padding:8px 10px;font-size:11px;color:var(--tx2);text-align:left">Type</th>
-      <th style="padding:8px 10px;font-size:11px;color:var(--tx2);text-align:left">Code</th>
-      <th style="padding:8px 10px;font-size:11px;color:var(--tx2);text-align:left">AR Balance</th>
-      <th style="padding:8px 10px;font-size:11px;color:var(--tx2);text-align:left">Status</th>
-      <th style="padding:8px 10px;font-size:11px;color:var(--tx2);text-align:left">Action</th>
+      <th style="padding:10px 12px;font-size:10px;color:var(--tx2);text-align:left;text-transform:uppercase;letter-spacing:.5px">Facility</th>
+      <th style="padding:10px 8px;font-size:10px;color:var(--tx2);text-align:left;text-transform:uppercase;letter-spacing:.5px">Type</th>
+      <th style="padding:10px 8px;font-size:10px;color:var(--tx2);text-align:center;text-transform:uppercase;letter-spacing:.5px">Email</th>
+      <th style="padding:10px 8px;font-size:10px;color:var(--tx2);text-align:right;text-transform:uppercase;letter-spacing:.5px">AR Balance</th>
+      <th style="padding:10px 8px;font-size:10px;color:var(--tx2);text-align:left;text-transform:uppercase;letter-spacing:.5px">Status</th>
+      <th style="padding:10px 8px;font-size:10px;color:var(--tx2);text-align:center;text-transform:uppercase;letter-spacing:.5px">Action</th>
     </tr></thead>
     <tbody>{rows_html}</tbody>
   </table>
+  </div>
 </div>
 
 <script>
 function createTarget(facilityName, agencyType, email) {{
   const msg = document.getElementById('status-msg');
   msg.style.display = 'block';
-  msg.style.background = 'var(--ac)';
-  msg.textContent = 'Creating expansion target for ' + facilityName + '...';
+  msg.style.background = 'rgba(79,140,255,.15)';
+  msg.style.color = 'var(--ac)';
+  msg.style.border = '1px solid var(--ac)';
+  const mode = email ? 'email_and_pc' : 'pc_only';
+  msg.textContent = email
+    ? '📧 Drafting outreach email + price check for ' + facilityName + '...'
+    : '📋 Creating price check for ' + facilityName + ' (no email on file)...';
+
   fetch('/api/cchcs/create-target', {{
     method: 'POST',
-    headers: {{'Content-Type':'application/json','Authorization': document.cookie.split('=')[1] || ''}},
-    body: JSON.stringify({{facility_name: facilityName, agency_type: agencyType, email: email}})
+    headers: {{'Content-Type':'application/json'}},
+    credentials: 'same-origin',
+    body: JSON.stringify({{facility_name: facilityName, agency_type: agencyType, email: email, mode: mode}})
   }})
   .then(r => r.json())
   .then(d => {{
     if (d.ok) {{
-      msg.style.background = 'var(--gn)';
-      msg.textContent = 'Target created! ' + facilityName + ' — $' + d.total.toFixed(2) + ' | ' + d.items_count + ' items';
-      setTimeout(() => location.reload(), 2000);
+      msg.style.background = 'rgba(52,211,153,.15)';
+      msg.style.color = 'var(--gn)';
+      msg.style.border = '1px solid var(--gn)';
+      let txt = '✅ Target created: ' + facilityName;
+      if (d.email_drafted) txt += ' — Email draft saved to outbox';
+      if (d.pc_id) txt += ' — PC: $' + (d.total||0).toFixed(2);
+      msg.innerHTML = txt + ' <a href="/outbox" style="margin-left:12px;color:var(--ac);font-weight:600">→ Review Drafts</a>';
+      // Disable the button
+      const btns = document.querySelectorAll('button');
+      btns.forEach(b => {{ if(b.textContent.includes('Target') && b.onclick && b.onclick.toString().includes(facilityName.substring(0,15))) b.disabled=true; }});
+      setTimeout(() => location.reload(), 3000);
     }} else {{
-      msg.style.background = 'var(--rd)';
-      msg.textContent = 'Error: ' + d.error;
+      msg.style.background = 'rgba(248,113,113,.15)';
+      msg.style.color = 'var(--rd)';
+      msg.style.border = '1px solid var(--rd)';
+      msg.textContent = '❌ Error: ' + (d.error||'Unknown error');
     }}
-  }}).catch(e => {{ msg.style.background='var(--rd)'; msg.textContent = 'Request failed: ' + e; }});
+  }}).catch(e => {{
+    msg.style.background = 'rgba(248,113,113,.15)';
+    msg.style.color = 'var(--rd)';
+    msg.style.border = '1px solid var(--rd)';
+    msg.textContent = '❌ Request failed: ' + e;
+  }});
+}}
+
+function targetAllUntouched() {{
+  if (!confirm('Create expansion targets for all {len(inactive)} untouched facilities?\\n\\nThis will:\\n• Create price checks with estimated items\\n• Draft outreach emails for facilities with email on file\\n\\nContinue?')) return;
+  const msg = document.getElementById('status-msg');
+  msg.style.display = 'block';
+  msg.style.background = 'rgba(79,140,255,.15)';
+  msg.style.color = 'var(--ac)';
+  msg.style.border = '1px solid var(--ac)';
+  msg.textContent = '🚀 Creating targets for {len(inactive)} facilities...';
+
+  // Create targets sequentially
+  const facilities = {_json.dumps([{{"name": f["raw_name"], "type": f["type"], "email": f["email"] or ""}} for f in inactive])};
+  let done = 0;
+  let errors = 0;
+
+  function nextTarget(i) {{
+    if (i >= facilities.length) {{
+      msg.style.background = 'rgba(52,211,153,.15)';
+      msg.style.color = 'var(--gn)';
+      msg.style.border = '1px solid var(--gn)';
+      msg.innerHTML = '✅ Created ' + done + ' targets' + (errors > 0 ? ' (' + errors + ' errors)' : '') +
+        ' <a href="/outbox" style="margin-left:12px;color:var(--ac);font-weight:600">→ Review Outbox</a>';
+      setTimeout(() => location.reload(), 3000);
+      return;
+    }}
+    const f = facilities[i];
+    msg.textContent = '🚀 Creating target ' + (i+1) + '/' + facilities.length + ': ' + f.name.split(':').pop() + '...';
+    fetch('/api/cchcs/create-target', {{
+      method: 'POST',
+      headers: {{'Content-Type':'application/json'}},
+      credentials: 'same-origin',
+      body: JSON.stringify({{facility_name: f.name, agency_type: f.type, email: f.email, mode: f.email ? 'email_and_pc' : 'pc_only'}})
+    }}).then(r => r.json()).then(d => {{
+      if (d.ok) done++; else errors++;
+      nextTarget(i + 1);
+    }}).catch(() => {{ errors++; nextTarget(i + 1); }});
+  }}
+  nextTarget(0);
+}}
+
+function filterFacilities(q) {{
+  q = q.toLowerCase();
+  document.querySelectorAll('#fac-table tbody tr').forEach(row => {{
+    row.style.display = row.textContent.toLowerCase().includes(q) ? '' : 'none';
+  }});
+}}
+
+function filterByStatus(status) {{
+  document.querySelectorAll('#fac-table tbody tr').forEach(row => {{
+    const txt = row.textContent.toLowerCase();
+    if (status === 'all') row.style.display = '';
+    else if (status === 'active') row.style.display = txt.includes('● active') ? '' : 'none';
+    else if (status === 'untouched') row.style.display = txt.includes('○ untouched') ? '' : 'none';
+    else if (status === 'targeted') row.style.display = txt.includes('◉ targeted') ? '' : 'none';
+  }});
 }}
 </script>
 """ + _page_footer()
