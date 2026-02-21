@@ -1227,6 +1227,12 @@ class EmailPoller:
                         except Exception:
                             pass
                         
+                        # Auto reply-all: confirm PO receipt
+                        try:
+                            send_po_confirmation_reply(msg, po_number)
+                        except Exception as _rpe:
+                            log.debug("PO confirmation reply error: %s", _rpe)
+                        
                         self._processed.add(uid)
                         self._diag.setdefault("po_received", 0)
                         self._diag["po_received"] = self._diag.get("po_received", 0) + 1
@@ -1726,3 +1732,108 @@ SB/DVBE Cert #2002605"""
             server.send_message(msg, to_addrs=all_recipients)
         
         return True
+
+
+def send_po_confirmation_reply(msg_obj, po_number: str, gmail_addr: str = "", gmail_pwd: str = ""):
+    """
+    Reply-All to a PO email with order confirmation.
+    
+    Args:
+        msg_obj: The original email.message.Message object
+        po_number: Extracted PO number (or 'your recent purchase order')
+        gmail_addr: GMAIL_ADDRESS (falls back to env var)
+        gmail_pwd: GMAIL_PASSWORD (falls back to env var)
+    """
+    gmail = gmail_addr or os.environ.get("GMAIL_ADDRESS", "")
+    pwd = gmail_pwd or os.environ.get("GMAIL_PASSWORD", "")
+    if not gmail or not pwd:
+        log.info("PO confirmation reply skipped — GMAIL not configured")
+        return False
+    
+    # Build reply-all recipients
+    original_from = msg_obj.get("From", "")
+    original_to = msg_obj.get("To", "")
+    original_cc = msg_obj.get("Cc", "")
+    original_message_id = msg_obj.get("Message-ID", "")
+    original_references = msg_obj.get("References", "")
+    original_subject = msg_obj.get("Subject", "")
+    
+    # Extract all email addresses for reply-all (excluding ourselves)
+    import re as _re
+    all_addrs = set()
+    for field in [original_from, original_to, original_cc]:
+        if field:
+            found = _re.findall(r'[\w.+-]+@[\w-]+\.[\w.-]+', field)
+            all_addrs.update(a.lower() for a in found)
+    
+    # Remove our own address
+    our_domains = ["reytechinc.com", "reytech.com"]
+    all_addrs = {a for a in all_addrs if not any(a.endswith(f"@{d}") for d in our_domains)}
+    
+    if not all_addrs:
+        log.warning("PO reply-all: no recipients found")
+        return False
+    
+    # Primary recipient = original sender, CC = everyone else
+    from_email = _re.findall(r'[\w.+-]+@[\w-]+\.[\w.-]+', original_from)
+    primary_to = from_email[0] if from_email else list(all_addrs)[0]
+    cc_addrs = [a for a in all_addrs if a != primary_to]
+    
+    # PO number display
+    po_display = f"PO {po_number}" if po_number else "your recent purchase order"
+    
+    # Compose reply
+    reply_subject = original_subject
+    if not reply_subject.lower().startswith("re:"):
+        reply_subject = f"Re: {reply_subject}"
+    
+    reply_body = f"""Hello,
+
+This email confirms receipt of {po_display}. We will begin to process this order immediately. Should you have any further questions or need assistance, please let us know.
+
+Respectfully,
+
+Michael Guadan
+Reytech Inc.
+949-229-1575
+sales@reytechinc.com"""
+    
+    # Build threading headers
+    references = original_references or ""
+    if original_message_id:
+        references = f"{references} {original_message_id}".strip()
+    
+    draft = {
+        "to": primary_to,
+        "cc": ", ".join(cc_addrs),
+        "subject": reply_subject,
+        "body": reply_body,
+        "in_reply_to": original_message_id,
+        "references": references,
+        "attachments": [],
+    }
+    
+    try:
+        sender = EmailSender({"email": gmail, "email_password": pwd})
+        sender.send(draft)
+        log.info("✅ PO confirmation reply-all sent: to=%s cc=%s po=%s",
+                 primary_to, cc_addrs[:3], po_number)
+        
+        # Log to email_log
+        try:
+            from src.core.db_dal import log_email
+            log_email(
+                direction="sent",
+                sender=gmail,
+                recipient=primary_to,
+                subject=reply_subject,
+                body_preview=reply_body[:200],
+                status="sent",
+            )
+        except Exception:
+            pass
+        
+        return True
+    except Exception as e:
+        log.error("PO confirmation reply-all failed: %s", e)
+        return False
