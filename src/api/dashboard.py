@@ -2103,6 +2103,7 @@ def render(content, include_brief=False, **kw):
   <a href="/cchcs/expansion" class="hdr-btn" aria-label="Expand Facilities">🏥 Expand</a>
   <a href="/campaigns" class="hdr-btn" aria-label="Outreach campaigns">📞 Campaigns</a>
   <a href="/pipeline" class="hdr-btn" aria-label="Revenue pipeline">🔄 Pipeline</a>
+  <a href="/shipping" class="hdr-btn" aria-label="Shipping tracker">🚚 Shipping</a>
   <a href="/growth" class="hdr-btn" aria-label="Growth engine">🚀 Growth</a>
   <a href="/intelligence" class="hdr-btn" aria-label="Sales intelligence">🧠 Intel</a>
   <a href="/agents" class="hdr-btn" aria-label="AI Agents manager">🤖 Agents</a>
@@ -2195,6 +2196,7 @@ def _header(page_title: str = "") -> str:
   <a href="/cchcs/expansion" class="hdr-btn">🏥 Expand</a>
   <a href="/campaigns" class="hdr-btn">📞 Campaigns</a>
   <a href="/pipeline" class="hdr-btn">🔄 Pipeline</a>
+  <a href="/shipping" class="hdr-btn">🚚 Shipping</a>
   <a href="/growth" class="hdr-btn{'{ hdr-active}' if page_title=='Growth Engine' else ''}">🚀 Growth</a>
   <a href="/intelligence" class="hdr-btn{'{ hdr-active}' if page_title=='Sales Intelligence' else ''}">🧠 Intel</a>
   <a href="/agents" class="hdr-btn">🤖 Agents</a>

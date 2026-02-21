@@ -2589,6 +2589,7 @@ def _render_order_detail(order, oid):
       <button onclick="markAllOrdered('{oid}')" class="btn btn-s" style="font-size:12px">🛒 Mark All Ordered</button>
       <button onclick="markAllDelivered('{oid}')" class="btn btn-s" style="font-size:12px">✅ Mark All Delivered</button>
       <button onclick="addLineItem('{oid}')" class="btn btn-s" style="font-size:12px">➕ Add Line Item</button>
+      <button onclick="lookupSuppliers('{oid}')" class="btn btn-s" style="font-size:12px" id="lookup-btn">🔍 Lookup Suppliers</button>
       <a href="/api/order/{oid}/reply-all" class="btn btn-s" style="font-size:12px">📧 Draft PO Confirmation</a>
      </div>
     </div>
@@ -2789,6 +2790,39 @@ def _render_order_detail(order, oid):
           }}
         }}
       }}).catch(e => {{ status.innerHTML = '❌ Upload failed: ' + e; }});
+    }}
+
+    function lookupSuppliers(oid) {{
+      var btn = document.getElementById('lookup-btn');
+      if (btn) {{ btn.disabled=true; btn.textContent='⏳ Searching...'; }}
+      fetch('/api/order/' + oid + '/lookup-suppliers', {{
+        method: 'POST',
+        headers: {{'Content-Type': 'application/json'}},
+        body: JSON.stringify({{}})
+      }}).then(r => r.json()).then(d => {{
+        if (d.ok) {{
+          var msg = 'Searched ' + d.total + ' items. Updated ' + d.updated + ' with supplier links.';
+          if (d.updated > 0) {{
+            alert(msg);
+            location.reload();
+          }} else {{
+            var detail = '';
+            (d.results||[]).forEach(function(r) {{
+              if (r.search_urls && r.search_urls.length > 0) {{
+                detail += '\\n' + (r.part_number || r.description) + ': ';
+                detail += r.search_urls.map(function(u) {{ return u.supplier; }}).join(', ');
+              }}
+            }});
+            alert(msg + '\\n\\nManual search links available:' + detail);
+          }}
+        }} else {{
+          alert('Error: ' + (d.error||'unknown'));
+        }}
+        if (btn) {{ btn.disabled=false; btn.textContent='🔍 Lookup Suppliers'; }}
+      }}).catch(function(e) {{
+        alert('Error: ' + e);
+        if (btn) {{ btn.disabled=false; btn.textContent='🔍 Lookup Suppliers'; }}
+      }});
     }}
     </script>
     """
@@ -3172,6 +3206,141 @@ def api_order_invoice_pdf_download(oid):
     if not pdf_path or not os.path.exists(pdf_path):
         return "Invoice PDF not generated yet", 404
     return send_file(pdf_path, as_attachment=True, download_name=os.path.basename(pdf_path))
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Supplier Link Auto-Lookup (#6) — search Amazon/Grainger/Uline by part#
+# ═══════════════════════════════════════════════════════════════════════
+
+def _build_supplier_urls(part_number: str, description: str = "") -> list:
+    """Build direct search URLs for major suppliers from a part number or description."""
+    urls = []
+    query = part_number or description[:60]
+    if not query:
+        return urls
+    from urllib.parse import quote_plus
+    q = quote_plus(query)
+
+    # Amazon — ASIN shortcut or search
+    if part_number and (part_number.startswith("B0") or part_number.startswith("b0")):
+        urls.append({"supplier": "Amazon", "url": f"https://www.amazon.com/dp/{part_number}", "type": "direct"})
+    else:
+        urls.append({"supplier": "Amazon", "url": f"https://www.amazon.com/s?k={q}", "type": "search"})
+
+    # Grainger
+    urls.append({"supplier": "Grainger", "url": f"https://www.grainger.com/search?searchQuery={q}", "type": "search"})
+    # Uline
+    urls.append({"supplier": "Uline", "url": f"https://www.uline.com/BL/Search?keywords={q}", "type": "search"})
+    # Staples
+    urls.append({"supplier": "Staples", "url": f"https://www.staples.com/search?query={q}", "type": "search"})
+    # Global Industrial
+    urls.append({"supplier": "Global Industrial", "url": f"https://www.globalindustrial.com/g/search?q={q}", "type": "search"})
+
+    return urls
+
+
+@bp.route("/api/order/<oid>/lookup-suppliers", methods=["POST"])
+@auth_required
+def api_order_lookup_suppliers(oid):
+    """Auto-lookup supplier links + prices for all line items with part numbers.
+    POST: {line_id: 'L001'} for single item, or {} for all items.
+    Uses product_research.research_product() for Amazon SerpApi lookup.
+    """
+    orders = _load_orders()
+    order = orders.get(oid)
+    if not order:
+        return jsonify({"ok": False, "error": "Order not found"})
+
+    data = request.get_json(silent=True) or {}
+    target_lid = data.get("line_id", "")  # empty = all items
+
+    results = []
+    updated = 0
+
+    for it in order.get("line_items", []):
+        lid = it.get("line_id", "")
+        if target_lid and lid != target_lid:
+            continue
+
+        pn = it.get("part_number", "")
+        desc = it.get("description", "")
+        if not pn and not desc:
+            continue
+
+        # Already has supplier link? Skip unless forced
+        if it.get("supplier_url") and not data.get("force"):
+            results.append({"line_id": lid, "status": "already_linked", "supplier_url": it["supplier_url"]})
+            continue
+
+        # Try research_product for Amazon SerpApi lookup
+        item_result = {"line_id": lid, "part_number": pn, "description": desc[:60]}
+        try:
+            from src.agents.product_research import research_product
+            research = research_product(item_number=pn, description=desc)
+            if research.get("found"):
+                item_result["amazon"] = {
+                    "price": research["price"],
+                    "title": research.get("title", ""),
+                    "url": research.get("url", ""),
+                    "asin": research.get("asin", ""),
+                }
+                # Auto-populate if no supplier set
+                if not it.get("supplier_url"):
+                    it["supplier_url"] = research.get("url", "")
+                    it["supplier"] = "Amazon"
+                if not it.get("cost") and research.get("price"):
+                    it["cost"] = research["price"]
+                    sell = it.get("unit_price", 0) or 0
+                    if sell > 0:
+                        it["margin_pct"] = round((sell - research["price"]) / sell * 100, 1)
+                updated += 1
+                item_result["status"] = "found"
+            else:
+                item_result["status"] = "not_found"
+        except Exception as e:
+            item_result["status"] = "error"
+            item_result["error"] = str(e)[:100]
+            log.debug("Supplier lookup error for %s: %s", pn or desc[:30], e)
+
+        # Always add search URLs as fallback
+        item_result["search_urls"] = _build_supplier_urls(pn, desc)
+        results.append(item_result)
+
+    if updated > 0:
+        order["updated_at"] = datetime.now().isoformat()
+        orders[oid] = order
+        _save_orders(orders)
+
+    return jsonify({"ok": True, "results": results, "updated": updated, "total": len(results)})
+
+
+@bp.route("/api/supplier/search")
+@auth_required
+def api_supplier_search():
+    """Quick supplier URL lookup for a part number or description. GET: ?q=B0xxx or ?q=nitrile+gloves"""
+    query = request.args.get("q", "").strip()
+    if not query:
+        return jsonify({"ok": False, "error": "?q= parameter required"})
+
+    urls = _build_supplier_urls(query)
+
+    # Also try Amazon API if available
+    amazon_result = None
+    try:
+        from src.agents.product_research import research_product
+        research = research_product(item_number=query, description=query)
+        if research.get("found"):
+            amazon_result = {
+                "price": research["price"],
+                "title": research.get("title", ""),
+                "url": research.get("url", ""),
+                "asin": research.get("asin", ""),
+                "source": research.get("source", ""),
+            }
+    except Exception:
+        pass
+
+    return jsonify({"ok": True, "query": query, "search_urls": urls, "amazon": amazon_result})
 
 
 @bp.route("/api/order/<oid>/delete", methods=["POST"])
