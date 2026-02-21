@@ -254,6 +254,13 @@ def _load_price_checks():
     path = os.path.join(DATA_DIR, "price_checks.json")
     if os.path.exists(path):
         try:
+            import fcntl
+            with open(path) as f:
+                fcntl.flock(f.fileno(), fcntl.LOCK_SH)
+                data = json.load(f)
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                return data
+        except ImportError:
             with open(path) as f:
                 return json.load(f)
         except Exception as e:
@@ -264,8 +271,17 @@ def _load_price_checks():
 
 def _save_price_checks(pcs):
     path = os.path.join(DATA_DIR, "price_checks.json")
-    with open(path, "w") as f:
-        json.dump(pcs, f, indent=2, default=str)
+    try:
+        import fcntl
+        with open(path, "w") as f:
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            json.dump(pcs, f, indent=2, default=str)
+            f.flush()
+            os.fsync(f.fileno())
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+    except ImportError:
+        with open(path, "w") as f:
+            json.dump(pcs, f, indent=2, default=str)
 
 
 @bp.route("/rfq/<rid>")

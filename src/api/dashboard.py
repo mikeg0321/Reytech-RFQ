@@ -654,6 +654,13 @@ def _load_price_checks():
     path = os.path.join(DATA_DIR, "price_checks.json")
     if os.path.exists(path):
         try:
+            import fcntl
+            with open(path) as f:
+                fcntl.flock(f.fileno(), fcntl.LOCK_SH)  # shared read lock
+                data = json.load(f)
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                return data
+        except ImportError:
             with open(path) as f:
                 return json.load(f)
         except Exception:
@@ -662,8 +669,42 @@ def _load_price_checks():
 
 def _save_price_checks(pcs):
     path = os.path.join(DATA_DIR, "price_checks.json")
-    with open(path, "w") as f:
-        json.dump(pcs, f, indent=2, default=str)
+    try:
+        import fcntl
+        with open(path, "w") as f:
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)  # exclusive write lock
+            json.dump(pcs, f, indent=2, default=str)
+            f.flush()
+            os.fsync(f.fileno())
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+    except ImportError:
+        with open(path, "w") as f:
+            json.dump(pcs, f, indent=2, default=str)
+
+
+def _merge_save_pc(pc_id: str, pc_data: dict):
+    """Atomic read-modify-write: loads latest PCs, adds/updates one, saves.
+    Prevents race conditions where background threads overwrite each other."""
+    path = os.path.join(DATA_DIR, "price_checks.json")
+    try:
+        import fcntl
+        # Open for read+write, create if needed
+        fd = os.open(path, os.O_RDWR | os.O_CREAT)
+        with os.fdopen(fd, "r+") as f:
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            content = f.read()
+            pcs = json.loads(content) if content.strip() else {}
+            pcs[pc_id] = pc_data
+            f.seek(0)
+            f.truncate()
+            json.dump(pcs, f, indent=2, default=str)
+            f.flush()
+            os.fsync(f.fileno())
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+    except ImportError:
+        pcs = _load_price_checks()
+        pcs[pc_id] = pc_data
+        _save_price_checks(pcs)
 
 
 def _is_user_facing_pc(pc: dict) -> bool:
@@ -1283,16 +1324,15 @@ def _auto_price_pipeline(rfq_data: dict):
         "created_at": datetime.now().isoformat(),
         "revision_of": revision_of,
     }
-    pcs[pc_id] = pc
-    _save_price_checks(pcs)
+    # Use atomic merge-save to avoid overwriting PCs created by other threads
+    _merge_save_pc(pc_id, pc)
 
     # Step 3: Run SCPRS + Amazon price lookup
     try:
         from src.forms.price_check import lookup_prices
         pc = lookup_prices(pc)
         pc["status"] = "priced"
-        pcs[pc_id] = pc
-        _save_price_checks(pcs)
+        _merge_save_pc(pc_id, pc)
         priced = sum(1 for it in pc.get("items", []) if it.get("pricing", {}).get("recommended_price"))
         t.step("Prices looked up", priced=priced, total=len(pc_items))
         log.info("[AutoPrice] Prices found: %d/%d items", priced, len(pc_items))
@@ -1307,8 +1347,7 @@ def _auto_price_pipeline(rfq_data: dict):
         suggestions = get_price_suggestions(pc_items, pc.get("institution", ""))
         if suggestions:
             pc["price_suggestions"] = suggestions
-            pcs[pc_id] = pc
-            _save_price_checks(pcs)
+            _merge_save_pc(pc_id, pc)
             log.info("[AutoPrice] %d price suggestions from competitor history", len(suggestions))
     except Exception:
         pass

@@ -995,6 +995,22 @@ def startup() -> dict:
     is_vol = _is_railway_volume()
     log.info("DB ready [volume=%s]: %s", is_vol,
              {k: v for k, v in stats.items() if k not in ("db_path", "db_size_kb")})
+    
+    # ── PC persistence diagnostic ──
+    pc_path = os.path.join(DATA_DIR, "price_checks.json")
+    pc_count = 0
+    try:
+        if os.path.exists(pc_path):
+            with open(pc_path) as _f:
+                _pcs = json.load(_f)
+                pc_count = len(_pcs) if isinstance(_pcs, dict) else 0
+            log.info("BOOT PC CHECK: %d price checks in %s (size=%d bytes)",
+                     pc_count, pc_path, os.path.getsize(pc_path))
+        else:
+            log.warning("BOOT PC CHECK: price_checks.json NOT FOUND at %s", pc_path)
+    except Exception as e:
+        log.warning("BOOT PC CHECK: error reading price_checks.json: %s", e)
+    
     return {"ok": True, "db_path": DB_PATH, "stats": stats, "is_volume": is_vol}
 
 

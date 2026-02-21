@@ -1171,6 +1171,48 @@ def api_debug_paths():
     return jsonify(results)
 
 
+@bp.route("/api/debug/pcs")
+@auth_required
+def api_debug_pcs():
+    """Debug: show price_checks.json state for persistence troubleshooting."""
+    pc_path = os.path.join(DATA_DIR, "price_checks.json")
+    result = {
+        "data_dir": DATA_DIR,
+        "pc_path": pc_path,
+        "pc_file_exists": os.path.exists(pc_path),
+    }
+    if os.path.exists(pc_path):
+        result["pc_file_size"] = os.path.getsize(pc_path)
+        result["pc_file_mtime"] = os.path.getmtime(pc_path)
+        try:
+            pcs = _load_price_checks()
+            result["pc_count"] = len(pcs)
+            result["pc_ids"] = list(pcs.keys())[:20]
+            result["pc_statuses"] = {pid: pc.get("status", "?") for pid, pc in list(pcs.items())[:20]}
+            # Check user-facing filter
+            from src.api.dashboard import _is_user_facing_pc
+            user_facing = {pid: pc for pid, pc in pcs.items() if _is_user_facing_pc(pc)}
+            result["user_facing_count"] = len(user_facing)
+            result["filtered_out"] = len(pcs) - len(user_facing)
+            if result["filtered_out"] > 0:
+                filtered = {pid: {"status": pc.get("status"), "source": pc.get("source"), 
+                                  "is_auto_draft": pc.get("is_auto_draft"), "rfq_id": pc.get("rfq_id")}
+                            for pid, pc in pcs.items() if not _is_user_facing_pc(pc)}
+                result["filtered_details"] = filtered
+        except Exception as e:
+            result["error"] = str(e)
+    else:
+        result["pc_count"] = 0
+        result["note"] = "price_checks.json does not exist!"
+    # Also check volume status
+    try:
+        from src.core.paths import _USING_VOLUME
+        result["using_volume"] = _USING_VOLUME
+    except Exception:
+        pass
+    return jsonify(result)
+
+
 @bp.route("/api/won-quotes/migrate")
 @auth_required
 def api_won_quotes_migrate():
