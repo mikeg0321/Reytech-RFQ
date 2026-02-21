@@ -1736,20 +1736,13 @@ SB/DVBE Cert #2002605"""
 
 def send_po_confirmation_reply(msg_obj, po_number: str, gmail_addr: str = "", gmail_pwd: str = ""):
     """
-    Reply-All to a PO email with order confirmation.
+    Draft a Reply-All PO confirmation email → saved to outbox for review.
+    Mike verifies PO number, then sends from /agents outbox.
     
     Args:
         msg_obj: The original email.message.Message object
         po_number: Extracted PO number (or 'your recent purchase order')
-        gmail_addr: GMAIL_ADDRESS (falls back to env var)
-        gmail_pwd: GMAIL_PASSWORD (falls back to env var)
     """
-    gmail = gmail_addr or os.environ.get("GMAIL_ADDRESS", "")
-    pwd = gmail_pwd or os.environ.get("GMAIL_PASSWORD", "")
-    if not gmail or not pwd:
-        log.info("PO confirmation reply skipped — GMAIL not configured")
-        return False
-    
     # Build reply-all recipients
     original_from = msg_obj.get("From", "")
     original_to = msg_obj.get("To", "")
@@ -1803,7 +1796,9 @@ sales@reytechinc.com"""
     if original_message_id:
         references = f"{references} {original_message_id}".strip()
     
+    # Save as DRAFT to outbox — Mike reviews PO# then sends
     draft = {
+        "id": f"po_confirm_{po_number or 'unknown'}_{datetime.now().strftime('%Y%m%d%H%M%S')}",
         "to": primary_to,
         "cc": ", ".join(cc_addrs),
         "subject": reply_subject,
@@ -1811,29 +1806,28 @@ sales@reytechinc.com"""
         "in_reply_to": original_message_id,
         "references": references,
         "attachments": [],
+        "status": "draft",
+        "source": "po_auto_confirm",
+        "po_number": po_number or "",
+        "created_at": datetime.now().isoformat(),
+        "priority": "high",
     }
     
     try:
-        sender = EmailSender({"email": gmail, "email_password": pwd})
-        sender.send(draft)
-        log.info("✅ PO confirmation reply-all sent: to=%s cc=%s po=%s",
-                 primary_to, cc_addrs[:3], po_number)
-        
-        # Log to email_log
+        from src.core.paths import DATA_DIR
+        outbox_path = os.path.join(DATA_DIR, "email_outbox.json")
         try:
-            from src.core.db_dal import log_email
-            log_email(
-                direction="sent",
-                sender=gmail,
-                recipient=primary_to,
-                subject=reply_subject,
-                body_preview=reply_body[:200],
-                status="sent",
-            )
-        except Exception:
-            pass
+            with open(outbox_path) as f:
+                outbox = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            outbox = []
+        outbox.append(draft)
+        with open(outbox_path, "w") as f:
+            json.dump(outbox, f, indent=2, default=str)
         
+        log.info("📝 PO confirmation DRAFT saved: to=%s cc=%s po=%s — review in /agents outbox",
+                 primary_to, cc_addrs[:3], po_number)
         return True
     except Exception as e:
-        log.error("PO confirmation reply-all failed: %s", e)
+        log.error("PO confirmation draft save failed: %s", e)
         return False
