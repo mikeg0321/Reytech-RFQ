@@ -1,5 +1,18 @@
 # routes_intel.py
 
+# ── Security middleware ──────────────────────────────────────────────────────
+try:
+    from src.core.security import rate_limit, audit_action, _log_audit_internal
+    _HAS_SECURITY = True
+except ImportError:
+    _HAS_SECURITY = False
+    def rate_limit(tier="default"):
+        def decorator(f): return f
+        return decorator
+    def audit_action(name):
+        def decorator(f): return f
+        return decorator
+
 # ── JSON→SQLite compatibility (Phase 32c migration) ──────────────────────────
 try:
     from src.core.db import (
@@ -2856,6 +2869,8 @@ def _render_order_detail(order, oid):
 
 @bp.route("/api/order/create", methods=["POST"])
 @auth_required
+@rate_limit("api")
+@audit_action("order_create")
 def api_order_create():
     """Create a new order manually (for POs received outside the system).
     POST JSON: {po_number, agency, institution, total, items: [{description, qty, unit_price, part_number, supplier, supplier_url}]}
@@ -3181,6 +3196,7 @@ def api_order_invoice(oid):
 
 @bp.route("/api/order/<oid>/invoice-pdf", methods=["POST"])
 @auth_required
+@rate_limit("heavy")
 def api_order_invoice_pdf(oid):
     """Generate a branded invoice PDF from order's draft_invoice data.
     Returns the PDF download URL."""
@@ -3264,6 +3280,7 @@ def _build_supplier_urls(part_number: str, description: str = "") -> list:
 
 @bp.route("/api/order/<oid>/lookup-suppliers", methods=["POST"])
 @auth_required
+@rate_limit("heavy")
 def api_order_lookup_suppliers(oid):
     """Auto-lookup supplier links + prices for all line items with part numbers.
     POST: {line_id: 'L001'} for single item, or {} for all items.
@@ -10591,6 +10608,89 @@ def payments_page():
     </script>
     """
     return render(content, title="Payments")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Audit Trail UI (#16)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@bp.route("/audit")
+@auth_required
+def audit_trail_page():
+    """Audit trail dashboard — every admin action logged."""
+    entries = []
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS audit_trail (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    details TEXT,
+                    ip_address TEXT,
+                    user_agent TEXT,
+                    metadata TEXT
+                )
+            """)
+            rows = conn.execute(
+                "SELECT * FROM audit_trail ORDER BY timestamp DESC LIMIT 200"
+            ).fetchall()
+            entries = [dict(r) for r in rows]
+    except Exception:
+        pass
+
+    # Group by action type for stats
+    action_counts = {}
+    for e in entries:
+        a = e.get("action", "unknown")
+        action_counts[a] = action_counts.get(a, 0) + 1
+
+    action_chips = " ".join(
+        f'<span style="background:var(--sf2);border:1px solid var(--bd);border-radius:6px;padding:4px 10px;font-size:11px">{a}: <b>{n}</b></span>'
+        for a, n in sorted(action_counts.items(), key=lambda x: -x[1])[:12]
+    )
+
+    rows_html = ""
+    action_colors = {
+        "order_create": "var(--gn)", "order_linked": "var(--ac)", "order_deleted": "var(--rn)",
+        "payment_received": "var(--gn)", "quote_sent": "var(--ac)", "email_sent": "var(--ac)",
+        "login": "var(--yl)", "rate_limited": "var(--rn)", "csrf_failed": "var(--rn)",
+    }
+    for e in entries[:100]:
+        ts = e.get("timestamp", "")[:19].replace("T", " ")
+        action = e.get("action", "")
+        color = action_colors.get(action, "var(--tx2)")
+        ip = e.get("ip_address", "")
+        details = (e.get("details", "") or "")[:80]
+        rows_html += f"""<tr>
+         <td style="font-size:11px;font-family:monospace;color:var(--tx2)">{ts}</td>
+         <td style="font-weight:600;color:{color};font-size:12px">{action}</td>
+         <td style="font-size:11px">{details}</td>
+         <td style="font-size:10px;color:var(--tx2);font-family:monospace">{ip}</td>
+        </tr>"""
+
+    content = f"""
+    <h2 style="margin-bottom:4px">📋 Audit Trail</h2>
+    <p style="font-size:13px;color:var(--tx2);margin-bottom:16px">Every admin action logged with timestamp and IP — last 200 entries</p>
+    <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+      <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
+        <div style="font-size:28px;font-weight:800;color:var(--ac)">{len(entries)}</div>
+        <div style="font-size:10px;color:var(--tx2)">TOTAL EVENTS</div></div>
+      <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
+        <div style="font-size:28px;font-weight:800;color:var(--yl)">{len(action_counts)}</div>
+        <div style="font-size:10px;color:var(--tx2)">ACTION TYPES</div></div>
+    </div>
+    <div style="margin-bottom:12px;display:flex;flex-wrap:wrap;gap:6px">{action_chips}</div>
+    <div class="card" style="overflow-x:auto">
+     <table class="home-tbl" style="min-width:700px">
+      <thead><tr><th>Timestamp</th><th>Action</th><th>Details</th><th>IP</th></tr></thead>
+      <tbody>{rows_html or '<tr><td colspan="4" style="text-align:center;color:var(--tx2);padding:20px">Audit trail populates as actions are performed</td></tr>'}</tbody>
+     </table>
+    </div>
+    <p style="font-size:11px;color:var(--tx2);margin-top:8px">API: <a href="/api/audit" style="color:var(--ac)">/api/audit</a> — JSON feed of last 100 audit events</p>
+    """
+    return render(content, title="Audit Trail")
 
 
 # Start polling on import (for gunicorn) and on direct run

@@ -54,6 +54,13 @@ def create_app():
     from src.api.dashboard import bp, start_polling
     app.register_blueprint(bp)
 
+    # ── Security middleware (rate limiting, CSRF, headers) ──────────
+    try:
+        from src.core.security import init_security
+        init_security(app)
+    except Exception as e:
+        logging.getLogger("reytech").warning("Security init skipped: %s", e)
+
     # ── Runtime self-test — catches path/route/data bugs at boot ──────────
     try:
         from src.core.startup_checks import run_startup_checks
