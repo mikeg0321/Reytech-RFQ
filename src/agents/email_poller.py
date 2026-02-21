@@ -1481,11 +1481,18 @@ class EmailPoller:
                         except Exception:
                             pass
                         
-                        # Auto reply-all: confirm PO receipt
+                        # Auto reply-all: queue for batch confirmation at end of poll cycle
                         try:
-                            send_po_confirmation_reply(msg, po_number)
+                            if not hasattr(self, '_po_confirm_queue'):
+                                self._po_confirm_queue = []
+                            self._po_confirm_queue.append({
+                                "msg": msg,
+                                "po_number": po_number,
+                                "sender": po_detect.get("sender_email", ""),
+                                "quote": matched_quote or "",
+                            })
                         except Exception as _rpe:
-                            log.debug("PO confirmation reply error: %s", _rpe)
+                            log.debug("PO confirmation queue error: %s", _rpe)
                         
                         self._processed.add(uid)
                         self._diag.setdefault("po_received", 0)
@@ -1757,6 +1764,30 @@ class EmailPoller:
                     continue
 
             self._save_processed()
+            
+            # ── Batch PO confirmations (#9) ──────────────────────────────
+            # Send one confirmation per sender covering all POs received
+            try:
+                queue = getattr(self, '_po_confirm_queue', [])
+                if queue:
+                    # Group by sender
+                    by_sender = {}
+                    for item in queue:
+                        sender = item["sender"]
+                        by_sender.setdefault(sender, []).append(item)
+                    
+                    for sender, items in by_sender.items():
+                        if len(items) == 1:
+                            # Single PO — use normal confirmation
+                            send_po_confirmation_reply(items[0]["msg"], items[0]["po_number"])
+                        else:
+                            # Multiple POs — send batch confirmation
+                            _send_batch_po_confirmation(items)
+                    
+                    log.info("PO confirmations sent: %d POs across %d senders", len(queue), len(by_sender))
+                    self._po_confirm_queue = []
+            except Exception as _bpe:
+                log.error("Batch PO confirmation error: %s", _bpe)
             
         except imaplib.IMAP4.abort:
             log.warning("IMAP connection aborted — will reconnect next cycle")
@@ -2104,3 +2135,117 @@ sales@reytechinc.com"""
     except Exception as e:
         log.error("PO confirmation draft save failed: %s", e)
         return False
+
+
+def _send_batch_po_confirmation(items: list):
+    """Send a single batch confirmation for multiple POs from the same sender.
+    
+    Items is a list of dicts: [{msg, po_number, sender, quote}, ...]
+    Creates one outbox draft covering all POs.
+    """
+    if not items:
+        return
+    
+    # Use the first message for threading headers
+    first_msg = items[0]["msg"]
+    original_from = first_msg.get("From", "")
+    original_to = first_msg.get("To", "")
+    original_cc = first_msg.get("Cc", "")
+    original_message_id = first_msg.get("Message-ID", "")
+    original_references = first_msg.get("References", "")
+    original_subject = first_msg.get("Subject", "")
+    
+    import re as _re
+    all_addrs = set()
+    for item in items:
+        msg = item["msg"]
+        for field in [msg.get("From", ""), msg.get("To", ""), msg.get("Cc", "")]:
+            if field:
+                found = _re.findall(r'[\w.+-]+@[\w-]+\.[\w.-]+', field)
+                all_addrs.update(a.lower() for a in found)
+    
+    our_domains = ["reytechinc.com", "reytech.com"]
+    all_addrs = {a for a in all_addrs if not any(a.endswith(f"@{d}") for d in our_domains)}
+    
+    if not all_addrs:
+        return
+    
+    from_email = _re.findall(r'[\w.+-]+@[\w-]+\.[\w.-]+', original_from)
+    primary_to = from_email[0] if from_email else list(all_addrs)[0]
+    cc_addrs = [a for a in all_addrs if a != primary_to]
+    
+    # Build batch PO list
+    po_list = []
+    for item in items:
+        pn = item["po_number"]
+        qn = item.get("quote", "")
+        po_list.append(f"PO {pn}" + (f" (Quote {qn})" if qn else ""))
+    
+    po_display = ", ".join(po_list)
+    
+    reply_subject = original_subject
+    if not reply_subject.lower().startswith("re:"):
+        reply_subject = f"Re: {reply_subject}"
+    if len(items) > 1:
+        reply_subject = f"Re: Purchase Order Confirmation — {len(items)} POs"
+    
+    reply_body = f"""Hello,
+
+This email confirms receipt of the following purchase orders:
+
+"""
+    for item in items:
+        pn = item["po_number"]
+        qn = item.get("quote", "")
+        reply_body += f"  • {pn}" + (f" (Quote {qn})" if qn else "") + "\n"
+    
+    reply_body += """
+We will begin processing these orders immediately. Should you have any further questions or need assistance, please let us know."""
+
+    # Generate HTML version with signature
+    try:
+        from src.core.email_signature import wrap_html_email, get_plain_signature
+        reply_body_html = wrap_html_email(reply_body)
+        reply_body += "\n\n" + get_plain_signature()
+    except ImportError:
+        reply_body_html = ""
+        reply_body += "\n\nRespectfully,\n\nMichael Guadan\nReytech Inc.\n949-229-1575\nsales@reytechinc.com"
+    
+    references = original_references or ""
+    if original_message_id:
+        references = f"{references} {original_message_id}".strip()
+    
+    all_pos = ", ".join(item["po_number"] for item in items)
+    draft = {
+        "id": f"po_batch_{len(items)}_{datetime.now().strftime('%Y%m%d%H%M%S')}",
+        "to": primary_to,
+        "cc": ", ".join(cc_addrs),
+        "subject": reply_subject,
+        "body": reply_body,
+        "body_html": reply_body_html,
+        "in_reply_to": original_message_id,
+        "references": references,
+        "attachments": [],
+        "status": "draft",
+        "source": "po_batch_confirm",
+        "po_number": all_pos,
+        "created_at": datetime.now().isoformat(),
+        "priority": "high",
+    }
+    
+    try:
+        from src.core.paths import DATA_DIR
+        outbox_path = os.path.join(DATA_DIR, "email_outbox.json")
+        try:
+            with open(outbox_path) as f:
+                outbox = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            outbox = []
+        outbox.append(draft)
+        with open(outbox_path, "w") as f:
+            json.dump(outbox, f, indent=2, default=str)
+        
+        log.info("📝 BATCH PO confirmation DRAFT saved: %d POs to=%s — %s",
+                 len(items), primary_to, all_pos)
+    except Exception as e:
+        log.error("Batch PO confirmation save failed: %s", e)
