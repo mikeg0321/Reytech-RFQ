@@ -1407,16 +1407,40 @@ class EmailPoller:
                             except Exception as _oe:
                                 log.error("Order creation from PO email failed: %s", _oe)
                             
-                            # 5. Update pricing intelligence
+                            # 5. Update pricing intelligence — BOTH price_history AND product catalog
                             try:
                                 from src.core.db_dal import record_price
                                 for it in po_items:
                                     desc = it.get("description", "")
-                                    up = it.get("unit_price", 0)
+                                    pn = it.get("part_number", "") or it.get("manufacturer_part", "")
+                                    up = it.get("unit_price", 0) or it.get("price", 0)
+                                    qty = it.get("qty", 0) or it.get("quantity", 0)
                                     if desc and up:
-                                        record_price(desc, up, source="po_won", quote_number=matched_quote or po_number or "")
+                                        record_price(desc, up, source="po_won",
+                                                     part_number=pn,
+                                                     quantity=qty,
+                                                     agency=po_agency,
+                                                     quote_number=matched_quote or po_number or "")
                             except Exception:
                                 pass
+                            
+                            # 5b. Update product catalog won prices
+                            try:
+                                from src.agents.product_catalog import record_won_price
+                                for it in po_items:
+                                    desc = it.get("description", "")
+                                    up = it.get("unit_price", 0) or it.get("price", 0)
+                                    if desc and up:
+                                        record_won_price(
+                                            product_name=desc,
+                                            price=up,
+                                            agency=po_agency,
+                                            institution=po_institution,
+                                            quote_number=matched_quote or po_number or "",
+                                        )
+                                log.info("Pricing intelligence updated for %d items", len([i for i in po_items if i.get("unit_price") or i.get("price")]))
+                            except Exception as _pe2:
+                                log.debug("Catalog pricing update: %s", _pe2)
                                 
                         except Exception as _pe:
                             log.error("PO processing error: %s", _pe)

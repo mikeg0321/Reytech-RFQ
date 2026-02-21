@@ -1597,6 +1597,11 @@ def _create_order_from_quote(qt: dict, po_number: str = "") -> dict:
 def _create_order_from_po_email(po_data: dict) -> dict:
     """Create an order from an inbound PO email (may not have a matching quote).
     
+    When a quote is matched:
+    - Auto-populates line items from quote (with sell prices, suppliers already set)
+    - Merges PO items with quote items for maximum data
+    - Records pricing intelligence for future quoting
+    
     po_data keys: po_number, sender_email, subject, sol_number,
                   items (list of dicts), total, agency, institution,
                   po_pdf_path, matched_quote
@@ -1605,19 +1610,58 @@ def _create_order_from_po_email(po_data: dict) -> dict:
     po_num = po_data.get("po_number", "")
     oid = f"ORD-{qn}" if qn else f"ORD-PO-{po_num or datetime.now().strftime('%Y%m%d%H%M%S')}"
 
-    # Build line items from PO data or matched quote
+    # ── Quote → Order auto-link: enrich from matched quote ──
+    quote_items = []
+    quote_data = {}
+    if qn:
+        try:
+            import json as _json
+            with open(os.path.join(DATA_DIR, "quotes_log.json")) as _qf:
+                for q in _json.load(_qf):
+                    if q.get("quote_number") == qn:
+                        quote_data = q
+                        quote_items = q.get("items_detail", q.get("items", []))
+                        break
+        except Exception:
+            pass
+
+    # Build line items — prefer PO data, enrich from quote
+    po_items = po_data.get("items", [])
     line_items = []
-    for i, it in enumerate(po_data.get("items", [])):
-        pn = it.get("part_number", "") or it.get("manufacturer_part", "")
-        desc = it.get("description", "") or it.get("item_description", "")
+    
+    # If PO has items, use those as base and enrich from quote
+    source_items = po_items if po_items else quote_items
+    for i, it in enumerate(source_items):
+        pn = it.get("part_number", "") or it.get("manufacturer_part", "") or it.get("sku", "")
+        desc = it.get("description", "") or it.get("item_description", "") or it.get("name", "")
         qty = it.get("qty", 0) or it.get("quantity", 0)
-        up = it.get("unit_price", 0) or it.get("price", 0)
-        supplier_url = ""
-        supplier = ""
+        up = it.get("unit_price", 0) or it.get("price", 0) or it.get("our_price", 0)
+        supplier_url = it.get("supplier_url", "")
+        supplier = it.get("supplier", "")
+        cost = it.get("cost", 0) or it.get("supplier_price", 0)
+        
+        # Try to match to quote item for enrichment
+        if qn and quote_items and not cost:
+            for qi in quote_items:
+                qi_desc = qi.get("description", "") or qi.get("name", "")
+                qi_pn = qi.get("part_number", "") or qi.get("sku", "")
+                if (pn and qi_pn and pn.lower() == qi_pn.lower()) or \
+                   (desc and qi_desc and desc.lower()[:30] == qi_desc.lower()[:30]):
+                    cost = qi.get("cost", 0) or qi.get("supplier_price", 0)
+                    if not supplier:
+                        supplier = qi.get("supplier", "")
+                    if not supplier_url:
+                        supplier_url = qi.get("supplier_url", "") or qi.get("url", "")
+                    if not up:
+                        up = qi.get("our_price", 0) or qi.get("unit_price", 0)
+                    break
+
         # Auto-detect Amazon ASINs
-        if pn and (pn.startswith("B0") or pn.startswith("b0")):
+        if pn and (pn.startswith("B0") or pn.startswith("b0")) and not supplier_url:
             supplier_url = f"https://amazon.com/dp/{pn}"
-            supplier = "Amazon"
+            supplier = supplier or "Amazon"
+
+        margin = round((up - cost) / up * 100, 1) if up and cost and up > 0 else 0
 
         line_items.append({
             "line_id": f"L{i+1:03d}",
@@ -1626,6 +1670,8 @@ def _create_order_from_po_email(po_data: dict) -> dict:
             "qty": qty,
             "unit_price": up,
             "extended": round(qty * up, 2),
+            "cost": cost,
+            "margin_pct": margin,
             "supplier": supplier,
             "supplier_url": supplier_url,
             "sourcing_status": "pending",
@@ -1636,9 +1682,8 @@ def _create_order_from_po_email(po_data: dict) -> dict:
             "invoice_status": "pending",
             "invoice_number": "",
             "notes": "",
-            # ── QB mapping ──
-            "qb_item_id": "",           # QB ItemRef.value
-            "qb_item_name": "",         # QB ItemRef.name
+            "qb_item_id": "",
+            "qb_item_name": "",
         })
 
     total = po_data.get("total", 0) or sum(it.get("extended", 0) for it in line_items)
@@ -1647,10 +1692,10 @@ def _create_order_from_po_email(po_data: dict) -> dict:
         "order_id": oid,
         "quote_number": qn,
         "po_number": po_num,
-        "agency": po_data.get("agency", ""),
-        "institution": po_data.get("institution", ""),
-        "ship_to_name": po_data.get("institution", ""),
-        "ship_to_address": [],
+        "agency": po_data.get("agency", "") or quote_data.get("agency", ""),
+        "institution": po_data.get("institution", "") or quote_data.get("institution", ""),
+        "ship_to_name": po_data.get("institution", "") or quote_data.get("ship_to_name", "") or quote_data.get("institution", ""),
+        "ship_to_address": quote_data.get("ship_to_address", []),
         "total": total,
         "subtotal": total,
         "tax": 0,
@@ -1662,12 +1707,13 @@ def _create_order_from_po_email(po_data: dict) -> dict:
         "source": "email_po",
         "po_pdf": po_data.get("po_pdf_path", ""),
         "sender_email": po_data.get("sender_email", ""),
+        "buyer_name": quote_data.get("requestor_name", "") or quote_data.get("buyer_name", ""),
+        "buyer_email": quote_data.get("requestor_email", "") or po_data.get("sender_email", ""),
         "created_at": datetime.now().isoformat(),
         "updated_at": datetime.now().isoformat(),
         "status_history": [{"status": "new", "timestamp": datetime.now().isoformat(), "actor": "email_auto"}],
-        # ── QuickBooks mapping (populated when QB connected) ──
-        "qb_customer_id": "",       # QB CustomerRef.value
-        "qb_invoice_id": "",        # Set after invoice pushed to QB
+        "qb_customer_id": "",
+        "qb_invoice_id": "",
     }
 
     orders = _load_orders()
@@ -1679,7 +1725,6 @@ def _create_order_from_po_email(po_data: dict) -> dict:
                 log.info("Order for PO %s already exists (%s), skipping creation", po_num, existing_oid)
                 return existing_order
     
-    # Don't overwrite existing order by ID either
     if oid in orders:
         log.info("Order %s already exists, skipping creation", oid)
         return orders[oid]
@@ -1687,10 +1732,10 @@ def _create_order_from_po_email(po_data: dict) -> dict:
     orders[oid] = order
     _save_orders(orders)
     _log_crm_activity(qn or po_num, "order_created",
-                      f"Order {oid} created from PO email — PO#{po_num} · ${total:,.2f}",
-                      actor="system", metadata={"order_id": oid, "po_number": po_num, "source": "email_po"})
-    log.info("Order %s created from PO email (quote=%s, po=%s, items=%d, total=$%.2f)",
-             oid, qn, po_num, len(line_items), total)
+                      f"Order {oid} created from PO email — PO#{po_num} · ${total:,.2f}" + (f" · Linked to quote {qn}" if qn else ""),
+                      actor="system", metadata={"order_id": oid, "po_number": po_num, "source": "email_po", "quote_linked": qn})
+    log.info("Order %s created from PO email (quote=%s, po=%s, items=%d, total=$%.2f, costs=%d)",
+             oid, qn, po_num, len(line_items), total, sum(1 for it in line_items if it.get("cost")))
     return order
 
 def _update_order_status(oid: str):
