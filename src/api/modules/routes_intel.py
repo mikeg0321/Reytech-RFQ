@@ -2502,7 +2502,7 @@ def order_detail(oid):
     """
 
     # Draft Invoice section (auto-generated when all items delivered)
-    draft_inv = order.get("draft_invoice", {{}})
+    draft_inv = order.get("draft_invoice", {})
     if draft_inv:
         inv_items_rows = ""
         for di in draft_inv.get("items", []):
