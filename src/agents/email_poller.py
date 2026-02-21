@@ -123,7 +123,7 @@ def _parse_po_pdf(pdf_path: str) -> dict:
     except Exception as e:
         log.error("pypdf extraction failed: %s", e)
     
-    # Fallback: pdftotext (system binary, if available)
+    # Fallback: pdftotext (poppler, if available)
     if not text or len(text.strip()) < 50:
         try:
             import subprocess
@@ -136,6 +136,39 @@ def _parse_po_pdf(pdf_path: str) -> dict:
         except Exception:
             pass
     
+    # OCR fallback: scanned/image PDFs (e.g. "Microsoft Print to PDF" state forms)
+    if not text or len(text.strip()) < 50:
+        try:
+            import subprocess, tempfile, glob
+            with tempfile.TemporaryDirectory() as tmpdir:
+                # Convert PDF pages to images with pdftoppm
+                subprocess.run(
+                    ["pdftoppm", "-r", "300", "-png", pdf_path, os.path.join(tmpdir, "page")],
+                    capture_output=True, timeout=60
+                )
+                page_images = sorted(glob.glob(os.path.join(tmpdir, "page-*.png")))
+                if not page_images:
+                    # Try without -png flag (older pdftoppm)
+                    subprocess.run(
+                        ["pdftoppm", "-r", "300", pdf_path, os.path.join(tmpdir, "page")],
+                        capture_output=True, timeout=60
+                    )
+                    page_images = sorted(glob.glob(os.path.join(tmpdir, "page-*.ppm")))
+                
+                ocr_text = ""
+                for img_path in page_images:
+                    result = subprocess.run(
+                        ["tesseract", img_path, "stdout"],
+                        capture_output=True, text=True, timeout=30
+                    )
+                    ocr_text += result.stdout + "\n"
+                
+                if len(ocr_text.strip()) > len(text.strip()):
+                    text = ocr_text
+                    log.info("PO PDF: OCR extracted %d chars from %d pages", len(text), len(page_images))
+        except Exception as e:
+            log.warning("OCR fallback failed: %s", e)
+    
     if not text or len(text.strip()) < 30:
         log.warning("PO PDF: no text extracted from %s", pdf_path)
         return {}
@@ -145,31 +178,44 @@ def _parse_po_pdf(pdf_path: str) -> dict:
               "ship_to_address": [], "total": 0, "_raw_text": text[:3000]}
     
     # ── Extract PO / Encumbrance Number ──
-    for pat in [
-        r'(?:Purchase\s*Order|P\.?O\.?)\s*(?:Number|No\.?|#)?\s*:?\s*(\d[\w\-]{3,20})',
-        r'(?:PO|STD\s*65)\s*#?\s*:?\s*(\d[\w\-]{3,20})',
-        r'Order\s*(?:Number|No\.?)\s*:?\s*(\d[\w\-]{3,20})',
-        r'Encumbrance\s*(?:Number|No\.?|#)?\s*:?\s*(\d{7,13})',
-        r'Document\s*(?:Number|No\.?|#|ID)\s*:?\s*(\d{7,13})',
-    ]:
-        m = re.search(pat, text, re.IGNORECASE)
-        if m:
-            result["po_number"] = m.group(1)
-            break
+    # STD-65 format: "PURCHASE ORDER NUMBER\n00015 02/19/2026 00000000 4500750017"
+    # The PO number is the last (longest) number on the line after the header
+    po_header = re.search(r'PURCHASE\s*ORDER\s*NUMBER\s*\n([^\n]+)', text, re.IGNORECASE)
+    if po_header:
+        # Find all 7+ digit numbers on that line — PO is typically the longest/last
+        nums = re.findall(r'\b(\d{7,13})\b', po_header.group(1))
+        if nums:
+            result["po_number"] = nums[-1]  # Last long number is the PO
+    
+    if not result["po_number"]:
+        for pat in [
+            r'(?:Purchase\s*Order|P\.?O\.?)\s*(?:Number|No\.?|#)?\s*:?\s*(\d{7,13})',
+            r'(?:PO|STD\s*65)\s*#?\s*:?\s*(\d{7,13})',
+            r'Order\s*(?:Number|No\.?)\s*:?\s*(\d{7,13})',
+            r'Encumbrance\s*(?:Number|No\.?|#)?\s*:?\s*(\d{7,13})',
+            r'Document\s*(?:Number|No\.?|#|ID)\s*:?\s*(\d{7,13})',
+        ]:
+            m = re.search(pat, text, re.IGNORECASE)
+            if m:
+                result["po_number"] = m.group(1)
+                break
     
     # ── Extract Agency / Institution / Ship-To ──
-    for pat in [
-        r'(?:Ship\s*To|Deliver\s*To|Delivery\s*Address)\s*:?\s*\n?\s*([^\n]{5,100})',
-        r'(?:Agency|Department|Dept)\s*:?\s*([A-Z][\w\s&,\-\.]{4,80})',
-        r'((?:California|CA)\s+(?:Department|Dept)\.?\s+(?:of\s+)?[\w\s]+)',
-        r'((?:CSP|CCI|CCWF|CMC|CMF|CRC|CIW|CTF|CHCF|DVI|FSP|HDSP|ISP|KVSP|LAC|MCSP|NKSP|PBSP|RJD|SAC|SCC|SOL|SQ|SVSP|VSP|WSP)[\s\-]+[\w\s]{3,40})',
-    ]:
+    # STD-65: "CA State Prison Sacramento Dept. of Corrections..."
+    # Look for California prison/facility names first
+    inst_patterns = [
+        r'((?:CA|California)\s+State\s+Prison[\w\s,\-]*?)(?:\s+Dept|\s+AGENCY)',
+        r'((?:CSP|CCI|CCWF|CMC|CMF|CRC|CIW|CTF|CHCF|DVI|FSP|HDSP|ISP|KVSP|LAC|MCSP|NKSP|PBSP|RJD|SAC|SCC|SOL|SQ|SVSP|VSP|WSP)\b[\w\s,\-]{3,50}?)(?:\s+Dept|\s+AGENCY|\s+Attn)',
+        r'(?:Ship\s*To|Deliver\s*To)\s*[:\n]\s*([^\n]{5,80})',
+        r'(Correctional\s+(?:Training\s+Facility|Institution|Center)[\w\s,\-]*?)(?:\s+Dept|\s+AGENCY)',
+    ]
+    for pat in inst_patterns:
         m = re.search(pat, text, re.IGNORECASE)
         if m:
-            val = m.group(1).strip()
-            if not result["institution"] and len(val) > 3:
+            val = m.group(1).strip().rstrip(",")
+            if len(val) > 3:
                 result["institution"] = val
-            break
+                break
     
     # Agency abbreviation
     text_low = text.lower()
@@ -183,34 +229,82 @@ def _parse_po_pdf(pdf_path: str) -> dict:
         elif "dsh" in text_low or "state hospital" in text_low:
             result["agency"] = "DSH"
     
-    # Ship-to address: grab 2-3 lines after "Ship To"
-    ship_match = re.search(r'(?:Ship\s*To|Deliver\s*To)\s*:?\s*\n((?:[^\n]+\n){1,4})', text, re.IGNORECASE)
+    # Ship-to address: look for address lines near SHIP TO
+    ship_match = re.search(
+        r'(?:SHIP|Ship\s*To)\s*\n?\s*([^\n]*?(?:Road|Ave|St|Blvd|Dr|Way|Hwy)[^\n]*)\s*\n\s*([^\n]*?(?:CA|California)\s+\d{5}[^\n]*)',
+        text, re.IGNORECASE
+    )
     if ship_match:
-        addr_lines = [l.strip() for l in ship_match.group(1).split("\n") if l.strip()]
-        result["ship_to_address"] = addr_lines[:4]
+        result["ship_to_address"] = [ship_match.group(1).strip(), ship_match.group(2).strip()]
+    elif not result["ship_to_address"]:
+        ship_match2 = re.search(r'(?:Ship\s*To|Deliver\s*To)\s*:?\s*\n((?:[^\n]+\n){1,4})', text, re.IGNORECASE)
+        if ship_match2:
+            addr_lines = [l.strip() for l in ship_match2.group(1).split("\n") if l.strip()]
+            result["ship_to_address"] = addr_lines[:4]
     
     # ── Extract Line Items — multiple strategies ──
     lines = text.split("\n")
     items_found = []
     
-    # Strategy 1: Numbered line items — "1  description  5  EA  $12.50  $62.50"
-    for line in lines:
+    # Strategy 0: California STD-65 PO format (OCR output)
+    # "1 10 EA | 60121702 Pad, Replacement - Fits Stamp R-532 Taxable 13.92 139.20"
+    # Next line often has part number: "R-532-7"
+    for i, line in enumerate(lines):
         m = re.match(
             r'\s*(\d{1,3})\s+'                              # line number
-            r'(.{8,150}?)\s+'                                 # description (greedy-ish)
-            r'(\d+(?:\.\d+)?)\s+'                             # quantity
-            r'(?:ea|each|bx|box|pk|cs|case|bn|pc|set|kit|pr|dz|gal|lb)\.?\s+'  # unit
-            r'\$?([\d,]+\.?\d{0,2})\s*'                       # unit price
-            r'(?:\$?([\d,]+\.?\d{0,2}))?',                    # extended (optional)
+            r'(\d+)\s+'                                      # quantity
+            r'([A-Z]{2,4})\s*'                               # unit (EA, CS, PAC, RL, CAR, BX)
+            r'[|}\]]\s*'                                     # pipe separator (OCR: | } ])
+            r'(\d{5,8})?\s*'                                 # UNSPSC code (optional)
+            r'(.+?)\s+'                                      # description
+            r'(?:Taxable|Non-?Taxable|Tax(?:able)?)\s+'      # tax category
+            r'([\d,]+\.?\d{0,2})\s+'                         # unit price
+            r'([\d,]+\.?\d{0,2})',                           # extension total
             line, re.IGNORECASE
         )
         if m:
+            desc = m.group(5).strip()
+            # Check next line for part number
+            part_number = ""
+            if i + 1 < len(lines):
+                next_line = lines[i + 1].strip()
+                # Part number line: short, no dollar amounts, not a header
+                if (next_line and len(next_line) < 80 
+                    and not re.match(r'\s*\d{1,3}\s+\d+\s+[A-Z]', next_line)
+                    and not re.search(r'(?:Page|STATE|NUMBER|QUANTITY)', next_line, re.IGNORECASE)
+                    and not re.search(r'[\d,]+\.\d{2}\s+[\d,]+\.\d{2}', next_line)):
+                    part_number = next_line.strip()
+                    # Append part info to description if it looks like a part number
+                    if part_number and len(part_number) < 50:
+                        desc = f"{desc} — {part_number}"
+            
             items_found.append({
-                "description": m.group(2).strip(),
-                "qty": int(float(m.group(3))),
-                "unit_price": float(m.group(4).replace(",", "")),
-                "extended": float(m.group(5).replace(",", "")) if m.group(5) else round(int(float(m.group(3))) * float(m.group(4).replace(",", "")), 2),
+                "description": desc,
+                "qty": int(m.group(2)),
+                "unit_price": float(m.group(6).replace(",", "")),
+                "extended": float(m.group(7).replace(",", "")),
+                "part_number": part_number.split(";")[0].strip() if part_number else "",
             })
+    
+    # Strategy 1: Numbered line items — "1  description  5  EA  $12.50  $62.50"
+    if not items_found:
+        for line in lines:
+            m = re.match(
+                r'\s*(\d{1,3})\s+'                              # line number
+                r'(.{8,150}?)\s+'                                 # description (greedy-ish)
+                r'(\d+(?:\.\d+)?)\s+'                             # quantity
+                r'(?:ea|each|bx|box|pk|cs|case|bn|pc|set|kit|pr|dz|gal|lb)\.?\s+'  # unit
+                r'\$?([\d,]+\.?\d{0,2})\s*'                       # unit price
+                r'(?:\$?([\d,]+\.?\d{0,2}))?',                    # extended (optional)
+                line, re.IGNORECASE
+            )
+            if m:
+                items_found.append({
+                    "description": m.group(2).strip(),
+                    "qty": int(float(m.group(3))),
+                    "unit_price": float(m.group(4).replace(",", "")),
+                    "extended": float(m.group(5).replace(",", "")) if m.group(5) else round(int(float(m.group(3))) * float(m.group(4).replace(",", "")), 2),
+                })
     
     # Strategy 2: "qty  unit  description  $price  $ext" (no line number)
     if not items_found:
@@ -284,7 +378,9 @@ def _parse_po_pdf(pdf_path: str) -> dict:
     result["items"] = items_found
     
     # ── Extract Total ──
+    # Prefer GRAND TOTAL (includes tax) over SUBTOTAL
     for pat in [
+        r'GRAND\s*TOTAL\s*\n?\s*\$?\s*([\d,]+\.?\d{0,2})',
         r'(?:Grand\s*)?Total\s*(?:Amount)?\s*:?\s*\$?\s*([\d,]+\.?\d{0,2})',
         r'Amount\s*(?:Due|Payable)\s*:?\s*\$?\s*([\d,]+\.?\d{0,2})',
         r'Total\s*(?:Price|Cost|Value)\s*:?\s*\$?\s*([\d,]+\.?\d{0,2})',
@@ -298,6 +394,17 @@ def _parse_po_pdf(pdf_path: str) -> dict:
     
     if not result["total"] and items_found:
         result["total"] = sum(it.get("extended", 0) for it in items_found)
+    
+    # Extract subtotal and tax separately
+    sub_match = re.search(r'SUBTOTAL\s*\n?\s*\$?\s*([\d,]+\.?\d{0,2})', text, re.IGNORECASE)
+    if sub_match:
+        result["subtotal"] = float(sub_match.group(1).replace(",", ""))
+    else:
+        result["subtotal"] = sum(it.get("extended", 0) for it in items_found)
+    
+    tax_match = re.search(r'SALES\s*TAX\s*\n?\s*\$?\s*([\d,]+\.?\d{0,2})', text, re.IGNORECASE)
+    if tax_match:
+        result["tax"] = float(tax_match.group(1).replace(",", ""))
     
     log.info("PO PDF parsed: po=%s, agency=%s, institution=%s, items=%d, total=$%.2f",
              result["po_number"], result["agency"], result.get("institution", ""),

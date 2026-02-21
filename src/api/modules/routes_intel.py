@@ -2447,6 +2447,7 @@ def order_detail(oid):
       <div style="text-align:center;padding:12px 0">
        <div style="font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px">Order Total</div>
        <div style="font-family:'JetBrains Mono',monospace;font-size:32px;font-weight:700;color:var(--gn);margin:8px 0">${order.get('total',0):,.2f}</div>
+       {f'<div style="font-size:11px;color:var(--tx2)">Subtotal: ${order.get("subtotal",0):,.2f} · Tax: ${order.get("tax",0):,.2f}</div>' if order.get('tax') else ''}
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:10px">
        <div style="background:var(--sf2);padding:8px;border-radius:8px;text-align:center">
@@ -2778,7 +2779,8 @@ def api_order_import_po(oid):
     order["line_items"] = new_items
     total = parsed.get("total", 0) or sum(it.get("extended", 0) for it in new_items)
     order["total"] = total
-    order["subtotal"] = total
+    order["subtotal"] = parsed.get("subtotal", 0) or sum(it.get("extended", 0) for it in new_items)
+    order["tax"] = parsed.get("tax", 0)
 
     # Update metadata from PO if better than what we had
     if parsed.get("po_number") and not order.get("po_number"):
