@@ -1636,6 +1636,9 @@ def _create_order_from_po_email(po_data: dict) -> dict:
             "invoice_status": "pending",
             "invoice_number": "",
             "notes": "",
+            # ── QB mapping ──
+            "qb_item_id": "",           # QB ItemRef.value
+            "qb_item_name": "",         # QB ItemRef.name
         })
 
     total = po_data.get("total", 0) or sum(it.get("extended", 0) for it in line_items)
@@ -1651,6 +1654,7 @@ def _create_order_from_po_email(po_data: dict) -> dict:
         "total": total,
         "subtotal": total,
         "tax": 0,
+        "payment_terms": "Net 45",
         "line_items": line_items,
         "status": "new",
         "invoice_type": "",
@@ -1661,6 +1665,9 @@ def _create_order_from_po_email(po_data: dict) -> dict:
         "created_at": datetime.now().isoformat(),
         "updated_at": datetime.now().isoformat(),
         "status_history": [{"status": "new", "timestamp": datetime.now().isoformat(), "actor": "email_auto"}],
+        # ── QuickBooks mapping (populated when QB connected) ──
+        "qb_customer_id": "",       # QB CustomerRef.value
+        "qb_invoice_id": "",        # Set after invoice pushed to QB
     }
 
     orders = _load_orders()
@@ -1724,34 +1731,71 @@ def _update_order_status(oid: str):
     if order["status"] == "delivered" and old_status != "delivered":
         order["delivered_at"] = datetime.now().isoformat()
         
-        # Auto-create draft invoice
+        # Auto-create draft invoice (structured for QuickBooks API push)
         qn = order.get("quote_number", "")
         po = order.get("po_number", "")
         total = order.get("total", 0)
         subtotal = order.get("subtotal", 0) or total
         tax = order.get("tax", 0)
+        tax_rate = round((tax / subtotal * 100), 2) if subtotal else 0
         institution = order.get("institution", "")
         
         inv_number = f"INV-{po or oid.replace('ORD-','')}"
+        
+        # Build line items in QB-compatible format
+        # QB API: Line[].DetailType = "SalesItemLineDetail"
+        # QB API: Line[].SalesItemLineDetail = {ItemRef:{value,name}, Qty, UnitPrice}
+        qb_lines = []
+        for i, it in enumerate(items):
+            qb_lines.append({
+                # ── Our fields (display + tracking) ──
+                "line_id": it.get("line_id", f"L{i+1:03d}"),
+                "description": it.get("description", ""),
+                "part_number": it.get("part_number", ""),
+                "qty": it.get("qty", 0),
+                "unit_price": it.get("unit_price", 0),
+                "extended": it.get("extended", 0),
+                # ── QB API mapping (populated when QB connected) ──
+                "qb_item_ref": it.get("qb_item_id", ""),     # QB ItemRef.value
+                "qb_item_name": it.get("qb_item_name", ""),   # QB ItemRef.name
+            })
+        
         order["draft_invoice"] = {
-            "invoice_number": inv_number,
-            "status": "draft",
+            # ── Our fields ──
+            "invoice_number": inv_number,        # → QB DocNumber
+            "status": "draft",                   # draft → pending_qb → synced → sent
             "created_at": datetime.now().isoformat(),
-            "po_number": po,
-            "bill_to": order.get("sender_email", ""),
+            "order_id": oid,
+            "po_number": po,                     # → QB CustomField or memo
+            "quote_number": qn,
+            
+            # ── Customer / billing ──
+            "bill_to_name": institution,          # → QB CustomerRef.name
+            "bill_to_email": order.get("sender_email", ""),  # → QB BillEmail.Address
+            "qb_customer_id": order.get("qb_customer_id", ""),  # → QB CustomerRef.value
+            
+            # ── Ship-to (for QB ShipAddr) ──
+            "ship_to_name": order.get("ship_to_name", institution),
+            "ship_to_address": order.get("ship_to_address", []),
+            
+            # ── Line items ──
+            "items": qb_lines,
+            
+            # ── Totals ──
             "subtotal": subtotal,
-            "tax": tax,
+            "tax_rate": tax_rate,                 # → QB TxnTaxDetail.TaxLine[].TaxPercent
+            "tax": tax,                           # → QB TxnTaxDetail.TotalTax
             "total": total,
-            "items": [
-                {
-                    "description": it.get("description", ""),
-                    "part_number": it.get("part_number", ""),
-                    "qty": it.get("qty", 0),
-                    "unit_price": it.get("unit_price", 0),
-                    "extended": it.get("extended", 0),
-                }
-                for it in items
-            ],
+            
+            # ── Payment terms ──
+            "terms": order.get("payment_terms", "Net 45"),  # → QB SalesTermRef
+            "due_date": "",                       # → QB DueDate (calculated on finalize)
+            
+            # ── QB sync tracking ──
+            "qb_invoice_id": "",                  # Set after QB API push
+            "qb_sync_token": "",                  # For QB updates
+            "qb_synced_at": "",                   # Last sync timestamp
+            "qb_status": "",                      # created / sent / paid / voided
         }
         
         orders[oid] = order

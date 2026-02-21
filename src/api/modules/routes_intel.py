@@ -2519,7 +2519,13 @@ def order_detail(oid):
      <div class="card-t" style="color:var(--gn)">📄 Draft Invoice — {draft_inv.get('invoice_number','')}</div>
      <div style="margin-bottom:12px;font-size:12px;color:var(--tx2)">
       Auto-generated {draft_inv.get('created_at','')[:10]} when all items marked delivered.
-      Review line items, then finalize in QuickBooks.
+      {f'<span style="color:var(--ac)">QB Synced: {draft_inv.get("qb_synced_at","")[:10]}</span>' if draft_inv.get('qb_invoice_id') else 'Review line items, then finalize → push to QuickBooks.'}
+     </div>
+     <div class="meta-g" style="margin-bottom:12px">
+      <div class="meta-i"><div class="meta-l">Bill To</div><div class="meta-v">{draft_inv.get('bill_to_name','')}</div></div>
+      <div class="meta-i"><div class="meta-l">Email</div><div class="meta-v">{draft_inv.get('bill_to_email','')}</div></div>
+      <div class="meta-i"><div class="meta-l">PO #</div><div class="meta-v">{draft_inv.get('po_number','')}</div></div>
+      <div class="meta-i"><div class="meta-l">Terms</div><div class="meta-v">{draft_inv.get('terms','Net 45')}</div></div>
      </div>
      <div style="overflow-x:auto">
      <table class="home-tbl" style="min-width:600px">
@@ -2535,7 +2541,7 @@ def order_detail(oid):
         <td colspan="4" style="text-align:right;font-weight:600">Subtotal:</td>
         <td class="mono" style="text-align:right">${draft_inv.get('subtotal',0):,.2f}</td>
        </tr>
-       <tr><td colspan="4" style="text-align:right;font-weight:600">Tax ({order.get('tax_rate','7.75')}%):</td>
+       <tr><td colspan="4" style="text-align:right;font-weight:600">Tax ({draft_inv.get('tax_rate',7.75)}%):</td>
         <td class="mono" style="text-align:right">${draft_inv.get('tax',0):,.2f}</td>
        </tr>
        <tr><td colspan="4" style="text-align:right;font-weight:700;font-size:14px">Grand Total:</td>
@@ -2546,6 +2552,7 @@ def order_detail(oid):
      </div>
      <div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end">
       <button onclick="invoiceOrder('{oid}','full')" class="btn btn-g" style="font-size:13px">💰 Finalize Invoice</button>
+      {f'<span style="font-size:11px;color:var(--tx2);line-height:30px">QB #{draft_inv.get("qb_invoice_id")}</span>' if draft_inv.get('qb_invoice_id') else '<span style="font-size:11px;color:var(--tx2);line-height:30px">QuickBooks API: not yet connected</span>'}
      </div>
     </div>
     """
