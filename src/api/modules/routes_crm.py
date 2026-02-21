@@ -2566,6 +2566,9 @@ def page_cchcs_expansion():
     # Count facilities with email
     untouched_with_email = sum(1 for f in inactive if f["email"])
 
+    # Pre-compute for JS (can't use dict comprehension inside f-string)
+    _inactive_js = _json.dumps([{"name": f["raw_name"], "type": f["type"], "email": f["email"] or ""} for f in inactive])
+
     html = _header("Expand") + f"""
 <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px">
   <div>
@@ -2718,7 +2721,7 @@ function targetAllUntouched() {{
   msg.textContent = '🚀 Creating targets for {len(inactive)} facilities...';
 
   // Create targets sequentially
-  const facilities = {_json.dumps([{{"name": f["raw_name"], "type": f["type"], "email": f["email"] or ""}} for f in inactive])};
+  const facilities = {_inactive_js};
   let done = 0;
   let errors = 0;
 
