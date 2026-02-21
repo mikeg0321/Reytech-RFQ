@@ -288,6 +288,9 @@ def is_purchase_order_email(subject, body, sender, pdf_names):
         r'(?:purchase\s*order|p\.?o\.?)\s*#?\s*(\d[\w\-]{3,20})',
         r'(?:po\s*number|po#|po\s*#)\s*:?\s*(\d[\w\-]{3,20})',
         r'std\s*65\s*#?\s*(\d[\w\-]{3,20})',
+        r'po\s*distribution\s*:?\s*(\d{7,13})',           # "PO Distribution: 4500750017"
+        r'fi\$cal.*?(\d{7,13})',                           # "Fi$cal ... 4500750017"
+        r'encumbrance.*?(\d{7,13})',                       # "Encumbrance 4500750017"
     ]
     for pat in po_patterns:
         m = re.search(pat, combined, re.IGNORECASE)
@@ -1027,6 +1030,17 @@ class EmailPoller:
                         log.info("🏆 PO/Award email: %s from %s", subject[:60], sender[:40])
                         po_number = po_detect.get("po_number", "")
                         sol_number = extract_solicitation_number(subject, body or "", pdf_names)
+                        
+                        # Special handling for "PO Distribution: PO#, SOL#, FACILITY, VENDOR" format
+                        # The generic extractor grabs the PO number (first number), we need the SOL (second)
+                        po_dist_match = re.match(
+                            r'(?:re:\s*)?po\s*distribution\s*:?\s*(\d+)\s*,\s*(\d{7,8})',
+                            subject, re.IGNORECASE
+                        )
+                        if po_dist_match:
+                            sol_number = po_dist_match.group(2)  # Second number is solicitation
+                            if not po_number:
+                                po_number = po_dist_match.group(1)  # First is PO number
                         
                         # Save attachments for PO records
                         po_rfq_id = "PO_" + datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + uid[:6]
