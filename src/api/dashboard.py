@@ -1593,8 +1593,93 @@ def _create_order_from_quote(qt: dict, po_number: str = "") -> dict:
                       actor="system", metadata={"order_id": oid, "institution": order["institution"]})
     return order
 
+
+def _create_order_from_po_email(po_data: dict) -> dict:
+    """Create an order from an inbound PO email (may not have a matching quote).
+    
+    po_data keys: po_number, sender_email, subject, sol_number,
+                  items (list of dicts), total, agency, institution,
+                  po_pdf_path, matched_quote
+    """
+    qn = po_data.get("matched_quote", "")
+    po_num = po_data.get("po_number", "")
+    oid = f"ORD-{qn}" if qn else f"ORD-PO-{po_num or datetime.now().strftime('%Y%m%d%H%M%S')}"
+
+    # Build line items from PO data or matched quote
+    line_items = []
+    for i, it in enumerate(po_data.get("items", [])):
+        pn = it.get("part_number", "") or it.get("manufacturer_part", "")
+        desc = it.get("description", "") or it.get("item_description", "")
+        qty = it.get("qty", 0) or it.get("quantity", 0)
+        up = it.get("unit_price", 0) or it.get("price", 0)
+        supplier_url = ""
+        supplier = ""
+        # Auto-detect Amazon ASINs
+        if pn and (pn.startswith("B0") or pn.startswith("b0")):
+            supplier_url = f"https://amazon.com/dp/{pn}"
+            supplier = "Amazon"
+
+        line_items.append({
+            "line_id": f"L{i+1:03d}",
+            "description": desc,
+            "part_number": pn,
+            "qty": qty,
+            "unit_price": up,
+            "extended": round(qty * up, 2),
+            "supplier": supplier,
+            "supplier_url": supplier_url,
+            "sourcing_status": "pending",
+            "tracking_number": "",
+            "carrier": "",
+            "ship_date": "",
+            "delivery_date": "",
+            "invoice_status": "pending",
+            "invoice_number": "",
+            "notes": "",
+        })
+
+    total = po_data.get("total", 0) or sum(it.get("extended", 0) for it in line_items)
+
+    order = {
+        "order_id": oid,
+        "quote_number": qn,
+        "po_number": po_num,
+        "agency": po_data.get("agency", ""),
+        "institution": po_data.get("institution", ""),
+        "ship_to_name": po_data.get("institution", ""),
+        "ship_to_address": [],
+        "total": total,
+        "subtotal": total,
+        "tax": 0,
+        "line_items": line_items,
+        "status": "new",
+        "invoice_type": "",
+        "invoice_total": 0,
+        "source": "email_po",
+        "po_pdf": po_data.get("po_pdf_path", ""),
+        "sender_email": po_data.get("sender_email", ""),
+        "created_at": datetime.now().isoformat(),
+        "updated_at": datetime.now().isoformat(),
+        "status_history": [{"status": "new", "timestamp": datetime.now().isoformat(), "actor": "email_auto"}],
+    }
+
+    orders = _load_orders()
+    # Don't overwrite existing order
+    if oid in orders:
+        log.info("Order %s already exists, skipping creation", oid)
+        return orders[oid]
+    orders[oid] = order
+    _save_orders(orders)
+    _log_crm_activity(qn or po_num, "order_created",
+                      f"Order {oid} created from PO email — PO#{po_num} · ${total:,.2f}",
+                      actor="system", metadata={"order_id": oid, "po_number": po_num, "source": "email_po"})
+    log.info("Order %s created from PO email (quote=%s, po=%s, items=%d, total=$%.2f)",
+             oid, qn, po_num, len(line_items), total)
+    return order
+
 def _update_order_status(oid: str):
-    """Auto-calculate order status from line item statuses."""
+    """Auto-calculate order status from line item statuses.
+    When ALL items delivered → notify Mike to send invoice."""
     orders = _load_orders()
     order = orders.get(oid)
     if not order:
@@ -1602,6 +1687,7 @@ def _update_order_status(oid: str):
     items = order.get("line_items", [])
     if not items:
         return
+    old_status = order.get("status", "new")
     statuses = [it.get("sourcing_status", "pending") for it in items]
     inv_statuses = [it.get("invoice_status", "pending") for it in items]
 
@@ -1624,6 +1710,35 @@ def _update_order_status(oid: str):
     order["updated_at"] = datetime.now().isoformat()
     orders[oid] = order
     _save_orders(orders)
+
+    # ── ALL DELIVERED TRIGGER — notify Mike to send invoice ──
+    if order["status"] == "delivered" and old_status != "delivered":
+        order["delivered_at"] = datetime.now().isoformat()
+        orders[oid] = order
+        _save_orders(orders)
+        qn = order.get("quote_number", "")
+        po = order.get("po_number", "")
+        total = order.get("total", 0)
+        institution = order.get("institution", "")
+        try:
+            from src.agents.notify_agent import send_alert
+            send_alert(
+                event_type="all_delivered",
+                title=f"✅ All items delivered — send invoice!",
+                body=(
+                    f"Order {oid} · {institution}\n"
+                    f"PO: {po or 'N/A'} · Quote: {qn or 'N/A'}\n"
+                    f"Total: ${total:,.2f} · {len(items)} items all confirmed delivered.\n"
+                    f"→ Create invoice in QuickBooks and send to the state."
+                ),
+                urgency="deal",
+                cooldown_key=f"delivered_{oid}",
+            )
+        except Exception as _ne:
+            log.debug("All-delivered notify error: %s", _ne)
+        _log_crm_activity(qn, "all_delivered",
+                          f"All {len(items)} items delivered for {oid}. Total ${total:,.2f}. Ready to invoice.",
+                          actor="system", metadata={"order_id": oid, "po_number": po})
 
 # ═══════════════════════════════════════════════════════════════════════
 # HTML Templates (extracted to src/api/templates.py)

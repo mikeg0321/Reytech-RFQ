@@ -2199,7 +2199,10 @@ def orders_page():
     content = f"""
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px">
      <h2 style="margin:0;font-size:20px;font-weight:700">📦 Orders</h2>
-     <div>{stats_html}</div>
+     <div style="display:flex;gap:10px;align-items:center">
+      {stats_html}
+      <button onclick="createOrder()" class="btn btn-g" style="font-size:13px;white-space:nowrap">+ New Order</button>
+     </div>
     </div>
     <div class="card" style="padding:0;overflow-x:auto">
      <table class="home-tbl" style="min-width:800px">
@@ -2214,6 +2217,24 @@ def orders_page():
     </div>
 
     <!-- Pending Invoices from QuickBooks -->
+    <script>
+    function createOrder() {{
+      const po = prompt('PO Number (from state purchase order):');
+      if (!po) return;
+      const agency = prompt('Agency (CDCR, CCHCS, CalVet, DSH, etc):', '');
+      const inst = prompt('Institution / Ship-To name:', '');
+      fetch('/api/order/create', {{
+        method: 'POST',
+        headers: {{'Content-Type': 'application/json'}},
+        body: JSON.stringify({{po_number: po, agency: agency || '', institution: inst || '', items: [], total: 0}})
+      }}).then(r => r.json()).then(d => {{
+        if (d.ok) {{
+          alert('Order created: ' + d.order_id + '\\nAdd line items on the detail page.');
+          location.href = '/order/' + d.order_id;
+        }} else alert('Error: ' + (d.error || 'unknown'));
+      }});
+    }}
+    </script>
     <div id="qb-invoices" class="card" style="margin-top:14px;padding:16px;display:none">
      <div class="card-t" style="margin-bottom:10px">💰 QuickBooks — Pending Invoices</div>
      <div id="inv-stats" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px"></div>
@@ -2280,13 +2301,34 @@ def order_detail(oid):
         desc = it.get("description", "")[:80]
         pn = it.get("part_number", "")
         sup_url = it.get("supplier_url", "")
-        sup_link = f'<a href="{sup_url}" target="_blank" style="color:var(--ac);font-size:11px">🛒 {it.get("supplier","Amazon")}</a>' if sup_url else (it.get("supplier","") or "—")
+        supplier_name = it.get("supplier", "") or "—"
+        if sup_url:
+            sup_link = f'<a href="{sup_url}" target="_blank" style="color:var(--ac);font-size:11px" title="{sup_url}">🛒 {supplier_name}</a>'
+        else:
+            sup_link = f'<span style="color:var(--tx2);font-size:11px">{supplier_name}</span>'
+        # Edit link button
+        sup_edit = f'<button onclick="editSupplier(\'{oid}\',\'{lid}\')" style="background:none;border:none;cursor:pointer;font-size:10px;color:var(--tx2);padding:0" title="Edit supplier/link">✏️</button>'
 
         ss = it.get("sourcing_status", "pending")
         s_lbl, s_clr, s_bg = sourcing_cfg.get(ss, sourcing_cfg["pending"])
         tracking = it.get("tracking_number", "")
-        tracking_html = f'<a href="https://track.aftership.com/{tracking}" target="_blank" style="color:var(--ac);font-size:10px">{tracking[:20]}</a>' if tracking else ""
+        # Auto-detect tracking URL based on carrier
         carrier = it.get("carrier", "")
+        if tracking:
+            carrier_low = carrier.lower()
+            if "amazon" in carrier_low or tracking.startswith("TBA"):
+                track_url = f"https://www.amazon.com/progress-tracker/package/ref=ppx_yo_dt_b_track_package?itemId=&shipmentId={tracking}"
+            elif "ups" in carrier_low or tracking.startswith("1Z"):
+                track_url = f"https://www.ups.com/track?tracknum={tracking}"
+            elif "fedex" in carrier_low:
+                track_url = f"https://www.fedex.com/fedextrack/?trknbr={tracking}"
+            elif "usps" in carrier_low:
+                track_url = f"https://tools.usps.com/go/TrackConfirmAction?tLabels={tracking}"
+            else:
+                track_url = f"https://track.aftership.com/{tracking}"
+            tracking_html = f'<a href="{track_url}" target="_blank" style="color:var(--ac);font-size:10px">{tracking[:20]}</a>'
+        else:
+            tracking_html = '<button onclick="addTracking(\'' + oid + '\',\'' + lid + '\')" style="background:none;border:none;cursor:pointer;font-size:10px;color:var(--tx2)">+ tracking</button>'
 
         is_lbl, is_clr = inv_cfg.get(it.get("invoice_status","pending"), inv_cfg["pending"])
 
@@ -2294,7 +2336,7 @@ def order_detail(oid):
          <td style="color:var(--tx2);font-size:11px">{lid}</td>
          <td style="max-width:300px;word-wrap:break-word;white-space:normal">{desc}</td>
          <td class="mono" style="font-size:11px">{pn or '—'}</td>
-         <td>{sup_link}</td>
+         <td>{sup_link} {sup_edit}</td>
          <td class="mono" style="text-align:center">{it.get('qty',0)}</td>
          <td class="mono" style="text-align:right">${it.get('unit_price',0):,.2f}</td>
          <td style="text-align:center">
@@ -2386,6 +2428,7 @@ def order_detail(oid):
       <button onclick="bulkAddTracking('{oid}')" class="btn btn-s" style="font-size:12px">📋 Bulk Add Tracking</button>
       <button onclick="markAllOrdered('{oid}')" class="btn btn-s" style="font-size:12px">🛒 Mark All Ordered</button>
       <button onclick="markAllDelivered('{oid}')" class="btn btn-s" style="font-size:12px">✅ Mark All Delivered</button>
+      <button onclick="addLineItem('{oid}')" class="btn btn-s" style="font-size:12px">➕ Add Line Item</button>
       <a href="/api/order/{oid}/reply-all" class="btn btn-s" style="font-size:12px">📧 Reply-All Confirmation</a>
      </div>
     </div>
@@ -2441,12 +2484,122 @@ def order_detail(oid):
         body: JSON.stringify({{tracking: tracking, carrier: carrier}})
       }}).then(r => r.json()).then(d => {{ if(d.ok) location.reload(); }});
     }}
+
+    function editSupplier(oid, lid) {{
+      const name = prompt('Supplier name (Amazon, Grainger, Curbell, etc):');
+      if (name === null) return;
+      const url = prompt('Product URL (paste Amazon/Grainger/supplier link):');
+      if (url === null) return;
+      fetch('/api/order/' + oid + '/line/' + lid, {{
+        method: 'POST',
+        headers: {{'Content-Type': 'application/json'}},
+        body: JSON.stringify({{supplier: name, supplier_url: url}})
+      }}).then(r => r.json()).then(d => {{ if(d.ok) location.reload(); else alert(d.error); }});
+    }}
+
+    function addTracking(oid, lid) {{
+      const tracking = prompt('Tracking number:');
+      if (!tracking) return;
+      const carrier = prompt('Carrier (Amazon/UPS/FedEx/USPS):', 'Amazon');
+      fetch('/api/order/' + oid + '/line/' + lid, {{
+        method: 'POST',
+        headers: {{'Content-Type': 'application/json'}},
+        body: JSON.stringify({{tracking_number: tracking, carrier: carrier, sourcing_status: 'shipped'}})
+      }}).then(r => r.json()).then(d => {{ if(d.ok) location.reload(); else alert(d.error); }});
+    }}
+
+    function addLineItem(oid) {{
+      const desc = prompt('Item description:');
+      if (!desc) return;
+      const qty = parseInt(prompt('Quantity:', '1')) || 1;
+      const price = parseFloat(prompt('Unit price ($):', '0')) || 0;
+      const pn = prompt('Part number / ASIN (optional):', '') || '';
+      const supplier = prompt('Supplier (Amazon, Grainger, etc):', '') || '';
+      const url = prompt('Product URL (optional):', '') || '';
+      fetch('/api/order/' + oid + '/add-line', {{
+        method: 'POST',
+        headers: {{'Content-Type': 'application/json'}},
+        body: JSON.stringify({{description: desc, qty: qty, unit_price: price, part_number: pn, supplier: supplier, supplier_url: url}})
+      }}).then(r => r.json()).then(d => {{ if(d.ok) location.reload(); else alert(d.error || 'Failed'); }});
+    }}
     </script>
     """
     return render(content, title=f"Order {oid}")
 
 
 # ─── Order API Routes ──────────────────────────────────────────────────────
+
+@bp.route("/api/order/create", methods=["POST"])
+@auth_required
+def api_order_create():
+    """Create a new order manually (for POs received outside the system).
+    POST JSON: {po_number, agency, institution, total, items: [{description, qty, unit_price, part_number, supplier, supplier_url}]}
+    """
+    data = request.get_json(silent=True) or {}
+    po_number = data.get("po_number", "").strip()
+    if not po_number:
+        return jsonify({"ok": False, "error": "PO number required"})
+    
+    from src.api.dashboard import _create_order_from_po_email
+    order = _create_order_from_po_email({
+        "po_number": po_number,
+        "agency": data.get("agency", ""),
+        "institution": data.get("institution", ""),
+        "items": data.get("items", []),
+        "total": data.get("total", 0),
+        "matched_quote": data.get("quote_number", ""),
+        "sender_email": "",
+        "subject": f"Manual order — PO {po_number}",
+        "po_pdf_path": "",
+    })
+    return jsonify({"ok": True, "order_id": order.get("order_id"), "items": len(order.get("line_items", []))})
+
+
+@bp.route("/api/order/<oid>/add-line", methods=["POST"])
+@auth_required
+def api_order_add_line(oid):
+    """Add a line item to an existing order.
+    POST JSON: {description, qty, unit_price, part_number, supplier, supplier_url}
+    """
+    orders = _load_orders()
+    order = orders.get(oid)
+    if not order:
+        return jsonify({"ok": False, "error": "Order not found"})
+    data = request.get_json(silent=True) or {}
+    items = order.get("line_items", [])
+    next_num = len(items) + 1
+    pn = data.get("part_number", "")
+    sup_url = data.get("supplier_url", "")
+    supplier = data.get("supplier", "")
+    if pn and (pn.startswith("B0") or pn.startswith("b0")) and not sup_url:
+        sup_url = f"https://amazon.com/dp/{pn}"
+        supplier = supplier or "Amazon"
+    new_item = {
+        "line_id": f"L{next_num:03d}",
+        "description": data.get("description", ""),
+        "part_number": pn,
+        "qty": data.get("qty", 1),
+        "unit_price": data.get("unit_price", 0),
+        "extended": round(data.get("qty", 1) * data.get("unit_price", 0), 2),
+        "supplier": supplier,
+        "supplier_url": sup_url,
+        "sourcing_status": "pending",
+        "tracking_number": "",
+        "carrier": "",
+        "ship_date": "",
+        "delivery_date": "",
+        "invoice_status": "pending",
+        "invoice_number": "",
+        "notes": data.get("notes", ""),
+    }
+    items.append(new_item)
+    order["line_items"] = items
+    order["total"] = sum(it.get("extended", 0) for it in items)
+    order["updated_at"] = datetime.now().isoformat()
+    orders[oid] = order
+    _save_orders(orders)
+    return jsonify({"ok": True, "line_id": new_item["line_id"], "total_items": len(items)})
+
 
 @bp.route("/api/order/<oid>/line/<lid>", methods=["POST"])
 @auth_required

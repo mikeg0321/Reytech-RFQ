@@ -82,6 +82,8 @@ PO_STRONG_SUBJECT = [
     "std 65", "std65", "std-65",
     "you have been awarded", "contract award",
     "order confirmation",
+    "fi$cal", "fiscal", "po distribution",
+    "po dist", "encumbrance",
 ]
 
 PO_BODY_PHRASES = [
@@ -91,6 +93,8 @@ PO_BODY_PHRASES = [
     "std 65", "std65", "order is confirmed",
     "purchase order is attached", "attached purchase order",
     "po is attached", "attached po",
+    "fi$cal", "po distribution", "encumbrance",
+    "award has been made", "contract executed",
 ]
 
 # PDF filenames that suggest a PO document
@@ -98,6 +102,121 @@ PO_PDF_PATTERNS = [
     r"purchase.?order", r"^po[_\-\s]", r"std.?65", r"award",
     r"p\.?o\.?\s*\d", r"order.?confirm",
 ]
+
+
+def _parse_po_pdf(pdf_path: str) -> dict:
+    """Parse a Purchase Order PDF (STD-65 or similar) for line items and metadata.
+    
+    Returns: {po_number, agency, institution, items: [{description, qty, unit_price, part_number}], total}
+    """
+    try:
+        import subprocess
+        text = subprocess.run(
+            ["pdftotext", "-layout", pdf_path, "-"],
+            capture_output=True, text=True, timeout=15
+        ).stdout
+    except Exception:
+        try:
+            import subprocess
+            text = subprocess.run(
+                ["python3", "-c", f"""
+import sys
+try:
+    import fitz
+    doc = fitz.open('{pdf_path}')
+    for page in doc: print(page.get_text())
+except: pass
+"""],
+                capture_output=True, text=True, timeout=15
+            ).stdout
+        except Exception:
+            return {}
+    
+    if not text or len(text) < 50:
+        return {}
+    
+    result = {"items": [], "po_number": "", "agency": "", "institution": "", "total": 0}
+    
+    # Extract PO number
+    for pat in [
+        r'(?:Purchase\s*Order|P\.?O\.?)\s*(?:Number|No\.?|#)?\s*:?\s*(\d[\w\-]{3,20})',
+        r'(?:PO|STD\s*65)\s*#?\s*:?\s*(\d[\w\-]{3,20})',
+        r'Order\s*(?:Number|No\.?)\s*:?\s*(\d[\w\-]{3,20})',
+    ]:
+        m = re.search(pat, text, re.IGNORECASE)
+        if m:
+            result["po_number"] = m.group(1)
+            break
+    
+    # Extract agency/institution  
+    for pat in [
+        r'(?:Ship\s*To|Deliver\s*To|Agency|Department)\s*:?\s*([A-Z][A-Za-z\s&,\-\.]{5,80})',
+        r'((?:California|CA)\s+(?:Department|Dept)\s+(?:of\s+)?[\w\s]+)',
+    ]:
+        m = re.search(pat, text, re.IGNORECASE)
+        if m:
+            val = m.group(1).strip()
+            if not result["institution"]:
+                result["institution"] = val
+            if not result["agency"]:
+                # Abbreviate known agencies
+                val_low = val.lower()
+                if "corrections" in val_low or "cdcr" in val_low:
+                    result["agency"] = "CDCR"
+                elif "health" in val_low and "care" in val_low:
+                    result["agency"] = "CCHCS"
+                elif "veteran" in val_low:
+                    result["agency"] = "CalVet"
+                elif "state hospital" in val_low:
+                    result["agency"] = "DSH"
+                else:
+                    result["agency"] = val[:30]
+    
+    # Extract line items — look for tabular patterns
+    # Common format: line# | qty | unit | description | unit_price | total
+    lines = text.split("\n")
+    for line in lines:
+        # Pattern: number followed by qty, description, price
+        m = re.match(
+            r'\s*(\d{1,3})\s+'                       # line number
+            r'(\d+)\s+'                                # quantity
+            r'(?:ea|each|bx|box|pk|cs|case|bn)?\s*'   # unit (optional)
+            r'(.{10,120}?)\s+'                         # description
+            r'\$?([\d,]+\.?\d{0,2})\s*'                # unit price
+            r'(?:\$?([\d,]+\.?\d{0,2}))?',             # extended (optional)
+            line, re.IGNORECASE
+        )
+        if m:
+            desc = m.group(3).strip()
+            up = float(m.group(4).replace(",", ""))
+            qty = int(m.group(2))
+            # Extract part number from description
+            pn_match = re.search(r'(?:P/N|Part|#|PN)\s*:?\s*([\w\-]+)', desc, re.IGNORECASE)
+            pn = pn_match.group(1) if pn_match else ""
+            result["items"].append({
+                "description": desc,
+                "qty": qty,
+                "unit_price": up,
+                "part_number": pn,
+                "extended": round(qty * up, 2),
+            })
+    
+    # Extract total
+    for pat in [
+        r'(?:Grand\s*)?Total\s*:?\s*\$?([\d,]+\.?\d{0,2})',
+        r'Amount\s*Due\s*:?\s*\$?([\d,]+\.?\d{0,2})',
+    ]:
+        m = re.search(pat, text, re.IGNORECASE)
+        if m:
+            result["total"] = float(m.group(1).replace(",", ""))
+            break
+    
+    if not result["total"] and result["items"]:
+        result["total"] = sum(it.get("extended", 0) for it in result["items"])
+    
+    log.info("PO PDF parsed: po=%s, agency=%s, items=%d, total=$%.2f",
+             result["po_number"], result["agency"], len(result["items"]), result["total"])
+    return result
 
 
 def is_purchase_order_email(subject, body, sender, pdf_names):
@@ -918,9 +1037,29 @@ class EmailPoller:
                         
                         # Try to match to existing quote/RFQ and mark as won
                         matched_quote = None
+                        po_items = []
+                        po_total = 0
+                        po_agency = ""
+                        po_institution = ""
                         try:
                             from src.core.paths import DATA_DIR
                             import json as _json
+                            
+                            # Parse PO PDF for line items if we have attachments
+                            if po_attachments:
+                                try:
+                                    po_parsed = _parse_po_pdf(po_attachments[0])
+                                    if po_parsed:
+                                        po_items = po_parsed.get("items", [])
+                                        po_total = po_parsed.get("total", 0)
+                                        po_agency = po_parsed.get("agency", "")
+                                        po_institution = po_parsed.get("institution", "")
+                                        if not po_number and po_parsed.get("po_number"):
+                                            po_number = po_parsed["po_number"]
+                                        log.info("PO PDF parsed: %d items, $%.2f, PO#%s",
+                                                 len(po_items), po_total, po_number)
+                                except Exception as _ppe:
+                                    log.debug("PO PDF parse error: %s", _ppe)
                             
                             # 1. Match by solicitation number to RFQ → quote
                             if sol_number:
@@ -952,6 +1091,7 @@ class EmailPoller:
                                     pass
                             
                             # 3. Mark quote as won + trigger vendor ordering
+                            _all_quotes = []
                             if matched_quote:
                                 log.info("🏆 Auto-marking quote %s as WON (PO: %s)", matched_quote, po_number)
                                 # Update quotes_log.json
@@ -964,6 +1104,15 @@ class EmailPoller:
                                             q["won_at"] = datetime.now().isoformat()
                                             q["po_number"] = po_number or ""
                                             q["won_source"] = "email_auto"
+                                            # Get items from quote if PO parse didn't yield any
+                                            if not po_items:
+                                                po_items = q.get("items_detail", q.get("items", []))
+                                            if not po_total:
+                                                po_total = q.get("total", 0)
+                                            if not po_agency:
+                                                po_agency = q.get("agency", "")
+                                            if not po_institution:
+                                                po_institution = q.get("institution", "") or q.get("ship_to_name", "")
                                             break
                                     with open(os.path.join(DATA_DIR, "quotes_log.json"), "w") as _qf3:
                                         _json.dump(_all_quotes, _qf3, indent=2, default=str)
@@ -981,19 +1130,11 @@ class EmailPoller:
                                 # Trigger vendor ordering pipeline
                                 try:
                                     from src.agents.vendor_ordering_agent import process_won_quote_ordering
-                                    # Find quote items
-                                    qt_items = []
-                                    agency = ""
-                                    for q in _all_quotes:
-                                        if q.get("quote_number") == matched_quote:
-                                            qt_items = q.get("items_detail", q.get("items", []))
-                                            agency = q.get("agency", "") or q.get("institution", "")
-                                            break
-                                    if qt_items:
+                                    if po_items:
                                         process_won_quote_ordering(
                                             quote_number=matched_quote,
-                                            items=qt_items,
-                                            agency=agency,
+                                            items=po_items,
+                                            agency=po_agency,
                                             po_number=po_number or "",
                                             run_async=True,
                                         )
@@ -1004,21 +1145,49 @@ class EmailPoller:
                                 # Log revenue
                                 try:
                                     from src.core.db_dal import log_revenue
-                                    for q in _all_quotes:
-                                        if q.get("quote_number") == matched_quote:
-                                            total = q.get("total", 0)
-                                            if total:
-                                                log_revenue(
-                                                    amount=total,
-                                                    source="quote_won",
-                                                    quote_number=matched_quote,
-                                                    po_number=po_number or "",
-                                                    agency=agency,
-                                                    date=datetime.now().strftime("%Y-%m-%d"),
-                                                )
-                                            break
+                                    if po_total:
+                                        log_revenue(
+                                            amount=po_total,
+                                            source="quote_won",
+                                            quote_number=matched_quote,
+                                            po_number=po_number or "",
+                                            agency=po_agency,
+                                            date=datetime.now().strftime("%Y-%m-%d"),
+                                        )
                                 except Exception:
                                     pass
+                            
+                            # 4. Create order record (whether or not we matched a quote)
+                            try:
+                                from src.api.dashboard import _create_order_from_po_email
+                                order_data = {
+                                    "po_number": po_number or "",
+                                    "sender_email": po_detect.get("sender_email", ""),
+                                    "subject": subject,
+                                    "sol_number": sol_number or "",
+                                    "items": po_items,
+                                    "total": po_total,
+                                    "agency": po_agency,
+                                    "institution": po_institution,
+                                    "po_pdf_path": po_attachments[0] if po_attachments else "",
+                                    "matched_quote": matched_quote or "",
+                                }
+                                new_order = _create_order_from_po_email(order_data)
+                                log.info("Order created: %s", new_order.get("order_id", ""))
+                            except Exception as _oe:
+                                log.error("Order creation from PO email failed: %s", _oe)
+                            
+                            # 5. Update pricing intelligence
+                            try:
+                                from src.core.db_dal import record_price
+                                for it in po_items:
+                                    desc = it.get("description", "")
+                                    up = it.get("unit_price", 0)
+                                    if desc and up:
+                                        record_price(desc, up, source="po_won", quote_number=matched_quote or po_number or "")
+                            except Exception:
+                                pass
+                                
                         except Exception as _pe:
                             log.error("PO processing error: %s", _pe)
                         
@@ -1176,6 +1345,37 @@ class EmailPoller:
                                     _ships = _ships[-500:]
                                 with open(_ship_file, "w") as _sf:
                                     json.dump(_ships, _sf, indent=2, default=str)
+                                
+                                # Auto-update order tracking — find active orders with pending/ordered items
+                                try:
+                                    from src.api.dashboard import _load_orders, _save_orders, _update_order_status
+                                    _orders = _load_orders()
+                                    tracking_nums = ship_info.get("tracking_numbers", [])
+                                    carrier = ship_info.get("carrier", "")
+                                    updated_order = None
+                                    for _oid, _ord in _orders.items():
+                                        if _ord.get("status") in ("new", "sourcing", "shipped", "partial_delivery"):
+                                            for _it in _ord.get("line_items", []):
+                                                if _it.get("sourcing_status") in ("ordered", "pending") and not _it.get("tracking_number"):
+                                                    # Assign tracking to first untracked item
+                                                    if tracking_nums:
+                                                        _it["tracking_number"] = tracking_nums[0]
+                                                        _it["carrier"] = carrier
+                                                        _it["sourcing_status"] = "shipped"
+                                                        _it["ship_date"] = datetime.now().strftime("%Y-%m-%d")
+                                                        updated_order = _oid
+                                                        log.info("Auto-assigned tracking %s to order %s line %s",
+                                                                 tracking_nums[0], _oid, _it.get("line_id"))
+                                                        break
+                                            if updated_order:
+                                                _orders[_oid]["updated_at"] = datetime.now().isoformat()
+                                                break
+                                    if updated_order:
+                                        _save_orders(_orders)
+                                        _update_order_status(updated_order)
+                                except Exception as _ote:
+                                    log.debug("Shipping→order tracking update: %s", _ote)
+                                
                                 email_handled = True
                         except Exception as _e:
                             pass

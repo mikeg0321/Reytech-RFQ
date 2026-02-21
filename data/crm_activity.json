@@ -68,5 +68,18 @@
     "actor": "user",
     "timestamp": "2026-02-20T16:27:08.868895",
     "metadata": {}
+  },
+  {
+    "id": "crm-20260221000437-6",
+    "ref_id": "TEST-PO-001",
+    "event_type": "order_created",
+    "description": "Order ORD-PO-TEST-PO-001 created from PO email \u2014 PO#TEST-PO-001 \u00b7 $100.00",
+    "actor": "system",
+    "timestamp": "2026-02-21T00:04:37.765174",
+    "metadata": {
+      "order_id": "ORD-PO-TEST-PO-001",
+      "po_number": "TEST-PO-001",
+      "source": "email_po"
+    }
   }
 ]
