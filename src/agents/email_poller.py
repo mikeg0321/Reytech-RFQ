@@ -105,10 +105,18 @@ PO_PDF_PATTERNS = [
 
 
 def _parse_po_pdf(pdf_path: str) -> dict:
-    """Parse a Purchase Order PDF (STD-65 or similar) for line items and metadata.
+    """Parse a Purchase Order PDF (STD-65, Fi$cal, or similar) for line items and metadata.
     
-    Returns: {po_number, agency, institution, items: [{description, qty, unit_price, part_number}], total}
+    Uses multiple extraction strategies:
+    1. pdftotext -layout (best for tabular state forms)
+    2. PyMuPDF fallback
+    
+    Multiple line-item parsing patterns for California state PO formats.
+    
+    Returns: {po_number, agency, institution, ship_to_address, items: [{description, qty, unit_price, part_number, extended}], total}
     """
+    # Extract text
+    text = ""
     try:
         import subprocess
         text = subprocess.run(
@@ -116,106 +124,183 @@ def _parse_po_pdf(pdf_path: str) -> dict:
             capture_output=True, text=True, timeout=15
         ).stdout
     except Exception:
+        pass
+    
+    if not text or len(text) < 50:
         try:
             import subprocess
             text = subprocess.run(
-                ["python3", "-c", f"""
-import sys
-try:
-    import fitz
-    doc = fitz.open('{pdf_path}')
-    for page in doc: print(page.get_text())
-except: pass
-"""],
+                ["python3", "-c", f"import fitz; doc=fitz.open('{pdf_path}')\nfor p in doc: print(p.get_text())"],
                 capture_output=True, text=True, timeout=15
             ).stdout
         except Exception:
-            return {}
+            pass
     
     if not text or len(text) < 50:
+        log.warning("PO PDF: no text extracted from %s", pdf_path)
         return {}
     
-    result = {"items": [], "po_number": "", "agency": "", "institution": "", "total": 0}
+    result = {"items": [], "po_number": "", "agency": "", "institution": "", 
+              "ship_to_address": [], "total": 0, "_raw_text": text[:2000]}
     
-    # Extract PO number
+    # ── Extract PO / Encumbrance Number ──
     for pat in [
         r'(?:Purchase\s*Order|P\.?O\.?)\s*(?:Number|No\.?|#)?\s*:?\s*(\d[\w\-]{3,20})',
         r'(?:PO|STD\s*65)\s*#?\s*:?\s*(\d[\w\-]{3,20})',
         r'Order\s*(?:Number|No\.?)\s*:?\s*(\d[\w\-]{3,20})',
+        r'Encumbrance\s*(?:Number|No\.?|#)?\s*:?\s*(\d{7,13})',
+        r'Document\s*(?:Number|No\.?|#|ID)\s*:?\s*(\d{7,13})',
     ]:
         m = re.search(pat, text, re.IGNORECASE)
         if m:
             result["po_number"] = m.group(1)
             break
     
-    # Extract agency/institution  
+    # ── Extract Agency / Institution / Ship-To ──
     for pat in [
-        r'(?:Ship\s*To|Deliver\s*To|Agency|Department)\s*:?\s*([A-Z][A-Za-z\s&,\-\.]{5,80})',
-        r'((?:California|CA)\s+(?:Department|Dept)\s+(?:of\s+)?[\w\s]+)',
+        r'(?:Ship\s*To|Deliver\s*To|Delivery\s*Address)\s*:?\s*\n?\s*([^\n]{5,100})',
+        r'(?:Agency|Department|Dept)\s*:?\s*([A-Z][\w\s&,\-\.]{4,80})',
+        r'((?:California|CA)\s+(?:Department|Dept)\.?\s+(?:of\s+)?[\w\s]+)',
+        r'((?:CSP|CCI|CCWF|CMC|CMF|CRC|CIW|CTF|CHCF|DVI|FSP|HDSP|ISP|KVSP|LAC|MCSP|NKSP|PBSP|RJD|SAC|SCC|SOL|SQ|SVSP|VSP|WSP)[\s\-]+[\w\s]{3,40})',
     ]:
         m = re.search(pat, text, re.IGNORECASE)
         if m:
             val = m.group(1).strip()
-            if not result["institution"]:
+            if not result["institution"] and len(val) > 3:
                 result["institution"] = val
-            if not result["agency"]:
-                # Abbreviate known agencies
-                val_low = val.lower()
-                if "corrections" in val_low or "cdcr" in val_low:
-                    result["agency"] = "CDCR"
-                elif "health" in val_low and "care" in val_low:
-                    result["agency"] = "CCHCS"
-                elif "veteran" in val_low:
-                    result["agency"] = "CalVet"
-                elif "state hospital" in val_low:
-                    result["agency"] = "DSH"
-                else:
-                    result["agency"] = val[:30]
+            break
     
-    # Extract line items — look for tabular patterns
-    # Common format: line# | qty | unit | description | unit_price | total
+    # Agency abbreviation
+    text_low = text.lower()
+    if not result["agency"]:
+        if "cdcr" in text_low or "corrections" in text_low:
+            result["agency"] = "CDCR"
+        elif "cchcs" in text_low or "correctional health" in text_low:
+            result["agency"] = "CCHCS"
+        elif "calvet" in text_low or "veterans" in text_low:
+            result["agency"] = "CalVet"
+        elif "dsh" in text_low or "state hospital" in text_low:
+            result["agency"] = "DSH"
+    
+    # Ship-to address: grab 2-3 lines after "Ship To"
+    ship_match = re.search(r'(?:Ship\s*To|Deliver\s*To)\s*:?\s*\n((?:[^\n]+\n){1,4})', text, re.IGNORECASE)
+    if ship_match:
+        addr_lines = [l.strip() for l in ship_match.group(1).split("\n") if l.strip()]
+        result["ship_to_address"] = addr_lines[:4]
+    
+    # ── Extract Line Items — multiple strategies ──
     lines = text.split("\n")
+    items_found = []
+    
+    # Strategy 1: Numbered line items — "1  description  5  EA  $12.50  $62.50"
     for line in lines:
-        # Pattern: number followed by qty, description, price
         m = re.match(
-            r'\s*(\d{1,3})\s+'                       # line number
-            r'(\d+)\s+'                                # quantity
-            r'(?:ea|each|bx|box|pk|cs|case|bn)?\s*'   # unit (optional)
-            r'(.{10,120}?)\s+'                         # description
-            r'\$?([\d,]+\.?\d{0,2})\s*'                # unit price
-            r'(?:\$?([\d,]+\.?\d{0,2}))?',             # extended (optional)
+            r'\s*(\d{1,3})\s+'                              # line number
+            r'(.{8,150}?)\s+'                                 # description (greedy-ish)
+            r'(\d+(?:\.\d+)?)\s+'                             # quantity
+            r'(?:ea|each|bx|box|pk|cs|case|bn|pc|set|kit|pr|dz|gal|lb)\.?\s+'  # unit
+            r'\$?([\d,]+\.?\d{0,2})\s*'                       # unit price
+            r'(?:\$?([\d,]+\.?\d{0,2}))?',                    # extended (optional)
             line, re.IGNORECASE
         )
         if m:
-            desc = m.group(3).strip()
-            up = float(m.group(4).replace(",", ""))
-            qty = int(m.group(2))
-            # Extract part number from description
-            pn_match = re.search(r'(?:P/N|Part|#|PN)\s*:?\s*([\w\-]+)', desc, re.IGNORECASE)
-            pn = pn_match.group(1) if pn_match else ""
-            result["items"].append({
-                "description": desc,
-                "qty": qty,
-                "unit_price": up,
-                "part_number": pn,
-                "extended": round(qty * up, 2),
+            items_found.append({
+                "description": m.group(2).strip(),
+                "qty": int(float(m.group(3))),
+                "unit_price": float(m.group(4).replace(",", "")),
+                "extended": float(m.group(5).replace(",", "")) if m.group(5) else round(int(float(m.group(3))) * float(m.group(4).replace(",", "")), 2),
             })
     
-    # Extract total
+    # Strategy 2: "qty  unit  description  $price  $ext" (no line number)
+    if not items_found:
+        for line in lines:
+            m = re.match(
+                r'\s*(\d+(?:\.\d+)?)\s+'                             # quantity
+                r'(?:ea|each|bx|box|pk|cs|case|bn|pc|set|kit|pr)\.?\s+'  # unit
+                r'(.{8,150}?)\s+'                                     # description
+                r'\$?([\d,]+\.?\d{0,2})\s*'                           # unit price
+                r'(?:\$?([\d,]+\.?\d{0,2}))?',                        # extended
+                line, re.IGNORECASE
+            )
+            if m:
+                items_found.append({
+                    "description": m.group(2).strip(),
+                    "qty": int(float(m.group(1))),
+                    "unit_price": float(m.group(3).replace(",", "")),
+                    "extended": float(m.group(4).replace(",", "")) if m.group(4) else round(int(float(m.group(1))) * float(m.group(3).replace(",", "")), 2),
+                })
+    
+    # Strategy 3: Description on one line, qty + price on next/same — look for $ amounts
+    if not items_found:
+        for i, line in enumerate(lines):
+            # Look for lines with dollar amounts that look like line items
+            m = re.search(
+                r'(\d+)\s+(?:ea|each|bx|box|pk|cs|case|pc|set)\.?\s+.*?\$\s*([\d,]+\.?\d{2})\s+\$\s*([\d,]+\.?\d{2})',
+                line, re.IGNORECASE
+            )
+            if m:
+                qty = int(m.group(1))
+                up = float(m.group(2).replace(",", ""))
+                ext = float(m.group(3).replace(",", ""))
+                # Description might be earlier in same line or previous line
+                desc_part = line[:m.start()].strip()
+                if len(desc_part) < 5 and i > 0:
+                    desc_part = lines[i-1].strip()
+                items_found.append({
+                    "description": desc_part[:150],
+                    "qty": qty,
+                    "unit_price": up,
+                    "extended": ext,
+                })
+    
+    # Strategy 4: Ultra-flexible — any line with qty + two dollar amounts
+    if not items_found:
+        for line in lines:
+            dollars = re.findall(r'\$\s*([\d,]+\.?\d{2})', line)
+            qty_match = re.search(r'\b(\d{1,5})\s+(?:ea|each|bx|box|pk|pc|cs|set|kit)\b', line, re.IGNORECASE)
+            if len(dollars) >= 2 and qty_match:
+                qty = int(qty_match.group(1))
+                up = float(dollars[0].replace(",", ""))
+                ext = float(dollars[-1].replace(",", ""))
+                # Get description — text before the quantity
+                desc = line[:qty_match.start()].strip()
+                # Remove leading line numbers
+                desc = re.sub(r'^\d{1,3}\s+', '', desc)
+                if desc and len(desc) > 3:
+                    items_found.append({
+                        "description": desc[:150],
+                        "qty": qty,
+                        "unit_price": up,
+                        "extended": ext,
+                    })
+    
+    # Extract part numbers from descriptions
+    for it in items_found:
+        desc = it.get("description", "")
+        pn_match = re.search(r'(?:P/?N|Part|#|PN|ASIN|Item\s*#?)\s*:?\s*([\w\-]{4,30})', desc, re.IGNORECASE)
+        it["part_number"] = pn_match.group(1) if pn_match else ""
+    
+    result["items"] = items_found
+    
+    # ── Extract Total ──
     for pat in [
-        r'(?:Grand\s*)?Total\s*:?\s*\$?([\d,]+\.?\d{0,2})',
-        r'Amount\s*Due\s*:?\s*\$?([\d,]+\.?\d{0,2})',
+        r'(?:Grand\s*)?Total\s*(?:Amount)?\s*:?\s*\$?\s*([\d,]+\.?\d{0,2})',
+        r'Amount\s*(?:Due|Payable)\s*:?\s*\$?\s*([\d,]+\.?\d{0,2})',
+        r'Total\s*(?:Price|Cost|Value)\s*:?\s*\$?\s*([\d,]+\.?\d{0,2})',
     ]:
         m = re.search(pat, text, re.IGNORECASE)
         if m:
-            result["total"] = float(m.group(1).replace(",", ""))
-            break
+            val = float(m.group(1).replace(",", ""))
+            if val > 0:
+                result["total"] = val
+                break
     
-    if not result["total"] and result["items"]:
-        result["total"] = sum(it.get("extended", 0) for it in result["items"])
+    if not result["total"] and items_found:
+        result["total"] = sum(it.get("extended", 0) for it in items_found)
     
-    log.info("PO PDF parsed: po=%s, agency=%s, items=%d, total=$%.2f",
-             result["po_number"], result["agency"], len(result["items"]), result["total"])
+    log.info("PO PDF parsed: po=%s, agency=%s, institution=%s, items=%d, total=$%.2f",
+             result["po_number"], result["agency"], result.get("institution", ""),
+             len(items_found), result["total"])
     return result
 
 

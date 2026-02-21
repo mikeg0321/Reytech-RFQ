@@ -2201,7 +2201,8 @@ def orders_page():
      <h2 style="margin:0;font-size:20px;font-weight:700">📦 Orders</h2>
      <div style="display:flex;gap:10px;align-items:center">
       {stats_html}
-      <button onclick="createOrder()" class="btn btn-g" style="font-size:13px;white-space:nowrap">+ New Order</button>
+      <button onclick="createFromPO()" class="btn btn-g" style="font-size:13px;white-space:nowrap">📄 Import PO PDF</button>
+      <button onclick="createOrder()" class="btn btn-s" style="font-size:13px;white-space:nowrap">+ Manual Order</button>
      </div>
     </div>
     <div class="card" style="padding:0;overflow-x:auto">
@@ -2229,12 +2230,39 @@ def orders_page():
         body: JSON.stringify({{po_number: po, agency: agency || '', institution: inst || '', items: [], total: 0}})
       }}).then(r => r.json()).then(d => {{
         if (d.ok) {{
-          alert('Order created: ' + d.order_id + '\\nAdd line items on the detail page.');
           location.href = '/order/' + d.order_id;
         }} else alert('Error: ' + (d.error || 'unknown'));
       }});
     }}
+    function createFromPO() {{
+      document.getElementById('po-upload-input').click();
+    }}
+    function handlePOUpload(input) {{
+      const file = input.files[0];
+      if (!file) return;
+      // First create a skeleton order, then upload the PDF to populate it
+      fetch('/api/order/create', {{
+        method: 'POST',
+        headers: {{'Content-Type': 'application/json'}},
+        body: JSON.stringify({{po_number: 'PENDING', agency: '', institution: '', items: [], total: 0}})
+      }}).then(r => r.json()).then(d => {{
+        if (!d.ok) {{ alert('Error: ' + d.error); return; }}
+        const oid = d.order_id;
+        const formData = new FormData();
+        formData.append('file', file);
+        return fetch('/api/order/' + oid + '/import-po', {{method: 'POST', body: formData}}).then(r => r.json()).then(r => {{
+          if (r.ok) {{
+            location.href = '/order/' + oid;
+          }} else {{
+            alert('Order created but PDF parse issue: ' + (r.error || 'unknown') + '\\nRedirecting to order — upload PO again from detail page.');
+            if (r.raw_text) console.log('PO raw text:', r.raw_text);
+            location.href = '/order/' + oid;
+          }}
+        }});
+      }});
+    }}
     </script>
+    <input type="file" id="po-upload-input" accept=".pdf" style="display:none" onchange="handlePOUpload(this)">
     <div id="qb-invoices" class="card" style="margin-top:14px;padding:16px;display:none">
      <div class="card-t" style="margin-bottom:10px">💰 QuickBooks — Pending Invoices</div>
      <div id="inv-stats" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px"></div>
@@ -2357,6 +2385,24 @@ def order_detail(oid):
         "invoiced": "💰 Invoiced", "closed": "🏁 Closed"
     }
 
+    # Upload PO prompt (prominent when no items)
+    if not items:
+        upload_section = f"""
+    <div class="card" style="margin-bottom:14px;border:2px dashed var(--ac);text-align:center;padding:32px">
+     <div style="font-size:18px;font-weight:700;margin-bottom:8px">📄 Upload PO PDF to populate line items</div>
+     <div style="color:var(--tx2);font-size:13px;margin-bottom:16px">The PO document has everything — items, quantities, prices, ship-to. Upload it and we'll parse all fields automatically.</div>
+     <input type="file" id="po-pdf" accept=".pdf" style="display:none" onchange="uploadPO('{oid}',this)">
+     <button onclick="document.getElementById('po-pdf').click()" class="btn btn-g" style="font-size:14px;padding:10px 24px">📄 Upload PO PDF</button>
+     <div id="upload-status" style="margin-top:12px;font-size:12px;color:var(--tx2)"></div>
+    </div>"""
+    else:
+        upload_section = f"""
+    <div style="margin-bottom:8px;display:flex;justify-content:flex-end">
+     <input type="file" id="po-pdf" accept=".pdf" style="display:none" onchange="uploadPO('{oid}',this)">
+     <button onclick="document.getElementById('po-pdf').click()" class="btn btn-s" style="font-size:11px">📄 Re-import from PO PDF</button>
+     <div id="upload-status" style="margin-left:8px;font-size:11px;color:var(--tx2);line-height:28px"></div>
+    </div>"""
+
     content = f"""
     <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px">
      <a href="/orders" class="btn btn-s" style="font-size:13px">← Orders</a>
@@ -2404,6 +2450,8 @@ def order_detail(oid):
       </div>
      </div>
     </div>
+
+    {upload_section}
 
     <!-- Line Items with sourcing controls -->
     <div class="card">
@@ -2522,6 +2570,30 @@ def order_detail(oid):
         body: JSON.stringify({{description: desc, qty: qty, unit_price: price, part_number: pn, supplier: supplier, supplier_url: url}})
       }}).then(r => r.json()).then(d => {{ if(d.ok) location.reload(); else alert(d.error || 'Failed'); }});
     }}
+
+    function uploadPO(oid, input) {{
+      const file = input.files[0];
+      if (!file) return;
+      const status = document.getElementById('upload-status');
+      status.innerHTML = '⏳ Parsing PO PDF...';
+      const formData = new FormData();
+      formData.append('file', file);
+      fetch('/api/order/' + oid + '/import-po', {{
+        method: 'POST',
+        body: formData
+      }}).then(r => r.json()).then(d => {{
+        if (d.ok) {{
+          status.innerHTML = '✅ Imported ' + d.items_added + ' items · $' + (d.total||0).toLocaleString();
+          setTimeout(() => location.reload(), 800);
+        }} else {{
+          status.innerHTML = '❌ ' + (d.error || 'Parse failed');
+          if (d.raw_text) {{
+            console.log('PO raw text:', d.raw_text);
+            status.innerHTML += ' — raw text logged to console';
+          }}
+        }}
+      }}).catch(e => {{ status.innerHTML = '❌ Upload failed: ' + e; }});
+    }}
     </script>
     """
     return render(content, title=f"Order {oid}")
@@ -2599,6 +2671,132 @@ def api_order_add_line(oid):
     orders[oid] = order
     _save_orders(orders)
     return jsonify({"ok": True, "line_id": new_item["line_id"], "total_items": len(items)})
+
+
+@bp.route("/api/order/<oid>/import-po", methods=["POST"])
+@auth_required
+def api_order_import_po(oid):
+    """Upload and parse a PO PDF to populate order line items.
+    Multipart form: file=<pdf>
+    Returns: {ok, items_added, total, raw_text (on failure for debugging)}
+    """
+    orders = _load_orders()
+    order = orders.get(oid)
+    if not order:
+        return jsonify({"ok": False, "error": "Order not found"})
+
+    f = request.files.get("file")
+    if not f or not f.filename:
+        return jsonify({"ok": False, "error": "No file uploaded"})
+
+    # Save the PDF
+    po_dir = os.path.join(DATA_DIR, "po_documents")
+    os.makedirs(po_dir, exist_ok=True)
+    safe_name = f"{oid}_{f.filename.replace(' ', '_')}"
+    pdf_path = os.path.join(po_dir, safe_name)
+    f.save(pdf_path)
+
+    # Parse
+    from src.agents.email_poller import _parse_po_pdf
+    parsed = _parse_po_pdf(pdf_path)
+
+    if not parsed:
+        # Return raw text for debugging
+        raw_text = ""
+        try:
+            import subprocess
+            raw_text = subprocess.run(
+                ["pdftotext", "-layout", pdf_path, "-"],
+                capture_output=True, text=True, timeout=15
+            ).stdout[:3000]
+        except Exception:
+            pass
+        return jsonify({"ok": False, "error": "Could not parse PDF — see console for raw text",
+                        "raw_text": raw_text})
+
+    items_parsed = parsed.get("items", [])
+
+    if not items_parsed:
+        # Return raw text so Mike can see what the parser saw
+        raw_text = ""
+        try:
+            import subprocess
+            raw_text = subprocess.run(
+                ["pdftotext", "-layout", pdf_path, "-"],
+                capture_output=True, text=True, timeout=15
+            ).stdout[:3000]
+        except Exception:
+            pass
+        return jsonify({"ok": False, "error": f"PDF parsed but 0 line items found. PO#={parsed.get('po_number','?')}, Agency={parsed.get('agency','?')}",
+                        "raw_text": raw_text, "parsed_meta": {
+                            "po_number": parsed.get("po_number"),
+                            "agency": parsed.get("agency"),
+                            "institution": parsed.get("institution"),
+                            "total": parsed.get("total"),
+                        }})
+
+    # Build line items from parsed data
+    new_items = []
+    for i, it in enumerate(items_parsed):
+        pn = it.get("part_number", "")
+        sup_url = ""
+        supplier = ""
+        if pn and (pn.startswith("B0") or pn.startswith("b0")):
+            sup_url = f"https://amazon.com/dp/{pn}"
+            supplier = "Amazon"
+        new_items.append({
+            "line_id": f"L{i+1:03d}",
+            "description": it.get("description", ""),
+            "part_number": pn,
+            "qty": it.get("qty", 0) or it.get("quantity", 0),
+            "unit_price": it.get("unit_price", 0) or it.get("price", 0),
+            "extended": it.get("extended", 0) or round(
+                (it.get("qty", 0) or it.get("quantity", 0)) * (it.get("unit_price", 0) or it.get("price", 0)), 2),
+            "supplier": supplier,
+            "supplier_url": sup_url,
+            "sourcing_status": "pending",
+            "tracking_number": "",
+            "carrier": "",
+            "ship_date": "",
+            "delivery_date": "",
+            "invoice_status": "pending",
+            "invoice_number": "",
+            "notes": "",
+        })
+
+    # Replace order data (items, total, metadata)
+    order["line_items"] = new_items
+    total = parsed.get("total", 0) or sum(it.get("extended", 0) for it in new_items)
+    order["total"] = total
+    order["subtotal"] = total
+
+    # Update metadata from PO if better than what we had
+    if parsed.get("po_number") and not order.get("po_number"):
+        order["po_number"] = parsed["po_number"]
+    if parsed.get("agency") and not order.get("agency"):
+        order["agency"] = parsed["agency"]
+    if parsed.get("institution"):
+        order["institution"] = parsed["institution"]
+        order["ship_to_name"] = parsed["institution"]
+    if parsed.get("ship_to_address"):
+        order["ship_to_address"] = parsed["ship_to_address"]
+
+    order["po_pdf"] = pdf_path
+    order["updated_at"] = datetime.now().isoformat()
+    orders[oid] = order
+    _save_orders(orders)
+
+    log.info("PO PDF imported for %s: %d items, $%.2f, po=%s",
+             oid, len(new_items), total, parsed.get("po_number", "?"))
+
+    return jsonify({
+        "ok": True,
+        "items_added": len(new_items),
+        "total": total,
+        "po_number": parsed.get("po_number", ""),
+        "agency": parsed.get("agency", ""),
+        "institution": parsed.get("institution", ""),
+    })
 
 
 @bp.route("/api/order/<oid>/line/<lid>", methods=["POST"])
