@@ -10270,5 +10270,328 @@ def pricing_intel_page():
     return render(content, title="Pricing Intel")
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# Recurring Orders UI (#12) — detect repeat buyers
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@bp.route("/recurring")
+@auth_required
+def recurring_orders_page():
+    """Recurring orders page — detect repeat buyers for template reuse."""
+    orders = _load_orders()
+    institution_orders = {}
+    for oid, order in orders.items():
+        if order.get("status") == "dismissed":
+            continue
+        inst = (order.get("institution") or "").strip()
+        if inst:
+            institution_orders.setdefault(inst.lower(), {"name": inst, "orders": []})
+            institution_orders[inst.lower()]["orders"].append(order)
+
+    recurring = []
+    for inst_key, data in institution_orders.items():
+        inst_orders = data["orders"]
+        if len(inst_orders) < 2:
+            continue
+        total_value = sum(o.get("total", 0) for o in inst_orders)
+        all_items = set()
+        for o in inst_orders:
+            for it in o.get("line_items", []):
+                d = (it.get("description", "")[:40] or "").lower()
+                if d:
+                    all_items.add(d)
+        recurring.append({
+            "institution": data["name"],
+            "order_count": len(inst_orders),
+            "total_value": total_value,
+            "avg_value": total_value / len(inst_orders),
+            "unique_items": len(all_items),
+            "orders": sorted(inst_orders, key=lambda x: x.get("created_at", ""), reverse=True),
+        })
+    recurring.sort(key=lambda r: r["total_value"], reverse=True)
+
+    # Stats
+    total_recurring = len(recurring)
+    total_value_recurring = sum(r["total_value"] for r in recurring)
+    total_orders_recurring = sum(r["order_count"] for r in recurring)
+
+    rows = ""
+    for r in recurring:
+        order_links = " ".join(
+            f'<a href="/order/{o.get("order_id","")}" style="color:var(--ac);font-size:10px">{o.get("po_number","") or o.get("order_id","")[:12]}</a>'
+            for o in r["orders"][:5]
+        )
+        rows += f"""<tr>
+         <td style="font-weight:600;font-size:12px">{r['institution']}</td>
+         <td style="font-weight:700;color:var(--ac)">{r['order_count']}</td>
+         <td style="font-weight:600">${r['total_value']:,.2f}</td>
+         <td>${r['avg_value']:,.2f}</td>
+         <td>{r['unique_items']}</td>
+         <td>{order_links}</td>
+        </tr>"""
+
+    content = f"""
+    <h2 style="margin-bottom:4px">🔄 Recurring Orders</h2>
+    <p style="font-size:13px;color:var(--tx2);margin-bottom:16px">Repeat buyers detected — use for quote template reuse and proactive outreach</p>
+    <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+      <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
+        <div style="font-size:28px;font-weight:800;color:var(--ac)">{total_recurring}</div>
+        <div style="font-size:10px;color:var(--tx2)">REPEAT BUYERS</div></div>
+      <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
+        <div style="font-size:28px;font-weight:800;color:var(--gn)">{total_orders_recurring}</div>
+        <div style="font-size:10px;color:var(--tx2)">TOTAL ORDERS</div></div>
+      <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
+        <div style="font-size:28px;font-weight:800;color:var(--gn)">${total_value_recurring:,.0f}</div>
+        <div style="font-size:10px;color:var(--tx2)">TOTAL VALUE</div></div>
+    </div>
+    <div class="card" style="overflow-x:auto">
+     <table class="home-tbl">
+      <thead><tr><th>Institution</th><th>Orders</th><th>Total Value</th><th>Avg Value</th><th>Unique Items</th><th>Recent Orders</th></tr></thead>
+      <tbody>{rows or '<tr><td colspan="6" style="text-align:center;color:var(--tx2);padding:20px">Need 2+ orders from same institution to detect patterns</td></tr>'}</tbody>
+     </table>
+    </div>"""
+    return render(content, title="Recurring Orders")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Margin Calculator UI (#13) — order-level profitability
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@bp.route("/margins")
+@auth_required
+def margins_page():
+    """Margin calculator dashboard — cost vs sell per item per order."""
+    orders = _load_orders()
+    margin_data = []
+    total_revenue = 0
+    total_cost = 0
+
+    for oid, order in orders.items():
+        if order.get("status") == "dismissed":
+            continue
+        for it in order.get("line_items", []):
+            sell = it.get("unit_price", 0) or 0
+            cost = it.get("cost", 0) or 0
+            qty = it.get("qty", 0) or 1
+            if sell > 0:
+                margin = (sell - cost) / sell * 100 if cost else 0
+                revenue = sell * qty
+                cost_total = cost * qty
+                profit = revenue - cost_total
+                total_revenue += revenue
+                total_cost += cost_total
+                margin_data.append({
+                    "order_id": oid,
+                    "po": order.get("po_number", ""),
+                    "institution": order.get("institution", ""),
+                    "description": it.get("description", "")[:50],
+                    "sell": sell, "cost": cost, "qty": qty,
+                    "margin": round(margin, 1),
+                    "profit": round(profit, 2),
+                    "revenue": round(revenue, 2),
+                })
+
+    margin_data.sort(key=lambda m: m["profit"], reverse=True)
+    overall_margin = round((total_revenue - total_cost) / total_revenue * 100, 1) if total_revenue else 0
+    total_profit = total_revenue - total_cost
+    costed = sum(1 for m in margin_data if m["cost"] > 0)
+    uncosted = sum(1 for m in margin_data if m["cost"] == 0)
+    negative = sum(1 for m in margin_data if m["margin"] < 0)
+
+    rows = ""
+    for m in margin_data[:50]:
+        mc = "var(--rn)" if m["margin"] < 0 else ("var(--yl)" if m["margin"] < 10 else "var(--gn)")
+        rows += f"""<tr onclick="location.href='/order/{m['order_id']}'" style="cursor:pointer">
+         <td style="font-size:11px"><a href="/order/{m['order_id']}" style="color:var(--ac)">{m['po'] or m['order_id'][:15]}</a></td>
+         <td style="font-size:11px">{m['institution'][:25]}</td>
+         <td style="font-size:11px">{m['description']}</td>
+         <td style="text-align:right">{m['qty']}</td>
+         <td style="text-align:right">${m['sell']:,.2f}</td>
+         <td style="text-align:right">{f"${m['cost']:,.2f}" if m['cost'] else '<span style="color:var(--tx2)">—</span>'}</td>
+         <td style="text-align:right;font-weight:600;color:{mc}">{m['margin']:.1f}%</td>
+         <td style="text-align:right;font-weight:600">${m['profit']:,.2f}</td>
+        </tr>"""
+
+    content = f"""
+    <h2 style="margin-bottom:4px">📊 Margin Calculator</h2>
+    <p style="font-size:13px;color:var(--tx2);margin-bottom:16px">Cost vs sell price per item — profitability across all orders</p>
+    <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+      <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
+        <div style="font-size:28px;font-weight:800;color:var(--gn)">${total_revenue:,.0f}</div>
+        <div style="font-size:10px;color:var(--tx2)">REVENUE</div></div>
+      <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
+        <div style="font-size:28px;font-weight:800;color:var(--yl)">${total_cost:,.0f}</div>
+        <div style="font-size:10px;color:var(--tx2)">COSTS</div></div>
+      <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
+        <div style="font-size:28px;font-weight:800;color:var(--gn)">${total_profit:,.0f}</div>
+        <div style="font-size:10px;color:var(--tx2)">PROFIT</div></div>
+      <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
+        <div style="font-size:28px;font-weight:800;color:{'var(--gn)' if overall_margin > 15 else 'var(--yl)'}">{overall_margin:.1f}%</div>
+        <div style="font-size:10px;color:var(--tx2)">OVERALL MARGIN</div></div>
+      <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
+        <div style="font-size:28px;font-weight:800;color:var(--ac)">{costed}</div>
+        <div style="font-size:10px;color:var(--tx2)">COSTED ITEMS</div></div>
+      <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
+        <div style="font-size:28px;font-weight:800;color:{'var(--rn)' if negative > 0 else 'var(--gn)'}">{negative}</div>
+        <div style="font-size:10px;color:var(--tx2)">NEGATIVE MARGIN</div></div>
+    </div>
+    <div class="card" style="overflow-x:auto">
+     <table class="home-tbl" style="min-width:800px">
+      <thead><tr><th>Order</th><th>Institution</th><th>Item</th><th>Qty</th><th>Sell</th><th>Cost</th><th>Margin</th><th>Profit</th></tr></thead>
+      <tbody>{rows or '<tr><td colspan="8" style="text-align:center;color:var(--tx2);padding:20px">Margin data populates when orders have cost and sell prices</td></tr>'}</tbody>
+     </table>
+    </div>
+    <p style="font-size:11px;color:var(--tx2);margin-top:8px">{uncosted} items missing cost data — use Supplier Lookup to auto-populate costs</p>
+    """
+    return render(content, title="Margins")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Payment Tracking + Aging UI (#14)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@bp.route("/payments")
+@auth_required
+def payments_page():
+    """Payment tracking dashboard — invoice aging, payment recording."""
+    orders = _load_orders()
+    now = datetime.now()
+    invoices = []
+    total_outstanding = 0
+    total_paid_amt = 0
+    buckets = {"Paid": 0, "Current": 0, "31-45 Days": 0, "46-60 Days": 0, "61-90 Days": 0, "90+ Days": 0}
+
+    for oid, order in orders.items():
+        if order.get("status") == "dismissed":
+            continue
+        inv = order.get("draft_invoice") or {}
+        if not inv.get("invoice_number"):
+            continue
+        inv_date = inv.get("created_at", order.get("created_at", ""))
+        try:
+            from dateutil.parser import parse as _dp
+            dt = _dp(inv_date)
+            days = (now - dt.replace(tzinfo=None)).days
+        except Exception:
+            days = 0
+
+        total = order.get("total", 0)
+        paid = order.get("total_paid", 0)
+        balance = total - paid
+        total_paid_amt += paid
+
+        if balance <= 0:
+            bucket = "Paid"
+        elif days <= 30:
+            bucket = "Current"
+        elif days <= 45:
+            bucket = "31-45 Days"
+        elif days <= 60:
+            bucket = "46-60 Days"
+        elif days <= 90:
+            bucket = "61-90 Days"
+        else:
+            bucket = "90+ Days"
+
+        buckets[bucket] = buckets.get(bucket, 0) + balance
+        if balance > 0:
+            total_outstanding += balance
+
+        invoices.append({
+            "oid": oid,
+            "inv_num": inv.get("invoice_number", ""),
+            "institution": order.get("institution", ""),
+            "po": order.get("po_number", ""),
+            "inv_date": inv_date[:10],
+            "days": days,
+            "total": total,
+            "paid": paid,
+            "balance": balance,
+            "bucket": bucket,
+            "payment_status": order.get("payment_status", "unpaid"),
+        })
+
+    invoices.sort(key=lambda a: a["days"], reverse=True)
+
+    # Aging bar
+    aging_total = max(total_outstanding, 1)
+    aging_bar = '<div style="display:flex;height:24px;border-radius:6px;overflow:hidden;font-size:10px;font-weight:600;margin-bottom:8px">'
+    aging_colors = {"Current": "#27ae60", "31-45 Days": "#f39c12", "46-60 Days": "#e67e22", "61-90 Days": "#e74c3c", "90+ Days": "#c0392b"}
+    for b, color in aging_colors.items():
+        val = buckets.get(b, 0)
+        pct = val / aging_total * 100 if aging_total > 0 and val > 0 else 0
+        if pct > 0:
+            aging_bar += f'<div style="background:{color};width:{pct:.1f}%;display:flex;align-items:center;justify-content:center;color:#fff" title="{b}: ${val:,.0f}">{b}</div>'
+    aging_bar += '</div>'
+
+    rows = ""
+    for inv in invoices:
+        bc = "var(--gn)" if inv["bucket"] == "Paid" else ("var(--rn)" if "90" in inv["bucket"] or "61" in inv["bucket"] else "var(--yl)")
+        pay_btn = f"""<button onclick="recordPayment('{inv['oid']}')" class="btn btn-s" style="font-size:10px;padding:2px 8px">💳 Pay</button>""" if inv["balance"] > 0 else '<span style="color:var(--gn);font-size:11px">✅ Paid</span>'
+        rows += f"""<tr>
+         <td><a href="/order/{inv['oid']}" style="color:var(--ac);font-size:11px">{inv['inv_num']}</a></td>
+         <td style="font-size:11px">{inv['institution'][:30]}</td>
+         <td style="font-size:11px">{inv['po']}</td>
+         <td style="font-size:11px">{inv['inv_date']}</td>
+         <td style="text-align:right">{inv['days']}d</td>
+         <td style="text-align:right;font-weight:600">${inv['total']:,.2f}</td>
+         <td style="text-align:right;color:var(--gn)">${inv['paid']:,.2f}</td>
+         <td style="text-align:right;font-weight:700;color:{bc}">${inv['balance']:,.2f}</td>
+         <td style="color:{bc};font-size:11px">{inv['bucket']}</td>
+         <td>{pay_btn}</td>
+        </tr>"""
+
+    content = f"""
+    <h2 style="margin-bottom:4px">💳 Payments & Aging</h2>
+    <p style="font-size:13px;color:var(--tx2);margin-bottom:16px">Invoice aging report — track payments, outstanding balances</p>
+    <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+      <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
+        <div style="font-size:28px;font-weight:800;color:var(--rn)">${total_outstanding:,.0f}</div>
+        <div style="font-size:10px;color:var(--tx2)">OUTSTANDING</div></div>
+      <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
+        <div style="font-size:28px;font-weight:800;color:var(--gn)">${total_paid_amt:,.0f}</div>
+        <div style="font-size:10px;color:var(--tx2)">COLLECTED</div></div>
+      <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
+        <div style="font-size:28px;font-weight:800;color:var(--ac)">{len(invoices)}</div>
+        <div style="font-size:10px;color:var(--tx2)">INVOICES</div></div>
+    </div>
+    <div class="card" style="margin-bottom:16px">
+      <h3 style="margin-bottom:8px;font-size:14px">Aging Distribution</h3>
+      {aging_bar}
+      <div style="display:flex;gap:12px;font-size:10px;color:var(--tx2);flex-wrap:wrap">
+        {''.join(f'<span style="color:{c}">● {b}: ${buckets.get(b,0):,.0f}</span>' for b, c in aging_colors.items())}
+      </div>
+    </div>
+    <div class="card" style="overflow-x:auto">
+     <table class="home-tbl" style="min-width:900px">
+      <thead><tr><th>Invoice</th><th>Institution</th><th>PO</th><th>Date</th><th>Age</th><th>Total</th><th>Paid</th><th>Balance</th><th>Bucket</th><th>Action</th></tr></thead>
+      <tbody>{rows or '<tr><td colspan="10" style="text-align:center;color:var(--tx2);padding:20px">No invoices generated yet — invoices auto-create when all items delivered</td></tr>'}</tbody>
+     </table>
+    </div>
+    <script>
+    function recordPayment(oid) {{
+      var amt = prompt('Payment amount received:');
+      if (!amt) return;
+      var method = prompt('Payment method (check/ach/wire/card):', 'check');
+      var ref = prompt('Reference/check number:', '');
+      fetch('/api/order/' + oid + '/payment', {{
+        method: 'POST',
+        headers: {{'Content-Type': 'application/json'}},
+        credentials: 'same-origin',
+        body: JSON.stringify({{amount: parseFloat(amt), method: method||'check', reference: ref||''}})
+      }}).then(r => r.json()).then(d => {{
+        if (d.ok) {{
+          alert('Payment recorded. Total paid: $' + d.total_paid.toFixed(2) + ' — Status: ' + d.payment_status);
+          location.reload();
+        }} else {{
+          alert('Error: ' + (d.error||'unknown'));
+        }}
+      }});
+    }}
+    </script>
+    """
+    return render(content, title="Payments")
+
+
 # Start polling on import (for gunicorn) and on direct run
 start_polling()
