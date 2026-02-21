@@ -369,13 +369,13 @@ PAGE_HOME = """
 fetch('/api/funnel/stats').then(r=>r.json()).then(d=>{
  if(!d.ok) return;
  const items = [
-  {icon:'📥', val:d.rfqs_active||0, label:'RFQs', href:'/#queues', color:'var(--ac)', fmt:'n', tip:'Active RFQs in your work queue awaiting quotes'},
-  {icon:'💰', val:d.quotes_pending||0, label:'Pending', href:'/quotes?status=pending', color:'var(--yl)', fmt:'n', tip:'Quotes created but not yet sent to the customer'},
-  {icon:'📤', val:d.quotes_sent||0, label:'Sent', href:'/quotes?status=sent', color:'#a78bfa', fmt:'n', tip:'Quotes emailed to customers, awaiting response'},
-  {icon:'✅', val:d.quotes_won||0, label:'Won', href:'/quotes?status=won', color:'var(--gn)', fmt:'n', tip:'Quotes accepted — converted to purchase orders'},
-  {icon:'📦', val:d.orders_active||0, label:'Orders', href:'/orders', color:'var(--or)', fmt:'n', tip:'Active purchase orders being fulfilled'},
-  {icon:'👥', val:d.crm_contacts||0, label:'Contacts', href:'/contacts', color:'#a78bfa', fmt:'n', tip:'Total buyers in the CRM from SCPRS + email contacts'},
-  {icon:'💵', val:d.pipeline_value||0, label:'Pipeline $', href:'/pipeline', color:'var(--gn)', fmt:'$', tip:'Total dollar value of all pending + sent quotes'},
+  {icon:'📥', val:d.inbox||0, label:'Inbox', href:'/#queues', color:'var(--ac)', fmt:'n', tip:'New PCs + RFQs awaiting pricing (704s from email)'},
+  {icon:'💰', val:d.priced||0, label:'Priced', href:'/pricechecks', color:'var(--yl)', fmt:'n', tip:'Items priced, ready for formal quote generation'},
+  {icon:'📄', val:d.quoted||0, label:'Quoted', href:'/quotes?status=pending', color:'#a78bfa', fmt:'n', tip:'Formal quotes created, not yet sent to customer'},
+  {icon:'📤', val:d.sent||0, label:'Sent', href:'/quotes?status=sent', color:'var(--or)', fmt:'n', tip:'Quotes emailed to customer, awaiting PO response'},
+  {icon:'✅', val:d.won||0, label:'Won', href:'/quotes?status=won', color:'var(--gn)', fmt:'n', tip:'Quotes accepted — customer issued a purchase order'},
+  {icon:'📦', val:d.orders_active||0, label:'Orders', href:'/orders', color:'var(--or)', fmt:'n', tip:'Active purchase orders being sourced and fulfilled'},
+  {icon:'💵', val:d.pipeline_value||0, label:'Pipeline $', href:'/pipeline', color:'var(--gn)', fmt:'$', tip:'Total dollar value of quoted + sent quotes'},
  ];
  const cols = items.map((it,i)=>{
   const fmtVal = it.fmt==='$' ? '$'+(it.val>=1e6?(it.val/1e6).toFixed(1)+'M':it.val>=1e3?(it.val/1e3).toFixed(0)+'K':it.val.toLocaleString()) : it.val;
@@ -622,7 +622,7 @@ fetch('/api/manager/metrics',{credentials:'same-origin'}).then(function(r){
  var cards=[
   {label:'Total Revenue',value:'$'+(rev.total||0).toLocaleString(undefined,{maximumFractionDigits:0}),color:'var(--gn)',sub:q.won+' quotes won'},
   {label:'Win Rate',value:(q.win_rate||0)+'%',color:q.win_rate>=50?'var(--gn)':q.win_rate>0?'var(--yl)':'var(--tx2)',sub:(q.won+q.lost)+' decided'},
-  {label:'Pipeline Value',value:'$'+(rev.pipeline_value||0).toLocaleString(undefined,{maximumFractionDigits:0}),color:'var(--ac)',sub:q.pending+' quotes pending'},
+  {label:'Pipeline Value',value:'$'+(rev.pipeline_value||0).toLocaleString(undefined,{maximumFractionDigits:0}),color:'var(--ac)',sub:(q.pending||0)+' quoted, '+(q.sent||0)+' sent'},
   {label:'Avg Response',value:(data.response_time_hours||0)+'h',color:data.response_time_hours<24?'var(--gn)':data.response_time_hours<48?'var(--yl)':'var(--rd)',sub:'PC upload → priced'},
  ];
  document.getElementById('kpi-cards').innerHTML=cards.map(function(c){

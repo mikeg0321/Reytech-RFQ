@@ -5562,13 +5562,35 @@ def _get_weighted_pipeline_cached() -> float:
 @bp.route("/api/funnel/stats")
 @auth_required
 def api_funnel_stats():
-    """Pipeline funnel stats — aggregated view of the full business pipeline."""
-    # RFQs (exclude test)
-    rfqs = load_rfqs()
-    rfqs_active = sum(1 for r in rfqs.values()
-                      if r.get("status") not in ("completed", "won", "lost") and not r.get("is_test"))
+    """Pipeline funnel stats — full business pipeline including Price Checks.
+    
+    Workflow stages:
+      Inbox (new PCs + RFQs) → Priced (PC priced) → Quoted (quote generated) → 
+      Sent (quote emailed) → Won (PO received) → Orders (fulfilling) → Pipeline $
+    """
+    # ── Price Checks ──
+    all_pcs = _load_price_checks()
+    from src.api.dashboard import _is_user_facing_pc
+    user_pcs = {pid: pc for pid, pc in all_pcs.items() if _is_user_facing_pc(pc)}
+    pcs_new = sum(1 for pc in user_pcs.values() if pc.get("status") in ("parsed", "new", "parse_error"))
+    pcs_priced = sum(1 for pc in user_pcs.values() if pc.get("status") in ("priced", "ready", "auto_drafted"))
+    pcs_quoted = sum(1 for pc in user_pcs.values() if pc.get("status") in ("quoted", "generated"))
+    pcs_sent = sum(1 for pc in user_pcs.values() if pc.get("status") in ("sent", "completed"))
+    pcs_total = len(user_pcs)
 
-    # Quotes (exclude test)
+    # ── RFQs (704B formal packages) ──
+    rfqs = load_rfqs()
+    rfqs_non_test = {k: v for k, v in rfqs.items() if not v.get("is_test")}
+    rfqs_new = sum(1 for r in rfqs_non_test.values() if r.get("status") in ("new", "pending", "parsed"))
+    rfqs_priced = sum(1 for r in rfqs_non_test.values() if r.get("status") in ("priced", "ready"))
+    rfqs_quoted = sum(1 for r in rfqs_non_test.values() if r.get("status") in ("generated", "quoted"))
+    rfqs_sent = sum(1 for r in rfqs_non_test.values() if r.get("status") == "sent")
+
+    # ── Combined inbox = new PCs + new RFQs ──
+    inbox_count = pcs_new + rfqs_new
+    priced_count = pcs_priced + rfqs_priced
+    
+    # ── Quotes (from quotes_log — the formal quote documents) ──
     quotes = [q for q in get_all_quotes() if not q.get("is_test")]
     quotes_pending = sum(1 for q in quotes if q.get("status") in ("pending", "draft"))
     quotes_sent = sum(1 for q in quotes if q.get("status") == "sent")
@@ -5577,7 +5599,12 @@ def api_funnel_stats():
     total_quoted = sum(q.get("total", 0) for q in quotes)
     total_won = sum(q.get("total", 0) for q in quotes if q.get("status") == "won")
 
-    # Orders (exclude test)
+    # Quoted = formal quotes generated (from quote log) + PC/RFQ items in "quoted" status
+    quoted_count = quotes_pending + pcs_quoted + rfqs_quoted
+    # Sent = quotes actually sent + PCs/RFQs marked sent
+    sent_count = quotes_sent + pcs_sent + rfqs_sent
+
+    # ── Orders ──
     all_orders = _load_orders()
     orders = {k: v for k, v in all_orders.items() if not v.get("is_test")}
     orders_active = sum(1 for o in orders.values() if o.get("status") not in ("closed",))
@@ -5593,7 +5620,7 @@ def api_funnel_stats():
     order_value = sum(o.get("total", 0) for o in orders.values())
     invoiced_value = sum(o.get("invoice_total", 0) for o in orders.values())
 
-    # Leads
+    # ── Leads ──
     try:
         with open(os.path.join(DATA_DIR, "leads.json")) as f:
             leads = json.load(f)
@@ -5651,12 +5678,20 @@ def api_funnel_stats():
     return jsonify({
         "ok": True,
         "next_quote": next_quote,
-        "rfqs_active": rfqs_active,
-        "quotes_pending": quotes_pending,
-        "quotes_sent": quotes_sent,
+        # New combined pipeline stages
+        "inbox": inbox_count,         # New PCs + new RFQs awaiting pricing
+        "priced": priced_count,       # Priced, awaiting quote generation
+        "quoted": quoted_count,       # Quote generated, not yet sent
+        "sent": sent_count,           # Quote sent to customer
+        "won": quotes_won,            # PO received
+        "orders_active": orders_active,
+        "pipeline_value": pipeline_value,
+        # Legacy fields (keep for backward compat)
+        "rfqs_active": inbox_count,
+        "quotes_pending": quoted_count,
+        "quotes_sent": sent_count,
         "quotes_won": quotes_won,
         "quotes_lost": quotes_lost,
-        "orders_active": orders_active,
         "orders_total": orders_total,
         "items_shipped": items_shipped,
         "items_delivered": items_delivered,
@@ -5664,7 +5699,6 @@ def api_funnel_stats():
         "hot_leads": hot_leads,
         "total_quoted": total_quoted,
         "total_won": total_won,
-        "pipeline_value": pipeline_value,
         "order_value": order_value,
         "invoiced_value": invoiced_value,
         "win_rate": win_rate,
@@ -5674,6 +5708,12 @@ def api_funnel_stats():
         "qb_overdue": qb_overdue,
         "qb_collected": qb_collected,
         "qb_open_invoices": qb_open_invoices,
+        # PC breakdown for debugging
+        "pcs_total": pcs_total,
+        "pcs_new": pcs_new,
+        "pcs_priced": pcs_priced,
+        "pcs_quoted": pcs_quoted,
+        "pcs_sent": pcs_sent,
         # PRD Feature 4.4 — weighted pipeline (probability-adjusted)
         "weighted_pipeline": _get_weighted_pipeline_cached(),
     })
