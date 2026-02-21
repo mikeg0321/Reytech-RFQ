@@ -1591,6 +1591,12 @@ def _create_order_from_quote(qt: dict, po_number: str = "") -> dict:
     _log_crm_activity(qn, "order_created",
                       f"Order {oid} created from quote {qn} — ${qt.get('total',0):,.2f}",
                       actor="system", metadata={"order_id": oid, "institution": order["institution"]})
+    # ── Pricing Intelligence: capture winning prices ──
+    try:
+        from src.knowledge.pricing_intel import record_winning_prices
+        record_winning_prices(order)
+    except Exception as _e:
+        log.debug("Pricing intel capture: %s", _e)
     return order
 
 
@@ -1736,6 +1742,12 @@ def _create_order_from_po_email(po_data: dict) -> dict:
                       actor="system", metadata={"order_id": oid, "po_number": po_num, "source": "email_po", "quote_linked": qn})
     log.info("Order %s created from PO email (quote=%s, po=%s, items=%d, total=$%.2f, costs=%d)",
              oid, qn, po_num, len(line_items), total, sum(1 for it in line_items if it.get("cost")))
+    # ── Pricing Intelligence: capture winning prices ──
+    try:
+        from src.knowledge.pricing_intel import record_winning_prices
+        record_winning_prices(order)
+    except Exception as _e:
+        log.debug("Pricing intel capture: %s", _e)
     return order
 
 def _update_order_status(oid: str):
@@ -2104,6 +2116,7 @@ def render(content, include_brief=False, **kw):
   <a href="/campaigns" class="hdr-btn" aria-label="Outreach campaigns">📞 Campaigns</a>
   <a href="/pipeline" class="hdr-btn" aria-label="Revenue pipeline">🔄 Pipeline</a>
   <a href="/shipping" class="hdr-btn" aria-label="Shipping tracker">🚚 Shipping</a>
+  <a href="/pricing" class="hdr-btn" aria-label="Pricing intelligence">💰 Pricing</a>
   <a href="/growth" class="hdr-btn" aria-label="Growth engine">🚀 Growth</a>
   <a href="/intelligence" class="hdr-btn" aria-label="Sales intelligence">🧠 Intel</a>
   <a href="/agents" class="hdr-btn" aria-label="AI Agents manager">🤖 Agents</a>
@@ -2197,6 +2210,7 @@ def _header(page_title: str = "") -> str:
   <a href="/campaigns" class="hdr-btn">📞 Campaigns</a>
   <a href="/pipeline" class="hdr-btn">🔄 Pipeline</a>
   <a href="/shipping" class="hdr-btn">🚚 Shipping</a>
+  <a href="/pricing" class="hdr-btn">💰 Pricing</a>
   <a href="/growth" class="hdr-btn{'{ hdr-active}' if page_title=='Growth Engine' else ''}">🚀 Growth</a>
   <a href="/intelligence" class="hdr-btn{'{ hdr-active}' if page_title=='Sales Intelligence' else ''}">🧠 Intel</a>
   <a href="/agents" class="hdr-btn">🤖 Agents</a>

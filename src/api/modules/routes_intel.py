@@ -9902,5 +9902,204 @@ def api_audit_trail():
         return jsonify({"ok": True, "entries": []})
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# Pricing Intelligence (#5) — Historical winning prices
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/pricing/intel")
+@auth_required
+def api_pricing_intel():
+    """Get pricing intelligence summary."""
+    try:
+        from src.knowledge.pricing_intel import get_pricing_intelligence_summary
+        return jsonify({"ok": True, **get_pricing_intelligence_summary()})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/pricing/recommend")
+@auth_required
+def api_pricing_recommend():
+    """Get price recommendation for an item.
+    Query params: description, part_number, agency, institution"""
+    desc = request.args.get("description", "")
+    pn = request.args.get("part_number", "")
+    agency = request.args.get("agency", "")
+    institution = request.args.get("institution", "")
+    
+    if not desc and not pn:
+        return jsonify({"ok": False, "error": "description or part_number required"})
+    
+    try:
+        from src.knowledge.pricing_intel import get_price_recommendation
+        result = get_price_recommendation(desc, pn, agency, institution)
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/pricing/trends")
+@auth_required
+def api_pricing_trends():
+    """Get price trends for a specific item.
+    Query params: part_number, description, limit"""
+    pn = request.args.get("part_number", "")
+    desc = request.args.get("description", "")
+    limit = int(request.args.get("limit", 50))
+    
+    try:
+        from src.knowledge.pricing_intel import get_item_price_trends
+        trends = get_item_price_trends(part_number=pn, description=desc, limit=limit)
+        return jsonify({"ok": True, "trends": trends, "count": len(trends)})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/pricing")
+@auth_required
+def pricing_intel_page():
+    """Pricing Intelligence dashboard — historical win data + recommendations."""
+    try:
+        from src.knowledge.pricing_intel import get_pricing_intelligence_summary
+        data = get_pricing_intelligence_summary()
+    except Exception:
+        data = {"total_records": 0, "unique_items": 0, "unique_agencies": 0,
+                "total_revenue": 0, "avg_margin": 0, "recent_wins_30d": 0,
+                "top_items": [], "top_agencies": [], "margin_distribution": {}}
+
+    # Stats cards
+    stats = f"""
+    <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+      <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
+        <div style="font-size:28px;font-weight:800;color:var(--ac)">{data.get('total_records',0)}</div>
+        <div style="font-size:10px;color:var(--tx2)">WINNING PRICES</div></div>
+      <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
+        <div style="font-size:28px;font-weight:800;color:var(--gn)">{data.get('unique_items',0)}</div>
+        <div style="font-size:10px;color:var(--tx2)">UNIQUE ITEMS</div></div>
+      <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
+        <div style="font-size:28px;font-weight:800;color:var(--yl)">{data.get('unique_agencies',0)}</div>
+        <div style="font-size:10px;color:var(--tx2)">AGENCIES</div></div>
+      <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
+        <div style="font-size:28px;font-weight:800;color:var(--gn)">${data.get('total_revenue',0):,.0f}</div>
+        <div style="font-size:10px;color:var(--tx2)">WIN REVENUE</div></div>
+      <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
+        <div style="font-size:28px;font-weight:800;color:var(--ac)">{data.get('avg_margin',0):.1f}%</div>
+        <div style="font-size:10px;color:var(--tx2)">AVG MARGIN</div></div>
+      <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
+        <div style="font-size:28px;font-weight:800;color:var(--ac)">{data.get('recent_wins_30d',0)}</div>
+        <div style="font-size:10px;color:var(--tx2)">LAST 30 DAYS</div></div>
+    </div>"""
+
+    # Margin distribution bar
+    md = data.get("margin_distribution", {})
+    md_total = sum(md.values()) or 1
+    md_bar = f"""
+    <div class="card" style="margin-bottom:16px">
+      <h3 style="margin-bottom:8px;font-size:14px">Margin Distribution</h3>
+      <div style="display:flex;height:24px;border-radius:6px;overflow:hidden;font-size:10px;font-weight:600">
+        <div style="background:#e74c3c;width:{md.get('negative',0)/md_total*100:.1f}%;display:flex;align-items:center;justify-content:center;color:#fff" title="Negative margin">{md.get('negative',0)}</div>
+        <div style="background:#f39c12;width:{md.get('low',0)/md_total*100:.1f}%;display:flex;align-items:center;justify-content:center;color:#fff" title="0-10% margin">{md.get('low',0)}</div>
+        <div style="background:#27ae60;width:{md.get('mid',0)/md_total*100:.1f}%;display:flex;align-items:center;justify-content:center;color:#fff" title="10-25% margin">{md.get('mid',0)}</div>
+        <div style="background:#2980b9;width:{md.get('high',0)/md_total*100:.1f}%;display:flex;align-items:center;justify-content:center;color:#fff" title="25%+ margin">{md.get('high',0)}</div>
+      </div>
+      <div style="display:flex;gap:16px;margin-top:6px;font-size:10px;color:var(--tx2)">
+        <span>🔴 Negative: {md.get('negative',0)}</span>
+        <span>🟡 Low (0-10%): {md.get('low',0)}</span>
+        <span>🟢 Mid (10-25%): {md.get('mid',0)}</span>
+        <span>🔵 High (25%+): {md.get('high',0)}</span>
+      </div>
+    </div>"""
+
+    # Price lookup tool
+    lookup = """
+    <div class="card" style="margin-bottom:16px">
+      <h3 style="margin-bottom:8px;font-size:14px">🔍 Price Lookup</h3>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <input id="pl-desc" placeholder="Description or part number" style="flex:1;min-width:200px;padding:8px;border-radius:6px;border:1px solid var(--bd);background:var(--sf2);color:var(--tx)">
+        <input id="pl-agency" placeholder="Agency (optional)" style="width:160px;padding:8px;border-radius:6px;border:1px solid var(--bd);background:var(--sf2);color:var(--tx)">
+        <button onclick="priceLookup()" style="padding:8px 16px;background:var(--ac);color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600">Lookup</button>
+      </div>
+      <div id="pl-result" style="margin-top:12px"></div>
+    </div>
+    <script>
+    function priceLookup(){
+      var desc=document.getElementById('pl-desc').value;
+      var agency=document.getElementById('pl-agency').value;
+      if(!desc){alert('Enter description or part number');return}
+      var url='/api/pricing/recommend?description='+encodeURIComponent(desc);
+      if(agency) url+='&agency='+encodeURIComponent(agency);
+      fetch(url,{credentials:'same-origin'}).then(r=>r.json()).then(d=>{
+        var el=document.getElementById('pl-result');
+        if(!d.ok||d.count===0){el.innerHTML='<div style="color:var(--tx2);padding:8px">No pricing history found for this item</div>';return}
+        var h='<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px">';
+        h+='<div style="background:var(--sf2);border-radius:6px;padding:8px 14px"><div style="font-size:10px;color:var(--tx2)">RECOMMENDED</div><div style="font-size:20px;font-weight:800;color:var(--gn)">$'+d.recommended_price.toFixed(2)+'</div></div>';
+        h+='<div style="background:var(--sf2);border-radius:6px;padding:8px 14px"><div style="font-size:10px;color:var(--tx2)">AVG WIN</div><div style="font-size:20px;font-weight:700">$'+d.avg_price.toFixed(2)+'</div></div>';
+        h+='<div style="background:var(--sf2);border-radius:6px;padding:8px 14px"><div style="font-size:10px;color:var(--tx2)">RANGE</div><div style="font-size:14px;font-weight:600">$'+d.min_price.toFixed(2)+' – $'+d.max_price.toFixed(2)+'</div></div>';
+        h+='<div style="background:var(--sf2);border-radius:6px;padding:8px 14px"><div style="font-size:10px;color:var(--tx2)">WINS</div><div style="font-size:20px;font-weight:700">'+d.count+'</div></div>';
+        h+='</div>';
+        if(d.history&&d.history.length){
+          h+='<table class="home-tbl" style="font-size:11px"><thead><tr><th>Date</th><th>Price</th><th>Cost</th><th>Margin</th><th>Agency</th><th>Quote</th></tr></thead><tbody>';
+          d.history.slice(0,10).forEach(function(r){
+            h+='<tr><td>'+r.date+'</td><td style="font-weight:600">$'+r.price.toFixed(2)+'</td><td>'+(r.cost?'$'+r.cost.toFixed(2):'-')+'</td><td>'+(r.margin?r.margin.toFixed(1)+'%':'-')+'</td><td>'+r.agency+'</td><td>'+(r.quote||'-')+'</td></tr>';
+          });
+          h+='</tbody></table>';
+        }
+        el.innerHTML=h;
+      });
+    }
+    </script>"""
+
+    # Top winning items table
+    top_rows = ""
+    for it in data.get("top_items", []):
+        top_rows += f"""<tr>
+         <td style="font-size:12px">{it['description'][:50]}</td>
+         <td style="font-family:monospace;font-size:11px">{it['part_number'] or '-'}</td>
+         <td style="font-weight:600">{it['wins']}</td>
+         <td style="font-weight:600">${it['avg_price']:,.2f}</td>
+         <td>{it['avg_margin']:.1f}%</td>
+         <td style="font-size:11px">{it['last_won'][:10] if it['last_won'] else '-'}</td>
+        </tr>"""
+
+    top_items_html = f"""
+    <div class="card" style="margin-bottom:16px;overflow-x:auto">
+      <h3 style="margin-bottom:8px;font-size:14px">📊 Top Winning Items</h3>
+      <table class="home-tbl">
+       <thead><tr><th>Description</th><th>Part #</th><th>Wins</th><th>Avg Price</th><th>Avg Margin</th><th>Last Won</th></tr></thead>
+       <tbody>{top_rows or '<tr><td colspan="6" style="text-align:center;color:var(--tx2);padding:16px">Pricing data builds as quotes are won and orders created</td></tr>'}</tbody>
+      </table>
+    </div>"""
+
+    # Top agencies table
+    agency_rows = ""
+    for ag in data.get("top_agencies", []):
+        agency_rows += f"""<tr>
+         <td style="font-size:12px;font-weight:600">{ag['agency']}</td>
+         <td>{ag['wins']}</td>
+         <td style="font-weight:600">${ag['total_revenue']:,.2f}</td>
+         <td>{ag['avg_margin']:.1f}%</td>
+        </tr>"""
+
+    agencies_html = f"""
+    <div class="card" style="overflow-x:auto">
+      <h3 style="margin-bottom:8px;font-size:14px">🏛️ Top Agencies by Revenue</h3>
+      <table class="home-tbl">
+       <thead><tr><th>Agency</th><th>Wins</th><th>Revenue</th><th>Avg Margin</th></tr></thead>
+       <tbody>{agency_rows or '<tr><td colspan="4" style="text-align:center;color:var(--tx2);padding:16px">Agency data populates from won orders</td></tr>'}</tbody>
+      </table>
+    </div>"""
+
+    content = f"""
+    <h2 style="margin-bottom:4px">💰 Pricing Intelligence</h2>
+    <p style="font-size:13px;color:var(--tx2);margin-bottom:16px">Historical winning prices captured from orders — use for smarter quoting</p>
+    {stats}
+    {md_bar}
+    {lookup}
+    {top_items_html}
+    {agencies_html}
+    """
+    return render(content, title="Pricing Intel")
+
+
 # Start polling on import (for gunicorn) and on direct run
 start_polling()
