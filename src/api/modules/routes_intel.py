@@ -2590,6 +2590,7 @@ def _render_order_detail(order, oid):
       <button onclick="markAllDelivered('{oid}')" class="btn btn-s" style="font-size:12px">✅ Mark All Delivered</button>
       <button onclick="addLineItem('{oid}')" class="btn btn-s" style="font-size:12px">➕ Add Line Item</button>
       <button onclick="lookupSuppliers('{oid}')" class="btn btn-s" style="font-size:12px" id="lookup-btn">🔍 Lookup Suppliers</button>
+      <button onclick="linkQuote('{oid}')" class="btn btn-s" style="font-size:12px" id="link-quote-btn">{f'🔗 Linked: {qn}' if qn else '🔗 Link Quote'}</button>
       <a href="/api/order/{oid}/reply-all" class="btn btn-s" style="font-size:12px">📧 Draft PO Confirmation</a>
      </div>
     </div>
@@ -2822,6 +2823,28 @@ def _render_order_detail(order, oid):
       }}).catch(function(e) {{
         alert('Error: ' + e);
         if (btn) {{ btn.disabled=false; btn.textContent='🔍 Lookup Suppliers'; }}
+      }});
+    }}
+    function linkQuote(oid) {{
+      var qn = prompt('Enter quote number to link (e.g., Q-2024-001)\\nLeave blank to auto-detect:');
+      if (qn === null) return;
+      var btn = document.getElementById('link-quote-btn');
+      if (btn) {{ btn.disabled=true; btn.textContent='⏳ Linking...'; }}
+      fetch('/api/order/' + oid + '/link-quote', {{
+        method: 'POST',
+        headers: {{'Content-Type': 'application/json'}},
+        body: JSON.stringify({{quote_number: qn}})
+      }}).then(r => r.json()).then(d => {{
+        if (d.ok) {{
+          alert('Linked to ' + d.quote_number + '. Enriched ' + d.enriched + ' of ' + d.total_items + ' items with quote data.');
+          location.reload();
+        }} else {{
+          alert('Error: ' + (d.error||'unknown'));
+          if (btn) {{ btn.disabled=false; btn.textContent='🔗 Link Quote'; }}
+        }}
+      }}).catch(function(e) {{
+        alert('Error: ' + e);
+        if (btn) {{ btn.disabled=false; btn.textContent='🔗 Link Quote'; }}
       }});
     }}
     </script>
@@ -3341,6 +3364,152 @@ def api_supplier_search():
         pass
 
     return jsonify({"ok": True, "query": query, "search_urls": urls, "amazon": amazon_result})
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Quote → Order Auto-Link (#11) — link PO to existing quote
+# ═══════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/order/<oid>/link-quote", methods=["POST"])
+@auth_required
+def api_order_link_quote(oid):
+    """Link an order to a quote. Auto-populates line items with quote prices/suppliers.
+    POST: {quote_number} or {} to auto-detect from PO number.
+    """
+    orders = _load_orders()
+    order = orders.get(oid)
+    if not order:
+        return jsonify({"ok": False, "error": "Order not found"})
+
+    data = request.get_json(silent=True) or {}
+    qn = data.get("quote_number", "")
+
+    # Auto-detect: try to find matching quote by PO reference
+    if not qn:
+        qn = _auto_find_quote_for_order(order)
+        if not qn:
+            return jsonify({"ok": False, "error": "No matching quote found. Provide quote_number."})
+
+    # Load quote data
+    quote_data = None
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            row = conn.execute("SELECT * FROM quotes WHERE quote_number=?", (qn,)).fetchone()
+            if row:
+                quote_data = dict(row)
+                items_detail = json.loads(row["items_detail"] or "[]") if row["items_detail"] else []
+                line_items_raw = json.loads(row["line_items"] or "[]") if row["line_items"] else []
+                quote_data["items_detail"] = items_detail or line_items_raw
+    except Exception:
+        pass
+
+    if not quote_data:
+        # Try quotes_log.json
+        try:
+            ql_path = os.path.join(DATA_DIR, "quotes_log.json")
+            with open(ql_path) as f:
+                for q in json.load(f):
+                    if q.get("quote_number") == qn:
+                        quote_data = q
+                        break
+        except Exception:
+            pass
+
+    if not quote_data:
+        return jsonify({"ok": False, "error": f"Quote {qn} not found"})
+
+    # Enrich order line items from quote
+    quote_items = quote_data.get("items_detail", [])
+    enriched = 0
+    for oi in order.get("line_items", []):
+        oi_desc = (oi.get("description", "") or "").lower()[:30]
+        oi_pn = (oi.get("part_number", "") or "").lower()
+        for qi in quote_items:
+            qi_desc = (qi.get("description", "") or qi.get("name", "")).lower()[:30]
+            qi_pn = (qi.get("part_number", "") or qi.get("sku", "")).lower()
+
+            matched = False
+            if oi_pn and qi_pn and oi_pn == qi_pn:
+                matched = True
+            elif oi_desc and qi_desc and oi_desc == qi_desc:
+                matched = True
+
+            if matched:
+                if not oi.get("unit_price"):
+                    oi["unit_price"] = qi.get("unit_price", 0) or qi.get("our_price", 0) or qi.get("price", 0)
+                if not oi.get("cost"):
+                    oi["cost"] = qi.get("cost", 0) or qi.get("supplier_price", 0)
+                if not oi.get("supplier"):
+                    oi["supplier"] = qi.get("supplier", "")
+                if not oi.get("supplier_url"):
+                    oi["supplier_url"] = qi.get("supplier_url", "") or qi.get("url", "")
+                # Recalculate margin
+                sell = oi.get("unit_price", 0) or 0
+                cost = oi.get("cost", 0) or 0
+                if sell > 0 and cost > 0:
+                    oi["margin_pct"] = round((sell - cost) / sell * 100, 1)
+                oi["extended"] = round((oi.get("qty", 0) or 1) * sell, 2)
+                enriched += 1
+                break
+
+    order["quote_number"] = qn
+    order["agency"] = order.get("agency") or quote_data.get("agency", "")
+    order["institution"] = order.get("institution") or quote_data.get("institution", "") or quote_data.get("ship_to_name", "")
+    order["ship_to_name"] = order.get("ship_to_name") or quote_data.get("ship_to_name", "")
+    order["total"] = order.get("total") or quote_data.get("total", 0)
+    order["updated_at"] = datetime.now().isoformat()
+    orders[oid] = order
+    _save_orders(orders)
+
+    # Record pricing intelligence
+    try:
+        from src.knowledge.pricing_intel import record_winning_prices
+        record_winning_prices(order)
+    except Exception:
+        pass
+
+    _log_crm_activity(qn, "order_linked",
+                      f"Order {oid} linked to quote {qn} — enriched {enriched} items",
+                      actor="user", metadata={"order_id": oid, "quote": qn, "enriched": enriched})
+
+    return jsonify({"ok": True, "quote_number": qn, "enriched": enriched,
+                     "total_items": len(order.get("line_items", []))})
+
+
+def _auto_find_quote_for_order(order: dict) -> str:
+    """Try to auto-detect which quote an order belongs to.
+    Checks: PO number references, institution match, total match, date proximity.
+    """
+    po = order.get("po_number", "")
+    inst = (order.get("institution", "") or "").lower()
+    total = order.get("total", 0)
+
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            # First: check if PO is referenced in any quote
+            if po:
+                row = conn.execute("SELECT quote_number FROM quotes WHERE po_number=? LIMIT 1", (po,)).fetchone()
+                if row:
+                    return row["quote_number"]
+
+            # Second: check quotes with matching institution + similar total (within 10%)
+            if inst and total > 0:
+                rows = conn.execute("""
+                    SELECT quote_number, total, institution FROM quotes 
+                    WHERE status IN ('sent','pending','won') 
+                    ORDER BY created_at DESC LIMIT 50
+                """).fetchall()
+                for r in rows:
+                    q_inst = (r["institution"] or "").lower()
+                    q_total = r["total"] or 0
+                    if q_inst and inst in q_inst or q_inst in inst:
+                        if q_total > 0 and abs(q_total - total) / q_total < 0.10:
+                            return r["quote_number"]
+    except Exception:
+        pass
+    return ""
 
 
 @bp.route("/api/order/<oid>/delete", methods=["POST"])
