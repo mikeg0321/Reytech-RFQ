@@ -2643,7 +2643,9 @@ def _render_order_detail(order, oid):
       </tfoot>
      </table>
      </div>
-     <div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end">
+     <div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end;align-items:center">
+      <button onclick="genInvoicePdf('{oid}')" class="btn btn-s" style="font-size:12px" id="inv-pdf-btn">📄 Generate PDF</button>
+      {f'<a href="/api/order/{oid}/invoice-pdf/download" class="btn btn-s" style="font-size:12px;color:var(--gn)" download>⬇️ Download PDF</a>' if draft_inv.get('pdf_path') else ''}
       <button onclick="invoiceOrder('{oid}','full')" class="btn btn-g" style="font-size:13px">💰 Finalize Invoice</button>
       {f'<span style="font-size:11px;color:var(--tx2);line-height:30px">QB #{draft_inv.get("qb_invoice_id")}</span>' if draft_inv.get('qb_invoice_id') else '<span style="font-size:11px;color:var(--tx2);line-height:30px">QuickBooks API: not yet connected</span>'}
      </div>
@@ -2675,6 +2677,28 @@ def _render_order_detail(order, oid):
       }}).then(r => r.json()).then(d => {{
         if (d.ok) location.reload();
         else alert('Error: ' + (d.error||'unknown'));
+      }});
+    }}
+
+    function genInvoicePdf(oid) {{
+      var btn = document.getElementById('inv-pdf-btn');
+      if (btn) {{ btn.disabled=true; btn.textContent='⏳ Generating...'; }}
+      fetch('/api/order/' + oid + '/invoice-pdf', {{
+        method: 'POST',
+        headers: {{'Content-Type': 'application/json'}},
+        body: JSON.stringify({{}})
+      }}).then(r => r.json()).then(d => {{
+        if (d.ok) {{
+          window.open(d.download_url, '_blank');
+          if (btn) {{ btn.textContent='✅ PDF Ready'; }}
+          setTimeout(function() {{ location.reload(); }}, 1000);
+        }} else {{
+          alert('Error: ' + (d.error||'unknown'));
+          if (btn) {{ btn.disabled=false; btn.textContent='📄 Generate PDF'; }}
+        }}
+      }}).catch(function(e) {{
+        alert('Error: ' + e);
+        if (btn) {{ btn.disabled=false; btn.textContent='📄 Generate PDF'; }}
       }});
     }}
 
@@ -3096,6 +3120,58 @@ def api_order_invoice(oid):
                       f"Order {oid}: {inv_type} invoice #{inv_num} — ${order.get('invoice_total',0):,.2f}",
                       actor="user", metadata={"order_id": oid, "invoice": inv_num})
     return jsonify({"ok": True, "invoice_type": inv_type, "invoice_total": order.get("invoice_total", 0)})
+
+
+@bp.route("/api/order/<oid>/invoice-pdf", methods=["POST"])
+@auth_required
+def api_order_invoice_pdf(oid):
+    """Generate a branded invoice PDF from order's draft_invoice data.
+    Returns the PDF download URL."""
+    orders = _load_orders()
+    order = orders.get(oid)
+    if not order:
+        return jsonify({"ok": False, "error": "Order not found"})
+    
+    if not order.get("draft_invoice"):
+        return jsonify({"ok": False, "error": "No draft invoice — trigger invoice creation first"})
+    
+    try:
+        from src.forms.invoice_generator import generate_invoice_pdf
+        pdf_path = generate_invoice_pdf(order)
+        if not pdf_path:
+            return jsonify({"ok": False, "error": "PDF generation failed — check line items"})
+        
+        # Store path on order
+        order["draft_invoice"]["pdf_path"] = pdf_path
+        order["updated_at"] = datetime.now().isoformat()
+        orders[oid] = order
+        _save_orders(orders)
+        
+        fname = os.path.basename(pdf_path)
+        return jsonify({
+            "ok": True,
+            "pdf_path": pdf_path,
+            "download_url": f"/api/order/{oid}/invoice-pdf/download",
+            "filename": fname,
+        })
+    except Exception as e:
+        log.error("Invoice PDF generation error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/order/<oid>/invoice-pdf/download")
+@auth_required
+def api_order_invoice_pdf_download(oid):
+    """Download the generated invoice PDF."""
+    orders = _load_orders()
+    order = orders.get(oid)
+    if not order:
+        return "Order not found", 404
+    inv = order.get("draft_invoice", {})
+    pdf_path = inv.get("pdf_path", "")
+    if not pdf_path or not os.path.exists(pdf_path):
+        return "Invoice PDF not generated yet", 404
+    return send_file(pdf_path, as_attachment=True, download_name=os.path.basename(pdf_path))
 
 
 @bp.route("/api/order/<oid>/delete", methods=["POST"])
