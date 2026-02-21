@@ -10,6 +10,7 @@ BASE_CSS = """
 body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--tx);min-height:100vh}
 a{color:var(--ac);text-decoration:none}
 .hdr{background:var(--sf);border-bottom:2px solid var(--bd);padding:14px 28px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;min-height:68px}
+nav::-webkit-scrollbar{height:4px}nav::-webkit-scrollbar-track{background:transparent}nav::-webkit-scrollbar-thumb{background:var(--bd);border-radius:4px}nav::-webkit-scrollbar-thumb:hover{background:var(--tx2)}
 .hdr h1{font-size:17px;font-weight:600;letter-spacing:-0.3px;color:var(--tx2)}
 .hdr-btn{padding:6px 14px;font-size:12px;font-weight:600;border-radius:6px;border:1px solid var(--bd);background:var(--sf2);color:var(--tx);cursor:pointer;text-decoration:none;transition:.15s;font-family:'DM Sans',sans-serif;display:inline-flex;align-items:center;gap:4px}
 .hdr-btn:hover{border-color:var(--ac);background:rgba(79,140,255,.1);color:#fff}

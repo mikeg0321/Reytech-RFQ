@@ -2134,34 +2134,15 @@ def render(content, include_brief=False, **kw):
 <meta name="description" content="Reytech RFQ Dashboard — AI-powered sales automation for CA state agency reseller">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>{BASE_CSS}</style></head><body>
-<header class="hdr" role="banner">
- <div style="display:flex;align-items:center;gap:14px">
-  <a href="/" aria-label="Reytech RFQ Dashboard — Home" style="display:flex;align-items:center;gap:10px;text-decoration:none">
-   <img src="/api/logo" alt="Reytech logo" style="height:44px;background:#fff;padding:6px 12px;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.2)" onerror="this.outerHTML='<span style=\\'font-size:20px;font-weight:700;color:var(--ac)\\'>Reytech</span>'">
-   <span style="font-size:17px;font-weight:600;color:var(--tx);letter-spacing:-0.3px" aria-hidden="true">RFQ Dashboard</span>
+<header class="hdr" role="banner" style="padding:10px 28px 0;gap:0;flex-direction:column;align-items:stretch">
+ <div style="display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:8px">
+  <a href="/" aria-label="Reytech RFQ Dashboard — Home" style="display:flex;align-items:center;gap:10px;text-decoration:none;flex-shrink:0">
+   <img src="/api/logo" alt="Reytech logo" style="height:36px;background:#fff;padding:4px 10px;border-radius:6px;box-shadow:0 1px 3px rgba(0,0,0,.2)" onerror="this.outerHTML='<span style=\\'font-size:18px;font-weight:700;color:var(--ac)\\'>Reytech</span>'">
+   <span style="font-size:15px;font-weight:600;color:var(--tx);letter-spacing:-0.3px" aria-hidden="true">RFQ Dashboard</span>
   </a>
- </div>
- <nav aria-label="Main navigation" style="display:flex;align-items:center;gap:6px">
-  <a href="/" class="hdr-btn hdr-active" aria-label="Home" aria-current="page">🏠 Home</a>
-  <a href="/search" class="hdr-btn" aria-label="Universal search">🔍 Search</a>
-  <a href="/quotes" class="hdr-btn" aria-label="Quotes database">📋 Quotes</a>
-  <a href="/orders" class="hdr-btn" aria-label="Orders tracking">📦 Orders</a>
-  <a href="/contacts" class="hdr-btn" aria-label="CRM Contacts">👥 CRM</a>
-  <a href="/vendors" class="hdr-btn" aria-label="Vendor ordering">🏭 Vendors</a>
-  <a href="/catalog" class="hdr-btn" aria-label="Product Catalog">📦 Catalog</a>
-  <a href="/pricechecks" class="hdr-btn" aria-label="PC Archive">📋 PCs</a>
-  <a href="/competitors" class="hdr-btn" aria-label="Competitor Intelligence">🎯 Compete</a>
-  <a href="/cchcs/expansion" class="hdr-btn" aria-label="Expand Facilities">🏥 Expand</a>
-  <a href="/campaigns" class="hdr-btn" aria-label="Outreach campaigns">📞 Campaigns</a>
-  <a href="/pipeline" class="hdr-btn" aria-label="Revenue pipeline">🔄 Pipeline</a>
-  <a href="/shipping" class="hdr-btn" aria-label="Shipping tracker">🚚 Shipping</a>
-  <a href="/pricing" class="hdr-btn" aria-label="Pricing intelligence">💰 Pricing</a>
-  <a href="/growth" class="hdr-btn" aria-label="Growth engine">🚀 Growth</a>
-  <a href="/intelligence" class="hdr-btn" aria-label="Sales intelligence">🧠 Intel</a>
-  <a href="/agents" class="hdr-btn" aria-label="AI Agents manager">🤖 Agents</a>
-  <span style="width:1px;height:24px;background:var(--bd);margin:0 6px" role="separator" aria-hidden="true"></span>
-  <button class="hdr-btn" onclick="pollNow(this)" id="poll-btn" aria-label="Check for new emails now">⚡ Check Now</button>
-  <button class="hdr-btn hdr-warn" onclick="resyncAll(this)" title="Clear queue & re-import all emails" aria-label="Resync all emails from inbox">🔄 Resync</button>
+  <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+   <button class="hdr-btn" onclick="pollNow(this)" id="poll-btn" aria-label="Check for new emails now" style="padding:4px 10px;font-size:11px">⚡ Check Now</button>
+   <button class="hdr-btn hdr-warn" onclick="resyncAll(this)" title="Clear queue & re-import all emails" aria-label="Resync all emails from inbox" style="padding:4px 10px;font-size:11px">🔄 Resync</button>
 <div style="position:relative" id="notif-wrap">
    <button class="notif-bell" onclick="toggleNotifPanel()" id="notif-bell-btn" aria-label="Notifications" title="Notifications">
     🔔
@@ -2185,13 +2166,34 @@ def render(content, include_brief=False, **kw):
     </div>
    </div>
   </div>
-  <span style="width:1px;height:24px;background:var(--bd);margin:0 6px" role="separator" aria-hidden="true"></span>
-  <div class="hdr-status" role="status" aria-live="polite" aria-label="Email polling status">
-   <div style="display:flex;align-items:center;gap:6px">
-    <span class="poll-dot {_poll_class}" aria-hidden="true"></span>
-    <span>{_poll_status}</span>
+   <div class="hdr-status" role="status" aria-live="polite" aria-label="Email polling status" style="min-width:100px">
+    <div style="display:flex;align-items:center;gap:6px">
+     <span class="poll-dot {_poll_class}" aria-hidden="true"></span>
+     <span>{_poll_status}</span>
+    </div>
+    <div class="hdr-time" id="poll-time" data-utc="{_poll_last}">{_poll_last or 'never'}</div>
    </div>
-   <div class="hdr-time" id="poll-time" data-utc="{_poll_last}">{_poll_last or 'never'}</div>
+  </div>
+ </div>
+ <nav aria-label="Main navigation" style="overflow-x:auto;overflow-y:hidden;white-space:nowrap;padding-bottom:8px;margin:0 -28px;padding-left:28px;padding-right:28px;-webkit-overflow-scrolling:touch;scrollbar-width:thin;scrollbar-color:var(--bd) transparent">
+  <div style="display:inline-flex;align-items:center;gap:4px">
+  <a href="/" class="hdr-btn hdr-active" aria-label="Home" aria-current="page" style="padding:5px 10px;font-size:11px">🏠 Home</a>
+  <a href="/search" class="hdr-btn" aria-label="Universal search" style="padding:5px 10px;font-size:11px">🔍 Search</a>
+  <a href="/quotes" class="hdr-btn" aria-label="Quotes database" style="padding:5px 10px;font-size:11px">📋 Quotes</a>
+  <a href="/orders" class="hdr-btn" aria-label="Orders tracking" style="padding:5px 10px;font-size:11px">📦 Orders</a>
+  <a href="/contacts" class="hdr-btn" aria-label="CRM Contacts" style="padding:5px 10px;font-size:11px">👥 CRM</a>
+  <a href="/vendors" class="hdr-btn" aria-label="Vendor ordering" style="padding:5px 10px;font-size:11px">🏭 Vendors</a>
+  <a href="/catalog" class="hdr-btn" aria-label="Product Catalog" style="padding:5px 10px;font-size:11px">📦 Catalog</a>
+  <a href="/pricechecks" class="hdr-btn" aria-label="PC Archive" style="padding:5px 10px;font-size:11px">📋 PCs</a>
+  <a href="/competitors" class="hdr-btn" aria-label="Competitor Intelligence" style="padding:5px 10px;font-size:11px">🎯 Compete</a>
+  <a href="/cchcs/expansion" class="hdr-btn" aria-label="Expand Facilities" style="padding:5px 10px;font-size:11px">🏥 Expand</a>
+  <a href="/campaigns" class="hdr-btn" aria-label="Outreach campaigns" style="padding:5px 10px;font-size:11px">📞 Campaigns</a>
+  <a href="/pipeline" class="hdr-btn" aria-label="Revenue pipeline" style="padding:5px 10px;font-size:11px">🔄 Pipeline</a>
+  <a href="/shipping" class="hdr-btn" aria-label="Shipping tracker" style="padding:5px 10px;font-size:11px">🚚 Shipping</a>
+  <a href="/pricing" class="hdr-btn" aria-label="Pricing intelligence" style="padding:5px 10px;font-size:11px">💰 Pricing</a>
+  <a href="/growth" class="hdr-btn" aria-label="Growth engine" style="padding:5px 10px;font-size:11px">🚀 Growth</a>
+  <a href="/intelligence" class="hdr-btn" aria-label="Sales intelligence" style="padding:5px 10px;font-size:11px">🧠 Intel</a>
+  <a href="/agents" class="hdr-btn" aria-label="AI Agents manager" style="padding:5px 10px;font-size:11px">🤖 Agents</a>
   </div>
  </nav>
 </header>
@@ -2228,33 +2230,14 @@ def _header(page_title: str = "") -> str:
 <title>{page_title} — Reytech</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>{BASE_CSS}</style></head><body>
-<div class="hdr">
- <div style="display:flex;align-items:center;gap:14px">
-  <a href="/" style="display:flex;align-items:center;gap:10px;text-decoration:none">
-   <img src="/api/logo" alt="Reytech" style="height:44px;background:#fff;padding:6px 12px;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.2)" onerror="this.outerHTML='<span style=\\'font-size:20px;font-weight:700;color:var(--ac)\\'>Reytech</span>'">
-   <span style="font-size:17px;font-weight:600;color:var(--tx);letter-spacing:-0.3px">RFQ Dashboard</span>
+<div class="hdr" style="padding:10px 28px 0;gap:0;flex-direction:column;align-items:stretch">
+ <div style="display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:8px">
+  <a href="/" style="display:flex;align-items:center;gap:10px;text-decoration:none;flex-shrink:0">
+   <img src="/api/logo" alt="Reytech" style="height:36px;background:#fff;padding:4px 10px;border-radius:6px;box-shadow:0 1px 3px rgba(0,0,0,.2)" onerror="this.outerHTML='<span style=\\'font-size:18px;font-weight:700;color:var(--ac)\\'>Reytech</span>'">
+   <span style="font-size:15px;font-weight:600;color:var(--tx);letter-spacing:-0.3px">RFQ Dashboard</span>
   </a>
- </div>
- <div style="display:flex;align-items:center;gap:6px">
-  <a href="/" class="hdr-btn">🏠 Home</a>
-  <a href="/search" class="hdr-btn{'{ hdr-active}' if page_title=='Search' else ''}">🔍 Search</a>
-  <a href="/quotes" class="hdr-btn">📋 Quotes</a>
-  <a href="/orders" class="hdr-btn">📦 Orders</a>
-  <a href="/contacts" class="hdr-btn">👥 CRM</a>
-  <a href="/vendors" class="hdr-btn">🏭 Vendors</a>
-  <a href="/catalog" class="hdr-btn">📦 Catalog</a>
-  <a href="/pricechecks" class="hdr-btn">📋 PCs</a>
-  <a href="/competitors" class="hdr-btn">🎯 Compete</a>
-  <a href="/cchcs/expansion" class="hdr-btn">🏥 Expand</a>
-  <a href="/campaigns" class="hdr-btn">📞 Campaigns</a>
-  <a href="/pipeline" class="hdr-btn">🔄 Pipeline</a>
-  <a href="/shipping" class="hdr-btn">🚚 Shipping</a>
-  <a href="/pricing" class="hdr-btn">💰 Pricing</a>
-  <a href="/growth" class="hdr-btn{'{ hdr-active}' if page_title=='Growth Engine' else ''}">🚀 Growth</a>
-  <a href="/intelligence" class="hdr-btn{'{ hdr-active}' if page_title=='Sales Intelligence' else ''}">🧠 Intel</a>
-  <a href="/agents" class="hdr-btn">🤖 Agents</a>
-  <span style="width:1px;height:24px;background:var(--bd);margin:0 6px"></span>
-  <button class="hdr-btn" onclick="pollNow(this)" id="poll-btn">⚡ Check Now</button>
+  <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+   <button class="hdr-btn" onclick="pollNow(this)" id="poll-btn" style="padding:4px 10px;font-size:11px">⚡ Check Now</button>
 <div style="position:relative" id="notif-wrap">
    <button class="notif-bell" onclick="toggleNotifPanel()" id="notif-bell-btn" aria-label="Notifications" title="Notifications">
     🔔
@@ -2278,15 +2261,36 @@ def _header(page_title: str = "") -> str:
     </div>
    </div>
   </div>
-  <span style="width:1px;height:24px;background:var(--bd);margin:0 6px"></span>
-  <div class="hdr-status">
-   <div style="display:flex;align-items:center;gap:6px">
-    <span class="poll-dot {_poll_class}"></span>
-    <span>{_poll_status}</span>
+   <div class="hdr-status" style="min-width:100px">
+    <div style="display:flex;align-items:center;gap:6px">
+     <span class="poll-dot {_poll_class}"></span>
+     <span>{_poll_status}</span>
+    </div>
+    <div class="hdr-time" id="poll-time" data-utc="{_poll_last}">{_poll_last or 'never'}</div>
    </div>
-   <div class="hdr-time" id="poll-time" data-utc="{_poll_last}">{_poll_last or 'never'}</div>
   </div>
  </div>
+ <nav style="overflow-x:auto;overflow-y:hidden;white-space:nowrap;padding-bottom:8px;margin:0 -28px;padding-left:28px;padding-right:28px;-webkit-overflow-scrolling:touch;scrollbar-width:thin;scrollbar-color:var(--bd) transparent">
+  <div style="display:inline-flex;align-items:center;gap:4px">
+  <a href="/" class="hdr-btn" style="padding:5px 10px;font-size:11px">🏠 Home</a>
+  <a href="/search" class="hdr-btn{'{ hdr-active}' if page_title=='Search' else ''}" style="padding:5px 10px;font-size:11px">🔍 Search</a>
+  <a href="/quotes" class="hdr-btn" style="padding:5px 10px;font-size:11px">📋 Quotes</a>
+  <a href="/orders" class="hdr-btn" style="padding:5px 10px;font-size:11px">📦 Orders</a>
+  <a href="/contacts" class="hdr-btn" style="padding:5px 10px;font-size:11px">👥 CRM</a>
+  <a href="/vendors" class="hdr-btn" style="padding:5px 10px;font-size:11px">🏭 Vendors</a>
+  <a href="/catalog" class="hdr-btn" style="padding:5px 10px;font-size:11px">📦 Catalog</a>
+  <a href="/pricechecks" class="hdr-btn" style="padding:5px 10px;font-size:11px">📋 PCs</a>
+  <a href="/competitors" class="hdr-btn" style="padding:5px 10px;font-size:11px">🎯 Compete</a>
+  <a href="/cchcs/expansion" class="hdr-btn" style="padding:5px 10px;font-size:11px">🏥 Expand</a>
+  <a href="/campaigns" class="hdr-btn" style="padding:5px 10px;font-size:11px">📞 Campaigns</a>
+  <a href="/pipeline" class="hdr-btn" style="padding:5px 10px;font-size:11px">🔄 Pipeline</a>
+  <a href="/shipping" class="hdr-btn" style="padding:5px 10px;font-size:11px">🚚 Shipping</a>
+  <a href="/pricing" class="hdr-btn" style="padding:5px 10px;font-size:11px">💰 Pricing</a>
+  <a href="/growth" class="hdr-btn{'{ hdr-active}' if page_title=='Growth Engine' else ''}" style="padding:5px 10px;font-size:11px">🚀 Growth</a>
+  <a href="/intelligence" class="hdr-btn{'{ hdr-active}' if page_title=='Sales Intelligence' else ''}" style="padding:5px 10px;font-size:11px">🧠 Intel</a>
+  <a href="/agents" class="hdr-btn" style="padding:5px 10px;font-size:11px">🤖 Agents</a>
+  </div>
+ </nav>
 </div>
 <div class="ctr">""" + "<script>" + SHARED_HEADER_JS + "</script>"
 
