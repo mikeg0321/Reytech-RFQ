@@ -9269,5 +9269,469 @@ try:
 except Exception as _e:
     log.warning("Product catalog auto-import failed: %s", _e)
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# Shipping Dashboard (#7) — aggregate tracking across all orders
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@bp.route("/shipping")
+@auth_required
+def shipping_dashboard():
+    """Shipping dashboard — all tracking numbers, carrier links, delivery status."""
+    orders = _load_orders()
+    
+    shipments = []
+    for oid, order in orders.items():
+        if order.get("status") == "dismissed":
+            continue
+        for it in order.get("line_items", []):
+            tracking = it.get("tracking_number", "")
+            if not tracking:
+                continue
+            carrier = it.get("carrier", "")
+            carrier_low = carrier.lower() if carrier else ""
+            
+            # Auto-detect carrier from tracking format
+            if not carrier:
+                if tracking.startswith("TBA"):
+                    carrier = "Amazon"
+                elif tracking.startswith("1Z"):
+                    carrier = "UPS"
+                elif len(tracking) in (12, 15, 20, 22) and tracking.isdigit():
+                    carrier = "FedEx"
+                elif len(tracking) in (20, 22, 26, 30, 34) and tracking.isdigit():
+                    carrier = "USPS"
+                carrier_low = carrier.lower()
+            
+            # Build tracking URL
+            track_url = ""
+            if "amazon" in carrier_low or tracking.startswith("TBA"):
+                track_url = f"https://www.amazon.com/progress-tracker/package/?itemId={tracking}"
+            elif "ups" in carrier_low or tracking.startswith("1Z"):
+                track_url = f"https://www.ups.com/track?tracknum={tracking}"
+            elif "fedex" in carrier_low:
+                track_url = f"https://www.fedex.com/fedextrack/?trknbr={tracking}"
+            elif "usps" in carrier_low:
+                track_url = f"https://tools.usps.com/go/TrackConfirmAction?tLabels={tracking}"
+            
+            status = it.get("sourcing_status", "")
+            ship_date = it.get("ship_date", "")
+            delivery_date = it.get("delivery_date", "")
+            
+            shipments.append({
+                "order_id": oid,
+                "po_number": order.get("po_number", ""),
+                "institution": order.get("institution", ""),
+                "description": it.get("description", "")[:50],
+                "tracking": tracking,
+                "carrier": carrier,
+                "track_url": track_url,
+                "status": status,
+                "ship_date": ship_date,
+                "delivery_date": delivery_date,
+            })
+    
+    # Sort: undelivered first, then by ship date desc
+    shipments.sort(key=lambda s: (s["status"] == "delivered", s.get("ship_date", "") or ""), reverse=True)
+    
+    # Stats
+    total = len(shipments)
+    in_transit = sum(1 for s in shipments if s["status"] in ("shipped", "ordered"))
+    delivered = sum(1 for s in shipments if s["status"] == "delivered")
+    carriers = {}
+    for s in shipments:
+        c = s["carrier"] or "Unknown"
+        carriers[c] = carriers.get(c, 0) + 1
+    
+    rows = ""
+    for s in shipments:
+        st_color = {"delivered": "var(--gn)", "shipped": "var(--ac)", "ordered": "var(--yl)"}.get(s["status"], "var(--tx2)")
+        link = f'<a href="{s["track_url"]}" target="_blank" style="color:var(--ac)">{s["tracking"]}</a>' if s["track_url"] else s["tracking"]
+        rows += f"""<tr onclick="location.href='/order/{s['order_id']}'" style="cursor:pointer">
+         <td><a href="/order/{s['order_id']}" style="color:var(--ac);font-size:12px">{s['order_id'][:20]}</a></td>
+         <td style="font-size:12px">{s['po_number']}</td>
+         <td style="font-size:12px">{s['institution'][:30]}</td>
+         <td style="font-size:12px">{s['description']}</td>
+         <td style="font-family:'JetBrains Mono',monospace;font-size:11px">{link}</td>
+         <td style="font-size:12px">{s['carrier']}</td>
+         <td style="font-size:12px">{s['ship_date']}</td>
+         <td style="font-size:12px">{s['delivery_date']}</td>
+         <td style="color:{st_color};font-weight:600;font-size:12px">{s['status']}</td>
+        </tr>"""
+    
+    carrier_chips = " ".join(
+        f'<span style="background:var(--sf2);border:1px solid var(--bd);border-radius:6px;padding:4px 10px;font-size:11px">{c}: <b>{n}</b></span>'
+        for c, n in sorted(carriers.items(), key=lambda x: -x[1])
+    )
+    
+    content = f"""
+    <h2 style="margin-bottom:4px">🚚 Shipping Dashboard</h2>
+    <p style="font-size:13px;color:var(--tx2);margin-bottom:16px">All tracking numbers across orders with carrier links</p>
+    
+    <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+      <div class="card" style="text-align:center;padding:12px 20px;min-width:100px;margin:0">
+        <div style="font-size:28px;font-weight:800;color:var(--ac)">{total}</div>
+        <div style="font-size:10px;color:var(--tx2)">SHIPMENTS</div></div>
+      <div class="card" style="text-align:center;padding:12px 20px;min-width:100px;margin:0">
+        <div style="font-size:28px;font-weight:800;color:var(--yl)">{in_transit}</div>
+        <div style="font-size:10px;color:var(--tx2)">IN TRANSIT</div></div>
+      <div class="card" style="text-align:center;padding:12px 20px;min-width:100px;margin:0">
+        <div style="font-size:28px;font-weight:800;color:var(--gn)">{delivered}</div>
+        <div style="font-size:10px;color:var(--tx2)">DELIVERED</div></div>
+    </div>
+    
+    <div style="margin-bottom:12px">{carrier_chips}</div>
+    
+    <div class="card" style="overflow-x:auto">
+     <table class="home-tbl" style="min-width:900px">
+      <thead><tr>
+       <th>Order</th><th>PO #</th><th>Institution</th><th>Item</th>
+       <th>Tracking</th><th>Carrier</th><th>Shipped</th><th>Delivered</th><th>Status</th>
+      </tr></thead>
+      <tbody>{rows or '<tr><td colspan="9" style="text-align:center;color:var(--tx2);padding:20px">No shipments tracked yet — tracking numbers auto-detected from shipping emails</td></tr>'}</tbody>
+     </table>
+    </div>"""
+    
+    return render(content, title="Shipping")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Cross-Inbox Dedup (#10) — shared fingerprint table
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _init_dedup_table():
+    """Create cross-inbox dedup table if not exists."""
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS email_fingerprints (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    fingerprint TEXT UNIQUE NOT NULL,
+                    inbox TEXT NOT NULL,
+                    subject TEXT,
+                    sender TEXT,
+                    message_id TEXT,
+                    processed_at TEXT NOT NULL,
+                    result_type TEXT,
+                    result_id TEXT
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_fp_fingerprint ON email_fingerprints(fingerprint)")
+            conn.commit()
+    except Exception as e:
+        log.debug("Dedup table init: %s", e)
+
+_init_dedup_table()
+
+
+def check_email_fingerprint(subject: str, sender: str, date_str: str = "",
+                            message_id: str = "", inbox: str = "sales") -> bool:
+    """Check if email was already processed by ANY inbox. Returns True if duplicate."""
+    import hashlib
+    raw = f"{subject.strip().lower()}|{sender.strip().lower()}|{date_str[:16]}"
+    fp = hashlib.sha256(raw.encode()).hexdigest()[:32]
+    
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            existing = conn.execute(
+                "SELECT inbox, processed_at FROM email_fingerprints WHERE fingerprint=?", (fp,)
+            ).fetchone()
+            if existing:
+                return True
+            # Not a dupe — record it
+            conn.execute(
+                "INSERT OR IGNORE INTO email_fingerprints (fingerprint, inbox, subject, sender, message_id, processed_at) VALUES (?,?,?,?,?,?)",
+                (fp, inbox, subject[:200], sender[:200], message_id[:200], datetime.now().isoformat())
+            )
+            conn.commit()
+            return False
+    except Exception:
+        return False
+
+
+def record_email_fingerprint(subject: str, sender: str, date_str: str = "",
+                             inbox: str = "sales", result_type: str = "",
+                             result_id: str = "", message_id: str = ""):
+    """Record an email fingerprint after successful processing."""
+    import hashlib
+    raw = f"{subject.strip().lower()}|{sender.strip().lower()}|{date_str[:16]}"
+    fp = hashlib.sha256(raw.encode()).hexdigest()[:32]
+    
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO email_fingerprints 
+                (fingerprint, inbox, subject, sender, message_id, processed_at, result_type, result_id)
+                VALUES (?,?,?,?,?,?,?,?)
+            """, (fp, inbox, subject[:200], sender[:200], message_id[:200],
+                  datetime.now().isoformat(), result_type, result_id))
+            conn.commit()
+    except Exception:
+        pass
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Recurring Order Detection (#12)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/orders/recurring")
+@auth_required
+def api_recurring_orders():
+    """Detect repeat buyers — same institution + similar items across multiple orders."""
+    orders = _load_orders()
+    institution_orders = {}
+    for oid, order in orders.items():
+        if order.get("status") == "dismissed":
+            continue
+        inst = (order.get("institution") or "").strip().lower()
+        if inst:
+            institution_orders.setdefault(inst, []).append(order)
+    
+    recurring = []
+    for inst, inst_orders in institution_orders.items():
+        if len(inst_orders) < 2:
+            continue
+        total_value = sum(o.get("total", 0) for o in inst_orders)
+        all_items = set()
+        for o in inst_orders:
+            for it in o.get("line_items", []):
+                all_items.add((it.get("description", "")[:40] or "").lower())
+        recurring.append({
+            "institution": inst_orders[0].get("institution", ""),
+            "order_count": len(inst_orders),
+            "total_value": total_value,
+            "avg_value": total_value / len(inst_orders),
+            "unique_items": len(all_items),
+            "orders": [{"id": o["order_id"], "po": o.get("po_number",""), 
+                         "total": o.get("total",0), "date": o.get("created_at","")[:10]}
+                        for o in sorted(inst_orders, key=lambda x: x.get("created_at",""), reverse=True)],
+        })
+    
+    recurring.sort(key=lambda r: r["total_value"], reverse=True)
+    return jsonify({"ok": True, "recurring": recurring, "count": len(recurring)})
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Margin Calculator (#13) — cost vs sell per item per order
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/orders/margins")
+@auth_required
+def api_order_margins():
+    """Calculate margins across all orders — cost (supplier) vs sell (quote) per item."""
+    orders = _load_orders()
+    margin_data = []
+    total_revenue = 0
+    total_cost = 0
+    
+    for oid, order in orders.items():
+        if order.get("status") == "dismissed":
+            continue
+        for it in order.get("line_items", []):
+            sell = it.get("unit_price", 0) or 0
+            cost = it.get("cost", 0) or 0
+            qty = it.get("qty", 0) or 1
+            if sell > 0:
+                margin = (sell - cost) / sell * 100 if cost else 0
+                revenue = sell * qty
+                cost_total = cost * qty
+                profit = revenue - cost_total
+                total_revenue += revenue
+                total_cost += cost_total
+                margin_data.append({
+                    "order_id": oid,
+                    "po_number": order.get("po_number", ""),
+                    "institution": order.get("institution", ""),
+                    "description": it.get("description", "")[:60],
+                    "sell_price": sell,
+                    "cost": cost,
+                    "qty": qty,
+                    "margin_pct": round(margin, 1),
+                    "profit": round(profit, 2),
+                    "revenue": round(revenue, 2),
+                })
+    
+    margin_data.sort(key=lambda m: m["profit"], reverse=True)
+    overall_margin = round((total_revenue - total_cost) / total_revenue * 100, 1) if total_revenue else 0
+    
+    return jsonify({
+        "ok": True,
+        "items": margin_data[:100],
+        "summary": {
+            "total_revenue": round(total_revenue, 2),
+            "total_cost": round(total_cost, 2),
+            "total_profit": round(total_revenue - total_cost, 2),
+            "overall_margin_pct": overall_margin,
+            "items_with_cost": sum(1 for m in margin_data if m["cost"] > 0),
+            "items_without_cost": sum(1 for m in margin_data if m["cost"] == 0),
+        }
+    })
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Payment Tracking (#14) — post-invoice payment aging
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/order/<oid>/payment", methods=["POST"])
+@auth_required
+def api_order_payment(oid):
+    """Record payment received. POST: {amount, date, method, reference}"""
+    orders = _load_orders()
+    order = orders.get(oid)
+    if not order:
+        return jsonify({"ok": False, "error": "Order not found"})
+    
+    data = request.get_json(silent=True) or {}
+    payment = {
+        "amount": float(data.get("amount", 0)),
+        "date": data.get("date", datetime.now().strftime("%Y-%m-%d")),
+        "method": data.get("method", "check"),
+        "reference": data.get("reference", ""),
+        "recorded_at": datetime.now().isoformat(),
+    }
+    
+    if "payments" not in order:
+        order["payments"] = []
+    order["payments"].append(payment)
+    order["total_paid"] = sum(p["amount"] for p in order["payments"])
+    order["payment_status"] = "paid" if order["total_paid"] >= order.get("total", 0) else "partial"
+    order["updated_at"] = datetime.now().isoformat()
+    
+    orders[oid] = order
+    _save_orders(orders)
+    
+    _log_crm_activity(order.get("quote_number", ""), "payment_received",
+                      f"Payment ${payment['amount']:,.2f} on order {oid} via {payment['method']}",
+                      actor="user", metadata={"order_id": oid, "payment": payment})
+    
+    return jsonify({"ok": True, "total_paid": order["total_paid"], "payment_status": order["payment_status"]})
+
+
+@bp.route("/api/orders/aging")
+@auth_required
+def api_orders_aging():
+    """Invoice aging report — how long since invoice, payment status."""
+    orders = _load_orders()
+    aging = []
+    now = datetime.now()
+    
+    for oid, order in orders.items():
+        if order.get("status") == "dismissed":
+            continue
+        inv = order.get("draft_invoice") or {}
+        if not inv.get("invoice_number"):
+            continue
+        
+        inv_date = inv.get("created_at", order.get("created_at", ""))
+        try:
+            from dateutil.parser import parse as _dp
+            dt = _dp(inv_date)
+            days = (now - dt.replace(tzinfo=None)).days
+        except Exception:
+            days = 0
+        
+        total = order.get("total", 0)
+        paid = order.get("total_paid", 0)
+        balance = total - paid
+        
+        if balance <= 0:
+            bucket = "Paid"
+        elif days <= 30:
+            bucket = "Current"
+        elif days <= 45:
+            bucket = "31-45 Days"
+        elif days <= 60:
+            bucket = "46-60 Days"
+        elif days <= 90:
+            bucket = "61-90 Days"
+        else:
+            bucket = "90+ Days"
+        
+        aging.append({
+            "order_id": oid,
+            "invoice_number": inv.get("invoice_number", ""),
+            "institution": order.get("institution", ""),
+            "po_number": order.get("po_number", ""),
+            "invoice_date": inv_date[:10],
+            "days_outstanding": days,
+            "total": total,
+            "paid": paid,
+            "balance": balance,
+            "bucket": bucket,
+        })
+    
+    aging.sort(key=lambda a: a["days_outstanding"], reverse=True)
+    
+    # Summary by bucket
+    buckets = {}
+    for a in aging:
+        b = a["bucket"]
+        buckets[b] = buckets.get(b, {"count": 0, "total": 0})
+        buckets[b]["count"] += 1
+        buckets[b]["total"] += a["balance"]
+    
+    return jsonify({"ok": True, "invoices": aging, "buckets": buckets, "total_outstanding": sum(a["balance"] for a in aging)})
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Audit Trail (#16) — every admin action logged
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _log_audit(action: str, details: str = "", metadata: dict = None):
+    """Log an admin action to the audit trail."""
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS audit_trail (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    details TEXT,
+                    ip_address TEXT,
+                    user_agent TEXT,
+                    metadata TEXT
+                )
+            """)
+            conn.execute(
+                "INSERT INTO audit_trail (timestamp, action, details, ip_address, user_agent, metadata) VALUES (?,?,?,?,?,?)",
+                (datetime.now().isoformat(), action, details[:500],
+                 request.remote_addr if request else "",
+                 (request.user_agent.string[:200] if request and request.user_agent else ""),
+                 json.dumps(metadata or {}, default=str)[:1000])
+            )
+            conn.commit()
+    except Exception as e:
+        log.debug("Audit log error: %s", e)
+
+
+@bp.route("/api/audit")
+@auth_required
+def api_audit_trail():
+    """View audit trail — last 100 actions."""
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS audit_trail (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    details TEXT,
+                    ip_address TEXT,
+                    user_agent TEXT,
+                    metadata TEXT
+                )
+            """)
+            rows = conn.execute(
+                "SELECT * FROM audit_trail ORDER BY timestamp DESC LIMIT 100"
+            ).fetchall()
+            return jsonify({"ok": True, "entries": [dict(r) for r in rows]})
+    except Exception:
+        return jsonify({"ok": True, "entries": []})
+
+
 # Start polling on import (for gunicorn) and on direct run
 start_polling()
