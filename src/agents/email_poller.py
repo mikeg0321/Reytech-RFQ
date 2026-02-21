@@ -1085,6 +1085,7 @@ class EmailPoller:
         self.password = config.get("email_password", os.environ.get("GMAIL_PASSWORD", ""))
         self.folder = config.get("imap_folder", "INBOX")
         self.processed_file = config.get("processed_file", "data/processed_emails.json")
+        self._inbox_name = config.get("inbox_name", "sales")  # For cross-inbox dedup
         self._processed = self._load_processed()
         self.mail = None
         self._connected = False
@@ -1200,6 +1201,23 @@ class EmailPoller:
                         self._processed.add(uid)
                         continue
                     # ── END SELF-EMAIL FILTER ──────────────────────────────────
+                    
+                    # ── CROSS-INBOX DEDUP (#10) — shared fingerprint check ─────
+                    # Prevents same email processed by both sales & supplier inbox
+                    try:
+                        from src.api.modules.routes_intel import check_email_fingerprint, record_email_fingerprint
+                        msg_date = msg.get("Date", "")
+                        msg_id = msg.get("Message-ID", "")
+                        inbox_name = getattr(self, '_inbox_name', 'sales')
+                        if check_email_fingerprint(subject, sender_email_raw, msg_date, msg_id, inbox_name):
+                            log.debug("Cross-inbox dedup: skipping %s — %s (already processed)", sender_email_raw, subject[:40])
+                            self._diag.setdefault("cross_dedup", 0)
+                            self._diag["cross_dedup"] = self._diag.get("cross_dedup", 0) + 1
+                            self._processed.add(uid)
+                            continue
+                    except Exception:
+                        pass  # Dedup is best-effort, don't block processing
+                    # ── END CROSS-INBOX DEDUP ──────────────────────────────────
                     
                     # Get PDF names without saving
                     pdf_names = self._get_pdf_names(msg)
