@@ -1039,6 +1039,7 @@ class EmailPoller:
                 "no_attachments": 0,
                 "parse_errors": 0,
                 "subjects_seen": [],
+                "_po_numbers_seen": set(),  # Dedup PO within same poll cycle
             }
 
             for uid_bytes in new_uids:
@@ -1117,15 +1118,22 @@ class EmailPoller:
                         sol_number = extract_solicitation_number(subject, body or "", pdf_names)
                         
                         # Special handling for "PO Distribution: PO#, SOL#, FACILITY, VENDOR" format
-                        # The generic extractor grabs the PO number (first number), we need the SOL (second)
                         po_dist_match = re.match(
                             r'(?:re:\s*)?po\s*distribution\s*:?\s*(\d+)\s*,\s*(\d{7,8})',
                             subject, re.IGNORECASE
                         )
                         if po_dist_match:
-                            sol_number = po_dist_match.group(2)  # Second number is solicitation
+                            sol_number = po_dist_match.group(2)
                             if not po_number:
-                                po_number = po_dist_match.group(1)  # First is PO number
+                                po_number = po_dist_match.group(1)
+                        
+                        # ── DEDUP: skip if this PO number already seen this cycle ──
+                        if po_number and po_number in self._diag.get("_po_numbers_seen", set()):
+                            log.info("PO %s already processed this cycle (RE: thread), skipping", po_number)
+                            self._processed.add(uid)
+                            continue
+                        if po_number:
+                            self._diag.setdefault("_po_numbers_seen", set()).add(po_number)
                         
                         # Save attachments for PO records
                         po_rfq_id = "PO_" + datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + uid[:6]

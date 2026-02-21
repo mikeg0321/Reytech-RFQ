@@ -2194,6 +2194,7 @@ def orders_page():
          <td style="text-align:right;font-weight:600;font-family:'JetBrains Mono',monospace">${o.get('total',0):,.2f}</td>
          <td style="text-align:center">{progress}</td>
          <td style="text-align:center"><span style="display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;color:{clr};background:{bg}">{lbl}</span></td>
+         <td style="text-align:center"><button onclick="deleteOrder('{oid}')" style="background:none;border:none;cursor:pointer;font-size:12px;color:var(--tx2)" title="Delete order">🗑️</button></td>
         </tr>"""
 
     content = f"""
@@ -2212,8 +2213,9 @@ def orders_page():
        <th>Institution</th><th style="width:100px">PO / Quote</th>
        <th style="text-align:right;width:90px">Total</th><th style="width:70px;text-align:center">Delivery</th>
        <th style="width:100px;text-align:center">Status</th>
+       <th style="width:40px"></th>
       </tr></thead>
-      <tbody>{rows if rows else '<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--tx2)">No orders yet — mark a quote as Won to create one</td></tr>'}</tbody>
+      <tbody>{rows if rows else '<tr><td colspan="9" style="text-align:center;padding:24px;color:var(--tx2)">No orders yet — mark a quote as Won or import a PO PDF</td></tr>'}</tbody>
      </table>
     </div>
 
@@ -2259,6 +2261,21 @@ def orders_page():
             location.href = '/order/' + oid;
           }}
         }});
+      }});
+    }}
+    function deleteOrder(oid) {{
+      const reasons = ['Duplicate', 'Created in error', 'PO cancelled', 'Test order'];
+      const reason = prompt('Delete order ' + oid + '?\\n\\nReason:\\n1. Duplicate\\n2. Created in error\\n3. PO cancelled\\n4. Test order\\n\\nEnter number or custom reason:', '1');
+      if (reason === null) return;
+      const reasonMap = {{'1':'Duplicate','2':'Created in error','3':'PO cancelled','4':'Test order'}};
+      const finalReason = reasonMap[reason] || reason;
+      fetch('/api/order/' + oid + '/delete', {{
+        method: 'POST',
+        headers: {{'Content-Type': 'application/json'}},
+        body: JSON.stringify({{reason: finalReason}})
+      }}).then(r => r.json()).then(d => {{
+        if (d.ok) location.reload();
+        else alert('Error: ' + (d.error || 'unknown'));
       }});
     }}
     </script>
@@ -2407,6 +2424,7 @@ def order_detail(oid):
     <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px">
      <a href="/orders" class="btn btn-s" style="font-size:13px">← Orders</a>
      {f'<a href="/quote/{qn}" class="btn btn-s" style="font-size:13px">📋 Quote {qn}</a>' if qn else ''}
+     <button onclick="if(confirm('Delete order {oid}?'))fetch('/api/order/{oid}/delete',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{reason:'manual delete'}})}}).then(r=>r.json()).then(d=>{{if(d.ok)location.href='/orders'}})" class="btn btn-s" style="font-size:12px;margin-left:auto;color:var(--rd)">🗑️ Delete</button>
     </div>
 
     <div class="bento bento-2" style="margin-bottom:14px">
@@ -2931,6 +2949,29 @@ def api_order_invoice(oid):
                       f"Order {oid}: {inv_type} invoice #{inv_num} — ${order.get('invoice_total',0):,.2f}",
                       actor="user", metadata={"order_id": oid, "invoice": inv_num})
     return jsonify({"ok": True, "invoice_type": inv_type, "invoice_total": order.get("invoice_total", 0)})
+
+
+@bp.route("/api/order/<oid>/delete", methods=["POST"])
+@auth_required
+def api_order_delete(oid):
+    """Delete/dismiss a duplicate or erroneous order. POST: {reason}"""
+    orders = _load_orders()
+    order = orders.get(oid)
+    if not order:
+        return jsonify({"ok": False, "error": "Order not found"})
+    data = request.get_json(silent=True) or {}
+    reason = data.get("reason", "duplicate")
+
+    # Log before deleting
+    _log_crm_activity(order.get("quote_number", "") or order.get("po_number", ""),
+                      "order_deleted",
+                      f"Order {oid} deleted. Reason: {reason}. PO: {order.get('po_number','')} Total: ${order.get('total',0):,.2f}",
+                      actor="user", metadata={"order_id": oid, "reason": reason})
+
+    del orders[oid]
+    _save_orders(orders)
+    log.info("Order %s deleted. Reason: %s", oid, reason)
+    return jsonify({"ok": True, "deleted": oid, "reason": reason})
 
 
 @bp.route("/api/order/<oid>/reply-all")

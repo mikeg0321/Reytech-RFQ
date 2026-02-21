@@ -1664,10 +1664,19 @@ def _create_order_from_po_email(po_data: dict) -> dict:
     }
 
     orders = _load_orders()
-    # Don't overwrite existing order
+    
+    # Dedup: check if ANY order already exists with this PO number
+    if po_num:
+        for existing_oid, existing_order in orders.items():
+            if existing_order.get("po_number") == po_num:
+                log.info("Order for PO %s already exists (%s), skipping creation", po_num, existing_oid)
+                return existing_order
+    
+    # Don't overwrite existing order by ID either
     if oid in orders:
         log.info("Order %s already exists, skipping creation", oid)
         return orders[oid]
+    
     orders[oid] = order
     _save_orders(orders)
     _log_crm_activity(qn or po_num, "order_created",
