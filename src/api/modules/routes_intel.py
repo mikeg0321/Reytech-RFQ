@@ -2499,6 +2499,59 @@ def order_detail(oid):
       <a href="/api/order/{oid}/reply-all" class="btn btn-s" style="font-size:12px">📧 Reply-All Confirmation</a>
      </div>
     </div>
+    """
+
+    # Draft Invoice section (auto-generated when all items delivered)
+    draft_inv = order.get("draft_invoice", {{}})
+    if draft_inv:
+        inv_items_rows = ""
+        for di in draft_inv.get("items", []):
+            inv_items_rows += f"""<tr>
+             <td style="max-width:300px;word-wrap:break-word;white-space:normal;font-size:12px">{di.get('description','')[:70]}</td>
+             <td class="mono" style="font-size:11px">{di.get('part_number','')}</td>
+             <td class="mono" style="text-align:center">{di.get('qty',0)}</td>
+             <td class="mono" style="text-align:right">${di.get('unit_price',0):,.2f}</td>
+             <td class="mono" style="text-align:right">${di.get('extended',0):,.2f}</td>
+            </tr>"""
+
+        content += f"""
+    <div class="card" style="margin-top:14px;border:2px solid var(--gn)">
+     <div class="card-t" style="color:var(--gn)">📄 Draft Invoice — {draft_inv.get('invoice_number','')}</div>
+     <div style="margin-bottom:12px;font-size:12px;color:var(--tx2)">
+      Auto-generated {draft_inv.get('created_at','')[:10]} when all items marked delivered.
+      Review line items, then finalize in QuickBooks.
+     </div>
+     <div style="overflow-x:auto">
+     <table class="home-tbl" style="min-width:600px">
+      <thead><tr>
+       <th>Description</th><th style="width:80px">Part #</th>
+       <th style="width:50px;text-align:center">Qty</th>
+       <th style="width:80px;text-align:right">Unit Price</th>
+       <th style="width:90px;text-align:right">Extended</th>
+      </tr></thead>
+      <tbody>{inv_items_rows}</tbody>
+      <tfoot>
+       <tr style="border-top:2px solid var(--bd)">
+        <td colspan="4" style="text-align:right;font-weight:600">Subtotal:</td>
+        <td class="mono" style="text-align:right">${draft_inv.get('subtotal',0):,.2f}</td>
+       </tr>
+       <tr><td colspan="4" style="text-align:right;font-weight:600">Tax ({order.get('tax_rate','7.75')}%):</td>
+        <td class="mono" style="text-align:right">${draft_inv.get('tax',0):,.2f}</td>
+       </tr>
+       <tr><td colspan="4" style="text-align:right;font-weight:700;font-size:14px">Grand Total:</td>
+        <td class="mono" style="text-align:right;font-weight:700;font-size:14px;color:var(--gn)">${draft_inv.get('total',0):,.2f}</td>
+       </tr>
+      </tfoot>
+     </table>
+     </div>
+     <div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end">
+      <button onclick="invoiceOrder('{oid}','full')" class="btn btn-g" style="font-size:13px">💰 Finalize Invoice</button>
+     </div>
+    </div>
+    """
+    else:
+        content += ""
+    content += """
 
     <script>
     function updateLine(oid, lid, field, value) {{

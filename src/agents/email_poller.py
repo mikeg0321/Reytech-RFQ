@@ -264,26 +264,39 @@ def _parse_po_pdf(pdf_path: str) -> dict:
         )
         if m:
             desc = m.group(5).strip()
-            # Check next line for part number
+            # Check next line for part number or description continuation
             part_number = ""
+            desc_continuation = ""
             if i + 1 < len(lines):
                 next_line = lines[i + 1].strip()
-                # Part number line: short, no dollar amounts, not a header
+                # Skip if it's another item line, header, or has prices
                 if (next_line and len(next_line) < 80 
                     and not re.match(r'\s*\d{1,3}\s+\d+\s+[A-Z]', next_line)
-                    and not re.search(r'(?:Page|STATE|NUMBER|QUANTITY)', next_line, re.IGNORECASE)
+                    and not re.search(r'(?:Page|STATE|NUMBER|QUANTITY|PURCHASE)', next_line, re.IGNORECASE)
                     and not re.search(r'[\d,]+\.\d{2}\s+[\d,]+\.\d{2}', next_line)):
-                    part_number = next_line.strip()
-                    # Append part info to description if it looks like a part number
-                    if part_number and len(part_number) < 50:
-                        desc = f"{desc} — {part_number}"
+                    
+                    raw = next_line.strip()
+                    # Classify: part number vs description continuation
+                    # Part numbers: "R-532-7", "6/4911", "S-6261; 8/CS", "17051", "S-852"
+                    # Description: "with handle", "UNDER BED", "*SEE ATTACHED*"
+                    is_part_num = bool(re.match(
+                        r'^[A-Z0-9][\w\-/\.]*(?:\s*;\s*\d+/[A-Z]+)?$',
+                        raw.split(";")[0].strip(), re.IGNORECASE
+                    )) and len(raw.split()) <= 3
+                    
+                    if is_part_num:
+                        part_number = raw.split(";")[0].strip()
+                        desc = f"{desc} — {raw}"
+                    else:
+                        # Description continuation (e.g., "with handle", "UNDER BED")
+                        desc = f"{desc}, {raw}"
             
             items_found.append({
                 "description": desc,
                 "qty": int(m.group(2)),
                 "unit_price": float(m.group(6).replace(",", "")),
                 "extended": float(m.group(7).replace(",", "")),
-                "part_number": part_number.split(";")[0].strip() if part_number else "",
+                "part_number": part_number,
             })
     
     # Strategy 1: Numbered line items — "1  description  5  EA  $12.50  $62.50"
@@ -369,8 +382,10 @@ def _parse_po_pdf(pdf_path: str) -> dict:
                         "extended": ext,
                     })
     
-    # Extract part numbers from descriptions
+    # Extract part numbers from descriptions (only if not already set by Strategy 0)
     for it in items_found:
+        if it.get("part_number"):
+            continue  # Already extracted by STD-65 parser
         desc = it.get("description", "")
         pn_match = re.search(r'(?:P/?N|Part|#|PN|ASIN|Item\s*#?)\s*:?\s*([\w\-]{4,30})', desc, re.IGNORECASE)
         it["part_number"] = pn_match.group(1) if pn_match else ""

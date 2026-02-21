@@ -1720,25 +1720,53 @@ def _update_order_status(oid: str):
     orders[oid] = order
     _save_orders(orders)
 
-    # ── ALL DELIVERED TRIGGER — notify Mike to send invoice ──
+    # ── ALL DELIVERED TRIGGER — auto-draft invoice + notify Mike ──
     if order["status"] == "delivered" and old_status != "delivered":
         order["delivered_at"] = datetime.now().isoformat()
-        orders[oid] = order
-        _save_orders(orders)
+        
+        # Auto-create draft invoice
         qn = order.get("quote_number", "")
         po = order.get("po_number", "")
         total = order.get("total", 0)
+        subtotal = order.get("subtotal", 0) or total
+        tax = order.get("tax", 0)
         institution = order.get("institution", "")
+        
+        inv_number = f"INV-{po or oid.replace('ORD-','')}"
+        order["draft_invoice"] = {
+            "invoice_number": inv_number,
+            "status": "draft",
+            "created_at": datetime.now().isoformat(),
+            "po_number": po,
+            "bill_to": order.get("sender_email", ""),
+            "subtotal": subtotal,
+            "tax": tax,
+            "total": total,
+            "items": [
+                {
+                    "description": it.get("description", ""),
+                    "part_number": it.get("part_number", ""),
+                    "qty": it.get("qty", 0),
+                    "unit_price": it.get("unit_price", 0),
+                    "extended": it.get("extended", 0),
+                }
+                for it in items
+            ],
+        }
+        
+        orders[oid] = order
+        _save_orders(orders)
+        
         try:
             from src.agents.notify_agent import send_alert
             send_alert(
                 event_type="all_delivered",
-                title=f"✅ All items delivered — send invoice!",
+                title=f"✅ All items delivered — draft invoice ready!",
                 body=(
                     f"Order {oid} · {institution}\n"
                     f"PO: {po or 'N/A'} · Quote: {qn or 'N/A'}\n"
                     f"Total: ${total:,.2f} · {len(items)} items all confirmed delivered.\n"
-                    f"→ Create invoice in QuickBooks and send to the state."
+                    f"Draft invoice {inv_number} created — review and send."
                 ),
                 urgency="deal",
                 cooldown_key=f"delivered_{oid}",
@@ -1746,8 +1774,8 @@ def _update_order_status(oid: str):
         except Exception as _ne:
             log.debug("All-delivered notify error: %s", _ne)
         _log_crm_activity(qn, "all_delivered",
-                          f"All {len(items)} items delivered for {oid}. Total ${total:,.2f}. Ready to invoice.",
-                          actor="system", metadata={"order_id": oid, "po_number": po})
+                          f"All {len(items)} items delivered for {oid}. Draft invoice {inv_number} created. Total ${total:,.2f}.",
+                          actor="system", metadata={"order_id": oid, "po_number": po, "invoice": inv_number})
 
 # ═══════════════════════════════════════════════════════════════════════
 # HTML Templates (extracted to src/api/templates.py)
