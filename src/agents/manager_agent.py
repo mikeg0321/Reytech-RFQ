@@ -526,6 +526,13 @@ def _get_pipeline_summary() -> dict:
         "orders": {
             "total": len(live_orders),
             "active": sum(1 for o in live_orders.values() if o.get("status") not in ("closed",)),
+            "total_value": round(sum(o.get("total", 0) for o in live_orders.values()), 2),
+            "items_pending": sum(1 for o in live_orders.values() for it in o.get("line_items", []) if it.get("sourcing_status") == "pending"),
+            "items_ordered": sum(1 for o in live_orders.values() for it in o.get("line_items", []) if it.get("sourcing_status") == "ordered"),
+            "items_shipped": sum(1 for o in live_orders.values() for it in o.get("line_items", []) if it.get("sourcing_status") == "shipped"),
+            "items_delivered": sum(1 for o in live_orders.values() for it in o.get("line_items", []) if it.get("sourcing_status") == "delivered"),
+            "ready_to_invoice": sum(1 for o in live_orders.values() if o.get("status") == "delivered"),
+            "has_draft_invoice": sum(1 for o in live_orders.values() if o.get("draft_invoice")),
         },
         "outbox": {
             "drafts": sum(1 for e in outbox if e.get("status") == "draft"),
@@ -640,6 +647,15 @@ def generate_brief() -> dict:
     new_contacts = sum(1 for c in db_ctx.get("contacts", []) if c.get("status") == "new")
     if new_contacts > 5:
         headlines.append(f"{new_contacts} new contacts never contacted — run distro campaign")
+
+    # Order fulfillment headlines
+    _ord = summary.get("orders", {}) or {}
+    if _ord.get("items_pending", 0) > 0:
+        headlines.append(f"{_ord['items_pending']} line item{'s' if _ord['items_pending']!=1 else ''} not yet ordered — source from suppliers")
+    if _ord.get("items_shipped", 0) > 0:
+        headlines.append(f"{_ord['items_shipped']} item{'s' if _ord['items_shipped']!=1 else ''} in transit")
+    if _ord.get("ready_to_invoice", 0) > 0:
+        headlines.append(f"{_ord['ready_to_invoice']} order{'s' if _ord['ready_to_invoice']!=1 else ''} delivered — invoice ready")
 
     if not headlines:
         closed = revenue.get("closed_revenue", 0)

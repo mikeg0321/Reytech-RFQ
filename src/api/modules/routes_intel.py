@@ -2160,19 +2160,76 @@ def orders_page():
         "closed":           ("🏁 Closed",           "#8b949e", "rgba(139,148,160,.1)"),
     }
 
-    # Stats
+    # Stats — aggregate across all orders
     total_orders = len(order_list)
     active = sum(1 for o in order_list if o.get("status") not in ("closed",))
     total_value = sum(o.get("total", 0) for o in order_list)
     invoiced_value = sum(o.get("invoice_total", 0) for o in order_list)
 
-    stats_html = f"""
-    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;font-size:13px;font-family:'JetBrains Mono',monospace">
-     <span><b>{total_orders}</b> orders</span>
-     <span style="color:#58a6ff"><b>{active}</b> active</span>
-     <span style="color:#3fb950">value: <b>${total_value:,.0f}</b></span>
-     <span style="color:#d29922">invoiced: <b>${invoiced_value:,.0f}</b></span>
-    </div>"""
+    # Line item level metrics
+    all_items = []
+    for o in order_list:
+        for it in o.get("line_items", []):
+            it["_order_id"] = o.get("order_id", "")
+            it["_order_status"] = o.get("status", "")
+            all_items.append(it)
+
+    total_line_items = len(all_items)
+    pending_items = sum(1 for it in all_items if it.get("sourcing_status") == "pending")
+    ordered_items = sum(1 for it in all_items if it.get("sourcing_status") == "ordered")
+    shipped_items = sum(1 for it in all_items if it.get("sourcing_status") == "shipped")
+    delivered_items = sum(1 for it in all_items if it.get("sourcing_status") == "delivered")
+    
+    orders_needing_action = sum(1 for o in order_list 
+                                 if o.get("status") == "new" and o.get("line_items"))
+    orders_ready_invoice = sum(1 for o in order_list if o.get("status") == "delivered")
+    orders_with_drafts = sum(1 for o in order_list if o.get("draft_invoice"))
+
+    # Pipeline progress
+    pct_complete = round(delivered_items / total_line_items * 100) if total_line_items else 0
+    pct_shipped = round((shipped_items + delivered_items) / total_line_items * 100) if total_line_items else 0
+    pct_ordered = round((ordered_items + shipped_items + delivered_items) / total_line_items * 100) if total_line_items else 0
+
+    macro_html = f"""
+    <div class="bento bento-4" style="margin-bottom:16px">
+     <div class="card" style="text-align:center">
+      <div style="font-size:28px;font-weight:800;font-family:'JetBrains Mono',monospace;color:var(--ac)">{total_orders}</div>
+      <div style="font-size:11px;color:var(--tx2);margin-top:2px">Total Orders</div>
+      <div style="font-size:11px;color:var(--tx2);margin-top:4px">{active} active</div>
+     </div>
+     <div class="card" style="text-align:center">
+      <div style="font-size:28px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#3fb950">${total_value:,.0f}</div>
+      <div style="font-size:11px;color:var(--tx2);margin-top:2px">Total Value</div>
+      <div style="font-size:11px;color:var(--tx2);margin-top:4px">${invoiced_value:,.0f} invoiced</div>
+     </div>
+     <div class="card" style="text-align:center">
+      <div style="font-size:28px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#d29922">{total_line_items}</div>
+      <div style="font-size:11px;color:var(--tx2);margin-top:2px">Line Items</div>
+      <div style="font-size:11px;color:var(--tx2);margin-top:4px">{pct_complete}% delivered</div>
+     </div>
+     <div class="card" style="text-align:center">
+      <div style="font-size:28px;font-weight:800;font-family:'JetBrains Mono',monospace;color:{'#f85149' if orders_needing_action else '#3fb950'}">{orders_needing_action}</div>
+      <div style="font-size:11px;color:var(--tx2);margin-top:2px">Need Action</div>
+      <div style="font-size:11px;color:var(--tx2);margin-top:4px">{orders_ready_invoice} ready to invoice</div>
+     </div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px;padding:12px 16px">
+     <div style="display:flex;gap:24px;flex-wrap:wrap;align-items:center;font-size:12px">
+      <div style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:50%;background:#d29922;display:inline-block"></span> <b>{pending_items}</b> pending</div>
+      <div style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:50%;background:#58a6ff;display:inline-block"></span> <b>{ordered_items}</b> ordered</div>
+      <div style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:50%;background:#bc8cff;display:inline-block"></span> <b>{shipped_items}</b> shipped</div>
+      <div style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:50%;background:#3fb950;display:inline-block"></span> <b>{delivered_items}</b> delivered</div>
+      <div style="flex:1;min-width:200px">
+       <div style="background:var(--sf);border-radius:8px;height:14px;overflow:hidden;display:flex">
+        <div style="width:{pct_complete}%;background:#3fb950;transition:width 0.3s" title="{delivered_items} delivered"></div>
+        <div style="width:{round(shipped_items/total_line_items*100) if total_line_items else 0}%;background:#bc8cff" title="{shipped_items} shipped"></div>
+        <div style="width:{round(ordered_items/total_line_items*100) if total_line_items else 0}%;background:#58a6ff" title="{ordered_items} ordered"></div>
+       </div>
+      </div>
+     </div>
+    </div>
+    """
 
     rows = ""
     for o in order_list:
@@ -2183,7 +2240,27 @@ def orders_page():
         sourced = sum(1 for it in items if it.get("sourcing_status") in ("ordered", "shipped", "delivered"))
         shipped = sum(1 for it in items if it.get("sourcing_status") in ("shipped", "delivered"))
         delivered = sum(1 for it in items if it.get("sourcing_status") == "delivered")
-        progress = f"{delivered}/{len(items)}" if items else "0/0"
+        has_tracking = sum(1 for it in items if it.get("tracking_number"))
+        has_suppliers = sum(1 for it in items if it.get("supplier_url"))
+        n = len(items)
+        pct = round(delivered / n * 100) if n else 0
+
+        # Progress bar for this order
+        progress_bar = f"""<div style="display:flex;align-items:center;gap:4px;min-width:80px">
+         <div style="flex:1;background:var(--sf);border-radius:4px;height:6px;overflow:hidden">
+          <div style="width:{pct}%;background:#3fb950;height:100%"></div>
+         </div>
+         <span style="font-size:10px;color:var(--tx2);white-space:nowrap">{delivered}/{n}</span>
+        </div>"""
+
+        # Indicators
+        indicators = ""
+        if has_suppliers:
+            indicators += f'<span title="{has_suppliers}/{n} items linked to suppliers" style="font-size:10px;margin-left:2px">🔗{has_suppliers}</span>'
+        if has_tracking:
+            indicators += f'<span title="{has_tracking} tracking numbers" style="font-size:10px;margin-left:2px">📦{has_tracking}</span>'
+        if o.get("draft_invoice"):
+            indicators += '<span title="Draft invoice ready" style="font-size:10px;margin-left:2px">📄</span>'
 
         rows += f"""<tr style="{'opacity:0.5' if st == 'closed' else ''}">
          <td><a href="/order/{oid}" style="color:var(--ac);text-decoration:none;font-family:'JetBrains Mono',monospace;font-weight:700">{oid}</a></td>
@@ -2192,20 +2269,20 @@ def orders_page():
          <td style="max-width:250px;word-wrap:break-word;white-space:normal;font-weight:500">{o.get('institution','')}</td>
          <td class="mono">{o.get('po_number','') or o.get('quote_number','')}</td>
          <td style="text-align:right;font-weight:600;font-family:'JetBrains Mono',monospace">${o.get('total',0):,.2f}</td>
-         <td style="text-align:center">{progress}</td>
-         <td style="text-align:center"><span style="display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;color:{clr};background:{bg}">{lbl}</span></td>
+         <td>{progress_bar}</td>
+         <td style="text-align:center"><span style="display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;color:{clr};background:{bg}">{lbl}</span>{indicators}</td>
          <td style="text-align:center"><button onclick="deleteOrder('{oid}')" style="background:none;border:none;cursor:pointer;font-size:12px;color:var(--tx2)" title="Delete order">🗑️</button></td>
         </tr>"""
 
     content = f"""
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px">
-     <h2 style="margin:0;font-size:20px;font-weight:700">📦 Orders</h2>
+     <h2 style="margin:0;font-size:20px;font-weight:700">📦 Orders & Fulfillment</h2>
      <div style="display:flex;gap:10px;align-items:center">
-      {stats_html}
       <button onclick="createFromPO()" class="btn btn-g" style="font-size:13px;white-space:nowrap">📄 Import PO PDF</button>
       <button onclick="createOrder()" class="btn btn-s" style="font-size:13px;white-space:nowrap">+ Manual Order</button>
      </div>
     </div>
+    {macro_html}
     <div class="card" style="padding:0;overflow-x:auto">
      <table class="home-tbl" style="min-width:800px">
       <thead><tr>
@@ -2511,7 +2588,7 @@ def _render_order_detail(order, oid):
       <button onclick="markAllOrdered('{oid}')" class="btn btn-s" style="font-size:12px">🛒 Mark All Ordered</button>
       <button onclick="markAllDelivered('{oid}')" class="btn btn-s" style="font-size:12px">✅ Mark All Delivered</button>
       <button onclick="addLineItem('{oid}')" class="btn btn-s" style="font-size:12px">➕ Add Line Item</button>
-      <a href="/api/order/{oid}/reply-all" class="btn btn-s" style="font-size:12px">📧 Reply-All Confirmation</a>
+      <a href="/api/order/{oid}/reply-all" class="btn btn-s" style="font-size:12px">📧 Draft PO Confirmation</a>
      </div>
     </div>
     """
@@ -3046,7 +3123,7 @@ def api_order_delete(oid):
 @bp.route("/api/order/<oid>/reply-all")
 @auth_required
 def api_order_reply_all(oid):
-    """Generate reply-all confirmation email for the won quote's original thread."""
+    """Draft PO confirmation reply-all email → saved to outbox for review + send."""
     orders = _load_orders()
     order = orders.get(oid)
     if not order:
@@ -3057,40 +3134,177 @@ def api_order_reply_all(oid):
     institution = order.get("institution", "")
     po_num = order.get("po_number", "")
     total = order.get("total", 0)
+    subtotal = order.get("subtotal", 0) or total
+    tax = order.get("tax", 0)
     items = order.get("line_items", [])
+    sender_email = order.get("sender_email", "")
 
-    items_list = "\n".join(
+    # Build items table HTML
+    items_html = ""
+    for it in items[:20]:
+        items_html += f"""<tr>
+         <td style="padding:4px 8px;border-bottom:1px solid #eee;font-size:13px">{it.get('description','')[:65]}</td>
+         <td style="padding:4px 8px;border-bottom:1px solid #eee;text-align:center;font-size:13px">{it.get('qty',0)}</td>
+         <td style="padding:4px 8px;border-bottom:1px solid #eee;text-align:right;font-size:13px">${it.get('unit_price',0):,.2f}</td>
+         <td style="padding:4px 8px;border-bottom:1px solid #eee;text-align:right;font-size:13px">${it.get('extended',0):,.2f}</td>
+        </tr>"""
+
+    # Plain text body
+    items_plain = "\n".join(
         f"  - {it.get('description','')[:60]} (Qty {it.get('qty',0)}) — ${it.get('extended',0):,.2f}"
-        for it in items[:15]
+        for it in items[:20]
     )
 
-    subject = f"RE: Reytech Quote {qn}" + (f" — PO {po_num}" if po_num else "") + " — Order Confirmation"
-    body = f"""Thank you for your order!
+    po_display = f"PO {po_num}" if po_num else "your purchase order"
+    subject = f"RE: PO Distribution: {po_num}" if po_num else f"RE: Order Confirmation — {institution}"
 
-We are pleased to confirm receipt of {"PO " + po_num if po_num else "your order"} for {institution}.
+    body_plain = f"""Hello,
 
-Quote: {qn}
-Order Total: ${total:,.2f}
-Items ({len(items)}):
-{items_list}
+This email confirms receipt of {po_display} for {institution}.
 
-We will process your order promptly and provide tracking information as items ship.
+Order Summary:
+{items_plain}
 
-Please don't hesitate to reach out with any questions.
+Subtotal: ${subtotal:,.2f}
+Tax: ${tax:,.2f}
+Total: ${total:,.2f}
 
-Best regards,
-Mike Gonzalez
+We will begin processing this order immediately and provide tracking information as items ship.
+
+Should you have any questions, please don't hesitate to reach out.
+
+Respectfully,
+
+Michael Guadan
 Reytech Inc.
+30 Carnoustie Way, Trabuco Canyon, CA 92679
 949-229-1575
-sales@reytechinc.com"""
+sales@reytechinc.com
+SB/DVBE Cert #2002605"""
 
-    # Store as draft and redirect to a mailto link
-    mailto = f"mailto:?subject={subject}&body={body}".replace("\n", "%0A").replace(" ", "%20")
+    # HTML body with styled table + signature
+    body_html = f"""<div style="font-family:'Segoe UI',Arial,sans-serif;font-size:14px;color:#222;line-height:1.6">
+<p>Hello,</p>
+<p>This email confirms receipt of <strong>{po_display}</strong> for <strong>{institution}</strong>.</p>
 
-    _log_crm_activity(qn, "email_sent", f"Order confirmation reply-all for {oid}",
-                      actor="user", metadata={"order_id": oid})
+<table style="border-collapse:collapse;width:100%;max-width:600px;margin:16px 0;font-family:'Segoe UI',Arial,sans-serif">
+ <thead>
+  <tr style="background:#f5f5f5">
+   <th style="padding:6px 8px;text-align:left;border-bottom:2px solid #ddd;font-size:12px">Description</th>
+   <th style="padding:6px 8px;text-align:center;border-bottom:2px solid #ddd;font-size:12px">Qty</th>
+   <th style="padding:6px 8px;text-align:right;border-bottom:2px solid #ddd;font-size:12px">Unit Price</th>
+   <th style="padding:6px 8px;text-align:right;border-bottom:2px solid #ddd;font-size:12px">Extended</th>
+  </tr>
+ </thead>
+ <tbody>
+  {items_html}
+ </tbody>
+ <tfoot>
+  <tr><td colspan="3" style="padding:4px 8px;text-align:right;font-weight:600;font-size:13px">Subtotal:</td>
+      <td style="padding:4px 8px;text-align:right;font-size:13px">${subtotal:,.2f}</td></tr>
+  <tr><td colspan="3" style="padding:4px 8px;text-align:right;font-weight:600;font-size:13px">Tax:</td>
+      <td style="padding:4px 8px;text-align:right;font-size:13px">${tax:,.2f}</td></tr>
+  <tr style="border-top:2px solid #333"><td colspan="3" style="padding:6px 8px;text-align:right;font-weight:700;font-size:14px">Total:</td>
+      <td style="padding:6px 8px;text-align:right;font-weight:700;font-size:14px;color:#2563eb">${total:,.2f}</td></tr>
+ </tfoot>
+</table>
 
-    return redirect(mailto)
+<p>We will begin processing this order immediately and provide tracking information as items ship.</p>
+<p>Should you have any questions, please don't hesitate to reach out.</p>
+
+<br>
+<div style="border-top:1px solid #ddd;padding-top:12px;margin-top:12px">
+ <table cellpadding="0" cellspacing="0" style="font-family:'Segoe UI',Arial,sans-serif">
+  <tr>
+   <td style="padding-right:16px;vertical-align:top">
+    <img src="https://reytechinc.com/logo.png" alt="Reytech Inc." style="width:80px;height:auto" onerror="this.style.display='none'">
+   </td>
+   <td style="vertical-align:top">
+    <div style="font-weight:700;font-size:14px;color:#1a1a2e">Michael Guadan</div>
+    <div style="font-size:12px;color:#666">Reytech Inc.</div>
+    <div style="font-size:12px;color:#666">30 Carnoustie Way, Trabuco Canyon, CA 92679</div>
+    <div style="font-size:12px;margin-top:4px">
+     <a href="tel:9492291575" style="color:#2563eb;text-decoration:none">949-229-1575</a> |
+     <a href="mailto:sales@reytechinc.com" style="color:#2563eb;text-decoration:none">sales@reytechinc.com</a>
+    </div>
+    <div style="font-size:11px;color:#888;margin-top:2px">SB/DVBE Cert #2002605 · <a href="https://reytechinc.com" style="color:#2563eb;text-decoration:none">reytechinc.com</a></div>
+   </td>
+  </tr>
+ </table>
+</div>
+</div>"""
+
+    # Find original email thread info from processed emails
+    in_reply_to = ""
+    references = ""
+    original_cc = ""
+    try:
+        from src.core.paths import DATA_DIR as _dd
+        processed_path = os.path.join(_dd, "processed_emails.json")
+        if os.path.exists(processed_path):
+            with open(processed_path) as f:
+                processed = json.load(f)
+            # Find the PO email by PO number in subject
+            for uid, info in processed.items():
+                subj = info.get("subject", "")
+                if po_num and po_num in subj:
+                    in_reply_to = info.get("message_id", "")
+                    references = info.get("references", "")
+                    original_cc = info.get("cc", "")
+                    if not subject.lower().startswith("re:"):
+                        subject = f"Re: {subj}"
+                    break
+    except Exception:
+        pass
+
+    # Build CC list from original thread
+    cc_addrs = set()
+    if original_cc:
+        import re as _re
+        cc_addrs.update(_re.findall(r'[\w.+-]+@[\w-]+\.[\w.-]+', original_cc))
+    # Remove our own address
+    cc_addrs = {a for a in cc_addrs if not a.endswith("@reytechinc.com")}
+
+    # Save as DRAFT to outbox
+    draft = {
+        "id": f"po_confirm_{po_num or oid}_{datetime.now().strftime('%Y%m%d%H%M%S')}",
+        "to": sender_email,
+        "cc": ", ".join(cc_addrs),
+        "subject": subject,
+        "body": body_plain,
+        "body_html": body_html,
+        "in_reply_to": in_reply_to,
+        "references": references,
+        "attachments": [],
+        "status": "draft",
+        "source": "po_confirmation",
+        "po_number": po_num,
+        "order_id": oid,
+        "created_at": datetime.now().isoformat(),
+        "priority": "high",
+    }
+
+    try:
+        outbox_path = os.path.join(DATA_DIR, "email_outbox.json")
+        try:
+            with open(outbox_path) as f:
+                outbox = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            outbox = []
+        outbox.append(draft)
+        with open(outbox_path, "w") as f:
+            json.dump(outbox, f, indent=2, default=str)
+    except Exception as e:
+        log.error("Failed to save PO confirmation draft: %s", e)
+        flash(f"Error saving draft: {e}", "error")
+        return redirect(f"/order/{oid}")
+
+    _log_crm_activity(qn, "draft_created",
+                      f"PO confirmation draft for {oid} → {sender_email}",
+                      actor="user", metadata={"order_id": oid, "po_number": po_num})
+
+    flash(f"📧 PO confirmation draft saved to outbox — review and send from Agents page", "success")
+    return redirect(f"/order/{oid}")
 
 
 # ═══════════════════════════════════════════════════════════════════════
