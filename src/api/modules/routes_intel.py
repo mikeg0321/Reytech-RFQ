@@ -2291,6 +2291,14 @@ def orders_page():
     content = f"""
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px">
      <h2 style="margin:0;font-size:20px;font-weight:700">📦 Orders & Fulfillment</h2>
+     <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
+       <a href="/shipping" style="font-size:11px;color:var(--ac);text-decoration:none;background:var(--sf2);padding:3px 10px;border-radius:12px;border:1px solid var(--bd)">🚚 Shipping</a>
+       <a href="/margins" style="font-size:11px;color:var(--ac);text-decoration:none;background:var(--sf2);padding:3px 10px;border-radius:12px;border:1px solid var(--bd)">📊 Margins</a>
+       <a href="/payments" style="font-size:11px;color:var(--ac);text-decoration:none;background:var(--sf2);padding:3px 10px;border-radius:12px;border:1px solid var(--bd)">💳 Payments</a>
+       <a href="/recurring" style="font-size:11px;color:var(--ac);text-decoration:none;background:var(--sf2);padding:3px 10px;border-radius:12px;border:1px solid var(--bd)">🔄 Recurring</a>
+       <a href="/pricing" style="font-size:11px;color:var(--ac);text-decoration:none;background:var(--sf2);padding:3px 10px;border-radius:12px;border:1px solid var(--bd)">💰 Pricing Intel</a>
+       <a href="/audit" style="font-size:11px;color:var(--ac);text-decoration:none;background:var(--sf2);padding:3px 10px;border-radius:12px;border:1px solid var(--bd)">📋 Audit Trail</a>
+     </div>
      <div style="display:flex;gap:10px;align-items:center">
       <button onclick="createFromPO()" class="btn btn-g" style="font-size:13px;white-space:nowrap">📄 Import PO PDF</button>
       <button onclick="createOrder()" class="btn btn-s" style="font-size:13px;white-space:nowrap">+ Manual Order</button>
@@ -10103,9 +10111,9 @@ def api_pricing_intel():
         return jsonify({"ok": False, "error": str(e)})
 
 
-@bp.route("/api/pricing/recommend")
+@bp.route("/api/pricing/recommend-price")
 @auth_required
-def api_pricing_recommend():
+def api_pricing_recommend_price():
     """Get price recommendation for an item.
     Query params: description, part_number, agency, institution"""
     desc = request.args.get("description", "")
@@ -10212,7 +10220,7 @@ def pricing_intel_page():
       var desc=document.getElementById('pl-desc').value;
       var agency=document.getElementById('pl-agency').value;
       if(!desc){alert('Enter description or part number');return}
-      var url='/api/pricing/recommend?description='+encodeURIComponent(desc);
+      var url='/api/pricing/recommend-price?description='+encodeURIComponent(desc);
       if(agency) url+='&agency='+encodeURIComponent(agency);
       fetch(url,{credentials:'same-origin'}).then(r=>r.json()).then(d=>{
         var el=document.getElementById('pl-result');
