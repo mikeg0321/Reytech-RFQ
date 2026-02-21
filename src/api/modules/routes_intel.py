@@ -8753,5 +8753,449 @@ def api_delete_quotes():
     })
 
 
+# ═══════════════════════════════════════════════════════════════════════
+# Product Catalog & Dynamic Pricing
+# ═══════════════════════════════════════════════════════════════════════
+
+try:
+    from src.agents.product_catalog import (
+        import_qb_csv, search_products, get_product, predictive_lookup,
+        get_catalog_stats, calculate_recommended_price, update_product_pricing,
+        record_won_price, bulk_margin_analysis, init_catalog_db,
+    )
+    CATALOG_AVAILABLE = True
+except ImportError:
+    CATALOG_AVAILABLE = False
+
+
+@bp.route("/catalog")
+@auth_required
+def catalog_page():
+    """Product catalog with search, pricing intelligence, margin analysis."""
+    if not CATALOG_AVAILABLE:
+        return _wrap_page("<div class='card'><p>Product catalog module not available.</p></div>", "Catalog")
+
+    init_catalog_db()
+    stats = get_catalog_stats()
+    q = request.args.get("q", "")
+    cat_filter = request.args.get("category", "")
+    strategy_filter = request.args.get("strategy", "")
+
+    products = []
+    if q or cat_filter or strategy_filter:
+        products = search_products(q, limit=50, category=cat_filter, strategy=strategy_filter)
+
+    # Macro stats bento
+    tp = stats["total_products"]
+    am = stats["avg_margin"]
+    neg = stats["negative_margin"]
+    low = stats["low_margin"]
+    mid = stats["mid_margin"]
+    high = stats["high_margin"]
+
+    # Margin bar
+    total_with_cost = neg + low + mid + high
+    pct_neg = round(neg / total_with_cost * 100) if total_with_cost else 0
+    pct_low = round(low / total_with_cost * 100) if total_with_cost else 0
+    pct_mid = round(mid / total_with_cost * 100) if total_with_cost else 0
+    pct_high = round(high / total_with_cost * 100) if total_with_cost else 0
+
+    # Category options
+    cat_options = "".join(
+        f'<option value="{c["category"]}" {"selected" if c["category"]==cat_filter else ""}>{c["category"]} ({c["cnt"]})</option>'
+        for c in stats.get("categories", [])
+    )
+
+    # Product rows
+    rows = ""
+    for p in products:
+        margin = p.get("margin_pct", 0)
+        mc = "#f85149" if margin < 0 else "#d29922" if margin < 10 else "#3fb950" if margin < 25 else "#58a6ff"
+        strat = p.get("price_strategy", "")
+        strat_badge = {"loss_leader": "🔴", "margin_protect": "🟡", "competitive": "🟢", "premium": "🔵"}.get(strat, "")
+        desc_short = (p.get("description", "") or "")[:60].replace("\n", " ")
+        rows += f"""<tr onclick="location.href='/catalog/{p['id']}'" style="cursor:pointer">
+         <td class="mono" style="font-weight:600;color:var(--ac)">{p.get('name','')[:25]}</td>
+         <td style="font-size:11px;color:var(--tx2)">{desc_short}</td>
+         <td class="mono">{p.get('sku','')}</td>
+         <td style="font-size:11px">{p.get('category','')}</td>
+         <td class="mono" style="text-align:right">${p.get('sell_price',0):,.2f}</td>
+         <td class="mono" style="text-align:right">${p.get('cost',0):,.2f}</td>
+         <td class="mono" style="text-align:right;color:{mc};font-weight:700">{margin:.1f}%</td>
+         <td style="text-align:center">{strat_badge}</td>
+        </tr>"""
+
+    # Negative margin alerts
+    neg_alerts = ""
+    for ni in stats.get("negative_margin_items", [])[:5]:
+        neg_alerts += f"""<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--bd)">
+         <span style="font-weight:600">{ni['name'][:30]}</span>
+         <span style="color:#f85149;font-weight:700;font-family:'JetBrains Mono',monospace">{ni['margin_pct']:.1f}% (sell ${ni['sell_price']:.2f} / cost ${ni['cost']:.2f})</span>
+        </div>"""
+
+    # Top opportunities
+    opp_rows = ""
+    for o in stats.get("margin_opportunities", [])[:8]:
+        opp_rows += f"""<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--bd)">
+         <span style="font-size:12px">{o['name'][:35]}</span>
+         <span class="mono" style="font-size:12px">${o['sell_price']:,.2f} @ {o['margin_pct']:.1f}%</span>
+        </div>"""
+
+    content = f"""
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+     <h2 style="margin:0;font-size:20px;font-weight:700">📦 Product Catalog</h2>
+     <div style="display:flex;gap:8px;align-items:center">
+      <span class="mono" style="font-size:12px;color:var(--tx2)">{tp} products</span>
+      <button onclick="document.getElementById('import-csv').click()" class="btn btn-s" style="font-size:12px">📥 Import QB CSV</button>
+      <input type="file" id="import-csv" accept=".csv" style="display:none" onchange="importCSV(this)">
+     </div>
+    </div>
+
+    <div class="bento bento-4" style="margin-bottom:16px">
+     <div class="card" style="text-align:center">
+      <div style="font-size:28px;font-weight:800;font-family:'JetBrains Mono',monospace;color:var(--ac)">{tp}</div>
+      <div style="font-size:11px;color:var(--tx2)">Products</div>
+     </div>
+     <div class="card" style="text-align:center">
+      <div style="font-size:28px;font-weight:800;font-family:'JetBrains Mono',monospace;color:{'#f85149' if am < 10 else '#d29922' if am < 15 else '#3fb950'}">{am}%</div>
+      <div style="font-size:11px;color:var(--tx2)">Avg Margin</div>
+     </div>
+     <div class="card" style="text-align:center">
+      <div style="font-size:28px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#f85149">{neg + low}</div>
+      <div style="font-size:11px;color:var(--tx2)">Need Pricing Review</div>
+      <div style="font-size:10px;color:var(--tx2)">{neg} losing money</div>
+     </div>
+     <div class="card" style="text-align:center">
+      <div style="font-size:28px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#3fb950">${stats['total_sell_value']:,.0f}</div>
+      <div style="font-size:11px;color:var(--tx2)">Catalog Value</div>
+     </div>
+    </div>
+
+    <!-- Margin distribution bar -->
+    <div class="card" style="margin-bottom:16px;padding:12px 16px">
+     <div style="font-size:12px;font-weight:600;margin-bottom:8px">Margin Distribution</div>
+     <div style="display:flex;gap:16px;align-items:center;font-size:11px;margin-bottom:6px">
+      <span><span style="color:#f85149">●</span> {neg} negative</span>
+      <span><span style="color:#d29922">●</span> {low} low (&lt;10%)</span>
+      <span><span style="color:#3fb950">●</span> {mid} mid (10-25%)</span>
+      <span><span style="color:#58a6ff">●</span> {high} high (&gt;25%)</span>
+     </div>
+     <div style="background:var(--sf);border-radius:8px;height:16px;overflow:hidden;display:flex">
+      <div style="width:{pct_neg}%;background:#f85149" title="{neg} negative margin"></div>
+      <div style="width:{pct_low}%;background:#d29922" title="{low} low margin"></div>
+      <div style="width:{pct_mid}%;background:#3fb950" title="{mid} mid margin"></div>
+      <div style="width:{pct_high}%;background:#58a6ff" title="{high} high margin"></div>
+     </div>
+    </div>
+
+    <div class="bento bento-2" style="margin-bottom:16px">
+     <div class="card" style="padding:12px">
+      <div style="font-weight:600;font-size:13px;margin-bottom:8px;color:#f85149">⚠️ Losing Money ({neg} items)</div>
+      {neg_alerts if neg_alerts else '<div style="font-size:12px;color:var(--tx2)">No negative margin items ✅</div>'}
+     </div>
+     <div class="card" style="padding:12px">
+      <div style="font-weight:600;font-size:13px;margin-bottom:8px;color:#d29922">💡 Margin Opportunities</div>
+      {opp_rows if opp_rows else '<div style="font-size:12px;color:var(--tx2)">Connect SCPRS pricing to find opportunities</div>'}
+     </div>
+    </div>
+
+    <!-- Search -->
+    <div class="card" style="padding:12px;margin-bottom:12px">
+     <form method="GET" action="/catalog" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <input type="text" name="q" value="{q}" placeholder="Search products, SKU, description..." 
+             style="flex:1;min-width:200px;padding:6px 10px;border:1px solid var(--bd);border-radius:6px;background:var(--sf);color:var(--tx);font-size:13px"
+             id="catalog-search" autocomplete="off">
+      <select name="category" style="padding:6px;border:1px solid var(--bd);border-radius:6px;background:var(--sf);color:var(--tx);font-size:12px">
+       <option value="">All Categories</option>
+       {cat_options}
+      </select>
+      <select name="strategy" style="padding:6px;border:1px solid var(--bd);border-radius:6px;background:var(--sf);color:var(--tx);font-size:12px">
+       <option value="">All Strategies</option>
+       <option value="loss_leader" {"selected" if strategy_filter=="loss_leader" else ""}>🔴 Loss Leader</option>
+       <option value="margin_protect" {"selected" if strategy_filter=="margin_protect" else ""}>🟡 Margin Protect</option>
+       <option value="competitive" {"selected" if strategy_filter=="competitive" else ""}>🟢 Competitive</option>
+       <option value="premium" {"selected" if strategy_filter=="premium" else ""}>🔵 Premium</option>
+      </select>
+      <button type="submit" class="btn btn-s" style="font-size:12px">🔍 Search</button>
+      {'<a href="/catalog" class="btn" style="font-size:12px">Clear</a>' if (q or cat_filter or strategy_filter) else ''}
+     </form>
+    </div>
+
+    <!-- Predictive search dropdown -->
+    <div id="search-results-dropdown" style="display:none;position:absolute;z-index:100;background:var(--bg2);border:1px solid var(--bd);border-radius:8px;max-height:300px;overflow-y:auto;width:400px;box-shadow:0 4px 12px rgba(0,0,0,0.3)"></div>
+
+    {f'''<div class="card" style="padding:0;overflow-x:auto">
+     <table class="home-tbl" style="min-width:700px">
+      <thead><tr>
+       <th style="width:150px">Name</th><th>Description</th><th style="width:80px">SKU</th>
+       <th style="width:100px">Category</th>
+       <th style="width:80px;text-align:right">Price</th><th style="width:80px;text-align:right">Cost</th>
+       <th style="width:70px;text-align:right">Margin</th><th style="width:30px"></th>
+      </tr></thead>
+      <tbody>{rows}</tbody>
+     </table>
+    </div>''' if products else '<div class="card" style="padding:24px;text-align:center;color:var(--tx2)">Search above to browse products, or <a href="/catalog?strategy=loss_leader" style="color:#f85149">view items losing money</a></div>' if not q else '<div class="card" style="padding:24px;text-align:center;color:var(--tx2)">No products match your search</div>'}
+
+    <script>
+    function importCSV(input) {{
+      const file = input.files[0]; if (!file) return;
+      const fd = new FormData(); fd.append('file', file);
+      fetch('/api/catalog/import', {{method:'POST', body:fd}})
+        .then(r=>r.json()).then(d=>{{
+          if(d.ok) {{ alert('Imported: '+d.imported+' Updated: '+d.updated); location.reload(); }}
+          else alert('Error: '+(d.error||'unknown'));
+        }});
+    }}
+    // Predictive search
+    let searchTimeout;
+    const searchInput = document.getElementById('catalog-search');
+    const dropdown = document.getElementById('search-results-dropdown');
+    if (searchInput) {{
+      searchInput.addEventListener('input', function() {{
+        clearTimeout(searchTimeout);
+        const q = this.value.trim();
+        if (q.length < 2) {{ dropdown.style.display='none'; return; }}
+        searchTimeout = setTimeout(()=>{{
+          fetch('/api/catalog/lookup?q='+encodeURIComponent(q))
+            .then(r=>r.json()).then(items=>{{
+              if (!items.length) {{ dropdown.style.display='none'; return; }}
+              const rect = searchInput.getBoundingClientRect();
+              dropdown.style.left = rect.left+'px';
+              dropdown.style.top = (rect.bottom+2)+'px';
+              dropdown.style.width = Math.max(rect.width, 400)+'px';
+              dropdown.innerHTML = items.map(p=>
+                `<a href="/catalog/${{p.id}}" style="display:flex;justify-content:space-between;padding:8px 12px;text-decoration:none;color:var(--tx);border-bottom:1px solid var(--bd);font-size:12px">
+                  <span style="font-weight:600">${{p.name.substring(0,30)}}</span>
+                  <span style="color:var(--tx2)">${{p.category}} · $${{(p.sell_price||0).toFixed(2)}} · ${{(p.margin_pct||0).toFixed(1)}}%</span>
+                </a>`
+              ).join('');
+              dropdown.style.display='block';
+            }});
+        }}, 200);
+      }});
+      document.addEventListener('click', e=>{{ if(!dropdown.contains(e.target)&&e.target!==searchInput) dropdown.style.display='none'; }});
+    }}
+    </script>
+    """
+    return _wrap_page(content, "Product Catalog")
+
+
+@bp.route("/catalog/<int:pid>")
+@auth_required
+def catalog_product_detail(pid):
+    """Product detail with pricing intelligence."""
+    if not CATALOG_AVAILABLE:
+        return redirect("/catalog")
+
+    product = get_product(pid)
+    if not product:
+        flash("Product not found", "error")
+        return redirect("/catalog")
+
+    p = product
+    margin_color = "#f85149" if p["margin_pct"] < 0 else "#d29922" if p["margin_pct"] < 10 else "#3fb950"
+    strat_map = {"loss_leader": "🔴 Loss Leader", "margin_protect": "🟡 Margin Protect", "competitive": "🟢 Competitive", "premium": "🔵 Premium"}
+
+    # Price history rows
+    ph_rows = ""
+    for h in p.get("price_history", [])[:20]:
+        ph_rows += f"""<tr>
+         <td class="mono" style="font-size:11px">{h.get('recorded_at','')[:10]}</td>
+         <td style="font-size:12px">{h.get('price_type','')}</td>
+         <td class="mono" style="text-align:right">${h.get('price',0):,.2f}</td>
+         <td style="font-size:11px;color:var(--tx2)">{h.get('source','')}</td>
+        </tr>"""
+
+    content = f"""
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+     <div>
+      <a href="/catalog" style="color:var(--tx2);text-decoration:none;font-size:12px">← Catalog</a>
+      <h2 style="margin:4px 0 0;font-size:18px;font-weight:700">{p['name']}</h2>
+     </div>
+     <span style="padding:4px 12px;border-radius:12px;font-size:12px;font-weight:600;background:var(--sf)">{strat_map.get(p.get('price_strategy',''), p.get('price_strategy',''))}</span>
+    </div>
+
+    <div class="bento bento-4" style="margin-bottom:16px">
+     <div class="card" style="text-align:center">
+      <div style="font-size:24px;font-weight:800;font-family:'JetBrains Mono',monospace;color:var(--ac)">${p['sell_price']:,.2f}</div>
+      <div style="font-size:11px;color:var(--tx2)">Sell Price</div>
+     </div>
+     <div class="card" style="text-align:center">
+      <div style="font-size:24px;font-weight:800;font-family:'JetBrains Mono',monospace">${p['cost']:,.2f}</div>
+      <div style="font-size:11px;color:var(--tx2)">Cost</div>
+     </div>
+     <div class="card" style="text-align:center">
+      <div style="font-size:24px;font-weight:800;font-family:'JetBrains Mono',monospace;color:{margin_color}">{p['margin_pct']:.1f}%</div>
+      <div style="font-size:11px;color:var(--tx2)">Margin</div>
+     </div>
+     <div class="card" style="text-align:center">
+      <div style="font-size:24px;font-weight:800;font-family:'JetBrains Mono',monospace">${p['sell_price'] - p['cost']:,.2f}</div>
+      <div style="font-size:11px;color:var(--tx2)">Margin $</div>
+     </div>
+    </div>
+
+    <div class="bento bento-2" style="margin-bottom:16px">
+     <div class="card" style="padding:12px">
+      <div class="card-t">Product Details</div>
+      <div style="display:grid;grid-template-columns:100px 1fr;gap:4px;font-size:12px">
+       <span style="color:var(--tx2)">SKU</span><span class="mono">{p.get('sku','—')}</span>
+       <span style="color:var(--tx2)">Category</span><span>{p.get('category','—')}</span>
+       <span style="color:var(--tx2)">Item Type</span><span>{p.get('item_type','')}</span>
+       <span style="color:var(--tx2)">Taxable</span><span>{'Yes' if p.get('taxable') else 'No'}</span>
+       <span style="color:var(--tx2)">Times Quoted</span><span class="mono">{p.get('times_quoted',0)}</span>
+       <span style="color:var(--tx2)">Times Won</span><span class="mono">{p.get('times_won',0)}</span>
+       <span style="color:var(--tx2)">Last Sold</span><span class="mono">${p.get('last_sold_price',0) or 0:,.2f} ({(p.get('last_sold_date') or '—')[:10]})</span>
+       <span style="color:var(--tx2)">Tags</span><span>{p.get('tags','')}</span>
+      </div>
+      <div style="margin-top:8px;font-size:12px;color:var(--tx2);white-space:pre-wrap">{(p.get('description','') or '')[:300]}</div>
+     </div>
+
+     <div class="card" style="padding:12px">
+      <div class="card-t">💰 Pricing Intelligence</div>
+      <div style="display:grid;grid-template-columns:120px 1fr;gap:4px;font-size:12px">
+       <span style="color:var(--tx2)">SCPRS Price</span><span class="mono">${p.get('scprs_last_price',0) or 0:,.2f} <span style="font-size:10px;color:var(--tx2)">{p.get('scprs_agency','')}</span></span>
+       <span style="color:var(--tx2)">Competitor Low</span><span class="mono">${p.get('competitor_low_price',0) or 0:,.2f} <span style="font-size:10px;color:var(--tx2)">{p.get('competitor_source','')}</span></span>
+       <span style="color:var(--tx2)">Web Lowest</span><span class="mono">${p.get('web_lowest_price',0) or 0:,.2f} <span style="font-size:10px;color:var(--tx2)">{p.get('web_lowest_source','')}</span></span>
+       <span style="color:var(--tx2)">Recommended</span><span class="mono" style="color:#3fb950;font-weight:700">${p.get('recommended_price',0) or 0:,.2f}</span>
+      </div>
+      <div style="margin-top:12px;display:flex;gap:6px;flex-wrap:wrap">
+       <button onclick="runPricingAnalysis({pid})" class="btn btn-s" style="font-size:11px">🧮 Run Pricing Analysis</button>
+       <button onclick="updatePrice({pid})" class="btn btn-s" style="font-size:11px">✏️ Update Pricing</button>
+      </div>
+     </div>
+    </div>
+
+    {f'''<div class="card" style="margin-bottom:16px;padding:0;overflow-x:auto">
+     <div style="padding:10px 12px;font-weight:600;font-size:13px;border-bottom:1px solid var(--bd)">📊 Price History</div>
+     <table class="home-tbl"><thead><tr>
+      <th>Date</th><th>Type</th><th style="text-align:right">Price</th><th>Source</th>
+     </tr></thead><tbody>{ph_rows}</tbody></table>
+    </div>''' if ph_rows else ''}
+
+    <script>
+    function runPricingAnalysis(pid) {{
+      fetch('/api/catalog/'+pid+'/pricing').then(r=>r.json()).then(d=>{{
+        if (d.error) {{ alert(d.error); return; }}
+        let msg = 'Current: $'+d.current_price.toFixed(2)+' ('+d.current_margin.toFixed(1)+'% margin)\\n\\nRecommendations:\\n';
+        (d.recommendations||[]).forEach(r=>{{
+          msg += '\\n'+r.strategy+': $'+r.price.toFixed(2)+' ('+r.margin_pct.toFixed(1)+'%) — '+r.rationale;
+        }});
+        if(d.best) msg += '\\n\\n✅ Best: $'+d.best.price.toFixed(2)+' ('+d.best.margin_pct.toFixed(1)+'%)';
+        alert(msg);
+      }});
+    }}
+    function updatePrice(pid) {{
+      const price = prompt('New sell price:');
+      if (!price) return;
+      const cost = prompt('New cost (leave blank to keep current):');
+      const body = {{sell_price: parseFloat(price)}};
+      if (cost) body.cost = parseFloat(cost);
+      fetch('/api/catalog/'+pid+'/update', {{
+        method:'POST', headers:{{'Content-Type':'application/json'}},
+        body: JSON.stringify(body)
+      }}).then(r=>r.json()).then(d=>{{
+        if(d.ok) location.reload();
+        else alert('Error: '+(d.error||'unknown'));
+      }});
+    }}
+    </script>"""
+    return _wrap_page(content, f"Product: {p['name'][:40]}")
+
+
+@bp.route("/api/catalog/import", methods=["POST"])
+@auth_required
+def api_catalog_import():
+    """Import QB products CSV."""
+    if not CATALOG_AVAILABLE:
+        return jsonify({"ok": False, "error": "Catalog not available"})
+    f = request.files.get("file")
+    if not f:
+        return jsonify({"ok": False, "error": "No file"})
+    safe = re.sub(r'[^\w.\-]', '_', f.filename or 'import.csv')
+    path = os.path.join(DATA_DIR, f"catalog_import_{safe}")
+    f.save(path)
+    result = import_qb_csv(path)
+    return jsonify({"ok": True, **result})
+
+
+@bp.route("/api/catalog/lookup")
+@auth_required
+def api_catalog_lookup():
+    """Predictive typeahead search."""
+    if not CATALOG_AVAILABLE:
+        return jsonify([])
+    q = request.args.get("q", "")
+    if len(q) < 2:
+        return jsonify([])
+    results = predictive_lookup(q, limit=10)
+    return jsonify(results)
+
+
+@bp.route("/api/products/search")
+@auth_required
+def api_products_search():
+    """Full search with filters."""
+    if not CATALOG_AVAILABLE:
+        return jsonify([])
+    q = request.args.get("q", "")
+    cat = request.args.get("category", "")
+    strat = request.args.get("strategy", "")
+    limit = min(int(request.args.get("limit", 50)), 200)
+    results = search_products(q, limit=limit, category=cat, strategy=strat)
+    return jsonify(results)
+
+
+@bp.route("/api/catalog/<int:pid>/pricing")
+@auth_required
+def api_catalog_pricing(pid):
+    """Calculate recommended pricing for a product."""
+    if not CATALOG_AVAILABLE:
+        return jsonify({"error": "Catalog not available"})
+    agency = request.args.get("agency", "")
+    result = calculate_recommended_price(pid, target_margin=15.0, agency=agency)
+    return jsonify(result)
+
+
+@bp.route("/api/catalog/<int:pid>/update", methods=["POST"])
+@auth_required
+def api_catalog_update(pid):
+    """Update product pricing/metadata."""
+    if not CATALOG_AVAILABLE:
+        return jsonify({"ok": False, "error": "Catalog not available"})
+    data = request.get_json() or {}
+    ok = update_product_pricing(pid, **data)
+    return jsonify({"ok": ok})
+
+
+@bp.route("/api/catalog/opportunities")
+@auth_required
+def api_catalog_opportunities():
+    """Bulk margin analysis — find pricing opportunities."""
+    if not CATALOG_AVAILABLE:
+        return jsonify([])
+    results = bulk_margin_analysis()
+    return jsonify(results[:50])
+
+
+# Auto-import product catalog on startup if DB empty
+try:
+    if CATALOG_AVAILABLE:
+        init_catalog_db()
+        _cat_count = 0
+        try:
+            import sqlite3 as _sql3
+            _conn = _sql3.connect(os.path.join(DATA_DIR, "reytech.db"), timeout=5)
+            _cat_count = _conn.execute("SELECT COUNT(*) FROM product_catalog").fetchone()[0]
+            _conn.close()
+        except Exception:
+            pass
+        if _cat_count == 0:
+            csv_path = os.path.join(DATA_DIR, "product_catalog_import.csv")
+            if os.path.exists(csv_path):
+                _result = import_qb_csv(csv_path)
+                log.info("🏗️ Auto-imported product catalog: %d products from QB CSV", _result.get("imported", 0))
+except Exception as _e:
+    log.warning("Product catalog auto-import failed: %s", _e)
+
 # Start polling on import (for gunicorn) and on direct run
 start_polling()

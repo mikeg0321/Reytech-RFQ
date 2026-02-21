@@ -1933,9 +1933,18 @@ SB/DVBE Cert #2002605"""
             msg["In-Reply-To"] = draft["in_reply_to"]
             msg["References"] = draft.get("references", draft["in_reply_to"])
 
-        # Build alternative part (plain + HTML) if HTML body provided
+        # Build alternative part (plain + HTML)
         body_html = draft.get("body_html", "")
         body_plain = draft.get("body", "")
+        
+        # Auto-generate HTML version with signature if not provided
+        if not body_html and body_plain:
+            try:
+                from src.core.email_signature import wrap_html_email
+                body_html = wrap_html_email(body_plain)
+            except ImportError:
+                pass
+        
         if body_html:
             alt = MIMEMultipart("alternative")
             alt.attach(MIMEText(body_plain, "plain"))
@@ -2012,7 +2021,16 @@ def send_po_confirmation_reply(msg_obj, po_number: str, gmail_addr: str = "", gm
     
     reply_body = f"""Hello,
 
-This email confirms receipt of {po_display}. We will begin to process this order immediately. Should you have any further questions or need assistance, please let us know.
+This email confirms receipt of {po_display}. We will begin to process this order immediately. Should you have any further questions or need assistance, please let us know."""
+
+    # Generate HTML version with signature
+    try:
+        from src.core.email_signature import wrap_html_email, get_plain_signature
+        reply_body_html = wrap_html_email(reply_body)
+        reply_body += "\n\n" + get_plain_signature()
+    except ImportError:
+        reply_body_html = ""
+        reply_body += f"""
 
 Respectfully,
 
@@ -2033,6 +2051,7 @@ sales@reytechinc.com"""
         "cc": ", ".join(cc_addrs),
         "subject": reply_subject,
         "body": reply_body,
+        "body_html": reply_body_html,
         "in_reply_to": original_message_id,
         "references": references,
         "attachments": [],

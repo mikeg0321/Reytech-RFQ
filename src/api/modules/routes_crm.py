@@ -1945,10 +1945,10 @@ def api_delete_cs_draft():
 # PRODUCT CATALOG (F31-01)
 # ════════════════════════════════════════════════════════════════════════════════
 
-@bp.route("/catalog")
+@bp.route("/catalog-legacy")
 @auth_required
-def page_catalog():
-    """Product catalog management page."""
+def page_catalog_legacy():
+    """Legacy product catalog (pre-QB import) — use /catalog for new version."""
     import json as _json
     try:
         from src.core.catalog import init_catalog, get_catalog, get_categories, get_catalog_stats
