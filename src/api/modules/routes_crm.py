@@ -1861,7 +1861,7 @@ function sendAllApproved(btn){{
   }}).catch(()=>{{btn.disabled=false;btn.textContent='Error'}});
 }}
 </script>
-</div></body></html>"""
+""" + _page_footer()
     return html
 
 
@@ -2021,7 +2021,7 @@ function filterCatalog(q) {{
   }});
 }}
 </script>
-</div></body></html>"""
+""" + _page_footer()
     return html
 
 
@@ -2489,7 +2489,7 @@ function createTarget(facilityName, agencyType, email) {{
   }}).catch(e => {{ msg.style.background='var(--rd)'; msg.textContent = 'Request failed: ' + e; }});
 }}
 </script>
-</div></body></html>"""
+""" + _page_footer()
     return html
 
 
@@ -2825,7 +2825,7 @@ table{{width:100%;border-collapse:collapse}}
   </table>
 </div>
 
-</div></body></html>"""
+""" + _page_footer()
     return html
 
 
@@ -3066,7 +3066,7 @@ async function ingestCSV() {{
   }} catch(e) {{ st.textContent = "Error: " + e.message; }}
 }}
 </script>
-</div></body></html>"""
+""" + _page_footer()
 
 
 
@@ -3302,7 +3302,7 @@ if (scores.length > 0) {{
   }});
 }}
 </script>
-</div></body></html>"""
+""" + _page_footer()
 
 
 

@@ -374,7 +374,7 @@ function startPolling() {{
 }}
 {'startPolling();' if running else ''}
 </script>
-</div></body></html>"""
+""" + _page_footer()
 
 
 
@@ -668,7 +668,7 @@ function pollStatus() {{
 }}
 {"pollStatus();" if running else ""}
 </script>
-</div></body></html>"""
+""" + _page_footer()
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -966,7 +966,7 @@ function pollStatus() {{
 // Auto-poll if pull is running
 {f"pollStatus();" if pull_running else ""}
 </script>
-</div></body></html>"""
+""" + _page_footer()
 
 # ════════════════════════════════════════════════════════════════════════════════
 # VENDOR ORDERING ROUTES
@@ -1129,7 +1129,7 @@ function testGrainger(btn){{
   }}).catch(()=>{{btn.disabled=false;btn.textContent='🔍 Test Grainger Search';alert('Search failed')}});
 }}
 </script>
-</div></body></html>"""
+""" + _page_footer()
     return html
 
 
@@ -3451,14 +3451,12 @@ def pipeline_page():
      </div>
 
      <div class="card" style="margin:0">
-      <div class="card-t">⏱️ Recent Activity</div>
+      <div class="card-t">🎯 Win Prediction — Active Quotes</div>
       <div style="max-height:400px;overflow-y:auto">
-       {events_html if events_html else '<div style="color:var(--tx2);font-size:12px;padding:12px">No activity yet</div>'}
+       {predictions_html if predictions_html else '<div style="color:var(--tx2);font-size:12px;padding:12px">No active quotes with predictions yet</div>'}
       </div>
      </div>
     </div>
-
-    {'<div class="card" style="margin-top:14px"><div class="card-t">🎯 Win Prediction Leaderboard — Active Quotes</div><div style="max-height:320px;overflow-y:auto">' + predictions_html + '</div></div>' if predictions_html else ''}
 
     <div class="card" style="margin-top:14px">
      <div class="card-t">⚡ Quick Actions</div>
@@ -3610,7 +3608,6 @@ def api_predict_batch():
 
 
 @bp.route("/api/intel/competitors")
-@bp.route("/api/competitor/insights")
 @auth_required
 def api_competitor_insights():
     """Competitor intelligence summary.
@@ -3625,7 +3622,6 @@ def api_competitor_insights():
 
 
 @bp.route("/api/shipping/scan-email", methods=["POST"])
-@bp.route("/api/shipping/detect", methods=["POST"])
 @auth_required
 def api_shipping_scan():
     """Scan an email for shipping/tracking info. POST: {subject, body, sender}"""
@@ -4151,7 +4147,7 @@ function loadHistory(){
   });
 }
 loadLatest();loadHistory();
-</script></body></html>"""
+</script>""" + _page_footer()
 
 
 @bp.route("/api/qa/scan")
@@ -5822,7 +5818,7 @@ def growth_page():
     loadDrafts();
     {('pollProgress();' if (pull_running or buyer_running) else '')}
     </script>
-    </body></html>"""
+    """ + _page_footer()
 
 
 @bp.route("/growth/prospect/<prospect_id>")
@@ -6141,7 +6137,7 @@ def growth_prospect_detail(prospect_id):
       var data={{buyer_name:document.getElementById('edit-name').value,buyer_phone:document.getElementById('edit-phone').value,title:document.getElementById('edit-title').value,linkedin:document.getElementById('edit-linkedin').value,notes:document.getElementById('edit-notes').value}};
       crmPost('/api/growth/prospect/'+PID,data).then(r=>{{if(r.ok){{closeEditModal();location.reload();}}else alert('Error: '+(r.error||'Failed'));}});
     }}
-    </script></body></html>"""
+    </script>""" + _page_footer()
     return page_html
 
 
@@ -7685,7 +7681,7 @@ CalTrans,m.jones@dot.ca.gov,Mary Jones,916-654-2000,Office,45000,</pre>
 
     {f'pollPull();' if pull_running else ''}
     </script>
-    </body></html>"""
+    """ + _page_footer()
 
 
 # ─── Voice Agent Routes ─────────────────────────────────────────────────────
@@ -8068,7 +8064,7 @@ def contacts_page():
       }});
     }}
     </script>
-    </body></html>"""
+    """ + _page_footer()
 
 
 # ─── Campaign Routes ────────────────────────────────────────────────────────

@@ -2913,8 +2913,6 @@ h1 {{ font-size:22px; margin-bottom:4px; }}
  <a href="/agents" style="border-color:var(--blue)">🤖 Agents</a>
 </div>
 
-{brief_html}
-
 <h1>🤖 Agent Control Panel</h1>
 <div class="sub">Click any button to run it. Results appear below.</div>
 
@@ -3531,6 +3529,7 @@ fetch('/api/agents/status',{{credentials:'same-origin'}}).then(r => r.json()).th
   document.getElementById('fleet-grid').innerHTML = '<div>Failed to load fleet status</div>';
 }});
 </script>
+{brief_html}
 <script>{brief_js}</script>
 </body></html>"""
 

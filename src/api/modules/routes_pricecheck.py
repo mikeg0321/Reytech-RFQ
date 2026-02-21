@@ -1444,7 +1444,7 @@ def pricechecks_archive():
     function filterPCs(){{var q=document.getElementById('pc-search').value.toLowerCase();var st=document.getElementById('pc-status').value;var rows=document.querySelectorAll('#pc-tbody tr');var v=0;rows.forEach(function(r){{var ok=(!q||r.dataset.search.includes(q))&&(!st||r.dataset.status===st);r.style.display=ok?'':'none';if(ok)v++;}});document.getElementById('pc-count').textContent=v+' PCs';}}
     </script>'''
 
-    return _header("Price Checks") + content + "</div></body></html>"
+    return _header("Price Checks") + content + _page_footer()
 
 
 @bp.route("/api/pricechecks")
@@ -1570,7 +1570,7 @@ def api_pricecheck_suggestions(pcid):
 @bp.route("/competitors")
 @auth_required
 def competitors_page():
-    """Competitor Intelligence Dashboard."""
+    """Competitor Intelligence Dashboard — combines award tracking + catalog margin analysis."""
     try:
         from src.agents.award_monitor import get_competitor_dashboard
         data = get_competitor_dashboard()
@@ -1599,18 +1599,91 @@ def competitors_page():
           <td style="text-align:right">${l.get('our_price',0):,.2f}</td>
           <td style="text-align:center;color:{'#f85149' if (l.get('price_delta_pct') or 0) > 0 else '#3fb950'}">{l.get('price_delta_pct',0):+.1f}%</td></tr>'''
 
-    empty = '<tr><td colspan="6" style="text-align:center;color:var(--tx2);padding:20px">No data yet — populates as awards are tracked</td></tr>'
+    empty = '<tr><td colspan="6" style="text-align:center;color:var(--tx2);padding:20px">No award tracking data yet</td></tr>'
+
+    # ── Pull catalog margin data for pricing positioning ──
+    margin_risk_rows = ""
+    margin_opp_rows = ""
+    catalog_stats = {"total": 0, "negative": 0, "low": 0, "mid": 0, "high": 0, "avg_margin": 0}
+    try:
+        from src.core.db import get_db as _gdb
+        import sqlite3
+        with _gdb() as conn:
+            conn.row_factory = sqlite3.Row
+            products = [dict(r) for r in conn.execute(
+                "SELECT name, sku, sell_price, cost, margin_pct, category, price_strategy "
+                "FROM product_catalog WHERE sell_price > 0 AND cost > 0 ORDER BY margin_pct ASC"
+            ).fetchall()]
+            catalog_stats["total"] = len(products)
+            for p in products:
+                m = p.get("margin_pct") or 0
+                if m < 0:
+                    catalog_stats["negative"] += 1
+                elif m < 10:
+                    catalog_stats["low"] += 1
+                elif m < 25:
+                    catalog_stats["mid"] += 1
+                else:
+                    catalog_stats["high"] += 1
+            if products:
+                catalog_stats["avg_margin"] = sum(p.get("margin_pct", 0) for p in products) / len(products)
+
+            # Risk items: negative or very low margin (vulnerable to competitors)
+            risk_items = [p for p in products if (p.get("margin_pct") or 0) < 5][:10]
+            for p in risk_items:
+                m = p.get("margin_pct", 0) or 0
+                clr = "#f85149" if m < 0 else "#d29922"
+                margin_risk_rows += f'''<tr>
+                  <td style="font-size:12px">{p.get("name","")[:50]}</td>
+                  <td class="mono" style="font-size:12px">{p.get("sku","")}</td>
+                  <td class="mono" style="text-align:right">${p.get("sell_price",0):,.2f}</td>
+                  <td class="mono" style="text-align:right">${p.get("cost",0):,.2f}</td>
+                  <td class="mono" style="text-align:center;color:{clr};font-weight:700">{m:.1f}%</td>
+                  <td style="font-size:11px;color:var(--tx2)">{p.get("category","")}</td>
+                </tr>'''
+
+            # Opportunity items: high value, low margin (room to increase price)
+            opp_items = sorted(
+                [p for p in products if 0 < (p.get("margin_pct") or 0) < 15 and (p.get("sell_price") or 0) > 50],
+                key=lambda x: (x.get("sell_price", 0) or 0) * (15 - (x.get("margin_pct") or 0)) / 100,
+                reverse=True
+            )[:10]
+            for p in opp_items:
+                m = p.get("margin_pct", 0) or 0
+                target_price = (p.get("cost") or 0) / (1 - 0.15) if p.get("cost") else 0
+                gain = target_price - (p.get("sell_price") or 0)
+                margin_opp_rows += f'''<tr>
+                  <td style="font-size:12px">{p.get("name","")[:50]}</td>
+                  <td class="mono" style="text-align:right">${p.get("sell_price",0):,.2f}</td>
+                  <td class="mono" style="text-align:center;color:#d29922">{m:.1f}%</td>
+                  <td class="mono" style="text-align:right;color:var(--gn)">${target_price:,.2f}</td>
+                  <td class="mono" style="text-align:right;color:var(--gn)">${gain:,.2f}</td>
+                </tr>'''
+    except Exception:
+        pass
+
+    has_award_data = total_losses > 0
+    neg = catalog_stats["negative"]
+    low = catalog_stats["low"]
+
     content = f'''
-    <h2>Competitor Intelligence</h2>
-    <div style="display:flex;gap:12px;margin:16px 0;flex-wrap:wrap">
-      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px 20px;text-align:center;min-width:110px">
-        <div style="font-size:28px;font-weight:800;color:#f85149">{total_losses}</div><div style="font-size:11px;color:var(--tx2)">LOSSES</div></div>
-      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px 20px;text-align:center;min-width:110px">
-        <div style="font-size:28px;font-weight:800;color:var(--tx)">{unique_comp}</div><div style="font-size:11px;color:var(--tx2)">COMPETITORS</div></div>
-      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px 20px;text-align:center;min-width:110px">
-        <div style="font-size:28px;font-weight:800;color:{'#f85149' if avg_delta > 0 else '#3fb950'}">{avg_delta:+.1f}%</div><div style="font-size:11px;color:var(--tx2)">AVG GAP</div></div>
-    </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
+    <h2 style="margin-bottom:4px">🎯 Competitive Intelligence</h2>
+    <p style="font-size:13px;color:var(--tx2);margin-bottom:16px">Award tracking + pricing position analysis from catalog ({catalog_stats["total"]} products)</p>
+
+    <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px 20px;text-align:center;min-width:100px">
+        <div style="font-size:28px;font-weight:800;color:#f85149">{total_losses}</div><div style="font-size:10px;color:var(--tx2)">LOSSES TRACKED</div></div>
+      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px 20px;text-align:center;min-width:100px">
+        <div style="font-size:28px;font-weight:800;color:var(--tx)">{unique_comp}</div><div style="font-size:10px;color:var(--tx2)">COMPETITORS</div></div>
+      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px 20px;text-align:center;min-width:100px">
+        <div style="font-size:28px;font-weight:800;color:{'#f85149' if neg > 0 else '#d29922'}">{neg + low}</div><div style="font-size:10px;color:var(--tx2)">AT-RISK ITEMS</div></div>
+      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px 20px;text-align:center;min-width:100px">
+        <div style="font-size:28px;font-weight:800;color:{'#3fb950' if catalog_stats['avg_margin'] > 15 else '#d29922'}">{catalog_stats['avg_margin']:.1f}%</div><div style="font-size:10px;color:var(--tx2)">AVG MARGIN</div></div>
+    </div>'''
+
+    if has_award_data:
+        content += f'''
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
       <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:16px">
         <h3 style="margin:0 0 12px;font-size:14px;color:var(--tx2)">TOP COMPETITORS</h3>
         <table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="border-bottom:1px solid var(--bd);font-size:11px;color:var(--tx2)">
@@ -1627,7 +1700,48 @@ def competitors_page():
         </tr></thead><tbody>{loss_rows or empty}</tbody></table></div>
     </div>'''
 
-    return _header("Competitors") + content + "</div></body></html>"
+    # Always show pricing position from catalog
+    content += f'''
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+      <div style="background:var(--sf);border:1px solid {'#f8514930' if neg > 0 else 'var(--bd)'};border-radius:8px;padding:16px">
+        <h3 style="margin:0 0 4px;font-size:14px;color:#f85149">⚠️ Margin Risk — Vulnerable to Undercutting</h3>
+        <p style="font-size:11px;color:var(--tx2);margin:0 0 12px">Items below 5% margin — competitors can easily beat these prices</p>
+        <table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="border-bottom:1px solid var(--bd);font-size:10px;color:var(--tx2)">
+          <th style="text-align:left;padding:5px">Product</th><th style="text-align:left;padding:5px">SKU</th>
+          <th style="text-align:right;padding:5px">Sell</th><th style="text-align:right;padding:5px">Cost</th>
+          <th style="text-align:center;padding:5px">Margin</th><th style="text-align:left;padding:5px">Category</th>
+        </tr></thead><tbody>{margin_risk_rows or '<tr><td colspan="6" style="text-align:center;color:var(--tx2);padding:16px">No at-risk items 🎉</td></tr>'}</tbody></table>
+        <div style="text-align:right;margin-top:8px"><a href="/catalog" style="font-size:11px;color:var(--ac)">View full catalog →</a></div>
+      </div>
+      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:16px">
+        <h3 style="margin:0 0 4px;font-size:14px;color:var(--gn)">💰 Repricing Opportunities</h3>
+        <p style="font-size:11px;color:var(--tx2);margin:0 0 12px">High-value items below 15% margin — room to increase price</p>
+        <table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="border-bottom:1px solid var(--bd);font-size:10px;color:var(--tx2)">
+          <th style="text-align:left;padding:5px">Product</th><th style="text-align:right;padding:5px">Current</th>
+          <th style="text-align:center;padding:5px">Margin</th><th style="text-align:right;padding:5px">Target (15%)</th>
+          <th style="text-align:right;padding:5px">Gain/Unit</th>
+        </tr></thead><tbody>{margin_opp_rows or '<tr><td colspan="5" style="text-align:center;color:var(--tx2);padding:16px">No repricing opportunities</td></tr>'}</tbody></table>
+        <div style="text-align:right;margin-top:8px"><a href="/catalog" style="font-size:11px;color:var(--ac)">Pricing engine →</a></div>
+      </div>
+    </div>
+
+    <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:16px">
+      <h3 style="margin:0 0 8px;font-size:14px;color:var(--tx2)">📊 Catalog Margin Distribution</h3>
+      <div style="display:flex;height:24px;border-radius:6px;overflow:hidden;background:var(--sf2)">
+        {'<div style="width:' + str(round(catalog_stats["negative"]/max(catalog_stats["total"],1)*100,1)) + '%;background:#f85149;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700" title="Negative margin">' + str(catalog_stats["negative"]) + '</div>' if catalog_stats["negative"] else ''}
+        <div style="width:{round(catalog_stats['low']/max(catalog_stats['total'],1)*100,1)}%;background:#d29922;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700" title="Low margin (0-10%)">{catalog_stats['low']}</div>
+        <div style="width:{round(catalog_stats['mid']/max(catalog_stats['total'],1)*100,1)}%;background:#3fb950;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700" title="Mid margin (10-25%)">{catalog_stats['mid']}</div>
+        <div style="width:{round(catalog_stats['high']/max(catalog_stats['total'],1)*100,1)}%;background:#58a6ff;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700" title="High margin (25%+)">{catalog_stats['high']}</div>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:10px;color:var(--tx2)">
+        <span><span style="color:#f85149">●</span> Negative: {catalog_stats['negative']}</span>
+        <span><span style="color:#d29922">●</span> Low (&lt;10%): {catalog_stats['low']}</span>
+        <span><span style="color:#3fb950">●</span> Mid (10-25%): {catalog_stats['mid']}</span>
+        <span><span style="color:#58a6ff">●</span> High (25%+): {catalog_stats['high']}</span>
+      </div>
+    </div>'''
+
+    return _header("Competitors") + content + _page_footer()
 
 
 @bp.route("/api/admin/cleanup", methods=["POST"])
@@ -2923,4 +3037,4 @@ def qa_email_pipeline_page():
     </script>
     '''
 
-    return _header("Email Pipeline QA") + content + "</div></body></html>"
+    return _header("Email Pipeline QA") + content + _page_footer()

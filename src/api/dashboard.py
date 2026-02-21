@@ -1831,8 +1831,8 @@ from src.api.templates import BASE_CSS, PAGE_HOME, PAGE_DETAIL, build_pc_detail_
 # Shared Manager Brief (app-wide) + Header JS
 # ═══════════════════════════════════════════════════════════════════════
 
-BRIEF_HTML = """<!-- Manager Brief — app-wide, loads via AJAX with sessionStorage cache -->
-<div id="brief-section" class="card" style="margin-bottom:14px;display:none">
+BRIEF_HTML = """<!-- Manager Brief — app-wide context, loads via AJAX with sessionStorage cache -->
+<div id="brief-section" class="card" style="margin-top:16px;margin-bottom:14px;display:none">
  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">
   <div style="min-width:0;flex:1">
    <div class="card-t" style="margin:0;display:flex;align-items:center;gap:8px;cursor:pointer" onclick="toggleBriefBody()">
@@ -1848,17 +1848,11 @@ BRIEF_HTML = """<!-- Manager Brief — app-wide, loads via AJAX with sessionStor
   </div>
  </div>
  <div id="brief-body">
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px" id="brief-grid">
-   <div>
-    <div style="font-size:11px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;display:flex;align-items:center;gap:6px">
-     Needs Your Attention <span id="approval-count" class="brief-count"></span>
-    </div>
-    <div id="approvals-list"></div>
+  <div id="brief-grid">
+   <div style="font-size:11px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;display:flex;align-items:center;gap:6px">
+    Needs Your Attention <span id="approval-count" class="brief-count"></span>
    </div>
-   <div>
-    <div style="font-size:11px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Recent Activity</div>
-    <div id="activity-list"></div>
-   </div>
+   <div id="approvals-list"></div>
   </div>
   <div id="pipeline-bar" style="display:flex;gap:12px;flex-wrap:wrap;margin-top:16px;padding-top:14px;border-top:1px solid var(--bd)"></div>
   <div id="agents-row" style="display:none;margin-top:16px;padding-top:14px;border-top:1px solid var(--bd)">
@@ -1921,8 +1915,6 @@ function renderBrief(data){
  var ac=document.getElementById('approval-count');if(ac&&data.approval_count>0)ac.textContent=data.approval_count;
  var al=document.getElementById('approvals-list');
  if(al){if(data.pending_approvals&&data.pending_approvals.length>0){al.innerHTML=data.pending_approvals.map(function(a){return '<div class="brief-item"><div class="brief-item-left"><span class="brief-icon">'+a.icon+'</span><div><div class="brief-title">'+a.title+'</div>'+(a.detail?'<div class="brief-detail">'+a.detail+'</div>':'')+'</div></div>'+(a.age?'<span class="brief-age">'+a.age+'</span>':'')+'</div>';}).join('');}else{al.innerHTML='<div class="brief-empty">Nothing pending \\u2014 all caught up</div>';}}
- var actList=document.getElementById('activity-list');
- if(actList){if(data.activity&&data.activity.length>0){actList.innerHTML=data.activity.map(function(a){return '<div class="brief-item"><div class="brief-item-left"><span class="brief-icon">'+a.icon+'</span><div><div class="brief-title">'+a.text+'</div>'+(a.detail?'<div class="brief-detail">'+a.detail+'</div>':'')+'</div></div>'+(a.age?'<span class="brief-age">'+a.age+'</span>':'')+'</div>';}).join('');}else{actList.innerHTML='<div class="brief-empty">No recent activity</div>';}}
  var bar=document.getElementById('pipeline-bar');
  if(bar){var s=data.summary||{};var q=s.quotes||{};var gr=s.growth||{};var ob=s.outbox||{};var rv=data.revenue||{};var ag=data.agents_summary||{};var stats=[{label:'Quotes',value:q.total||0,color:'var(--ac)'},{label:'Pipeline $',value:'$'+(q.pipeline_value||0).toLocaleString(),color:'var(--yl)'},{label:'Won $',value:'$'+(q.won_total||0).toLocaleString(),color:'var(--gn)'},{label:'Win Rate',value:(q.win_rate||0)+'%',color:q.win_rate>=50?'var(--gn)':'var(--yl)'},{label:'Growth',value:gr.total_prospects||0,color:'#bc8cff'},{label:'Agents',value:(ag.healthy||0)+'/'+(ag.total||0),color:ag.down>0?'var(--rd)':'var(--gn)'},{label:'Goal',value:rv.pct?rv.pct.toFixed(0)+'%':'0%',color:rv.pct>=50?'var(--gn)':rv.pct>=25?'var(--yl)':'var(--rd)'},{label:'Drafts',value:ob.drafts||0,color:ob.drafts>0?'var(--yl)':'var(--tx2)'}];bar.innerHTML=stats.map(function(s){return '<div class="stat-chip"><div class="stat-val" style="color:'+s.color+'">'+s.value+'</div><div class="stat-label">'+s.label+'</div></div>';}).join('');}
  var agRow=document.getElementById('agents-row');var agList=document.getElementById('agents-list');
@@ -2033,7 +2025,7 @@ document.addEventListener('click',function(e){
 # Routes
 # ═══════════════════════════════════════════════════════════════════════
 
-def render(content, **kw):
+def render(content, include_brief=False, **kw):
     _email_cfg = CONFIG.get("email", {})
     _has_email = bool(_email_cfg.get("email_password"))
     _poll_running = POLL_STATUS.get("running", False)
@@ -2060,7 +2052,6 @@ def render(content, **kw):
   <a href="/orders" class="hdr-btn" aria-label="Orders tracking">📦 Orders</a>
   <a href="/contacts" class="hdr-btn" aria-label="CRM Contacts">👥 CRM</a>
   <a href="/vendors" class="hdr-btn" aria-label="Vendor ordering">🏭 Vendors</a>
-  <a href="/intel/market" class="hdr-btn" aria-label="Market Intelligence">📊 Intel</a>
   <a href="/catalog" class="hdr-btn" aria-label="Product Catalog">📦 Catalog</a>
   <a href="/pricechecks" class="hdr-btn" aria-label="PC Archive">📋 PCs</a>
   <a href="/competitors" class="hdr-btn" aria-label="Competitor Intelligence">🎯 Compete</a>
@@ -2110,9 +2101,9 @@ def render(content, **kw):
 {{% with messages = get_flashed_messages(with_categories=true) %}}
  {{% for cat, msg in messages %}}<div class="alert al-{{'s' if cat=='success' else 'e' if cat=='error' else 'i'}}" role="alert" aria-live="assertive">{{% if cat=='success' %}}✅{{% elif cat=='error' %}}❌{{% else %}}ℹ️{{% endif %}} {{{{msg}}}}</div>{{% endfor %}}
 {{% endwith %}}
-""" + content + (BRIEF_HTML if content is PAGE_HOME else "") + """
+""" + content + (BRIEF_HTML if include_brief else "") + """
 </main>
-<script>""" + SHARED_HEADER_JS + (BRIEF_JS if content is PAGE_HOME else "") + """</script>
+<script>""" + SHARED_HEADER_JS + (BRIEF_JS if include_brief else "") + """</script>
 </div></body></html>"""
 
     # Add volume warning if on Railway without persistent storage
@@ -2153,8 +2144,6 @@ def _header(page_title: str = "") -> str:
   <a href="/orders" class="hdr-btn">📦 Orders</a>
   <a href="/contacts" class="hdr-btn">👥 CRM</a>
   <a href="/vendors" class="hdr-btn">🏭 Vendors</a>
-  <a href="/intel/market" class="hdr-btn">📊 Intel</a>
-  <a href="/qa/intelligence" class="hdr-btn">🧠 QA</a>
   <a href="/catalog" class="hdr-btn">📦 Catalog</a>
   <a href="/pricechecks" class="hdr-btn">📋 PCs</a>
   <a href="/competitors" class="hdr-btn">🎯 Compete</a>
@@ -2199,7 +2188,17 @@ def _header(page_title: str = "") -> str:
   </div>
  </div>
 </div>
-<div class="ctr">""" + BRIEF_HTML + "<script>" + SHARED_HEADER_JS + BRIEF_JS + "</script>"
+<div class="ctr">""" + "<script>" + SHARED_HEADER_JS + "</script>"
+
+
+def _page_footer() -> str:
+    """Closing HTML tags for _header() pages."""
+    return "</div></body></html>"
+
+
+def _wrap_page(content: str, title: str = "") -> str:
+    """Convenience: _header + content + _page_footer in one call."""
+    return _header(title) + content + _page_footer()
 
 
 # ═══════════════════════════════════════════════════════════════════════
