@@ -1,4 +1,5 @@
 # routes_crm.py
+import re
 from datetime import datetime
 
 # ── JSON→SQLite compatibility (Phase 32c migration) ──────────────────────────
@@ -1070,7 +1071,8 @@ def api_auto_process_pc():
     if "file" not in request.files:
         return jsonify({"error": "Upload a PDF file"}), 400
     f = request.files["file"]
-    pdf_path = os.path.join(DATA_DIR, f"pc_upload_{f.filename}")
+    safe_name = re.sub(r'[^\w.\-]', '_', f.filename or 'upload.pdf')
+    pdf_path = os.path.join(DATA_DIR, f"pc_upload_{safe_name}")
     f.save(pdf_path)
     log.info("Auto-process started for %s", f.filename)
     result = auto_process_price_check(pdf_path)
@@ -1087,7 +1089,8 @@ def api_detect_type():
     if "file" not in request.files:
         return jsonify({"error": "Upload a PDF file"}), 400
     f = request.files["file"]
-    pdf_path = os.path.join(DATA_DIR, f"detect_{f.filename}")
+    safe_name = re.sub(r'[^\w.\-]', '_', f.filename or 'upload.pdf')
+    pdf_path = os.path.join(DATA_DIR, f"detect_{safe_name}")
     f.save(pdf_path)
     result = detect_document_type(pdf_path)
     os.remove(pdf_path)

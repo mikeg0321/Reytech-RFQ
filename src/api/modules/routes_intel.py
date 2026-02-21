@@ -1840,6 +1840,7 @@ def quotes_list():
 
 
 @bp.route("/quote/<qn>")
+@auth_required
 def quote_detail(qn):
     """Dedicated quote detail page."""
     if not QUOTE_GEN_AVAILABLE:
@@ -2863,7 +2864,7 @@ def api_order_import_po(oid):
     # Save the PDF
     po_dir = os.path.join(DATA_DIR, "po_documents")
     os.makedirs(po_dir, exist_ok=True)
-    safe_name = f"{oid}_{f.filename.replace(' ', '_')}"
+    safe_name = f"{oid}_{re.sub(r'[^\\w.\\-]', '_', f.filename or 'po.pdf')}"
     pdf_path = os.path.join(po_dir, safe_name)
     f.save(pdf_path)
 
@@ -7763,7 +7764,14 @@ def api_voice_import_twilio():
 @bp.route("/api/voice/webhook", methods=["POST"])
 def api_voice_vapi_webhook():
     """Vapi server URL webhook — handles function calls during live conversations.
-    No auth required — Vapi calls this endpoint during active calls."""
+    Auth via shared secret header (VAPI_WEBHOOK_SECRET) or falls back to open."""
+    # Verify webhook secret if configured
+    webhook_secret = os.environ.get("VAPI_WEBHOOK_SECRET", "")
+    if webhook_secret:
+        auth_header = request.headers.get("X-Vapi-Secret", "")
+        if auth_header != webhook_secret:
+            return jsonify({"error": "Unauthorized"}), 401
+
     data = request.get_json(silent=True) or {}
     msg_type = data.get("message", {}).get("type", "")
 

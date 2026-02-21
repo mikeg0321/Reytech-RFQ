@@ -1355,6 +1355,7 @@ def upsert_outbox_email(em: dict) -> str:
 
 
 def update_outbox_status(email_id: str, status: str, **kwargs):
+    ALLOWED_COLS = {'status', 'approved_at', 'sent_at', 'error', 'sent_by'}
     conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
     now = datetime.now(timezone.utc).isoformat()
     updates = {'status': status}
@@ -1362,6 +1363,8 @@ def update_outbox_status(email_id: str, status: str, **kwargs):
         updates['approved_at'] = now
     elif status == 'sent':
         updates['sent_at'] = kwargs.get('sent_at', now)
+    # Whitelist columns to prevent injection
+    updates = {k: v for k, v in updates.items() if k in ALLOWED_COLS}
     sets = ', '.join(f"{k}=?" for k in updates)
     conn.execute(f"UPDATE email_outbox SET {sets} WHERE id=?",
                  list(updates.values()) + [email_id])
