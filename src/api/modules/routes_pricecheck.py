@@ -626,9 +626,15 @@ def pricecheck_convert_to_quote(pcid):
 @bp.route("/api/resync")
 @auth_required
 def api_resync():
-    """Clear entire queue + reset processed UIDs + re-poll inbox."""
-    log.info("Full resync triggered — clearing queue and re-polling")
-    # 1. Clear queue
+    """Clear RFQ queue + reset processed UIDs + re-poll inbox.
+    PRESERVES all price checks — PCs persist until explicitly dismissed/processed."""
+    log.info("Full resync triggered — clearing RFQ queue and re-polling (PCs preserved)")
+    
+    # Snapshot PCs before resync so we can report what was preserved
+    pcs_before = _load_price_checks()
+    pc_count_before = len(pcs_before)
+    
+    # 1. Clear RFQ queue only (NOT price checks)
     save_rfqs({})
     # 2. Reset processed UIDs
     proc_file = os.path.join(DATA_DIR, "processed_emails.json")
@@ -640,11 +646,19 @@ def api_resync():
     _shared_poller = None
     # 4. Re-poll
     imported = do_poll_check()
+    
+    # Report on PC preservation
+    pcs_after = _load_price_checks()
+    log.info("Resync complete: %d RFQs imported, %d PCs preserved (was %d, now %d)",
+             len(imported), pc_count_before, pc_count_before, len(pcs_after))
+    
     return jsonify({
         "ok": True,
         "cleared": True,
         "found": len(imported),
         "rfqs": [{"id": r["id"], "sol": r.get("solicitation_number", "?")} for r in imported],
+        "pcs_preserved": pc_count_before,
+        "pcs_total": len(pcs_after),
         "last_check": POLL_STATUS.get("last_check"),
     })
 
@@ -2577,11 +2591,26 @@ def api_admin_reset_and_poll():
         except Exception:
             pass
         
-        # Clean ALL PCs — full reset means clean slate
+        # Clean PCs — preserve any that have been worked on (priced, quoted, sent, completed)
         pcs = _load_price_checks()
         steps["pcs_before"] = len(pcs)
-        _save_price_checks({})  # Empty — all PCs will be recreated from email
-        steps["pcs_after"] = 0
+        preserved_statuses = {"priced", "quoted", "sent", "completed", "ready", "auto_drafted", "generated"}
+        preserved_pcs = {}
+        removed_pcs = []
+        for pcid, pc in pcs.items():
+            st = pc.get("status", "new")
+            has_prices = any(it.get("our_price") or it.get("unit_price") for it in pc.get("items", []))
+            has_quote = bool(pc.get("reytech_quote_number"))
+            if st in preserved_statuses or has_prices or has_quote:
+                preserved_pcs[pcid] = pc
+            else:
+                removed_pcs.append(pcid)
+        _save_price_checks(preserved_pcs)
+        steps["pcs_after"] = len(preserved_pcs)
+        steps["pcs_preserved"] = len(preserved_pcs)
+        steps["pcs_removed"] = len(removed_pcs)
+        log.info("RESET+POLL: Preserved %d active PCs, removed %d unworked PCs",
+                 len(preserved_pcs), len(removed_pcs))
         
         # Also clear any cached PC data
         try:
