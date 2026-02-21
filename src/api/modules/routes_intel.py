@@ -2322,6 +2322,21 @@ def order_detail(oid):
         flash(f"Order {oid} not found", "error")
         return redirect("/orders")
 
+    try:
+        return _render_order_detail(order, oid)
+    except Exception as e:
+        import traceback
+        log.error("Order detail render error for %s: %s\n%s", oid, e, traceback.format_exc())
+        return _wrap_page(f"""
+        <div class="card" style="padding:24px">
+         <h2 style="color:var(--rd)">⚠️ Error rendering order {oid}</h2>
+         <pre style="color:var(--tx2);font-size:12px;overflow:auto;max-height:400px">{traceback.format_exc()}</pre>
+         <a href="/orders" class="btn btn-s" style="margin-top:12px">← Back to Orders</a>
+        </div>""", f"Error: {oid}")
+
+
+def _render_order_detail(order, oid):
+    """Actual order detail rendering (separated for error handling)."""
     st = order.get("status", "new")
     items = order.get("line_items", [])
     qn = order.get("quote_number", "")
@@ -2558,7 +2573,7 @@ def order_detail(oid):
     """
     else:
         content += ""
-    content += """
+    content += f"""
 
     <script>
     function updateLine(oid, lid, field, value) {{
