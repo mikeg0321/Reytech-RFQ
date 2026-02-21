@@ -107,41 +107,42 @@ PO_PDF_PATTERNS = [
 def _parse_po_pdf(pdf_path: str) -> dict:
     """Parse a Purchase Order PDF (STD-65, Fi$cal, or similar) for line items and metadata.
     
-    Uses multiple extraction strategies:
-    1. pdftotext -layout (best for tabular state forms)
-    2. PyMuPDF fallback
-    
+    Uses pypdf (already in requirements.txt) for text extraction.
     Multiple line-item parsing patterns for California state PO formats.
     
     Returns: {po_number, agency, institution, ship_to_address, items: [{description, qty, unit_price, part_number, extended}], total}
     """
-    # Extract text
+    # Extract text using pypdf (installed on Railway)
     text = ""
     try:
-        import subprocess
-        text = subprocess.run(
-            ["pdftotext", "-layout", pdf_path, "-"],
-            capture_output=True, text=True, timeout=15
-        ).stdout
-    except Exception:
-        pass
+        from pypdf import PdfReader
+        reader = PdfReader(pdf_path)
+        for page in reader.pages:
+            page_text = page.extract_text() or ""
+            text += page_text + "\n"
+    except Exception as e:
+        log.error("pypdf extraction failed: %s", e)
     
-    if not text or len(text) < 50:
+    # Fallback: pdftotext (system binary, if available)
+    if not text or len(text.strip()) < 50:
         try:
             import subprocess
-            text = subprocess.run(
-                ["python3", "-c", f"import fitz; doc=fitz.open('{pdf_path}')\nfor p in doc: print(p.get_text())"],
+            result = subprocess.run(
+                ["pdftotext", "-layout", pdf_path, "-"],
                 capture_output=True, text=True, timeout=15
-            ).stdout
+            )
+            if result.stdout and len(result.stdout.strip()) > len(text.strip()):
+                text = result.stdout
         except Exception:
             pass
     
-    if not text or len(text) < 50:
+    if not text or len(text.strip()) < 30:
         log.warning("PO PDF: no text extracted from %s", pdf_path)
         return {}
     
+    log.info("PO PDF text extracted: %d chars from %s", len(text), os.path.basename(pdf_path))
     result = {"items": [], "po_number": "", "agency": "", "institution": "", 
-              "ship_to_address": [], "total": 0, "_raw_text": text[:2000]}
+              "ship_to_address": [], "total": 0, "_raw_text": text[:3000]}
     
     # ── Extract PO / Encumbrance Number ──
     for pat in [

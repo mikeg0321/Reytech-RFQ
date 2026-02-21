@@ -2719,14 +2719,14 @@ def api_order_import_po(oid):
     parsed = _parse_po_pdf(pdf_path)
 
     if not parsed:
-        # Return raw text for debugging
+        # Return raw text for debugging — use pypdf since pdftotext may not be installed
         raw_text = ""
         try:
-            import subprocess
-            raw_text = subprocess.run(
-                ["pdftotext", "-layout", pdf_path, "-"],
-                capture_output=True, text=True, timeout=15
-            ).stdout[:3000]
+            from pypdf import PdfReader
+            reader = PdfReader(pdf_path)
+            for page in reader.pages:
+                raw_text += (page.extract_text() or "") + "\n"
+            raw_text = raw_text[:3000]
         except Exception:
             pass
         return jsonify({"ok": False, "error": "Could not parse PDF — see console for raw text",
@@ -2736,15 +2736,7 @@ def api_order_import_po(oid):
 
     if not items_parsed:
         # Return raw text so Mike can see what the parser saw
-        raw_text = ""
-        try:
-            import subprocess
-            raw_text = subprocess.run(
-                ["pdftotext", "-layout", pdf_path, "-"],
-                capture_output=True, text=True, timeout=15
-            ).stdout[:3000]
-        except Exception:
-            pass
+        raw_text = parsed.get("_raw_text", "")
         return jsonify({"ok": False, "error": f"PDF parsed but 0 line items found. PO#={parsed.get('po_number','?')}, Agency={parsed.get('agency','?')}",
                         "raw_text": raw_text, "parsed_meta": {
                             "po_number": parsed.get("po_number"),
