@@ -36,3 +36,9 @@ scrollable nav on row 2. Add overflow-x:auto with thin scrollbar.
 **Pattern**: PC data vanishing on deploy with no way to check what's on the volume.
 **Rule**: Add /api/debug/<resource> endpoints and BOOT log lines that confirm 
 data survived deploy. "BOOT PC CHECK: N price checks in /path (size=X bytes)"
+
+### L7: Never put dict comprehensions inside Python f-strings
+**Pattern**: `{_json.dumps([{{"name": f["raw_name"]}} for f in list])}` crashes with 
+`TypeError: unhashable type 'dict'`. The `{{}}` escaping conflicts with dict literals.
+**Rule**: Pre-compute any JSON containing dicts BEFORE the f-string. Assign to a 
+variable, then reference the variable: `{_precomputed_json}`.

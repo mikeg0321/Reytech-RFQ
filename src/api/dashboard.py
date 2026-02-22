@@ -2527,11 +2527,14 @@ def _load_route_module(module_name: str):
 
 
 _ROUTE_MODULES = [
-    "routes_rfq",          # Home, upload, RFQ pages, quote generation
-    "routes_agents",       # Agent control panel, email templates
-    "routes_pricecheck",   # Price check pages + lookup
-    "routes_crm",          # CRM, pricing oracle, auto-processor
-    "routes_intel",        # Growth intel, SCPRS, CCHCS, vendor, scheduler
+    "routes_rfq",              # Home, upload, RFQ pages, quote generation
+    "routes_agents",           # Agent control panel, email templates
+    "routes_pricecheck",       # Price check pages + lookup
+    "routes_crm",              # CRM, pricing oracle, auto-processor
+    "routes_intel",            # SCPRS, CCHCS, vendors, growth, funnel, forecasting
+    "routes_orders_full",      # Orders, supplier lookup, quote-order link, invoice
+    "routes_voice_contacts",   # Intelligence page, voice, contacts, campaigns
+    "routes_catalog_finance",  # Catalog, shipping, pricing, margins, payments, audit
 ]
 
 for _mod in _ROUTE_MODULES:

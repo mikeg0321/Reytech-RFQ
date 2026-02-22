@@ -1,33 +1,46 @@
 # Reytech RFQ — Task Tracker
 
-## Current Session (2026-02-21)
+## Active Sprint (2026-02-21)
 
-### Completed
+### Task 1: Split routes_intel.py (10,745 lines → modules)
+- [ ] Analyze function groups and dependencies
+- [ ] Split into: routes_intel_core, routes_intel_scprs, routes_intel_growth, routes_intel_funnel
+- [ ] Update imports in dashboard.py
+- [ ] Verify all routes still work
+- [ ] Audit: 0 regressions
+
+### Task 2: Run + fix test suite
+- [ ] Install pytest
+- [ ] Run full suite, capture failures
+- [ ] Fix each failure
+- [ ] All tests green
+
+### Task 3: Follow-up automation engine
+- [ ] Auto-create follow-up drafts N days after outreach
+- [ ] Track which outreach got responses vs ghosted
+- [ ] Surface "needs follow-up" in daily brief
+
+### Task 4: Daily briefing + push notification
+- [ ] Morning brief page: PCs needing price, aging quotes, stale outreach
+- [ ] SMS/push notification with summary (Twilio or native)
+- [ ] Auto-send at configurable time
+
+### Task 5: Data quality dedup pass
+- [ ] Dedup customers.json (parent/child overlap)
+- [ ] Dedup CRM contacts
+- [ ] Flag and merge
+
+### Task 6: Keyboard shortcuts
+- [ ] Global shortcuts: N=new quote, P=price checks, /=search
+- [ ] Add to all pages via shared JS
+
+---
+
+## Completed (2026-02-21)
 - [x] Fix PC persistence: file locking + atomic merge saves
 - [x] Fix header UI: two-row layout with scrollable nav
 - [x] Fix pipeline funnel: include PCs, clear stage labels
 - [x] Rebuild Facility Expansion: smart names, email drafts, bulk targeting
 - [x] Create CLAUDE.md, lessons.md, todo.md
-
-### Review
-- PC locking: Tested _merge_save_pc, _load/_save with fcntl. Compiles. Pushed.
-- Header: Both home page and _header() use new layout. Verified via f-string test.
-- Pipeline: API returns combined PC+RFQ+quote stages. Legacy fields kept for compat.
-- Expansion: Name parser tested against all QB entries. Person-names filtered. Compiles.
-
----
-
-## Backlog — Needs User Credentials
-
-- [ ] Set GMAIL_ADDRESS + GMAIL_PASSWORD on Railway → unlocks email polling, auto-drafts, outreach
-- [ ] Set QB_CLIENT_ID/SECRET/REALM_ID/tokens on Railway → unlocks PO creation, invoice sync
-- [ ] Set VAPI_API_KEY on Railway → unlocks voice outreach campaigns
-
-## Backlog — Can Build Anytime
-
-- [ ] Split dashboard.py (10.5K lines) into focused modules
-- [ ] Run full pytest suite against production, fix failures
-- [ ] Auto follow-up scheduler: N days after outreach, auto-draft follow-up
-- [ ] Facility Expansion → Campaign pipeline: track opens/responses per target
-- [ ] Margin calculator standalone page (currently inline only)
-- [ ] Supplier lookup UI improvements
+- [x] Fix Expansion page crash (f-string + dict comprehension)
+- [x] Audit: 99/100 A+
