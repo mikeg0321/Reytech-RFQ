@@ -42,3 +42,18 @@ data survived deploy. "BOOT PC CHECK: N price checks in /path (size=X bytes)"
 `TypeError: unhashable type 'dict'`. The `{{}}` escaping conflicts with dict literals.
 **Rule**: Pre-compute any JSON containing dicts BEFORE the f-string. Assign to a 
 variable, then reference the variable: `{_precomputed_json}`.
+
+## L8: Rate limiter in tests
+- Flask security middleware rate limiter is a module-level dict
+- It accumulates across pytest tests, causing 429s after first few tests
+- Fix: clear `dashboard._rate_limiter` in conftest fixture after create_app()
+
+## L9: price_checks.json must be {} not []
+- _load_price_checks() returns dict {pcid: pc_data}
+- Writing [] causes AttributeError: 'list' object has no attribute 'items'
+- award_monitor.py, funnel stats, and PC routes all call .items() on it
+
+## L10: Pre-compute HTML in f-strings for complex templates
+- Nested f-strings with conditionals and list comprehensions are error-prone
+- Pattern: build HTML chunks as variables BEFORE the main f-string
+- Avoids quote escaping hell and compile errors
