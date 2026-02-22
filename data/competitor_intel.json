@@ -782,5 +782,33 @@
     "competitor_price": 0,
     "price_difference": 0,
     "notes": ""
+  },
+  {
+    "id": "ci-20260222225600-56",
+    "quote_number": "R26Q1",
+    "event": "lost",
+    "timestamp": "2026-02-22T22:56:00.055856",
+    "institution": "Agency-1",
+    "agency": "",
+    "our_total": 0,
+    "items_count": 0,
+    "competitor": "",
+    "competitor_price": 0,
+    "price_difference": 0,
+    "notes": ""
+  },
+  {
+    "id": "ci-20260222225600-57",
+    "quote_number": "R26Q1",
+    "event": "lost",
+    "timestamp": "2026-02-22T22:56:00.060239",
+    "institution": "Agency-1",
+    "agency": "",
+    "our_total": 0,
+    "items_count": 0,
+    "competitor": "",
+    "competitor_price": 0,
+    "price_difference": 0,
+    "notes": ""
   }
 ]

@@ -25,7 +25,12 @@ from flask import Flask
 
 def create_app():
     """Application factory."""
-    app = Flask(__name__)
+    app = Flask(
+        __name__,
+        template_folder=os.path.join(os.path.dirname(__file__), "src", "templates"),
+        static_folder=os.path.join(os.path.dirname(__file__), "src", "static"),
+        static_url_path="/static",
+    )
     app.secret_key = os.environ.get("SECRET_KEY", "reytech-rfq-2026")
 
     # ── Persistent database init ──────────────────────────────────────────────

@@ -201,7 +201,8 @@ def api_nurture_status():
 @bp.route("/revenue")
 @auth_required
 def revenue_page():
-    return render_template_string(_header("Revenue") + _REVENUE_PAGE_HTML + "</main></body></html>")
+    from src.api.render import render_page
+    return render_page("revenue.html", active_page="Revenue")
 
 @bp.route("/api/revenue/dashboard")
 @auth_required

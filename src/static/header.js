@@ -1,0 +1,109 @@
+// Reytech RFQ — Shared header JS (extracted from dashboard.py)
+
+// ── Keyboard shortcuts (home page) ──
+(function(){
+  var shortcuts = {'n':'/pricechecks','q':'/quotes','o':'/orders','p':'/pipeline','g':'/growth','b':'/brief','c':'/contacts','i':'/intelligence','v':'/vendors','d':'/debug','h':'/'};
+  document.addEventListener('keydown', function(e) {
+    var tag = (e.target.tagName||'').toLowerCase();
+    if (tag==='input'||tag==='textarea'||tag==='select'||e.target.isContentEditable) return;
+    if (e.ctrlKey||e.altKey||e.metaKey) return;
+    var key = e.key.toLowerCase();
+    if (key==='/'||key==='s') { var s=document.querySelector('input[name="q"],input[type="search"],#search-input'); if(s){e.preventDefault();s.focus();s.select();return;} e.preventDefault();window.location.href='/search';return; }
+    if (key==='?') { e.preventDefault(); var o=document.getElementById('kb-help'); if(o){o.remove();return;} o=document.createElement('div');o.id='kb-help';o.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;display:flex;align-items:center;justify-content:center';o.onclick=function(){o.remove()};o.innerHTML='<div style="background:#1a1b2e;border:1px solid #333;border-radius:12px;padding:24px 32px;max-width:400px;color:#e2e8f0" onclick="event.stopPropagation()"><h3 style="margin:0 0 16px;font-size:18px">Keyboard Shortcuts</h3><div style="display:grid;grid-template-columns:40px 1fr;gap:6px 12px;font-size:14px"><kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">/ s</kbd><span>Search</span><kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">h</kbd><span>Home</span><kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">n</kbd><span>Price Checks</span><kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">q</kbd><span>Quotes</span><kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">o</kbd><span>Orders</span><kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">p</kbd><span>Pipeline</span><kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">g</kbd><span>Growth</span><kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">b</kbd><span>Daily Brief</span><kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">c</kbd><span>Contacts</span><kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">i</kbd><span>Intelligence</span><kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">?</kbd><span>This help</span></div><p style="margin:16px 0 0;font-size:12px;color:#888">Press any key or click outside to close</p></div>';document.body.appendChild(o);return; }
+    if (shortcuts[key]) { e.preventDefault(); window.location.href=shortcuts[key]; }
+  });
+})();
+function _updatePollTime(ts){
+ var el=document.getElementById('poll-time');
+ if(el&&ts){el.dataset.utc=ts;try{var d=new Date(ts);if(!isNaN(d)){el.textContent=d.toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true})}}catch(e){el.textContent=ts}}
+}
+function pollNow(btn){
+ btn.disabled=true;btn.setAttribute('aria-busy','true');btn.textContent='Checking...';
+ fetch('/api/poll-now',{credentials:'same-origin'}).then(function(r){return r.json()}).then(function(d){
+  _updatePollTime(d.last_check);
+  if(d.found>0){btn.textContent=d.found+' found!';setTimeout(function(){location.reload()},800)}
+  else{btn.textContent='No new emails';setTimeout(function(){btn.textContent='\\u26A1 Check Now';btn.disabled=false;btn.removeAttribute('aria-busy')},2000)}
+ }).catch(function(){btn.textContent='Error';setTimeout(function(){btn.textContent='\\u26A1 Check Now';btn.disabled=false;btn.removeAttribute('aria-busy')},2000)});
+}
+function resyncAll(btn){
+ if(!confirm('Clear all RFQs and re-import from email?'))return;
+ btn.disabled=true;btn.setAttribute('aria-busy','true');btn.textContent='Syncing...';
+ fetch('/api/resync',{credentials:'same-origin'}).then(function(r){return r.json()}).then(function(d){
+  _updatePollTime(d.last_check);
+  if(d.found>0){btn.textContent=d.found+' imported!';setTimeout(function(){location.reload()},800)}
+  else{btn.textContent='0 found';setTimeout(function(){btn.textContent='Resync';btn.disabled=false},2000)}
+ }).catch(function(){btn.textContent='Error';setTimeout(function(){btn.textContent='Resync';btn.disabled=false},2000)});
+}
+(function initBell(){
+  function updateBellCount(){
+    fetch('/api/notifications/bell-count',{credentials:'same-origin'})
+    .then(function(r){return r.json()}).then(function(d){
+      var badge=document.getElementById('notif-badge');
+      if(!badge||!d.ok)return;
+      var total=d.total_badge||0;
+      if(total>0){badge.textContent=total>99?'99+':total;badge.classList.add('show')}
+      else{badge.classList.remove('show')}
+      var csEl=document.getElementById('notif-cs-count');
+      if(csEl&&d.cs_drafts>0){csEl.textContent=d.cs_drafts+' CS draft(s)';csEl.style.display='inline'}
+      else if(csEl){csEl.style.display='none'}
+    }).catch(function(){});
+  }
+  updateBellCount();
+  setInterval(updateBellCount,30000);
+})();
+function toggleNotifPanel(){
+  var panel=document.getElementById('notif-panel');
+  if(!panel)return;
+  var isOpen=panel.classList.contains('open');
+  panel.classList.toggle('open');
+  if(!isOpen) loadNotifications();
+}
+function loadNotifications(){
+  fetch('/api/notifications/persistent?limit=20',{credentials:'same-origin'})
+  .then(function(r){return r.json()}).then(function(d){
+    var list=document.getElementById('notif-list');
+    if(!list)return;
+    if(!d.notifications||d.notifications.length===0){
+      list.innerHTML='<div class="notif-empty">No notifications yet.</div>';
+      return;
+    }
+    var IC={urgent:'\\u1F6A8',deal:'\\u1F4B0',draft:'\\u1F4CB',warning:'\\u23F0',info:'\\u2139\\uFE0F'};
+    list.innerHTML=d.notifications.map(function(n){
+      var ts=n.created_at?new Date(n.created_at).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true}):'';
+      var icon=IC[n.urgency]||'\\u1F514';
+      return '<div class="notif-item '+(n.is_read?'':'unread')+' urgency-'+(n.urgency||'info')+'" onclick="notifClick(&apos;'+n.deep_link+'&apos;,'+n.id+')">'
+        +'<div class="notif-item-title">'+icon+' '+(n.title||'')+'</div>'
+        +'<div class="notif-item-body">'+(n.body||'').substring(0,120)+'</div>'
+        +'<div class="notif-item-time">'+ts+'</div>'
+        +'</div>';
+    }).join('');
+  }).catch(function(){
+    var list=document.getElementById('notif-list');
+    if(list)list.innerHTML='<div class="notif-empty">Could not load notifications.</div>';
+  });
+}
+function notifClick(link,id){
+  if(id) fetch('/api/notifications/mark-read',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:[id]})});
+  if(link&&link!=='/'){window.location.href=link}
+  var p=document.getElementById('notif-panel');if(p)p.classList.remove('open');
+}
+function markAllRead(){
+  fetch('/api/notifications/mark-read',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({})})
+  .then(function(){
+    var b=document.getElementById('notif-badge');if(b)b.classList.remove('show');
+    loadNotifications();
+  });
+}
+document.addEventListener('click',function(e){
+  var wrap=document.getElementById('notif-wrap');
+  if(wrap&&!wrap.contains(e.target)){
+    var panel=document.getElementById('notif-panel');
+    if(panel)panel.classList.remove('open');
+  }
+});
+(function(){
+ var el=document.getElementById('poll-time');
+ if(el&&el.dataset.utc){
+  try{var d=new Date(el.dataset.utc);if(!isNaN(d)){el.textContent=d.toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true})}}catch(e){}
+ }
+})();

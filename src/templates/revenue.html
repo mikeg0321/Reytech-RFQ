@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+{% block title %}Revenue — Reytech{% endblock %}
+
+{% block content %}
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">
+ <h2 style="margin:0;font-size:22px">💰 Revenue Dashboard</h2>
+ <div style="display:flex;gap:8px">
+  <button onclick="reconcileRevenue()" class="hdr-btn" style="padding:6px 14px;font-size:12px">🔄 Reconcile</button>
+  <a href="/pipeline" class="hdr-btn" style="padding:6px 14px;font-size:12px;text-decoration:none">🔄 Pipeline</a>
+ </div>
+</div>
+
+<!-- Goal Tracker -->
+<div id="goal-section" style="background:var(--crd);border:1px solid var(--bd);border-radius:12px;padding:20px;margin-bottom:20px">
+ <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+  <h3 style="margin:0;font-size:16px">🎯 Annual Goal: $2M</h3>
+  <span id="goal-pct" style="font-size:24px;font-weight:700;color:var(--ac)">--</span>
+ </div>
+ <div style="background:var(--bg);border-radius:8px;height:24px;overflow:hidden;margin-bottom:12px">
+  <div id="goal-bar" style="height:100%;background:linear-gradient(90deg,#2ecc71,#27ae60);border-radius:8px;transition:width 0.8s;width:0%"></div>
+ </div>
+ <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;text-align:center">
+  <div><div style="font-size:11px;color:var(--tx2)">YTD Revenue</div><div id="goal-ytd" style="font-size:18px;font-weight:600">$--</div></div>
+  <div><div style="font-size:11px;color:var(--tx2)">Weighted Pipeline</div><div id="goal-pipe" style="font-size:18px;font-weight:600;color:var(--yl)">$--</div></div>
+  <div><div style="font-size:11px;color:var(--tx2)">Projected Annual</div><div id="goal-proj" style="font-size:18px;font-weight:600">$--</div></div>
+  <div><div style="font-size:11px;color:var(--tx2)">Daily Run Rate</div><div id="goal-daily" style="font-size:18px;font-weight:600">$--</div></div>
+ </div>
+</div>
+
+<!-- Monthly Chart + Pipeline -->
+<div style="display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-bottom:20px">
+ <div style="background:var(--crd);border:1px solid var(--bd);border-radius:12px;padding:20px">
+  <h3 style="margin:0 0 12px;font-size:15px">📊 Monthly Revenue</h3>
+  <canvas id="rev-chart" height="220"></canvas>
+ </div>
+ <div style="background:var(--crd);border:1px solid var(--bd);border-radius:12px;padding:20px">
+  <h3 style="margin:0 0 12px;font-size:15px">🔄 Pipeline Forecast</h3>
+  <div id="pipeline-list" style="max-height:240px;overflow-y:auto"></div>
+ </div>
+</div>
+
+<!-- Margins + Top Customers -->
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
+ <div style="background:var(--crd);border:1px solid var(--bd);border-radius:12px;padding:20px">
+  <h3 style="margin:0 0 12px;font-size:15px">📉 Margin Analysis</h3>
+  <div id="margin-summary" style="margin-bottom:12px"></div>
+  <div id="margin-list" style="max-height:200px;overflow-y:auto"></div>
+ </div>
+ <div style="background:var(--crd);border:1px solid var(--bd);border-radius:12px;padding:20px">
+  <h3 style="margin:0 0 12px;font-size:15px">🏢 Top Customers</h3>
+  <div id="top-customers" style="max-height:240px;overflow-y:auto"></div>
+ </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+let revChart;
+async function loadRevenue() {
+  try {
+    const r = await fetch('/api/revenue/dashboard');
+    const d = await r.json();
+    if (!d.ok) return;
+
+    // Goal section
+    const g = d.goal || {};
+    document.getElementById('goal-pct').textContent = (g.pct_of_goal||0).toFixed(1) + '%';
+    document.getElementById('goal-bar').style.width = Math.min(g.pct_of_goal||0, 100) + '%';
+    document.getElementById('goal-ytd').textContent = '$' + (g.ytd_revenue||0).toLocaleString(undefined,{maximumFractionDigits:0});
+    document.getElementById('goal-pipe').textContent = '$' + (g.weighted_pipeline||0).toLocaleString(undefined,{maximumFractionDigits:0});
+    document.getElementById('goal-proj').textContent = '$' + (g.projected_annual||0).toLocaleString(undefined,{maximumFractionDigits:0});
+    document.getElementById('goal-daily').textContent = '$' + (g.daily_rate||0).toLocaleString(undefined,{maximumFractionDigits:0});
+
+    // Monthly chart
+    const months = d.monthly || [];
+    const labels = months.map(m => m.month);
+    const revenues = months.map(m => m.revenue);
+    const profits = months.map(m => m.profit);
+
+    if (revChart) revChart.destroy();
+    const ctx = document.getElementById('rev-chart');
+    if (ctx) {
+      revChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [
+            {label: 'Revenue', data: revenues, backgroundColor: '#2ecc7180', borderColor: '#2ecc71', borderWidth: 1},
+            {label: 'Profit', data: profits, backgroundColor: '#3498db80', borderColor: '#3498db', borderWidth: 1}
+          ]
+        },
+        options: {
+          responsive: true,
+          plugins: {legend: {position: 'top', labels: {color: '#e0e0e0', font: {size: 11}}}},
+          scales: {
+            x: {ticks: {color: '#999'}, grid: {display: false}},
+            y: {ticks: {color: '#999', callback: v => '$'+v.toLocaleString()}, grid: {color: '#333'}}
+          }
+        }
+      });
+    }
+
+    // Pipeline list
+    const pipe = d.pipeline?.items || [];
+    const pEl = document.getElementById('pipeline-list');
+    if (pEl) {
+      pEl.innerHTML = pipe.length ? pipe.slice(0,10).map(p =>
+        `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd);font-size:12px">
+          <div><a href="/quote/${p.quote_number}" style="color:var(--ac)">${p.quote_number}</a>
+           <span style="color:var(--tx2);margin-left:4px">${p.agency||''}</span></div>
+          <div style="text-align:right">
+            <div style="font-weight:600">$${(p.weighted_value||0).toLocaleString()}</div>
+            <div style="font-size:10px;color:var(--tx2)">${(p.win_probability*100).toFixed(0)}% × $${(p.total||0).toLocaleString()}</div>
+          </div>
+        </div>`
+      ).join('') : '<div style="color:var(--tx2);font-size:12px">No open quotes in pipeline</div>';
+    }
+
+    // Margins
+    const m = d.margins || {};
+    const mSummary = document.getElementById('margin-summary');
+    if (mSummary) {
+      mSummary.innerHTML = m.total_quotes_with_cost ?
+        `<div style="display:flex;gap:16px;font-size:13px">
+          <span>Avg margin: <b style="color:${m.avg_margin>=15?'#2ecc71':'#e74c3c'}">${(m.avg_margin||0).toFixed(1)}%</b></span>
+          <span>Low margin: <b style="color:#e67e22">${m.low_margin_count||0}</b></span>
+          <span>Critical: <b style="color:#e74c3c">${m.critical_margin_count||0}</b></span>
+        </div>` : '<span style="font-size:12px;color:var(--tx2)">No cost data yet</span>';
+    }
+    const mList = document.getElementById('margin-list');
+    if (mList && m.items) {
+      mList.innerHTML = m.items.slice(0,10).map(i =>
+        `<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--bd);font-size:12px">
+          <span>${i.quote_number} — ${i.agency||''}</span>
+          <span style="color:${i.margin_pct>=15?'#2ecc71':i.margin_pct>=10?'#e67e22':'#e74c3c'};font-weight:600">${i.margin_pct?.toFixed(1)}%</span>
+        </div>`
+      ).join('');
+    }
+
+    // Top customers
+    const tc = d.top_customers || [];
+    const tcEl = document.getElementById('top-customers');
+    if (tcEl) {
+      tcEl.innerHTML = tc.length ? tc.map((c,i) =>
+        `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd);font-size:12px">
+          <span>${i+1}. ${c.agency||'Unknown'} <span style="color:var(--tx2)">(${c.deal_count} deals)</span></span>
+          <span style="font-weight:600">$${(c.total_revenue||0).toLocaleString(undefined,{maximumFractionDigits:0})}</span>
+        </div>`
+      ).join('') : '<div style="color:var(--tx2);font-size:12px">No revenue data yet</div>';
+    }
+  } catch(e) { console.error('Revenue load:', e); }
+}
+
+async function reconcileRevenue() {
+  const r = await fetch('/api/revenue/reconcile', {method:'POST'});
+  const d = await r.json();
+  alert(d.ok ? `Reconciled ${d.synced} entries` : 'Failed');
+  loadRevenue();
+}
+
+loadRevenue();
+</script>
+{% endblock %}

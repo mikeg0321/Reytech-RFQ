@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{% block title %}Reytech RFQ{% endblock %}</title>
+<meta name="description" content="Reytech RFQ Dashboard — AI-powered sales automation for CA state agency reseller">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/styles.css">
+{% block head_extra %}{% endblock %}
+</head>
+<body>
+<header class="hdr" role="banner" style="padding:10px 28px 0;gap:0;flex-direction:column;align-items:stretch">
+ <div style="display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:8px">
+  <a href="/" aria-label="Reytech RFQ Dashboard — Home" style="display:flex;align-items:center;gap:10px;text-decoration:none;flex-shrink:0">
+   <img src="/api/logo" alt="Reytech logo" style="height:36px;background:#fff;padding:4px 10px;border-radius:6px;box-shadow:0 1px 3px rgba(0,0,0,.2)" onerror="this.outerHTML='<span style=\'font-size:18px;font-weight:700;color:var(--ac)\'>Reytech</span>'">
+   <span style="font-size:15px;font-weight:600;color:var(--tx);letter-spacing:-0.3px" aria-hidden="true">RFQ Dashboard</span>
+  </a>
+  <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+   <button class="hdr-btn" onclick="pollNow(this)" id="poll-btn" aria-label="Check for new emails now" style="padding:4px 10px;font-size:11px">⚡ Check Now</button>
+   <button class="hdr-btn hdr-warn" onclick="resyncAll(this)" title="Clear queue & re-import all emails" aria-label="Resync all emails from inbox" style="padding:4px 10px;font-size:11px">🔄 Resync</button>
+   <div style="position:relative" id="notif-wrap">
+    <button class="notif-bell" onclick="toggleNotifPanel()" id="notif-bell-btn" aria-label="Notifications" title="Notifications">
+     🔔<span class="notif-badge" id="notif-badge">0</span>
+    </button>
+    <div class="notif-panel" id="notif-panel">
+     <div class="notif-panel-hdr">
+      <h4>🔔 Notifications</h4>
+      <div style="display:flex;gap:8px;align-items:center">
+       <span id="notif-cs-count" style="font-size:11px;color:var(--yl);display:none"></span>
+       <button onclick="markAllRead()" style="font-size:11px;color:var(--tx2);background:none;border:none;cursor:pointer;padding:2px 6px">Mark all read</button>
+       <button onclick="toggleNotifPanel()" style="font-size:16px;color:var(--tx2);background:none;border:none;cursor:pointer;line-height:1">×</button>
+      </div>
+     </div>
+     <div class="notif-panel-body" id="notif-list"><div class="notif-empty">Loading...</div></div>
+     <div class="notif-footer">
+      <a href="/outbox" class="hdr-btn" style="font-size:11px;padding:4px 10px">📬 Review Drafts</a>
+      <a href="/api/notify/status" class="hdr-btn" style="font-size:11px;padding:4px 10px" target="_blank">⚙️ Alert Settings</a>
+     </div>
+    </div>
+   </div>
+   <div class="hdr-status" role="status" aria-live="polite" aria-label="Email polling status" style="min-width:100px">
+    <div style="display:flex;align-items:center;gap:6px">
+     <span class="poll-dot {{ poll_class }}" aria-hidden="true"></span>
+     <span>{{ poll_status }}</span>
+    </div>
+    <div class="hdr-time" id="poll-time" data-utc="{{ poll_last }}">{{ poll_last or 'never' }}</div>
+   </div>
+  </div>
+ </div>
+ {% set nav_items = [
+   ('/', '🏠 Home', 'Home'),
+   ('/search', '🔍 Search', 'Search'),
+   ('/quotes', '📋 Quotes', 'Quotes'),
+   ('/orders', '📦 Orders', 'Orders'),
+   ('/contacts', '👥 CRM', 'CRM'),
+   ('/vendors', '🏭 Vendors', 'Vendors'),
+   ('/catalog', '📦 Catalog', 'Catalog'),
+   ('/pricechecks', '📋 PCs', 'PCs'),
+   ('/competitors', '🎯 Compete', 'Compete'),
+   ('/cchcs/expansion', '🏥 Expand', 'Expand'),
+   ('/campaigns', '📞 Campaigns', 'Campaigns'),
+   ('/pipeline', '🔄 Pipeline', 'Pipeline'),
+   ('/shipping', '🚚 Shipping', 'Shipping'),
+   ('/pricing', '💰 Pricing', 'Pricing'),
+   ('/growth', '🚀 Growth', 'Growth'),
+   ('/intelligence', '🧠 Intel', 'Intel'),
+   ('/agents', '🤖 Agents', 'Agents'),
+   ('/revenue', '💰 Revenue', 'Revenue'),
+   ('/brief', '☀️ Brief', 'Brief'),
+ ] %}
+ <nav aria-label="Main navigation" style="overflow-x:auto;overflow-y:hidden;white-space:nowrap;padding-bottom:8px;margin:0 -28px;padding-left:28px;padding-right:28px;-webkit-overflow-scrolling:touch;scrollbar-width:thin;scrollbar-color:var(--bd) transparent">
+  <div style="display:inline-flex;align-items:center;gap:4px">
+   {% for href, label, name in nav_items %}
+   <a href="{{ href }}" class="hdr-btn{% if active_page == name %} hdr-active{% endif %}" aria-label="{{ name }}" style="padding:5px 10px;font-size:11px">{{ label }}</a>
+   {% endfor %}
+  </div>
+ </nav>
+</header>
+<main class="ctr" role="main" id="main-content">
+{% with messages = get_flashed_messages(with_categories=true) %}
+ {% for cat, msg in messages %}
+ <div class="alert al-{{ 's' if cat=='success' else 'e' if cat=='error' else 'i' }}" role="alert" aria-live="assertive">{% if cat=='success' %}✅{% elif cat=='error' %}❌{% else %}ℹ️{% endif %} {{ msg }}</div>
+ {% endfor %}
+{% endwith %}
+{% block content %}{% endblock %}
+</main>
+<script src="/static/header.js"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>
