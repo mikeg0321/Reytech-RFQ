@@ -3631,3 +3631,250 @@ def api_follow_up_status():
         return jsonify({"ok": True, **state})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
+
+
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# Daily Briefing Page + Push Notification (SMS via Twilio)
+# ════════════════════════════════════════════════════════════════════════════════
+
+TWILIO_SID = os.environ.get("TWILIO_ACCOUNT_SID", "")
+TWILIO_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "")
+TWILIO_FROM = os.environ.get("TWILIO_FROM_NUMBER", "")
+NOTIFY_TO = os.environ.get("NOTIFY_PHONE", "")
+BRIEF_SEND_HOUR = int(os.environ.get("BRIEF_SEND_HOUR", "7"))
+
+
+def _build_text_brief():
+    """Build concise SMS-friendly daily brief."""
+    lines = []
+    lines.append("REYTECH DAILY BRIEF")
+    lines.append(datetime.now().strftime("%a %b %d, %Y"))
+    lines.append("")
+
+    try:
+        pcs = _load_price_checks()
+        active_pcs = [p for p in (pcs.values() if isinstance(pcs, dict) else pcs) if not p.get("is_test")]
+        quotes = get_all_quotes()
+        active_quotes = [q for q in quotes if not q.get("is_test")]
+        pipeline_val = sum(float(q.get("total", 0)) for q in active_quotes if q.get("status") in ("draft", "sent", "reviewed"))
+        lines.append(f"Pipeline: ${pipeline_val:,.0f}")
+        new_pcs = [p for p in active_pcs if p.get("status") in ("new", "pending", "inbox")]
+        if new_pcs:
+            lines.append(f"{len(new_pcs)} PCs need pricing")
+        if active_quotes:
+            lines.append(f"{len(active_quotes)} quotes active")
+    except Exception:
+        lines.append("Pipeline: data unavailable")
+
+    try:
+        from src.agents.follow_up_engine import get_follow_up_summary
+        fu = get_follow_up_summary()
+        awaiting = fu.get("total_awaiting_response", 0)
+        overdue = fu.get("overdue", 0)
+        if awaiting > 0:
+            lines.append(f"{awaiting} outreach awaiting response")
+        if overdue > 0:
+            lines.append(f"! {overdue} overdue (7d+ no reply)")
+    except Exception:
+        pass
+
+    try:
+        outbox_path = os.path.join(DATA_DIR, "email_outbox.json")
+        if os.path.exists(outbox_path):
+            import json as _j2
+            with open(outbox_path) as _f2:
+                ob = _j2.load(_f2)
+            if isinstance(ob, list):
+                drafts = [e for e in ob if e.get("status") in ("draft", "follow_up_draft", "cs_draft")]
+                if drafts:
+                    lines.append(f"{len(drafts)} email drafts to review")
+    except Exception:
+        pass
+
+    try:
+        orders = _load_orders()
+        active_orders = [o for o in orders.values() if o.get("status") not in ("completed", "cancelled")]
+        if active_orders:
+            lines.append(f"{len(active_orders)} active orders")
+    except Exception:
+        pass
+
+    return "\n".join(lines)
+
+
+def _send_sms(to_number, message):
+    """Send SMS via Twilio REST API."""
+    if not all([TWILIO_SID, TWILIO_TOKEN, TWILIO_FROM]):
+        return {"ok": False, "error": "Twilio not configured. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER"}
+    try:
+        import urllib.request, urllib.parse, base64
+        url = f"https://api.twilio.com/2010-04-01/Accounts/{TWILIO_SID}/Messages.json"
+        data = urllib.parse.urlencode({"To": to_number, "From": TWILIO_FROM, "Body": message}).encode()
+        creds = base64.b64encode(f"{TWILIO_SID}:{TWILIO_TOKEN}".encode()).decode()
+        req = urllib.request.Request(url, data=data, headers={
+            "Authorization": f"Basic {creds}", "Content-Type": "application/x-www-form-urlencoded"})
+        resp = urllib.request.urlopen(req, timeout=10)
+        return {"ok": True, "status": resp.status, "message": "SMS sent"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@bp.route("/brief")
+@auth_required
+def daily_brief_page():
+    """Daily Briefing page."""
+    header = _header("brief")
+    now = datetime.now()
+    text_brief = _build_text_brief()
+    twilio_ok = bool(TWILIO_SID and TWILIO_TOKEN and TWILIO_FROM)
+
+    # Gather data
+    try:
+        from src.agents.follow_up_engine import get_follow_up_summary
+        fu = get_follow_up_summary()
+    except Exception:
+        fu = {"total_awaiting_response": 0, "overdue": 0, "overdue_items": [], "pending_items": [], "follow_ups_sent": 0}
+
+    try:
+        pcs = _load_price_checks()
+        new_pcs = [(pid, p) for pid, p in (pcs.items() if isinstance(pcs, dict) else []) if p.get("status") in ("new", "pending", "inbox") and not p.get("is_test")]
+    except Exception:
+        new_pcs = []
+
+    try:
+        quotes = get_all_quotes()
+        aging = []
+        for q in quotes:
+            if q.get("is_test") or q.get("status") not in ("sent", "reviewed"):
+                continue
+            try:
+                created = datetime.fromisoformat(q.get("date", "").replace("Z", ""))
+                age = (now - created).days
+                if age >= 5:
+                    aging.append((q.get("quote_number", ""), q.get("bill_to", {}).get("name", "?"), age, float(q.get("total", 0))))
+            except Exception:
+                pass
+        aging.sort(key=lambda x: -x[2])
+    except Exception:
+        aging = []
+
+    try:
+        outbox_path = os.path.join(DATA_DIR, "email_outbox.json")
+        import json as _j3
+        with open(outbox_path) as _f3:
+            ob2 = _j3.load(_f3)
+        drafts = [e for e in (ob2 if isinstance(ob2, list) else []) if e.get("status") in ("draft", "follow_up_draft", "cs_draft")]
+    except Exception:
+        drafts = []
+
+    # Pre-build HTML sections
+    pc_html = ""
+    for pid, p in new_pcs[:5]:
+        pc_html += f'<div style="padding:10px 14px;background:rgba(251,146,60,.08);border:1px solid rgba(251,146,60,.3);border-radius:8px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center"><div>New PC needs pricing</div><a href="/pricecheck/{pid}" class="btn btn-s" style="padding:6px 12px;font-size:12px">Price it</a></div>'
+    if not new_pcs:
+        pc_html = '<div style="padding:10px;color:var(--t2)">No PCs awaiting pricing</div>'
+
+    aging_html = ""
+    for qn, cust, age, total in aging[:5]:
+        aging_html += f'<div style="padding:10px 14px;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.3);border-radius:8px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center"><div><strong>{qn}</strong> {cust} (${total:,.0f}) {age}d old</div><a href="/quote/{qn}" class="btn btn-s" style="padding:6px 12px;font-size:12px">View</a></div>'
+    if not aging:
+        aging_html = '<div style="padding:10px;color:var(--t2)">No aging quotes</div>'
+
+    draft_html = ""
+    for d in drafts[:3]:
+        subj = _sanitize_input(d.get("subject", "(no subject)"))[:60]
+        to_addr = _sanitize_input(d.get("to", "?"))
+        draft_html += f'<div style="padding:10px 14px;background:rgba(79,140,255,.08);border:1px solid rgba(79,140,255,.3);border-radius:8px;margin-bottom:8px">Draft: {subj} &rarr; {to_addr}</div>'
+    if len(drafts) > 3:
+        draft_html += f'<div style="padding:8px;color:var(--t2);font-size:13px">+ {len(drafts)-3} more</div>'
+    draft_btn = f'<a href="/outbox" class="btn btn-s" style="margin-top:8px;padding:8px 14px;font-size:13px">Review {len(drafts)} Drafts</a>' if drafts else ""
+
+    overdue_html = ""
+    for item in fu.get("overdue_items", [])[:5]:
+        fac = item.get("facility", "?")
+        email = item.get("to_email", "")
+        days = item.get("days_since", 0)
+        overdue_html += f'<div style="padding:8px 12px;border-left:3px solid #ef4444;margin-bottom:6px;font-size:13px"><strong>{fac}</strong> {email} {days}d no response</div>'
+
+    twilio_status = f"Twilio configured, sends to {NOTIFY_TO}" if twilio_ok else "Set TWILIO env vars on Railway to enable SMS"
+    twilio_disabled = "" if twilio_ok else 'disabled title="Configure Twilio first"'
+
+    return header + f"""
+<div style="max-width:800px;margin:0 auto;padding:20px">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">
+    <div>
+      <h1 style="margin:0;font-size:28px">Daily Brief</h1>
+      <p style="margin:4px 0 0;color:var(--t2);font-size:14px">{now.strftime('%A, %B %d, %Y')} &middot; {now.strftime('%I:%M %p')}</p>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button onclick="sendBriefSMS()" class="btn btn-s" style="padding:10px 16px;font-size:13px" {twilio_disabled}>Text Me This</button>
+      <button onclick="location.reload()" class="btn btn-s" style="padding:10px 16px;font-size:13px">Refresh</button>
+    </div>
+  </div>
+
+  <div style="background:var(--bg2);border:1px solid var(--bd);border-radius:12px;padding:20px;margin-bottom:16px">
+    <h2 style="margin:0 0 16px;font-size:18px;color:var(--ac)">Action Items</h2>
+    {pc_html}
+    {aging_html}
+    {draft_html}
+    {draft_btn}
+  </div>
+
+  <div style="background:var(--bg2);border:1px solid var(--bd);border-radius:12px;padding:20px;margin-bottom:16px">
+    <h2 style="margin:0 0 16px;font-size:18px;color:#f0883e">Follow-Up Status</h2>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px">
+      <div style="text-align:center;padding:12px;background:var(--bg);border-radius:8px">
+        <div style="font-size:24px;font-weight:700">{fu.get('total_awaiting_response', 0)}</div>
+        <div style="font-size:12px;color:var(--t2)">Awaiting Reply</div>
+      </div>
+      <div style="text-align:center;padding:12px;background:var(--bg);border-radius:8px">
+        <div style="font-size:24px;font-weight:700">{fu.get('follow_ups_sent', 0)}</div>
+        <div style="font-size:12px;color:var(--t2)">Follow-Ups Created</div>
+      </div>
+      <div style="text-align:center;padding:12px;background:var(--bg);border-radius:8px">
+        <div style="font-size:24px;font-weight:700;{'color:#ef4444' if fu.get('overdue',0) > 0 else ''}">{fu.get('overdue', 0)}</div>
+        <div style="font-size:12px;color:var(--t2)">Overdue (7d+)</div>
+      </div>
+    </div>
+    {overdue_html}
+    <button onclick="fetch('/api/follow-ups/scan',{{method:'POST'}}).then(r=>r.json()).then(d=>{{alert('Scanned: '+d.scanned+' items, '+d.new_drafts+' new drafts');location.reload()}})" class="btn btn-s" style="margin-top:8px;padding:8px 14px;font-size:13px">Scan Now</button>
+  </div>
+
+  <div style="background:var(--bg2);border:1px solid var(--bd);border-radius:12px;padding:20px;margin-bottom:16px">
+    <h2 style="margin:0 0 12px;font-size:18px;color:var(--t2)">SMS Preview</h2>
+    <pre style="background:#000;color:#0f0;padding:16px;border-radius:8px;font-size:13px;white-space:pre-wrap;font-family:monospace;line-height:1.5">{text_brief}</pre>
+    <p style="font-size:12px;color:var(--t2);margin:8px 0 0">{twilio_status}</p>
+  </div>
+</div>
+
+<script>
+function sendBriefSMS() {{
+  if (!confirm('Send this brief as a text message?')) return;
+  fetch('/api/brief/send-sms', {{method:'POST'}})
+  .then(r => r.json())
+  .then(d => {{ if (d.ok) alert('Brief sent!'); else alert('Failed: ' + (d.error || 'Unknown error')); }})
+  .catch(e => alert('Error: ' + e));
+}}
+</script>
+""" + _page_footer()
+
+
+@bp.route("/api/brief/text")
+@auth_required
+def api_brief_text():
+    """Get text version of daily brief."""
+    return jsonify({"ok": True, "text": _build_text_brief()})
+
+
+@bp.route("/api/brief/send-sms", methods=["POST"])
+@auth_required
+def api_brief_send_sms():
+    """Send daily brief via SMS."""
+    if not NOTIFY_TO:
+        return jsonify({"ok": False, "error": "NOTIFY_PHONE not set"})
+    text = _build_text_brief()
+    if len(text) > 1550:
+        text = text[:1547] + "..."
+    return jsonify(_send_sms(NOTIFY_TO, text))

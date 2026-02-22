@@ -2194,6 +2194,7 @@ def render(content, include_brief=False, **kw):
   <a href="/growth" class="hdr-btn" aria-label="Growth engine" style="padding:5px 10px;font-size:11px">🚀 Growth</a>
   <a href="/intelligence" class="hdr-btn" aria-label="Sales intelligence" style="padding:5px 10px;font-size:11px">🧠 Intel</a>
   <a href="/agents" class="hdr-btn" aria-label="AI Agents manager" style="padding:5px 10px;font-size:11px">🤖 Agents</a>
+  <a href="/brief" class="hdr-btn" aria-label="Daily brief" style="padding:5px 10px;font-size:11px">☀️ Brief</a>
   </div>
  </nav>
 </header>
@@ -2289,6 +2290,7 @@ def _header(page_title: str = "") -> str:
   <a href="/growth" class="hdr-btn{'{ hdr-active}' if page_title=='Growth Engine' else ''}" style="padding:5px 10px;font-size:11px">🚀 Growth</a>
   <a href="/intelligence" class="hdr-btn{'{ hdr-active}' if page_title=='Sales Intelligence' else ''}" style="padding:5px 10px;font-size:11px">🧠 Intel</a>
   <a href="/agents" class="hdr-btn" style="padding:5px 10px;font-size:11px">🤖 Agents</a>
+  <a href="/brief" class="hdr-btn{' hdr-active' if page_title=='brief' else ''}" style="padding:5px 10px;font-size:11px">☀️ Brief</a>
   </div>
  </nav>
 </div>
