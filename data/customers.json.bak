@@ -12,8 +12,7 @@
     "phone": "",
     "email": "",
     "open_balance": 0.0,
-    "source": "quickbooks",
-    "is_parent_org": false
+    "source": "quickbooks"
   },
   {
     "qb_name": "Amazon Business Prime",
@@ -28,8 +27,7 @@
     "phone": "",
     "email": "",
     "open_balance": 0.0,
-    "source": "quickbooks",
-    "is_parent_org": false
+    "source": "quickbooks"
   },
   {
     "qb_name": "CA Correctional Health Care Services",
@@ -44,9 +42,7 @@
     "phone": "",
     "email": "apa.invoices@cdcr.ca.gov",
     "open_balance": 7298.34,
-    "source": "quickbooks",
-    "is_parent_org": true,
-    "child_count": 15
+    "source": "quickbooks"
   },
   {
     "qb_name": "CA Correctional Health Care Services:CA State Prison Sacramento",
@@ -62,8 +58,7 @@
     "email": "timothy.anderson@cdcr.ca.gov",
     "open_balance": 3876.41,
     "source": "quickbooks",
-    "abbreviation": "SAC",
-    "is_parent_org": false
+    "abbreviation": "SAC"
   },
   {
     "qb_name": "CA Correctional Health Care Services:CA State Prison San Quentin",
@@ -79,8 +74,7 @@
     "email": "timothy.anderson@cdcr.ca.gov",
     "open_balance": 0.0,
     "source": "quickbooks",
-    "abbreviation": "SQ",
-    "is_parent_org": false
+    "abbreviation": "SQ"
   },
   {
     "qb_name": "CA Correctional Health Care Services:CA Substance Abuse Treatment Facility",
@@ -96,8 +90,7 @@
     "email": "timothy.anderson@cdcr.ca.gov",
     "open_balance": 0.0,
     "source": "quickbooks",
-    "abbreviation": "SATF",
-    "is_parent_org": false
+    "abbreviation": "SATF"
   },
   {
     "qb_name": "CA Correctional Health Care Services:California Correctional Institution",
@@ -113,8 +106,7 @@
     "email": "timothy.anderson@cdcr.ca.gov",
     "open_balance": 513.11,
     "source": "quickbooks",
-    "abbreviation": "CCI",
-    "is_parent_org": false
+    "abbreviation": "CCI"
   },
   {
     "qb_name": "CA Correctional Health Care Services:California Health Care Facility",
@@ -130,8 +122,7 @@
     "email": "timothy.anderson@cdcr.ca.gov",
     "open_balance": 2696.98,
     "source": "quickbooks",
-    "abbreviation": "CHCF",
-    "is_parent_org": false
+    "abbreviation": "CHCF"
   },
   {
     "qb_name": "CA Correctional Health Care Services:California Institution for Women",
@@ -147,8 +138,7 @@
     "email": "timothy.anderson@cdcr.ca.gov",
     "open_balance": 191.56,
     "source": "quickbooks",
-    "abbreviation": "CIW",
-    "is_parent_org": false
+    "abbreviation": "CIW"
   },
   {
     "qb_name": "CA Correctional Health Care Services:California Medical Facility",
@@ -164,8 +154,7 @@
     "email": "timothy.anderson@cdcr.ca.gov",
     "open_balance": 0.0,
     "source": "quickbooks",
-    "abbreviation": "CMF",
-    "is_parent_org": false
+    "abbreviation": "CMF"
   },
   {
     "qb_name": "CA Correctional Health Care Services:California Rehabilitation Center",
@@ -181,8 +170,7 @@
     "email": "timothy.anderson@cdcr.ca.gov",
     "open_balance": 0.0,
     "source": "quickbooks",
-    "abbreviation": "CRC",
-    "is_parent_org": false
+    "abbreviation": "CRC"
   },
   {
     "qb_name": "CA Correctional Health Care Services:Calipatria State Prison",
@@ -198,8 +186,7 @@
     "email": "timothy.anderson@cdcr.ca.gov",
     "open_balance": 0.0,
     "source": "quickbooks",
-    "abbreviation": "CAL",
-    "is_parent_org": false
+    "abbreviation": "CAL"
   },
   {
     "qb_name": "CA Correctional Health Care Services:Correctional Training Facility",
@@ -215,8 +202,7 @@
     "email": "timothy.anderson@cdcr.ca.gov",
     "open_balance": 0.0,
     "source": "quickbooks",
-    "abbreviation": "CTF",
-    "is_parent_org": false
+    "abbreviation": "CTF"
   },
   {
     "qb_name": "CA Correctional Health Care Services:High Desert State Prison",
@@ -232,8 +218,7 @@
     "email": "timothy.anderson@cdcr.ca.gov",
     "open_balance": 0.0,
     "source": "quickbooks",
-    "abbreviation": "HDSP",
-    "is_parent_org": false
+    "abbreviation": "HDSP"
   },
   {
     "qb_name": "CA Correctional Health Care Services:Kern Valley State Prison",
@@ -249,8 +234,7 @@
     "email": "timothy.anderson@cdcr.ca.gov",
     "open_balance": 0.0,
     "source": "quickbooks",
-    "abbreviation": "KVSP",
-    "is_parent_org": false
+    "abbreviation": "KVSP"
   },
   {
     "qb_name": "CA Correctional Health Care Services:Mule Creek State Prison",
@@ -266,8 +250,7 @@
     "email": "timothy.anderson@cdcr.ca.gov",
     "open_balance": 0.0,
     "source": "quickbooks",
-    "abbreviation": "MCSP",
-    "is_parent_org": false
+    "abbreviation": "MCSP"
   },
   {
     "qb_name": "CA Correctional Health Care Services:Pelican Bay State Prison",
@@ -283,8 +266,7 @@
     "email": "timothy.anderson@cdcr.ca.gov",
     "open_balance": 20.28,
     "source": "quickbooks",
-    "abbreviation": "PBSP",
-    "is_parent_org": false
+    "abbreviation": "PBSP"
   },
   {
     "qb_name": "CA Correctional Health Care Services:Sierra Conservation Center",
@@ -300,8 +282,7 @@
     "email": "timothy.anderson@cdcr.ca.gov",
     "open_balance": 0.0,
     "source": "quickbooks",
-    "abbreviation": "SCC",
-    "is_parent_org": false
+    "abbreviation": "SCC"
   },
   {
     "qb_name": "Cal Vet",
@@ -316,8 +297,7 @@
     "phone": "",
     "email": "",
     "open_balance": 0.0,
-    "source": "quickbooks",
-    "is_parent_org": false
+    "source": "quickbooks"
   },
   {
     "qb_name": "California Medical Facility - Vacaville",
@@ -332,8 +312,7 @@
     "phone": "",
     "email": "",
     "open_balance": 0.0,
-    "source": "quickbooks",
-    "is_parent_org": false
+    "source": "quickbooks"
   },
   {
     "qb_name": "CDTFA",
@@ -348,8 +327,7 @@
     "phone": "",
     "email": "",
     "open_balance": 0.0,
-    "source": "quickbooks",
-    "is_parent_org": false
+    "source": "quickbooks"
   },
   {
     "qb_name": "Chuckawalla Valley State Prison",
@@ -365,8 +343,7 @@
     "email": "",
     "open_balance": 0.0,
     "source": "quickbooks",
-    "abbreviation": "CVSP",
-    "is_parent_org": false
+    "abbreviation": "CVSP"
   },
   {
     "qb_name": "CIW - California Institution for Women",
@@ -381,8 +358,7 @@
     "phone": "",
     "email": "",
     "open_balance": 0.0,
-    "source": "quickbooks",
-    "is_parent_org": false
+    "source": "quickbooks"
   },
   {
     "qb_name": "Department of State Hospital - Atascadero",
@@ -397,8 +373,7 @@
     "phone": "",
     "email": "",
     "open_balance": 4389.98,
-    "source": "quickbooks",
-    "is_parent_org": false
+    "source": "quickbooks"
   },
   {
     "qb_name": "Dept of Corrections and Rehabilitation",
@@ -413,9 +388,7 @@
     "phone": "",
     "email": "",
     "open_balance": 0.0,
-    "source": "quickbooks",
-    "is_parent_org": true,
-    "child_count": 19
+    "source": "quickbooks"
   },
   {
     "qb_name": "Dept of Corrections and Rehabilitation:North Kern State Prison",
@@ -431,8 +404,7 @@
     "email": "",
     "open_balance": 0.0,
     "source": "quickbooks",
-    "abbreviation": "NKSP",
-    "is_parent_org": false
+    "abbreviation": "NKSP"
   },
   {
     "qb_name": "Dept of Veterans Affairs",
@@ -447,9 +419,7 @@
     "phone": "",
     "email": "",
     "open_balance": 29608.46,
-    "source": "quickbooks",
-    "is_parent_org": true,
-    "child_count": 11
+    "source": "quickbooks"
   },
   {
     "qb_name": "Dept of Veterans Affairs:Veterans Home of California - Barstow",
@@ -464,8 +434,7 @@
     "phone": "",
     "email": "",
     "open_balance": 0.0,
-    "source": "quickbooks",
-    "is_parent_org": false
+    "source": "quickbooks"
   },
   {
     "qb_name": "Dept of Veterans Affairs:Veterans Home of California - Chula Vista",
@@ -480,8 +449,7 @@
     "phone": "",
     "email": "",
     "open_balance": 0.0,
-    "source": "quickbooks",
-    "is_parent_org": false
+    "source": "quickbooks"
   },
   {
     "qb_name": "Dept of Veterans Affairs:Veterans Home of California - Chula Vista:Lorelei",
@@ -496,8 +464,7 @@
     "phone": "",
     "email": "",
     "open_balance": 0.0,
-    "source": "quickbooks",
-    "is_parent_org": false
+    "source": "quickbooks"
   },
   {
     "qb_name": "Dept of Veterans Affairs:Veterans Home of California - Chula Vista:Lorelei Arcega-Dugan",
@@ -512,8 +479,7 @@
     "phone": "",
     "email": "",
     "open_balance": 0.0,
-    "source": "quickbooks",
-    "is_parent_org": false
+    "source": "quickbooks"
   },
   {
     "qb_name": "Dept of Veterans Affairs:Veterans Home of California - Fresno",
@@ -528,8 +494,7 @@
     "phone": "559-493-4433",
     "email": "Shirley.Davis@calvet.ca.gov",
     "open_balance": 26624.8,
-    "source": "quickbooks",
-    "is_parent_org": false
+    "source": "quickbooks"
   },
   {
     "qb_name": "Dept of Veterans Affairs:Veterans Home of California - Lancaster",
@@ -544,8 +509,7 @@
     "phone": "",
     "email": "",
     "open_balance": 0.0,
-    "source": "quickbooks",
-    "is_parent_org": false
+    "source": "quickbooks"
   },
   {
     "qb_name": "Dept of Veterans Affairs:Veterans Home of California - Los Angeles",
@@ -560,8 +524,7 @@
     "phone": "",
     "email": "",
     "open_balance": 0.0,
-    "source": "quickbooks",
-    "is_parent_org": false
+    "source": "quickbooks"
   },
   {
     "qb_name": "Dept of Veterans Affairs:Veterans Home of California - Redding",
@@ -576,8 +539,7 @@
     "phone": "",
     "email": "",
     "open_balance": 2983.66,
-    "source": "quickbooks",
-    "is_parent_org": false
+    "source": "quickbooks"
   },
   {
     "qb_name": "Dept of Veterans Affairs:Veterans Home of California - West L.A.",
@@ -592,8 +554,7 @@
     "phone": "",
     "email": "",
     "open_balance": 0.0,
-    "source": "quickbooks",
-    "is_parent_org": false
+    "source": "quickbooks"
   },
   {
     "qb_name": "Dept of Veterans Affairs:Veterans Home of California - Yountville",
@@ -608,8 +569,7 @@
     "phone": "",
     "email": "",
     "open_balance": 0.0,
-    "source": "quickbooks",
-    "is_parent_org": false
+    "source": "quickbooks"
   },
   {
     "qb_name": "DEPT. OF STATE HOSPITALS - ATASCADERO",
@@ -624,8 +584,7 @@
     "phone": "",
     "email": "",
     "open_balance": 0.0,
-    "source": "quickbooks",
-    "is_parent_org": false
+    "source": "quickbooks"
   },
   {
     "qb_name": "Webstraunt Supply",
@@ -640,8 +599,7 @@
     "phone": "",
     "email": "",
     "open_balance": 0.0,
-    "source": "quickbooks",
-    "is_parent_org": false
+    "source": "quickbooks"
   },
   {
     "qb_name": "Dept of Corrections and Rehabilitation:Avenal State Prison",
@@ -660,9 +618,8 @@
     "bill_to_city": "Sacramento",
     "bill_to_state": "CA",
     "bill_to_zip": "95818",
-    "open_balance": 0.0,
-    "source": "cdcr.ca.gov",
-    "is_parent_org": false
+    "open_balance": 0,
+    "source": "cdcr.ca.gov"
   },
   {
     "qb_name": "Dept of Corrections and Rehabilitation:California Institution for Men",
@@ -681,9 +638,8 @@
     "bill_to_city": "Sacramento",
     "bill_to_state": "CA",
     "bill_to_zip": "95818",
-    "open_balance": 0.0,
-    "source": "cdcr.ca.gov",
-    "is_parent_org": false
+    "open_balance": 0,
+    "source": "cdcr.ca.gov"
   },
   {
     "qb_name": "Dept of Corrections and Rehabilitation:California Men's Colony",
@@ -702,9 +658,8 @@
     "bill_to_city": "Sacramento",
     "bill_to_state": "CA",
     "bill_to_zip": "95818",
-    "open_balance": 0.0,
-    "source": "cdcr.ca.gov",
-    "is_parent_org": false
+    "open_balance": 0,
+    "source": "cdcr.ca.gov"
   },
   {
     "qb_name": "Dept of Corrections and Rehabilitation:California State Prison, Corcoran",
@@ -723,9 +678,8 @@
     "bill_to_city": "Sacramento",
     "bill_to_state": "CA",
     "bill_to_zip": "95818",
-    "open_balance": 0.0,
-    "source": "cdcr.ca.gov",
-    "is_parent_org": false
+    "open_balance": 0,
+    "source": "cdcr.ca.gov"
   },
   {
     "qb_name": "Dept of Corrections and Rehabilitation:California State Prison, Los Angeles County",
@@ -744,9 +698,8 @@
     "bill_to_city": "Sacramento",
     "bill_to_state": "CA",
     "bill_to_zip": "95818",
-    "open_balance": 0.0,
-    "source": "cdcr.ca.gov",
-    "is_parent_org": false
+    "open_balance": 0,
+    "source": "cdcr.ca.gov"
   },
   {
     "qb_name": "Dept of Corrections and Rehabilitation:California State Prison, Sacramento",
@@ -765,9 +718,8 @@
     "bill_to_city": "Sacramento",
     "bill_to_state": "CA",
     "bill_to_zip": "95818",
-    "open_balance": 0.0,
-    "source": "cdcr.ca.gov",
-    "is_parent_org": false
+    "open_balance": 0,
+    "source": "cdcr.ca.gov"
   },
   {
     "qb_name": "Dept of Corrections and Rehabilitation:California State Prison, Solano",
@@ -786,9 +738,8 @@
     "bill_to_city": "Sacramento",
     "bill_to_state": "CA",
     "bill_to_zip": "95818",
-    "open_balance": 0.0,
-    "source": "cdcr.ca.gov",
-    "is_parent_org": false
+    "open_balance": 0,
+    "source": "cdcr.ca.gov"
   },
   {
     "qb_name": "Dept of Corrections and Rehabilitation:Centinela State Prison",
@@ -807,9 +758,8 @@
     "bill_to_city": "Sacramento",
     "bill_to_state": "CA",
     "bill_to_zip": "95818",
-    "open_balance": 0.0,
-    "source": "cdcr.ca.gov",
-    "is_parent_org": false
+    "open_balance": 0,
+    "source": "cdcr.ca.gov"
   },
   {
     "qb_name": "Dept of Corrections and Rehabilitation:Central California Women's Facility",
@@ -828,9 +778,8 @@
     "bill_to_city": "Sacramento",
     "bill_to_state": "CA",
     "bill_to_zip": "95818",
-    "open_balance": 0.0,
-    "source": "cdcr.ca.gov",
-    "is_parent_org": false
+    "open_balance": 0,
+    "source": "cdcr.ca.gov"
   },
   {
     "qb_name": "Dept of Corrections and Rehabilitation:Folsom State Prison",
@@ -849,9 +798,8 @@
     "bill_to_city": "Sacramento",
     "bill_to_state": "CA",
     "bill_to_zip": "95818",
-    "open_balance": 0.0,
-    "source": "cdcr.ca.gov",
-    "is_parent_org": false
+    "open_balance": 0,
+    "source": "cdcr.ca.gov"
   },
   {
     "qb_name": "Dept of Corrections and Rehabilitation:Ironwood State Prison",
@@ -870,9 +818,8 @@
     "bill_to_city": "Sacramento",
     "bill_to_state": "CA",
     "bill_to_zip": "95818",
-    "open_balance": 0.0,
-    "source": "cdcr.ca.gov",
-    "is_parent_org": false
+    "open_balance": 0,
+    "source": "cdcr.ca.gov"
   },
   {
     "qb_name": "Dept of Corrections and Rehabilitation:Pleasant Valley State Prison",
@@ -891,9 +838,8 @@
     "bill_to_city": "Sacramento",
     "bill_to_state": "CA",
     "bill_to_zip": "95818",
-    "open_balance": 0.0,
-    "source": "cdcr.ca.gov",
-    "is_parent_org": false
+    "open_balance": 0,
+    "source": "cdcr.ca.gov"
   },
   {
     "qb_name": "Dept of Corrections and Rehabilitation:R.J. Donovan Correctional Facility",
@@ -912,9 +858,8 @@
     "bill_to_city": "Sacramento",
     "bill_to_state": "CA",
     "bill_to_zip": "95818",
-    "open_balance": 0.0,
-    "source": "cdcr.ca.gov",
-    "is_parent_org": false
+    "open_balance": 0,
+    "source": "cdcr.ca.gov"
   },
   {
     "qb_name": "Dept of Corrections and Rehabilitation:Salinas Valley State Prison",
@@ -933,9 +878,8 @@
     "bill_to_city": "Sacramento",
     "bill_to_state": "CA",
     "bill_to_zip": "95818",
-    "open_balance": 0.0,
-    "source": "cdcr.ca.gov",
-    "is_parent_org": false
+    "open_balance": 0,
+    "source": "cdcr.ca.gov"
   },
   {
     "qb_name": "Dept of Corrections and Rehabilitation:San Quentin Rehabilitation Center",
@@ -954,9 +898,8 @@
     "bill_to_city": "Sacramento",
     "bill_to_state": "CA",
     "bill_to_zip": "95818",
-    "open_balance": 0.0,
-    "source": "cdcr.ca.gov",
-    "is_parent_org": false
+    "open_balance": 0,
+    "source": "cdcr.ca.gov"
   },
   {
     "qb_name": "Dept of Corrections and Rehabilitation:Substance Abuse Treatment Facility, Corcoran",
@@ -975,9 +918,8 @@
     "bill_to_city": "Sacramento",
     "bill_to_state": "CA",
     "bill_to_zip": "95818",
-    "open_balance": 0.0,
-    "source": "cdcr.ca.gov",
-    "is_parent_org": false
+    "open_balance": 0,
+    "source": "cdcr.ca.gov"
   },
   {
     "qb_name": "Dept of Corrections and Rehabilitation:Valley State Prison",
@@ -996,9 +938,8 @@
     "bill_to_city": "Sacramento",
     "bill_to_state": "CA",
     "bill_to_zip": "95818",
-    "open_balance": 0.0,
-    "source": "cdcr.ca.gov",
-    "is_parent_org": false
+    "open_balance": 0,
+    "source": "cdcr.ca.gov"
   },
   {
     "qb_name": "Dept of Corrections and Rehabilitation:Wasco State Prison",
@@ -1017,9 +958,8 @@
     "bill_to_city": "Sacramento",
     "bill_to_state": "CA",
     "bill_to_zip": "95818",
-    "open_balance": 0.0,
-    "source": "cdcr.ca.gov",
-    "is_parent_org": false
+    "open_balance": 0,
+    "source": "cdcr.ca.gov"
   },
   {
     "qb_name": "Dept of Veterans Affairs:Veterans Home of California - Ventura",
@@ -1037,9 +977,8 @@
     "bill_to_city": "Sacramento",
     "bill_to_state": "CA",
     "bill_to_zip": "95814",
-    "open_balance": 0.0,
-    "source": "calvet.ca.gov",
-    "is_parent_org": false
+    "open_balance": 0,
+    "source": "calvet.ca.gov"
   },
   {
     "qb_name": "Department of State Hospitals - Atascadero",
@@ -1053,9 +992,8 @@
     "zip": "93422",
     "phone": "",
     "email": "",
-    "open_balance": 0.0,
-    "source": "dsh.ca.gov",
-    "is_parent_org": false
+    "open_balance": 0,
+    "source": "dsh.ca.gov"
   },
   {
     "qb_name": "Department of State Hospitals - Coalinga",
@@ -1069,9 +1007,8 @@
     "zip": "93210",
     "phone": "",
     "email": "",
-    "open_balance": 0.0,
-    "source": "dsh.ca.gov",
-    "is_parent_org": false
+    "open_balance": 0,
+    "source": "dsh.ca.gov"
   },
   {
     "qb_name": "Department of State Hospitals - Metropolitan",
@@ -1085,9 +1022,8 @@
     "zip": "90650",
     "phone": "",
     "email": "",
-    "open_balance": 0.0,
-    "source": "dsh.ca.gov",
-    "is_parent_org": false
+    "open_balance": 0,
+    "source": "dsh.ca.gov"
   },
   {
     "qb_name": "Department of State Hospitals - Napa",
@@ -1101,9 +1037,8 @@
     "zip": "94558",
     "phone": "",
     "email": "",
-    "open_balance": 0.0,
-    "source": "dsh.ca.gov",
-    "is_parent_org": false
+    "open_balance": 0,
+    "source": "dsh.ca.gov"
   },
   {
     "qb_name": "Department of State Hospitals - Patton",
@@ -1117,8 +1052,7 @@
     "zip": "92346",
     "phone": "",
     "email": "",
-    "open_balance": 0.0,
-    "source": "dsh.ca.gov",
-    "is_parent_org": false
+    "open_balance": 0,
+    "source": "dsh.ca.gov"
   }
 ]
