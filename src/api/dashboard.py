@@ -2553,3 +2553,11 @@ try:
     log.info("Award monitor started (checks every 1h, SCPRS every 3 biz days)")
 except Exception as _e:
     log.warning("Award monitor failed to start: %s", _e)
+
+# ── Start Follow-Up Engine (auto-creates follow-up drafts) ──────────────
+try:
+    from src.agents.follow_up_engine import start_follow_up_scheduler
+    start_follow_up_scheduler()
+    log.info("Follow-up engine started (scans every 1h)")
+except Exception as _e:
+    log.warning("Award monitor failed to start: %s", _e)

@@ -3588,3 +3588,46 @@ if (scores.length > 0) {{
 
 
 # ════════════════════════════════════════════════════════════════════════════════
+
+# ════════════════════════════════════════════════════════════════════════════════
+# Follow-Up Automation Routes
+# ════════════════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/follow-ups/scan", methods=["POST"])
+@auth_required
+def api_follow_up_scan():
+    """Manually trigger a follow-up scan."""
+    try:
+        from src.agents.follow_up_engine import run_follow_up_scan
+        result = run_follow_up_scan()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/follow-ups/summary")
+@auth_required
+def api_follow_up_summary():
+    """Get follow-up summary for daily brief."""
+    try:
+        from src.agents.follow_up_engine import get_follow_up_summary
+        return jsonify(get_follow_up_summary())
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/follow-ups/status")
+@auth_required
+def api_follow_up_status():
+    """Get follow-up engine status."""
+    import json as _json
+    try:
+        state_path = os.path.join(DATA_DIR, "follow_up_state.json")
+        if os.path.exists(state_path):
+            with open(state_path) as f:
+                state = _json.load(f)
+        else:
+            state = {"status": "no_scans_yet"}
+        return jsonify({"ok": True, **state})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
