@@ -29,12 +29,17 @@ log = logging.getLogger("scprs_universal")
 
 try:
     from src.core.paths import DATA_DIR
-    from src.core.db import get_db
 except ImportError:
     DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(
         os.path.dirname(os.path.abspath(__file__)))), "data")
-    def get_db():
-        return sqlite3.connect(os.path.join(DATA_DIR, "reytech.db"))
+
+def get_db():
+    """Get a raw SQLite connection (not a context manager)."""
+    conn = sqlite3.connect(os.path.join(DATA_DIR, "reytech.db"), timeout=30, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+    return conn
 
 # ── ALL CA Agencies to Monitor ────────────────────────────────────────────────
 # dept_code: (friendly_name, priority, Reytech_active)
@@ -137,7 +142,8 @@ def _dept_name_to_agency(dept_name: str) -> Optional[str]:
 
 def _ensure_schema():
     conn = get_db()
-    conn.executescript("""
+    try:
+        conn.executescript("""
     CREATE TABLE IF NOT EXISTS scprs_po_master (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         pulled_at TEXT, po_number TEXT UNIQUE,
@@ -178,8 +184,9 @@ def _ensure_schema():
     CREATE INDEX IF NOT EXISTS idx_lines_desc ON scprs_po_lines(description);
     CREATE INDEX IF NOT EXISTS idx_lines_opp ON scprs_po_lines(opportunity_flag);
     """)
-    conn.commit()
-    conn.close()
+        conn.commit()
+    finally:
+        conn.close()
 
 # ── Quote Auto-Close Logic ────────────────────────────────────────────────────
 

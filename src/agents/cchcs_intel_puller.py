@@ -137,9 +137,66 @@ SEARCH_PLAN = [
 
 
 def _get_db():
-    conn = get_db()
-    conn.row_factory = sqlite3.Row
+    """Get a raw SQLite connection (caller must close or use in try/finally)."""
+    import sqlite3 as _sql3
+    db_path = os.path.join(DATA_DIR, "reytech.db")
+    conn = _sql3.connect(db_path, timeout=30, check_same_thread=False)
+    conn.row_factory = _sql3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
     return conn
+
+
+def _ensure_tables():
+    """Ensure SCPRS tables exist (idempotent)."""
+    conn = _get_db()
+    try:
+        conn.executescript("""
+        CREATE TABLE IF NOT EXISTS scprs_po_master (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pulled_at TEXT, po_number TEXT UNIQUE,
+            dept_code TEXT, dept_name TEXT, institution TEXT,
+            supplier TEXT, supplier_id TEXT, status TEXT,
+            start_date TEXT, end_date TEXT,
+            acq_type TEXT, acq_method TEXT,
+            merch_amount REAL, grand_total REAL,
+            buyer_name TEXT, buyer_email TEXT, buyer_phone TEXT,
+            search_term TEXT, agency_code TEXT
+        );
+        CREATE TABLE IF NOT EXISTS scprs_po_lines (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            po_id INTEGER REFERENCES scprs_po_master(id),
+            po_number TEXT, line_num INTEGER,
+            item_id TEXT, description TEXT, unspsc TEXT,
+            uom TEXT, quantity REAL, unit_price REAL,
+            line_total REAL, line_status TEXT,
+            category TEXT, reytech_sells INTEGER DEFAULT 0,
+            reytech_sku TEXT, opportunity_flag TEXT
+        );
+        CREATE TABLE IF NOT EXISTS cchcs_supplier_map (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            supplier_name TEXT, supplier_id TEXT,
+            total_po_value REAL DEFAULT 0, po_count INTEGER DEFAULT 0,
+            categories TEXT, agency_codes TEXT,
+            first_seen TEXT, last_seen TEXT,
+            is_competitor INTEGER DEFAULT 0,
+            reytech_can_compete INTEGER DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS scprs_pull_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pulled_at TEXT, search_term TEXT, dept_filter TEXT,
+            results_found INTEGER DEFAULT 0, lines_parsed INTEGER DEFAULT 0,
+            new_pos INTEGER DEFAULT 0, error TEXT, duration_sec REAL
+        );
+        """)
+        conn.commit()
+    finally:
+        conn.close()
+
+try:
+    _ensure_tables()
+except Exception:
+    pass
 
 
 def _classify_line(description: str) -> dict:

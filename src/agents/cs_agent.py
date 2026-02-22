@@ -118,7 +118,7 @@ UPDATE_PATTERNS_COMPILED = [re.compile(p, re.I) for p in UPDATE_REQUEST_PATTERNS
 
 def is_update_request(subject: str, body: str) -> bool:
     """Return True if this email is an inbound status/update request (not RFQ, not spam)."""
-    text = f"{subject} {body[:800]}"
+    text = f"{subject or ''} {(body or '')[:800]}"
     for pattern in UPDATE_PATTERNS_COMPILED:
         if pattern.search(text):
             return True
@@ -139,6 +139,9 @@ def classify_inbound_email(subject: str, body: str, sender: str = "") -> dict:
           sender_email: str,
         }
     """
+    subject = subject or ""
+    body = body or ""
+    sender = sender or ""
     text = f"{subject} {body[:1500]}"
 
     # Extract entities
