@@ -45,6 +45,31 @@ OPEN_FOLLOW_UP_DAYS = 3               # Draft follow-up if opened but no reply a
 _scheduler_running = False
 
 
+def _load_outbox_json() -> list:
+    """Load outbox — DB first, JSON fallback."""
+    try:
+        from src.core.dal import get_outbox
+        return get_outbox()
+    except Exception:
+        try:
+            with open(os.path.join(DATA_DIR, "email_outbox.json")) as f:
+                return json.load(f)
+        except Exception:
+            return []
+
+
+def _save_outbox_json(outbox: list):
+    """Save outbox to DB."""
+    try:
+        from src.core.dal import upsert_outbox_email
+        for email in outbox:
+            if email.get("id"):
+                upsert_outbox_email(email)
+    except Exception:
+        with open(os.path.join(DATA_DIR, "email_outbox.json"), "w") as f:
+            json.dump(outbox, f, indent=2, default=str)
+
+
 # ── Bulk Actions ──────────────────────────────────────────────────────────────
 
 def bulk_approve(email_ids: list = None) -> dict:
@@ -53,12 +78,7 @@ def bulk_approve(email_ids: list = None) -> dict:
     approved = 0
 
     # JSON file approach (current storage)
-    outbox_path = os.path.join(DATA_DIR, "email_outbox.json")
-    try:
-        with open(outbox_path) as f:
-            outbox = json.load(f)
-    except Exception:
-        outbox = []
+    outbox = _load_outbox_json()
 
     for email in outbox:
         if email.get("status") != "draft":
@@ -69,8 +89,7 @@ def bulk_approve(email_ids: list = None) -> dict:
         email["approved_at"] = now
         approved += 1
 
-    with open(outbox_path, "w") as f:
-        json.dump(outbox, f, indent=2, default=str)
+    _save_outbox_json(outbox)
 
     # Also update DB
     try:
@@ -96,12 +115,7 @@ def bulk_approve(email_ids: list = None) -> dict:
 def bulk_delete(email_ids: list = None, status_filter: str = "draft") -> dict:
     """Delete multiple emails from outbox."""
     deleted = 0
-    outbox_path = os.path.join(DATA_DIR, "email_outbox.json")
-    try:
-        with open(outbox_path) as f:
-            outbox = json.load(f)
-    except Exception:
-        outbox = []
+    outbox = _load_outbox_json()
 
     original_count = len(outbox)
     if email_ids:
@@ -110,8 +124,7 @@ def bulk_delete(email_ids: list = None, status_filter: str = "draft") -> dict:
         outbox = [e for e in outbox if e.get("status") != status_filter]
     deleted = original_count - len(outbox)
 
-    with open(outbox_path, "w") as f:
-        json.dump(outbox, f, indent=2, default=str)
+    _save_outbox_json(outbox)
 
     try:
         with get_db() as conn:
@@ -132,13 +145,7 @@ def bulk_delete(email_ids: list = None, status_filter: str = "draft") -> dict:
 def mark_failed(email_id: str, error: str) -> dict:
     """Mark an email as failed and schedule retry."""
     now = datetime.now(timezone.utc)
-    outbox_path = os.path.join(DATA_DIR, "email_outbox.json")
-
-    try:
-        with open(outbox_path) as f:
-            outbox = json.load(f)
-    except Exception:
-        return {"ok": False, "error": "cannot load outbox"}
+    outbox = _load_outbox_json()
 
     for email in outbox:
         if email.get("id") == email_id:
@@ -157,8 +164,7 @@ def mark_failed(email_id: str, error: str) -> dict:
                 log.info("Email %s retry %d scheduled in %ds", email_id, retry_count + 1, interval)
             break
 
-    with open(outbox_path, "w") as f:
-        json.dump(outbox, f, indent=2, default=str)
+    _save_outbox_json(outbox)
 
     return {"ok": True}
 
@@ -168,11 +174,8 @@ def retry_failed_emails() -> dict:
     now = datetime.now(timezone.utc).isoformat()
     retried = 0
 
-    outbox_path = os.path.join(DATA_DIR, "email_outbox.json")
-    try:
-        with open(outbox_path) as f:
-            outbox = json.load(f)
-    except Exception:
+    outbox = _load_outbox_json()
+    if not outbox and False:
         return {"ok": False, "error": "cannot load outbox"}
 
     for email in outbox:
@@ -218,11 +221,9 @@ def record_engagement(tracking_id: str, event_type: str,
     now = datetime.now(timezone.utc).isoformat()
 
     # Find email by tracking_id
-    outbox_path = os.path.join(DATA_DIR, "email_outbox.json")
     email_id = None
     try:
-        with open(outbox_path) as f:
-            outbox = json.load(f)
+        outbox = _load_outbox_json()
         for email in outbox:
             if email.get("tracking_id") == tracking_id:
                 email_id = email.get("id")
@@ -233,8 +234,7 @@ def record_engagement(tracking_id: str, event_type: str,
                     email["click_count"] = email.get("click_count", 0) + 1
                     email["last_clicked"] = now
                 break
-        with open(outbox_path, "w") as f:
-            json.dump(outbox, f, indent=2, default=str)
+        _save_outbox_json(outbox)
     except Exception:
         pass
 
@@ -254,12 +254,7 @@ def record_engagement(tracking_id: str, event_type: str,
 
 def get_engagement_stats() -> dict:
     """Get overall email engagement statistics."""
-    outbox_path = os.path.join(DATA_DIR, "email_outbox.json")
-    try:
-        with open(outbox_path) as f:
-            outbox = json.load(f)
-    except Exception:
-        outbox = []
+    outbox = _load_outbox_json()
 
     sent = [e for e in outbox if e.get("status") in ("sent", "delivered")]
     opened = [e for e in sent if e.get("open_count", 0) > 0]
@@ -278,12 +273,7 @@ def get_engagement_stats() -> dict:
 
 def get_outbox_summary() -> dict:
     """Dashboard summary card data."""
-    outbox_path = os.path.join(DATA_DIR, "email_outbox.json")
-    try:
-        with open(outbox_path) as f:
-            outbox = json.load(f)
-    except Exception:
-        outbox = []
+    outbox = _load_outbox_json()
 
     from collections import Counter
     statuses = Counter(e.get("status", "?") for e in outbox)

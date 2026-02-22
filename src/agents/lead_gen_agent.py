@@ -139,19 +139,29 @@ def _create_lead(po_data: dict, match_data: dict, score: float) -> dict:
 # ─── Lead Storage ────────────────────────────────────────────────────────────
 
 def _load_leads() -> list:
+    """Load leads from DB (single source of truth)."""
     try:
-        with open(LEADS_FILE) as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return []
+        from src.core.dal import get_all_leads
+        return get_all_leads()
+    except Exception:
+        try:
+            with open(LEADS_FILE) as f:
+                return json.load(f)
+        except Exception:
+            return []
 
 
 def _save_leads(leads: list):
-    os.makedirs(DATA_DIR, exist_ok=True)
-    if len(leads) > MAX_LEADS:
-        leads = sorted(leads, key=lambda x: x.get("score", 0), reverse=True)[:MAX_LEADS]
-    with open(LEADS_FILE, "w") as f:
-        json.dump(leads, f, indent=2)
+    """Save leads to DB (single source of truth)."""
+    try:
+        from src.core.dal import save_all_leads
+        save_all_leads(leads)
+    except Exception:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        if len(leads) > MAX_LEADS:
+            leads = sorted(leads, key=lambda x: x.get("score", 0), reverse=True)[:MAX_LEADS]
+        with open(LEADS_FILE, "w") as f:
+            json.dump(leads, f, indent=2)
 
 
 def _log_history(lead: dict, action: str):

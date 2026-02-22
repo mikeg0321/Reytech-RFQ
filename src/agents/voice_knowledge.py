@@ -331,7 +331,11 @@ def _get_buyer_context(name: str, email: str, institution: str) -> str:
             log.debug("CRM contact context: %s", e)
 
     # customers.json fallback
-    customers = _load("customers.json")
+    try:
+        from src.core.dal import get_all_customers
+        customers = get_all_customers()
+    except Exception:
+        customers = _load("customers.json")
     name_l = (name or "").lower()
     email_l = (email or "").lower()
     matches = []
@@ -353,7 +357,11 @@ def _get_buyer_context(name: str, email: str, institution: str) -> str:
 
 def _get_lead_context(po_number: str) -> str:
     """Get SCPRS lead intel for a PO number."""
-    leads = _load("leads.json")
+    try:
+        from src.core.dal import get_all_leads
+        leads = get_all_leads()
+    except Exception:
+        leads = _load("leads.json")
     if not leads:
         return ""
     lead = None

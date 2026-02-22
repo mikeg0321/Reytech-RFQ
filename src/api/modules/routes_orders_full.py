@@ -1573,15 +1573,8 @@ SB/DVBE Cert #2002605"""
     }
 
     try:
-        outbox_path = os.path.join(DATA_DIR, "email_outbox.json")
-        try:
-            with open(outbox_path) as f:
-                outbox = json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
-            outbox = []
-        outbox.append(draft)
-        with open(outbox_path, "w") as f:
-            json.dump(outbox, f, indent=2, default=str)
+        from src.core.dal import upsert_outbox_email
+        upsert_outbox_email(draft)
     except Exception as e:
         log.error("Failed to save PO confirmation draft: %s", e)
         flash(f"Error saving draft: {e}", "error")

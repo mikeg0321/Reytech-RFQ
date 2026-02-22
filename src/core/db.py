@@ -433,6 +433,114 @@ CREATE TABLE IF NOT EXISTS vendor_scores (
     notes           TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_vscore_name ON vendor_scores(vendor_name);
+
+-- ═══ JSON→DB Migration: leads, customers, vendors ═══
+
+CREATE TABLE IF NOT EXISTS leads (
+    id              TEXT PRIMARY KEY,
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT,
+    status          TEXT DEFAULT 'new',
+    agency          TEXT,
+    institution     TEXT,
+    buyer_name      TEXT,
+    buyer_email     TEXT,
+    buyer_phone     TEXT,
+    category        TEXT,
+    score           REAL DEFAULT 0,
+    score_breakdown TEXT,
+    score_history   TEXT,
+    score_updated_at TEXT,
+    po_number       TEXT,
+    po_value        REAL DEFAULT 0,
+    po_date         TEXT,
+    due_date        TEXT,
+    items_count     INTEGER DEFAULT 0,
+    match_type      TEXT,
+    matched_items   TEXT,
+    our_historical_price REAL DEFAULT 0,
+    scprs_listed_price REAL DEFAULT 0,
+    estimated_savings_pct REAL DEFAULT 0,
+    outreach_draft  TEXT,
+    outreach_sent_at TEXT,
+    response_received_at TEXT,
+    notes           TEXT,
+    source          TEXT DEFAULT 'scprs',
+    nurture_active  INTEGER DEFAULT 0,
+    nurture_sequence TEXT,
+    nurture_steps   TEXT,
+    nurture_started_at TEXT,
+    nurture_paused_at TEXT,
+    nurture_pause_reason TEXT,
+    converted_at    TEXT,
+    converted_contact_id TEXT,
+    extra_json      TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_leads_status ON leads(status);
+CREATE INDEX IF NOT EXISTS idx_leads_agency ON leads(agency);
+CREATE INDEX IF NOT EXISTS idx_leads_email ON leads(buyer_email);
+CREATE INDEX IF NOT EXISTS idx_leads_score ON leads(score);
+
+CREATE TABLE IF NOT EXISTS customers (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    qb_name         TEXT,
+    display_name    TEXT,
+    company         TEXT,
+    parent          TEXT,
+    agency          TEXT,
+    address         TEXT,
+    city            TEXT,
+    state           TEXT,
+    zip             TEXT,
+    phone           TEXT,
+    email           TEXT,
+    open_balance    REAL DEFAULT 0,
+    source          TEXT DEFAULT 'quickbooks',
+    is_parent_org   INTEGER DEFAULT 0,
+    bill_to         TEXT,
+    bill_to_city    TEXT,
+    bill_to_state   TEXT,
+    bill_to_zip     TEXT,
+    abbreviation    TEXT,
+    child_count     INTEGER DEFAULT 0,
+    created_at      TEXT,
+    updated_at      TEXT,
+    extra_json      TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_cust_name ON customers(display_name);
+CREATE INDEX IF NOT EXISTS idx_cust_agency ON customers(agency);
+CREATE INDEX IF NOT EXISTS idx_cust_email ON customers(email);
+CREATE INDEX IF NOT EXISTS idx_cust_qb ON customers(qb_name);
+
+CREATE TABLE IF NOT EXISTS vendors (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    name            TEXT NOT NULL,
+    company         TEXT,
+    address         TEXT,
+    city            TEXT,
+    state           TEXT,
+    zip             TEXT,
+    phone           TEXT,
+    email           TEXT,
+    website         TEXT,
+    source          TEXT DEFAULT 'quickbooks',
+    open_balance    REAL DEFAULT 0,
+    price_score     REAL DEFAULT 0,
+    reliability_score REAL DEFAULT 0,
+    speed_score     REAL DEFAULT 0,
+    breadth_score   REAL DEFAULT 0,
+    overall_score   REAL DEFAULT 0,
+    scored_at       TEXT,
+    categories_served TEXT,
+    gsa_contract    TEXT,
+    notes           TEXT,
+    created_at      TEXT,
+    updated_at      TEXT,
+    extra_json      TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_vendor_name ON vendors(name);
+CREATE INDEX IF NOT EXISTS idx_vendor_email ON vendors(email);
+CREATE INDEX IF NOT EXISTS idx_vendor_score ON vendors(overall_score);
 """
 
 def init_db():
@@ -441,6 +549,12 @@ def init_db():
         conn.executescript(SCHEMA)
     # Migrate existing tables that may be missing new columns
     _migrate_columns()
+    # Migrate JSON files → DB (leads, customers, vendors, outbox)
+    try:
+        from src.core.dal import migrate_json_to_db
+        migrate_json_to_db()
+    except Exception as e:
+        log.warning("DAL migration deferred: %s", e)
     log.info("DB initialized at %s", DB_PATH)
     return True
 

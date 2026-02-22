@@ -114,7 +114,11 @@ def _get_pending_approvals() -> list:
         })
 
     # 3. New leads needing outreach
-    leads = _load_json("leads.json", [])
+    try:
+        from src.core.dal import get_all_leads
+        leads = get_all_leads()
+    except Exception:
+        leads = _load_json("leads.json", [])
     new_leads = [l for l in leads if l.get("status") == "new"]
     if new_leads:
         top = sorted(new_leads, key=lambda x: x.get("score", 0), reverse=True)[:3]
@@ -463,8 +467,16 @@ def _get_pipeline_summary() -> dict:
     user_pcs = {k: v for k, v in (pcs.items() if isinstance(pcs, dict) else {}.items()) if _pc_filter(v)}
     quotes = _load_json("quotes_log.json", [])
     live_quotes = [q for q in quotes if not q.get("is_test")]
-    leads = _load_json("leads.json", [])
-    outbox = get_outbox() if _HAS_DB_DAL else _load_json("email_outbox.json", [])
+    try:
+        from src.core.dal import get_all_leads
+        leads = get_all_leads()
+    except Exception:
+        leads = _load_json("leads.json", [])
+    try:
+        from src.core.dal import get_outbox as dal_outbox
+        outbox = dal_outbox()
+    except Exception:
+        outbox = get_outbox() if _HAS_DB_DAL else _load_json("email_outbox.json", [])
     orders = _load_json("orders.json", {})
     live_orders = {k: v for k, v in (orders.items() if isinstance(orders, dict) else [])}
 
@@ -835,7 +847,11 @@ def get_intelligent_recommendations() -> dict:
     # ── SIGNAL 1: Outstanding AR (money owed to us NOW) ─────────────────────
     try:
         import json, os
-        customers = json.load(open(os.path.join(DATA_DIR, "customers.json")))
+        try:
+            from src.core.dal import get_all_customers
+            customers = get_all_customers()
+        except Exception:
+            customers = json.load(open(os.path.join(DATA_DIR, "customers.json")))
         ar_by_agency = {}
         for c in customers:
             bal = float(c.get("open_balance", 0) or 0)
@@ -960,7 +976,11 @@ def get_intelligent_recommendations() -> dict:
     # ── SIGNAL 5: Inactive CCHCS facilities (32 with $0 balance) ─────────────
     try:
         import json, os
-        customers = json.load(open(os.path.join(DATA_DIR, "customers.json")))
+        try:
+            from src.core.dal import get_all_customers
+            customers = get_all_customers()
+        except Exception:
+            customers = json.load(open(os.path.join(DATA_DIR, "customers.json")))
         inactive_cchcs = [c for c in customers
                           if c.get("agency") in ("CCHCS","CDCR")
                           and float(c.get("open_balance",0) or 0) == 0]

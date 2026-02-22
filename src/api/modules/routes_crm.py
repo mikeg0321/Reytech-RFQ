@@ -24,8 +24,20 @@ except ImportError:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def _load_customers():
-    """Load customers CRM database. Auto-seeds from bundled file if missing."""
+    """Load customers — DB is source of truth, JSON fallback for tests/migration."""
+    # If local JSON exists (test env or pre-migration), use it for consistency
     path = os.path.join(DATA_DIR, "customers.json")
+    try:
+        from src.core.dal import get_all_customers
+        from src.core.paths import DATA_DIR as _dal_dir
+        # Only use DAL if DATA_DIR matches (avoids test env mismatch)
+        if DATA_DIR == _dal_dir:
+            result = get_all_customers()
+            if result:
+                return result
+    except Exception:
+        pass
+    # Fallback to JSON
     try:
         with open(path) as f:
             data = json.load(f)
@@ -33,24 +45,19 @@ def _load_customers():
                 return data
     except (FileNotFoundError, json.JSONDecodeError):
         pass
-    # Auto-seed: Railway volume may not have customers.json yet
-    # Check for seed file in repo root (not overridden by volume mount)
-    seed_path = os.path.join(BASE_DIR, "customers_seed.json")
-    if os.path.exists(seed_path):
-        try:
-            with open(seed_path) as f:
-                data = json.load(f)
-            if data:
-                log.info(f"Auto-seeding {len(data)} customers from seed file")
-                os.makedirs(DATA_DIR, exist_ok=True)
-                with open(path, "w") as f:
-                    json.dump(data, f, indent=2)
-                return data
-        except Exception as e:
-            log.warning(f"Failed to seed customers: {e}")
     return []
 
 def _save_customers(customers):
+    """Save customers — DB is source of truth, JSON fallback for tests."""
+    try:
+        from src.core.dal import save_all_customers
+        from src.core.paths import DATA_DIR as _dal_dir
+        if DATA_DIR == _dal_dir:
+            save_all_customers(customers)
+            return
+    except Exception:
+        pass
+    # Fallback to JSON
     os.makedirs(DATA_DIR, exist_ok=True)
     path = os.path.join(DATA_DIR, "customers.json")
     with open(path, "w") as f:
@@ -72,9 +79,9 @@ def api_customers():
             continue
         if q:
             searchable = " ".join([
-                c.get("display_name", ""), c.get("company", ""),
-                c.get("qb_name", ""), c.get("agency", ""),
-                c.get("city", ""), c.get("abbreviation", ""),
+                c.get("display_name") or "", c.get("company") or "",
+                c.get("qb_name") or "", c.get("agency") or "",
+                c.get("city") or "", c.get("abbreviation") or "",
             ]).lower()
             if q not in searchable:
                 continue
@@ -1911,9 +1918,8 @@ def api_approve_cs_draft():
     if not draft_id:
         return jsonify({"ok": False, "error": "draft_id required"})
     try:
-        outbox_path = os.path.join(DATA_DIR, "email_outbox.json")
-        with open(outbox_path) as f:
-            outbox = json.load(f)
+        from src.core.dal import get_outbox as _dal_ob
+        outbox = _dal_ob()
         
         draft = next((e for e in outbox if e.get("id") == draft_id), None)
         if not draft:
@@ -1963,12 +1969,8 @@ def api_delete_cs_draft():
     data = request.get_json(silent=True) or {}
     draft_id = data.get("draft_id","")
     try:
-        outbox_path = os.path.join(DATA_DIR, "email_outbox.json")
-        with open(outbox_path) as f:
-            outbox = json.load(f)
-        outbox = [e for e in outbox if e.get("id") != draft_id]
-        with open(outbox_path, "w") as f:
-            json.dump(outbox, f, indent=2, default=str)
+        from src.core.dal import delete_outbox_email
+        delete_outbox_email(draft_id)
         return jsonify({"ok": True})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
@@ -2227,8 +2229,8 @@ CA SB #2002605 | CA DVBE #2002605
 sales@reytechinc.com"""
 
     # Save to outbox
-    outbox_path = os.path.join(DATA_DIR, "email_outbox.json")
-    outbox = _json.load(open(outbox_path)) if os.path.exists(outbox_path) else []
+    from src.core.dal import get_outbox as _dal_ob2, upsert_outbox_email as _dal_upsert
+    outbox = _dal_ob2()
     from datetime import datetime as _dt
     draft_id = f"outreach-{buyer_email.split('@')[0]}-{int(_dt.now().timestamp())}"
     draft = {
@@ -2246,8 +2248,9 @@ sales@reytechinc.com"""
         "notes": f"Market intel outreach — {agency} | ${spend:,.0f} spend signal"
     }
     outbox.append(draft)
-    with open(outbox_path, "w") as f:
-        _json.dump(outbox, f, indent=2)
+    from src.core.dal import upsert_outbox_email as _upsert_ob
+    for _e in outbox:
+        if _e.get("id"): _upsert_ob(_e)
 
     # Log activity + bell notification
     try:
@@ -2281,7 +2284,7 @@ sales@reytechinc.com"""
 def api_cchcs_facilities():
     """List all CCHCS/CalVet/DSH facilities with activity status."""
     import json as _json
-    customers = _json.load(open(os.path.join(DATA_DIR, "customers.json")))
+    customers = _load_customers()
     facilities = []
     for c in customers:
         name = c.get("qb_name","") or c.get("display_name","")
@@ -2415,10 +2418,8 @@ Email: mike@reytechinc.com
 SCPRS Supplier — CA Certified Small Business"""
 
             # Save to outbox as draft
-            outbox_path = os.path.join(DATA_DIR, "email_outbox.json")
-            outbox = _json.load(open(outbox_path)) if os.path.exists(outbox_path) else []
-            if not isinstance(outbox, list):
-                outbox = list(outbox.values()) if isinstance(outbox, dict) else []
+            from src.core.dal import get_outbox as _dal_ob3
+            outbox = _dal_ob3()
             draft_id = f"draft-expand-{int(__import__('time').time())}"
             outbox.append({
                 "id": draft_id,
@@ -2485,7 +2486,7 @@ def _estimate_annual_opportunity(agency_type):
 def page_cchcs_expansion():
     """CCHCS/CalVet/DSH facility expansion dashboard — growth intelligence."""
     import json as _json
-    customers = _json.load(open(os.path.join(DATA_DIR, "customers.json")))
+    customers = _load_customers()
     pcs = _json.load(open(os.path.join(DATA_DIR, "price_checks.json"))) if os.path.exists(os.path.join(DATA_DIR, "price_checks.json")) else {}
 
     # ── Build facility list with smart name parsing ──
@@ -3717,11 +3718,9 @@ def _build_text_brief():
         pass
 
     try:
-        outbox_path = os.path.join(DATA_DIR, "email_outbox.json")
-        if os.path.exists(outbox_path):
-            import json as _j2
-            with open(outbox_path) as _f2:
-                ob = _j2.load(_f2)
+        from src.core.dal import get_outbox as _dal_ob4
+        ob = _dal_ob4()
+        if ob:
             if isinstance(ob, list):
                 drafts = [e for e in ob if e.get("status") in ("draft", "follow_up_draft", "cs_draft")]
                 if drafts:
@@ -3797,10 +3796,8 @@ def daily_brief_page():
         aging = []
 
     try:
-        outbox_path = os.path.join(DATA_DIR, "email_outbox.json")
-        import json as _j3
-        with open(outbox_path) as _f3:
-            ob2 = _j3.load(_f3)
+        from src.core.dal import get_outbox as _dal_ob5
+        ob2 = _dal_ob5()
         drafts = [e for e in (ob2 if isinstance(ob2, list) else []) if e.get("status") in ("draft", "follow_up_draft", "cs_draft")]
     except Exception:
         drafts = []

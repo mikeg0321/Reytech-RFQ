@@ -87,16 +87,26 @@ NURTURE_SEQUENCES = {
 # ── Lead Loading ──────────────────────────────────────────────────────────────
 
 def _load_leads() -> list:
+    """Load leads from DB (single source of truth)."""
     try:
-        with open(os.path.join(DATA_DIR, "leads.json")) as f:
-            return json.load(f)
+        from src.core.dal import get_all_leads
+        return get_all_leads()
     except Exception:
-        return []
+        try:
+            with open(os.path.join(DATA_DIR, "leads.json")) as f:
+                return json.load(f)
+        except Exception:
+            return []
 
 
 def _save_leads(leads: list):
-    with open(os.path.join(DATA_DIR, "leads.json"), "w") as f:
-        json.dump(leads, f, indent=2, default=str)
+    """Save leads to DB (single source of truth)."""
+    try:
+        from src.core.dal import save_all_leads
+        save_all_leads(leads)
+    except Exception:
+        with open(os.path.join(DATA_DIR, "leads.json"), "w") as f:
+            json.dump(leads, f, indent=2, default=str)
 
 
 # ── Nurture Sequences ─────────────────────────────────────────────────────────
@@ -164,10 +174,9 @@ def process_nurture_queue() -> dict:
     drafts_created = 0
     paused = 0
 
-    outbox_path = os.path.join(DATA_DIR, "email_outbox.json")
     try:
-        with open(outbox_path) as f:
-            outbox = json.load(f)
+        from src.core.dal import get_outbox as _dal_ob
+        outbox = _dal_ob()
     except Exception:
         outbox = []
 
@@ -223,8 +232,12 @@ def process_nurture_queue() -> dict:
                 step["skip_reason"] = "no email address"
 
     _save_leads(leads)
-    with open(outbox_path, "w") as f:
-        json.dump(outbox, f, indent=2, default=str)
+    try:
+        from src.core.dal import upsert_outbox_email as _upsert
+        for e in outbox:
+            if e.get("id"): _upsert(e)
+    except Exception:
+        pass
 
     if drafts_created:
         log.info("Nurture: created %d email drafts", drafts_created)

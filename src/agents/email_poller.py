@@ -2136,16 +2136,8 @@ sales@reytechinc.com"""
     }
     
     try:
-        from src.core.paths import DATA_DIR
-        outbox_path = os.path.join(DATA_DIR, "email_outbox.json")
-        try:
-            with open(outbox_path) as f:
-                outbox = json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
-            outbox = []
-        outbox.append(draft)
-        with open(outbox_path, "w") as f:
-            json.dump(outbox, f, indent=2, default=str)
+        from src.core.dal import upsert_outbox_email
+        upsert_outbox_email(draft)
         
         log.info("📝 PO confirmation DRAFT saved: to=%s cc=%s po=%s — review in /agents outbox",
                  primary_to, cc_addrs[:3], po_number)
@@ -2252,16 +2244,8 @@ We will begin processing these orders immediately. Should you have any further q
     }
     
     try:
-        from src.core.paths import DATA_DIR
-        outbox_path = os.path.join(DATA_DIR, "email_outbox.json")
-        try:
-            with open(outbox_path) as f:
-                outbox = json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
-            outbox = []
-        outbox.append(draft)
-        with open(outbox_path, "w") as f:
-            json.dump(outbox, f, indent=2, default=str)
+        from src.core.dal import upsert_outbox_email
+        upsert_outbox_email(draft)
         
         log.info("📝 BATCH PO confirmation DRAFT saved: %d POs to=%s — %s",
                  len(items), primary_to, all_pos)

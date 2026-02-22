@@ -2227,9 +2227,8 @@ def pipeline_page():
     crm = _load_crm_activity()
     leads = []
     try:
-        import json as _json
-        with open(os.path.join(DATA_DIR, "leads.json")) as f:
-            leads = _json.load(f)
+        from src.core.dal import get_all_leads
+        leads = get_all_leads()
     except Exception:
         pass
 
@@ -4116,12 +4115,12 @@ def api_funnel_stats():
 
     # ── Leads ──
     try:
-        with open(os.path.join(DATA_DIR, "leads.json")) as f:
-            leads = json.load(f)
-        leads_count = len(leads) if isinstance(leads, list) else 0
-        hot_leads = sum(1 for l in (leads if isinstance(leads, list) else [])
+        from src.core.dal import get_all_leads
+        leads = get_all_leads()
+        leads_count = len(leads)
+        hot_leads = sum(1 for l in leads
                         if isinstance(l, dict) and l.get("score", 0) >= 0.7)
-    except (FileNotFoundError, json.JSONDecodeError):
+    except Exception:
         leads_count = 0
         hot_leads = 0
 
@@ -6291,9 +6290,12 @@ def api_data_sync_clean():
     # 3. Clean leads — remove test leads + batch-generated
     try:
         lpath = os.path.join(DATA_DIR, "leads.json")
-        if os.path.exists(lpath):
-            with open(lpath) as f:
-                leads = json.load(f)
+        try:
+            from src.core.dal import get_all_leads
+            leads = get_all_leads()
+        except Exception:
+            leads = []
+        if leads:
             clean_leads = [l for l in leads
                            if not l.get("is_test")
                            and l.get("match_type") != "test"

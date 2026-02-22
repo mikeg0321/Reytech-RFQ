@@ -72,19 +72,31 @@ MAX_SENT_LOG = 5000
 # ─── Outbox (draft queue) ───────────────────────────────────────────────────
 
 def _load_outbox() -> list:
+    """Load outbox from DB (single source of truth)."""
     try:
-        with open(OUTBOX_FILE) as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return []
+        from src.core.dal import get_outbox as dal_get_outbox
+        return dal_get_outbox()
+    except Exception:
+        try:
+            with open(OUTBOX_FILE) as f:
+                return json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            return []
 
 
 def _save_outbox(outbox: list):
-    os.makedirs(DATA_DIR, exist_ok=True)
-    if len(outbox) > MAX_OUTBOX:
-        outbox = outbox[-MAX_OUTBOX:]
-    with open(OUTBOX_FILE, "w") as f:
-        json.dump(outbox, f, indent=2)
+    """Save outbox to DB (single source of truth)."""
+    try:
+        from src.core.dal import upsert_outbox_email
+        for email in outbox:
+            if email.get("id"):
+                upsert_outbox_email(email)
+    except Exception:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        if len(outbox) > MAX_OUTBOX:
+            outbox = outbox[-MAX_OUTBOX:]
+        with open(OUTBOX_FILE, "w") as f:
+            json.dump(outbox, f, indent=2)
 
 
 def _log_sent(entry: dict):

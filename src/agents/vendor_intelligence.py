@@ -38,16 +38,26 @@ except ImportError:
 # ── Vendor Loading ────────────────────────────────────────────────────────────
 
 def _load_vendors() -> list:
+    """Load vendors from DB (single source of truth)."""
     try:
-        with open(os.path.join(DATA_DIR, "vendors.json")) as f:
-            return json.load(f)
+        from src.core.dal import get_all_vendors
+        return get_all_vendors()
     except Exception:
-        return []
+        try:
+            with open(os.path.join(DATA_DIR, "vendors.json")) as f:
+                return json.load(f)
+        except Exception:
+            return []
 
 
 def _save_vendors(vendors: list):
-    with open(os.path.join(DATA_DIR, "vendors.json"), "w") as f:
-        json.dump(vendors, f, indent=2, default=str)
+    """Save vendors to DB (single source of truth)."""
+    try:
+        from src.core.dal import save_all_vendors
+        save_all_vendors(vendors)
+    except Exception:
+        with open(os.path.join(DATA_DIR, "vendors.json"), "w") as f:
+            json.dump(vendors, f, indent=2, default=str)
 
 
 # ── Vendor Scoring ────────────────────────────────────────────────────────────

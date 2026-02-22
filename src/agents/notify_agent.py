@@ -521,9 +521,13 @@ def start_stale_watcher():
         while True:
             time.sleep(3600)  # check every hour
             try:
-                outbox_path = os.path.join(DATA_DIR, "email_outbox.json")
-                with open(outbox_path) as f:
-                    outbox = json.load(f)
+                outbox_path = os.path.join(DATA_DIR, "email_outbox.json")  # fallback
+                try:
+                    from src.core.dal import get_outbox
+                    outbox = get_outbox()
+                except Exception:
+                    with open(outbox_path) as f:
+                        outbox = json.load(f)
                 
                 cutoff = (datetime.now() - timedelta(hours=4)).isoformat()
                 stale = [

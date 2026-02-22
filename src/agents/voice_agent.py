@@ -601,7 +601,11 @@ def _place_vapi_call(phone_number: str, script_key: str, variables: dict) -> dic
     if not top_items and variables.get("po_number"):
         try:
             from src.agents.voice_knowledge import _load
-            leads = _load("leads.json")
+            try:
+                from src.core.dal import get_all_leads
+                leads = get_all_leads()
+            except Exception:
+                leads = _load("leads.json")
             if leads:
                 po = variables["po_number"].lower()
                 for l in (leads if isinstance(leads, list) else leads.values()):
