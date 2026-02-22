@@ -150,7 +150,8 @@ def pricecheck_detail(pcid):
         del_sel=del_sel, next_quote_preview=next_quote_preview,
         today_date=today_date, profit_summary_json=profit_summary_json
     )
-    return html
+    # Sanitize any surrogate chars that could cause UnicodeEncodeError
+    return html.encode("utf-8", "replace").decode("utf-8")
 
 
 @bp.route("/pricecheck/<pcid>/lookup")

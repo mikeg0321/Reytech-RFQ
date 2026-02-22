@@ -6,6 +6,8 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+langgraph = pytest.importorskip("langgraph", reason="langgraph not installed")
+
 
 class TestGraphBuilds:
     """Verify all workflow graphs compile without error."""

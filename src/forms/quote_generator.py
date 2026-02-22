@@ -268,7 +268,7 @@ def search_quotes(query: str = "", agency: str = "", status: str = "",
                 qt.get("status_notes", ""),
                 qt.get("items_text", ""),
                 qt.get("ship_to_name", ""),
-                qt.get("ship_to_address", ""),
+                " ".join(qt.get("ship_to_address", [])) if isinstance(qt.get("ship_to_address"), list) else str(qt.get("ship_to_address", "")),
                 qt.get("requestor", ""),           # ← was missing
                 qt.get("contact_name", ""),         # ← was missing
                 qt.get("requestor_name", ""),       # ← was missing

@@ -130,6 +130,14 @@ def app(temp_data_dir, monkeypatch):
     from app import create_app
     _app = create_app()
     _app.config["TESTING"] = True
+
+    # Clear rate limiter between tests — module-level dict accumulates across tests
+    try:
+        from src.api import dashboard
+        dashboard._rate_limiter.clear()
+    except (ImportError, AttributeError):
+        pass
+
     return _app
 
 
@@ -285,3 +293,14 @@ def sample_stryker_quote():
              "unit_price": 69.12},
         ],
     }
+
+
+# ── Disable rate limiting in tests ────────────────────────────────────────────
+@pytest.fixture(autouse=True)
+def disable_rate_limit(monkeypatch):
+    """Prevent 429 responses during rapid test execution."""
+    try:
+        import src.api.dashboard as dash
+        monkeypatch.setattr(dash, "_check_rate_limit", lambda *a, **kw: True)
+    except Exception:
+        pass

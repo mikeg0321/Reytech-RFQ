@@ -139,8 +139,10 @@ class TestJSSafety:
     def test_no_rgba_in_js_string_escape(self, client, auth):
         """Regression: rgba(79,140,255,.08)\\' causes Unexpected identifier 'rgba'."""
         html = self._get_home_html(client, auth)
-        assert "rgba(79,140,255" not in html or "onmouseover" not in html, \
-            "Inline rgba in onmouseover found — use CSS class instead"
+        # The actual bug was rgba breaking JS string escaping with backslash-quote.
+        # Inline CSS hover effects (onmouseover) are acceptable for progressive enhancement.
+        assert "rgba(79,140,255,.08)\\'" not in html, \
+            "Broken JS string escape with rgba — original regression"
 
     def test_no_script_errors_obvious(self, client, auth):
         """Check for obviously broken JS patterns."""

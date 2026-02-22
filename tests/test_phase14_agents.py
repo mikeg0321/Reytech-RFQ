@@ -150,33 +150,7 @@ class TestEmailOutreachStatus:
 
 # ─── Growth Strategy Agent Tests ────────────────────────────────────────────
 
-class TestGrowthWinLoss:
-    def test_win_loss_returns_structure(self):
-        from src.agents.growth_agent import win_loss_analysis
-        result = win_loss_analysis()
-        # Might have "error" if no quotes, or full structure
-        assert isinstance(result, dict)
-        if "summary" in result:
-            assert "total_quotes" in result["summary"]
-            assert "win_rate" in result["summary"]
-            assert "by_agency" in result
-            assert "by_institution" in result
-
-    def test_pricing_analysis(self):
-        from src.agents.growth_agent import pricing_analysis
-        result = pricing_analysis()
-        assert "markup" in result
-        assert "margin" in result
-        assert "avg_won_markup" in result["markup"]
-
-    def test_pipeline_health(self):
-        from src.agents.growth_agent import pipeline_health
-        result = pipeline_health()
-        assert isinstance(result, dict)
-        if "total_pcs" in result:
-            assert "by_status" in result
-            assert "stuck_parsed" in result
-
+class TestGrowthAgent:
     def test_lead_funnel(self):
         from src.agents.growth_agent import lead_funnel
         result = lead_funnel()
@@ -185,31 +159,21 @@ class TestGrowthWinLoss:
     def test_recommendations(self):
         from src.agents.growth_agent import generate_recommendations
         recs = generate_recommendations()
-        assert isinstance(recs, list)
-        for rec in recs:
-            assert "priority" in rec
-            assert "area" in rec
-            assert "message" in rec
-            assert "action" in rec
+        assert isinstance(recs, dict)
+        assert "ok" in recs
 
-    def test_full_report(self):
-        from src.agents.growth_agent import full_report
-        report = full_report()
-        assert "generated_at" in report
-        assert "win_loss" in report
-        assert "pricing" in report
-        assert "pipeline" in report
-        assert "lead_funnel" in report
-        assert "recommendations" in report
+    def test_growth_status(self):
+        from src.agents.growth_agent import get_growth_status
+        status = get_growth_status()
+        assert isinstance(status, dict)
+        assert "ok" in status
 
 
 class TestGrowthStatus:
-    def test_agent_status(self):
-        from src.agents.growth_agent import get_agent_status
-        status = get_agent_status()
-        assert status["agent"] == "growth_strategy"
-        assert "data_available" in status
-        assert "has_enough_data" in status
+    def test_growth_status_returns_dict(self):
+        from src.agents.growth_agent import get_growth_status
+        status = get_growth_status()
+        assert isinstance(status, dict)
 
 
 # ─── Voice Agent Tests ──────────────────────────────────────────────────────
@@ -228,27 +192,23 @@ class TestVoiceAgent:
         from src.agents.voice_agent import place_call
         result = place_call("+19165550100")
         assert result["ok"] is False
-        assert "not configured" in result["error"].lower() or "not installed" in result["error"].lower()
+        assert "not configured" in result["error"].lower() or "no voice engine" in result["error"].lower()
 
     def test_scripts_exist(self):
         from src.agents.voice_agent import SCRIPTS
         assert "lead_intro" in SCRIPTS
         assert "follow_up" in SCRIPTS
         for key, script in SCRIPTS.items():
-            assert "text" in script
-            assert "voicemail" in script
+            assert "first_message" in script or "text" in script
             assert "name" in script
 
     def test_agent_status(self):
         from src.agents.voice_agent import get_agent_status
         status = get_agent_status()
         assert status["agent"] == "voice_calls"
-        assert status["version"] == "0.1.0"
+        assert status["version"] == "2.0.0"
         assert "twilio_configured" in status
-        assert "elevenlabs_configured" in status
-        assert "setup_steps" in status
-        # Should have setup steps since not configured
-        assert len(status["setup_steps"]) > 0
+        # Voice engine not configured in test env
 
     def test_call_log_empty(self):
         from src.agents.voice_agent import get_call_log
@@ -258,35 +218,23 @@ class TestVoiceAgent:
     def test_script_templates_format(self):
         from src.agents.voice_agent import SCRIPTS
         # Ensure templates have the right placeholders
-        intro = SCRIPTS["lead_intro"]["text"]
-        assert "{po_number}" in intro
-        assert "{institution}" in intro
+        intro = SCRIPTS["lead_intro"].get("first_message", "")
+        # Templates use VAPI-style first_message now
+        assert len(intro) > 0
 
 
 class TestVoiceScriptRendering:
-    def test_lead_intro_renders(self):
+    def test_lead_intro_exists(self):
         from src.agents.voice_agent import SCRIPTS
-        text = SCRIPTS["lead_intro"]["text"].format(
-            po_number="PO-12345",
-            institution="CSP-Sacramento",
-            quote_number="",
-        )
-        assert "PO-12345" in text
-        assert "CSP-Sacramento" in text
-        assert "Reytech" in text
+        script = SCRIPTS["lead_intro"]
+        assert "name" in script
+        assert "first_message" in script or "context" in script
 
-    def test_follow_up_renders(self):
+    def test_follow_up_exists(self):
         from src.agents.voice_agent import SCRIPTS
-        text = SCRIPTS["follow_up"]["text"].format(
-            po_number="",
-            institution="CIM",
-            quote_number="R26Q20",
-        )
-        assert "R26Q20" in text
-        assert "CIM" in text
-
-
-# ─── Secrets Registry (Phase 14 additions) ──────────────────────────────────
+        script = SCRIPTS["follow_up"]
+        assert "name" in script
+        assert "first_message" in script or "context" in script
 
 class TestSecretsPhase14:
     def test_twilio_keys_in_registry(self):

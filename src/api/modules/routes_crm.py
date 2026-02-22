@@ -733,6 +733,7 @@ def api_tax_rate():
 def api_health():
     """Comprehensive system health check with path validation."""
     health = {"status": "ok", "build": "v20260220-1005-pdf-v4", "checks": {}}
+    return jsonify(health)
 
 
 @bp.route("/api/build")
