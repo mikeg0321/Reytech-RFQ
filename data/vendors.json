@@ -6,44 +6,107 @@
     "city": "Milwaukee",
     "state": "WI",
     "zip": "53207",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "AAA Wholesale Company",
     "company": "AAA Wholesale Company",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Ace Hardware",
     "company": "Ace Hardware",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Ace Parking",
     "company": "Ace Parking",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Adobe",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Alaska Air",
     "company": "Alaska Air",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "AliExpress",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Amazon",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "American Airlines",
     "company": "American Airlines",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Anchortex Corp",
@@ -53,44 +116,107 @@
     "state": "NJ",
     "zip": "08091",
     "phone": "(856) 768-5240",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Anker",
     "company": "Anker",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Apple",
     "company": "Apple",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "AT&T",
     "company": "AT&T",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Atascadero",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "B2B Prime",
     "company": "B2B Prime",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Baja Fish Tacos",
     "company": "Baja Fish Tacos",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Barstow Sales Tax",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Bath & Body Works",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Bernell",
@@ -100,98 +226,238 @@
     "state": "IN",
     "zip": "46545",
     "email": "marianne.rush@bernell.com",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Best Buy",
     "company": "Best Buy",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Big 5",
     "company": "Big 5",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Board of Equalization",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Ca Dept Taxation",
     "company": "Ca Dept Taxation",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "CA EDD",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "CA Secretary of State",
     "company": "CA Secretary of State",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Cal Vet - West Los Angeles",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "California Pizza Kitchen",
     "company": "California Pizza Kitchen",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Calnena",
     "company": "Calnena",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Capital One",
     "company": "Capital One",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Carnival",
     "company": "Carnival",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Carnival Shops",
     "company": "Carnival Shops",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Carter's",
     "company": "Carter's",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Chat GPT",
     "company": "Chat GPT",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Chefgruel.Com",
     "company": "Chefgruel.Com",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Chula Vista Tax",
     "email": "c.marler@echelondistribution.com",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "City of Blythe",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "CNN News",
     "company": "CNN News",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Coffee Bean",
     "company": "Coffee Bean",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "CorTech",
@@ -201,32 +467,74 @@
     "state": "IL",
     "zip": "60527",
     "phone": "(800) 571-0770",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Costco",
     "company": "Costco",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Costco Gas",
     "company": "Costco Gas",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Courtyard",
     "company": "Courtyard",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Cox",
     "company": "Cox",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Crumble",
     "company": "Crumble",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Curbell Medical Products, Inc.",
@@ -236,21 +544,49 @@
     "state": "NY",
     "zip": "14127",
     "email": "mbleecher@curbellmedical.com",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Denault's",
     "company": "Denault's",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Dollar Tree",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Door Dash",
     "company": "Door Dash",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Echelon Distribution",
@@ -260,16 +596,37 @@
     "state": "CA",
     "zip": "95677",
     "phone": "916-426-1608",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Federal Express",
     "company": "Federal Express",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "FedEx",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Fistula Solution Corporation",
@@ -280,15 +637,36 @@
     "zip": "55073",
     "phone": "+16514334936",
     "email": "info@fistulasolution.com",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Franchise Tax Board",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Fresno Sales Tax",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Global Industrial",
@@ -297,20 +675,48 @@
     "city": "Port Washington",
     "state": "NY",
     "zip": "11050",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "GoDaddy",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Google",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Gravity Heights",
     "company": "Gravity Heights",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Heartland Medical Sales & Service",
@@ -320,82 +726,194 @@
     "state": "KY",
     "zip": "40299",
     "phone": "(877) 329-7775",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Home Depot",
     "company": "Home Depot",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Hudson News",
     "company": "Hudson News",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Hudson St.",
     "company": "Hudson St.",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Hylete",
     "company": "Hylete",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "IFixit",
     "company": "IFixit",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "In Flight",
     "company": "In Flight",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "In N Out Burger",
     "company": "In N Out Burger",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Integrated Medical Supplies",
     "phone": "(310) 212-6899",
     "email": "adimalanta@imsla.com",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Intuit",
     "company": "Intuit",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "IRS",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "John Wayne",
     "company": "John Wayne",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "LAX Cafe",
     "company": "LAX Cafe",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Leeann Chin",
     "company": "Leeann Chin",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Linkedin",
     "company": "Linkedin",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Lyft",
     "company": "Lyft",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Master Medical Equipment",
@@ -404,88 +922,217 @@
     "city": "Jackson",
     "state": "TN",
     "zip": "38308",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "MCCS Lodging",
     "company": "MCCS Lodging",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Michaels",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Microsoft",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Mountain Primal",
     "company": "Mountain Primal",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "My OC Bookkeeper",
     "company": "My OC Bookkeeper",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Nekter",
     "company": "Nekter",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "OC Pizza Co",
     "company": "OC Pizza Co",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Office Depot",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Panera",
     "company": "Panera",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Pho Today",
     "company": "Pho Today",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Postal Annex",
     "company": "Postal Annex",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Prime",
     "company": "Prime",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Pump It Up",
     "company": "Pump It Up",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "QuickBooks Payroll",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Quotewerks",
     "company": "Quotewerks",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 80,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 30,
+    "overall_score": 56,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": [
+      "glove",
+      "bandage"
+    ]
   },
   {
     "name": "Red O Restaurant",
     "company": "Red O Restaurant",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Riley L",
     "company": "Riley L",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "S&S Worldwide",
@@ -495,11 +1142,25 @@
     "state": "CT",
     "zip": "06415",
     "phone": "(800) 243-9232",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Sacramento Sales Tax",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Sangean America Inc",
@@ -509,96 +1170,229 @@
     "state": "CA",
     "zip": "90670",
     "email": "vince@sangeanus.com",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "SCFTA Bars",
     "company": "SCFTA Bars",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Scholastic",
     "company": "Scholastic",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "School Fund",
     "company": "School Fund",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Segerstrom",
     "company": "Segerstrom",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Selanne Steak Tavern",
     "company": "Selanne Steak Tavern",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Shamrock Labels",
     "company": "Shamrock Labels",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Sheraton",
     "company": "Sheraton",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Sirvezas",
     "company": "Sirvezas",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Snooze La Jolla",
     "company": "Snooze La Jolla",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Southwest",
     "company": "Southwest",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Starbucks",
     "company": "Starbucks",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Starlink",
     "company": "Starlink",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Stellar",
     "company": "Stellar",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Streamline Solutions",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Surgireal",
     "company": "Surgireal",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Target",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Test Vendor",
     "company": "Test Vendor",
     "source": "quickbooks",
-    "open_balance": 48.96
+    "open_balance": 48.96,
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Transformer Table",
     "company": "Transformer Table",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "TSI Incorporated",
@@ -607,41 +1401,104 @@
     "state": "MN",
     "zip": "55126",
     "email": "psullivan@tsi.com",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Uline Shipping Supplies",
     "company": "Uline Shipping Supplies",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "UPS",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "USPS",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Wal-Mart",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Wayfair",
     "company": "Wayfair",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Weather Tech",
     "company": "Weather Tech",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Webstaurant",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   },
   {
     "name": "Wix",
-    "source": "quickbooks"
+    "source": "quickbooks",
+    "price_score": 50,
+    "reliability_score": 50,
+    "speed_score": 50,
+    "breadth_score": 0,
+    "overall_score": 40,
+    "scored_at": "2026-02-22T21:12:40.510298+00:00",
+    "categories_served": []
   }
 ]

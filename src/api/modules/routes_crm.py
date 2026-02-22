@@ -1821,6 +1821,16 @@ def page_outbox():
  <div class="card"><div style="font-size:11px;color:var(--tx2);margin-bottom:4px">CS REPLY DRAFTS</div><div style="font-size:28px;font-weight:700;color:{'var(--rd)' if cs_drafts else 'var(--gn)'}">{len(cs_drafts)}</div><div style="font-size:11px;color:var(--tx2)">customer service</div></div>
 </div>
 
+<!-- PRD-28 WI-2: Bulk Actions Bar -->
+<div style="display:flex;gap:8px;margin-bottom:16px;padding:12px;background:var(--sf2);border-radius:8px;align-items:center;flex-wrap:wrap">
+ <span style="font-size:12px;font-weight:600;color:var(--tx2);margin-right:8px">Bulk Actions:</span>
+ <button class="btn btn-sm" onclick="bulkApproveAll()" style="background:rgba(52,211,153,.15);color:var(--gn);font-size:11px;padding:6px 14px">✅ Approve All Drafts ({len(sales_drafts)})</button>
+ <button class="btn btn-sm" onclick="bulkDeleteDrafts()" style="background:rgba(248,113,113,.1);color:var(--rd);font-size:11px;padding:6px 14px">🗑 Delete All Drafts</button>
+ <button class="btn btn-sm" onclick="retryFailed()" style="background:rgba(251,191,36,.1);color:var(--yl);font-size:11px;padding:6px 14px">🔄 Retry Failed</button>
+ <div style="flex:1"></div>
+ <span id="bulk-status" style="font-size:11px;color:var(--tx2)"></span>
+</div>
+
 <h3 style="font-size:14px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">📬 Customer Service Replies ({len(cs_drafts)})</h3>
 {'<p style="color:var(--tx2);font-size:13px;padding:20px 0">No CS drafts pending. 👍</p>' if not cs_drafts else cs_html}
 
@@ -1843,6 +1853,32 @@ function approveCS(id,btn){{
     if(d.ok){{btn.textContent='✅ Sent!';setTimeout(()=>location.reload(),1200)}}
     else{{btn.disabled=false;btn.textContent='Error: '+(d.error||'unknown')}}
   }}).catch(()=>{{btn.disabled=false;btn.textContent='Error'}});
+}}
+function bulkApproveAll(){{
+  if(!confirm('Approve ALL '+{len(sales_drafts)}+' sales drafts?'))return;
+  document.getElementById('bulk-status').textContent='Approving...';
+  fetch('/api/outbox/bulk-approve',{{method:'POST',credentials:'same-origin',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{}})}})
+  .then(r=>r.json()).then(d=>{{
+    document.getElementById('bulk-status').textContent=d.ok?'✅ Approved '+d.approved+' drafts':'❌ Failed';
+    if(d.ok)setTimeout(()=>location.reload(),1500);
+  }});
+}}
+function bulkDeleteDrafts(){{
+  if(!confirm('Delete ALL draft emails? This cannot be undone.'))return;
+  document.getElementById('bulk-status').textContent='Deleting...';
+  fetch('/api/outbox/bulk-delete',{{method:'POST',credentials:'same-origin',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{status_filter:'draft'}})}})
+  .then(r=>r.json()).then(d=>{{
+    document.getElementById('bulk-status').textContent=d.ok?'🗑 Deleted '+d.deleted+' drafts':'❌ Failed';
+    if(d.ok)setTimeout(()=>location.reload(),1500);
+  }});
+}}
+function retryFailed(){{
+  document.getElementById('bulk-status').textContent='Retrying...';
+  fetch('/api/outbox/retry-failed',{{method:'POST',credentials:'same-origin'}})
+  .then(r=>r.json()).then(d=>{{
+    document.getElementById('bulk-status').textContent=d.ok?'🔄 Re-queued '+d.retried+' emails':'❌ Failed';
+    if(d.retried>0)setTimeout(()=>location.reload(),1500);
+  }});
 }}
 function deleteDraft(id,btn){{
   if(!confirm('Delete this draft?'))return;

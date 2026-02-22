@@ -957,31 +957,44 @@ def run_scheduled_pulls(notify_fn=None):
 
 
 def get_engine_status() -> dict:
-    conn = _db()
-    counts = conn.execute("""
-        SELECT agency_key, COUNT(DISTINCT po_number) as pos,
-               MAX(pulled_at) as last_pull
-        FROM scprs_po_master GROUP BY agency_key
-    """).fetchall()
-    schedule = conn.execute("""
-        SELECT agency_key, last_pull, next_pull, pull_interval_hours
-        FROM scprs_pull_schedule
-    """).fetchall()
-    total_lines = conn.execute("SELECT COUNT(*) FROM scprs_po_lines").fetchone()[0]
-    total_gaps = conn.execute(
-        "SELECT COUNT(*) FROM scprs_po_lines WHERE opportunity_flag='GAP_ITEM'"
-    ).fetchone()[0]
-    auto_closed = conn.execute(
-        "SELECT COUNT(*) FROM quote_po_matches WHERE auto_closed=1"
-    ).fetchone()[0]
-    conn.close()
-    return {
-        "running": _engine_status["running"],
-        "current_agency": _engine_status["current_agency"],
-        "by_agency": [dict(r) for r in counts],
-        "schedule": [dict(r) for r in schedule],
-        "total_line_items": total_lines,
-        "total_gap_items": total_gaps,
-        "quotes_auto_closed": auto_closed,
-        "last_results": _engine_status["last_results"],
-    }
+    try:
+        conn = _db()
+        counts = conn.execute("""
+            SELECT agency_key, COUNT(DISTINCT po_number) as pos,
+                   MAX(pulled_at) as last_pull
+            FROM scprs_po_master GROUP BY agency_key
+        """).fetchall()
+        schedule = conn.execute("""
+            SELECT agency_key, last_pull, next_pull, pull_interval_hours
+            FROM scprs_pull_schedule
+        """).fetchall()
+        total_lines = conn.execute("SELECT COUNT(*) FROM scprs_po_lines").fetchone()[0]
+        total_gaps = conn.execute(
+            "SELECT COUNT(*) FROM scprs_po_lines WHERE opportunity_flag='GAP_ITEM'"
+        ).fetchone()[0]
+        auto_closed = conn.execute(
+            "SELECT COUNT(*) FROM quote_po_matches WHERE auto_closed=1"
+        ).fetchone()[0]
+        conn.close()
+        return {
+            "running": _engine_status["running"],
+            "current_agency": _engine_status["current_agency"],
+            "by_agency": [dict(r) for r in counts],
+            "schedule": [dict(r) for r in schedule],
+            "total_line_items": total_lines,
+            "total_gap_items": total_gaps,
+            "quotes_auto_closed": auto_closed,
+            "last_results": _engine_status["last_results"],
+        }
+    except Exception as e:
+        return {
+            "running": _engine_status.get("running", False),
+            "current_agency": _engine_status.get("current_agency", ""),
+            "error": str(e),
+            "by_agency": [],
+            "schedule": [],
+            "total_line_items": 0,
+            "total_gap_items": 0,
+            "quotes_auto_closed": 0,
+            "last_results": _engine_status.get("last_results", {}),
+        }

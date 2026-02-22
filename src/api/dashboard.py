@@ -2207,6 +2207,7 @@ def render(content, include_brief=False, **kw):
   <a href="/growth" class="hdr-btn" aria-label="Growth engine" style="padding:5px 10px;font-size:11px">🚀 Growth</a>
   <a href="/intelligence" class="hdr-btn" aria-label="Sales intelligence" style="padding:5px 10px;font-size:11px">🧠 Intel</a>
   <a href="/agents" class="hdr-btn" aria-label="AI Agents manager" style="padding:5px 10px;font-size:11px">🤖 Agents</a>
+  <a href="/revenue" class="hdr-btn" aria-label="Revenue dashboard" style="padding:5px 10px;font-size:11px">💰 Revenue</a>
   <a href="/brief" class="hdr-btn" aria-label="Daily brief" style="padding:5px 10px;font-size:11px">☀️ Brief</a>
   </div>
  </nav>
@@ -2303,6 +2304,7 @@ def _header(page_title: str = "") -> str:
   <a href="/growth" class="hdr-btn{'{ hdr-active}' if page_title=='Growth Engine' else ''}" style="padding:5px 10px;font-size:11px">🚀 Growth</a>
   <a href="/intelligence" class="hdr-btn{'{ hdr-active}' if page_title=='Sales Intelligence' else ''}" style="padding:5px 10px;font-size:11px">🧠 Intel</a>
   <a href="/agents" class="hdr-btn" style="padding:5px 10px;font-size:11px">🤖 Agents</a>
+  <a href="/revenue" class="hdr-btn{' hdr-active' if page_title=='Revenue' else ''}" style="padding:5px 10px;font-size:11px">💰 Revenue</a>
   <a href="/brief" class="hdr-btn{' hdr-active' if page_title=='brief' else ''}" style="padding:5px 10px;font-size:11px">☀️ Brief</a>
   </div>
  </nav>
@@ -2625,6 +2627,7 @@ _ROUTE_MODULES = [
     "routes_orders_full",      # Orders, supplier lookup, quote-order link, invoice
     "routes_voice_contacts",   # Intelligence page, voice, contacts, campaigns
     "routes_catalog_finance",  # Catalog, shipping, pricing, margins, payments, audit
+    "routes_prd28",           # PRD-28: Quote lifecycle, email overhaul, leads, revenue, vendor intel
 ]
 
 for _mod in _ROUTE_MODULES:
@@ -2650,4 +2653,28 @@ try:
     start_follow_up_scheduler()
     log.info("Follow-up engine started (scans every 1h)")
 except Exception as _e:
-    log.warning("Award monitor failed to start: %s", _e)
+    log.warning("Follow-up engine failed to start: %s", _e)
+
+# ── Start Quote Lifecycle (auto-expire, follow-up triggers) ──────────────
+try:
+    from src.agents.quote_lifecycle import start_lifecycle_scheduler
+    start_lifecycle_scheduler()
+    log.info("Quote lifecycle scheduler started (checks every 1h)")
+except Exception as _e:
+    log.warning("Quote lifecycle failed to start: %s", _e)
+
+# ── Start Email Retry Scheduler (retries failed emails) ─────────────────
+try:
+    from src.agents.email_lifecycle import start_retry_scheduler
+    start_retry_scheduler()
+    log.info("Email retry scheduler started (checks every 15m)")
+except Exception as _e:
+    log.warning("Email retry scheduler failed to start: %s", _e)
+
+# ── Start Lead Nurture Scheduler (drip sequences + rescoring) ────────────
+try:
+    from src.agents.lead_nurture_agent import start_nurture_scheduler
+    start_nurture_scheduler()
+    log.info("Lead nurture scheduler started (daily)")
+except Exception as _e:
+    log.warning("Lead nurture scheduler failed to start: %s", _e)

@@ -1,0 +1,135 @@
+{
+  "pulls": [
+    {
+      "cache_key": "nitrile gloves:cchcs",
+      "pulled_at": 1771738741.009547,
+      "data": {
+        "keyword": "nitrile gloves",
+        "department": "CCHCS/CDCR",
+        "results": [],
+        "api_discovered": false,
+        "api_requests": [
+          {
+            "url": "https://caleprocure.ca.gov/pages/SCPRSSearch/scprs-search.aspx",
+            "method": "GET",
+            "post_data": null,
+            "headers": {
+              "upgrade-insecure-requests": "1",
+              "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+              "sec-ch-ua": "\"HeadlessChrome\";v=\"141\", \"Not?A_Brand\";v=\"8\", \"Chromium\";v=\"141\"",
+              "sec-ch-ua-mobile": "?0",
+              "sec-ch-ua-platform": "\"Windows\""
+            }
+          }
+        ],
+        "page_inputs": [],
+        "pulled_at_iso": "2026-02-22T05:39:01.009522+00:00"
+      }
+    },
+    {
+      "cache_key": "exam gloves:cchcs",
+      "pulled_at": 1771738746.7719245,
+      "data": {
+        "keyword": "exam gloves",
+        "department": "CCHCS/CDCR",
+        "results": [],
+        "api_discovered": false,
+        "api_requests": [
+          {
+            "url": "https://caleprocure.ca.gov/pages/SCPRSSearch/scprs-search.aspx",
+            "method": "GET",
+            "post_data": null,
+            "headers": {
+              "upgrade-insecure-requests": "1",
+              "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+              "sec-ch-ua": "\"HeadlessChrome\";v=\"141\", \"Not?A_Brand\";v=\"8\", \"Chromium\";v=\"141\"",
+              "sec-ch-ua-mobile": "?0",
+              "sec-ch-ua-platform": "\"Windows\""
+            }
+          }
+        ],
+        "page_inputs": [],
+        "pulled_at_iso": "2026-02-22T05:39:06.771903+00:00"
+      }
+    },
+    {
+      "cache_key": "chux:cchcs",
+      "pulled_at": 1771738752.5394099,
+      "data": {
+        "keyword": "chux",
+        "department": "CCHCS/CDCR",
+        "results": [],
+        "api_discovered": false,
+        "api_requests": [
+          {
+            "url": "https://caleprocure.ca.gov/pages/SCPRSSearch/scprs-search.aspx",
+            "method": "GET",
+            "post_data": null,
+            "headers": {
+              "upgrade-insecure-requests": "1",
+              "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+              "sec-ch-ua": "\"HeadlessChrome\";v=\"141\", \"Not?A_Brand\";v=\"8\", \"Chromium\";v=\"141\"",
+              "sec-ch-ua-mobile": "?0",
+              "sec-ch-ua-platform": "\"Windows\""
+            }
+          }
+        ],
+        "page_inputs": [],
+        "pulled_at_iso": "2026-02-22T05:39:12.539390+00:00"
+      }
+    },
+    {
+      "cache_key": "underpads:cchcs",
+      "pulled_at": 1771738758.2961965,
+      "data": {
+        "keyword": "underpads",
+        "department": "CCHCS/CDCR",
+        "results": [],
+        "api_discovered": false,
+        "api_requests": [
+          {
+            "url": "https://caleprocure.ca.gov/pages/SCPRSSearch/scprs-search.aspx",
+            "method": "GET",
+            "post_data": null,
+            "headers": {
+              "upgrade-insecure-requests": "1",
+              "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+              "sec-ch-ua": "\"HeadlessChrome\";v=\"141\", \"Not?A_Brand\";v=\"8\", \"Chromium\";v=\"141\"",
+              "sec-ch-ua-mobile": "?0",
+              "sec-ch-ua-platform": "\"Windows\""
+            }
+          }
+        ],
+        "page_inputs": [],
+        "pulled_at_iso": "2026-02-22T05:39:18.296174+00:00"
+      }
+    },
+    {
+      "cache_key": "adult briefs:cchcs",
+      "pulled_at": 1771738764.0353515,
+      "data": {
+        "keyword": "adult briefs",
+        "department": "CCHCS/CDCR",
+        "results": [],
+        "api_discovered": false,
+        "api_requests": [
+          {
+            "url": "https://caleprocure.ca.gov/pages/SCPRSSearch/scprs-search.aspx",
+            "method": "GET",
+            "post_data": null,
+            "headers": {
+              "upgrade-insecure-requests": "1",
+              "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+              "sec-ch-ua": "\"HeadlessChrome\";v=\"141\", \"Not?A_Brand\";v=\"8\", \"Chromium\";v=\"141\"",
+              "sec-ch-ua-mobile": "?0",
+              "sec-ch-ua-platform": "\"Windows\""
+            }
+          }
+        ],
+        "page_inputs": [],
+        "pulled_at_iso": "2026-02-22T05:39:24.035332+00:00"
+      }
+    }
+  ],
+  "last_pull": "2026-02-22T05:39:24.035352+00:00"
+}

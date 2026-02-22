@@ -657,6 +657,36 @@ def generate_brief() -> dict:
     if _ord.get("ready_to_invoice", 0) > 0:
         headlines.append(f"{_ord['ready_to_invoice']} order{'s' if _ord['ready_to_invoice']!=1 else ''} delivered — invoice ready")
 
+    # ── PRD-28 enhancements ─────────────────────────────────────────────────
+    try:
+        from src.agents.quote_lifecycle import get_expiring_soon, get_pipeline_summary as _ql_pipe
+        _exp = get_expiring_soon(3)
+        if _exp:
+            headlines.append(f"⚠️ {len(_exp)} quote{'s' if len(_exp)!=1 else ''} expiring in < 3 days")
+        _pipe = _ql_pipe()
+        if _pipe.get("ok"):
+            _conv = _pipe.get("conversion_rate", 0)
+            if _conv > 0:
+                headlines.append(f"Quote conversion rate: {_conv}%")
+    except Exception:
+        pass
+
+    try:
+        from src.agents.revenue_engine import get_goal_progress
+        _goal = get_goal_progress()
+        if _goal.get("ok") and _goal.get("ytd_revenue", 0) > 0:
+            headlines.append(f"💰 Revenue: ${_goal['ytd_revenue']:,.0f} YTD ({_goal['pct_of_goal']:.1f}% of $2M goal)")
+    except Exception:
+        pass
+
+    try:
+        from src.agents.lead_nurture_agent import get_agent_status as _ln_st
+        _ln = _ln_st()
+        if _ln.get("active_nurtures", 0) > 0:
+            headlines.append(f"🌱 {_ln['active_nurtures']} active lead nurture sequences")
+    except Exception:
+        pass
+
     if not headlines:
         closed = revenue.get("closed_revenue", 0)
         if closed > 0:

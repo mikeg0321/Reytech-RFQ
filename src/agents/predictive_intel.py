@@ -318,6 +318,9 @@ def detect_shipping_email(subject: str, body: str, sender: str = "") -> dict:
         {"is_shipping": bool, "tracking_numbers": [...], "carrier": str,
          "order_ref": str, "delivery_status": str}
     """
+    subject = subject or ""
+    body = body or ""
+    sender = sender or ""
     text = f"{subject} {body}".lower()
     subject_lower = subject.lower()
 

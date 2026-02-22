@@ -1065,6 +1065,8 @@ th{{padding:8px 12px;font-size:11px;color:var(--tx2);text-transform:uppercase;le
     <a href="/" class="btn">🏠 Home</a>
     <a href="/api/vendor/status" class="btn" target="_blank">⚙️ API Status</a>
     <button class="btn" onclick="testGrainger(this)" style="border-color:var(--ac);color:var(--ac)">🔍 Test Grainger Search</button>
+    <button class="btn" onclick="scoreAllVendors(this)" style="border-color:var(--gn);color:var(--gn)" title="Score all vendors by price/reliability/speed">📊 Score Vendors</button>
+    <button class="btn" onclick="showEnrichment()" style="border-color:var(--yl);color:var(--yl)" title="Vendor data completeness">📈 Enrichment</button>
   </div>
 </div>
 
@@ -1128,6 +1130,25 @@ th{{padding:8px 12px;font-size:11px;color:var(--tx2);text-transform:uppercase;le
 <div id="grainger-results" style="margin-top:16px"></div>
 
 <script>
+function scoreAllVendors(btn){{
+  btn.disabled=true;btn.textContent='Scoring...';
+  fetch('/api/vendor/score-all',{{method:'POST',credentials:'same-origin'}})
+  .then(r=>r.json()).then(d=>{{
+    btn.disabled=false;btn.textContent='📊 Score Vendors';
+    alert(d.ok?'Scored '+d.scored+' vendors — refresh to see scores':'Failed');
+    if(d.ok)location.reload();
+  }}).catch(()=>{{btn.disabled=false;btn.textContent='📊 Score Vendors';}});
+}}
+function showEnrichment(){{
+  fetch('/api/vendor/enrichment').then(r=>r.json()).then(d=>{{
+    alert('Vendor Enrichment Status:\n'+
+      'Total: '+d.total_vendors+'\n'+
+      'With email: '+d.with_email+' ('+d.email_pct+'%)\n'+
+      'With phone: '+d.with_phone+'\n'+
+      'With website: '+d.with_website+'\n'+
+      'Scored: '+d.with_score+' ('+d.scored_pct+'%)');
+  }});
+}}
 function testGrainger(btn){{
   var q=prompt("Search Grainger catalog (e.g. 'nitrile gloves medium 100 box'):");
   if(!q)return;
@@ -1886,6 +1907,43 @@ def quote_detail(qn):
 
     st = qt.get("status", "pending")
     fname = os.path.basename(qt.get("pdf_path", ""))
+
+    # ── PRD-28 WI-1: Lifecycle info ──
+    expires_at = qt.get("expires_at", "")
+    expiry_display = "—"
+    expiry_class = ""
+    if expires_at and st in ("pending", "sent"):
+        try:
+            from datetime import datetime as _dt, timezone as _tz
+            exp_dt = _dt.fromisoformat(expires_at.replace("Z", "+00:00")) if "T" in expires_at else _dt.fromisoformat(expires_at)
+            days_left = (exp_dt.replace(tzinfo=None) - _dt.now()).days
+            if days_left < 0:
+                expiry_display = "Expired"
+                expiry_class = "color:var(--rd);font-weight:600"
+            elif days_left <= 7:
+                expiry_display = f"{days_left}d left"
+                expiry_class = "color:var(--rd);font-weight:600"
+            elif days_left <= 14:
+                expiry_display = f"{days_left}d left"
+                expiry_class = "color:var(--yl);font-weight:600"
+            else:
+                expiry_display = f"{days_left}d left"
+        except Exception:
+            pass
+    elif st == "won":
+        expiry_display = "Won ✅"
+        expiry_class = "color:var(--gn);font-weight:600"
+    elif st == "lost":
+        expiry_display = "Lost"
+        expiry_class = "color:var(--rd)"
+    elif st == "expired":
+        expiry_display = "Expired"
+        expiry_class = "color:var(--tx2)"
+
+    close_reason = qt.get("close_reason", "")
+    closed_by = qt.get("closed_by_agent", "")
+    revision_count = qt.get("revision_count", 0) or 0
+    follow_up_count = qt.get("follow_up_count", 0) or 0
     # items_detail is canonical; line_items is the field in quotes_log.json
     items = qt.get("items_detail") or qt.get("line_items") or []
     source_link = ""
@@ -1980,7 +2038,9 @@ def quote_detail(qn):
        <div class="meta-i"><div class="meta-l">Institution</div><div class="meta-v">{institution}</div></div>
        <div class="meta-i"><div class="meta-l">RFQ / PC #</div><div class="meta-v">{qt.get('rfq_number','—')}</div></div>
        <div class="meta-i"><div class="meta-l">Items</div><div class="meta-v">{qt.get('items_count',0)}</div></div>
-       <div class="meta-i"><div class="meta-l">Expiry</div><div class="meta-v">{qt.get('expiry','—')}</div></div>
+       <div class="meta-i"><div class="meta-l">Expiry</div><div class="meta-v" style="{expiry_class}">{expiry_display}</div></div>
+       {'<div class="meta-i"><div class="meta-l">Revisions</div><div class="meta-v">' + str(revision_count) + '</div></div>' if revision_count else ''}
+       {'<div class="meta-i"><div class="meta-l">Follow-ups</div><div class="meta-v">' + str(follow_up_count) + '</div></div>' if follow_up_count else ''}
        {'<div class="meta-i"><div class="meta-l">PO Number</div><div class="meta-v" style="color:var(--gn);font-weight:600">' + qt.get("po_number","") + '</div></div>' if qt.get("po_number") else ''}
       </div>
      </div>
@@ -1993,6 +2053,7 @@ def quote_detail(qn):
         <span>Tax: <b>${qt.get('tax',0):,.2f}</b></span>
        </div>
       </div>
+      {'<div style="background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.2);border-radius:8px;padding:10px 14px;margin-top:10px"><div style="font-size:11px;color:var(--rd);font-weight:600">Close Reason</div><div style="font-size:12px;color:var(--tx);margin-top:4px">' + close_reason + ('  <span style="color:var(--tx2);font-size:10px">(' + closed_by + ')</span>' if closed_by else '') + '</div></div>' if close_reason else ''}
       {'<div style="border-top:1px solid var(--bd);margin-top:14px;padding-top:14px"><div style="font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Status History</div>' + history_html + '</div>' if history_html else ''}
       {action_btns}
      </div>
@@ -2879,6 +2940,33 @@ def api_agents_status():
     except Exception as e:
         log.debug("Suppressed: %s", e)
         agents["product_research"] = {"status": "not_available"}
+
+    # PRD-28 agents
+    try:
+        from src.agents.quote_lifecycle import get_agent_status as _ql_status
+        agents["quote_lifecycle"] = _ql_status()
+    except Exception:
+        agents["quote_lifecycle"] = {"status": "not_available"}
+    try:
+        from src.agents.email_lifecycle import get_agent_status as _el_status
+        agents["email_lifecycle"] = _el_status()
+    except Exception:
+        agents["email_lifecycle"] = {"status": "not_available"}
+    try:
+        from src.agents.lead_nurture_agent import get_agent_status as _ln_status
+        agents["lead_nurture"] = _ln_status()
+    except Exception:
+        agents["lead_nurture"] = {"status": "not_available"}
+    try:
+        from src.agents.revenue_engine import get_agent_status as _re_status
+        agents["revenue_engine"] = _re_status()
+    except Exception:
+        agents["revenue_engine"] = {"status": "not_available"}
+    try:
+        from src.agents.vendor_intelligence import get_agent_status as _vi_status
+        agents["vendor_intelligence"] = _vi_status()
+    except Exception:
+        agents["vendor_intelligence"] = {"status": "not_available"}
 
     return jsonify({"ok": True, "agents": agents,
                     "total": len(agents),
@@ -4456,6 +4544,9 @@ def growth_page():
      <h3>⚡ Actions</h3>
      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
       <button class="g-btn g-btn-go" style="font-size:14px;padding:10px 20px" onclick="createCampaign()">🚀 Create Campaign</button>
+      <button class="g-btn" onclick="autoStartNurture()" title="Start drip sequences for all new leads with email">🌱 Auto-Nurture New Leads</button>
+      <button class="g-btn" onclick="rescoreLeads()" title="Recalculate lead scores with latest activity">📊 Rescore Leads</button>
+      <button class="g-btn g-btn-warn" onclick="viewPipeline()" title="View unified lead pipeline">🔄 Lead Pipeline</button>
      </div>
      <div style="font-size:11px;color:var(--tx2);margin-bottom:12px">
       Mines SCPRS for all buyers → scores by opportunity → emails top prospects → auto-schedules voice follow-up in 3-5 days
@@ -4703,7 +4794,31 @@ def growth_page():
     loadDrafts();
     {('pollProgress();' if (pull_running or buyer_running) else '')}
     </script>
-    """ + _page_footer()
+    
+<script>
+function autoStartNurture(){{
+  fetch('/api/leads/nurture/auto-start',{{method:'POST',credentials:'same-origin'}})
+  .then(r=>r.json()).then(d=>{{
+    alert(d.ok?'Started nurture for '+d.started+' leads':'Failed: '+(d.error||'unknown'));
+  }});
+}}
+function rescoreLeads(){{
+  fetch('/api/leads/rescore',{{method:'POST',credentials:'same-origin'}})
+  .then(r=>r.json()).then(d=>{{
+    alert(d.ok?'Rescored: '+d.rescored+' leads updated':'Failed');
+  }});
+}}
+function viewPipeline(){{
+  fetch('/api/leads/pipeline').then(r=>r.json()).then(d=>{{
+    if(!d.total){{alert('No leads in pipeline');return;}}
+    let msg = 'Lead Pipeline: '+d.total+' total\n';
+    for(const[s,c_] of Object.entries(d.by_status||{{}})){{msg += s+': '+c_+'\n';}}
+    msg += '\nAvg Score: '+d.avg_score;
+    alert(msg);
+  }});
+}}
+</script>
+""" + _page_footer()
 
 
 @bp.route("/growth/prospect/<prospect_id>")
@@ -6403,3 +6518,102 @@ def api_delete_quotes():
     })
 
 
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PRD-28 WI-1: Quote Lifecycle API Routes
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/quote-lifecycle/pipeline")
+@auth_required
+def api_quote_lifecycle_pipeline():
+    """Full pipeline summary with expiration and conversion data."""
+    try:
+        from src.agents.quote_lifecycle import get_pipeline_summary
+        return jsonify(get_pipeline_summary())
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/quote-lifecycle/expiring")
+@auth_required
+def api_quote_lifecycle_expiring():
+    """Quotes expiring within N days."""
+    days = request.args.get("days", 7, type=int)
+    try:
+        from src.agents.quote_lifecycle import get_expiring_soon
+        return jsonify({"ok": True, "expiring": get_expiring_soon(days)})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/quote-lifecycle/check", methods=["POST", "GET"])
+@auth_required
+def api_quote_lifecycle_check():
+    """Manually trigger expiration + follow-up check."""
+    try:
+        from src.agents.quote_lifecycle import check_expirations
+        return jsonify(check_expirations())
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/quote-lifecycle/process-reply", methods=["POST"])
+@auth_required
+def api_quote_lifecycle_reply():
+    """Process a reply signal for a quote (win/loss/question)."""
+    data = request.get_json(force=True, silent=True) or {}
+    try:
+        from src.agents.quote_lifecycle import process_reply_signal
+        return jsonify(process_reply_signal(
+            quote_number=data.get("quote_number", ""),
+            signal=data.get("signal", ""),
+            confidence=float(data.get("confidence", 0.7)),
+            po_number=data.get("po_number", ""),
+            reason=data.get("reason", ""),
+        ))
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/quote-lifecycle/revisions/<qn>")
+@auth_required
+def api_quote_lifecycle_revisions(qn):
+    """Get revision history for a quote."""
+    try:
+        from src.agents.quote_lifecycle import get_revisions
+        return jsonify({"ok": True, "revisions": get_revisions(qn)})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/quote-lifecycle/save-revision", methods=["POST"])
+@auth_required
+def api_quote_lifecycle_save_revision():
+    """Save a revision snapshot before editing."""
+    data = request.get_json(force=True, silent=True) or {}
+    try:
+        from src.agents.quote_lifecycle import save_revision
+        return jsonify(save_revision(
+            quote_number=data.get("quote_number", ""),
+            reason=data.get("reason", "manual edit"),
+        ))
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/quote-lifecycle/close-competitor", methods=["POST"])
+@auth_required
+def api_quote_lifecycle_close_competitor():
+    """Close a quote as lost to a competitor."""
+    data = request.get_json(force=True, silent=True) or {}
+    try:
+        from src.agents.quote_lifecycle import close_lost_to_competitor
+        return jsonify(close_lost_to_competitor(
+            quote_number=data.get("quote_number", ""),
+            competitor=data.get("competitor", ""),
+            competitor_price=float(data.get("competitor_price", 0)),
+            po_number=data.get("po_number", ""),
+        ))
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})

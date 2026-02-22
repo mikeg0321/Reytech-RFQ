@@ -241,6 +241,42 @@ PAGE_HOME = """
  <a href="/qa/workflow" style="padding:4px 10px;background:rgba(248,113,113,.15);color:#f87171;border:1px solid rgba(248,113,113,.3);border-radius:6px;font-size:11px;font-weight:600;text-decoration:none;white-space:nowrap">View Tests →</a>
 </div>
 
+<!-- ═══ Action Dashboard — PRD-28 WI-6 ═══ -->
+<div id="action-dash" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:14px">
+ <!-- Urgent -->
+ <div id="ad-urgent" style="background:var(--crd);border:1px solid rgba(248,113,113,.3);border-radius:10px;padding:14px;min-height:80px">
+  <div style="font-size:13px;font-weight:600;color:#f87171;margin-bottom:8px">🔴 Urgent</div>
+  <div id="ad-urgent-items" style="font-size:12px;color:var(--tx2)">Loading...</div>
+ </div>
+ <!-- Action Needed -->
+ <div id="ad-action" style="background:var(--crd);border:1px solid rgba(251,191,36,.3);border-radius:10px;padding:14px;min-height:80px">
+  <div style="font-size:13px;font-weight:600;color:#fbbf24;margin-bottom:8px">🟡 Action Needed</div>
+  <div id="ad-action-items" style="font-size:12px;color:var(--tx2)">Loading...</div>
+ </div>
+ <!-- Progress -->
+ <div id="ad-progress" style="background:var(--crd);border:1px solid rgba(46,204,113,.3);border-radius:10px;padding:14px;min-height:80px">
+  <div style="font-size:13px;font-weight:600;color:#2ecc71;margin-bottom:8px">🟢 Progress</div>
+  <div id="ad-progress-items" style="font-size:12px;color:var(--tx2)">Loading...</div>
+ </div>
+</div>
+<script>
+(function(){
+  fetch('/api/dashboard/actions').then(r=>r.json()).then(d=>{
+    if(!d.ok)return;
+    function renderItems(items,el){
+      if(!items||!items.length){el.innerHTML='<span style="color:var(--tx2)">✅ All clear</span>';return;}
+      el.innerHTML=items.map(i=>
+        '<a href="'+(i.link||'#')+'" style="display:block;padding:4px 0;color:var(--tx);text-decoration:none;border-bottom:1px solid var(--bd);font-size:12px" onmouseover="this.style.color=\'var(--ac)\'" onmouseout="this.style.color=\'var(--tx)\'">'
+        +i.icon+' '+i.label+'</a>'
+      ).join('');
+    }
+    renderItems(d.urgent, document.getElementById('ad-urgent-items'));
+    renderItems(d.action_needed, document.getElementById('ad-action-items'));
+    renderItems(d.progress, document.getElementById('ad-progress-items'));
+  }).catch(()=>{});
+})();
+</script>
+
 <!-- ═══ Work Queues — Primary Bento Row ═══ -->
 <div id="queues" class="bento bento-2" style="margin-bottom:14px">
 

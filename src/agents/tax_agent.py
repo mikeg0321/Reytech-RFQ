@@ -78,7 +78,9 @@ def parse_ship_to(ship_to_name, ship_to_address):
     Parse ship-to into API-ready components.
     Returns: {street, city, zip, raw_input}
     """
-    all_text = [ship_to_name] + (ship_to_address or [])
+    if isinstance(ship_to_address, str):
+        ship_to_address = [ship_to_address]
+    all_text = [ship_to_name or ""] + (ship_to_address or [])
     zip_code = extract_zip(all_text)
     city = extract_city(all_text)
     street = extract_street(ship_to_address or [])

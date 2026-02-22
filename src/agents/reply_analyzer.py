@@ -93,7 +93,7 @@ def analyze_reply(subject: str, body: str, sender: str = "") -> dict:
             summary: str,     # human-readable summary
         }
     """
-    text = f"{subject}\n{body}".lower()
+    text = f"{subject or ''}\n{body or ''}".lower()
     text_clean = re.sub(r'\s+', ' ', text)
 
     triggers = []
@@ -120,14 +120,15 @@ def analyze_reply(subject: str, body: str, sender: str = "") -> dict:
             triggers.append(f"question: {pattern[:40]}")
 
     # Extract references
-    po_match = PO_NUMBER_PATTERN.search(f"{subject}\n{body}")
+    raw_text = f"{subject or ''}\n{body or ''}"
+    po_match = PO_NUMBER_PATTERN.search(raw_text)
     po_number = po_match.group(1) if po_match else ""
 
-    quote_match = QUOTE_REF_PATTERN.search(f"{subject}\n{body}")
+    quote_match = QUOTE_REF_PATTERN.search(raw_text)
     quote_ref = quote_match.group(1) if quote_match else ""
 
     # Also check subject for quote number (e.g., "RE: Reytech Quote R26Q1")
-    subj_match = re.search(r"R\d{2}Q\d+", subject, re.IGNORECASE)
+    subj_match = re.search(r"R\d{2}Q\d+", subject or "", re.IGNORECASE)
     if subj_match and not quote_ref:
         quote_ref = subj_match.group(0)
 

@@ -380,6 +380,59 @@ CREATE TABLE IF NOT EXISTS competitor_intel (
 CREATE INDEX IF NOT EXISTS idx_competitor_name ON competitor_intel(competitor_name);
 CREATE INDEX IF NOT EXISTS idx_competitor_agency ON competitor_intel(agency);
 CREATE INDEX IF NOT EXISTS idx_competitor_pc ON competitor_intel(pc_id);
+
+-- PRD-28 WI-1: Quote revision history
+CREATE TABLE IF NOT EXISTS quote_revisions (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    quote_number    TEXT NOT NULL,
+    revision_num    INTEGER NOT NULL,
+    revised_at      TEXT NOT NULL,
+    reason          TEXT,
+    snapshot_json   TEXT,
+    changed_by      TEXT DEFAULT 'user'
+);
+CREATE INDEX IF NOT EXISTS idx_qrev_qn ON quote_revisions(quote_number);
+
+-- PRD-28 WI-2: Email engagement tracking
+CREATE TABLE IF NOT EXISTS email_engagement (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    email_id        TEXT NOT NULL,
+    event_type      TEXT NOT NULL,  -- open|click
+    event_at        TEXT NOT NULL,
+    ip_address      TEXT,
+    user_agent      TEXT,
+    link_url        TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_engage_email ON email_engagement(email_id);
+
+-- PRD-28 WI-3: Lead nurture sequences
+CREATE TABLE IF NOT EXISTS lead_nurture (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    lead_id         TEXT NOT NULL,
+    step_num        INTEGER NOT NULL,
+    scheduled_at    TEXT NOT NULL,
+    sent_at         TEXT,
+    status          TEXT DEFAULT 'pending',  -- pending|sent|paused|skipped
+    email_id        TEXT,
+    template_key    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_nurture_lead ON lead_nurture(lead_id);
+CREATE INDEX IF NOT EXISTS idx_nurture_sched ON lead_nurture(status, scheduled_at);
+
+-- PRD-28 WI-5: Vendor scores
+CREATE TABLE IF NOT EXISTS vendor_scores (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    vendor_name     TEXT NOT NULL,
+    scored_at       TEXT NOT NULL,
+    price_score     REAL DEFAULT 0,
+    reliability_score REAL DEFAULT 0,
+    speed_score     REAL DEFAULT 0,
+    breadth_score   REAL DEFAULT 0,
+    overall_score   REAL DEFAULT 0,
+    categories      TEXT,
+    notes           TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_vscore_name ON vendor_scores(vendor_name);
 """
 
 def init_db():
@@ -423,6 +476,31 @@ def _migrate_columns():
         ("price_checks", "revision_of", "TEXT"),
         ("price_checks", "closed_at", "TEXT"),
         ("price_checks", "closed_reason", "TEXT"),
+        # ── PRD-28 Work Item 1: Quote Lifecycle ──
+        ("quotes", "expires_at", "TEXT"),
+        ("quotes", "closed_by_agent", "TEXT"),
+        ("quotes", "close_reason", "TEXT"),
+        ("quotes", "revision_count", "INTEGER DEFAULT 0"),
+        ("quotes", "win_probability", "REAL DEFAULT 0"),
+        ("quotes", "last_follow_up", "TEXT"),
+        ("quotes", "follow_up_count", "INTEGER DEFAULT 0"),
+        # ── PRD-28 Work Item 2: Email Outbox Overhaul ──
+        ("email_outbox", "retry_count", "INTEGER DEFAULT 0"),
+        ("email_outbox", "last_error", "TEXT"),
+        ("email_outbox", "retry_at", "TEXT"),
+        ("email_outbox", "open_count", "INTEGER DEFAULT 0"),
+        ("email_outbox", "click_count", "INTEGER DEFAULT 0"),
+        ("email_outbox", "last_opened", "TEXT"),
+        ("email_outbox", "last_clicked", "TEXT"),
+        ("email_outbox", "tracking_id", "TEXT"),
+        # ── PRD-28 Work Item 4: Revenue Dashboard ──
+        ("revenue_log", "margin_pct", "REAL DEFAULT 0"),
+        ("revenue_log", "cost", "REAL DEFAULT 0"),
+        ("revenue_log", "category", "TEXT"),
+        ("revenue_log", "institution", "TEXT"),
+        # ── PRD-28 Work Item 5: Vendor Intelligence ──
+        ("contacts", "converted_from_lead", "TEXT"),
+        ("contacts", "last_contacted", "TEXT"),
     ]
     try:
         conn = sqlite3.connect(DB_PATH, timeout=30)
