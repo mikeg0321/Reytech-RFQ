@@ -2021,6 +2021,19 @@ loadBrief();
 
 # Shared header JS — pollNow, resync, notifications, poll time. Injected into BOTH render() and _header() pages.
 SHARED_HEADER_JS = """
+// ── Keyboard shortcuts (home page) ──
+(function(){
+  var shortcuts = {'n':'/pricechecks','q':'/quotes','o':'/orders','p':'/pipeline','g':'/growth','b':'/brief','c':'/contacts','i':'/intelligence','v':'/vendors','d':'/debug','h':'/'};
+  document.addEventListener('keydown', function(e) {
+    var tag = (e.target.tagName||'').toLowerCase();
+    if (tag==='input'||tag==='textarea'||tag==='select'||e.target.isContentEditable) return;
+    if (e.ctrlKey||e.altKey||e.metaKey) return;
+    var key = e.key.toLowerCase();
+    if (key==='/'||key==='s') { var s=document.querySelector('input[name="q"],input[type="search"],#search-input'); if(s){e.preventDefault();s.focus();s.select();return;} e.preventDefault();window.location.href='/search';return; }
+    if (key==='?') { e.preventDefault(); var o=document.getElementById('kb-help'); if(o){o.remove();return;} o=document.createElement('div');o.id='kb-help';o.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;display:flex;align-items:center;justify-content:center';o.onclick=function(){o.remove()};o.innerHTML='<div style="background:#1a1b2e;border:1px solid #333;border-radius:12px;padding:24px 32px;max-width:400px;color:#e2e8f0" onclick="event.stopPropagation()"><h3 style="margin:0 0 16px;font-size:18px">Keyboard Shortcuts</h3><div style="display:grid;grid-template-columns:40px 1fr;gap:6px 12px;font-size:14px"><kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">/ s</kbd><span>Search</span><kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">h</kbd><span>Home</span><kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">n</kbd><span>Price Checks</span><kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">q</kbd><span>Quotes</span><kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">o</kbd><span>Orders</span><kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">p</kbd><span>Pipeline</span><kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">g</kbd><span>Growth</span><kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">b</kbd><span>Daily Brief</span><kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">c</kbd><span>Contacts</span><kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">i</kbd><span>Intelligence</span><kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">?</kbd><span>This help</span></div><p style="margin:16px 0 0;font-size:12px;color:#888">Press any key or click outside to close</p></div>';document.body.appendChild(o);return; }
+    if (shortcuts[key]) { e.preventDefault(); window.location.href=shortcuts[key]; }
+  });
+})();
 function _updatePollTime(ts){
  var el=document.getElementById('poll-time');
  if(el&&ts){el.dataset.utc=ts;try{var d=new Date(ts);if(!isNaN(d)){el.textContent=d.toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true})}}catch(e){el.textContent=ts}}
@@ -2298,8 +2311,83 @@ def _header(page_title: str = "") -> str:
 
 
 def _page_footer() -> str:
-    """Closing HTML tags for _header() pages."""
-    return "</div></body></html>"
+    """Closing HTML tags for _header() pages + global keyboard shortcuts."""
+    return """
+<script>
+(function(){
+  // Global keyboard shortcuts — power user navigation
+  // Only fire when no input/textarea/select is focused
+  var shortcuts = {
+    'n': '/pricechecks',    // New price check
+    'q': '/quotes',         // Quotes DB
+    'o': '/orders',         // Orders
+    'p': '/pipeline',       // Pipeline
+    'g': '/growth',         // Growth
+    'b': '/brief',          // Daily brief
+    'c': '/contacts',       // CRM contacts
+    'i': '/intelligence',   // Intel
+    'v': '/vendors',        // Vendors
+    'd': '/debug',          // Debug
+    'h': '/',               // Home
+  };
+  document.addEventListener('keydown', function(e) {
+    // Skip if in input, textarea, select, or contentEditable
+    var tag = (e.target.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+    if (e.target.isContentEditable) return;
+    // Skip if any modifier held (Ctrl, Alt, Meta)
+    if (e.ctrlKey || e.altKey || e.metaKey) return;
+
+    var key = e.key.toLowerCase();
+
+    // '/' focuses search
+    if (key === '/' || key === 's') {
+      var search = document.querySelector('input[name="q"], input[type="search"], #search-input');
+      if (search) { e.preventDefault(); search.focus(); search.select(); return; }
+      // If no search box, go to search page
+      e.preventDefault(); window.location.href = '/search'; return;
+    }
+
+    // '?' shows shortcut help
+    if (key === '?' || (e.shiftKey && key === '/')) {
+      e.preventDefault();
+      var overlay = document.getElementById('kb-help');
+      if (overlay) { overlay.remove(); return; }
+      overlay = document.createElement('div');
+      overlay.id = 'kb-help';
+      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;display:flex;align-items:center;justify-content:center';
+      overlay.onclick = function(){ overlay.remove(); };
+      overlay.innerHTML = '<div style="background:var(--bg2,#1a1b2e);border:1px solid var(--bd,#333);border-radius:12px;padding:24px 32px;max-width:400px;color:var(--tx,#e2e8f0)" onclick="event.stopPropagation()">' +
+        '<h3 style="margin:0 0 16px;font-size:18px">Keyboard Shortcuts</h3>' +
+        '<div style="display:grid;grid-template-columns:40px 1fr;gap:6px 12px;font-size:14px">' +
+        '<kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">/ s</kbd><span>Search</span>' +
+        '<kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">h</kbd><span>Home</span>' +
+        '<kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">n</kbd><span>Price Checks</span>' +
+        '<kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">q</kbd><span>Quotes</span>' +
+        '<kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">o</kbd><span>Orders</span>' +
+        '<kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">p</kbd><span>Pipeline</span>' +
+        '<kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">g</kbd><span>Growth</span>' +
+        '<kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">b</kbd><span>Daily Brief</span>' +
+        '<kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">c</kbd><span>Contacts</span>' +
+        '<kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">i</kbd><span>Intelligence</span>' +
+        '<kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">v</kbd><span>Vendors</span>' +
+        '<kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">?</kbd><span>This help</span>' +
+        '</div>' +
+        '<p style="margin:16px 0 0;font-size:12px;color:#888">Press any key or click outside to close</p>' +
+        '</div>';
+      document.body.appendChild(overlay);
+      return;
+    }
+
+    // Navigation shortcuts
+    if (shortcuts[key]) {
+      e.preventDefault();
+      window.location.href = shortcuts[key];
+    }
+  });
+})();
+</script>
+</div></body></html>"""
 
 
 def _wrap_page(content: str, title: str = "") -> str:

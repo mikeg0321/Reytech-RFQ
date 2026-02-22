@@ -3878,3 +3878,78 @@ def api_brief_send_sms():
     if len(text) > 1550:
         text = text[:1547] + "..."
     return jsonify(_send_sms(NOTIFY_TO, text))
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# Data Quality Check API
+# ════════════════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/data/quality")
+@auth_required
+def api_data_quality():
+    """Run data quality check and return report."""
+    import json as _j
+    report = {"ok": True, "fixes": 0, "issues": []}
+
+    # Customers
+    try:
+        cust_path = os.path.join(DATA_DIR, "customers.json")
+        customers = _j.load(open(cust_path))
+        fixes = 0
+        for c in customers:
+            # Normalize emails
+            email = c.get("email", "")
+            if email and email != email.strip().lower():
+                c["email"] = email.strip().lower()
+                fixes += 1
+            # Strip whitespace
+            for key in ["qb_name", "display_name", "company", "parent", "city", "state", "zip", "phone"]:
+                val = c.get(key, "")
+                if isinstance(val, str) and val != val.strip():
+                    c[key] = val.strip()
+                    fixes += 1
+            # Ensure display_name
+            if not c.get("display_name", "").strip() and c.get("qb_name", "").strip():
+                c["display_name"] = c["qb_name"]
+                fixes += 1
+        if fixes > 0:
+            with open(cust_path, "w") as f:
+                _j.dump(customers, f, indent=2, default=str)
+
+        report["customers"] = {
+            "total": len(customers),
+            "with_email": sum(1 for c in customers if c.get("email", "").strip()),
+            "with_phone": sum(1 for c in customers if c.get("phone", "").strip()),
+            "no_email": sum(1 for c in customers if not c.get("email", "").strip()),
+            "fixes": fixes,
+        }
+        report["fixes"] += fixes
+    except Exception as e:
+        report["issues"].append(f"customers: {e}")
+
+    # CRM Contacts
+    try:
+        crm_path = os.path.join(DATA_DIR, "crm_contacts.json")
+        contacts = _j.load(open(crm_path))
+        ct_list = list(contacts.values()) if isinstance(contacts, dict) else contacts
+        report["crm_contacts"] = {
+            "total": len(ct_list),
+            "with_email": sum(1 for ct in ct_list if isinstance(ct, dict) and ct.get("buyer_email", "").strip()),
+            "with_phone": sum(1 for ct in ct_list if isinstance(ct, dict) and ct.get("buyer_phone", "").strip()),
+        }
+    except Exception as e:
+        report["issues"].append(f"crm_contacts: {e}")
+
+    # Vendors
+    try:
+        vendor_path = os.path.join(DATA_DIR, "vendors.json")
+        vendors = _j.load(open(vendor_path))
+        report["vendors"] = {
+            "total": len(vendors),
+            "with_email": sum(1 for v in vendors if isinstance(v, dict) and v.get("email", "").strip()),
+            "with_phone": sum(1 for v in vendors if isinstance(v, dict) and v.get("phone", "").strip()),
+        }
+    except Exception as e:
+        report["issues"].append(f"vendors: {e}")
+
+    return jsonify(report)
