@@ -973,38 +973,6 @@
     "ship_to_name": "CSP-Sacramento"
   },
   {
-    "quote_number": "R26Q1",
-    "status": "won",
-    "total": 614.54,
-    "subtotal": 614.54,
-    "tax": 0,
-    "agency": "CDCR",
-    "institution": "CSP-Sacramento",
-    "po_number": "PO-TEST-001",
-    "contact_name": "",
-    "contact_email": "",
-    "created_at": "2026-02-22T01:31:49.799119",
-    "updated_at": "2026-02-23T05:10:41.181229",
-    "is_test": false,
-    "source": "",
-    "sent_at": "",
-    "items_detail": [
-      {
-        "description": "Engraved two line name tag, black/white\nRef ASIN: B07TEST123",
-        "part_number": "B07TEST123",
-        "qty": 22,
-        "unit_price": 15.72
-      },
-      {
-        "description": "Copy paper, 8.5x11, 20lb, white, 10 reams\nRef ASIN: B00TEST456",
-        "part_number": "B00TEST456",
-        "qty": 5,
-        "unit_price": 53.74
-      }
-    ],
-    "ship_to_name": "CSP-Sacramento"
-  },
-  {
     "quote_number": "TEST",
     "status": "pending",
     "total": 107.24,
