@@ -611,6 +611,31 @@ try:
             if os.path.exists(csv_path):
                 _result = import_qb_csv(csv_path)
                 log.info("🏗️ Auto-imported product catalog: %d products from QB CSV", _result.get("imported", 0))
+                # Run Sprint 1 fixes on fresh import
+                try:
+                    _fix_result = run_sprint1_fixes()
+                    log.info("🔧 Sprint 1 fixes applied: names=%d, brands=%d, prices=%d",
+                             _fix_result.get("names_fixed", 0), _fix_result.get("brands_found", 0),
+                             _fix_result.get("prices_calculated", 0))
+                except Exception as _fx:
+                    log.warning("Sprint 1 fixes error: %s", _fx)
+        elif _cat_count > 0:
+            # Check if fixes have been applied (recommended_price populated)
+            try:
+                import sqlite3 as _sql3b
+                _conn2 = _sql3b.connect(os.path.join(DATA_DIR, "reytech.db"), timeout=5)
+                _unfixed = _conn2.execute(
+                    "SELECT COUNT(*) FROM product_catalog WHERE recommended_price IS NULL AND cost > 0"
+                ).fetchone()[0]
+                _conn2.close()
+                if _unfixed > 50:  # More than 50 unpriced products = fixes haven't run
+                    log.info("🔧 Found %d unpriced products — running Sprint 1 fixes...", _unfixed)
+                    _fix_result = run_sprint1_fixes()
+                    log.info("🔧 Sprint 1 fixes: names=%d, brands=%d, prices=%d",
+                             _fix_result.get("names_fixed", 0), _fix_result.get("brands_found", 0),
+                             _fix_result.get("prices_calculated", 0))
+            except Exception as _fx2:
+                log.debug("Sprint 1 fix check: %s", _fx2)
 except Exception as _e:
     log.warning("Product catalog auto-import failed: %s", _e)
 

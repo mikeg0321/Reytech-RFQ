@@ -95,3 +95,15 @@ render_page() was introduced but ~8 routes still called them → 500 errors.
 **Rule**: Use `render_page("generic.html", page_title=title, content=html_str)`
 for pages that build HTML in Python. The `_wrap_page` shim in dashboard.py
 delegates to this. Always test every page after refactoring rendering.
+
+## L16: QB product names are part numbers, not descriptions
+**Pattern**: QB "Product/Service Name" field contains part numbers like "00300504-6".
+The actual product name is in the "Sales Description" field (multiline).
+**Rule**: When importing QB data, use `_make_product_name(description)` as the product name,
+store the QB name as `mfg_number`. Handle name uniqueness collisions (Foley Catheter in
+multiple sizes = same description). Append [part#] on collision.
+
+## L17: Auto-fix hooks need idempotency guards
+**Pattern**: Sprint 1 fixes (name fixing, pricing) should run on deploy but not on every restart.
+**Rule**: Use a measurable signal (e.g., "count products with NULL recommended_price > 50")
+to decide if fixes need to run. Avoids re-processing and keeps startup fast.
