@@ -525,10 +525,17 @@ def find_sb_admin_for_agencies() -> dict:
 
 def update_revenue_tracker() -> dict:
     """Aggregate all revenue data toward the $2M goal."""
-    # Sources: revenue_log DB (primary), quotes won, QB data, manual entries
+    # Sources: revenue_log DB (primary), orders, quotes won, QB data, manual entries
     revenue = _load_json(REVENUE_FILE)
     if not isinstance(revenue, dict):
         revenue = {"goal": REVENUE_GOAL, "year": 2026, "entries": [], "manual_entries": []}
+
+    # ── Ensure revenue_log is fresh (sync orders → revenue_log) ──
+    try:
+        from src.agents.revenue_engine import reconcile_revenue
+        reconcile_revenue()
+    except Exception:
+        pass
 
     # ── Primary: SQLite revenue_log (authoritative source) ──────
     db_revenue = 0
@@ -544,6 +551,20 @@ def update_revenue_tracker() -> dict:
     except Exception:
         pass
     # ── End DB revenue ──────────────────────────────────────────
+
+    # ── Orders (confirmed purchases = real revenue) ─────────────
+    orders_revenue = 0
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            row = conn.execute("""
+                SELECT COALESCE(SUM(total), 0) as total
+                FROM orders WHERE total > 0
+            """).fetchone()
+            orders_revenue = row["total"] if row else 0
+    except Exception:
+        pass
+    # ── End orders ──────────────────────────────────────────────
 
     # Pull from quotes (fallback)
     try:
@@ -612,7 +633,7 @@ def update_revenue_tracker() -> dict:
             if p.get("outreach_status") in ("responded", "won"):
                 growth_pipeline += p.get("total_spend", 0) * 0.1  # 10% capture estimate
 
-    closed = max(db_revenue, quotes_revenue, qb_revenue, manual_total)
+    closed = max(db_revenue, orders_revenue, quotes_revenue, qb_revenue, manual_total)
     total_pipeline = pipeline + growth_pipeline
 
     now = datetime.now()

@@ -44,7 +44,11 @@ FISCAL_YEAR_START = "2025-07-01"  # CA fiscal year
 # ── Revenue Reconciliation ────────────────────────────────────────────────────
 
 def reconcile_revenue() -> dict:
-    """Sync revenue from multiple sources into revenue_log."""
+    """Sync revenue from multiple sources into revenue_log.
+    
+    Revenue is based on ORDERS (confirmed purchases), not quote status.
+    A quote is temporary — revenue is real when a PO/order exists.
+    """
     now = datetime.now(timezone.utc).isoformat()
     synced = 0
 
@@ -54,7 +58,66 @@ def reconcile_revenue() -> dict:
                 "SELECT id FROM revenue_log"
             ).fetchall())
 
-            # Source 1: Won quotes
+            # ── Source 1: Orders (primary revenue source) ─────────────
+            # An order = confirmed purchase (PO received). This IS revenue.
+            orders = conn.execute("""
+                SELECT id, quote_number, agency, institution, po_number,
+                       total, status, created_at
+                FROM orders
+                WHERE total > 0
+            """).fetchall()
+
+            for o in orders:
+                rev_id = f"rev-ord-{o['id']}"
+                if rev_id in existing_ids:
+                    continue
+                desc = f"Order {o['id']}"
+                if o["po_number"]:
+                    desc = f"PO {o['po_number']}"
+                if o["agency"]:
+                    desc += f" — {o['agency']}"
+
+                # Look up cost/margin from linked quote if available
+                cost = 0
+                margin = 0
+                if o["quote_number"]:
+                    qrow = conn.execute(
+                        "SELECT total_cost, margin_pct FROM quotes WHERE quote_number = ?",
+                        (o["quote_number"],)
+                    ).fetchone()
+                    if qrow:
+                        cost = qrow["total_cost"] or 0
+                        margin = qrow["margin_pct"] or 0
+
+                conn.execute("""
+                    INSERT INTO revenue_log
+                    (id, logged_at, amount, description, source, quote_number,
+                     po_number, agency, institution, cost, margin_pct, category)
+                    VALUES (?, ?, ?, ?, 'order', ?, ?, ?, ?, ?, ?, 'product_sales')
+                """, (rev_id, o["created_at"] or now, o["total"], desc,
+                      o["quote_number"] or "", o["po_number"] or "",
+                      o["agency"] or "", o["institution"] or "",
+                      cost, margin))
+                synced += 1
+                existing_ids.add(rev_id)
+
+                # Auto-mark linked quote as 'won' if it has an order
+                if o["quote_number"]:
+                    qstatus = conn.execute(
+                        "SELECT status FROM quotes WHERE quote_number = ?",
+                        (o["quote_number"],)
+                    ).fetchone()
+                    if qstatus and qstatus["status"] not in ("won", "lost", "cancelled"):
+                        conn.execute("""
+                            UPDATE quotes SET status = 'won',
+                                po_number = COALESCE(NULLIF(?, ''), po_number),
+                                updated_at = ?
+                            WHERE quote_number = ?
+                        """, (o["po_number"] or "", now, o["quote_number"]))
+                        log.info("Auto-marked quote %s as 'won' (has order %s)",
+                                 o["quote_number"], o["id"])
+
+            # ── Source 2: Won quotes WITHOUT orders (manual wins) ─────
             won = conn.execute("""
                 SELECT quote_number, total, agency, institution, po_number,
                        updated_at, total_cost, gross_profit, margin_pct
@@ -66,6 +129,18 @@ def reconcile_revenue() -> dict:
                 rev_id = f"rev-{q['quote_number']}"
                 if rev_id in existing_ids:
                     continue
+                # Skip if we already have an order-based entry for this quote
+                ord_id = f"rev-ord-ORD-{q['quote_number']}"
+                if ord_id in existing_ids:
+                    continue
+                # Also check if ANY order-based entry references this quote
+                has_order_rev = conn.execute(
+                    "SELECT 1 FROM revenue_log WHERE source='order' AND quote_number=? LIMIT 1",
+                    (q["quote_number"],)
+                ).fetchone()
+                if has_order_rev:
+                    continue
+
                 conn.execute("""
                     INSERT INTO revenue_log
                     (id, logged_at, amount, description, source, quote_number,
@@ -77,8 +152,9 @@ def reconcile_revenue() -> dict:
                       q["agency"], q["institution"],
                       q["total_cost"] or 0, q["margin_pct"] or 0))
                 synced += 1
+                existing_ids.add(rev_id)
 
-            # Source 2: JSON revenue file
+            # ── Source 3: JSON revenue file (manual entries) ──────────
             rev_path = os.path.join(DATA_DIR, "intel_revenue.json")
             try:
                 with open(rev_path) as f:
@@ -99,6 +175,29 @@ def reconcile_revenue() -> dict:
                           entry.get("quote_number", ""), entry.get("po_number", ""),
                           entry.get("agency", "")))
                     synced += 1
+            except Exception:
+                pass
+
+            # ── Cleanup: remove old duplicate/orphan revenue entries ──
+            # Delete revenue entries from quotes that are no longer 'won' 
+            # and have no backing order
+            try:
+                orphans = conn.execute("""
+                    SELECT r.id, r.quote_number FROM revenue_log r
+                    WHERE r.source = 'quote_won' AND r.quote_number != ''
+                    AND NOT EXISTS (
+                        SELECT 1 FROM quotes q 
+                        WHERE q.quote_number = r.quote_number AND q.status = 'won'
+                    )
+                    AND NOT EXISTS (
+                        SELECT 1 FROM orders o
+                        WHERE o.quote_number = r.quote_number
+                    )
+                """).fetchall()
+                for orph in orphans:
+                    conn.execute("DELETE FROM revenue_log WHERE id = ?", (orph["id"],))
+                    log.info("Cleaned orphan revenue entry %s (quote %s no longer won)",
+                             orph["id"], orph["quote_number"])
             except Exception:
                 pass
 

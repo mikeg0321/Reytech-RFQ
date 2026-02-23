@@ -684,14 +684,18 @@ def _load_price_checks():
                             pass
                         data[pc_id] = {
                             "id": pc_id,
-                            "pc_number": r.get("quote_number") or pc_id,
-                            "institution": r["agency"] or "",
+                            "pc_number": r.get("pc_number") or r.get("quote_number") or pc_id,
+                            "institution": r.get("institution") or r["agency"] or "",
                             "requestor": r["requestor"] or "",
                             "items": items,
                             "source_pdf": r.get("source_file") or "",
                             "status": r["status"] or "parsed",
                             "created_at": r["created_at"] or "",
                             "reytech_quote_number": r.get("quote_number") or "",
+                            "email_uid": r.get("email_uid") or "",
+                            "email_subject": r.get("email_subject") or "",
+                            "due_date": r.get("due_date") or "",
+                            "source": "email_auto",
                         }
                     if data:
                         _save_price_checks(data)
@@ -724,19 +728,25 @@ def _save_price_checks(pcs):
                 items_json = json.dumps(pc.get("items", []))
                 conn.execute("""
                     INSERT OR REPLACE INTO price_checks
-                    (id, created_at, requestor, agency, items, source_file,
-                     quote_number, total_items, status)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (id, created_at, requestor, agency, institution, items, source_file,
+                     quote_number, pc_number, total_items, status,
+                     email_uid, email_subject, due_date)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     pc_id,
                     pc.get("created_at", ""),
                     pc.get("requestor", ""),
-                    pc.get("institution", ""),
+                    pc.get("institution", "") or pc.get("agency", ""),
+                    pc.get("institution", "") or pc.get("agency", ""),
                     items_json,
                     pc.get("source_pdf", ""),
                     pc.get("reytech_quote_number", ""),
+                    pc.get("pc_number", ""),
                     len(pc.get("items", [])),
                     pc.get("status", "parsed"),
+                    pc.get("email_uid", ""),
+                    pc.get("email_subject", ""),
+                    pc.get("due_date", ""),
                 ))
     except Exception:
         pass
@@ -1761,6 +1771,19 @@ def _create_order_from_quote(qt: dict, po_number: str = "") -> dict:
     _log_crm_activity(qn, "order_created",
                       f"Order {oid} created from quote {qn} — ${qt.get('total',0):,.2f}",
                       actor="system", metadata={"order_id": oid, "institution": order["institution"]})
+    # ── Mark linked quote as 'won' since it has a confirmed order ──
+    if qn:
+        try:
+            from src.core.db import get_db
+            with get_db() as conn:
+                conn.execute("""
+                    UPDATE quotes SET status = 'won',
+                        po_number = COALESCE(NULLIF(?, ''), po_number),
+                        updated_at = ?
+                    WHERE quote_number = ? AND status NOT IN ('won', 'cancelled')
+                """, (po_number, datetime.now().isoformat(), qn))
+        except Exception:
+            pass
     # ── Pricing Intelligence: capture winning prices ──
     try:
         from src.knowledge.pricing_intel import record_winning_prices
@@ -1910,6 +1933,19 @@ def _create_order_from_po_email(po_data: dict) -> dict:
     _log_crm_activity(qn or po_num, "order_created",
                       f"Order {oid} created from PO email — PO#{po_num} · ${total:,.2f}" + (f" · Linked to quote {qn}" if qn else ""),
                       actor="system", metadata={"order_id": oid, "po_number": po_num, "source": "email_po", "quote_linked": qn})
+    # ── Mark linked quote as 'won' since PO confirms the order ──
+    if qn:
+        try:
+            from src.core.db import get_db as _get_db
+            with _get_db() as _conn:
+                _conn.execute("""
+                    UPDATE quotes SET status = 'won',
+                        po_number = COALESCE(NULLIF(?, ''), po_number),
+                        updated_at = ?
+                    WHERE quote_number = ? AND status NOT IN ('won', 'cancelled')
+                """, (po_num, datetime.now().isoformat(), qn))
+        except Exception:
+            pass
     log.info("Order %s created from PO email (quote=%s, po=%s, items=%d, total=$%.2f, costs=%d)",
              oid, qn, po_num, len(line_items), total, sum(1 for it in line_items if it.get("cost")))
     # ── Pricing Intelligence: capture winning prices ──

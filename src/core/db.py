@@ -590,6 +590,12 @@ def _migrate_columns():
         ("price_checks", "revision_of", "TEXT"),
         ("price_checks", "closed_at", "TEXT"),
         ("price_checks", "closed_reason", "TEXT"),
+        # PC persistence columns (email import + SQLite roundtrip)
+        ("price_checks", "pc_number", "TEXT DEFAULT ''"),
+        ("price_checks", "institution", "TEXT DEFAULT ''"),
+        ("price_checks", "email_uid", "TEXT DEFAULT ''"),
+        ("price_checks", "email_subject", "TEXT DEFAULT ''"),
+        ("price_checks", "due_date", "TEXT DEFAULT ''"),
         # ── PRD-28 Work Item 1: Quote Lifecycle ──
         ("quotes", "expires_at", "TEXT"),
         ("quotes", "closed_by_agent", "TEXT"),
