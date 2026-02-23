@@ -525,12 +525,27 @@ def find_sb_admin_for_agencies() -> dict:
 
 def update_revenue_tracker() -> dict:
     """Aggregate all revenue data toward the $2M goal."""
-    # Sources: quotes won, QB data, manual entries
+    # Sources: revenue_log DB (primary), quotes won, QB data, manual entries
     revenue = _load_json(REVENUE_FILE)
     if not isinstance(revenue, dict):
         revenue = {"goal": REVENUE_GOAL, "year": 2026, "entries": [], "manual_entries": []}
 
-    # Pull from quotes
+    # ── Primary: SQLite revenue_log (authoritative source) ──────
+    db_revenue = 0
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            row = conn.execute("""
+                SELECT COALESCE(SUM(amount), 0) as total
+                FROM revenue_log
+                WHERE logged_at >= '2025-07-01' AND amount > 0
+            """).fetchone()
+            db_revenue = row["total"] if row else 0
+    except Exception:
+        pass
+    # ── End DB revenue ──────────────────────────────────────────
+
+    # Pull from quotes (fallback)
     try:
         quotes_data = _load_json(os.path.join(DATA_DIR, "quotes_log.json"))
         if isinstance(quotes_data, list):
@@ -540,6 +555,18 @@ def update_revenue_tracker() -> dict:
             quotes_revenue = 0
     except:
         quotes_revenue = 0
+
+    # Also check SQLite quotes for won totals
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            row = conn.execute("""
+                SELECT COALESCE(SUM(total), 0) as total
+                FROM quotes WHERE status = 'won' AND total > 0 AND is_test = 0
+            """).fetchone()
+            quotes_revenue = max(quotes_revenue, row["total"] if row else 0)
+    except Exception:
+        pass
 
     # Pull from QB if available
     qb_revenue = 0
@@ -565,6 +592,18 @@ def update_revenue_tracker() -> dict:
     except:
         pipeline = 0
 
+    # SQLite pipeline (more accurate than stale JSON)
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            row = conn.execute("""
+                SELECT COALESCE(SUM(total), 0) as total
+                FROM quotes WHERE status IN ('pending', 'sent') AND total > 0 AND is_test = 0
+            """).fetchone()
+            pipeline = max(pipeline, row["total"] if row else 0)
+    except Exception:
+        pass
+
     # Growth prospects pipeline
     prospects_data = _load_json(PROSPECTS_FILE) if HAS_GROWTH else {}
     growth_pipeline = 0
@@ -573,7 +612,7 @@ def update_revenue_tracker() -> dict:
             if p.get("outreach_status") in ("responded", "won"):
                 growth_pipeline += p.get("total_spend", 0) * 0.1  # 10% capture estimate
 
-    closed = max(quotes_revenue, qb_revenue, manual_total)
+    closed = max(db_revenue, quotes_revenue, qb_revenue, manual_total)
     total_pipeline = pipeline + growth_pipeline
 
     now = datetime.now()

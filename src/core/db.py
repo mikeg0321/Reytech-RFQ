@@ -967,12 +967,16 @@ def get_contact_activity(contact_id: str, limit: int = 100) -> list:
 def log_revenue(amount: float, description: str, source: str = "manual",
                 quote_number: str = "", po_number: str = "",
                 agency: str = "", date: str = "") -> str | None:
-    """Record a revenue entry."""
-    rid = f"REV-{datetime.now().strftime('%Y%m%d')}-{os.urandom(3).hex()}"
+    """Record a revenue entry. Uses stable ID based on quote_number to prevent duplicates."""
+    # Stable ID: if quote_number provided, use it to prevent duplicates
+    if quote_number:
+        rid = f"rev-{quote_number}"
+    else:
+        rid = f"REV-{datetime.now().strftime('%Y%m%d')}-{os.urandom(3).hex()}"
     try:
         with get_db() as conn:
             conn.execute("""
-                INSERT INTO revenue_log
+                INSERT OR IGNORE INTO revenue_log
                   (id, logged_at, amount, description, source,
                    quote_number, po_number, agency, date)
                 VALUES (?,?,?,?,?,?,?,?,?)
@@ -1178,6 +1182,9 @@ def startup() -> dict:
     # ── Auto-dedup price checks on every boot ──
     _dedup_price_checks_on_boot()
 
+    # ── Data integrity fixes on every boot ──
+    _fix_data_on_boot()
+
     stats_before = get_db_stats()
     if stats_before.get("quotes", 0) == 0 and stats_before.get("contacts", 0) == 0:
         # First run — migrate from JSON seed files
@@ -1204,6 +1211,95 @@ def startup() -> dict:
         log.warning("BOOT PC CHECK: error reading price_checks.json: %s", e)
     
     return {"ok": True, "db_path": DB_PATH, "stats": stats, "is_volume": is_vol}
+
+
+def _fix_data_on_boot():
+    """Idempotent data integrity fixes that run on every deploy.
+    
+    Fixes:
+    1. Clean revenue_log duplicate entries (random IDs → stable IDs)
+    2. Sync orders.json → SQLite orders table
+    3. Mark test fixture quotes as is_test=1
+    4. Mark quotes with orders as 'won' if still 'pending'
+    """
+    import re as _re
+    try:
+        with get_db() as conn:
+            fixes = []
+
+            # Fix 1: Clean revenue_log duplicates (entries with random REV- IDs)
+            dupes = conn.execute("""
+                SELECT quote_number, COUNT(*) as c FROM revenue_log
+                WHERE id LIKE 'REV-%' AND quote_number != ''
+                GROUP BY quote_number HAVING c > 1
+            """).fetchall()
+            for d in dupes:
+                # Keep one, delete rest
+                conn.execute("""
+                    DELETE FROM revenue_log
+                    WHERE id LIKE 'REV-%' AND quote_number = ?
+                    AND id NOT IN (
+                        SELECT id FROM revenue_log
+                        WHERE quote_number = ? ORDER BY logged_at DESC LIMIT 1
+                    )
+                """, (d["quote_number"], d["quote_number"]))
+                fixes.append(f"cleaned {d['c']-1} dupes for {d['quote_number']}")
+
+            # Fix 2: Sync orders.json → SQLite
+            orders_path = os.path.join(DATA_DIR, "orders.json")
+            if os.path.exists(orders_path):
+                try:
+                    with open(orders_path) as f:
+                        json_orders = json.load(f)
+                    for oid, o in json_orders.items():
+                        exists = conn.execute("SELECT id FROM orders WHERE id=?", (oid,)).fetchone()
+                        if not exists:
+                            conn.execute("""
+                                INSERT OR IGNORE INTO orders
+                                (id, quote_number, po_number, agency, institution,
+                                 total, status, items, created_at, updated_at)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """, (oid, o.get("quote_number", ""), o.get("po_number", ""),
+                                  o.get("agency", ""), o.get("institution", o.get("customer", "")),
+                                  o.get("total", 0), o.get("status", "new"),
+                                  json.dumps(o.get("line_items", [])),
+                                  o.get("created_at", ""), datetime.now().isoformat()))
+                            fixes.append(f"synced order {oid}")
+                except Exception:
+                    pass
+
+            # Fix 3: Mark test fixture quotes as is_test=1
+            real_pattern = _re.compile(r'^R26Q\d+$')
+            test_quotes = conn.execute(
+                "SELECT quote_number FROM quotes WHERE is_test = 0"
+            ).fetchall()
+            test_qns = [q["quote_number"] for q in test_quotes
+                        if not real_pattern.match(q["quote_number"])]
+            if test_qns:
+                placeholders = ",".join(["?" for _ in test_qns])
+                conn.execute(
+                    f"UPDATE quotes SET is_test = 1 WHERE quote_number IN ({placeholders})",
+                    test_qns)
+                fixes.append(f"marked {len(test_qns)} test quotes")
+
+            # Fix 4: Mark quotes with orders as 'won' if still pending
+            pending_with_order = conn.execute("""
+                SELECT q.quote_number, o.po_number
+                FROM quotes q JOIN orders o ON o.quote_number = q.quote_number
+                WHERE q.status = 'pending' AND o.total > 0
+            """).fetchall()
+            for pwo in pending_with_order:
+                conn.execute("""
+                    UPDATE quotes SET status = 'won', po_number = ?
+                    WHERE quote_number = ? AND status = 'pending'
+                """, (pwo["po_number"], pwo["quote_number"]))
+                fixes.append(f"marked {pwo['quote_number']} as won")
+
+            if fixes:
+                log.info("Boot data fixes: %s", "; ".join(fixes))
+
+    except Exception as e:
+        log.warning("_fix_data_on_boot: %s", e)
 
 
 def _dedup_price_checks_on_boot():

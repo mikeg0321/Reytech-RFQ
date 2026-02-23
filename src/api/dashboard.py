@@ -652,6 +652,7 @@ def log_email_sent_db(direction: str, sender: str, recipient: str, subject: str,
 
 def _load_price_checks():
     path = os.path.join(DATA_DIR, "price_checks.json")
+    data = {}
     if os.path.exists(path):
         try:
             import fcntl
@@ -659,13 +660,47 @@ def _load_price_checks():
                 fcntl.flock(f.fileno(), fcntl.LOCK_SH)  # shared read lock
                 data = json.load(f)
                 fcntl.flock(f.fileno(), fcntl.LOCK_UN)
-                return data
         except ImportError:
             with open(path) as f:
-                return json.load(f)
+                data = json.load(f)
         except Exception:
-            return {}
-    return {}
+            data = {}
+
+    # ── Restore from SQLite if JSON is empty (post-deploy recovery) ──
+    if not data:
+        try:
+            from src.core.db import get_db
+            with get_db() as conn:
+                rows = conn.execute(
+                    "SELECT * FROM price_checks WHERE status NOT IN ('dismissed','cancelled')"
+                ).fetchall()
+                if rows:
+                    for r in rows:
+                        pc_id = r["id"]
+                        items = []
+                        try:
+                            items = json.loads(r["items"] or "[]")
+                        except Exception:
+                            pass
+                        data[pc_id] = {
+                            "id": pc_id,
+                            "pc_number": r.get("quote_number") or pc_id,
+                            "institution": r["agency"] or "",
+                            "requestor": r["requestor"] or "",
+                            "items": items,
+                            "source_pdf": r.get("source_file") or "",
+                            "status": r["status"] or "parsed",
+                            "created_at": r["created_at"] or "",
+                            "reytech_quote_number": r.get("quote_number") or "",
+                        }
+                    if data:
+                        _save_price_checks(data)
+                        log.info("Restored %d price checks from SQLite → JSON", len(data))
+        except Exception:
+            pass
+    # ── End SQLite restore ────────────────────────────────────────────
+
+    return data
 
 def _save_price_checks(pcs):
     path = os.path.join(DATA_DIR, "price_checks.json")
@@ -680,6 +715,32 @@ def _save_price_checks(pcs):
     except ImportError:
         with open(path, "w") as f:
             json.dump(pcs, f, indent=2, default=str)
+
+    # ── Sync to SQLite for persistence across deploys ─────────────
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            for pc_id, pc in pcs.items():
+                items_json = json.dumps(pc.get("items", []))
+                conn.execute("""
+                    INSERT OR REPLACE INTO price_checks
+                    (id, created_at, requestor, agency, items, source_file,
+                     quote_number, total_items, status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    pc_id,
+                    pc.get("created_at", ""),
+                    pc.get("requestor", ""),
+                    pc.get("institution", ""),
+                    items_json,
+                    pc.get("source_pdf", ""),
+                    pc.get("reytech_quote_number", ""),
+                    len(pc.get("items", [])),
+                    pc.get("status", "parsed"),
+                ))
+    except Exception:
+        pass
+    # ── End SQLite sync ───────────────────────────────────────────
 
 
 def _merge_save_pc(pc_id: str, pc_data: dict):
@@ -1403,10 +1464,19 @@ def do_poll_check():
     t = Trace("email_poll")
     email_cfg = CONFIG.get("email", {})
     
-    if not email_cfg.get("email_password"):
+    # Check for password in config OR environment (Railway sets GMAIL_PASSWORD as env var)
+    effective_password = (email_cfg.get("email_password")
+                          or os.environ.get("GMAIL_PASSWORD", ""))
+    if not effective_password:
         POLL_STATUS["error"] = "Email password not configured"
-        log.error("Poll check failed: no email_password in config")
+        log.error("Poll check failed: no email_password in config or GMAIL_PASSWORD env var")
         return []
+    # Inject env-var password into config so EmailPoller picks it up
+    email_cfg = dict(email_cfg)
+    email_cfg["email_password"] = effective_password
+    # Also ensure email address falls back to env
+    if not email_cfg.get("email"):
+        email_cfg["email"] = os.environ.get("GMAIL_ADDRESS", "")
     
     # Always destroy and recreate poller to pick up fresh processed_emails.json
     # (system-reset clears the file but old poller has stale in-memory set)
@@ -1476,11 +1546,15 @@ def do_poll_check():
 def email_poll_loop():
     """Background thread: check email every N seconds."""
     email_cfg = CONFIG.get("email", {})
-    if not email_cfg.get("email_password"):
+    effective_password = (email_cfg.get("email_password")
+                          or os.environ.get("GMAIL_PASSWORD", ""))
+    if not effective_password:
         POLL_STATUS["error"] = "Email password not configured"
         POLL_STATUS["running"] = False
-        log.warning("Email polling disabled — no password in config")
+        log.warning("Email polling disabled — no password in config or GMAIL_PASSWORD env var")
         return
+    # Ensure CONFIG has the password for do_poll_check
+    CONFIG.setdefault("email", {})["email_password"] = effective_password
     
     interval = email_cfg.get("poll_interval_seconds", 120)
     POLL_STATUS["running"] = True
@@ -1566,13 +1640,70 @@ def _find_quote(quote_number: str) -> dict:
 ORDERS_FILE = os.path.join(DATA_DIR, "orders.json")
 
 def _load_orders() -> dict:
-    return _cached_json_load(ORDERS_FILE, fallback={})
+    data = _cached_json_load(ORDERS_FILE, fallback={})
+    # ── Restore from SQLite if JSON is empty ─────────────────────
+    if not data:
+        try:
+            from src.core.db import get_db
+            with get_db() as conn:
+                rows = conn.execute("SELECT * FROM orders").fetchall()
+                for r in rows:
+                    oid = r["id"]
+                    items = []
+                    try:
+                        items = json.loads(r["items"] or "[]")
+                    except Exception:
+                        pass
+                    data[oid] = {
+                        "order_id": oid,
+                        "quote_number": r.get("quote_number") or "",
+                        "po_number": r.get("po_number") or "",
+                        "agency": r.get("agency") or "",
+                        "institution": r.get("institution") or "",
+                        "total": r.get("total") or 0,
+                        "status": r.get("status") or "new",
+                        "line_items": items,
+                        "created_at": r.get("created_at") or "",
+                    }
+                if data:
+                    _save_orders(data)
+                    log.info("Restored %d orders from SQLite → JSON", len(data))
+        except Exception:
+            pass
+    # ── End restore ──────────────────────────────────────────────
+    return data
 
 def _save_orders(orders: dict):
     os.makedirs(DATA_DIR, exist_ok=True)
     with open(ORDERS_FILE, "w") as f:
         json.dump(orders, f, indent=2, default=str)
     _invalidate_cache(ORDERS_FILE)
+    # ── Sync to SQLite ───────────────────────────────────────────
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            for oid, o in orders.items():
+                items_json = json.dumps(o.get("line_items", []))
+                conn.execute("""
+                    INSERT OR REPLACE INTO orders
+                    (id, quote_number, po_number, agency, institution,
+                     total, status, items, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    oid,
+                    o.get("quote_number", ""),
+                    o.get("po_number", ""),
+                    o.get("agency", ""),
+                    o.get("institution", o.get("customer", "")),
+                    o.get("total", 0),
+                    o.get("status", "new"),
+                    items_json,
+                    o.get("created_at", ""),
+                    datetime.now().isoformat(),
+                ))
+    except Exception:
+        pass
+    # ── End sync ─────────────────────────────────────────────────
 
 def _create_order_from_quote(qt: dict, po_number: str = "") -> dict:
     """Create an order when a quote is won."""
