@@ -1,0 +1,1281 @@
+{% extends "base.html" %}
+{% block title %}PC {{ pcid }} — Reytech{% endblock %}
+
+{% block content %}
+<!doctype html><html><head><title>PC #{{ pc.get('pc_number','') }}</title>
+    <style>
+     body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#0d1117;color:#c9d1d9;margin:0;padding:20px;font-size:15px;line-height:1.5}
+     .card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:20px;margin:12px 0}
+     table{width:100%;border-collapse:collapse}
+     th,td{padding:8px 10px;border:1px solid #30363d;text-align:left;font-size:14px}
+     th{background:#21262d;font-size:12px;text-transform:uppercase;color:#8b949e;white-space:nowrap;letter-spacing:0.3px}
+     .btn{padding:9px 18px;border-radius:6px;border:none;cursor:pointer;font-weight:600;text-decoration:none;display:inline-block;margin:4px;font-size:14px}
+     .btn-p{background:#1f6feb;color:#fff} .btn-g{background:#238636;color:#fff} .btn-o{background:#da3633;color:#fff}
+     .btn-y{background:#9e6a03;color:#fff} .btn-v{background:#8957e5;color:#fff} .btn-sm{padding:6px 14px;font-size:13px}
+     a{color:#58a6ff} h1{margin:0;font-size:24px} .meta{color:#8b949e;font-size:15px}
+     .status{padding:3px 8px;border-radius:4px;font-size:13px;font-weight:600;vertical-align:middle}
+     .status-parsed{background:#1f6feb33;color:#58a6ff} .status-priced{background:#23863633;color:#3fb950}
+     .status-completed{background:#23863633;color:#3fb950} .status-converted{background:#8957e533;color:#bc8cff}
+     .totals{text-align:right;font-size:16px;margin-top:12px} .totals b{color:#3fb950}
+     .num-in{width:82px;background:#0d1117;border:1px solid #484f58;color:#e6edf3;padding:6px 8px;border-radius:5px;text-align:right;font-size:15px;font-weight:500;font-family:'Segoe UI',system-ui,sans-serif}
+     .num-in:focus{border-color:#58a6ff;outline:none;box-shadow:0 0 0 2px #1f6feb44}
+     .num-in.sm{width:52px}
+     input[type=number]{-moz-appearance:textfield}
+     input[type=number]::-webkit-outer-spin-button,input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+     .text-in{background:#0d1117;border:1px solid #484f58;color:#e6edf3;padding:6px 8px;border-radius:5px;font-size:14px;font-family:'Segoe UI',system-ui,sans-serif}
+     .text-in:focus{border-color:#58a6ff;outline:none;box-shadow:0 0 0 2px #1f6feb44}
+     textarea.text-in{resize:vertical;min-height:38px;line-height:1.4}
+     .msg{padding:10px 14px;border-radius:6px;margin:8px 0;font-size:14px}
+     .msg-ok{background:#23863622;color:#3fb950;border:1px solid #23863655}
+     .msg-warn{background:#9e6a0322;color:#d29922;border:1px solid #9e6a0355}
+     .msg-err{background:#da363322;color:#f85149;border:1px solid #da363355}
+     @keyframes slideIn{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
+     .tier-btn{background:#21262d;border:2px solid #30363d;color:#8b949e;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;line-height:1.3;text-align:center;transition:all .15s}
+     .tier-btn:hover{border-color:#58a6ff;color:#c9d1d9;background:#21262d}
+     .tier-active{background:#1f6feb22;border-color:#1f6feb;color:#58a6ff}
+     .desc-raw{font-size:11px;color:#6e7681;display:block;margin-top:2px;font-style:italic}
+     /* Preview Modal */
+     .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1000;overflow-y:auto;padding:20px}
+     .modal-overlay.active{display:flex;justify-content:center;align-items:flex-start}
+     .modal-content{background:#fff;color:#1a1a1a;border-radius:10px;max-width:850px;width:100%;margin:20px auto;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+     .modal-header{display:flex;justify-content:space-between;align-items:center;padding:14px 20px;border-bottom:2px solid #1a1a1a;background:#f5f5f0;border-radius:10px 10px 0 0}
+     .modal-header h2{margin:0;font-size:16px;color:#1a1a1a}
+     .modal-close{background:none;border:none;font-size:24px;cursor:pointer;color:#666;padding:0 8px}
+     .modal-body{padding:0}
+     /* Quote Preview Styles (print-like) */
+     .q-preview{font-family:'Times New Roman',Times,serif;font-size:13px;color:#000;line-height:1.4}
+     .q-preview table{width:100%;border-collapse:collapse}
+     .q-preview th,.q-preview td{border:1px solid #000;padding:4px 6px;text-align:left;font-size:12px}
+     .q-preview th{background:#e8e8e0;font-size:10px;text-transform:uppercase;font-weight:700}
+     .q-header{text-align:center;padding:10px;border-bottom:2px solid #000}
+     .q-header h3{margin:0;font-size:14px;text-transform:uppercase;letter-spacing:1px}
+     .q-header small{color:#444;font-size:11px}
+     .q-supplier{display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid #000;margin:0}
+     .q-supplier div{padding:4px 8px;border:1px solid #000;font-size:12px}
+     .q-supplier .q-lbl{font-size:9px;color:#555;text-transform:uppercase;display:block}
+     .q-total{text-align:right;font-size:14px;font-weight:700;padding:8px 12px}
+     @media print{
+      body>*{display:none!important}
+      .modal-overlay,.modal-overlay *{display:block!important}
+      .modal-overlay{position:static!important;background:none!important;padding:0!important}
+      .modal-content{box-shadow:none!important;margin:0!important;max-width:none!important}
+      .modal-header button,.modal-close{display:none!important}
+     }
+    </style></head><body>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
+     <a href="/" style="color:#58a6ff;font-size:13px;text-decoration:none;padding:4px 10px;background:#21262d;border:1px solid #30363d;border-radius:6px">🏠 Home</a>
+     <a href="/quotes" style="color:#fff;font-size:13px;text-decoration:none;padding:4px 10px;background:#1a3a5c;border-radius:6px">📋 Quotes</a>
+     <a href="/agents" style="color:#fff;font-size:13px;text-decoration:none;padding:4px 10px;background:#21262d;border:1px solid #30363d;border-radius:6px">🤖 Agents</a>
+    </div>
+
+    <!-- Preview Modal -->
+    <div class="modal-overlay" id="previewModal">
+     <div class="modal-content">
+      <div class="modal-header">
+       <h2>📋 Preview — <span id="previewFormType">AMS 704 Price Check</span></h2>
+       <div>
+        <button class="btn btn-sm btn-g" onclick="window.print()" style="margin-right:8px;font-size:12px">🖨️ Print</button>
+        <button class="modal-close" onclick="closePreview()">×</button>
+       </div>
+      </div>
+      <div class="modal-body" id="previewBody"></div>
+     </div>
+    </div>
+
+    <div class="card">
+     <h1 style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <span>Price Check #</span>
+      <span id="pcNumDisplay" style="cursor:pointer" title="Click to rename" onclick="document.getElementById('pcNumEdit').style.display='inline-flex';this.style.display='none'">{{ pc.get('pc_number','unknown') }}</span>
+      <span id="pcNumEdit" style="display:none;align-items:center;gap:4px">
+       <input type="text" id="pcNumInput" value="{{ pc.get('pc_number','') }}" style="background:#0d1117;border:1px solid #58a6ff;color:#c9d1d9;padding:4px 8px;border-radius:4px;font-size:16px;font-weight:700;width:200px;font-family:inherit">
+       <button onclick="renamePc()" style="background:#238636;color:#fff;border:none;padding:4px 10px;border-radius:4px;font-size:12px;cursor:pointer">Save</button>
+       <button onclick="document.getElementById('pcNumEdit').style.display='none';document.getElementById('pcNumDisplay').style.display='inline'" style="background:none;border:1px solid #30363d;color:#8b949e;padding:4px 8px;border-radius:4px;font-size:12px;cursor:pointer">✕</button>
+      </span>
+      <span class="status status-{{ pc.get('status','parsed') }}">{{ pc.get('status','parsed').upper() }}</span>
+      {% if pc.get('reytech_quote_number') %}<span style='margin-left:12px;font-family:JetBrains Mono,monospace;font-size:16px;color:#58a6ff;font-weight:700'>{{ pc.get('reytech_quote_number','') }}</span>{% endif %}</h1>
+
+     <!-- Pipeline Status Tracker -->
+     <div style="margin:12px 0;display:flex;align-items:center;gap:0;font-size:12px;font-weight:600">
+      {{ pipeline_html }}
+     </div>
+
+     {{ "<div style='padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(52,211,153,.08);border:1px solid rgba(52,211,153,.25);color:#3fb950;margin-bottom:10px'><span style=font-size:18px>✅</span><div><b>704 Complete</b> — Download below or re-fill if prices changed.</div></div>" if pc.get('status') in ('completed','converted') else "<div style='padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(88,166,255,.08);border:1px solid rgba(88,166,255,.25);color:#58a6ff;margin-bottom:10px'><span style=font-size:18px>💰</span><div><b>Priced</b> — review costs below, then Save & Fill 704.</div></div>" if pc.get('status') == 'priced' else "<div style='padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(210,153,34,.08);border:1px solid rgba(210,153,34,.25);color:#d29922;margin-bottom:10px'><span style=font-size:18px>📥</span><div><b>Parsed</b> — awaiting pricing agent. Click Process to run manually.</div></div>" if pc.get('status') == 'parsed' else "" }}
+
+     <div class="meta" style="margin-top:8px">
+      <b>Institution:</b> {{ header.get('institution',pc.get('institution','')) }} &nbsp;|&nbsp;
+      <b>Requestor:</b> {{ header.get('requestor',pc.get('requestor','')) }} &nbsp;|&nbsp;
+      <b>Due:</b> {{ pc.get('due_date','') }} <span id="dueUrgency"></span> &nbsp;|&nbsp;
+      <b>Ship to:</b> {{ pc.get('ship_to','') }} &nbsp;|&nbsp;
+      <b>Today:</b> {{ today_date }}
+     </div>
+
+     <!-- CRM Customer Card + Quote History -->
+     <div id="crmPanel" style="margin-top:10px;display:flex;gap:12px;flex-wrap:wrap">
+      <div id="crmCard" style="flex:1;min-width:260px;background:var(--sf2);border:1px solid var(--bd);border-radius:8px;padding:12px;font-size:13px">
+       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <span style="font-size:11px;color:#8b949e;text-transform:uppercase;font-weight:600;letter-spacing:.5px">📇 Customer</span>
+        <span id="crmBadge" style="font-size:10px;padding:2px 8px;border-radius:10px;font-weight:600"></span>
+       </div>
+       <div id="crmBody" style="color:var(--tx2)">Loading...</div>
+      </div>
+      <div id="historyCard" style="flex:1;min-width:320px;background:var(--sf2);border:1px solid var(--bd);border-radius:8px;padding:16px;font-size:13px">
+       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <span style="font-size:12px;color:#8b949e;text-transform:uppercase;font-weight:600;letter-spacing:.5px">📊 Quote History</span>
+        <span id="historyBadge" style="font-size:11px;padding:2px 10px;border-radius:10px;font-weight:600;background:#1a3a5c;color:#58a6ff;display:none"></span>
+       </div>
+       <div id="historyBody" style="color:var(--tx2);font-size:13px">Loading...</div>
+      </div>
+     </div>
+
+     <!-- Actions: Save + Preview + Fill/Download -->
+     <!-- 1-click Generate Quote banner (PRD Feature 3.2.1) -->
+     <div id="quote-gen-banner" style="background:linear-gradient(135deg,#1a3a5c,#0d2137);border:1px solid #1f6feb;border-radius:10px;padding:14px 20px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;gap:16px">
+      <div>
+       <div style="font-size:13px;font-weight:700;color:#58a6ff;margin-bottom:3px">🎯 Generate Reytech Quote</div>
+       <div style="font-size:12px;color:#8b949e" id="quote-gen-meta">Prices saved → 1 click to PDF + logged to CRM + DB</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+       <span style="font-size:11px;color:#3fb950;font-family:monospace" id="next-qn-badge">Next: {{ next_quote_preview or '—' }}</span>
+       <button class="btn" id="genQuoteBtn" data-testid="pc-generate-quote-1click" onclick="generateQuote1Click(this)" style="background:#1f6feb;color:#fff;font-weight:700;font-size:14px;padding:10px 24px;border-radius:8px;transition:all .2s;white-space:nowrap">📋 Generate Quote →</button>
+      </div>
+     </div>
+
+     <div class="action-bar" style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center" id="actionBar">
+      <button class="btn btn-p" onclick="savePrices(this)" id="saveBtn" style="font-size:14px;padding:8px 20px">💾 Save</button>
+      <button class="btn" onclick="showPreview()" style="background:#21262d;color:#c9d1d9;border:1px solid #484f58;font-size:14px;padding:8px 20px">👁️ Preview</button>
+      {{ "" if pc.get('status') in ('completed','converted') else "<button class='btn btn-g' id='submitBtn' onclick='saveAndGenerate(this)' style='font-size:14px;padding:8px 20px'>📄 Save &amp; Fill 704</button>" }}
+      {{ "<button class='btn' data-testid='pc-auto-process' style='background:#f0883e;color:#fff;font-size:14px;padding:8px 20px' onclick='autoProcess(this)'>⚡ Process Now</button>" if pc.get('status') == 'parsed' else "" }}
+      {{ download_html }}
+      <details style="position:relative;display:inline-block">
+       <summary class="btn btn-sm" style="background:#21262d;color:#8b949e;border:1px solid #30363d;font-size:12px;padding:4px 10px;cursor:pointer;list-style:none">⋯ More</summary>
+       <div style="position:absolute;top:100%;left:0;z-index:50;margin-top:4px;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:6px;min-width:220px;box-shadow:0 8px 24px rgba(0,0,0,.4)">
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#c9d1d9;border:none;padding:8px 10px;font-size:12px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runScprs(this)" data-testid="pc-scprs-lookup">🔍 Re-run SCPRS Lookup</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#c9d1d9;border:none;padding:8px 10px;font-size:12px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runLookup(this)" data-testid="pc-amazon-lookup">🔬 Re-run Amazon Lookup</button>
+        {{ "<button class='btn btn-sm' style='width:100%;text-align:left;background:none;color:#c9d1d9;border:none;padding:8px 10px;font-size:12px;border-radius:4px' onmouseover=\"this.style.background='#21262d'\" onmouseout=\"this.style.background='none'\" onclick='saveAndGenerate(this)'>♻️ Re-fill 704</button>" if pc.get('status') in ('completed','converted') else "" }}
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#c9d1d9;border:none;padding:8px 10px;font-size:12px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="window.print()">🖨️ Print Page</button>
+       </div>
+      </details>
+     </div>
+     <div id="statusMsg"></div>
+     <div id="confidenceBar"></div>
+    </div>
+
+    <div class="card" style="padding:16px 20px">
+     <div style="display:flex;gap:28px;align-items:flex-start;flex-wrap:wrap">
+      <div>
+       <label style="font-size:12px;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Delivery Time</label><br>
+       <select id="deliverySelect" class="text-in" style="padding:8px 12px;font-size:15px;min-width:210px;margin-top:4px;cursor:pointer">
+        <option value="3-5 business days" {{ del_sel["3-5 business days"] }}>3-5 business days</option>
+        <option value="5-7 business days" {{ del_sel["5-7 business days"] }}>5-7 business days</option>
+        <option value="7-14 business days" {{ del_sel["7-14 business days"] }}>7-14 business days</option>
+        <option value="custom" {{ del_sel["custom"] }}>Custom...</option>
+       </select>
+       <input type="text" id="deliveryCustom" placeholder="e.g. 2-3 weeks" value="{{ custom_val }}" class="text-in" style="display:{{ custom_display }};padding:8px 12px;font-size:15px;width:160px;margin-left:6px;margin-top:4px">
+      </div>
+      <div>
+       <label style="font-size:12px;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Price Protection
+        <span style="font-size:11px;text-transform:none;cursor:help" title="Amazon prices fluctuate. Buffer pads your cost basis so a temporary discount doesn't eat your margin when prices revert.">ⓘ</span>
+       </label>
+       <div style="display:flex;gap:6px;margin-top:6px" id="pricingTiers">
+        <button class="tier-btn tier-active" onclick="applyTier(0,this)" data-buffer="0">Current<br><span style="font-size:11px;opacity:0.7">No buffer</span></button>
+        <button class="tier-btn" onclick="applyTier(10,this)" data-buffer="10">Light<br><span style="font-size:11px;opacity:0.7">+10%</span></button>
+        <button class="tier-btn" onclick="applyTier(15,this)" data-buffer="15">Standard<br><span style="font-size:11px;opacity:0.7">+15%</span></button>
+        <button class="tier-btn" onclick="applyTier(20,this)" data-buffer="20">Safe<br><span style="font-size:11px;opacity:0.7">+20%</span></button>
+       </div>
+       <div id="tierComparison" style="margin-top:10px;font-size:14px;background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:10px 12px;display:none"></div>
+      </div>
+      <div>
+       <label style="font-size:12px;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Default Markup</label>
+       <div style="display:flex;align-items:center;gap:6px;margin-top:6px">
+        <input type="number" id="markupDefault" value="{{ pc.get('default_markup', 25) }}" min="0" max="200" class="num-in" style="width:60px;text-align:center;font-size:16px;font-weight:700;padding:8px" onchange="applyTier(getCurrentBuffer(),document.querySelector('.tier-active'))">
+        <span style="font-size:15px;color:#8b949e;font-weight:600">%</span>
+       </div>
+      </div>
+      <div style="flex:1;min-width:250px">
+       <label style="font-size:12px;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Supplier Notes <span style="font-size:11px;text-transform:none;font-weight:400">(prints on 704)</span></label><br>
+       <input type="text" id="supplierNotes" value="{{ pc.get('custom_notes','').replace('"','&quot;') }}" placeholder="Optional — leave blank for no notes" class="text-in" style="width:100%;padding:8px 12px;font-size:15px;margin-top:4px">
+      </div>
+     </div>
+    </div>
+
+    <div class="card">
+     <h3 style="margin-top:0;font-size:18px">Line Items <span id="itemCount" style="font-weight:normal;color:#8b949e;font-size:15px">({{ items|length }} items)</span></h3>
+     <div class="pc-table-wrap">
+     <table id="itemsTable">
+      <tr><th style="width:28px">Bid</th><th>#</th><th>Qty</th><th>UOM</th><th style="min-width:280px">Description</th><th style="min-width:220px">Item Link</th><th>SCPRS $</th><th>Amazon $</th><th>Amazon Match</th><th>Unit Cost</th><th>Markup</th><th>Our Price</th><th>Extension</th><th>Profit</th><th>Conf</th></tr>
+      {{ items_html }}
+     </table>
+     </div>
+     <div style="margin-top:8px">
+      <button class="btn btn-sm" style="background:#21262d;color:#8b949e;border:1px solid #30363d" onclick="addRow()">+ Add Item</button>
+     </div>
+
+     <!-- PRD Feature 10: Price History Intelligence Panel -->
+     <div id="price-history-panel" style="margin-top:16px">
+       <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+         <span style="font-size:13px;font-weight:700;color:#8b949e;text-transform:uppercase;letter-spacing:.5px">📊 Price History Intelligence</span>
+         <span style="font-size:11px;color:#484f58">Historical prices from all prior quotes & lookups</span>
+         <button onclick="loadPriceHistory()" id="phLoadBtn" class="btn btn-sm" style="background:#21262d;color:#8b949e;border:1px solid #30363d;margin-left:auto;font-size:11px">Load History</button>
+       </div>
+       <div id="ph-content" style="display:none">
+         <div id="ph-rows"></div>
+       </div>
+     </div>
+
+     <div class="totals" id="totals"></div>
+     <div id="server-profit-panel" style="display:none;background:#21262d;border:1px solid #30363d;border-radius:8px;padding:12px 16px;margin-top:8px;text-align:right"></div>
+     <div style="margin-top:12px;display:flex;align-items:center;gap:20px;font-size:14px">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+       <input type="checkbox" id="taxToggle" onchange="recalcPC()" style="width:18px;height:18px">
+       <span>Include CA Sales Tax</span>
+       <span id="taxRateDisplay" style="color:#8b949e;font-size:13px">(fetching rate...)</span>
+      </label>
+      <span style="color:#30363d">|</span>
+      <span style="color:#8b949e">📅 Date: <b style="color:#c9d1d9">{{ today_date }}</b> · Valid through: <b id="expiryDate" style="color:#d29922">{{ expiry_date }}</b> (45 days)</span>
+     </div>
+    </div>
+
+    <script>
+    let cachedTaxRate = null;
+
+    // Fetch CA tax rate from CDTFA on load — uses ship-to zip if available
+    (function fetchTaxRate() {
+     cachedTaxRate = 0.0725; // Default immediately so it's never null
+     document.getElementById('taxRateDisplay').textContent = '(7.25% — CA Default)';
+     // Extract zip from ship-to address
+     const shipTo = '{{ pc.get("ship_to","").replace("'","\\'") }}';
+     const zipMatch = shipTo.match(/\\b(\\d{5})\\b/);
+     const zip = zipMatch ? zipMatch[1] : '';
+     fetch('/api/tax-rate' + (zip ? '?zip='+zip : ''),{credentials:'same-origin'}).then(r=>{
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      return r.json();
+     }).then(d=>{
+      if(d.rate) {
+       cachedTaxRate = d.rate;
+       document.getElementById('taxRateDisplay').textContent = '(' + (d.rate*100).toFixed(3) + '% — ' + (d.jurisdiction||'CA') + ')';
+      }
+     }).catch(()=>{
+      console.log('Tax rate fetch failed, using 7.25% default');
+     });
+    })();
+
+    // Delivery dropdown: show custom input when "Custom..." selected
+    document.getElementById('deliverySelect').addEventListener('change', function() {
+     const custom=document.getElementById('deliveryCustom');
+     if(this.value==='custom') {
+      custom.style.display='inline-block';
+      custom.focus();
+     } else {
+      custom.style.display='none';
+      custom.value='';
+     }
+    });
+
+    function showMsg(text, type) {
+     const el=document.getElementById('statusMsg');
+     el.innerHTML='<div class="msg msg-'+type+'" style="animation:slideIn .3s ease">'+text+'</div>';
+     el.scrollIntoView({behavior:'smooth',block:'nearest'});
+     if(type==='ok') setTimeout(()=>el.innerHTML='',5000);
+    }
+
+    // ── Standalone Save with feedback ──
+    function savePrices(btn) {
+     const origText=btn.textContent;
+     btn.disabled=true;btn.textContent='⏳ Saving...';
+     fetch('/pricecheck/{{ pcid }}/save-prices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(collectPrices())})
+     .then(r=>r.json()).then(d=>{
+      btn.disabled=false;
+      if(d.ok){
+       if (d.profit_summary) updateProfitPanel(d.profit_summary);
+       btn.textContent='✅ Saved!';btn.style.background='#238636';
+       const ps = d.profit_summary;
+       const profitMsg = ps && ps.gross_profit
+         ? ' · Profit: $' + ps.gross_profit.toFixed(2) + ' (' + ps.margin_pct.toFixed(1) + '% margin)'
+         : '';
+       showMsg('✅ Prices saved.' + profitMsg,'ok');
+       setTimeout(()=>{btn.textContent=origText;btn.style.background=''},2500);
+      } else {
+       btn.textContent=origText;
+       showMsg('❌ Save failed: '+(d.error||'unknown'),'err');
+      }
+     }).catch(e=>{btn.disabled=false;btn.textContent=origText;showMsg('❌ Error: '+e,'err')});
+    }
+
+    function getCurrentBuffer() {
+     const active=document.querySelector('.tier-active');
+     return active?parseInt(active.getAttribute('data-buffer'))||0:0;
+    }
+
+    function applyTier(buffer, btn) {
+     // Update active button
+     document.querySelectorAll('.tier-btn').forEach(b=>b.classList.remove('tier-active'));
+     if(btn) btn.classList.add('tier-active');
+     const markup=parseInt(document.getElementById('markupDefault').value)||25;
+     // Apply to all rows with Amazon data
+     document.querySelectorAll('tr[data-row]').forEach((row,i)=>{
+      const amazonCell=row.querySelector('td[data-amazon]');
+      if(!amazonCell) return;
+      const amazonPrice=parseFloat(amazonCell.getAttribute('data-amazon'))||0;
+      if(amazonPrice<=0) return;
+      const protectedCost=Math.round(amazonPrice*(1+buffer/100)*100)/100;
+      const costInp=row.querySelector('[name=cost_'+i+']');
+      const markupInp=row.querySelector('[name=markup_'+i+']');
+      if(costInp) costInp.value=protectedCost.toFixed(2);
+      if(markupInp) markupInp.value=markup;
+      recalcRow(i);
+     });
+     showTierComparison();
+    }
+
+    function showTierComparison() {
+     // Gather all Amazon-priced items to compute totals per tier
+     const markup=parseInt(document.getElementById('markupDefault').value)||25;
+     let amazonItems=[];
+     document.querySelectorAll('tr[data-row]').forEach((row,i)=>{
+      const amazonCell=row.querySelector('td[data-amazon]');
+      if(!amazonCell) return;
+      const ap=parseFloat(amazonCell.getAttribute('data-amazon'))||0;
+      if(ap<=0) return;
+      const qtyInp=row.querySelector('[name=qty_'+i+']');
+      const qty=parseInt(qtyInp?.value)||1;
+      amazonItems.push({ap,qty});
+     });
+     if(amazonItems.length===0) { document.getElementById('tierComparison').style.display='none'; return; }
+
+     const tiers=[
+      {name:'Current',buf:0,color:'#8b949e'},
+      {name:'Light +10%',buf:10,color:'#58a6ff'},
+      {name:'Standard +15%',buf:15,color:'#d29922'},
+      {name:'Safe +20%',buf:20,color:'#3fb950'}
+     ];
+     const activeBuf=getCurrentBuffer();
+     let html='<table style="width:100%;border:none;font-size:14px"><tr>';
+     html+='<th style="border:none;color:#8b949e;font-size:12px;padding:3px 8px;text-align:left">Tier</th>';
+     html+='<th style="border:none;color:#8b949e;font-size:12px;padding:3px 8px;text-align:right">Cost Basis</th>';
+     html+='<th style="border:none;color:#8b949e;font-size:12px;padding:3px 8px;text-align:right">Revenue</th>';
+     html+='<th style="border:none;color:#8b949e;font-size:12px;padding:3px 8px;text-align:right">Profit</th>';
+     html+='<th style="border:none;color:#8b949e;font-size:12px;padding:3px 8px;text-align:right">Margin</th></tr>';
+     tiers.forEach(t=>{
+      let totalCost=0,totalRev=0;
+      amazonItems.forEach(item=>{
+       let cost=item.ap*(1+t.buf/100);
+       let price=cost*(1+markup/100);
+       totalCost+=cost*item.qty;
+       totalRev+=price*item.qty;
+      });
+      let profit=totalRev-totalCost;
+      let margin=totalRev>0?((profit/totalRev)*100):0;
+      let isActive=t.buf===activeBuf;
+      let rowStyle=isActive?'background:#1f6feb22;border-radius:4px;font-weight:600':'';
+      let arrow=isActive?' ◀':'';
+      html+='<tr style="'+rowStyle+'">';
+      html+='<td style="border:none;padding:4px 8px;color:'+t.color+';font-size:14px">'+t.name+arrow+'</td>';
+      html+='<td style="border:none;padding:4px 8px;text-align:right;font-size:14px">$'+totalCost.toFixed(2)+'</td>';
+      html+='<td style="border:none;padding:4px 8px;text-align:right;font-size:14px">$'+totalRev.toFixed(2)+'</td>';
+      html+='<td style="border:none;padding:4px 8px;text-align:right;font-size:14px;font-weight:600;color:'+(profit>0?'#3fb950':'#f85149')+'">$'+profit.toFixed(2)+'</td>';
+      html+='<td style="border:none;padding:4px 8px;text-align:right;font-size:14px;font-weight:600;color:'+(margin>=20?'#3fb950':(margin>=10?'#d29922':'#f85149'))+'">'+margin.toFixed(1)+'%</td>';
+      html+='</tr>';
+     });
+     html+='</table>';
+     const comp=document.getElementById('tierComparison');
+     comp.innerHTML=html;
+     comp.style.display='block';
+    }
+    // Show comparison on load
+    setTimeout(showTierComparison, 200);
+
+    function recalcRow(idx) {
+     const cost=parseFloat(document.querySelector('[name=cost_'+idx+']').value)||0;
+     const markup=parseFloat(document.querySelector('[name=markup_'+idx+']').value)||0;
+     const priceField=document.querySelector('[name=price_'+idx+']');
+     priceField.value=(cost*(1+markup/100)).toFixed(2);
+     recalcPC();
+    }
+
+    function toggleBid(idx, cb) {
+     const row=document.querySelector('tr[data-row="'+idx+'"]');
+     if(row) row.style.opacity=cb.checked?'1':'0.4';
+     recalcPC();
+    }
+
+    function addRow() {
+     const table=document.getElementById('itemsTable');
+     const rows=table.querySelectorAll('tr[data-row]');
+     const idx=rows.length;
+     const tr=document.createElement('tr');
+     tr.setAttribute('data-row',idx);
+     tr.innerHTML='<td style="text-align:center"><input type="checkbox" name="bid_'+idx+'" checked onchange="toggleBid('+idx+',this)" style="width:18px;height:18px;cursor:pointer"></td>'
+      +'<td><input type="number" name="itemnum_'+idx+'" value="'+(idx+1)+'" class="num-in sm" style="width:40px"></td>'
+      +'<td><input type="number" name="qty_'+idx+'" value="1" class="num-in sm" style="width:55px" onchange="recalcPC()"></td>'
+      +'<td><input type="text" name="uom_'+idx+'" value="EA" class="text-in" style="width:45px;text-transform:uppercase;text-align:center;font-weight:600"></td>'
+      +'<td><textarea name="desc_'+idx+'" class="text-in" style="width:100%;min-height:38px;resize:vertical;font-size:13px;line-height:1.4;padding:6px 8px" placeholder="Enter description"></textarea></td>'
+      +'<td>—</td><td>—</td><td>—</td>'
+      +'<td><input type="number" step="0.01" min="0" name="cost_'+idx+'" value="" class="num-in" onchange="recalcRow('+idx+')"></td>'
+      +'<td><input type="number" step="1" min="0" max="200" name="markup_'+idx+'" value="25" class="num-in sm" style="width:48px" onchange="recalcRow('+idx+')"><span style="color:#8b949e;font-size:13px">%</span></td>'
+      +'<td><input type="number" step="0.01" min="0" name="price_'+idx+'" value="" class="num-in" onchange="recalcPC()"></td>'
+      +'<td class="ext">—</td><td class="profit">—</td><td style="text-align:center">—</td>';
+     table.appendChild(tr);
+     recalcPC();
+    }
+
+
+    // ── Item Link Autofill ──────────────────────────────────────────────────
+    const _linkDebounce = {};
+    const _KNOWN_DOMAINS = {'amazon.com':'Amazon','grainger.com':'Grainger',
+      'mcmaster.com':'McMaster-Carr','fishersci.com':'Fisher Scientific',
+      'medline.com':'Medline','boundtree.com':'Bound Tree Medical',
+      'henryschein.com':'Henry Schein','uline.com':'Uline','zoro.com':'Zoro',
+      'staples.com':'Staples','waxie.com':'Waxie','fastenal.com':'Fastenal',
+      'globalindustrial.com':'Global Industrial','homedepot.com':'Home Depot',
+      'officedepot.com':'Office Depot'
+    };
+
+    function _detectSupplierJS(url) {
+      try {
+        const host = new URL(url).hostname.replace(/^www\\./,'');
+        for (const [dom, name] of Object.entries(_KNOWN_DOMAINS)) {
+          if (host.includes(dom)) return name;
+        }
+        const parts = host.split('.');
+        return parts.length >= 2
+          ? parts[parts.length-2].charAt(0).toUpperCase()+parts[parts.length-2].slice(1)
+          : host;
+      } catch(e) { return ''; }
+    }
+
+    function _isUrl(v) {
+      return /^https?:\\/\\//i.test(v) || /^[a-z0-9-]+\\.[a-z]{2,}\\//i.test(v);
+    }
+
+    function handleLinkInput(idx, inp) {
+      const url = inp.value.trim();
+      const metaEl = document.getElementById('link_meta_'+idx);
+      if (!url) { if(metaEl) metaEl.innerHTML=''; return; }
+      const supplier = _detectSupplierJS(url);
+      if (metaEl && supplier) metaEl.innerHTML='<span style="color:#8b949e">'+supplier+'</span>';
+      if (!_isUrl(url)) return;
+      clearTimeout(_linkDebounce[idx]);
+      _linkDebounce[idx] = setTimeout(() => _fireLinkLookup(idx, url, 'pc'), 800);
+    }
+
+    function handleRfqLinkInput(idx, inp) {
+      const url = inp.value.trim();
+      const metaEl = document.getElementById('rfq_link_meta_'+idx);
+      if (!url || !_isUrl(url)) return;
+      if (metaEl) metaEl.innerHTML='<span style="color:#d29922">\u23F3 Looking up…</span>';
+      clearTimeout(_linkDebounce['rfq_'+idx]);
+      _linkDebounce['rfq_'+idx] = setTimeout(() => _fireLinkLookup(idx, url, 'rfq'), 800);
+    }
+
+    function _fireLinkLookup(idx, url, mode) {
+      const metaEl = mode==='pc' ? document.getElementById('link_meta_'+idx) : document.getElementById('rfq_link_meta_'+idx);
+      if (metaEl) metaEl.innerHTML='<span style="color:#d29922">\u23F3 Looking up…</span>';
+      fetch('/api/item-link/lookup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})})
+      .then(r=>r.json()).then(d=>{
+        if (!d.ok && d.error) {
+          if (metaEl) metaEl.innerHTML='<span style="color:#f85149">\u26A0\uFE0F '+d.error+'</span>';
+          return;
+        }
+        _applyLinkData(idx, d, mode);
+      }).catch(()=>{ if(metaEl) metaEl.innerHTML='<span style="color:#f85149">Lookup failed</span>'; });
+    }
+
+    function _applyLinkData(idx, d, mode) {
+      const filled = [];
+      const metaEl = mode==='pc' ? document.getElementById('link_meta_'+idx) : document.getElementById('rfq_link_meta_'+idx);
+      
+      // Fill description if empty
+      const descEl = document.querySelector('[name=desc_'+idx+']');
+      if (descEl && !descEl.value.trim() && d.description) { descEl.value=d.description; filled.push('description'); }
+      
+      // Fill cost
+      const costEl = document.querySelector('[name=cost_'+idx+']');
+      if (costEl && d.price) { costEl.value=d.price.toFixed(2); filled.push('cost $'+d.price.toFixed(2)); }
+      
+      // Fill part number
+      const partEl = document.querySelector('[name=part_'+idx+']');
+      if (partEl && !partEl.value.trim() && d.part_number) { partEl.value=d.part_number; filled.push('part#'); }
+      
+      // Recalc
+      if (mode==='pc' && typeof recalcPC==='function') recalcPC();
+      else if (typeof recalc==='function') recalc();
+      
+      // Show meta info
+      if (metaEl) {
+        const supStr = d.supplier ? '<b style="color:#c9d1d9">'+d.supplier+'</b>' : '';
+        const shipStr = d.shipping===0 ? ' \u00B7 <span style="color:#3fb950">Free shipping</span>'
+                      : d.shipping>0 ? ' \u00B7 Ship $'+d.shipping.toFixed(2) : '';
+        const partStr = d.part_number ? ' \u00B7 Part: <span style="font-family:monospace;color:#58a6ff">'+d.part_number+'</span>' : '';
+        const fillStr = filled.length ? ' <span style="color:#3fb950">\u2713 '+filled.join(', ')+'</span>' : '';
+        metaEl.innerHTML = supStr+shipStr+partStr+fillStr;
+      }
+      if (filled.length > 0 && typeof showMsg==='function') {
+        showMsg('\uD83D\uDD17 Auto-filled from '+(d.supplier||'URL')+': '+filled.join(', '),'ok');
+      }
+    }
+
+    function relookupLink(idx) {
+      const inp = document.querySelector('[name=link_'+idx+']');
+      if (!inp||!inp.value.trim()) { typeof showMsg==='function'&&showMsg('Paste a supplier URL first','warn'); return; }
+      _fireLinkLookup(idx, inp.value.trim(), 'pc');
+    }
+
+    function recalcPC() {
+     let sub=0, totalCost=0, totalProfit=0, bidCount=0, totalCount=0;
+     const priceInputs=document.querySelectorAll('input[name^=price_]');
+     totalCount=priceInputs.length;
+     priceInputs.forEach((inp,i)=>{
+      const bidCb=document.querySelector('[name=bid_'+i+']');
+      const isBid=bidCb?bidCb.checked:true;
+      let p=parseFloat(inp.value)||0;
+      let c=parseFloat(document.querySelector('[name=cost_'+i+']')?.value)||0;
+      let qtyInp=document.querySelector('[name=qty_'+i+']');
+      let qty=parseInt(qtyInp?.value)||1;
+
+      if(!isBid) {
+       // No-bid: zero out extension and profit display
+       let extCells=document.querySelectorAll('.ext');
+       if(extCells[i]) extCells[i].textContent='N/B';
+       let profitCells=document.querySelectorAll('.profit');
+       if(profitCells[i]) profitCells[i].innerHTML='<span style="color:#8b949e">N/B</span>';
+       return;
+      }
+
+      if(p>0) bidCount++;
+      let ext=p*qty;
+      let costExt=c*qty;
+      let profit=ext-costExt;
+      sub+=ext;
+      totalCost+=costExt;
+      totalProfit+=profit;
+
+      let extCells=document.querySelectorAll('.ext');
+      if(extCells[i]) extCells[i].textContent=ext>0?'$'+ext.toFixed(2):'—';
+
+      let profitCells=document.querySelectorAll('.profit');
+      if(profitCells[i]) {
+       if(c>0 && p>0) {
+        let pColor=profit>0?'#3fb950':(profit<0?'#f85149':'#8b949e');
+        profitCells[i].innerHTML='<span style="color:'+pColor+'">$'+profit.toFixed(2)+'</span>';
+       } else {
+        profitCells[i].innerHTML='—';
+       }
+      }
+     });
+
+     // Update item count
+     document.getElementById('itemCount').textContent='(quoting '+bidCount+'/'+totalCount+' items)';
+
+     // Tax
+     let taxOn=document.getElementById('taxToggle').checked;
+     let taxRate=taxOn?(cachedTaxRate||0.0725):0;
+     let tax=sub*taxRate;
+     let total=sub+tax;
+
+     // Margin
+     let margin=sub>0?((totalProfit/sub)*100):0;
+     let marginColor=margin>=20?'#3fb950':(margin>=10?'#d29922':'#f85149');
+
+     // Build totals display — two columns: left = financials, right = profit summary
+     let html='<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:40px">';
+
+     // Left: revenue totals
+     html+='<div style="text-align:right;flex:1">';
+     html+='<div><span style="color:#8b949e">Subtotal:</span> <b>$'+sub.toFixed(2)+'</b></div>';
+     if(taxOn) {
+      html+='<div><span style="color:#8b949e">Tax ('+((taxRate*100).toFixed(3))+'%):</span> <b>$'+tax.toFixed(2)+'</b></div>';
+     }
+     html+='<div style="font-size:16px;margin-top:4px"><span style="color:#8b949e">Total:</span> <b style="color:#3fb950">$'+total.toFixed(2)+'</b></div>';
+     html+='</div>';
+
+     // Right: profit summary
+     html+='<div style="text-align:right;min-width:240px;background:#21262d;padding:12px 16px;border-radius:8px;border:1px solid #30363d">';
+     html+='<div style="font-size:12px;text-transform:uppercase;color:#8b949e;margin-bottom:6px;letter-spacing:0.5px;font-weight:600">Profit Summary</div>';
+     html+='<div style="font-size:15px"><span style="color:#8b949e">Total Cost:</span> <b>$'+totalCost.toFixed(2)+'</b></div>';
+     html+='<div style="font-size:15px"><span style="color:#8b949e">Total Revenue:</span> <b>$'+sub.toFixed(2)+'</b></div>';
+     let profitColor=totalProfit>0?'#3fb950':(totalProfit<0?'#f85149':'#8b949e');
+     html+='<div style="font-size:16px;margin-top:2px"><span style="color:#8b949e">Profit:</span> <b style="color:'+profitColor+'">$'+totalProfit.toFixed(2)+'</b>';
+     html+=' <span style="color:'+marginColor+';font-size:14px">('+margin.toFixed(1)+'% margin)</span></div>';
+     html+='</div>';
+
+     html+='</div>';
+     document.getElementById('totals').innerHTML=html;
+     // Also refresh tier comparison
+     if(typeof showTierComparison==='function') showTierComparison();
+    }
+
+    // Due date urgency
+    (function calcUrgency() {
+     const dueStr='{{ pc.get("due_date","") }}'.trim();
+     if(!dueStr) return;
+     // Try parsing common formats: M/D/YY, M/D/YYYY, YYYY-MM-DD
+     let due=new Date(dueStr);
+     if(isNaN(due)) {
+      // Try M/D/YY format
+      const parts=dueStr.split('/');
+      if(parts.length===3) {
+       let yr=parseInt(parts[2]);
+       if(yr<100) yr+=2000;
+       due=new Date(yr,parseInt(parts[0])-1,parseInt(parts[1]));
+      }
+     }
+     if(isNaN(due)) return;
+     const now=new Date();
+     const diffMs=due-now;
+     const diffDays=Math.ceil(diffMs/(1000*60*60*24));
+     const el=document.getElementById('dueUrgency');
+     if(diffDays<0) {
+      el.innerHTML='<span style="background:#da363344;color:#f85149;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">OVERDUE ('+Math.abs(diffDays)+'d ago)</span>';
+     } else if(diffDays<=2) {
+      el.innerHTML='<span style="background:#da363344;color:#f85149;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">🔥 '+diffDays+'d left</span>';
+     } else if(diffDays<=5) {
+      el.innerHTML='<span style="background:#9e6a0333;color:#d29922;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">'+diffDays+'d left</span>';
+     } else {
+      el.innerHTML='<span style="background:#23863633;color:#3fb950;padding:2px 8px;border-radius:4px;font-size:11px">'+diffDays+'d left</span>';
+     }
+    })();
+
+    recalcPC();
+
+    // Load saved profit summary from server if it exists
+    (function loadSavedProfit() {
+      const saved = {{ profit_summary_json }};
+      if (saved && saved.gross_profit != null) {
+        updateProfitPanel(saved);
+      }
+    })();
+
+    function runScprs(btn) {
+     btn.disabled=true;btn.textContent='⏳ Searching SCPRS...';
+     showMsg('Searching SCPRS Won Quotes knowledge base...','warn');
+     fetch('/pricecheck/{{ pcid }}/scprs-lookup').then(r=>r.json()).then(d=>{
+      btn.disabled=false;
+      if(d.error){
+       btn.textContent='🔍 SCPRS Lookup';
+       showMsg('❌ SCPRS error: '+d.error,'err');
+      } else if(d.found>0){
+       btn.textContent='🔍 SCPRS Lookup';
+       showMsg('✅ SCPRS: Found '+d.found+'/'+d.total+' matches in Won Quotes KB. Reloading...','ok');
+       setTimeout(()=>location.reload(),1200);
+      } else {
+       btn.textContent='🔍 SCPRS Lookup';
+       showMsg('ℹ️ SCPRS: Searched '+d.total+' items — no matches found in Won Quotes KB. Try Amazon next.','warn');
+      }
+     }).catch(e=>{
+      btn.textContent='🔍 SCPRS Lookup';btn.disabled=false;
+      showMsg('❌ SCPRS request failed: '+e,'err');
+     });
+    }
+
+    function runLookup(btn) {
+     btn.disabled=true;btn.textContent='⏳ Searching Amazon...';
+     showMsg('Searching Amazon via SerpApi...','warn');
+     fetch('/pricecheck/{{ pcid }}/lookup').then(r=>r.json()).then(d=>{
+      btn.disabled=false;
+      if(d.error){
+       btn.textContent='🔬 Amazon Lookup';
+       showMsg('❌ Amazon error: '+d.error,'err');
+      } else if(d.found>0){
+       btn.textContent='🔬 Amazon Lookup';
+       showMsg('✅ Amazon: Found prices for '+d.found+'/'+d.total+' items. Reloading...','ok');
+       setTimeout(()=>location.reload(),1200);
+      } else {
+       btn.textContent='🔬 Amazon Lookup';
+       showMsg('ℹ️ Amazon: Searched '+d.total+' items — no results. These may need manual cost entry.','warn');
+      }
+     }).catch(e=>{
+      btn.textContent='🔬 Amazon Lookup';btn.disabled=false;
+      showMsg('❌ Amazon request failed: '+e,'err');
+     });
+    }
+
+    function collectPrices() {
+     let data={};
+     document.querySelectorAll('input[name^=price_]').forEach(inp=>{
+      data[inp.name]=parseFloat(inp.value)||0;
+     });
+     document.querySelectorAll('input[name^=cost_]').forEach(inp=>{
+      data[inp.name]=parseFloat(inp.value)||0;
+     });
+     document.querySelectorAll('input[name^=markup_]').forEach(inp=>{
+      data[inp.name]=parseFloat(inp.value)||0;
+     });
+     document.querySelectorAll('input[name^=qty_]').forEach(inp=>{
+      data[inp.name]=parseInt(inp.value)||1;
+     });
+     document.querySelectorAll('input[name^=uom_],input[name^=itemno_]').forEach(inp=>{
+      data[inp.name]=inp.value;
+     });
+     document.querySelectorAll('textarea[name^=desc_],input[name^=desc_]').forEach(inp=>{
+      data[inp.name]=inp.value;
+     });
+     document.querySelectorAll('input[name^=bid_]').forEach(inp=>{
+      data[inp.name]=inp.checked;
+     });
+     document.querySelectorAll('input[name^=link_]').forEach(inp=>{
+      data[inp.name]=inp.value.trim();
+     });
+     data['tax_enabled']=document.getElementById('taxToggle').checked;
+     data['tax_rate']=cachedTaxRate||0;
+     data['price_buffer']=getCurrentBuffer();
+     data['default_markup']=parseInt(document.getElementById('markupDefault').value)||25;
+     // Delivery option
+     let delSel=document.getElementById('deliverySelect');
+     data['delivery_option']=delSel.value==='custom'?document.getElementById('deliveryCustom').value:delSel.value;
+     // Supplier notes
+     data['custom_notes']=document.getElementById('supplierNotes').value;
+     return data;
+    }
+
+    // ── Quote Preview ──────────────────────────────────
+    const REYTECH={
+     name:'Reytech Inc.',
+     rep:'Michael Guadan',
+     address:'30 Carnoustie Way, Trabuco Canyon, CA 92679',
+     phone:'949-229-1575',
+     email:'sales@reytechinc.com',
+     sbmb:'2002605',
+     dvbe:'2002605'
+    };
+    const PC_META={
+     pcNum:'{{ pc.get("pc_number","").replace("'","\\'") }}',
+     institution:'{{ header.get("institution",pc.get("institution","")).replace("'","\\'") }}',
+     requestor:'{{ header.get("requestor",pc.get("requestor","")).replace("'","\\'") }}',
+     dueDate:'{{ pc.get("due_date","").replace("'","\\'") }}',
+     shipTo:'{{ pc.get("ship_to","").replace("'","\\'") }}',
+     phone:'{{ header.get("phone","").replace("'","\\'") }}',
+     quoteNum:'{{ pc.get("reytech_quote_number","").replace("'","\\'") }}',
+     expiry:document.getElementById('expiryDate')?.textContent||''
+    };
+    const peek_next='{{ next_quote_preview }}';
+
+    function renamePc() {
+      const newName = document.getElementById('pcNumInput').value.trim();
+      if (!newName) return;
+      fetch('/pricecheck/{{ pcid }}/rename', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({pc_number: newName})
+      })
+      .then(r=>r.json())
+      .then(d=>{
+        if (d.ok) {
+          document.getElementById('pcNumDisplay').textContent = newName;
+          document.getElementById('pcNumDisplay').style.display = 'inline';
+          document.getElementById('pcNumEdit').style.display = 'none';
+          document.title = 'PC #' + newName;
+          showMsg('✅ Renamed to ' + newName, 'ok');
+        } else {
+          showMsg('❌ ' + (d.error||'Rename failed'), 'err');
+        }
+      }).catch(e=>showMsg('❌ Error: '+e, 'err'));
+    }
+
+    function showPreview() {
+     // Build preview matching the AMS 704 Price Check format
+     const rows=document.querySelectorAll('tr[data-row]');
+     let itemsHtml='';
+     let subtotal=0;
+     let itemCount=0;
+     rows.forEach((row,i)=>{
+      const bid=row.querySelector('[name=bid_'+i+']');
+      if(bid&&!bid.checked) return;
+      const itemNo=row.querySelector('[name=itemnum_'+i+']')?.value||i+1;
+      const qty=parseInt(row.querySelector('[name=qty_'+i+']')?.value)||1;
+      const uom=row.querySelector('[name=uom_'+i+']')?.value||'EA';
+      const desc=row.querySelector('[name=desc_'+i+']')?.value||'';
+      const price=parseFloat(row.querySelector('[name=price_'+i+']')?.value)||0;
+      const ext=Math.round(price*qty*100)/100;
+      subtotal+=ext;
+      itemCount++;
+      itemsHtml+=`<tr>
+       <td style="text-align:center;border:1px solid #999;padding:6px;font-size:12px">${itemNo}</td>
+       <td style="text-align:center;border:1px solid #999;padding:6px;font-size:12px">${qty}</td>
+       <td style="text-align:center;border:1px solid #999;padding:6px;font-size:12px">${uom.toUpperCase()}</td>
+       <td style="border:1px solid #999;padding:6px;font-size:11px;max-width:300px">${desc}</td>
+       <td style="text-align:right;border:1px solid #999;padding:6px;font-size:12px">$${price.toFixed(2)}</td>
+       <td style="text-align:right;border:1px solid #999;padding:6px;font-size:12px;font-weight:600">$${ext.toFixed(2)}</td>
+      </tr>`;
+     });
+     const taxOn=document.getElementById('taxToggle')?.checked;
+     const taxRate=cachedTaxRate||0.0725;
+     const tax=taxOn?Math.round(subtotal*taxRate*100)/100:0;
+     const total=Math.round((subtotal+tax)*100)/100;
+     const delivery=document.getElementById('deliverySelect')?.value==='custom'
+       ?document.getElementById('deliveryCustom')?.value
+       :document.getElementById('deliverySelect')?.value||'5-7 business days';
+     const expiry=document.getElementById('expiryDate')?.textContent||'';
+     const notes=document.getElementById('supplierNotes')?.value||'';
+     const today=new Date();
+     const dateStr=today.toLocaleDateString('en-US',{month:'2-digit',day:'2-digit',year:'numeric'});
+
+     const html=`<div style="padding:24px 28px;font-family:Arial,Helvetica,sans-serif;color:#000;background:#fff;font-size:13px">
+      <div style="text-align:center;border-bottom:2px solid #000;padding-bottom:10px;margin-bottom:16px">
+       <div style="font-size:11px;color:#444;margin-bottom:2px">STATE OF CALIFORNIA — DEPARTMENT OF GENERAL SERVICES</div>
+       <div style="font-size:18px;font-weight:700;letter-spacing:1px">AMS 704 — PRICE CHECK WORKSHEET</div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;margin-bottom:14px;border:1px solid #999">
+       <div style="padding:6px 10px;border:1px solid #999"><span style="font-size:10px;color:#666;text-transform:uppercase">Price Check #</span><br><b>${PC_META.pcNum}</b></div>
+       <div style="padding:6px 10px;border:1px solid #999"><span style="font-size:10px;color:#666;text-transform:uppercase">Date</span><br><b>${dateStr}</b></div>
+       <div style="padding:6px 10px;border:1px solid #999"><span style="font-size:10px;color:#666;text-transform:uppercase">Institution</span><br><b>${PC_META.institution}</b></div>
+       <div style="padding:6px 10px;border:1px solid #999"><span style="font-size:10px;color:#666;text-transform:uppercase">Ship To</span><br>${PC_META.shipTo}</div>
+       <div style="padding:6px 10px;border:1px solid #999"><span style="font-size:10px;color:#666;text-transform:uppercase">Company Name</span><br><b>Reytech Inc.</b></div>
+       <div style="padding:6px 10px;border:1px solid #999"><span style="font-size:10px;color:#666;text-transform:uppercase">Delivery</span><br>${delivery}</div>
+      </div>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:12px">
+       <thead><tr style="background:#e8e8e0">
+        <th style="padding:6px;font-size:10px;text-transform:uppercase;border:1px solid #999;width:50px">Item #</th>
+        <th style="padding:6px;font-size:10px;text-transform:uppercase;border:1px solid #999;width:50px">Qty</th>
+        <th style="padding:6px;font-size:10px;text-transform:uppercase;border:1px solid #999;width:50px">UOM</th>
+        <th style="padding:6px;font-size:10px;text-transform:uppercase;border:1px solid #999">Description</th>
+        <th style="padding:6px;font-size:10px;text-transform:uppercase;border:1px solid #999;text-align:right;width:90px">Price/Unit</th>
+        <th style="padding:6px;font-size:10px;text-transform:uppercase;border:1px solid #999;text-align:right;width:90px">Extension</th>
+       </tr></thead>
+       <tbody>${itemsHtml}</tbody>
+      </table>
+      <div style="display:flex;justify-content:flex-end">
+       <table style="border-collapse:collapse;min-width:220px">
+        <tr><td style="text-align:right;padding:4px 10px;font-size:12px;border:1px solid #999">Subtotal</td>
+            <td style="text-align:right;padding:4px 10px;font-size:13px;border:1px solid #999;font-weight:600">$${subtotal.toFixed(2)}</td></tr>
+        ${taxOn?`<tr><td style="text-align:right;padding:4px 10px;font-size:12px;border:1px solid #999">Tax (${(taxRate*100).toFixed(2)}%)</td>
+            <td style="text-align:right;padding:4px 10px;font-size:13px;border:1px solid #999">$${tax.toFixed(2)}</td></tr>`:''}
+        <tr style="background:#1a2744;color:#fff"><td style="text-align:right;padding:6px 10px;font-size:13px;font-weight:700">TOTAL</td>
+            <td style="text-align:right;padding:6px 10px;font-size:15px;font-weight:700">$${total.toFixed(2)}</td></tr>
+       </table>
+      </div>
+      ${notes?`<div style="margin-top:12px;padding:8px 10px;border:1px solid #ccc;border-radius:4px;font-size:11px;color:#444"><b>Notes:</b> ${notes}</div>`:''}
+      <div style="margin-top:14px;padding-top:8px;border-top:1px solid #ccc;font-size:10px;color:#666;text-align:center">
+       Reytech Inc. — 30 Carnoustie Way, Trabuco Canyon, CA 92679 — sales@reytechinc.com — (714) 501-3530<br>
+       ${itemCount} item(s) · Valid until ${expiry}
+      </div>
+     </div>`;
+
+     document.getElementById('previewBody').innerHTML=html;
+     document.getElementById('previewFormType').textContent='AMS 704 — '+PC_META.institution;
+     var modal=document.getElementById('previewModal');
+     modal.style.display='flex';
+     modal.style.justifyContent='center';
+     modal.style.alignItems='flex-start';
+    }
+
+    function closePreview() {
+     document.getElementById('previewModal').style.display='none';
+    }
+    // Close on Esc or click outside
+    document.getElementById('previewModal').addEventListener('click',function(e){
+     if(e.target===this) closePreview();
+    });
+    document.addEventListener('keydown',function(e){if(e.key==='Escape') closePreview();});
+
+    function saveAndGenerate(btn) {
+     btn.disabled=true;btn.textContent='⏳ Saving prices...';
+     showMsg('Saving prices and filling AMS 704 PDF...','warn');
+     fetch('/pricecheck/{{ pcid }}/save-prices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(collectPrices())})
+     .then(r=>r.json()).then(d=>{
+      if(!d.ok){btn.textContent='📄 Save & Fill 704';btn.disabled=false;showMsg('❌ Save failed','err');return;}
+      btn.textContent='⏳ Generating PDF...';
+      return fetch('/pricecheck/{{ pcid }}/generate');
+     }).then(r=>r.json()).then(d=>{
+      btn.disabled=false;
+      if(d&&d.ok){
+       showMsg('✅ AMS 704 filled! Reloading...','ok');
+       btn.textContent='📥 Download 704';btn.className='btn btn-g';
+       btn.onclick=function(){window.location=d.download};
+       setTimeout(()=>location.reload(),2000);
+      }
+      else{btn.textContent='📄 Save & Fill 704';showMsg('❌ Generation failed: '+(d?.error||'unknown'),'err')}
+     }).catch(e=>{btn.textContent='📄 Save & Fill 704';btn.disabled=false;showMsg('❌ Error: '+e,'err')});
+    }
+
+    // ═══ PRD Feature 3.2.1: 1-click Price Check → Quote ═══
+    function generateQuote1Click(btn) {
+     // Pre-flight: check for items missing cost
+     let missingCost = [];
+     document.querySelectorAll('input[name^=price_]').forEach((inp, i) => {
+      const bidCb = document.querySelector('[name=bid_' + i + ']');
+      const isBid = bidCb ? bidCb.checked : true;
+      if (!isBid) return;
+      const price = parseFloat(inp.value) || 0;
+      const cost = parseFloat(document.querySelector('[name=cost_' + i + ']')?.value) || 0;
+      if (price > 0 && cost === 0) {
+       const desc = document.querySelector('[name=desc_' + i + ']')?.value || ('Item ' + (i+1));
+       missingCost.push(desc.substring(0, 40));
+      }
+     });
+     if (missingCost.length > 0) {
+      const proceed = confirm(
+       '⚠️ ' + missingCost.length + ' item(s) have a price but no vendor cost entered:\\n\\n' +
+       missingCost.map((d,i) => (i+1)+'. ' + d).join('\\n') +
+       '\\n\\nProfit cannot be calculated for these items.\\n\\nProceed anyway?'
+      );
+      if (!proceed) return;
+     }
+
+     const banner = document.getElementById('quote-gen-banner');
+     const meta = document.getElementById('quote-gen-meta');
+     btn.disabled = true;
+     btn.textContent = '⏳ Saving prices...';
+     banner.style.borderColor = '#e3b341';
+     meta.textContent = 'Step 1/3: Persisting prices to DB...';
+
+     // Step 1: Save current prices
+     fetch('/pricecheck/{{ pcid }}/save-prices', {
+       method: 'POST',
+       headers: {'Content-Type': 'application/json'},
+       body: JSON.stringify(collectPrices())
+     })
+     .then(r => r.json())
+     .then(d => {
+       if (!d.ok) throw new Error('Save failed: ' + (d.error || 'unknown'));
+       // Update profit panel from server response immediately
+       if (d.profit_summary) updateProfitPanel(d.profit_summary);
+       meta.textContent = 'Step 2/3: Generating Reytech Quote PDF...';
+       btn.textContent = '⏳ Generating PDF...';
+
+       // Step 2: Generate quote via enhanced endpoint with full logging
+       return fetch('/api/quote/from-price-check', {
+         method: 'POST',
+         headers: {'Content-Type': 'application/json'},
+         body: JSON.stringify({pc_id: '{{ pcid }}'})
+       });
+     })
+     .then(r => r.json())
+     .then(d => {
+       btn.disabled = false;
+       if (d && d.ok) {
+         const qn = d.quote_number || '?';
+         const total = d.total ? ' — $' + parseFloat(d.total).toLocaleString('en-US', {minimumFractionDigits:2}) : '';
+         const profitStr = d.gross_profit != null
+           ? ' · <span style="color:#3fb950">Profit: $' + parseFloat(d.gross_profit).toFixed(2) + ' (' + parseFloat(d.margin_pct||0).toFixed(1) + '% margin)</span>'
+           + (d.fully_costed === false ? ' <span style="color:#d29922;font-size:12px">(partial — enter costs for remaining items)</span>' : '')
+           : ' · <span style="color:#8b949e;font-size:13px">Profit unknown — enter vendor costs to track margin</span>';
+         banner.style.borderColor = '#3fb950';
+         banner.style.background = 'linear-gradient(135deg,#0d2a0d,#0d1117)';
+         meta.innerHTML = `✅ Quote <b style="color:#3fb950">${qn}</b>${total} generated · <a href="${d.download}" style="color:#58a6ff" download>Download PDF</a> · <a href="/quotes" style="color:#58a6ff">View in Quotes →</a>` + profitStr;
+         btn.textContent = '✅ ' + qn + ' Generated';
+         btn.style.background = '#238636';
+         document.getElementById('next-qn-badge').textContent = 'Next: ' + (d.next_quote || '—');
+         const profitLog = d.gross_profit != null ? ' · Profit $' + parseFloat(d.gross_profit).toFixed(2) : '';
+         showMsg('✅ Quote ' + qn + total + profitLog + ' generated and logged to CRM + DB', 'ok');
+       } else {
+         banner.style.borderColor = '#f85149';
+         meta.textContent = '❌ ' + (d?.error || 'Generation failed');
+         btn.textContent = '📋 Generate Quote →';
+         btn.style.background = '#1f6feb';
+         showMsg('❌ Quote generation failed: ' + (d?.error || 'unknown'), 'err');
+       }
+     })
+     .catch(e => {
+       btn.disabled = false;
+       btn.textContent = '📋 Generate Quote →';
+       btn.style.background = '#1f6feb';
+       banner.style.borderColor = '#f85149';
+       meta.textContent = '❌ Error: ' + e.message;
+       showMsg('❌ Error: ' + e, 'err');
+     });
+    }
+
+    // Update the server-side profit summary panel from save response
+    function updateProfitPanel(ps) {
+     if (!ps) return;
+     const costed = ps.costed_items || 0;
+     const total = ps.total_items || 0;
+     const uncostd = total - costed;
+     const warn = uncostd > 0
+       ? '<div style="color:#d29922;font-size:12px;margin-top:4px">⚠️ ' + uncostd + ' item(s) missing vendor cost</div>'
+       : '<div style="color:#3fb950;font-size:12px;margin-top:4px">✅ All items costed</div>';
+     const profitColor = ps.gross_profit > 0 ? '#3fb950' : (ps.gross_profit < 0 ? '#f85149' : '#8b949e');
+     const marginColor = ps.margin_pct >= 20 ? '#3fb950' : (ps.margin_pct >= 10 ? '#d29922' : '#f85149');
+     const panel = document.getElementById('server-profit-panel');
+     if (panel) {
+      panel.innerHTML =
+       '<div style="font-size:12px;text-transform:uppercase;color:#8b949e;margin-bottom:6px;letter-spacing:0.5px;font-weight:600">Saved Profit Summary</div>' +
+       '<div style="font-size:14px"><span style="color:#8b949e">Revenue:</span> <b>$' + ps.total_revenue.toFixed(2) + '</b></div>' +
+       '<div style="font-size:14px"><span style="color:#8b949e">Cost:</span> <b>$' + ps.total_cost.toFixed(2) + '</b></div>' +
+       '<div style="font-size:15px;margin-top:4px"><span style="color:#8b949e">Gross Profit:</span> ' +
+       '<b style="color:' + profitColor + '">$' + ps.gross_profit.toFixed(2) + '</b>' +
+       ' <span style="color:' + marginColor + ';font-size:13px">(' + ps.margin_pct.toFixed(1) + '% margin)</span></div>' +
+       warn;
+      panel.style.display = 'block';
+     }
+    }
+
+    function generateReytechQuote(btn) {
+     btn.disabled=true;btn.textContent='⏳ Saving...';
+     showMsg('Saving prices and generating Reytech Quote PDF...','warn');
+     fetch('/pricecheck/{{ pcid }}/save-prices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(collectPrices())})
+     .then(r=>r.json()).then(d=>{
+      if (d.profit_summary) updateProfitPanel(d.profit_summary);
+      if(!d.ok){btn.textContent='📋 Reytech Quote PDF';btn.disabled=false;showMsg('❌ Save failed','err');return;}
+      btn.textContent='⏳ Generating quote...';
+      return fetch('/pricecheck/{{ pcid }}/generate-quote');
+     }).then(r=>r.json()).then(d=>{
+      btn.disabled=false;btn.textContent='📋 Reytech Quote PDF';
+      if(d&&d.ok){showMsg('✅ Reytech Quote #'+d.quote_number+' generated! Reloading...','ok');setTimeout(()=>location.reload(),1200)}
+      else{showMsg('❌ Quote generation failed: '+(d?.error||'unknown'),'err')}
+     }).catch(e=>{btn.textContent='📋 Reytech Quote PDF';btn.disabled=false;showMsg('❌ Error: '+e,'err')});
+    }
+
+    function convertToQuote(btn) {
+     if(!confirm('Convert this Price Check into a full quote?\\n\\nThis will create an RFQ entry with 704A, 704B, and Bid Package forms pre-filled with the pricing from this Price Check.'))return;
+     btn.disabled=true;btn.textContent='⏳ Converting...';
+     showMsg('Saving prices first...','warn');
+     fetch('/pricecheck/{{ pcid }}/save-prices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(collectPrices())})
+     .then(r=>r.json()).then(d=>{
+      return fetch('/pricecheck/{{ pcid }}/convert-to-quote');
+     }).then(r=>r.json()).then(d=>{
+      btn.disabled=false;btn.textContent='🔄 Convert to Full Quote (704A/B + Package)';
+      if(d&&d.ok){showMsg('✅ Quote created! Redirecting...','ok');setTimeout(()=>window.location='/rfq/'+d.rfq_id,1000)}
+      else{showMsg('❌ Conversion failed: '+(d?.error||'unknown'),'err')}
+     }).catch(e=>{btn.textContent='🔄 Convert to Full Quote (704A/B + Package)';btn.disabled=false;showMsg('❌ Error: '+e,'err')});
+    }
+
+    function autoProcess(btn) {
+     btn.disabled=true;btn.textContent='⚡ Running full pipeline...';
+     showMsg('⚡ Auto-processing: Parse → SCPRS → Amazon → Price → Generate PDF...','warn');
+     fetch('/pricecheck/{{ pcid }}/auto-process').then(r=>r.json()).then(d=>{
+      btn.disabled=false;btn.textContent='⚡ Process Now';
+      if(d.ok){
+       let t=d.timing||{};
+       let c=d.confidence||{};
+       let grade=c.overall_grade||'?';
+       let gradeColor={'A':'#3fb950','B':'#58a6ff','C':'#d29922','F':'#f85149'}[grade]||'#8b949e';
+       let msg='✅ Auto-processed in '+t.total+'s! ';
+       msg+='Confidence: <b style="color:'+gradeColor+'">'+grade+' ('+((c.overall_score||0)*100).toFixed(0)+'%)</b>';
+       if(c.recommendation) msg+=' — '+c.recommendation;
+       if(d.draft_email) msg+='<br>📧 Email draft ready.';
+       showMsg(msg,'ok');
+       // Show confidence bar
+       let bar=document.getElementById('confidenceBar');
+       let pct=((c.overall_score||0)*100).toFixed(0);
+       bar.innerHTML='<div style="margin-top:8px;background:#21262d;border-radius:4px;overflow:hidden;height:24px;position:relative"><div style="width:'+pct+'%;background:'+gradeColor+';height:100%;transition:width 1s"></div><span style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:12px;font-weight:bold">Confidence: '+grade+' ('+pct+'%)</span></div>';
+       // Show timing breakdown
+       let steps=(d.steps||[]).map(s=>s.step+': '+(s.found!==undefined?s.found+' found':'ok')).join(' → ');
+       bar.innerHTML+='<div style="font-size:11px;color:#8b949e;margin-top:4px">Pipeline: '+steps+' | Total: '+t.total+'s</div>';
+       setTimeout(()=>location.reload(),3000);
+      } else {
+       showMsg('❌ Auto-process failed: '+(d.error||'unknown'),'err');
+      }
+     }).catch(e=>{btn.textContent='⚡ Process Now';btn.disabled=false;showMsg('❌ Error: '+e,'err')});
+    }
+
+    // ── CRM Customer Card + Quote History (loads on page) ─────────────────────
+    // Timeout wrapper for fetch — Railway cold starts can hang
+    function fetchWithTimeout(url, ms=8000) {
+      const ctrl = new AbortController();
+      const timer = setTimeout(()=>ctrl.abort(), ms);
+      return fetch(url, {signal:ctrl.signal, credentials:'same-origin'}).finally(()=>clearTimeout(timer));
+    }
+    function retryFetch(url, attempts=2, ms=8000) {
+      return fetchWithTimeout(url, ms).catch(err => {
+        if (attempts <= 1) throw err;
+        return new Promise(r=>setTimeout(r,1500)).then(()=>retryFetch(url,attempts-1,ms));
+      });
+    }
+
+    // Fallback: clear Loading... after 12s no matter what
+    setTimeout(()=>{
+      const crm=document.getElementById('crmBody');
+      const hist=document.getElementById('historyBody');
+      if(crm&&crm.textContent.includes('Loading'))crm.innerHTML='<span style="color:#8b949e">CRM timed out — <button onclick="location.reload()" style="background:none;border:none;color:#58a6ff;cursor:pointer;text-decoration:underline;font-size:inherit">reload</button></span>';
+      if(hist&&hist.textContent.includes('Loading'))hist.innerHTML='<span style="color:#8b949e">History timed out — <button onclick="location.reload()" style="background:none;border:none;color:#58a6ff;cursor:pointer;text-decoration:underline;font-size:inherit">reload</button></span>';
+    },12000);
+
+    document.addEventListener('DOMContentLoaded',function(){try{
+     const inst = PC_META.institution;
+     if (!inst) {
+       document.getElementById('crmBody').innerHTML='<span style="color:#8b949e">No institution detected</span>';
+       document.getElementById('historyBody').innerHTML='<span style="color:#8b949e">No institution — upload a valid PC</span>';
+       return;
+     }
+
+     // CRM match — with retry
+     document.getElementById('crmBody').innerHTML='<span style="color:#8b949e">🔄 Loading CRM...</span>';
+     retryFetch('/api/customers/match?q=' + encodeURIComponent(inst))
+     .then(r=>r.json())
+     .then(d=>{
+      const card = document.getElementById('crmBody');
+      const badge = document.getElementById('crmBadge');
+      if (d.matched && d.customer) {
+       const c = d.customer;
+       const agColors = {CDCR:'#3fb950',CCHCS:'#58a6ff',CalVet:'#d29922',DSH:'#bc8cff',DGS:'#f0883e',DEFAULT:'#8b949e'};
+       const ag = c.agency || 'DEFAULT';
+       badge.textContent = ag;
+       badge.style.background = (agColors[ag]||'#8b949e') + '22';
+       badge.style.color = agColors[ag]||'#8b949e';
+       let html = '<div style="font-weight:600;font-size:14px;color:var(--tx)">' + (c.display_name||'') + '</div>';
+       if (c.parent) html += '<div style="font-size:11px;color:#8b949e;margin-top:2px">↳ ' + c.parent + '</div>';
+       if (c.email) html += '<div style="margin-top:4px">📧 <a href="mailto:' + c.email + '" style="color:#58a6ff">' + c.email + '</a></div>';
+       if (c.phone) html += '<div>📞 ' + c.phone + '</div>';
+       if (c.address) html += '<div style="margin-top:4px;font-size:11px;color:var(--tx2)">' + c.address.replace(/\\n/g,'<br>') + '</div>';
+       if (c.city) html += '<div style="font-size:11px;color:var(--tx2)">' + c.city + ', ' + (c.state||'CA') + ' ' + (c.zip||'') + '</div>';
+       html += '<div style="margin-top:4px;font-size:10px;color:#8b949e">Source: ' + (c.source||'manual') + '</div>';
+       card.innerHTML = html;
+      } else {
+       badge.textContent = '⚠️ NEW';
+       badge.style.background = 'rgba(210,153,34,.15)';
+       badge.style.color = '#d29922';
+       let html = '<div style="color:#d29922;font-weight:600">"' + inst + '" not in CRM</div>';
+       const suggested = d.suggested_agency || 'DEFAULT';
+       html += '<div style="font-size:11px;margin-top:4px;color:var(--tx2)">Suggested agency: <b>' + suggested + '</b></div>';
+       if (d.candidates && d.candidates.length > 0) {
+        html += '<div style="margin-top:6px;font-size:11px;color:var(--tx2)">Did you mean:</div>';
+        d.candidates.forEach(c => {
+         html += '<div style="margin-left:8px;font-size:11px">• ' + c.display_name + ' <span style="color:#8b949e">(' + (c.agency||'') + ')</span></div>';
+        });
+       }
+       html += '<button onclick="addNewCustomer()" class="btn btn-sm" data-testid="crm-add-customer" style="margin-top:8px;background:rgba(210,153,34,.15);color:#d29922;border:1px solid rgba(210,153,34,.3);font-size:11px;padding:3px 10px;cursor:pointer">+ Add to CRM</button>';
+       card.innerHTML = html;
+      }
+     }).catch((err)=>{
+      document.getElementById('crmBody').innerHTML='<span style="color:#f85149">⚠️ CRM load failed</span><br><span style="color:#8b949e;font-size:11px">' + (err.name==='AbortError'?'Timeout — server may be starting up':'Network error') + '</span><br><button onclick="location.reload()" style="margin-top:6px;font-size:11px;background:none;border:1px solid var(--bd);color:var(--tx2);padding:3px 10px;border-radius:4px;cursor:pointer">↻ Retry</button>';
+     });
+
+     // Quote history for this institution — with hyperlinks and hover previews
+     document.getElementById('historyBody').innerHTML='<span style="color:#8b949e">🔄 Loading history...</span>';
+     retryFetch('/api/quotes/history?institution=' + encodeURIComponent(inst))
+     .then(r=>r.json())
+     .then(history=>{
+      const el = document.getElementById('historyBody');
+      const badge = document.getElementById('historyBadge');
+      if (!history || history.length === 0) {
+       el.innerHTML = '<span style="color:#8b949e;font-size:13px">No previous quotes for this institution</span>';
+       return;
+      }
+      const stCfg = {
+        won:['✅','#3fb950','Won — PO received'],
+        lost:['❌','#f85149','Lost — not awarded'],
+        pending:['⏳','#d29922','Pending — awaiting decision'],
+        draft:['📝','#8b949e','Draft — not yet sent'],
+      };
+
+      // Summary badge
+      badge.style.display = 'inline';
+      badge.textContent = history.length + ' quote' + (history.length>1?'s':'');
+
+      // Summary stats row
+      const won = history.filter(h=>h.status==='won').length;
+      const lost = history.filter(h=>h.status==='lost').length;
+      const pending = history.filter(h=>['pending','draft'].includes(h.status)).length;
+      const wonTotal = history.filter(h=>h.status==='won').reduce((s,h)=>s+(h.total||0),0);
+      let html = '<div style="display:flex;gap:12px;padding:8px 0 10px;border-bottom:1px solid var(--bd);font-size:13px;font-weight:600">';
+      if (won) html += '<span style="color:#3fb950">' + won + ' won · $' + wonTotal.toLocaleString('en',{minimumFractionDigits:2}) + '</span>';
+      if (lost) html += '<span style="color:#f85149">' + lost + ' lost</span>';
+      if (pending) html += '<span style="color:#d29922">' + pending + ' pending</span>';
+      html += '</div>';
+
+      // Quote rows — each entity hyperlinked with hover preview
+      history.forEach(h => {
+       const [icon,color,statusTip] = stCfg[h.status] || stCfg.pending;
+       const items = (h.items_text||'').substring(0,100);
+       const itemsList = (h.items_detail||[]).map(it => 
+         it.description.substring(0,60) + ' (x' + it.qty + ') $' + (it.unit_price||0).toFixed(2)
+       ).join('\\n');
+       const tooltipContent = h.quote_number + ' — ' + statusTip 
+         + '\\n$' + (h.total||0).toFixed(2) + ' · ' + (h.items_count||0) + ' items'
+         + (h.po_number ? '\\nPO: ' + h.po_number : '')
+         + (h.days_ago ? '\\n' + h.days_ago : '')
+         + (itemsList ? '\\n───\\n' + itemsList : '');
+
+       html += '<div class="qh-row" style="padding:8px 0;border-bottom:1px solid rgba(48,54,61,0.5)">';
+       
+       // Row 1: Quote number + status + total
+       html += '<div style="display:flex;gap:10px;align-items:center">';
+       // Quote number — hyperlinked
+       html += '<a href="' + (h.quote_url||'/quotes') + '" class="qh-link" title="' + tooltipContent.replace(/"/g,'&quot;') + '" '
+         + 'style="font-family:JetBrains Mono,monospace;font-weight:700;font-size:13px;color:#58a6ff;text-decoration:none">'
+         + h.quote_number + '</a>';
+       // Status badge — links to source PC if available
+       const statusLink = h.source_pc_url || h.source_rfq_url || '#';
+       const statusTitle = statusLink !== '#' ? 'View source document' : statusTip;
+       html += '<a href="' + statusLink + '" title="' + statusTitle + '" '
+         + 'style="color:' + color + ';font-size:12px;text-decoration:none;padding:1px 8px;border-radius:10px;'
+         + 'background:' + color + '18;font-weight:600;white-space:nowrap">'
+         + icon + ' ' + h.status + '</a>';
+       // Date
+       html += '<span style="font-size:12px;color:#8b949e;flex:1">' + (h.date||'') + '</span>';
+       // Total
+       html += '<span style="font-family:JetBrains Mono,monospace;font-weight:600;font-size:13px;color:var(--tx)">$' 
+         + (h.total||0).toLocaleString('en',{minimumFractionDigits:2}) + '</span>';
+       html += '</div>';
+       
+       // Row 2: Items preview + PO + source link
+       html += '<div style="display:flex;gap:8px;margin-top:4px;align-items:center">';
+       if (items) html += '<span style="font-size:11px;color:#8b949e;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' 
+         + (h.items_count||0) + ' items: ' + items + '</span>';
+       if (h.po_number) html += '<span style="font-size:11px;padding:1px 6px;background:#238636;color:#fff;border-radius:4px;font-weight:600">PO: ' + h.po_number + '</span>';
+       if (h.source_pc_url) html += '<a href="' + h.source_pc_url + '" title="View source Price Check" '
+         + 'style="font-size:10px;color:#58a6ff;text-decoration:none">📄 PC</a>';
+       if (h.source_rfq_url) html += '<a href="' + h.source_rfq_url + '" title="View source RFQ" '
+         + 'style="font-size:10px;color:#58a6ff;text-decoration:none">📋 RFQ</a>';
+       html += '</div>';
+       
+       html += '</div>';
+      });
+      el.innerHTML = html;
+     }).catch((err)=>{
+      document.getElementById('historyBody').innerHTML='<span style="color:#f85149">⚠️ History load failed</span><br><span style="color:#8b949e;font-size:11px">' + (err.name==='AbortError'?'Timeout — server may be starting up':'Network error') + '</span><br><button onclick="location.reload()" style="margin-top:6px;font-size:11px;background:none;border:1px solid var(--bd);color:var(--tx2);padding:3px 10px;border-radius:4px;cursor:pointer">↻ Retry</button>';
+     });
+    }catch(e){console.error('CRM/History load error:',e);
+      const crm=document.getElementById('crmBody');
+      if(crm)crm.innerHTML='<span style="color:#f85149">⚠️ JS error — check console</span>';
+    }});
+
+    function addNewCustomer() {
+     const inst = PC_META.institution;
+     const ag = prompt('Agency for "' + inst + '"?\\n(CDCR, CCHCS, CalVet, DGS, DSH, DEFAULT)', 'CDCR');
+     if (!ag) return;
+     const parent = prompt('Parent organization?\\n(e.g. "Dept of Corrections and Rehabilitation")', '');
+     fetch('/api/customers', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({display_name: inst, agency: ag, parent: parent||'',
+                            city: '', state: 'CA', source: 'user_validated'})
+     })
+     .then(r=>r.json())
+     .then(d=>{
+      if (d.ok) { alert('✅ Added "' + inst + '" to CRM'); location.reload(); }
+      else { alert('⚠️ ' + (d.error||'Failed')); }
+     });
+    }
+
+    // ── PRD Feature 10: Price History Intelligence ──────────────────────────
+    function loadPriceHistory() {
+      const btn = document.getElementById('phLoadBtn');
+      const panel = document.getElementById('ph-content');
+      const rows = document.getElementById('ph-rows');
+      btn.textContent = 'Loading...'; btn.disabled = true;
+      const descs = [];
+      document.querySelectorAll('#itemsTable tr').forEach(tr => {
+        const inputs = tr.querySelectorAll('input[type=text]');
+        inputs.forEach(inp => { if(inp.name && inp.name.startsWith('desc_') && inp.value.trim()) descs.push(inp.value.trim().substring(0,80)); });
+      });
+      if (!descs.length) {
+        rows.innerHTML = '<div style="color:#484f58;font-size:13px;padding:8px">No items found.</div>';
+        panel.style.display='block'; btn.textContent='Load History'; btn.disabled=false; return;
+      }
+      let loaded = 0; rows.innerHTML = ''; panel.style.display = 'block';
+      const seen = new Set();
+      descs.filter(d=>!seen.has(d)&&seen.add(d)).forEach(desc => {
+        fetch('/api/prices/best?q=' + encodeURIComponent(desc.substring(0,50)))
+          .then(r=>r.json()).then(d=>{
+            loaded++;
+            if (d.ok && d.found) {
+              rows.innerHTML += `<div style="display:flex;align-items:center;gap:12px;padding:8px 12px;background:#161b22;border:1px solid #30363d;border-radius:6px;margin-bottom:6px;flex-wrap:wrap">
+                <div style="flex:1;min-width:0"><div style="font-size:13px;color:#c9d1d9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${desc}">${desc.substring(0,70)}</div>
+                <div style="font-size:11px;color:#484f58">via ${d.best_source||'?'} · ${(d.best_found_at||'').substring(0,10)} · ${d.observations} observation${d.observations!==1?'s':''}</div></div>
+                <div style="text-align:right;white-space:nowrap"><div style="color:#3fb950;font-weight:700;font-size:15px">Best: $${d.best_price.toFixed(2)}</div>
+                <div style="color:#8b949e;font-size:12px">Avg: $${d.avg_price.toFixed(2)}</div></div></div>`;
+            }
+            if (loaded >= seen.size) {
+              if (!rows.innerHTML) rows.innerHTML='<div style="color:#484f58;font-size:13px;padding:8px">No price history yet — builds as quotes are generated.</div>';
+              btn.textContent='Refresh'; btn.disabled=false;
+            }
+          }).catch(()=>{loaded++;});
+      });
+    }
+    </script>
+    </body></html>
+
+{% endblock %}

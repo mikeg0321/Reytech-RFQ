@@ -143,12 +143,29 @@ def pricecheck_detail(pcid):
     next_quote_preview = peek_next_quote_number() if QUOTE_GEN_AVAILABLE else ""
     
     profit_summary_json = _json.dumps(pc.get("profit_summary")) if pc.get("profit_summary") else "null"
-    html = build_pc_detail_html(
+    # Build pipeline status tracker (moved from build_pc_detail_html)
+    _status = pc.get('status', 'parsed')
+    _steps = [('parsed', '📥', 'Parsed'), ('priced', '💰', 'Priced'), ('completed', '📄', '704 Filled')]
+    _reached = {'parsed': 0, 'priced': 1, 'completed': 2, 'converted': 2}.get(_status, 0)
+    _pip_parts = []
+    for i, (step, icon, label) in enumerate(_steps):
+        if i <= _reached:
+            style = "padding:4px 10px;border-radius:6px;background:rgba(52,211,153,.12);color:#3fb950"
+        else:
+            style = "padding:4px 10px;border-radius:6px;background:#21262d;color:#484f58"
+        _pip_parts.append(f"<span style=\"{style}\">{icon} {label}</span>")
+        if i < len(_steps) - 1:
+            _pip_parts.append("<span style=\"color:#484f58;margin:0 4px\">→</span>")
+    pipeline_html = "".join(_pip_parts)
+
+    from src.api.render import render_page
+    html = render_page("pc_detail.html", active_page="PCs",
         pcid=pcid, pc=pc, items=items, items_html=items_html,
         download_html=download_html, expiry_date=expiry_date,
         header=header, custom_val=custom_val, custom_display=custom_display,
         del_sel=del_sel, next_quote_preview=next_quote_preview,
-        today_date=today_date, profit_summary_json=profit_summary_json
+        today_date=today_date, profit_summary_json=profit_summary_json,
+        pipeline_html=pipeline_html,
     )
     # Sanitize any surrogate chars that could cause UnicodeEncodeError
     return html.encode("utf-8", "replace").decode("utf-8")
