@@ -338,10 +338,41 @@ def send_email(email_id: str) -> dict:
         return {"ok": False, "error": "EmailSender not available"}
 
     try:
+        # ── Engagement Tracking: inject pixel + wrap links ────────────
+        tracking_id = None
+        body_for_send = target["body"]
+        try:
+            from src.agents.email_lifecycle import generate_tracking_id, get_tracking_pixel_url, get_tracked_link
+            import re as _re
+            base_url = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "")
+            if base_url and not base_url.startswith("http"):
+                base_url = f"https://{base_url}"
+
+            if base_url:
+                tracking_id = generate_tracking_id()
+                target["tracking_id"] = tracking_id
+
+                # Wrap links in body for click tracking
+                def _wrap_link(m):
+                    url = m.group(1)
+                    if "/api/email/track/" in url:
+                        return m.group(0)  # already tracked
+                    tracked = base_url + get_tracked_link(tracking_id, url)
+                    return f'href="{tracked}"'
+                body_for_send = _re.sub(r'href="(https?://[^"]+)"', _wrap_link, body_for_send)
+
+                # Tracking pixel (appended to HTML body later by EmailSender)
+                pixel_url = base_url + get_tracking_pixel_url(tracking_id)
+                pixel_tag = f'<img src="{pixel_url}" width="1" height="1" style="display:none" alt="">'
+                body_for_send += f"\n\n{pixel_tag}"
+        except Exception as _te:
+            log.debug("Tracking injection: %s", _te)
+        # ── End Engagement Tracking ───────────────────────────────────
+
         draft = {
             "to": target["to"],
             "subject": target["subject"],
-            "body": target["body"],
+            "body": body_for_send,
             "attachments": target.get("attachments", []),
         }
         sender.send(draft)

@@ -131,6 +131,21 @@ def scan_outbox_for_follow_ups():
         has_response = email.get("response_received", False)
 
         if not has_response and days_since >= 3:
+            # ── Engagement-aware prioritization ──────────────────────
+            opened = email.get("open_count", 0) > 0
+            clicked = email.get("click_count", 0) > 0
+            # Opened but no reply = hot lead, follow up sooner
+            # Not opened after 7d = might need different approach
+            if clicked:
+                urgency = "hot"       # clicked a link — very engaged
+            elif opened and days_since >= 3:
+                urgency = "warm"      # opened but didn't reply
+            elif not opened and days_since >= 7:
+                urgency = "cold"      # never opened — try different subject
+            else:
+                urgency = "normal"
+            # ── End engagement check ─────────────────────────────────
+
             needs_follow_up.append({
                 "source": "outbox",
                 "original_id": email.get("id", ""),
@@ -140,6 +155,11 @@ def scan_outbox_for_follow_ups():
                 "original_subject": email.get("subject", ""),
                 "sent_date": sent_date,
                 "days_since": days_since,
+                "urgency": urgency,
+                "opened": opened,
+                "clicked": clicked,
+                "open_count": email.get("open_count", 0),
+                "click_count": email.get("click_count", 0),
             })
 
     return needs_follow_up

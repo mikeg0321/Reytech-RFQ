@@ -107,7 +107,85 @@ def reconcile_revenue() -> dict:
         return {"ok": False, "error": str(e)}
 
     log.info("Revenue reconciliation: synced %d new entries", synced)
+
+    # Backfill margins on quotes that lack cost data
+    try:
+        costed = _backfill_margins()
+        if costed > 0:
+            log.info("Margin backfill: updated %d quotes with cost data", costed)
+    except Exception as _me:
+        log.debug("Margin backfill: %s", _me)
+
     return {"ok": True, "synced": synced}
+
+
+def _backfill_margins() -> int:
+    """Backfill total_cost / gross_profit / margin_pct on quotes using product catalog costs."""
+    updated = 0
+    try:
+        with get_db() as conn:
+            # Build cost lookup: part_number/name → cost
+            catalog_costs = {}
+            for row in conn.execute(
+                "SELECT name, cost FROM product_catalog WHERE cost > 0"
+            ).fetchall():
+                catalog_costs[row["name"].strip().upper()] = row["cost"]
+
+            # Quotes missing cost data
+            quotes = conn.execute("""
+                SELECT quote_number, line_items, total
+                FROM quotes
+                WHERE line_items IS NOT NULL AND line_items != ''
+                  AND (total_cost IS NULL OR total_cost = 0)
+                  AND total > 0
+            """).fetchall()
+
+            for q in quotes:
+                try:
+                    items = json.loads(q["line_items"]) if isinstance(q["line_items"], str) else q["line_items"]
+                except Exception:
+                    continue
+                if not isinstance(items, list):
+                    continue
+
+                total_cost = 0
+                items_costed = 0
+                for item in items:
+                    pn = (item.get("part_number") or "").strip().upper()
+                    qty = item.get("qty", 1) or 1
+
+                    # Try matching by part number
+                    cost_per = catalog_costs.get(pn, 0)
+
+                    if not cost_per:
+                        # Try fuzzy: check if part number appears in any catalog name
+                        if pn and len(pn) >= 4:
+                            for cat_name, cat_cost in catalog_costs.items():
+                                if pn in cat_name or cat_name in pn:
+                                    cost_per = cat_cost
+                                    break
+
+                    if cost_per > 0:
+                        total_cost += cost_per * qty
+                        items_costed += 1
+
+                if items_costed > 0 and total_cost > 0:
+                    total = q["total"] or 0
+                    gross_profit = total - total_cost
+                    margin_pct = (gross_profit / total * 100) if total > 0 else 0
+
+                    conn.execute("""
+                        UPDATE quotes
+                        SET total_cost = ?, gross_profit = ?, margin_pct = ?, items_costed = ?
+                        WHERE quote_number = ?
+                    """, (round(total_cost, 2), round(gross_profit, 2),
+                          round(margin_pct, 1), items_costed, q["quote_number"]))
+                    updated += 1
+
+    except Exception as e:
+        log.warning("_backfill_margins: %s", e)
+
+    return updated
 
 
 # ── Pipeline Forecast ─────────────────────────────────────────────────────────

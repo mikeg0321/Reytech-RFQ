@@ -1,23 +1,18 @@
 # Reytech RFQ — Task Tracker
 
-## Active Sprint (2026-02-22) — PRD-28 WI-1 + WI-3 Integration
+## Active Sprint (2026-02-22) — PRD-28 WI-2 + WI-4 Integration
 
-### GAP ANALYSIS
-Agents exist. Routes exist. 45 tests pass. DB schema ready.
-BUT: No cross-agent wiring. The agents are islands — nothing calls them.
+### WI-2: Email Outbox Overhaul — Wire tracking into send flow
+- [ ] **2a** send_email() → inject tracking pixel + wrap links via email_lifecycle
+- [ ] **2b** follow_up_engine → check engagement data (opens/clicks) to prioritize
+- [ ] **2c** Outbox summary widget on home page (drafts, failed, open rate)
 
-### WI-1: Quote Lifecycle — Wire Into Live Workflow
-- [ ] **1a** email_poller reply detection → run reply_analyzer → call process_reply_signal()
-- [ ] **1b** award_monitor → call close_lost_to_competitor() on quote when loss detected
-- [ ] **1c** Home page action dashboard → show expiring quotes in Urgent/Action cards
-- [ ] **1d** Quote detail page → show revision history + status timeline
-- [ ] **1e** Verify end-to-end
+### WI-4: Revenue Dashboard — Wire data flows
+- [ ] **4a** quote won → auto-log to revenue_log (quote_lifecycle already does this ✓, verify)
+- [ ] **4b** Auto-reconcile on revenue page load (revenue_engine.reconcile_revenue)
+- [ ] **4c** Margin calc: backfill existing quotes with cost data from catalog_price_history
 
-### WI-3: Lead Nurture — Wire Into Live Workflow
-- [ ] **3a** lead_gen_agent → auto-start nurture on new lead creation
-- [ ] **3b** scprs_intelligence_engine → rescore leads after new SCPRS data
-- [ ] **3c** Prospect detail page → "Convert to Customer" button
-- [ ] **3d** Growth page → nurture status badges on lead cards
-- [ ] **3e** Verify end-to-end
-
-## Execution: one sprint each, push after each
+## Completed (2026-02-22)
+- [x] WI-1: Quote Lifecycle — all bridges wired + pushed
+- [x] WI-3: Lead Nurture — all bridges wired + pushed
+- [x] Template extraction: 5 pages (growth_intel, scprs_intel, cchcs_intel, contacts, prospect_detail)
