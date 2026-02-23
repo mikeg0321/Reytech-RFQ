@@ -1966,5 +1966,109 @@
         "qty": 5
       }
     ]
+  },
+  {
+    "id": "ci-20260223061840-132",
+    "quote_number": "R26Q1",
+    "event": "lost",
+    "timestamp": "2026-02-23T06:18:40.544271",
+    "institution": "CSP-Sacramento",
+    "agency": "CDCR",
+    "our_total": 614.54,
+    "items_count": 0,
+    "competitor": "",
+    "competitor_price": 0,
+    "price_difference": 0,
+    "notes": "",
+    "lost_items": [
+      {
+        "description": "Engraved two line name tag, black/white\nRef ASIN: B07TEST123",
+        "our_price": 15.72,
+        "qty": 22
+      },
+      {
+        "description": "Copy paper, 8.5x11, 20lb, white, 10 reams\nRef ASIN: B00TEST456",
+        "our_price": 53.74,
+        "qty": 5
+      }
+    ]
+  },
+  {
+    "id": "ci-20260223061840-133",
+    "quote_number": "R26Q1",
+    "event": "lost",
+    "timestamp": "2026-02-23T06:18:40.547070",
+    "institution": "CSP-Sacramento",
+    "agency": "CDCR",
+    "our_total": 614.54,
+    "items_count": 0,
+    "competitor": "",
+    "competitor_price": 0,
+    "price_difference": 0,
+    "notes": "",
+    "lost_items": [
+      {
+        "description": "Engraved two line name tag, black/white\nRef ASIN: B07TEST123",
+        "our_price": 15.72,
+        "qty": 22
+      },
+      {
+        "description": "Copy paper, 8.5x11, 20lb, white, 10 reams\nRef ASIN: B00TEST456",
+        "our_price": 53.74,
+        "qty": 5
+      }
+    ]
+  },
+  {
+    "id": "ci-20260223062013-134",
+    "quote_number": "R26Q1",
+    "event": "lost",
+    "timestamp": "2026-02-23T06:20:13.762772",
+    "institution": "CSP-Sacramento",
+    "agency": "CDCR",
+    "our_total": 614.54,
+    "items_count": 0,
+    "competitor": "",
+    "competitor_price": 0,
+    "price_difference": 0,
+    "notes": "",
+    "lost_items": [
+      {
+        "description": "Engraved two line name tag, black/white\nRef ASIN: B07TEST123",
+        "our_price": 15.72,
+        "qty": 22
+      },
+      {
+        "description": "Copy paper, 8.5x11, 20lb, white, 10 reams\nRef ASIN: B00TEST456",
+        "our_price": 53.74,
+        "qty": 5
+      }
+    ]
+  },
+  {
+    "id": "ci-20260223062013-135",
+    "quote_number": "R26Q1",
+    "event": "lost",
+    "timestamp": "2026-02-23T06:20:13.765421",
+    "institution": "CSP-Sacramento",
+    "agency": "CDCR",
+    "our_total": 614.54,
+    "items_count": 0,
+    "competitor": "",
+    "competitor_price": 0,
+    "price_difference": 0,
+    "notes": "",
+    "lost_items": [
+      {
+        "description": "Engraved two line name tag, black/white\nRef ASIN: B07TEST123",
+        "our_price": 15.72,
+        "qty": 22
+      },
+      {
+        "description": "Copy paper, 8.5x11, 20lb, white, 10 reams\nRef ASIN: B00TEST456",
+        "our_price": 53.74,
+        "qty": 5
+      }
+    ]
   }
 ]

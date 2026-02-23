@@ -96,10 +96,16 @@
 
      <!-- Pipeline Status Tracker -->
      <div style="margin:12px 0;display:flex;align-items:center;gap:0;font-size:12px;font-weight:600">
-      {{ pipeline_html }}
+      {{ pipeline_html | safe }}
      </div>
 
-     {{ "<div style='padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(52,211,153,.08);border:1px solid rgba(52,211,153,.25);color:#3fb950;margin-bottom:10px'><span style=font-size:18px>✅</span><div><b>704 Complete</b> — Download below or re-fill if prices changed.</div></div>" if pc.get('status') in ('completed','converted') else "<div style='padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(88,166,255,.08);border:1px solid rgba(88,166,255,.25);color:#58a6ff;margin-bottom:10px'><span style=font-size:18px>💰</span><div><b>Priced</b> — review costs below, then Save & Fill 704.</div></div>" if pc.get('status') == 'priced' else "<div style='padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(210,153,34,.08);border:1px solid rgba(210,153,34,.25);color:#d29922;margin-bottom:10px'><span style=font-size:18px>📥</span><div><b>Parsed</b> — awaiting pricing agent. Click Process to run manually.</div></div>" if pc.get('status') == 'parsed' else "" }}
+     {% if pc.get('status') in ('completed','converted') %}
+     <div style="padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(52,211,153,.08);border:1px solid rgba(52,211,153,.25);color:#3fb950;margin-bottom:10px"><span style="font-size:18px">✅</span><div><b>704 Complete</b> — Download below or re-fill if prices changed.</div></div>
+     {% elif pc.get('status') == 'priced' %}
+     <div style="padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(88,166,255,.08);border:1px solid rgba(88,166,255,.25);color:#58a6ff;margin-bottom:10px"><span style="font-size:18px">💰</span><div><b>Priced</b> — review costs below, then Save &amp; Fill 704.</div></div>
+     {% elif pc.get('status') == 'parsed' %}
+     <div style="padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(210,153,34,.08);border:1px solid rgba(210,153,34,.25);color:#d29922;margin-bottom:10px"><span style="font-size:18px">📥</span><div><b>Parsed</b> — awaiting pricing agent. Click Process to run manually.</div></div>
+     {% endif %}
 
      <div class="meta" style="margin-top:8px">
       <b>Institution:</b> {{ header.get('institution',pc.get('institution','')) }} &nbsp;|&nbsp;
@@ -143,15 +149,21 @@
      <div class="action-bar" style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center" id="actionBar">
       <button class="btn btn-p" onclick="savePrices(this)" id="saveBtn" style="font-size:14px;padding:8px 20px">💾 Save</button>
       <button class="btn" onclick="showPreview()" style="background:#21262d;color:#c9d1d9;border:1px solid #484f58;font-size:14px;padding:8px 20px">👁️ Preview</button>
-      {{ "" if pc.get('status') in ('completed','converted') else "<button class='btn btn-g' id='submitBtn' onclick='saveAndGenerate(this)' style='font-size:14px;padding:8px 20px'>📄 Save &amp; Fill 704</button>" }}
-      {{ "<button class='btn' data-testid='pc-auto-process' style='background:#f0883e;color:#fff;font-size:14px;padding:8px 20px' onclick='autoProcess(this)'>⚡ Process Now</button>" if pc.get('status') == 'parsed' else "" }}
-      {{ download_html }}
+      {% if pc.get('status') not in ('completed','converted') %}
+      <button class="btn btn-g" id="submitBtn" onclick="saveAndGenerate(this)" style="font-size:14px;padding:8px 20px">📄 Save &amp; Fill 704</button>
+      {% endif %}
+      {% if pc.get('status') == 'parsed' %}
+      <button class="btn" data-testid="pc-auto-process" style="background:#f0883e;color:#fff;font-size:14px;padding:8px 20px" onclick="autoProcess(this)">⚡ Process Now</button>
+      {% endif %}
+      {{ download_html | safe }}
       <details style="position:relative;display:inline-block">
        <summary class="btn btn-sm" style="background:#21262d;color:#8b949e;border:1px solid #30363d;font-size:12px;padding:4px 10px;cursor:pointer;list-style:none">⋯ More</summary>
        <div style="position:absolute;top:100%;left:0;z-index:50;margin-top:4px;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:6px;min-width:220px;box-shadow:0 8px 24px rgba(0,0,0,.4)">
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#c9d1d9;border:none;padding:8px 10px;font-size:12px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runScprs(this)" data-testid="pc-scprs-lookup">🔍 Re-run SCPRS Lookup</button>
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#c9d1d9;border:none;padding:8px 10px;font-size:12px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runLookup(this)" data-testid="pc-amazon-lookup">🔬 Re-run Amazon Lookup</button>
-        {{ "<button class='btn btn-sm' style='width:100%;text-align:left;background:none;color:#c9d1d9;border:none;padding:8px 10px;font-size:12px;border-radius:4px' onmouseover=\"this.style.background='#21262d'\" onmouseout=\"this.style.background='none'\" onclick='saveAndGenerate(this)'>♻️ Re-fill 704</button>" if pc.get('status') in ('completed','converted') else "" }}
+        {% if pc.get('status') in ('completed','converted') %}
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#c9d1d9;border:none;padding:8px 10px;font-size:12px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="saveAndGenerate(this)">♻️ Re-fill 704</button>
+        {% endif %}
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#c9d1d9;border:none;padding:8px 10px;font-size:12px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="window.print()">🖨️ Print Page</button>
        </div>
       </details>
@@ -203,7 +215,7 @@
      <div class="pc-table-wrap">
      <table id="itemsTable">
       <tr><th style="width:28px">Bid</th><th>#</th><th>Qty</th><th>UOM</th><th style="min-width:280px">Description</th><th style="min-width:220px">Item Link</th><th>SCPRS $</th><th>Amazon $</th><th>Amazon Match</th><th>Unit Cost</th><th>Markup</th><th>Our Price</th><th>Extension</th><th>Profit</th><th>Conf</th></tr>
-      {{ items_html }}
+      {{ items_html | safe }}
      </table>
      </div>
      <div style="margin-top:8px">
@@ -639,7 +651,7 @@
 
     // Load saved profit summary from server if it exists
     (function loadSavedProfit() {
-      const saved = {{ profit_summary_json }};
+      const saved = {{ profit_summary_json | safe }};
       if (saved && saved.gross_profit != null) {
         updateProfitPanel(saved);
       }
