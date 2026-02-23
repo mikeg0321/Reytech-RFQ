@@ -1,0 +1,514 @@
+{% extends "base.html" %}
+{% block title %}Reytech RFQ Dashboard{% endblock %}
+
+{% block content %}
+
+<!-- ═══ Bar 1: Search + Quick Nav — PRIMARY ═══ -->
+<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
+ <form method="get" action="/search" style="display:flex;gap:0;flex:1;min-width:360px;background:var(--sf);border:2px solid var(--bd);border-radius:12px;overflow:hidden;transition:border-color .2s" onfocusin="this.style.borderColor='var(--ac)'" onfocusout="this.style.borderColor='var(--bd)'">
+  <span style="padding:0 16px;font-size:20px;display:flex;align-items:center;color:var(--tx2)">🔍</span>
+  <input name="q" placeholder="Search quotes, agencies, PO numbers, items, contacts..." style="flex:1;padding:16px 4px 16px 0;background:transparent;border:none;color:var(--tx);font-size:16px;outline:none" autocomplete="off">
+  <button type="submit" style="padding:16px 26px;background:var(--ac);border:none;color:#fff;font-size:15px;font-weight:700;cursor:pointer;transition:.15s;letter-spacing:.3px" onmouseover="this.style.background='var(--ac2)'" onmouseout="this.style.background='var(--ac)'">Search</button>
+ </form>
+ <a href="/quotes" class="btn btn-s" style="padding:14px 18px;font-size:14px;font-weight:600;white-space:nowrap">📋 Quotes DB</a>
+ <a href="/contacts" class="btn btn-s" style="padding:14px 18px;font-size:14px;font-weight:600;white-space:nowrap;border-color:rgba(167,139,250,.4);color:#a78bfa" onmouseover="this.style.borderColor='#a78bfa'" onmouseout="this.style.borderColor='rgba(167,139,250,.4)'">👥 CRM</a>
+ <a href="/orders" class="btn btn-s" style="padding:14px 18px;font-size:14px;font-weight:600;white-space:nowrap">📦 Orders</a>
+ <a href="/growth" class="btn btn-s" style="padding:14px 18px;font-size:14px;font-weight:600;white-space:nowrap">🚀 Growth</a>
+ <a href="/agents" class="btn btn-s" style="padding:14px 18px;font-size:14px;font-weight:600;white-space:nowrap">🤖 Agents</a>
+ <a href="/qa/workflow" id="qa-nav-btn" class="btn btn-s" style="padding:14px 18px;font-size:14px;font-weight:600;white-space:nowrap;display:none" title="QA Score">🔬 <span id="qa-nav-score">—</span></a>
+</div>
+
+<!-- ═══ QA Status Banner (hidden when all clear) ═══ -->
+<div id="qa-banner" style="display:none;margin-bottom:10px;padding:10px 14px;border-radius:8px;border:1px solid rgba(248,113,113,.4);background:rgba(248,113,113,.06);align-items:center;gap:10px;font-size:13px">
+ <span style="font-size:18px">⚠️</span>
+ <div style="flex:1">
+  <strong id="qa-banner-title" style="color:#f87171">Workflow tests failing</strong>
+  <span id="qa-banner-detail" style="color:var(--tx2);margin-left:8px;font-size:12px"></span>
+ </div>
+ <a href="/qa/workflow" style="padding:4px 10px;background:rgba(248,113,113,.15);color:#f87171;border:1px solid rgba(248,113,113,.3);border-radius:6px;font-size:11px;font-weight:600;text-decoration:none;white-space:nowrap">View Tests →</a>
+</div>
+
+<!-- ═══ Action Dashboard — PRD-28 WI-6 ═══ -->
+<div id="action-dash" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:14px">
+ <!-- Urgent -->
+ <div id="ad-urgent" style="background:var(--crd);border:1px solid rgba(248,113,113,.3);border-radius:10px;padding:14px;min-height:80px">
+  <div style="font-size:13px;font-weight:600;color:#f87171;margin-bottom:8px">🔴 Urgent</div>
+  <div id="ad-urgent-items" style="font-size:12px;color:var(--tx2)">Loading...</div>
+ </div>
+ <!-- Action Needed -->
+ <div id="ad-action" style="background:var(--crd);border:1px solid rgba(251,191,36,.3);border-radius:10px;padding:14px;min-height:80px">
+  <div style="font-size:13px;font-weight:600;color:#fbbf24;margin-bottom:8px">🟡 Action Needed</div>
+  <div id="ad-action-items" style="font-size:12px;color:var(--tx2)">Loading...</div>
+ </div>
+ <!-- Progress -->
+ <div id="ad-progress" style="background:var(--crd);border:1px solid rgba(46,204,113,.3);border-radius:10px;padding:14px;min-height:80px">
+  <div style="font-size:13px;font-weight:600;color:#2ecc71;margin-bottom:8px">🟢 Progress</div>
+  <div id="ad-progress-items" style="font-size:12px;color:var(--tx2)">Loading...</div>
+ </div>
+</div>
+<script>
+(function(){
+  fetch('/api/dashboard/actions').then(r=>r.json()).then(d=>{
+    if(!d.ok)return;
+    function renderItems(items,el){
+      if(!items||!items.length){el.innerHTML='<span style="color:var(--tx2)">✅ All clear</span>';return;}
+      el.innerHTML=items.map(i=>
+        '<a href="'+(i.link||'#')+'" style="display:block;padding:4px 0;color:var(--tx);text-decoration:none;border-bottom:1px solid var(--bd);font-size:12px" onmouseover="this.style.color=\'var(--ac)\'" onmouseout="this.style.color=\'var(--tx)\'">'
+        +i.icon+' '+i.label+'</a>'
+      ).join('');
+    }
+    renderItems(d.urgent, document.getElementById('ad-urgent-items'));
+    renderItems(d.action_needed, document.getElementById('ad-action-items'));
+    renderItems(d.progress, document.getElementById('ad-progress-items'));
+  }).catch(()=>{});
+})();
+</script>
+
+<!-- ═══ Work Queues — Primary Bento Row ═══ -->
+<div id="queues" class="bento bento-2" style="margin-bottom:14px">
+
+ <!-- Price Checks — primary work queue (wider column) -->
+ <div class="card" style="margin:0;overflow:hidden">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+   <div class="card-t" style="margin:0">Price Checks <span style="font-size:11px;font-weight:400;color:var(--tx2)">(AMS 704 — price your response)</span> <span style="font-family:'JetBrains Mono',monospace;font-weight:700">{{price_checks|length}}</span></div>
+  </div>
+  {% if price_checks %}
+  <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+  <table class="home-tbl">
+   <thead>
+    <tr>
+     <th>PC Number</th>
+     <th>Institution</th>
+     <th>Requestor</th>
+     <th style="width:90px">Due</th>
+     <th style="width:56px;text-align:center">Items</th>
+     <th style="width:74px;text-align:center">Quote</th>
+     <th style="width:80px;text-align:center">Status</th>
+     <th style="width:32px"></th>
+    </tr>
+   </thead>
+   <tbody>
+    {% for id, pc in price_checks.items() %}
+    <tr class="home-row" id="pc-row-{{id}}" onclick="location.href='/pricecheck/{{id}}'">
+     <td><a href="/pricecheck/{{id}}" class="sol">#{{pc.pc_number or '(blank)'}}</a></td>
+     <td style="font-weight:600">{{pc.institution or '—'}}</td>
+     <td style="color:var(--tx2)">{{pc.requestor or '—'}}</td>
+     <td class="mono">{{pc.due_date or '—'}}</td>
+     <td style="text-align:center" class="mono">{{pc.get('items',[])|length}}</td>
+     <td style="text-align:center" onclick="event.stopPropagation()">{% if pc.reytech_quote_number %}<span style="color:var(--gn);font-weight:600;font-family:'JetBrains Mono',monospace;font-size:12px">{{pc.reytech_quote_number}}</span>{% else %}—{% endif %}</td>
+     <td style="text-align:center"><span class="badge b-{{pc.status}}">{{pc.status}}</span></td>
+     <td style="text-align:center" onclick="event.stopPropagation()">
+      <div style="position:relative;display:inline-block" class="dismiss-wrap">
+       <button onclick="event.stopPropagation();this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'" title="Dismiss this Price Check" style="background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.2);color:#f85149;cursor:pointer;font-size:10px;padding:2px 6px;border-radius:4px;font-weight:600" onmouseover="this.style.background='rgba(248,81,73,.2)'" onmouseout="this.style.background='rgba(248,81,73,.08)'">✕</button>
+       <div style="display:none;position:absolute;right:0;top:22px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;padding:4px 0;min-width:180px;z-index:99;box-shadow:0 4px 12px rgba(0,0,0,.3)">
+        <div style="padding:4px 10px;font-size:10px;color:var(--tx2);font-weight:600;text-transform:uppercase;letter-spacing:.5px">Dismiss reason</div>
+        <button onclick="dismissItem('pc','{{id}}','cs_question',this)" class="dismiss-opt">CS / Admin Question</button>
+        <button onclick="dismissItem('pc','{{id}}','no_response',this)" class="dismiss-opt">Reytech Did Not Respond</button>
+        <button onclick="dismissItem('pc','{{id}}','not_responding',this)" class="dismiss-opt">Customer Not Responding</button>
+        <button onclick="dismissItem('pc','{{id}}','duplicate',this)" class="dismiss-opt">Duplicate</button>
+        <button onclick="dismissItem('pc','{{id}}','other',this)" class="dismiss-opt">Other</button>
+        <div style="border-top:1px solid var(--bd);margin:4px 0"></div>
+        <button onclick="dismissItem('pc','{{id}}','delete',this)" class="dismiss-opt" style="color:#f85149">🗑 Permanently Delete</button>
+       </div>
+      </div>
+     </td>
+    </tr>
+    {% endfor %}
+   </tbody>
+  </table>
+  </div>
+  {% else %}
+  <div class="empty" style="padding:32px 16px">No Price Checks yet — upload a 704 or configure email polling</div>
+  {% endif %}
+ </div>
+
+ <!-- RFQ Queue (narrower column) -->
+ <div class="card" style="margin:0;overflow:hidden">
+  <div class="card-t">RFQ Queue <span style="font-size:11px;font-weight:400;color:var(--tx2)">(704A/704B + formal quote package)</span> <span style="font-family:'JetBrains Mono',monospace;font-weight:700">{{rfqs|length}}</span></div>
+  {% if rfqs %}
+  <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+  <table class="home-tbl">
+   <thead>
+    <tr>
+     <th>Solicitation</th>
+     <th>Requestor</th>
+     <th style="width:90px">Due</th>
+     <th style="width:56px;text-align:center">Items</th>
+     <th style="width:80px;text-align:center">Status</th>
+     <th style="width:32px"></th>
+    </tr>
+   </thead>
+   <tbody>
+    {% for id, r in rfqs|dictsort(reverse=true) %}
+    <tr class="home-row" onclick="location.href='/rfq/{{id}}'" style="{% if r.status in ('sent','generated') %}opacity:0.55{% endif %}">
+     <td><a href="/rfq/{{id}}" class="sol">#{{r.solicitation_number}}</a></td>
+     <td style="font-weight:600">{{r.requestor_name}}</td>
+     <td class="mono">{{r.due_date}}</td>
+     <td style="text-align:center" class="mono">{{r.line_items|length}}</td>
+     <td style="text-align:center"><span class="badge b-{{r.status}}">{{r.status}}</span></td>
+     <td style="text-align:center" onclick="event.stopPropagation()">
+      <div style="position:relative;display:inline-block" class="dismiss-wrap">
+       <button onclick="event.stopPropagation();this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'" title="Dismiss this RFQ" style="background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.2);color:#f85149;cursor:pointer;font-size:10px;padding:2px 6px;border-radius:4px;font-weight:600" onmouseover="this.style.background='rgba(248,81,73,.2)'" onmouseout="this.style.background='rgba(248,81,73,.08)'">✕</button>
+       <div style="display:none;position:absolute;right:0;top:22px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;padding:4px 0;min-width:180px;z-index:99;box-shadow:0 4px 12px rgba(0,0,0,.3)">
+        <div style="padding:4px 10px;font-size:10px;color:var(--tx2);font-weight:600;text-transform:uppercase;letter-spacing:.5px">Dismiss reason</div>
+        <button onclick="dismissItem('rfq','{{id}}','cs_question',this)" class="dismiss-opt">CS / Admin Question</button>
+        <button onclick="dismissItem('rfq','{{id}}','no_response',this)" class="dismiss-opt">Reytech Did Not Respond</button>
+        <button onclick="dismissItem('rfq','{{id}}','not_responding',this)" class="dismiss-opt">Customer Not Responding</button>
+        <button onclick="dismissItem('rfq','{{id}}','duplicate',this)" class="dismiss-opt">Duplicate</button>
+        <button onclick="dismissItem('rfq','{{id}}','other',this)" class="dismiss-opt">Other</button>
+        <div style="border-top:1px solid var(--bd);margin:4px 0"></div>
+        <button onclick="dismissItem('rfq','{{id}}','delete',this)" class="dismiss-opt" style="color:#f85149">🗑 Permanently Delete</button>
+       </div>
+      </div>
+     </td>
+    </tr>
+    {% endfor %}
+   </tbody>
+  </table>
+  </div>
+  {% else %}
+  <div class="empty" style="padding:32px 16px">No RFQs — configure email polling or upload below</div>
+  {% endif %}
+ </div>
+
+</div>
+
+<!-- ═══ KPI Dashboard — Bento analytics ═══ -->
+
+<!-- Pipeline Funnel — stat strip -->
+<div class="card" style="margin-bottom:12px;padding:18px 24px">
+ <div style="display:flex;align-items:center;gap:6px;margin-bottom:14px">
+  <span style="font-size:11px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:1px">📊 Pipeline</span>
+  <span style="flex:1;height:1px;background:var(--bd)"></span>
+  <span id="next-quote-badge" style="font-size:11px;color:var(--tx2)">—</span>
+  <span style="width:1px;height:14px;background:var(--bd);margin:0 8px"></span>
+  <a href="/pipeline" style="font-size:11px;color:var(--ac);font-weight:600">View Full Pipeline →</a>
+ </div>
+ <div id="funnel-row" style="display:grid;grid-template-columns:repeat(7,1fr);gap:0">
+  <div style="text-align:center;padding:10px 0"><div style="font-size:28px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--tx2)">—</div><div style="font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Loading</div></div>
+ </div>
+</div>
+<script>
+fetch('/api/funnel/stats').then(r=>r.json()).then(d=>{
+ if(!d.ok) return;
+ const items = [
+  {icon:'📥', val:d.inbox||0, label:'Inbox', href:'/#queues', color:'var(--ac)', fmt:'n', tip:'New PCs + RFQs awaiting pricing (704s from email)'},
+  {icon:'💰', val:d.priced||0, label:'Priced', href:'/pricechecks', color:'var(--yl)', fmt:'n', tip:'Items priced, ready for formal quote generation'},
+  {icon:'📄', val:d.quoted||0, label:'Quoted', href:'/quotes?status=pending', color:'#a78bfa', fmt:'n', tip:'Formal quotes created, not yet sent to customer'},
+  {icon:'📤', val:d.sent||0, label:'Sent', href:'/quotes?status=sent', color:'var(--or)', fmt:'n', tip:'Quotes emailed to customer, awaiting PO response'},
+  {icon:'✅', val:d.won||0, label:'Won', href:'/quotes?status=won', color:'var(--gn)', fmt:'n', tip:'Quotes accepted — customer issued a purchase order'},
+  {icon:'📦', val:d.orders_active||0, label:'Orders', href:'/orders', color:'var(--or)', fmt:'n', tip:'Active purchase orders being sourced and fulfilled'},
+  {icon:'💵', val:d.pipeline_value||0, label:'Pipeline $', href:'/pipeline', color:'var(--gn)', fmt:'$', tip:'Total dollar value of quoted + sent quotes'},
+ ];
+ const cols = items.map((it,i)=>{
+  const fmtVal = it.fmt==='$' ? '$'+(it.val>=1e6?(it.val/1e6).toFixed(1)+'M':it.val>=1e3?(it.val/1e3).toFixed(0)+'K':it.val.toLocaleString()) : it.val;
+  const sep = i<items.length-1 ? '<div style="position:absolute;right:0;top:50%;transform:translateY(-50%);color:var(--bd);font-size:20px;font-weight:300">&rsaquo;</div>' : '';
+  return '<a href="'+it.href+'" class="funnel-link" title="'+it.tip+'" style="text-align:center;padding:10px 4px;display:block;text-decoration:none;border-radius:8px;transition:background .15s;position:relative">'+
+   '<div style="font-size:18px;margin-bottom:4px">'+it.icon+'</div>'+
+   '<div class="kpi-big" style="color:'+it.color+'">'+fmtVal+'</div>'+
+   '<div style="font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:5px;font-weight:600">'+it.label+'</div>'+
+   sep+'</a>';
+ });
+ document.getElementById('funnel-row').style.gridTemplateColumns='repeat(7,1fr)';
+ document.getElementById('funnel-row').innerHTML = cols.join('');
+ if(d.next_quote){const nb=document.getElementById('next-quote-badge');if(nb){nb.innerHTML='';var b=document.createElement('b');b.className='kpi-small';b.style.color='var(--ac)';b.textContent=d.next_quote;nb.appendChild(document.createTextNode('🎯 Next: '));nb.appendChild(b);if(d.win_rate){nb.innerHTML+=' · Win Rate: <b style="color:var(--gn)">'+d.win_rate+'%</b>';};}}
+}).catch(()=>{const nb=document.getElementById('next-quote-badge');if(nb)nb.textContent='';});
+</script>
+
+<!-- Annual Revenue Goal -->
+<div id="rev-bi" class="card" style="margin-bottom:12px;padding:18px 24px;display:block">
+ <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+  <span style="font-size:11px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:1px">📈 Annual Revenue Goal</span>
+  <div style="display:flex;gap:20px;align-items:center" id="rev-meta">
+   <span style="font-size:12px;color:var(--tx2)">Gap: <b id="rev-gap" style="color:var(--rd);font-family:'JetBrains Mono',monospace">$2,000,000</b></span>
+   <span style="font-size:12px;color:var(--tx2)">Run Rate: <b id="rev-rate" style="font-family:'JetBrains Mono',monospace;color:var(--rd)">$0</b></span>
+   <span style="font-size:12px;color:var(--tx2)">Status: <b id="rev-track" style="color:var(--rd)">Behind</b></span>
+  </div>
+ </div>
+ <div style="display:flex;align-items:center;gap:16px">
+  <span id="rev-closed" style="font-size:28px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--gn);white-space:nowrap">$0</span>
+  <div style="flex:1">
+   <div style="background:var(--sf2);border-radius:10px;height:28px;overflow:hidden;position:relative;border:1px solid var(--bd)">
+    <div id="rev-bar" style="height:100%;border-radius:10px;transition:width .8s ease;background:var(--rd);min-width:2px"></div>
+    <span id="rev-label" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:12px;font-weight:700;color:#fff;white-space:nowrap;text-shadow:0 1px 3px rgba(0,0,0,.5)">$0 / $2M (0%)</span>
+   </div>
+  </div>
+  <span style="font-size:14px;color:var(--tx2);white-space:nowrap">$2M Goal</span>
+ </div>
+</div>
+<script>
+fetch('/api/intel/revenue',{credentials:'same-origin'}).then(r=>r.json()).then(d=>{
+ if(!d.ok) return;
+ const pct = Math.min(100, d.pct_to_goal||0);
+ const color = pct>=50?'#3fb950':pct>=25?'#d29922':'#f85149';
+ const bar = document.getElementById('rev-bar');
+ bar.style.width = Math.max(pct,0.5)+'%';
+ bar.style.background = 'linear-gradient(90deg, '+color+', '+color+'aa)';
+ document.getElementById('rev-label').textContent = '$'+(d.closed_revenue||0).toLocaleString()+' / $'+(d.goal/1e6).toFixed(0)+'M ('+pct.toFixed(1)+'%)';
+ document.getElementById('rev-closed').textContent = '$'+(d.closed_revenue||0).toLocaleString();
+ document.getElementById('rev-closed').style.color = color;
+ document.getElementById('rev-gap').textContent = '$'+(d.gap_to_goal||0).toLocaleString();
+ document.getElementById('rev-rate').textContent = '$'+(d.run_rate_annual||0).toLocaleString()+'/yr';
+ document.getElementById('rev-rate').style.color = d.on_track?'#3fb950':'#f85149';
+ document.getElementById('rev-track').textContent = d.on_track?'On Track ✅':'Behind 🔴';
+ document.getElementById('rev-track').style.color = d.on_track?'#3fb950':'#f85149';
+ document.getElementById('rev-gap').style.color = d.gap_to_goal>0?'#f85149':'#3fb950';
+}).catch(()=>{});
+</script>
+
+<!-- KPI Detail Panels -->
+<div id="kpi-section" style="display:none">
+ <!-- Row 1: Big KPI cards -->
+ <div class="bento bento-4" style="margin-bottom:14px" id="kpi-cards"></div>
+ <!-- Row 2: Goal + Funnel side by side -->
+ <div class="bento bento-2e" style="margin-bottom:14px">
+  <div class="card kpi-panel" style="padding:16px;margin:0">
+   <div class="kpi-panel-title">Monthly Revenue Goal</div>
+   <div style="display:flex;align-items:flex-end;gap:12px;margin:12px 0 8px">
+    <span id="goal-current" class="kpi-big" style="color:var(--gn)">$0</span>
+    <span style="font-size:13px;color:var(--tx2)">of <span id="goal-target">$25,000</span></span>
+   </div>
+   <div class="progress-track"><div class="progress-fill" id="goal-bar" style="width:0%"></div></div>
+   <div style="display:flex;justify-content:space-between;margin-top:6px">
+    <span class="kpi-sub" id="goal-pct">0%</span>
+    <span class="kpi-sub" id="goal-remaining">$25,000 remaining</span>
+   </div>
+  </div>
+  <div class="card kpi-panel" style="padding:16px;margin:0">
+   <div class="kpi-panel-title">Pipeline Funnel</div>
+   <div id="funnel-bars" style="margin-top:12px"></div>
+  </div>
+ </div>
+ <!-- Row 3: Weekly volume + Top institutions -->
+ <div class="bento bento-2e" style="margin-bottom:14px">
+  <div class="card kpi-panel" style="padding:16px;margin:0">
+   <div class="kpi-panel-title">Weekly Quote Volume</div>
+   <div id="weekly-chart" style="display:flex;align-items:flex-end;gap:8px;height:100px;margin-top:12px;padding-top:8px"></div>
+  </div>
+  <div class="card kpi-panel" style="padding:16px;margin:0">
+   <div class="kpi-panel-title">Top Institutions by Revenue</div>
+   <div id="top-inst" style="margin-top:12px"></div>
+  </div>
+ </div>
+</div>
+
+<!-- Manual Upload — collapsed fallback -->
+<details class="card" style="cursor:default">
+ <summary style="font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:1px;cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px">
+  <span style="font-size:10px;transition:transform .2s" class="upload-arrow">▶</span>
+  Manual Upload
+  <span style="font-weight:400;font-size:11px;color:var(--tx2);margin-left:auto">Use if email automation doesn't catch it</span>
+ </summary>
+ <form method="POST" action="/upload" enctype="multipart/form-data" id="uf" style="margin-top:14px">
+  <div class="upl" id="dz" onclick="document.getElementById('fi').click()" style="padding:24px;border-width:1px">
+   <h3 style="font-size:14px;margin-bottom:2px">Drop PDF here</h3>
+   <p style="font-size:12px">AMS 704 Price Check or RFQ (703B, 704B, Bid Package)</p>
+   <input type="file" id="fi" data-testid="upload-file-input" name="files" multiple accept=".pdf" style="display:none">
+  </div>
+ </form>
+</details>
+
+<script>
+// ── Upload drag/drop ──
+const dz=document.getElementById('dz'),fi=document.getElementById('fi'),uf=document.getElementById('uf');
+if(dz){
+ ['dragover','dragenter'].forEach(e=>dz.addEventListener(e,ev=>{ev.preventDefault();dz.style.borderColor='var(--ac)'}));
+ ['dragleave','drop'].forEach(e=>dz.addEventListener(e,ev=>{ev.preventDefault();dz.style.borderColor='var(--bd)'}));
+ dz.addEventListener('drop',ev=>{fi.files=ev.dataTransfer.files;uf.submit()});
+ fi.addEventListener('change',()=>{if(fi.files.length)uf.submit()});
+}
+// ── Details arrow ──
+document.querySelectorAll('details').forEach(d=>{
+ d.addEventListener('toggle',()=>{
+  var arr=d.querySelector('.upload-arrow');
+  if(arr) arr.style.transform=d.open?'rotate(90deg)':'rotate(0)';
+ });
+});
+
+    // ── Clear stale quote number from PC ──────────────────────────────────
+    function clearPCQuote(id, btn) {
+      if (!confirm('Clear the stale quote number from this PC? The PC will return to "parsed" status so you can generate a fresh quote.')) return;
+      btn.textContent = '⏳';
+      fetch('/api/pricecheck/' + id + '/clear-quote', {method: 'POST', credentials: 'same-origin'})
+        .then(r => r.json())
+        .then(d => {
+          if (d.ok) {
+            // Reload to show updated state
+            location.reload();
+          } else {
+            btn.textContent = '✕';
+            alert('Error: ' + (d.error || 'unknown'));
+          }
+        })
+        .catch(() => { btn.textContent = '✕'; });
+    }
+
+    // ── Delete Price Check ─────────────────────────────────────────────────
+    // Close dismiss dropdowns when clicking outside
+    document.addEventListener('click', function(e) {
+      if (!e.target.closest('.dismiss-wrap')) {
+        document.querySelectorAll('.dismiss-wrap > div:last-child').forEach(function(d){ d.style.display='none'; });
+      }
+    });
+
+    function dismissItem(type, id, reason, btn) {
+      event.stopPropagation();
+      if (reason === 'delete') {
+        if (!confirm('Permanently delete this ' + (type==='pc'?'Price Check':'RFQ') + '? This cannot be undone.')) return;
+      }
+      // Disable all buttons in this dropdown
+      var wrap = btn.closest('.dismiss-wrap');
+      wrap.querySelectorAll('button').forEach(function(b){ b.disabled=true; b.style.opacity='.5'; });
+      
+      var endpoint = type === 'pc' 
+        ? '/api/pricecheck/' + id + '/dismiss'
+        : '/api/rfq/' + id + '/dismiss';
+      
+      fetch(endpoint, {
+        method: 'POST', 
+        credentials: 'same-origin',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({reason: reason})
+      })
+      .then(function(r){ return r.json(); })
+      .then(function(d) {
+        if (d.ok) {
+          // Fade and remove row
+          var row = type === 'pc' 
+            ? document.getElementById('pc-row-' + id)
+            : btn.closest('tr');
+          if (row) {
+            row.style.transition = 'opacity .3s';
+            row.style.opacity = '0';
+            setTimeout(function(){ row.remove(); }, 300);
+          }
+          if (d.scprs_queued) {
+            console.log('SCPRS price intel queued for dismissed items');
+          }
+        } else {
+          alert('Failed: ' + (d.error || 'unknown'));
+          wrap.querySelectorAll('button').forEach(function(b){ b.disabled=false; b.style.opacity='1'; });
+        }
+      })
+      .catch(function(){ 
+        wrap.querySelectorAll('button').forEach(function(b){ b.disabled=false; b.style.opacity='1'; }); 
+      });
+    }
+
+
+// ── QA Status Banner (surfaces failures to main dashboard) ──
+(function loadQABanner(){
+  fetch('/api/qa/workflow/latest',{credentials:'same-origin'}).then(function(r){return r.json();}).then(function(d){
+    var report=d&&d.full_report?d.full_report:d;
+    if(!report||!report.summary)return;
+    var failed=report.summary.failed||0;
+    var warned=report.summary.warned||0;
+    var score=report.score||0;
+    var banner=document.getElementById('qa-banner');
+    // Update nav QA button
+    var navBtn=document.getElementById('qa-nav-btn');
+    var navScore=document.getElementById('qa-nav-score');
+    if(navBtn&&navScore){
+      navScore.textContent=score+'/100';
+      navBtn.style.display='';
+      if(failed>0){navBtn.style.borderColor='rgba(248,113,113,.5)';navBtn.style.color='#f87171';}
+      else if(score<80){navBtn.style.borderColor='rgba(251,191,36,.5)';navBtn.style.color='#fbbf24';}
+      else{navBtn.style.borderColor='rgba(52,211,153,.3)';navBtn.style.color='#34d399';}
+    }
+    if(!banner)return;
+    if(failed>0){
+      banner.style.display='flex';
+      document.getElementById('qa-banner-title').textContent=failed+' workflow test'+(failed>1?'s':'')+' failing';
+      var cf=(report.critical_failures||[]).slice(0,2).map(function(f){return f.message||f;});
+      document.getElementById('qa-banner-detail').textContent=cf.join(' · ').substring(0,120);
+    } else if(score<70&&warned>0){
+      banner.style.display='flex';
+      banner.style.borderColor='rgba(251,191,36,.4)';
+      banner.style.background='rgba(251,191,36,.04)';
+      document.getElementById('qa-banner-title').style.color='#fbbf24';
+      document.getElementById('qa-banner-title').textContent=warned+' warning'+(warned>1?'s':'')+' — score '+score+'/100';
+      var anchor=banner.querySelector('a');if(anchor){anchor.style.color='#fbbf24';anchor.style.borderColor='rgba(251,191,36,.3)';anchor.style.background='rgba(251,191,36,.1)';}
+    } else {
+      banner.style.display='none';
+    }
+  }).catch(function(){});
+})();
+fetch('/api/manager/metrics',{credentials:'same-origin'}).then(function(r){
+ if(!r.ok) throw new Error('HTTP '+r.status);
+ return r.json();
+}).then(function(data){
+ if(!data.ok) return;
+ document.getElementById('kpi-section').style.display='block';
+ var rev=data.revenue||{};var q=data.quotes||{};var fn=data.funnel||{};
+
+ // Big KPI cards
+ var cards=[
+  {label:'Total Revenue',value:'$'+(rev.total||0).toLocaleString(undefined,{maximumFractionDigits:0}),color:'var(--gn)',sub:q.won+' quotes won'},
+  {label:'Win Rate',value:(q.win_rate||0)+'%',color:q.win_rate>=50?'var(--gn)':q.win_rate>0?'var(--yl)':'var(--tx2)',sub:(q.won+q.lost)+' decided'},
+  {label:'Pipeline Value',value:'$'+(rev.pipeline_value||0).toLocaleString(undefined,{maximumFractionDigits:0}),color:'var(--ac)',sub:(q.pending||0)+' quoted, '+(q.sent||0)+' sent'},
+  {label:'Avg Response',value:(data.response_time_hours||0)+'h',color:data.response_time_hours<24?'var(--gn)':data.response_time_hours<48?'var(--yl)':'var(--rd)',sub:'PC upload → priced'},
+ ];
+ document.getElementById('kpi-cards').innerHTML=cards.map(function(c){
+  return '<div class="card kpi-card"><div class="kpi-card-label">'+c.label+'</div>'
+   +'<div class="kpi-card-value" style="color:'+c.color+'">'+c.value+'</div>'
+   +'<div class="kpi-card-sub">'+c.sub+'</div></div>';
+ }).join('');
+
+ // Goal progress
+ document.getElementById('goal-current').textContent='$'+(rev.this_month||0).toLocaleString(undefined,{maximumFractionDigits:0});
+ document.getElementById('goal-target').textContent='$'+(rev.monthly_goal||25000).toLocaleString(undefined,{maximumFractionDigits:0});
+ document.getElementById('goal-pct').textContent=(rev.goal_pct||0)+'%';
+ var remaining=Math.max((rev.monthly_goal||25000)-(rev.this_month||0),0);
+ document.getElementById('goal-remaining').textContent='$'+remaining.toLocaleString(undefined,{maximumFractionDigits:0})+' remaining';
+ var bar=document.getElementById('goal-bar');
+ bar.style.width=Math.min(rev.goal_pct||0,100)+'%';
+ bar.style.background=rev.goal_pct>=100?'var(--gn)':rev.goal_pct>=50?'var(--ac)':'var(--yl)';
+
+ // Funnel
+ var funnelData=[
+  {label:'Price Checks',value:fn.pcs_total||0,color:'var(--ac)'},
+  {label:'Priced',value:fn.priced||0,color:'var(--yl)'},
+  {label:'Completed',value:fn.completed||0,color:'var(--or)'},
+  {label:'Quoted',value:fn.quotes_generated||0,color:'var(--ac)'},
+  {label:'Won',value:fn.quotes_won||0,color:'var(--gn)'},
+ ];
+ var fMax=Math.max.apply(null,funnelData.map(function(f){return f.value}))||1;
+ document.getElementById('funnel-bars').innerHTML=funnelData.map(function(f){
+  var pct=Math.max(f.value/fMax*100,4);
+  return '<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">'
+   +'<div style="width:80px;font-size:11px;color:var(--tx2);text-align:right">'+f.label+'</div>'
+   +'<div style="flex:1;height:20px;background:var(--sf2);border-radius:4px;overflow:hidden">'
+   +'<div style="height:100%;width:'+pct+'%;background:'+f.color+';border-radius:4px;transition:width .6s"></div></div>'
+   +'<div style="width:30px;font-size:12px;font-weight:600;font-family:JetBrains Mono,monospace">'+f.value+'</div></div>';
+ }).join('');
+
+ // Weekly chart (bar chart)
+ var wv=data.weekly_volume||[];
+ var wMax=Math.max.apply(null,wv.map(function(w){return w.quotes}))||1;
+ document.getElementById('weekly-chart').innerHTML=wv.map(function(w){
+  var h=Math.max(w.quotes/wMax*80,4);
+  return '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px">'
+   +'<div style="font-size:10px;font-family:JetBrains Mono,monospace;color:var(--tx2)">'+w.quotes+'</div>'
+   +'<div style="width:100%;height:'+h+'px;background:var(--ac);border-radius:4px 4px 0 0;transition:height .4s"></div>'
+   +'<div style="font-size:9px;color:var(--tx2)">'+w.label+'</div></div>';
+ }).join('');
+
+ // Top institutions
+ var ti=data.top_institutions||[];
+ if(ti.length>0){
+  var tiMax=ti[0].revenue||1;
+  document.getElementById('top-inst').innerHTML=ti.map(function(t){
+   var pct=Math.max(t.revenue/tiMax*100,4);
+   return '<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">'
+    +'<div style="min-width:120px;max-width:160px;font-size:11px;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+t.name+'</div>'
+    +'<div style="flex:1;height:16px;background:var(--sf2);border-radius:4px;overflow:hidden">'
+    +'<div style="height:100%;width:'+pct+'%;background:var(--gn);border-radius:4px;transition:width .6s"></div></div>'
+    +'<div style="width:70px;font-size:11px;font-weight:600;font-family:JetBrains Mono,monospace;text-align:right;color:var(--gn)">$'+t.revenue.toLocaleString(undefined,{maximumFractionDigits:0})+'</div></div>';
+  }).join('');
+ } else {
+  document.getElementById('top-inst').innerHTML='<div class="brief-empty">Win quotes to see top institutions here</div>';
+ }
+}).catch(function(err){ console.error('Manager metrics failed:',err); });
+</script>
+
+{% endblock %}

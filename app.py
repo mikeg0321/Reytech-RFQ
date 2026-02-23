@@ -25,10 +25,11 @@ from flask import Flask
 
 def create_app():
     """Application factory."""
+    _app_dir = os.path.dirname(os.path.abspath(__file__))
     app = Flask(
         __name__,
-        template_folder=os.path.join(os.path.dirname(__file__), "src", "templates"),
-        static_folder=os.path.join(os.path.dirname(__file__), "src", "static"),
+        template_folder=os.path.join(_app_dir, "src", "templates"),
+        static_folder=os.path.join(_app_dir, "src", "static"),
         static_url_path="/static",
     )
     app.secret_key = os.environ.get("SECRET_KEY", "reytech-rfq-2026")

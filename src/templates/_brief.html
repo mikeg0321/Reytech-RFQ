@@ -1,0 +1,90 @@
+{# Manager Brief — partial included on home page #}
+<!-- Manager Brief — app-wide context, loads via AJAX with sessionStorage cache -->
+<div id="brief-section" class="card" style="margin-top:16px;margin-bottom:14px;display:none">
+ <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">
+  <div style="min-width:0;flex:1">
+   <div class="card-t" style="margin:0;display:flex;align-items:center;gap:8px;cursor:pointer" onclick="toggleBriefBody()">
+    &#x1F9E0; Manager Brief
+    <span id="brief-badge" style="font-size:10px;padding:2px 8px;border-radius:10px;background:var(--sf2);color:var(--tx2);font-weight:500"></span>
+    <span id="brief-toggle" style="font-size:10px;color:var(--tx2);margin-left:4px">&#x25BC;</span>
+   </div>
+   <div id="brief-headline" style="font-size:15px;font-weight:600;margin-top:8px;line-height:1.4"></div>
+  </div>
+  <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
+   <a href="/agents" class="btn btn-sm btn-s" style="font-size:10px;padding:4px 10px;white-space:nowrap">&#x1F4CA; Full Report</a>
+   <button onclick="loadBrief(true)" id="brief-refresh-btn" style="font-size:10px;padding:4px 8px;background:rgba(79,140,255,.1);border:1px solid rgba(79,140,255,.3);color:var(--ac);border-radius:6px;cursor:pointer;white-space:nowrap">&#x1F504; Refresh</button>
+  </div>
+ </div>
+ <div id="brief-body">
+  <div id="brief-grid">
+   <div style="font-size:11px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;display:flex;align-items:center;gap:6px">
+    Needs Your Attention <span id="approval-count" class="brief-count"></span>
+   </div>
+   <div id="approvals-list"></div>
+  </div>
+  <div id="pipeline-bar" style="display:flex;gap:12px;flex-wrap:wrap;margin-top:16px;padding-top:14px;border-top:1px solid var(--bd)"></div>
+  <div id="agents-row" style="display:none;margin-top:16px;padding-top:14px;border-top:1px solid var(--bd)">
+   <div style="font-size:10px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">Agent Status</div>
+   <div id="agents-list" style="display:flex;gap:10px;flex-wrap:wrap"></div>
+  </div>
+ </div>
+</div>
+<script>
+function toggleBriefBody(){
+ var body=document.getElementById('brief-body');var tog=document.getElementById('brief-toggle');
+ if(!body)return;
+ if(body.style.display==='none'){body.style.display='';tog.innerHTML='\u25BC';}
+ else{body.style.display='none';tog.innerHTML='\u25B6';}
+}
+function loadBrief(force){
+ var btn=document.getElementById('brief-refresh-btn');
+ if(!document.getElementById('brief-section'))return;
+ // SessionStorage cache — instant render on page nav
+ if(!force){
+  try{
+   var cached=sessionStorage.getItem('_brief_data');
+   var cachedTs=parseInt(sessionStorage.getItem('_brief_ts')||'0',10);
+   if(cached&&(Date.now()-cachedTs)<60000){
+    renderBrief(JSON.parse(cached));
+    // Background refresh if >30s old
+    if(Date.now()-cachedTs>30000){
+     fetch('/api/manager/brief',{credentials:'same-origin'}).then(function(r){return r.json()}).then(function(d){
+      if(d.ok){sessionStorage.setItem('_brief_data',JSON.stringify(d));sessionStorage.setItem('_brief_ts',''+Date.now());renderBrief(d)}
+     }).catch(function(){});
+    }
+    return;
+   }
+  }catch(e){}
+ }
+ if(btn){btn.disabled=true;btn.textContent='\u23F3';}
+ var url='/api/manager/brief';if(force)url+='?nocache=1';
+ fetch(url,{credentials:'same-origin'}).then(function(r){
+  if(!r.ok)throw new Error('HTTP '+r.status);return r.json();
+ }).then(function(data){
+  if(!data.ok)return;
+  try{sessionStorage.setItem('_brief_data',JSON.stringify(data));sessionStorage.setItem('_brief_ts',''+Date.now())}catch(e){}
+  renderBrief(data);
+ }).catch(function(err){
+  console.error('Manager brief:',err);
+  var sec=document.getElementById('brief-section');if(sec)sec.style.display='block';
+  var badge=document.getElementById('brief-badge');
+  if(badge){badge.textContent='retry';badge.style.background='rgba(251,191,36,.15)';badge.style.color='#fbbf24';badge.style.cursor='pointer';badge.onclick=function(){loadBrief(true);};}
+  var hdr=document.getElementById('brief-headline');
+  if(hdr){hdr.textContent='Click Refresh to load brief';hdr.style.color='#8b949e';}
+ }).finally(function(){if(btn){btn.disabled=false;btn.textContent='🔄 Refresh';}});
+}
+function renderBrief(data){
+ var sec=document.getElementById('brief-section');if(!sec)return;sec.style.display='block';
+ var hl=document.getElementById('brief-headline');if(hl)hl.textContent=data.headline||'All clear';
+ var badge=document.getElementById('brief-badge');
+ if(badge){if(data.approval_count>0){badge.textContent=data.approval_count+' pending';badge.style.background='rgba(251,191,36,.15)';badge.style.color='#fbbf24';}else{badge.textContent='all clear';badge.style.background='rgba(52,211,153,.15)';badge.style.color='#34d399';}}
+ var ac=document.getElementById('approval-count');if(ac&&data.approval_count>0)ac.textContent=data.approval_count;
+ var al=document.getElementById('approvals-list');
+ if(al){if(data.pending_approvals&&data.pending_approvals.length>0){al.innerHTML=data.pending_approvals.map(function(a){return '<div class="brief-item"><div class="brief-item-left"><span class="brief-icon">'+a.icon+'</span><div><div class="brief-title">'+a.title+'</div>'+(a.detail?'<div class="brief-detail">'+a.detail+'</div>':'')+'</div></div>'+(a.age?'<span class="brief-age">'+a.age+'</span>':'')+'</div>';}).join('');}else{al.innerHTML='<div class="brief-empty">Nothing pending \u2014 all caught up</div>';}}
+ var bar=document.getElementById('pipeline-bar');
+ if(bar){var s=data.summary||{};var q=s.quotes||{};var gr=s.growth||{};var ob=s.outbox||{};var rv=data.revenue||{};var ag=data.agents_summary||{};var stats=[{label:'Quotes',value:q.total||0,color:'var(--ac)'},{label:'Pipeline $',value:'$'+(q.pipeline_value||0).toLocaleString(),color:'var(--yl)'},{label:'Won $',value:'$'+(q.won_total||0).toLocaleString(),color:'var(--gn)'},{label:'Win Rate',value:(q.win_rate||0)+'%',color:q.win_rate>=50?'var(--gn)':'var(--yl)'},{label:'Growth',value:gr.total_prospects||0,color:'#bc8cff'},{label:'Agents',value:(ag.healthy||0)+'/'+(ag.total||0),color:ag.down>0?'var(--rd)':'var(--gn)'},{label:'Goal',value:rv.pct?rv.pct.toFixed(0)+'%':'0%',color:rv.pct>=50?'var(--gn)':rv.pct>=25?'var(--yl)':'var(--rd)'},{label:'Drafts',value:ob.drafts||0,color:ob.drafts>0?'var(--yl)':'var(--tx2)'}];bar.innerHTML=stats.map(function(s){return '<div class="stat-chip"><div class="stat-val" style="color:'+s.color+'">'+s.value+'</div><div class="stat-label">'+s.label+'</div></div>';}).join('');}
+ var agRow=document.getElementById('agents-row');var agList=document.getElementById('agents-list');
+ if(agRow&&agList&&data.agents&&data.agents.length>0){agRow.style.display='block';agList.innerHTML=data.agents.map(function(a){var isOk=a.status==='active'||a.status==='ready'||a.status==='connected';var isWait=a.status==='not configured'||a.status==='waiting';var color=isOk?'#3fb950':isWait?'#d29922':'#f85149';var bg=isOk?'rgba(52,211,153,.08)':isWait?'rgba(251,191,36,.08)':'rgba(248,113,113,.08)';var border=isOk?'rgba(52,211,153,.25)':isWait?'rgba(251,191,36,.25)':'rgba(248,113,113,.25)';return '<span style="font-size:13px;padding:8px 14px;border-radius:8px;background:'+bg+';border:1px solid '+border+';display:inline-flex;align-items:center;gap:7px;font-weight:500"><span style="width:10px;height:10px;border-radius:50%;background:'+color+';display:inline-block;flex-shrink:0;box-shadow:0 0 6px '+color+'66"></span><span style="font-size:15px">'+a.icon+'</span><span>'+a.name+'</span></span>';}).join('');}
+}
+loadBrief();
+</script>

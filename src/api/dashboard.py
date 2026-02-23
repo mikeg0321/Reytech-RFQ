@@ -1922,6 +1922,7 @@ def _update_order_status(oid: str):
 # ═══════════════════════════════════════════════════════════════════════
 
 from src.api.templates import BASE_CSS, PAGE_HOME, PAGE_DETAIL, build_pc_detail_html, build_quotes_page_content, PAGE_CRM, DEBUG_PAGE_HTML
+from src.api.render import render_page
 
 # ═══════════════════════════════════════════════════════════════════════
 # Shared Manager Brief (app-wide) + Header JS

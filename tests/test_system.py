@@ -21,7 +21,11 @@ import pytest
 def app():
     from flask import Flask
     from src.api import dashboard as d
-    _app = Flask(__name__)
+    import os
+    _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _app = Flask(__name__,
+                 template_folder=os.path.join(_root, "src", "templates"),
+                 static_folder=os.path.join(_root, "src", "static"))
     _app.config['SECRET_KEY'] = 'test'
     _app.config['TESTING'] = True
     _app.register_blueprint(d.bp)

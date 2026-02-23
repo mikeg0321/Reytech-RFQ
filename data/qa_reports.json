@@ -1,148 +1,5 @@
 [
   {
-    "timestamp": "2026-02-18T23:49:19.187368",
-    "health_score": 70,
-    "grade": "C",
-    "summary": {
-      "total": 99,
-      "passed": 57,
-      "failed": 2,
-      "warned": 22,
-      "info": 18
-    },
-    "critical_count": 0
-  },
-  {
-    "timestamp": "2026-02-18T23:50:16.859221",
-    "health_score": 70,
-    "grade": "C",
-    "summary": {
-      "total": 99,
-      "passed": 57,
-      "failed": 2,
-      "warned": 22,
-      "info": 18
-    },
-    "critical_count": 0
-  },
-  {
-    "timestamp": "2026-02-18T23:52:18.018233",
-    "health_score": 84,
-    "grade": "B",
-    "summary": {
-      "total": 99,
-      "passed": 68,
-      "failed": 0,
-      "warned": 13,
-      "info": 18
-    },
-    "critical_count": 0
-  },
-  {
-    "timestamp": "2026-02-18T23:52:59.099719",
-    "health_score": 86,
-    "grade": "B",
-    "summary": {
-      "total": 99,
-      "passed": 70,
-      "failed": 0,
-      "warned": 11,
-      "info": 18
-    },
-    "critical_count": 0
-  },
-  {
-    "timestamp": "2026-02-19T00:12:35.669826",
-    "health_score": 86,
-    "grade": "B",
-    "summary": {
-      "total": 99,
-      "passed": 70,
-      "failed": 0,
-      "warned": 11,
-      "info": 18
-    },
-    "critical_count": 0
-  },
-  {
-    "timestamp": "2026-02-19T00:12:35.907734",
-    "health_score": 86,
-    "grade": "B",
-    "summary": {
-      "total": 99,
-      "passed": 70,
-      "failed": 0,
-      "warned": 11,
-      "info": 18
-    },
-    "critical_count": 0
-  },
-  {
-    "timestamp": "2026-02-19T08:17:47.298087",
-    "health_score": 85,
-    "grade": "B",
-    "summary": {
-      "total": 100,
-      "passed": 69,
-      "failed": 1,
-      "warned": 11,
-      "info": 19
-    },
-    "critical_count": 0
-  },
-  {
-    "timestamp": "2026-02-19T08:17:56.196420",
-    "health_score": 85,
-    "grade": "B",
-    "summary": {
-      "total": 100,
-      "passed": 69,
-      "failed": 1,
-      "warned": 11,
-      "info": 19
-    },
-    "critical_count": 0
-  },
-  {
-    "timestamp": "2026-02-19T08:20:55.251988",
-    "health_score": 85,
-    "grade": "B",
-    "summary": {
-      "total": 100,
-      "passed": 69,
-      "failed": 1,
-      "warned": 11,
-      "info": 19
-    },
-    "critical_count": 0
-  },
-  {
-    "timestamp": "2026-02-19T08:20:55.429066",
-    "health_score": 85,
-    "grade": "B",
-    "summary": {
-      "total": 100,
-      "passed": 69,
-      "failed": 1,
-      "warned": 11,
-      "info": 19
-    },
-    "critical_count": 0
-  },
-  {
-    "timestamp": "2026-02-19T08:20:55.582048",
-    "health_score": 85,
-    "grade": "B",
-    "summary": {
-      "total": 100,
-      "passed": 69,
-      "failed": 1,
-      "warned": 11,
-      "info": 19
-    },
-    "critical_count": 0
-  },
-  {
     "timestamp": "2026-02-19T08:22:18.594790",
     "health_score": 85,
     "grade": "B",
@@ -1288,6 +1145,149 @@
   },
   {
     "timestamp": "2026-02-22T22:56:50.037317",
+    "health_score": 87,
+    "grade": "B",
+    "summary": {
+      "total": 111,
+      "passed": 79,
+      "failed": 2,
+      "warned": 10,
+      "info": 20
+    },
+    "critical_count": 0
+  },
+  {
+    "timestamp": "2026-02-22T23:06:52.039785",
+    "health_score": 96,
+    "grade": "A",
+    "summary": {
+      "total": 28,
+      "passed": 26,
+      "failed": 1,
+      "warned": 0,
+      "info": 1
+    },
+    "critical_count": 0
+  },
+  {
+    "timestamp": "2026-02-22T23:09:02.163103",
+    "health_score": 96,
+    "grade": "A",
+    "summary": {
+      "total": 28,
+      "passed": 26,
+      "failed": 1,
+      "warned": 0,
+      "info": 1
+    },
+    "critical_count": 0
+  },
+  {
+    "timestamp": "2026-02-22T23:14:22.541707",
+    "health_score": 96,
+    "grade": "A",
+    "summary": {
+      "total": 28,
+      "passed": 26,
+      "failed": 1,
+      "warned": 0,
+      "info": 1
+    },
+    "critical_count": 0
+  },
+  {
+    "timestamp": "2026-02-22T23:16:27.182699",
+    "health_score": 96,
+    "grade": "A",
+    "summary": {
+      "total": 28,
+      "passed": 26,
+      "failed": 1,
+      "warned": 0,
+      "info": 1
+    },
+    "critical_count": 0
+  },
+  {
+    "timestamp": "2026-02-23T00:25:29.979699",
+    "health_score": 96,
+    "grade": "A",
+    "summary": {
+      "total": 28,
+      "passed": 26,
+      "failed": 1,
+      "warned": 0,
+      "info": 1
+    },
+    "critical_count": 0
+  },
+  {
+    "timestamp": "2026-02-23T00:27:45.273815",
+    "health_score": 96,
+    "grade": "A",
+    "summary": {
+      "total": 28,
+      "passed": 26,
+      "failed": 1,
+      "warned": 0,
+      "info": 1
+    },
+    "critical_count": 0
+  },
+  {
+    "timestamp": "2026-02-23T00:28:48.764520",
+    "health_score": 96,
+    "grade": "A",
+    "summary": {
+      "total": 28,
+      "passed": 26,
+      "failed": 1,
+      "warned": 0,
+      "info": 1
+    },
+    "critical_count": 0
+  },
+  {
+    "timestamp": "2026-02-23T00:30:54.781287",
+    "health_score": 96,
+    "grade": "A",
+    "summary": {
+      "total": 28,
+      "passed": 26,
+      "failed": 1,
+      "warned": 0,
+      "info": 1
+    },
+    "critical_count": 0
+  },
+  {
+    "timestamp": "2026-02-23T00:31:25.255306",
+    "health_score": 87,
+    "grade": "B",
+    "summary": {
+      "total": 111,
+      "passed": 79,
+      "failed": 2,
+      "warned": 10,
+      "info": 20
+    },
+    "critical_count": 0
+  },
+  {
+    "timestamp": "2026-02-23T00:31:25.499229",
+    "health_score": 87,
+    "grade": "B",
+    "summary": {
+      "total": 111,
+      "passed": 79,
+      "failed": 2,
+      "warned": 10,
+      "info": 20
+    },
+    "critical_count": 0
+  },
+  {
+    "timestamp": "2026-02-23T00:31:25.802624",
     "health_score": 87,
     "grade": "B",
     "summary": {

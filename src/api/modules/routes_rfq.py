@@ -23,7 +23,7 @@ def home():
     sorted_pcs = dict(sorted(user_pcs.items(), key=_pc_sort_key, reverse=True))
     # Filter dismissed RFQs from active queue
     active_rfqs = {k: v for k, v in load_rfqs().items() if v.get("status") != "dismissed"}
-    return render(PAGE_HOME, rfqs=active_rfqs, price_checks=sorted_pcs, include_brief=True)
+    return render_page("home.html", active_page="Home", rfqs=active_rfqs, price_checks=sorted_pcs)
 
 @bp.route("/upload", methods=["POST"])
 @auth_required
