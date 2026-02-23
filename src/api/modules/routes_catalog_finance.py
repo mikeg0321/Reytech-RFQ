@@ -10,6 +10,8 @@ try:
         import_qb_csv, search_products, get_product, predictive_lookup,
         get_catalog_stats, calculate_recommended_price, update_product_pricing,
         record_won_price, bulk_margin_analysis, init_catalog_db,
+        match_item, match_items_batch, add_supplier_price, get_product_suppliers,
+        rebuild_search_tokens,
     )
     CATALOG_AVAILABLE = True
 except ImportError:
@@ -423,6 +425,98 @@ def api_catalog_opportunities():
         return jsonify([])
     results = bulk_margin_analysis()
     return jsonify(results[:50])
+
+
+@bp.route("/api/catalog/match", methods=["POST"])
+@auth_required
+def api_catalog_match():
+    """
+    POST {description: "...", part_number: "..."}
+    Returns best catalog matches for a line item.
+    """
+    if not CATALOG_AVAILABLE:
+        return jsonify({"ok": False, "error": "Catalog not available"})
+    data = request.get_json(silent=True) or {}
+    desc = (data.get("description") or "").strip()
+    part = (data.get("part_number") or "").strip()
+    if not desc and not part:
+        return jsonify({"ok": True, "matches": []})
+    matches = match_item(desc, part, top_n=3)
+    clean = []
+    for m in matches:
+        clean.append({
+            "id": m["id"], "name": m.get("name", ""),
+            "description": (m.get("description") or "")[:120],
+            "category": m.get("category", ""), "uom": m.get("uom", "EA"),
+            "sell_price": m.get("sell_price"), "cost": m.get("cost"),
+            "margin_pct": m.get("margin_pct", 0),
+            "best_cost": m.get("best_cost"), "best_supplier": m.get("best_supplier", ""),
+            "confidence": m.get("match_confidence", 0),
+            "reason": m.get("match_reason", ""),
+            "times_quoted": m.get("times_quoted", 0),
+            "times_won": m.get("times_won", 0),
+        })
+    return jsonify({"ok": True, "matches": clean})
+
+
+@bp.route("/api/catalog/match-batch", methods=["POST"])
+@auth_required
+def api_catalog_match_batch():
+    """
+    POST {items: [{idx, description, part_number}, ...]}
+    Match multiple PC line items at once against the catalog.
+    Called by PC detail page on load for auto-fill.
+    """
+    if not CATALOG_AVAILABLE:
+        return jsonify({"ok": False, "error": "Catalog not available"})
+    data = request.get_json(silent=True) or {}
+    items = data.get("items", [])
+    results = match_items_batch(items)
+    matched_count = sum(1 for r in results if r.get("matched"))
+    return jsonify({
+        "ok": True, "results": results,
+        "matched": matched_count, "total": len(results),
+    })
+
+
+@bp.route("/api/catalog/<int:pid>/suppliers")
+@auth_required
+def api_catalog_product_suppliers(pid):
+    """GET all suppliers and prices for a product."""
+    if not CATALOG_AVAILABLE:
+        return jsonify({"ok": False, "error": "Catalog not available"})
+    suppliers = get_product_suppliers(pid)
+    return jsonify({"ok": True, "suppliers": suppliers})
+
+
+@bp.route("/api/catalog/<int:pid>/add-supplier", methods=["POST"])
+@auth_required
+def api_catalog_add_supplier(pid):
+    """POST {supplier_name, price, url, sku, shipping, in_stock}"""
+    if not CATALOG_AVAILABLE:
+        return jsonify({"ok": False, "error": "Catalog not available"})
+    data = request.get_json(silent=True) or {}
+    supplier = (data.get("supplier_name") or "").strip()
+    price = float(data.get("price") or 0)
+    if not supplier or price <= 0:
+        return jsonify({"ok": False, "error": "supplier_name and price required"})
+    add_supplier_price(
+        pid, supplier, price,
+        url=data.get("url", ""), sku=data.get("sku", ""),
+        shipping=float(data.get("shipping") or 0),
+        in_stock=data.get("in_stock", True),
+    )
+    return jsonify({"ok": True, "msg": f"Supplier {supplier} price ${price:.2f} recorded"})
+
+
+@bp.route("/api/catalog/rebuild-tokens", methods=["POST"])
+@auth_required
+def api_catalog_rebuild_tokens():
+    """Rebuild search tokens for all products (migration utility)."""
+    if not CATALOG_AVAILABLE:
+        return jsonify({"ok": False, "error": "Catalog not available"})
+    count = rebuild_search_tokens()
+    return jsonify({"ok": True, "updated": count})
 
 
 # Auto-import product catalog on startup if DB empty

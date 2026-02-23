@@ -34,24 +34,26 @@ CREATE TABLE IF NOT EXISTS product_catalog (
     description TEXT,
     category TEXT DEFAULT '',
     item_type TEXT DEFAULT 'Non-Inventory',
-    
+    uom TEXT DEFAULT 'EA',
+
     sell_price REAL DEFAULT 0,
     cost REAL DEFAULT 0,
     margin_pct REAL DEFAULT 0,
-    
+
     qb_name TEXT,
     qb_item_type TEXT,
     qb_income_account TEXT,
     qb_expense_account TEXT,
     taxable INTEGER DEFAULT 1,
-    
+
     last_sold_price REAL,
     last_sold_date TEXT,
     times_quoted INTEGER DEFAULT 0,
     times_won INTEGER DEFAULT 0,
+    times_lost INTEGER DEFAULT 0,
     win_rate REAL DEFAULT 0,
     avg_margin_won REAL,
-    
+
     scprs_last_price REAL,
     scprs_last_date TEXT,
     scprs_agency TEXT,
@@ -61,16 +63,24 @@ CREATE TABLE IF NOT EXISTS product_catalog (
     web_lowest_price REAL,
     web_lowest_source TEXT,
     web_lowest_date TEXT,
-    
+
+    best_cost REAL,
+    best_supplier TEXT,
+
     recommended_price REAL,
     price_strategy TEXT,
     margin_opportunity REAL,
-    
+
+    photo_url TEXT,
+    manufacturer TEXT,
+    mfg_number TEXT,
+    search_tokens TEXT,
+
     tags TEXT DEFAULT '',
     notes TEXT DEFAULT '',
     created_at TEXT,
     updated_at TEXT,
-    
+
     UNIQUE(name)
 );
 """
@@ -79,6 +89,8 @@ CATALOG_INDEXES = """
 CREATE INDEX IF NOT EXISTS idx_catalog_sku ON product_catalog(sku);
 CREATE INDEX IF NOT EXISTS idx_catalog_category ON product_catalog(category);
 CREATE INDEX IF NOT EXISTS idx_catalog_name ON product_catalog(name);
+CREATE INDEX IF NOT EXISTS idx_catalog_tokens ON product_catalog(search_tokens);
+CREATE INDEX IF NOT EXISTS idx_catalog_mfg ON product_catalog(mfg_number);
 """
 
 PRICE_HISTORY_SCHEMA = """
@@ -100,6 +112,104 @@ CREATE INDEX IF NOT EXISTS idx_cat_ph_product ON catalog_price_history(product_i
 CREATE INDEX IF NOT EXISTS idx_cat_ph_type ON catalog_price_history(price_type);
 """
 
+# Multi-supplier pricing per product
+SUPPLIER_SCHEMA = """
+CREATE TABLE IF NOT EXISTS product_suppliers (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id      INTEGER NOT NULL,
+    supplier_name   TEXT NOT NULL,
+    supplier_url    TEXT,
+    sku             TEXT,
+    last_price      REAL,
+    last_checked    TEXT,
+    shipping_est    REAL DEFAULT 0,
+    in_stock        INTEGER DEFAULT 1,
+    reliability     REAL DEFAULT 0.5,
+    notes           TEXT,
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT,
+    UNIQUE(product_id, supplier_name)
+);
+CREATE INDEX IF NOT EXISTS idx_prodsup_prod ON product_suppliers(product_id);
+CREATE INDEX IF NOT EXISTS idx_prodsup_supplier ON product_suppliers(supplier_name);
+"""
+
+# ── UOM normalization map ────────────────────────────────────────────────
+UOM_MAP = {
+    "EA": "EA", "EACH": "EA", "BX": "BX", "BOX": "BX", "PK": "PK",
+    "PACK": "PK", "CS": "CS", "CASE": "CS", "DZ": "DZ", "DOZEN": "DZ",
+    "CT": "CT", "RL": "RL", "ROLL": "RL", "BG": "BG", "BAG": "BG",
+    "PR": "PR", "PAIR": "PR", "SET": "SET", "BT": "BT", "BOTTLE": "BT",
+    "TB": "TB", "TUBE": "TB", "GL": "GL", "GALLON": "GL", "OZ": "OZ",
+    "LB": "LB", "KT": "KT", "KIT": "KT", "": "EA",
+}
+
+# ── Token generation for fuzzy matching ──────────────────────────────────
+STOP_WORDS = {
+    "the", "a", "an", "and", "or", "for", "of", "to", "in", "on", "by",
+    "with", "is", "at", "from", "as", "per", "ea", "each", "set", "pkg",
+    "package", "box", "case", "unit", "lot", "item", "no", "number",
+    "non", "inventory", "single", "yes", "qty", "pack", "count",
+}
+
+
+def _tokenize(text: str) -> str:
+    """Convert text to space-separated lowercase search tokens for fuzzy matching."""
+    if not text:
+        return ""
+    text = text.lower()
+    text = re.sub(r'[^\w\s\-/]', ' ', text)
+    tokens = text.split()
+    tokens = [t for t in tokens if t not in STOP_WORDS and len(t) >= 2]
+    return " ".join(sorted(set(tokens)))
+
+
+def _parse_uom(sku_field: str) -> str:
+    """QB SKU field is often the UOM (EA, BX, PK), not a real SKU."""
+    val = (sku_field or "").strip().upper()
+    return UOM_MAP.get(val, val if len(val) <= 4 else "EA")
+
+
+def _clean_description(raw: str) -> str:
+    """
+    Clean QB Sales Description:
+    - Remove leading part number line (often duplicated from name)
+    - Strip delivery notes, lot numbers, expiry dates
+    - Collapse whitespace
+    """
+    if not raw:
+        return ""
+    lines = [l.strip() for l in raw.replace('\r\n', '\n').split('\n') if l.strip()]
+    if not lines:
+        return ""
+
+    desc_lines = []
+    for line in lines:
+        # Skip lines that are just a part number
+        if re.match(r'^[A-Z0-9\-]{3,20}$', line, re.IGNORECASE):
+            continue
+        # Skip delivery/lot/expiry notes
+        if re.match(r'^\*\*', line) or 'delivery' in line.lower():
+            continue
+        if re.match(r'^(Lot|LOT|Exp|EXP|REF|Ref)\b', line):
+            continue
+        desc_lines.append(line)
+
+    if not desc_lines:
+        return lines[0][:200]
+
+    # Prefer the longest descriptive line
+    desc_lines.sort(key=len, reverse=True)
+    result = desc_lines[0]
+
+    # Append packaging info from secondary line if useful
+    if len(desc_lines) > 1 and len(desc_lines[1]) > 10:
+        secondary = desc_lines[1]
+        if any(kw in secondary.upper() for kw in ['BX', 'CS', 'PK', 'PACK', 'BOX', 'CASE', '/']):
+            result += f" — {secondary}"
+
+    return result[:300]
+
 
 def _get_conn():
     conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
@@ -109,15 +219,31 @@ def _get_conn():
 
 
 def init_catalog_db():
-    """Create tables if they don't exist."""
+    """Create tables if they don't exist. Adds new columns on existing tables."""
     conn = _get_conn()
     conn.executescript(CATALOG_SCHEMA)
     conn.executescript(CATALOG_INDEXES)
     conn.executescript(PRICE_HISTORY_SCHEMA)
     conn.executescript(PRICE_HISTORY_INDEXES)
+    conn.executescript(SUPPLIER_SCHEMA)
+    # Migrate: add columns that may not exist on older DBs
+    for col_def in [
+        ("uom", "TEXT DEFAULT 'EA'"),
+        ("times_lost", "INTEGER DEFAULT 0"),
+        ("best_cost", "REAL"),
+        ("best_supplier", "TEXT"),
+        ("photo_url", "TEXT"),
+        ("manufacturer", "TEXT"),
+        ("mfg_number", "TEXT"),
+        ("search_tokens", "TEXT"),
+    ]:
+        try:
+            conn.execute(f"ALTER TABLE product_catalog ADD COLUMN {col_def[0]} {col_def[1]}")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
     conn.commit()
     conn.close()
-    log.info("Product catalog DB initialized")
+    log.info("Product catalog DB initialized (with product_suppliers + search_tokens)")
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -159,31 +285,39 @@ def auto_categorize(name: str, description: str) -> str:
 def import_qb_csv(csv_path: str, replace: bool = False) -> dict:
     """
     Import QuickBooks Products/Services CSV into catalog DB.
-    
+
+    QB format quirks:
+    - Product/Service Name = part number (e.g. "1019769", "0165SI22")
+    - SKU field = usually UOM (EA, BX, PK) NOT a real SKU
+    - Sales Description = multiline, often starts with part# repeated
+
     Returns: {imported: N, updated: N, skipped: N, errors: [...]}
     """
     init_catalog_db()
     conn = _get_conn()
     now = datetime.now(timezone.utc).isoformat()
-    
+
     stats = {"imported": 0, "updated": 0, "skipped": 0, "errors": [], "categories": {}}
-    
+
     with open(csv_path, 'r', encoding='utf-8-sig') as f:
         reader = csv.DictReader(f)
         rows = list(reader)
-    
+
     for row in rows:
         try:
             name = (row.get("Product/Service Name", "") or "").strip()
             if not name:
                 stats["skipped"] += 1
                 continue
-            
-            # Skip test items and $1M placeholder
-            desc = (row.get("Sales Description", "") or "").strip()
+
+            raw_desc = (row.get("Sales Description", "") or "").strip()
+            desc = _clean_description(raw_desc)
+            if not desc:
+                desc = name
+
             price_str = (row.get("Price", "") or "").strip().replace(",", "")
             cost_str = (row.get("Cost", "") or "").strip().replace(",", "")
-            
+
             try:
                 sell_price = float(price_str) if price_str else 0
             except ValueError:
@@ -192,25 +326,33 @@ def import_qb_csv(csv_path: str, replace: bool = False) -> dict:
                 cost = float(cost_str) if cost_str else 0
             except ValueError:
                 cost = 0
-                
+
             # Skip obvious test/placeholder items
             if name.lower() in ("test",) or sell_price >= 999999:
                 stats["skipped"] += 1
                 continue
-            
+
             # Calculate margin
             margin_pct = round((sell_price - cost) / sell_price * 100, 2) if sell_price > 0 and cost > 0 else 0
-            
+
             # Auto-categorize
             category = auto_categorize(name, desc)
             stats["categories"][category] = stats["categories"].get(category, 0) + 1
-            
-            sku = (row.get("SKU", "") or "").strip()
+
+            # UOM from SKU field (QB puts UOM in SKU)
+            raw_sku = (row.get("SKU", "") or "").strip()
+            uom = _parse_uom(raw_sku)
+            # If SKU is a real part# (>4 chars, not a known UOM), keep it
+            sku = raw_sku if (len(raw_sku) > 4 and raw_sku.upper() not in UOM_MAP) else ""
+
             item_type = (row.get("Item type", "") or "Non-Inventory").strip()
             taxable = 1 if (row.get("Taxable", "") or "").lower() == "yes" else 0
             income_acct = (row.get("Income Account", "") or "").strip()
             expense_acct = (row.get("Expense Account", "") or "").strip()
-            
+
+            # Generate search tokens from name + description
+            search_tokens = _tokenize(f"{name} {desc}")
+
             # Determine price strategy
             if margin_pct < 0:
                 strategy = "loss_leader"
@@ -220,29 +362,32 @@ def import_qb_csv(csv_path: str, replace: bool = False) -> dict:
                 strategy = "premium"
             else:
                 strategy = "competitive"
-            
+
             # Check if exists
             existing = conn.execute(
                 "SELECT id FROM product_catalog WHERE name = ?", (name,)
             ).fetchone()
-            
+
             if existing and not replace:
-                # Update pricing only
+                # Update pricing + new fields
                 conn.execute("""
                     UPDATE product_catalog SET
                         sell_price = ?, cost = ?, margin_pct = ?,
                         sku = COALESCE(NULLIF(?, ''), sku),
                         description = COALESCE(NULLIF(?, ''), description),
                         category = ?, price_strategy = ?,
+                        uom = COALESCE(NULLIF(?, ''), uom),
+                        search_tokens = ?,
                         qb_name = ?, qb_item_type = ?,
                         qb_income_account = ?, qb_expense_account = ?,
                         taxable = ?, updated_at = ?
                     WHERE id = ?
                 """, (sell_price, cost, margin_pct, sku, desc,
-                      category, strategy, name, item_type,
+                      category, strategy, uom, search_tokens,
+                      name, item_type,
                       income_acct, expense_acct, taxable, now, existing["id"]))
                 stats["updated"] += 1
-                
+
                 # Record price history
                 conn.execute("""
                     INSERT INTO catalog_price_history (product_id, price_type, price, source, recorded_at)
@@ -256,21 +401,20 @@ def import_qb_csv(csv_path: str, replace: bool = False) -> dict:
             else:
                 if existing and replace:
                     conn.execute("DELETE FROM product_catalog WHERE id = ?", (existing["id"],))
-                
+
                 cursor = conn.execute("""
                     INSERT INTO product_catalog (
-                        name, sku, description, category, item_type,
-                        sell_price, cost, margin_pct,
+                        name, sku, description, category, item_type, uom,
+                        sell_price, cost, margin_pct, search_tokens,
                         qb_name, qb_item_type, qb_income_account, qb_expense_account,
                         taxable, price_strategy, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (name, sku, desc, category, item_type,
-                      sell_price, cost, margin_pct,
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (name, sku, desc, category, item_type, uom,
+                      sell_price, cost, margin_pct, search_tokens,
                       name, item_type, income_acct, expense_acct,
                       taxable, strategy, now, now))
-                
+
                 pid = cursor.lastrowid
-                # Record initial price history
                 conn.execute("""
                     INSERT INTO catalog_price_history (product_id, price_type, price, source, recorded_at)
                     VALUES (?, 'sell', ?, 'quickbooks_import', ?)
@@ -280,15 +424,15 @@ def import_qb_csv(csv_path: str, replace: bool = False) -> dict:
                         INSERT INTO catalog_price_history (product_id, price_type, price, source, recorded_at)
                         VALUES (?, 'cost', ?, 'quickbooks_import', ?)
                     """, (pid, cost, now))
-                
+
                 stats["imported"] += 1
-                
+
         except Exception as e:
             stats["errors"].append(f"{name}: {e}")
-    
+
     conn.commit()
     conn.close()
-    
+
     log.info("Product catalog import: %d imported, %d updated, %d skipped, %d errors",
              stats["imported"], stats["updated"], stats["skipped"], len(stats["errors"]))
     return stats
@@ -400,7 +544,7 @@ def predictive_lookup(partial: str, limit: int = 10) -> list:
     init_catalog_db()
     conn = _get_conn()
     rows = conn.execute("""
-        SELECT id, name, sku, sell_price, cost, margin_pct, category, description
+        SELECT id, name, sku, sell_price, cost, margin_pct, category, description, uom
         FROM product_catalog
         WHERE name LIKE ? OR sku LIKE ? OR description LIKE ?
         ORDER BY times_quoted DESC, sell_price DESC
@@ -408,6 +552,211 @@ def predictive_lookup(partial: str, limit: int = 10) -> list:
     """, (f"%{partial}%", f"%{partial}%", f"%{partial}%", limit)).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Auto-Match Engine — Match PC/RFQ line items to catalog products
+# ═══════════════════════════════════════════════════════════════════════
+
+def match_item(description: str, part_number: str = "", top_n: int = 3) -> list:
+    """
+    Find best catalog matches for a line item from a Price Check or RFQ.
+    Uses tiered strategy: exact part# → part# in description → token overlap.
+    
+    Returns list of dicts with match_confidence (0-1) and product data.
+    """
+    init_catalog_db()
+    conn = _get_conn()
+    matches = []
+    seen_ids = set()
+
+    # Strategy 1: Exact part number match (highest confidence)
+    if part_number and part_number.strip():
+        pn = part_number.strip()
+        rows = conn.execute(
+            "SELECT * FROM product_catalog WHERE name=? OR sku=? OR mfg_number=? LIMIT 5",
+            (pn, pn, pn)
+        ).fetchall()
+        for r in rows:
+            if r["id"] not in seen_ids:
+                m = dict(r)
+                m["match_confidence"] = 0.98
+                m["match_reason"] = f"Exact part# match: {pn}"
+                matches.append(m)
+                seen_ids.add(r["id"])
+
+    # Strategy 2: Part number extracted from description
+    if not matches and description:
+        potential_parts = re.findall(r'\b([A-Z0-9][\w\-]{3,19})\b', description, re.IGNORECASE)
+        for pp in potential_parts[:5]:
+            row = conn.execute(
+                "SELECT * FROM product_catalog WHERE name=? LIMIT 1", (pp,)
+            ).fetchone()
+            if row and row["id"] not in seen_ids:
+                m = dict(row)
+                m["match_confidence"] = 0.92
+                m["match_reason"] = f"Part# found in description: {pp}"
+                matches.append(m)
+                seen_ids.add(row["id"])
+                break
+
+    # Strategy 3: Token-based fuzzy matching using search_tokens
+    if len(matches) < top_n and description:
+        desc_tokens = set(_tokenize(description).split())
+        if desc_tokens:
+            # Use longest tokens for best selectivity
+            search_terms = sorted(desc_tokens, key=len, reverse=True)[:3]
+            conditions = " OR ".join(["search_tokens LIKE ?" for _ in search_terms])
+            params = [f"%{t}%" for t in search_terms]
+            candidates = conn.execute(
+                f"SELECT * FROM product_catalog WHERE {conditions} LIMIT 50",
+                params
+            ).fetchall()
+
+            for r in candidates:
+                if r["id"] in seen_ids:
+                    continue
+                prod_tokens = set((r["search_tokens"] or "").split())
+                if not prod_tokens:
+                    # Fallback: tokenize description for old rows without search_tokens
+                    prod_tokens = set(_tokenize(f"{r['name']} {r['description'] or ''}").split())
+                if not prod_tokens:
+                    continue
+                # Jaccard similarity
+                intersection = desc_tokens & prod_tokens
+                union = desc_tokens | prod_tokens
+                similarity = len(intersection) / len(union) if union else 0
+                if similarity >= 0.25:
+                    m = dict(r)
+                    m["match_confidence"] = round(min(similarity * 1.3, 0.95), 2)
+                    m["match_reason"] = f"Token match: {len(intersection)} shared ({similarity:.0%})"
+                    matches.append(m)
+                    seen_ids.add(r["id"])
+
+    # Strategy 4: Description LIKE (broadest)
+    if len(matches) < top_n and description and len(description) > 5:
+        first_words = " ".join(description.split()[:3])
+        rows = conn.execute(
+            "SELECT * FROM product_catalog WHERE description LIKE ? LIMIT 10",
+            (f"%{first_words}%",)
+        ).fetchall()
+        for r in rows:
+            if r["id"] not in seen_ids:
+                m = dict(r)
+                m["match_confidence"] = 0.40
+                m["match_reason"] = f"Description contains: '{first_words[:30]}'"
+                matches.append(m)
+                seen_ids.add(r["id"])
+
+    conn.close()
+    # Sort by confidence descending
+    matches.sort(key=lambda x: x.get("match_confidence", 0), reverse=True)
+    return matches[:top_n]
+
+
+def match_items_batch(items: list) -> list:
+    """
+    Match multiple items at once (for PC detail page on load).
+    items: [{idx, description, part_number}, ...]
+    Returns: [{idx, matched, product_id, confidence, ...}, ...]
+    """
+    results = []
+    for item in items[:30]:
+        desc = (item.get("description") or "").strip()
+        part = (item.get("part_number") or "").strip()
+        matches = match_item(desc, part, top_n=1)
+        if matches and matches[0].get("match_confidence", 0) >= 0.40:
+            best = matches[0]
+            results.append({
+                "idx": item.get("idx", 0),
+                "matched": True,
+                "product_id": best["id"],
+                "canonical_name": best.get("description") or best.get("name", ""),
+                "part_number": best.get("name", ""),
+                "uom": best.get("uom", "EA"),
+                "last_cost": best.get("cost"),
+                "last_sell": best.get("sell_price"),
+                "best_cost": best.get("best_cost") or best.get("cost"),
+                "best_supplier": best.get("best_supplier", ""),
+                "category": best.get("category", ""),
+                "confidence": best.get("match_confidence", 0),
+                "reason": best.get("match_reason", ""),
+                "times_quoted": best.get("times_quoted", 0),
+                "times_won": best.get("times_won", 0),
+                "margin_pct": best.get("margin_pct", 0),
+            })
+        else:
+            results.append({"idx": item.get("idx", 0), "matched": False})
+    return results
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Supplier Pricing — Multi-supplier price tracking per product
+# ═══════════════════════════════════════════════════════════════════════
+
+def add_supplier_price(product_id: int, supplier_name: str, price: float,
+                       url: str = "", sku: str = "", shipping: float = 0,
+                       in_stock: bool = True) -> bool:
+    """Record/update a supplier's price for a product."""
+    conn = _get_conn()
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        conn.execute("""INSERT INTO product_suppliers
+            (product_id, supplier_name, supplier_url, sku, last_price, shipping_est,
+             in_stock, last_checked, created_at, updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(product_id, supplier_name) DO UPDATE SET
+                supplier_url=COALESCE(NULLIF(excluded.supplier_url,''),supplier_url),
+                sku=COALESCE(NULLIF(excluded.sku,''),sku),
+                last_price=excluded.last_price,
+                shipping_est=excluded.shipping_est,
+                in_stock=excluded.in_stock,
+                last_checked=excluded.last_checked,
+                updated_at=excluded.updated_at""",
+            (product_id, supplier_name, url, sku, price, shipping,
+             1 if in_stock else 0, now, now, now)
+        )
+        # Update best_cost on product if this is cheaper
+        conn.execute("""UPDATE product_catalog SET
+            best_cost = CASE WHEN ? < best_cost OR best_cost IS NULL THEN ? ELSE best_cost END,
+            best_supplier = CASE WHEN ? < best_cost OR best_cost IS NULL THEN ? ELSE best_supplier END,
+            updated_at = ?
+            WHERE id = ?""",
+            (price, price, price, supplier_name, now, product_id)
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return True
+
+
+def get_product_suppliers(product_id: int) -> list:
+    """Get all known suppliers + prices for a product, cheapest first."""
+    conn = _get_conn()
+    rows = conn.execute(
+        "SELECT * FROM product_suppliers WHERE product_id=? ORDER BY last_price ASC",
+        (product_id,)
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def rebuild_search_tokens():
+    """One-time migration: build search_tokens for all existing products."""
+    init_catalog_db()
+    conn = _get_conn()
+    rows = conn.execute("SELECT id, name, description FROM product_catalog").fetchall()
+    updated = 0
+    for r in rows:
+        tokens = _tokenize(f"{r['name']} {r['description'] or ''}")
+        if tokens:
+            conn.execute("UPDATE product_catalog SET search_tokens=? WHERE id=?",
+                         (tokens, r["id"]))
+            updated += 1
+    conn.commit()
+    conn.close()
+    log.info("Rebuilt search tokens for %d products", updated)
+    return updated
 
 
 # ═══════════════════════════════════════════════════════════════════════

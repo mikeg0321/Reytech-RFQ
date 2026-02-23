@@ -272,7 +272,15 @@ def pricecheck_detail(pcid):
     import json as _json
     crm_json = _json.dumps(crm_data, default=str)
     history_json = _json.dumps(quote_history, default=str)
-    
+
+    # Catalog count for match button
+    try:
+        from src.agents.product_catalog import get_catalog_stats
+        _cat_stats = get_catalog_stats()
+        catalog_count = _cat_stats.get("total_products", 0)
+    except Exception:
+        catalog_count = 0
+
     html = render_page("pc_detail.html", active_page="PCs",
         pcid=pcid, pc=pc, items=items, items_html=items_html,
         download_html=download_html, expiry_date=expiry_date,
@@ -282,6 +290,7 @@ def pricecheck_detail(pcid):
         pipeline_html=pipeline_html,
         crm_json=crm_json, history_json=history_json,
         tax_rate=tax_rate, tax_source=tax_source,
+        catalog_count=catalog_count,
     )
     # Sanitize any surrogate chars that could cause UnicodeEncodeError
     return html.encode("utf-8", "replace").decode("utf-8")

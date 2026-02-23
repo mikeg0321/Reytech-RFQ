@@ -16,3 +16,18 @@
 - [x] WI-1: Quote Lifecycle — all bridges wired + pushed
 - [x] WI-3: Lead Nurture — all bridges wired + pushed
 - [x] Template extraction: 5 pages (growth_intel, scprs_intel, cchcs_intel, contacts, prospect_detail)
+
+## Sprint: Product Catalog + Pricing Intelligence (2026-02-23)
+
+### Sprint 1: Product Catalog DB + QB Import — ACTIVE
+- [ ] Create `products` table in SQLite
+- [ ] Create `product_suppliers` table
+- [ ] Build QB CSV importer
+- [ ] Import 841 products from QB export
+- [ ] Add `/api/catalog/search` endpoint (fuzzy match)
+- [ ] Verify: products queryable, descriptions cleaned
+
+### Sprint 2: Auto-Match Engine (pending S1)
+### Sprint 3: Multi-Supplier Sweep (pending S2)
+### Sprint 4: Win/Loss Tracker (pending S1)
+### Sprint 5: Dynamic Markup Optimizer (pending S4)
