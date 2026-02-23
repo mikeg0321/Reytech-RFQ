@@ -1921,7 +1921,7 @@ def _update_order_status(oid: str):
 # HTML Templates (extracted to src/api/templates.py)
 # ═══════════════════════════════════════════════════════════════════════
 
-from src.api.templates import BASE_CSS, PAGE_HOME, PAGE_DETAIL, build_pc_detail_html, build_quotes_page_content, PAGE_CRM, DEBUG_PAGE_HTML
+from src.api.templates import BASE_CSS
 from src.api.render import render_page
 
 # ═══════════════════════════════════════════════════════════════════════

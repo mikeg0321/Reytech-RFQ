@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Quotes Database — Reytech{% endblock %}
+
+{% block content %}
+     <!-- Header: Title + Stats — compact row -->
+     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px">
+      <h2 style="margin:0;font-size:20px;font-weight:700">📋 Quotes Database</h2>
+      <div>{{ stats_html|safe }}</div>
+     </div>
+
+     <!-- Search + Filters — one compact bar -->
+     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
+      <form method="get" style="display:contents">
+       <input name="q" value="{{ q }}" placeholder="Search quotes, institutions, items, part numbers, RFQ #..." style="flex:1;min-width:240px;padding:10px 14px;background:var(--sf);border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:13px">
+       <select name="agency" style="padding:10px;background:var(--sf);border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:13px">
+        <option value="">All Agencies</option>
+        <option value="CDCR" {{ "selected" if agency_filter=="CDCR" }}>CDCR</option>
+        <option value="CCHCS" {{ "selected" if agency_filter=="CCHCS" }}>CCHCS</option>
+        <option value="CalVet" {{ "selected" if agency_filter=="CalVet" }}>CalVet</option>
+        <option value="DGS" {{ "selected" if agency_filter=="DGS" }}>DGS</option>
+        <option value="DSH" {{ "selected" if agency_filter=="DSH" }}>DSH</option>
+       </select>
+       <select name="status" style="padding:10px;background:var(--sf);border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:13px">
+        <option value="">All Status</option>
+        <option value="pending" {{ "selected" if status_filter=="pending" }}>⏳ Pending</option>
+        <option value="won" {{ "selected" if status_filter=="won" }}>✅ Won</option>
+        <option value="lost" {{ "selected" if status_filter=="lost" }}>❌ Lost</option>
+        <option value="sent" {{ "selected" if status_filter=="sent" }}>📤 Sent</option>
+        <option value="expired" {{ "selected" if status_filter=="expired" }}>⏰ Expired</option>
+       </select>
+       <button type="submit" class="btn btn-p" style="padding:10px 18px;font-size:13px">🔍 Search</button>
+      </form>
+     </div>
+
+     <!-- Quotes Table — flush, full width -->
+     <div class="card" style="padding:0;overflow-x:auto">
+      <table class="home-tbl" style="min-width:900px">
+       <thead><tr>
+        <th style="width:80px">Quote #</th><th style="width:100px">Date</th><th style="width:70px">Agency</th><th>Institution</th><th style="width:100px">RFQ #</th>
+        <th style="text-align:right;width:90px">Total</th><th style="width:50px;text-align:center">Items</th><th style="width:80px;text-align:center">Status</th><th style="width:100px;text-align:center">Actions</th>
+       </tr></thead>
+       <tbody>{% if rows_html %}{{ rows_html|safe }}{% else %}<tr><td colspan="9" style="text-align:center;padding:24px;color:var(--tx2)">No quotes yet — generate your first from a Price Check or RFQ</td></tr>{% endif %}</tbody>
+      </table>
+     </div>
+{% endblock %}
+
+{% block scripts %}
+     <script>
+     function markQuote(qn, status) {
+       let po = '';
+       if (status === 'won') {
+         po = prompt('PO number (optional):', '') || '';
+       }
+       fetch('/quotes/' + qn + '/status', {
+         method: 'POST',
+         headers: {'Content-Type': 'application/json'},
+         body: JSON.stringify({status: status, po_number: po})
+       })
+       .then(r => r.json())
+       .then(d => {
+         if (d.ok) { location.reload(); }
+         else { alert('Error: ' + (d.error || 'unknown')); }
+       });
+     }
+     </script>
+{% endblock %}

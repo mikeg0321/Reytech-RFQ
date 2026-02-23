@@ -1867,10 +1867,11 @@ def quotes_list():
      </div>
     """
 
-    return render(build_quotes_page_content(
+    return render_page("quotes.html", active_page="Quotes",
         stats_html=stats_html, q=q, agency_filter=agency_filter,
-        status_filter=status_filter, logo_exists=logo_exists, rows_html=rows_html
-    ), title="Quotes Database")
+        status_filter=status_filter, logo_exists=logo_exists, rows_html=rows_html,
+        title="Quotes Database"
+    )
 
 
 @bp.route("/quote/<qn>")
@@ -2015,203 +2016,14 @@ def quote_detail(qn):
     else:
         action_btns = ""
 
-    content = f"""
-    <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px">
-     <a href="/quotes" class="btn btn-s" style="font-size:13px">← Quotes</a>
-     {f'<a href="{source_link}" class="btn btn-s" style="font-size:13px">📎 {source_label}</a>' if source_link else ''}
-     {f'<a href="/api/pricecheck/download/{fname}" class="btn btn-s" style="font-size:13px">📥 Download PDF</a>' if fname else ''}
-     {f'<a href="/api/pricecheck/view-pdf/{fname}" target="_blank" class="btn btn-s" style="font-size:13px">📄 View PDF</a>' if fname else ''}
-     <a href="/outbox?filter=cs" class="btn btn-s" style="font-size:13px;background:rgba(251,191,36,.12);color:var(--yl);border:1px solid rgba(251,191,36,.3)">💬 CS Inbox</a>
-    </div>
-
-    <!-- Header -->
-    <div class="bento bento-2" style="margin-bottom:14px">
-     <div class="card" style="margin:0">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">
-       <div>
-        <div style="font-family:'JetBrains Mono',monospace;font-size:28px;font-weight:700">{qn}</div>
-        <div style="color:var(--tx2);font-size:12px;margin-top:4px">{agency}{' · ' if agency else ''}Generated {qt.get('date','')}</div>
-       </div>
-       <span style="padding:4px 12px;border-radius:12px;font-size:12px;font-weight:600;color:{color};background:{bg}">{lbl}</span>
-      </div>
-      <div class="meta-g" style="margin:0">
-       <div class="meta-i"><div class="meta-l">Institution</div><div class="meta-v">{institution}</div></div>
-       <div class="meta-i"><div class="meta-l">RFQ / PC #</div><div class="meta-v">{qt.get('rfq_number','—')}</div></div>
-       <div class="meta-i"><div class="meta-l">Items</div><div class="meta-v">{qt.get('items_count',0)}</div></div>
-       <div class="meta-i"><div class="meta-l">Expiry</div><div class="meta-v" style="{expiry_class}">{expiry_display}</div></div>
-       {'<div class="meta-i"><div class="meta-l">Revisions</div><div class="meta-v">' + str(revision_count) + '</div></div>' if revision_count else ''}
-       {'<div class="meta-i"><div class="meta-l">Follow-ups</div><div class="meta-v">' + str(follow_up_count) + '</div></div>' if follow_up_count else ''}
-       {'<div class="meta-i"><div class="meta-l">PO Number</div><div class="meta-v" style="color:var(--gn);font-weight:600">' + qt.get("po_number","") + '</div></div>' if qt.get("po_number") else ''}
-      </div>
-     </div>
-     <div class="card" style="margin:0">
-      <div style="text-align:center;padding:12px 0">
-       <div style="font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px">Quote Total</div>
-       <div style="font-family:'JetBrains Mono',monospace;font-size:36px;font-weight:700;color:var(--gn);margin:8px 0">${qt.get('total',0):,.2f}</div>
-       <div style="display:flex;justify-content:center;gap:16px;font-size:12px;color:var(--tx2)">
-        <span>Subtotal: <b>${qt.get('subtotal',0):,.2f}</b></span>
-        <span>Tax: <b>${qt.get('tax',0):,.2f}</b></span>
-       </div>
-      </div>
-      {'<div style="background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.2);border-radius:8px;padding:10px 14px;margin-top:10px"><div style="font-size:11px;color:var(--rd);font-weight:600">Close Reason</div><div style="font-size:12px;color:var(--tx);margin-top:4px">' + close_reason + ('  <span style="color:var(--tx2);font-size:10px">(' + closed_by + ')</span>' if closed_by else '') + '</div></div>' if close_reason else ''}
-      {'<div style="border-top:1px solid var(--bd);margin-top:14px;padding-top:14px"><div style="font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Status History</div>' + history_html + '</div>' if history_html else ''}
-      {action_btns}
-     </div>
-    </div>
-
-    <!-- PDF Preview -->
-    {f'''<div class="card" style="margin-bottom:14px">
-     <div class="card-t">📄 Quote PDF Preview</div>
-     <iframe src="/api/pricecheck/view-pdf/{fname}" style="width:100%;height:700px;border:none;border-radius:8px;background:var(--sf2)" title="Quote PDF"></iframe>
-    </div>''' if fname else ''}
-
-    <!-- Line Items -->
-    <div class="card">
-     <div class="card-t">Line Items ({len(items)} item{"s" if len(items)!=1 else ""})</div>
-     <div style="overflow-x:auto">
-     <table class="home-tbl">
-      <thead><tr>
-       <th style="width:40px">#</th><th>Description</th><th style="width:120px">Part #</th>
-       <th style="width:60px;text-align:center">Qty</th><th style="width:90px;text-align:right">Unit Price</th><th style="width:90px;text-align:right">Extended</th>
-      </tr></thead>
-      <tbody>{items_html if items_html else '<tr><td colspan="6" style="text-align:center;padding:16px;color:var(--tx2)">No item details stored</td></tr>'}</tbody>
-     </table>
-     </div>
-    </div>
-
-    <!-- CRM Section: Agency Intel + Activity Timeline -->
-    <div class="bento bento-2" style="margin-top:14px">
-     <div class="card" style="margin:0">
-      <div class="card-t">🏢 Agency Intel</div>
-      <div id="win-prediction" style="padding:6px 0;font-size:12px"></div>
-      <div id="agency-intel" style="color:var(--tx2);font-size:12px;padding:4px 0">Loading agency data...</div>
-     </div>
-     <div class="card" style="margin:0">
-      <div class="card-t">📋 Activity Timeline</div>
-      <div id="crm-activity" style="max-height:320px;overflow-y:auto;font-size:12px">Loading...</div>
-      <div style="margin-top:10px;border-top:1px solid var(--bd);padding-top:10px;display:flex;gap:6px">
-       <input id="crm-note" placeholder="Add a note..." style="flex:1;padding:8px 10px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:12px">
-       <button onclick="addNote()" class="btn btn-p" style="padding:8px 12px;font-size:12px">Add</button>
-      </div>
-     </div>
-    </div>
-
-    <script>
-    function markQuote(qn, status) {{
-      let po = '';
-      if (status === 'won') {{
-        po = prompt('PO number (optional):', '') || '';
-      }}
-      fetch('/quotes/' + qn + '/status', {{
-        method: 'POST',
-        headers: {{'Content-Type': 'application/json'}},
-        body: JSON.stringify({{status: status, po_number: po}})
-      }})
-      .then(r => r.json())
-      .then(d => {{
-        if (d.ok) {{ location.reload(); }}
-        else {{ alert('Error: ' + (d.error || 'unknown')); }}
-      }});
-    }}
-
-    function addNote() {{
-      const note = document.getElementById('crm-note').value.trim();
-      if (!note) return;
-      fetch('/api/crm/activity', {{
-        method: 'POST',
-        headers: {{'Content-Type': 'application/json'}},
-        body: JSON.stringify({{ref_id: '{qn}', event_type: 'note', description: note,
-                              metadata: {{institution: '{institution}', agency: '{agency}'}} }})
-      }}).then(r => r.json()).then(d => {{
-        if (d.ok) {{
-          document.getElementById('crm-note').value = '';
-          loadActivity();
-        }}
-      }});
-    }}
-
-    const eventIcons = {{
-      'quote_won': '✅', 'quote_lost': '❌', 'quote_sent': '📤',
-      'quote_generated': '📋', 'qb_po_created': '💰', 'email_sent': '📧',
-      'email_received': '📨', 'voice_call': '📞', 'scprs_lookup': '🔍',
-      'price_check': '📊', 'lead_scored': '🎯', 'follow_up': '🔔', 'note': '📝'
-    }};
-
-    function loadActivity() {{
-      fetch('/api/crm/activity?ref_id={qn}&limit=30').then(r => r.json()).then(d => {{
-        const el = document.getElementById('crm-activity');
-        if (!d.ok || !d.activity.length) {{
-          el.innerHTML = '<div style="color:var(--tx2);padding:12px">No activity yet</div>';
-          return;
-        }}
-        el.innerHTML = d.activity.map(a => {{
-          const icon = eventIcons[a.event_type] || '•';
-          const ts = a.timestamp ? a.timestamp.substring(0,16).replace('T',' ') : '';
-          const actor = a.actor && a.actor !== 'system' ? ' <span style="color:var(--ac)">' + a.actor + '</span>' : '';
-          return '<div style="padding:6px 0;border-bottom:1px solid var(--bd);display:flex;gap:8px;align-items:baseline">' +
-            '<span>' + icon + '</span>' +
-            '<div style="flex:1"><div>' + a.description + actor + '</div>' +
-            '<div style="font-size:10px;color:var(--tx2);font-family:monospace">' + ts + '</div></div></div>';
-        }}).join('');
-      }}).catch(() => {{
-        document.getElementById('crm-activity').innerHTML = '<div style="color:var(--rd)">Failed to load</div>';
-      }});
-    }}
-
-    function loadAgencyIntel() {{
-      const agency = '{agency}' || '{institution}'.split('-')[0].split(' ')[0];
-      if (!agency) {{
-        document.getElementById('agency-intel').innerHTML = '<div style="color:var(--tx2)">No agency detected</div>';
-        return;
-      }}
-      fetch('/api/crm/agency/' + encodeURIComponent(agency)).then(r => r.json()).then(d => {{
-        if (!d.ok) {{ document.getElementById('agency-intel').innerHTML = '<div>No data</div>'; return; }}
-        const wrColor = d.win_rate >= 50 ? 'var(--gn)' : (d.win_rate >= 30 ? 'var(--yl)' : 'var(--rd)');
-        let html = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">';
-        html += '<div style="background:var(--sf2);padding:10px;border-radius:8px;text-align:center"><div style="font-size:10px;color:var(--tx2);text-transform:uppercase">Quotes</div><div style="font-size:22px;font-weight:700">' + d.total_quotes + '</div></div>';
-        html += '<div style="background:var(--sf2);padding:10px;border-radius:8px;text-align:center"><div style="font-size:10px;color:var(--tx2);text-transform:uppercase">Win Rate</div><div style="font-size:22px;font-weight:700;color:' + wrColor + '">' + d.win_rate + '%</div></div>';
-        html += '<div style="background:var(--sf2);padding:10px;border-radius:8px;text-align:center"><div style="font-size:10px;color:var(--tx2);text-transform:uppercase">Won Value</div><div style="font-size:16px;font-weight:700;color:var(--gn)">$' + d.total_won_value.toLocaleString() + '</div></div>';
-        html += '<div style="background:var(--sf2);padding:10px;border-radius:8px;text-align:center"><div style="font-size:10px;color:var(--tx2);text-transform:uppercase">Pending</div><div style="font-size:22px;font-weight:700;color:var(--yl)">' + d.pending + '</div></div>';
-        html += '</div>';
-        if (d.institutions && d.institutions.length) {{
-          html += '<div style="font-size:11px;color:var(--tx2);margin-bottom:6px"><b>Facilities:</b></div>';
-          html += '<div style="display:flex;flex-wrap:wrap;gap:4px">';
-          d.institutions.forEach(inst => {{
-            html += '<span style="background:var(--sf2);padding:2px 8px;border-radius:10px;font-size:10px">' + inst + '</span>';
-          }});
-          html += '</div>';
-        }}
-        if (d.last_contact) {{
-          const days = Math.floor((Date.now() - new Date(d.last_contact).getTime()) / 86400000);
-          const color = days > 14 ? 'var(--rd)' : (days > 7 ? 'var(--yl)' : 'var(--gn)');
-          html += '<div style="margin-top:10px;font-size:11px">Last contact: <b style="color:' + color + '">' + days + ' days ago</b></div>';
-        }}
-        document.getElementById('agency-intel').innerHTML = html;
-      }}).catch(() => {{
-        document.getElementById('agency-intel').innerHTML = '<div>Failed to load</div>';
-      }});
-    }}
-
-    // Load on page ready
-    loadActivity();
-    loadAgencyIntel();
-
-    // Win prediction
-    fetch('/api/predict/win?institution={institution}&agency={agency}&value={qt.get("total",0)}')
-      .then(r => r.json()).then(d => {{
-        if (!d.ok) return;
-        const pct = Math.round(d.probability * 100);
-        const clr = pct >= 60 ? 'var(--gn)' : (pct >= 40 ? 'var(--yl)' : 'var(--rd)');
-        const bar = '<div style="background:var(--sf2);border-radius:6px;height:8px;margin:6px 0;overflow:hidden"><div style="width:' + pct + '%;height:100%;background:' + clr + ';border-radius:6px;transition:width .5s"></div></div>';
-        document.getElementById('win-prediction').innerHTML =
-          '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">' +
-          '<span style="font-weight:600;font-size:11px">🎯 Win Prediction</span>' +
-          '<span style="font-size:18px;font-weight:700;color:' + clr + '">' + pct + '%</span></div>' + bar +
-          '<div style="color:var(--tx2);font-size:10px">' + d.recommendation + ' <span style="opacity:.5">(' + d.confidence + ' confidence)</span></div>';
-      }}).catch(() => {{}});
-    </script>
-    """
-    return render(content, title=f"Quote {qn}")
+    return render_page("quote_detail.html", active_page="Quotes",
+        qn=qn, qt=qt, institution=institution, agency=agency, st=st, fname=fname,
+        lbl=lbl, color=color, bg=bg, expiry_display=expiry_display, expiry_class=expiry_class,
+        close_reason=close_reason, closed_by=closed_by,
+        revision_count=revision_count, follow_up_count=follow_up_count,
+        items=items, items_html=items_html, source_link=source_link, source_label=source_label,
+        history_html=history_html, action_btns=action_btns,
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════
