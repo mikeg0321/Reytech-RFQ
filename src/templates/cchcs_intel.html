@@ -27,7 +27,15 @@ table{width:100%;border-collapse:collapse}
   </div>
 </div>
 
-{{ no_data_msg|safe }}
+{% if pos_stored == 0 %}
+<div style="background:rgba(37,99,235,.08);border:1px solid var(--ac);border-radius:10px;padding:20px 24px;margin-bottom:24px;display:flex;align-items:center;gap:16px">
+  <div style="font-size:32px">📡</div>
+  <div>
+    <div style="font-size:15px;font-weight:700;color:var(--ac)">No data yet — Pull Required</div>
+    <div style="font-size:13px;color:var(--tx2);margin-top:4px">Click "Pull CCHCS Data Now" to search SCPRS for all CDCR/CCHCS purchase orders. Takes 3-5 minutes. Runs on Railway — no login needed, it's public data.</div>
+  </div>
+</div>
+{% endif %}
 
 <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:24px">
   <div class="card"><div class="stat">
@@ -68,7 +76,22 @@ table{width:100%;border-collapse:collapse}
           <th>Item Description</th><th>Category</th><th style="text-align:center">Orders</th>
           <th style="text-align:right">Avg Price</th><th style="text-align:right">Total Spend</th><th>Status</th>
         </tr></thead>
-        <tbody>{{ gap_rows if gap_rows else '<tr><td colspan="6" style="padding:24px;text-align:center;color:var(--tx2);font-size:13px">Pull CCHCS data to see gap items →</td></tr>'|safe }}</tbody>
+        <tbody>
+        {% if gap_items %}
+          {% for item in gap_items[:25] %}
+          <tr style="border-bottom:1px solid var(--bd)">
+            <td style="padding:8px 12px;font-size:13px">{{ item.get("description","")[:60] }}</td>
+            <td style="padding:8px 12px;font-size:12px;color:var(--tx2)">{{ (item.get("category") or "").replace("_"," ").title() }}</td>
+            <td style="padding:8px 12px;font-size:12px;text-align:center">{{ item.get("times_purchased",0) }}</td>
+            <td style="padding:8px 12px;font-size:12px;text-align:right">${{ "%.2f"|format(item.get("avg_price") or 0) }}</td>
+            <td style="padding:8px 12px;font-size:13px;text-align:right;font-weight:700;color:var(--rd)">${{ "{:,.0f}".format(item.get("total_spend") or 0) }}</td>
+            <td style="padding:8px 12px"><span style="background:rgba(220,38,38,.1);color:var(--rd);padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">MISSING</span></td>
+          </tr>
+          {% endfor %}
+        {% else %}
+          <tr><td colspan="6" style="padding:24px;text-align:center;color:var(--tx2);font-size:13px">Pull CCHCS data to see gap items →</td></tr>
+        {% endif %}
+        </tbody>
       </table>
     </div>
   </div>
@@ -89,7 +112,22 @@ table{width:100%;border-collapse:collapse}
           <th>Item</th><th>Category</th><th>Our SKU</th><th>Their Vendor</th>
           <th style="text-align:right">Their Price</th><th style="text-align:right">Spend</th>
         </tr></thead>
-        <tbody>{{ wb_rows if wb_rows else '<tr><td colspan="6" style="padding:16px;text-align:center;color:var(--tx2)">Pull data to see win-back opportunities</td></tr>'|safe }}</tbody>
+        <tbody>
+        {% if wb_items %}
+          {% for item in wb_items[:15] %}
+          <tr style="border-bottom:1px solid var(--bd)">
+            <td style="padding:8px 12px;font-size:13px">{{ item.get("description","")[:60] }}</td>
+            <td style="padding:8px 12px;font-size:12px;color:var(--tx2)">{{ (item.get("category") or "").replace("_"," ").title() }}</td>
+            <td style="padding:8px 12px;font-size:12px;font-weight:600;color:var(--ac)">{{ item.get("reytech_sku","—") }}</td>
+            <td style="padding:8px 12px;font-size:12px;color:var(--tx2)">{{ item.get("supplier","Unknown")[:30] }}</td>
+            <td style="padding:8px 12px;font-size:12px;text-align:right">${{ "%.2f"|format(item.get("avg_price") or 0) }}</td>
+            <td style="padding:8px 12px;font-size:13px;text-align:right;font-weight:700;color:var(--gn)">${{ "{:,.0f}".format(item.get("total_spend") or 0) }}</td>
+          </tr>
+          {% endfor %}
+        {% else %}
+          <tr><td colspan="6" style="padding:16px;text-align:center;color:var(--tx2)">Pull data to see win-back opportunities</td></tr>
+        {% endif %}
+        </tbody>
       </table>
     </div>
   </div>
@@ -100,7 +138,29 @@ table{width:100%;border-collapse:collapse}
     <div class="card" style="padding:0">
       <table>
         <thead><tr><th>Supplier</th><th style="text-align:center">POs</th><th style="text-align:right">Total $</th><th>Categories</th><th>Action</th></tr></thead>
-        <tbody>{{ sup_rows if sup_rows else '<tr><td colspan="5" style="padding:16px;text-align:center;color:var(--tx2)">Pull data to see suppliers</td></tr>'|safe }}</tbody>
+        <tbody>
+        {% if suppliers %}
+          {% for s in suppliers[:15] %}
+          <tr style="border-bottom:1px solid var(--bd)">
+            <td style="padding:8px 12px;font-size:13px;font-weight:{{ '600' if s.get('is_dvbe_target') else '400' }};color:{{ 'var(--rd)' if s.get('is_dvbe_target') else 'var(--tx)' }}">{{ s.get("supplier_name","")[:40] }}{{ ' 🏅' if s.get('is_dvbe_target') else '' }}</td>
+            <td style="padding:8px 12px;font-size:12px;text-align:center">{{ s.get("po_count",0) }}</td>
+            <td style="padding:8px 12px;font-size:13px;text-align:right;font-weight:700">${{ "{:,.0f}".format(s.get("total_po_value") or 0) }}</td>
+            <td style="padding:8px 12px;font-size:11px;color:var(--tx2)">{{ s.get("categories_str","")[:50] }}</td>
+            <td style="padding:8px 12px;font-size:11px">
+              {% if s.get('is_dvbe_target') and s.get('is_partner') %}
+                <span style="color:var(--rd);font-size:11px;font-weight:600">⚔️ Displace</span> · <span style="color:var(--ac);font-size:11px;font-weight:600">🤝 Partner</span>
+              {% elif s.get('is_dvbe_target') %}
+                <span style="color:var(--rd);font-size:11px;font-weight:600">⚔️ Displace (DVBE)</span>
+              {% else %}
+                —
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        {% else %}
+          <tr><td colspan="5" style="padding:16px;text-align:center;color:var(--tx2)">Pull data to see suppliers</td></tr>
+        {% endif %}
+        </tbody>
       </table>
     </div>
   </div>

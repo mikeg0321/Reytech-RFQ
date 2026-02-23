@@ -315,58 +315,19 @@ def page_cchcs_intel():
     win_back = summary.get("win_back_spend", 0) or 0
     total_captured = summary.get("total_po_value_captured", 0) or 0
 
-    # Build gap items table
-    gap_rows = ""
-    for item in intel.get("gap_items", [])[:25]:
-        spend = item.get("total_spend") or 0
-        cat = (item.get("category") or "").replace("_", " ").title()
-        gap_rows += f"""<tr style="border-bottom:1px solid var(--bd)">
-  <td style="padding:8px 12px;font-size:13px">{item.get("description","")[:60]}</td>
-  <td style="padding:8px 12px;font-size:12px;color:var(--tx2)">{cat}</td>
-  <td style="padding:8px 12px;font-size:12px;text-align:center">{item.get("times_purchased",0)}</td>
-  <td style="padding:8px 12px;font-size:12px;text-align:right">${item.get("avg_price") or 0:.2f}</td>
-  <td style="padding:8px 12px;font-size:13px;text-align:right;font-weight:700;color:var(--rd)">${spend:,.0f}</td>
-  <td style="padding:8px 12px"><span style="background:rgba(220,38,38,.1);color:var(--rd);padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">MISSING</span></td>
-</tr>"""
-
-    # Build win-back table
-    wb_rows = ""
-    for item in intel.get("win_back_items", [])[:15]:
-        spend = item.get("total_spend") or 0
-        wb_rows += f"""<tr style="border-bottom:1px solid var(--bd)">
-  <td style="padding:8px 12px;font-size:13px">{item.get("description","")[:60]}</td>
-  <td style="padding:8px 12px;font-size:12px;color:var(--tx2)">{(item.get("category") or "").replace("_"," ").title()}</td>
-  <td style="padding:8px 12px;font-size:12px;font-weight:600;color:var(--ac)">{item.get("reytech_sku","—")}</td>
-  <td style="padding:8px 12px;font-size:12px;color:var(--tx2)">{item.get("supplier","Unknown")[:30]}</td>
-  <td style="padding:8px 12px;font-size:12px;text-align:right">${item.get("avg_price") or 0:.2f}</td>
-  <td style="padding:8px 12px;font-size:13px;text-align:right;font-weight:700;color:var(--gn)">${spend:,.0f}</td>
-</tr>"""
-
-    # Supplier table
-    sup_rows = ""
+    # Enrich suppliers with DVBE flags and parsed categories
+    from src.agents.scprs_intelligence_engine import KNOWN_NON_DVBE_INCUMBENTS, DVBE_PARTNER_TARGETS
+    suppliers = []
     for s in intel.get("suppliers", [])[:15]:
         cats_raw = s.get("categories", "[]")
-        try: cats = ", ".join(_j.loads(cats_raw))[:50]
-        except: cats = str(cats_raw)[:50]
-        is_comp = s.get("is_competitor", 0)
+        try: cats_str = ", ".join(_j.loads(cats_raw))[:50]
+        except: cats_str = str(cats_raw)[:50]
         supplier_lower = (s.get("supplier_name") or "").lower()
-        # Import check — is this a known non-DVBE we can displace?
-        from src.agents.scprs_intelligence_engine import KNOWN_NON_DVBE_INCUMBENTS, DVBE_PARTNER_TARGETS
-        is_dvbe_target = any(inc in supplier_lower for inc in KNOWN_NON_DVBE_INCUMBENTS)
-        is_partner = any(p in supplier_lower for p in DVBE_PARTNER_TARGETS)
-        action_cell = ""
-        if is_dvbe_target:
-            if is_partner:
-                action_cell = '<span style="color:var(--rd);font-size:11px;font-weight:600">⚔️ Displace</span> · <span style="color:var(--ac);font-size:11px;font-weight:600">🤝 Partner</span>'
-            else:
-                action_cell = '<span style="color:var(--rd);font-size:11px;font-weight:600">⚔️ Displace (DVBE)</span>'
-        sup_rows += f"""<tr style="border-bottom:1px solid var(--bd)">
-  <td style="padding:8px 12px;font-size:13px;font-weight:{'600' if is_dvbe_target else '400'};color:{'var(--rd)' if is_dvbe_target else 'var(--tx)'}">{s.get("supplier_name","")[:40]}{' 🏅' if is_dvbe_target else ''}</td>
-  <td style="padding:8px 12px;font-size:12px;text-align:center">{s.get("po_count",0)}</td>
-  <td style="padding:8px 12px;font-size:13px;text-align:right;font-weight:700">${(s.get("total_po_value") or 0):,.0f}</td>
-  <td style="padding:8px 12px;font-size:11px;color:var(--tx2)">{cats}</td>
-  <td style="padding:8px 12px;font-size:11px">{action_cell if action_cell else '—'}</td>
-</tr>"""
+        suppliers.append({**s,
+            "categories_str": cats_str,
+            "is_dvbe_target": any(inc in supplier_lower for inc in KNOWN_NON_DVBE_INCUMBENTS),
+            "is_partner": any(p in supplier_lower for p in DVBE_PARTNER_TARGETS),
+        })
 
     # Category chart data
     cat_labels = _j.dumps([r.get("category","").replace("_"," ").title() for r in intel.get("by_category",[])])
@@ -374,22 +335,10 @@ def page_cchcs_intel():
     cat_colors = _j.dumps(["#DC2626" if r.get("gap_spend",0) > r.get("reytech_sells_spend",0) else "#16A34A"
                            for r in intel.get("by_category",[])])
 
-    no_data_msg = ""
-    if pos_stored == 0:
-        no_data_msg = f"""
-<div style="background:rgba(37,99,235,.08);border:1px solid var(--ac);border-radius:10px;padding:20px 24px;margin-bottom:24px;display:flex;align-items:center;gap:16px">
-  <div style="font-size:32px">📡</div>
-  <div>
-    <div style="font-size:15px;font-weight:700;color:var(--ac)">No data yet — Pull Required</div>
-    <div style="font-size:13px;color:var(--tx2);margin-top:4px">Click "Pull CCHCS Data Now" to search SCPRS for all CDCR/CCHCS purchase orders. Takes 3-5 minutes. Runs on Railway — no login needed, it's public data.</div>
-  </div>
-</div>"""
-
     return render_page("cchcs_intel.html", active_page="Intel",
-        gap_rows=gap_rows,
-        wb_rows=wb_rows,
-        sup_rows=sup_rows,
-        no_data_msg=no_data_msg,
+        gap_items=intel.get("gap_items", []),
+        wb_items=intel.get("win_back_items", []),
+        suppliers=suppliers,
         gap_spend=gap_spend,
         lines_stored=lines_stored,
         pos_stored=pos_stored,
