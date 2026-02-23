@@ -107,12 +107,12 @@
     "status": "new",
     "invoice_type": "",
     "invoice_total": 0,
-    "created_at": "2026-02-23T02:53:03.142242",
-    "updated_at": "2026-02-23T02:53:03.142248",
+    "created_at": "2026-02-23T02:57:14.677563",
+    "updated_at": "2026-02-23T02:57:14.677570",
     "status_history": [
       {
         "status": "new",
-        "timestamp": "2026-02-23T02:53:03.142250",
+        "timestamp": "2026-02-23T02:57:14.677572",
         "actor": "system"
       }
     ]

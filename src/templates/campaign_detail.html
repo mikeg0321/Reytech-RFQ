@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Campaign: {{ camp.name }} — Reytech{% endblock %}
+
+{% block content %}
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+ <div>
+  <h1 style="margin:0">{{ camp.name }}</h1>
+  <div style="color:var(--tx2);font-size:12px;margin-top:4px">{{ camp.contact_source|default(camp.target_type|default('')) }} • {{ camp.script_key|default('') }} • {{ contacts|length }} contacts</div>
+ </div>
+ <div style="display:flex;gap:8px">
+  <a href="/campaigns" class="btn" style="padding:8px 16px">← Back</a>
+  <button class="btn btn-p" onclick="dialNext()" style="padding:8px 16px" {% if not pending %}disabled{% endif %}>📞 Dial Next ({{ pending|length }} remaining)</button>
+ </div>
+</div>
+
+<!-- Stats -->
+<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-bottom:16px">
+ {% for label, key, color in [('Total','total',''), ('Called','called',''), ('Reached','reached','var(--gn)'), ('Voicemail','voicemail','var(--yl)'), ('Interested','interested','var(--ac)'), ('Callback','callback','var(--warn)')] %}
+ <div class="card" style="text-align:center;padding:10px">
+  <div style="font-size:9px;color:var(--tx2);text-transform:uppercase">{{ label }}</div>
+  <div style="font-size:20px;font-weight:700{% if color %};color:{{ color }}{% endif %}">{{ stats.get(key, 0) }}</div>
+ </div>
+ {% endfor %}
+</div>
+
+<!-- Contact List -->
+<div class="card" style="padding:16px">
+ <div class="card-t" style="margin-bottom:10px">Contact List</div>
+ <table class="tbl" style="width:100%">
+  <thead><tr><th>Name</th><th>Phone</th><th>Institution</th><th>Script</th><th>Outcome</th><th>Actions</th></tr></thead>
+  <tbody>{{ contact_rows|safe }}</tbody>
+ </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function dialContact(idx) {
+  fetch('/api/campaigns/{{ cid }}/call', {
+    method: 'POST', credentials: 'same-origin',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({target_index: idx})
+  }).then(r => r.json()).then(d => {
+    if (d.ok) { alert('Call placed: ' + (d.call_id||d.call_sid||'queued')); location.reload(); }
+    else { alert(d.error || 'Call failed'); }
+  });
+}
+function dialNext() {
+  fetch('/api/campaigns/{{ cid }}/call', {
+    method: 'POST', credentials: 'same-origin',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({})
+  }).then(r => r.json()).then(d => {
+    if (d.ok) { alert('Calling: ' + (d.to||'next contact')); location.reload(); }
+    else { alert(d.error || 'No more contacts'); }
+  });
+}
+function logOutcome(phone, outcome) {
+  if (!outcome) return;
+  fetch('/api/campaigns/{{ cid }}/outcome', {
+    method: 'POST', credentials: 'same-origin',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({phone, outcome})
+  }).then(r => r.json()).then(d => {
+    if (d.ok) location.reload();
+  });
+}
+</script>
+{% endblock %}
