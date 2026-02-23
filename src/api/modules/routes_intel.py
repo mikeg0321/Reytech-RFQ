@@ -2074,7 +2074,7 @@ function loadHistory(){
   });
 }
 loadLatest();loadHistory();
-</script>""" + _page_footer()
+</script></body></html>"""
 
 
 @bp.route("/api/qa/scan")

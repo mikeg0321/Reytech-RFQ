@@ -2091,6 +2091,10 @@ def _update_order_status(oid: str):
 from src.api.templates import BASE_CSS
 from src.api.render import render_page
 
+# Shim for legacy pages that build HTML in Python — wraps content in base template
+def _wrap_page(content, title="Reytech"):
+    return render_page("generic.html", page_title=title, content=content)
+
 # ═══════════════════════════════════════════════════════════════════════
 # Shared Manager Brief (app-wide) + Header JS
 # ═══════════════════════════════════════════════════════════════════════

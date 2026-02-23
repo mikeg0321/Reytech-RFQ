@@ -1620,7 +1620,8 @@ def pricechecks_archive():
     function filterPCs(){{var q=document.getElementById('pc-search').value.toLowerCase();var st=document.getElementById('pc-status').value;var rows=document.querySelectorAll('#pc-tbody tr');var v=0;rows.forEach(function(r){{var ok=(!q||r.dataset.search.includes(q))&&(!st||r.dataset.status===st);r.style.display=ok?'':'none';if(ok)v++;}});document.getElementById('pc-count').textContent=v+' PCs';}}
     </script>'''
 
-    return _header("Price Checks") + content + _page_footer()
+    from src.api.render import render_page
+    return render_page("generic.html", active_page="PCs", page_title="Price Checks", content=content)
 
 
 @bp.route("/api/pricechecks")
@@ -1917,7 +1918,8 @@ def competitors_page():
       </div>
     </div>'''
 
-    return _header("Competitors") + content + _page_footer()
+    from src.api.render import render_page
+    return render_page("generic.html", active_page="Compete", page_title="Competitive Intelligence", content=content)
 
 
 @bp.route("/api/admin/cleanup", methods=["POST"])
@@ -3213,4 +3215,5 @@ def qa_email_pipeline_page():
     </script>
     '''
 
-    return _header("Email Pipeline QA") + content + _page_footer()
+    from src.api.render import render_page
+    return render_page("generic.html", active_page="Intel", page_title="Email Pipeline QA", content=content)

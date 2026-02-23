@@ -48,18 +48,18 @@ table{width:100%;border-collapse:collapse}
   <div>
     <!-- Agency intelligence -->
     <div style="font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">Agency Intelligence</div>
-    {{ agencies_html }}
+    {{ agencies_html | safe }}
   </div>
   <div>
     <!-- Accounts to register -->
     <div style="font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">Accounts to Register Now</div>
     <div class="card" style="padding:0;margin-bottom:20px">
-      {{ accounts_html }}
+      {{ accounts_html | safe }}
     </div>
 
     <!-- Land & Expand Playbook -->
     <div style="font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">30/60/90 Day Playbook</div>
-    {{ playbook_html }}
+    {{ playbook_html | safe }}
   </div>
 </div>
 
@@ -71,7 +71,7 @@ table{width:100%;border-collapse:collapse}
   </div>
   <table>
     <thead><tr><th>Product / Item</th><th>Priority</th><th>Annual Missed</th><th>Fix</th></tr></thead>
-    <tbody>{{ gaps_html }}</tbody>
+    <tbody>{{ gaps_html | safe }}</tbody>
   </table>
 </div>
 

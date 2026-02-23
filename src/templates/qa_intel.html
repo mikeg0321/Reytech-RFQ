@@ -42,7 +42,7 @@ table{width:100%;border-collapse:collapse}
   </div>
 </div>
 
-{{ f'<div style="margin-bottom:16px">{reg_html}</div>' if regressions else '' }}
+{% if regressions %}<div style="margin-bottom:16px">{{ reg_html | safe }}</div>{% endif %}
 
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
   <div>
@@ -50,7 +50,7 @@ table{width:100%;border-collapse:collapse}
     <div class="card" style="padding:0">
       <table>
         <thead><tr><th>Check</th><th>Message</th><th style="text-align:center">Seen</th><th>Since</th></tr></thead>
-        <tbody>{{ issue_rows if issue_rows else '<tr><td colspan="4" style="padding:16px;text-align:center;color:var(--gn);font-size:13px">✅ No persistent open issues</td></tr>' }}</tbody>
+        <tbody>{% if issue_rows %}{{ issue_rows | safe }}{% else %}<tr><td colspan="4" style="padding:16px;text-align:center;color:var(--gn);font-size:13px">✅ No persistent open issues</td></tr>{% endif %}</tbody>
       </table>
     </div>
   </div>

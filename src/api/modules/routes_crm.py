@@ -3274,7 +3274,7 @@ def _send_sms(to_number, message):
 @auth_required
 def daily_brief_page():
     """Daily Briefing page."""
-    header = _header("brief")
+    header = ""  # Rendered via base.html template
     now = datetime.now()
     text_brief = _build_text_brief()
     twilio_ok = bool(TWILIO_SID and TWILIO_TOKEN and TWILIO_FROM)
@@ -3348,7 +3348,7 @@ def daily_brief_page():
     twilio_status = f"Twilio configured, sends to {NOTIFY_TO}" if twilio_ok else "Set TWILIO env vars on Railway to enable SMS"
     twilio_disabled = "" if twilio_ok else 'disabled title="Configure Twilio first"'
 
-    return header + f"""
+    content = f"""
 <div style="max-width:800px;margin:0 auto;padding:20px">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">
     <div>
@@ -3405,7 +3405,9 @@ function sendBriefSMS() {{
   .catch(e => alert('Error: ' + e));
 }}
 </script>
-""" + _page_footer()
+"""
+    from src.api.render import render_page
+    return render_page("generic.html", active_page="Brief", page_title="Daily Brief", content=content)
 
 
 @bp.route("/api/brief/text")

@@ -96,7 +96,7 @@ def intelligence_page():
     scprs_err = st.get("scprs_error", "")
     has_buyers = total_buyers > 0
 
-    return f"""{_header('Sales Intelligence')}
+    content = f"""
     <style>
      .card{{background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px;margin-bottom:14px}}
      .card h3{{font-size:11px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px}}
@@ -556,7 +556,9 @@ CalTrans,m.jones@dot.ca.gov,Mary Jones,916-654-2000,Office,45000,</pre>
 
     {f'pollPull();' if pull_running else ''}
     </script>
-    """ + _page_footer()
+    """
+    from src.api.render import render_page
+    return render_page("generic.html", active_page="Intel", page_title="Sales Intelligence", content=content)
 
 
 # ─── Voice Agent Routes ─────────────────────────────────────────────────────

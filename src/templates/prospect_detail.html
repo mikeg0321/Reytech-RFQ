@@ -64,7 +64,7 @@
       <div class="field-row"><span class="field-lbl">Phone</span><span class="field-val">{{ pr.get('buyer_phone') or '—' }}</span></div>
       <div class="field-row"><span class="field-lbl">Title</span><span class="field-val">{{ pr.get('title') or '—' }}</span></div>
       <div class="field-row"><span class="field-lbl">Agency</span><span class="field-val">{{ agency }}</span></div>
-      <div class="field-row"><span class="field-lbl">LinkedIn</span><span class="field-val">{{ "<a href='"+str(pr.get('linkedin',''))+"' target='_blank' style='color:var(--ac)'>View Profile</a>" if pr.get('linkedin') else '—' }}</span></div>
+      <div class="field-row"><span class="field-lbl">LinkedIn</span><span class="field-val">{% if pr.get('linkedin') %}<a href="{{ pr.get('linkedin','') }}" target="_blank" style="color:var(--ac)">View Profile</a>{% else %}—{% endif %}</span></div>
       <div class="field-row"><span class="field-lbl">Notes</span><span class="field-val" style="font-size:12px;color:var(--tx2);white-space:pre-wrap">{{ pr.get('notes') or pr.get('contact_notes') or '—' }}</span></div>
       <div style="margin-top:14px;display:grid;grid-template-columns:1fr 1fr;gap:6px">
        <button class="g-btn g-btn-go" onclick="setStatus('responded')" style="justify-content:center">✅ Responded</button>
@@ -77,7 +77,7 @@
 
      <div class="card">
       <h3>📅 Activity Log <span style="font-weight:400;color:var(--tx2);font-size:10px;text-transform:none;letter-spacing:0">({{ all_events|length }} events)</span></h3>
-      <div style="max-height:420px;overflow-y:auto;padding-right:4px">{{ tl_html }}</div>
+      <div style="max-height:420px;overflow-y:auto;padding-right:4px">{{ tl_html | safe }}</div>
      </div>
 
      <div class="card">
@@ -100,22 +100,22 @@
         <div style="font-size:12px;font-weight:600;font-family:monospace;color:var(--tx)">{{ last_purchase }}</div>
        </div>
       </div>
-      {{ ('<div style="font-size:10px;color:var(--tx2);font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Spend by Category</div>' + cats_html) if cats_html else '<div style="color:var(--tx2);font-size:12px">Run Deep Pull for category data</div>' }}
+      {% if cats_html %}<div style="font-size:10px;color:var(--tx2);font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Spend by Category</div>{{ cats_html | safe }}{% else %}<div style="color:var(--tx2);font-size:12px">Run Deep Pull for category data</div>{% endif %}
      </div>
     </div>
 
     <div style="display:grid;grid-template-columns:1fr 1.8fr;gap:14px">
      <div class="card">
       <h3>🛒 Items Purchased</h3>
-      {{ ('<div>' + items_html + '</div>') if items_html else '<div style="color:var(--tx2);font-size:13px;padding:8px 0">No item data yet — run Deep Pull to mine line items</div>' }}
+      {% if items_html %}<div>{{ items_html | safe }}</div>{% else %}<div style="color:var(--tx2);font-size:13px;padding:8px 0">No item data yet — run Deep Pull to mine line items</div>{% endif %}
      </div>
      <div class="card">
       <h3>📋 PO History ({{ po_count }})</h3>
-      {{ ('<div style="overflow-x:auto"><table><thead><tr><th>PO #</th><th>Date</th><th>Items</th><th>Category</th><th style="text-align:right">Total</th></tr></thead><tbody>' + po_html + '</tbody></table></div>') if po_html else '<div style="color:var(--tx2);font-size:13px;padding:8px 0">No PO history — run Deep Pull to fetch SCPRS purchase orders</div>' }}
+      {% if po_html %}<div style="overflow-x:auto"><table><thead><tr><th>PO #</th><th>Date</th><th>Items</th><th>Category</th><th style="text-align:right">Total</th></tr></thead><tbody>{{ po_html | safe }}</tbody></table></div>{% else %}<div style="color:var(--tx2);font-size:13px;padding:8px 0">No PO history — run Deep Pull to fetch SCPRS purchase orders</div>{% endif %}
      </div>
     </div>
 
-    {{ ('<div class="card"><h3>📧 Outreach Campaigns</h3>' + or_html + '</div>') if or_html else '' }}
+    {% if or_html %}<div class="card"><h3>📧 Outreach Campaigns</h3>{{ or_html | safe }}</div>{% endif %}
 
     <!-- Log Activity Modal -->
     <div class="modal-bg" id="log-modal" onclick="if(event.target===this)closeModal()">

@@ -78,3 +78,20 @@ dashboard.py's globals, not loaded as importable Python modules.
 **Rule**: For data needed at page load, compute it server-side in the route handler and
 pass it as template context. Use `{{ data_json | safe }}` in template JS. Eliminates
 network roundtrips, auth issues, and cold-start race conditions.
+
+## L14: Systematic |safe audit for ALL templates
+**Pattern**: Any `{{ var_html }}` without `| safe` renders as escaped text.
+This bug appeared on 8+ pages because HTML was built in Python route handlers
+and passed to Jinja2 templates without `| safe`.
+**Rule**: After any template change, run: `grep -rn '{{ [a-z_]*_html }}' src/templates/ | grep -v safe`
+Also audit: `_rows`, `_section`, `_box`, `_panel` suffix variables.
+For inline HTML conditionals, NEVER use `{{ "<html>" if cond else "" }}` — always
+use `{% if cond %}<html>{% endif %}` instead.
+
+## L15: _header()/_page_footer()/_wrap_page() were removed
+**Pattern**: Legacy pages built full HTML in Python and used `_header(title)`
+and `_page_footer()` to wrap with nav/footer. These were removed when
+render_page() was introduced but ~8 routes still called them → 500 errors.
+**Rule**: Use `render_page("generic.html", page_title=title, content=html_str)`
+for pages that build HTML in Python. The `_wrap_page` shim in dashboard.py
+delegates to this. Always test every page after refactoring rendering.

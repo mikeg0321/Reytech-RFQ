@@ -13,7 +13,7 @@
     <a href="/" style="padding:5px 12px;border:1px solid var(--bd);border-radius:6px;font-size:12px;text-decoration:none">🏠 Home</a>
   </div>
 </div>
-{{ no_data_html }}{{ stats_html }}{{ paste_box }}
+{{ no_data_html | safe }}{{ stats_html | safe }}{{ paste_box | safe }}
 <script>
 async function ingestCSV() {
   const csv = document.getElementById("csvPaste").value.trim();
