@@ -52,6 +52,15 @@ th{padding:8px 12px;font-size:11px;color:var(--tx2);text-transform:uppercase;let
   </div>
 </div>
 
+<!-- Preferred Vendors + Scorecard -->
+<div class="card" style="margin-bottom:20px">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+    <div style="font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px">⭐ Preferred Vendors by Category</div>
+    <button class="btn" onclick="loadPreferred()" style="border-color:var(--ac);color:var(--ac)">Refresh</button>
+  </div>
+  <div id="preferred-vendors" style="color:var(--tx2);font-size:12px">Loading...</div>
+</div>
+
 <!-- Vendor table -->
 <div class="card" style="margin-bottom:20px">
   <div style="font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px">
@@ -60,7 +69,7 @@ th{padding:8px 12px;font-size:11px;color:var(--tx2);text-transform:uppercase;let
   <div style="overflow-x:auto">
     <table>
       <thead><tr>
-        <th>Vendor</th><th>Integration</th><th>Categories</th>
+        <th>Vendor</th><th>Integration</th><th>Score</th><th>Categories</th>
         <th>Email</th><th>Phone</th><th>Balance</th><th>Notes</th>
       </tr></thead>
       <tbody>{{ all_rows|safe }}</tbody>
@@ -104,6 +113,7 @@ function showEnrichment(){
   });
 }
 function testGrainger(btn){
+  loadPreferred(); // auto-load on page init
   var q=prompt("Search Grainger catalog (e.g. 'nitrile gloves medium 100 box'):");
   if(!q)return;
   btn.disabled=true;btn.textContent='Searching...';
@@ -116,6 +126,28 @@ function testGrainger(btn){
     el.innerHTML='<div class="card"><div style="font-size:12px;font-weight:600;color:var(--tx2);margin-bottom:10px">Grainger Results: '+d.results.length+' found</div><table><thead><tr><th>Item#</th><th>Title</th><th>Price</th><th>Availability</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
   }).catch(()=>{btn.disabled=false;btn.textContent='🔍 Test Grainger Search';alert('Search failed')});
 }
+function loadPreferred(){
+  fetch('/api/vendor/preferred',{credentials:'same-origin'}).then(r=>r.json()).then(d=>{
+    const el=document.getElementById('preferred-vendors');
+    if(!d.ok||!d.matrix||!Object.keys(d.matrix).length){
+      el.innerHTML='<div style="color:var(--tx2);padding:8px">No scored vendors yet — click "Score Vendors" first</div>';
+      return;
+    }
+    let html='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px">';
+    for(const[cat,v]of Object.entries(d.matrix)){
+      const sc=v.score||0;
+      const clr=sc>=70?'var(--gn)':sc>=40?'var(--yl)':'var(--rd)';
+      html+='<div style="background:var(--sf2);border-radius:8px;padding:12px;border:1px solid var(--bd)">';
+      html+='<div style="font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">'+cat+'</div>';
+      html+='<div style="font-weight:600;font-size:13px;color:'+clr+'">'+v.vendor+'</div>';
+      html+='<div style="display:flex;align-items:center;gap:5px;margin-top:6px"><div style="background:var(--bg);border-radius:3px;height:6px;flex:1;overflow:hidden"><div style="width:'+sc+'%;height:100%;background:'+clr+';border-radius:3px"></div></div><span style="font-size:10px;font-family:monospace">'+sc.toFixed(0)+'</span></div>';
+      html+='</div>';
+    }
+    html+='</div>';
+    el.innerHTML=html;
+  }).catch(()=>{document.getElementById('preferred-vendors').innerHTML='Failed to load';});
+}
+loadPreferred();
 </script>
 
 {% endblock %}

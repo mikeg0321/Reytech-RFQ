@@ -209,3 +209,58 @@ table.it .text-in:focus{border-color:var(--ac);outline:none}
 .notif-item-time{font-size:10px;color:var(--tx2);margin-top:4px;font-family:'JetBrains Mono',monospace}
 .notif-empty{padding:32px;text-align:center;color:var(--tx2);font-size:13px}
 .notif-footer{padding:10px 16px;border-top:1px solid var(--bd);display:flex;gap:8px}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   WI-6: Responsive + Mobile
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* Mobile hamburger */
+.mobile-toggle{display:none;padding:6px 10px;border:1px solid var(--bd);border-radius:6px;background:var(--sf2);color:var(--tx);cursor:pointer;font-size:16px}
+
+/* Tablet: ≤1024px */
+@media(max-width:1024px){
+  .ctr{padding:16px 14px}
+  .bento-2{grid-template-columns:1fr}
+  .bento-3{grid-template-columns:1fr}
+  .card{padding:14px}
+}
+
+/* Mobile: ≤768px */
+@media(max-width:768px){
+  .mobile-toggle{display:inline-flex}
+  .hdr{padding:10px 14px 0}
+  .hdr nav{display:none;flex-direction:column;width:100%;padding:0;margin:0}
+  .hdr nav.mobile-open{display:flex}
+  .hdr nav>div{display:flex;flex-wrap:wrap;gap:4px;white-space:normal}
+  .hdr-btn{padding:8px 12px;font-size:12px;min-height:36px}
+  .ctr{padding:12px 10px}
+  table{font-size:11px}
+  th,td{padding:6px 8px}
+  .bento-2,.bento-3{grid-template-columns:1fr}
+  .card{padding:12px;border-radius:8px}
+  .meta-g{grid-template-columns:1fr 1fr}
+  /* Make tables horizontally scrollable */
+  .card table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .home-tbl{min-width:600px}
+  /* Notification panel */
+  .notif-panel{width:calc(100vw - 20px);right:10px;top:60px}
+  /* Modal responsiveness */
+  .modal-box{width:95vw;max-width:95vw;padding:16px}
+}
+
+/* Small phone: ≤480px */
+@media(max-width:480px){
+  .hdr{padding:8px 10px 0}
+  .ctr{padding:10px 8px}
+  .hdr-btn{padding:6px 8px;font-size:10px}
+  .card{padding:10px}
+  .meta-g{grid-template-columns:1fr}
+  table{font-size:10px}
+  th,td{padding:4px 6px}
+}
+
+/* Touch targets: minimum 44px for accessibility */
+@media(pointer:coarse){
+  .hdr-btn,.g-btn,.btn,.act-btn,.notif-bell{min-height:44px;min-width:44px}
+  input,select,textarea{min-height:44px;font-size:16px}
+}

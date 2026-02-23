@@ -419,6 +419,19 @@ def api_dashboard_actions():
     except Exception:
         pass
 
+    # Vendor intelligence
+    try:
+        from src.agents.vendor_intelligence import get_enrichment_status
+        ve = get_enrichment_status()
+        if ve.get("total_vendors", 0) > 0:
+            scored_pct = ve.get("scored_pct", 0)
+            progress.append({
+                "icon": "🏭", "label": f"{ve['total_vendors']} vendors tracked ({scored_pct}% scored)",
+                "link": "/vendors", "type": "vendor_intel"
+            })
+    except Exception:
+        pass
+
     return jsonify({
         "ok": True,
         "urgent": urgent,

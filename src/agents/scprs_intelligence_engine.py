@@ -943,6 +943,16 @@ def pull_all_agencies_background(notify_fn=None, priority_filter="P0") -> dict:
             log.debug("Post-pull lead rescore failed: %s", _re)
         # ── End lead rescore ──────────────────────────────────────────
 
+        # ── Rescore vendors with fresh price/order data ───────────────
+        try:
+            from src.agents.vendor_intelligence import score_all_vendors
+            vscore = score_all_vendors()
+            log.info("Post-pull vendor rescore: %s", vscore)
+            _engine_status["last_results"]["vendor_rescore"] = vscore
+        except Exception as _ve:
+            log.debug("Post-pull vendor rescore failed: %s", _ve)
+        # ── End vendor rescore ────────────────────────────────────────
+
         if notify_fn:
             notify_fn("bell", "✅ Full SCPRS intelligence pull complete — check /intel/growth for insights", "success")
 

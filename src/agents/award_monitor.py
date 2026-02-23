@@ -399,6 +399,22 @@ def get_price_suggestions(items: list, institution: str = "") -> list:
         
     except Exception as e:
         log.debug("Price suggestions error: %s", e)
+
+    # ── Enhance with preferred vendor recommendation ──────────────
+    try:
+        from src.agents.vendor_intelligence import get_preferred_vendors
+        pref = get_preferred_vendors()
+        if pref.get("ok") and pref.get("matrix"):
+            for sug in suggestions:
+                desc_lower = sug.get("item_desc", "").lower()
+                for cat, info in pref["matrix"].items():
+                    if cat.lower() in desc_lower or any(w in desc_lower for w in cat.lower().split()):
+                        sug["preferred_vendor"] = info.get("vendor", "")
+                        sug["vendor_score"] = info.get("score", 0)
+                        break
+    except Exception:
+        pass
+    # ── End preferred vendor ──────────────────────────────────────
     
     return suggestions
 

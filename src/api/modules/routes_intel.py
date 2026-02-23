@@ -385,9 +385,14 @@ def page_vendors():
         balance = v.get("open_balance","")
         cats = ", ".join(v.get("categories",[])[:3]) or "—"
         note = v.get("note","") or v.get("action","")
+        # Vendor intelligence score
+        oscore = v.get("overall_score", 0) or 0
+        score_color = "var(--gn)" if oscore >= 70 else "var(--yl)" if oscore >= 40 else "var(--rd)" if oscore > 0 else "var(--tx2)"
+        score_html = f'<div style="display:flex;align-items:center;gap:5px"><div style="background:var(--sf2);border-radius:3px;height:6px;width:40px;overflow:hidden"><div style="width:{oscore}%;height:100%;background:{score_color};border-radius:3px"></div></div><span style="font-size:11px;font-family:monospace">{oscore:.0f}</span></div>' if oscore > 0 else '<span style="font-size:10px;color:var(--tx2)">—</span>'
         return f"""<tr style="border-bottom:1px solid var(--bd)">
   <td style="padding:10px 12px;font-weight:500;color:{color}">{name}</td>
   <td style="padding:10px 12px;font-size:12px">{badge_html}</td>
+  <td style="padding:10px 12px;font-size:12px">{score_html}</td>
   <td style="padding:10px 12px;font-size:11px;color:var(--tx2)">{cats}</td>
   <td style="padding:10px 12px;font-size:11px;color:var(--ac)">{email}</td>
   <td style="padding:10px 12px;font-size:11px;color:var(--tx2)">{phone}</td>
