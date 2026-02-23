@@ -3078,7 +3078,8 @@ def api_funnel_stats():
     inbox_count = pcs_new + rfqs_new
     priced_count = pcs_priced + rfqs_priced
     
-    # ── Quotes — read from SQLite (authoritative, not stale JSON) ──
+    # ── Quotes — use best available data source (SQLite or JSON) ──
+    # Try SQLite first (most accurate totals), fall back to JSON if SQLite is empty
     quotes_pending = 0
     quotes_sent = 0
     quotes_won = 0
@@ -3086,29 +3087,40 @@ def api_funnel_stats():
     total_quoted = 0
     total_won = 0
     pipeline_value_db = 0
+    _q_source = "none"
     try:
         from src.core.db import get_db
         with get_db() as _conn:
-            for r in _conn.execute("""
-                SELECT status, COUNT(*) as c, COALESCE(SUM(total), 0) as t
-                FROM quotes WHERE is_test = 0 AND total > 0
-                GROUP BY status
-            """).fetchall():
-                s = r["status"]
-                if s in ("pending", "draft"):
-                    quotes_pending = r["c"]
-                    pipeline_value_db += r["t"]
-                elif s == "sent":
-                    quotes_sent = r["c"]
-                    pipeline_value_db += r["t"]
-                elif s == "won":
-                    quotes_won = r["c"]
-                    total_won = r["t"]
-                elif s == "lost":
-                    quotes_lost = r["c"]
-                total_quoted += r["t"]
+            # Count ALL non-test quotes (don't filter by total>0 for counts)
+            db_total = _conn.execute(
+                "SELECT COUNT(*) FROM quotes WHERE is_test = 0"
+            ).fetchone()[0]
+            if db_total > 0:
+                _q_source = "sqlite"
+                for r in _conn.execute("""
+                    SELECT status, COUNT(*) as c, COALESCE(SUM(total), 0) as t
+                    FROM quotes WHERE is_test = 0
+                    GROUP BY status
+                """).fetchall():
+                    s = r["status"]
+                    if s in ("pending", "draft"):
+                        quotes_pending = r["c"]
+                        pipeline_value_db += r["t"]
+                    elif s == "sent":
+                        quotes_sent = r["c"]
+                        pipeline_value_db += r["t"]
+                    elif s == "won":
+                        quotes_won = r["c"]
+                        total_won = r["t"]
+                    elif s == "lost":
+                        quotes_lost = r["c"]
+                    total_quoted += r["t"]
     except Exception:
-        # Fallback to JSON if DB fails
+        pass
+
+    # Fallback to JSON if SQLite had no data
+    if _q_source == "none":
+        _q_source = "json"
         quotes = [q for q in get_all_quotes() if not q.get("is_test")]
         quotes_pending = sum(1 for q in quotes if q.get("status") in ("pending", "draft"))
         quotes_sent = sum(1 for q in quotes if q.get("status") == "sent")

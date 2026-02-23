@@ -1171,6 +1171,88 @@ def _seed_volume_json() -> dict:
     return results
 
 
+def _boot_sync_quotes():
+    """Ensure quotes from JSON are in SQLite. Runs every boot.
+    Only inserts quotes that are MISSING from SQLite (doesn't overwrite)."""
+    ql_path = os.path.join(DATA_DIR, "quotes_log.json")
+    if not os.path.exists(ql_path):
+        return
+    try:
+        with open(ql_path) as f:
+            quotes = json.load(f)
+        if not isinstance(quotes, list) or not quotes:
+            return
+    except Exception:
+        return
+
+    synced = 0
+    with get_db() as conn:
+        existing = set(r[0] for r in conn.execute("SELECT quote_number FROM quotes").fetchall())
+        for q in quotes:
+            qn = q.get("quote_number", "")
+            if not qn or qn in existing:
+                continue
+            if upsert_quote(q):
+                synced += 1
+    if synced:
+        log.info("Boot sync: added %d quotes from JSON → SQLite", synced)
+
+
+def _boot_sync_pcs():
+    """Restore PCs from SQLite → JSON if JSON is empty. Runs every boot."""
+    pc_path = os.path.join(DATA_DIR, "price_checks.json")
+    # Check current JSON state
+    json_count = 0
+    try:
+        if os.path.exists(pc_path):
+            with open(pc_path) as f:
+                pcs = json.load(f)
+            json_count = len(pcs) if isinstance(pcs, dict) else 0
+    except Exception:
+        pass
+
+    if json_count > 0:
+        return  # JSON has data, no need to restore
+
+    # JSON is empty — restore from SQLite
+    try:
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT * FROM price_checks WHERE status NOT IN ('dismissed','cancelled')"
+            ).fetchall()
+            if not rows:
+                return
+            restored = {}
+            for r in rows:
+                pc_id = r["id"]
+                items = []
+                try:
+                    items = json.loads(r["items"] or "[]")
+                except Exception:
+                    pass
+                restored[pc_id] = {
+                    "id": pc_id,
+                    "pc_number": r.get("pc_number") or r.get("quote_number") or pc_id,
+                    "institution": r.get("institution") or r.get("agency") or "",
+                    "requestor": r.get("requestor") or "",
+                    "items": items,
+                    "source_pdf": r.get("source_file") or "",
+                    "status": r.get("status") or "parsed",
+                    "created_at": r.get("created_at") or "",
+                    "reytech_quote_number": r.get("quote_number") or "",
+                    "email_uid": r.get("email_uid") or "",
+                    "email_subject": r.get("email_subject") or "",
+                    "due_date": r.get("due_date") or "",
+                    "source": "email_auto",
+                }
+            if restored:
+                with open(pc_path, "w") as f:
+                    json.dump(restored, f, indent=2, default=str)
+                log.info("Boot sync: restored %d PCs from SQLite → JSON", len(restored))
+    except Exception as e:
+        log.warning("Boot PC restore: %s", e)
+
+
 def startup() -> dict:
     """Initialize DB and migrate existing data. Call once at app start."""
     # Step 1: If volume is fresh, copy seed JSON into it so the app can read them
@@ -1196,6 +1278,18 @@ def startup() -> dict:
         # First run — migrate from JSON seed files
         migrated = migrate_json_to_db()
         log.info("First-run migration complete: %s", migrated)
+    else:
+        # ── Always sync quotes + PCs from JSON → SQLite on boot ──────
+        # Even if contacts exist, quotes/PCs might be missing from SQLite
+        # (created in JSON before SQLite sync was added, or lost on deploy)
+        try:
+            _boot_sync_quotes()
+        except Exception as e:
+            log.warning("Boot quote sync: %s", e)
+        try:
+            _boot_sync_pcs()
+        except Exception as e:
+            log.warning("Boot PC sync: %s", e)
     stats = get_db_stats()
     is_vol = _is_railway_volume()
     log.info("DB ready [volume=%s]: %s", is_vol,
