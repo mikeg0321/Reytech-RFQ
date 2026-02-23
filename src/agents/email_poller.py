@@ -1140,8 +1140,8 @@ class EmailPoller:
         results = []
         
         try:
-            # Search last 3 days by date — doesn't matter if read or unread
-            since_date = (datetime.now() - timedelta(days=3)).strftime("%d-%b-%Y")
+            # Search last 7 days by date — doesn't matter if read or unread
+            since_date = (datetime.now() - timedelta(days=7)).strftime("%d-%b-%Y")
             status, messages = self.mail.uid("search", None, f"(SINCE {since_date})")
             if status != "OK":
                 log.warning(f"IMAP UID search failed: {status}")
@@ -1150,7 +1150,7 @@ class EmailPoller:
             uids = messages[0].split() if messages[0] else []
             new_uids = [u for u in uids if u.decode() not in self._processed]
             if uids:
-                log.info(f"Found {len(uids)} emails from last 3 days, {len(new_uids)} new to process")
+                log.info(f"Found {len(uids)} emails from last 7 days, {len(new_uids)} new to process")
             
             # Diagnostic counters
             self._diag = {
