@@ -2354,6 +2354,12 @@ def reimport_qb_csv(csv_path: str) -> dict:
                     "SELECT id FROM product_catalog WHERE name = ?", (qb_name,)
                 ).fetchone()
 
+            if not existing:
+                # Also check by the new product name (handles deduped products)
+                existing = conn.execute(
+                    "SELECT id FROM product_catalog WHERE name = ?", (product_name,)
+                ).fetchone()
+
             if existing:
                 conn.execute("""
                     UPDATE product_catalog SET
@@ -2384,19 +2390,40 @@ def reimport_qb_csv(csv_path: str) -> dict:
 
                 stats["updated"] += 1
             else:
-                cursor = conn.execute("""
-                    INSERT INTO product_catalog (
-                        name, sku, description, category, item_type, uom,
-                        sell_price, cost, margin_pct, search_tokens,
-                        manufacturer, mfg_number,
-                        qb_name, qb_item_type, qb_income_account, qb_expense_account,
-                        taxable, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (product_name, sku, desc, category, item_type, uom,
-                      sell_price, cost, margin_pct, search_tokens,
-                      manufacturer, mfg_number,
-                      qb_name, item_type, income_acct, expense_acct,
-                      taxable, now, now))
+                try:
+                    cursor = conn.execute("""
+                        INSERT INTO product_catalog (
+                            name, sku, description, category, item_type, uom,
+                            sell_price, cost, margin_pct, search_tokens,
+                            manufacturer, mfg_number,
+                            qb_name, qb_item_type, qb_income_account, qb_expense_account,
+                            taxable, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (product_name, sku, desc, category, item_type, uom,
+                          sell_price, cost, margin_pct, search_tokens,
+                          manufacturer, mfg_number,
+                          qb_name, item_type, income_acct, expense_acct,
+                          taxable, now, now))
+                except Exception as _uniq_err:
+                    if "UNIQUE" in str(_uniq_err):
+                        # Name collision — append part number to differentiate
+                        unique_name = f"{product_name} [{qb_name}]"
+                        search_tokens = _tokenize(f"{unique_name} {desc} {manufacturer} {qb_name}")
+                        cursor = conn.execute("""
+                            INSERT INTO product_catalog (
+                                name, sku, description, category, item_type, uom,
+                                sell_price, cost, margin_pct, search_tokens,
+                                manufacturer, mfg_number,
+                                qb_name, qb_item_type, qb_income_account, qb_expense_account,
+                                taxable, created_at, updated_at
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """, (unique_name, sku, desc, category, item_type, uom,
+                              sell_price, cost, margin_pct, search_tokens,
+                              manufacturer, mfg_number,
+                              qb_name, item_type, income_acct, expense_acct,
+                              taxable, now, now))
+                    else:
+                        raise
 
                 pid = cursor.lastrowid
                 conn.execute("""
@@ -2412,7 +2439,10 @@ def reimport_qb_csv(csv_path: str) -> dict:
                 stats["imported"] += 1
 
         except Exception as e:
-            stats["errors"].append(f"{qb_name}: {e}")
+            if "UNIQUE" in str(e):
+                stats["skipped"] += 1  # Variant already exists via dedup merge
+            else:
+                stats["errors"].append(f"{qb_name}: {e}")
 
     conn.commit()
     conn.close()
@@ -2452,4 +2482,129 @@ def run_sprint1_fixes() -> dict:
         "brands_found": name_stats["brand_found"] + mfg_stats["found"],
         "prices_calculated": price_stats["priced"],
         "total_products": name_stats["total"],
+    }
+
+
+def dedup_catalog(dry_run: bool = False) -> dict:
+    """
+    Find and merge true duplicate products in the catalog.
+    True dupe = same first-60-char description AND same sell_price.
+    
+    Merge strategy: keep the one with the most data (cost, win history),
+    add other mfg_numbers as aliases in the notes field.
+    """
+    conn = _get_conn()
+    now = datetime.now(timezone.utc).isoformat()
+    
+    rows = conn.execute("""
+        SELECT id, name, description, mfg_number, qb_name, sell_price, cost,
+               times_won, times_lost, recommended_price, manufacturer, best_cost
+        FROM product_catalog
+        ORDER BY id
+    """).fetchall()
+    
+    from collections import defaultdict
+    groups = defaultdict(list)
+    for r in rows:
+        d = dict(r)
+        desc60 = (d["description"] or "")[:60].lower().strip()
+        price = round(d["sell_price"] or 0, 2)
+        if desc60:
+            key = f"{desc60}|{price}"
+            groups[key].append(d)
+    
+    dupes = {k: v for k, v in groups.items() if len(v) > 1}
+    merged = 0
+    deleted_ids = []
+    merge_log = []
+    
+    for key, items in dupes.items():
+        # Pick the "best" product to keep:
+        # 1. Most win data, 2. Has recommended_price, 3. Has cost, 4. Lowest ID (oldest)
+        items.sort(key=lambda x: (
+            -(x.get("times_won") or 0),
+            -(1 if x.get("recommended_price") else 0),
+            -(1 if x.get("cost") and x["cost"] > 0 else 0),
+            x["id"]
+        ))
+        
+        keep = items[0]
+        remove = items[1:]
+        
+        # Collect all mfg_numbers as aliases
+        all_mfgs = set()
+        all_qb_names = set()
+        best_cost = keep.get("cost") or 0
+        best_mfg = keep.get("manufacturer") or ""
+        
+        for item in items:
+            if item.get("mfg_number"):
+                all_mfgs.add(item["mfg_number"])
+            if item.get("qb_name"):
+                all_qb_names.add(item["qb_name"])
+            if item.get("cost") and item["cost"] > 0:
+                if item["cost"] < best_cost or best_cost == 0:
+                    best_cost = item["cost"]
+            if item.get("manufacturer") and not best_mfg:
+                best_mfg = item["manufacturer"]
+        
+        # Build aliases note
+        alias_note = f"Aliases: {', '.join(sorted(all_mfgs))}" if len(all_mfgs) > 1 else ""
+        
+        remove_ids = [r["id"] for r in remove]
+        
+        merge_log.append({
+            "keep_id": keep["id"],
+            "keep_name": keep["name"][:50],
+            "remove_ids": remove_ids,
+            "aliases": list(all_mfgs),
+        })
+        
+        if not dry_run:
+            # Update the keeper with combined data
+            existing_notes = keep.get("notes") or ""
+            new_notes = f"{existing_notes}\n{alias_note}".strip() if alias_note else existing_notes
+            
+            # Rebuild search tokens with all aliases
+            token_text = f"{keep['name']} {keep.get('description','')} {' '.join(all_mfgs)} {best_mfg}"
+            tokens = _tokenize(token_text)
+            
+            conn.execute("""
+                UPDATE product_catalog SET
+                    notes = ?, search_tokens = ?,
+                    cost = CASE WHEN ? > 0 AND (cost IS NULL OR cost = 0 OR ? < cost) THEN ? ELSE cost END,
+                    manufacturer = COALESCE(NULLIF(?, ''), manufacturer),
+                    updated_at = ?
+                WHERE id = ?
+            """, (new_notes, tokens, best_cost, best_cost, best_cost, best_mfg, now, keep["id"]))
+            
+            # Move price history from removed items to keeper
+            for rid in remove_ids:
+                conn.execute(
+                    "UPDATE catalog_price_history SET product_id = ? WHERE product_id = ?",
+                    (keep["id"], rid)
+                )
+            
+            # Delete duplicates
+            conn.execute(
+                f"DELETE FROM product_catalog WHERE id IN ({','.join('?' * len(remove_ids))})",
+                remove_ids
+            )
+            
+        deleted_ids.extend(remove_ids)
+        merged += 1
+    
+    if not dry_run:
+        conn.commit()
+    conn.close()
+    
+    remaining = len(rows) - len(deleted_ids)
+    log.info("dedup_catalog: merged %d groups, deleted %d products, %d remaining",
+             merged, len(deleted_ids), remaining)
+    
+    return {
+        "groups_merged": merged,
+        "products_deleted": len(deleted_ids),
+        "products_remaining": remaining,
+        "merge_log": merge_log,
     }

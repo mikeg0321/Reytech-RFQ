@@ -15,7 +15,7 @@ try:
         # Sprint 1 additions
         reimport_qb_csv, run_sprint1_fixes, fix_catalog_names,
         extract_manufacturers_bulk, bulk_calculate_recommended,
-        get_freshness_report,
+        get_freshness_report, dedup_catalog,
     )
     CATALOG_AVAILABLE = True
 except ImportError:
@@ -200,7 +200,7 @@ def catalog_page():
       fetch('/api/catalog/reimport', {{method:'POST', body:fd}})
         .then(r=>r.json()).then(d=>{{
           if(btn) {{ btn.textContent='📥 Import QB CSV'; btn.disabled=false; }}
-          if(d.ok) {{ alert('✅ Import complete!\\nImported: '+d.imported+'\\nUpdated: '+d.updated+'\\nPrices calculated: '+(d.prices_calculated||0)); location.reload(); }}
+          if(d.ok) {{ alert('✅ Import complete!\\nImported: '+d.imported+'\\nUpdated: '+d.updated+'\\nNames fixed: '+(d.names_fixed||0)+'\\nBrands found: '+(d.brands_found||0)+'\\nPrices calculated: '+(d.prices_calculated||0)+'\\nDupes merged: '+(d.dupes_merged||0)+' (deleted '+(d.dupes_deleted||0)+')'); location.reload(); }}
           else alert('Error: '+(d.error||'unknown'));
         }}).catch(e=>{{
           if(btn) {{ btn.textContent='📥 Import QB CSV'; btn.disabled=false; }}
@@ -212,7 +212,7 @@ def catalog_page():
       fetch('/api/catalog/run-fixes', {{method:'POST'}})
         .then(r=>r.json()).then(d=>{{
           btn.disabled=false; btn.textContent='🔧 Run Fixes';
-          if(d.ok) {{ alert('✅ Fixes applied!\\nNames: '+d.names_fixed+'\\nPart#s: '+d.mfg_numbers_set+'\\nBrands: '+d.brands_found+'\\nPrices: '+d.prices_calculated); location.reload(); }}
+          if(d.ok) {{ alert('✅ Fixes applied!\\nNames: '+d.names_fixed+'\\nPart#s: '+d.mfg_numbers_set+'\\nBrands: '+d.brands_found+'\\nPrices: '+d.prices_calculated+'\\nDupes merged: '+(d.dupes_merged||0)+'\\nDupes deleted: '+(d.dupes_deleted||0)+'\\nProducts remaining: '+(d.products_remaining||'?')); location.reload(); }}
           else alert('Error: '+(d.error||'unknown'));
         }}).catch(e=>{{
           btn.disabled=false; btn.textContent='🔧 Run Fixes';
@@ -403,12 +403,37 @@ def api_catalog_reimport():
     safe = re.sub(r'[^\w.\-]', '_', f.filename or 'reimport.csv')
     path = os.path.join(DATA_DIR, f"catalog_reimport_{safe}")
     f.save(path)
+    # Also save as the canonical import file for future deploys
+    canonical = os.path.join(DATA_DIR, "product_catalog_import.csv")
+    import shutil
+    shutil.copy2(path, canonical)
     try:
         init_catalog_db()
         result = reimport_qb_csv(path)
-        # Also run price calculation on newly imported items
-        price_result = bulk_calculate_recommended()
-        result["prices_calculated"] = price_result.get("priced", 0)
+        # Run Sprint 1 fixes on reimported data
+        fix_result = run_sprint1_fixes()
+        result["names_fixed"] = fix_result.get("names_fixed", 0)
+        result["brands_found"] = fix_result.get("brands_found", 0)
+        result["prices_calculated"] = fix_result.get("prices_calculated", 0)
+        # Dedup
+        dedup_result = dedup_catalog()
+        result["dupes_merged"] = dedup_result.get("groups_merged", 0)
+        result["dupes_deleted"] = dedup_result.get("products_deleted", 0)
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/catalog/dedup", methods=["POST"])
+@auth_required
+def api_catalog_dedup():
+    """Find and merge duplicate products."""
+    if not CATALOG_AVAILABLE:
+        return jsonify({"ok": False, "error": "Catalog not available"})
+    try:
+        init_catalog_db()
+        dry = request.args.get("dry_run", "").lower() in ("1", "true", "yes")
+        result = dedup_catalog(dry_run=dry)
         return jsonify({"ok": True, **result})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
@@ -417,12 +442,17 @@ def api_catalog_reimport():
 @bp.route("/api/catalog/run-fixes", methods=["POST"])
 @auth_required
 def api_catalog_run_fixes():
-    """Run Sprint 1 foundation fixes: names, manufacturers, pricing."""
+    """Run Sprint 1 foundation fixes: names, manufacturers, pricing, dedup."""
     if not CATALOG_AVAILABLE:
         return jsonify({"ok": False, "error": "Catalog not available"})
     try:
         init_catalog_db()
         result = run_sprint1_fixes()
+        # Also dedup
+        dedup_result = dedup_catalog()
+        result["dupes_merged"] = dedup_result.get("groups_merged", 0)
+        result["dupes_deleted"] = dedup_result.get("products_deleted", 0)
+        result["products_remaining"] = dedup_result.get("products_remaining", 0)
         return jsonify({"ok": True, **result})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
