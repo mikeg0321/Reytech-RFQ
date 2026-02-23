@@ -761,7 +761,7 @@ def contacts_page():
                    "won":"#3fb950","lost":"#f87171","dead":"#8b90a0","bounced":"#f85149","follow_up_due":"#d29922"}
     cat_colors = {"Medical":"#f87171","Janitorial":"#3fb950","Office":"#4f8cff","IT":"#a78bfa","Facility":"#fb923c","Safety":"#fbbf24"}
 
-    rows_html = ""
+    display_contacts = []
     for c in contacts[:500]:
         cid = c.get("id","")
         name = c.get("buyer_name") or "—"
@@ -777,46 +777,25 @@ def contacts_page():
         act_count = len(c.get("activity",[]))
         categories = c.get("categories",{})
         items = c.get("items_purchased",[])
-
-        # Category tags (top 3)
-        cat_tags = ""
-        for cat in list(categories.keys())[:3]:
-            cc = cat_colors.get(cat,"#8b90a0")
-            cat_tags += f'<span style="font-size:10px;padding:2px 7px;border-radius:8px;background:{cc}22;color:{cc};border:1px solid {cc}44;white-space:nowrap">{cat}</span> '
-
-        # Items (first 2)
+        cat_list = [(cat, cat_colors.get(cat,"#8b90a0")) for cat in list(categories.keys())[:3]]
         items_text = ", ".join(it.get("description","")[:30] for it in items[:2])
         if len(items) > 2: items_text += f" +{len(items)-2}"
-
-        # Score bar
         sp_color = "#3fb950" if score_pct>=70 else "#fbbf24" if score_pct>=40 else "#f87171"
-        score_bar = f'<div style="display:flex;align-items:center;gap:6px"><div style="background:var(--sf2);border-radius:3px;height:6px;width:50px;overflow:hidden"><div style="width:{score_pct}%;height:100%;background:{sp_color};border-radius:3px"></div></div><span style="font-size:11px;font-family:monospace">{score_pct}%</span></div>'
-
-        # Activity badge
-        act_badge = f'<span style="font-size:11px;background:rgba(79,140,255,.15);color:var(--ac);padding:2px 8px;border-radius:8px">{act_count} 📋</span>' if act_count > 0 else '<span style="font-size:11px;color:var(--tx2)">—</span>'
-
-        rows_html += f'''<tr data-agency="{agency.lower()}" data-name="{name.lower()}" data-email="{email.lower()}" data-cats="{','.join(categories.keys()).lower()}" data-status="{stat}" data-items="{items_text.lower()}" style="cursor:pointer" onclick="location.href='/growth/prospect/{cid}'">
-         <td><div style="font-weight:600;font-size:13px">{agency}</div><div style="font-size:11px;color:var(--tx2)">{name}</div></td>
-         <td style="font-size:12px"><a href="mailto:{email}" style="color:var(--ac);font-family:monospace" onclick="event.stopPropagation()">{email or '—'}</a></td>
-         <td><div style="display:flex;flex-wrap:wrap;gap:3px">{cat_tags}</div></td>
-         <td style="font-size:11px;color:var(--tx2);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{items_text or '—'}</td>
-         <td class="mono" style="color:#3fb950;font-weight:700">{fmt_spend(spend)}</td>
-         <td class="mono" style="color:var(--tx2)">{po_count} · {last}</td>
-         <td>{score_bar}</td>
-         <td><span style="padding:3px 10px;border-radius:10px;font-size:11px;font-weight:600;background:{sc}22;color:{sc};border:1px solid {sc}44">{stat}</span></td>
-         <td>{act_badge}</td>
-         <td><a href="/growth/prospect/{cid}" style="color:var(--ac);font-size:12px;text-decoration:none">View →</a></td>
-        </tr>'''
-
-    cat_options = "".join(f'<option value="{c}">{c}</option>' for c in all_cats)
-    status_options = "".join(f'<option value="{s}">{s}</option>' for s in all_statuses)
+        display_contacts.append({
+            "cid": cid, "name": name, "email": email, "agency": agency,
+            "stat": stat, "sc": sc, "spend_fmt": fmt_spend(spend),
+            "po_count": po_count, "last": last, "act_count": act_count,
+            "cat_list": cat_list, "items_text": items_text,
+            "score_pct": score_pct, "sp_color": sp_color,
+            "cats_lower": ",".join(categories.keys()).lower(),
+        })
 
     from src.api.render import render_page
     return render_page("contacts.html", active_page="CRM",
         total=total, agencies=agencies, total_spend_fmt=fmt_spend(total_spend),
         total_activity=total_activity, won_count=won_count,
-        cat_options=cat_options, status_options=status_options,
-        rows_html=rows_html, has_data=has_data,
+        all_cats=all_cats, all_statuses=all_statuses,
+        display_contacts=display_contacts, has_data=has_data,
     )
 
 

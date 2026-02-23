@@ -40,10 +40,10 @@
 <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
  <input id="search" class="filter-input" placeholder="🔍  Search agency, name, email, items..." oninput="filterTable()" style="flex:1;min-width:220px">
  <select id="cat-filter" class="filter-input" onchange="filterTable()">
-  <option value="">All Categories</option>{{ cat_options|safe }}
+  <option value="">All Categories</option>{% for c in all_cats %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
  </select>
  <select id="status-filter" class="filter-input" onchange="filterTable()">
-  <option value="">All Statuses</option>{{ status_options|safe }}
+  <option value="">All Statuses</option>{% for s in all_statuses %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
  </select>
  <span id="count-label" style="font-size:13px;color:var(--tx2);white-space:nowrap">{{ total }} contacts</span>
 </div>
@@ -71,7 +71,22 @@
    <th>Activity</th>
    <th></th>
   </tr></thead>
-  <tbody id="crm-tbody">{{ rows_html|safe }}</tbody>
+  <tbody id="crm-tbody">
+  {% for c in display_contacts %}
+  <tr data-agency="{{ c.agency|lower }}" data-name="{{ c.name|lower }}" data-email="{{ c.email|lower }}" data-cats="{{ c.cats_lower }}" data-status="{{ c.stat }}" data-items="{{ c.items_text|lower }}" style="cursor:pointer" onclick="location.href='/growth/prospect/{{ c.cid }}'">
+   <td><div style="font-weight:600;font-size:13px">{{ c.agency }}</div><div style="font-size:11px;color:var(--tx2)">{{ c.name }}</div></td>
+   <td style="font-size:12px"><a href="mailto:{{ c.email }}" style="color:var(--ac);font-family:monospace" onclick="event.stopPropagation()">{{ c.email or '—' }}</a></td>
+   <td><div style="display:flex;flex-wrap:wrap;gap:3px">{% for cat, cc in c.cat_list %}<span style="font-size:10px;padding:2px 7px;border-radius:8px;background:{{ cc }}22;color:{{ cc }};border:1px solid {{ cc }}44;white-space:nowrap">{{ cat }}</span> {% endfor %}</div></td>
+   <td style="font-size:11px;color:var(--tx2);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ c.items_text or '—' }}</td>
+   <td class="mono" style="color:#3fb950;font-weight:700">{{ c.spend_fmt }}</td>
+   <td class="mono" style="color:var(--tx2)">{{ c.po_count }} · {{ c.last }}</td>
+   <td><div style="display:flex;align-items:center;gap:6px"><div style="background:var(--sf2);border-radius:3px;height:6px;width:50px;overflow:hidden"><div style="width:{{ c.score_pct }}%;height:100%;background:{{ c.sp_color }};border-radius:3px"></div></div><span style="font-size:11px;font-family:monospace">{{ c.score_pct }}%</span></div></td>
+   <td><span style="padding:3px 10px;border-radius:10px;font-size:11px;font-weight:600;background:{{ c.sc }}22;color:{{ c.sc }};border:1px solid {{ c.sc }}44">{{ c.stat }}</span></td>
+   <td>{% if c.act_count > 0 %}<span style="font-size:11px;background:rgba(79,140,255,.15);color:var(--ac);padding:2px 8px;border-radius:8px">{{ c.act_count }} 📋</span>{% else %}<span style="font-size:11px;color:var(--tx2)">—</span>{% endif %}</td>
+   <td><a href="/growth/prospect/{{ c.cid }}" style="color:var(--ac);font-size:12px;text-decoration:none">View →</a></td>
+  </tr>
+  {% endfor %}
+  </tbody>
  </table>
  {% endif %}
 </div>
