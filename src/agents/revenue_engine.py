@@ -179,8 +179,19 @@ def reconcile_revenue() -> dict:
                 pass
 
             # ── Cleanup: remove old duplicate/orphan revenue entries ──
-            # Delete revenue entries from quotes that are no longer 'won' 
-            # and have no backing order
+            # 1. Remove quote_won entries that have a corresponding order-based entry
+            try:
+                conn.execute("""
+                    DELETE FROM revenue_log WHERE source = 'quote_won'
+                    AND quote_number != ''
+                    AND quote_number IN (
+                        SELECT quote_number FROM revenue_log 
+                        WHERE source = 'order' AND quote_number != ''
+                    )
+                """)
+            except Exception:
+                pass
+            # 2. Remove quote_won entries where quote is no longer won and has no order
             try:
                 orphans = conn.execute("""
                     SELECT r.id, r.quote_number FROM revenue_log r

@@ -206,13 +206,68 @@ def peek_next_quote_number() -> str:
 VALID_STATUSES = ("pending", "won", "lost", "draft", "sent", "expired")
 
 def get_all_quotes(include_test: bool = False) -> list:
-    """Return all quotes. By default excludes test/QA quotes."""
+    """Return all quotes. By default excludes test/QA quotes.
+    Reads from quotes_log.json first, falls back to SQLite if JSON is empty/stale."""
     path = os.path.join(DATA_DIR, "quotes_log.json")
     try:
         with open(path) as f:
             quotes = json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
         quotes = []
+
+    # ── Fallback: if JSON is empty or all totals are 0, use SQLite ──
+    non_empty = [q for q in quotes if q.get("total", 0) > 0]
+    if len(quotes) == 0 or (len(quotes) > 2 and len(non_empty) == 0):
+        try:
+            from src.core.db import get_db
+            with get_db() as conn:
+                rows = conn.execute("""
+                    SELECT quote_number, status, total, agency, institution,
+                           po_number, contact_name, contact_email, subtotal, tax,
+                           created_at, updated_at, is_test, source, sent_at,
+                           line_items, ship_to_name, ship_to_address
+                    FROM quotes ORDER BY created_at DESC
+                """).fetchall()
+                if rows:
+                    quotes = []
+                    for r in rows:
+                        items = []
+                        try:
+                            items = json.loads(r["line_items"] or "[]")
+                        except Exception:
+                            pass
+                        ship_addr = []
+                        try:
+                            ship_addr = json.loads(r["ship_to_address"] or "[]")
+                        except Exception:
+                            if r["ship_to_address"]:
+                                ship_addr = [r["ship_to_address"]]
+                        quotes.append({
+                            "quote_number": r["quote_number"],
+                            "status": r["status"] or "pending",
+                            "total": r["total"] or 0,
+                            "subtotal": r["subtotal"] or 0,
+                            "tax": r["tax"] or 0,
+                            "agency": r["agency"] or "",
+                            "institution": r["institution"] or "",
+                            "po_number": r["po_number"] or "",
+                            "contact_name": r["contact_name"] or "",
+                            "contact_email": r["contact_email"] or "",
+                            "created_at": r["created_at"] or "",
+                            "updated_at": r["updated_at"] or "",
+                            "is_test": bool(r["is_test"]),
+                            "source": r["source"] or "",
+                            "sent_at": r["sent_at"] or "",
+                            "items_detail": items,
+                            "ship_to_name": r["ship_to_name"] or "",
+                            "ship_to_address": ship_addr,
+                        })
+                    # Sync back to JSON for other consumers
+                    _save_all_quotes(quotes)
+        except Exception:
+            pass
+    # ── End SQLite fallback ──
+
     if include_test:
         return quotes
     # Filter out test quotes — TEST-/QA- prefixed numbers or is_test flag
