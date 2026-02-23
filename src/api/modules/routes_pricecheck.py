@@ -299,23 +299,49 @@ def pricecheck_detail(pcid):
 @bp.route("/pricecheck/<pcid>/lookup")
 @auth_required
 def pricecheck_lookup(pcid):
-    """Run Amazon lookup for all items in a Price Check."""
-    if not PRICE_CHECK_AVAILABLE:
-        return jsonify({"ok": False, "error": "price_check.py not available"})
+    """Run product price lookup — SerpApi first, Claude web search fallback."""
     pcs = _load_price_checks()
     pc = pcs.get(pcid)
     if not pc:
         return jsonify({"ok": False, "error": "PC not found"})
 
-    parsed = pc.get("parsed", {})
-    parsed = lookup_prices(parsed)
-    pc["parsed"] = parsed
-    pc["items"] = parsed.get("line_items", [])
-    _transition_status(pc, "priced", actor="user", notes="Prices saved")
-    _save_price_checks(pcs)
+    found = 0
+    source = "none"
 
-    found = sum(1 for i in pc["items"] if i.get("pricing", {}).get("amazon_price"))
-    return jsonify({"ok": True, "found": found, "total": len(pc["items"])})
+    # Try 1: SerpApi (if available + key set)
+    if PRICE_CHECK_AVAILABLE:
+        try:
+            parsed = pc.get("parsed", {})
+            parsed = lookup_prices(parsed)
+            pc["parsed"] = parsed
+            pc["items"] = parsed.get("line_items", [])
+            found = sum(1 for i in pc["items"] if i.get("pricing", {}).get("amazon_price"))
+            source = "serpapi"
+        except Exception as e:
+            log.debug("SerpApi lookup failed: %s", e)
+
+    # Try 2: Claude web search (if SerpApi found nothing or unavailable)
+    if found == 0:
+        try:
+            from src.agents.web_price_research import web_search_for_pc
+            result = web_search_for_pc(pcid)
+            if result.get("ok") and result.get("found", 0) > 0:
+                # Reload PC after web_search_for_pc saved it
+                pcs = _load_price_checks()
+                pc = pcs.get(pcid, pc)
+                found = result["found"]
+                source = "claude_web"
+        except ImportError:
+            log.debug("web_price_research not available")
+        except Exception as e:
+            log.debug("Claude web search failed: %s", e)
+
+    if found > 0:
+        _transition_status(pc, "priced", actor="user", notes=f"Prices found via {source}")
+        _save_price_checks(pcs)
+
+    return jsonify({"ok": True, "found": found, "total": len(pc.get("items", [])),
+                    "source": source})
 
 
 @bp.route("/pricecheck/<pcid>/scprs-lookup")
@@ -1978,9 +2004,39 @@ def api_pricecheck_price_sweep(pcid):
             "found": found_count, "total": len(items)
         })
     except ImportError as e:
-        return jsonify({"ok": False, "error": f"Missing dependency: {e}"})
+        # Fallback to Claude web search when SerpApi deps missing
+        try:
+            from src.agents.web_price_research import web_search_for_pc
+            result = web_search_for_pc(pcid)
+            if result.get("ok"):
+                result["source"] = "claude_web_fallback"
+                return jsonify(result)
+        except Exception:
+            pass
+        return jsonify({"ok": False, "error": f"Missing dependency: {e}. Set ANTHROPIC_API_KEY for Claude web search fallback."})
     except Exception as e:
         log.exception("price-sweep error")
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/pricecheck/<pcid>/web-search", methods=["POST"])
+@auth_required
+def api_pricecheck_web_search(pcid):
+    """Claude-powered web price search — uses Anthropic API + web_search tool.
+    Searches Google Shopping, Amazon, medical supply sites for real prices.
+    Cost: ~$0.001-0.003 per item (Claude Haiku + web search)."""
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"})
+    try:
+        from src.agents.web_price_research import web_search_for_pc
+        result = web_search_for_pc(pcid)
+        return jsonify(result)
+    except ImportError:
+        return jsonify({"ok": False, "error": "web_price_research module not available"})
+    except Exception as e:
+        log.exception("web-search error")
         return jsonify({"ok": False, "error": str(e)})
 
 

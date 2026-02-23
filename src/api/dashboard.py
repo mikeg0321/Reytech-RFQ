@@ -874,7 +874,37 @@ def _auto_price_new_pc(pc_id: str):
         except Exception as e:
             log.debug("Auto-price SCPRS error: %s", e)
 
-        # ── 3. Save if we found anything ──
+        # ── 3. Claude web search for remaining unpriced items ──
+        try:
+            from src.agents.web_price_research import search_product_price
+            for item in items:
+                p = item.get("pricing", {})
+                if p.get("recommended_price") or p.get("unit_cost"):
+                    continue  # Already priced
+                desc = item.get("description", "")
+                pn = str(item.get("item_number", "") or "")
+                if not desc and not pn:
+                    continue
+                result = search_product_price(description=desc, part_number=pn,
+                    qty=item.get("qty", 1), uom=item.get("uom", "EA"))
+                if result.get("found") and result.get("price", 0) > 0:
+                    if not item.get("pricing"):
+                        item["pricing"] = {}
+                    item["pricing"]["web_price"] = result["price"]
+                    item["pricing"]["web_source"] = result.get("source", "")
+                    item["pricing"]["web_url"] = result.get("url", "")
+                    item["pricing"]["unit_cost"] = result["price"]
+                    markup = 25
+                    item["pricing"]["recommended_price"] = round(result["price"] * (1 + markup / 100), 2)
+                    found_count += 1
+                    log.debug("  Web match: %s → $%.2f via %s", desc[:40], result["price"], result.get("source",""))
+                time.sleep(1.0)  # Rate limit
+        except ImportError:
+            log.debug("web_price_research not available")
+        except Exception as e:
+            log.debug("Auto-price web search error: %s", e)
+
+        # ── 4. Save if we found anything ──
         if found_count > 0:
             pcs = _load_price_checks()  # Reload fresh
             if pc_id in pcs:

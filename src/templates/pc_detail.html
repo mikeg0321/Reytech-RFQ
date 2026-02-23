@@ -165,11 +165,11 @@
       <button class="btn" data-testid="pc-auto-process" style="background:#f0883e;color:#fff;font-size:14px;padding:8px 20px" onclick="autoProcess(this)">⚡ Process Now</button>
       {% endif %}
       {{ download_html | safe }}
-      <!-- Scraper buttons — always visible, not buried in dropdown -->
+      <!-- Pricing tools — always visible, not buried in dropdown -->
       <span style="border-left:1px solid #30363d;height:28px;margin:0 4px"></span>
       <button class="btn btn-sm" onclick="runScprs(this)" data-testid="pc-scprs-lookup" style="background:#21262d;color:#58a6ff;border:1px solid #30363d;font-size:13px;padding:6px 14px">🔍 SCPRS</button>
-      <button class="btn btn-sm" onclick="runLookup(this)" data-testid="pc-amazon-lookup" style="background:#21262d;color:#f0883e;border:1px solid #30363d;font-size:13px;padding:6px 14px">🔬 Amazon</button>
       <button class="btn btn-sm" onclick="runCatalogMatch(this)" data-testid="pc-catalog-match" style="background:#21262d;color:#3fb950;border:1px solid #30363d;font-size:13px;padding:6px 14px">🎯 Catalog</button>
+      <button class="btn btn-sm" onclick="runWebSearch(this)" data-testid="pc-web-search" style="background:#21262d;color:#f0883e;border:1px solid #30363d;font-size:13px;padding:6px 14px">🌐 Web Search</button>
       <button class="btn btn-sm" onclick="runAutoPrice(this)" data-testid="pc-auto-price" style="background:#21262d;color:#d2a8ff;border:1px solid #30363d;font-size:13px;padding:6px 14px">🧠 Auto-Price</button>
       <button class="btn btn-sm" onclick="runPriceSweep(this)" data-testid="pc-price-sweep" style="background:#21262d;color:#f778ba;border:1px solid #30363d;font-size:13px;padding:6px 14px">🛒 Sweep</button>
       <details style="position:relative;display:inline-block">
@@ -796,27 +796,42 @@
      });
     }
 
-    function runLookup(btn) {
-     btn.disabled=true;const origText=btn.textContent;btn.textContent='⏳ Searching Amazon...';
-     showMsg('Searching Amazon via SerpApi...','warn');
-     fetch('/pricecheck/{{ pcid }}/lookup').then(r=>{
+    function runWebSearch(btn) {
+     btn.disabled=true;const origText=btn.textContent;btn.textContent='⏳ Searching web...';
+     showMsg('🌐 Searching Google Shopping, Amazon, and suppliers via Claude AI...','warn');
+     fetch('/api/pricecheck/{{ pcid }}/web-search',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(r=>{
       if(!r.ok) throw new Error('HTTP '+r.status);
       return r.json();
      }).then(d=>{
       btn.disabled=false;btn.textContent=origText;
-      if(d.error){
-       showMsg('❌ Amazon error: '+d.error,'err');
-      } else if(d.found>0){
-       showMsg('✅ Amazon: Found prices for '+d.found+'/'+d.total+' items. Reloading...','ok');
-       setTimeout(()=>location.reload(),1200);
+      if(!d.ok){
+       showMsg('❌ Web search error: '+(d.error||'Unknown'),'err');
+       return;
+      }
+      if(d.found>0){
+       // Show what was found
+       let details=[];
+       (d.results||[]).forEach(r=>{
+        if(!r.found)return;
+        details.push(r.source+' $'+Number(r.price).toFixed(2));
+       });
+       showMsg('✅ Web Search: Found prices for '+d.found+'/'+d.total+' items'
+        +(details.length?' ('+details.slice(0,3).join(', ')+'...)':'')
+        +'. Reloading...','ok');
+       setTimeout(()=>location.reload(),1500);
+      } else if(d.message){
+       showMsg('ℹ️ '+d.message,'warn');
       } else {
-       showMsg('ℹ️ Amazon: Searched '+d.total+' items — no results. Try manual URL paste or SCPRS.','warn');
+       showMsg('ℹ️ Web search: no results for '+d.searched+' items. Try pasting supplier URLs directly.','warn');
       }
      }).catch(e=>{
       btn.textContent=origText;btn.disabled=false;
-      showMsg('❌ Amazon request failed: '+e.message+'. Check SerpApi key in env vars.','err');
+      showMsg('❌ Web search failed: '+e.message+'. Check ANTHROPIC_API_KEY is set.','err');
      });
     }
+
+    // Legacy alias for backward compatibility
+    function runLookup(btn) { runWebSearch(btn); }
 
     // ── Catalog Auto-Match ──────────────────────────────────────────────
     function runCatalogMatch(btn) {
@@ -1971,31 +1986,58 @@
        });
       }
 
-      // Step 2: SCPRS lookup
-      fetch('/pricecheck/{{ pcid }}/scprs-lookup').then(r => r.json()).then(sd => {
-       let scprsFound = sd.found || 0;
-       let total = catFound + scprsFound;
+      // Step 2: Web search for remaining unpriced items
+      fetch('/api/pricecheck/{{ pcid }}/web-search',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(r=>r.json()).then(wd=>{
+       let webFound = wd.found || 0;
+       let total = catFound + webFound;
        if (total > 0) {
-        showMsg('✅ Auto-priced: ' + catFound + ' from catalog, ' + scprsFound + ' from SCPRS. Reloading...', 'ok');
+        showMsg('✅ Auto-priced: ' + catFound + ' from catalog, ' + webFound + ' from web search. Reloading...', 'ok');
         setTimeout(() => location.reload(), 1500);
        } else {
-        showMsg('ℹ️ No auto-matches found. Use Amazon, Sweep, or paste supplier URLs to find prices.', 'warn');
+        // Try SCPRS as last resort
+        fetch('/pricecheck/{{ pcid }}/scprs-lookup').then(r=>r.json()).then(sd=>{
+         let scprsFound = sd.found || 0;
+         if(scprsFound > 0){
+          showMsg('✅ Auto-priced: ' + scprsFound + ' from SCPRS. Reloading...', 'ok');
+          setTimeout(() => location.reload(), 1500);
+         } else {
+          showMsg('ℹ️ No auto-matches. Use 🌐 Web Search or paste supplier URLs.', 'warn');
+         }
+        }).catch(()=>{
+         showMsg('ℹ️ No auto-matches. Use 🌐 Web Search or paste supplier URLs.', 'warn');
+        });
        }
       }).catch(() => {
-       if (catFound > 0) {
-        showMsg('✅ Catalog: found ' + catFound + ' matches. SCPRS unavailable.', 'ok');
-        recalcPC();
-       }
+       // Web search failed, try SCPRS alone
+       fetch('/pricecheck/{{ pcid }}/scprs-lookup').then(r=>r.json()).then(sd=>{
+        if(sd.found > 0){
+         showMsg('✅ SCPRS: Found '+sd.found+' matches. Reloading...', 'ok');
+         setTimeout(()=>location.reload(), 1500);
+        } else if(catFound > 0){
+         showMsg('✅ Catalog: '+catFound+' matches.', 'ok');
+         recalcPC();
+        }
+       }).catch(()=>{});
       });
      }).catch(e => {
-      console.warn('Auto-price error:', e);
-      // Try SCPRS alone
-      fetch('/pricecheck/{{ pcid }}/scprs-lookup').then(r => r.json()).then(sd => {
-       if (sd.found > 0) {
-        showMsg('✅ SCPRS: Found ' + sd.found + ' matches. Reloading...', 'ok');
+      console.warn('Auto-price catalog error:', e);
+      // Catalog failed, try web search directly
+      fetch('/api/pricecheck/{{ pcid }}/web-search',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(r=>r.json()).then(wd=>{
+       if(wd.found > 0){
+        showMsg('✅ Web search: Found ' + wd.found + ' prices. Reloading...', 'ok');
         setTimeout(() => location.reload(), 1500);
+       } else {
+        showMsg('ℹ️ No auto-matches. Use 🌐 Web Search or paste supplier URLs.', 'warn');
        }
-      }).catch(() => {});
+      }).catch(() => {
+       // Last resort: SCPRS
+       fetch('/pricecheck/{{ pcid }}/scprs-lookup').then(r=>r.json()).then(sd=>{
+        if(sd.found > 0){
+         showMsg('✅ SCPRS: Found '+sd.found+' matches. Reloading...', 'ok');
+         setTimeout(()=>location.reload(), 1500);
+        }
+       }).catch(()=>{});
+      });
      });
     })();
 
