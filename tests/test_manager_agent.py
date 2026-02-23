@@ -241,23 +241,23 @@ class TestHomePageRendering:
         """The brief section div must exist in home page HTML."""
         import os
         os.environ.setdefault('APP_SECRET', 'test')
-        from src.api.templates import PAGE_HOME
+        import os; PAGE_HOME = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "templates", "home.html")).read()
         assert 'brief' in PAGE_HOME.lower()
 
     def test_home_has_kpi_section(self):
         """The KPI dashboard section must exist in home page HTML."""
-        from src.api.templates import PAGE_HOME
+        import os; PAGE_HOME = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "templates", "home.html")).read()
         assert 'kpi' in PAGE_HOME.lower()
 
     def test_home_fetches_brief_and_metrics(self):
         """JS must fetch both API endpoints (brief is in dashboard BRIEF_HTML)."""
-        from src.api.templates import PAGE_HOME
+        import os; PAGE_HOME = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "templates", "home.html")).read()
         assert "/api/manager/metrics" in PAGE_HOME
         # Brief fetch is injected via dashboard.py BRIEF_HTML, not in PAGE_HOME directly
 
     def test_home_has_error_handling(self):
         """JS must log errors, not swallow them."""
-        from src.api.templates import PAGE_HOME
+        import os; PAGE_HOME = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "templates", "home.html")).read()
         assert "console.error" in PAGE_HOME
         # Error handling present in JS
 
@@ -273,8 +273,12 @@ class TestHomePageRendering:
         os.environ.setdefault('DASHBOARD_PASSWORD', 'test')
         from flask import Flask
         from src.api.dashboard import bp, load_rfqs, _load_price_checks, render
-        from src.api.templates import PAGE_HOME
-        app = Flask(__name__)
+        import os
+        _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        PAGE_HOME = open(os.path.join(_root, "src", "templates", "home.html")).read()
+        app = Flask(__name__,
+                    template_folder=os.path.join(_root, "src", "templates"),
+                    static_folder=os.path.join(_root, "src", "static"))
         app.secret_key = 'test'
         app.register_blueprint(bp)
         with app.test_request_context():

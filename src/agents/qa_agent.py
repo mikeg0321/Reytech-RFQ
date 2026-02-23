@@ -832,16 +832,18 @@ def _check_feature_321() -> list:
 
     # Check banner in PC detail template
     try:
-        from src.api.templates import build_pc_detail_html
-        import inspect
-        src = inspect.getsource(build_pc_detail_html)
+        import os
+        _tpl_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                  "templates", "pc_detail.html")
+        with open(_tpl_path) as _f:
+            src = _f.read()
         if "quote-gen-banner" in src and "generateQuote1Click" in src:
             results.append({"check": "feature_321", "status": "pass",
                              "message": "PC detail template: 1-click banner + JS present"})
         else:
             results.append({"check": "feature_321", "status": "warn",
                              "message": "PC detail template missing 1-click banner or JS",
-                             "recommendation": "Check templates.py for quote-gen-banner"})
+                             "recommendation": "Check src/templates/pc_detail.html for quote-gen-banner"})
     except Exception as e:
         results.append({"check": "feature_321", "status": "info",
                          "message": f"Template check skipped: {e}"})

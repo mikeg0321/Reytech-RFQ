@@ -294,9 +294,11 @@ class TestRealCodebase:
 
     def test_viewport_meta_in_base_css(self):
         """Base CSS/HTML should include viewport meta tag."""
-        path = os.path.join(os.path.dirname(__file__), "..", "src", "api", "templates.py")
+        path = os.path.join(os.path.dirname(__file__), "..", "src", "templates", "base.html")
         if not os.path.exists(path):
-            pytest.skip("templates.py not found")
+            path = os.path.join(os.path.dirname(__file__), "..", "src", "api", "templates.py")
+        if not os.path.exists(path):
+            pytest.skip("templates not found")
         with open(path) as f:
             content = f.read()
         assert "viewport" in content, "Missing viewport meta tag"

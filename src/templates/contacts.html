@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block title %}CRM Contacts — Reytech{% endblock %}
+
+{% block head_extra %}
+<style>
+ .card{background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:14px}
+ table{width:100%;border-collapse:collapse;font-size:12px}
+ th{text-align:left;padding:9px 10px;font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--bd);white-space:nowrap;cursor:pointer;user-select:none}
+ th:hover{color:var(--tx)}
+ td{padding:9px 10px;border-bottom:1px solid rgba(46,51,69,.4);vertical-align:middle}
+ tr:hover td{background:rgba(79,140,255,.04)}
+ .mono{font-family:'JetBrains Mono',monospace}
+ .filter-input{padding:8px 12px;background:var(--sf2);border:1px solid var(--bd);border-radius:7px;color:var(--tx);font-size:13px;font-family:'DM Sans',sans-serif}
+ .filter-input:focus{outline:none;border-color:var(--ac)}
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:12px">
+ <div>
+  <h1 style="font-size:22px;font-weight:700;margin-bottom:4px">👥 CRM Contacts</h1>
+  <div style="font-size:13px;color:var(--tx2)">All buyers from SCPRS — tagged, scored, with full activity history</div>
+ </div>
+ <div style="display:flex;gap:8px;flex-wrap:wrap">
+  <button onclick="syncFromIntel(this)" style="padding:8px 16px;border-radius:7px;border:1px solid rgba(52,211,153,.3);background:rgba(52,211,153,.1);color:#3fb950;cursor:pointer;font-size:13px;font-weight:600">🔄 Sync from Intel</button>
+  <a href="/intelligence" style="padding:8px 16px;border-radius:7px;border:1px solid var(--bd);background:var(--sf2);color:var(--tx);text-decoration:none;font-size:13px;font-weight:600">🧠 Run Deep Pull</a>
+ </div>
+</div>
+
+<!-- Stats bar -->
+<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:18px">
+ <div class="card" style="text-align:center"><div style="font-size:9px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">Contacts</div><div style="font-size:26px;font-weight:700;color:var(--ac);font-family:monospace">{{ total }}</div></div>
+ <div class="card" style="text-align:center"><div style="font-size:9px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">Agencies</div><div style="font-size:26px;font-weight:700;color:#a78bfa;font-family:monospace">{{ agencies }}</div></div>
+ <div class="card" style="text-align:center"><div style="font-size:9px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">Total Spend</div><div style="font-size:22px;font-weight:700;color:#fbbf24;font-family:monospace">{{ total_spend_fmt }}</div></div>
+ <div class="card" style="text-align:center"><div style="font-size:9px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">Interactions</div><div style="font-size:26px;font-weight:700;color:#fb923c;font-family:monospace">{{ total_activity }}</div></div>
+ <div class="card" style="text-align:center"><div style="font-size:9px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">Won</div><div style="font-size:26px;font-weight:700;color:#3fb950;font-family:monospace">{{ won_count }}</div></div>
+</div>
+
+<!-- Filters -->
+<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
+ <input id="search" class="filter-input" placeholder="🔍  Search agency, name, email, items..." oninput="filterTable()" style="flex:1;min-width:220px">
+ <select id="cat-filter" class="filter-input" onchange="filterTable()">
+  <option value="">All Categories</option>{{ cat_options|safe }}
+ </select>
+ <select id="status-filter" class="filter-input" onchange="filterTable()">
+  <option value="">All Statuses</option>{{ status_options|safe }}
+ </select>
+ <span id="count-label" style="font-size:13px;color:var(--tx2);white-space:nowrap">{{ total }} contacts</span>
+</div>
+
+<!-- Table -->
+<div class="card" style="overflow-x:auto;padding:0">
+ {% if not has_data %}
+ <div style="text-align:center;padding:60px 20px;color:var(--tx2)">
+  <div style="font-size:48px;margin-bottom:16px">👥</div>
+  <div style="font-size:18px;font-weight:600;margin-bottom:8px">No contacts yet</div>
+  <div style="font-size:14px;margin-bottom:24px">Run a Deep Pull on the Intelligence page to mine all SCPRS buyers into CRM</div>
+  <a href="/intelligence" style="padding:12px 24px;background:rgba(52,211,153,.15);color:#3fb950;border:1px solid rgba(52,211,153,.3);border-radius:8px;text-decoration:none;font-weight:600">🧠 Go to Intelligence → Run Deep Pull</a>
+ </div>
+ {% else %}
+ <table id="crm-table">
+  <thead><tr>
+   <th onclick="sortTable(0)">Agency / Buyer ↕</th>
+   <th>Email</th>
+   <th>Categories</th>
+   <th>Items Bought</th>
+   <th onclick="sortTable(4)">Spend ↕</th>
+   <th onclick="sortTable(5)">POs · Last Buy ↕</th>
+   <th onclick="sortTable(6)">Score ↕</th>
+   <th>Status</th>
+   <th>Activity</th>
+   <th></th>
+  </tr></thead>
+  <tbody id="crm-tbody">{{ rows_html|safe }}</tbody>
+ </table>
+ {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function filterTable() {
+  const q = document.getElementById('search').value.toLowerCase();
+  const cat = document.getElementById('cat-filter').value.toLowerCase();
+  const status = document.getElementById('status-filter').value;
+  const rows = document.querySelectorAll('#crm-tbody tr');
+  let visible = 0;
+  rows.forEach(r => {
+    const agency = r.dataset.agency||'';
+    const name = r.dataset.name||'';
+    const email = r.dataset.email||'';
+    const cats = r.dataset.cats||'';
+    const stat = r.dataset.status||'';
+    const items = r.dataset.items||'';
+    const matchQ = !q || agency.includes(q) || name.includes(q) || email.includes(q) || items.includes(q);
+    const matchCat = !cat || cats.includes(cat);
+    const matchStat = !status || stat === status;
+    const show = matchQ && matchCat && matchStat;
+    r.style.display = show ? '' : 'none';
+    if(show) visible++;
+  });
+  document.getElementById('count-label').textContent = visible + ' contacts';
+}
+
+let sortDir = {};
+function sortTable(col) {
+  const tbody = document.getElementById('crm-tbody');
+  if(!tbody) return;
+  const rows = Array.from(tbody.querySelectorAll('tr'));
+  const dir = sortDir[col] = -(sortDir[col]||1);
+  rows.sort((a,b) => {
+    const av = a.cells[col]?.textContent?.trim()||'';
+    const bv = b.cells[col]?.textContent?.trim()||'';
+    const an = parseFloat(av.replace(/[$KMk,]/g,''));
+    const bn = parseFloat(bv.replace(/[$KMk,]/g,''));
+    if(!isNaN(an)&&!isNaN(bn)) return (an-bn)*dir;
+    return av.localeCompare(bv)*dir;
+  });
+  rows.forEach(r => tbody.appendChild(r));
+}
+
+function syncFromIntel(btn) {
+  btn.disabled = true; btn.textContent = '⏳ Syncing...';
+  fetch('/api/crm/sync-intel', {method:'POST',credentials:'same-origin'}).then(r=>r.json()).then(d => {
+    if(d.ok) {
+      btn.textContent = '✅ ' + (d.message||'Synced');
+      setTimeout(() => location.reload(), 1500);
+    } else {
+      btn.disabled = false; btn.textContent = '🔄 Sync from Intel';
+      alert(d.error||'Sync failed');
+    }
+  }).catch(e => {
+    btn.disabled = false; btn.textContent = '🔄 Sync from Intel';
+    alert('Error: '+e);
+  });
+}
+</script>
+{% endblock %}
