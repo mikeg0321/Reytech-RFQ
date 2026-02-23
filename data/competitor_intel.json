@@ -1482,5 +1482,489 @@
     "competitor_price": 0,
     "price_difference": 0,
     "notes": ""
+  },
+  {
+    "id": "ci-20260223032145-106",
+    "quote_number": "R26Q1",
+    "event": "lost",
+    "timestamp": "2026-02-23T03:21:45.794112",
+    "institution": "Agency-1",
+    "agency": "",
+    "our_total": 0,
+    "items_count": 0,
+    "competitor": "",
+    "competitor_price": 0,
+    "price_difference": 0,
+    "notes": ""
+  },
+  {
+    "id": "ci-20260223032145-107",
+    "quote_number": "R26Q1",
+    "event": "lost",
+    "timestamp": "2026-02-23T03:21:45.796963",
+    "institution": "Agency-1",
+    "agency": "",
+    "our_total": 0,
+    "items_count": 0,
+    "competitor": "",
+    "competitor_price": 0,
+    "price_difference": 0,
+    "notes": ""
+  },
+  {
+    "id": "ci-20260223033653-108",
+    "quote_number": "R26Q1",
+    "event": "lost",
+    "timestamp": "2026-02-23T03:36:53.455217",
+    "institution": "Agency-1",
+    "agency": "",
+    "our_total": 0,
+    "items_count": 0,
+    "competitor": "",
+    "competitor_price": 0,
+    "price_difference": 0,
+    "notes": ""
+  },
+  {
+    "id": "ci-20260223033653-109",
+    "quote_number": "R26Q1",
+    "event": "lost",
+    "timestamp": "2026-02-23T03:36:53.457595",
+    "institution": "Agency-1",
+    "agency": "",
+    "our_total": 0,
+    "items_count": 0,
+    "competitor": "",
+    "competitor_price": 0,
+    "price_difference": 0,
+    "notes": ""
+  },
+  {
+    "id": "ci-20260223035024-110",
+    "quote_number": "R26Q1",
+    "event": "lost",
+    "timestamp": "2026-02-23T03:50:24.685884",
+    "institution": "Agency-1",
+    "agency": "",
+    "our_total": 0,
+    "items_count": 0,
+    "competitor": "",
+    "competitor_price": 0,
+    "price_difference": 0,
+    "notes": ""
+  },
+  {
+    "id": "ci-20260223035024-111",
+    "quote_number": "R26Q1",
+    "event": "lost",
+    "timestamp": "2026-02-23T03:50:24.687771",
+    "institution": "Agency-1",
+    "agency": "",
+    "our_total": 0,
+    "items_count": 0,
+    "competitor": "",
+    "competitor_price": 0,
+    "price_difference": 0,
+    "notes": ""
+  },
+  {
+    "id": "ci-20260223041144-112",
+    "quote_number": "R26Q1",
+    "event": "lost",
+    "timestamp": "2026-02-23T04:11:44.979953",
+    "institution": "Agency-1",
+    "agency": "",
+    "our_total": 0,
+    "items_count": 0,
+    "competitor": "",
+    "competitor_price": 0,
+    "price_difference": 0,
+    "notes": ""
+  },
+  {
+    "id": "ci-20260223041144-113",
+    "quote_number": "R26Q1",
+    "event": "lost",
+    "timestamp": "2026-02-23T04:11:44.981860",
+    "institution": "Agency-1",
+    "agency": "",
+    "our_total": 0,
+    "items_count": 0,
+    "competitor": "",
+    "competitor_price": 0,
+    "price_difference": 0,
+    "notes": ""
+  },
+  {
+    "id": "ci-20260223044414-114",
+    "quote_number": "R26Q1",
+    "event": "lost",
+    "timestamp": "2026-02-23T04:44:14.819674",
+    "institution": "Agency-1",
+    "agency": "",
+    "our_total": 0,
+    "items_count": 0,
+    "competitor": "",
+    "competitor_price": 0,
+    "price_difference": 0,
+    "notes": ""
+  },
+  {
+    "id": "ci-20260223044414-115",
+    "quote_number": "R26Q1",
+    "event": "lost",
+    "timestamp": "2026-02-23T04:44:14.823479",
+    "institution": "Agency-1",
+    "agency": "",
+    "our_total": 0,
+    "items_count": 0,
+    "competitor": "",
+    "competitor_price": 0,
+    "price_difference": 0,
+    "notes": ""
+  },
+  {
+    "id": "ci-20260223045938-116",
+    "quote_number": "R26Q1",
+    "event": "lost",
+    "timestamp": "2026-02-23T04:59:38.967981",
+    "institution": "Agency-1",
+    "agency": "",
+    "our_total": 0,
+    "items_count": 0,
+    "competitor": "",
+    "competitor_price": 0,
+    "price_difference": 0,
+    "notes": ""
+  },
+  {
+    "id": "ci-20260223045938-117",
+    "quote_number": "R26Q1",
+    "event": "lost",
+    "timestamp": "2026-02-23T04:59:38.970180",
+    "institution": "Agency-1",
+    "agency": "",
+    "our_total": 0,
+    "items_count": 0,
+    "competitor": "",
+    "competitor_price": 0,
+    "price_difference": 0,
+    "notes": ""
+  },
+  {
+    "id": "ci-20260223050131-118",
+    "quote_number": "R26Q1",
+    "event": "lost",
+    "timestamp": "2026-02-23T05:01:31.133470",
+    "institution": "Agency-1",
+    "agency": "",
+    "our_total": 0,
+    "items_count": 0,
+    "competitor": "",
+    "competitor_price": 0,
+    "price_difference": 0,
+    "notes": ""
+  },
+  {
+    "id": "ci-20260223050131-119",
+    "quote_number": "R26Q1",
+    "event": "lost",
+    "timestamp": "2026-02-23T05:01:31.136456",
+    "institution": "Agency-1",
+    "agency": "",
+    "our_total": 0,
+    "items_count": 0,
+    "competitor": "",
+    "competitor_price": 0,
+    "price_difference": 0,
+    "notes": ""
+  },
+  {
+    "id": "ci-20260223051035-120",
+    "quote_number": "R26Q1",
+    "event": "lost",
+    "timestamp": "2026-02-23T05:10:35.982507",
+    "institution": "Agency-1",
+    "agency": "",
+    "our_total": 0,
+    "items_count": 0,
+    "competitor": "",
+    "competitor_price": 0,
+    "price_difference": 0,
+    "notes": ""
+  },
+  {
+    "id": "ci-20260223051035-121",
+    "quote_number": "R26Q1",
+    "event": "lost",
+    "timestamp": "2026-02-23T05:10:35.984781",
+    "institution": "Agency-1",
+    "agency": "",
+    "our_total": 0,
+    "items_count": 0,
+    "competitor": "",
+    "competitor_price": 0,
+    "price_difference": 0,
+    "notes": ""
+  },
+  {
+    "id": "ci-20260223052440-122",
+    "quote_number": "R26Q1",
+    "event": "lost",
+    "timestamp": "2026-02-23T05:24:40.745382",
+    "institution": "CSP-Sacramento",
+    "agency": "CDCR",
+    "our_total": 614.54,
+    "items_count": 0,
+    "competitor": "",
+    "competitor_price": 0,
+    "price_difference": 0,
+    "notes": "",
+    "lost_items": [
+      {
+        "description": "Engraved two line name tag, black/white\nRef ASIN: B07TEST123",
+        "our_price": 15.72,
+        "qty": 22
+      },
+      {
+        "description": "Copy paper, 8.5x11, 20lb, white, 10 reams\nRef ASIN: B00TEST456",
+        "our_price": 53.74,
+        "qty": 5
+      }
+    ]
+  },
+  {
+    "id": "ci-20260223052440-123",
+    "quote_number": "R26Q1",
+    "event": "lost",
+    "timestamp": "2026-02-23T05:24:40.748014",
+    "institution": "CSP-Sacramento",
+    "agency": "CDCR",
+    "our_total": 614.54,
+    "items_count": 0,
+    "competitor": "",
+    "competitor_price": 0,
+    "price_difference": 0,
+    "notes": "",
+    "lost_items": [
+      {
+        "description": "Engraved two line name tag, black/white\nRef ASIN: B07TEST123",
+        "our_price": 15.72,
+        "qty": 22
+      },
+      {
+        "description": "Copy paper, 8.5x11, 20lb, white, 10 reams\nRef ASIN: B00TEST456",
+        "our_price": 53.74,
+        "qty": 5
+      }
+    ]
+  },
+  {
+    "id": "ci-20260223053222-124",
+    "quote_number": "R26Q1",
+    "event": "lost",
+    "timestamp": "2026-02-23T05:32:22.111767",
+    "institution": "CSP-Sacramento",
+    "agency": "CDCR",
+    "our_total": 614.54,
+    "items_count": 0,
+    "competitor": "",
+    "competitor_price": 0,
+    "price_difference": 0,
+    "notes": "",
+    "lost_items": [
+      {
+        "description": "Engraved two line name tag, black/white\nRef ASIN: B07TEST123",
+        "our_price": 15.72,
+        "qty": 22
+      },
+      {
+        "description": "Copy paper, 8.5x11, 20lb, white, 10 reams\nRef ASIN: B00TEST456",
+        "our_price": 53.74,
+        "qty": 5
+      }
+    ]
+  },
+  {
+    "id": "ci-20260223053222-125",
+    "quote_number": "R26Q1",
+    "event": "lost",
+    "timestamp": "2026-02-23T05:32:22.114437",
+    "institution": "CSP-Sacramento",
+    "agency": "CDCR",
+    "our_total": 614.54,
+    "items_count": 0,
+    "competitor": "",
+    "competitor_price": 0,
+    "price_difference": 0,
+    "notes": "",
+    "lost_items": [
+      {
+        "description": "Engraved two line name tag, black/white\nRef ASIN: B07TEST123",
+        "our_price": 15.72,
+        "qty": 22
+      },
+      {
+        "description": "Copy paper, 8.5x11, 20lb, white, 10 reams\nRef ASIN: B00TEST456",
+        "our_price": 53.74,
+        "qty": 5
+      }
+    ]
+  },
+  {
+    "id": "ci-20260223055228-126",
+    "quote_number": "R26Q1",
+    "event": "lost",
+    "timestamp": "2026-02-23T05:52:28.518996",
+    "institution": "CSP-Sacramento",
+    "agency": "CDCR",
+    "our_total": 614.54,
+    "items_count": 0,
+    "competitor": "",
+    "competitor_price": 0,
+    "price_difference": 0,
+    "notes": "",
+    "lost_items": [
+      {
+        "description": "Engraved two line name tag, black/white\nRef ASIN: B07TEST123",
+        "our_price": 15.72,
+        "qty": 22
+      },
+      {
+        "description": "Copy paper, 8.5x11, 20lb, white, 10 reams\nRef ASIN: B00TEST456",
+        "our_price": 53.74,
+        "qty": 5
+      }
+    ]
+  },
+  {
+    "id": "ci-20260223055228-127",
+    "quote_number": "R26Q1",
+    "event": "lost",
+    "timestamp": "2026-02-23T05:52:28.522357",
+    "institution": "CSP-Sacramento",
+    "agency": "CDCR",
+    "our_total": 614.54,
+    "items_count": 0,
+    "competitor": "",
+    "competitor_price": 0,
+    "price_difference": 0,
+    "notes": "",
+    "lost_items": [
+      {
+        "description": "Engraved two line name tag, black/white\nRef ASIN: B07TEST123",
+        "our_price": 15.72,
+        "qty": 22
+      },
+      {
+        "description": "Copy paper, 8.5x11, 20lb, white, 10 reams\nRef ASIN: B00TEST456",
+        "our_price": 53.74,
+        "qty": 5
+      }
+    ]
+  },
+  {
+    "id": "ci-20260223055346-128",
+    "quote_number": "R26Q1",
+    "event": "lost",
+    "timestamp": "2026-02-23T05:53:46.266475",
+    "institution": "CSP-Sacramento",
+    "agency": "CDCR",
+    "our_total": 614.54,
+    "items_count": 0,
+    "competitor": "",
+    "competitor_price": 0,
+    "price_difference": 0,
+    "notes": "",
+    "lost_items": [
+      {
+        "description": "Engraved two line name tag, black/white\nRef ASIN: B07TEST123",
+        "our_price": 15.72,
+        "qty": 22
+      },
+      {
+        "description": "Copy paper, 8.5x11, 20lb, white, 10 reams\nRef ASIN: B00TEST456",
+        "our_price": 53.74,
+        "qty": 5
+      }
+    ]
+  },
+  {
+    "id": "ci-20260223055346-129",
+    "quote_number": "R26Q1",
+    "event": "lost",
+    "timestamp": "2026-02-23T05:53:46.269288",
+    "institution": "CSP-Sacramento",
+    "agency": "CDCR",
+    "our_total": 614.54,
+    "items_count": 0,
+    "competitor": "",
+    "competitor_price": 0,
+    "price_difference": 0,
+    "notes": "",
+    "lost_items": [
+      {
+        "description": "Engraved two line name tag, black/white\nRef ASIN: B07TEST123",
+        "our_price": 15.72,
+        "qty": 22
+      },
+      {
+        "description": "Copy paper, 8.5x11, 20lb, white, 10 reams\nRef ASIN: B00TEST456",
+        "our_price": 53.74,
+        "qty": 5
+      }
+    ]
+  },
+  {
+    "id": "ci-20260223061228-130",
+    "quote_number": "R26Q1",
+    "event": "lost",
+    "timestamp": "2026-02-23T06:12:28.981149",
+    "institution": "CSP-Sacramento",
+    "agency": "CDCR",
+    "our_total": 614.54,
+    "items_count": 0,
+    "competitor": "",
+    "competitor_price": 0,
+    "price_difference": 0,
+    "notes": "",
+    "lost_items": [
+      {
+        "description": "Engraved two line name tag, black/white\nRef ASIN: B07TEST123",
+        "our_price": 15.72,
+        "qty": 22
+      },
+      {
+        "description": "Copy paper, 8.5x11, 20lb, white, 10 reams\nRef ASIN: B00TEST456",
+        "our_price": 53.74,
+        "qty": 5
+      }
+    ]
+  },
+  {
+    "id": "ci-20260223061228-131",
+    "quote_number": "R26Q1",
+    "event": "lost",
+    "timestamp": "2026-02-23T06:12:28.984862",
+    "institution": "CSP-Sacramento",
+    "agency": "CDCR",
+    "our_total": 614.54,
+    "items_count": 0,
+    "competitor": "",
+    "competitor_price": 0,
+    "price_difference": 0,
+    "notes": "",
+    "lost_items": [
+      {
+        "description": "Engraved two line name tag, black/white\nRef ASIN: B07TEST123",
+        "our_price": 15.72,
+        "qty": 22
+      },
+      {
+        "description": "Copy paper, 8.5x11, 20lb, white, 10 reams\nRef ASIN: B00TEST456",
+        "our_price": 53.74,
+        "qty": 5
+      }
+    ]
   }
 ]

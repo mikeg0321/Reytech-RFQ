@@ -933,6 +933,13 @@ def is_price_check_email(subject, body, sender, pdf_names):
     signals = []
     score = 0
     
+    # ── Negative FIRST: Has 703B/704B/Bid Package forms → NOT a PC ──
+    for pdf in pdf_names:
+        pl = pdf.lower()
+        if "703b" in pl or "704b" in pl or "bid package" in pl or "bid_package" in pl:
+            log.debug("PC check: has RFQ form (%s) → not a PC", pdf)
+            return None
+    
     # ── Signal 1: Known PC sender ──
     sender_email = _extract_email_addr(sender).lower()
     for pattern in PC_KNOWN_SENDERS:
@@ -941,38 +948,50 @@ def is_price_check_email(subject, body, sender, pdf_names):
             score += 3
             break
     
-    # ── Signal 2: Subject matches PC pattern ──
+    # ── Signal 2: Forwarded from internal (mike@reytechinc.com) ──
+    # Mike forwards price checks from buyers — treat as PC if it has 704 attachment
+    if "reytechinc" in sender_email or "reytechinc" in sender_lower:
+        fwd_indicators = ["fwd:", "fw:", "forwarded", "---------- forwarded"]
+        if any(ind in combined for ind in fwd_indicators):
+            signals.append("forwarded_from_internal")
+            score += 2
+    
+    # ── Signal 3: Subject matches PC pattern ──
     for pat in PC_SUBJECT_PATTERNS:
         if re.match(pat, subj_lower):
             signals.append(f"subject_pattern:{pat}")
             score += 3
             break
     
-    # ── Signal 3: PDF filename contains "704" but NOT "704b" ──
+    # ── Signal 4: PDF filename contains "704" but NOT "704b" ──
+    # This is the strongest signal — AMS 704 forms are almost always price checks
     for pdf in pdf_names:
         pl = pdf.lower()
         if "704" in pl and "704b" not in pl:
-            if "ams" in pl or "quote" in combined:
+            if "ams" in pl:
                 signals.append(f"pdf_ams704:{pdf}")
-                score += 4
-                break
+                score += 5  # Very strong: "AMS 704" in filename
+            else:
+                signals.append(f"pdf_704:{pdf}")
+                score += 3  # Moderate: "704" in filename without "ams"
+            break
     
-    # ── Signal 4: Body contains PC-like phrases ──
+    # ── Signal 5: Body contains PC-like phrases ──
     pc_phrases = ["please email me a quote", "price your response",
                   "price check", "please quote", "email me a quote",
-                  "attached request", "attached items"]
+                  "attached request", "attached items", "quote on the attached",
+                  "quote the attached", "requesting a quote"]
     for phrase in pc_phrases:
         if phrase in combined:
             signals.append(f"body_phrase:{phrase}")
-            score += 1
+            score += 2
             break
     
-    # ── Negative: Has 703B/704B/Bid Package forms → NOT a PC ──
-    for pdf in pdf_names:
-        pl = pdf.lower()
-        if "703b" in pl or "704b" in pl or "bid package" in pl or "bid_package" in pl:
-            log.debug("PC check: has RFQ form (%s) → not a PC", pdf)
-            return None
+    # ── Signal 6: Single PDF from .gov sender (likely a PC form) ──
+    gov_domains = [".ca.gov", "cdcr", "calvet", "cdph", "cchcs", "dsh", "calfire"]
+    if len(pdf_names) == 1 and any(d in sender_email for d in gov_domains):
+        signals.append("single_pdf_gov_sender")
+        score += 2
     
     # Threshold: need at least 4 points to be confident it's a PC
     if score >= 4:

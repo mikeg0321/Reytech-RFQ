@@ -3131,7 +3131,7 @@ def api_funnel_stats():
         pipeline_value_db = sum(q.get("total", 0) for q in quotes
                                 if q.get("status") in ("pending", "sent", "draft"))
 
-    # Quoted = formal quotes generated + PC/RFQ items in "quoted" status
+    # Quoted = formal quotes generated (pending/draft status = not yet sent)
     quoted_count = quotes_pending + pcs_quoted + rfqs_quoted
     # Sent = quotes actually sent + PCs/RFQs marked sent
     sent_count = quotes_sent + pcs_sent + rfqs_sent
@@ -3152,6 +3152,9 @@ def api_funnel_stats():
     order_value = sum(o.get("total", 0) for o in orders.values())
     invoiced_value = sum(o.get("invoice_total", 0) for o in orders.values())
 
+    # Won = MAX(quotes_won, orders_total) — if we have orders, we won at least that many
+    won_count = max(quotes_won, orders_total)
+
     # ── Leads ──
     try:
         from src.core.dal import get_all_leads
@@ -3164,8 +3167,8 @@ def api_funnel_stats():
         hot_leads = 0
 
     # Win rate
-    decided = quotes_won + quotes_lost
-    win_rate = round(quotes_won / decided * 100) if decided > 0 else 0
+    decided = won_count + quotes_lost
+    win_rate = round(won_count / decided * 100) if decided > 0 else 0
 
     # Pipeline value = already computed from SQLite above
     pipeline_value = pipeline_value_db
@@ -3214,14 +3217,14 @@ def api_funnel_stats():
         "priced": priced_count,       # Priced, awaiting quote generation
         "quoted": quoted_count,       # Quote generated, not yet sent
         "sent": sent_count,           # Quote sent to customer
-        "won": quotes_won,            # PO received
+        "won": won_count,            # PO received (max of quotes_won, orders)
         "orders_active": orders_active,
         "pipeline_value": pipeline_value,
         # Legacy fields (keep for backward compat)
         "rfqs_active": inbox_count,
         "quotes_pending": quoted_count,
         "quotes_sent": sent_count,
-        "quotes_won": quotes_won,
+        "quotes_won": won_count,
         "quotes_lost": quotes_lost,
         "orders_total": orders_total,
         "items_shipped": items_shipped,
