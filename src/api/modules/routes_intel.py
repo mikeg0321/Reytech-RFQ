@@ -1366,7 +1366,7 @@ def api_cs_status():
 @auth_required
 def debug_agent():
     """Live debug + monitoring agent — system health, data flow, automation status."""
-    return render(DEBUG_PAGE_HTML, title="Debug Agent")
+    return render_page("debug.html", active_page="Intel", title="Debug Agent")
 
 
 @bp.route("/api/debug/run")

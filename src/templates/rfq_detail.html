@@ -1,0 +1,783 @@
+{% extends "base.html" %}
+{% block title %}RFQ {{ rid }} — Reytech{% endblock %}
+
+{% block content %}
+
+<a href="/" class="btn btn-s" style="margin-bottom:16px">← Queue</a>
+<form method="POST" action="/rfq/{{rid}}/delete" style="display:inline;margin-left:8px;margin-bottom:16px">
+ <button type="submit" class="btn btn-sm" style="background:var(--rd);color:#fff;padding:4px 10px;font-size:11px" onclick="return confirm('Delete this RFQ?')">Delete</button>
+</form>
+
+<!-- Preview Modal -->
+<div class="modal-overlay" id="previewModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1000;overflow-y:auto;padding:20px;justify-content:center;align-items:flex-start">
+ <div style="background:#fff;color:#1a1a1a;border-radius:10px;max-width:850px;width:100%;margin:20px auto;box-shadow:0 20px 60px rgba(0,0,0,.5)">
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 20px;border-bottom:2px solid #1a1a1a;background:#f5f5f0;border-radius:10px 10px 0 0">
+   <h2 style="margin:0;font-size:16px;color:#1a1a1a">📋 Quote Preview — <span id="rfqPreviewType">704B Quote Worksheet</span></h2>
+   <div>
+    <button class="btn btn-sm" style="background:var(--gn);color:#fff;margin-right:8px;font-size:12px" onclick="window.print()">🖨️ Print</button>
+    <button style="background:none;border:none;font-size:24px;cursor:pointer;color:#666" onclick="document.getElementById('previewModal').style.display='none'">×</button>
+   </div>
+  </div>
+  <div id="rfqPreviewBody" style="padding:0"></div>
+ </div>
+</div>
+
+<div class="card">
+ <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px">
+  <div>
+   <div style="font-family:'JetBrains Mono',monospace;font-size:24px;font-weight:700">#{{r.solicitation_number}}</div>
+   <div style="color:var(--tx2);font-size:12px;margin-top:2px">{{r.get('award_method','all_or_none')|replace('_',' ')|title}}{% if r.source=='email' %} · 📧 Auto-imported{% endif %}</div>
+  </div>
+  <span class="badge b-{{r.status}}">{{r.status}}</span>
+ </div>
+ <div class="meta-g">
+  <div class="meta-i"><div class="meta-l">Requestor</div><div class="meta-v">{{r.requestor_name}}</div></div>
+  <div class="meta-i"><div class="meta-l">Email</div><div class="meta-v">{{r.requestor_email}}</div></div>
+  <div class="meta-i"><div class="meta-l">Due Date</div><div class="meta-v">{{r.due_date}}</div></div>
+  <div class="meta-i"><div class="meta-l">Delivery</div><div class="meta-v" style="font-size:11px">{{r.get('delivery_location','N/A')[:55]}}</div></div>
+ </div>
+</div>
+
+<div class="card">
+ <div class="card-t">Line Items & Pricing</div>
+ 
+ <!-- Markup Buttons -->
+ <div class="markup-bar">
+  <span>Quick Markup:</span>
+  <button class="btn btn-sm btn-s" onclick="applyMarkup(0.10)">+10%</button>
+  <button class="btn btn-sm btn-s" onclick="applyMarkup(0.15)">+15%</button>
+  <button class="btn btn-sm btn-s" onclick="applyMarkup(0.20)">+20%</button>
+  <button class="btn btn-sm btn-s" onclick="applyMarkup(0.25)">+25%</button>
+  <button class="btn btn-sm btn-s" onclick="applyMarkup(0.30)">+30%</button>
+  <span style="margin-left:8px">SCPRS Undercut:</span>
+  <button class="btn btn-sm btn-s" onclick="applyScprsUndercut(0.01)">-1%</button>
+  <button class="btn btn-sm btn-s" onclick="applyScprsUndercut(0.02)">-2%</button>
+  <button class="btn btn-sm btn-s" onclick="applyScprsUndercut(0.05)">-5%</button>
+  <button class="btn btn-sm btn-p" data-testid="rfq-scprs-lookup" onclick="lookupScprs()" style="margin-left:8px">🔍 SCPRS Lookup</button>
+  <button class="btn btn-sm btn-o" data-testid="rfq-amazon-lookup" onclick="researchPrices()" style="margin-left:4px">🔬 Amazon Lookup</button>
+ </div>
+
+ <form method="POST" action="/rfq/{{rid}}/update" id="pf">
+ <table class="it">
+  <thead><tr>
+   <th>#</th><th style="width:55px">Qty</th><th style="width:55px">UOM</th><th style="min-width:220px">Description</th><th>Part #</th>
+   <th style="min-width:220px">Item Link</th>
+   <th>Your Cost</th><th>SCPRS</th><th>Amazon</th><th>Bid Price</th><th>Subtotal</th><th>Margin</th><th>Profit</th>
+  </tr></thead>
+  <tbody>
+  {% for i in r.line_items %}
+  <tr>
+   <td style="font-size:13px">{{i.line_number}}</td>
+   <td><input type="number" name="qty_{{loop.index0}}" value="{{i.qty}}" min="1" class="num-in" style="width:55px;font-size:14px;font-weight:700;padding:6px 4px;text-align:center" oninput="recalc()"></td>
+   <td><input type="text" name="uom_{{loop.index0}}" value="{{(i.uom or 'EA')|upper}}" class="text-in" style="width:55px;font-size:13px;font-weight:600;padding:6px 4px;text-align:center;text-transform:uppercase" maxlength="6"></td>
+   <td style="max-width:260px"><input type="text" name="desc_{{loop.index0}}" value="{{i.description.split('\n')[0]}}" class="text-in" style="width:100%;font-size:13px;padding:6px 8px" title="{{i.description}}"></td>
+   <td><input type="text" name="part_{{loop.index0}}" value="{{i.item_number}}" class="text-in mono" style="width:90px;font-size:12px;padding:6px 8px"></td>
+   <td style="min-width:220px">
+    <div style="display:flex;align-items:center;gap:4px">
+     <input type="text" name="link_{{loop.index0}}" value="{{i.get('item_link','')}}" placeholder="Paste supplier URL..." class="text-in" style="width:100%;font-size:13px;padding:6px 8px;color:#58a6ff" oninput="handleRfqLinkInput({{loop.index0}}, this)">
+    </div>
+    <div id="rfq_link_meta_{{loop.index0}}" style="font-size:11px;margin-top:2px;min-height:14px">
+     {% if i.get('item_supplier') %}<span style="color:#8b949e">{{i.item_supplier}}</span>{% endif %}
+    </div>
+   </td>
+   <td><input type="number" step="0.01" name="cost_{{loop.index0}}" value="{{i.supplier_cost or ''}}" placeholder="0.00" class="num-in" style="width:90px;font-size:15px;font-weight:700;padding:6px 8px" oninput="recalc()"></td>
+   <td style="font-size:14px;font-weight:600">
+    {% if i.scprs_last_price %}${{'{:.2f}'.format(i.scprs_last_price)}}{% else %}—{% endif %}
+    {% if i.scprs_source %}<span class="scprs-tag scprs-{{'hi' if i.scprs_confidence=='high' else 'med'}}" title="{{i.scprs_vendor|default('')}}">{{i.scprs_source|replace('_',' ')}}</span>{% endif %}
+   </td>
+   <td style="font-size:14px;font-weight:600">
+    {% if i.get('amazon_price') %}${{'{:.2f}'.format(i.amazon_price)}}{% elif i.get('supplier_cost') %}${{'{:.2f}'.format(i.supplier_cost)}}{% else %}—{% endif %}
+   </td>
+   <td><input type="number" step="0.01" name="price_{{loop.index0}}" value="{{i.price_per_unit or ''}}" placeholder="0.00" class="num-in" style="width:90px;font-size:15px;font-weight:700;padding:6px 8px" oninput="recalc()"></td>
+   <td class="mono" style="font-size:15px;font-weight:700" id="sub_{{loop.index0}}">—</td>
+   <td id="mg_{{loop.index0}}" style="font-weight:700;font-size:14px">—</td>
+   <td id="pf_{{loop.index0}}" style="font-weight:700;font-size:14px">—</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+ </table>
+
+ <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;padding-top:14px;border-top:1px solid var(--bd)">
+  <div>
+   <span style="color:var(--tx2);font-size:13px">Revenue: </span><span id="tot" style="font-family:'JetBrains Mono',monospace;font-size:20px;font-weight:700">$0</span>
+  </div>
+  <div id="pft" style="font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:600">—</div>
+ </div>
+
+ <div class="bg">
+  <button type="submit" class="btn btn-p" data-testid="rfq-save-pricing">💾 Save Pricing</button>
+  <button type="button" class="btn" data-testid="rfq-preview-quote" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd)" onclick="showRfqPreview()">👁️ Preview Quote</button>
+  <button type="submit" formaction="/rfq/{{rid}}/generate-package" data-testid="rfq-generate-package" class="btn btn-g" style="font-size:14px;padding:10px 24px">📦 Generate RFQ Package</button>
+ </div>
+ </form>
+</div>
+
+<!-- RFQ Files (from DB - survives redeploys) with PDF Preview -->
+<div class="card" id="rfq-files-card" style="display:none">
+ <div class="card-t" style="font-size:15px">📎 All RFQ Files</div>
+ <div id="rfq-files-list"></div>
+</div>
+
+<!-- Template Status — shows what forms are available for generation -->
+<div class="card">
+ <div class="card-t">📋 Form Templates</div>
+ <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px">
+  {% set t = r.get('templates', {}) %}
+  <div style="padding:8px 14px;border-radius:6px;font-size:13px;border:1px solid {{ 'rgba(52,211,153,.3)' if t.get('703b') else 'rgba(248,113,113,.3)' }};background:{{ 'rgba(52,211,153,.06)' if t.get('703b') else 'rgba(248,113,113,.06)' }}">
+   {{ '✅' if t.get('703b') else '❌' }} 703B (RFQ)
+  </div>
+  <div style="padding:8px 14px;border-radius:6px;font-size:13px;border:1px solid {{ 'rgba(52,211,153,.3)' if t.get('704b') else 'rgba(248,113,113,.3)' }};background:{{ 'rgba(52,211,153,.06)' if t.get('704b') else 'rgba(248,113,113,.06)' }}">
+   {{ '✅' if t.get('704b') else '❌' }} 704B (Quote Worksheet)
+  </div>
+  <div style="padding:8px 14px;border-radius:6px;font-size:13px;border:1px solid {{ 'rgba(52,211,153,.3)' if t.get('bidpkg') else 'rgba(251,191,36,.3)' }};background:{{ 'rgba(52,211,153,.06)' if t.get('bidpkg') else 'rgba(251,191,36,.06)' }}">
+   {{ '✅' if t.get('bidpkg') else '⚠️' }} Bid Package {{ '(optional)' if not t.get('bidpkg') else '' }}
+  </div>
+ </div>
+ {% if not t.get('704b') %}
+ <div style="background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.2);border-radius:6px;padding:12px 16px;margin-bottom:12px;font-size:13px">
+  ⚠️ <b>704B template missing</b> — Upload the blank 704B form from the RFQ package to generate a filled bid. 
+  {% if r.get('source') == 'price_check' %}This RFQ was converted from a Price Check and needs the original RFQ forms.{% endif %}
+ </div>
+ <form method="POST" action="/rfq/{{rid}}/upload-templates" enctype="multipart/form-data">
+  <div style="display:flex;gap:8px;align-items:center">
+   <input type="file" name="templates" data-testid="rfq-upload-templates" multiple accept=".pdf" style="font-size:13px">
+   <button type="submit" class="btn btn-sm btn-p" data-testid="rfq-upload-templates-btn">📎 Upload Templates</button>
+  </div>
+  <div style="font-size:11px;color:var(--tx2);margin-top:4px">Upload the 703B, 704B, and/or Bid Package PDFs from the RFQ email</div>
+ </form>
+ {% endif %}
+</div>
+
+<!-- SCPRS Results Panel (populated by JS after lookup) -->
+<div class="card" id="scprs-panel" style="display:none">
+ <div style="display:flex;justify-content:space-between;align-items:center">
+  <div class="card-t" style="margin-bottom:0">🔍 SCPRS Search Results</div>
+  <div style="display:flex;gap:8px;align-items:center">
+   <span id="scprs-ts" style="font-size:10px;color:var(--tx2);font-family:'JetBrains Mono',monospace"></span>
+   <button class="btn btn-sm btn-s" onclick="document.getElementById('scprs-panel').style.display='none'" style="padding:2px 8px;font-size:10px">✕ Hide</button>
+  </div>
+ </div>
+ <div id="scprs-body" style="margin-top:12px"></div>
+</div>
+
+{% if r.status in ('generated','sent','won','lost') and r.output_files %}
+<div class="card">
+ <div style="display:flex;justify-content:space-between;align-items:center">
+  <div class="card-t" style="margin-bottom:0">📦 Generated Package</div>
+  <form method="POST" action="/rfq/{{rid}}/reopen" style="display:inline">
+   <button type="submit" class="btn btn-sm" style="background:var(--wn);color:#000;font-size:12px" onclick="return confirm('Reopen this RFQ for editing?')">✏️ Reopen for Editing</button>
+  </form>
+ </div>
+ <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px">
+  {% for f in r.output_files %}
+  <a href="/dl/{{rid}}/{{f}}" class="btn btn-s" target="_blank" style="font-size:13px;padding:8px 14px">📄 {{f}}</a>
+  {% endfor %}
+ </div>
+</div>
+
+<!-- PDF Preview Modal -->
+<div id="pdfPreviewModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:1100;padding:20px" onclick="if(event.target===this)this.style.display='none'">
+ <div style="max-width:900px;margin:0 auto;height:100%;display:flex;flex-direction:column">
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;background:var(--sf);border-radius:10px 10px 0 0">
+   <span id="pdfPreviewTitle" style="font-size:14px;font-weight:600;color:var(--tx)">PDF Preview</span>
+   <div>
+    <a id="pdfPreviewDownload" href="#" target="_blank" class="btn btn-sm btn-s" style="margin-right:8px">⬇️ Download</a>
+    <a id="pdfPreviewNewTab" href="#" target="_blank" class="btn btn-sm btn-s" style="margin-right:8px">↗️ Open</a>
+    <button class="btn btn-sm" style="background:none;border:none;color:var(--tx);font-size:22px;cursor:pointer" onclick="closePdfPreview()">✕</button>
+   </div>
+  </div>
+  <div id="pdfPreviewLoading" style="flex:1;display:flex;align-items:center;justify-content:center;background:#fff;border-radius:0 0 10px 10px;color:#666">Loading PDF...</div>
+  <iframe id="pdfPreviewFrame" style="flex:1;border:none;border-radius:0 0 10px 10px;background:#fff;display:none" src="about:blank" onload="if(this.src!=='about:blank'){this.style.display='';document.getElementById('pdfPreviewLoading').style.display='none';}"></iframe>
+ </div>
+</div>
+
+<!-- Email Composer with Template Selector -->
+<div class="card">
+ <div class="card-t" style="font-size:15px">📧 Email Composer</div>
+ 
+ <div style="margin-bottom:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+  <label style="font-size:13px;color:var(--tx2);font-weight:600">Template:</label>
+  <select id="emailTemplateSelect" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd);border-radius:6px;padding:6px 10px;font-size:13px;min-width:200px" onchange="loadEmailTemplate()">
+   <option value="">— Select Template —</option>
+  </select>
+  <button type="button" class="btn btn-sm btn-s" onclick="saveCurrentAsTemplate()" style="font-size:12px">💾 Save as Template</button>
+ </div>
+ 
+ <form method="POST" action="/rfq/{{rid}}/send-email" id="emailForm">
+  <div style="display:grid;grid-template-columns:60px 1fr;gap:8px;margin-bottom:10px;align-items:center">
+   <label style="font-size:13px;color:var(--tx2);font-weight:600">To:</label>
+   <div style="display:flex;gap:6px;align-items:center">
+    <input type="email" name="to" id="emailTo" value="{{r.requestor_email or (r.draft_email.to if r.draft_email else '')}}" class="text-in" style="font-size:14px;padding:8px 12px;flex:1">
+    <button type="button" class="btn btn-sm" onclick="document.getElementById('ccBccFields').style.display=document.getElementById('ccBccFields').style.display==='none'?'contents':'none'" style="font-size:11px;padding:4px 8px;background:var(--sf2);color:var(--tx2);border:1px solid var(--bd)">CC/BCC ▾</button>
+   </div>
+   <div id="ccBccFields" style="display:none;grid-column:1/-1">
+    <div style="display:grid;grid-template-columns:60px 1fr;gap:8px;align-items:center">
+     <label style="font-size:13px;color:var(--tx2);font-weight:600">CC:</label>
+     <input type="text" name="cc" id="emailCc" value="{{r.draft_email.cc if r.draft_email and r.draft_email.cc else ''}}" placeholder="cc@example.com, cc2@example.com" class="text-in" style="font-size:13px;padding:6px 12px">
+     <label style="font-size:13px;color:var(--tx2);font-weight:600">BCC:</label>
+     <input type="text" name="bcc" id="emailBcc" value="{{r.draft_email.bcc if r.draft_email and r.draft_email.bcc else ''}}" placeholder="bcc@example.com" class="text-in" style="font-size:13px;padding:6px 12px">
+    </div>
+   </div>
+   <label style="font-size:13px;color:var(--tx2);font-weight:600">Subject:</label>
+   {% set orig_subj = r.get('email_subject', '') %}
+   {% set reply_subj = ('Re: ' + orig_subj) if orig_subj and not orig_subj.startswith('Re:') else orig_subj %}
+   {% set draft_subj = r.draft_email.subject if r.draft_email else '' %}
+   {% set default_subj = draft_subj or reply_subj or ('Reytech Inc. - Bid Response - Solicitation #' + r.get('solicitation_number','')) %}
+   <input type="text" name="subject" id="emailSubject" value="{{default_subj}}" class="text-in" style="font-size:14px;padding:8px 12px">
+  </div>
+  <textarea name="body" id="emailBody" class="text-in" style="width:100%;min-height:260px;font-size:14px;line-height:1.6;padding:12px 14px;resize:vertical;font-family:'Segoe UI',system-ui,sans-serif">{{r.draft_email.body if r.draft_email else ''}}</textarea>
+  
+  <!-- Email Signature -->
+  <div style="margin-top:10px;padding:10px 14px;background:var(--sf2);border-radius:8px;border:1px solid var(--bd)">
+   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+    <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--tx);cursor:pointer">
+     <input type="checkbox" id="sigToggle" name="include_signature" value="1" checked onchange="toggleSigPreview()" style="accent-color:var(--ac)">
+     <span style="font-weight:600">Include Signature</span>
+    </label>
+    <button type="button" class="btn btn-sm" onclick="editSignature()" style="font-size:11px;padding:3px 8px">✏️ Edit</button>
+   </div>
+   <div id="sigPreview" style="padding:8px 10px;background:var(--bg);border-radius:6px;border:1px solid var(--bd);font-size:12px;max-height:160px;overflow-y:auto"></div>
+   <div id="sigEditor" style="display:none;margin-top:6px">
+    <textarea id="sigHtml" class="text-in" style="width:100%;min-height:120px;font-size:12px;font-family:'JetBrains Mono',monospace;padding:8px;resize:vertical"></textarea>
+    <div style="display:flex;gap:6px;margin-top:6px;align-items:center;flex-wrap:wrap">
+     <button type="button" class="btn btn-sm btn-go" onclick="saveSignature()" style="font-size:12px">💾 Save Signature</button>
+     <button type="button" class="btn btn-sm" onclick="cancelSigEdit()" style="font-size:12px">Cancel</button>
+     <button type="button" class="btn btn-sm" onclick="insertSigImage()" style="font-size:11px;background:var(--sf2);color:var(--tx2);border:1px solid var(--bd)">🖼️ Insert Image URL</button>
+     <span style="font-size:10px;color:var(--tx2)">Supports HTML: &lt;img&gt;, &lt;a&gt;, styles</span>
+    </div>
+   </div>
+  </div>
+  
+  <!-- Attachment Selector -->
+  <div style="margin-top:12px;padding:12px;background:var(--sf2);border-radius:8px;border:1px solid var(--bd)">
+   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+    <span style="font-size:13px;font-weight:600;color:var(--tx)">📎 Attachments</span>
+    <button type="button" class="btn btn-sm btn-p" onclick="toggleAllAttachments(true)" style="font-size:12px">Attach All Generated</button>
+   </div>
+   <div id="attachmentList" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+  </div>
+  <input type="hidden" name="attach_files" id="attachFilesInput" value="">
+  
+  <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;align-items:center">
+   <button type="submit" class="btn btn-o" style="font-size:14px;padding:10px 24px">📤 Send Email</button>
+   <a id="mailAppLink" href="#" class="btn btn-s" style="font-size:13px;padding:8px 16px">📋 Open in Mail App</a>
+   <span id="emailStatus" style="font-size:12px;color:var(--tx2)"></span>
+  </div>
+ </form>
+</div>
+{% endif %}
+
+<!-- Status Management -->
+{% if r.status not in ('new',) %}
+<div class="card">
+ <div class="card-t" style="font-size:14px">⚙️ Status Management</div>
+ <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+  <span style="font-size:13px;color:var(--tx2)">Current: <b>{{r.status}}</b></span>
+  <form method="POST" action="/rfq/{{rid}}/update-status" style="display:inline;margin-left:8px">
+   <select name="status" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd);border-radius:6px;padding:6px 10px;font-size:13px">
+    <option value="new">New</option>
+    <option value="ready">Ready</option>
+    <option value="generated">Generated</option>
+    <option value="sent">Sent</option>
+    <option value="won">Won</option>
+    <option value="lost">Lost</option>
+    <option value="no_bid">No Bid</option>
+    <option value="cancelled">Cancelled</option>
+   </select>
+   <input name="notes" placeholder="Notes (optional)" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd);border-radius:6px;padding:6px 10px;font-size:13px;width:200px">
+   <button type="submit" class="btn btn-sm btn-s" style="font-size:12px">Update</button>
+  </form>
+ </div>
+</div>
+{% endif %}
+
+<!-- Email History -->
+<div class="card" id="email-history-card" style="display:none">
+ <div class="card-t" style="font-size:14px">📬 Email History</div>
+ <div id="email-history-list"></div>
+</div>
+
+<!-- Activity Log -->
+<div class="card">
+ <div class="card-t" style="font-size:14px">📋 Activity Log</div>
+ <div id="rfq-activity" style="font-size:13px;color:var(--tx2)">Loading...</div>
+</div>
+
+<script>
+const items={{r.line_items|tojson}};
+const n=items.length;
+
+function recalc(){
+ let tb=0,tc=0;
+ for(let i=0;i<n;i++){
+  const q=parseFloat(document.querySelector(`[name=qty_${i}]`).value)||0;
+  const c=parseFloat(document.querySelector(`[name=cost_${i}]`).value)||0;
+  const p=parseFloat(document.querySelector(`[name=price_${i}]`).value)||0;
+  const s=p*q; tb+=s; tc+=c*q;
+  document.getElementById(`sub_${i}`).textContent=s?`$${s.toFixed(2)}`:'—';
+  const m=p>0&&c>0?((p-c)/p*100):null;
+  const el=document.getElementById(`mg_${i}`);
+  if(m!==null){el.textContent=m.toFixed(1)+'%';el.style.color=m>=20?'#3fb950':m>=10?'#d29922':'#f85149'}
+  else{el.textContent='—';el.style.color='#8b949e'}
+  const pf=document.getElementById(`pf_${i}`);
+  if(pf){
+   const ip=(p-c)*q;
+   if(p>0&&c>0){pf.textContent=`$${ip.toFixed(2)}`;pf.style.color=ip>0?'#3fb950':'#f85149'}
+   else{pf.textContent='—';pf.style.color='#8b949e'}
+  }
+ }
+ document.getElementById('tot').textContent=`$${tb.toFixed(2)}`;
+ const pr=tb-tc;
+ const pe=document.getElementById('pft');
+ if(tb>0&&tc>0){const pp=(pr/tb*100).toFixed(1);pe.textContent=`💰 Profit: $${pr.toFixed(2)} (${pp}%)`;pe.style.color=pr>0?'#3fb950':'#f85149'}
+ else{pe.textContent='—';pe.style.color='#8b949e'}
+}
+
+function applyMarkup(pct){
+ for(let i=0;i<n;i++){
+  const c=parseFloat(document.querySelector(`[name=cost_${i}]`).value)||0;
+  if(c>0){document.querySelector(`[name=price_${i}]`).value=(c*(1+pct)).toFixed(2)}
+ }
+ recalc();
+}
+
+function applyScprsUndercut(pct){
+ for(let i=0;i<n;i++){
+  const s=parseFloat(document.querySelector(`[name=scprs_${i}]`).value)||0;
+  if(s>0){document.querySelector(`[name=price_${i}]`).value=(s*(1-pct)).toFixed(2)}
+ }
+ recalc();
+}
+
+function lookupScprs(){
+ const btn=event.target;btn.disabled=true;btn.textContent='⏳ Searching FI$Cal...';
+ fetch('/api/scprs/{{rid}}',{credentials:'same-origin'}).then(r=>r.json()).then(d=>{
+  let found=0,total=0;
+  if(d.results){
+   total=d.results.length;
+   d.results.forEach((r,i)=>{
+    if(r.price){document.querySelector(`[name=scprs_${i}]`).value=r.price.toFixed(2);found++}
+   });
+   recalc();
+  }
+  btn.disabled=false;
+  if(found>0){
+   btn.textContent=`✅ ${found}/${total} prices found`;
+   setTimeout(()=>{btn.textContent='🔍 SCPRS Lookup'},4000);
+  } else {
+   btn.textContent=`⚠️ 0/${total} found`;
+   setTimeout(()=>{btn.textContent='🔍 SCPRS Lookup'},3000);
+  }
+  // Populate persistent results panel
+  showScprsResults(d);
+ }).catch(e=>{btn.disabled=false;btn.textContent='❌ Lookup failed';console.error(e)});
+}
+
+function researchPrices(){
+ const btn=event.target;btn.disabled=true;btn.textContent='⏳ Searching Amazon...';
+ fetch('/api/research/rfq/{{rid}}',{credentials:'same-origin'}).then(r=>r.json()).then(d=>{
+  if(!d.ok){btn.textContent='❌ '+d.message;btn.disabled=false;return;}
+  // Poll for results
+  const poll=setInterval(()=>{
+   fetch('/api/research/status',{credentials:'same-origin'}).then(r=>r.json()).then(s=>{
+    btn.textContent=`⏳ ${s.items_done}/${s.items_total} items (${s.prices_found} found)`;
+    if(!s.running){
+     clearInterval(poll);
+     btn.disabled=false;
+     if(s.prices_found>0){
+      btn.textContent=`✅ ${s.prices_found} prices found — reloading...`;
+      setTimeout(()=>location.reload(),1000);
+     } else {
+      btn.textContent='⚠️ 0 prices found';
+      setTimeout(()=>{btn.textContent='🔬 Amazon Lookup'},3000);
+     }
+    }
+   });
+  },3000);
+ }).catch(e=>{btn.disabled=false;btn.textContent='❌ Research failed';console.error(e)});
+}
+
+function showScprsResults(d){
+ const panel=document.getElementById('scprs-panel');
+ const body=document.getElementById('scprs-body');
+ const ts=document.getElementById('scprs-ts');
+ if(!d.results||!d.results.length){panel.style.display='none';return;}
+ panel.style.display='block';
+ ts.textContent=new Date().toLocaleTimeString();
+ let html='<table class="it"><thead><tr><th>#</th><th>Status</th><th>Price</th><th>Source</th><th>Vendor</th><th>PO#</th><th>Date</th><th>Searched</th></tr></thead><tbody>';
+ d.results.forEach((r,i)=>{
+  const price=r.price?`$${r.price.toFixed(2)}`:'<span style="color:var(--rd)">Not found</span>';
+  const status=r.price?'<span style="color:var(--gn)">✅</span>':'<span style="color:var(--rd)">❌</span>';
+  const src=r.source||r.note||r.error||'—';
+  const vendor=r.vendor||'—';
+  const po=r.po_number||'—';
+  const dt=r.date||'—';
+  const searched=(r.searched||[]).join(', ')||'—';
+  html+=`<tr><td>${i+1}</td><td>${status}</td><td style="font-family:'JetBrains Mono',monospace;font-weight:600">${price}</td><td><span class="scprs-tag scprs-${r.confidence=='high'?'hi':'med'}">${src.replace(/_/g,' ')}</span></td><td style="font-size:11px">${vendor}</td><td class="mono">${po}</td><td class="mono">${dt}</td><td style="font-size:10px;color:var(--tx2);max-width:200px">${searched}</td></tr>`;
+ });
+ html+='</tbody></table>';
+ if(d.errors&&d.errors.length){
+  html+='<div style="margin-top:8px;font-size:11px;color:var(--rd)">Errors: '+d.errors.join(', ')+'</div>';
+ }
+ body.innerHTML=html;
+}
+
+function showRfqPreview(){
+ let rowsHtml='';
+ let total=0;
+ for(let i=0;i<n;i++){
+  const q=items[i].qty||0;
+  const desc=items[i].description||'';
+  const itemNo=items[i].line_number||items[i].item_number||(i+1);
+  const uom=items[i].uom||'ea';
+  const c=parseFloat(document.querySelector(`[name=cost_${i}]`).value)||0;
+  const p=parseFloat(document.querySelector(`[name=price_${i}]`).value)||0;
+  const ext=p*q; total+=ext;
+  rowsHtml+=`<tr>
+   <td style="text-align:center;border:1px solid #000;padding:4px">${itemNo}</td>
+   <td style="text-align:center;border:1px solid #000;padding:4px">${q} ${uom}</td>
+   <td style="font-size:12px;border:1px solid #000;padding:4px">${desc}</td>
+   <td style="text-align:right;border:1px solid #000;padding:4px">$${c.toFixed(2)}</td>
+   <td style="text-align:right;font-weight:600;border:1px solid #000;padding:4px">$${p.toFixed(2)}</td>
+   <td style="text-align:right;border:1px solid #000;padding:4px">$${ext.toFixed(2)}</td>
+  </tr>`;
+ }
+ const sol={{r.solicitation_number|tojson}};
+ const dept={{r.get("department","")|tojson}};
+ const reqName={{r.requestor_name|tojson}};
+ const due={{r.due_date|tojson}};
+ const delivery={{r.get("delivery_location","")|tojson}};
+ const shipTo={{r.get("ship_to","")|tojson}};
+ const html=`<div style="font-family:'Times New Roman',Times,serif;font-size:13px;color:#000;line-height:1.4;padding:20px">
+  <div style="display:flex;justify-content:space-between;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#444">
+   <span>STATE OF CALIFORNIA</span><span>${dept||'CALIFORNIA CORRECTIONAL HEALTH CARE SERVICES'}</span>
+  </div>
+  <div style="text-align:center;padding:8px;border-bottom:2px solid #000">
+   <h3 style="margin:4px 0;font-size:14px;text-transform:uppercase;letter-spacing:1px">ACQUISITION QUOTE WORKSHEET — 704B</h3>
+   <div style="font-size:12px">Solicitation #${sol}</div>
+  </div>
+
+  <table style="width:100%;border-collapse:collapse;margin-top:10px">
+   <tr>
+    <td style="border:1px solid #000;padding:4px 8px;width:50%"><span style="font-size:9px;color:#555;text-transform:uppercase;display:block">Requestor</span>${reqName}</td>
+    <td style="border:1px solid #000;padding:4px 8px"><span style="font-size:9px;color:#555;text-transform:uppercase;display:block">Due Date</span><b>${due}</b></td>
+   </tr>
+   <tr>
+    <td style="border:1px solid #000;padding:4px 8px" colspan="2"><span style="font-size:9px;color:#555;text-transform:uppercase;display:block">Delivery Location</span>${delivery||shipTo||'—'}</td>
+   </tr>
+  </table>
+
+  <div style="background:#e8e8e0;text-align:center;font-weight:700;font-size:12px;padding:4px;margin-top:10px;border:1px solid #000;letter-spacing:2px">SUPPLIER: REYTECH INC.</div>
+  <table style="width:100%;border-collapse:collapse;margin-top:0">
+   <tr>
+    <td style="border:1px solid #000;padding:3px 8px;font-size:11px"><b>30 Carnoustie Way, Trabuco Canyon, CA 92679</b></td>
+    <td style="border:1px solid #000;padding:3px 8px;font-size:11px">949-229-1575</td>
+    <td style="border:1px solid #000;padding:3px 8px;font-size:11px">sales@reytechinc.com</td>
+    <td style="border:1px solid #000;padding:3px 8px;font-size:11px">SB/MB: 2002605</td>
+   </tr>
+  </table>
+
+  <table style="width:100%;border-collapse:collapse;margin-top:12px">
+   <thead><tr style="background:#e8e8e0">
+    <th style="border:1px solid #000;padding:4px 6px;font-size:10px;text-transform:uppercase;width:50px">#</th>
+    <th style="border:1px solid #000;padding:4px 6px;font-size:10px;text-transform:uppercase;width:60px">Qty</th>
+    <th style="border:1px solid #000;padding:4px 6px;font-size:10px;text-transform:uppercase">Description</th>
+    <th style="border:1px solid #000;padding:4px 6px;font-size:10px;text-transform:uppercase;width:80px;text-align:right">Your Cost</th>
+    <th style="border:1px solid #000;padding:4px 6px;font-size:10px;text-transform:uppercase;width:80px;text-align:right">Bid Price</th>
+    <th style="border:1px solid #000;padding:4px 6px;font-size:10px;text-transform:uppercase;width:90px;text-align:right">Extension</th>
+   </tr></thead>
+   <tbody>${rowsHtml}</tbody>
+  </table>
+
+  <div style="text-align:right;margin-top:8px;font-size:15px;font-weight:700;padding:8px;border:2px solid #000;display:inline-block;float:right">
+   TOTAL: $${total.toFixed(2)}
+  </div>
+  <div style="clear:both"></div>
+
+  <div style="margin-top:12px;font-size:10px;text-align:center;color:#555;border-top:1px solid #999;padding-top:6px">
+   Reytech Inc. · Michael Guadan · SB/MB #2002605 · DVBE #2002605
+  </div>
+ </div>`;
+
+ document.getElementById('rfqPreviewBody').innerHTML=html;
+ document.getElementById('rfqPreviewType').textContent='704B — '+(dept||sol);
+ const modal=document.getElementById('previewModal');
+ modal.style.display='flex';
+ modal.onclick=function(e){if(e.target===modal) modal.style.display='none';};
+}
+document.addEventListener('keydown',function(e){if(e.key==='Escape'){const m=document.getElementById('previewModal');if(m)m.style.display='none';}});
+
+recalc();
+
+var RID={{rid|tojson}};
+var _allDbFiles=[];
+var _emailTemplates=[];
+
+// ── PDF Preview ──
+function previewPdf(url, title){
+ var frame=document.getElementById('pdfPreviewFrame');
+ var loading=document.getElementById('pdfPreviewLoading');
+ // Reset: hide old frame, show loading
+ frame.style.display='none';
+ frame.src='about:blank';
+ loading.style.display='flex';
+ document.getElementById('pdfPreviewTitle').textContent=title;
+ document.getElementById('pdfPreviewDownload').href=url;
+ document.getElementById('pdfPreviewNewTab').href=url;
+ document.getElementById('pdfPreviewModal').style.display='block';
+ // Small delay to ensure blank frame is cleared before loading new URL
+ setTimeout(function(){ frame.src=url; },50);
+}
+function closePdfPreview(){
+ var m=document.getElementById('pdfPreviewModal');
+ var f=document.getElementById('pdfPreviewFrame');
+ if(m) m.style.display='none';
+ if(f){f.src='about:blank';f.style.display='none';}
+}
+document.addEventListener('keydown',function(e){
+ if(e.key==='Escape'){
+  closePdfPreview();
+  var m2=document.getElementById('previewModal');if(m2) m2.style.display='none';
+ }
+});
+
+// ── Load RFQ files from DB (with preview buttons) ──
+(function(){
+ fetch('/api/rfq/'+RID+'/files',{credentials:'same-origin'})
+ .then(function(r){return r.json()})
+ .then(function(d){
+  if(!d.ok||!d.files||d.files.length===0) return;
+  _allDbFiles=d.files;
+  var card=document.getElementById('rfq-files-card');
+  card.style.display='';
+  var cats={template:[],generated:[],attachment:[]};
+  d.files.forEach(function(f){
+   var cat=f.category||'attachment';
+   if(!cats[cat]) cats[cat]=[];
+   cats[cat].push(f);
+  });
+  function renderSection(label,icon,files){
+   if(!files||files.length===0) return '';
+   var s='<div style="margin-bottom:10px"><div style="font-size:12px;font-weight:700;color:var(--tx2);margin-bottom:6px">'+icon+' '+label+'</div><div style="display:flex;flex-wrap:wrap;gap:6px">';
+   files.forEach(function(f){
+    var kb=Math.round((f.file_size||0)/1024);
+    var previewUrl='/rfq/'+RID+'/preview/'+f.id;
+    s+='<span style="display:inline-flex;align-items:center;gap:4px;padding:6px 12px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;font-size:13px;color:var(--tx)">';
+    s+='<a href="#" class="rfq-file-preview" data-url="'+previewUrl.replace(/"/g,'&quot;')+'" data-title="'+f.filename.replace(/"/g,'&quot;')+'" style="color:var(--ac);text-decoration:none;cursor:pointer" title="Preview">👁️</a> ';
+    s+='<a href="/rfq/'+RID+'/file/'+f.id+'" target="_blank" style="color:var(--tx);text-decoration:none">'+f.filename+'</a>';
+    s+=' <span style="color:var(--tx2);font-size:11px">('+kb+'KB)</span></span>';
+   });
+   return s+'</div></div>';
+  }
+  var html='';
+  html+=renderSection('Source Templates','📋',cats.template);
+  html+=renderSection('Generated Files','📦',cats.generated);
+  html+=renderSection('Other Attachments','📎',cats.attachment);
+  document.getElementById('rfq-files-list').innerHTML=html;
+  // Attach preview click handlers via delegation (avoids inline onclick quoting issues)
+  document.getElementById('rfq-files-list').addEventListener('click',function(e){
+   var link=e.target.closest('.rfq-file-preview');
+   if(link){e.preventDefault();previewPdf(link.getAttribute('data-url'),link.getAttribute('data-title'));}
+  });
+  // Populate attachment checkboxes for email
+  buildAttachmentList(cats.generated);
+ }).catch(function(){});
+})();
+
+// ── Attachment Selector for Email ──
+function buildAttachmentList(generated){
+ var el=document.getElementById('attachmentList');
+ if(!el||!generated||generated.length===0){if(el) el.innerHTML='<span style="font-size:12px;color:var(--tx2)">Generate package first to attach files</span>';return;}
+ var html='';
+ generated.forEach(function(f){
+  var kb=Math.round((f.file_size||0)/1024);
+  html+='<label style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;cursor:pointer;font-size:13px">';
+  html+='<input type="checkbox" class="attach-cb" value="'+f.id+'" checked onchange="updateAttachInput()"> ';
+  html+='📄 '+f.filename+' <span style="color:var(--tx2);font-size:11px">('+kb+'KB)</span></label>';
+ });
+ el.innerHTML=html;
+ updateAttachInput();
+}
+function toggleAllAttachments(on){
+ document.querySelectorAll('.attach-cb').forEach(function(cb){cb.checked=on});
+ updateAttachInput();
+}
+function updateAttachInput(){
+ var ids=[];
+ document.querySelectorAll('.attach-cb:checked').forEach(function(cb){ids.push(cb.value)});
+ var inp=document.getElementById('attachFilesInput');
+ if(inp) inp.value=ids.join(',');
+ // Update mail app link
+ var to=document.getElementById('emailTo');
+ var subj=document.getElementById('emailSubject');
+ var body=document.getElementById('emailBody');
+ var link=document.getElementById('mailAppLink');
+ if(to&&subj&&body&&link){
+  link.href='mailto:'+encodeURIComponent(to.value)+'?subject='+encodeURIComponent(subj.value)+'&body='+encodeURIComponent(body.value);
+ }
+}
+
+// ── Email Templates ──
+(function(){
+ fetch('/api/email-templates?category=rfq',{credentials:'same-origin'})
+ .then(function(r){return r.json()})
+ .then(function(d){
+  if(!d.ok) return;
+  _emailTemplates=d.templates;
+  var sel=document.getElementById('emailTemplateSelect');
+  if(!sel) return;
+  d.templates.forEach(function(t){
+   var opt=document.createElement('option');
+   opt.value=t.id;
+   opt.textContent=t.name+(t.is_default?' ★':'');
+   sel.appendChild(opt);
+  });
+ }).catch(function(){});
+})();
+
+function loadEmailTemplate(){
+ var sel=document.getElementById('emailTemplateSelect');
+ if(!sel||!sel.value) return;
+ var vars={
+  solicitation:{{r.get("solicitation_number","")|tojson}},
+  requestor:{{r.get("requestor_name","")|tojson}},
+  requestor_email:{{r.get("requestor_email","")|tojson}},
+  quote_number:{{r.get("reytech_quote_number","")|tojson}},
+  institution:{{r.get("institution","")|tojson}},
+  due_date:{{r.get("due_date","")|tojson}}
+ };
+ fetch('/api/email-templates/render',{method:'POST',credentials:'same-origin',
+  headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({template_id:sel.value,variables:vars})
+ }).then(function(r){return r.json()}).then(function(d){
+  if(d.ok){
+   document.getElementById('emailSubject').value=d.subject;
+   document.getElementById('emailBody').value=d.body;
+   updateAttachInput();
+  }
+ });
+}
+
+function saveCurrentAsTemplate(){
+ var name=prompt('Template name:');
+ if(!name) return;
+ var subj=document.getElementById('emailSubject').value;
+ var body=document.getElementById('emailBody').value;
+ fetch('/api/email-templates',{method:'POST',credentials:'same-origin',
+  headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({name:name,category:'rfq',subject:subj,body:body})
+ }).then(function(r){return r.json()}).then(function(d){
+  if(d.ok) alert('Template saved: '+name);
+  else alert('Save failed');
+ });
+}
+
+// ── Email Signature ──
+var _sigHtml='';
+(function(){
+ fetch('/api/email-signature',{credentials:'same-origin'})
+ .then(function(r){return r.json()}).then(function(d){
+  if(d.ok){
+   _sigHtml=d.signature_html||'';
+   var prev=document.getElementById('sigPreview');
+   if(prev) prev.innerHTML=_sigHtml||'<span style="color:var(--tx2);font-style:italic">No signature configured</span>';
+   var tog=document.getElementById('sigToggle');
+   if(tog) tog.checked=d.signature_enabled!==false;
+   toggleSigPreview();
+  }
+ }).catch(function(){});
+})();
+function toggleSigPreview(){
+ var on=document.getElementById('sigToggle').checked;
+ var prev=document.getElementById('sigPreview');
+ if(prev) prev.style.display=on?'':'none';
+}
+function editSignature(){
+ document.getElementById('sigEditor').style.display='';
+ document.getElementById('sigHtml').value=_sigHtml;
+}
+function cancelSigEdit(){
+ document.getElementById('sigEditor').style.display='none';
+}
+function saveSignature(){
+ var html=document.getElementById('sigHtml').value;
+ fetch('/api/email-signature',{method:'POST',credentials:'same-origin',
+  headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({signature_html:html})
+ }).then(function(r){return r.json()}).then(function(d){
+  if(d.ok){
+   _sigHtml=html;
+   document.getElementById('sigPreview').innerHTML=html||'<span style="color:var(--tx2)">No signature</span>';
+   document.getElementById('sigEditor').style.display='none';
+   typeof showMsg==='function'&&showMsg('\u2705 Signature saved','ok');
+  }
+ });
+}
+function insertSigImage(){
+ var url=prompt('Enter image URL (logo, banner, etc):');
+ if(!url) return;
+ var w=prompt('Width in pixels (e.g. 180, or leave blank for auto):','180');
+ var tag='<img src="'+url+'" alt="Logo"'+(w?' width="'+w+'"':'')+' style="display:block;margin:4px 0">';
+ var ta=document.getElementById('sigHtml');
+ var pos=ta.selectionStart||0;
+ ta.value=ta.value.substring(0,pos)+tag+ta.value.substring(pos);
+ ta.focus();
+}
+
+// ── Email History ──
+(function(){
+ fetch('/api/email-history?rfq_id='+RID,{credentials:'same-origin'})
+ .then(function(r){return r.json()})
+ .then(function(d){
+  if(!d.ok||!d.emails||d.emails.length===0) return;
+  var card=document.getElementById('email-history-card');
+  card.style.display='';
+  var html='';
+  d.emails.forEach(function(e){
+   var dt=e.logged_at?new Date(e.logged_at).toLocaleString():'';
+   var dir=e.direction==='outbound'?'📤':'📥';
+   html+='<div style="padding:8px 0;border-bottom:1px solid var(--bd);font-size:13px">';
+   html+=dir+' <b>'+e.recipient+'</b> — '+e.subject;
+   html+='<div style="font-size:11px;color:var(--tx2);margin-top:2px">'+dt;
+   if(e.attachments_json){try{var a=JSON.parse(e.attachments_json);if(a.length) html+=' · '+a.length+' attachments';}catch(x){}}
+   html+='</div></div>';
+  });
+  document.getElementById('email-history-list').innerHTML=html;
+ }).catch(function(){});
+})();
+
+// ── Load Activity Log ──
+(function(){
+ fetch('/api/rfq/'+RID+'/activity',{credentials:'same-origin'})
+ .then(function(r){return r.json()})
+ .then(function(d){
+  if(!d.ok||!d.activities||d.activities.length===0){
+   document.getElementById('rfq-activity').innerHTML='<div style="color:var(--tx2);font-style:italic">No activity recorded yet</div>';
+   return;
+  }
+  var html='';
+  d.activities.forEach(function(a){
+   var dt=a.timestamp?new Date(a.timestamp).toLocaleString():'';
+   var icon='📝';
+   var et=a.event_type||'';
+   if(et.indexOf('created')>=0) icon='🆕';
+   else if(et.indexOf('email')>=0) icon='📧';
+   else if(et.indexOf('generated')>=0||et.indexOf('package')>=0) icon='📦';
+   else if(et.indexOf('pricing')>=0) icon='💰';
+   else if(et.indexOf('reopen')>=0) icon='✏️';
+   else if(et.indexOf('status')>=0) icon='🔄';
+   else if(et.indexOf('template')>=0) icon='📎';
+   else if(et.indexOf('delete')>=0) icon='🗑️';
+   html+='<div style="display:flex;gap:8px;padding:8px 0;border-bottom:1px solid var(--bd)">';
+   html+='<span style="font-size:16px">'+icon+'</span>';
+   html+='<div style="flex:1"><div style="font-size:13px">'+a.description+'</div>';
+   html+='<div style="font-size:11px;color:var(--tx2);margin-top:3px">'+dt+' · '+a.actor+'</div></div></div>';
+  });
+  document.getElementById('rfq-activity').innerHTML=html;
+ }).catch(function(){
+  document.getElementById('rfq-activity').innerHTML='<div style="color:var(--tx2)">Could not load activity</div>';
+ });
+})();
+</script>
+
+{% endblock %}

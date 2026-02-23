@@ -324,7 +324,7 @@ def detail(rid):
         rfqs[rid] = r
         save_rfqs(rfqs)
     
-    return render(PAGE_DETAIL, r=r, rid=rid)
+    return render_page("rfq_detail.html", active_page="Home", r=r, rid=rid)
 
 
 @bp.route("/rfq/<rid>/update", methods=["POST"])
