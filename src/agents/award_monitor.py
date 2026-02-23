@@ -531,6 +531,25 @@ def run_award_check() -> dict:
                 results["won"] += 1
                 log.info("🏆 PC %s WON! PO %s", pc.get("pc_number", pcid), award.get("po_number"))
                 
+                # ── Quote Lifecycle Bridge: mark matching quote as won ──
+                try:
+                    from src.agents.quote_lifecycle import process_reply_signal
+                    qn = pc.get("quote_number", "")
+                    if qn:
+                        ql_result = process_reply_signal(
+                            quote_number=qn,
+                            signal="win",
+                            confidence=0.95,
+                            po_number=award.get("po_number", ""),
+                            reason=f"SCPRS PO confirmed: {award.get('po_number','')}",
+                            source="award_monitor"
+                        )
+                        log.info("Quote lifecycle: %s → won (%s)",
+                                 qn, ql_result.get("action", ql_result.get("error", "?")))
+                except Exception as _qle:
+                    log.debug("Quote lifecycle bridge (win): %s", _qle)
+                # ── End Quote Lifecycle Bridge ────────────────────────────
+                
                 # Push notification
                 try:
                     from src.api.dashboard import _push_notification
@@ -559,6 +578,23 @@ def run_award_check() -> dict:
                 except Exception:
                     pass
                 log_competitor(pc, award, our_total)
+                
+                # ── Quote Lifecycle Bridge: close matching quote as lost ──
+                try:
+                    from src.agents.quote_lifecycle import close_lost_to_competitor
+                    qn = pc.get("quote_number", "")
+                    if qn:
+                        ql_result = close_lost_to_competitor(
+                            quote_number=qn,
+                            competitor=award.get("supplier", "Unknown"),
+                            competitor_price=award.get("total") or award.get("price") or 0,
+                            po_number=award.get("po_number", "")
+                        )
+                        log.info("Quote lifecycle: %s → lost_to_competitor (%s)",
+                                 qn, ql_result.get("action", ql_result.get("error", "?")))
+                except Exception as _qle:
+                    log.debug("Quote lifecycle bridge (loss): %s", _qle)
+                # ── End Quote Lifecycle Bridge ────────────────────────────
                 
                 log.info("❌ PC %s LOST to %s (PO %s, $%.2f vs our $%.2f)",
                          pc.get("pc_number", pcid), award["supplier"],

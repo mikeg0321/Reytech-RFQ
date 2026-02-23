@@ -1561,6 +1561,56 @@ class EmailPoller:
                             )
                         except Exception:
                             pass
+
+                        # ── QUOTE LIFECYCLE BRIDGE ─────────────────────────────
+                        # Run reply_analyzer to detect win/loss/question signals
+                        # and update the matching quote via quote_lifecycle agent.
+                        try:
+                            from src.agents.reply_analyzer import analyze_reply, find_quote_from_reply
+                            from src.agents.quote_lifecycle import process_reply_signal
+                            import sqlite3 as _sql
+
+                            analysis = analyze_reply(subject, body, sender)
+                            sig = analysis.get("signal", "neutral")
+                            conf = analysis.get("confidence", 0)
+
+                            if sig in ("win", "loss", "question") and conf >= 0.5:
+                                # Try to match to a quote
+                                qref = analysis.get("quote_ref", "")
+                                matched_qn = None
+
+                                if qref:
+                                    matched_qn = qref
+                                else:
+                                    # Search recent quotes by sender email
+                                    try:
+                                        from src.core.db import get_db
+                                        with get_db() as _conn:
+                                            _quotes = [dict(r) for r in _conn.execute(
+                                                "SELECT quote_number, contact_email, institution, created_at "
+                                                "FROM quotes WHERE status IN ('pending','sent') "
+                                                "ORDER BY created_at DESC LIMIT 50"
+                                            ).fetchall()]
+                                        result = find_quote_from_reply(subject, body, sender, _quotes)
+                                        matched_qn = result.get("matched_quote")
+                                    except Exception:
+                                        pass
+
+                                if matched_qn:
+                                    r = process_reply_signal(
+                                        quote_number=matched_qn,
+                                        signal=sig,
+                                        confidence=conf,
+                                        po_number=analysis.get("po_number", ""),
+                                        reason=analysis.get("summary", ""),
+                                        source="email_poller_reply"
+                                    )
+                                    log.info("📊 Quote lifecycle bridge: %s → %s (conf=%.0f%%) quote=%s result=%s",
+                                             sig, matched_qn, conf*100, matched_qn, r.get("action", r.get("error", "?")))
+                        except Exception as _qle:
+                            log.debug("Quote lifecycle bridge error: %s", _qle)
+                        # ── END QUOTE LIFECYCLE BRIDGE ─────────────────────────
+
                         self._processed.add(uid)
                         self._diag["followup"] += 1
                         continue

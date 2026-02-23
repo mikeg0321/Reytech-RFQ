@@ -93,6 +93,14 @@
       </div>
      </div>
     </div>
+
+    <!-- Revision History -->
+    {% if revision_count %}
+    <div class="card" style="margin-top:14px">
+     <div class="card-t">🔄 Revision History ({{ revision_count }})</div>
+     <div id="revisions" style="font-size:12px;color:var(--tx2)">Loading...</div>
+    </div>
+    {% endif %}
 {% endblock %}
 
 {% block scripts %}
@@ -195,6 +203,29 @@
     // Load on page ready
     loadActivity();
     loadAgencyIntel();
+
+    // Load revision history
+    {% if revision_count %}
+    fetch('/api/quote-lifecycle/revisions/{{ qn }}').then(r=>r.json()).then(d => {
+      const el = document.getElementById('revisions');
+      if (!d.ok || !d.revisions || !d.revisions.length) {
+        el.innerHTML = '<div style="color:var(--tx2);padding:8px">No revision details</div>';
+        return;
+      }
+      el.innerHTML = d.revisions.map(rev => {
+        const ts = (rev.revised_at || '').substring(0,16).replace('T',' ');
+        return '<div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--bd);align-items:baseline">' +
+          '<span style="font-size:14px">📝</span>' +
+          '<div style="flex:1">' +
+            '<div style="font-weight:600">Rev ' + rev.revision_num + '</div>' +
+            '<div style="color:var(--tx2);font-size:11px">' + (rev.reason || 'edit') +
+              (rev.changed_by ? ' · by ' + rev.changed_by : '') + '</div>' +
+          '</div>' +
+          '<div style="font-size:10px;color:var(--tx2);font-family:monospace;white-space:nowrap">' + ts + '</div>' +
+        '</div>';
+      }).join('');
+    }).catch(() => {});
+    {% endif %}
 
     // Win prediction
     fetch('/api/predict/win?institution={{ institution }}&agency={{ agency }}&value={{ qt.get("total",0) }}')
