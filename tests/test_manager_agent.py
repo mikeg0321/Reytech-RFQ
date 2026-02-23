@@ -268,21 +268,16 @@ class TestHomePageRendering:
 
     def test_no_unescaped_apostrophes_in_js(self):
         """Regression: apostrophes in JS single-quoted strings break the parser."""
-        import os, re
+        import os, re, base64
         os.environ.setdefault('APP_SECRET', 'test')
-        os.environ.setdefault('DASHBOARD_PASSWORD', 'test')
-        from flask import Flask
-        from src.api.dashboard import bp, load_rfqs, _load_price_checks, render
-        import os
-        _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        PAGE_HOME = open(os.path.join(_root, "src", "templates", "home.html")).read()
-        app = Flask(__name__,
-                    template_folder=os.path.join(_root, "src", "templates"),
-                    static_folder=os.path.join(_root, "src", "static"))
-        app.secret_key = 'test'
-        app.register_blueprint(bp)
-        with app.test_request_context():
-            html = render(PAGE_HOME, rfqs=load_rfqs(), price_checks=_load_price_checks())
+        os.environ.setdefault('DASH_USER', 'reytech')
+        os.environ.setdefault('DASH_PASS', 'changeme')
+        from app import create_app
+        app = create_app()
+        client = app.test_client()
+        H = {'Authorization': 'Basic ' + base64.b64encode(b'reytech:changeme').decode()}
+        r = client.get('/', headers=H)
+        html = r.data.decode()
         # Find all script blocks and check for unescaped apostrophes in strings
         in_script = False
         for i, line in enumerate(html.split('\n')):
