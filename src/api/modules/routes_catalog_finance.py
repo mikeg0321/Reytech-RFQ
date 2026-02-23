@@ -12,6 +12,10 @@ try:
         record_won_price, bulk_margin_analysis, init_catalog_db,
         match_item, match_items_batch, add_supplier_price, get_product_suppliers,
         rebuild_search_tokens,
+        # Sprint 1 additions
+        reimport_qb_csv, run_sprint1_fixes, fix_catalog_names,
+        extract_manufacturers_bulk, bulk_calculate_recommended,
+        get_freshness_report,
     )
     CATALOG_AVAILABLE = True
 except ImportError:
@@ -98,6 +102,7 @@ def catalog_page():
       <span class="mono" style="font-size:12px;color:var(--tx2)">{tp} products</span>
       <button onclick="document.getElementById('import-csv').click()" class="btn btn-s" style="font-size:12px">📥 Import QB CSV</button>
       <input type="file" id="import-csv" accept=".csv" style="display:none" onchange="importCSV(this)">
+      <button onclick="runCatalogFixes(this)" class="btn btn-s" style="font-size:12px;background:#21262d;color:#d2a8ff;border:1px solid #d2a8ff44">🔧 Run Fixes</button>
      </div>
     </div>
 
@@ -190,10 +195,28 @@ def catalog_page():
     function importCSV(input) {{
       const file = input.files[0]; if (!file) return;
       const fd = new FormData(); fd.append('file', file);
-      fetch('/api/catalog/import', {{method:'POST', body:fd}})
+      const btn = input.previousElementSibling;
+      if(btn) {{ btn.textContent='⏳ Importing...'; btn.disabled=true; }}
+      fetch('/api/catalog/reimport', {{method:'POST', body:fd}})
         .then(r=>r.json()).then(d=>{{
-          if(d.ok) {{ alert('Imported: '+d.imported+' Updated: '+d.updated); location.reload(); }}
+          if(btn) {{ btn.textContent='📥 Import QB CSV'; btn.disabled=false; }}
+          if(d.ok) {{ alert('✅ Import complete!\\nImported: '+d.imported+'\\nUpdated: '+d.updated+'\\nPrices calculated: '+(d.prices_calculated||0)); location.reload(); }}
           else alert('Error: '+(d.error||'unknown'));
+        }}).catch(e=>{{
+          if(btn) {{ btn.textContent='📥 Import QB CSV'; btn.disabled=false; }}
+          alert('Import failed: '+e.message);
+        }});
+    }}
+    function runCatalogFixes(btn) {{
+      btn.disabled=true; btn.textContent='⏳ Running fixes...';
+      fetch('/api/catalog/run-fixes', {{method:'POST'}})
+        .then(r=>r.json()).then(d=>{{
+          btn.disabled=false; btn.textContent='🔧 Run Fixes';
+          if(d.ok) {{ alert('✅ Fixes applied!\\nNames: '+d.names_fixed+'\\nPart#s: '+d.mfg_numbers_set+'\\nBrands: '+d.brands_found+'\\nPrices: '+d.prices_calculated); location.reload(); }}
+          else alert('Error: '+(d.error||'unknown'));
+        }}).catch(e=>{{
+          btn.disabled=false; btn.textContent='🔧 Run Fixes';
+          alert('Fix failed: '+e.message);
         }});
     }}
     // Predictive search
@@ -366,6 +389,58 @@ def api_catalog_import():
     f.save(path)
     result = import_qb_csv(path)
     return jsonify({"ok": True, **result})
+
+
+@bp.route("/api/catalog/reimport", methods=["POST"])
+@auth_required
+def api_catalog_reimport():
+    """Re-import QB CSV with improved name/manufacturer extraction."""
+    if not CATALOG_AVAILABLE:
+        return jsonify({"ok": False, "error": "Catalog not available"})
+    f = request.files.get("file")
+    if not f:
+        return jsonify({"ok": False, "error": "No file uploaded"})
+    safe = re.sub(r'[^\w.\-]', '_', f.filename or 'reimport.csv')
+    path = os.path.join(DATA_DIR, f"catalog_reimport_{safe}")
+    f.save(path)
+    try:
+        init_catalog_db()
+        result = reimport_qb_csv(path)
+        # Also run price calculation on newly imported items
+        price_result = bulk_calculate_recommended()
+        result["prices_calculated"] = price_result.get("priced", 0)
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/catalog/run-fixes", methods=["POST"])
+@auth_required
+def api_catalog_run_fixes():
+    """Run Sprint 1 foundation fixes: names, manufacturers, pricing."""
+    if not CATALOG_AVAILABLE:
+        return jsonify({"ok": False, "error": "Catalog not available"})
+    try:
+        init_catalog_db()
+        result = run_sprint1_fixes()
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/catalog/freshness-report", methods=["POST"])
+@auth_required
+def api_catalog_freshness_report():
+    """Get freshness indicators for PC items."""
+    if not CATALOG_AVAILABLE:
+        return jsonify({"ok": False, "error": "Catalog not available"})
+    try:
+        init_catalog_db()
+        items = request.json.get("items", [])
+        report = get_freshness_report(items)
+        return jsonify({"ok": True, "items": report})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
 
 
 @bp.route("/api/catalog/lookup")

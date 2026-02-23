@@ -10,7 +10,7 @@ import logging
 import os
 import re
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 log = logging.getLogger("reytech.product_catalog")
@@ -658,8 +658,9 @@ def match_items_batch(items: list) -> list:
     """
     Match multiple items at once (for PC detail page on load).
     items: [{idx, description, part_number}, ...]
-    Returns: [{idx, matched, product_id, confidence, ...}, ...]
+    Returns: [{idx, matched, product_id, confidence, freshness, ...}, ...]
     """
+    now = datetime.now(timezone.utc)
     results = []
     for item in items[:30]:
         desc = (item.get("description") or "").strip()
@@ -667,13 +668,38 @@ def match_items_batch(items: list) -> list:
         matches = match_item(desc, part, top_n=1)
         if matches and matches[0].get("match_confidence", 0) >= 0.40:
             best = matches[0]
+
+            # Calculate freshness
+            updated = best.get("updated_at") or ""
+            days_old = 999
+            if updated:
+                try:
+                    updated_dt = datetime.fromisoformat(updated.replace("Z", "+00:00"))
+                    days_old = (now - updated_dt).days
+                except (ValueError, TypeError):
+                    pass
+
+            if days_old <= 7:
+                freshness = "fresh"
+                freshness_icon = "🟢"
+            elif days_old <= 14:
+                freshness = "recent"
+                freshness_icon = "🟡"
+            elif days_old <= 30:
+                freshness = "stale"
+                freshness_icon = "🟠"
+            else:
+                freshness = "expired"
+                freshness_icon = "🔴"
+
             results.append({
                 "idx": item.get("idx", 0),
                 "matched": True,
                 "id": best["id"],
                 "product_id": best["id"],
                 "canonical_name": best.get("description") or best.get("name", ""),
-                "part_number": best.get("name", ""),
+                "part_number": best.get("mfg_number") or best.get("name", ""),
+                "manufacturer": best.get("manufacturer", ""),
                 "uom": best.get("uom", "EA"),
                 "last_cost": best.get("cost"),
                 "last_sell": best.get("sell_price"),
@@ -688,6 +714,11 @@ def match_items_batch(items: list) -> list:
                 "win_rate": best.get("win_rate", 0),
                 "avg_margin_won": best.get("avg_margin_won", 0),
                 "margin_pct": best.get("margin_pct", 0),
+                "recommended_price": best.get("recommended_price"),
+                "price_strategy": best.get("price_strategy", ""),
+                "freshness": freshness,
+                "freshness_icon": freshness_icon,
+                "days_old": days_old,
                 "last_checked": best.get("updated_at", ""),
                 "scprs_last_price": best.get("scprs_last_price"),
                 "competitor_low_price": best.get("competitor_low_price"),
@@ -748,6 +779,84 @@ def get_product_suppliers(product_id: int) -> list:
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+def update_supplier_reliability(product_id: int, supplier_name: str,
+                                 success: bool = True):
+    """
+    Update supplier reliability score based on lookup success/failure.
+    reliability = running success rate (0.0 to 1.0)
+    """
+    conn = _get_conn()
+    now = datetime.now(timezone.utc).isoformat()
+    row = conn.execute(
+        "SELECT reliability, notes FROM product_suppliers WHERE product_id=? AND supplier_name=?",
+        (product_id, supplier_name)
+    ).fetchone()
+    if row:
+        old_rel = row["reliability"] or 0.9
+        # Exponential moving average — recent results weighted more
+        new_rel = round(old_rel * 0.8 + (1.0 if success else 0.0) * 0.2, 3)
+        # Track check count in notes
+        old_notes = row["notes"] or ""
+        import re as _re
+        check_match = _re.search(r'checks:(\d+)', old_notes)
+        checks = int(check_match.group(1)) + 1 if check_match else 1
+        notes_update = _re.sub(r'checks:\d+', f'checks:{checks}', old_notes) if check_match else f"{old_notes} checks:{checks}".strip()
+        conn.execute("""
+            UPDATE product_suppliers SET reliability=?, notes=?, updated_at=?
+            WHERE product_id=? AND supplier_name=?
+        """, (new_rel, notes_update, now, product_id, supplier_name))
+        conn.commit()
+    conn.close()
+
+
+def get_stale_products(max_age_days: int = 14, limit: int = 50) -> list:
+    """
+    Find products with stale pricing data (not updated recently).
+    Used by the freshness monitor to know what needs re-checking.
+    """
+    conn = _get_conn()
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=max_age_days)).isoformat()
+    rows = conn.execute("""
+        SELECT id, name, description, cost, sell_price, best_supplier,
+               updated_at, times_quoted, times_won
+        FROM product_catalog
+        WHERE cost > 0 AND (updated_at < ? OR updated_at IS NULL)
+        AND times_quoted > 0
+        ORDER BY times_quoted DESC
+        LIMIT ?
+    """, (cutoff, limit)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_freshness_summary() -> dict:
+    """Get catalog freshness overview for dashboard."""
+    conn = _get_conn()
+    now = datetime.now(timezone.utc)
+    d7 = (now - timedelta(days=7)).isoformat()
+    d14 = (now - timedelta(days=14)).isoformat()
+    d30 = (now - timedelta(days=30)).isoformat()
+
+    total = conn.execute("SELECT COUNT(*) FROM product_catalog WHERE cost > 0").fetchone()[0]
+    fresh = conn.execute("SELECT COUNT(*) FROM product_catalog WHERE cost > 0 AND updated_at >= ?", (d7,)).fetchone()[0]
+    stale = conn.execute("SELECT COUNT(*) FROM product_catalog WHERE cost > 0 AND updated_at < ? AND updated_at >= ?", (d14, d30)).fetchone()[0]
+    old = conn.execute("SELECT COUNT(*) FROM product_catalog WHERE cost > 0 AND (updated_at < ? OR updated_at IS NULL)", (d30,)).fetchone()[0]
+
+    # Supplier stats
+    supplier_count = conn.execute("SELECT COUNT(DISTINCT supplier_name) FROM product_suppliers").fetchone()[0]
+    avg_reliability = conn.execute("SELECT AVG(reliability) FROM product_suppliers WHERE reliability IS NOT NULL").fetchone()[0]
+
+    conn.close()
+    return {
+        "total_priced": total,
+        "fresh_7d": fresh,
+        "stale_14d": stale,
+        "old_30d": old,
+        "supplier_count": supplier_count,
+        "avg_supplier_reliability": round(avg_reliability or 0, 2),
+    }
 
 
 def rebuild_search_tokens():
@@ -1037,17 +1146,191 @@ def record_won_price(product_name: str, price: float, agency: str = "",
     conn.close()
 
 
+def add_to_catalog(description: str, part_number: str = "", cost: float = 0,
+                   sell_price: float = 0, supplier_url: str = "", supplier_name: str = "",
+                   uom: str = "EA", manufacturer: str = "", mfg_number: str = "",
+                   photo_url: str = "", source: str = "price_check") -> Optional[int]:
+    """
+    Add a NEW product to the catalog from a Price Check line item.
+    This is the critical growth mechanism — every sourced item enriches the catalog.
+
+    Returns: new product_id or None if duplicate/error.
+    """
+    init_catalog_db()
+    conn = _get_conn()
+    now = datetime.now(timezone.utc).isoformat()
+
+    if not description and not part_number:
+        conn.close()
+        return None
+
+    name = part_number if part_number and len(part_number) >= 3 else ""
+    if not name:
+        # Use first 60 chars of description as name
+        name = description[:60].strip()
+
+    # Check for duplicate by name or by description similarity
+    existing = conn.execute(
+        "SELECT id FROM product_catalog WHERE name = ? LIMIT 1", (name,)
+    ).fetchone()
+    if existing:
+        conn.close()
+        return existing["id"]  # Already exists
+
+    # Also check by description tokens to prevent near-duplicates
+    desc_tokens = set(_tokenize(description).split())
+    if desc_tokens:
+        search_terms = sorted(desc_tokens, key=len, reverse=True)[:3]
+        conditions = " AND ".join(["search_tokens LIKE ?" for _ in search_terms])
+        params = [f"%{t}%" for t in search_terms]
+        candidate = conn.execute(
+            f"SELECT id, search_tokens FROM product_catalog WHERE {conditions} LIMIT 1",
+            params
+        ).fetchone()
+        if candidate:
+            # High token overlap → likely duplicate
+            prod_tokens = set((candidate["search_tokens"] or "").split())
+            overlap = len(desc_tokens & prod_tokens) / max(len(desc_tokens | prod_tokens), 1)
+            if overlap >= 0.60:
+                conn.close()
+                return candidate["id"]
+
+    # Calculate fields
+    margin_pct = round((sell_price - cost) / sell_price * 100, 2) if sell_price > 0 and cost > 0 else 0
+    category = auto_categorize(name, description)
+    search_tokens = _tokenize(f"{name} {description} {mfg_number} {manufacturer}")
+
+    if margin_pct < 0:
+        strategy = "loss_leader"
+    elif margin_pct < 5:
+        strategy = "margin_protect"
+    elif margin_pct > 25:
+        strategy = "premium"
+    else:
+        strategy = "competitive"
+
+    try:
+        cursor = conn.execute("""
+            INSERT INTO product_catalog (
+                name, sku, description, category, item_type, uom,
+                sell_price, cost, margin_pct, search_tokens,
+                price_strategy, manufacturer, mfg_number, photo_url,
+                best_cost, best_supplier,
+                times_quoted, times_won, times_lost, win_rate,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (name, part_number, description, category, "Non-Inventory", uom,
+              sell_price, cost, margin_pct, search_tokens,
+              strategy, manufacturer, mfg_number, photo_url,
+              cost if cost > 0 else None, supplier_name or None,
+              1, 0, 0, 0,  # times_quoted=1, haven't won/lost yet
+              now, now))
+
+        pid = cursor.lastrowid
+
+        # Record price history
+        if sell_price > 0:
+            conn.execute("""
+                INSERT INTO catalog_price_history (product_id, price_type, price, source, recorded_at)
+                VALUES (?, 'sell', ?, ?, ?)
+            """, (pid, sell_price, source, now))
+        if cost > 0:
+            conn.execute("""
+                INSERT INTO catalog_price_history (product_id, price_type, price, source, recorded_at)
+                VALUES (?, 'cost', ?, ?, ?)
+            """, (pid, cost, source, now))
+
+        # Add supplier if URL provided
+        _needs_supplier = supplier_url and cost > 0
+        _sup_name = supplier_name or "Web"
+
+        conn.commit()
+        conn.close()
+
+        if _needs_supplier:
+            try:
+                add_supplier_price(pid, _sup_name, cost, url=supplier_url)
+            except Exception:
+                pass  # Non-critical
+
+        log.info("add_to_catalog: created product #%d '%s' from %s", pid, name[:40], source)
+        return pid
+
+    except Exception as e:
+        log.error("add_to_catalog error: %s", e)
+        try:
+            conn.close()
+        except Exception:
+            pass
+        return None
+
+
+def save_pc_items_to_catalog(pc: dict) -> dict:
+    """
+    On PC save: add ALL line items to catalog that don't already exist.
+    This is how the catalog grows organically from daily quoting work.
+
+    Returns: {added: N, existing: N, skipped: N}
+    """
+    init_catalog_db()
+    result = {"added": 0, "existing": 0, "skipped": 0}
+
+    for item in pc.get("items", []):
+        desc = (item.get("description") or "").strip()
+        pn = str(item.get("item_number") or "").strip()
+        if not desc and not pn:
+            result["skipped"] += 1
+            continue
+
+        cost = item.get("vendor_cost") or item.get("pricing", {}).get("unit_cost") or 0
+        price = item.get("unit_price") or item.get("pricing", {}).get("recommended_price") or 0
+        link = item.get("item_link") or item.get("link") or ""
+
+        # Check if already in catalog
+        matches = match_item(desc, pn, top_n=1)
+        if matches and matches[0].get("match_confidence", 0) >= 0.55:
+            # Update existing product's quote count
+            pid = matches[0]["id"]
+            conn = _get_conn()
+            conn.execute(
+                "UPDATE product_catalog SET times_quoted = times_quoted + 1, updated_at = ? WHERE id = ?",
+                (datetime.now(timezone.utc).isoformat(), pid)
+            )
+            conn.commit()
+            conn.close()
+            result["existing"] += 1
+        else:
+            # NEW item → add to catalog
+            pid = add_to_catalog(
+                description=desc, part_number=pn,
+                cost=float(cost) if cost else 0,
+                sell_price=float(price) if price else 0,
+                supplier_url=link,
+                source="price_check"
+            )
+            if pid:
+                result["added"] += 1
+            else:
+                result["skipped"] += 1
+
+    log.info("save_pc_items_to_catalog: added=%d existing=%d skipped=%d",
+             result["added"], result["existing"], result["skipped"])
+    return result
+
+
 def record_outcome_to_catalog(pc: dict, outcome: str = "won",
                               competitor_name: str = "", competitor_price: float = 0):
     """
     When a Price Check is marked won or lost, feed results back to catalog.
     This is the critical feedback loop that makes pricing smarter over time.
     
+    For UNMATCHED items: creates new catalog entries (so the catalog grows).
     outcome: "won" | "lost"
     """
     conn = _get_conn()
     now = datetime.now(timezone.utc).isoformat()
     updated = 0
+    created = 0
     items = pc.get("items", [])
     agency = pc.get("institution", "") or pc.get("agency", "")
     quote_num = pc.get("reytech_quote_number", "") or pc.get("pc_number", "")
@@ -1062,7 +1345,31 @@ def record_outcome_to_catalog(pc: dict, outcome: str = "won",
 
         # Match to catalog product
         matches = match_item(desc, pn, top_n=1)
+
         if not matches or matches[0].get("match_confidence", 0) < 0.55:
+            # NEW ITEM → add to catalog so we remember it next time
+            unit_price = item.get("unit_price") or item.get("pricing", {}).get("recommended_price") or 0
+            unit_cost = item.get("vendor_cost") or item.get("pricing", {}).get("unit_cost") or 0
+            link = item.get("item_link") or item.get("link") or ""
+            pid = add_to_catalog(
+                description=desc, part_number=pn,
+                cost=float(unit_cost) if unit_cost else 0,
+                sell_price=float(unit_price) if unit_price else 0,
+                supplier_url=link, source=f"pc_{outcome}"
+            )
+            if pid and outcome == "won":
+                # Mark the new product as having 1 win
+                conn.execute(
+                    "UPDATE product_catalog SET times_won=1, win_rate=100, last_sold_price=?, last_sold_date=?, updated_at=? WHERE id=?",
+                    (float(unit_price) if unit_price else 0, now, now, pid)
+                )
+            elif pid and outcome == "lost":
+                conn.execute(
+                    "UPDATE product_catalog SET times_lost=1, win_rate=0, updated_at=? WHERE id=?",
+                    (now, pid)
+                )
+            if pid:
+                created += 1
             continue
 
         pid = matches[0]["id"]
@@ -1133,8 +1440,8 @@ def record_outcome_to_catalog(pc: dict, outcome: str = "won",
 
     conn.commit()
     conn.close()
-    log.info("record_outcome: %s → updated %d/%d catalog items", outcome, updated, len(items))
-    return {"outcome": outcome, "updated": updated, "total": len(items)}
+    log.info("record_outcome: %s → updated %d, created %d / %d items", outcome, updated, created, len(items))
+    return {"outcome": outcome, "updated": updated, "created": created, "total": len(items)}
 
 
 def get_smart_price(product_id: int, qty: int = 1,
@@ -1553,3 +1860,596 @@ def link_order_items_to_catalog(order: dict):
     
     conn.close()
     return linked
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Sprint 1: Foundation Fixes
+# ═══════════════════════════════════════════════════════════════════════
+
+# Known brands for government procurement (lowercase → display name)
+KNOWN_BRANDS = {
+    "3m": "3M", "kimberly-clark": "Kimberly-Clark", "kimberly clark": "Kimberly-Clark",
+    "medline": "Medline", "mckesson": "McKesson", "cardinal": "Cardinal Health",
+    "cardinal health": "Cardinal Health", "bd": "BD (Becton Dickinson)",
+    "becton": "BD (Becton Dickinson)", "stryker": "Stryker",
+    "baxter": "Baxter", "bard": "Bard", "bardex": "Bard",
+    "dynarex": "Dynarex", "duracell": "Duracell", "energizer": "Energizer",
+    "xerox": "Xerox", "hp": "HP", "hewlett": "HP",
+    "brother": "Brother", "canon": "Canon", "epson": "Epson",
+    "geri-care": "Geri-Care", "gericare": "Geri-Care",
+    "procare": "ProCare", "jobst": "JOBST", "colgate": "Colgate",
+    "clorox": "Clorox", "purell": "Purell", "lysol": "Lysol",
+    "rubbermaid": "Rubbermaid", "diversey": "Diversey",
+    "grainger": "Grainger", "uline": "Uline",
+    "kellogg": "Kellogg's", "kellogg's": "Kellogg's",
+    "folgers": "Folgers", "starbucks": "Starbucks",
+    "crayola": "Crayola", "sharpie": "Sharpie",
+    "alimed": "AliMed", "deroyal": "DeRoyal",
+    "covidien": "Covidien", "teleflex": "Teleflex",
+    "hollister": "Hollister", "coloplast": "Coloplast",
+    "convatec": "ConvaTec", "smith+nephew": "Smith & Nephew",
+    "smith & nephew": "Smith & Nephew", "molnlycke": "Mölnlycke",
+    "polymem": "PolyMem", "aquacel": "Aquacel",
+    "donjon": "DonJoy", "donjoy": "DonJoy", "aircast": "Aircast",
+    "tranquility": "Tranquility", "prevail": "Prevail",
+    "confiderm": "Confiderm", "halyard": "Halyard",
+    "ansell": "Ansell", "kimberly": "Kimberly-Clark",
+    "argyle": "Argyle (Cardinal)", "airlife": "AirLife",
+    "philips": "Philips", "zoll": "ZOLL", "physio-control": "Physio-Control",
+    "defibtech": "Defibtech", "heartsine": "HeartSine",
+    "welch allyn": "Welch Allyn", "welchallyn": "Welch Allyn",
+    "sani-cloth": "Sani-Cloth", "pdi": "PDI",
+    "biopatch": "Biopatch (Ethicon)", "ethicon": "Ethicon",
+    "depuy": "DePuy", "johnson": "Johnson & Johnson",
+    "mic": "MIC (Halyard)", "princeton": "Princeton",
+    "general pencil": "General Pencil", "magic": "Magic",
+}
+
+
+def _extract_manufacturer(description: str, name: str = "") -> str:
+    """Extract manufacturer/brand from product description."""
+    if not description:
+        return ""
+    text = f"{description} {name}".lower()
+
+    # Check ® and ™ marked brands first (most reliable)
+    tm_match = re.findall(r'(\w[\w\-]*)[®™]', description)
+    for brand in tm_match:
+        key = brand.lower()
+        if key in KNOWN_BRANDS:
+            return KNOWN_BRANDS[key]
+        if len(brand) > 2:
+            return brand  # Unknown but marked as trademark
+
+    # Check known brands dictionary
+    for key, display in KNOWN_BRANDS.items():
+        if key in text:
+            return display
+
+    # Check "by <Brand>" pattern
+    by_match = re.search(r'\bby\s+([A-Z][A-Za-z\-&]+(?:\s+[A-Z][A-Za-z\-&]+)?)', description)
+    if by_match:
+        return by_match.group(1).strip()
+
+    # Check "Brand Name" at start if first word is capitalized and not a generic noun
+    words = description.split()
+    if words and words[0][0].isupper():
+        generic = {"the", "a", "an", "for", "with", "heavy", "light", "large",
+                    "small", "medium", "standard", "premium", "disposable",
+                    "sterile", "non", "single", "multi", "replacement",
+                    "contains", "includes", "compatible", "universal", "assorted"}
+        if words[0].lower().rstrip('®™,') not in generic:
+            candidate = words[0].rstrip('®™,')
+            if len(candidate) > 2 and not candidate.isdigit():
+                # Only return if it looks like a brand (not a product word)
+                product_words = {"glove", "mask", "gown", "tape", "wrap", "pad",
+                                 "tube", "bag", "soap", "wipe", "razor", "cream",
+                                 "foley", "catheter", "syringe", "needle", "blade",
+                                 "paper", "pen", "pencil", "toner", "ink", "chair",
+                                 "table", "shelf", "cart", "probe", "cable", "eyewear",
+                                 "chocolate", "candy", "cookie", "cashews", "peanuts",
+                                 "salted", "coffee", "sugar", "chips", "water", "juice",
+                                 "battery", "batteries", "towel", "tissue", "liner",
+                                 "plate", "cup", "fork", "spoon", "napkin", "straw",
+                                 "contains", "sterile", "disposable", "assorted",
+                                 "replacement", "compatible", "universal", "heavy",
+                                 "light", "large", "small", "medium", "standard"}
+                if candidate.lower() not in product_words:
+                    return candidate
+
+    return ""
+
+
+def _make_product_name(description: str, qb_name: str = "") -> str:
+    """
+    Create a clean, descriptive product name from QB data.
+    QB names are usually part numbers; the description is the real name.
+    """
+    if not description:
+        return qb_name or "Unknown Product"
+
+    # Remove leading part number if description starts with one followed by a separator
+    # Only strip if it looks like a standalone part number (no lowercase letters)
+    cleaned = re.sub(r'^[A-Z0-9]{3,20}[\-\.\/]?[A-Z0-9]*\s*[\n—:]\s*', '', description, flags=re.IGNORECASE)
+    # Don't strip if the "part number" contains lowercase (it's probably a word)
+    if cleaned == description or not cleaned.strip() or len(cleaned.strip()) < 10:
+        cleaned = description
+
+    # Take first meaningful sentence/line, cap at 120 chars
+    name = cleaned.strip().split('\n')[0].strip()
+
+    # Remove trailing packaging info after " — " if name is long enough
+    if ' — ' in name and len(name.split(' — ')[0]) > 20:
+        name = name.split(' — ')[0].strip()
+
+    # Cap length
+    if len(name) > 120:
+        # Cut at last word boundary
+        name = name[:120].rsplit(' ', 1)[0] + '…'
+
+    return name.strip() or qb_name or "Unknown Product"
+
+
+def fix_catalog_names() -> dict:
+    """
+    Fix 837+ products that have part-number names instead of descriptive names.
+    Moves current name → mfg_number, description → name.
+    """
+    conn = _get_conn()
+    now = datetime.now(timezone.utc).isoformat()
+    fixed = 0
+    mfg_found = 0
+    brand_found = 0
+
+    rows = conn.execute(
+        "SELECT id, name, description, qb_name, mfg_number, manufacturer FROM product_catalog"
+    ).fetchall()
+
+    for row in rows:
+        row = dict(row)
+        old_name = row["name"] or ""
+        desc = row["description"] or ""
+
+        # Skip if name is already descriptive (>30 chars, has spaces)
+        if len(old_name) > 30 and ' ' in old_name:
+            continue
+
+        # Check if current name looks like a part number
+        if not re.match(r'^[A-Z0-9\-\.\/\s]{2,35}$', old_name, re.IGNORECASE):
+            continue
+
+        updates = {}
+
+        # Move current name to mfg_number if not already set
+        if old_name and not row.get("mfg_number"):
+            updates["mfg_number"] = old_name
+            mfg_found += 1
+
+        # Set new descriptive name from description
+        new_name = _make_product_name(desc, old_name)
+        if new_name != old_name and len(new_name) > len(old_name):
+            updates["name"] = new_name
+
+        # Extract manufacturer if not set
+        if not row.get("manufacturer"):
+            mfg = _extract_manufacturer(desc, old_name)
+            if mfg:
+                updates["manufacturer"] = mfg
+                brand_found += 1
+
+        # Rebuild search tokens with better name
+        if "name" in updates or "manufacturer" in updates:
+            token_text = f"{updates.get('name', old_name)} {desc} {updates.get('manufacturer', '')} {old_name}"
+            updates["search_tokens"] = _tokenize(token_text)
+
+        if updates:
+            updates["updated_at"] = now
+            sets = ", ".join(f"{k} = ?" for k in updates)
+            vals = list(updates.values()) + [row["id"]]
+            try:
+                conn.execute(f"UPDATE product_catalog SET {sets} WHERE id = ?", vals)
+                fixed += 1
+            except Exception as dup_err:
+                # Name collision — append part number to make unique
+                if "UNIQUE" in str(dup_err) and "name" in updates:
+                    updates["name"] = f"{updates['name']} [{old_name}]"
+                    updates["search_tokens"] = _tokenize(
+                        f"{updates['name']} {desc} {updates.get('manufacturer', '')} {old_name}"
+                    )
+                    sets = ", ".join(f"{k} = ?" for k in updates)
+                    vals = list(updates.values()) + [row["id"]]
+                    try:
+                        conn.execute(f"UPDATE product_catalog SET {sets} WHERE id = ?", vals)
+                        fixed += 1
+                    except Exception:
+                        pass  # Skip truly problematic rows
+
+    conn.commit()
+    conn.close()
+    log.info("fix_catalog_names: fixed %d names, %d mfg_numbers, %d brands", fixed, mfg_found, brand_found)
+    return {"fixed": fixed, "mfg_found": mfg_found, "brand_found": brand_found, "total": len(rows)}
+
+
+def extract_manufacturers_bulk() -> dict:
+    """Extract manufacturer/brand for ALL products missing it."""
+    conn = _get_conn()
+    now = datetime.now(timezone.utc).isoformat()
+    found = 0
+
+    rows = conn.execute(
+        "SELECT id, name, description, qb_name FROM product_catalog WHERE manufacturer IS NULL OR manufacturer = ''"
+    ).fetchall()
+
+    for row in rows:
+        row = dict(row)
+        desc = row.get("description") or ""
+        name = row.get("name") or ""
+        qb = row.get("qb_name") or ""
+        mfg = _extract_manufacturer(desc, f"{name} {qb}")
+        if mfg:
+            conn.execute(
+                "UPDATE product_catalog SET manufacturer = ?, updated_at = ? WHERE id = ?",
+                (mfg, now, row["id"])
+            )
+            found += 1
+
+    conn.commit()
+    conn.close()
+    log.info("extract_manufacturers_bulk: found %d/%d", found, len(rows))
+    return {"found": found, "total": len(rows)}
+
+
+def bulk_calculate_recommended(default_margin: float = 25.0) -> dict:
+    """
+    Calculate recommended_price for ALL products that have cost but no recommended_price.
+    Uses per-item intelligence when available, falls back to margin-based pricing.
+    """
+    conn = _get_conn()
+    now = datetime.now(timezone.utc).isoformat()
+    priced = 0
+    skipped = 0
+
+    rows = conn.execute("""
+        SELECT id, name, cost, sell_price, margin_pct, category,
+               times_won, times_lost, win_rate, avg_margin_won,
+               scprs_last_price, competitor_low_price, web_lowest_price,
+               best_cost, price_strategy
+        FROM product_catalog
+        WHERE cost > 0
+    """).fetchall()
+
+    for row in rows:
+        p = dict(row)
+        pid = p["id"]
+        cost = p["cost"]
+
+        # Determine best cost basis
+        effective_cost = cost
+        if p.get("best_cost") and p["best_cost"] < cost:
+            effective_cost = p["best_cost"]
+
+        # Smart margin based on available data
+        margin = default_margin
+
+        # If we have win data, use the winning margin
+        if p.get("avg_margin_won") and p["avg_margin_won"] > 0 and (p.get("times_won") or 0) >= 2:
+            margin = p["avg_margin_won"]
+
+        # If we have SCPRS ceiling, price just below it
+        if p.get("scprs_last_price") and p["scprs_last_price"] > effective_cost:
+            scprs_ceiling = p["scprs_last_price"]
+            # Price 2% below SCPRS
+            scprs_target = round(scprs_ceiling * 0.98, 2)
+            if scprs_target > effective_cost * 1.05:  # Must have 5% min margin
+                recommended = scprs_target
+            else:
+                recommended = round(effective_cost * (1 + margin / 100), 2)
+        else:
+            # Category-based margin adjustments
+            cat = (p.get("category") or "").lower()
+            if cat == "medical_equipment":
+                margin = max(margin, 20)
+            elif cat == "janitorial":
+                margin = max(margin, 30)
+            elif cat == "office_supplies":
+                margin = min(margin, 18)  # More competitive category
+
+            recommended = round(effective_cost * (1 + margin / 100), 2)
+
+        # Ensure minimum profit floor
+        min_profit = 25 if effective_cost > 100 else 10 if effective_cost > 20 else 5
+        if recommended - effective_cost < min_profit:
+            recommended = round(effective_cost + min_profit, 2)
+
+        # Determine strategy
+        if p.get("scprs_last_price"):
+            strategy = "scprs_guided"
+        elif (p.get("times_won") or 0) >= 2:
+            strategy = "win_history"
+        elif p.get("competitor_low_price"):
+            strategy = "competitor_aware"
+        else:
+            strategy = "margin_default"
+
+        actual_margin = round((recommended - effective_cost) / recommended * 100, 2) if recommended > 0 else 0
+
+        conn.execute("""
+            UPDATE product_catalog SET
+                recommended_price = ?, price_strategy = ?,
+                margin_pct = ?, updated_at = ?
+            WHERE id = ?
+        """, (recommended, strategy, actual_margin, now, pid))
+        priced += 1
+
+    conn.commit()
+    conn.close()
+    log.info("bulk_calculate_recommended: priced %d/%d products", priced, len(rows))
+    return {"priced": priced, "total": len(rows), "skipped": skipped}
+
+
+def get_freshness_report(items: list) -> list:
+    """
+    For a list of PC items, return freshness indicators for their catalog matches.
+
+    Returns list of dicts with freshness_status, days_old, last_checked, etc.
+    """
+    conn = _get_conn()
+    now = datetime.now(timezone.utc)
+    results = []
+
+    for item in items:
+        desc = (item.get("description") or "").strip()
+        pn = str(item.get("item_number") or item.get("part_number") or "").strip()
+
+        if not desc and not pn:
+            results.append({"idx": item.get("idx", 0), "matched": False})
+            continue
+
+        matches = match_item(desc, pn, top_n=1)
+        if not matches or matches[0].get("match_confidence", 0) < 0.5:
+            results.append({"idx": item.get("idx", 0), "matched": False})
+            continue
+
+        m = matches[0]
+        pid = m["id"]
+
+        # Get latest price history entry
+        latest = conn.execute("""
+            SELECT recorded_at, price, price_type, source
+            FROM catalog_price_history
+            WHERE product_id = ?
+            ORDER BY recorded_at DESC LIMIT 1
+        """, (pid,)).fetchone()
+
+        product = conn.execute(
+            "SELECT updated_at, recommended_price, cost, sell_price, times_won, win_rate FROM product_catalog WHERE id = ?",
+            (pid,)
+        ).fetchone()
+
+        if not product:
+            results.append({"idx": item.get("idx", 0), "matched": True, "product_id": pid})
+            continue
+
+        product = dict(product)
+        updated = product.get("updated_at") or ""
+        days_old = 0
+        if updated:
+            try:
+                updated_dt = datetime.fromisoformat(updated.replace("Z", "+00:00"))
+                days_old = (now - updated_dt).days
+            except (ValueError, TypeError):
+                days_old = 999
+
+        # Freshness levels
+        if days_old <= 7:
+            status = "fresh"
+            icon = "🟢"
+        elif days_old <= 14:
+            status = "recent"
+            icon = "🟡"
+        elif days_old <= 30:
+            status = "stale"
+            icon = "🟠"
+        else:
+            status = "expired"
+            icon = "🔴"
+
+        results.append({
+            "idx": item.get("idx", 0),
+            "matched": True,
+            "product_id": pid,
+            "product_name": m.get("name", ""),
+            "confidence": m.get("match_confidence", 0),
+            "freshness": status,
+            "freshness_icon": icon,
+            "days_old": days_old,
+            "recommended_price": product.get("recommended_price"),
+            "cost": product.get("cost"),
+            "sell_price": product.get("sell_price"),
+            "times_won": product.get("times_won", 0),
+            "win_rate": product.get("win_rate", 0),
+            "last_price_source": dict(latest).get("source", "") if latest else "",
+            "last_price_date": dict(latest).get("recorded_at", "") if latest else "",
+        })
+
+    conn.close()
+    return results
+
+
+def reimport_qb_csv(csv_path: str) -> dict:
+    """
+    Re-import QB CSV with improved name handling.
+    Uses description as product name, extracts manufacturer, sets mfg_number.
+    Updates existing products, adds new ones.
+    """
+    init_catalog_db()
+    conn = _get_conn()
+    now = datetime.now(timezone.utc).isoformat()
+    stats = {"imported": 0, "updated": 0, "skipped": 0, "errors": [], "categories": {}}
+
+    with open(csv_path, 'r', encoding='utf-8-sig', errors='replace') as f:
+        reader = csv.DictReader(f)
+        rows = list(reader)
+
+    for row in rows:
+        try:
+            qb_name = (row.get("Product/Service Name", "") or "").strip()
+            if not qb_name:
+                stats["skipped"] += 1
+                continue
+
+            raw_desc = (row.get("Sales Description", "") or "").strip()
+            desc = _clean_description(raw_desc)
+            if not desc:
+                desc = qb_name
+
+            # NEW: Use description as the product name, not the QB name
+            product_name = _make_product_name(desc, qb_name)
+
+            # Extract manufacturer
+            manufacturer = _extract_manufacturer(desc, qb_name)
+
+            # QB name is likely the mfg/part number
+            mfg_number = qb_name if re.match(r'^[A-Z0-9\-\.\/]{2,35}$', qb_name, re.IGNORECASE) else ""
+
+            price_str = (row.get("Price", "") or "").strip().replace(",", "")
+            cost_str = (row.get("Cost", "") or "").strip().replace(",", "")
+
+            try:
+                sell_price = float(price_str) if price_str else 0
+            except ValueError:
+                sell_price = 0
+            try:
+                cost = float(cost_str) if cost_str else 0
+            except ValueError:
+                cost = 0
+
+            if qb_name.lower() in ("test",) or sell_price >= 999999:
+                stats["skipped"] += 1
+                continue
+
+            margin_pct = round((sell_price - cost) / sell_price * 100, 2) if sell_price > 0 and cost > 0 else 0
+            category = auto_categorize(product_name, desc)
+            stats["categories"][category] = stats["categories"].get(category, 0) + 1
+
+            raw_sku = (row.get("SKU", "") or "").strip()
+            uom = _parse_uom(raw_sku)
+            sku = raw_sku if (len(raw_sku) > 4 and raw_sku.upper() not in UOM_MAP) else ""
+
+            item_type = (row.get("Item type", "") or "Non-Inventory").strip()
+            taxable = 1 if (row.get("Taxable", "") or "").lower() == "yes" else 0
+            income_acct = (row.get("Income Account", "") or "").strip()
+            expense_acct = (row.get("Expense Account", "") or "").strip()
+
+            search_tokens = _tokenize(f"{product_name} {desc} {manufacturer} {qb_name}")
+
+            # Check if exists by qb_name (most reliable key)
+            existing = conn.execute(
+                "SELECT id FROM product_catalog WHERE qb_name = ?", (qb_name,)
+            ).fetchone()
+
+            if not existing:
+                # Also check by old-style name match
+                existing = conn.execute(
+                    "SELECT id FROM product_catalog WHERE name = ?", (qb_name,)
+                ).fetchone()
+
+            if existing:
+                conn.execute("""
+                    UPDATE product_catalog SET
+                        name = ?, description = ?, sell_price = ?, cost = ?,
+                        margin_pct = ?, category = ?, manufacturer = COALESCE(NULLIF(?, ''), manufacturer),
+                        mfg_number = COALESCE(NULLIF(?, ''), mfg_number),
+                        sku = COALESCE(NULLIF(?, ''), sku),
+                        uom = COALESCE(NULLIF(?, ''), uom),
+                        search_tokens = ?, qb_name = ?, qb_item_type = ?,
+                        qb_income_account = ?, qb_expense_account = ?,
+                        taxable = ?, updated_at = ?
+                    WHERE id = ?
+                """, (product_name, desc, sell_price, cost, margin_pct, category,
+                      manufacturer, mfg_number, sku, uom, search_tokens,
+                      qb_name, item_type, income_acct, expense_acct, taxable, now,
+                      existing["id"]))
+
+                # Price history
+                conn.execute("""
+                    INSERT INTO catalog_price_history (product_id, price_type, price, source, recorded_at)
+                    VALUES (?, 'sell', ?, 'quickbooks_update', ?)
+                """, (existing["id"], sell_price, now))
+                if cost > 0:
+                    conn.execute("""
+                        INSERT INTO catalog_price_history (product_id, price_type, price, source, recorded_at)
+                        VALUES (?, 'cost', ?, 'quickbooks_update', ?)
+                    """, (existing["id"], cost, now))
+
+                stats["updated"] += 1
+            else:
+                cursor = conn.execute("""
+                    INSERT INTO product_catalog (
+                        name, sku, description, category, item_type, uom,
+                        sell_price, cost, margin_pct, search_tokens,
+                        manufacturer, mfg_number,
+                        qb_name, qb_item_type, qb_income_account, qb_expense_account,
+                        taxable, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (product_name, sku, desc, category, item_type, uom,
+                      sell_price, cost, margin_pct, search_tokens,
+                      manufacturer, mfg_number,
+                      qb_name, item_type, income_acct, expense_acct,
+                      taxable, now, now))
+
+                pid = cursor.lastrowid
+                conn.execute("""
+                    INSERT INTO catalog_price_history (product_id, price_type, price, source, recorded_at)
+                    VALUES (?, 'sell', ?, 'quickbooks_import', ?)
+                """, (pid, sell_price, now))
+                if cost > 0:
+                    conn.execute("""
+                        INSERT INTO catalog_price_history (product_id, price_type, price, source, recorded_at)
+                        VALUES (?, 'cost', ?, 'quickbooks_import', ?)
+                    """, (pid, cost, now))
+
+                stats["imported"] += 1
+
+        except Exception as e:
+            stats["errors"].append(f"{qb_name}: {e}")
+
+    conn.commit()
+    conn.close()
+
+    log.info("reimport_qb: %d imported, %d updated, %d skipped, %d errors",
+             stats["imported"], stats["updated"], stats["skipped"], len(stats["errors"]))
+    return stats
+
+
+def run_sprint1_fixes() -> dict:
+    """
+    Run all Sprint 1 foundation fixes in order:
+    1. Fix product names (part numbers → descriptive names)
+    2. Extract manufacturers from descriptions
+    3. Bulk calculate recommended prices
+    Returns combined stats.
+    """
+    init_catalog_db()
+
+    log.info("Sprint 1: Starting foundation fixes...")
+
+    # 1. Fix names
+    name_stats = fix_catalog_names()
+    log.info("Sprint 1 [1/3]: Fixed %d product names", name_stats["fixed"])
+
+    # 2. Extract manufacturers
+    mfg_stats = extract_manufacturers_bulk()
+    log.info("Sprint 1 [2/3]: Found %d manufacturers", mfg_stats["found"])
+
+    # 3. Bulk pricing
+    price_stats = bulk_calculate_recommended()
+    log.info("Sprint 1 [3/3]: Calculated prices for %d products", price_stats["priced"])
+
+    return {
+        "names_fixed": name_stats["fixed"],
+        "mfg_numbers_set": name_stats["mfg_found"],
+        "brands_found": name_stats["brand_found"] + mfg_stats["found"],
+        "prices_calculated": price_stats["priced"],
+        "total_products": name_stats["total"],
+    }

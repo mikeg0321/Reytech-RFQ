@@ -863,9 +863,20 @@
         const badge=document.createElement('div');
         badge.className='cat-badge';
         badge.style.cssText='font-size:10px;margin-bottom:2px;display:flex;gap:6px;align-items:center;flex-wrap:wrap';
+        // Freshness indicator
+        const freshIcon=r.freshness_icon||'⚪';
+        const freshTip=(r.freshness||'unknown')+' ('+Math.round(r.days_old||0)+'d ago)';
+        // Recommended price badge
+        const recBadge=r.recommended_price?'<span style="background:#d2a8ff22;color:#d2a8ff;border:1px solid #d2a8ff44;border-radius:4px;padding:1px 6px;font-weight:600;font-family:JetBrains Mono,monospace" title="Strategy: '+(r.price_strategy||'default')+'">🧠 $'+Number(r.recommended_price).toFixed(2)+'</span>':'';
+        // Win rate badge
+        const winBadge=(r.times_won||0)>0?'<span style="color:#3fb950;font-weight:600" title="Won '+r.times_won+'x, lost '+(r.times_lost||0)+'x">🏆 '+Number(r.win_rate||0).toFixed(0)+'%</span>':'';
+        // Manufacturer
+        const mfgBadge=r.manufacturer?'<span style="color:#8b949e;font-style:italic" title="Manufacturer">🏭 '+escHtml(r.manufacturer)+'</span>':'';
         badge.innerHTML='<span style="background:'+color+'22;color:'+color+';border:1px solid '+color+'44;border-radius:4px;padding:1px 6px;font-weight:600;font-family:JetBrains Mono,monospace">'+conf+'% match</span>'
+         +'<span title="'+escHtml(freshTip)+'">'+freshIcon+'</span>'
          +'<span style="color:#8b949e;font-size:10px" title="'+escHtml(r.reason||'')+'">'+escHtml((r.canonical_name||'').substring(0,50))+'</span>'
          +(r.last_cost?'<span style="color:#58a6ff;font-weight:600;font-family:JetBrains Mono,monospace">QB $'+Number(r.last_cost).toFixed(2)+'→$'+Number(r.last_sell||0).toFixed(2)+'</span>':'')
+         +recBadge+winBadge+mfgBadge
          +'<a href="#" onclick="applyCatalogMatch('+idx+','+JSON.stringify(r).replace(/"/g,'&quot;')+');return false" style="color:#3fb950;font-size:10px;font-weight:700;text-decoration:none" title="Fill cost + price from catalog">✅ Use</a>';
         descEl.parentElement.insertBefore(badge,descEl);
        }
@@ -884,22 +895,33 @@
      const priceEl=document.querySelector('[name=price_'+idx+']');
      const itemEl=document.querySelector('[name=itemnum_'+idx+']');
 
-     if(costEl && match.last_cost){
-      costEl.value=Number(match.last_cost).toFixed(2);
+     // Use best_cost if available, otherwise last_cost
+     const bestCost = match.best_cost || match.last_cost;
+     if(costEl && bestCost){
+      costEl.value=Number(bestCost).toFixed(2);
       costEl.style.background='#0d2818';
       setTimeout(()=>{costEl.style.background='';},1500);
      }
-     if(priceEl && match.last_sell){
-      priceEl.value=Number(match.last_sell).toFixed(2);
+
+     // Use recommended_price if available, otherwise last_sell
+     const bestPrice = match.recommended_price || match.last_sell;
+     if(priceEl && bestPrice){
+      priceEl.value=Number(bestPrice).toFixed(2);
       priceEl.style.background='#0d2818';
       setTimeout(()=>{priceEl.style.background='';},1500);
      }
+
      if(itemEl && match.part_number && (!itemEl.value||itemEl.value.match(/^\d{1,2}$/))){
       itemEl.value=match.part_number;
      }
      recalcRow(idx);
      recalcPC();
-     showMsg('✅ Applied catalog pricing to item '+idx+': $'+Number(match.last_cost||0).toFixed(2)+' → $'+Number(match.last_sell||0).toFixed(2)+' ('+Number(match.margin_pct||0).toFixed(1)+'% margin)','ok');
+
+     // Build info message
+     const src = match.recommended_price ? '🧠 AI-priced' : 'QB pricing';
+     const supplier = match.best_supplier ? ' ('+match.best_supplier+')' : '';
+     const winInfo = (match.times_won||0) > 0 ? ' | Won '+match.times_won+'x at '+Number(match.win_rate||0).toFixed(0)+'%' : '';
+     showMsg('✅ Applied '+src+': $'+Number(bestCost||0).toFixed(2)+supplier+' → $'+Number(bestPrice||0).toFixed(2)+winInfo,'ok');
     }
 
     function escHtml(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
@@ -1240,18 +1262,36 @@
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({items:items})
        }).then(r=>r.json()).then(d=>{
-        if(!d.ok || !d.matched) return;
+        if(!d.ok) return;
+        let unmatched=0;
         (d.results||[]).forEach(r=>{
-         if(!r.matched) return;
          const idx=r.idx;
          const descEl=document.querySelector('[name=desc_'+idx+']');
          if(!descEl) return;
-         const conf=Math.round((r.confidence||0)*100);
-         const color=conf>=80?'#3fb950':conf>=60?'#d29922':'#8b949e';
          const oldBadge=descEl.parentElement.querySelector('.cat-badge');
          if(oldBadge) oldBadge.remove();
+
+         if(!r.matched) {
+          // Show "Add to Catalog" badge for unmatched items with descriptions
+          const desc=(descEl.value||'').trim();
+          if(desc.length>3){
+           unmatched++;
+           const badge=document.createElement('div');
+           badge.className='cat-badge';
+           badge.id='cat-badge-'+idx;
+           badge.style.cssText='font-size:10px;margin-bottom:2px;display:flex;gap:6px;align-items:center';
+           badge.innerHTML='<span style="color:#8b949e">📋 Not in catalog</span>'
+            +'<a href="#" onclick="addToCatalog('+idx+');return false" style="color:#d29922;font-size:10px;font-weight:700;text-decoration:none" title="Save this item to catalog for future matching">📋 Add</a>';
+           descEl.parentElement.insertBefore(badge,descEl);
+          }
+          return;
+         }
+
+         const conf=Math.round((r.confidence||0)*100);
+         const color=conf>=80?'#3fb950':conf>=60?'#d29922':'#8b949e';
          const badge=document.createElement('div');
          badge.className='cat-badge';
+         badge.id='cat-badge-'+idx;
          badge.style.cssText='font-size:10px;margin-bottom:2px;display:flex;gap:6px;align-items:center;flex-wrap:wrap';
          let freshness='';
          if(r.last_checked){
@@ -1273,11 +1313,37 @@
           +'<a href="#" onclick="applyCatalogMatch('+idx+','+JSON.stringify(r).replace(/"/g,'&quot;')+');return false" style="color:#3fb950;font-size:10px;font-weight:700;text-decoration:none" title="Fill cost + price from catalog">✅ Use</a>';
          descEl.parentElement.insertBefore(badge,descEl);
         });
-        if(d.matched>0) showMsg('🎯 Auto-matched '+d.matched+'/'+d.total+' items from catalog. Click ✅ Use to apply.','ok');
+        let msg='';
+        if(d.matched>0) msg+='🎯 '+d.matched+' catalog matches (click ✅ Use to apply)';
+        if(unmatched>0) msg+=(msg?' · ':'')+'📋 '+unmatched+' new items (auto-saved to catalog on Save)';
+        if(msg) showMsg(msg,'ok');
        }).catch(()=>{});
       }
      }, 600);
     })();
+
+    function addToCatalog(idx) {
+     const desc=(document.querySelector('[name=desc_'+idx+']')||{}).value||'';
+     const pn=(document.querySelector('[name=itemnum_'+idx+']')||{}).value||'';
+     const cost=parseFloat((document.querySelector('[name=cost_'+idx+']')||{}).value)||0;
+     const price=parseFloat((document.querySelector('[name=price_'+idx+']')||{}).value)||0;
+     const link=(document.querySelector('[name=link_'+idx+']')||{}).value||'';
+     const uom=(document.querySelector('[name=uom_'+idx+']')||{}).value||'EA';
+     if(!desc && !pn) { showMsg('⚠️ Enter a description or part# first','warn'); return; }
+     fetch('/api/catalog/add-item',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({description:desc, part_number:pn, cost:cost, sell_price:price, supplier_url:link, uom:uom})
+     }).then(r=>r.json()).then(d=>{
+      if(d.ok) {
+       showMsg('✅ Added to catalog (#'+d.product_id+'). Will auto-match next time!','ok');
+       const badge=document.getElementById('cat-badge-'+idx);
+       if(badge) badge.innerHTML='<span style="color:#3fb950;font-weight:600">✅ In catalog (#'+d.product_id+')</span>';
+      } else {
+       showMsg('ℹ️ '+(d.error||'Already in catalog'),'warn');
+      }
+     }).catch(e=>showMsg('❌ '+e.message,'err'));
+    }
 
     function collectPrices() {
      let data={};

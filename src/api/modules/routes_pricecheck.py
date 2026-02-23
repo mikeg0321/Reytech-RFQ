@@ -561,8 +561,11 @@ def pricecheck_save_prices(pcid):
         from src.agents.product_catalog import (
             match_item as _cat_match, update_product_pricing as _cat_update,
             add_supplier_price as _cat_add_sup, init_catalog_db as _cat_init,
+            add_to_catalog as _cat_add,
         )
         _cat_init()
+        _catalog_added = 0
+        _catalog_updated = 0
         for _item in items:
             if _item.get("no_bid"):
                 continue
@@ -589,6 +592,23 @@ def pricecheck_save_prices(pcid):
                 _supplier = (_item.get("item_supplier") or "").strip()
                 if _cost > 0 and _supplier:
                     _cat_add_sup(_pid, _supplier, float(_cost), url=_link)
+                _catalog_updated += 1
+            else:
+                # NEW item → add to catalog so we have it next time
+                if _desc and (_cost > 0 or _up > 0):
+                    _link = (_item.get("item_link") or "").strip()
+                    _supplier = (_item.get("item_supplier") or "").strip()
+                    _new_pid = _cat_add(
+                        description=_desc, part_number=_part,
+                        cost=float(_cost) if _cost else 0,
+                        sell_price=float(_up) if _up else 0,
+                        supplier_url=_link, supplier_name=_supplier,
+                        uom=(_item.get("uom") or "EA"),
+                        source="pc_save"
+                    )
+                    if _new_pid:
+                        _catalog_added += 1
+        log.info("catalog enrichment: updated=%d added=%d", _catalog_updated, _catalog_added)
     except Exception as _e:
         log.debug("catalog enrichment: %s", _e)
 
@@ -2031,6 +2051,83 @@ def api_pricecheck_competitor_intel(pcid):
         })
     except Exception as e:
         log.exception("competitor-intel error")
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/catalog/freshness")
+@auth_required
+def api_catalog_freshness():
+    """Get catalog price freshness overview."""
+    try:
+        from src.agents.product_catalog import get_freshness_summary, init_catalog_db
+        init_catalog_db()
+        return jsonify({"ok": True, **get_freshness_summary()})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/catalog/stale-products")
+@auth_required
+def api_catalog_stale_products():
+    """Get products with stale pricing that need re-checking."""
+    try:
+        from src.agents.product_catalog import get_stale_products, init_catalog_db
+        init_catalog_db()
+        max_age = int(request.args.get("max_age", 14))
+        limit = int(request.args.get("limit", 50))
+        products = get_stale_products(max_age_days=max_age, limit=limit)
+        return jsonify({"ok": True, "products": products, "count": len(products)})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/pricecheck/<pcid>/save-to-catalog", methods=["POST"])
+@auth_required
+def api_pricecheck_save_to_catalog(pcid):
+    """Save all PC line items to the product catalog.
+    Called automatically on PC save + available as manual action.
+    This is how the catalog grows from daily quoting work."""
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"})
+    try:
+        from src.agents.product_catalog import save_pc_items_to_catalog, init_catalog_db
+        init_catalog_db()
+        result = save_pc_items_to_catalog(pc)
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        log.exception("save-to-catalog error")
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/catalog/add-item", methods=["POST"])
+@auth_required
+def api_catalog_add_item():
+    """Manually add a single item to the catalog from PC detail page."""
+    try:
+        from src.agents.product_catalog import add_to_catalog, init_catalog_db
+        init_catalog_db()
+        data = request.get_json(silent=True) or {}
+        pid = add_to_catalog(
+            description=data.get("description", ""),
+            part_number=data.get("part_number", ""),
+            cost=float(data.get("cost", 0) or 0),
+            sell_price=float(data.get("sell_price", 0) or 0),
+            supplier_url=data.get("supplier_url", ""),
+            supplier_name=data.get("supplier_name", ""),
+            uom=data.get("uom", "EA"),
+            manufacturer=data.get("manufacturer", ""),
+            mfg_number=data.get("mfg_number", ""),
+            photo_url=data.get("photo_url", ""),
+            source="manual_add",
+        )
+        if pid:
+            return jsonify({"ok": True, "product_id": pid})
+        else:
+            return jsonify({"ok": False, "error": "Could not add — may already exist"})
+    except Exception as e:
+        log.exception("add-item error")
         return jsonify({"ok": False, "error": str(e)})
 
 
