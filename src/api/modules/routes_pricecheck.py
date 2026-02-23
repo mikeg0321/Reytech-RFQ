@@ -55,6 +55,19 @@ def pricecheck_detail(pcid):
             link_parts.append(f'<a href="{url}" target="_blank" title="{p.get("amazon_title","")}">{title}</a>')
         if asin:
             link_parts.append(f'<span style="color:#58a6ff;font-size:10px;font-family:JetBrains Mono,monospace">ASIN: {asin}</span>')
+        # Web search source
+        web_src = p.get("web_source", "")
+        web_title = p.get("web_title", "")
+        web_url = p.get("web_url", "")
+        if web_src and not link_parts:
+            if web_url:
+                link_parts.append(f'<a href="{web_url}" target="_blank" style="font-size:11px;color:#f0883e">{web_src}: {web_title[:35]}</a>')
+            else:
+                link_parts.append(f'<span style="color:#f0883e;font-size:11px">{web_src}</span>')
+        # Catalog match
+        cat_match = p.get("catalog_match", "")
+        if cat_match and not link_parts:
+            link_parts.append(f'<span style="color:#3fb950;font-size:11px">📦 {cat_match[:40]}</span>')
         link = "<br>".join(link_parts) if link_parts else "—"
 
         # SCPRS confidence indicator
@@ -106,7 +119,6 @@ def pricecheck_detail(pcid):
          <td><div class="currency-wrap"><input type="text" inputmode="decimal" name="price_{idx}" value="{final_str}" class="num-in price-out" placeholder="0.00" oninput="sanitizePrice(this)" onchange="recalcPC()" onblur="fmtCurrency(this)"></div></td>
          <td class="ext" style="font-weight:600;font-size:14px">{ext}</td>
          <td class="profit" style="font-size:14px">{profit_str}</td>
-         <td style="text-align:center;font-size:15px">{grade_html}</td>
         </tr>"""
 
     download_html = ""

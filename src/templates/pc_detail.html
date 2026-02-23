@@ -111,7 +111,7 @@
      {% elif pc.get('status') == 'priced' %}
      <div style="padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(88,166,255,.08);border:1px solid rgba(88,166,255,.25);color:#58a6ff;margin-bottom:10px"><span style="font-size:18px">💰</span><div><b>Priced</b> — review costs below, then Save &amp; Fill 704.</div></div>
      {% elif pc.get('status') == 'parsed' %}
-     <div style="padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(210,153,34,.08);border:1px solid rgba(210,153,34,.25);color:#d29922;margin-bottom:10px"><span style="font-size:18px">📥</span><div><b>Parsed</b> — auto-pricing will run on load (Catalog → SCPRS). Use buttons below for manual pricing.</div></div>
+     <div id="autoStatusBanner" style="padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(210,153,34,.08);border:1px solid rgba(210,153,34,.25);color:#d29922;margin-bottom:10px"><span style="font-size:18px">📥</span><div><b>Parsed</b> — checking Catalog, Amazon, SCPRS for prices...</div></div>
      {% endif %}
 
      <div class="meta" style="margin-top:8px">
@@ -168,9 +168,10 @@
       <!-- Pricing tools — always visible, not buried in dropdown -->
       <span style="border-left:1px solid #30363d;height:28px;margin:0 4px"></span>
       <button class="btn btn-sm" onclick="runScprs(this)" data-testid="pc-scprs-lookup" style="background:#21262d;color:#58a6ff;border:1px solid #30363d;font-size:13px;padding:6px 14px">🔍 SCPRS</button>
+      <button class="btn btn-sm" onclick="runLookup(this)" data-testid="pc-amazon-lookup" style="background:#21262d;color:#f0883e;border:1px solid #30363d;font-size:13px;padding:6px 14px">🔬 Amazon</button>
       <button class="btn btn-sm" onclick="runCatalogMatch(this)" data-testid="pc-catalog-match" style="background:#21262d;color:#3fb950;border:1px solid #30363d;font-size:13px;padding:6px 14px">🎯 Catalog</button>
-      <button class="btn btn-sm" onclick="runWebSearch(this)" data-testid="pc-web-search" style="background:#21262d;color:#f0883e;border:1px solid #30363d;font-size:13px;padding:6px 14px">🌐 Web Search</button>
-      <button class="btn btn-sm" onclick="runAutoPrice(this)" data-testid="pc-auto-price" style="background:#21262d;color:#d2a8ff;border:1px solid #30363d;font-size:13px;padding:6px 14px">🧠 Auto-Price</button>
+      <button class="btn btn-sm" onclick="runWebSearch(this)" data-testid="pc-web-search" style="background:#21262d;color:#d2a8ff;border:1px solid #30363d;font-size:13px;padding:6px 14px">🌐 Web Search</button>
+      <button class="btn btn-sm" onclick="runAutoPrice(this)" data-testid="pc-auto-price" style="background:#21262d;color:#bc8cff;border:1px solid #30363d;font-size:13px;padding:6px 14px">🧠 Auto-Price</button>
       <button class="btn btn-sm" onclick="runPriceSweep(this)" data-testid="pc-price-sweep" style="background:#21262d;color:#f778ba;border:1px solid #30363d;font-size:13px;padding:6px 14px">🛒 Sweep</button>
       <details style="position:relative;display:inline-block">
        <summary class="btn btn-sm" style="background:#21262d;color:#8b949e;border:1px solid #30363d;font-size:12px;padding:4px 10px;cursor:pointer;list-style:none">⋯ More</summary>
@@ -241,7 +242,7 @@
      <h3 style="margin-top:0;font-size:18px">Line Items <span id="itemCount" style="font-weight:normal;color:#8b949e;font-size:15px">({{ items|length }} items)</span></h3>
      <div class="pc-table-wrap">
      <table id="itemsTable">
-      <tr><th style="width:28px">Bid</th><th>#</th><th>Qty</th><th>UOM</th><th style="min-width:280px">Description</th><th style="min-width:220px">Item Link</th><th>SCPRS $</th><th>Amazon $</th><th>Amazon Match</th><th>Unit Cost</th><th>Markup</th><th>Our Price</th><th>Extension</th><th>Profit</th><th>Conf</th></tr>
+      <tr><th style="width:28px">Bid</th><th>#</th><th>Qty</th><th>UOM</th><th style="min-width:280px">Description</th><th style="min-width:220px">Item Link</th><th>SCPRS $</th><th>Amazon $</th><th>Source</th><th>Unit Cost</th><th>Markup</th><th>Our Price</th><th>Extension</th><th>Profit</th></tr>
       {{ items_html | safe }}
      </table>
      </div>
@@ -267,7 +268,7 @@
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
        <input type="checkbox" id="taxToggle" onchange="recalcPC()" style="width:18px;height:18px">
        <span>Include CA Sales Tax</span>
-       <span id="taxRateDisplay" style="color:#8b949e;font-size:13px">(fetching rate...)</span>
+       <span id="taxRateDisplay" style="color:#8b949e;font-size:13px">({{ tax_source }} — {{ (tax_rate * 100)|round(3) }}%)</span>
       </label>
       <span style="color:#30363d">|</span>
       <span style="color:#8b949e">📅 Date: <b style="color:#c9d1d9">{{ today_date }}</b> · Valid through: <b id="expiryDate" style="color:#d29922">{{ expiry_date }}</b> (45 days)</span>
@@ -831,7 +832,28 @@
     }
 
     // Legacy alias for backward compatibility
-    function runLookup(btn) { runWebSearch(btn); }
+    function runLookup(btn) {
+     btn.disabled=true;const origText=btn.textContent;btn.textContent='⏳ Searching Amazon...';
+     showMsg('🔬 Searching Amazon + web sources for prices...','warn');
+     fetch('/pricecheck/{{ pcid }}/lookup').then(r=>{
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      return r.json();
+     }).then(d=>{
+      btn.disabled=false;btn.textContent=origText;
+      if(d.error){
+       showMsg('❌ Error: '+d.error,'err');
+      } else if(d.found>0){
+       let src=d.source==='claude_web'?' (via AI web search)':' (via Amazon)';
+       showMsg('✅ Found prices for '+d.found+'/'+d.total+' items'+src+'. Reloading...','ok');
+       setTimeout(()=>location.reload(),1200);
+      } else {
+       showMsg('ℹ️ Searched '+d.total+' items — no results. Try 🌐 Web Search or paste supplier URLs.','warn');
+      }
+     }).catch(e=>{
+      btn.textContent=origText;btn.disabled=false;
+      showMsg('❌ Amazon request failed: '+e.message,'err');
+     });
+    }
 
     // ── Catalog Auto-Match ──────────────────────────────────────────────
     function runCatalogMatch(btn) {
@@ -1785,8 +1807,9 @@
     }
 
     // ── CRM Customer Card + Quote History (server-side data, no fetch needed) ───
-
-    document.addEventListener('DOMContentLoaded',function(){try{
+    // NOTE: Runs immediately — DOM is ready since this script is at bottom of body.
+    // DOMContentLoaded already fired before inline scripts execute here.
+    (function renderCRMAndHistory(){try{
      const inst = PC_META.institution;
      if (!inst) {
        document.getElementById('crmBody').innerHTML='<span style="color:#8b949e">No institution detected</span>';
@@ -1883,8 +1906,10 @@
      })();
     }catch(e){console.error('CRM/History render error:',e);
       const crm=document.getElementById('crmBody');
-      if(crm)crm.innerHTML='<span style="color:#f85149">⚠️ JS error — check console</span>';
-    }});
+      if(crm)crm.innerHTML='<span style="color:#f85149">⚠️ Error loading customer: '+e.message+'</span>';
+      const hist=document.getElementById('historyBody');
+      if(hist)hist.innerHTML='<span style="color:#f85149">⚠️ Error loading history</span>';
+    }})();
 
     function addNewCustomer() {
      const inst = PC_META.institution;
@@ -1912,9 +1937,8 @@
       const rows = document.getElementById('ph-rows');
       btn.textContent = 'Loading...'; btn.disabled = true;
       const descs = [];
-      document.querySelectorAll('#itemsTable tr').forEach(tr => {
-        const inputs = tr.querySelectorAll('input[type=text]');
-        inputs.forEach(inp => { if(inp.name && inp.name.startsWith('desc_') && inp.value.trim()) descs.push(inp.value.trim().substring(0,80)); });
+      document.querySelectorAll('textarea[name^=desc_]').forEach(ta => {
+        if(ta.value.trim()) descs.push(ta.value.trim().substring(0,80));
       });
       if (!descs.length) {
         rows.innerHTML = '<div style="color:#484f58;font-size:13px;padding:8px">No items found.</div>';
@@ -1948,10 +1972,26 @@
      costInputs.forEach(inp => {
       if (!parseFloat(inp.value)) unpriced++;
      });
-     if (unpriced === 0 || costInputs.length === 0) return;
+     if (unpriced === 0 || costInputs.length === 0) {
+      // All items priced — update banner
+      const banner = document.getElementById('autoStatusBanner');
+      if (banner) banner.style.display = 'none';
+      return;
+     }
+
+     function updateBanner(icon, text, color) {
+      const b = document.getElementById('autoStatusBanner');
+      if (b) {
+       b.style.borderColor = color + '40';
+       b.style.background = color + '0d';
+       b.style.color = color;
+       b.innerHTML = '<span style="font-size:18px">' + icon + '</span><div>' + text + '</div>';
+      }
+     }
 
      // Show auto-pricing status
-     showMsg('🔄 Auto-pricing: finding prices for ' + unpriced + '/' + costInputs.length + ' items...', 'warn');
+     updateBanner('🔄', '<b>Auto-pricing:</b> finding prices for ' + unpriced + '/' + costInputs.length + ' items...', '#d29922');
+     showMsg('🔄 Auto-pricing: checking Catalog → Amazon → SCPRS for ' + unpriced + ' items...', 'warn');
 
      // Step 1: Catalog match
      const items = [];
@@ -1985,55 +2025,68 @@
         if (typeof recalcRow === 'function') recalcRow(r.idx);
        });
       }
+      updateBanner('🔬', '<b>Step 2:</b> Catalog found ' + catFound + '. Searching Amazon + web...', '#58a6ff');
 
-      // Step 2: Web search for remaining unpriced items
+      // Step 2: Amazon / Web search for remaining unpriced items
       fetch('/api/pricecheck/{{ pcid }}/web-search',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(r=>r.json()).then(wd=>{
        let webFound = wd.found || 0;
        let total = catFound + webFound;
        if (total > 0) {
-        showMsg('✅ Auto-priced: ' + catFound + ' from catalog, ' + webFound + ' from web search. Reloading...', 'ok');
+        updateBanner('✅', '<b>Found prices!</b> ' + catFound + ' catalog + ' + webFound + ' web search. Reloading...', '#3fb950');
+        showMsg('✅ Auto-priced: ' + catFound + ' from catalog, ' + webFound + ' from web. Reloading...', 'ok');
         setTimeout(() => location.reload(), 1500);
        } else {
         // Try SCPRS as last resort
+        updateBanner('🔍', '<b>Step 3:</b> Checking SCPRS won quotes KB...', '#58a6ff');
         fetch('/pricecheck/{{ pcid }}/scprs-lookup').then(r=>r.json()).then(sd=>{
          let scprsFound = sd.found || 0;
          if(scprsFound > 0){
+          updateBanner('✅', '<b>Found prices!</b> ' + scprsFound + ' from SCPRS. Reloading...', '#3fb950');
           showMsg('✅ Auto-priced: ' + scprsFound + ' from SCPRS. Reloading...', 'ok');
           setTimeout(() => location.reload(), 1500);
          } else {
-          showMsg('ℹ️ No auto-matches. Use 🌐 Web Search or paste supplier URLs.', 'warn');
+          updateBanner('ℹ️', '<b>No auto-matches found.</b> Use 🔬 Amazon, 🌐 Web Search, or paste supplier URLs.', '#8b949e');
+          showMsg('ℹ️ No auto-matches found. Use the pricing buttons or paste supplier URLs.', 'warn');
          }
         }).catch(()=>{
-         showMsg('ℹ️ No auto-matches. Use 🌐 Web Search or paste supplier URLs.', 'warn');
+         updateBanner('ℹ️', '<b>No auto-matches found.</b> Use 🔬 Amazon, 🌐 Web Search, or paste supplier URLs.', '#8b949e');
+         showMsg('ℹ️ No auto-matches. Use the pricing buttons or paste supplier URLs.', 'warn');
         });
        }
       }).catch(() => {
        // Web search failed, try SCPRS alone
+       updateBanner('🔍', '<b>Web search unavailable.</b> Checking SCPRS...', '#d29922');
        fetch('/pricecheck/{{ pcid }}/scprs-lookup').then(r=>r.json()).then(sd=>{
         if(sd.found > 0){
          showMsg('✅ SCPRS: Found '+sd.found+' matches. Reloading...', 'ok');
+         updateBanner('✅', '<b>Found prices!</b> '+sd.found+' from SCPRS. Reloading...', '#3fb950');
          setTimeout(()=>location.reload(), 1500);
         } else if(catFound > 0){
          showMsg('✅ Catalog: '+catFound+' matches.', 'ok');
+         updateBanner('✅', '<b>Catalog:</b> '+catFound+' matches applied.', '#3fb950');
          recalcPC();
         }
        }).catch(()=>{});
       });
      }).catch(e => {
       console.warn('Auto-price catalog error:', e);
+      updateBanner('🔬', '<b>Searching Amazon + web...</b>', '#f0883e');
       // Catalog failed, try web search directly
       fetch('/api/pricecheck/{{ pcid }}/web-search',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(r=>r.json()).then(wd=>{
        if(wd.found > 0){
         showMsg('✅ Web search: Found ' + wd.found + ' prices. Reloading...', 'ok');
+        updateBanner('✅', '<b>Found prices!</b> '+wd.found+' from web search. Reloading...', '#3fb950');
         setTimeout(() => location.reload(), 1500);
        } else {
-        showMsg('ℹ️ No auto-matches. Use 🌐 Web Search or paste supplier URLs.', 'warn');
+        updateBanner('ℹ️', '<b>No auto-matches.</b> Use 🔬 Amazon, 🌐 Web Search, or paste supplier URLs.', '#8b949e');
+        showMsg('ℹ️ No auto-matches. Use the pricing buttons or paste supplier URLs.', 'warn');
        }
       }).catch(() => {
        // Last resort: SCPRS
        fetch('/pricecheck/{{ pcid }}/scprs-lookup').then(r=>r.json()).then(sd=>{
         if(sd.found > 0){
          showMsg('✅ SCPRS: Found '+sd.found+' matches. Reloading...', 'ok');
+         updateBanner('✅', '<b>Found!</b> '+sd.found+' from SCPRS. Reloading...', '#3fb950');
          setTimeout(()=>location.reload(), 1500);
         }
        }).catch(()=>{});
