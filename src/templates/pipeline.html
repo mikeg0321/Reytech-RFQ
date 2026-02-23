@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Pipeline — Reytech{% endblock %}
+
+{% block content %}
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+ <h2 style="margin:0;font-size:20px;font-weight:700">🔄 Pipeline Dashboard</h2>
+ <div style="font-size:12px;font-family:'JetBrains Mono',monospace;display:flex;gap:16px">
+  <span>📊 Leads: <b>{{ total_leads }}</b></span>
+  <span>📋 Quotes: <b>{{ total_quotes }}</b></span>
+  <span style="color:var(--gn)">💰 Pipeline: <b>${{ "{:,.0f}".format(total_pending) }}</b></span>
+  <span style="color:var(--gn)">🏆 Won: <b>${{ "{:,.0f}".format(total_won) }}</b></span>
+ </div>
+</div>
+
+<div class="bento bento-2">
+ <div class="card" style="margin:0">
+  <div class="card-t">📊 Sales Funnel</div>
+  {{ funnel|safe }}
+  <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--bd);display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
+   {% for label, value in [('Lead→Quote', lead_to_quote), ('Quote→Sent', quote_to_sent), ('Win Rate', sent_to_won), ('Won→Invoiced', won_to_invoiced)] %}
+   <div style="text-align:center;background:var(--sf2);padding:8px;border-radius:8px">
+    <div style="font-size:9px;color:var(--tx2);text-transform:uppercase">{{ label }}</div>
+    <div style="font-size:16px;font-weight:700{% if label == 'Win Rate' %};color:var(--gn){% endif %}">{{ value }}{% if value is number %}%{% endif %}</div>
+   </div>
+   {% endfor %}
+  </div>
+ </div>
+
+ <div class="card" style="margin:0">
+  <div class="card-t">🎯 Win Prediction — Active Quotes</div>
+  <div style="max-height:400px;overflow-y:auto">
+   {% if predictions_html %}{{ predictions_html|safe }}{% else %}<div style="color:var(--tx2);font-size:12px;padding:12px">No active quotes with predictions yet</div>{% endif %}
+  </div>
+ </div>
+</div>
+
+<div class="card" style="margin-top:14px">
+ <div class="card-t">⚡ Quick Actions</div>
+ <div style="display:flex;gap:8px;flex-wrap:wrap">
+  <a href="/quotes?status=pending" class="btn btn-s" style="font-size:12px">📋 Pending Quotes ({{ pending }})</a>
+  <a href="/quotes?status=sent" class="btn btn-s" style="font-size:12px">📤 Sent Quotes ({{ sent }})</a>
+  <a href="/orders" class="btn btn-s" style="font-size:12px">📦 Active Orders ({{ total_orders }})</a>
+  <button onclick="fetch('/api/poll-now').then(r=>r.json()).then(d=>alert(JSON.stringify(d,null,2)))" class="btn btn-p" style="font-size:12px">⚡ Check Inbox</button>
+ </div>
+</div>
+
+{% if rev %}
+<div style="margin-top:14px;padding:12px 16px;background:var(--sf);border:1px solid var(--bd);border-radius:10px">
+ <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
+  <span style="font-size:11px;color:var(--tx2);font-weight:600">📈 ANNUAL GOAL</span>
+  <div style="flex:1;background:var(--sf2);border-radius:8px;height:18px;overflow:hidden;position:relative">
+   <div style="background:{{ rev.color }};height:100%;width:{{ rev.pct }}%;border-radius:8px"></div>
+   <span style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:10px;font-weight:600">${{ "{:,.0f}".format(rev.closed) }} / ${{ "{:.0f}".format(rev.goal / 1000000) }}M ({{ "{:.0f}".format(rev.pct) }}%)</span>
+  </div>
+  <span style="font-size:11px;color:var(--tx2)">Gap: <b style="color:#f85149">${{ "{:,.0f}".format(rev.gap) }}</b></span>
+  <span style="font-size:11px;color:var(--tx2)">Run rate: <b style="color:{{ '#3fb950' if rev.on_track else '#f85149' }}">${{ "{:,.0f}".format(rev.run_rate) }}</b></span>
+ </div>
+</div>
+{% endif %}
+{% endblock %}

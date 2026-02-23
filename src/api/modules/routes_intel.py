@@ -1225,39 +1225,11 @@ def universal_search_page():
         </div>"""
 
     q_escaped = q.replace('"','&quot;')
-    return render(f"""
-     <!-- Search header -->
-     <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;flex-wrap:wrap">
-      <h2 style="margin:0;font-size:20px;font-weight:700">🔍 Search</h2>
-      {'<div style="font-size:13px;color:var(--tx2)">' + str(len(results)) + ' results for <b style="color:var(--tx)">"' + q + '"</b></div>' if q else ''}
-     </div>
-
-     <!-- Search form -->
-     <form method="get" action="/search" style="display:flex;gap:10px;margin-bottom:16px">
-      <div style="flex:1;display:flex;background:var(--sf);border:1.5px solid var(--ac);border-radius:10px;overflow:hidden">
-       <span style="padding:0 14px;font-size:18px;display:flex;align-items:center;color:var(--tx2)">🔍</span>
-       <input name="q" value="{q_escaped}" placeholder="Search quotes, contacts, buyers, orders, RFQs..." autofocus
-              style="flex:1;padding:14px 4px 14px 0;background:transparent;border:none;color:var(--tx);font-size:15px;outline:none" autocomplete="off">
-       <button type="submit" style="padding:14px 22px;background:var(--ac);border:none;color:#fff;font-size:14px;font-weight:700;cursor:pointer">Search</button>
-      </div>
-     </form>
-
-     <!-- Breakdown badges -->
-     {('<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">' + breakdown_html + '</div>') if breakdown_html else ''}
-
-     <!-- Results -->
-     <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;overflow:hidden">
-      {rows_html if rows_html else empty_state if q else '<div style="text-align:center;padding:48px;color:var(--tx2)"><div style="font-size:40px;margin-bottom:12px">🔍</div><div style="font-size:15px">Type a name, agency, quote number, or email above</div></div>'}
-     </div>
-
-     {'<div style="margin-top:10px;font-size:12px;color:var(--rd);padding:8px 12px;background:rgba(248,113,113,.1);border-radius:6px">Search error: ' + error + '</div>' if error else ''}
-
-     <!-- Data sources key -->
-     <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-      <span style="font-size:11px;color:var(--tx2)">Searches:</span>
-      {''.join(f'<span style="font-size:11px;padding:2px 8px;border-radius:8px;color:{c};background:{bg}">{lbl}</span>' for t,(c,bg,lbl) in type_styles.items())}
-     </div>
-    """, title=f'Search{" — " + q if q else ""}')
+    type_badges = ''.join(f'<span style="font-size:11px;padding:2px 8px;border-radius:8px;color:{c};background:{bg}">{lbl}</span>' for t,(c,bg,lbl) in type_styles.items())
+    return render_page("search.html", active_page="Search",
+        q=q, q_escaped=q_escaped, results=results,
+        rows_html=rows_html, breakdown_html=breakdown_html,
+        empty_state=empty_state, error=error, type_badges=type_badges)
 
 
 @bp.route("/quotes")
@@ -1642,86 +1614,32 @@ def pipeline_page():
              <span style="font-family:'JetBrains Mono',monospace">${q.get('total',0):,.0f}</span>
             </div>"""
 
-    content = f"""
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-     <h2 style="margin:0;font-size:20px;font-weight:700">🔄 Pipeline Dashboard</h2>
-     <div style="font-size:12px;font-family:'JetBrains Mono',monospace;display:flex;gap:16px">
-      <span>📊 Leads: <b>{total_leads}</b></span>
-      <span>📋 Quotes: <b>{total_quotes}</b></span>
-      <span style="color:var(--gn)">💰 Pipeline: <b>${total_pending:,.0f}</b></span>
-      <span style="color:var(--gn)">🏆 Won: <b>${total_won:,.0f}</b></span>
-     </div>
-    </div>
-
-    <div class="bento bento-2">
-     <div class="card" style="margin:0">
-      <div class="card-t">📊 Sales Funnel</div>
-      {funnel}
-      <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--bd);display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
-       <div style="text-align:center;background:var(--sf2);padding:8px;border-radius:8px">
-        <div style="font-size:9px;color:var(--tx2);text-transform:uppercase">Lead→Quote</div>
-        <div style="font-size:16px;font-weight:700">{lead_to_quote}{'%' if isinstance(lead_to_quote,int) else ''}</div>
-       </div>
-       <div style="text-align:center;background:var(--sf2);padding:8px;border-radius:8px">
-        <div style="font-size:9px;color:var(--tx2);text-transform:uppercase">Quote→Sent</div>
-        <div style="font-size:16px;font-weight:700">{quote_to_sent}{'%' if isinstance(quote_to_sent,int) else ''}</div>
-       </div>
-       <div style="text-align:center;background:var(--sf2);padding:8px;border-radius:8px">
-        <div style="font-size:9px;color:var(--tx2);text-transform:uppercase">Win Rate</div>
-        <div style="font-size:16px;font-weight:700;color:var(--gn)">{sent_to_won}{'%' if isinstance(sent_to_won,int) else ''}</div>
-       </div>
-       <div style="text-align:center;background:var(--sf2);padding:8px;border-radius:8px">
-        <div style="font-size:9px;color:var(--tx2);text-transform:uppercase">Won→Invoiced</div>
-        <div style="font-size:16px;font-weight:700">{won_to_invoiced}{'%' if isinstance(won_to_invoiced,int) else ''}</div>
-       </div>
-      </div>
-     </div>
-
-     <div class="card" style="margin:0">
-      <div class="card-t">🎯 Win Prediction — Active Quotes</div>
-      <div style="max-height:400px;overflow-y:auto">
-       {predictions_html if predictions_html else '<div style="color:var(--tx2);font-size:12px;padding:12px">No active quotes with predictions yet</div>'}
-      </div>
-     </div>
-    </div>
-
-    <div class="card" style="margin-top:14px">
-     <div class="card-t">⚡ Quick Actions</div>
-     <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <a href="/quotes?status=pending" class="btn btn-s" style="font-size:12px">📋 Pending Quotes ({pending})</a>
-      <a href="/quotes?status=sent" class="btn btn-s" style="font-size:12px">📤 Sent Quotes ({sent})</a>
-      <a href="/orders" class="btn btn-s" style="font-size:12px">📦 Active Orders ({total_orders})</a>
-      <button onclick="fetch('/api/poll-now').then(r=>r.json()).then(d=>alert(JSON.stringify(d,null,2)))" class="btn btn-p" style="font-size:12px">⚡ Check Inbox</button>
-     </div>
-    </div>
-    """
-    # BI Revenue bar (secondary — data layer only)
+    # BI Revenue bar data
+    rev_data = None
     try:
         rev = update_revenue_tracker() if INTEL_AVAILABLE else {}
         if rev.get("ok"):
             rv_pct = min(100, rev.get("pct_to_goal", 0))
-            rv_closed = rev.get("closed_revenue", 0)
-            rv_goal = rev.get("goal", 2000000)
-            rv_gap = rev.get("gap_to_goal", 0)
-            rv_rate = rev.get("run_rate_annual", 0)
-            rv_on = rev.get("on_track", False)
-            rv_color = "#3fb950" if rv_pct >= 50 else "#d29922" if rv_pct >= 25 else "#f85149"
-            content += f"""
-    <div style="margin-top:14px;padding:12px 16px;background:var(--sf);border:1px solid var(--bd);border-radius:10px">
-     <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
-      <span style="font-size:11px;color:var(--tx2);font-weight:600">📈 ANNUAL GOAL</span>
-      <div style="flex:1;background:var(--sf2);border-radius:8px;height:18px;overflow:hidden;position:relative">
-       <div style="background:{rv_color};height:100%;width:{rv_pct}%;border-radius:8px"></div>
-       <span style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:10px;font-weight:600">${rv_closed:,.0f} / ${rv_goal/1e6:.0f}M ({rv_pct:.0f}%)</span>
-      </div>
-      <span style="font-size:11px;color:var(--tx2)">Gap: <b style="color:#f85149">${rv_gap:,.0f}</b></span>
-      <span style="font-size:11px;color:var(--tx2)">Run rate: <b style="color:{'#3fb950' if rv_on else '#f85149'}">${rv_rate:,.0f}</b></span>
-     </div>
-    </div>"""
+            rev_data = {
+                "pct": rv_pct,
+                "closed": rev.get("closed_revenue", 0),
+                "goal": rev.get("goal", 2000000),
+                "gap": rev.get("gap_to_goal", 0),
+                "run_rate": rev.get("run_rate_annual", 0),
+                "on_track": rev.get("on_track", False),
+                "color": "#3fb950" if rv_pct >= 50 else "#d29922" if rv_pct >= 25 else "#f85149",
+            }
     except Exception:
         pass
-    content += ""
-    return render(content, title="Pipeline")
+
+    return render_page("pipeline.html", active_page="Pipeline",
+        total_leads=total_leads, total_quotes=total_quotes,
+        total_pending=total_pending, total_won=total_won,
+        funnel=funnel, predictions_html=predictions_html,
+        lead_to_quote=lead_to_quote, quote_to_sent=quote_to_sent,
+        sent_to_won=sent_to_won, won_to_invoiced=won_to_invoiced,
+        pending=pending, sent=sent, total_orders=total_orders,
+        rev=rev_data)
 
 
 # ═══════════════════════════════════════════════════════════════════════

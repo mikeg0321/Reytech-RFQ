@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Search{% if q %} — {{ q }}{% endif %} — Reytech{% endblock %}
+
+{% block content %}
+<!-- Search header -->
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;flex-wrap:wrap">
+ <h2 style="margin:0;font-size:20px;font-weight:700">🔍 Search</h2>
+ {% if q %}<div style="font-size:13px;color:var(--tx2)">{{ results|length }} results for <b style="color:var(--tx)">"{{ q }}"</b></div>{% endif %}
+</div>
+
+<!-- Search form -->
+<form method="get" action="/search" style="display:flex;gap:10px;margin-bottom:16px">
+ <div style="flex:1;display:flex;background:var(--sf);border:1.5px solid var(--ac);border-radius:10px;overflow:hidden">
+  <span style="padding:0 14px;font-size:18px;display:flex;align-items:center;color:var(--tx2)">🔍</span>
+  <input name="q" value="{{ q_escaped }}" placeholder="Search quotes, contacts, buyers, orders, RFQs..." autofocus
+         style="flex:1;padding:14px 4px 14px 0;background:transparent;border:none;color:var(--tx);font-size:15px;outline:none" autocomplete="off">
+  <button type="submit" style="padding:14px 22px;background:var(--ac);border:none;color:#fff;font-size:14px;font-weight:700;cursor:pointer">Search</button>
+ </div>
+</form>
+
+<!-- Breakdown badges -->
+{% if breakdown_html %}
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">{{ breakdown_html|safe }}</div>
+{% endif %}
+
+<!-- Results -->
+<div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;overflow:hidden">
+ {% if rows_html %}
+   {{ rows_html|safe }}
+ {% elif q %}
+   {{ empty_state|safe }}
+ {% else %}
+   <div style="text-align:center;padding:48px;color:var(--tx2)"><div style="font-size:40px;margin-bottom:12px">🔍</div><div style="font-size:15px">Type a name, agency, quote number, or email above</div></div>
+ {% endif %}
+</div>
+
+{% if error %}
+<div style="margin-top:10px;font-size:12px;color:var(--rd);padding:8px 12px;background:rgba(248,113,113,.1);border-radius:6px">Search error: {{ error }}</div>
+{% endif %}
+
+<!-- Data sources key -->
+<div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+ <span style="font-size:11px;color:var(--tx2)">Searches:</span>
+ {{ type_badges|safe }}
+</div>
+{% endblock %}
