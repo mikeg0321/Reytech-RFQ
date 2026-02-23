@@ -1,0 +1,317 @@
+{% extends "base.html" %}
+{% block title %}Growth Engine — Reytech{% endblock %}
+
+{% block content %}
+
+    <style>
+     .card {background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px;margin-bottom:16px}
+     .card h3 {font-size:15px;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+     .g-btn {padding:8px 16px;border-radius:8px;border:1px solid var(--bd);background:var(--sf2);color:var(--tx);cursor:pointer;font-size:13px;font-weight:600;transition:all .15s}
+     .g-btn:hover {background:var(--ac);color:#000;border-color:var(--ac)}
+     .g-btn-go {background:rgba(52,211,153,.12);color:#3fb950;border-color:rgba(52,211,153,.3)}
+     .g-btn-warn {background:rgba(210,153,34,.12);color:#d29922;border-color:rgba(210,153,34,.3)}
+     .g-btn-red {background:rgba(248,113,113,.12);color:#f85149;border-color:rgba(248,113,113,.3)}
+     .act-btn {background:none;border:none;cursor:pointer;font-size:14px;padding:2px 4px;opacity:.7;transition:opacity .15s}
+     .act-btn:hover {opacity:1}
+     table {width:100%;border-collapse:collapse;font-size:12px}
+     th {text-align:left;padding:6px 8px;border-bottom:2px solid var(--bd);font-size:11px;color:var(--tx2);text-transform:uppercase}
+     td {padding:6px 8px;border-bottom:1px solid var(--bd)}
+     .mono {font-family:'JetBrains Mono',monospace}
+     #progress-bar {display:{{ 'block' if progress_visible else 'none' }};background:var(--sf2);padding:10px;border-radius:8px;margin-bottom:12px;font-size:12px}
+    </style>
+
+    <h1>🚀 Growth Engine</h1>
+    <div style="color:var(--tx2);font-size:13px;margin-bottom:16px">
+     SCPRS-driven proactive outreach — mine Reytech history → find all buyers → email → voice follow-up
+    </div>
+
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">{{ step1|safe }} → {{ step2|safe }} → {{ step3|safe }} → {{ step4|safe }}</div>
+
+    <div id="progress-bar">
+     <span id="progress-text">{{ progress_text }}</span>
+    </div>
+
+    <div class="card">
+     <h3>⚡ Actions</h3>
+     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+      <button class="g-btn g-btn-go" style="font-size:14px;padding:10px 20px" onclick="createCampaign()">🚀 Create Campaign</button>
+      <button class="g-btn" onclick="autoStartNurture()" title="Start drip sequences for all new leads with email">🌱 Auto-Nurture New Leads</button>
+      <button class="g-btn" onclick="rescoreLeads()" title="Recalculate lead scores with latest activity">📊 Rescore Leads</button>
+      <button class="g-btn g-btn-warn" onclick="viewPipeline()" title="View unified lead pipeline">🔄 Lead Pipeline</button>
+     </div>
+     <div style="font-size:11px;color:var(--tx2);margin-bottom:12px">
+      Mines SCPRS for all buyers → scores by opportunity → emails top prospects → auto-schedules voice follow-up in 3-5 days
+     </div>
+     <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="g-btn" onclick="runStep('/api/growth/pull-history')">📥 Pull Reytech History</button>
+      <button class="g-btn" onclick="runStep('/api/growth/find-buyers')">🔍 Find Buyers</button>
+      <button class="g-btn" onclick="runStep('/api/growth/outreach?dry_run=true')">👁️ Preview Emails</button>
+      <button class="g-btn g-btn-warn" onclick="if(confirm('Send real emails to prospects?')) runStep('/api/growth/outreach?dry_run=false')">📧 Send Emails</button>
+      <button class="g-btn" onclick="runStep('/api/growth/follow-ups')">📋 Follow-Ups</button>
+      <button class="g-btn" onclick="if(confirm('Auto-dial non-responders?')) runStep('/api/growth/voice-follow-up')">📞 Voice Follow-Up</button>
+      <button class="g-btn" onclick="runStep('/api/growth/scan-bounces')">🔍 Scan Bounces</button>
+      <button class="g-btn" onclick="runStep('/api/growth/campaigns')">📊 Stats</button>
+     </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
+     <div class="card" style="text-align:center">
+      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;letter-spacing:1px">Reytech POs</div>
+      <div style="font-size:28px;font-weight:700;color:var(--ac)">{{ h_total_pos }}</div>
+      <div style="font-size:10px;color:var(--tx2)">{{ h_total_items }} items</div>
+     </div>
+     <div class="card" style="text-align:center">
+      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;letter-spacing:1px">Categories</div>
+      <div style="font-size:28px;font-weight:700;color:#bc8cff">{{ c_total }}</div>
+      <div style="font-size:10px;color:var(--tx2)">product groups</div>
+     </div>
+     <div class="card" style="text-align:center">
+      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;letter-spacing:1px">Prospects</div>
+      <div style="font-size:28px;font-weight:700;color:#d29922">{{ p_total }}</div>
+      <div style="font-size:10px;color:var(--tx2)">buyers found</div>
+     </div>
+     <div class="card" style="text-align:center">
+      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;letter-spacing:1px">Outreach</div>
+      <div style="font-size:28px;font-weight:700;color:#3fb950">{{ o_total_sent }}</div>
+      <div style="font-size:10px;color:var(--tx2)">{{ total_no_response }} pending follow-up</div>
+     </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
+     <div class="card" style="text-align:center">
+      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase">📧 Emailed</div>
+      <div style="font-size:22px;font-weight:700;color:#58a6ff">{{ total_emailed }}</div>
+     </div>
+     <div class="card" style="text-align:center">
+      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase">✅ Responded</div>
+      <div style="font-size:22px;font-weight:700;color:#3fb950">{{ total_responded }}</div>
+     </div>
+     <div class="card" style="text-align:center">
+      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase">⛔ Bounced</div>
+      <div style="font-size:22px;font-weight:700;color:#f85149">{{ total_bounced }}</div>
+     </div>
+     <div class="card" style="text-align:center">
+      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase">📞 Called</div>
+      <div style="font-size:22px;font-weight:700;color:#bc8cff">{{ total_called }}</div>
+     </div>
+    </div>
+
+    {% if cat_rows %}
+<div class="card"><h3>📂 Item Categories</h3><table><thead><tr><th>Category</th><th>Items</th><th>POs</th><th>Total Value</th><th>Sample Items</th></tr></thead><tbody>{{ cat_rows|safe }}</tbody></table></div>
+{% endif %}
+
+    {% if prospect_rows %}
+<div class="card"><h3>🎯 Prospect Pipeline ({{ prospect_count }})</h3><div style="max-height:500px;overflow:auto"><table><thead><tr><th>Agency</th><th>Buyer</th><th>Email</th><th>Phone</th><th>POs</th><th>Spend</th><th>Categories</th><th>Status</th><th>Actions</th></tr></thead><tbody>{{ prospect_rows|safe }}</tbody></table></div></div>
+{% endif %}
+
+    <div id="result" style="display:none;background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px;margin-top:12px;max-height:600px;overflow:auto">
+     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <span style="font-weight:600;font-size:13px" id="result-title">Result</span>
+      <button onclick="document.getElementById('result').style.display='none'" style="background:none;border:none;color:var(--tx2);cursor:pointer">✕</button>
+     </div>
+     <div id="result-emails" style="display:none"></div>
+     <pre id="result-content" style="font-size:11px;white-space:pre-wrap;word-break:break-word;margin:0"></pre>
+    </div>
+
+    <!-- Existing Email Drafts -->
+    <div class="card" id="drafts-section">
+     <h3>📨 Email Drafts from Campaigns</h3>
+     <div id="drafts-container">
+      <div style="color:var(--tx2);font-size:12px">Loading drafts...</div>
+     </div>
+    </div>
+
+    <script>
+    function createCampaign() {
+      const mode = confirm('Send real emails to prospects?\\n\\nOK = Send emails (live)\\nCancel = Preview only (dry run)');
+      const body = { dry_run: !mode, max_prospects: 50 };
+      fetch('/api/growth/create-campaign', {
+        method: 'POST', credentials: 'same-origin',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body)
+      }).then(r => r.json()).then(data => {
+        showResult(data);
+        if (data.ok) pollProgress();
+      }).catch(e => showResultRaw('Error: ' + e));
+    }
+
+    function runStep(url) {
+      fetch(url, {credentials:'same-origin'}).then(r=>r.json()).then(data => {
+        showResult(data);
+        if (data.message && data.message.includes('Check')) pollProgress();
+      }).catch(e => showResultRaw('Error: ' + e));
+    }
+
+    function showResult(data) {
+      const el = document.getElementById('result');
+      const emails = document.getElementById('result-emails');
+      const pre = document.getElementById('result-content');
+      const title = document.getElementById('result-title');
+      el.style.display = 'block';
+
+      // If response has preview emails, render them as cards
+      if (data.preview && data.preview.length > 0) {
+        title.textContent = (data.dry_run ? '👁️ Preview' : '📧 Sent') + ': ' + data.emails_built + ' emails';
+        emails.style.display = 'block';
+        pre.style.display = 'none';
+        emails.innerHTML = data.preview.map((e, i) => {
+          const gmailUrl = 'https://mail.google.com/mail/?view=cm&to=' + encodeURIComponent(e.to) + '&su=' + encodeURIComponent(e.subject) + '&body=' + encodeURIComponent(e.body || '');
+          const bodyContent = e.body_html || e.body || '(no body)';
+          const isHtml = !!e.body_html;
+          return `
+          <div style="background:var(--sf2);border:1px solid var(--bd);border-radius:8px;padding:12px;margin-bottom:10px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <span style="font-size:11px;color:var(--tx2)">#${i+1}</span>
+              <div style="display:flex;gap:6px;align-items:center">
+                <a href="${gmailUrl}" target="_blank" style="font-size:10px;padding:3px 8px;border-radius:6px;background:rgba(79,140,255,.12);color:var(--ac);text-decoration:none;font-weight:600;border:1px solid rgba(79,140,255,.3)">📧 Open in Gmail</a>
+                <a href="mailto:${e.to}?subject=${encodeURIComponent(e.subject)}&body=${encodeURIComponent(e.body || '')}" style="font-size:10px;padding:3px 8px;border-radius:6px;background:rgba(139,148,160,.1);color:var(--tx2);text-decoration:none;border:1px solid var(--bd)">✉️ mailto</a>
+                <span style="font-size:10px;padding:2px 8px;border-radius:10px;background:${data.dry_run?'rgba(210,153,34,.1)':'rgba(52,211,153,.1)'};color:${data.dry_run?'#d29922':'#3fb950'};font-weight:600">${data.dry_run?'DRAFT':'SENT'}</span>
+              </div>
+            </div>
+            <div style="font-size:12px;margin-bottom:4px"><strong>To:</strong> <a href="mailto:${e.to}" style="color:var(--ac)">${e.to}</a> <span style="color:var(--tx2)">(${e.agency})</span></div>
+            <div style="font-size:12px;margin-bottom:8px;color:var(--ac)"><strong>Subject:</strong> ${e.subject}</div>
+            <div style="font-size:12px;line-height:1.5;color:var(--tx);background:var(--sf);padding:10px;border-radius:6px;border:1px solid var(--bd);max-height:200px;overflow:auto">${isHtml ? bodyContent : '<pre style="white-space:pre-wrap;margin:0;font-family:inherit">' + bodyContent + '</pre>'}</div>
+          </div>
+        `}).join('');
+        // Also reload drafts section
+        loadDrafts();
+      } else {
+        emails.style.display = 'none';
+        pre.style.display = 'block';
+        title.textContent = 'Result';
+        pre.textContent = JSON.stringify(data, null, 2);
+      }
+    }
+
+    function showResultRaw(text) {
+      const el = document.getElementById('result');
+      el.style.display = 'block';
+      document.getElementById('result-emails').style.display = 'none';
+      document.getElementById('result-content').style.display = 'block';
+      document.getElementById('result-content').textContent = text;
+    }
+
+    function crmPost(url, body) {
+      return fetch(url, {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)}).then(r=>r.json());
+    }
+
+    function markResponded(pid) {
+      const detail = prompt('Response details (optional):','Email reply received');
+      if (detail === null) return;
+      crmPost('/api/growth/prospect/'+pid+'/responded', {response_type:'email_reply', detail:detail}).then(d => {
+        if (d.ok) { alert('Marked as responded'); location.reload(); }
+        else alert(d.error || 'Failed');
+      });
+    }
+
+    function markBounced(pid, email) {
+      if (!confirm('Mark ' + email + ' as bounced?')) return;
+      const reason = prompt('Bounce reason:', 'Mailbox not found');
+      if (reason === null) return;
+      crmPost('/api/growth/bounceback', {email:email, reason:reason}).then(d => {
+        if (d.ok) { alert('Marked as bounced'); location.reload(); }
+        else alert(d.error || 'Failed');
+      });
+    }
+
+    function markWon(pid) {
+      crmPost('/api/growth/prospect/'+pid, {outreach_status:'won'}).then(d => {
+        if (d.ok) { alert('Marked as won!'); location.reload(); }
+        else alert(d.error || 'Failed');
+      });
+    }
+
+    // Load existing email drafts from all campaigns
+    function loadDrafts() {
+      fetch('/api/growth/campaigns', {credentials:'same-origin'}).then(r=>r.json()).then(data => {
+        const container = document.getElementById('drafts-container');
+        if (!data.ok || !data.campaigns || data.campaigns.length === 0) {
+          container.innerHTML = '<div style="color:var(--tx2);font-size:12px;padding:8px">No campaigns yet. Click 👁️ Preview Emails or 🚀 Create Campaign.</div>';
+          return;
+        }
+        let html = '';
+        data.campaigns.forEach((camp, ci) => {
+          const entries = camp.outreach || [];
+          const sentCount = entries.filter(e => e.email_sent).length;
+          const draftCount = entries.length - sentCount;
+          const isDry = camp.dry_run;
+          html += `<div style="margin-bottom:12px">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+              <span style="font-weight:600;font-size:12px">${camp.id || 'Campaign '+(ci+1)}</span>
+              <span style="font-size:10px;padding:2px 6px;border-radius:8px;background:${isDry?'rgba(210,153,34,.1)':'rgba(52,211,153,.1)'};color:${isDry?'#d29922':'#3fb950'}">${isDry?'DRY RUN':'LIVE'}</span>
+              <span style="font-size:10px;color:var(--tx2)">${entries.length} emails (${sentCount} sent, ${draftCount} draft)</span>
+            </div>`;
+          entries.slice(0, 5).forEach((e, ei) => {
+            const subj = e.subject || e.email_subject || '(no subject)';
+            const body = e.body_html || e.body || e.email_body || '';
+            const bodyPlain = e.body || e.email_body || '';
+            const isHtml = !!e.body_html;
+            const gmailUrl = 'https://mail.google.com/mail/?view=cm&to=' + encodeURIComponent(e.email || '') + '&su=' + encodeURIComponent(subj) + '&body=' + encodeURIComponent(bodyPlain);
+            html += `<details style="margin-bottom:4px;font-size:12px">
+              <summary style="cursor:pointer;padding:4px 8px;border-radius:4px;background:var(--sf2);display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                <span style="color:var(--tx2)">${e.email || ''}</span> — <span style="color:var(--ac)">${subj.substring(0,60)}</span>
+                ${e.email_sent ? '<span style="color:#3fb950;font-size:10px">✅ SENT</span>' : '<span style="color:#d29922;font-size:10px">📝 DRAFT</span>'}
+                <a href="${gmailUrl}" target="_blank" onclick="event.stopPropagation()" style="font-size:9px;padding:2px 6px;border-radius:4px;background:rgba(79,140,255,.12);color:var(--ac);text-decoration:none;border:1px solid rgba(79,140,255,.3);margin-left:auto">📧 Gmail</a>
+              </summary>
+              <div style="padding:8px;margin:4px 0 4px 16px;font-size:12px;line-height:1.4;background:var(--sf);border-radius:4px;border:1px solid var(--bd);max-height:180px;overflow:auto">${isHtml ? body : '<pre style="white-space:pre-wrap;margin:0;font-family:inherit">' + body + '</pre>'}</div>
+            </details>`;
+          });
+          if (entries.length > 5) html += `<div style="font-size:10px;color:var(--tx2);padding-left:8px">...and ${entries.length-5} more</div>`;
+          html += '</div>';
+        });
+        container.innerHTML = html;
+      }).catch(() => {
+        document.getElementById('drafts-container').innerHTML = '<div style="color:#f85149;font-size:12px">Failed to load drafts</div>';
+      });
+    }
+
+    let pollTimer = null;
+    function pollProgress() {
+      if (pollTimer) clearInterval(pollTimer);
+      const bar = document.getElementById('progress-bar');
+      const txt = document.getElementById('progress-text');
+      bar.style.display = 'block';
+      pollTimer = setInterval(() => {
+        Promise.all([
+          fetch('/api/growth/pull-status',{credentials:'same-origin'}).then(r=>r.json()),
+          fetch('/api/growth/buyer-status',{credentials:'same-origin'}).then(r=>r.json())
+        ]).then(([pull, buyer]) => {
+          const running = pull.running || buyer.running;
+          txt.textContent = pull.running ? pull.progress : buyer.running ? buyer.progress : 'Complete — refresh page to see results';
+          if (!running) {
+            clearInterval(pollTimer);
+            setTimeout(() => location.reload(), 2000);
+          }
+        });
+      }, 3000);
+    }
+    // Load drafts on page load
+    loadDrafts();
+    {% if progress_visible %}pollProgress();{% endif %}
+    </script>
+    
+<script>
+function autoStartNurture(){
+  fetch('/api/leads/nurture/auto-start',{method:'POST',credentials:'same-origin'})
+  .then(r=>r.json()).then(d=>{
+    alert(d.ok?'Started nurture for '+d.started+' leads':'Failed: '+(d.error||'unknown'));
+  });
+}
+function rescoreLeads(){
+  fetch('/api/leads/rescore',{method:'POST',credentials:'same-origin'})
+  .then(r=>r.json()).then(d=>{
+    alert(d.ok?'Rescored: '+d.rescored+' leads updated':'Failed');
+  });
+}
+function viewPipeline(){
+  fetch('/api/leads/pipeline').then(r=>r.json()).then(d=>{
+    if(!d.total){alert('No leads in pipeline');return;}
+    let msg = 'Lead Pipeline: '+d.total+' total\n';
+    for(const[s,c_] of Object.entries(d.by_status||{})){msg += s+': '+c_+'\n';}
+    msg += '\nAvg Score: '+d.avg_score;
+    alert(msg);
+  });
+}
+</script>
+
+{% endblock %}

@@ -229,165 +229,22 @@ def page_intel_growth():
     elif no_data:
         pull_banner = '<div style="background:rgba(220,38,38,.06);border:1px solid var(--rd);border-radius:8px;padding:14px 18px;margin-bottom:16px"><div style="font-size:14px;font-weight:700;color:var(--rd)">📡 No SCPRS data yet</div><div style="font-size:13px;color:var(--tx2);margin-top:4px">Click "Pull All Agencies" to search public SCPRS records for what every agency is buying. Takes 10-15 min. Runs automatically after that.</div></div>'
 
-    return _header("Growth Intel") + f"""
-<style>
-.card{{background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:16px}}
-th{{padding:7px 12px;font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;border-bottom:2px solid var(--bd);white-space:nowrap}}
-table{{width:100%;border-collapse:collapse}}
-.tab{{padding:6px 14px;border-radius:6px;border:1px solid var(--bd);cursor:pointer;font-size:12px;background:none;color:var(--tx)}}
-.tab.active{{background:var(--ac);color:white;border-color:var(--ac)}}
-</style>
-
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-  <div>
-    <h2 style="font-size:22px;font-weight:700">📈 Growth Intelligence</h2>
-    <p style="color:var(--tx2);font-size:13px;margin-top:2px">SCPRS-powered gap analysis · What to sell · Who to beat · Why we lost</p>
-  </div>
-  <div style="display:flex;gap:8px">
-    <button onclick="pullAll('P0')" style="padding:7px 16px;background:var(--ac);color:white;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">{'⏳ Running...' if running else '📡 Pull All Agencies'}</button>
-    <button onclick="pullAll('all')" style="padding:7px 14px;border:1px solid var(--bd);background:none;color:var(--tx);border-radius:6px;font-size:12px;cursor:pointer">Deep Pull (all products)</button>
-    <button onclick="runMonitor()" style="padding:7px 14px;border:1px solid var(--bd);background:none;color:var(--tx);border-radius:6px;font-size:12px;cursor:pointer">🔍 Check Lost Quotes</button>
-  </div>
-</div>
-
-{pull_banner}
-
-<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:20px">
-  <div class="card" style="text-align:center">
-    <div style="font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Agencies Loaded</div>
-    <div style="font-size:28px;font-weight:800;color:var(--ac)">{agencies_loaded}<span style="font-size:14px;color:var(--tx2)">/8</span></div>
-  </div>
-  <div class="card" style="text-align:center">
-    <div style="font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Line Items</div>
-    <div style="font-size:28px;font-weight:800;color:var(--tx)">{total_lines:,}</div>
-  </div>
-  <div class="card" style="text-align:center">
-    <div style="font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Gap Spend Found</div>
-    <div style="font-size:26px;font-weight:800;color:var(--rd)">${total_gap_spend:,.0f}</div>
-    <div style="font-size:10px;color:var(--tx2)">buying from others</div>
-  </div>
-  <div class="card" style="text-align:center">
-    <div style="font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Win-Back</div>
-    <div style="font-size:26px;font-weight:800;color:var(--gn)">${total_wb_spend:,.0f}</div>
-    <div style="font-size:10px;color:var(--tx2)">we sell, they buy elsewhere</div>
-  </div>
-  <div class="card" style="text-align:center">
-    <div style="font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Quotes Auto-Closed</div>
-    <div style="font-size:28px;font-weight:800;color:var(--tx)">{auto_closed}</div>
-    <div style="font-size:10px;color:var(--tx2)">lost via PO monitor</div>
-  </div>
-</div>
-
-<!-- DVBE Insight Banner -->
-<div style="background:linear-gradient(135deg,rgba(22,163,74,.08),rgba(37,99,235,.08));border:1px solid rgba(22,163,74,.3);border-radius:10px;padding:14px 20px;margin-bottom:20px;display:flex;align-items:center;gap:16px">
-  <div style="font-size:28px">🏅</div>
-  <div style="flex:1">
-    <div style="font-size:14px;font-weight:700;color:var(--gn)">Your DVBE Cert is a Revenue Engine</div>
-    <div style="font-size:12px;color:var(--tx2);margin-top:3px;line-height:1.6">
-      CA law mandates that state agencies allocate <strong>3% of spend to DVBE suppliers</strong>. 
-      Cardinal Health, McKesson, Grainger — none of them have this cert. When you quote against them, 
-      lead with DVBE. Agencies NEED your cert to hit their quota. You can be priced higher and still win.
-      <span style="color:var(--ac);font-weight:600"> Also consider approaching these large distributors as their DVBE subcontractor on state bids.</span>
-    </div>
-  </div>
-  <div style="text-align:right;flex-shrink:0">
-    <div style="font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px">DVBE Mandate</div>
-    <div style="font-size:22px;font-weight:800;color:var(--gn)">3%</div>
-    <div style="font-size:11px;color:var(--tx2)">of all state spend</div>
-  </div>
-</div>
-
-<!-- RECOMMENDATIONS — the heart of it -->
-<div style="margin-bottom:24px">
-  <div style="font-size:13px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">
-    🎯 What To Do Next — Ranked by Revenue Impact
-  </div>
-  {rec_html if rec_html else '<div class="card" style="text-align:center;padding:32px;color:var(--tx2)">Pull SCPRS data to generate recommendations</div>'}
-</div>
-
-<!-- TABS -->
-<div style="display:flex;gap:8px;margin-bottom:14px">
-  <button class="tab active" onclick="showTab(this,'gaps')">🚨 Gaps ({len(gaps)})</button>
-  <button class="tab" onclick="showTab(this,'winback')">⚔️ Win-Back ({len(win_back)})</button>
-  <button class="tab" onclick="showTab(this,'losses')">📉 Lost Quotes ({len(losses)})</button>
-  <button class="tab" onclick="showTab(this,'coverage')">📡 Agency Coverage</button>
-</div>
-
-<div id="tab-gaps" class="card" style="padding:0;overflow-x:auto">
-  <table>
-    <thead><tr><th>Item CCHCS/Agencies Buy</th><th>Category</th><th>Agencies</th><th style="text-align:center">Orders</th><th style="text-align:right">Avg Price</th><th style="text-align:right">Annual Spend</th></tr></thead>
-    <tbody>{gap_rows if gap_rows else '<tr><td colspan="6" style="padding:24px;text-align:center;color:var(--tx2)">Pull data to see gaps →</td></tr>'}</tbody>
-  </table>
-</div>
-
-<div id="tab-winback" class="card" style="padding:0;overflow-x:auto;display:none">
-  <table>
-    <thead><tr><th>Item We Sell</th><th>Our SKU</th><th>Current Vendor</th><th>Agencies</th><th style="text-align:right">Their Price</th><th style="text-align:right">Spend</th></tr></thead>
-    <tbody>{wb_rows if wb_rows else '<tr><td colspan="6" style="padding:16px;text-align:center;color:var(--tx2)">Pull data to see win-back opportunities</td></tr>'}</tbody>
-  </table>
-</div>
-
-<div id="tab-losses" class="card" style="padding:0;overflow-x:auto;display:none">
-  <div style="padding:10px 14px;font-size:12px;color:var(--tx2);border-bottom:1px solid var(--bd)">
-    Auto-detected via SCPRS PO monitor. When SCPRS shows another vendor won a PO you quoted, the quote is automatically closed-lost and their price is saved to your pricing intelligence.
-  </div>
-  <table>
-    <thead><tr><th>Quote</th><th>Agency / Facility</th><th>Who Won</th><th style="text-align:right">Winner Price</th><th style="text-align:right">Our Quote</th><th style="text-align:right">Diff</th></tr></thead>
-    <tbody>{loss_rows if loss_rows else '<tr><td colspan="6" style="padding:16px;text-align:center;color:var(--tx2)">No auto-closed quotes yet — run "Check Lost Quotes"</td></tr>'}</tbody>
-  </table>
-</div>
-
-<div id="tab-coverage" class="card" style="padding:0;overflow-x:auto;display:none">
-  <div style="padding:10px 14px;font-size:12px;color:var(--tx2);border-bottom:1px solid var(--bd)">
-    Pull schedule — SCPRS data freshness per agency
-  </div>
-  <table>
-    <thead><tr><th>Agency</th><th>Status</th><th>Last Pull</th><th>Frequency</th><th>Action</th></tr></thead>
-    <tbody>{ag_rows}</tbody>
-  </table>
-</div>
-
-<script>
-function showTab(btn, name) {{
-  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-  btn.classList.add('active');
-  ['gaps','winback','losses','coverage'].forEach(t => {{
-    document.getElementById('tab-' + t).style.display = t === name ? '' : 'none';
-  }});
-}}
-function pullAll(priority) {{
-  fetch('/api/intel/scprs/pull-all', {{
-    method:'POST', headers:{{'Content-Type':'application/json'}},
-    credentials:'same-origin', body: JSON.stringify({{priority}})
-  }}).then(r=>r.json()).then(()=>{{ startPolling(); }});
-}}
-function pullAgency(agency) {{
-  fetch('/api/cchcs/intel/pull', {{
-    method:'POST', headers:{{'Content-Type':'application/json'}},
-    credentials:'same-origin', body: JSON.stringify({{priority:'all', agency}})
-  }}).then(r=>r.json()).then(()=>{{ startPolling(); }});
-}}
-function runMonitor() {{
-  fetch('/api/intel/scprs/po-monitor', {{
-    method:'POST', credentials:'same-origin'
-  }}).then(r=>r.json()).then(d=>{{
-    alert('Monitor complete: ' + (d.auto_closed_lost||0) + ' quotes auto-closed, ' + (d.matches_found||0) + ' matches found');
-    location.reload();
-  }});
-}}
-let pollTimer;
-function startPolling() {{
-  clearInterval(pollTimer);
-  pollTimer = setInterval(()=>{{
-    fetch('/api/intel/scprs/engine-status', {{credentials:'same-origin'}})
-      .then(r=>r.json()).then(d=>{{
-        if (!d.running) {{ clearInterval(pollTimer); location.reload(); }}
-      }});
-  }}, 10000);
-}}
-{'startPolling();' if running else ''}
-</script>
-""" + _page_footer()
+    return render_page("growth_intel.html", active_page="Growth",
+        rec_html=rec_html,
+        gap_rows=gap_rows,
+        wb_rows=wb_rows,
+        ag_rows=ag_rows,
+        loss_rows=loss_rows,
+        pull_banner=pull_banner,
+        total_lines=total_lines,
+        total_gaps=total_gaps,
+        auto_closed=auto_closed,
+        total_gap_spend=total_gap_spend,
+        total_wb_spend=total_wb_spend,
+        agencies_loaded=agencies_loaded,
+        gaps=gaps,
+        win_back=win_back,
+        losses=losses)
 
 
 
@@ -572,116 +429,22 @@ def page_intel_scprs():
 
     rec_summary = recs.get("summary", {})
 
-    return _header("SCPRS Intelligence") + f"""
-<style>
-.card{{background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:16px}}
-th{{padding:7px 10px;font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;border-bottom:2px solid var(--bd);text-align:left}}
-table{{width:100%;border-collapse:collapse}}
-tr:hover td{{background:rgba(255,255,255,.03)}}
-</style>
-
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
-  <div>
-    <h2 style="font-size:22px;font-weight:700">📡 SCPRS Market Intelligence</h2>
-    <p style="color:var(--tx2);font-size:13px;margin-top:4px">All CA agencies · What they buy · Who from · What you're missing · What to do about it</p>
-  </div>
-  <div style="display:flex;gap:8px">
-    <button onclick="triggerPull('P0')" style="padding:7px 16px;background:var(--ac);color:white;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">
-      {"⏳ Running..." if running else "📡 Pull P0 Now (5min)"}
-    </button>
-    <button onclick="triggerPull('all')" style="padding:7px 14px;border:1px solid var(--bd);background:none;color:var(--tx);border-radius:6px;font-size:12px;cursor:pointer">Full Pull (all 40 terms)</button>
-    <button onclick="runCloseLost()" style="padding:7px 14px;border:1px solid var(--bd);background:none;color:var(--tx);border-radius:6px;font-size:12px;cursor:pointer">⚡ Check Lost Quotes</button>
-  </div>
-</div>
-
-{"<div style='background:rgba(37,99,235,.08);border:1px solid var(--ac);border-radius:10px;padding:16px 20px;margin-bottom:20px;display:flex;align-items:center;gap:14px'><div style='font-size:28px'>📡</div><div><div style='font-weight:700;color:var(--ac)'>No data yet — click Pull P0 Now to start</div><div style='font-size:12px;color:var(--tx2);margin-top:4px'>Searches SCPRS public records for nitrile gloves, adult briefs, N95s, chux, first aid kits across CCHCS, CalVet, CalFire, CDPH, CalTrans, CHP. Takes ~5 minutes. No login required — it&#39;s public data.</div></div></div>" if no_data else ""}
-
-<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:24px">
-  <div class="card"><div style="font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px">POs Captured</div>
-    <div style="font-size:26px;font-weight:800;color:var(--ac);margin-top:4px">{pos:,}</div>
-    <div style="font-size:11px;color:var(--tx2)">{lines:,} line items</div></div>
-  <div class="card"><div style="font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px">Market Spend</div>
-    <div style="font-size:26px;font-weight:800;margin-top:4px">${total_mkt:,.0f}</div>
-    <div style="font-size:11px;color:var(--tx2)">captured from SCPRS</div></div>
-  <div class="card"><div style="font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px">Gap Items</div>
-    <div style="font-size:26px;font-weight:800;color:var(--rd);margin-top:4px">${gap_opp:,.0f}</div>
-    <div style="font-size:11px;color:var(--rd)">products we don't sell</div></div>
-  <div class="card"><div style="font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px">Win-Back</div>
-    <div style="font-size:26px;font-weight:800;color:var(--gn);margin-top:4px">${win_opp:,.0f}</div>
-    <div style="font-size:11px;color:var(--gn)">displace competitors</div></div>
-  <div class="card"><div style="font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px">Auto-Closed</div>
-    <div style="font-size:26px;font-weight:800;color:var(--tx2);margin-top:4px">{auto_closed}</div>
-    <div style="font-size:11px;color:var(--tx2)">quotes closed-lost by SCPRS</div></div>
-</div>
-
-{"<div style='background:rgba(22,163,74,.07);border:1px solid var(--gn);border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:13px;color:var(--gn);font-weight:600'>⏳ Pull running... &nbsp;<span style='font-weight:400;color:var(--tx2)'>" + (status.get("progress","")) + "</span></div>" if running else ""}
-
-<div style="display:grid;grid-template-columns:420px 1fr;gap:20px;margin-bottom:20px">
-  <div>
-    <div style="font-size:11px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">🎯 What To Do Next <span style="color:var(--tx2);font-weight:400">— {len(recs.get("actions",[]))} actions · ${rec_summary.get("revenue_opportunity",0):,.0f} opportunity</span></div>
-    <div style="display:flex;flex-direction:column;gap:10px;max-height:640px;overflow-y:auto;padding-right:4px">
-      {rec_cards if rec_cards else '<div style="padding:20px;text-align:center;color:var(--tx2);font-size:13px">Pull SCPRS data to generate recommendations</div>'}
-    </div>
-  </div>
-  <div>
-    <div style="font-size:11px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">⚔️ Win-Back — We sell these, they buy from competitors</div>
-    <div class="card" style="padding:0;margin-bottom:16px">
-      <table>
-        <thead><tr><th>Item</th><th>Their Vendor</th><th style="text-align:right">Their Price</th><th style="text-align:right">Beat At</th><th style="text-align:right">Spend</th></tr></thead>
-        <tbody>{wb_rows if wb_rows else '<tr><td colspan="5" style="padding:16px;text-align:center;color:var(--tx2)">Pull data →</td></tr>'}</tbody>
-      </table>
-    </div>
-    <div style="font-size:11px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">📊 By Agency</div>
-    <div class="card" style="padding:0">
-      <table>
-        <thead><tr><th>Agency</th><th style="text-align:right">Total Spend</th><th style="text-align:right">We Sell</th><th style="text-align:right">Gap</th><th>% Gap</th></tr></thead>
-        <tbody>{agency_rows if agency_rows else '<tr><td colspan="5" style="padding:16px;text-align:center;color:var(--tx2)">Pull data →</td></tr>'}</tbody>
-      </table>
-    </div>
-  </div>
-</div>
-
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
-  <div>
-    <div style="font-size:11px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">🚨 Gap Items — They buy these, you don't carry them yet</div>
-    <div class="card" style="padding:0">
-      <table>
-        <thead><tr><th>Item Description</th><th>Category</th><th style="text-align:center">Agencies</th><th style="text-align:center">Orders</th><th style="text-align:right">Spend</th><th>Action</th></tr></thead>
-        <tbody>{gap_rows if gap_rows else '<tr><td colspan="6" style="padding:16px;text-align:center;color:var(--tx2)">Pull data →</td></tr>'}</tbody>
-      </table>
-    </div>
-  </div>
-  <div>
-    <div style="font-size:11px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">🔴 Auto-Closed Quotes (SCPRS found winner)</div>
-    <div class="card" style="padding:0;margin-bottom:16px">
-      {ac_rows if ac_rows else '<div style="padding:16px;text-align:center;color:var(--tx2);font-size:12px">No auto-closes yet — quotes are checked after each SCPRS pull</div>'}
-    </div>
-  </div>
-</div>
-
-<script>
-let pollTimer;
-function triggerPull(priority) {{
-  fetch('/api/intel/scprs/pull', {{
-    method:'POST', headers:{{'Content-Type':'application/json'}},
-    credentials:'same-origin', body: JSON.stringify({{priority}})
-  }}).then(r=>r.json()).then(d=>{{ if(d.ok) pollStatus(); }});
-}}
-function runCloseLost() {{
-  fetch('/api/intel/scprs/close-lost', {{method:'POST',credentials:'same-origin'}})
-    .then(r=>r.json()).then(d=>{{ alert(d.auto_closed+' quotes auto-closed lost'); location.reload(); }});
-}}
-function pollStatus() {{
-  clearTimeout(pollTimer);
-  fetch('/api/intel/scprs/status',{{credentials:'same-origin'}})
-    .then(r=>r.json()).then(d=>{{
-      if(d.running) {{ pollTimer=setTimeout(pollStatus,6000); }}
-      else if(d.pos_stored > 0) {{ location.reload(); }}
-    }});
-}}
-{"pollStatus();" if running else ""}
-</script>
-""" + _page_footer()
+    return render_page("scprs_intel.html", active_page="Intel",
+        rec_cards=rec_cards,
+        rec_summary=rec_summary,
+        gap_rows=gap_rows,
+        wb_rows=wb_rows,
+        agency_rows=agency_rows,
+        ac_rows=ac_rows,
+        lines=lines,
+        pos=pos,
+        auto_closed=auto_closed,
+        recs=recs,
+        gap_opp=gap_opp,
+        win_opp=win_opp,
+        total_mkt=total_mkt,
+        running=running,
+        status=status)
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -821,165 +584,21 @@ def page_cchcs_intel():
   </div>
 </div>"""
 
-    return _header("CCHCS Intel") + f"""
-<style>
-.card{{background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:16px}}
-th{{padding:8px 12px;font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;text-align:left;border-bottom:2px solid var(--bd)}}
-table{{width:100%;border-collapse:collapse}}
-.stat{{display:flex;flex-direction:column;gap:4px}}
-.stat .label{{font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px}}
-.stat .value{{font-size:28px;font-weight:800}}
-</style>
-
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
-  <div>
-    <h2 style="font-size:22px;font-weight:700">🔬 CCHCS Purchasing Intelligence</h2>
-    <p style="color:var(--tx2);font-size:13px;margin-top:4px">What is CDCR/CCHCS buying · From whom · At what price · What you're missing</p>
-  </div>
-  <div style="display:flex;gap:8px;align-items:center">
-    {'<div style="background:rgba(22,163,74,.1);color:var(--gn);border:1px solid var(--gn);padding:5px 14px;border-radius:6px;font-size:12px;font-weight:600">⏳ Pull Running...</div>' if pull_running else ''}
-    <button onclick="startPull('P0')" style="padding:6px 16px;background:var(--ac);color:white;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">
-      {'⏳ Pulling...' if pull_running else '📡 Pull CCHCS Data Now'}
-    </button>
-    <button onclick="startPull('all')" style="padding:6px 14px;border:1px solid var(--bd);background:none;color:var(--tx);border-radius:6px;font-size:12px;cursor:pointer">Full Pull (all categories)</button>
-    <a href="/" style="padding:5px 12px;border:1px solid var(--bd);border-radius:6px;font-size:12px;text-decoration:none">🏠</a>
-  </div>
-</div>
-
-{no_data_msg}
-
-<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:24px">
-  <div class="card"><div class="stat">
-    <div class="label">POs Captured</div>
-    <div class="value" style="color:var(--ac)">{pos_stored:,}</div>
-    <div style="font-size:11px;color:var(--tx2)">{lines_stored:,} line items</div>
-  </div></div>
-  <div class="card"><div class="stat">
-    <div class="label">Total PO Value</div>
-    <div class="value" style="color:var(--tx)">${total_captured:,.0f}</div>
-    <div style="font-size:11px;color:var(--tx2)">spend captured</div>
-  </div></div>
-  <div class="card"><div class="stat">
-    <div class="label">Gap Spend</div>
-    <div class="value" style="color:var(--rd)">${gap_spend:,.0f}</div>
-    <div style="font-size:11px;color:var(--rd)">buying from others</div>
-  </div></div>
-  <div class="card"><div class="stat">
-    <div class="label">Win-Back</div>
-    <div class="value" style="color:var(--gn)">${win_back:,.0f}</div>
-    <div style="font-size:11px;color:var(--gn)">items we sell</div>
-  </div></div>
-  <div class="card"><div class="stat">
-    <div class="label">Last Pull</div>
-    <div class="value" style="font-size:16px;color:var(--tx2)">{"Live" if pull_running else (summary.get("data_freshness","Never")[:10] if summary.get("data_freshness") else "Never")}</div>
-    <div style="font-size:11px;color:var(--tx2)">SCPRS public data</div>
-  </div></div>
-</div>
-
-<div style="display:grid;grid-template-columns:1fr 340px;gap:20px;margin-bottom:24px">
-  <div>
-    <div style="font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">
-      🚨 GAP ITEMS — CCHCS buys these but Reytech doesn't sell them
-    </div>
-    <div class="card" style="padding:0">
-      <table>
-        <thead><tr>
-          <th>Item Description</th><th>Category</th><th style="text-align:center">Orders</th>
-          <th style="text-align:right">Avg Price</th><th style="text-align:right">Total Spend</th><th>Status</th>
-        </tr></thead>
-        <tbody>{gap_rows if gap_rows else '<tr><td colspan="6" style="padding:24px;text-align:center;color:var(--tx2);font-size:13px">Pull CCHCS data to see gap items →</td></tr>'}</tbody>
-      </table>
-    </div>
-  </div>
-  <div>
-    <div style="font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Spend by Category</div>
-    <div class="card"><canvas id="catChart" height="300"></canvas></div>
-  </div>
-</div>
-
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px">
-  <div>
-    <div style="font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">
-      ✅ WIN-BACK ITEMS — We sell these, but they're buying from someone else
-    </div>
-    <div class="card" style="padding:0">
-      <table>
-        <thead><tr>
-          <th>Item</th><th>Category</th><th>Our SKU</th><th>Their Vendor</th>
-          <th style="text-align:right">Their Price</th><th style="text-align:right">Spend</th>
-        </tr></thead>
-        <tbody>{wb_rows if wb_rows else '<tr><td colspan="6" style="padding:16px;text-align:center;color:var(--tx2)">Pull data to see win-back opportunities</td></tr>'}</tbody>
-      </table>
-    </div>
-  </div>
-  <div>
-    <div style="font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">
-      ⚔️ Incumbent Suppliers (Your Competition at CCHCS)
-    </div>
-    <div class="card" style="padding:0">
-      <table>
-        <thead><tr><th>Supplier</th><th style="text-align:center">POs</th><th style="text-align:right">Total $</th><th>Categories</th><th>Action</th></tr></thead>
-        <tbody>{sup_rows if sup_rows else '<tr><td colspan="5" style="padding:16px;text-align:center;color:var(--tx2)">Pull data to see suppliers</td></tr>'}</tbody>
-      </table>
-    </div>
-  </div>
-</div>
-
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
-<script>
-const catLabels = {cat_labels};
-const catValues = {cat_values};
-const catColors = {cat_colors};
-
-if (catLabels.length > 0) {{
-  new Chart(document.getElementById('catChart'), {{
-    type: 'bar',
-    data: {{
-      labels: catLabels,
-      datasets: [{{ label: 'Spend ($)', data: catValues, backgroundColor: catColors, borderRadius: 4 }}]
-    }},
-    options: {{
-      indexAxis: 'y',
-      plugins: {{ legend: {{ display: false }} }},
-      scales: {{ x: {{ ticks: {{ callback: v => '$' + (v/1000).toFixed(0) + 'K' }} }},
-                 y: {{ ticks: {{ font: {{ size: 10 }} }} }} }},
-      responsive: true, maintainAspectRatio: false
-    }}
-  }});
-}}
-
-let pollTimer = null;
-
-function startPull(priority) {{
-  fetch('/api/cchcs/intel/pull', {{
-    method: 'POST',
-    headers: {{'Content-Type': 'application/json'}},
-    credentials: 'same-origin',
-    body: JSON.stringify({{priority}})
-  }}).then(r => r.json()).then(d => {{
-    if (d.ok) {{
-      console.log('Pull started');
-      pollStatus();
-    }}
-  }});
-}}
-
-function pollStatus() {{
-  clearTimeout(pollTimer);
-  fetch('/api/cchcs/intel/status', {{credentials:'same-origin'}})
-    .then(r => r.json()).then(d => {{
-      if (d.pull_running) {{
-        pollTimer = setTimeout(pollStatus, 8000);
-      }} else if (d.pos_stored > 0) {{
-        location.reload();
-      }}
-    }});
-}}
-
-// Auto-poll if pull is running
-{f"pollStatus();" if pull_running else ""}
-</script>
-""" + _page_footer()
+    return render_page("cchcs_intel.html", active_page="Intel",
+        gap_rows=gap_rows,
+        wb_rows=wb_rows,
+        sup_rows=sup_rows,
+        no_data_msg=no_data_msg,
+        gap_spend=gap_spend,
+        lines_stored=lines_stored,
+        pos_stored=pos_stored,
+        total_captured=total_captured,
+        win_back=win_back,
+        cat_labels=cat_labels,
+        cat_values=cat_values,
+        cat_colors=cat_colors,
+        pull_running=pull_running,
+        summary=summary)
 
 # ════════════════════════════════════════════════════════════════════════════════
 # VENDOR ORDERING ROUTES
@@ -1048,123 +667,14 @@ def page_vendors():
     else:
         orders_html = '<tr><td colspan="6" style="padding:20px;text-align:center;color:var(--tx2)">No vendor orders yet — orders appear here when quotes are won</td></tr>'
 
-    html = _header("Vendors") + f"""
-<style>
-.btn{{padding:5px 12px;border:1px solid var(--bd);border-radius:6px;cursor:pointer;font-family:'DM Sans',sans-serif;transition:.15s;text-decoration:none;font-size:12px;font-weight:500}}
-.btn:hover{{opacity:.8}}
-table{{width:100%;border-collapse:collapse}}
-th{{padding:8px 12px;font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;text-align:left;border-bottom:1px solid var(--bd)}}
-</style>
-
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
-  <div>
-    <h2 style="font-size:22px;font-weight:700">🏭 Vendor Management</h2>
-    <p style="color:var(--tx2);font-size:13px;margin-top:4px">{len(vendors)} vendors · {len(active)+len(email_po)} API-ready · {len(setup_needed)} need setup</p>
-  </div>
-  <div style="display:flex;gap:8px">
-    <a href="/" class="btn">🏠 Home</a>
-    <a href="/api/vendor/status" class="btn" target="_blank">⚙️ API Status</a>
-    <button class="btn" onclick="testGrainger(this)" style="border-color:var(--ac);color:var(--ac)">🔍 Test Grainger Search</button>
-    <button class="btn" onclick="scoreAllVendors(this)" style="border-color:var(--gn);color:var(--gn)" title="Score all vendors by price/reliability/speed">📊 Score Vendors</button>
-    <button class="btn" onclick="showEnrichment()" style="border-color:var(--yl);color:var(--yl)" title="Vendor data completeness">📈 Enrichment</button>
-  </div>
-</div>
-
-<!-- Setup guide cards -->
-<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:24px">
-  <div class="card" style="border-color:{('var(--gn)' if vs.get('grainger_can_order') else 'var(--yl)')}">
-    <div style="font-size:11px;color:var(--tx2);margin-bottom:8px">GRAINGER REST API</div>
-    <div style="font-size:20px;font-weight:700;color:{('var(--gn)' if vs.get('grainger_can_order') else 'var(--yl)')}">
-      {'✅ Active' if vs.get('grainger_can_order') else '⚙ Setup Needed'}
-    </div>
-    <div style="font-size:11px;color:var(--tx2);margin-top:6px">Free public API · industrial + medical</div>
-    {'<div style="font-size:11px;color:var(--yl);margin-top:8px">→ Set GRAINGER_CLIENT_ID/SECRET/ACCOUNT_NUMBER in Railway</div>' if not vs.get('grainger_can_order') else ''}
-  </div>
-  <div class="card" style="border-color:{('var(--gn)' if vs.get('amazon_configured') else 'var(--yl)')}">
-    <div style="font-size:11px;color:var(--tx2);margin-bottom:8px">AMAZON BUSINESS SP-API</div>
-    <div style="font-size:20px;font-weight:700;color:{('var(--gn)' if vs.get('amazon_configured') else 'var(--yl)')}">
-      {'✅ Active' if vs.get('amazon_configured') else '⚙ Setup Needed'}
-    </div>
-    <div style="font-size:11px;color:var(--tx2);margin-top:6px">Search via SerpApi ✅ · ordering via SP-API</div>
-    {'<div style="font-size:11px;color:var(--yl);margin-top:8px">→ Set AMZN_ACCESS_KEY/SECRET/REFRESH_TOKEN in Railway</div>' if not vs.get('amazon_configured') else ''}
-  </div>
-  <div class="card" style="border-color:{('var(--gn)' if vs.get('email_po_active') else 'var(--bd)')}">
-    <div style="font-size:11px;color:var(--tx2);margin-bottom:8px">EMAIL PO VENDORS</div>
-    <div style="font-size:20px;font-weight:700;color:var(--gn)">
-      {len(vs.get('email_po_vendors',[]))} Active
-    </div>
-    <div style="font-size:11px;color:var(--tx2);margin-top:6px">Curbell · IMS · Echelon · TSI</div>
-    <div style="font-size:11px;color:var(--gn);margin-top:6px">POs sent automatically on quote won</div>
-  </div>
-</div>
-
-<!-- Vendor table -->
-<div class="card" style="margin-bottom:20px">
-  <div style="font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px">
-    All Vendors ({len(vendors)})
-  </div>
-  <div style="overflow-x:auto">
-    <table>
-      <thead><tr>
-        <th>Vendor</th><th>Integration</th><th>Categories</th>
-        <th>Email</th><th>Phone</th><th>Balance</th><th>Notes</th>
-      </tr></thead>
-      <tbody>{all_rows}</tbody>
-    </table>
-  </div>
-</div>
-
-<!-- Recent vendor orders -->
-<div class="card">
-  <div style="font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px">
-    Vendor Order History
-  </div>
-  <table>
-    <thead><tr>
-      <th>Date</th><th>Vendor</th><th>PO Number</th><th>Quote</th><th>Total</th><th>Status</th>
-    </tr></thead>
-    <tbody>{orders_html}</tbody>
-  </table>
-</div>
-
-<div id="grainger-results" style="margin-top:16px"></div>
-
-<script>
-function scoreAllVendors(btn){{
-  btn.disabled=true;btn.textContent='Scoring...';
-  fetch('/api/vendor/score-all',{{method:'POST',credentials:'same-origin'}})
-  .then(r=>r.json()).then(d=>{{
-    btn.disabled=false;btn.textContent='📊 Score Vendors';
-    alert(d.ok?'Scored '+d.scored+' vendors — refresh to see scores':'Failed');
-    if(d.ok)location.reload();
-  }}).catch(()=>{{btn.disabled=false;btn.textContent='📊 Score Vendors';}});
-}}
-function showEnrichment(){{
-  fetch('/api/vendor/enrichment').then(r=>r.json()).then(d=>{{
-    alert('Vendor Enrichment Status:\n'+
-      'Total: '+d.total_vendors+'\n'+
-      'With email: '+d.with_email+' ('+d.email_pct+'%)\n'+
-      'With phone: '+d.with_phone+'\n'+
-      'With website: '+d.with_website+'\n'+
-      'Scored: '+d.with_score+' ('+d.scored_pct+'%)');
-  }});
-}}
-function testGrainger(btn){{
-  var q=prompt("Search Grainger catalog (e.g. 'nitrile gloves medium 100 box'):");
-  if(!q)return;
-  btn.disabled=true;btn.textContent='Searching...';
-  fetch('/api/vendor/search?vendor=grainger&q='+encodeURIComponent(q),{{credentials:'same-origin'}})
-  .then(r=>r.json()).then(d=>{{
-    btn.disabled=false;btn.textContent='🔍 Test Grainger Search';
-    var el=document.getElementById('grainger-results');
-    if(!d.results||!d.results.length){{el.innerHTML='<p style="color:var(--yl)">No results (configure GRAINGER_CLIENT_ID/SECRET for full access)</p>';return;}}
-    var rows=d.results.map(r=>'<tr><td style="padding:6px 10px">'+r.item_number+'</td><td style="padding:6px 10px">'+r.title.substring(0,60)+'</td><td style="padding:6px 10px;color:var(--gn)">$'+(r.price||0).toFixed(2)+'</td><td style="padding:6px 10px;color:var(--tx2)">'+r.availability+'</td></tr>').join('');
-    el.innerHTML='<div class="card"><div style="font-size:12px;font-weight:600;color:var(--tx2);margin-bottom:10px">Grainger Results: '+d.results.length+' found</div><table><thead><tr><th>Item#</th><th>Title</th><th>Price</th><th>Availability</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
-  }}).catch(()=>{{btn.disabled=false;btn.textContent='🔍 Test Grainger Search';alert('Search failed')}});
-}}
-</script>
-""" + _page_footer()
-    return html
+    return render_page("vendors.html", active_page="Vendors",
+        all_rows=all_rows,
+        orders_html=orders_html,
+        vs=vs,
+        vendors=vendors,
+        active=active,
+        setup_needed=setup_needed,
+        api_ready_count=len(active)+len(email_po))
 
 
 @bp.route("/api/vendor/status")
@@ -4322,314 +3832,20 @@ def growth_page():
     pull_progress = pull.get("progress", "") if pull_running else ""
     buyer_progress = buyer.get("progress", "") if buyer_running else ""
 
-    return f"""{_header('Growth Engine')}
-    <style>
-     .card {{background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px;margin-bottom:16px}}
-     .card h3 {{font-size:15px;margin-bottom:12px;display:flex;align-items:center;gap:8px}}
-     .g-btn {{padding:8px 16px;border-radius:8px;border:1px solid var(--bd);background:var(--sf2);color:var(--tx);cursor:pointer;font-size:13px;font-weight:600;transition:all .15s}}
-     .g-btn:hover {{background:var(--ac);color:#000;border-color:var(--ac)}}
-     .g-btn-go {{background:rgba(52,211,153,.12);color:#3fb950;border-color:rgba(52,211,153,.3)}}
-     .g-btn-warn {{background:rgba(210,153,34,.12);color:#d29922;border-color:rgba(210,153,34,.3)}}
-     .g-btn-red {{background:rgba(248,113,113,.12);color:#f85149;border-color:rgba(248,113,113,.3)}}
-     .act-btn {{background:none;border:none;cursor:pointer;font-size:14px;padding:2px 4px;opacity:.7;transition:opacity .15s}}
-     .act-btn:hover {{opacity:1}}
-     table {{width:100%;border-collapse:collapse;font-size:12px}}
-     th {{text-align:left;padding:6px 8px;border-bottom:2px solid var(--bd);font-size:11px;color:var(--tx2);text-transform:uppercase}}
-     td {{padding:6px 8px;border-bottom:1px solid var(--bd)}}
-     .mono {{font-family:'JetBrains Mono',monospace}}
-     #progress-bar {{display:{'block' if (pull_running or buyer_running) else 'none'};background:var(--sf2);padding:10px;border-radius:8px;margin-bottom:12px;font-size:12px}}
-    </style>
-
-    <h1>🚀 Growth Engine</h1>
-    <div style="color:var(--tx2);font-size:13px;margin-bottom:16px">
-     SCPRS-driven proactive outreach — mine Reytech history → find all buyers → email → voice follow-up
-    </div>
-
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">{step1} → {step2} → {step3} → {step4}</div>
-
-    <div id="progress-bar">
-     <span id="progress-text">{pull_progress or buyer_progress or 'Idle'}</span>
-    </div>
-
-    <div class="card">
-     <h3>⚡ Actions</h3>
-     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
-      <button class="g-btn g-btn-go" style="font-size:14px;padding:10px 20px" onclick="createCampaign()">🚀 Create Campaign</button>
-      <button class="g-btn" onclick="autoStartNurture()" title="Start drip sequences for all new leads with email">🌱 Auto-Nurture New Leads</button>
-      <button class="g-btn" onclick="rescoreLeads()" title="Recalculate lead scores with latest activity">📊 Rescore Leads</button>
-      <button class="g-btn g-btn-warn" onclick="viewPipeline()" title="View unified lead pipeline">🔄 Lead Pipeline</button>
-     </div>
-     <div style="font-size:11px;color:var(--tx2);margin-bottom:12px">
-      Mines SCPRS for all buyers → scores by opportunity → emails top prospects → auto-schedules voice follow-up in 3-5 days
-     </div>
-     <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <button class="g-btn" onclick="runStep('/api/growth/pull-history')">📥 Pull Reytech History</button>
-      <button class="g-btn" onclick="runStep('/api/growth/find-buyers')">🔍 Find Buyers</button>
-      <button class="g-btn" onclick="runStep('/api/growth/outreach?dry_run=true')">👁️ Preview Emails</button>
-      <button class="g-btn g-btn-warn" onclick="if(confirm('Send real emails to prospects?')) runStep('/api/growth/outreach?dry_run=false')">📧 Send Emails</button>
-      <button class="g-btn" onclick="runStep('/api/growth/follow-ups')">📋 Follow-Ups</button>
-      <button class="g-btn" onclick="if(confirm('Auto-dial non-responders?')) runStep('/api/growth/voice-follow-up')">📞 Voice Follow-Up</button>
-      <button class="g-btn" onclick="runStep('/api/growth/scan-bounces')">🔍 Scan Bounces</button>
-      <button class="g-btn" onclick="runStep('/api/growth/campaigns')">📊 Stats</button>
-     </div>
-    </div>
-
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
-     <div class="card" style="text-align:center">
-      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;letter-spacing:1px">Reytech POs</div>
-      <div style="font-size:28px;font-weight:700;color:var(--ac)">{h.get('total_pos', 0)}</div>
-      <div style="font-size:10px;color:var(--tx2)">{h.get('total_items', 0)} items</div>
-     </div>
-     <div class="card" style="text-align:center">
-      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;letter-spacing:1px">Categories</div>
-      <div style="font-size:28px;font-weight:700;color:#bc8cff">{c.get('total', 0)}</div>
-      <div style="font-size:10px;color:var(--tx2)">product groups</div>
-     </div>
-     <div class="card" style="text-align:center">
-      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;letter-spacing:1px">Prospects</div>
-      <div style="font-size:28px;font-weight:700;color:#d29922">{p.get('total', 0)}</div>
-      <div style="font-size:10px;color:var(--tx2)">buyers found</div>
-     </div>
-     <div class="card" style="text-align:center">
-      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;letter-spacing:1px">Outreach</div>
-      <div style="font-size:28px;font-weight:700;color:#3fb950">{o.get('total_sent', 0)}</div>
-      <div style="font-size:10px;color:var(--tx2)">{total_no_response} pending follow-up</div>
-     </div>
-    </div>
-
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
-     <div class="card" style="text-align:center">
-      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase">📧 Emailed</div>
-      <div style="font-size:22px;font-weight:700;color:#58a6ff">{total_emailed}</div>
-     </div>
-     <div class="card" style="text-align:center">
-      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase">✅ Responded</div>
-      <div style="font-size:22px;font-weight:700;color:#3fb950">{total_responded}</div>
-     </div>
-     <div class="card" style="text-align:center">
-      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase">⛔ Bounced</div>
-      <div style="font-size:22px;font-weight:700;color:#f85149">{total_bounced}</div>
-     </div>
-     <div class="card" style="text-align:center">
-      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase">📞 Called</div>
-      <div style="font-size:22px;font-weight:700;color:#bc8cff">{total_called}</div>
-     </div>
-    </div>
-
-    {'<div class="card"><h3>📂 Item Categories</h3><table><thead><tr><th>Category</th><th>Items</th><th>POs</th><th>Total Value</th><th>Sample Items</th></tr></thead><tbody>' + cat_rows + '</tbody></table></div>' if cat_rows else ''}
-
-    {'<div class="card"><h3>🎯 Prospect Pipeline (' + str(len(prospects)) + ')</h3><div style="max-height:500px;overflow:auto"><table><thead><tr><th>Agency</th><th>Buyer</th><th>Email</th><th>Phone</th><th>POs</th><th>Spend</th><th>Categories</th><th>Status</th><th>Actions</th></tr></thead><tbody>' + prospect_rows + '</tbody></table></div></div>' if prospect_rows else ''}
-
-    <div id="result" style="display:none;background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px;margin-top:12px;max-height:600px;overflow:auto">
-     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-      <span style="font-weight:600;font-size:13px" id="result-title">Result</span>
-      <button onclick="document.getElementById('result').style.display='none'" style="background:none;border:none;color:var(--tx2);cursor:pointer">✕</button>
-     </div>
-     <div id="result-emails" style="display:none"></div>
-     <pre id="result-content" style="font-size:11px;white-space:pre-wrap;word-break:break-word;margin:0"></pre>
-    </div>
-
-    <!-- Existing Email Drafts -->
-    <div class="card" id="drafts-section">
-     <h3>📨 Email Drafts from Campaigns</h3>
-     <div id="drafts-container">
-      <div style="color:var(--tx2);font-size:12px">Loading drafts...</div>
-     </div>
-    </div>
-
-    <script>
-    function createCampaign() {{
-      const mode = confirm('Send real emails to prospects?\\n\\nOK = Send emails (live)\\nCancel = Preview only (dry run)');
-      const body = {{ dry_run: !mode, max_prospects: 50 }};
-      fetch('/api/growth/create-campaign', {{
-        method: 'POST', credentials: 'same-origin',
-        headers: {{'Content-Type': 'application/json'}},
-        body: JSON.stringify(body)
-      }}).then(r => r.json()).then(data => {{
-        showResult(data);
-        if (data.ok) pollProgress();
-      }}).catch(e => showResultRaw('Error: ' + e));
-    }}
-
-    function runStep(url) {{
-      fetch(url, {{credentials:'same-origin'}}).then(r=>r.json()).then(data => {{
-        showResult(data);
-        if (data.message && data.message.includes('Check')) pollProgress();
-      }}).catch(e => showResultRaw('Error: ' + e));
-    }}
-
-    function showResult(data) {{
-      const el = document.getElementById('result');
-      const emails = document.getElementById('result-emails');
-      const pre = document.getElementById('result-content');
-      const title = document.getElementById('result-title');
-      el.style.display = 'block';
-
-      // If response has preview emails, render them as cards
-      if (data.preview && data.preview.length > 0) {{
-        title.textContent = (data.dry_run ? '👁️ Preview' : '📧 Sent') + ': ' + data.emails_built + ' emails';
-        emails.style.display = 'block';
-        pre.style.display = 'none';
-        emails.innerHTML = data.preview.map((e, i) => {{
-          const gmailUrl = 'https://mail.google.com/mail/?view=cm&to=' + encodeURIComponent(e.to) + '&su=' + encodeURIComponent(e.subject) + '&body=' + encodeURIComponent(e.body || '');
-          const bodyContent = e.body_html || e.body || '(no body)';
-          const isHtml = !!e.body_html;
-          return `
-          <div style="background:var(--sf2);border:1px solid var(--bd);border-radius:8px;padding:12px;margin-bottom:10px">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-              <span style="font-size:11px;color:var(--tx2)">#${{i+1}}</span>
-              <div style="display:flex;gap:6px;align-items:center">
-                <a href="${{gmailUrl}}" target="_blank" style="font-size:10px;padding:3px 8px;border-radius:6px;background:rgba(79,140,255,.12);color:var(--ac);text-decoration:none;font-weight:600;border:1px solid rgba(79,140,255,.3)">📧 Open in Gmail</a>
-                <a href="mailto:${{e.to}}?subject=${{encodeURIComponent(e.subject)}}&body=${{encodeURIComponent(e.body || '')}}" style="font-size:10px;padding:3px 8px;border-radius:6px;background:rgba(139,148,160,.1);color:var(--tx2);text-decoration:none;border:1px solid var(--bd)">✉️ mailto</a>
-                <span style="font-size:10px;padding:2px 8px;border-radius:10px;background:${{data.dry_run?'rgba(210,153,34,.1)':'rgba(52,211,153,.1)'}};color:${{data.dry_run?'#d29922':'#3fb950'}};font-weight:600">${{data.dry_run?'DRAFT':'SENT'}}</span>
-              </div>
-            </div>
-            <div style="font-size:12px;margin-bottom:4px"><strong>To:</strong> <a href="mailto:${{e.to}}" style="color:var(--ac)">${{e.to}}</a> <span style="color:var(--tx2)">(${{e.agency}})</span></div>
-            <div style="font-size:12px;margin-bottom:8px;color:var(--ac)"><strong>Subject:</strong> ${{e.subject}}</div>
-            <div style="font-size:12px;line-height:1.5;color:var(--tx);background:var(--sf);padding:10px;border-radius:6px;border:1px solid var(--bd);max-height:200px;overflow:auto">${{isHtml ? bodyContent : '<pre style="white-space:pre-wrap;margin:0;font-family:inherit">' + bodyContent + '</pre>'}}</div>
-          </div>
-        `}}).join('');
-        // Also reload drafts section
-        loadDrafts();
-      }} else {{
-        emails.style.display = 'none';
-        pre.style.display = 'block';
-        title.textContent = 'Result';
-        pre.textContent = JSON.stringify(data, null, 2);
-      }}
-    }}
-
-    function showResultRaw(text) {{
-      const el = document.getElementById('result');
-      el.style.display = 'block';
-      document.getElementById('result-emails').style.display = 'none';
-      document.getElementById('result-content').style.display = 'block';
-      document.getElementById('result-content').textContent = text;
-    }}
-
-    function crmPost(url, body) {{
-      return fetch(url, {{method:'POST', credentials:'same-origin', headers:{{'Content-Type':'application/json'}}, body:JSON.stringify(body)}}).then(r=>r.json());
-    }}
-
-    function markResponded(pid) {{
-      const detail = prompt('Response details (optional):','Email reply received');
-      if (detail === null) return;
-      crmPost('/api/growth/prospect/'+pid+'/responded', {{response_type:'email_reply', detail:detail}}).then(d => {{
-        if (d.ok) {{ alert('Marked as responded'); location.reload(); }}
-        else alert(d.error || 'Failed');
-      }});
-    }}
-
-    function markBounced(pid, email) {{
-      if (!confirm('Mark ' + email + ' as bounced?')) return;
-      const reason = prompt('Bounce reason:', 'Mailbox not found');
-      if (reason === null) return;
-      crmPost('/api/growth/bounceback', {{email:email, reason:reason}}).then(d => {{
-        if (d.ok) {{ alert('Marked as bounced'); location.reload(); }}
-        else alert(d.error || 'Failed');
-      }});
-    }}
-
-    function markWon(pid) {{
-      crmPost('/api/growth/prospect/'+pid, {{outreach_status:'won'}}).then(d => {{
-        if (d.ok) {{ alert('Marked as won!'); location.reload(); }}
-        else alert(d.error || 'Failed');
-      }});
-    }}
-
-    // Load existing email drafts from all campaigns
-    function loadDrafts() {{
-      fetch('/api/growth/campaigns', {{credentials:'same-origin'}}).then(r=>r.json()).then(data => {{
-        const container = document.getElementById('drafts-container');
-        if (!data.ok || !data.campaigns || data.campaigns.length === 0) {{
-          container.innerHTML = '<div style="color:var(--tx2);font-size:12px;padding:8px">No campaigns yet. Click 👁️ Preview Emails or 🚀 Create Campaign.</div>';
-          return;
-        }}
-        let html = '';
-        data.campaigns.forEach((camp, ci) => {{
-          const entries = camp.outreach || [];
-          const sentCount = entries.filter(e => e.email_sent).length;
-          const draftCount = entries.length - sentCount;
-          const isDry = camp.dry_run;
-          html += `<div style="margin-bottom:12px">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-              <span style="font-weight:600;font-size:12px">${{camp.id || 'Campaign '+(ci+1)}}</span>
-              <span style="font-size:10px;padding:2px 6px;border-radius:8px;background:${{isDry?'rgba(210,153,34,.1)':'rgba(52,211,153,.1)'}};color:${{isDry?'#d29922':'#3fb950'}}">${{isDry?'DRY RUN':'LIVE'}}</span>
-              <span style="font-size:10px;color:var(--tx2)">${{entries.length}} emails (${{sentCount}} sent, ${{draftCount}} draft)</span>
-            </div>`;
-          entries.slice(0, 5).forEach((e, ei) => {{
-            const subj = e.subject || e.email_subject || '(no subject)';
-            const body = e.body_html || e.body || e.email_body || '';
-            const bodyPlain = e.body || e.email_body || '';
-            const isHtml = !!e.body_html;
-            const gmailUrl = 'https://mail.google.com/mail/?view=cm&to=' + encodeURIComponent(e.email || '') + '&su=' + encodeURIComponent(subj) + '&body=' + encodeURIComponent(bodyPlain);
-            html += `<details style="margin-bottom:4px;font-size:12px">
-              <summary style="cursor:pointer;padding:4px 8px;border-radius:4px;background:var(--sf2);display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-                <span style="color:var(--tx2)">${{e.email || ''}}</span> — <span style="color:var(--ac)">${{subj.substring(0,60)}}</span>
-                ${{e.email_sent ? '<span style="color:#3fb950;font-size:10px">✅ SENT</span>' : '<span style="color:#d29922;font-size:10px">📝 DRAFT</span>'}}
-                <a href="${{gmailUrl}}" target="_blank" onclick="event.stopPropagation()" style="font-size:9px;padding:2px 6px;border-radius:4px;background:rgba(79,140,255,.12);color:var(--ac);text-decoration:none;border:1px solid rgba(79,140,255,.3);margin-left:auto">📧 Gmail</a>
-              </summary>
-              <div style="padding:8px;margin:4px 0 4px 16px;font-size:12px;line-height:1.4;background:var(--sf);border-radius:4px;border:1px solid var(--bd);max-height:180px;overflow:auto">${{isHtml ? body : '<pre style="white-space:pre-wrap;margin:0;font-family:inherit">' + body + '</pre>'}}</div>
-            </details>`;
-          }});
-          if (entries.length > 5) html += `<div style="font-size:10px;color:var(--tx2);padding-left:8px">...and ${{entries.length-5}} more</div>`;
-          html += '</div>';
-        }});
-        container.innerHTML = html;
-      }}).catch(() => {{
-        document.getElementById('drafts-container').innerHTML = '<div style="color:#f85149;font-size:12px">Failed to load drafts</div>';
-      }});
-    }}
-
-    let pollTimer = null;
-    function pollProgress() {{
-      if (pollTimer) clearInterval(pollTimer);
-      const bar = document.getElementById('progress-bar');
-      const txt = document.getElementById('progress-text');
-      bar.style.display = 'block';
-      pollTimer = setInterval(() => {{
-        Promise.all([
-          fetch('/api/growth/pull-status',{{credentials:'same-origin'}}).then(r=>r.json()),
-          fetch('/api/growth/buyer-status',{{credentials:'same-origin'}}).then(r=>r.json())
-        ]).then(([pull, buyer]) => {{
-          const running = pull.running || buyer.running;
-          txt.textContent = pull.running ? pull.progress : buyer.running ? buyer.progress : 'Complete — refresh page to see results';
-          if (!running) {{
-            clearInterval(pollTimer);
-            setTimeout(() => location.reload(), 2000);
-          }}
-        }});
-      }}, 3000);
-    }}
-    // Load drafts on page load
-    loadDrafts();
-    {('pollProgress();' if (pull_running or buyer_running) else '')}
-    </script>
-    
-<script>
-function autoStartNurture(){{
-  fetch('/api/leads/nurture/auto-start',{{method:'POST',credentials:'same-origin'}})
-  .then(r=>r.json()).then(d=>{{
-    alert(d.ok?'Started nurture for '+d.started+' leads':'Failed: '+(d.error||'unknown'));
-  }});
-}}
-function rescoreLeads(){{
-  fetch('/api/leads/rescore',{{method:'POST',credentials:'same-origin'}})
-  .then(r=>r.json()).then(d=>{{
-    alert(d.ok?'Rescored: '+d.rescored+' leads updated':'Failed');
-  }});
-}}
-function viewPipeline(){{
-  fetch('/api/leads/pipeline').then(r=>r.json()).then(d=>{{
-    if(!d.total){{alert('No leads in pipeline');return;}}
-    let msg = 'Lead Pipeline: '+d.total+' total\n';
-    for(const[s,c_] of Object.entries(d.by_status||{{}})){{msg += s+': '+c_+'\n';}}
-    msg += '\nAvg Score: '+d.avg_score;
-    alert(msg);
-  }});
-}}
-</script>
-""" + _page_footer()
+    from src.api.render import render_page
+    return render_page("growth.html", active_page="Growth",
+        step1=step1, step2=step2, step3=step3, step4=step4,
+        h_total_pos=h.get("total_pos", 0), h_total_items=h.get("total_items", 0),
+        c_total=c.get("total", 0), p_total=p.get("total", 0),
+        o_total_sent=o.get("total_sent", 0),
+        total_emailed=total_emailed, total_bounced=total_bounced,
+        total_responded=total_responded, total_called=total_called,
+        total_no_response=total_no_response,
+        progress_visible=(pull_running or buyer_running),
+        progress_text=(pull_progress or buyer_progress or "Idle"),
+        cat_rows=cat_rows, prospect_rows=prospect_rows,
+        prospect_count=len(prospects),
+    )
 
 
 @bp.route("/growth/prospect/<prospect_id>")
