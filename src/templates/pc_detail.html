@@ -275,8 +275,30 @@
      </div>
     </div>
 
+    <!-- DATA ISLANDS: server data in non-executing script tags (safe from JS parse errors) -->
+    <script type="application/json" id="server-crm-data">{{ crm_json | safe }}</script>
+    <script type="application/json" id="server-history-data">{{ history_json | safe }}</script>
+    <script type="application/json" id="server-profit-data">{{ profit_summary_json | safe }}</script>
+
+    <!-- Error catcher: shows JS errors visually instead of silent death -->
+    <div id="jsErrorLog" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999;background:#1a0000;border-top:2px solid #f85149;padding:8px 16px;font-size:12px;color:#f85149;font-family:monospace;max-height:120px;overflow-y:auto"></div>
     <script>
-    let cachedTaxRate = {{ tax_rate }};
+    window._pcErrors=[];
+    window.onerror=function(msg,src,line,col,err){
+     window._pcErrors.push({msg:msg,line:line,col:col,src:(src||'').split('/').pop()});
+     var el=document.getElementById('jsErrorLog');
+     if(el){el.style.display='block';el.innerHTML+='<div>❌ '+msg+' (line '+line+')</div>';}
+     return false;
+    };
+    </script>
+
+    <script>
+    // ── PC DETAIL DIAGNOSTIC LOG ──
+    window._pcLog=[];
+    function _log(msg){window._pcLog.push({t:Date.now(),m:msg});try{console.log('[PC]',msg)}catch(e){}}
+    _log('script-start');
+
+    let cachedTaxRate = {{ tax_rate|default(0.0725) }};
 
     // Tax rate loaded server-side (no fetch needed)
     try {
@@ -295,6 +317,7 @@
      }
     });
     } catch(e) {}
+    _log('init-ok: tax+delivery');
 
     function showMsg(text, type) {
      const el=document.getElementById('statusMsg');
@@ -764,12 +787,13 @@
       el.innerHTML='<span style="background:#23863633;color:#3fb950;padding:2px 8px;border-radius:4px;font-size:11px">'+diffDays+'d left</span>';
      }
     })();} catch(e) { console.warn('calcUrgency:', e); }
+    _log('functions-defined: showMsg,savePrices,recalcPC,recalcRow,addRow,runScprs,etc');
 
     try { recalcPC(); } catch(e) { console.warn('recalcPC init:', e); }
 
     // Load saved profit summary from server if it exists
     try {
-      const saved = {{ profit_summary_json | safe }};
+      const saved = JSON.parse(document.getElementById('server-profit-data').textContent || 'null');
       if (saved && saved.gross_profit != null && typeof updateProfitPanel==='function') {
         updateProfitPanel(saved);
       }
@@ -1807,18 +1831,22 @@
     }
 
     // ── CRM Customer Card + Quote History (server-side data, no fetch needed) ───
-    // NOTE: Runs immediately — DOM is ready since this script is at bottom of body.
-    // DOMContentLoaded already fired before inline scripts execute here.
+    _log('crm-history-start');
     (function renderCRMAndHistory(){try{
      const inst = PC_META.institution;
+     _log('crm: inst="'+inst+'"');
      if (!inst) {
        document.getElementById('crmBody').innerHTML='<span style="color:#8b949e">No institution detected</span>';
        document.getElementById('historyBody').innerHTML='<span style="color:#8b949e">No institution — upload a valid PC</span>';
+       _log('crm: no institution');
        return;
      }
 
-     // CRM match — data loaded server-side
-     const d = {{ crm_json | safe }};
+     // CRM match — data loaded from data island (safe from parse errors)
+     var crmRaw = document.getElementById('server-crm-data');
+     _log('crm: data element='+(crmRaw?'found':'MISSING')+', len='+(crmRaw?crmRaw.textContent.length:0));
+     const d = JSON.parse((crmRaw && crmRaw.textContent) || '{}');
+     _log('crm: parsed ok, matched='+d.matched);
      (function renderCRM(){
       const card = document.getElementById('crmBody');
       const badge = document.getElementById('crmBadge');
@@ -1854,9 +1882,13 @@
        card.innerHTML = html;
       }
      })();
+     _log('crm: CRM rendered ok');
 
-     // Quote history — data loaded server-side
-     const history = {{ history_json | safe }};
+     // Quote history — data loaded from data island (safe from parse errors)
+     var histRaw = document.getElementById('server-history-data');
+     _log('history: data element='+(histRaw?'found':'MISSING')+', len='+(histRaw?histRaw.textContent.length:0));
+     const history = JSON.parse((histRaw && histRaw.textContent) || '[]');
+     _log('history: parsed ok, count='+history.length);
      (function renderHistory(){
       const el = document.getElementById('historyBody');
       const badge = document.getElementById('historyBadge');
@@ -1904,12 +1936,15 @@
       });
       el.innerHTML = html;
      })();
-    }catch(e){console.error('CRM/History render error:',e);
+    }catch(e){
+      _log('crm-history-ERROR: '+e.message);
+      console.error('CRM/History render error:',e);
       const crm=document.getElementById('crmBody');
-      if(crm)crm.innerHTML='<span style="color:#f85149">⚠️ Error loading customer: '+e.message+'</span>';
+      if(crm)crm.innerHTML='<span style="color:#f85149">⚠️ Error: '+e.message+'</span>';
       const hist=document.getElementById('historyBody');
-      if(hist)hist.innerHTML='<span style="color:#f85149">⚠️ Error loading history</span>';
+      if(hist)hist.innerHTML='<span style="color:#f85149">⚠️ Error: '+e.message+'</span>';
     }})();
+    _log('crm-history-rendered');
 
     function addNewCustomer() {
      const inst = PC_META.institution;
@@ -2092,6 +2127,51 @@
        }).catch(()=>{});
       });
      });
+    })();
+    _log('auto-pricing-started');
+
+    // ── DIAGNOSTIC: Show log if errors detected ──
+    (function showDiag(){
+     _log('script-complete: '+window._pcLog.length+' events, '+window._pcErrors.length+' errors');
+     // Report errors to server for debugging
+     if(window._pcErrors.length>0){
+      try{
+       fetch('/pricecheck/{{ pcid }}/client-error',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({errors:window._pcErrors, log:window._pcLog.map(function(e){return e.m})})
+       }).catch(function(){});
+      }catch(e){}
+     }
+     // Show log panel if errors OR if ?debug in URL
+     if(window._pcErrors.length>0 || location.search.includes('debug')){
+      var el=document.getElementById('jsErrorLog');
+      if(el){
+       el.style.display='block';
+       el.innerHTML='<b>JS Log ('+window._pcLog.length+' events):</b><br>';
+       window._pcLog.forEach(function(e){
+        el.innerHTML+='<span style="color:#8b949e">'+e.m+'</span><br>';
+       });
+       if(window._pcErrors.length>0){
+        el.innerHTML+='<br><b style="color:#f85149">ERRORS ('+window._pcErrors.length+'):</b><br>';
+        window._pcErrors.forEach(function(e){
+         el.innerHTML+='<span style="color:#f85149">❌ '+e.msg+' (line '+e.line+')</span><br>';
+        });
+       }
+      }
+     }
+     // Also check if key functions exist
+     var missing=[];
+     ['showMsg','savePrices','recalcPC','runScprs','runLookup','runWebSearch','runCatalogMatch','runAutoPrice','runPriceSweep','autoProcess'].forEach(function(fn){
+      if(typeof window[fn]==='undefined') missing.push(fn);
+     });
+     if(missing.length>0){
+      _log('MISSING FUNCTIONS: '+missing.join(', '));
+      var el=document.getElementById('jsErrorLog');
+      if(el){el.style.display='block';el.innerHTML+='<br><b style="color:#f85149">MISSING: '+missing.join(', ')+'</b>';}
+      // Also show in status bar
+      if(typeof showMsg==='function') showMsg('⚠️ '+missing.length+' button functions failed to load. Check console.','err');
+     }
     })();
 
     </script>

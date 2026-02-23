@@ -154,7 +154,7 @@ def pricecheck_detail(pcid):
     # Pre-compute next quote number preview
     next_quote_preview = peek_next_quote_number() if QUOTE_GEN_AVAILABLE else ""
     
-    profit_summary_json = _json.dumps(pc.get("profit_summary")) if pc.get("profit_summary") else "null"
+    profit_summary_json = _json.dumps(pc.get("profit_summary"), default=str).replace("</", "<\\/") if pc.get("profit_summary") else "null"
     # Build pipeline status tracker (moved from build_pc_detail_html)
     _status = pc.get('status', 'parsed')
     _steps = [('parsed', '📥', 'Parsed'), ('priced', '💰', 'Priced'), ('completed', '📄', '704 Filled')]
@@ -282,8 +282,13 @@ def pricecheck_detail(pcid):
                 pass
     
     import json as _json
-    crm_json = _json.dumps(crm_data, default=str)
-    history_json = _json.dumps(quote_history, default=str)
+    # Sanitize JSON for safe embedding in <script type="application/json"> tags
+    def _safe_json(obj):
+        """Serialize to JSON and escape chars that could break script blocks."""
+        s = _json.dumps(obj, default=str)
+        return s.replace("</", "<\\/").replace("<!--", "<\\!--")
+    crm_json = _safe_json(crm_data)
+    history_json = _safe_json(quote_history)
 
     # Catalog count for match button
     try:
@@ -408,6 +413,21 @@ def pricecheck_scprs_lookup(pcid):
     pc["parsed"]["line_items"] = items
     _save_price_checks(pcs)
     return jsonify({"ok": True, "found": found, "total": len(items)})
+
+
+@bp.route("/pricecheck/<pcid>/client-error", methods=["POST"])
+@auth_required
+def pricecheck_client_error(pcid):
+    """Receive JS errors from the PC detail page for server-side logging."""
+    data = request.get_json(silent=True) or {}
+    errors = data.get("errors", [])
+    log_entries = data.get("log", [])
+    if errors:
+        log.warning("PC %s CLIENT JS ERRORS: %s", pcid, 
+                     "; ".join(e.get("msg","?") for e in errors[:5]))
+    if log_entries:
+        log.info("PC %s client log: %s", pcid, " → ".join(log_entries[:20]))
+    return jsonify({"ok": True})
 
 
 @bp.route("/pricecheck/<pcid>/rename", methods=["POST"])
