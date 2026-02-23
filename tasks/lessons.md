@@ -57,3 +57,24 @@ variable, then reference the variable: `{_precomputed_json}`.
 - Nested f-strings with conditionals and list comprehensions are error-prone
 - Pattern: build HTML chunks as variables BEFORE the main f-string
 - Avoids quote escaping hell and compile errors
+
+## L11: Jinja2 auto-escaping breaks inline HTML in {{ }}
+**Pattern**: `{{ "<button onclick='fn()'>Click</button>" if cond else "" }}` renders
+as escaped text (`&lt;button...`) because Jinja2 auto-escapes all `{{ }}` output.
+**Rule**: Never put HTML strings in `{{ }}`. Use `{% if %}` blocks instead:
+`{% if cond %}<button onclick="fn()">Click</button>{% endif %}`
+Or use `{{ html_var | safe }}` for Python-built HTML passed to template.
+
+## L12: Route modules loaded via exec() can't be imported
+**Pattern**: `from src.api.modules.routes_crm import _load_customers` fails with
+`NameError: name 'bp' is not defined` because route modules are exec'd into
+dashboard.py's globals, not loaded as importable Python modules.
+**Rule**: Within route modules, just call shared functions directly (e.g. `_load_customers()`)
+— they're already in the global scope at request time. Never use `from src.api.modules...`.
+
+## L13: Client-side JS fetches are unreliable on Railway
+**Pattern**: fetch() calls to own API endpoints time out on Railway cold starts
+(8s timeout, retry+1500ms backoff still not enough). CRM card shows "Loading..." forever.
+**Rule**: For data needed at page load, compute it server-side in the route handler and
+pass it as template context. Use `{{ data_json | safe }}` in template JS. Eliminates
+network roundtrips, auth issues, and cold-start race conditions.

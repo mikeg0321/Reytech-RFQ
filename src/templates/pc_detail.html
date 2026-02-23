@@ -2,8 +2,7 @@
 {% block title %}PC {{ pcid }} — Reytech{% endblock %}
 
 {% block content %}
-<!doctype html><html><head><title>PC #{{ pc.get('pc_number','') }}</title>
-    <style>
+<style>
      body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#0d1117;color:#c9d1d9;margin:0;padding:20px;font-size:15px;line-height:1.5}
      .card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:20px;margin:12px 0}
      table{width:100%;border-collapse:collapse}
@@ -248,27 +247,11 @@
     </div>
 
     <script>
-    let cachedTaxRate = null;
+    let cachedTaxRate = {{ tax_rate }};
 
-    // Fetch CA tax rate from CDTFA on load — uses ship-to zip if available
-    (function fetchTaxRate() {
-     cachedTaxRate = 0.0725; // Default immediately so it's never null
-     document.getElementById('taxRateDisplay').textContent = '(7.25% — CA Default)';
-     // Extract zip from ship-to address
-     const shipTo = '{{ pc.get("ship_to","").replace("'","\\'") }}';
-     const zipMatch = shipTo.match(/\\b(\\d{5})\\b/);
-     const zip = zipMatch ? zipMatch[1] : '';
-     fetch('/api/tax-rate' + (zip ? '?zip='+zip : ''),{credentials:'same-origin'}).then(r=>{
-      if(!r.ok) throw new Error('HTTP '+r.status);
-      return r.json();
-     }).then(d=>{
-      if(d.rate) {
-       cachedTaxRate = d.rate;
-       document.getElementById('taxRateDisplay').textContent = '(' + (d.rate*100).toFixed(3) + '% — ' + (d.jurisdiction||'CA') + ')';
-      }
-     }).catch(()=>{
-      console.log('Tax rate fetch failed, using 7.25% default');
-     });
+    // Tax rate loaded server-side (no fetch needed)
+    (function() {
+     document.getElementById('taxRateDisplay').textContent = '({{ tax_source }} — ' + (cachedTaxRate * 100).toFixed(2) + '%)';
     })();
 
     // Delivery dropdown: show custom input when "Custom..." selected
@@ -1071,27 +1054,7 @@
      }).catch(e=>{btn.textContent='⚡ Process Now';btn.disabled=false;showMsg('❌ Error: '+e,'err')});
     }
 
-    // ── CRM Customer Card + Quote History (loads on page) ─────────────────────
-    // Timeout wrapper for fetch — Railway cold starts can hang
-    function fetchWithTimeout(url, ms=8000) {
-      const ctrl = new AbortController();
-      const timer = setTimeout(()=>ctrl.abort(), ms);
-      return fetch(url, {signal:ctrl.signal, credentials:'same-origin'}).finally(()=>clearTimeout(timer));
-    }
-    function retryFetch(url, attempts=2, ms=8000) {
-      return fetchWithTimeout(url, ms).catch(err => {
-        if (attempts <= 1) throw err;
-        return new Promise(r=>setTimeout(r,1500)).then(()=>retryFetch(url,attempts-1,ms));
-      });
-    }
-
-    // Fallback: clear Loading... after 12s no matter what
-    setTimeout(()=>{
-      const crm=document.getElementById('crmBody');
-      const hist=document.getElementById('historyBody');
-      if(crm&&crm.textContent.includes('Loading'))crm.innerHTML='<span style="color:#8b949e">CRM timed out — <button onclick="location.reload()" style="background:none;border:none;color:#58a6ff;cursor:pointer;text-decoration:underline;font-size:inherit">reload</button></span>';
-      if(hist&&hist.textContent.includes('Loading'))hist.innerHTML='<span style="color:#8b949e">History timed out — <button onclick="location.reload()" style="background:none;border:none;color:#58a6ff;cursor:pointer;text-decoration:underline;font-size:inherit">reload</button></span>';
-    },12000);
+    // ── CRM Customer Card + Quote History (server-side data, no fetch needed) ───
 
     document.addEventListener('DOMContentLoaded',function(){try{
      const inst = PC_META.institution;
@@ -1101,11 +1064,9 @@
        return;
      }
 
-     // CRM match — with retry
-     document.getElementById('crmBody').innerHTML='<span style="color:#8b949e">🔄 Loading CRM...</span>';
-     retryFetch('/api/customers/match?q=' + encodeURIComponent(inst))
-     .then(r=>r.json())
-     .then(d=>{
+     // CRM match — data loaded server-side
+     const d = {{ crm_json | safe }};
+     (function renderCRM(){
       const card = document.getElementById('crmBody');
       const badge = document.getElementById('crmBadge');
       if (d.matched && d.customer) {
@@ -1139,15 +1100,11 @@
        html += '<button onclick="addNewCustomer()" class="btn btn-sm" data-testid="crm-add-customer" style="margin-top:8px;background:rgba(210,153,34,.15);color:#d29922;border:1px solid rgba(210,153,34,.3);font-size:11px;padding:3px 10px;cursor:pointer">+ Add to CRM</button>';
        card.innerHTML = html;
       }
-     }).catch((err)=>{
-      document.getElementById('crmBody').innerHTML='<span style="color:#f85149">⚠️ CRM load failed</span><br><span style="color:#8b949e;font-size:11px">' + (err.name==='AbortError'?'Timeout — server may be starting up':'Network error') + '</span><br><button onclick="location.reload()" style="margin-top:6px;font-size:11px;background:none;border:1px solid var(--bd);color:var(--tx2);padding:3px 10px;border-radius:4px;cursor:pointer">↻ Retry</button>';
-     });
+     })();
 
-     // Quote history for this institution — with hyperlinks and hover previews
-     document.getElementById('historyBody').innerHTML='<span style="color:#8b949e">🔄 Loading history...</span>';
-     retryFetch('/api/quotes/history?institution=' + encodeURIComponent(inst))
-     .then(r=>r.json())
-     .then(history=>{
+     // Quote history — data loaded server-side
+     const history = {{ history_json | safe }};
+     (function renderHistory(){
       const el = document.getElementById('historyBody');
       const badge = document.getElementById('historyBadge');
       if (!history || history.length === 0) {
@@ -1156,79 +1113,45 @@
       }
       const stCfg = {
         won:['✅','#3fb950','Won — PO received'],
+        sent:['📤','#58a6ff','Sent — awaiting response'],
         lost:['❌','#f85149','Lost — not awarded'],
         pending:['⏳','#d29922','Pending — awaiting decision'],
         draft:['📝','#8b949e','Draft — not yet sent'],
       };
 
-      // Summary badge
       badge.style.display = 'inline';
       badge.textContent = history.length + ' quote' + (history.length>1?'s':'');
 
-      // Summary stats row
       const won = history.filter(h=>h.status==='won').length;
       const lost = history.filter(h=>h.status==='lost').length;
-      const pending = history.filter(h=>['pending','draft'].includes(h.status)).length;
+      const pending = history.filter(h=>['pending','draft','sent'].includes(h.status)).length;
       const wonTotal = history.filter(h=>h.status==='won').reduce((s,h)=>s+(h.total||0),0);
       let html = '<div style="display:flex;gap:12px;padding:8px 0 10px;border-bottom:1px solid var(--bd);font-size:13px;font-weight:600">';
       if (won) html += '<span style="color:#3fb950">' + won + ' won · $' + wonTotal.toLocaleString('en',{minimumFractionDigits:2}) + '</span>';
       if (lost) html += '<span style="color:#f85149">' + lost + ' lost</span>';
-      if (pending) html += '<span style="color:#d29922">' + pending + ' pending</span>';
+      if (pending) html += '<span style="color:#d29922">' + pending + ' active</span>';
       html += '</div>';
 
-      // Quote rows — each entity hyperlinked with hover preview
       history.forEach(h => {
        const [icon,color,statusTip] = stCfg[h.status] || stCfg.pending;
        const items = (h.items_text||'').substring(0,100);
-       const itemsList = (h.items_detail||[]).map(it => 
-         it.description.substring(0,60) + ' (x' + it.qty + ') $' + (it.unit_price||0).toFixed(2)
-       ).join('\\n');
-       const tooltipContent = h.quote_number + ' — ' + statusTip 
-         + '\\n$' + (h.total||0).toFixed(2) + ' · ' + (h.items_count||0) + ' items'
-         + (h.po_number ? '\\nPO: ' + h.po_number : '')
-         + (h.days_ago ? '\\n' + h.days_ago : '')
-         + (itemsList ? '\\n───\\n' + itemsList : '');
 
-       html += '<div class="qh-row" style="padding:8px 0;border-bottom:1px solid rgba(48,54,61,0.5)">';
-       
-       // Row 1: Quote number + status + total
+       html += '<div style="padding:8px 0;border-bottom:1px solid rgba(48,54,61,0.5)">';
        html += '<div style="display:flex;gap:10px;align-items:center">';
-       // Quote number — hyperlinked
-       html += '<a href="' + (h.quote_url||'/quotes') + '" class="qh-link" title="' + tooltipContent.replace(/"/g,'&quot;') + '" '
-         + 'style="font-family:JetBrains Mono,monospace;font-weight:700;font-size:13px;color:#58a6ff;text-decoration:none">'
-         + h.quote_number + '</a>';
-       // Status badge — links to source PC if available
-       const statusLink = h.source_pc_url || h.source_rfq_url || '#';
-       const statusTitle = statusLink !== '#' ? 'View source document' : statusTip;
-       html += '<a href="' + statusLink + '" title="' + statusTitle + '" '
-         + 'style="color:' + color + ';font-size:12px;text-decoration:none;padding:1px 8px;border-radius:10px;'
-         + 'background:' + color + '18;font-weight:600;white-space:nowrap">'
-         + icon + ' ' + h.status + '</a>';
-       // Date
-       html += '<span style="font-size:12px;color:#8b949e;flex:1">' + (h.date||'') + '</span>';
-       // Total
-       html += '<span style="font-family:JetBrains Mono,monospace;font-weight:600;font-size:13px;color:var(--tx)">$' 
-         + (h.total||0).toLocaleString('en',{minimumFractionDigits:2}) + '</span>';
+       html += '<a href="' + (h.quote_url||'/quotes') + '" style="font-family:JetBrains Mono,monospace;font-weight:700;font-size:13px;color:#58a6ff;text-decoration:none">' + h.quote_number + '</a>';
+       html += '<span style="color:' + color + ';font-size:12px;padding:1px 8px;border-radius:10px;background:' + color + '18;font-weight:600">' + icon + ' ' + h.status + '</span>';
+       html += '<span style="font-size:12px;color:#8b949e;flex:1">' + (h.date||'') + (h.days_ago ? ' · '+h.days_ago : '') + '</span>';
+       html += '<span style="font-family:JetBrains Mono,monospace;font-weight:600;font-size:13px;color:var(--tx)">$' + (h.total||0).toLocaleString('en',{minimumFractionDigits:2}) + '</span>';
        html += '</div>';
-       
-       // Row 2: Items preview + PO + source link
        html += '<div style="display:flex;gap:8px;margin-top:4px;align-items:center">';
-       if (items) html += '<span style="font-size:11px;color:#8b949e;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' 
-         + (h.items_count||0) + ' items: ' + items + '</span>';
+       if (items) html += '<span style="font-size:11px;color:#8b949e;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (h.items_count||0) + ' items: ' + items + '</span>';
        if (h.po_number) html += '<span style="font-size:11px;padding:1px 6px;background:#238636;color:#fff;border-radius:4px;font-weight:600">PO: ' + h.po_number + '</span>';
-       if (h.source_pc_url) html += '<a href="' + h.source_pc_url + '" title="View source Price Check" '
-         + 'style="font-size:10px;color:#58a6ff;text-decoration:none">📄 PC</a>';
-       if (h.source_rfq_url) html += '<a href="' + h.source_rfq_url + '" title="View source RFQ" '
-         + 'style="font-size:10px;color:#58a6ff;text-decoration:none">📋 RFQ</a>';
        html += '</div>';
-       
        html += '</div>';
       });
       el.innerHTML = html;
-     }).catch((err)=>{
-      document.getElementById('historyBody').innerHTML='<span style="color:#f85149">⚠️ History load failed</span><br><span style="color:#8b949e;font-size:11px">' + (err.name==='AbortError'?'Timeout — server may be starting up':'Network error') + '</span><br><button onclick="location.reload()" style="margin-top:6px;font-size:11px;background:none;border:1px solid var(--bd);color:var(--tx2);padding:3px 10px;border-radius:4px;cursor:pointer">↻ Retry</button>';
-     });
-    }catch(e){console.error('CRM/History load error:',e);
+     })();
+    }catch(e){console.error('CRM/History render error:',e);
       const crm=document.getElementById('crmBody');
       if(crm)crm.innerHTML='<span style="color:#f85149">⚠️ JS error — check console</span>';
     }});

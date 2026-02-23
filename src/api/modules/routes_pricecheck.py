@@ -159,6 +159,120 @@ def pricecheck_detail(pcid):
     pipeline_html = "".join(_pip_parts)
 
     from src.api.render import render_page
+    
+    # ── Server-side CRM match (eliminates unreliable JS fetch) ──
+    crm_data = {"matched": False, "candidates": [], "is_new": True}
+    institution = header.get("institution", pc.get("institution", ""))
+    inst_upper = institution.upper() if institution else ""
+    if institution:
+        try:
+            # _load_customers and _guess_agency are in dashboard globals (exec'd from routes_crm)
+            customers = _load_customers()
+            # Exact match
+            for c in customers:
+                names = [c.get("display_name",""), c.get("company",""),
+                         c.get("abbreviation",""), c.get("qb_name","")]
+                if any(inst_upper == n.upper() for n in names if n):
+                    crm_data = {"matched": True, "customer": c, "is_new": False}
+                    break
+            # Abbreviation expansion
+            if not crm_data["matched"]:
+                _ABBR = {"CSP":"California State Prison","SCC":"Sierra Conservation Center",
+                         "CIM":"California Institution for Men","CIW":"California Institution for Women",
+                         "CMC":"California Men's Colony","CMF":"California Medical Facility",
+                         "CTF":"Correctional Training Facility","CHCF":"California Health Care Facility",
+                         "SATF":"Substance Abuse Treatment Facility"}
+                expanded = institution
+                for abbr, full in _ABBR.items():
+                    if inst_upper.startswith(abbr + "-") or inst_upper.startswith(abbr + " "):
+                        suffix = institution[len(abbr):].lstrip("- ")
+                        expanded = f"{full}, {suffix}" if suffix else full
+                        break
+                if expanded != institution:
+                    exp_upper = expanded.upper()
+                    for c in customers:
+                        if exp_upper in c.get("display_name", "").upper():
+                            crm_data = {"matched": True, "customer": c, "is_new": False}
+                            break
+            # Fuzzy fallback
+            if not crm_data["matched"]:
+                q_tokens = set(inst_upper.split())
+                scored = []
+                for c in customers:
+                    search_text = " ".join([c.get("display_name",""), c.get("company",""),
+                                            c.get("abbreviation","")]).upper()
+                    c_tokens = set(search_text.split())
+                    overlap = len(q_tokens & c_tokens)
+                    if overlap > 0:
+                        scored.append((overlap / max(len(q_tokens), 1), c))
+                scored.sort(key=lambda x: -x[0])
+                candidates = [s[1] for s in scored[:5] if s[0] > 0.3]
+                if candidates and scored[0][0] >= 0.6:
+                    crm_data = {"matched": True, "customer": candidates[0], "is_new": False, "candidates": candidates[:3]}
+                else:
+                    crm_data = {"matched": False, "is_new": True, "candidates": candidates[:3],
+                                "suggested_agency": _guess_agency(institution)}
+        except Exception as e:
+            log.debug("CRM match error: %s", e)
+    
+    # ── Server-side quote history ──
+    quote_history = []
+    if institution and QUOTE_GEN_AVAILABLE:
+        try:
+            quotes = get_all_quotes()
+            for qt in reversed(quotes):
+                qt_inst = qt.get("institution", "").upper()
+                if inst_upper in qt_inst or qt_inst in inst_upper:
+                    source_pc = qt.get("source_pc_id", "")
+                    source_rfq = qt.get("source_rfq_id", "")
+                    created = qt.get("created_at", "")
+                    days_ago = ""
+                    if created:
+                        try:
+                            created_dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
+                            delta = datetime.now() - created_dt.replace(tzinfo=None)
+                            days_ago = f"{delta.days}d ago" if delta.days > 0 else "today"
+                        except Exception:
+                            pass
+                    quote_history.append({
+                        "quote_number": qt.get("quote_number"),
+                        "date": qt.get("date"),
+                        "total": qt.get("total", 0),
+                        "items_count": qt.get("items_count", 0),
+                        "status": qt.get("status", "pending"),
+                        "po_number": qt.get("po_number", ""),
+                        "items_text": qt.get("items_text", ""),
+                        "days_ago": days_ago,
+                        "source_pc_url": f"/pricecheck/{source_pc}" if source_pc else "",
+                        "source_rfq_url": f"/rfq/{source_rfq}" if source_rfq else "",
+                        "quote_url": f"/quotes?q={qt.get('quote_number', '')}",
+                    })
+                    if len(quote_history) >= 10:
+                        break
+        except Exception as e:
+            log.debug("Quote history error: %s", e)
+    
+    # ── Server-side tax rate ──
+    tax_rate = 0.0725
+    tax_source = "CA Default"
+    ship_to_val = pc.get("ship_to", "")
+    if ship_to_val:
+        import re as _re
+        zip_match = _re.search(r'\b(\d{5})\b', ship_to_val)
+        if zip_match:
+            try:
+                from src.agents.tax_agent import get_tax_rate as _get_tax
+                result = _get_tax(zip_code=zip_match.group(1))
+                if result and result.get("rate"):
+                    tax_rate = result["rate"]
+                    tax_source = result.get("jurisdiction", "CDTFA")
+            except Exception:
+                pass
+    
+    import json as _json
+    crm_json = _json.dumps(crm_data, default=str)
+    history_json = _json.dumps(quote_history, default=str)
+    
     html = render_page("pc_detail.html", active_page="PCs",
         pcid=pcid, pc=pc, items=items, items_html=items_html,
         download_html=download_html, expiry_date=expiry_date,
@@ -166,6 +280,8 @@ def pricecheck_detail(pcid):
         del_sel=del_sel, next_quote_preview=next_quote_preview,
         today_date=today_date, profit_summary_json=profit_summary_json,
         pipeline_html=pipeline_html,
+        crm_json=crm_json, history_json=history_json,
+        tax_rate=tax_rate, tax_source=tax_source,
     )
     # Sanitize any surrogate chars that could cause UnicodeEncodeError
     return html.encode("utf-8", "replace").decode("utf-8")

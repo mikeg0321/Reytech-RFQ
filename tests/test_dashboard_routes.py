@@ -407,7 +407,9 @@ class TestPCDetailCRMPanel:
         assert 'crm-add-customer' in html
 
     def test_history_api_called(self, client, seed_pc):
+        """CRM + History data should be embedded server-side (no JS fetch)."""
         r = client.get(f"/pricecheck/{seed_pc}")
         html = r.data.decode()
-        assert '/api/quotes/history' in html
-        assert '/api/customers/match' in html
+        # Server-side rendered: tax rate should be embedded, old fetch URLs gone
+        assert 'cachedTaxRate' in html
+        assert 'renderCRM' in html or 'renderHistory' in html
