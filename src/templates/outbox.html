@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}Outbox — Reytech{% endblock %}
+
+{% block content %}
+
+<style>
+.btn{padding:5px 12px;border:1px solid var(--bd);border-radius:6px;cursor:pointer;font-family:'DM Sans',sans-serif;font-weight:500;transition:.15s;text-decoration:none}
+.btn:hover{opacity:.8}
+.btn-sm{font-size:12px;padding:4px 10px}
+</style>
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+ <div>
+  <h2 style="font-size:22px;font-weight:700">📬 Email Outbox</h2>
+  <p style="color:var(--tx2);font-size:13px;margin-top:4px">{{ total_pending }} pending · {{ sent_today|length }} sent today — Review all drafts before sending</p>
+ </div>
+ <div style="display:flex;gap:8px">
+  <a href="/" class="btn">🏠 Home</a>
+  <button class="btn" onclick="sendAllApproved(this)" style="background:rgba(52,211,153,.1);border-color:var(--gn);color:var(--gn)">📤 Send All Approved</button>
+ </div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:24px">
+ <div class="card"><div style="font-size:11px;color:var(--tx2);margin-bottom:4px">PENDING DRAFTS</div><div style="font-size:28px;font-weight:700;color:var(--yl)">{{ sales_drafts|length }}</div><div style="font-size:11px;color:var(--tx2)">sales outreach</div></div>
+ <div class="card"><div style="font-size:11px;color:var(--tx2);margin-bottom:4px">CS REPLY DRAFTS</div><div style="font-size:28px;font-weight:700;color:{{ 'var(--rd)' if cs_drafts else 'var(--gn)' }}">{{ cs_drafts|length }}</div><div style="font-size:11px;color:var(--tx2)">customer service</div></div>
+</div>
+
+<!-- PRD-28 WI-2: Bulk Actions Bar -->
+<div style="display:flex;gap:8px;margin-bottom:16px;padding:12px;background:var(--sf2);border-radius:8px;align-items:center;flex-wrap:wrap">
+ <span style="font-size:12px;font-weight:600;color:var(--tx2);margin-right:8px">Bulk Actions:</span>
+ <button class="btn btn-sm" onclick="bulkApproveAll()" style="background:rgba(52,211,153,.15);color:var(--gn);font-size:11px;padding:6px 14px">✅ Approve All Drafts ({{ sales_drafts|length }})</button>
+ <button class="btn btn-sm" onclick="bulkDeleteDrafts()" style="background:rgba(248,113,113,.1);color:var(--rd);font-size:11px;padding:6px 14px">🗑 Delete All Drafts</button>
+ <button class="btn btn-sm" onclick="retryFailed()" style="background:rgba(251,191,36,.1);color:var(--yl);font-size:11px;padding:6px 14px">🔄 Retry Failed</button>
+ <div style="flex:1"></div>
+ <span id="bulk-status" style="font-size:11px;color:var(--tx2)"></span>
+</div>
+
+<h3 style="font-size:14px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">📬 Customer Service Replies ({{ cs_drafts|length }})</h3>
+{{ '<p style="color:var(--tx2);font-size:13px;padding:20px 0">No CS drafts pending. 👍</p>' if not cs_drafts else cs_html }}
+
+<h3 style="font-size:14px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin:24px 0 12px">📋 Sales Drafts ({{ sales_drafts|length }})</h3>
+{{ '<p style="color:var(--tx2);font-size:13px;padding:20px 0">No sales drafts pending.</p>' if not sales_drafts else sales_html }}
+
+<script>
+function approveDraft(id,btn){
+  btn.disabled=true;btn.textContent='Sending...';
+  fetch('/api/email/approve',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({email_id:id})})
+  .then(r=>r.json()).then(d=>{
+    if(d.ok){btn.textContent='✅ Sent!';btn.style.background='var(--gn)';setTimeout(()=>location.reload(),1200)}
+    else{btn.disabled=false;btn.textContent='❌ Failed: '+d.error}
+  }).catch(()=>{btn.disabled=false;btn.textContent='Error'});
+}
+function approveCS(id,btn){
+  btn.disabled=true;btn.textContent='Sending...';
+  fetch('/api/email/approve-cs',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({draft_id:id})})
+  .then(r=>r.json()).then(d=>{
+    if(d.ok){btn.textContent='✅ Sent!';setTimeout(()=>location.reload(),1200)}
+    else{btn.disabled=false;btn.textContent='Error: '+(d.error||'unknown')}
+  }).catch(()=>{btn.disabled=false;btn.textContent='Error'});
+}
+function bulkApproveAll(){
+  if(!confirm('Approve ALL '+{{ sales_drafts|length }}+' sales drafts?'))return;
+  document.getElementById('bulk-status').textContent='Approving...';
+  fetch('/api/outbox/bulk-approve',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({})})
+  .then(r=>r.json()).then(d=>{
+    document.getElementById('bulk-status').textContent=d.ok?'✅ Approved '+d.approved+' drafts':'❌ Failed';
+    if(d.ok)setTimeout(()=>location.reload(),1500);
+  });
+}
+function bulkDeleteDrafts(){
+  if(!confirm('Delete ALL draft emails? This cannot be undone.'))return;
+  document.getElementById('bulk-status').textContent='Deleting...';
+  fetch('/api/outbox/bulk-delete',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({status_filter:'draft'})})
+  .then(r=>r.json()).then(d=>{
+    document.getElementById('bulk-status').textContent=d.ok?'🗑 Deleted '+d.deleted+' drafts':'❌ Failed';
+    if(d.ok)setTimeout(()=>location.reload(),1500);
+  });
+}
+function retryFailed(){
+  document.getElementById('bulk-status').textContent='Retrying...';
+  fetch('/api/outbox/retry-failed',{method:'POST',credentials:'same-origin'})
+  .then(r=>r.json()).then(d=>{
+    document.getElementById('bulk-status').textContent=d.ok?'🔄 Re-queued '+d.retried+' emails':'❌ Failed';
+    if(d.retried>0)setTimeout(()=>location.reload(),1500);
+  });
+}
+function deleteDraft(id,btn){
+  if(!confirm('Delete this draft?'))return;
+  fetch('/api/email/delete',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({email_id:id})})
+  .then(()=>btn.closest('.card').remove());
+}
+function deleteCS(id,btn){
+  if(!confirm('Discard this CS draft?'))return;
+  fetch('/api/email/delete-cs',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({draft_id:id})})
+  .then(()=>btn.closest('.card').remove());
+}
+function sendAllApproved(btn){
+  btn.disabled=true;btn.textContent='⏳ Sending...';
+  fetch('/api/email/send-approved',{method:'POST',credentials:'same-origin'})
+  .then(r=>r.json()).then(d=>{
+    btn.textContent=(d.sent||0)+' sent';setTimeout(()=>location.reload(),1500);
+  }).catch(()=>{btn.disabled=false;btn.textContent='Error'});
+}
+</script>
+
+{% endblock %}

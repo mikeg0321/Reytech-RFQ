@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %}Pricing Intelligence — Reytech{% endblock %}
+
+{% block content %}
+<h2 style="margin-bottom:4px">💰 Pricing Intelligence</h2>
+<p style="font-size:13px;color:var(--tx2);margin-bottom:16px">Historical winning prices captured from orders — use for smarter quoting</p>
+
+{# Stats cards #}
+<div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+  {% set cards = [
+    (data.total_records|default(0), 'WINNING PRICES', 'var(--ac)'),
+    (data.unique_items|default(0), 'UNIQUE ITEMS', 'var(--gn)'),
+    (data.unique_agencies|default(0), 'AGENCIES', 'var(--yl)'),
+  ] %}
+  {% for val, label, color in cards %}
+  <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
+    <div style="font-size:28px;font-weight:800;color:{{ color }}">{{ val }}</div>
+    <div style="font-size:10px;color:var(--tx2)">{{ label }}</div></div>
+  {% endfor %}
+  <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
+    <div style="font-size:28px;font-weight:800;color:var(--gn)">${{ "{:,.0f}".format(data.total_revenue|default(0)) }}</div>
+    <div style="font-size:10px;color:var(--tx2)">WIN REVENUE</div></div>
+  <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
+    <div style="font-size:28px;font-weight:800;color:var(--ac)">{{ "%.1f"|format(data.avg_margin|default(0)) }}%</div>
+    <div style="font-size:10px;color:var(--tx2)">AVG MARGIN</div></div>
+  <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
+    <div style="font-size:28px;font-weight:800;color:var(--ac)">{{ data.recent_wins_30d|default(0) }}</div>
+    <div style="font-size:10px;color:var(--tx2)">LAST 30 DAYS</div></div>
+</div>
+
+{# Margin distribution bar #}
+{% set md = data.margin_distribution|default({}) %}
+{% set md_total = (md.negative|default(0) + md.low|default(0) + md.mid|default(0) + md.high|default(0)) or 1 %}
+<div class="card" style="margin-bottom:16px">
+  <h3 style="margin-bottom:8px;font-size:14px">Margin Distribution</h3>
+  <div style="display:flex;height:24px;border-radius:6px;overflow:hidden;font-size:10px;font-weight:600">
+    <div style="background:#e74c3c;width:{{ "%.1f"|format(md.negative|default(0)/md_total*100) }}%;display:flex;align-items:center;justify-content:center;color:#fff" title="Negative margin">{{ md.negative|default(0) }}</div>
+    <div style="background:#f39c12;width:{{ "%.1f"|format(md.low|default(0)/md_total*100) }}%;display:flex;align-items:center;justify-content:center;color:#fff" title="0-10% margin">{{ md.low|default(0) }}</div>
+    <div style="background:#27ae60;width:{{ "%.1f"|format(md.mid|default(0)/md_total*100) }}%;display:flex;align-items:center;justify-content:center;color:#fff" title="10-25% margin">{{ md.mid|default(0) }}</div>
+    <div style="background:#2980b9;width:{{ "%.1f"|format(md.high|default(0)/md_total*100) }}%;display:flex;align-items:center;justify-content:center;color:#fff" title="25%+ margin">{{ md.high|default(0) }}</div>
+  </div>
+  <div style="display:flex;gap:16px;margin-top:6px;font-size:10px;color:var(--tx2)">
+    <span>🔴 Negative: {{ md.negative|default(0) }}</span>
+    <span>🟡 Low (0-10%): {{ md.low|default(0) }}</span>
+    <span>🟢 Mid (10-25%): {{ md.mid|default(0) }}</span>
+    <span>🔵 High (25%+): {{ md.high|default(0) }}</span>
+  </div>
+</div>
+
+{# Price lookup tool #}
+<div class="card" style="margin-bottom:16px">
+  <h3 style="margin-bottom:8px;font-size:14px">🔍 Price Lookup</h3>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <input id="pl-desc" placeholder="Description or part number" style="flex:1;min-width:200px;padding:8px;border-radius:6px;border:1px solid var(--bd);background:var(--sf2);color:var(--tx)">
+    <input id="pl-agency" placeholder="Agency (optional)" style="width:160px;padding:8px;border-radius:6px;border:1px solid var(--bd);background:var(--sf2);color:var(--tx)">
+    <button onclick="priceLookup()" style="padding:8px 16px;background:var(--ac);color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600">Lookup</button>
+  </div>
+  <div id="pl-result" style="margin-top:12px"></div>
+</div>
+
+{# Top winning items #}
+<div class="card" style="margin-bottom:16px;overflow-x:auto">
+  <h3 style="margin-bottom:8px;font-size:14px">📊 Top Winning Items</h3>
+  <table class="home-tbl">
+   <thead><tr><th>Description</th><th>Part #</th><th>Wins</th><th>Avg Price</th><th>Avg Margin</th><th>Last Won</th></tr></thead>
+   <tbody>
+   {% if data.top_items %}
+     {% for it in data.top_items %}
+     <tr>
+      <td style="font-size:12px">{{ it.description[:50] }}</td>
+      <td style="font-family:monospace;font-size:11px">{{ it.part_number or '-' }}</td>
+      <td style="font-weight:600">{{ it.wins }}</td>
+      <td style="font-weight:600">${{ "{:,.2f}".format(it.avg_price) }}</td>
+      <td>{{ "%.1f"|format(it.avg_margin) }}%</td>
+      <td style="font-size:11px">{{ it.last_won[:10] if it.last_won else '-' }}</td>
+     </tr>
+     {% endfor %}
+   {% else %}
+     <tr><td colspan="6" style="text-align:center;color:var(--tx2);padding:16px">Pricing data builds as quotes are won and orders created</td></tr>
+   {% endif %}
+   </tbody>
+  </table>
+</div>
+
+{# Top agencies #}
+<div class="card" style="overflow-x:auto">
+  <h3 style="margin-bottom:8px;font-size:14px">🏛️ Top Agencies by Revenue</h3>
+  <table class="home-tbl">
+   <thead><tr><th>Agency</th><th>Wins</th><th>Revenue</th><th>Avg Margin</th></tr></thead>
+   <tbody>
+   {% if data.top_agencies %}
+     {% for ag in data.top_agencies %}
+     <tr>
+      <td style="font-size:12px;font-weight:600">{{ ag.agency }}</td>
+      <td>{{ ag.wins }}</td>
+      <td style="font-weight:600">${{ "{:,.2f}".format(ag.total_revenue) }}</td>
+      <td>{{ "%.1f"|format(ag.avg_margin) }}%</td>
+     </tr>
+     {% endfor %}
+   {% else %}
+     <tr><td colspan="4" style="text-align:center;color:var(--tx2);padding:16px">Agency data populates from won orders</td></tr>
+   {% endif %}
+   </tbody>
+  </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function priceLookup(){
+  var desc=document.getElementById('pl-desc').value;
+  var agency=document.getElementById('pl-agency').value;
+  if(!desc){alert('Enter description or part number');return}
+  var url='/api/pricing/recommend-price?description='+encodeURIComponent(desc);
+  if(agency) url+='&agency='+encodeURIComponent(agency);
+  fetch(url,{credentials:'same-origin'}).then(r=>r.json()).then(d=>{
+    var el=document.getElementById('pl-result');
+    if(!d.ok||d.count===0){el.innerHTML='<div style="color:var(--tx2);padding:8px">No pricing history found for this item</div>';return}
+    var h='<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px">';
+    h+='<div style="background:var(--sf2);border-radius:6px;padding:8px 14px"><div style="font-size:10px;color:var(--tx2)">RECOMMENDED</div><div style="font-size:20px;font-weight:800;color:var(--gn)">$'+d.recommended_price.toFixed(2)+'</div></div>';
+    h+='<div style="background:var(--sf2);border-radius:6px;padding:8px 14px"><div style="font-size:10px;color:var(--tx2)">AVG WIN</div><div style="font-size:20px;font-weight:700">$'+d.avg_price.toFixed(2)+'</div></div>';
+    h+='<div style="background:var(--sf2);border-radius:6px;padding:8px 14px"><div style="font-size:10px;color:var(--tx2)">RANGE</div><div style="font-size:14px;font-weight:600">$'+d.min_price.toFixed(2)+' – $'+d.max_price.toFixed(2)+'</div></div>';
+    h+='<div style="background:var(--sf2);border-radius:6px;padding:8px 14px"><div style="font-size:10px;color:var(--tx2)">WINS</div><div style="font-size:20px;font-weight:700">'+d.count+'</div></div>';
+    h+='</div>';
+    if(d.history&&d.history.length){
+      h+='<table class="home-tbl" style="font-size:11px"><thead><tr><th>Date</th><th>Price</th><th>Cost</th><th>Margin</th><th>Agency</th><th>Quote</th></tr></thead><tbody>';
+      d.history.slice(0,10).forEach(function(r){
+        h+='<tr><td>'+r.date+'</td><td style="font-weight:600">$'+r.price.toFixed(2)+'</td><td>'+(r.cost?'$'+r.cost.toFixed(2):'-')+'</td><td>'+(r.margin?r.margin.toFixed(1)+'%':'-')+'</td><td>'+r.agency+'</td><td>'+(r.quote||'-')+'</td></tr>';
+      });
+      h+='</tbody></table>';
+    }
+    el.innerHTML=h;
+  });
+}
+</script>
+{% endblock %}

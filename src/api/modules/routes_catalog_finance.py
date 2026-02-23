@@ -512,62 +512,15 @@ def shipping_dashboard():
     # Stats
     total = len(shipments)
     in_transit = sum(1 for s in shipments if s["status"] in ("shipped", "ordered"))
-    delivered = sum(1 for s in shipments if s["status"] == "delivered")
+    delivered_count = sum(1 for s in shipments if s["status"] == "delivered")
     carriers = {}
     for s in shipments:
         c = s["carrier"] or "Unknown"
         carriers[c] = carriers.get(c, 0) + 1
     
-    rows = ""
-    for s in shipments:
-        st_color = {"delivered": "var(--gn)", "shipped": "var(--ac)", "ordered": "var(--yl)"}.get(s["status"], "var(--tx2)")
-        link = f'<a href="{s["track_url"]}" target="_blank" style="color:var(--ac)">{s["tracking"]}</a>' if s["track_url"] else s["tracking"]
-        rows += f"""<tr onclick="location.href='/order/{s['order_id']}'" style="cursor:pointer">
-         <td><a href="/order/{s['order_id']}" style="color:var(--ac);font-size:12px">{s['order_id'][:20]}</a></td>
-         <td style="font-size:12px">{s['po_number']}</td>
-         <td style="font-size:12px">{s['institution'][:30]}</td>
-         <td style="font-size:12px">{s['description']}</td>
-         <td style="font-family:'JetBrains Mono',monospace;font-size:11px">{link}</td>
-         <td style="font-size:12px">{s['carrier']}</td>
-         <td style="font-size:12px">{s['ship_date']}</td>
-         <td style="font-size:12px">{s['delivery_date']}</td>
-         <td style="color:{st_color};font-weight:600;font-size:12px">{s['status']}</td>
-        </tr>"""
-    
-    carrier_chips = " ".join(
-        f'<span style="background:var(--sf2);border:1px solid var(--bd);border-radius:6px;padding:4px 10px;font-size:11px">{c}: <b>{n}</b></span>'
-        for c, n in sorted(carriers.items(), key=lambda x: -x[1])
-    )
-    
-    content = f"""
-    <h2 style="margin-bottom:4px">🚚 Shipping Dashboard</h2>
-    <p style="font-size:13px;color:var(--tx2);margin-bottom:16px">All tracking numbers across orders with carrier links</p>
-    
-    <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
-      <div class="card" style="text-align:center;padding:12px 20px;min-width:100px;margin:0">
-        <div style="font-size:28px;font-weight:800;color:var(--ac)">{total}</div>
-        <div style="font-size:10px;color:var(--tx2)">SHIPMENTS</div></div>
-      <div class="card" style="text-align:center;padding:12px 20px;min-width:100px;margin:0">
-        <div style="font-size:28px;font-weight:800;color:var(--yl)">{in_transit}</div>
-        <div style="font-size:10px;color:var(--tx2)">IN TRANSIT</div></div>
-      <div class="card" style="text-align:center;padding:12px 20px;min-width:100px;margin:0">
-        <div style="font-size:28px;font-weight:800;color:var(--gn)">{delivered}</div>
-        <div style="font-size:10px;color:var(--tx2)">DELIVERED</div></div>
-    </div>
-    
-    <div style="margin-bottom:12px">{carrier_chips}</div>
-    
-    <div class="card" style="overflow-x:auto">
-     <table class="home-tbl" style="min-width:900px">
-      <thead><tr>
-       <th>Order</th><th>PO #</th><th>Institution</th><th>Item</th>
-       <th>Tracking</th><th>Carrier</th><th>Shipped</th><th>Delivered</th><th>Status</th>
-      </tr></thead>
-      <tbody>{rows or '<tr><td colspan="9" style="text-align:center;color:var(--tx2);padding:20px">No shipments tracked yet — tracking numbers auto-detected from shipping emails</td></tr>'}</tbody>
-     </table>
-    </div>"""
-    
-    return render(content, title="Shipping")
+    return render_page("shipping.html", active_page="Shipping",
+        shipments=shipments, total=total, in_transit=in_transit,
+        delivered=delivered_count, carriers=carriers)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -974,138 +927,7 @@ def pricing_intel_page():
                 "total_revenue": 0, "avg_margin": 0, "recent_wins_30d": 0,
                 "top_items": [], "top_agencies": [], "margin_distribution": {}}
 
-    # Stats cards
-    stats = f"""
-    <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
-      <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
-        <div style="font-size:28px;font-weight:800;color:var(--ac)">{data.get('total_records',0)}</div>
-        <div style="font-size:10px;color:var(--tx2)">WINNING PRICES</div></div>
-      <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
-        <div style="font-size:28px;font-weight:800;color:var(--gn)">{data.get('unique_items',0)}</div>
-        <div style="font-size:10px;color:var(--tx2)">UNIQUE ITEMS</div></div>
-      <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
-        <div style="font-size:28px;font-weight:800;color:var(--yl)">{data.get('unique_agencies',0)}</div>
-        <div style="font-size:10px;color:var(--tx2)">AGENCIES</div></div>
-      <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
-        <div style="font-size:28px;font-weight:800;color:var(--gn)">${data.get('total_revenue',0):,.0f}</div>
-        <div style="font-size:10px;color:var(--tx2)">WIN REVENUE</div></div>
-      <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
-        <div style="font-size:28px;font-weight:800;color:var(--ac)">{data.get('avg_margin',0):.1f}%</div>
-        <div style="font-size:10px;color:var(--tx2)">AVG MARGIN</div></div>
-      <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
-        <div style="font-size:28px;font-weight:800;color:var(--ac)">{data.get('recent_wins_30d',0)}</div>
-        <div style="font-size:10px;color:var(--tx2)">LAST 30 DAYS</div></div>
-    </div>"""
-
-    # Margin distribution bar
-    md = data.get("margin_distribution", {})
-    md_total = sum(md.values()) or 1
-    md_bar = f"""
-    <div class="card" style="margin-bottom:16px">
-      <h3 style="margin-bottom:8px;font-size:14px">Margin Distribution</h3>
-      <div style="display:flex;height:24px;border-radius:6px;overflow:hidden;font-size:10px;font-weight:600">
-        <div style="background:#e74c3c;width:{md.get('negative',0)/md_total*100:.1f}%;display:flex;align-items:center;justify-content:center;color:#fff" title="Negative margin">{md.get('negative',0)}</div>
-        <div style="background:#f39c12;width:{md.get('low',0)/md_total*100:.1f}%;display:flex;align-items:center;justify-content:center;color:#fff" title="0-10% margin">{md.get('low',0)}</div>
-        <div style="background:#27ae60;width:{md.get('mid',0)/md_total*100:.1f}%;display:flex;align-items:center;justify-content:center;color:#fff" title="10-25% margin">{md.get('mid',0)}</div>
-        <div style="background:#2980b9;width:{md.get('high',0)/md_total*100:.1f}%;display:flex;align-items:center;justify-content:center;color:#fff" title="25%+ margin">{md.get('high',0)}</div>
-      </div>
-      <div style="display:flex;gap:16px;margin-top:6px;font-size:10px;color:var(--tx2)">
-        <span>🔴 Negative: {md.get('negative',0)}</span>
-        <span>🟡 Low (0-10%): {md.get('low',0)}</span>
-        <span>🟢 Mid (10-25%): {md.get('mid',0)}</span>
-        <span>🔵 High (25%+): {md.get('high',0)}</span>
-      </div>
-    </div>"""
-
-    # Price lookup tool
-    lookup = """
-    <div class="card" style="margin-bottom:16px">
-      <h3 style="margin-bottom:8px;font-size:14px">🔍 Price Lookup</h3>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <input id="pl-desc" placeholder="Description or part number" style="flex:1;min-width:200px;padding:8px;border-radius:6px;border:1px solid var(--bd);background:var(--sf2);color:var(--tx)">
-        <input id="pl-agency" placeholder="Agency (optional)" style="width:160px;padding:8px;border-radius:6px;border:1px solid var(--bd);background:var(--sf2);color:var(--tx)">
-        <button onclick="priceLookup()" style="padding:8px 16px;background:var(--ac);color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600">Lookup</button>
-      </div>
-      <div id="pl-result" style="margin-top:12px"></div>
-    </div>
-    <script>
-    function priceLookup(){
-      var desc=document.getElementById('pl-desc').value;
-      var agency=document.getElementById('pl-agency').value;
-      if(!desc){alert('Enter description or part number');return}
-      var url='/api/pricing/recommend-price?description='+encodeURIComponent(desc);
-      if(agency) url+='&agency='+encodeURIComponent(agency);
-      fetch(url,{credentials:'same-origin'}).then(r=>r.json()).then(d=>{
-        var el=document.getElementById('pl-result');
-        if(!d.ok||d.count===0){el.innerHTML='<div style="color:var(--tx2);padding:8px">No pricing history found for this item</div>';return}
-        var h='<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px">';
-        h+='<div style="background:var(--sf2);border-radius:6px;padding:8px 14px"><div style="font-size:10px;color:var(--tx2)">RECOMMENDED</div><div style="font-size:20px;font-weight:800;color:var(--gn)">$'+d.recommended_price.toFixed(2)+'</div></div>';
-        h+='<div style="background:var(--sf2);border-radius:6px;padding:8px 14px"><div style="font-size:10px;color:var(--tx2)">AVG WIN</div><div style="font-size:20px;font-weight:700">$'+d.avg_price.toFixed(2)+'</div></div>';
-        h+='<div style="background:var(--sf2);border-radius:6px;padding:8px 14px"><div style="font-size:10px;color:var(--tx2)">RANGE</div><div style="font-size:14px;font-weight:600">$'+d.min_price.toFixed(2)+' – $'+d.max_price.toFixed(2)+'</div></div>';
-        h+='<div style="background:var(--sf2);border-radius:6px;padding:8px 14px"><div style="font-size:10px;color:var(--tx2)">WINS</div><div style="font-size:20px;font-weight:700">'+d.count+'</div></div>';
-        h+='</div>';
-        if(d.history&&d.history.length){
-          h+='<table class="home-tbl" style="font-size:11px"><thead><tr><th>Date</th><th>Price</th><th>Cost</th><th>Margin</th><th>Agency</th><th>Quote</th></tr></thead><tbody>';
-          d.history.slice(0,10).forEach(function(r){
-            h+='<tr><td>'+r.date+'</td><td style="font-weight:600">$'+r.price.toFixed(2)+'</td><td>'+(r.cost?'$'+r.cost.toFixed(2):'-')+'</td><td>'+(r.margin?r.margin.toFixed(1)+'%':'-')+'</td><td>'+r.agency+'</td><td>'+(r.quote||'-')+'</td></tr>';
-          });
-          h+='</tbody></table>';
-        }
-        el.innerHTML=h;
-      });
-    }
-    </script>"""
-
-    # Top winning items table
-    top_rows = ""
-    for it in data.get("top_items", []):
-        top_rows += f"""<tr>
-         <td style="font-size:12px">{it['description'][:50]}</td>
-         <td style="font-family:monospace;font-size:11px">{it['part_number'] or '-'}</td>
-         <td style="font-weight:600">{it['wins']}</td>
-         <td style="font-weight:600">${it['avg_price']:,.2f}</td>
-         <td>{it['avg_margin']:.1f}%</td>
-         <td style="font-size:11px">{it['last_won'][:10] if it['last_won'] else '-'}</td>
-        </tr>"""
-
-    top_items_html = f"""
-    <div class="card" style="margin-bottom:16px;overflow-x:auto">
-      <h3 style="margin-bottom:8px;font-size:14px">📊 Top Winning Items</h3>
-      <table class="home-tbl">
-       <thead><tr><th>Description</th><th>Part #</th><th>Wins</th><th>Avg Price</th><th>Avg Margin</th><th>Last Won</th></tr></thead>
-       <tbody>{top_rows or '<tr><td colspan="6" style="text-align:center;color:var(--tx2);padding:16px">Pricing data builds as quotes are won and orders created</td></tr>'}</tbody>
-      </table>
-    </div>"""
-
-    # Top agencies table
-    agency_rows = ""
-    for ag in data.get("top_agencies", []):
-        agency_rows += f"""<tr>
-         <td style="font-size:12px;font-weight:600">{ag['agency']}</td>
-         <td>{ag['wins']}</td>
-         <td style="font-weight:600">${ag['total_revenue']:,.2f}</td>
-         <td>{ag['avg_margin']:.1f}%</td>
-        </tr>"""
-
-    agencies_html = f"""
-    <div class="card" style="overflow-x:auto">
-      <h3 style="margin-bottom:8px;font-size:14px">🏛️ Top Agencies by Revenue</h3>
-      <table class="home-tbl">
-       <thead><tr><th>Agency</th><th>Wins</th><th>Revenue</th><th>Avg Margin</th></tr></thead>
-       <tbody>{agency_rows or '<tr><td colspan="4" style="text-align:center;color:var(--tx2);padding:16px">Agency data populates from won orders</td></tr>'}</tbody>
-      </table>
-    </div>"""
-
-    content = f"""
-    <h2 style="margin-bottom:4px">💰 Pricing Intelligence</h2>
-    <p style="font-size:13px;color:var(--tx2);margin-bottom:16px">Historical winning prices captured from orders — use for smarter quoting</p>
-    {stats}
-    {md_bar}
-    {lookup}
-    {top_items_html}
-    {agencies_html}
-    """
-    return render(content, title="Pricing Intel")
+    return render_page("pricing.html", active_page="Pricing", data=data)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1153,42 +975,9 @@ def recurring_orders_page():
     total_value_recurring = sum(r["total_value"] for r in recurring)
     total_orders_recurring = sum(r["order_count"] for r in recurring)
 
-    rows = ""
-    for r in recurring:
-        order_links = " ".join(
-            f'<a href="/order/{o.get("order_id","")}" style="color:var(--ac);font-size:10px">{o.get("po_number","") or o.get("order_id","")[:12]}</a>'
-            for o in r["orders"][:5]
-        )
-        rows += f"""<tr>
-         <td style="font-weight:600;font-size:12px">{r['institution']}</td>
-         <td style="font-weight:700;color:var(--ac)">{r['order_count']}</td>
-         <td style="font-weight:600">${r['total_value']:,.2f}</td>
-         <td>${r['avg_value']:,.2f}</td>
-         <td>{r['unique_items']}</td>
-         <td>{order_links}</td>
-        </tr>"""
-
-    content = f"""
-    <h2 style="margin-bottom:4px">🔄 Recurring Orders</h2>
-    <p style="font-size:13px;color:var(--tx2);margin-bottom:16px">Repeat buyers detected — use for quote template reuse and proactive outreach</p>
-    <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
-      <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
-        <div style="font-size:28px;font-weight:800;color:var(--ac)">{total_recurring}</div>
-        <div style="font-size:10px;color:var(--tx2)">REPEAT BUYERS</div></div>
-      <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
-        <div style="font-size:28px;font-weight:800;color:var(--gn)">{total_orders_recurring}</div>
-        <div style="font-size:10px;color:var(--tx2)">TOTAL ORDERS</div></div>
-      <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
-        <div style="font-size:28px;font-weight:800;color:var(--gn)">${total_value_recurring:,.0f}</div>
-        <div style="font-size:10px;color:var(--tx2)">TOTAL VALUE</div></div>
-    </div>
-    <div class="card" style="overflow-x:auto">
-     <table class="home-tbl">
-      <thead><tr><th>Institution</th><th>Orders</th><th>Total Value</th><th>Avg Value</th><th>Unique Items</th><th>Recent Orders</th></tr></thead>
-      <tbody>{rows or '<tr><td colspan="6" style="text-align:center;color:var(--tx2);padding:20px">Need 2+ orders from same institution to detect patterns</td></tr>'}</tbody>
-     </table>
-    </div>"""
-    return render(content, title="Recurring Orders")
+    return render_page("recurring.html", active_page="Orders",
+        recurring=recurring, total_recurring=total_recurring,
+        total_orders=total_orders_recurring, total_value=total_value_recurring)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1236,52 +1025,10 @@ def margins_page():
     uncosted = sum(1 for m in margin_data if m["cost"] == 0)
     negative = sum(1 for m in margin_data if m["margin"] < 0)
 
-    rows = ""
-    for m in margin_data[:50]:
-        mc = "var(--rn)" if m["margin"] < 0 else ("var(--yl)" if m["margin"] < 10 else "var(--gn)")
-        rows += f"""<tr onclick="location.href='/order/{m['order_id']}'" style="cursor:pointer">
-         <td style="font-size:11px"><a href="/order/{m['order_id']}" style="color:var(--ac)">{m['po'] or m['order_id'][:15]}</a></td>
-         <td style="font-size:11px">{m['institution'][:25]}</td>
-         <td style="font-size:11px">{m['description']}</td>
-         <td style="text-align:right">{m['qty']}</td>
-         <td style="text-align:right">${m['sell']:,.2f}</td>
-         <td style="text-align:right">{f"${m['cost']:,.2f}" if m['cost'] else '<span style="color:var(--tx2)">—</span>'}</td>
-         <td style="text-align:right;font-weight:600;color:{mc}">{m['margin']:.1f}%</td>
-         <td style="text-align:right;font-weight:600">${m['profit']:,.2f}</td>
-        </tr>"""
-
-    content = f"""
-    <h2 style="margin-bottom:4px">📊 Margin Calculator</h2>
-    <p style="font-size:13px;color:var(--tx2);margin-bottom:16px">Cost vs sell price per item — profitability across all orders</p>
-    <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
-      <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
-        <div style="font-size:28px;font-weight:800;color:var(--gn)">${total_revenue:,.0f}</div>
-        <div style="font-size:10px;color:var(--tx2)">REVENUE</div></div>
-      <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
-        <div style="font-size:28px;font-weight:800;color:var(--yl)">${total_cost:,.0f}</div>
-        <div style="font-size:10px;color:var(--tx2)">COSTS</div></div>
-      <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
-        <div style="font-size:28px;font-weight:800;color:var(--gn)">${total_profit:,.0f}</div>
-        <div style="font-size:10px;color:var(--tx2)">PROFIT</div></div>
-      <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
-        <div style="font-size:28px;font-weight:800;color:{'var(--gn)' if overall_margin > 15 else 'var(--yl)'}">{overall_margin:.1f}%</div>
-        <div style="font-size:10px;color:var(--tx2)">OVERALL MARGIN</div></div>
-      <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
-        <div style="font-size:28px;font-weight:800;color:var(--ac)">{costed}</div>
-        <div style="font-size:10px;color:var(--tx2)">COSTED ITEMS</div></div>
-      <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
-        <div style="font-size:28px;font-weight:800;color:{'var(--rn)' if negative > 0 else 'var(--gn)'}">{negative}</div>
-        <div style="font-size:10px;color:var(--tx2)">NEGATIVE MARGIN</div></div>
-    </div>
-    <div class="card" style="overflow-x:auto">
-     <table class="home-tbl" style="min-width:800px">
-      <thead><tr><th>Order</th><th>Institution</th><th>Item</th><th>Qty</th><th>Sell</th><th>Cost</th><th>Margin</th><th>Profit</th></tr></thead>
-      <tbody>{rows or '<tr><td colspan="8" style="text-align:center;color:var(--tx2);padding:20px">Margin data populates when orders have cost and sell prices</td></tr>'}</tbody>
-     </table>
-    </div>
-    <p style="font-size:11px;color:var(--tx2);margin-top:8px">{uncosted} items missing cost data — use Supplier Lookup to auto-populate costs</p>
-    """
-    return render(content, title="Margins")
+    return render_page("margins.html", active_page="Pricing",
+        margin_data=margin_data, total_revenue=total_revenue, total_cost=total_cost,
+        total_profit=total_profit, overall_margin=overall_margin,
+        costed=costed, uncosted=uncosted, negative=negative)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1351,84 +1098,9 @@ def payments_page():
 
     invoices.sort(key=lambda a: a["days"], reverse=True)
 
-    # Aging bar
-    aging_total = max(total_outstanding, 1)
-    aging_bar = '<div style="display:flex;height:24px;border-radius:6px;overflow:hidden;font-size:10px;font-weight:600;margin-bottom:8px">'
-    aging_colors = {"Current": "#27ae60", "31-45 Days": "#f39c12", "46-60 Days": "#e67e22", "61-90 Days": "#e74c3c", "90+ Days": "#c0392b"}
-    for b, color in aging_colors.items():
-        val = buckets.get(b, 0)
-        pct = val / aging_total * 100 if aging_total > 0 and val > 0 else 0
-        if pct > 0:
-            aging_bar += f'<div style="background:{color};width:{pct:.1f}%;display:flex;align-items:center;justify-content:center;color:#fff" title="{b}: ${val:,.0f}">{b}</div>'
-    aging_bar += '</div>'
-
-    rows = ""
-    for inv in invoices:
-        bc = "var(--gn)" if inv["bucket"] == "Paid" else ("var(--rn)" if "90" in inv["bucket"] or "61" in inv["bucket"] else "var(--yl)")
-        pay_btn = f"""<button onclick="recordPayment('{inv['oid']}')" class="btn btn-s" style="font-size:10px;padding:2px 8px">💳 Pay</button>""" if inv["balance"] > 0 else '<span style="color:var(--gn);font-size:11px">✅ Paid</span>'
-        rows += f"""<tr>
-         <td><a href="/order/{inv['oid']}" style="color:var(--ac);font-size:11px">{inv['inv_num']}</a></td>
-         <td style="font-size:11px">{inv['institution'][:30]}</td>
-         <td style="font-size:11px">{inv['po']}</td>
-         <td style="font-size:11px">{inv['inv_date']}</td>
-         <td style="text-align:right">{inv['days']}d</td>
-         <td style="text-align:right;font-weight:600">${inv['total']:,.2f}</td>
-         <td style="text-align:right;color:var(--gn)">${inv['paid']:,.2f}</td>
-         <td style="text-align:right;font-weight:700;color:{bc}">${inv['balance']:,.2f}</td>
-         <td style="color:{bc};font-size:11px">{inv['bucket']}</td>
-         <td>{pay_btn}</td>
-        </tr>"""
-
-    content = f"""
-    <h2 style="margin-bottom:4px">💳 Payments & Aging</h2>
-    <p style="font-size:13px;color:var(--tx2);margin-bottom:16px">Invoice aging report — track payments, outstanding balances</p>
-    <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
-      <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
-        <div style="font-size:28px;font-weight:800;color:var(--rn)">${total_outstanding:,.0f}</div>
-        <div style="font-size:10px;color:var(--tx2)">OUTSTANDING</div></div>
-      <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
-        <div style="font-size:28px;font-weight:800;color:var(--gn)">${total_paid_amt:,.0f}</div>
-        <div style="font-size:10px;color:var(--tx2)">COLLECTED</div></div>
-      <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
-        <div style="font-size:28px;font-weight:800;color:var(--ac)">{len(invoices)}</div>
-        <div style="font-size:10px;color:var(--tx2)">INVOICES</div></div>
-    </div>
-    <div class="card" style="margin-bottom:16px">
-      <h3 style="margin-bottom:8px;font-size:14px">Aging Distribution</h3>
-      {aging_bar}
-      <div style="display:flex;gap:12px;font-size:10px;color:var(--tx2);flex-wrap:wrap">
-        {''.join(f'<span style="color:{c}">● {b}: ${buckets.get(b,0):,.0f}</span>' for b, c in aging_colors.items())}
-      </div>
-    </div>
-    <div class="card" style="overflow-x:auto">
-     <table class="home-tbl" style="min-width:900px">
-      <thead><tr><th>Invoice</th><th>Institution</th><th>PO</th><th>Date</th><th>Age</th><th>Total</th><th>Paid</th><th>Balance</th><th>Bucket</th><th>Action</th></tr></thead>
-      <tbody>{rows or '<tr><td colspan="10" style="text-align:center;color:var(--tx2);padding:20px">No invoices generated yet — invoices auto-create when all items delivered</td></tr>'}</tbody>
-     </table>
-    </div>
-    <script>
-    function recordPayment(oid) {{
-      var amt = prompt('Payment amount received:');
-      if (!amt) return;
-      var method = prompt('Payment method (check/ach/wire/card):', 'check');
-      var ref = prompt('Reference/check number:', '');
-      fetch('/api/order/' + oid + '/payment', {{
-        method: 'POST',
-        headers: {{'Content-Type': 'application/json'}},
-        credentials: 'same-origin',
-        body: JSON.stringify({{amount: parseFloat(amt), method: method||'check', reference: ref||''}})
-      }}).then(r => r.json()).then(d => {{
-        if (d.ok) {{
-          alert('Payment recorded. Total paid: $' + d.total_paid.toFixed(2) + ' — Status: ' + d.payment_status);
-          location.reload();
-        }} else {{
-          alert('Error: ' + (d.error||'unknown'));
-        }}
-      }});
-    }}
-    </script>
-    """
-    return render(content, title="Payments")
+    return render_page("payments.html", active_page="Pricing",
+        invoices=invoices, total_outstanding=total_outstanding,
+        total_paid=total_paid_amt, buckets=buckets)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1467,51 +1139,8 @@ def audit_trail_page():
         a = e.get("action", "unknown")
         action_counts[a] = action_counts.get(a, 0) + 1
 
-    action_chips = " ".join(
-        f'<span style="background:var(--sf2);border:1px solid var(--bd);border-radius:6px;padding:4px 10px;font-size:11px">{a}: <b>{n}</b></span>'
-        for a, n in sorted(action_counts.items(), key=lambda x: -x[1])[:12]
-    )
-
-    rows_html = ""
-    action_colors = {
-        "order_create": "var(--gn)", "order_linked": "var(--ac)", "order_deleted": "var(--rn)",
-        "payment_received": "var(--gn)", "quote_sent": "var(--ac)", "email_sent": "var(--ac)",
-        "login": "var(--yl)", "rate_limited": "var(--rn)", "csrf_failed": "var(--rn)",
-    }
-    for e in entries[:100]:
-        ts = e.get("timestamp", "")[:19].replace("T", " ")
-        action = e.get("action", "")
-        color = action_colors.get(action, "var(--tx2)")
-        ip = e.get("ip_address", "")
-        details = (e.get("details", "") or "")[:80]
-        rows_html += f"""<tr>
-         <td style="font-size:11px;font-family:monospace;color:var(--tx2)">{ts}</td>
-         <td style="font-weight:600;color:{color};font-size:12px">{action}</td>
-         <td style="font-size:11px">{details}</td>
-         <td style="font-size:10px;color:var(--tx2);font-family:monospace">{ip}</td>
-        </tr>"""
-
-    content = f"""
-    <h2 style="margin-bottom:4px">📋 Audit Trail</h2>
-    <p style="font-size:13px;color:var(--tx2);margin-bottom:16px">Every admin action logged with timestamp and IP — last 200 entries</p>
-    <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
-      <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
-        <div style="font-size:28px;font-weight:800;color:var(--ac)">{len(entries)}</div>
-        <div style="font-size:10px;color:var(--tx2)">TOTAL EVENTS</div></div>
-      <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
-        <div style="font-size:28px;font-weight:800;color:var(--yl)">{len(action_counts)}</div>
-        <div style="font-size:10px;color:var(--tx2)">ACTION TYPES</div></div>
-    </div>
-    <div style="margin-bottom:12px;display:flex;flex-wrap:wrap;gap:6px">{action_chips}</div>
-    <div class="card" style="overflow-x:auto">
-     <table class="home-tbl" style="min-width:700px">
-      <thead><tr><th>Timestamp</th><th>Action</th><th>Details</th><th>IP</th></tr></thead>
-      <tbody>{rows_html or '<tr><td colspan="4" style="text-align:center;color:var(--tx2);padding:20px">Audit trail populates as actions are performed</td></tr>'}</tbody>
-     </table>
-    </div>
-    <p style="font-size:11px;color:var(--tx2);margin-top:8px">API: <a href="/api/audit" style="color:var(--ac)">/api/audit</a> — JSON feed of last 100 audit events</p>
-    """
-    return render(content, title="Audit Trail")
+    return render_page("audit.html", active_page="Home",
+        entries=entries, action_counts=action_counts)
 
 
 # Start polling on import (for gunicorn) and on direct run

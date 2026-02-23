@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Market Intel — Reytech{% endblock %}
+
+{% block content %}
+
+<style>
+.card{background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:16px;margin-bottom:0}
+th{padding:8px 10px;font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;text-align:left;border-bottom:1px solid var(--bd)}
+table{width:100%;border-collapse:collapse}
+</style>
+
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+  <div>
+    <h2 style="font-size:22px;font-weight:700">📊 Land & Expand Intelligence</h2>
+    <p style="color:var(--tx2);font-size:13px;margin-top:4px">Competitive gaps · Buyer contacts · Revenue model</p>
+  </div>
+  <div style="display:flex;gap:8px">
+    <a href="/" style="padding:5px 12px;border:1px solid var(--bd);border-radius:6px;font-size:12px;text-decoration:none">🏠 Home</a>
+    <a href="/vendors" style="padding:5px 12px;border:1px solid var(--bd);border-radius:6px;font-size:12px;text-decoration:none">🏭 Vendors</a>
+  </div>
+</div>
+
+<!-- Revenue opportunity summary -->
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:14px;margin-bottom:24px">
+  <div class="card">
+    <div style="font-size:11px;color:var(--tx2)">12-MONTH OPPORTUNITY</div>
+    <div style="font-size:26px;font-weight:800;color:var(--gn)">${{ "{:,.0f}".format(total_opp) }}</div>
+    <div style="font-size:11px;color:var(--tx2)">across {{ agencies|length }} agencies</div>
+  </div>
+  <div class="card">
+    <div style="font-size:11px;color:var(--tx2)">P0 PRODUCT GAPS</div>
+    <div style="font-size:26px;font-weight:800;color:var(--rd)">{{ p0_gaps|length }}</div>
+    <div style="font-size:11px;color:var(--tx2)">${{ "{:,.0f}".format(p0_missed) }}/yr being lost to competitors</div>
+  </div>
+  <div class="card">
+    <div style="font-size:11px;color:var(--tx2)">EXISTING CUSTOMERS</div>
+    <div style="font-size:26px;font-weight:800;color:var(--ac)">3</div>
+    <div style="font-size:11px;color:var(--tx2)">CCHCS · CalVet · DSH (32+ untapped facilities)</div>
+  </div>
+  <div class="card">
+    <div style="font-size:11px;color:var(--tx2)">ACCOUNTS TO REGISTER</div>
+    <div style="font-size:26px;font-weight:800;color:var(--yl)">{{ accounts|length }}</div>
+    <div style="font-size:11px;color:var(--tx2)">Cardinal · McKesson · Bound Tree · Waxie + more</div>
+  </div>
+</div>
+
+<div style="display:grid;grid-template-columns:1.5fr 1fr;gap:20px">
+  <div>
+    <!-- Agency intelligence -->
+    <div style="font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">Agency Intelligence</div>
+    {{ agencies_html }}
+  </div>
+  <div>
+    <!-- Accounts to register -->
+    <div style="font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">Accounts to Register Now</div>
+    <div class="card" style="padding:0;margin-bottom:20px">
+      {{ accounts_html }}
+    </div>
+
+    <!-- Land & Expand Playbook -->
+    <div style="font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">30/60/90 Day Playbook</div>
+    {{ playbook_html }}
+  </div>
+</div>
+
+<!-- Competitive product gap table -->
+<div class="card" style="margin-top:20px;padding:0">
+  <div style="padding:14px 16px;border-bottom:1px solid var(--bd)">
+    <span style="font-size:13px;font-weight:700">🎯 Items Competitors Are Selling To Your Customers</span>
+    <span style="font-size:11px;color:var(--tx2);margin-left:8px">{{ gaps|length }} gaps · ${{ "{:,.0f}".format(total_gaps_missed) }}/yr being captured by others</span>
+  </div>
+  <table>
+    <thead><tr><th>Product / Item</th><th>Priority</th><th>Annual Missed</th><th>Fix</th></tr></thead>
+    <tbody>{{ gaps_html }}</tbody>
+  </table>
+</div>
+
+
+{% endblock %}

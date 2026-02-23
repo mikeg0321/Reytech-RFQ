@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Catalog — Reytech{% endblock %}
+
+{% block content %}
+
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+  <div>
+    <h2 style="font-size:22px;font-weight:700">📦 Product Catalog</h2>
+    <p style="color:var(--tx2);font-size:13px;margin-top:4px">{{ stats['total_skus'] }} SKUs · {{ stats['categories'] }} categories · {{ stats['p0_skus_loaded'] }} P0 gap items loaded</p>
+  </div>
+  <div style="display:flex;gap:8px">
+    <input id="cat-search" type="text" placeholder="Search catalog..." onkeyup="filterCatalog(this.value)"
+      style="padding:7px 12px;background:var(--bg2);border:1px solid var(--bd);border-radius:6px;color:var(--tx1);font-size:13px;width:220px">
+    <a href="/" style="padding:7px 12px;border:1px solid var(--bd);border-radius:6px;font-size:12px;text-decoration:none">🏠 Home</a>
+  </div>
+</div>
+
+<div id="catalog-content">{{ cats_html }}</div>
+
+<script>
+function filterCatalog(q) {
+  q = q.toLowerCase();
+  document.querySelectorAll('#catalog-content tr[style*="border-bottom"]').forEach(row => {
+    row.style.display = row.textContent.toLowerCase().includes(q) ? '' : 'none';
+  });
+}
+</script>
+
+{% endblock %}

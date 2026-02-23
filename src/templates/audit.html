@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Audit Trail — Reytech{% endblock %}
+
+{% block content %}
+<h2 style="margin-bottom:4px">📋 Audit Trail</h2>
+<p style="font-size:13px;color:var(--tx2);margin-bottom:16px">Every admin action logged with timestamp and IP — last 200 entries</p>
+<div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+  <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
+    <div style="font-size:28px;font-weight:800;color:var(--ac)">{{ entries|length }}</div>
+    <div style="font-size:10px;color:var(--tx2)">TOTAL EVENTS</div></div>
+  <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
+    <div style="font-size:28px;font-weight:800;color:var(--yl)">{{ action_counts|length }}</div>
+    <div style="font-size:10px;color:var(--tx2)">ACTION TYPES</div></div>
+</div>
+<div style="margin-bottom:12px;display:flex;flex-wrap:wrap;gap:6px">
+  {% for action, count in action_counts|dictsort(by='value', reverse=true) %}
+  {% if loop.index <= 12 %}
+  <span style="background:var(--sf2);border:1px solid var(--bd);border-radius:6px;padding:4px 10px;font-size:11px">{{ action }}: <b>{{ count }}</b></span>
+  {% endif %}
+  {% endfor %}
+</div>
+<div class="card" style="overflow-x:auto">
+ <table class="home-tbl" style="min-width:700px">
+  <thead><tr><th>Timestamp</th><th>Action</th><th>Details</th><th>IP</th></tr></thead>
+  <tbody>
+  {% if entries %}
+    {% for e in entries[:100] %}
+    {% set action_colors = {
+      'order_create': 'var(--gn)', 'order_linked': 'var(--ac)', 'order_deleted': 'var(--rd)',
+      'payment_received': 'var(--gn)', 'quote_sent': 'var(--ac)', 'email_sent': 'var(--ac)',
+      'login': 'var(--yl)', 'rate_limited': 'var(--rd)', 'csrf_failed': 'var(--rd)',
+    } %}
+    {% set color = action_colors.get(e.action|default(''), 'var(--tx2)') %}
+    <tr>
+     <td style="font-size:11px;font-family:monospace;color:var(--tx2)">{{ e.timestamp|default('')|truncate(19,true,'')|replace('T',' ') }}</td>
+     <td style="font-weight:600;color:{{ color }};font-size:12px">{{ e.action|default('') }}</td>
+     <td style="font-size:11px">{{ (e.details or '')[:80] }}</td>
+     <td style="font-size:10px;color:var(--tx2);font-family:monospace">{{ e.ip_address|default('') }}</td>
+    </tr>
+    {% endfor %}
+  {% else %}
+    <tr><td colspan="4" style="text-align:center;color:var(--tx2);padding:20px">Audit trail populates as actions are performed</td></tr>
+  {% endif %}
+  </tbody>
+ </table>
+</div>
+<p style="font-size:11px;color:var(--tx2);margin-top:8px">API: <a href="/api/audit" style="color:var(--ac)">/api/audit</a> — JSON feed of last 100 audit events</p>
+{% endblock %}

@@ -1,0 +1,204 @@
+{% extends "base.html" %}
+{% block title %}Expand — Reytech{% endblock %}
+
+{% block content %}
+
+<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px">
+  <div>
+    <h2 style="font-size:22px;font-weight:700">🏥 Facility Expansion</h2>
+    <p style="color:var(--tx2);font-size:13px;margin-top:4px">
+      {{ active|length }} buying · {{ targeted|length }} targeted · {{ inactive|length }} untouched
+      <span style="margin-left:12px;color:var(--gn);font-weight:600">${{ "{:,.0f}".format(total_opportunity) }}/yr est. opportunity</span>
+    </p>
+  </div>
+  <div style="display:flex;gap:8px">
+    <button onclick="targetAllUntouched()" class="hdr-btn" style="border-color:var(--gn);color:var(--gn);font-size:11px;padding:6px 14px" title="Create targets for all {{ inactive|length }} untouched facilities">
+      🚀 Target All ({{ inactive|length }})
+    </button>
+    <a href="/intel/market" class="hdr-btn" style="font-size:11px;padding:6px 14px">📊 Market Intel</a>
+  </div>
+</div>
+
+<!-- KPI Cards -->
+<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px">
+  <div style="background:var(--sf);border:1px solid var(--gn);border-radius:10px;padding:16px">
+    <div style="font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px">Active Accounts</div>
+    <div style="font-size:32px;font-weight:800;color:var(--gn);margin-top:4px">{{ active|length }}</div>
+    <div style="font-size:11px;color:var(--tx2);margin-top:2px">${{ "{:,.2f}".format(total_ar) }} receivables</div>
+  </div>
+  <div style="background:var(--sf);border:1px solid var(--yl);border-radius:10px;padding:16px">
+    <div style="font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px">Targeted</div>
+    <div style="font-size:32px;font-weight:800;color:var(--yl);margin-top:4px">{{ targeted|length }}</div>
+    <div style="font-size:11px;color:var(--tx2);margin-top:2px">{{ expansion_pcs|length }} outreach PCs created</div>
+  </div>
+  <div style="background:var(--sf);border:1px solid var(--ac);border-radius:10px;padding:16px">
+    <div style="font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px">Untouched</div>
+    <div style="font-size:32px;font-weight:800;color:var(--ac);margin-top:4px">{{ inactive|length }}</div>
+    <div style="font-size:11px;color:var(--tx2);margin-top:2px">{{ untouched_with_email }} have email on file</div>
+  </div>
+  <div style="background:var(--sf);border:1px solid var(--or);border-radius:10px;padding:16px">
+    <div style="font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px">Est. Annual Opportunity</div>
+    <div style="font-size:32px;font-weight:800;color:var(--or);margin-top:4px">${{ "{:,.0f}".format(total_opportunity) }}</div>
+    <div style="font-size:11px;color:var(--tx2);margin-top:2px">based on avg spend by type</div>
+  </div>
+</div>
+
+<!-- Intelligence Panel -->
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:20px">
+  <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:14px">
+    <div style="font-size:11px;font-weight:600;color:var(--ac);margin-bottom:6px">🏛 CCHCS (Prisons)</div>
+    <div style="font-size:11px;color:var(--tx2)">{{ top_products_by_type.get("CCHCS","—") }}</div>
+    <div style="font-size:10px;color:var(--tx2);margin-top:4px">Top: Gloves, Underpads, Briefs, Sanitizer</div>
+  </div>
+  <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:14px">
+    <div style="font-size:11px;font-weight:600;color:var(--gn);margin-bottom:6px">🎖 CalVet (Veterans Homes)</div>
+    <div style="font-size:11px;color:var(--tx2)">{{ top_products_by_type.get("CalVet","—") }}</div>
+    <div style="font-size:10px;color:var(--tx2);margin-top:4px">Top: Incontinence, Underpads, Wound Care</div>
+  </div>
+  <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:14px">
+    <div style="font-size:11px;font-weight:600;color:var(--yl);margin-bottom:6px">🏥 DSH (State Hospitals)</div>
+    <div style="font-size:11px;color:var(--tx2)">{{ top_products_by_type.get("DSH","—") }}</div>
+    <div style="font-size:10px;color:var(--tx2);margin-top:4px">Top: Sharps, Gauze, PPE, Restraints</div>
+  </div>
+</div>
+
+<div id="status-msg" style="display:none;padding:10px 16px;border-radius:6px;margin-bottom:12px;font-size:13px"></div>
+
+<!-- Facility Table -->
+<div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;overflow:hidden">
+  <div style="padding:12px 16px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center">
+    <div>
+      <span style="font-size:14px;font-weight:600">All Facilities</span>
+      <span style="font-size:12px;color:var(--tx2);margin-left:8px">{{ fac_list|length }} total</span>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <input type="text" id="fac-search" placeholder="Filter facilities..." oninput="filterFacilities(this.value)"
+        style="background:var(--sf2);border:1px solid var(--bd);border-radius:5px;padding:5px 10px;font-size:11px;color:var(--tx);width:180px">
+      <select id="fac-filter" onchange="filterByStatus(this.value)"
+        style="background:var(--sf2);border:1px solid var(--bd);border-radius:5px;padding:5px 8px;font-size:11px;color:var(--tx)">
+        <option value="all">All</option>
+        <option value="active">Active only</option>
+        <option value="untouched">Untouched only</option>
+        <option value="targeted">Targeted only</option>
+      </select>
+    </div>
+  </div>
+  <div style="overflow-x:auto">
+  <table style="width:100%;border-collapse:collapse;min-width:700px" id="fac-table">
+    <thead><tr style="border-bottom:2px solid var(--bd)">
+      <th style="padding:10px 12px;font-size:10px;color:var(--tx2);text-align:left;text-transform:uppercase;letter-spacing:.5px">Facility</th>
+      <th style="padding:10px 8px;font-size:10px;color:var(--tx2);text-align:left;text-transform:uppercase;letter-spacing:.5px">Type</th>
+      <th style="padding:10px 8px;font-size:10px;color:var(--tx2);text-align:center;text-transform:uppercase;letter-spacing:.5px">Email</th>
+      <th style="padding:10px 8px;font-size:10px;color:var(--tx2);text-align:right;text-transform:uppercase;letter-spacing:.5px">AR Balance</th>
+      <th style="padding:10px 8px;font-size:10px;color:var(--tx2);text-align:left;text-transform:uppercase;letter-spacing:.5px">Status</th>
+      <th style="padding:10px 8px;font-size:10px;color:var(--tx2);text-align:center;text-transform:uppercase;letter-spacing:.5px">Action</th>
+    </tr></thead>
+    <tbody>{{ rows_html|safe }}</tbody>
+  </table>
+  </div>
+</div>
+
+<script>
+function createTarget(facilityName, agencyType, email) {
+  const msg = document.getElementById('status-msg');
+  msg.style.display = 'block';
+  msg.style.background = 'rgba(79,140,255,.15)';
+  msg.style.color = 'var(--ac)';
+  msg.style.border = '1px solid var(--ac)';
+  const mode = email ? 'email_and_pc' : 'pc_only';
+  msg.textContent = email
+    ? '📧 Drafting outreach email + price check for ' + facilityName + '...'
+    : '📋 Creating price check for ' + facilityName + ' (no email on file)...';
+
+  fetch('/api/cchcs/create-target', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    credentials: 'same-origin',
+    body: JSON.stringify({facility_name: facilityName, agency_type: agencyType, email: email, mode: mode})
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (d.ok) {
+      msg.style.background = 'rgba(52,211,153,.15)';
+      msg.style.color = 'var(--gn)';
+      msg.style.border = '1px solid var(--gn)';
+      let txt = '✅ Target created: ' + facilityName;
+      if (d.email_drafted) txt += ' — Email draft saved to outbox';
+      if (d.pc_id) txt += ' — PC: $' + (d.total||0).toFixed(2);
+      msg.innerHTML = txt + ' <a href="/outbox" style="margin-left:12px;color:var(--ac);font-weight:600">→ Review Drafts</a>';
+      // Disable the button
+      const btns = document.querySelectorAll('button');
+      btns.forEach(b => { if(b.textContent.includes('Target') && b.onclick && b.onclick.toString().includes(facilityName.substring(0,15))) b.disabled=true; });
+      setTimeout(() => location.reload(), 3000);
+    } else {
+      msg.style.background = 'rgba(248,113,113,.15)';
+      msg.style.color = 'var(--rd)';
+      msg.style.border = '1px solid var(--rd)';
+      msg.textContent = '❌ Error: ' + (d.error||'Unknown error');
+    }
+  }).catch(e => {
+    msg.style.background = 'rgba(248,113,113,.15)';
+    msg.style.color = 'var(--rd)';
+    msg.style.border = '1px solid var(--rd)';
+    msg.textContent = '❌ Request failed: ' + e;
+  });
+}
+
+function targetAllUntouched() {
+  if (!confirm('Create expansion targets for all {{ inactive|length }} untouched facilities?\\n\\nThis will:\\n• Create price checks with estimated items\\n• Draft outreach emails for facilities with email on file\\n\\nContinue?')) return;
+  const msg = document.getElementById('status-msg');
+  msg.style.display = 'block';
+  msg.style.background = 'rgba(79,140,255,.15)';
+  msg.style.color = 'var(--ac)';
+  msg.style.border = '1px solid var(--ac)';
+  msg.textContent = '🚀 Creating targets for {{ inactive|length }} facilities...';
+
+  // Create targets sequentially
+  const facilities = {{ _inactive_js }};
+  let done = 0;
+  let errors = 0;
+
+  function nextTarget(i) {
+    if (i >= facilities.length) {
+      msg.style.background = 'rgba(52,211,153,.15)';
+      msg.style.color = 'var(--gn)';
+      msg.style.border = '1px solid var(--gn)';
+      msg.innerHTML = '✅ Created ' + done + ' targets' + (errors > 0 ? ' (' + errors + ' errors)' : '') +
+        ' <a href="/outbox" style="margin-left:12px;color:var(--ac);font-weight:600">→ Review Outbox</a>';
+      setTimeout(() => location.reload(), 3000);
+      return;
+    }
+    const f = facilities[i];
+    msg.textContent = '🚀 Creating target ' + (i+1) + '/' + facilities.length + ': ' + f.name.split(':').pop() + '...';
+    fetch('/api/cchcs/create-target', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      credentials: 'same-origin',
+      body: JSON.stringify({facility_name: f.name, agency_type: f.type, email: f.email, mode: f.email ? 'email_and_pc' : 'pc_only'})
+    }).then(r => r.json()).then(d => {
+      if (d.ok) done++; else errors++;
+      nextTarget(i + 1);
+    }).catch(() => { errors++; nextTarget(i + 1); });
+  }
+  nextTarget(0);
+}
+
+function filterFacilities(q) {
+  q = q.toLowerCase();
+  document.querySelectorAll('#fac-table tbody tr').forEach(row => {
+    row.style.display = row.textContent.toLowerCase().includes(q) ? '' : 'none';
+  });
+}
+
+function filterByStatus(status) {
+  document.querySelectorAll('#fac-table tbody tr').forEach(row => {
+    const txt = row.textContent.toLowerCase();
+    if (status === 'all') row.style.display = '';
+    else if (status === 'active') row.style.display = txt.includes('● active') ? '' : 'none';
+    else if (status === 'untouched') row.style.display = txt.includes('○ untouched') ? '' : 'none';
+    else if (status === 'targeted') row.style.display = txt.includes('◉ targeted') ? '' : 'none';
+  });
+}
+</script>
+
+{% endblock %}

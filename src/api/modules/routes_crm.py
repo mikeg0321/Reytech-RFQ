@@ -1806,106 +1806,11 @@ def page_outbox():
   </div>
 </div>"""
 
-    html = _header("Outbox") + f"""
-<style>
-.btn{{padding:5px 12px;border:1px solid var(--bd);border-radius:6px;cursor:pointer;font-family:'DM Sans',sans-serif;font-weight:500;transition:.15s;text-decoration:none}}
-.btn:hover{{opacity:.8}}
-.btn-sm{{font-size:12px;padding:4px 10px}}
-</style>
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
- <div>
-  <h2 style="font-size:22px;font-weight:700">📬 Email Outbox</h2>
-  <p style="color:var(--tx2);font-size:13px;margin-top:4px">{total_pending} pending · {len(sent_today)} sent today — Review all drafts before sending</p>
- </div>
- <div style="display:flex;gap:8px">
-  <a href="/" class="btn">🏠 Home</a>
-  <button class="btn" onclick="sendAllApproved(this)" style="background:rgba(52,211,153,.1);border-color:var(--gn);color:var(--gn)">📤 Send All Approved</button>
- </div>
-</div>
-
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:24px">
- <div class="card"><div style="font-size:11px;color:var(--tx2);margin-bottom:4px">PENDING DRAFTS</div><div style="font-size:28px;font-weight:700;color:var(--yl)">{len(sales_drafts)}</div><div style="font-size:11px;color:var(--tx2)">sales outreach</div></div>
- <div class="card"><div style="font-size:11px;color:var(--tx2);margin-bottom:4px">CS REPLY DRAFTS</div><div style="font-size:28px;font-weight:700;color:{'var(--rd)' if cs_drafts else 'var(--gn)'}">{len(cs_drafts)}</div><div style="font-size:11px;color:var(--tx2)">customer service</div></div>
-</div>
-
-<!-- PRD-28 WI-2: Bulk Actions Bar -->
-<div style="display:flex;gap:8px;margin-bottom:16px;padding:12px;background:var(--sf2);border-radius:8px;align-items:center;flex-wrap:wrap">
- <span style="font-size:12px;font-weight:600;color:var(--tx2);margin-right:8px">Bulk Actions:</span>
- <button class="btn btn-sm" onclick="bulkApproveAll()" style="background:rgba(52,211,153,.15);color:var(--gn);font-size:11px;padding:6px 14px">✅ Approve All Drafts ({len(sales_drafts)})</button>
- <button class="btn btn-sm" onclick="bulkDeleteDrafts()" style="background:rgba(248,113,113,.1);color:var(--rd);font-size:11px;padding:6px 14px">🗑 Delete All Drafts</button>
- <button class="btn btn-sm" onclick="retryFailed()" style="background:rgba(251,191,36,.1);color:var(--yl);font-size:11px;padding:6px 14px">🔄 Retry Failed</button>
- <div style="flex:1"></div>
- <span id="bulk-status" style="font-size:11px;color:var(--tx2)"></span>
-</div>
-
-<h3 style="font-size:14px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">📬 Customer Service Replies ({len(cs_drafts)})</h3>
-{'<p style="color:var(--tx2);font-size:13px;padding:20px 0">No CS drafts pending. 👍</p>' if not cs_drafts else cs_html}
-
-<h3 style="font-size:14px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin:24px 0 12px">📋 Sales Drafts ({len(sales_drafts)})</h3>
-{'<p style="color:var(--tx2);font-size:13px;padding:20px 0">No sales drafts pending.</p>' if not sales_drafts else sales_html}
-
-<script>
-function approveDraft(id,btn){{
-  btn.disabled=true;btn.textContent='Sending...';
-  fetch('/api/email/approve',{{method:'POST',credentials:'same-origin',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{email_id:id}})}})
-  .then(r=>r.json()).then(d=>{{
-    if(d.ok){{btn.textContent='✅ Sent!';btn.style.background='var(--gn)';setTimeout(()=>location.reload(),1200)}}
-    else{{btn.disabled=false;btn.textContent='❌ Failed: '+d.error}}
-  }}).catch(()=>{{btn.disabled=false;btn.textContent='Error'}});
-}}
-function approveCS(id,btn){{
-  btn.disabled=true;btn.textContent='Sending...';
-  fetch('/api/email/approve-cs',{{method:'POST',credentials:'same-origin',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{draft_id:id}})}})
-  .then(r=>r.json()).then(d=>{{
-    if(d.ok){{btn.textContent='✅ Sent!';setTimeout(()=>location.reload(),1200)}}
-    else{{btn.disabled=false;btn.textContent='Error: '+(d.error||'unknown')}}
-  }}).catch(()=>{{btn.disabled=false;btn.textContent='Error'}});
-}}
-function bulkApproveAll(){{
-  if(!confirm('Approve ALL '+{len(sales_drafts)}+' sales drafts?'))return;
-  document.getElementById('bulk-status').textContent='Approving...';
-  fetch('/api/outbox/bulk-approve',{{method:'POST',credentials:'same-origin',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{}})}})
-  .then(r=>r.json()).then(d=>{{
-    document.getElementById('bulk-status').textContent=d.ok?'✅ Approved '+d.approved+' drafts':'❌ Failed';
-    if(d.ok)setTimeout(()=>location.reload(),1500);
-  }});
-}}
-function bulkDeleteDrafts(){{
-  if(!confirm('Delete ALL draft emails? This cannot be undone.'))return;
-  document.getElementById('bulk-status').textContent='Deleting...';
-  fetch('/api/outbox/bulk-delete',{{method:'POST',credentials:'same-origin',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{status_filter:'draft'}})}})
-  .then(r=>r.json()).then(d=>{{
-    document.getElementById('bulk-status').textContent=d.ok?'🗑 Deleted '+d.deleted+' drafts':'❌ Failed';
-    if(d.ok)setTimeout(()=>location.reload(),1500);
-  }});
-}}
-function retryFailed(){{
-  document.getElementById('bulk-status').textContent='Retrying...';
-  fetch('/api/outbox/retry-failed',{{method:'POST',credentials:'same-origin'}})
-  .then(r=>r.json()).then(d=>{{
-    document.getElementById('bulk-status').textContent=d.ok?'🔄 Re-queued '+d.retried+' emails':'❌ Failed';
-    if(d.retried>0)setTimeout(()=>location.reload(),1500);
-  }});
-}}
-function deleteDraft(id,btn){{
-  if(!confirm('Delete this draft?'))return;
-  fetch('/api/email/delete',{{method:'POST',credentials:'same-origin',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{email_id:id}})}})
-  .then(()=>btn.closest('.card').remove());
-}}
-function deleteCS(id,btn){{
-  if(!confirm('Discard this CS draft?'))return;
-  fetch('/api/email/delete-cs',{{method:'POST',credentials:'same-origin',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{draft_id:id}})}})
-  .then(()=>btn.closest('.card').remove());
-}}
-function sendAllApproved(btn){{
-  btn.disabled=true;btn.textContent='⏳ Sending...';
-  fetch('/api/email/send-approved',{{method:'POST',credentials:'same-origin'}})
-  .then(r=>r.json()).then(d=>{{
-    btn.textContent=(d.sent||0)+' sent';setTimeout(()=>location.reload(),1500);
-  }}).catch(()=>{{btn.disabled=false;btn.textContent='Error'}});
-}}
-</script>
-""" + _page_footer()
+    html = render_page("outbox.html", active_page="Home",
+        cs_drafts=cs_drafts,
+        sales_drafts=sales_drafts,
+        sent_today=sent_today,
+        total_pending=total_pending)
     return html
 
 
@@ -2037,30 +1942,9 @@ def page_catalog_legacy():
   </table>
 </div>"""
 
-    html = _header("Catalog") + f"""
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
-  <div>
-    <h2 style="font-size:22px;font-weight:700">📦 Product Catalog</h2>
-    <p style="color:var(--tx2);font-size:13px;margin-top:4px">{stats['total_skus']} SKUs · {stats['categories']} categories · {stats['p0_skus_loaded']} P0 gap items loaded</p>
-  </div>
-  <div style="display:flex;gap:8px">
-    <input id="cat-search" type="text" placeholder="Search catalog..." onkeyup="filterCatalog(this.value)"
-      style="padding:7px 12px;background:var(--bg2);border:1px solid var(--bd);border-radius:6px;color:var(--tx1);font-size:13px;width:220px">
-    <a href="/" style="padding:7px 12px;border:1px solid var(--bd);border-radius:6px;font-size:12px;text-decoration:none">🏠 Home</a>
-  </div>
-</div>
-
-<div id="catalog-content">{cats_html}</div>
-
-<script>
-function filterCatalog(q) {{
-  q = q.toLowerCase();
-  document.querySelectorAll('#catalog-content tr[style*="border-bottom"]').forEach(row => {{
-    row.style.display = row.textContent.toLowerCase().includes(q) ? '' : 'none';
-  }});
-}}
-</script>
-""" + _page_footer()
+    html = render_page("catalog.html", active_page="Catalog",
+        cats_html=cats_html,
+        stats=stats)
     return html
 
 
@@ -2607,205 +2491,18 @@ def page_cchcs_expansion():
     # Pre-compute for JS (can't use dict comprehension inside f-string)
     _inactive_js = _json.dumps([{"name": f["raw_name"], "type": f["type"], "email": f["email"] or ""} for f in inactive])
 
-    html = _header("Expand") + f"""
-<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px">
-  <div>
-    <h2 style="font-size:22px;font-weight:700">🏥 Facility Expansion</h2>
-    <p style="color:var(--tx2);font-size:13px;margin-top:4px">
-      {len(active)} buying · {len(targeted)} targeted · {len(inactive)} untouched
-      <span style="margin-left:12px;color:var(--gn);font-weight:600">${total_opportunity:,.0f}/yr est. opportunity</span>
-    </p>
-  </div>
-  <div style="display:flex;gap:8px">
-    <button onclick="targetAllUntouched()" class="hdr-btn" style="border-color:var(--gn);color:var(--gn);font-size:11px;padding:6px 14px" title="Create targets for all {len(inactive)} untouched facilities">
-      🚀 Target All ({len(inactive)})
-    </button>
-    <a href="/intel/market" class="hdr-btn" style="font-size:11px;padding:6px 14px">📊 Market Intel</a>
-  </div>
-</div>
-
-<!-- KPI Cards -->
-<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px">
-  <div style="background:var(--sf);border:1px solid var(--gn);border-radius:10px;padding:16px">
-    <div style="font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px">Active Accounts</div>
-    <div style="font-size:32px;font-weight:800;color:var(--gn);margin-top:4px">{len(active)}</div>
-    <div style="font-size:11px;color:var(--tx2);margin-top:2px">${total_ar:,.2f} receivables</div>
-  </div>
-  <div style="background:var(--sf);border:1px solid var(--yl);border-radius:10px;padding:16px">
-    <div style="font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px">Targeted</div>
-    <div style="font-size:32px;font-weight:800;color:var(--yl);margin-top:4px">{len(targeted)}</div>
-    <div style="font-size:11px;color:var(--tx2);margin-top:2px">{len(expansion_pcs)} outreach PCs created</div>
-  </div>
-  <div style="background:var(--sf);border:1px solid var(--ac);border-radius:10px;padding:16px">
-    <div style="font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px">Untouched</div>
-    <div style="font-size:32px;font-weight:800;color:var(--ac);margin-top:4px">{len(inactive)}</div>
-    <div style="font-size:11px;color:var(--tx2);margin-top:2px">{untouched_with_email} have email on file</div>
-  </div>
-  <div style="background:var(--sf);border:1px solid var(--or);border-radius:10px;padding:16px">
-    <div style="font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px">Est. Annual Opportunity</div>
-    <div style="font-size:32px;font-weight:800;color:var(--or);margin-top:4px">${total_opportunity:,.0f}</div>
-    <div style="font-size:11px;color:var(--tx2);margin-top:2px">based on avg spend by type</div>
-  </div>
-</div>
-
-<!-- Intelligence Panel -->
-<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:20px">
-  <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:14px">
-    <div style="font-size:11px;font-weight:600;color:var(--ac);margin-bottom:6px">🏛 CCHCS (Prisons)</div>
-    <div style="font-size:11px;color:var(--tx2)">{top_products_by_type.get("CCHCS","—")}</div>
-    <div style="font-size:10px;color:var(--tx2);margin-top:4px">Top: Gloves, Underpads, Briefs, Sanitizer</div>
-  </div>
-  <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:14px">
-    <div style="font-size:11px;font-weight:600;color:var(--gn);margin-bottom:6px">🎖 CalVet (Veterans Homes)</div>
-    <div style="font-size:11px;color:var(--tx2)">{top_products_by_type.get("CalVet","—")}</div>
-    <div style="font-size:10px;color:var(--tx2);margin-top:4px">Top: Incontinence, Underpads, Wound Care</div>
-  </div>
-  <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:14px">
-    <div style="font-size:11px;font-weight:600;color:var(--yl);margin-bottom:6px">🏥 DSH (State Hospitals)</div>
-    <div style="font-size:11px;color:var(--tx2)">{top_products_by_type.get("DSH","—")}</div>
-    <div style="font-size:10px;color:var(--tx2);margin-top:4px">Top: Sharps, Gauze, PPE, Restraints</div>
-  </div>
-</div>
-
-<div id="status-msg" style="display:none;padding:10px 16px;border-radius:6px;margin-bottom:12px;font-size:13px"></div>
-
-<!-- Facility Table -->
-<div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;overflow:hidden">
-  <div style="padding:12px 16px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center">
-    <div>
-      <span style="font-size:14px;font-weight:600">All Facilities</span>
-      <span style="font-size:12px;color:var(--tx2);margin-left:8px">{len(fac_list)} total</span>
-    </div>
-    <div style="display:flex;gap:8px;align-items:center">
-      <input type="text" id="fac-search" placeholder="Filter facilities..." oninput="filterFacilities(this.value)"
-        style="background:var(--sf2);border:1px solid var(--bd);border-radius:5px;padding:5px 10px;font-size:11px;color:var(--tx);width:180px">
-      <select id="fac-filter" onchange="filterByStatus(this.value)"
-        style="background:var(--sf2);border:1px solid var(--bd);border-radius:5px;padding:5px 8px;font-size:11px;color:var(--tx)">
-        <option value="all">All</option>
-        <option value="active">Active only</option>
-        <option value="untouched">Untouched only</option>
-        <option value="targeted">Targeted only</option>
-      </select>
-    </div>
-  </div>
-  <div style="overflow-x:auto">
-  <table style="width:100%;border-collapse:collapse;min-width:700px" id="fac-table">
-    <thead><tr style="border-bottom:2px solid var(--bd)">
-      <th style="padding:10px 12px;font-size:10px;color:var(--tx2);text-align:left;text-transform:uppercase;letter-spacing:.5px">Facility</th>
-      <th style="padding:10px 8px;font-size:10px;color:var(--tx2);text-align:left;text-transform:uppercase;letter-spacing:.5px">Type</th>
-      <th style="padding:10px 8px;font-size:10px;color:var(--tx2);text-align:center;text-transform:uppercase;letter-spacing:.5px">Email</th>
-      <th style="padding:10px 8px;font-size:10px;color:var(--tx2);text-align:right;text-transform:uppercase;letter-spacing:.5px">AR Balance</th>
-      <th style="padding:10px 8px;font-size:10px;color:var(--tx2);text-align:left;text-transform:uppercase;letter-spacing:.5px">Status</th>
-      <th style="padding:10px 8px;font-size:10px;color:var(--tx2);text-align:center;text-transform:uppercase;letter-spacing:.5px">Action</th>
-    </tr></thead>
-    <tbody>{rows_html}</tbody>
-  </table>
-  </div>
-</div>
-
-<script>
-function createTarget(facilityName, agencyType, email) {{
-  const msg = document.getElementById('status-msg');
-  msg.style.display = 'block';
-  msg.style.background = 'rgba(79,140,255,.15)';
-  msg.style.color = 'var(--ac)';
-  msg.style.border = '1px solid var(--ac)';
-  const mode = email ? 'email_and_pc' : 'pc_only';
-  msg.textContent = email
-    ? '📧 Drafting outreach email + price check for ' + facilityName + '...'
-    : '📋 Creating price check for ' + facilityName + ' (no email on file)...';
-
-  fetch('/api/cchcs/create-target', {{
-    method: 'POST',
-    headers: {{'Content-Type':'application/json'}},
-    credentials: 'same-origin',
-    body: JSON.stringify({{facility_name: facilityName, agency_type: agencyType, email: email, mode: mode}})
-  }})
-  .then(r => r.json())
-  .then(d => {{
-    if (d.ok) {{
-      msg.style.background = 'rgba(52,211,153,.15)';
-      msg.style.color = 'var(--gn)';
-      msg.style.border = '1px solid var(--gn)';
-      let txt = '✅ Target created: ' + facilityName;
-      if (d.email_drafted) txt += ' — Email draft saved to outbox';
-      if (d.pc_id) txt += ' — PC: $' + (d.total||0).toFixed(2);
-      msg.innerHTML = txt + ' <a href="/outbox" style="margin-left:12px;color:var(--ac);font-weight:600">→ Review Drafts</a>';
-      // Disable the button
-      const btns = document.querySelectorAll('button');
-      btns.forEach(b => {{ if(b.textContent.includes('Target') && b.onclick && b.onclick.toString().includes(facilityName.substring(0,15))) b.disabled=true; }});
-      setTimeout(() => location.reload(), 3000);
-    }} else {{
-      msg.style.background = 'rgba(248,113,113,.15)';
-      msg.style.color = 'var(--rd)';
-      msg.style.border = '1px solid var(--rd)';
-      msg.textContent = '❌ Error: ' + (d.error||'Unknown error');
-    }}
-  }}).catch(e => {{
-    msg.style.background = 'rgba(248,113,113,.15)';
-    msg.style.color = 'var(--rd)';
-    msg.style.border = '1px solid var(--rd)';
-    msg.textContent = '❌ Request failed: ' + e;
-  }});
-}}
-
-function targetAllUntouched() {{
-  if (!confirm('Create expansion targets for all {len(inactive)} untouched facilities?\\n\\nThis will:\\n• Create price checks with estimated items\\n• Draft outreach emails for facilities with email on file\\n\\nContinue?')) return;
-  const msg = document.getElementById('status-msg');
-  msg.style.display = 'block';
-  msg.style.background = 'rgba(79,140,255,.15)';
-  msg.style.color = 'var(--ac)';
-  msg.style.border = '1px solid var(--ac)';
-  msg.textContent = '🚀 Creating targets for {len(inactive)} facilities...';
-
-  // Create targets sequentially
-  const facilities = {_inactive_js};
-  let done = 0;
-  let errors = 0;
-
-  function nextTarget(i) {{
-    if (i >= facilities.length) {{
-      msg.style.background = 'rgba(52,211,153,.15)';
-      msg.style.color = 'var(--gn)';
-      msg.style.border = '1px solid var(--gn)';
-      msg.innerHTML = '✅ Created ' + done + ' targets' + (errors > 0 ? ' (' + errors + ' errors)' : '') +
-        ' <a href="/outbox" style="margin-left:12px;color:var(--ac);font-weight:600">→ Review Outbox</a>';
-      setTimeout(() => location.reload(), 3000);
-      return;
-    }}
-    const f = facilities[i];
-    msg.textContent = '🚀 Creating target ' + (i+1) + '/' + facilities.length + ': ' + f.name.split(':').pop() + '...';
-    fetch('/api/cchcs/create-target', {{
-      method: 'POST',
-      headers: {{'Content-Type':'application/json'}},
-      credentials: 'same-origin',
-      body: JSON.stringify({{facility_name: f.name, agency_type: f.type, email: f.email, mode: f.email ? 'email_and_pc' : 'pc_only'}})
-    }}).then(r => r.json()).then(d => {{
-      if (d.ok) done++; else errors++;
-      nextTarget(i + 1);
-    }}).catch(() => {{ errors++; nextTarget(i + 1); }});
-  }}
-  nextTarget(0);
-}}
-
-function filterFacilities(q) {{
-  q = q.toLowerCase();
-  document.querySelectorAll('#fac-table tbody tr').forEach(row => {{
-    row.style.display = row.textContent.toLowerCase().includes(q) ? '' : 'none';
-  }});
-}}
-
-function filterByStatus(status) {{
-  document.querySelectorAll('#fac-table tbody tr').forEach(row => {{
-    const txt = row.textContent.toLowerCase();
-    if (status === 'all') row.style.display = '';
-    else if (status === 'active') row.style.display = txt.includes('● active') ? '' : 'none';
-    else if (status === 'untouched') row.style.display = txt.includes('○ untouched') ? '' : 'none';
-    else if (status === 'targeted') row.style.display = txt.includes('◉ targeted') ? '' : 'none';
-  }});
-}}
-</script>
-""" + _page_footer()
+    html = render_page("expand.html", active_page="Expand",
+        _inactive_js=_inactive_js,
+        active=active,
+        expansion_pcs=expansion_pcs,
+        fac_list=fac_list,
+        inactive=inactive,
+        rows_html=rows_html,
+        targeted=targeted,
+        top_products_by_type=top_products_by_type,
+        untouched_with_email=untouched_with_email,
+        total_opportunity=total_opportunity,
+        total_ar=total_ar)
     return html
 
 
@@ -3068,80 +2765,19 @@ def page_market_intel():
 
     playbook_html = "".join(phase_html(k, v) for k, v in playbook.items())
 
-    html = _header("Market Intel") + f"""
-<style>
-.card{{background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:16px;margin-bottom:0}}
-th{{padding:8px 10px;font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;text-align:left;border-bottom:1px solid var(--bd)}}
-table{{width:100%;border-collapse:collapse}}
-</style>
-
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
-  <div>
-    <h2 style="font-size:22px;font-weight:700">📊 Land & Expand Intelligence</h2>
-    <p style="color:var(--tx2);font-size:13px;margin-top:4px">Competitive gaps · Buyer contacts · Revenue model</p>
-  </div>
-  <div style="display:flex;gap:8px">
-    <a href="/" style="padding:5px 12px;border:1px solid var(--bd);border-radius:6px;font-size:12px;text-decoration:none">🏠 Home</a>
-    <a href="/vendors" style="padding:5px 12px;border:1px solid var(--bd);border-radius:6px;font-size:12px;text-decoration:none">🏭 Vendors</a>
-  </div>
-</div>
-
-<!-- Revenue opportunity summary -->
-<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:14px;margin-bottom:24px">
-  <div class="card">
-    <div style="font-size:11px;color:var(--tx2)">12-MONTH OPPORTUNITY</div>
-    <div style="font-size:26px;font-weight:800;color:var(--gn)">${total_opp:,.0f}</div>
-    <div style="font-size:11px;color:var(--tx2)">across {len(agencies)} agencies</div>
-  </div>
-  <div class="card">
-    <div style="font-size:11px;color:var(--tx2)">P0 PRODUCT GAPS</div>
-    <div style="font-size:26px;font-weight:800;color:var(--rd)">{len(p0_gaps)}</div>
-    <div style="font-size:11px;color:var(--tx2)">${p0_missed:,.0f}/yr being lost to competitors</div>
-  </div>
-  <div class="card">
-    <div style="font-size:11px;color:var(--tx2)">EXISTING CUSTOMERS</div>
-    <div style="font-size:26px;font-weight:800;color:var(--ac)">3</div>
-    <div style="font-size:11px;color:var(--tx2)">CCHCS · CalVet · DSH (32+ untapped facilities)</div>
-  </div>
-  <div class="card">
-    <div style="font-size:11px;color:var(--tx2)">ACCOUNTS TO REGISTER</div>
-    <div style="font-size:26px;font-weight:800;color:var(--yl)">{len(accounts)}</div>
-    <div style="font-size:11px;color:var(--tx2)">Cardinal · McKesson · Bound Tree · Waxie + more</div>
-  </div>
-</div>
-
-<div style="display:grid;grid-template-columns:1.5fr 1fr;gap:20px">
-  <div>
-    <!-- Agency intelligence -->
-    <div style="font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">Agency Intelligence</div>
-    {agencies_html}
-  </div>
-  <div>
-    <!-- Accounts to register -->
-    <div style="font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">Accounts to Register Now</div>
-    <div class="card" style="padding:0;margin-bottom:20px">
-      {accounts_html}
-    </div>
-
-    <!-- Land & Expand Playbook -->
-    <div style="font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">30/60/90 Day Playbook</div>
-    {playbook_html}
-  </div>
-</div>
-
-<!-- Competitive product gap table -->
-<div class="card" style="margin-top:20px;padding:0">
-  <div style="padding:14px 16px;border-bottom:1px solid var(--bd)">
-    <span style="font-size:13px;font-weight:700">🎯 Items Competitors Are Selling To Your Customers</span>
-    <span style="font-size:11px;color:var(--tx2);margin-left:8px">{len(gaps)} gaps · ${sum(g.get('annual_missed',0) for g in gaps):,.0f}/yr being captured by others</span>
-  </div>
-  <table>
-    <thead><tr><th>Product / Item</th><th>Priority</th><th>Annual Missed</th><th>Fix</th></tr></thead>
-    <tbody>{gaps_html}</tbody>
-  </table>
-</div>
-
-""" + _page_footer()
+    total_gaps_missed = sum(g.get('annual_missed', 0) for g in gaps)
+    html = render_page("market_intel.html", active_page="Intel",
+        accounts=accounts,
+        accounts_html=accounts_html,
+        agencies=agencies,
+        agencies_html=agencies_html,
+        gaps=gaps,
+        gaps_html=gaps_html,
+        p0_gaps=p0_gaps,
+        playbook_html=playbook_html,
+        total_opp=total_opp,
+        p0_missed=p0_missed,
+        total_gaps_missed=total_gaps_missed)
     return html
 
 
@@ -3348,41 +2984,10 @@ def page_scprs_gap_analysis():
   <span id="ingestStatus" style="margin-left:12px;font-size:12px;color:var(--tx2)"></span>
 </div>"""
 
-    return _header("SCPRS Gap Analysis") + f"""
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
-  <div>
-    <h2 style="font-size:22px;font-weight:700">🔍 SCPRS Gap Analysis</h2>
-    <p style="color:var(--tx2);font-size:13px;margin-top:4px">What is CCHCS/CDCR buying that Reytech isn't selling them?</p>
-  </div>
-  <div style="display:flex;gap:8px">
-    <a href="https://caleprocure.ca.gov/pages/SCPRSSearch/scprs-search.aspx" target="_blank" style="padding:5px 12px;border:1px solid var(--ac);border-radius:6px;font-size:12px;text-decoration:none;color:var(--ac)">🔎 Open SCPRS</a>
-    <a href="/" style="padding:5px 12px;border:1px solid var(--bd);border-radius:6px;font-size:12px;text-decoration:none">🏠 Home</a>
-  </div>
-</div>
-{no_data_html}{stats_html}{paste_box}
-<script>
-async function ingestCSV() {{
-  const csv = document.getElementById("csvPaste").value.trim();
-  const st = document.getElementById("ingestStatus");
-  if (!csv) {{ alert("Paste SCPRS CSV first"); return; }}
-  st.textContent = "Analyzing...";
-  try {{
-    const r = await fetch("/api/scprs/public/ingest", {{
-      method: "POST", credentials: "same-origin",
-      headers: {{"Content-Type": "application/json"}},
-      body: JSON.stringify({{csv_text: csv}})
-    }});
-    const d = await r.json();
-    if (d.ok) {{
-      st.textContent = d.gap_analysis;
-      setTimeout(() => location.reload(), 1500);
-    }} else {{
-      st.textContent = "Error: " + d.error;
-    }}
-  }} catch(e) {{ st.textContent = "Error: " + e.message; }}
-}}
-</script>
-""" + _page_footer()
+    return render_page("scprs_gap.html", active_page="Intel",
+        no_data_html=no_data_html,
+        paste_box=paste_box,
+        stats_html=stats_html)
 
 
 
@@ -3517,108 +3122,17 @@ def page_qa_intelligence():
     scores_js = str([r["score"] for r in reversed(history)]) if history else "[]"
     labels_js = str([r["run_at"][:10] for r in reversed(history)]) if history else "[]"
 
-    return _header("QA Intelligence") + f"""
-<style>
-.card{{background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:16px}}
-th{{padding:7px 10px;font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;text-align:left;border-bottom:1px solid var(--bd)}}
-table{{width:100%;border-collapse:collapse}}
-</style>
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
-  <div>
-    <h2 style="font-size:22px;font-weight:700">🧠 QA Intelligence Engine</h2>
-    <p style="color:var(--tx2);font-size:13px;margin-top:4px">Regression detection · Persistent issues · Score trend · Full agent coverage</p>
-  </div>
-  <div style="display:flex;gap:8px">
-    <a href="/api/qa/health" style="padding:5px 12px;border:1px solid var(--bd);border-radius:6px;font-size:12px;text-decoration:none">Run Full Check</a>
-    <a href="/" style="padding:5px 12px;border:1px solid var(--bd);border-radius:6px;font-size:12px;text-decoration:none">🏠 Home</a>
-  </div>
-</div>
-
-<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:14px;margin-bottom:24px">
-  <div class="card">
-    <div style="font-size:11px;color:var(--tx2)">CURRENT SCORE</div>
-    <div style="font-size:32px;font-weight:800;color:{score_color}">{score}/100</div>
-    <div style="font-size:12px;color:{trend_color};margin-top:4px">{trend_str}</div>
-  </div>
-  <div class="card">
-    <div style="font-size:11px;color:var(--tx2)">OPEN ISSUES</div>
-    <div style="font-size:32px;font-weight:800;color:{'var(--rd)' if intel.get('open_issue_count',0)>3 else 'var(--yl)'}">{intel.get('open_issue_count', 0)}</div>
-    <div style="font-size:11px;color:var(--tx2);margin-top:4px">Persistent across runs</div>
-  </div>
-  <div class="card">
-    <div style="font-size:11px;color:var(--tx2)">REGRESSIONS</div>
-    <div style="font-size:32px;font-weight:800;color:{'var(--rd)' if regressions else 'var(--gn)'}">{len(regressions)}</div>
-    <div style="font-size:11px;color:var(--tx2);margin-top:4px">Unacknowledged score drops</div>
-  </div>
-  <div class="card">
-    <div style="font-size:11px;color:var(--tx2)">TOTAL QA RUNS</div>
-    <div style="font-size:32px;font-weight:800;color:var(--ac)">{intel.get('total_runs', 0)}</div>
-    <div style="font-size:11px;color:var(--tx2);margin-top:4px">Every 5min background checks</div>
-  </div>
-</div>
-
-{f'<div style="margin-bottom:16px">{reg_html}</div>' if regressions else ''}
-
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
-  <div>
-    <div style="font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Persistent Issues (most recurring)</div>
-    <div class="card" style="padding:0">
-      <table>
-        <thead><tr><th>Check</th><th>Message</th><th style="text-align:center">Seen</th><th>Since</th></tr></thead>
-        <tbody>{issue_rows if issue_rows else '<tr><td colspan="4" style="padding:16px;text-align:center;color:var(--gn);font-size:13px">✅ No persistent open issues</td></tr>'}</tbody>
-      </table>
-    </div>
-  </div>
-  <div>
-    <div style="font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Score History</div>
-    <div class="card">
-      <canvas id="scoreChart" height="180"></canvas>
-    </div>
-    <div style="margin-top:16px;font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">QA Check Coverage (38 checks, 23 agents)</div>
-    <div class="card">
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px">
-        <div style="color:var(--gn)">✅ Routes &amp; auth (257 routes)</div>
-        <div style="color:var(--gn)">✅ All 23 agents covered</div>
-        <div style="color:var(--gn)">✅ DB schema (10 tables)</div>
-        <div style="color:var(--gn)">✅ Data files integrity</div>
-        <div style="color:var(--gn)">✅ Critical route coverage</div>
-        <div style="color:var(--gn)">✅ Regression detection</div>
-        <div style="color:var(--gn)">✅ Issue deduplication</div>
-        <div style="color:var(--gn)">✅ Score trend analysis</div>
-        <div style="color:var(--gn)">✅ Vendor registration</div>
-        <div style="color:var(--gn)">✅ SCPRS credentials</div>
-        <div style="color:var(--gn)">✅ Product catalog</div>
-        <div style="color:var(--gn)">✅ Market scope</div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
-<script>
-const scores = {scores_js};
-const labels = {labels_js};
-if (scores.length > 0) {{
-  new Chart(document.getElementById('scoreChart'), {{
-    type: 'line',
-    data: {{
-      labels,
-      datasets: [{{
-        label: 'QA Score', data: scores,
-        borderColor: '#2563EB', backgroundColor: 'rgba(37,99,235,.1)',
-        tension: 0.3, fill: true, pointRadius: 3
-      }}]
-    }},
-    options: {{
-      scales: {{ y: {{ min: 60, max: 100, grid: {{ color: 'rgba(255,255,255,.05)' }} }},
-                 x: {{ display: false }} }},
-      plugins: {{ legend: {{ display: false }} }},
-      responsive: true, maintainAspectRatio: false
-    }}
-  }});
-}}
-</script>
-""" + _page_footer()
+    return render_page("qa_intel.html", active_page="Intel",
+        f=f,
+        intel=intel,
+        issue_rows=issue_rows,
+        labels_js=labels_js,
+        regressions=regressions,
+        score=score,
+        score_color=score_color,
+        scores_js=scores_js,
+        trend_color=trend_color,
+        trend_str=trend_str)
 
 
 

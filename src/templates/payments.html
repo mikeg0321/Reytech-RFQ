@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Payments — Reytech{% endblock %}
+
+{% block content %}
+<h2 style="margin-bottom:4px">💳 Payments & Aging</h2>
+<p style="font-size:13px;color:var(--tx2);margin-bottom:16px">Invoice aging report — track payments, outstanding balances</p>
+<div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+  <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
+    <div style="font-size:28px;font-weight:800;color:var(--rd)">${{ "{:,.0f}".format(total_outstanding) }}</div>
+    <div style="font-size:10px;color:var(--tx2)">OUTSTANDING</div></div>
+  <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
+    <div style="font-size:28px;font-weight:800;color:var(--gn)">${{ "{:,.0f}".format(total_paid) }}</div>
+    <div style="font-size:10px;color:var(--tx2)">COLLECTED</div></div>
+  <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
+    <div style="font-size:28px;font-weight:800;color:var(--ac)">{{ invoices|length }}</div>
+    <div style="font-size:10px;color:var(--tx2)">INVOICES</div></div>
+</div>
+
+{# Aging distribution bar #}
+{% set aging_total = total_outstanding if total_outstanding > 0 else 1 %}
+{% set aging_colors = [('Current', '#27ae60'), ('31-45 Days', '#f39c12'), ('46-60 Days', '#e67e22'), ('61-90 Days', '#e74c3c'), ('90+ Days', '#c0392b')] %}
+<div class="card" style="margin-bottom:16px">
+  <h3 style="margin-bottom:8px;font-size:14px">Aging Distribution</h3>
+  <div style="display:flex;height:24px;border-radius:6px;overflow:hidden;font-size:10px;font-weight:600;margin-bottom:8px">
+    {% for bucket_name, color in aging_colors %}
+    {% set val = buckets.get(bucket_name, 0) %}
+    {% set pct = val / aging_total * 100 if val > 0 else 0 %}
+    {% if pct > 0 %}
+    <div style="background:{{ color }};width:{{ "%.1f"|format(pct) }}%;display:flex;align-items:center;justify-content:center;color:#fff" title="{{ bucket_name }}: ${{ "{:,.0f}".format(val) }}">{{ bucket_name }}</div>
+    {% endif %}
+    {% endfor %}
+  </div>
+  <div style="display:flex;gap:12px;font-size:10px;color:var(--tx2);flex-wrap:wrap">
+    {% for bucket_name, color in aging_colors %}
+    <span style="color:{{ color }}">● {{ bucket_name }}: ${{ "{:,.0f}".format(buckets.get(bucket_name, 0)) }}</span>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="card" style="overflow-x:auto">
+ <table class="home-tbl" style="min-width:900px">
+  <thead><tr><th>Invoice</th><th>Institution</th><th>PO</th><th>Date</th><th>Age</th><th>Total</th><th>Paid</th><th>Balance</th><th>Bucket</th><th>Action</th></tr></thead>
+  <tbody>
+  {% if invoices %}
+    {% for inv in invoices %}
+    {% set bc = 'var(--gn)' if inv.bucket == 'Paid' else ('var(--rd)' if '90' in inv.bucket or '61' in inv.bucket else 'var(--yl)') %}
+    <tr>
+     <td><a href="/order/{{ inv.oid }}" style="color:var(--ac);font-size:11px">{{ inv.inv_num }}</a></td>
+     <td style="font-size:11px">{{ inv.institution[:30] }}</td>
+     <td style="font-size:11px">{{ inv.po }}</td>
+     <td style="font-size:11px">{{ inv.inv_date }}</td>
+     <td style="text-align:right">{{ inv.days }}d</td>
+     <td style="text-align:right;font-weight:600">${{ "{:,.2f}".format(inv.total) }}</td>
+     <td style="text-align:right;color:var(--gn)">${{ "{:,.2f}".format(inv.paid) }}</td>
+     <td style="text-align:right;font-weight:700;color:{{ bc }}">${{ "{:,.2f}".format(inv.balance) }}</td>
+     <td style="color:{{ bc }};font-size:11px">{{ inv.bucket }}</td>
+     <td>{% if inv.balance > 0 %}<button onclick="recordPayment('{{ inv.oid }}')" class="btn btn-s" style="font-size:10px;padding:2px 8px">💳 Pay</button>{% else %}<span style="color:var(--gn);font-size:11px">✅ Paid</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  {% else %}
+    <tr><td colspan="10" style="text-align:center;color:var(--tx2);padding:20px">No invoices generated yet — invoices auto-create when all items delivered</td></tr>
+  {% endif %}
+  </tbody>
+ </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function recordPayment(oid) {
+  var amt = prompt('Payment amount received:');
+  if (!amt) return;
+  var method = prompt('Payment method (check/ach/wire/card):', 'check');
+  var ref = prompt('Reference/check number:', '');
+  fetch('/api/order/' + oid + '/payment', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    credentials: 'same-origin',
+    body: JSON.stringify({amount: parseFloat(amt), method: method||'check', reference: ref||''})
+  }).then(r => r.json()).then(d => {
+    if (d.ok) {
+      alert('Payment recorded. Total paid: $' + d.total_paid.toFixed(2) + ' — Status: ' + d.payment_status);
+      location.reload();
+    } else {
+      alert('Error: ' + (d.error||'unknown'));
+    }
+  });
+}
+</script>
+{% endblock %}

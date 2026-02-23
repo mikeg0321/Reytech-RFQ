@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Recurring Orders — Reytech{% endblock %}
+
+{% block content %}
+<h2 style="margin-bottom:4px">🔄 Recurring Orders</h2>
+<p style="font-size:13px;color:var(--tx2);margin-bottom:16px">Repeat buyers detected — use for quote template reuse and proactive outreach</p>
+<div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+  <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
+    <div style="font-size:28px;font-weight:800;color:var(--ac)">{{ total_recurring }}</div>
+    <div style="font-size:10px;color:var(--tx2)">REPEAT BUYERS</div></div>
+  <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
+    <div style="font-size:28px;font-weight:800;color:var(--gn)">{{ total_orders }}</div>
+    <div style="font-size:10px;color:var(--tx2)">TOTAL ORDERS</div></div>
+  <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
+    <div style="font-size:28px;font-weight:800;color:var(--gn)">${{ "{:,.0f}".format(total_value) }}</div>
+    <div style="font-size:10px;color:var(--tx2)">TOTAL VALUE</div></div>
+</div>
+<div class="card" style="overflow-x:auto">
+ <table class="home-tbl">
+  <thead><tr><th>Institution</th><th>Orders</th><th>Total Value</th><th>Avg Value</th><th>Unique Items</th><th>Recent Orders</th></tr></thead>
+  <tbody>
+  {% if recurring %}
+    {% for r in recurring %}
+    <tr>
+     <td style="font-weight:600;font-size:12px">{{ r.institution }}</td>
+     <td style="font-weight:700;color:var(--ac)">{{ r.order_count }}</td>
+     <td style="font-weight:600">${{ "{:,.2f}".format(r.total_value) }}</td>
+     <td>${{ "{:,.2f}".format(r.avg_value) }}</td>
+     <td>{{ r.unique_items }}</td>
+     <td>{% for o in r.orders[:5] %}<a href="/order/{{ o.order_id|default('') }}" style="color:var(--ac);font-size:10px">{{ o.po_number or o.order_id|default('')|truncate(12,true,'') }}</a> {% endfor %}</td>
+    </tr>
+    {% endfor %}
+  {% else %}
+    <tr><td colspan="6" style="text-align:center;color:var(--tx2);padding:20px">Need 2+ orders from same institution to detect patterns</td></tr>
+  {% endif %}
+  </tbody>
+ </table>
+</div>
+{% endblock %}
