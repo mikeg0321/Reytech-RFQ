@@ -65,6 +65,16 @@ SUPPLIER_MAP = {
     "nambe.com":             "Nambé",
     "shoplet.com":           "Shoplet",
     "quill.com":             "Quill",
+    "aedstore.com":          "AED Store",
+    "aed.com":               "AED Superstore",
+    "aedbrands.com":         "AED Brands",
+    "buyaedsusa.com":        "Buy AEDs USA",
+    "lifesaversinc.com":     "Life Savers Inc",
+    "moore.com":             "Moore Medical",
+    "mooremedical.com":      "Moore Medical",
+    "techlinemedical.com":   "TechLine Medical",
+    "myotcstore.com":        "MyOTCStore",
+    "allegromedical.com":    "Allegro Medical",
 }
 
 def detect_supplier(url: str) -> str:
@@ -180,18 +190,46 @@ def _scrape_generic(url: str) -> dict:
     part_patterns = [
         r'"sku"\s*:\s*"([A-Z0-9\-]{4,30})"',
         r'"mpn"\s*:\s*"([A-Z0-9\-]{4,30})"',
+        r'"productID"\s*:\s*"([A-Z0-9\-]{4,30})"',
         r'data-sku\s*=\s*"([A-Z0-9\-]{4,30})"',
         r'data-item-number\s*=\s*"([A-Z0-9\-]{4,30})"',
+        r'data-product-id\s*=\s*"([A-Z0-9\-]{4,30})"',
         r'[Ii]tem\s*#?:?\s*([A-Z0-9\-]{5,20})',
         r'[Mm]odel\s*#?:?\s*([A-Z0-9\-]{4,20})',
         r'[Mm][Ff][Gg]\.?\s*#?:?\s*([A-Z0-9\-]{4,20})',
         r'[Pp]art\s*#?:?\s*([A-Z0-9\-]{4,20})',
         r'[Cc]atalog\s*#?:?\s*([A-Z0-9\-]{4,20})',
+        r'[Ss][Kk][Uu]\s*:?\s*([A-Z0-9\-]{4,20})',
     ]
     for pat in part_patterns:
         m = re.search(pat, html)
         if m:
             result["part_number"] = m.group(1).strip()
+            break
+
+    # MFG / manufacturer number (separate from part/SKU)
+    mfg_patterns = [
+        r'"mpn"\s*:\s*"([A-Z0-9\-]{3,30})"',
+        r'[Mm]anufacturer\s*(?:#|[Nn]umber|[Pp]art)\s*:?\s*([A-Z0-9\-]{3,25})',
+        r'[Mm][Ff][Gg]\s*(?:#|[Nn]o\.?|[Nn]umber)\s*:?\s*([A-Z0-9\-]{3,25})',
+    ]
+    for pat in mfg_patterns:
+        m = re.search(pat, html)
+        if m:
+            result["mfg_number"] = m.group(1).strip()
+            break
+
+    # Manufacturer / brand name
+    brand_patterns = [
+        r'"brand"\s*:\s*\{[^}]*"name"\s*:\s*"([^"]{2,50})"',
+        r'"brand"\s*:\s*"([^"]{2,50})"',
+        r'[Bb]rand\s*:?\s*<[^>]*>([^<]{2,40})</[^>]*>',
+        r'[Mm]anufacturer\s*:?\s*<[^>]*>([^<]{2,40})</[^>]*>',
+    ]
+    for pat in brand_patterns:
+        m = re.search(pat, html)
+        if m:
+            result["manufacturer"] = m.group(1).strip()
             break
 
     # Shipping — look for "free shipping" or "$X.XX shipping"
@@ -213,12 +251,26 @@ def _scrape_generic(url: str) -> dict:
                     pass
             break
 
-    # Description — meta description
+    # Description — meta description + OG tags
     m = re.search(r'<meta\s+name\s*=\s*"description"\s+content\s*=\s*"([^"]{10,400})"', html, re.IGNORECASE)
     if not m:
         m = re.search(r'<meta\s+content\s*=\s*"([^"]{20,400})"\s+name\s*=\s*"description"', html, re.IGNORECASE)
     if m:
         result["meta_description"] = m.group(1).strip()[:300]
+    
+    # OG title and description (often better than <title>)
+    og_title = re.search(r'<meta\s+(?:property|name)\s*=\s*"og:title"\s+content\s*=\s*"([^"]{5,300})"', html, re.IGNORECASE)
+    if not og_title:
+        og_title = re.search(r'<meta\s+content\s*=\s*"([^"]{5,300})"\s+(?:property|name)\s*=\s*"og:title"', html, re.IGNORECASE)
+    if og_title and not result.get("title"):
+        title = og_title.group(1).strip()
+        title = re.split(r'\s*[|\-–]\s*(Grainger|Amazon|McMaster|Fisher|Medline|Bound Tree|Henry Schein|Uline|Zoro|Staples|Waxie)', title)[0].strip()
+        result["title"] = title[:200]
+
+    # JSON-LD product name (most structured/reliable)
+    jld_name = re.search(r'"@type"\s*:\s*"Product"[^}]*"name"\s*:\s*"([^"]{5,200})"', html, re.IGNORECASE | re.DOTALL)
+    if jld_name:
+        result["title"] = jld_name.group(1).strip()[:200]
 
     return result
 
@@ -283,6 +335,28 @@ def _lookup_mcmaster(url: str) -> dict:
     return result
 
 
+def _lookup_aedstore(url: str) -> dict:
+    """AED Store / AED Superstore: extract product details."""
+    result = _scrape_generic(url)
+    host = urlparse(url).netloc.lower()
+    if "aedstore.com" in host:
+        result["supplier"] = "AED Store"
+    elif "aed.com" in host:
+        result["supplier"] = "AED Superstore"
+    elif "aedbrands.com" in host:
+        result["supplier"] = "AED Brands"
+    else:
+        result["supplier"] = detect_supplier(url)
+    
+    # Try extracting SKU from URL path (e.g. /product/SKU-123/)
+    path = urlparse(url).path
+    sku_match = re.search(r'/(?:product|p)/([A-Z0-9\-]{4,30})(?:/|$|\?)', path, re.IGNORECASE)
+    if sku_match and not result.get("part_number"):
+        result["part_number"] = sku_match.group(1)
+    
+    return result
+
+
 # ─── Main entry point ─────────────────────────────────────────────────────────
 
 def lookup_from_url(url: str) -> dict:
@@ -321,6 +395,8 @@ def lookup_from_url(url: str) -> dict:
             result = _lookup_grainger(url)
         elif "mcmaster.com" in host:
             result = _lookup_mcmaster(url)
+        elif any(d in host for d in ("aedstore.com", "aed.com", "aedbrands.com", "buyaedsusa.com")):
+            result = _lookup_aedstore(url)
         else:
             # Generic HTML scrape for all other suppliers
             result = _scrape_generic(url)
