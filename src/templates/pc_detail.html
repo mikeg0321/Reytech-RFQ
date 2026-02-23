@@ -111,7 +111,7 @@
      {% elif pc.get('status') == 'priced' %}
      <div style="padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(88,166,255,.08);border:1px solid rgba(88,166,255,.25);color:#58a6ff;margin-bottom:10px"><span style="font-size:18px">💰</span><div><b>Priced</b> — review costs below, then Save &amp; Fill 704.</div></div>
      {% elif pc.get('status') == 'parsed' %}
-     <div style="padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(210,153,34,.08);border:1px solid rgba(210,153,34,.25);color:#d29922;margin-bottom:10px"><span style="font-size:18px">📥</span><div><b>Parsed</b> — awaiting pricing agent. Click Process to run manually.</div></div>
+     <div style="padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(210,153,34,.08);border:1px solid rgba(210,153,34,.25);color:#d29922;margin-bottom:10px"><span style="font-size:18px">📥</span><div><b>Parsed</b> — auto-pricing will run on load (Catalog → SCPRS). Use buttons below for manual pricing.</div></div>
      {% endif %}
 
      <div class="meta" style="margin-top:8px">
@@ -278,12 +278,12 @@
     let cachedTaxRate = {{ tax_rate }};
 
     // Tax rate loaded server-side (no fetch needed)
-    (function() {
+    try {
      document.getElementById('taxRateDisplay').textContent = '({{ tax_source }} — ' + (cachedTaxRate * 100).toFixed(2) + '%)';
-    })();
+    } catch(e) {}
 
     // Delivery dropdown: show custom input when "Custom..." selected
-    document.getElementById('deliverySelect').addEventListener('change', function() {
+    try { document.getElementById('deliverySelect').addEventListener('change', function() {
      const custom=document.getElementById('deliveryCustom');
      if(this.value==='custom') {
       custom.style.display='inline-block';
@@ -293,6 +293,7 @@
       custom.value='';
      }
     });
+    } catch(e) {}
 
     function showMsg(text, type) {
      const el=document.getElementById('statusMsg');
@@ -733,7 +734,7 @@
     }
 
     // Due date urgency
-    (function calcUrgency() {
+    try {(function calcUrgency() {
      const dueStr='{{ pc.get("due_date","") }}'.trim();
      if(!dueStr) return;
      // Try parsing common formats: M/D/YY, M/D/YYYY, YYYY-MM-DD
@@ -761,17 +762,17 @@
      } else {
       el.innerHTML='<span style="background:#23863633;color:#3fb950;padding:2px 8px;border-radius:4px;font-size:11px">'+diffDays+'d left</span>';
      }
-    })();
+    })();} catch(e) { console.warn('calcUrgency:', e); }
 
-    recalcPC();
+    try { recalcPC(); } catch(e) { console.warn('recalcPC init:', e); }
 
     // Load saved profit summary from server if it exists
-    (function loadSavedProfit() {
+    try {
       const saved = {{ profit_summary_json | safe }};
-      if (saved && saved.gross_profit != null) {
+      if (saved && saved.gross_profit != null && typeof updateProfitPanel==='function') {
         updateProfitPanel(saved);
       }
-    })();
+    } catch(e) { console.warn('loadSavedProfit:', e); }
 
     function runScprs(btn) {
      btn.disabled=true;const origText=btn.textContent;btn.textContent='⏳ Searching SCPRS...';
@@ -1924,6 +1925,80 @@
           }).catch(()=>{loaded++;});
       });
     }
+    // ── AUTO-PRICE ON LOAD: if items have no prices, auto-run pipeline ──
+    (function autoRunPricing() {
+     // Check if any items need pricing
+     const costInputs = document.querySelectorAll('input[name^=cost_]');
+     let unpriced = 0;
+     costInputs.forEach(inp => {
+      if (!parseFloat(inp.value)) unpriced++;
+     });
+     if (unpriced === 0 || costInputs.length === 0) return;
+
+     // Show auto-pricing status
+     showMsg('🔄 Auto-pricing: finding prices for ' + unpriced + '/' + costInputs.length + ' items...', 'warn');
+
+     // Step 1: Catalog match
+     const items = [];
+     document.querySelectorAll('textarea[name^=desc_]').forEach(ta => {
+      const idx = ta.name.replace('desc_', '');
+      const desc = (ta.value || '').trim();
+      const pn = (document.querySelector('[name=itemnum_' + idx + ']') || {}).value || '';
+      if (desc || pn) items.push({idx: parseInt(idx), description: desc, part_number: pn});
+     });
+     if (!items.length) return;
+
+     fetch('/api/catalog/match-batch', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({items: items})
+     }).then(r => r.json()).then(d => {
+      let catFound = 0;
+      if (d.ok && d.results) {
+       d.results.forEach(r => {
+        if (!r.matched) return;
+        const costEl = document.querySelector('[name=cost_' + r.idx + ']');
+        const priceEl = document.querySelector('[name=price_' + r.idx + ']');
+        const bestCost = r.best_cost || r.last_cost || 0;
+        if (costEl && bestCost > 0 && !parseFloat(costEl.value)) {
+         costEl.value = Number(bestCost).toFixed(2);
+         catFound++;
+        }
+        if (priceEl && r.recommended_price > 0 && !parseFloat(priceEl.value)) {
+         priceEl.value = Number(r.recommended_price).toFixed(2);
+        }
+        if (typeof recalcRow === 'function') recalcRow(r.idx);
+       });
+      }
+
+      // Step 2: SCPRS lookup
+      fetch('/pricecheck/{{ pcid }}/scprs-lookup').then(r => r.json()).then(sd => {
+       let scprsFound = sd.found || 0;
+       let total = catFound + scprsFound;
+       if (total > 0) {
+        showMsg('✅ Auto-priced: ' + catFound + ' from catalog, ' + scprsFound + ' from SCPRS. Reloading...', 'ok');
+        setTimeout(() => location.reload(), 1500);
+       } else {
+        showMsg('ℹ️ No auto-matches found. Use Amazon, Sweep, or paste supplier URLs to find prices.', 'warn');
+       }
+      }).catch(() => {
+       if (catFound > 0) {
+        showMsg('✅ Catalog: found ' + catFound + ' matches. SCPRS unavailable.', 'ok');
+        recalcPC();
+       }
+      });
+     }).catch(e => {
+      console.warn('Auto-price error:', e);
+      // Try SCPRS alone
+      fetch('/pricecheck/{{ pcid }}/scprs-lookup').then(r => r.json()).then(sd => {
+       if (sd.found > 0) {
+        showMsg('✅ SCPRS: Found ' + sd.found + ' matches. Reloading...', 'ok');
+        setTimeout(() => location.reload(), 1500);
+       }
+      }).catch(() => {});
+     });
+    })();
+
     </script>
     </body></html>
 

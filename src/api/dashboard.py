@@ -802,6 +802,102 @@ def _is_user_facing_pc(pc: dict) -> bool:
 
 _shared_poller = None  # Shared poller instance for manual checks
 
+def _auto_price_new_pc(pc_id: str):
+    """Auto-price a newly created PC: catalog match → SCPRS → apply best prices.
+    Runs in background thread so email processing isn't blocked."""
+    try:
+        pcs = _load_price_checks()
+        pc = pcs.get(pc_id)
+        if not pc or not pc.get("items"):
+            return
+        
+        items = pc["items"]
+        found_count = 0
+        log.info("Auto-pricing PC %s (%d items)", pc_id, len(items))
+
+        # ── 1. Catalog match ──
+        try:
+            from src.agents.product_catalog import match_item, init_catalog_db
+            init_catalog_db()
+            for item in items:
+                desc = item.get("description", "")
+                pn = str(item.get("item_number", "") or "")
+                if not desc and not pn:
+                    continue
+                matches = match_item(desc, pn, top_n=1)
+                if matches and matches[0].get("match_confidence", 0) >= 0.55:
+                    best = matches[0]
+                    if not item.get("pricing"):
+                        item["pricing"] = {}
+                    p = item["pricing"]
+                    cat_price = best.get("recommended_price") or best.get("sell_price", 0)
+                    cat_cost = best.get("cost", 0)
+                    if cat_price > 0 and not p.get("recommended_price"):
+                        p["catalog_match"] = best.get("name", "")[:60]
+                        p["catalog_confidence"] = best.get("match_confidence", 0)
+                        p["catalog_sku"] = best.get("sku", "")
+                        if cat_cost > 0:
+                            p["unit_cost"] = cat_cost
+                        p["recommended_price"] = round(cat_price, 2)
+                        found_count += 1
+                        log.debug("  Catalog match: %s → $%.2f", desc[:40], cat_price)
+        except Exception as e:
+            log.debug("Auto-price catalog error: %s", e)
+
+        # ── 2. SCPRS won quotes KB ──
+        try:
+            if PRICING_ORACLE_AVAILABLE:
+                for item in items:
+                    p = item.get("pricing", {})
+                    if p.get("recommended_price") or p.get("scprs_price"):
+                        continue  # Already priced by catalog
+                    desc = item.get("description", "")
+                    pn = str(item.get("item_number", "") or "")
+                    matches = find_similar_items(item_number=pn, description=desc)
+                    if matches:
+                        best = matches[0]
+                        quote = best.get("quote", best)
+                        scprs_price = quote.get("unit_price")
+                        if scprs_price and scprs_price > 0:
+                            if not item.get("pricing"):
+                                item["pricing"] = {}
+                            item["pricing"]["scprs_price"] = scprs_price
+                            item["pricing"]["scprs_match"] = quote.get("description", "")[:60]
+                            item["pricing"]["scprs_confidence"] = best.get("match_confidence", 0)
+                            if not item["pricing"].get("unit_cost"):
+                                item["pricing"]["unit_cost"] = scprs_price
+                            if not item["pricing"].get("recommended_price"):
+                                markup = 25
+                                item["pricing"]["recommended_price"] = round(scprs_price * (1 + markup / 100), 2)
+                            found_count += 1
+                            log.debug("  SCPRS match: %s → $%.2f", desc[:40], scprs_price)
+        except Exception as e:
+            log.debug("Auto-price SCPRS error: %s", e)
+
+        # ── 3. Save if we found anything ──
+        if found_count > 0:
+            pcs = _load_price_checks()  # Reload fresh
+            if pc_id in pcs:
+                pcs[pc_id]["items"] = items
+                pcs[pc_id]["auto_priced"] = True
+                pcs[pc_id]["auto_priced_count"] = found_count
+                pcs[pc_id]["auto_priced_at"] = datetime.now().isoformat()
+                if pcs[pc_id].get("status") == "parsed":
+                    pcs[pc_id]["status"] = "priced"
+                _save_price_checks(pcs)
+                log.info("Auto-priced PC %s: %d/%d items found prices", pc_id, found_count, len(items))
+                try:
+                    from src.agents.notify_agent import send_alert
+                    send_alert("bell", f"Auto-priced: {pc.get('pc_number',pc_id)} — {found_count}/{len(items)} items", {"type": "auto_price"})
+                except Exception:
+                    pass
+        else:
+            log.info("Auto-price PC %s: no matches found for %d items", pc_id, len(items))
+
+    except Exception as e:
+        log.error("Auto-price PC %s failed: %s", pc_id, e)
+
+
 def _ensure_contact_from_email(rfq_email: dict):
     """Auto-create/update CRM contact from inbound email sender.
     Called on every PC/RFQ arrival so the buyer is always in CRM.
@@ -1089,7 +1185,9 @@ def process_rfq_email(rfq_email):
                         pcs[pc_id]["requestor"] = pcs[pc_id].get("requestor") or rfq_email.get("sender_name") or rfq_email.get("sender_email", "")
                         _save_price_checks(pcs)
                         _ensure_contact_from_email(rfq_email)
-                        _trace.append(f"PC CREATED: {pc_id}")
+                        # Auto-price in background thread
+                        threading.Thread(target=_auto_price_new_pc, args=(pc_id,), daemon=True).start()
+                        _trace.append(f"PC CREATED: {pc_id} (auto-pricing started)")
                         log.info("PC %s created successfully from email %s", pc_id, email_uid)
                         POLL_STATUS.setdefault("_email_traces", []).append(_trace)
                         t.ok("PC created", pc_id=pc_id, pc_number=pcs[pc_id].get("pc_number","?"))
