@@ -2360,150 +2360,566 @@ def _parse_facility_name(raw_name):
 
 def _estimate_annual_opportunity(agency_type):
     """Rough annual spend estimate per facility type based on active facility averages."""
-    # Based on current AR data + typical reorder cycles
     AVG_ANNUAL = {"CCHCS": 8000, "CalVet": 12000, "DSH": 6000}
     return AVG_ANNUAL.get(agency_type, 5000)
+
+
+def _build_expansion_intel():
+    """Build comprehensive territory intelligence from ALL data sources.
+    Returns structured data for the expansion dashboard."""
+    import json as _json
+    from collections import defaultdict
+    import sqlite3
+
+    customers = _load_customers()
+    pcs_path = os.path.join(DATA_DIR, "price_checks.json")
+    pcs = _json.load(open(pcs_path)) if os.path.exists(pcs_path) else {}
+    orders_path = os.path.join(DATA_DIR, "orders.json")
+    orders = _json.load(open(orders_path)) if os.path.exists(orders_path) else {}
+    crm = _load_crm_contacts()
+    crm_list = list(crm.values()) if isinstance(crm, dict) else crm
+    activity_path = os.path.join(DATA_DIR, "crm_activity.json")
+    activities = _json.load(open(activity_path)) if os.path.exists(activity_path) else []
+
+    # ── 1. Build facility registry from QB customers ──
+    facilities = {}
+    for c in customers:
+        raw_name = c.get("qb_name","") or c.get("display_name","")
+        parent = c.get("parent","")
+        bal = float(c.get("open_balance",0) or 0)
+        email = c.get("email","")
+        abbr = c.get("abbreviation","")
+
+        # Classify agency
+        name_parent = (parent or raw_name).lower()
+        if "correctional" in name_parent or "state prison" in raw_name.lower() or "calipatria" in raw_name.lower() or "medical facility" in raw_name.lower():
+            atype = "CCHCS"
+        elif "veterans" in raw_name.lower() or "dept of veterans" in raw_name.lower() or "calvet" in raw_name.lower():
+            atype = "CalVet"
+        elif "state hospital" in raw_name.lower():
+            atype = "DSH"
+        else:
+            continue
+
+        short_name, parent_name = _parse_facility_name(raw_name)
+        if short_name is None:
+            continue
+
+        fkey = short_name.lower()[:30].strip()
+        if fkey in facilities:
+            # Merge: keep highest balance, collect emails
+            existing = facilities[fkey]
+            if bal > existing["ar"]:
+                existing["ar"] = bal
+            if email and email not in [e["email"] for e in existing["contacts"]]:
+                existing["contacts"].append({"email": email, "source": "quickbooks", "role": "Billing/AP"})
+            existing["qb_names"].append(raw_name)
+        else:
+            contacts = []
+            if email:
+                contacts.append({"email": email, "source": "quickbooks", "role": "Billing/AP"})
+            facilities[fkey] = {
+                "id": fkey,
+                "name": short_name,
+                "raw_name": raw_name,
+                "parent": parent_name,
+                "abbr": abbr,
+                "type": atype,
+                "ar": bal,
+                "contacts": contacts,
+                "orders": [],
+                "pcs": [],
+                "qb_names": [raw_name],
+                "activities": [],
+                "outreach_status": "untouched",  # untouched, researching, contacted, responded, quoting, won
+                "last_activity": None,
+                "notes": "",
+                "score": 0,
+            }
+
+    # ── 2. Link CRM contacts to facilities ──
+    for contact in crm_list:
+        agency = (contact.get("agency","") or "").upper()
+        facility_name = contact.get("facility","") or ""
+        buyer_name = contact.get("buyer_name","")
+        buyer_email = contact.get("buyer_email","")
+        title = contact.get("title","")
+
+        if not buyer_email:
+            continue
+
+        # Match to known agency types
+        is_relevant = False
+        if agency in ("CDCR","CCHCS") or "correctional" in agency.lower():
+            is_relevant = True
+        elif "calvet" in agency.lower() or "veterans" in agency.lower():
+            is_relevant = True
+        elif "dsh" in agency.lower() or "state hospital" in agency.lower():
+            is_relevant = True
+
+        if not is_relevant:
+            continue
+
+        # Try to match to a specific facility
+        matched = False
+        for fkey, fac in facilities.items():
+            if facility_name and facility_name_match(facility_name, fac["name"]):
+                matched = True
+            elif buyer_email and any(buyer_email.lower() == c["email"].lower() for c in fac["contacts"]):
+                matched = True
+
+            if matched:
+                if not any(c.get("email","").lower() == buyer_email.lower() for c in fac["contacts"]):
+                    fac["contacts"].append({
+                        "name": buyer_name,
+                        "email": buyer_email,
+                        "title": title,
+                        "source": "crm",
+                        "role": title or "Procurement",
+                    })
+                break
+
+        # If no facility match, add as agency-level contact
+        if not matched:
+            for fkey, fac in facilities.items():
+                if agency in ("CDCR","CCHCS") and fac["type"] == "CCHCS" and fac.get("parent","") == "":
+                    if not any(c.get("email","").lower() == buyer_email.lower() for c in fac["contacts"]):
+                        fac["contacts"].append({
+                            "name": buyer_name,
+                            "email": buyer_email,
+                            "title": title,
+                            "source": "crm",
+                            "role": title or "Agency Contact",
+                        })
+                    break
+
+    # ── 3. Link PC contacts to facilities ──
+    for pid, pc in pcs.items():
+        inst = pc.get("institution","") or ""
+        pc_email = pc.get("contact_email","") or ""
+        pc_contact = pc.get("contact_name","") or pc.get("header",{}).get("requestor","") or ""
+        pc_items = len(pc.get("items",[]))
+        pc_total = pc.get("total",0) or 0
+        pc_status = pc.get("status","")
+
+        if not inst:
+            continue
+
+        for fkey, fac in facilities.items():
+            if facility_name_match(inst, fac["name"]) or facility_name_match(inst, fac["raw_name"]):
+                fac["pcs"].append({
+                    "id": pid,
+                    "number": pc.get("pc_number",""),
+                    "items": pc_items,
+                    "total": pc_total,
+                    "status": pc_status,
+                    "date": pc.get("created_at",""),
+                })
+                if pc_email and not any(c.get("email","").lower() == pc_email.lower() for c in fac["contacts"]):
+                    fac["contacts"].append({
+                        "name": pc_contact,
+                        "email": pc_email,
+                        "source": "price_check",
+                        "role": "Requestor",
+                    })
+                if fac["outreach_status"] == "untouched":
+                    fac["outreach_status"] = "responded"
+                break
+
+    # ── 4. Link orders to facilities ──
+    for oid, order in orders.items():
+        inst = order.get("institution","") or ""
+        for fkey, fac in facilities.items():
+            if facility_name_match(inst, fac["name"]) or facility_name_match(inst, fac["raw_name"]):
+                items_summary = []
+                for it in order.get("line_items",[])[:5]:
+                    items_summary.append(it.get("description","")[:40])
+                fac["orders"].append({
+                    "id": oid,
+                    "total": order.get("total",0),
+                    "status": order.get("status",""),
+                    "date": order.get("created_at",""),
+                    "items": items_summary,
+                })
+                break
+
+    # ── 5. Smart product recommendations from catalog ──
+    product_recs = {"CCHCS": [], "CalVet": [], "DSH": []}
+    try:
+        db_path = os.path.join(DATA_DIR, "reytech.db")
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        # Get top products by category that state facilities buy
+        for cat in ["Medical/Clinical","Gloves","Cleaning/Sanitation","Personal Care","Safety/PPE","Paper/Towels"]:
+            for r in conn.execute("""
+                SELECT name, category, sell_price, cost, manufacturer, recommended_price
+                FROM product_catalog WHERE category = ? AND cost > 0
+                ORDER BY sell_price DESC LIMIT 3
+            """, (cat,)):
+                item = dict(r)
+                item["margin_pct"] = round((item["sell_price"] - item["cost"]) / item["sell_price"] * 100) if item["sell_price"] > 0 else 0
+                # CCHCS buys everything, CalVet = personal care heavy, DSH = safety heavy
+                if cat in ("Medical/Clinical","Gloves","Cleaning/Sanitation"):
+                    for at in ["CCHCS","CalVet","DSH"]:
+                        product_recs[at].append(item)
+                elif cat == "Personal Care":
+                    product_recs["CalVet"].append(item)
+                    product_recs["CCHCS"].append(item)
+                elif cat == "Safety/PPE":
+                    product_recs["DSH"].append(item)
+                    product_recs["CCHCS"].append(item)
+        conn.close()
+    except Exception as e:
+        log.debug("Product recs error: %s", e)
+
+    # ── 6. Score each facility ──
+    for fkey, fac in facilities.items():
+        score = 0
+        # Active accounts are proven revenue
+        if fac["ar"] > 0:
+            score += 40
+            fac["outreach_status"] = "won"
+        # Contacts increase reachability
+        score += min(len(fac["contacts"]) * 10, 25)
+        # Orders prove buying pattern
+        score += min(len(fac["orders"]) * 8, 16)
+        # PCs show engagement
+        score += min(len(fac["pcs"]) * 5, 15)
+        # Email on file = can reach them
+        if any(c.get("email") for c in fac["contacts"]):
+            score += 10
+        # Agency type weighting (CalVet = larger orders historically)
+        type_bonus = {"CalVet": 8, "CCHCS": 5, "DSH": 3}
+        score += type_bonus.get(fac["type"], 0)
+        # Estimated annual opportunity
+        fac["est_annual"] = _estimate_annual_opportunity(fac["type"])
+        fac["score"] = min(score, 100)
+        # Fix status: if has AR, it's won regardless of initial dedup
+        if fac["ar"] > 0 and fac["outreach_status"] == "untouched":
+            fac["outreach_status"] = "won"
+            fac["score"] = max(fac["score"], 40)
+        # Last activity date
+        dates = []
+        for pc in fac["pcs"]:
+            if pc.get("date"): dates.append(pc["date"])
+        for o in fac["orders"]:
+            if o.get("date"): dates.append(o["date"])
+        fac["last_activity"] = max(dates) if dates else None
+
+    # ── 7. Aggregate stats ──
+    fac_list = sorted(facilities.values(), key=lambda x: (-x["score"], -x["ar"], x["name"]))
+    active = [f for f in fac_list if f["ar"] > 0]
+    untouched = [f for f in fac_list if f["outreach_status"] == "untouched"]
+    contacted = [f for f in fac_list if f["outreach_status"] in ("researching","contacted")]
+    responding = [f for f in fac_list if f["outreach_status"] in ("responded","quoting")]
+
+    total_ar = sum(f["ar"] for f in active)
+    total_contacts = sum(len(f["contacts"]) for f in fac_list)
+    total_untouched_opportunity = sum(f["est_annual"] for f in untouched)
+
+    # Contacts with email across all facilities
+    all_contacts = []
+    for fac in fac_list:
+        for c in fac["contacts"]:
+            c["facility"] = fac["name"]
+            c["facility_type"] = fac["type"]
+            c["facility_id"] = fac["id"]
+            all_contacts.append(c)
+
+    # Cross-sell: what do active facilities buy that untouched don't?
+    # (simplified: active facilities have orders, untouched don't)
+    cross_sell = []
+    active_products = set()
+    for fac in active:
+        for o in fac["orders"]:
+            for item in o.get("items",[]):
+                active_products.add(item[:30].lower())
+
+    # Per-type stats
+    type_stats = {}
+    for atype in ["CCHCS","CalVet","DSH"]:
+        type_facs = [f for f in fac_list if f["type"] == atype]
+        type_active = [f for f in type_facs if f["ar"] > 0]
+        type_stats[atype] = {
+            "total": len(type_facs),
+            "active": len(type_active),
+            "ar": sum(f["ar"] for f in type_active),
+            "contacts": sum(len(f["contacts"]) for f in type_facs),
+            "untouched": len([f for f in type_facs if f["outreach_status"] == "untouched"]),
+            "avg_score": round(sum(f["score"] for f in type_facs) / max(len(type_facs),1)),
+            "top_products": [p["name"][:35] for p in product_recs.get(atype,[])[:4]],
+        }
+
+    # Re-engagement: active facilities with no recent orders
+    stale_accounts = [f for f in active if not f["orders"] or not f["last_activity"]]
+
+    return {
+        "facilities": fac_list,
+        "active": active,
+        "untouched": untouched,
+        "contacted": contacted,
+        "responding": responding,
+        "total_ar": total_ar,
+        "total_contacts": total_contacts,
+        "total_untouched_opportunity": total_untouched_opportunity,
+        "all_contacts": all_contacts,
+        "type_stats": type_stats,
+        "product_recs": product_recs,
+        "stale_accounts": stale_accounts,
+    }
 
 
 @bp.route("/cchcs/expansion")
 @auth_required
 def page_cchcs_expansion():
-    """CCHCS/CalVet/DSH facility expansion dashboard — growth intelligence."""
+    """Territory Intelligence Dashboard v3 — sales prospecting command center."""
     import json as _json
-    customers = _load_customers()
-    pcs = _json.load(open(os.path.join(DATA_DIR, "price_checks.json"))) if os.path.exists(os.path.join(DATA_DIR, "price_checks.json")) else {}
 
-    # ── Build facility list with smart name parsing ──
-    fac_list = []
-    seen_facilities = set()  # Dedup by (short_name, type)
-    for c in customers:
-        raw_name = c.get("qb_name","") or c.get("display_name","")
-        parent = c.get("parent","")
-        balance = float(c.get("open_balance",0) or 0)
-        abbr = c.get("abbreviation","")
-        email = c.get("email","")
+    intel = _build_expansion_intel()
+    fac_list = intel["facilities"]
+    active = intel["active"]
+    untouched = intel["untouched"]
+    type_stats = intel["type_stats"]
+    all_contacts = intel["all_contacts"]
+    product_recs = intel["product_recs"]
+    stale_accounts = intel["stale_accounts"]
 
-        # Classify agency type
-        if "Correctional" in (parent or raw_name) or "State Prison" in raw_name or "Calipatria" in raw_name:
-            atype = "CCHCS"
-        elif "Veterans" in raw_name or "Dept of Veterans" in raw_name:
-            atype = "CalVet"
-        elif "State Hospital" in raw_name:
-            atype = "DSH"
-        else:
-            continue
+    # Serialize for JS
+    facilities_json = _json.dumps([{
+        "id": f["id"], "name": f["name"], "type": f["type"], "ar": f["ar"],
+        "score": f["score"], "outreach_status": f["outreach_status"],
+        "contacts": f["contacts"], "orders": f["orders"], "pcs": f["pcs"],
+        "est_annual": f["est_annual"], "abbr": f["abbr"],
+        "last_activity": f["last_activity"],
+    } for f in fac_list], default=str)
 
-        # Parse clean name
-        short_name, parent_name = _parse_facility_name(raw_name)
-        if short_name is None:
-            continue  # Skip contact-name entries
+    contacts_json = _json.dumps(all_contacts[:100], default=str)
 
-        # Dedup
-        dedup_key = (short_name.lower()[:25], atype)
-        if dedup_key in seen_facilities:
-            # Keep the one with higher balance
-            existing = next((f for f in fac_list if f["_dedup"] == dedup_key), None)
-            if existing and balance > existing["ar"]:
-                existing["ar"] = balance
-                existing["email"] = email or existing["email"]
-                existing["raw_name"] = raw_name
-            continue
-        seen_facilities.add(dedup_key)
+    # Product recs: just top 6 per type
+    recs_json = _json.dumps({k: v[:6] for k, v in product_recs.items()}, default=str)
 
-        # Check if has expansion target
-        has_target = any(
-            pc.get("source") == "cchcs_expansion" and facility_name_match(raw_name, pc.get("institution",""))
-            for pc in pcs.values()
-        )
-
-        fac_list.append({
-            "name": short_name,
-            "raw_name": raw_name,
-            "parent": parent_name,
-            "abbr": abbr,
-            "email": email,
-            "type": atype,
-            "ar": balance,
-            "active": balance > 0,
-            "has_target": has_target,
-            "est_annual": _estimate_annual_opportunity(atype),
-            "_dedup": dedup_key,
-        })
-
-    active = [f for f in fac_list if f["active"]]
-    inactive = [f for f in fac_list if not f["active"] and not f["has_target"]]
-    targeted = [f for f in fac_list if f["has_target"] and not f["active"]]
-    expansion_pcs = [pc for pc in pcs.values() if pc.get("source") == "cchcs_expansion"]
-
-    total_ar = sum(f["ar"] for f in active)
-    total_opportunity = sum(f["est_annual"] for f in inactive)
-
-    # ── Compute top products from active facility orders (for intelligence panel) ──
-    top_products_by_type = {}
-    for atype in ["CCHCS", "CalVet", "DSH"]:
-        type_active = [f for f in active if f["type"] == atype]
-        if type_active:
-            top_products_by_type[atype] = f"{len(type_active)} active, ${sum(f['ar'] for f in type_active):,.0f} AR"
-        else:
-            top_products_by_type[atype] = "No active accounts yet"
-
-    # ── Build table rows ──
-    def fac_row(f):
-        if f["active"]:
-            status_html = '<span style="color:var(--gn)">● Active</span>'
-            action = f'<span style="font-size:10px;color:var(--tx2)">Buying</span>'
-        elif f["has_target"]:
-            status_html = '<span style="color:var(--yl)">◉ Targeted</span>'
-            action = f'<a href="/pricechecks" style="font-size:10px;color:var(--ac)">View PC →</a>'
-        else:
-            status_html = '<span style="color:var(--tx2)">○ Untouched</span>'
-            esc_name = f["raw_name"].replace("'", "\\'")
-            esc_email = (f["email"] or "").replace("'", "\\'")
-            has_email_cls = "btn-target-email" if f["email"] else "btn-target-noemail"
-            email_tip = "Email draft + Price Check" if f["email"] else "Price Check only (no email on file)"
-            action = f'''<button onclick="createTarget('{esc_name}','{f["type"]}','{esc_email}')"
-              class="{has_email_cls}" title="{email_tip}"
-              style="padding:4px 12px;font-size:11px;border:1px solid var(--ac);border-radius:5px;color:var(--ac);cursor:pointer;background:transparent;font-weight:600;transition:.15s">
-              {"📧 Target" if f["email"] else "📋 Target"}
-            </button>'''
-
-        ar_html = f'<span style="color:var(--gn);font-weight:600">${f["ar"]:,.2f}</span>' if f["ar"] else '<span style="color:var(--tx2)">—</span>'
-        code_html = f'<span style="background:var(--sf2);padding:2px 6px;border-radius:3px;font-size:10px;font-family:\'JetBrains Mono\',monospace;color:var(--ac)">{f["abbr"]}</span>' if f["abbr"] else ''
-        email_icon = f'<span title="{f["email"]}" style="cursor:help;font-size:11px">📧</span>' if f["email"] else '<span style="color:var(--tx2);font-size:10px">—</span>'
-        type_colors = {"CCHCS": "var(--ac)", "CalVet": "var(--gn)", "DSH": "var(--yl)"}
-        type_color = type_colors.get(f["type"], "var(--tx2)")
-
-        return f'''<tr style="border-bottom:1px solid var(--bd);transition:background .1s" onmouseover="this.style.background='rgba(79,140,255,.04)'" onmouseout="this.style.background='transparent'">
-  <td style="padding:10px 12px;font-size:13px;font-weight:500;max-width:280px">{f["name"]} {code_html}</td>
-  <td style="padding:10px 8px;font-size:11px;color:{type_color};font-weight:600">{f["type"]}</td>
-  <td style="padding:10px 8px;text-align:center">{email_icon}</td>
-  <td style="padding:10px 8px;font-size:13px;text-align:right;font-family:'JetBrains Mono',monospace">{ar_html}</td>
-  <td style="padding:10px 8px;font-size:12px">{status_html}</td>
-  <td style="padding:10px 8px;text-align:center">{action}</td>
-</tr>'''
-
-    rows_sorted = sorted(fac_list, key=lambda x: (0 if x["active"] else (1 if x["has_target"] else 2), -x["ar"], x["type"], x["name"]))
-    rows_html = "".join(fac_row(f) for f in rows_sorted)
-
-    # Count facilities with email
-    untouched_with_email = sum(1 for f in inactive if f["email"])
-
-    # Pre-compute for JS (can't use dict comprehension inside f-string)
-    _inactive_js = _json.dumps([{"name": f["raw_name"], "type": f["type"], "email": f["email"] or ""} for f in inactive])
-
+    from src.api.render import render_page
     html = render_page("expand.html", active_page="Expand",
-        _inactive_js=_inactive_js,
-        active=active,
-        expansion_pcs=expansion_pcs,
-        fac_list=fac_list,
-        inactive=inactive,
-        rows_html=rows_html,
-        targeted=targeted,
-        top_products_by_type=top_products_by_type,
-        untouched_with_email=untouched_with_email,
-        total_opportunity=total_opportunity,
-        total_ar=total_ar)
+        facilities_json=facilities_json,
+        contacts_json=contacts_json,
+        recs_json=recs_json,
+        type_stats=type_stats,
+        total_ar=intel["total_ar"],
+        total_contacts=intel["total_contacts"],
+        total_untouched_opp=intel["total_untouched_opportunity"],
+        n_active=len(active),
+        n_untouched=len(untouched),
+        n_contacted=len(intel["contacted"]),
+        n_responding=len(intel["responding"]),
+        n_total=len(fac_list),
+        n_stale=len(stale_accounts),
+    )
     return html
+
+
+@bp.route("/api/expansion/facility/<fac_id>")
+@auth_required
+def api_expansion_facility(fac_id):
+    """Get full detail for one facility."""
+    intel = _build_expansion_intel()
+    for f in intel["facilities"]:
+        if f["id"] == fac_id:
+            return jsonify({"ok": True, "facility": f})
+    return jsonify({"ok": False, "error": "Facility not found"})
+
+
+@bp.route("/api/expansion/recommend-products", methods=["POST"])
+@auth_required
+def api_expansion_recommend():
+    """Get smart product recommendations for a facility type."""
+    import sqlite3 as _sql
+    data = request.get_json() or {}
+    agency_type = data.get("agency_type", "CCHCS")
+    limit = min(int(data.get("limit", 12)), 30)
+
+    # Pick categories likely for this agency type
+    cat_map = {
+        "CCHCS": ["Medical/Clinical","Gloves","Cleaning/Sanitation","Personal Care","Safety/PPE"],
+        "CalVet": ["Medical/Clinical","Personal Care","Gloves","Cleaning/Sanitation","Paper/Towels"],
+        "DSH": ["Medical/Clinical","Safety/PPE","Gloves","Cleaning/Sanitation","Personal Care"],
+    }
+    categories = cat_map.get(agency_type, cat_map["CCHCS"])
+
+    products = []
+    try:
+        db_path = os.path.join(DATA_DIR, "reytech.db")
+        conn = _sql.connect(db_path)
+        conn.row_factory = _sql.Row
+        for cat in categories:
+            for r in conn.execute("""
+                SELECT id, name, category, sell_price, cost, manufacturer, recommended_price
+                FROM product_catalog WHERE category = ? AND cost > 0
+                ORDER BY recommended_price DESC LIMIT ?
+            """, (cat, limit // len(categories) + 1)):
+                d = dict(r)
+                d["margin_pct"] = round((d["sell_price"] - d["cost"]) / d["sell_price"] * 100) if d["sell_price"] > 0 else 0
+                products.append(d)
+        conn.close()
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+    products.sort(key=lambda x: -(x.get("recommended_price") or x["sell_price"]))
+    return jsonify({"ok": True, "products": products[:limit], "agency_type": agency_type})
+
+
+@bp.route("/api/expansion/outreach", methods=["POST"])
+@auth_required
+def api_expansion_outreach():
+    """Create targeted outreach for a facility — smart PC + email draft.
+    Uses actual catalog products, not hardcoded items."""
+    import json as _json
+    import sqlite3 as _sql
+    data = request.get_json() or {}
+    facility_name = data.get("facility_name","").strip()
+    agency_type = data.get("agency_type","CCHCS")
+    contact_email = data.get("email","")
+    contact_name = data.get("contact_name","")
+    action = data.get("action", "email_and_pc")  # email_and_pc, pc_only, email_only, research
+
+    if not facility_name:
+        return jsonify({"ok": False, "error": "Facility name required"})
+
+    results = {"ok": True, "facility": facility_name, "agency_type": agency_type}
+
+    # ── Get real products from our catalog ──
+    items = []
+    try:
+        db_path = os.path.join(DATA_DIR, "reytech.db")
+        conn = _sql.connect(db_path)
+        conn.row_factory = _sql.Row
+        cat_map = {
+            "CCHCS": ["Medical/Clinical","Gloves","Cleaning/Sanitation"],
+            "CalVet": ["Medical/Clinical","Personal Care","Gloves"],
+            "DSH": ["Medical/Clinical","Safety/PPE","Gloves"],
+        }
+        for cat in cat_map.get(agency_type, ["Medical/Clinical","Gloves"]):
+            for r in conn.execute("""
+                SELECT name, sell_price, cost, recommended_price, manufacturer
+                FROM product_catalog WHERE category = ? AND cost > 0
+                ORDER BY RANDOM() LIMIT 2
+            """, (cat,)):
+                d = dict(r)
+                items.append({
+                    "description": d["name"][:80],
+                    "qty": 10,
+                    "unit_price": round(d.get("recommended_price") or d["sell_price"], 2),
+                    "cost": round(d["cost"], 2),
+                    "manufacturer": d.get("manufacturer",""),
+                })
+        conn.close()
+    except Exception:
+        pass
+
+    if not items:
+        # Fallback
+        items = [
+            {"description": "Nitrile Exam Gloves, Medium, Box/100", "qty": 50, "unit_price": 12.99, "cost": 9.50},
+            {"description": "Hand Sanitizer, 8oz, 75% Alcohol", "qty": 30, "unit_price": 6.99, "cost": 4.25},
+        ]
+
+    total = sum(it["qty"] * it["unit_price"] for it in items)
+
+    # ── Create PC ──
+    if action in ("email_and_pc", "pc_only"):
+        import time as _time
+        pc_id = f"expand-{agency_type.lower()}-{int(_time.time())}"
+        short = facility_name.split(":")[-1].strip()[:20] if ":" in facility_name else facility_name[:20]
+        pc = {
+            "id": pc_id,
+            "created_at": datetime.now().isoformat(),
+            "pc_number": f"EXP-{agency_type}-{short}",
+            "institution": facility_name,
+            "agency": "CDCR" if agency_type == "CCHCS" else agency_type,
+            "contact_email": contact_email,
+            "contact_name": contact_name,
+            "items": items,
+            "total": round(total, 2),
+            "status": "pending",
+            "tags": [f"{agency_type.lower()}_expansion", "outreach"],
+            "source": "cchcs_expansion",
+            "notes": f"Expansion target: {facility_name} ({agency_type})",
+        }
+        pcs_path = os.path.join(DATA_DIR, "price_checks.json")
+        pcs = _json.load(open(pcs_path)) if os.path.exists(pcs_path) else {}
+        pcs[pc_id] = pc
+        with open(pcs_path, "w") as f:
+            _json.dump(pcs, f, indent=2)
+        results["pc_id"] = pc_id
+        results["items_count"] = len(items)
+        results["total"] = round(total, 2)
+
+    # ── Draft email ──
+    if action in ("email_and_pc", "email_only") and contact_email:
+        short = facility_name.split(":")[-1].strip() if ":" in facility_name else facility_name
+        product_lines = "\n".join(f"  - {it['description'][:60]}" for it in items[:4])
+        body = f"""Hello{(' ' + contact_name.split()[0]) if contact_name else ''},
+
+I'm reaching out from Reytech Inc., a California-certified small business and SCPRS-registered medical supply vendor.
+
+We currently serve multiple {agency_type} facilities and would like to introduce our services to {short}. Some of our most relevant products include:
+
+{product_lines}
+
+We can respond to AMS 704 price check forms and offer competitive SCPRS pricing. Would it be possible to connect with your procurement team?
+
+Best regards,
+Mike Guzman
+Reytech Inc.
+(916) 995-4713 | mike@reytechinc.com
+CA Certified Small Business | SCPRS Supplier"""
+
+        try:
+            from src.core.dal import get_outbox as _ob
+            outbox = _ob()
+            draft_id = f"draft-expand-{int(__import__('time').time())}"
+            outbox_path_local = os.path.join(DATA_DIR, "outbox.json")
+            outbox.append({
+                "id": draft_id, "to": contact_email,
+                "subject": f"Reytech Inc — Medical Supplies for {short}",
+                "body": body, "status": "draft", "type": "expansion_outreach",
+                "facility": facility_name, "agency_type": agency_type,
+                "created_at": datetime.now().isoformat(),
+            })
+            with open(outbox_path_local, "w") as f:
+                _json.dump(outbox, f, indent=2, default=str)
+            results["email_drafted"] = True
+            results["email_to"] = contact_email
+        except Exception as e:
+            results["email_error"] = str(e)
+
+    # ── Update facility outreach status ──
+    try:
+        act_path = os.path.join(DATA_DIR, "crm_activity.json")
+        acts = _json.load(open(act_path)) if os.path.exists(act_path) else []
+        acts.append({
+            "type": "expansion_outreach",
+            "facility": facility_name,
+            "agency_type": agency_type,
+            "action": action,
+            "email": contact_email,
+            "timestamp": datetime.now().isoformat(),
+            "total": round(total, 2),
+        })
+        with open(act_path, "w") as f:
+            _json.dump(acts, f, indent=2, default=str)
+    except Exception:
+        pass
+
+    # ── Notification ──
+    try:
+        from src.agents.notify_agent import send_alert
+        send_alert("bell", f"Outreach: {facility_name} ({agency_type})", {
+            "type": "expansion_target", "facility": facility_name,
+        })
+    except Exception:
+        pass
+
+    return jsonify(results)
 
 
 def facility_name_match(name1, name2):
