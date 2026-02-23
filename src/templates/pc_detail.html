@@ -284,12 +284,26 @@
     <div id="jsErrorLog" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999;background:#1a0000;border-top:2px solid #f85149;padding:8px 16px;font-size:12px;color:#f85149;font-family:monospace;max-height:120px;overflow-y:auto"></div>
     <script>
     window._pcErrors=[];
+    window._pcLog=[];
     window.onerror=function(msg,src,line,col,err){
      window._pcErrors.push({msg:msg,line:line,col:col,src:(src||'').split('/').pop()});
      var el=document.getElementById('jsErrorLog');
-     if(el){el.style.display='block';el.innerHTML+='<div>❌ '+msg+' (line '+line+')</div>';}
+     if(el){el.style.display='block';el.innerHTML+='<div>\u274c '+msg+' (line '+line+')</div>';}
      return false;
     };
+    // Safety net: if main script never finishes loading, show error after 4s
+    setTimeout(function(){
+     if(typeof window.showMsg !== 'function'){
+      var el=document.getElementById('jsErrorLog');
+      if(el){el.style.display='block';el.innerHTML='<b>\u26a0\ufe0f Main script failed to load.</b> Check browser console (F12). Errors: '+window._pcErrors.length+'<br>'
+       +window._pcErrors.map(function(e){return e.msg}).join('<br>');}
+      // Replace Loading... with error
+      var crm=document.getElementById('crmBody');
+      if(crm && crm.textContent==='Loading...') crm.innerHTML='<span style="color:#f85149">Script error — see bottom of page</span>';
+      var hist=document.getElementById('historyBody');
+      if(hist && hist.textContent.trim()==='Loading...') hist.innerHTML='<span style="color:#f85149">Script error — see bottom of page</span>';
+     }
+    },4000);
     </script>
 
     <script>
@@ -759,7 +773,7 @@
 
     // Due date urgency
     try {(function calcUrgency() {
-     const dueStr='{{ pc.get("due_date","") }}'.trim();
+     const dueStr='{{ pc.get("due_date","").replace("'", "\\'") }}'.trim();
      if(!dueStr) return;
      // Try parsing common formats: M/D/YY, M/D/YYYY, YYYY-MM-DD
      let due=new Date(dueStr);
@@ -1518,7 +1532,7 @@
      quoteNum:'{{ pc.get("reytech_quote_number","").replace("'","\\'") }}',
      expiry:document.getElementById('expiryDate')?.textContent||''
     };
-    const peek_next='{{ next_quote_preview }}';
+    const peek_next='{{ (next_quote_preview or "")|replace("'", "\\'") }}';
 
     function renamePc() {
       const newName = document.getElementById('pcNumInput').value.trim();
@@ -1830,9 +1844,16 @@
      }).catch(e=>{btn.textContent='⚡ Process Now';btn.disabled=false;showMsg('❌ Error: '+e,'err')});
     }
 
-    // ── CRM Customer Card + Quote History (server-side data, no fetch needed) ───
-    _log('crm-history-start');
+    _log('main-script-complete');
+    </script>
+
+    <!-- BLOCK 2: CRM + Quote History (independent — survives main script crashes) -->
+    <script>
     (function renderCRMAndHistory(){try{
+    var _log = (typeof window._log==='function') ? window._log : function(m){try{window._pcLog.push({t:Date.now(),m:m})}catch(e){}; console.log('[PC]',m);};
+    var PC_META = window.PC_META || {institution:'', requestor:'', dueDate:'', pcNum:''};
+    var showMsg = (typeof window.showMsg==='function') ? window.showMsg : function(m,t){console.log('[MSG]',m);};
+    _log('block2: crm-history-start');
      const inst = PC_META.institution;
      _log('crm: inst="'+inst+'"');
      if (!inst) {
@@ -1999,7 +2020,17 @@
           }).catch(()=>{loaded++;});
       });
     }
-    // ── AUTO-PRICE ON LOAD: if items have no prices, auto-run pipeline ──
+    </script>
+
+    <!-- BLOCK 3: Auto-pricing on load (independent — survives Block 1+2 crashes) -->
+    <script>
+    (function(){
+    var _log = (typeof window._log==='function') ? window._log : function(m){try{window._pcLog.push({t:Date.now(),m:m})}catch(e){}; console.log('[PC]',m);};
+    var showMsg = (typeof window.showMsg==='function') ? window.showMsg : function(m,t){console.log('[MSG]',m);};
+    var recalcPC = (typeof window.recalcPC==='function') ? window.recalcPC : function(){};
+    var recalcRow = (typeof window.recalcRow==='function') ? window.recalcRow : function(){};
+    _log('block3: auto-pricing-start');
+    // ── AUTO-PRICE ON LOAD ──
     (function autoRunPricing() {
      // Check if any items need pricing
      const costInputs = document.querySelectorAll('input[name^=cost_]');
@@ -2174,6 +2205,7 @@
      }
     })();
 
+    })(); // end Block 3
     </script>
     </body></html>
 
