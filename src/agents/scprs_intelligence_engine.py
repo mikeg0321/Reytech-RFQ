@@ -932,6 +932,17 @@ def pull_all_agencies_background(notify_fn=None, priority_filter="P0") -> dict:
             log.error(f"PO monitor: {e}")
         _engine_status["running"] = False
         _engine_status["current_agency"] = None
+
+        # ── Rescore leads with fresh SCPRS data ──────────────────────
+        try:
+            from src.agents.lead_nurture_agent import rescore_all_leads
+            rescore = rescore_all_leads()
+            log.info("Post-pull lead rescore: %s", rescore)
+            _engine_status["last_results"]["lead_rescore"] = rescore
+        except Exception as _re:
+            log.debug("Post-pull lead rescore failed: %s", _re)
+        # ── End lead rescore ──────────────────────────────────────────
+
         if notify_fn:
             notify_fn("bell", "✅ Full SCPRS intelligence pull complete — check /intel/growth for insights", "success")
 

@@ -377,6 +377,21 @@ def add_lead(lead: dict) -> dict:
 
     leads.append(lead)
     _save_leads(leads)
+
+    # ── Auto-start nurture if lead has email and score > threshold ──
+    lead_id = lead.get("id", "")
+    has_email = lead.get("email") or lead.get("buyer_email")
+    score = lead.get("score", 0)
+    if lead_id and has_email and score >= 40:
+        try:
+            from src.agents.lead_nurture_agent import start_nurture
+            nr = start_nurture(lead_id)
+            if nr.get("ok"):
+                log.info("Auto-started nurture for new lead %s (score=%.0f)", lead_id, score)
+        except Exception as _ne:
+            log.debug("Auto-nurture start failed for %s: %s", lead_id, _ne)
+    # ── End auto-nurture ─────────────────────────────────────────────
+
     return {"ok": True, "lead_id": lead["id"]}
 
 

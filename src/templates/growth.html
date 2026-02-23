@@ -141,7 +141,7 @@
  <td class="mono">{{ pr.purchase_orders|default([])|length }}</td>
  <td class="mono" style="color:#3fb950">${{ "{:,.0f}".format(pr.total_spend|default(0)) }}</td>
  <td style="font-size:11px">{{ (pr.categories_matched|default([]))[:2]|join(', ') }}</td>
- <td><span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;color:{{ cfg[1] }};background:{{ cfg[2] }}">{{ cfg[0] }}</span></td>
+ <td><span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;color:{{ cfg[1] }};background:{{ cfg[2] }}">{{ cfg[0] }}</span>{% if pr.nurture_active %}<span title="Nurture active: step {{ pr.nurture_steps|default(0) }}" style="margin-left:4px;font-size:12px;cursor:help">🌱</span>{% endif %}</td>
  <td style="white-space:nowrap">
   {% if stat in ('emailed', 'follow_up_due') %}
    <button onclick="markResponded('{{ pid }}')" class="act-btn" title="Mark responded" style="color:#3fb950">✅</button>

@@ -72,6 +72,7 @@
        <button class="g-btn g-btn-go" onclick="setStatus('won')" style="justify-content:center">🏆 Won</button>
        <button class="g-btn g-btn-red" onclick="setStatus('dead')" style="justify-content:center">💀 Dead</button>
       </div>
+      <button class="g-btn g-btn-purple" onclick="convertToCustomer()" style="width:100%;justify-content:center;margin-top:8px;padding:10px">🔄 Convert Lead → Customer</button>
      </div>
 
      <div class="card">
@@ -154,6 +155,24 @@
     function crmPost(u,b){return fetch(u,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}).then(r=>r.json())}
     function setStatus(s){crmPost('/api/growth/prospect/'+PID,{outreach_status:s}).then(r=>{if(r.ok)location.reload();else alert(r.error)})}
     function setBounced(){if(!confirm('Mark as bounced?'))return;crmPost('/api/growth/bounceback',{email:EMAIL,reason:'Manual bounce'}).then(r=>{if(r.ok)location.reload();else alert(r.error)})}
+
+    function convertToCustomer(){
+      if(!confirm('Convert this prospect to a customer contact?\n\nThis will:\n• Create a CRM customer record\n• Mark the lead as converted\n• Stop any active nurture sequences'))return;
+      // Try converting by prospect ID (which may also be the lead ID)
+      crmPost('/api/leads/convert',{lead_id:PID}).then(r=>{
+        if(r.ok){
+          alert('✅ Converted to customer: '+r.contact_id);
+          location.reload();
+        } else if(r.error==='lead not found'){
+          // Prospect isn't in leads table — create CRM contact directly from growth data
+          crmPost('/api/crm/contact/'+PID+'/log',{type:'note',detail:'Converted from prospect to customer',actor:'mike',event_type:'lead_converted'}).then(()=>{
+            setStatus('won');
+          });
+        } else {
+          alert('Error: '+(r.error||'Failed'));
+        }
+      });
+    }
 
     var logType='';
     function openLog(type){
