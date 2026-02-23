@@ -1,33 +1,42 @@
-# Reytech RFQ — Task Tracker
+# Sprint 1: Core Intelligence Wiring
 
-## Active Sprint (2026-02-22) — PRD-28 WI-2 + WI-4 Integration
+## What Exists (already built)
+- [x] product_catalog table (839 products, 44 columns)
+- [x] catalog_price_history (1602 records)  
+- [x] product_suppliers table (schema ready, 1 row)
+- [x] match_item / match_items_batch in product_catalog.py
+- [x] runCatalogMatch UI button + badges + "Use" button
+- [x] mark-won / mark-lost endpoints
+- [x] calculate_recommended_price in product_catalog.py
+- [x] pricing_intel.py with get_price_recommendation
+- [x] award_monitor.py with competitor tracking
 
-### WI-2: Email Outbox Overhaul — Wire tracking into send flow
-- [ ] **2a** send_email() → inject tracking pixel + wrap links via email_lifecycle
-- [ ] **2b** follow_up_engine → check engagement data (opens/clicks) to prioritize
-- [ ] **2c** Outbox summary widget on home page (drafts, failed, open rate)
+## Sprint 1 Tasks
 
-### WI-4: Revenue Dashboard — Wire data flows
-- [ ] **4a** quote won → auto-log to revenue_log (quote_lifecycle already does this ✓, verify)
-- [ ] **4b** Auto-reconcile on revenue page load (revenue_engine.reconcile_revenue)
-- [ ] **4c** Margin calc: backfill existing quotes with cost data from catalog_price_history
+### 1. Win/Loss → Catalog Feedback Loop  
+- [ ] On mark-won: update product_catalog (times_won++, avg_margin_won, last_sold_price)
+- [ ] On mark-lost: update product_catalog (times_lost++, competitor pricing)
+- [ ] Record to catalog_price_history (won/lost prices)
+- [ ] Update win_rate = times_won / (times_won + times_lost)
 
-## Completed (2026-02-22)
-- [x] WI-1: Quote Lifecycle — all bridges wired + pushed
-- [x] WI-3: Lead Nurture — all bridges wired + pushed
-- [x] Template extraction: 5 pages (growth_intel, scprs_intel, cchcs_intel, contacts, prospect_detail)
+### 2. Smart Auto-Price Route + Button
+- [ ] New route: /api/pricecheck/<pcid>/auto-price
+- [ ] Per-item: catalog recommended, SCPRS ceiling, win history, margin targets
+- [ ] Return: {recommended, aggressive, safe, reasoning, win_probability}
+- [ ] UI: "🧠 Auto-Price" button on PC detail
 
-## Sprint: Product Catalog + Pricing Intelligence (2026-02-23)
+### 3. Auto-Match on PC Load
+- [ ] Fire catalog match on page load (JS)
+- [ ] Show inline badges for matched items
+- [ ] Pre-fill option for high-confidence matches (>85%)
 
-### Sprint 1: Product Catalog DB + QB Import — ACTIVE
-- [ ] Create `products` table in SQLite
-- [ ] Create `product_suppliers` table
-- [ ] Build QB CSV importer
-- [ ] Import 841 products from QB export
-- [ ] Add `/api/catalog/search` endpoint (fuzzy match)
-- [ ] Verify: products queryable, descriptions cleaned
+### 4. Price Freshness Indicators
+- [ ] Check catalog last_checked per matched product
+- [ ] Show ⚠️ if >14d old, 🔴 if >30d old
+- [ ] "Re-check" link per stale item
 
-### Sprint 2: Auto-Match Engine (pending S1)
-### Sprint 3: Multi-Supplier Sweep (pending S2)
-### Sprint 4: Win/Loss Tracker (pending S1)
-### Sprint 5: Dynamic Markup Optimizer (pending S4)
+### 5. Multi-Supplier Google Shopping Sweep
+- [ ] New route: /api/pricecheck/<pcid>/price-sweep
+- [ ] SerpApi google_shopping engine for ALL retailers
+- [ ] Save results to product_suppliers
+- [ ] UI: price comparison per item

@@ -556,6 +556,42 @@ def pricecheck_save_prices(pcid):
     except Exception as _e:
         log.debug("price learning write: %s", _e)
 
+    # ── CATALOG ENRICHMENT: feed PC pricing back into product catalog ─────
+    try:
+        from src.agents.product_catalog import (
+            match_item as _cat_match, update_product_pricing as _cat_update,
+            add_supplier_price as _cat_add_sup, init_catalog_db as _cat_init,
+        )
+        _cat_init()
+        for _item in items:
+            if _item.get("no_bid"):
+                continue
+            _desc = (_item.get("description") or "").strip()
+            _part = str(_item.get("item_number") or "").strip()
+            _up   = _item.get("unit_price") or _item.get("pricing", {}).get("recommended_price") or 0
+            _cost = _item.get("vendor_cost") or _item.get("pricing", {}).get("unit_cost") or 0
+            if not _desc and not _part:
+                continue
+            # Find matching catalog product
+            _matches = _cat_match(_desc, _part, top_n=1)
+            if _matches and _matches[0].get("match_confidence", 0) >= 0.60:
+                _pid = _matches[0]["id"]
+                _updates = {"times_quoted": (_matches[0].get("times_quoted") or 0) + 1}
+                if _up > 0:
+                    _updates["last_sold_price"] = float(_up)
+                    _updates["last_sold_date"] = datetime.now().isoformat()
+                if _cost > 0:
+                    _updates["sell_price"] = float(_up) if _up > 0 else None
+                    _updates["cost"] = float(_cost)
+                _cat_update(_pid, **_updates)
+                # Record supplier if item has a URL
+                _link = (_item.get("item_link") or "").strip()
+                _supplier = (_item.get("item_supplier") or "").strip()
+                if _cost > 0 and _supplier:
+                    _cat_add_sup(_pid, _supplier, float(_cost), url=_link)
+    except Exception as _e:
+        log.debug("catalog enrichment: %s", _e)
+
     summary = pc["profit_summary"]
     return jsonify({
         "ok": True,
@@ -1678,6 +1714,14 @@ def api_pricecheck_mark_won(pcid):
     _save_price_checks(pcs)
     _log_crm_activity(pcs[pcid].get("reytech_quote_number", pcid), "quote_won",
         f"WON: PC #{pcs[pcid].get('pc_number','')}", actor="user")
+    # ── Feed win data back to product catalog ──
+    try:
+        from src.agents.product_catalog import record_outcome_to_catalog, init_catalog_db
+        init_catalog_db()
+        result = record_outcome_to_catalog(pcs[pcid], outcome="won")
+        log.info("mark-won catalog feedback: %s", result)
+    except Exception as e:
+        log.debug("mark-won catalog feedback error: %s", e)
     return jsonify({"ok": True, "status": "won"})
 
 
@@ -1705,6 +1749,18 @@ def api_pricecheck_mark_lost(pcid):
     except Exception: pass
     _log_crm_activity(pc.get("reytech_quote_number", pcid), "quote_lost",
         f"LOST: PC #{pc.get('pc_number','')} to {pc['competitor_name']}", actor="user")
+    # ── Feed loss data back to product catalog ──
+    try:
+        from src.agents.product_catalog import record_outcome_to_catalog, init_catalog_db
+        init_catalog_db()
+        result = record_outcome_to_catalog(
+            pc, outcome="lost",
+            competitor_name=pc.get("competitor_name", "Unknown"),
+            competitor_price=float(pc.get("competitor_price", 0) or 0)
+        )
+        log.info("mark-lost catalog feedback: %s", result)
+    except Exception as e:
+        log.debug("mark-lost catalog feedback error: %s", e)
     return jsonify({"ok": True, "status": "lost"})
 
 
@@ -1750,6 +1806,152 @@ def api_pricecheck_suggestions(pcid):
         suggestions = get_price_suggestions(pc.get("items", []), pc.get("institution", ""))
         return jsonify({"ok": True, "suggestions": suggestions, "count": len(suggestions)})
     except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/pricecheck/<pcid>/auto-price", methods=["POST"])
+@auth_required
+def api_pricecheck_auto_price(pcid):
+    """Smart per-item pricing using catalog history, SCPRS, competitor data."""
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"})
+    try:
+        from src.agents.product_catalog import bulk_smart_price, init_catalog_db
+        init_catalog_db()
+        items = []
+        for i, it in enumerate(pc.get("items", [])):
+            items.append({
+                "idx": i,
+                "description": it.get("description", ""),
+                "item_number": str(it.get("item_number", "")),
+                "cost": it.get("vendor_cost") or it.get("pricing", {}).get("unit_cost") or 0,
+                "qty": it.get("qty", 1),
+            })
+        results = bulk_smart_price(items, agency=pc.get("institution", ""))
+        matched = sum(1 for r in results if r.get("matched"))
+        priced = sum(1 for r in results if r.get("recommended"))
+        return jsonify({
+            "ok": True, "results": results,
+            "matched": matched, "priced": priced, "total": len(items)
+        })
+    except Exception as e:
+        log.exception("auto-price error")
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/pricecheck/<pcid>/price-sweep", methods=["POST"])
+@auth_required
+def api_pricecheck_price_sweep(pcid):
+    """Multi-supplier price sweep using Google Shopping via SerpApi."""
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"})
+    try:
+        from src.agents.product_catalog import (
+            match_item, add_supplier_price, init_catalog_db
+        )
+        from product_research import _get_api_key, SERPAPI_BASE
+        import requests as _req
+
+        init_catalog_db()
+        api_key = _get_api_key()
+        if not api_key:
+            return jsonify({"ok": False, "error": "SERPAPI_KEY not configured"})
+
+        items = pc.get("items", [])
+        results = []
+        found_count = 0
+
+        for i, it in enumerate(items):
+            desc = (it.get("description") or "").strip()
+            pn = str(it.get("item_number") or "").strip()
+            if not desc and not pn:
+                results.append({"idx": i, "found": False})
+                continue
+
+            query = pn if pn and len(pn) > 3 else ""
+            if desc:
+                words = [w for w in desc.split() if len(w) > 2][:6]
+                if query:
+                    query += " " + " ".join(words[:3])
+                else:
+                    query = " ".join(words)
+
+            if not query:
+                results.append({"idx": i, "found": False})
+                continue
+
+            try:
+                resp = _req.get(SERPAPI_BASE, params={
+                    "engine": "google_shopping",
+                    "q": query,
+                    "api_key": api_key,
+                    "num": 5,
+                }, timeout=15)
+                data = resp.json()
+                shopping = data.get("shopping_results", [])[:5]
+
+                if not shopping:
+                    results.append({"idx": i, "found": False, "query": query})
+                    continue
+
+                options = []
+                for sr in shopping:
+                    price_str = sr.get("extracted_price") or sr.get("price", "")
+                    price_val = 0
+                    if isinstance(price_str, (int, float)):
+                        price_val = float(price_str)
+                    elif isinstance(price_str, str):
+                        import re as _re
+                        m = _re.search(r"[\d,]+\.?\d*", price_str.replace(",", ""))
+                        if m:
+                            price_val = float(m.group())
+
+                    options.append({
+                        "title": (sr.get("title") or "")[:80],
+                        "price": round(price_val, 2),
+                        "source": sr.get("source", ""),
+                        "link": sr.get("link", ""),
+                        "thumbnail": sr.get("thumbnail", ""),
+                        "shipping": sr.get("delivery", ""),
+                    })
+
+                options = sorted([o for o in options if o["price"] > 0], key=lambda x: x["price"])
+                best = options[0] if options else None
+
+                if best and best["price"] > 0:
+                    cat_matches = match_item(desc, pn, top_n=1)
+                    if cat_matches and cat_matches[0].get("match_confidence", 0) >= 0.55:
+                        pid = cat_matches[0]["id"]
+                        add_supplier_price(
+                            pid, best["source"], best["price"],
+                            url=best.get("link", "")
+                        )
+
+                results.append({
+                    "idx": i, "found": True,
+                    "query": query,
+                    "best_price": best["price"] if best else 0,
+                    "best_source": best["source"] if best else "",
+                    "options": options[:5],
+                })
+                found_count += 1
+
+            except Exception as se:
+                log.debug("sweep item %d error: %s", i, se)
+                results.append({"idx": i, "found": False, "error": str(se)})
+
+        return jsonify({
+            "ok": True, "results": results,
+            "found": found_count, "total": len(items)
+        })
+    except ImportError as e:
+        return jsonify({"ok": False, "error": f"Missing dependency: {e}"})
+    except Exception as e:
+        log.exception("price-sweep error")
         return jsonify({"ok": False, "error": str(e)})
 
 

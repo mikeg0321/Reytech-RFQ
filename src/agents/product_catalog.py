@@ -670,6 +670,7 @@ def match_items_batch(items: list) -> list:
             results.append({
                 "idx": item.get("idx", 0),
                 "matched": True,
+                "id": best["id"],
                 "product_id": best["id"],
                 "canonical_name": best.get("description") or best.get("name", ""),
                 "part_number": best.get("name", ""),
@@ -683,7 +684,15 @@ def match_items_batch(items: list) -> list:
                 "reason": best.get("match_reason", ""),
                 "times_quoted": best.get("times_quoted", 0),
                 "times_won": best.get("times_won", 0),
+                "times_lost": best.get("times_lost", 0),
+                "win_rate": best.get("win_rate", 0),
+                "avg_margin_won": best.get("avg_margin_won", 0),
                 "margin_pct": best.get("margin_pct", 0),
+                "last_checked": best.get("updated_at", ""),
+                "scprs_last_price": best.get("scprs_last_price"),
+                "competitor_low_price": best.get("competitor_low_price"),
+                "web_lowest_price": best.get("web_lowest_price"),
+                "photo_url": best.get("photo_url", ""),
             })
         else:
             results.append({"idx": item.get("idx", 0), "matched": False})
@@ -973,7 +982,7 @@ def update_product_pricing(product_id: int, **kwargs):
         'web_lowest_price', 'web_lowest_source', 'web_lowest_date',
         'recommended_price', 'price_strategy', 'margin_opportunity',
         'category', 'tags', 'notes', 'last_sold_price', 'last_sold_date',
-        'times_quoted', 'times_won', 'win_rate', 'avg_margin_won',
+        'times_quoted', 'times_won', 'times_lost', 'win_rate', 'avg_margin_won',
     }
     updates = {k: v for k, v in kwargs.items() if k in ALLOWED}
     if not updates:
@@ -1026,6 +1035,282 @@ def record_won_price(product_name: str, price: float, agency: str = "",
         
         conn.commit()
     conn.close()
+
+
+def record_outcome_to_catalog(pc: dict, outcome: str = "won",
+                              competitor_name: str = "", competitor_price: float = 0):
+    """
+    When a Price Check is marked won or lost, feed results back to catalog.
+    This is the critical feedback loop that makes pricing smarter over time.
+    
+    outcome: "won" | "lost"
+    """
+    conn = _get_conn()
+    now = datetime.now(timezone.utc).isoformat()
+    updated = 0
+    items = pc.get("items", [])
+    agency = pc.get("institution", "") or pc.get("agency", "")
+    quote_num = pc.get("reytech_quote_number", "") or pc.get("pc_number", "")
+
+    for item in items:
+        if item.get("no_bid"):
+            continue
+        desc = (item.get("description") or "").strip()
+        pn = str(item.get("item_number") or "").strip()
+        if not desc and not pn:
+            continue
+
+        # Match to catalog product
+        matches = match_item(desc, pn, top_n=1)
+        if not matches or matches[0].get("match_confidence", 0) < 0.55:
+            continue
+
+        pid = matches[0]["id"]
+        product = conn.execute("SELECT * FROM product_catalog WHERE id = ?", (pid,)).fetchone()
+        if not product:
+            continue
+        product = dict(product)
+
+        unit_price = item.get("unit_price") or item.get("pricing", {}).get("recommended_price") or 0
+        unit_cost = item.get("vendor_cost") or item.get("pricing", {}).get("unit_cost") or 0
+
+        if outcome == "won":
+            tw = (product.get("times_won") or 0) + 1
+            tl = product.get("times_lost") or 0
+            total = tw + tl
+            win_rate = round(tw / total * 100, 1) if total > 0 else 100.0
+
+            # Running average of won margins
+            old_avg = product.get("avg_margin_won") or 0
+            if unit_price > 0 and unit_cost > 0:
+                this_margin = round((unit_price - unit_cost) / unit_price * 100, 2)
+                new_avg = round(((old_avg * (tw - 1)) + this_margin) / tw, 2) if tw > 1 else this_margin
+            else:
+                new_avg = old_avg
+
+            updates = {
+                "times_won": tw, "win_rate": win_rate, "avg_margin_won": new_avg,
+            }
+            if unit_price > 0:
+                updates["last_sold_price"] = float(unit_price)
+                updates["last_sold_date"] = now
+
+            # Record to price history
+            if unit_price > 0:
+                conn.execute("""
+                    INSERT INTO catalog_price_history
+                    (product_id, price_type, price, source, agency, institution, quote_number, recorded_at)
+                    VALUES (?, 'won_bid', ?, 'pc_won', ?, ?, ?, ?)
+                """, (pid, unit_price, agency, agency, quote_num, now))
+
+        else:  # lost
+            tw = product.get("times_won") or 0
+            tl = (product.get("times_lost") or 0) + 1
+            total = tw + tl
+            win_rate = round(tw / total * 100, 1) if total > 0 else 0.0
+
+            updates = {"times_lost": tl, "win_rate": win_rate}
+
+            if competitor_price and competitor_price > 0:
+                updates["competitor_low_price"] = float(competitor_price)
+                updates["competitor_source"] = competitor_name
+                updates["competitor_date"] = now
+
+            # Record competitor price to history
+            if competitor_price and competitor_price > 0:
+                conn.execute("""
+                    INSERT INTO catalog_price_history
+                    (product_id, price_type, price, source, agency, institution, quote_number, recorded_at)
+                    VALUES (?, 'competitor_bid', ?, ?, ?, ?, ?, ?)
+                """, (pid, competitor_price, competitor_name or "unknown", agency, agency, quote_num, now))
+
+        # Apply updates
+        if updates:
+            sets = ", ".join(f"{k} = ?" for k in updates)
+            vals = list(updates.values()) + [now, pid]
+            conn.execute(f"UPDATE product_catalog SET {sets}, updated_at = ? WHERE id = ?", vals)
+            updated += 1
+
+    conn.commit()
+    conn.close()
+    log.info("record_outcome: %s → updated %d/%d catalog items", outcome, updated, len(items))
+    return {"outcome": outcome, "updated": updated, "total": len(items)}
+
+
+def get_smart_price(product_id: int, qty: int = 1,
+                    agency: str = "", cost_override: float = 0) -> dict:
+    """
+    Intelligent per-item pricing using all available data.
+    Returns recommended/aggressive/safe prices with reasoning.
+    """
+    conn = _get_conn()
+    p = conn.execute("SELECT * FROM product_catalog WHERE id = ?", (product_id,)).fetchone()
+    if not p:
+        conn.close()
+        return {}
+    p = dict(p)
+
+    # Gather all pricing signals
+    cost = cost_override or p.get("cost") or p.get("best_cost") or 0
+    scprs_price = p.get("scprs_last_price") or 0
+    web_price = p.get("web_lowest_price") or 0
+    competitor_low = p.get("competitor_low_price") or 0
+    win_rate = p.get("win_rate") or 0
+    times_won = p.get("times_won") or 0
+    times_lost = p.get("times_lost") or 0
+    avg_margin_won = p.get("avg_margin_won") or 0
+    last_sell = p.get("last_sold_price") or p.get("sell_price") or 0
+
+    # Get recent price history for this product
+    history = conn.execute("""
+        SELECT price_type, price, source, recorded_at
+        FROM catalog_price_history WHERE product_id = ?
+        ORDER BY recorded_at DESC LIMIT 10
+    """, (product_id,)).fetchall()
+    conn.close()
+
+    won_prices = [h["price"] for h in history if h["price_type"] == "won_bid" and h["price"]]
+    lost_prices = [h["price"] for h in history if h["price_type"] == "competitor_bid" and h["price"]]
+
+    if cost <= 0:
+        return {"error": "no_cost", "message": "No cost data — enter unit cost first"}
+
+    reasoning = []
+
+    # === CEILING: What's the max we can charge? ===
+    ceiling = None
+    if scprs_price > 0:
+        ceiling = scprs_price
+        reasoning.append(f"SCPRS ceiling: ${scprs_price:.2f}")
+    if competitor_low > 0 and (ceiling is None or competitor_low < ceiling):
+        ceiling = competitor_low
+        reasoning.append(f"Competitor floor: ${competitor_low:.2f}")
+
+    # === FLOOR: Minimum acceptable price ===
+    floor = cost * 1.08  # At least 8% margin
+    if cost < 50:
+        floor = max(floor, cost + 5)   # $5 minimum profit on cheap items
+    elif cost < 200:
+        floor = max(floor, cost + 15)  # $15 minimum on mid-range
+    else:
+        floor = max(floor, cost + 50)  # $50 minimum on expensive items
+    reasoning.append(f"Cost: ${cost:.2f} → floor: ${floor:.2f}")
+
+    # === RECOMMENDED: Best price based on all signals ===
+    if times_won >= 3 and avg_margin_won > 0:
+        # We have enough win data — use historical winning margin
+        recommended = round(cost / (1 - avg_margin_won / 100), 2)
+        reasoning.append(f"Historical win margin: {avg_margin_won:.1f}% (won {times_won}x)")
+    elif ceiling:
+        # Undercut SCPRS/competitor by 2%
+        recommended = round(ceiling * 0.98, 2)
+        reasoning.append("Undercutting known ceiling by 2%")
+    elif last_sell > 0:
+        recommended = last_sell
+        reasoning.append(f"Using last sold price: ${last_sell:.2f}")
+    else:
+        # Default: 25% markup
+        recommended = round(cost * 1.25, 2)
+        reasoning.append("Default 25% markup (no history)")
+
+    # Clamp to floor/ceiling
+    recommended = max(recommended, floor)
+    if ceiling and recommended > ceiling:
+        recommended = round(ceiling * 0.98, 2)
+
+    # === AGGRESSIVE: Win at all costs ===
+    aggressive = round(floor * 1.02, 2)  # Just above floor
+    if lost_prices:
+        # Try to beat the competitor who beat us
+        lowest_competitor = min(lost_prices)
+        aggressive = min(aggressive, round(lowest_competitor * 0.97, 2))
+    aggressive = max(aggressive, floor)
+
+    # === SAFE: Maximize margin ===
+    safe = round(cost * 1.40, 2)  # 40% markup
+    if ceiling:
+        safe = min(safe, round(ceiling * 0.95, 2))
+    safe = max(safe, recommended)
+
+    # === WIN PROBABILITY ===
+    if ceiling and ceiling > 0:
+        # How far below ceiling are we?
+        pct_below = (ceiling - recommended) / ceiling * 100
+        win_prob = min(95, max(20, 50 + pct_below * 5))
+    elif times_won + times_lost >= 3:
+        win_prob = win_rate
+    else:
+        win_prob = 60  # Unknown
+
+    margin_pct = round((recommended - cost) / recommended * 100, 1) if recommended > 0 else 0
+
+    return {
+        "product_id": product_id,
+        "cost": round(cost, 2),
+        "recommended": round(recommended, 2),
+        "aggressive": round(aggressive, 2),
+        "safe": round(safe, 2),
+        "margin_pct": margin_pct,
+        "win_probability": round(win_prob, 1),
+        "reasoning": reasoning,
+        "signals": {
+            "scprs_ceiling": scprs_price,
+            "competitor_low": competitor_low,
+            "web_lowest": web_price,
+            "win_rate": win_rate,
+            "times_won": times_won,
+            "times_lost": times_lost,
+            "avg_margin_won": avg_margin_won,
+            "won_prices": won_prices[:5],
+            "lost_prices": lost_prices[:5],
+        }
+    }
+
+
+def bulk_smart_price(items: list, agency: str = "") -> list:
+    """
+    Get smart pricing for a batch of PC items.
+    Returns list of per-item recommendations.
+    """
+    results = []
+    for item in items:
+        desc = (item.get("description") or "").strip()
+        pn = str(item.get("item_number") or "").strip()
+        idx = item.get("idx", 0)
+        cost = item.get("cost") or item.get("vendor_cost") or 0
+
+        if not desc and not pn:
+            results.append({"idx": idx, "matched": False})
+            continue
+
+        matches = match_item(desc, pn, top_n=1)
+        if not matches or matches[0].get("match_confidence", 0) < 0.55:
+            # No catalog match — provide basic markup
+            if cost > 0:
+                results.append({
+                    "idx": idx, "matched": False,
+                    "recommended": round(cost * 1.25, 2),
+                    "aggressive": round(cost * 1.12, 2),
+                    "safe": round(cost * 1.40, 2),
+                    "reasoning": ["No catalog match — using default markups"],
+                    "cost": cost,
+                })
+            else:
+                results.append({"idx": idx, "matched": False})
+            continue
+
+        m = matches[0]
+        pricing = get_smart_price(
+            m["id"], qty=item.get("qty", 1),
+            agency=agency, cost_override=cost if cost > 0 else 0
+        )
+        pricing["idx"] = idx
+        pricing["matched"] = True
+        pricing["catalog_name"] = m.get("name", "")
+        pricing["match_confidence"] = m.get("match_confidence", 0)
+        results.append(pricing)
+
+    return results
 
 
 def bulk_margin_analysis(min_price: float = 5.0) -> list:

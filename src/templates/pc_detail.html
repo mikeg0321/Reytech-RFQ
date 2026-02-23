@@ -170,6 +170,8 @@
       <button class="btn btn-sm" onclick="runScprs(this)" data-testid="pc-scprs-lookup" style="background:#21262d;color:#58a6ff;border:1px solid #30363d;font-size:13px;padding:6px 14px">🔍 SCPRS</button>
       <button class="btn btn-sm" onclick="runLookup(this)" data-testid="pc-amazon-lookup" style="background:#21262d;color:#f0883e;border:1px solid #30363d;font-size:13px;padding:6px 14px">🔬 Amazon</button>
       <button class="btn btn-sm" onclick="runCatalogMatch(this)" data-testid="pc-catalog-match" style="background:#21262d;color:#3fb950;border:1px solid #30363d;font-size:13px;padding:6px 14px">🎯 Catalog</button>
+      <button class="btn btn-sm" onclick="runAutoPrice(this)" data-testid="pc-auto-price" style="background:#21262d;color:#d2a8ff;border:1px solid #30363d;font-size:13px;padding:6px 14px">🧠 Auto-Price</button>
+      <button class="btn btn-sm" onclick="runPriceSweep(this)" data-testid="pc-price-sweep" style="background:#21262d;color:#f778ba;border:1px solid #30363d;font-size:13px;padding:6px 14px">🛒 Sweep</button>
       <details style="position:relative;display:inline-block">
        <summary class="btn btn-sm" style="background:#21262d;color:#8b949e;border:1px solid #30363d;font-size:12px;padding:4px 10px;cursor:pointer;list-style:none">⋯ More</summary>
        <div style="position:absolute;top:100%;left:0;z-index:50;margin-top:4px;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:6px;min-width:220px;box-shadow:0 8px 24px rgba(0,0,0,.4)">
@@ -899,6 +901,204 @@
 
     function escHtml(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
     var _catalogCount='{{ catalog_count|default(0) }}';
+
+    /* ═══ 🧠 AUTO-PRICE: Smart per-item pricing from catalog intelligence ═══ */
+    function runAutoPrice(btn) {
+     btn.disabled=true;const origText=btn.textContent;btn.textContent='⏳ Analyzing...';
+     showMsg('🧠 Running pricing intelligence on '+_catalogCount+' catalog products...','warn');
+
+     fetch('/api/pricecheck/{{ pcid }}/auto-price',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:'{}'
+     }).then(r=>r.json()).then(d=>{
+      btn.disabled=false;btn.textContent=origText;
+      if(!d.ok){showMsg('❌ '+d.error,'err');return;}
+
+      let applied=0;
+      (d.results||[]).forEach(r=>{
+       if(!r.recommended) return;
+       const idx=r.idx;
+       const costEl=document.querySelector('[name=cost_'+idx+']');
+       const priceEl=document.querySelector('[name=price_'+idx+']');
+       const descEl=document.querySelector('[name=desc_'+idx+']');
+
+       // Apply recommended price
+       if(priceEl && r.recommended>0){
+        priceEl.value=Number(r.recommended).toFixed(2);
+        priceEl.style.background='#1a0d2e';
+        setTimeout(()=>{priceEl.style.background='';},2000);
+       }
+       // Apply cost if we have one and field is empty
+       if(costEl && r.cost>0 && !parseFloat(costEl.value)){
+        costEl.value=Number(r.cost).toFixed(2);
+        costEl.style.background='#0d2818';
+        setTimeout(()=>{costEl.style.background='';},2000);
+       }
+
+       // Show reasoning badge
+       if(descEl){
+        const oldBadge=descEl.parentElement.querySelector('.price-badge');
+        if(oldBadge)oldBadge.remove();
+        const winColor=r.win_probability>=70?'#3fb950':r.win_probability>=50?'#d29922':'#f85149';
+        const badge=document.createElement('div');
+        badge.className='price-badge';
+        badge.style.cssText='font-size:10px;margin-bottom:2px;display:flex;gap:6px;align-items:center;flex-wrap:wrap';
+        let html='<span style="background:#d2a8ff22;color:#d2a8ff;border:1px solid #d2a8ff44;border-radius:4px;padding:1px 6px;font-weight:600;font-family:JetBrains Mono,monospace">🧠 $'+Number(r.recommended).toFixed(2)+'</span>';
+        html+='<span style="color:'+winColor+';font-weight:600;font-size:10px">'+Math.round(r.win_probability)+'% win</span>';
+        html+='<span style="color:#8b949e;font-size:9px" title="'+(r.reasoning||[]).join(' | ')+'">'+(r.reasoning||[])[0]||''+'</span>';
+        if(r.aggressive) html+=' <a href="#" onclick="document.querySelector(\'[name=price_'+idx+']\').value='+r.aggressive.toFixed(2)+';recalcRow('+idx+');recalcPC();return false" style="color:#f0883e;font-size:9px;text-decoration:none">⚡$'+r.aggressive.toFixed(2)+'</a>';
+        if(r.safe) html+=' <a href="#" onclick="document.querySelector(\'[name=price_'+idx+']\').value='+r.safe.toFixed(2)+';recalcRow('+idx+');recalcPC();return false" style="color:#3fb950;font-size:9px;text-decoration:none">🛡️$'+r.safe.toFixed(2)+'</a>';
+        badge.innerHTML=html;
+        descEl.parentElement.insertBefore(badge,descEl);
+       }
+
+       recalcRow(idx);
+       applied++;
+      });
+      recalcPC();
+      showMsg('🧠 Auto-Price: Applied intelligent pricing to '+applied+'/'+d.total+' items ('+d.matched+' catalog matches)','ok');
+     }).catch(e=>{
+      btn.disabled=false;btn.textContent=origText;
+      showMsg('❌ Auto-price failed: '+e.message,'err');
+     });
+    }
+
+    /* ═══ 🛒 PRICE SWEEP: Google Shopping multi-supplier search ═══ */
+    function runPriceSweep(btn) {
+     btn.disabled=true;const origText=btn.textContent;btn.textContent='⏳ Sweeping...';
+     showMsg('🛒 Searching Google Shopping for best prices across all retailers...','warn');
+
+     fetch('/api/pricecheck/{{ pcid }}/price-sweep',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:'{}'
+     }).then(r=>r.json()).then(d=>{
+      btn.disabled=false;btn.textContent=origText;
+      if(!d.ok){showMsg('❌ '+d.error,'err');return;}
+
+      let applied=0;
+      (d.results||[]).forEach(r=>{
+       if(!r.found) return;
+       const idx=r.idx;
+       const costEl=document.querySelector('[name=cost_'+idx+']');
+       const linkEl=document.querySelector('[name=link_'+idx+']');
+       const descEl=document.querySelector('[name=desc_'+idx+']');
+       const metaEl=document.getElementById('link_meta_'+idx);
+
+       // Show comparison dropdown
+       if(descEl && r.options && r.options.length>0){
+        const oldSweep=descEl.parentElement.querySelector('.sweep-badge');
+        if(oldSweep)oldSweep.remove();
+        const badge=document.createElement('div');
+        badge.className='sweep-badge';
+        badge.style.cssText='font-size:10px;margin-bottom:2px;display:flex;gap:4px;align-items:center;flex-wrap:wrap';
+        let html='<span style="background:#f778ba22;color:#f778ba;border:1px solid #f778ba44;border-radius:4px;padding:1px 6px;font-weight:600;font-family:JetBrains Mono,monospace">🛒 '+r.options.length+' sources</span>';
+        r.options.slice(0,4).forEach((opt,oi)=>{
+         const isFirst=oi===0;
+         html+=' <a href="#" onclick="applySweepResult('+idx+','+JSON.stringify(opt).replace(/"/g,'&quot;')+');return false" style="color:'+(isFirst?'#3fb950':'#58a6ff')+';font-size:10px;text-decoration:none;font-family:JetBrains Mono,monospace" title="'+escHtml(opt.title)+'">'+(isFirst?'★ ':'')+escHtml(opt.source)+' $'+Number(opt.price).toFixed(2)+'</a>';
+        });
+        badge.innerHTML=html;
+        descEl.parentElement.insertBefore(badge,descEl);
+       }
+
+       // Auto-fill best price if cost field is empty
+       if(costEl && r.best_price>0 && !parseFloat(costEl.value)){
+        costEl.value=Number(r.best_price).toFixed(2);
+        costEl.style.background='#1a0d1e';
+        setTimeout(()=>{costEl.style.background='';},2000);
+        recalcRow(idx);
+       }
+       applied++;
+      });
+      recalcPC();
+      showMsg('🛒 Sweep: Found pricing for '+d.found+'/'+d.total+' items across multiple retailers','ok');
+     }).catch(e=>{
+      btn.disabled=false;btn.textContent=origText;
+      showMsg('❌ Price sweep failed: '+e.message,'err');
+     });
+    }
+
+    function applySweepResult(idx, opt) {
+     const costEl=document.querySelector('[name=cost_'+idx+']');
+     const linkEl=document.querySelector('[name=link_'+idx+']');
+     if(costEl && opt.price>0){
+      costEl.value=Number(opt.price).toFixed(2);
+      costEl.style.background='#0d2818';
+      setTimeout(()=>{costEl.style.background='';},1500);
+     }
+     if(linkEl && opt.link){
+      linkEl.value=opt.link;
+     }
+     recalcRow(idx);recalcPC();
+     showMsg('✅ Applied '+opt.source+' pricing: $'+Number(opt.price).toFixed(2),'ok');
+    }
+
+    /* ═══ AUTO-MATCH ON PAGE LOAD ═══ */
+    (function autoMatchOnLoad(){
+     // Only auto-match if there are items with descriptions
+     const descs=document.querySelectorAll('textarea[name^=desc_]');
+     let hasContent=false;
+     descs.forEach(ta=>{if((ta.value||'').trim().length>3) hasContent=true;});
+     if(!hasContent || descs.length===0) return;
+
+     // Slight delay to let page render first
+     setTimeout(function(){
+      const btn=document.querySelector('[data-testid=pc-catalog-match]');
+      if(btn && !btn.disabled) {
+       // Silent auto-match — don't show "Matching..." message
+       const items=[];
+       document.querySelectorAll('textarea[name^=desc_]').forEach(ta=>{
+        const idx=ta.name.replace('desc_','');
+        const desc=(ta.value||'').trim();
+        const pn=(document.querySelector('[name=itemnum_'+idx+']')||{}).value||'';
+        if(desc||pn) items.push({idx:parseInt(idx), description:desc, part_number:pn});
+       });
+       if(!items.length) return;
+
+       fetch('/api/catalog/match-batch',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({items:items})
+       }).then(r=>r.json()).then(d=>{
+        if(!d.ok || !d.matched) return;
+        (d.results||[]).forEach(r=>{
+         if(!r.matched) return;
+         const idx=r.idx;
+         const descEl=document.querySelector('[name=desc_'+idx+']');
+         if(!descEl) return;
+         const conf=Math.round((r.confidence||0)*100);
+         const color=conf>=80?'#3fb950':conf>=60?'#d29922':'#8b949e';
+         const oldBadge=descEl.parentElement.querySelector('.cat-badge');
+         if(oldBadge) oldBadge.remove();
+         const badge=document.createElement('div');
+         badge.className='cat-badge';
+         badge.style.cssText='font-size:10px;margin-bottom:2px;display:flex;gap:6px;align-items:center;flex-wrap:wrap';
+         let freshness='';
+         if(r.last_checked){
+          const days=Math.floor((Date.now()-new Date(r.last_checked).getTime())/(86400000));
+          if(days>30) freshness='<span style="color:#f85149" title="Price data is '+days+' days old">🔴 '+days+'d old</span>';
+          else if(days>14) freshness='<span style="color:#d29922" title="Price data is '+days+' days old">⚠️ '+days+'d old</span>';
+          else freshness='<span style="color:#3fb950" title="Price checked '+days+' days ago">✅ fresh</span>';
+         }
+         let winInfo='';
+         if(r.times_won>0 || r.times_lost>0){
+          const wr=r.win_rate||0;
+          const wColor=wr>=70?'#3fb950':wr>=40?'#d29922':'#f85149';
+          winInfo='<span style="color:'+wColor+'" title="Won '+r.times_won+'x, Lost '+r.times_lost+'x">'+Math.round(wr)+'% win</span>';
+         }
+         badge.innerHTML='<span style="background:'+color+'22;color:'+color+';border:1px solid '+color+'44;border-radius:4px;padding:1px 6px;font-weight:600;font-family:JetBrains Mono,monospace">'+conf+'% match</span>'
+          +'<span style="color:#8b949e;font-size:10px" title="'+escHtml(r.reason||'')+'">'+escHtml((r.canonical_name||'').substring(0,50))+'</span>'
+          +(r.last_cost?'<span style="color:#58a6ff;font-weight:600;font-family:JetBrains Mono,monospace">$'+Number(r.last_cost).toFixed(2)+'→$'+Number(r.last_sell||0).toFixed(2)+'</span>':'')
+          +freshness+winInfo
+          +'<a href="#" onclick="applyCatalogMatch('+idx+','+JSON.stringify(r).replace(/"/g,'&quot;')+');return false" style="color:#3fb950;font-size:10px;font-weight:700;text-decoration:none" title="Fill cost + price from catalog">✅ Use</a>';
+         descEl.parentElement.insertBefore(badge,descEl);
+        });
+        if(d.matched>0) showMsg('🎯 Auto-matched '+d.matched+'/'+d.total+' items from catalog. Click ✅ Use to apply.','ok');
+       }).catch(()=>{});
+      }
+     }, 600);
+    })();
 
     function collectPrices() {
      let data={};
