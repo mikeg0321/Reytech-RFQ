@@ -546,7 +546,7 @@
 
     function _detectSupplierJS(url) {
       try {
-        const host = new URL(url).hostname.replace(/^www\\./,'');
+        const host = new URL(url).hostname.replace(/^www\./,'');
         for (const [dom, name] of Object.entries(_KNOWN_DOMAINS)) {
           if (host.includes(dom)) return name;
         }
@@ -558,7 +558,7 @@
     }
 
     function _isUrl(v) {
-      return /^https?:\\/\\//i.test(v) || /^[a-z0-9-]+\\.[a-z]{2,}\\//i.test(v) || /\\.(com|org|net|gov|edu|io|co|us)\b/i.test(v);
+      return /^https?:\/\//i.test(v) || /^[a-z0-9-]+\.[a-z]{2,}\//i.test(v) || /\.(com|org|net|gov|edu|io|co|us)\b/i.test(v);
     }
 
     function handleLinkInput(idx, inp) {
