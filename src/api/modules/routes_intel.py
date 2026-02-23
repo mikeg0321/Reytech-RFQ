@@ -3660,18 +3660,15 @@ def growth_page():
 
     # Category summary
     cat_data = _load_json(CATEGORIES_FILE)
-    cat_rows = ""
+    cat_items = []
     if isinstance(cat_data, dict) and cat_data.get("categories"):
         for cat_name, info in sorted(cat_data["categories"].items(), key=lambda x: x[1].get("total_value", 0), reverse=True):
-            cat_rows += f"""<tr>
-             <td style="font-weight:600">{cat_name}</td>
-             <td class="mono">{info.get('item_count', 0)}</td>
-             <td class="mono">{info.get('po_count', 0)}</td>
-             <td class="mono" style="color:#3fb950">${info.get('total_value', 0):,.2f}</td>
-             <td style="font-size:11px;color:var(--tx2)">{', '.join(info.get('sample_items', [])[:2])[:80]}</td>
-            </tr>"""
+            cat_items.append({
+                "name": cat_name, "items": info.get("item_count", 0),
+                "pos": info.get("po_count", 0), "value": info.get("total_value", 0),
+                "sample": ", ".join(info.get("sample_items", [])[:2])[:80],
+            })
     elif prospects:
-        # Derive categories from prospect data when SCPRS hasn't been pulled
         cat_agg = {}
         for pr_ in prospects:
             for cat_ in (pr_.get("categories_matched") or []):
@@ -3680,70 +3677,10 @@ def growth_page():
                 cat_agg[cat_]["spend"] += (pr_.get("total_spend") or 0)
                 cat_agg[cat_]["buyers"] += 1
         for cat_name, info_ in sorted(cat_agg.items(), key=lambda x: x[1]["spend"], reverse=True):
-            cat_rows += f"""<tr>
-             <td style="font-weight:600">{cat_name}</td>
-             <td class="mono">{info_['buyers']}</td>
-             <td class="mono">—</td>
-             <td class="mono" style="color:#3fb950">${info_['spend']:,.0f}</td>
-             <td style="font-size:11px;color:var(--tx2)">from prospect data</td>
-            </tr>"""
-
-    # Prospect table rows with CRM actions
-    prospect_rows = ""
-    status_cfg = {
-        "new": ("⬜ New", "#d29922", "rgba(210,153,34,.08)"),
-        "emailed": ("📧 Emailed", "#58a6ff", "rgba(88,166,255,.08)"),
-        "follow_up_due": ("⏰ Follow-Up Due", "#f0883e", "rgba(240,136,62,.08)"),
-        "called": ("📞 Called", "#bc8cff", "rgba(188,140,255,.08)"),
-        "responded": ("✅ Responded", "#3fb950", "rgba(52,211,153,.08)"),
-        "bounced": ("⛔ Bounced", "#f85149", "rgba(248,113,113,.08)"),
-        "dead": ("💀 Dead", "#8b949e", "rgba(139,148,160,.08)"),
-        "won": ("🏆 Won", "#3fb950", "rgba(52,211,153,.15)"),
-    }
-    for pr in prospects[:100]:
-        pid = pr.get("id", "")
-        cats = ", ".join(pr.get("categories_matched", [])[:2])
-        po_count = len(pr.get("purchase_orders", []))
-        phone = pr.get("buyer_phone", "") or "—"
-        email = pr.get("buyer_email", "") or "—"
-        name = pr.get("buyer_name", "") or "—"
-        stat = pr.get("outreach_status", "new")
-        lbl, clr, bg = status_cfg.get(stat, status_cfg["new"])
-        badge = f'<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;color:{clr};background:{bg}">{lbl}</span>'
-
-        # Action buttons based on status
-        actions = ""
-        if stat in ("emailed", "follow_up_due"):
-            actions = f'<button onclick="markResponded(\'{pid}\')" class="act-btn" title="Mark responded" style="color:#3fb950">✅</button>'
-            actions += f'<button onclick="markBounced(\'{pid}\',\'{email}\')" class="act-btn" title="Mark bounced" style="color:#f85149">⛔</button>'
-        elif stat == "new":
-            actions = f'<span style="color:var(--tx2);font-size:10px">awaiting email</span>'
-        elif stat == "responded":
-            actions = f'<button onclick="markWon(\'{pid}\')" class="act-btn" title="Mark won" style="color:#3fb950">🏆</button>'
-
-        prospect_rows += f"""<tr data-pid="{pid}">
-         <td style="font-weight:500"><a href="/growth/prospect/{pid}" style="color:var(--ac);text-decoration:none">{pr.get('agency', '—')}</a></td>
-         <td>{name}</td>
-         <td style="font-size:12px"><a href="mailto:{email}" style="color:var(--ac);text-decoration:none" title="Open email to {name}">{email}</a></td>
-         <td style="font-size:12px">{phone}</td>
-         <td class="mono">{po_count}</td>
-         <td class="mono" style="color:#3fb950">${pr.get('total_spend', 0):,.0f}</td>
-         <td style="font-size:11px">{cats}</td>
-         <td>{badge}</td>
-         <td style="white-space:nowrap">{actions}</td>
-        </tr>"""
-
-    # Step progress indicators
-    def step_tag(done, label):
-        c = "#3fb950" if done else "#8b949e"
-        bg = "rgba(52,211,153,.1)" if done else "rgba(139,148,160,.05)"
-        icon = "✅" if done else "⬜"
-        return f'<span style="display:inline-block;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;color:{c};background:{bg}">{icon} {label}</span>'
-
-    step1 = step_tag(h.get("total_pos", 0) > 0, f"History: {h.get('total_pos', 0)} POs")
-    step2 = step_tag(c.get("total", 0) > 0, f"Categories: {c.get('total', 0)}")
-    step3 = step_tag(p.get("total", 0) > 0, f"Prospects: {p.get('total', 0)}")
-    step4 = step_tag(o.get("total_sent", 0) > 0, f"Emailed: {o.get('total_sent', 0)}")
+            cat_items.append({
+                "name": cat_name, "items": info_["buyers"], "pos": "—",
+                "value": info_["spend"], "sample": "from prospect data",
+            })
 
     pull_running = pull.get("running", False)
     buyer_running = buyer.get("running", False)
@@ -3752,7 +3689,6 @@ def growth_page():
 
     from src.api.render import render_page
     return render_page("growth.html", active_page="Growth",
-        step1=step1, step2=step2, step3=step3, step4=step4,
         h_total_pos=h.get("total_pos", 0), h_total_items=h.get("total_items", 0),
         c_total=c.get("total", 0), p_total=p.get("total", 0),
         o_total_sent=o.get("total_sent", 0),
@@ -3761,7 +3697,7 @@ def growth_page():
         total_no_response=total_no_response,
         progress_visible=(pull_running or buyer_running),
         progress_text=(pull_progress or buyer_progress or "Idle"),
-        cat_rows=cat_rows, prospect_rows=prospect_rows,
+        cat_items=cat_items, prospects=prospects,
         prospect_count=len(prospects),
     )
 

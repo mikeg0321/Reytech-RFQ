@@ -25,7 +25,12 @@
      SCPRS-driven proactive outreach — mine Reytech history → find all buyers → email → voice follow-up
     </div>
 
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">{{ step1|safe }} → {{ step2|safe }} → {{ step3|safe }} → {{ step4|safe }}</div>
+    {% macro step_tag(done, label) %}
+    {% set c = '#3fb950' if done else '#8b949e' %}
+    {% set bg = 'rgba(52,211,153,.1)' if done else 'rgba(139,148,160,.05)' %}
+    <span style="display:inline-block;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;color:{{ c }};background:{{ bg }}">{{ '✅' if done else '⬜' }} {{ label }}</span>
+    {% endmacro %}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">{{ step_tag(h_total_pos > 0, 'History: ' ~ h_total_pos ~ ' POs') }} → {{ step_tag(c_total > 0, 'Categories: ' ~ c_total) }} → {{ step_tag(p_total > 0, 'Prospects: ' ~ p_total) }} → {{ step_tag(o_total_sent > 0, 'Emailed: ' ~ o_total_sent) }}</div>
 
     <div id="progress-bar">
      <span id="progress-text">{{ progress_text }}</span>
@@ -96,12 +101,60 @@
      </div>
     </div>
 
-    {% if cat_rows %}
-<div class="card"><h3>📂 Item Categories</h3><table><thead><tr><th>Category</th><th>Items</th><th>POs</th><th>Total Value</th><th>Sample Items</th></tr></thead><tbody>{{ cat_rows|safe }}</tbody></table></div>
+    {% if cat_items %}
+<div class="card"><h3>📂 Item Categories</h3><table><thead><tr><th>Category</th><th>Items</th><th>POs</th><th>Total Value</th><th>Sample Items</th></tr></thead><tbody>
+{% for cat in cat_items %}
+<tr>
+ <td style="font-weight:600">{{ cat.name }}</td>
+ <td class="mono">{{ cat.items }}</td>
+ <td class="mono">{{ cat.pos }}</td>
+ <td class="mono" style="color:#3fb950">${{ "{:,.0f}".format(cat.value) }}</td>
+ <td style="font-size:11px;color:var(--tx2)">{{ cat.sample }}</td>
+</tr>
+{% endfor %}
+</tbody></table></div>
 {% endif %}
 
-    {% if prospect_rows %}
-<div class="card"><h3>🎯 Prospect Pipeline ({{ prospect_count }})</h3><div style="max-height:500px;overflow:auto"><table><thead><tr><th>Agency</th><th>Buyer</th><th>Email</th><th>Phone</th><th>POs</th><th>Spend</th><th>Categories</th><th>Status</th><th>Actions</th></tr></thead><tbody>{{ prospect_rows|safe }}</tbody></table></div></div>
+    {% if prospects %}
+{% set status_cfg = {
+  'new': ('⬜ New', '#d29922', 'rgba(210,153,34,.08)'),
+  'emailed': ('📧 Emailed', '#58a6ff', 'rgba(88,166,255,.08)'),
+  'follow_up_due': ('⏰ Follow-Up Due', '#f0883e', 'rgba(240,136,62,.08)'),
+  'called': ('📞 Called', '#bc8cff', 'rgba(188,140,255,.08)'),
+  'responded': ('✅ Responded', '#3fb950', 'rgba(52,211,153,.08)'),
+  'bounced': ('⛔ Bounced', '#f85149', 'rgba(248,113,113,.08)'),
+  'dead': ('💀 Dead', '#8b949e', 'rgba(139,148,160,.08)'),
+  'won': ('🏆 Won', '#3fb950', 'rgba(52,211,153,.15)'),
+} %}
+<div class="card"><h3>🎯 Prospect Pipeline ({{ prospect_count }})</h3><div style="max-height:500px;overflow:auto"><table><thead><tr><th>Agency</th><th>Buyer</th><th>Email</th><th>Phone</th><th>POs</th><th>Spend</th><th>Categories</th><th>Status</th><th>Actions</th></tr></thead><tbody>
+{% for pr in prospects[:100] %}
+{% set pid = pr.id|default('') %}
+{% set stat = pr.outreach_status|default('new') %}
+{% set cfg = status_cfg.get(stat, status_cfg['new']) %}
+{% set email = pr.buyer_email|default('') or '—' %}
+{% set name = pr.buyer_name|default('') or '—' %}
+<tr data-pid="{{ pid }}">
+ <td style="font-weight:500"><a href="/growth/prospect/{{ pid }}" style="color:var(--ac);text-decoration:none">{{ pr.agency|default('—') }}</a></td>
+ <td>{{ name }}</td>
+ <td style="font-size:12px"><a href="mailto:{{ email }}" style="color:var(--ac);text-decoration:none" title="Open email to {{ name }}">{{ email }}</a></td>
+ <td style="font-size:12px">{{ pr.buyer_phone|default('') or '—' }}</td>
+ <td class="mono">{{ pr.purchase_orders|default([])|length }}</td>
+ <td class="mono" style="color:#3fb950">${{ "{:,.0f}".format(pr.total_spend|default(0)) }}</td>
+ <td style="font-size:11px">{{ (pr.categories_matched|default([]))[:2]|join(', ') }}</td>
+ <td><span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;color:{{ cfg[1] }};background:{{ cfg[2] }}">{{ cfg[0] }}</span></td>
+ <td style="white-space:nowrap">
+  {% if stat in ('emailed', 'follow_up_due') %}
+   <button onclick="markResponded('{{ pid }}')" class="act-btn" title="Mark responded" style="color:#3fb950">✅</button>
+   <button onclick="markBounced('{{ pid }}','{{ email }}')" class="act-btn" title="Mark bounced" style="color:#f85149">⛔</button>
+  {% elif stat == 'new' %}
+   <span style="color:var(--tx2);font-size:10px">awaiting email</span>
+  {% elif stat == 'responded' %}
+   <button onclick="markWon('{{ pid }}')" class="act-btn" title="Mark won" style="color:#3fb950">🏆</button>
+  {% endif %}
+ </td>
+</tr>
+{% endfor %}
+</tbody></table></div></div>
 {% endif %}
 
     <div id="result" style="display:none;background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px;margin-top:12px;max-height:600px;overflow:auto">
