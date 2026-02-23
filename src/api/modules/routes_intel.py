@@ -204,7 +204,6 @@ def api_manager_recommendations():
 @auth_required
 def page_intel_scprs():
     """Universal SCPRS Intelligence Dashboard — all agencies, all products."""
-    import json as _j
     try:
         from src.agents.scprs_universal_pull import get_universal_intelligence, get_pull_status
         intel = get_universal_intelligence()
@@ -228,102 +227,15 @@ def page_intel_scprs():
     win_opp = summary.get("win_back_opportunity", 0) or 0
     total_mkt = summary.get("total_market_spend", 0) or 0
     auto_closed = len(intel.get("auto_closed_quotes", []))
-
     no_data = pos == 0
 
-    # Build recommendation cards
-    rec_cards = ""
-    urgency_color = {"RIGHT NOW": "var(--rd)", "THIS WEEK": "#D97706", "NEXT 30 DAYS": "var(--ac)"}
-    type_icon = {
-        "collect_ar": "💰", "follow_up_quote": "📞", "add_product": "📦",
-        "displace_competitor": "⚔️", "expand_existing_customer": "🏥",
-        "reprice_analysis": "📊", "pull_data": "📡",
-    }
-    for action in recs.get("actions", [])[:12]:
-        icon = type_icon.get(action.get("type",""), "•")
-        urg = action.get("urgency", "")
-        urg_col = urgency_color.get(urg, "var(--tx2)")
-        dv = action.get("dollar_value", 0) or 0
-        rec_cards += f"""
-<div style="border:1px solid var(--bd);border-radius:8px;padding:14px 16px;background:var(--bg2)">
-  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
-    <div style="font-size:14px;font-weight:700">{icon} {action.get("title","")}</div>
-    <div style="display:flex;gap:6px;align-items:center;flex-shrink:0;margin-left:12px">
-      <span style="font-size:11px;font-weight:700;color:{urg_col}">{urg}</span>
-      {f'<span style="font-size:13px;font-weight:700;color:var(--gn)">${dv:,.0f}</span>' if dv > 0 else ""}
-    </div>
-  </div>
-  <div style="font-size:12px;color:var(--tx2);margin-bottom:8px;line-height:1.5">{action.get("why","")[:180]}</div>
-  <div style="font-size:12px;background:rgba(37,99,235,.07);border-radius:4px;padding:6px 10px;color:var(--ac);font-weight:500">
-    → {action.get("action","")[:200]}
-  </div>
-</div>"""
-
-    # Gap items table
-    gap_rows = ""
-    for item in intel.get("gap_items", [])[:20]:
-        spend = item.get("total_spend") or 0
-        agencies_ct = item.get("agencies_buying", 1) or 1
-        gap_rows += f"""<tr>
-  <td style="padding:7px 10px;font-size:12px">{item.get("description","")[:55]}</td>
-  <td style="padding:7px 10px;font-size:11px;color:var(--tx2)">{(item.get("category") or "").replace("_"," ").title()}</td>
-  <td style="padding:7px 10px;font-size:11px;text-align:center">{agencies_ct}</td>
-  <td style="padding:7px 10px;font-size:11px;text-align:center">{item.get("times_ordered",0)}</td>
-  <td style="padding:7px 10px;font-size:12px;text-align:right;font-weight:600;color:var(--rd)">${spend:,.0f}</td>
-  <td style="padding:7px 10px"><span style="background:rgba(220,38,38,.1);color:var(--rd);padding:2px 7px;border-radius:3px;font-size:10px;font-weight:700">ADD PRODUCT</span></td>
-</tr>"""
-
-    # Win-back table
-    wb_rows = ""
-    for item in intel.get("win_back", [])[:15]:
-        spend = item.get("total_spend") or 0
-        their_price = item.get("their_price") or 0
-        beat_price = their_price * 0.96 if their_price else 0
-        wb_rows += f"""<tr>
-  <td style="padding:7px 10px;font-size:12px">{item.get("description","")[:50]}</td>
-  <td style="padding:7px 10px;font-size:12px;color:var(--rd)">{item.get("incumbent_vendor","")[:30]}</td>
-  <td style="padding:7px 10px;font-size:11px;text-align:right">${their_price:.2f}</td>
-  <td style="padding:7px 10px;font-size:11px;text-align:right;color:var(--gn);font-weight:600">${beat_price:.2f}</td>
-  <td style="padding:7px 10px;font-size:12px;text-align:right;font-weight:700;color:var(--gn)">${spend:,.0f}</td>
-</tr>"""
-
-    # Agency breakdown
-    agency_rows = ""
-    for ag in intel.get("by_agency", [])[:10]:
-        gap = ag.get("gap_spend") or 0
-        we_sell = ag.get("we_sell_spend") or 0
-        total = ag.get("total_spend") or 0
-        pct_gap = int(gap / total * 100) if total > 0 else 0
-        agency_rows += f"""<tr>
-  <td style="padding:7px 10px;font-size:12px;font-weight:600">{ag.get("dept_name","")[:35]}</td>
-  <td style="padding:7px 10px;font-size:12px;text-align:right">${total:,.0f}</td>
-  <td style="padding:7px 10px;font-size:12px;text-align:right;color:var(--gn)">${we_sell:,.0f}</td>
-  <td style="padding:7px 10px;font-size:12px;text-align:right;color:var(--rd)">${gap:,.0f}</td>
-  <td style="padding:7px 10px">
-    <div style="background:var(--bd);border-radius:2px;height:6px;width:100%">
-      <div style="background:var(--rd);border-radius:2px;height:6px;width:{pct_gap}%"></div>
-    </div>
-  </td>
-</tr>"""
-
-    # Auto-closed quotes
-    ac_rows = ""
-    for q in intel.get("auto_closed_quotes", [])[:5]:
-        ac_rows += f"""<div style="padding:8px 12px;border-bottom:1px solid var(--bd);font-size:12px">
-  <span style="font-weight:600">{q.get("quote_number","")}</span>
-  <span style="color:var(--tx2);margin:0 8px">{q.get("agency","")}</span>
-  <span style="color:var(--rd)">{(q.get("status_notes",""))[:100]}</span>
-</div>"""
-
-    rec_summary = recs.get("summary", {})
-
     return render_page("scprs_intel.html", active_page="Intel",
-        rec_cards=rec_cards,
-        rec_summary=rec_summary,
-        gap_rows=gap_rows,
-        wb_rows=wb_rows,
-        agency_rows=agency_rows,
-        ac_rows=ac_rows,
+        rec_actions=recs.get("actions", []),
+        rec_summary=recs.get("summary", {}),
+        gap_items=intel.get("gap_items", []),
+        win_back_items=intel.get("win_back", []),
+        by_agency=intel.get("by_agency", []),
+        auto_closed_quotes=intel.get("auto_closed_quotes", []),
         lines=lines,
         pos=pos,
         auto_closed=auto_closed,
@@ -332,6 +244,7 @@ def page_intel_scprs():
         win_opp=win_opp,
         total_mkt=total_mkt,
         running=running,
+        no_data=no_data,
         status=status)
 
 

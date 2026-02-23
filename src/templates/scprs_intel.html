@@ -24,7 +24,9 @@ tr:hover td{background:rgba(255,255,255,.03)}
   </div>
 </div>
 
-{{ "<div style='background:rgba(37,99,235,.08);border:1px solid var(--ac);border-radius:10px;padding:16px 20px;margin-bottom:20px;display:flex;align-items:center;gap:14px'><div style='font-size:28px'>📡</div><div><div style='font-weight:700;color:var(--ac)'>No data yet — click Pull P0 Now to start</div><div style='font-size:12px;color:var(--tx2);margin-top:4px'>Searches SCPRS public records for nitrile gloves, adult briefs, N95s, chux, first aid kits across CCHCS, CalVet, CalFire, CDPH, CalTrans, CHP. Takes ~5 minutes. No login required — it&#39;s public data.</div></div></div>" if no_data else "" }}
+{% if no_data %}
+<div style='background:rgba(37,99,235,.08);border:1px solid var(--ac);border-radius:10px;padding:16px 20px;margin-bottom:20px;display:flex;align-items:center;gap:14px'><div style='font-size:28px'>📡</div><div><div style='font-weight:700;color:var(--ac)'>No data yet — click Pull P0 Now to start</div><div style='font-size:12px;color:var(--tx2);margin-top:4px'>Searches SCPRS public records for nitrile gloves, adult briefs, N95s, chux, first aid kits across CCHCS, CalVet, CalFire, CDPH, CalTrans, CHP. Takes ~5 minutes. No login required — it's public data.</div></div></div>
+{% endif %}
 
 <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:24px">
   <div class="card"><div style="font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px">POs Captured</div>
@@ -52,7 +54,31 @@ tr:hover td{background:rgba(255,255,255,.03)}
   <div>
     <div style="font-size:11px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">🎯 What To Do Next <span style="color:var(--tx2);font-weight:400">— {{ recs.get("actions",[])|length }} actions · ${{ "{:,.0f}".format(rec_summary.get("revenue_opportunity",0)) }} opportunity</span></div>
     <div style="display:flex;flex-direction:column;gap:10px;max-height:640px;overflow-y:auto;padding-right:4px">
-      {{ rec_cards if rec_cards else '<div style="padding:20px;text-align:center;color:var(--tx2);font-size:13px">Pull SCPRS data to generate recommendations</div>'|safe }}
+      {% set urgency_color = {"RIGHT NOW": "var(--rd)", "THIS WEEK": "#D97706", "NEXT 30 DAYS": "var(--ac)"} %}
+      {% set type_icon = {"collect_ar": "💰", "follow_up_quote": "📞", "add_product": "📦", "displace_competitor": "⚔️", "expand_existing_customer": "🏥", "reprice_analysis": "📊", "pull_data": "📡"} %}
+      {% if rec_actions %}
+        {% for action in rec_actions[:12] %}
+        {% set icon = type_icon.get(action.get("type",""), "•") %}
+        {% set urg = action.get("urgency", "") %}
+        {% set urg_col = urgency_color.get(urg, "var(--tx2)") %}
+        {% set dv = action.get("dollar_value", 0) or 0 %}
+        <div style="border:1px solid var(--bd);border-radius:8px;padding:14px 16px;background:var(--bg2)">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+            <div style="font-size:14px;font-weight:700">{{ icon }} {{ action.get("title","") }}</div>
+            <div style="display:flex;gap:6px;align-items:center;flex-shrink:0;margin-left:12px">
+              <span style="font-size:11px;font-weight:700;color:{{ urg_col }}">{{ urg }}</span>
+              {% if dv > 0 %}<span style="font-size:13px;font-weight:700;color:var(--gn)">${{ "{:,.0f}".format(dv) }}</span>{% endif %}
+            </div>
+          </div>
+          <div style="font-size:12px;color:var(--tx2);margin-bottom:8px;line-height:1.5">{{ action.get("why","")[:180] }}</div>
+          <div style="font-size:12px;background:rgba(37,99,235,.07);border-radius:4px;padding:6px 10px;color:var(--ac);font-weight:500">
+            → {{ action.get("action","")[:200] }}
+          </div>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div style="padding:20px;text-align:center;color:var(--tx2);font-size:13px">Pull SCPRS data to generate recommendations</div>
+      {% endif %}
     </div>
   </div>
   <div>
@@ -60,14 +86,52 @@ tr:hover td{background:rgba(255,255,255,.03)}
     <div class="card" style="padding:0;margin-bottom:16px">
       <table>
         <thead><tr><th>Item</th><th>Their Vendor</th><th style="text-align:right">Their Price</th><th style="text-align:right">Beat At</th><th style="text-align:right">Spend</th></tr></thead>
-        <tbody>{{ wb_rows if wb_rows else '<tr><td colspan="5" style="padding:16px;text-align:center;color:var(--tx2)">Pull data →</td></tr>'|safe }}</tbody>
+        <tbody>
+        {% if win_back_items %}
+          {% for item in win_back_items[:15] %}
+          {% set their_price = item.get("their_price") or 0 %}
+          {% set beat_price = their_price * 0.96 if their_price else 0 %}
+          <tr>
+            <td style="padding:7px 10px;font-size:12px">{{ item.get("description","")[:50] }}</td>
+            <td style="padding:7px 10px;font-size:12px;color:var(--rd)">{{ item.get("incumbent_vendor","")[:30] }}</td>
+            <td style="padding:7px 10px;font-size:11px;text-align:right">${{ "%.2f"|format(their_price) }}</td>
+            <td style="padding:7px 10px;font-size:11px;text-align:right;color:var(--gn);font-weight:600">${{ "%.2f"|format(beat_price) }}</td>
+            <td style="padding:7px 10px;font-size:12px;text-align:right;font-weight:700;color:var(--gn)">${{ "{:,.0f}".format(item.get("total_spend") or 0) }}</td>
+          </tr>
+          {% endfor %}
+        {% else %}
+          <tr><td colspan="5" style="padding:16px;text-align:center;color:var(--tx2)">Pull data →</td></tr>
+        {% endif %}
+        </tbody>
       </table>
     </div>
     <div style="font-size:11px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">📊 By Agency</div>
     <div class="card" style="padding:0">
       <table>
         <thead><tr><th>Agency</th><th style="text-align:right">Total Spend</th><th style="text-align:right">We Sell</th><th style="text-align:right">Gap</th><th>% Gap</th></tr></thead>
-        <tbody>{{ agency_rows if agency_rows else '<tr><td colspan="5" style="padding:16px;text-align:center;color:var(--tx2)">Pull data →</td></tr>'|safe }}</tbody>
+        <tbody>
+        {% if by_agency %}
+          {% for ag in by_agency[:10] %}
+          {% set gap = ag.get("gap_spend") or 0 %}
+          {% set we_sell = ag.get("we_sell_spend") or 0 %}
+          {% set total = ag.get("total_spend") or 0 %}
+          {% set pct_gap = (gap / total * 100)|int if total > 0 else 0 %}
+          <tr>
+            <td style="padding:7px 10px;font-size:12px;font-weight:600">{{ ag.get("dept_name","")[:35] }}</td>
+            <td style="padding:7px 10px;font-size:12px;text-align:right">${{ "{:,.0f}".format(total) }}</td>
+            <td style="padding:7px 10px;font-size:12px;text-align:right;color:var(--gn)">${{ "{:,.0f}".format(we_sell) }}</td>
+            <td style="padding:7px 10px;font-size:12px;text-align:right;color:var(--rd)">${{ "{:,.0f}".format(gap) }}</td>
+            <td style="padding:7px 10px">
+              <div style="background:var(--bd);border-radius:2px;height:6px;width:100%">
+                <div style="background:var(--rd);border-radius:2px;height:6px;width:{{ pct_gap }}%"></div>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        {% else %}
+          <tr><td colspan="5" style="padding:16px;text-align:center;color:var(--tx2)">Pull data →</td></tr>
+        {% endif %}
+        </tbody>
       </table>
     </div>
   </div>
@@ -79,14 +143,39 @@ tr:hover td{background:rgba(255,255,255,.03)}
     <div class="card" style="padding:0">
       <table>
         <thead><tr><th>Item Description</th><th>Category</th><th style="text-align:center">Agencies</th><th style="text-align:center">Orders</th><th style="text-align:right">Spend</th><th>Action</th></tr></thead>
-        <tbody>{{ gap_rows if gap_rows else '<tr><td colspan="6" style="padding:16px;text-align:center;color:var(--tx2)">Pull data →</td></tr>'|safe }}</tbody>
+        <tbody>
+        {% if gap_items %}
+          {% for item in gap_items[:20] %}
+          <tr>
+            <td style="padding:7px 10px;font-size:12px">{{ item.get("description","")[:55] }}</td>
+            <td style="padding:7px 10px;font-size:11px;color:var(--tx2)">{{ (item.get("category") or "").replace("_"," ").title() }}</td>
+            <td style="padding:7px 10px;font-size:11px;text-align:center">{{ item.get("agencies_buying", 1) or 1 }}</td>
+            <td style="padding:7px 10px;font-size:11px;text-align:center">{{ item.get("times_ordered",0) }}</td>
+            <td style="padding:7px 10px;font-size:12px;text-align:right;font-weight:600;color:var(--rd)">${{ "{:,.0f}".format(item.get("total_spend") or 0) }}</td>
+            <td style="padding:7px 10px"><span style="background:rgba(220,38,38,.1);color:var(--rd);padding:2px 7px;border-radius:3px;font-size:10px;font-weight:700">ADD PRODUCT</span></td>
+          </tr>
+          {% endfor %}
+        {% else %}
+          <tr><td colspan="6" style="padding:16px;text-align:center;color:var(--tx2)">Pull data →</td></tr>
+        {% endif %}
+        </tbody>
       </table>
     </div>
   </div>
   <div>
     <div style="font-size:11px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">🔴 Auto-Closed Quotes (SCPRS found winner)</div>
     <div class="card" style="padding:0;margin-bottom:16px">
-      {{ ac_rows if ac_rows else '<div style="padding:16px;text-align:center;color:var(--tx2);font-size:12px">No auto-closes yet — quotes are checked after each SCPRS pull</div>'|safe }}
+      {% if auto_closed_quotes %}
+        {% for q in auto_closed_quotes[:5] %}
+        <div style="padding:8px 12px;border-bottom:1px solid var(--bd);font-size:12px">
+          <span style="font-weight:600">{{ q.get("quote_number","") }}</span>
+          <span style="color:var(--tx2);margin:0 8px">{{ q.get("agency","") }}</span>
+          <span style="color:var(--rd)">{{ (q.get("status_notes",""))[:100] }}</span>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div style="padding:16px;text-align:center;color:var(--tx2);font-size:12px">No auto-closes yet — quotes are checked after each SCPRS pull</div>
+      {% endif %}
     </div>
   </div>
 </div>
