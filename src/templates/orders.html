@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %}Orders — Reytech{% endblock %}
+
+{% block content %}
+<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px">
+ <h2 style="margin:0;font-size:20px;font-weight:700">📦 Orders & Fulfillment</h2>
+ <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
+   <a href="/shipping" style="font-size:11px;color:var(--ac);text-decoration:none;background:var(--sf2);padding:3px 10px;border-radius:12px;border:1px solid var(--bd)">🚚 Shipping</a>
+   <a href="/margins" style="font-size:11px;color:var(--ac);text-decoration:none;background:var(--sf2);padding:3px 10px;border-radius:12px;border:1px solid var(--bd)">📊 Margins</a>
+   <a href="/payments" style="font-size:11px;color:var(--ac);text-decoration:none;background:var(--sf2);padding:3px 10px;border-radius:12px;border:1px solid var(--bd)">💳 Payments</a>
+   <a href="/recurring" style="font-size:11px;color:var(--ac);text-decoration:none;background:var(--sf2);padding:3px 10px;border-radius:12px;border:1px solid var(--bd)">🔄 Recurring</a>
+   <a href="/pricing" style="font-size:11px;color:var(--ac);text-decoration:none;background:var(--sf2);padding:3px 10px;border-radius:12px;border:1px solid var(--bd)">💰 Pricing Intel</a>
+   <a href="/audit" style="font-size:11px;color:var(--ac);text-decoration:none;background:var(--sf2);padding:3px 10px;border-radius:12px;border:1px solid var(--bd)">📋 Audit Trail</a>
+ </div>
+ <div style="display:flex;gap:10px;align-items:center">
+  <button onclick="createFromPO()" class="btn btn-g" style="font-size:13px;white-space:nowrap">📄 Import PO PDF</button>
+  <button onclick="createOrder()" class="btn btn-s" style="font-size:13px;white-space:nowrap">+ Manual Order</button>
+ </div>
+</div>
+{{ macro_html|safe }}
+<div class="card" style="padding:0;overflow-x:auto">
+ <table class="home-tbl" style="min-width:800px">
+  <thead><tr>
+   <th style="width:130px">Order</th><th style="width:90px">Date</th><th style="width:60px">Agency</th>
+   <th>Institution</th><th style="width:100px">PO / Quote</th>
+   <th style="text-align:right;width:90px">Total</th><th style="width:70px;text-align:center">Delivery</th>
+   <th style="width:100px;text-align:center">Status</th>
+   <th style="width:40px"></th>
+  </tr></thead>
+  <tbody>{{ rows|safe if rows else '<tr><td colspan="9" style="text-align:center;padding:24px;color:var(--tx2)">No orders yet — mark a quote as Won or import a PO PDF</td></tr>' }}</tbody>
+ </table>
+</div>
+
+<input type="file" id="po-upload-input" accept=".pdf" style="display:none" onchange="handlePOUpload(this)">
+<div id="qb-invoices" class="card" style="margin-top:14px;padding:16px;display:none">
+ <div class="card-t" style="margin-bottom:10px">💰 QuickBooks — Pending Invoices</div>
+ <div id="inv-stats" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px"></div>
+ <div id="inv-table"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function createOrder() {
+  const po = prompt('PO Number (from state purchase order):');
+  if (!po) return;
+  const agency = prompt('Agency (CDCR, CCHCS, CalVet, DSH, etc):', '');
+  const inst = prompt('Institution / Ship-To name:', '');
+  fetch('/api/order/create', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({po_number: po, agency: agency || '', institution: inst || '', items: [], total: 0})
+  }).then(r => r.json()).then(d => {
+    if (d.ok) {
+      location.href = '/order/' + d.order_id;
+    } else alert('Error: ' + (d.error || 'unknown'));
+  });
+}
+function createFromPO() {
+  document.getElementById('po-upload-input').click();
+}
+function handlePOUpload(input) {
+  const file = input.files[0];
+  if (!file) return;
+  fetch('/api/order/create', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({po_number: 'PENDING', agency: '', institution: '', items: [], total: 0})
+  }).then(r => r.json()).then(d => {
+    if (!d.ok) { alert('Error: ' + d.error); return; }
+    const oid = d.order_id;
+    const formData = new FormData();
+    formData.append('file', file);
+    return fetch('/api/order/' + oid + '/import-po', {method: 'POST', body: formData}).then(r => r.json()).then(r => {
+      if (r.ok) {
+        location.href = '/order/' + oid;
+      } else {
+        alert('Order created but PDF parse issue: ' + (r.error || 'unknown') + '\nRedirecting to order — upload PO again from detail page.');
+        if (r.raw_text) console.log('PO raw text:', r.raw_text);
+        location.href = '/order/' + oid;
+      }
+    });
+  });
+}
+function deleteOrder(oid) {
+  const reason = prompt('Delete order ' + oid + '?\n\nReason:\n1. Duplicate\n2. Created in error\n3. PO cancelled\n4. Test order\n\nEnter number or custom reason:', '1');
+  if (reason === null) return;
+  const reasonMap = {'1':'Duplicate','2':'Created in error','3':'PO cancelled','4':'Test order'};
+  const finalReason = reasonMap[reason] || reason;
+  fetch('/api/order/' + oid + '/delete', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({reason: finalReason})
+  }).then(r => r.json()).then(d => {
+    if (d.ok) location.reload();
+    else alert('Error: ' + (d.error || 'unknown'));
+  });
+}
+// QuickBooks invoices
+fetch('/api/qb/financial-context').then(r=>r.json()).then(d=>{
+ if(!d.ok) return;
+ document.getElementById('qb-invoices').style.display='block';
+ const s=document.getElementById('inv-stats');
+ const mkStat=(label,val,color)=>'<div style="background:var(--sf2);padding:10px;border-radius:8px;text-align:center"><div style="font-size:9px;color:var(--tx2);text-transform:uppercase">'+label+'</div><div style="font-size:18px;font-weight:700;color:'+(color||'var(--tx)')+'">' +val+'</div></div>';
+ s.innerHTML=mkStat('Open','$'+(d.total_receivable||0).toLocaleString(),'var(--yl)')
+  +mkStat('Overdue','$'+(d.overdue_amount||0).toLocaleString(),'var(--rd)')
+  +mkStat('Collected','$'+(d.total_collected||0).toLocaleString(),'var(--gn)')
+  +mkStat('Invoices',d.invoice_count||0);
+ const inv=d.pending_invoices||[];
+ if(inv.length){
+  let t='<table class="tbl" style="width:100%"><thead><tr><th>Invoice</th><th>Customer</th><th style="text-align:right">Total</th><th style="text-align:right">Balance</th><th>Due</th><th>Days Out</th><th>Status</th></tr></thead><tbody>';
+  inv.forEach(i=>{
+   const st=i.status==='overdue'?'<span style="color:var(--rd);font-weight:600">⚠️ OVERDUE</span>':'<span style="color:var(--yl)">Open</span>';
+   t+='<tr><td class="mono">'+i.doc_number+'</td><td>'+i.customer+'</td><td style="text-align:right;font-weight:600" class="mono">$'+i.total.toLocaleString()+'</td><td style="text-align:right;color:var(--yl)" class="mono">$'+i.balance.toLocaleString()+'</td><td class="mono">'+i.due_date+'</td><td style="text-align:center">'+i.days_outstanding+'</td><td>'+st+'</td></tr>';
+  });
+  t+='</tbody></table>';
+  document.getElementById('inv-table').innerHTML=t;
+ } else {
+  document.getElementById('inv-table').innerHTML='<div style="color:var(--tx2);text-align:center;padding:12px">No pending invoices</div>';
+ }
+}).catch(()=>{});
+</script>
+{% endblock %}
