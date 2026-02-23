@@ -2346,11 +2346,32 @@ def api_manager_metrics():
     # Average deal size
     avg_deal = round(total_revenue / max(len(won), 1), 2)
 
-    # Pipeline funnel
-    pc_count = len(pcs) if isinstance(pcs, dict) else 0
-    pc_parsed = sum(1 for p in (pcs.values() if isinstance(pcs, dict) else []) if p.get("status") == "parsed")
-    pc_priced = sum(1 for p in (pcs.values() if isinstance(pcs, dict) else []) if p.get("status") == "priced")
-    pc_completed = sum(1 for p in (pcs.values() if isinstance(pcs, dict) else []) if p.get("status") == "completed")
+    # Pipeline funnel — ACTIVE items only (exclude dismissed/archived/deleted)
+    _active_statuses = {"parsed", "new", "parse_error", "priced", "ready", "auto_drafted",
+                        "quoted", "generated", "sent", "completed", "converted"}
+    _inactive_statuses = {"dismissed", "archived", "deleted", "duplicate", "no_response"}
+    active_pcs = {pid: p for pid, p in (pcs.items() if isinstance(pcs, dict) else [])
+                  if p.get("status", "parsed") not in _inactive_statuses}
+    pc_count = len(active_pcs)
+    pc_parsed = sum(1 for p in active_pcs.values() if p.get("status") in ("parsed", "new", "parse_error"))
+    pc_priced = sum(1 for p in active_pcs.values() if p.get("status") in ("priced", "ready", "auto_drafted"))
+    pc_completed = sum(1 for p in active_pcs.values() if p.get("status") in ("completed", "converted"))
+
+    # Quote-stage counts for funnel
+    quoted_count = len([q for q in quotes if q.get("status") in ("pending", "draft")])
+    sent_count = len([q for q in quotes if q.get("status") == "sent"])
+    won_count = len(won)
+
+    # Orders count
+    orders_active = 0
+    try:
+        from src.core.db import get_db
+        with get_db() as _oconn:
+            orders_active = _oconn.execute(
+                "SELECT COUNT(*) FROM orders WHERE status IN ('active', 'processing', 'shipped')"
+            ).fetchone()[0]
+    except Exception:
+        pass
 
     # Response time (avg hours from PC upload to priced)
     response_times = []
@@ -2403,6 +2424,10 @@ def api_manager_metrics():
             "parsed": pc_parsed,
             "priced": pc_priced,
             "completed": pc_completed,
+            "quoted": quoted_count,
+            "sent": sent_count,
+            "won": won_count,
+            "orders_active": orders_active,
             "quotes_generated": len(quotes),
             "quotes_won": len(won),
         },

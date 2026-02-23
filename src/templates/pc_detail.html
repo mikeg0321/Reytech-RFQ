@@ -183,6 +183,15 @@
         <hr style="border-color:#30363d;margin:4px 0">
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#d2a8ff;border:none;padding:8px 10px;font-size:12px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runPortfolioPrice(this)">📊 Portfolio Optimizer</button>
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#f0883e;border:none;padding:8px 10px;font-size:12px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runCompetitorIntel(this)">🏢 Competitor Intel</button>
+        <hr style="border-color:#30363d;margin:4px 0">
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#3fb950;border:none;padding:8px 10px;font-size:12px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('won')">🏆 Mark Won</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#d29922;border:none;padding:8px 10px;font-size:12px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('lost')">❌ Mark Lost</button>
+        <hr style="border-color:#30363d;margin:4px 0">
+        <div style="font-size:10px;color:#484f58;padding:2px 10px;text-transform:uppercase;letter-spacing:.5px">Admin</div>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:8px 10px;font-size:12px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('no_response')">💤 No Response</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:8px 10px;font-size:12px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('duplicate')">📋 Duplicate</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:8px 10px;font-size:12px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('archived')">🗄️ Archive</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#f85149;border:none;padding:8px 10px;font-size:12px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('delete')">🗑️ Delete</button>
        </div>
       </details>
      </div>
@@ -922,6 +931,50 @@
      const supplier = match.best_supplier ? ' ('+match.best_supplier+')' : '';
      const winInfo = (match.times_won||0) > 0 ? ' | Won '+match.times_won+'x at '+Number(match.win_rate||0).toFixed(0)+'%' : '';
      showMsg('✅ Applied '+src+': $'+Number(bestCost||0).toFixed(2)+supplier+' → $'+Number(bestPrice||0).toFixed(2)+winInfo,'ok');
+    }
+
+    /* ═══ ADMIN ACTIONS: Archive, Duplicate, No Response, Delete, Won/Lost ═══ */
+    function adminAction(action) {
+     const labels = {
+      'won': '🏆 Mark as Won', 'lost': '❌ Mark as Lost',
+      'no_response': '💤 No Response', 'duplicate': '📋 Mark as Duplicate',
+      'archived': '🗄️ Archive', 'delete': '🗑️ Delete'
+     };
+     const confirm_msg = {
+      'delete': 'Permanently DELETE this Price Check? This cannot be undone.',
+      'won': 'Mark this Price Check as WON? This will feed pricing data to the catalog.',
+      'lost': 'Mark this Price Check as LOST?',
+      'no_response': 'Mark as No Response? It will be removed from the active pipeline.',
+      'duplicate': 'Mark as Duplicate? It will be removed from the active pipeline.',
+      'archived': 'Archive this Price Check? It will be removed from the active pipeline but kept in the archive.',
+     };
+     if (!confirm(confirm_msg[action] || 'Are you sure?')) return;
+
+     let url, method = 'POST', body = {};
+     if (action === 'won') {
+      url = '/api/pricecheck/{{ pcid }}/mark-won';
+     } else if (action === 'lost') {
+      const competitor = prompt('Who won? (optional — competitor name)') || '';
+      const price = prompt('Their winning price? (optional — e.g. 12.50)') || '';
+      url = '/api/pricecheck/{{ pcid }}/mark-lost';
+      body = {competitor_name: competitor, competitor_price: parseFloat(price) || 0};
+     } else if (action === 'delete') {
+      url = '/api/pricecheck/{{ pcid }}/dismiss';
+      body = {reason: 'delete'};
+     } else {
+      url = '/api/pricecheck/{{ pcid }}/dismiss';
+      body = {reason: action};
+     }
+
+     fetch(url, {method: method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)})
+      .then(r => r.json()).then(d => {
+       if (d.ok) {
+        showMsg('✅ ' + (labels[action]||action) + ' — done. Redirecting...', 'ok');
+        setTimeout(() => { location.href = '/pricecheck'; }, 1200);
+       } else {
+        showMsg('❌ ' + (d.error || 'Unknown error'), 'err');
+       }
+      }).catch(e => showMsg('❌ ' + e.message, 'err'));
     }
 
     function escHtml(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}

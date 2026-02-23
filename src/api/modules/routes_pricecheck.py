@@ -1455,7 +1455,8 @@ def api_won_quotes_seed_status():
 @auth_required
 def api_pricecheck_dismiss(pcid):
     """Dismiss a PC from the active queue with a reason.
-    Keeps data for SCPRS intelligence. reason=delete does hard delete."""
+    Keeps data for SCPRS intelligence. reason=delete does hard delete.
+    Valid reasons: dismissed, archived, duplicate, no_response, delete"""
     data = request.get_json(force=True) if request.data else {}
     reason = data.get("reason", "other")
     
@@ -1468,7 +1469,9 @@ def api_pricecheck_dismiss(pcid):
         return jsonify({"ok": False, "error": "PC not found"})
     
     pc = pcs[pcid]
-    pc["status"] = "dismissed"
+    # Use specific status for admin reasons, 'dismissed' as fallback
+    admin_statuses = {"archived", "duplicate", "no_response"}
+    pc["status"] = reason if reason in admin_statuses else "dismissed"
     pc["dismiss_reason"] = reason
     pc["dismissed_at"] = datetime.now().isoformat()
     pcs[pcid] = pc
@@ -1590,10 +1593,16 @@ def api_pricecheck_delete(pcid):
 
 PC_STATUS_LABELS = {
     "new": ("New", "#4f8cff"), "parsed": ("Parsed", "#a78bfa"),
-    "priced": ("Priced", "#fbbf24"), "quoted": ("Quoted", "#58a6ff"),
+    "parse_error": ("Parse Error", "#f85149"),
+    "priced": ("Priced", "#fbbf24"), "ready": ("Ready", "#fbbf24"),
+    "auto_drafted": ("Auto-Drafted", "#d2a8ff"),
+    "quoted": ("Quoted", "#58a6ff"), "generated": ("Generated", "#58a6ff"),
+    "completed": ("704 Filled", "#34d399"), "converted": ("Converted", "#34d399"),
     "sent": ("Sent", "#3fb950"), "pending_award": ("Pending Award", "#d29922"),
     "won": ("Won", "#3fb950"), "lost": ("Lost", "#f85149"),
-    "expired": ("Expired", "#8b90a0"), "archived": ("Archived", "#6e7681"),
+    "expired": ("Expired", "#8b90a0"),
+    "dismissed": ("Dismissed", "#6e7681"), "archived": ("Archived", "#6e7681"),
+    "duplicate": ("Duplicate", "#8b949e"), "no_response": ("No Response", "#8b949e"),
 }
 
 

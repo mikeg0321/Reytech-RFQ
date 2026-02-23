@@ -782,7 +782,7 @@ def _is_user_facing_pc(pc: dict) -> bool:
     """Canonical filter: is this PC for the standalone PC queue?
     Auto-price PCs (created from RFQ imports) belong to the RFQ row, not the PC queue.
     Standalone email PCs (Valentina's 704s) DO belong in the PC queue.
-    Dismissed PCs are hidden from active queue.
+    Dismissed/archived/deleted PCs are hidden from active queue.
     Used by: home page, manager brief, workflow tester, pipeline summary."""
     if pc.get("source") == "email_auto_draft":
         return False
@@ -790,7 +790,8 @@ def _is_user_facing_pc(pc: dict) -> bool:
         return False
     if pc.get("rfq_id"):
         return False
-    if pc.get("status") == "dismissed":
+    # Admin cleanup statuses — hide from active queue
+    if pc.get("status") in ("dismissed", "archived", "deleted", "duplicate", "no_response"):
         return False
     return True
 
