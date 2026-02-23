@@ -2,20 +2,19 @@
 {% block title %}Territory Intel — Reytech{% endblock %}
 {% block content %}
 <style>
-.ti-grid{display:grid;gap:12px;margin-bottom:16px}
-.ti-4{grid-template-columns:repeat(4,1fr)}.ti-3{grid-template-columns:repeat(3,1fr)}
-.ti-kpi{background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px;transition:border-color .2s}
-.ti-kpi:hover{border-color:var(--ac)}
-.ti-kpi-label{font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;font-weight:600}
-.ti-kpi-val{font-size:28px;font-weight:800;margin-top:2px;font-family:'JetBrains Mono',monospace}
-.ti-kpi-sub{font-size:11px;color:var(--tx2);margin-top:2px}
-.ti-card{background:var(--sf);border:1px solid var(--bd);border-radius:10px;overflow:hidden}
-.ti-hdr{padding:12px 16px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center}
-.ti-title{font-size:14px;font-weight:700}
-.ti-tabs{display:flex;gap:0;background:var(--sf2);border-radius:6px;padding:2px}
-.ti-tab{padding:5px 12px;font-size:11px;font-weight:600;border-radius:4px;cursor:pointer;color:var(--tx2);border:none;background:none;transition:.15s}
-.ti-tab.on{background:var(--ac);color:#fff}
-.ti-tab:hover:not(.on){color:var(--tx)}
+.tg{display:grid;gap:12px;margin-bottom:16px}
+.t4{grid-template-columns:repeat(4,1fr)}.t3{grid-template-columns:repeat(3,1fr)}.t2{grid-template-columns:1fr 1fr}
+.kp{background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px;transition:border-color .2s}
+.kp:hover{border-color:var(--ac)}
+.kl{font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;font-weight:600}
+.kv{font-size:26px;font-weight:800;margin-top:2px;font-family:'JetBrains Mono',monospace}
+.ks{font-size:11px;color:var(--tx2);margin-top:2px}
+.cd{background:var(--sf);border:1px solid var(--bd);border-radius:10px;overflow:hidden}
+.ch{padding:12px 16px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center}
+.ct{font-size:14px;font-weight:700}
+.tb{display:flex;gap:0;background:var(--sf2);border-radius:6px;padding:2px}
+.ta{padding:5px 12px;font-size:11px;font-weight:600;border-radius:4px;cursor:pointer;color:var(--tx2);border:none;background:none;transition:.15s}
+.ta.on{background:var(--ac);color:#fff}.ta:hover:not(.on){color:var(--tx)}
 .fr{border-bottom:1px solid var(--bd);transition:background .1s;cursor:pointer}
 .fr:hover{background:rgba(79,140,255,.04)}
 .fr td{padding:10px 12px;font-size:13px;vertical-align:middle}
@@ -24,148 +23,180 @@
 .bg-b{background:rgba(88,166,255,.12);color:#58a6ff}
 .bg-x{background:rgba(110,118,129,.12);color:#8b949e}
 .bg-p{background:rgba(210,168,255,.12);color:#d2a8ff}
+.bg-y{background:rgba(210,153,34,.12);color:#d2a822}
 .sb{height:6px;border-radius:3px;background:var(--sf2);overflow:hidden;width:56px;display:inline-block;vertical-align:middle}
 .sf{height:100%;border-radius:3px;transition:width .4s}
-.ab{padding:6px 14px;font-size:11px;border-radius:5px;cursor:pointer;font-weight:600;border:1px solid;transition:.15s;background:transparent}
+.ab{padding:5px 12px;font-size:11px;border-radius:5px;cursor:pointer;font-weight:600;border:1px solid;transition:.15s;background:transparent}
 .ab:hover{filter:brightness(1.2)}
 .pr{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(48,54,61,.4)}
 .pr:last-child{border:none}
-.dw{position:fixed;top:0;right:-480px;width:480px;height:100vh;background:var(--bg);border-left:1px solid var(--bd);z-index:200;transition:right .3s;overflow-y:auto;box-shadow:-8px 0 32px rgba(0,0,0,.4)}
+.dw{position:fixed;top:0;right:-500px;width:500px;height:100vh;background:var(--bg);border-left:1px solid var(--bd);z-index:200;transition:right .3s;overflow-y:auto;box-shadow:-8px 0 32px rgba(0,0,0,.4)}
 .dw.open{right:0}
 .do{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:199;display:none}
 .do.open{display:block}
 .dh{padding:16px 20px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;background:var(--bg);z-index:1}
 .db{padding:20px}
-.ds{margin-bottom:20px}
+.ds{margin-bottom:18px}
 .dt{font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;font-weight:700;margin-bottom:8px}
-.chip{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;font-size:12px;margin:3px;cursor:pointer;transition:border-color .15s}
-.chip:hover{border-color:var(--ac)}
-@media(max-width:900px){.ti-4{grid-template-columns:repeat(2,1fr)}.ti-3{grid-template-columns:1fr}.dw{width:100%}}
+.cc{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;font-size:12px;margin:3px;cursor:pointer;transition:.15s}
+.cc:hover{border-color:var(--ac)}
+.tier-scprs{border-left:3px solid var(--gn)}.tier-pc{border-left:3px solid var(--ac)}.tier-crm{border-left:3px solid var(--yl)}.tier-qb{border-left:3px solid var(--tx2)}.tier-central{border-left:3px solid var(--or);opacity:.7}
+@media(max-width:900px){.t4{grid-template-columns:repeat(2,1fr)}.t3,.t2{grid-template-columns:1fr}.dw{width:100%}}
 </style>
 
 <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px">
  <div>
   <h2 style="font-size:22px;font-weight:700;margin:0">🎯 Territory Intelligence</h2>
-  <p style="color:var(--tx2);font-size:13px;margin-top:4px">{{ n_active }} active · {{ n_untouched }} untouched · {{ n_total }} facilities across CCHCS, CalVet, DSH</p>
+  <p style="color:var(--tx2);font-size:13px;margin-top:4px">{{ n_active }} active · {{ n_untouched }} untouched · {{ n_total }} facilities
+  {% if scprs_has_data %}<span style="color:var(--gn);margin-left:8px">● SCPRS Live</span>{% endif %}</p>
  </div>
  <div style="display:flex;gap:8px">
-  <button onclick="bulkOutreach()" class="hdr-btn" style="font-size:11px;padding:6px 14px;border-color:var(--gn);color:var(--gn)" title="Create outreach for all untouched facilities with emails">🚀 Campaign</button>
-  <a href="/contacts" class="hdr-btn" style="font-size:11px;padding:6px 14px">👥 CRM</a>
+  <button onclick="bulkOutreach()" class="hdr-btn" style="font-size:11px;padding:6px 14px;border-color:var(--gn);color:var(--gn)">🚀 Campaign</button>
+  <button onclick="triggerScprs()" class="hdr-btn" style="font-size:11px;padding:6px 14px;border-color:var(--yl);color:var(--yl)" title="Pull latest buyer data from SCPRS">⚡ SCPRS Pull</button>
  </div>
 </div>
 
 <!-- KPIs -->
-<div class="ti-grid ti-4">
- <div class="ti-kpi" style="border-color:var(--gn)">
-  <div class="ti-kpi-label">Active Revenue</div>
-  <div class="ti-kpi-val" style="color:var(--gn)">${{ "{:,.0f}".format(total_ar) }}</div>
-  <div class="ti-kpi-sub">{{ n_active }} facilities with open AR</div>
- </div>
- <div class="ti-kpi" style="border-color:var(--ac)">
-  <div class="ti-kpi-label">Known Contacts</div>
-  <div class="ti-kpi-val" style="color:var(--ac)">{{ total_contacts }}</div>
-  <div class="ti-kpi-sub">from QB, CRM, and Price Checks</div>
- </div>
- <div class="ti-kpi" style="border-color:var(--yl)">
-  <div class="ti-kpi-label">Untouched Facilities</div>
-  <div class="ti-kpi-val" style="color:var(--yl)">{{ n_untouched }}</div>
-  <div class="ti-kpi-sub">no outreach yet</div>
- </div>
- <div class="ti-kpi" style="border-color:var(--or)">
-  <div class="ti-kpi-label">Addressable Market</div>
-  <div class="ti-kpi-val" style="color:var(--or)">${{ "{:,.0f}".format(total_untouched_opp) }}<span style="font-size:12px;font-weight:400">/yr</span></div>
-  <div class="ti-kpi-sub">est. from untouched facilities</div>
- </div>
+<div class="tg t4">
+ <div class="kp" style="border-color:var(--gn)"><div class="kl">Active Revenue</div>
+  <div class="kv" style="color:var(--gn)">${{ "{:,.0f}".format(total_ar) }}</div>
+  <div class="ks">{{ n_active }} facilities buying</div></div>
+ <div class="kp" style="border-color:var(--ac)"><div class="kl">Buyer Contacts</div>
+  <div class="kv" style="color:var(--ac)">{{ total_contacts }}</div>
+  <div class="ks">{% if scprs_total_buyers > 0 %}{{ scprs_total_buyers }} from SCPRS{% else %}from QB, CRM, PCs{% endif %}</div></div>
+ <div class="kp" style="border-color:var(--yl)"><div class="kl">{% if scprs_has_data %}Revenue Gap{% else %}Untouched{% endif %}</div>
+  <div class="kv" style="color:var(--yl)">{% if scprs_has_data %}${{ "{:,.0f}".format(total_gap) }}{% else %}{{ n_untouched }}{% endif %}</div>
+  <div class="ks">{% if scprs_has_data %}SCPRS spend we're missing{% else %}no outreach yet{% endif %}</div></div>
+ <div class="kp" style="border-color:var(--or)"><div class="kl">{% if scprs_has_data %}SCPRS Total{% else %}Market Est.{% endif %}</div>
+  <div class="kv" style="color:var(--or)">${{ "{:,.0f}".format(total_scprs_spend if scprs_has_data else total_gap) }}</div>
+  <div class="ks">{% if scprs_has_data %}tracked purchases{% else %}est. annual opportunity{% endif %}</div></div>
 </div>
 
-<!-- Agency Intelligence -->
-<div class="ti-grid ti-3">
+<!-- Agency Intel -->
+<div class="tg t3">
 {% for atype, color, icon in [("CCHCS","var(--ac)","🏛"),("CalVet","var(--gn)","🎖"),("DSH","var(--yl)","🏥")] %}
  <div style="background:var(--sf);border:1px solid var(--bd);border-left:3px solid {{ color }};border-radius:8px;padding:14px">
   <div style="display:flex;justify-content:space-between;align-items:center">
    <span style="font-size:12px;font-weight:700;color:{{ color }}">{{ icon }} {{ atype }}</span>
-   <span style="font-size:10px;color:var(--tx2)">Avg score: {{ type_stats.get(atype,{}).get("avg_score",0) }}</span>
+   <span style="font-size:10px;color:var(--tx2)">score {{ type_stats.get(atype,{}).get("avg_score",0) }}</span>
   </div>
-  <div style="display:flex;gap:16px;margin-top:8px">
-   <div><span style="font-size:18px;font-weight:800;color:{{ color }}">{{ type_stats.get(atype,{}).get("active",0) }}</span><span style="font-size:10px;color:var(--tx2)"> active</span></div>
-   <div><span style="font-size:18px;font-weight:800">{{ type_stats.get(atype,{}).get("untouched",0) }}</span><span style="font-size:10px;color:var(--tx2)"> untouched</span></div>
-   <div><span style="font-size:18px;font-weight:800">{{ type_stats.get(atype,{}).get("contacts",0) }}</span><span style="font-size:10px;color:var(--tx2)"> contacts</span></div>
+  <div style="display:flex;gap:14px;margin-top:8px">
+   <div><span style="font-size:16px;font-weight:800;color:{{ color }}">{{ type_stats.get(atype,{}).get("active",0) }}</span><span style="font-size:10px;color:var(--tx2)"> active</span></div>
+   <div><span style="font-size:16px;font-weight:800">{{ type_stats.get(atype,{}).get("untouched",0) }}</span><span style="font-size:10px;color:var(--tx2)"> untouched</span></div>
+   <div><span style="font-size:16px;font-weight:800">{{ type_stats.get(atype,{}).get("contacts",0) }}</span><span style="font-size:10px;color:var(--tx2)"> contacts</span></div>
   </div>
-  <div style="font-size:10px;color:var(--tx2);margin-top:6px">${{ "{:,.0f}".format(type_stats.get(atype,{}).get("ar",0)) }} AR</div>
+  <div style="display:flex;gap:12px;margin-top:6px;font-size:10px;color:var(--tx2)">
+   <span>${{ "{:,.0f}".format(type_stats.get(atype,{}).get("ar",0)) }} AR</span>
+   {% if type_stats.get(atype,{}).get("scprs_spend",0) > 0 %}
+   <span style="color:var(--yl)">${{ "{:,.0f}".format(type_stats.get(atype,{}).get("gap",0)) }} gap</span>
+   {% endif %}
+  </div>
  </div>
 {% endfor %}
 </div>
 
-<div id="smsg" style="display:none;padding:10px 16px;border-radius:6px;margin-bottom:12px;font-size:13px"></div>
+<div id="sm" style="display:none;padding:10px 16px;border-radius:6px;margin-bottom:12px;font-size:13px"></div>
 
 <!-- Facility Table -->
-<div class="ti-card">
- <div class="ti-hdr">
+<div class="cd">
+ <div class="ch">
   <div style="display:flex;align-items:center;gap:12px">
-   <span class="ti-title">All Facilities</span>
-   <span style="font-size:12px;color:var(--tx2)" id="fc"></span>
+   <span class="ct">All Facilities</span><span style="font-size:12px;color:var(--tx2)" id="fc"></span>
   </div>
   <div style="display:flex;gap:8px;align-items:center">
-   <input type="text" id="fs" placeholder="Search..." oninput="rt()"
-    style="background:var(--sf2);border:1px solid var(--bd);border-radius:5px;padding:5px 10px;font-size:11px;color:var(--tx);width:150px">
-   <div class="ti-tabs" id="st">
-    <button class="ti-tab on" onclick="ff('all',this)">All</button>
-    <button class="ti-tab" onclick="ff('won',this)">Active</button>
-    <button class="ti-tab" onclick="ff('untouched',this)">Untouched</button>
-    <button class="ti-tab" onclick="ff('progress',this)">In Progress</button>
+   <input type="text" id="fs" placeholder="Search..." oninput="rt()" style="background:var(--sf2);border:1px solid var(--bd);border-radius:5px;padding:5px 10px;font-size:11px;color:var(--tx);width:140px">
+   <div class="tb">
+    <button class="ta on" onclick="ff('all',this)">All</button>
+    <button class="ta" onclick="ff('won',this)">Active</button>
+    <button class="ta" onclick="ff('untouched',this)">Untouched</button>
+    <button class="ta" onclick="ff('nocontact',this)">No Contacts</button>
    </div>
   </div>
  </div>
  <div style="overflow-x:auto">
-  <table style="width:100%;border-collapse:collapse;min-width:800px" id="ft">
+  <table style="width:100%;border-collapse:collapse;min-width:850px">
    <thead><tr style="border-bottom:2px solid var(--bd)">
-    <th style="padding:10px 12px;font-size:10px;color:var(--tx2);text-align:left;text-transform:uppercase;letter-spacing:.5px;cursor:pointer" onclick="ss('name')">Facility ↕</th>
-    <th style="padding:10px 8px;font-size:10px;color:var(--tx2);text-align:left;text-transform:uppercase;letter-spacing:.5px">Type</th>
-    <th style="padding:10px 8px;font-size:10px;color:var(--tx2);text-align:center;text-transform:uppercase;letter-spacing:.5px">Contacts</th>
-    <th style="padding:10px 8px;font-size:10px;color:var(--tx2);text-align:right;text-transform:uppercase;letter-spacing:.5px;cursor:pointer" onclick="ss('ar')">AR ↕</th>
-    <th style="padding:10px 8px;font-size:10px;color:var(--tx2);text-align:center;text-transform:uppercase;letter-spacing:.5px;cursor:pointer" onclick="ss('score')">Score ↕</th>
-    <th style="padding:10px 8px;font-size:10px;color:var(--tx2);text-align:left;text-transform:uppercase;letter-spacing:.5px">Status</th>
-    <th style="padding:10px 8px;font-size:10px;color:var(--tx2);text-align:center;text-transform:uppercase;letter-spacing:.5px">Action</th>
+    <th style="padding:10px 12px;font-size:10px;color:var(--tx2);text-align:left;text-transform:uppercase;cursor:pointer" onclick="ss('name')">Facility ↕</th>
+    <th style="padding:10px 8px;font-size:10px;color:var(--tx2);text-align:left;text-transform:uppercase">Type</th>
+    <th style="padding:10px 8px;font-size:10px;color:var(--tx2);text-align:center;text-transform:uppercase">Buyers</th>
+    <th style="padding:10px 8px;font-size:10px;color:var(--tx2);text-align:right;text-transform:uppercase;cursor:pointer" onclick="ss('ar')">AR ↕</th>
+    {% if scprs_has_data %}<th style="padding:10px 8px;font-size:10px;color:var(--tx2);text-align:right;text-transform:uppercase;cursor:pointer" onclick="ss('gap')">Gap ↕</th>{% endif %}
+    <th style="padding:10px 8px;font-size:10px;color:var(--tx2);text-align:center;text-transform:uppercase;cursor:pointer" onclick="ss('score')">Score ↕</th>
+    <th style="padding:10px 8px;font-size:10px;color:var(--tx2);text-align:left;text-transform:uppercase">Status</th>
+    <th style="padding:10px 8px;font-size:10px;color:var(--tx2);text-align:center;text-transform:uppercase">Action</th>
    </tr></thead>
    <tbody id="fb"></tbody>
   </table>
  </div>
 </div>
 
-<!-- Contacts -->
-<div class="ti-card" style="margin-top:16px">
- <div class="ti-hdr">
-  <span class="ti-title">👥 Buyer Contact Registry</span>
-  <span style="font-size:12px;color:var(--tx2)" id="cc"></span>
+<!-- Central Contacts (Timothy Anderson etc) -->
+<div class="cd" style="margin-top:16px;border-color:var(--or)">
+ <div class="ch" style="background:rgba(210,153,34,.04)">
+  <span class="ct" style="color:var(--or)">🏢 Central Agency Contacts</span>
+  <span style="font-size:11px;color:var(--tx2)">Shared across multiple facilities — not facility-specific buyers</span>
+ </div>
+ <div style="padding:12px 16px" id="centralBody"></div>
+</div>
+
+<!-- Buyer Contact Registry -->
+<div class="cd" style="margin-top:16px">
+ <div class="ch">
+  <span class="ct">👥 Facility Buyer Registry</span>
+  <span style="font-size:12px;color:var(--tx2)" id="ccount"></span>
  </div>
  <div style="padding:12px 16px" id="cb"></div>
 </div>
 
+<!-- Competitive Gaps (from market_intelligence.json) -->
+{% if n_gaps > 0 %}
+<div class="cd" style="margin-top:16px">
+ <div class="ch"><span class="ct">⚔️ Competitive Product Gaps</span><span style="font-size:12px;color:var(--tx2)">{{ n_gaps }} items they buy that we should sell</span></div>
+ <div style="padding:12px 16px" id="gapBody"></div>
+</div>
+{% endif %}
+
 <!-- Product Recs -->
-<details class="ti-card" style="margin-top:16px">
+<details class="cd" style="margin-top:16px">
  <summary style="padding:12px 16px;cursor:pointer;font-size:14px;font-weight:700;list-style:none;display:flex;justify-content:space-between;align-items:center">
-  <span>📦 Product Recommendations by Agency Type</span>
-  <span style="font-size:11px;color:var(--tx2);font-weight:400">from your 827-product catalog</span>
+  <span>📦 Catalog Recommendations by Agency</span><span style="font-size:11px;color:var(--tx2);font-weight:400">from 827-product catalog</span>
  </summary>
  <div style="padding:0 16px 16px" id="prb"></div>
 </details>
 
 {% if n_stale > 0 %}
-<!-- Re-engagement -->
-<div class="ti-card" style="margin-top:16px;border-color:var(--yl)">
- <div class="ti-hdr" style="background:rgba(210,153,34,.06)">
-  <span class="ti-title" style="color:var(--yl)">⚠️ Re-engagement Needed</span>
-  <span style="font-size:12px;color:var(--yl)">{{ n_stale }} active accounts with no tracked orders</span>
+<div class="cd" style="margin-top:16px;border-color:var(--yl)">
+ <div class="ch" style="background:rgba(210,153,34,.06)">
+  <span class="ct" style="color:var(--yl)">⚠️ Re-engagement Needed</span>
+  <span style="font-size:12px;color:var(--yl)">{{ n_stale }} active accounts, no tracked orders</span>
  </div>
  <div style="padding:12px 16px" id="stale"></div>
 </div>
 {% endif %}
 
+<!-- SCPRS Status -->
+<div style="margin-top:16px;padding:10px 16px;background:var(--sf);border:1px solid var(--bd);border-radius:8px;display:flex;justify-content:space-between;align-items:center">
+ <div style="font-size:11px;color:var(--tx2)">
+  {% if scprs_has_data %}
+  <span style="color:var(--gn)">● SCPRS Data Active</span> · Last pull: {{ scprs_last_pull[:10] if scprs_last_pull else 'unknown' }} · {{ scprs_total_buyers }} unique buyers discovered
+  {% else %}
+  <span style="color:var(--tx2)">○ SCPRS Not Yet Pulled</span> · Click ⚡ SCPRS Pull to discover real buyer contacts at each facility
+  {% endif %}
+ </div>
+ <div style="font-size:10px;color:var(--tx2)">
+  Contact tiers: <span style="color:var(--gn)">■</span> SCPRS Buyer
+  <span style="color:var(--ac)">■</span> PC Requestor
+  <span style="color:var(--yl)">■</span> CRM
+  <span style="color:var(--tx2)">■</span> QB Billing
+  <span style="color:var(--or)">■</span> Central/Shared
+ </div>
+</div>
+
 <!-- Drawer -->
 <div class="do" id="dov" onclick="cd()"></div>
 <div class="dw" id="dwr">
  <div class="dh"><div><div style="font-size:16px;font-weight:700" id="dn"></div><div style="font-size:11px;color:var(--tx2)" id="dty"></div></div>
-  <button onclick="cd()" style="background:none;border:none;color:var(--tx2);font-size:20px;cursor:pointer;padding:4px 8px">✕</button>
+  <button onclick="cd()" style="background:none;border:none;color:var(--tx2);font-size:20px;cursor:pointer">✕</button>
  </div>
  <div class="db" id="dbd"></div>
 </div>
@@ -173,8 +204,12 @@
 <script>
 var F={{ facilities_json|safe }};
 var C={{ contacts_json|safe }};
+var CC={{ central_json|safe }};
 var PR={{ recs_json|safe }};
+var GAPS={{ gaps_json|safe }};
+var HAS_SCPRS={{ 'true' if scprs_has_data else 'false' }};
 var cs={f:'score',d:-1},cf='all';
+var TC={CCHCS:'var(--ac)',CalVet:'var(--gn)',DSH:'var(--yl)'};
 
 function rt(){
  var tb=document.getElementById('fb'),q=(document.getElementById('fs').value||'').toLowerCase();
@@ -183,72 +218,117 @@ function rt(){
   if(cf==='all')return true;
   if(cf==='won')return f.ar>0;
   if(cf==='untouched')return f.outreach_status==='untouched';
-  if(cf==='progress')return['researching','contacted','responded','quoting'].indexOf(f.outreach_status)>=0;
+  if(cf==='nocontact')return f.contacts.length===0;
   return true;
  });
  fl.sort(function(a,b){var va=a[cs.f]||0,vb=b[cs.f]||0;if(typeof va==='string')return cs.d*va.localeCompare(vb);return cs.d*(va-vb);});
- document.getElementById('fc').textContent=fl.length+' of '+F.length;
+ document.getElementById('fc').textContent=fl.length+'/'+F.length;
  var h='';
  fl.forEach(function(f){
-  var tc={CCHCS:'var(--ac)',CalVet:'var(--gn)',DSH:'var(--yl)'}[f.type]||'var(--tx2)';
-  var nc=f.contacts.length,ch=nc>0?'<span style="font-weight:600;color:var(--ac)">'+nc+'</span>':'<span style="color:var(--tx2)">—</span>';
-  if(f.contacts.some(function(c){return c.email}))ch+=' <span style="font-size:10px" title="Has email">📧</span>';
+  var tc=TC[f.type]||'var(--tx2)';
+  // Buyer column: count + tier indicators
+  var nc=f.contacts.length,ns=f.scprs_buyers?f.scprs_buyers.length:0;
+  var bh=nc>0?'<span style="font-weight:600;color:var(--ac)">'+nc+'</span>':'<span style="color:var(--tx2)">0</span>';
+  if(ns>0)bh+=' <span style="font-size:9px;color:var(--gn);font-weight:700" title="'+ns+' SCPRS buyers">S'+ns+'</span>';
+  else if(f.contacts.some(function(c){return c.email}))bh+=' <span style="font-size:9px">📧</span>';
+  // AR
   var ah=f.ar>0?'<span style="color:var(--gn);font-weight:600;font-family:JetBrains Mono,monospace">$'+f.ar.toLocaleString(undefined,{maximumFractionDigits:0})+'</span>':'<span style="color:var(--tx2)">—</span>';
+  // Gap
+  var gh='';
+  if(HAS_SCPRS)gh='<td style="text-align:right">'+(f.gap>0?'<span style="color:var(--yl);font-weight:600;font-family:JetBrains Mono,monospace">$'+f.gap.toLocaleString(undefined,{maximumFractionDigits:0})+'</span>':'<span style="color:var(--tx2)">—</span>')+'</td>';
+  // Score
   var sc=f.score>=60?'var(--gn)':f.score>=30?'var(--yl)':'var(--tx2)';
   var sh='<div style="display:flex;align-items:center;gap:5px;justify-content:center"><div class="sb"><div class="sf" style="width:'+f.score+'%;background:'+sc+'"></div></div><span style="font-size:11px;font-family:JetBrains Mono,monospace;color:'+sc+'">'+f.score+'</span></div>';
-  var sm={won:['Active','bg-g'],untouched:['Untouched','bg-x'],contacted:['Contacted','bg-b'],researching:['Researching','bg-b'],responded:['Responded','bg-p'],quoting:['Quoting','bg-p']};
+  // Status
+  var sm={won:['Active','bg-g'],untouched:['Untouched','bg-x'],contacted:['Contacted','bg-b'],responded:['Responded','bg-p']};
   var st=sm[f.outreach_status]||['—','bg-x'];
+  // Action
   var ax;
-  if(f.ar>0)ax='<button class="ab" style="border-color:var(--gn);color:var(--gn);font-size:10px;padding:4px 10px" onclick="event.stopPropagation();od(\''+f.id+'\')">📊 Detail</button>';
-  else if(f.outreach_status==='untouched')ax='<button class="ab" style="border-color:var(--ac);color:var(--ac);font-size:10px;padding:4px 10px" onclick="event.stopPropagation();od(\''+f.id+'\')">🎯 Reach Out</button>';
-  else ax='<button class="ab" style="border-color:var(--tx2);color:var(--tx2);font-size:10px;padding:4px 10px" onclick="event.stopPropagation();od(\''+f.id+'\')">→ View</button>';
+  if(f.ar>0)ax='<button class="ab" style="border-color:var(--gn);color:var(--gn);font-size:10px;padding:4px 10px" onclick="event.stopPropagation();od(\''+f.id+'\')">📊</button>';
+  else if(f.contacts.length===0)ax='<button class="ab" style="border-color:var(--yl);color:var(--yl);font-size:10px;padding:4px 10px" onclick="event.stopPropagation();od(\''+f.id+'\')">🔍 Research</button>';
+  else ax='<button class="ab" style="border-color:var(--ac);color:var(--ac);font-size:10px;padding:4px 10px" onclick="event.stopPropagation();od(\''+f.id+'\')">🎯 Reach Out</button>';
   var ab=f.abbr?' <span style="background:var(--sf2);padding:1px 5px;border-radius:3px;font-size:9px;font-family:JetBrains Mono,monospace;color:var(--ac)">'+f.abbr+'</span>':'';
   h+='<tr class="fr" onclick="od(\''+f.id+'\')">'
-   +'<td style="font-weight:500;max-width:260px">'+f.name+ab+'</td>'
+   +'<td style="font-weight:500;max-width:240px">'+f.name+ab+'</td>'
    +'<td style="font-size:11px;font-weight:600;color:'+tc+'">'+f.type+'</td>'
-   +'<td style="text-align:center">'+ch+'</td>'
-   +'<td style="text-align:right">'+ah+'</td>'
+   +'<td style="text-align:center">'+bh+'</td>'
+   +'<td style="text-align:right">'+ah+'</td>'+gh
    +'<td style="text-align:center">'+sh+'</td>'
    +'<td><span class="bg '+st[1]+'">'+st[0]+'</span></td>'
    +'<td style="text-align:center">'+ax+'</td></tr>';
  });
- tb.innerHTML=h||'<tr><td colspan="7" style="text-align:center;padding:30px;color:var(--tx2)">No matches</td></tr>';
+ tb.innerHTML=h||'<tr><td colspan="8" style="text-align:center;padding:30px;color:var(--tx2)">No matches</td></tr>';
 }
-function ff(s,b){cf=s;document.querySelectorAll('.ti-tab').forEach(function(t){t.classList.remove('on')});b.classList.add('on');rt();}
+function ff(s,b){cf=s;document.querySelectorAll('.ta').forEach(function(t){t.classList.remove('on')});b.classList.add('on');rt();}
 function ss(f){if(cs.f===f)cs.d*=-1;else{cs.f=f;cs.d=-1;}rt();}
 
-// Contacts
-function rc(){
+// Central contacts
+function renderCentral(){
+ var b=document.getElementById('centralBody');
+ if(!CC.length){b.innerHTML='<div style="font-size:12px;color:var(--tx2);padding:8px">No shared contacts detected</div>';return;}
+ var h='';
+ CC.forEach(function(c){
+  h+='<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid rgba(48,54,61,.4)">'
+   +'<div><a href="mailto:'+c.email+'" style="color:var(--or);text-decoration:none;font-size:13px;font-weight:600">'+c.email+'</a>'
+   +'<div style="font-size:10px;color:var(--tx2)">'+c.note+'</div></div>'
+   +'<span class="bg bg-y">CENTRAL</span></div>';
+ });
+ b.innerHTML=h;
+}
+
+// Facility buyer contacts
+function renderContacts(){
  var b=document.getElementById('cb');
- if(!C.length){b.innerHTML='<div style="text-align:center;padding:20px;color:var(--tx2);font-size:12px">No buyer contacts yet — discovered from Price Checks, CRM, and QuickBooks emails.</div>';document.getElementById('cc').textContent='0';return;}
- document.getElementById('cc').textContent=C.length+' contacts';
+ if(!C.length){b.innerHTML='<div style="text-align:center;padding:20px;color:var(--tx2);font-size:12px">No facility-specific buyer contacts yet. Run SCPRS Pull to discover real buyers.</div>';document.getElementById('ccount').textContent='0';return;}
+ document.getElementById('ccount').textContent=C.length+' contacts';
  var h='<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="border-bottom:1px solid var(--bd)">'
   +'<th style="padding:6px 8px;text-align:left;font-size:10px;color:var(--tx2);text-transform:uppercase">Name</th>'
   +'<th style="padding:6px 8px;text-align:left;font-size:10px;color:var(--tx2);text-transform:uppercase">Email</th>'
   +'<th style="padding:6px 8px;text-align:left;font-size:10px;color:var(--tx2);text-transform:uppercase">Facility</th>'
   +'<th style="padding:6px 8px;text-align:left;font-size:10px;color:var(--tx2);text-transform:uppercase">Role</th>'
-  +'<th style="padding:6px 8px;text-align:left;font-size:10px;color:var(--tx2);text-transform:uppercase">Source</th>'
+  +'<th style="padding:6px 8px;text-align:center;font-size:10px;color:var(--tx2);text-transform:uppercase">Tier</th>'
   +'</tr></thead><tbody>';
  C.forEach(function(c){
-  var sc={quickbooks:'var(--gn)',crm:'var(--ac)',price_check:'var(--yl)'}[c.source]||'var(--tx2)';
+  var tier={scprs:['SCPRS','bg-g'],price_check:['PC','bg-b'],crm:['CRM','bg-y'],quickbooks:['QB','bg-x']}[c.source]||['?','bg-x'];
   h+='<tr style="border-bottom:1px solid rgba(48,54,61,.4)">'
    +'<td style="padding:6px 8px;font-weight:500">'+(c.name||'—')+'</td>'
    +'<td style="padding:6px 8px"><a href="mailto:'+(c.email||'')+'" style="color:var(--ac);text-decoration:none">'+(c.email||'—')+'</a></td>'
    +'<td style="padding:6px 8px;color:var(--tx2)">'+(c.facility||'—')+'</td>'
    +'<td style="padding:6px 8px;color:var(--tx2)">'+(c.role||'—')+'</td>'
-   +'<td style="padding:6px 8px"><span style="color:'+sc+';font-size:10px;font-weight:600">'+(c.source||'').toUpperCase()+'</span></td></tr>';
+   +'<td style="padding:6px 8px;text-align:center"><span class="bg '+tier[1]+'">'+tier[0]+'</span></td></tr>';
  });
  b.innerHTML=h+'</tbody></table>';
 }
 
-// Product Recs
-function rpr(){
+// Competitive gaps
+function renderGaps(){
+ var b=document.getElementById('gapBody');
+ if(!b||!GAPS.length)return;
+ var h='<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="border-bottom:1px solid var(--bd)">'
+  +'<th style="padding:6px 8px;text-align:left;font-size:10px;color:var(--tx2);text-transform:uppercase">Product</th>'
+  +'<th style="padding:6px 8px;text-align:center;font-size:10px;color:var(--tx2);text-transform:uppercase">Priority</th>'
+  +'<th style="padding:6px 8px;text-align:right;font-size:10px;color:var(--tx2);text-transform:uppercase">Annual Missed</th>'
+  +'<th style="padding:6px 8px;text-align:left;font-size:10px;color:var(--tx2);text-transform:uppercase">Fix</th>'
+  +'</tr></thead><tbody>';
+ GAPS.forEach(function(g){
+  var pc=g.priority==='P0'?'var(--rd)':'var(--yl)';
+  h+='<tr style="border-bottom:1px solid rgba(48,54,61,.4)">'
+   +'<td style="padding:6px 8px;font-weight:500">'+(g.item||'')+'</td>'
+   +'<td style="padding:6px 8px;text-align:center;color:'+pc+';font-weight:700">'+(g.priority||'')+'</td>'
+   +'<td style="padding:6px 8px;text-align:right;color:var(--gn);font-weight:600;font-family:JetBrains Mono,monospace">$'+((g.annual_missed||0).toLocaleString())+'</td>'
+   +'<td style="padding:6px 8px;color:var(--tx2);font-size:11px">'+(g.fix||'').substring(0,60)+'</td></tr>';
+ });
+ b.innerHTML=h+'</tbody></table>';
+}
+
+// Product recs
+function renderRecs(){
  var b=document.getElementById('prb');
  var h='<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:8px">';
  ['CCHCS','CalVet','DSH'].forEach(function(t){
-  var p=PR[t]||[];var tc={CCHCS:'var(--ac)',CalVet:'var(--gn)',DSH:'var(--yl)'}[t];
+  var p=PR[t]||[];var tc=TC[t]||'var(--tx2)';
   h+='<div><div style="font-size:12px;font-weight:700;color:'+tc+';margin-bottom:8px">'+t+'</div>';
-  if(!p.length){h+='<div style="font-size:11px;color:var(--tx2)">No products</div>';}
+  if(!p.length)h+='<div style="font-size:11px;color:var(--tx2)">No products</div>';
   else p.slice(0,6).forEach(function(i){
    var pr=i.recommended_price||i.sell_price||0;
    h+='<div class="pr"><div style="font-size:11px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+(i.name||'')+'">'+(i.name||'').substring(0,35)+'</div>'
@@ -258,6 +338,17 @@ function rpr(){
  });
  b.innerHTML=h+'</div>';
 }
+
+// Stale accounts
+(function(){
+ var el=document.getElementById('stale');if(!el)return;
+ var st=F.filter(function(f){return f.ar>0&&f.orders.length===0;});
+ if(!st.length)return;
+ var h='';st.forEach(function(f){
+  h+='<span class="cc" onclick="od(\''+f.id+'\')"><span style="font-weight:600">'+f.name+'</span><span style="color:var(--yl);font-size:10px;margin-left:4px">$'+f.ar.toLocaleString(undefined,{maximumFractionDigits:0})+'</span></span>';
+ });
+ el.innerHTML=h;
+})();
 
 // Drawer
 function od(id){
@@ -269,101 +360,133 @@ function od(id){
  var b=document.getElementById('dbd'),h='';
  var sc=f.score>=60?'var(--gn)':f.score>=30?'var(--yl)':'var(--tx2)';
  // KPIs
- h+='<div style="display:flex;gap:10px;margin-bottom:16px">';
- h+='<div style="flex:1;background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:10px;text-align:center"><div style="font-size:9px;color:var(--tx2);text-transform:uppercase">Score</div><div style="font-size:24px;font-weight:800;color:'+sc+'">'+f.score+'</div></div>';
- h+='<div style="flex:1;background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:10px;text-align:center"><div style="font-size:9px;color:var(--tx2);text-transform:uppercase">AR</div><div style="font-size:24px;font-weight:800;color:var(--gn)">$'+f.ar.toLocaleString(undefined,{maximumFractionDigits:0})+'</div></div>';
- h+='<div style="flex:1;background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:10px;text-align:center"><div style="font-size:9px;color:var(--tx2);text-transform:uppercase">Est/yr</div><div style="font-size:24px;font-weight:800;color:var(--or)">$'+(f.est_annual||0).toLocaleString()+'</div></div></div>';
- // Contacts
- h+='<div class="ds"><div class="dt">👥 Contacts ('+f.contacts.length+')</div>';
- if(!f.contacts.length)h+='<div style="font-size:12px;color:var(--tx2);padding:8px;background:var(--sf);border-radius:6px">No contacts found. They\'re auto-discovered from incoming Price Checks and emails.</div>';
- else f.contacts.forEach(function(c){
-  h+='<div style="display:flex;justify-content:space-between;align-items:center;padding:8px;background:var(--sf);border-radius:6px;margin-bottom:4px">'
-   +'<div><div style="font-size:13px;font-weight:600">'+(c.name||c.email)+'</div><div style="font-size:10px;color:var(--tx2)">'+(c.role||'')+' · '+(c.source||'').toUpperCase()+'</div></div>'
-   +(c.email?'<a href="mailto:'+c.email+'" style="font-size:11px;color:var(--ac);text-decoration:none">📧</a>':'')+'</div>';
- });
+ h+='<div style="display:flex;gap:8px;margin-bottom:16px">';
+ h+='<div style="flex:1;background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:10px;text-align:center"><div style="font-size:9px;color:var(--tx2);text-transform:uppercase">Score</div><div style="font-size:22px;font-weight:800;color:'+sc+'">'+f.score+'</div></div>';
+ h+='<div style="flex:1;background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:10px;text-align:center"><div style="font-size:9px;color:var(--tx2);text-transform:uppercase">AR</div><div style="font-size:22px;font-weight:800;color:var(--gn)">$'+f.ar.toLocaleString(undefined,{maximumFractionDigits:0})+'</div></div>';
+ if(f.scprs_spend>0)h+='<div style="flex:1;background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:10px;text-align:center"><div style="font-size:9px;color:var(--tx2);text-transform:uppercase">SCPRS Spend</div><div style="font-size:22px;font-weight:800;color:var(--or)">$'+f.scprs_spend.toLocaleString(undefined,{maximumFractionDigits:0})+'</div></div>';
+ if(f.gap>0)h+='<div style="flex:1;background:var(--sf);border:1px solid var(--yl);border-radius:8px;padding:10px;text-align:center"><div style="font-size:9px;color:var(--yl);text-transform:uppercase">Gap</div><div style="font-size:22px;font-weight:800;color:var(--yl)">$'+f.gap.toLocaleString(undefined,{maximumFractionDigits:0})+'</div></div>';
  h+='</div>';
+ // Contacts (tiered)
+ h+='<div class="ds"><div class="dt">👥 Buyer Contacts ('+f.contacts.length+')</div>';
+ if(!f.contacts.length){
+  h+='<div style="font-size:12px;color:var(--yl);padding:10px;background:rgba(210,153,34,.06);border:1px solid var(--yl);border-radius:6px">⚠️ No facility-specific contacts. Run SCPRS Pull to discover the actual buyer here, or check incoming Price Checks.</div>';
+ }else{
+  var tiers=[{s:'scprs',l:'SCPRS Buyer',c:'tier-scprs'},{s:'price_check',l:'PC Requestor',c:'tier-pc'},{s:'crm',l:'CRM',c:'tier-crm'},{s:'quickbooks',l:'QB Billing',c:'tier-qb'}];
+  tiers.forEach(function(t){
+   var tc=f.contacts.filter(function(c){return c.source===t.s;});
+   if(!tc.length)return;
+   tc.forEach(function(c){
+    h+='<div class="'+t.c+'" style="padding:8px 10px;background:var(--sf);border-radius:6px;margin-bottom:4px;border:1px solid var(--bd)">'
+     +'<div style="display:flex;justify-content:space-between;align-items:center">'
+     +'<div><div style="font-size:13px;font-weight:600">'+(c.name||c.email)+'</div>'
+     +'<div style="font-size:10px;color:var(--tx2)">'+(c.role||'')+' · '+t.l
+     +(c.po_count?' · '+c.po_count+' POs':'')
+     +(c.phone?' · '+c.phone:'')+'</div></div>'
+     +(c.email?'<a href="mailto:'+c.email+'" style="font-size:11px;color:var(--ac);text-decoration:none">📧</a>':'')+'</div></div>';
+   });
+  });
+ }
+ h+='</div>';
+ // SCPRS: what they buy
+ if(f.top_items&&f.top_items.length){
+  h+='<div class="ds"><div class="dt">🛒 What They Buy (SCPRS)</div>';
+  f.top_items.slice(0,6).forEach(function(it){
+   h+='<div class="pr"><div style="font-size:11px;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'+(it.we_sell?';color:var(--gn)':'')+'" title="'+(it.description||'')+'">'+
+    (it.we_sell?'✅ ':'')+it.description+'</div>'
+    +'<div style="font-size:11px;font-family:JetBrains Mono,monospace;color:var(--or)">$'+(it.total_spend||0).toLocaleString()+'</div></div>';
+  });
+  h+='</div>';
+ }
+ // Competitors
+ if(f.competitors&&f.competitors.length){
+  h+='<div class="ds"><div class="dt">⚔️ Competitors</div>';
+  f.competitors.slice(0,5).forEach(function(c){
+   h+='<div class="pr"><div style="font-size:12px;font-weight:500">'+c.supplier+'</div>'
+    +'<div style="font-size:11px;font-family:JetBrains Mono,monospace;color:var(--tx2)">$'+(c.total||0).toLocaleString()+' ('+c.po_count+' POs)</div></div>';
+  });
+  h+='</div>';
+ }
  // Orders
- h+='<div class="ds"><div class="dt">📦 Orders ('+f.orders.length+')</div>';
- if(!f.orders.length)h+='<div style="font-size:12px;color:var(--tx2);padding:8px;background:var(--sf);border-radius:6px">No orders tracked yet</div>';
- else f.orders.forEach(function(o){
-  h+='<div style="padding:8px;background:var(--sf);border-radius:6px;margin-bottom:4px"><div style="display:flex;justify-content:space-between"><span style="font-size:12px;font-weight:600">$'+(o.total||0).toLocaleString()+'</span><span style="font-size:10px;color:var(--tx2)">'+(o.status||'')+'</span></div>'
-   +'<div style="font-size:10px;color:var(--tx2);margin-top:2px">'+(o.items||[]).join(' · ')+'</div></div>';
- });
- h+='</div>';
+ if(f.orders.length){
+  h+='<div class="ds"><div class="dt">📦 Orders ('+f.orders.length+')</div>';
+  f.orders.forEach(function(o){
+   h+='<div style="padding:6px;background:var(--sf);border-radius:6px;margin-bottom:4px"><div style="display:flex;justify-content:space-between"><span style="font-size:12px;font-weight:600">$'+(o.total||0).toLocaleString()+'</span><span style="font-size:10px;color:var(--tx2)">'+(o.status||'')+'</span></div></div>';
+  });
+  h+='</div>';
+ }
  // PCs
- h+='<div class="ds"><div class="dt">📋 Price Checks ('+f.pcs.length+')</div>';
- if(!f.pcs.length)h+='<div style="font-size:12px;color:var(--tx2);padding:8px;background:var(--sf);border-radius:6px">No price checks from this facility</div>';
- else f.pcs.forEach(function(p){
-  h+='<div style="padding:8px;background:var(--sf);border-radius:6px;margin-bottom:4px;display:flex;justify-content:space-between"><div><span style="font-size:12px;font-weight:600">'+(p.number||p.id.substring(0,8))+'</span><span style="font-size:10px;color:var(--tx2);margin-left:8px">'+p.items+' items · $'+(p.total||0).toLocaleString()+'</span></div>'
-   +'<a href="/price-check/'+p.id+'" style="font-size:10px;color:var(--ac)">View →</a></div>';
- });
- h+='</div>';
- // Recommended products
+ if(f.pcs.length){
+  h+='<div class="ds"><div class="dt">📋 Price Checks ('+f.pcs.length+')</div>';
+  f.pcs.forEach(function(p){
+   h+='<div style="padding:6px;background:var(--sf);border-radius:6px;margin-bottom:4px;display:flex;justify-content:space-between"><span style="font-size:12px;font-weight:600">'+(p.number||p.id.substring(0,8))+'</span><a href="/price-check/'+p.id+'" style="font-size:10px;color:var(--ac)">View →</a></div>';
+  });
+  h+='</div>';
+ }
+ // Product recs
  var recs=PR[f.type]||[];
- h+='<div class="ds"><div class="dt">🎯 Recommended Products</div>';
- if(recs.length)recs.slice(0,5).forEach(function(p){
-  var pr=p.recommended_price||p.sell_price||0;
-  h+='<div class="pr"><div style="font-size:11px;max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(p.name||'').substring(0,45)+'</div><div style="font-size:11px;font-family:JetBrains Mono,monospace;color:var(--gn)">$'+pr.toFixed(2)+'</div></div>';
- });
- else h+='<div style="font-size:12px;color:var(--tx2)">No recommendations</div>';
- h+='</div>';
+ if(recs.length){
+  h+='<div class="ds"><div class="dt">🎯 Recommended Products</div>';
+  recs.slice(0,4).forEach(function(p){
+   var pr=p.recommended_price||p.sell_price||0;
+   h+='<div class="pr"><div style="font-size:11px;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(p.name||'').substring(0,40)+'</div><div style="font-size:11px;font-family:JetBrains Mono,monospace;color:var(--gn)">$'+pr.toFixed(2)+'</div></div>';
+  });
+  h+='</div>';
+ }
  // Actions
  h+='<div class="ds" style="display:flex;gap:8px;flex-wrap:wrap">';
- if(f.outreach_status==='untouched'||f.outreach_status==='researching'){
+ if(f.outreach_status==='untouched'){
   var fe='',fn='';f.contacts.forEach(function(c){if(c.email&&!fe){fe=c.email;fn=c.name||'';}});
-  h+='<button class="ab" style="border-color:var(--ac);color:var(--ac)" onclick="doOut(\''+f.id+'\',\''+fe.replace(/'/g,"\\'")+'\',\''+fn.replace(/'/g,"\\'")+'\')">🎯 Create Outreach</button>';
+  if(fe)h+='<button class="ab" style="border-color:var(--ac);color:var(--ac)" onclick="doOut(\''+f.id+'\',\''+esc(fe)+'\',\''+esc(fn)+'\')">🎯 Create Outreach</button>';
+  else h+='<button class="ab" style="border-color:var(--yl);color:var(--yl)" onclick="doOut(\''+f.id+'\',\'\',\'\')">📋 PC Only (no contact)</button>';
  }
- h+='<button class="ab" style="border-color:var(--tx2);color:var(--tx2)" onclick="addNote(\''+f.id+'\')">📝 Add Note</button>';
  h+='</div>';
  b.innerHTML=h;
 }
 function cd(){document.getElementById('dov').classList.remove('open');document.getElementById('dwr').classList.remove('open');}
+function esc(s){return(s||'').replace(/'/g,"\\'");}
 
 // Outreach
 function doOut(id,email,name){
  var f=F.find(function(x){return x.id===id;});if(!f)return;
  var act=email?'email_and_pc':'pc_only';
- var msg=email?'Create outreach for '+f.name+'?\n\n• Draft email to '+email+'\n• Price Check with catalog products':'Create Price Check for '+f.name+'?\n\n(No email on file)';
+ var msg=email?'Create outreach for '+f.name+'?\n\n📧 Email → '+email+'\n📋 PC with catalog products':'Create PC for '+f.name+'? (no contact email)';
  if(!confirm(msg))return;
- sm('⏳ Creating outreach...','info');
+ showMsg('⏳ Creating outreach...','info');
  fetch('/api/expansion/outreach',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({facility_name:f.name,agency_type:f.type,email:email,contact_name:name,action:act})})
  .then(function(r){return r.json()}).then(function(d){
-  if(d.ok){var m='✅ Outreach created';if(d.email_drafted)m+='<br>📧 Email drafted → '+d.email_to;if(d.pc_id)m+='<br>📋 PC: '+d.items_count+' items ($'+d.total+')';sm(m,'ok');f.outreach_status='contacted';rt();cd();}
-  else sm('❌ '+(d.error||'Error'),'err');
- }).catch(function(e){sm('❌ '+e.message,'err');});
+  if(d.ok){var m='✅ Outreach created';if(d.email_drafted)m+='<br>📧 Email → '+d.email_to;if(d.pc_id)m+='<br>📋 PC: '+d.items_count+' items ($'+d.total+')';showMsg(m,'ok');f.outreach_status='contacted';rt();cd();}
+  else showMsg('❌ '+(d.error||'Error'),'err');
+ }).catch(function(e){showMsg('❌ '+e.message,'err');});
 }
 
 function bulkOutreach(){
- var targets=F.filter(function(f){return f.outreach_status==='untouched'&&f.contacts.some(function(c){return c.email;});});
- if(!targets.length){alert('No untouched facilities with email contacts found.');return;}
- if(!confirm('Create outreach for '+targets.length+' facilities with email contacts?\n\nThis will create a Price Check + email draft for each.'))return;
- sm('⏳ Creating '+targets.length+' outreach campaigns...','info');
+ var t=F.filter(function(f){return f.outreach_status==='untouched'&&f.contacts.some(function(c){return c.email;});});
+ if(!t.length){alert('No untouched facilities with contacts.');return;}
+ if(!confirm('Create outreach for '+t.length+' facilities?\n\nPC + email draft for each.'))return;
+ showMsg('⏳ Creating '+t.length+' campaigns...','info');
  var done=0,errs=0;
- targets.forEach(function(f){
+ t.forEach(function(f){
   var fe='',fn='';f.contacts.forEach(function(c){if(c.email&&!fe){fe=c.email;fn=c.name||'';}});
   fetch('/api/expansion/outreach',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({facility_name:f.name,agency_type:f.type,email:fe,contact_name:fn,action:'email_and_pc'})})
   .then(function(r){return r.json()}).then(function(d){
    if(d.ok){f.outreach_status='contacted';done++;}else errs++;
-   if(done+errs>=targets.length){sm('✅ Campaign: '+done+' created'+(errs?' ('+errs+' errors)':''),'ok');rt();}
-  }).catch(function(){errs++;if(done+errs>=targets.length){sm('✅ '+done+' created, '+errs+' errors','ok');rt();}});
+   if(done+errs>=t.length){showMsg('✅ '+done+' created'+(errs?' ('+errs+' errors)':''),'ok');rt();}
+  }).catch(function(){errs++;if(done+errs>=t.length){showMsg('Done: '+done+', errors: '+errs,'ok');rt();}});
  });
 }
 
-function addNote(id){var n=prompt('Note:');if(n)sm('📝 Note saved','ok');}
+function triggerScprs(){
+ if(!confirm('Start SCPRS pull for CCHCS?\n\nThis discovers real buyer contacts, spending, and competitors at each facility.\n\nRuns in background — refresh page in a few minutes.'))return;
+ showMsg('⚡ SCPRS pull started...','info');
+ fetch('/api/expansion/scprs-pull',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({agency_key:'CCHCS'})})
+ .then(function(r){return r.json()}).then(function(d){
+  if(d.ok)showMsg('✅ '+d.message+'. Refresh in 2-3 minutes.','ok');
+  else showMsg('❌ '+(d.error||'Error'),'err');
+ }).catch(function(e){showMsg('❌ '+e.message,'err');});
+}
 
-// Stale accounts
-(function(){
- var el=document.getElementById('stale');if(!el)return;
- var st=F.filter(function(f){return f.ar>0&&f.orders.length===0;});
- if(!st.length)return;
- var h='';st.forEach(function(f){
-  h+='<span class="chip" onclick="od(\''+f.id+'\')"><span style="font-weight:600">'+f.name+'</span><span style="color:var(--yl);font-size:10px">$'+f.ar.toLocaleString(undefined,{maximumFractionDigits:0})+'</span></span>';
- });
- el.innerHTML=h;
-})();
+function showMsg(m,t){var e=document.getElementById('sm');var c={ok:'rgba(52,211,153,.12)',err:'rgba(248,81,73,.12)',info:'rgba(88,166,255,.12)'};var x={ok:'#3fb950',err:'#f85149',info:'#58a6ff'};e.style.display='block';e.style.background=c[t]||c.info;e.style.color=x[t]||x.info;e.style.border='1px solid '+(x[t]||x.info);e.innerHTML=m;if(t!=='info')setTimeout(function(){e.style.display='none'},6000);}
 
-function sm(m,t){var e=document.getElementById('smsg');var c={ok:'rgba(52,211,153,.12)',err:'rgba(248,81,73,.12)',info:'rgba(88,166,255,.12)'};var x={ok:'#3fb950',err:'#f85149',info:'#58a6ff'};e.style.display='block';e.style.background=c[t]||c.info;e.style.color=x[t]||x.info;e.style.border='1px solid '+(x[t]||x.info);e.innerHTML=m;if(t!=='info')setTimeout(function(){e.style.display='none'},6000);}
-
-rt();rc();rpr();
+rt();renderCentral();renderContacts();renderGaps();renderRecs();
 </script>
 {% endblock %}

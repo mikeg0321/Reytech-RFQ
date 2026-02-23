@@ -2200,176 +2200,183 @@ def api_cchcs_facilities():
     })
 
 
-@bp.route("/api/cchcs/create-target", methods=["POST"])
-@auth_required
-def api_cchcs_create_target():
-    """
-    Create expansion target: outreach email draft + price check + campaign entry.
-    Actually moves you toward revenue, not just a dummy PC.
-    """
-    import json as _json
-    data = request.get_json() or {}
-    facility_name = data.get("facility_name","").strip()
-    agency_type = data.get("agency_type","CCHCS")
-    facility_email = data.get("email","")
-    mode = data.get("mode", "email_and_pc")  # email_and_pc | pc_only | email_only
-
-    if not facility_name:
-        return jsonify({"ok": False, "error": "Facility name required"}), 400
-
-    # ── Build smart item list based on what ACTIVE facilities of same type buy ──
-    # Start with curated high-probability items, then supplement from order history
-    ITEM_SETS = {
-        "CCHCS": [
-            {"description":"Nitrile Exam Gloves, Medium, Box/100","qty":50,"unit_price":12.99,"sku":"NIT-EXAM-MD"},
-            {"description":"Nitrile Exam Gloves, Large, Box/100","qty":30,"unit_price":13.99,"sku":"NIT-EXAM-LG"},
-            {"description":"Disposable Underpads, 23x36 in, Case/100","qty":10,"unit_price":28.99,"sku":"CHUX-23X36"},
-            {"description":"Adult Incontinence Briefs, Medium, Case/80","qty":10,"unit_price":29.99,"sku":"BRIEF-MD"},
-            {"description":"Hand Sanitizer, 8oz Pump, 75% Alcohol","qty":50,"unit_price":6.99,"sku":"SANIT-8OZ"},
-            {"description":"Sharps Container, 1 Quart, Red Lid","qty":20,"unit_price":4.99,"sku":"SHARPS-1QT"},
-        ],
-        "CalVet": [
-            {"description":"Nitrile Exam Gloves, Medium, Box/100","qty":30,"unit_price":12.99,"sku":"NIT-EXAM-MD"},
-            {"description":"Disposable Underpads, 30x36 in, Case/90","qty":15,"unit_price":36.99,"sku":"CHUX-30X36"},
-            {"description":"Adult Incontinence Briefs, Medium, Case/80","qty":15,"unit_price":29.99,"sku":"BRIEF-MD"},
-            {"description":"Adult Incontinence Briefs, Large, Case/80","qty":10,"unit_price":31.99,"sku":"BRIEF-LG"},
-            {"description":"Hand Sanitizer, 1 Gallon Jug, 70% Alcohol","qty":12,"unit_price":19.99,"sku":"SANIT-GAL"},
-            {"description":"Gauze Pads, 4x4 in, Non-Sterile, Box/200","qty":10,"unit_price":10.99,"sku":"GAUZE-4X4"},
-        ],
-        "DSH": [
-            {"description":"Nitrile Exam Gloves, Medium, Box/100","qty":20,"unit_price":12.99,"sku":"NIT-EXAM-MD"},
-            {"description":"Sharps Container, 1 Quart, Red Lid","qty":30,"unit_price":4.99,"sku":"SHARPS-1QT"},
-            {"description":"Hand Sanitizer, 8oz Pump, 75% Alcohol","qty":30,"unit_price":6.99,"sku":"SANIT-8OZ"},
-            {"description":"Gauze Pads, 4x4 in, Non-Sterile, Box/200","qty":10,"unit_price":10.99,"sku":"GAUZE-4X4"},
-            {"description":"Disposable Underpads, 23x36 in, Case/100","qty":8,"unit_price":28.99,"sku":"CHUX-23X36"},
-            {"description":"Adult Incontinence Briefs, Medium, Case/80","qty":6,"unit_price":29.99,"sku":"BRIEF-MD"},
-        ],
-    }
-    items = ITEM_SETS.get(agency_type, ITEM_SETS["CCHCS"])
-    total = sum(it["qty"] * it["unit_price"] for it in items)
-
-    results = {"ok": True, "facility": facility_name, "agency_type": agency_type}
-
-    # ── Step 1: Create Price Check ──
-    if mode in ("email_and_pc", "pc_only"):
-        pc_id = f"expand-{agency_type.lower()}-{int(__import__('time').time())}"
-        pc = {
-            "id": pc_id,
-            "created_at": __import__('datetime').datetime.now().isoformat(),
-            "pc_number": f"EXP-{agency_type}-{facility_name.split(':')[-1].strip()[:20]}",
-            "institution": facility_name,
-            "agency": "CDCR" if agency_type == "CCHCS" else agency_type,
-            "contact_email": facility_email,
-            "items": items,
-            "total": round(total, 2),
-            "status": "pending",
-            "tags": [f"{agency_type.lower()}_expansion", "outreach"],
-            "source": "cchcs_expansion",
-            "notes": f"Expansion target: {facility_name} ({agency_type})"
-        }
-        pcs_path = os.path.join(DATA_DIR, "price_checks.json")
-        pcs = _json.load(open(pcs_path)) if os.path.exists(pcs_path) else {}
-        pcs[pc_id] = pc
-        with open(pcs_path, "w") as f:
-            _json.dump(pcs, f, indent=2)
-        results["pc_id"] = pc_id
-        results["items_count"] = len(items)
-        results["total"] = round(total, 2)
-        results["pc_link"] = f"/price-check/{pc_id}"
-
-    # ── Step 2: Draft outreach email ──
-    if mode in ("email_and_pc", "email_only") and facility_email:
-        try:
-            short_name = facility_name.split(":")[-1].strip() if ":" in facility_name else facility_name
-            subject = f"Reytech Inc — Medical Supply Partner for {short_name}"
-            body = f"""Hello,
-
-I'm reaching out from Reytech Inc., a California-certified small business and authorized reseller of medical and institutional supplies for state agencies.
-
-We currently serve multiple {agency_type} facilities and would like to introduce our services to {short_name}. Our most commonly ordered items for similar facilities include:
-
-{chr(10).join(f'  • {it["description"]}' for it in items[:4])}
-
-We're registered on SCPRS and can respond to any AMS 704 price check forms your procurement team sends.
-
-Would it be possible to connect with your purchasing department? I'd be happy to provide a product catalog or respond to any upcoming solicitations.
-
-Best regards,
-Mike Guzman
-Reytech Inc.
-Phone: (916) 995-4713
-Email: mike@reytechinc.com
-SCPRS Supplier — CA Certified Small Business"""
-
-            # Save to outbox as draft
-            from src.core.dal import get_outbox as _dal_ob3
-            outbox = _dal_ob3()
-            draft_id = f"draft-expand-{int(__import__('time').time())}"
-            outbox.append({
-                "id": draft_id,
-                "to": facility_email,
-                "subject": subject,
-                "body": body,
-                "status": "draft",
-                "type": "expansion_outreach",
-                "facility": facility_name,
-                "agency_type": agency_type,
-                "created_at": __import__('datetime').datetime.now().isoformat(),
-            })
-            with open(outbox_path, "w") as f:
-                _json.dump(outbox, f, indent=2, default=str)
-            results["email_drafted"] = True
-            results["email_to"] = facility_email
-            results["draft_id"] = draft_id
-        except Exception as e:
-            results["email_error"] = str(e)
-
-    # ── Step 3: Bell notification ──
-    try:
-        from src.agents.notify_agent import send_alert
-        send_alert("bell", f"Expansion target created: {facility_name}", {
-            "type": "expansion_target", "facility": facility_name, "agency": agency_type,
-            "pc_id": results.get("pc_id"), "total": total,
-        })
-    except Exception: pass
-
-    log.info("CCHCS expansion target: %s | %s | $%.2f | email=%s",
-             agency_type, facility_name, total, bool(results.get("email_drafted")))
-    return jsonify(results)
+def facility_name_match(name1, name2):
+    """Loose match between facility names."""
+    if not name1 or not name2: return False
+    n1 = name1.lower().replace(" ","")
+    n2 = name2.lower().replace(" ","")
+    return n1[:15] in n2 or n2[:15] in n1
 
 
-def _parse_facility_name(raw_name):
-    """Parse QuickBooks hierarchical name into clean display name + parent.
-    'CA Correctional Health Care Services:California Health Care Facility' → 'California Health Care Facility'
-    Filters out person-name entries (depth 3+ where last part is a person, not a facility).
-    """
-    parts = raw_name.split(":")
-    # Filter out person names (depth 3+ where last part looks like a person)
-    if len(parts) >= 3:
-        last = parts[-1].strip()
-        # Facility names contain these keywords; person names don't
-        fac_keywords = ["prison","hospital","facility","center","home","valley","creek",
-                        "state","institute","correctional","veterans","department","bay",
-                        "rehabilitation","conservation","treatment","substance","training"]
-        if not any(kw in last.lower() for kw in fac_keywords):
-            return None, None  # This is a contact name, not a facility
-    if len(parts) >= 2:
-        return parts[-1].strip(), parts[0].strip()
-    return raw_name.strip(), ""
+# ════════════════════════════════════════════════════════════════════════════════
+# TERRITORY INTELLIGENCE v4 — SCPRS-powered sales command center
+# ════════════════════════════════════════════════════════════════════════════════
 
+_EST_ANNUAL = {"CCHCS": 8000, "CalVet": 12000, "DSH": 6000}
 
-def _estimate_annual_opportunity(agency_type):
-    """Rough annual spend estimate per facility type based on active facility averages."""
-    AVG_ANNUAL = {"CCHCS": 8000, "CalVet": 12000, "DSH": 6000}
-    return AVG_ANNUAL.get(agency_type, 5000)
-
-
-def _build_expansion_intel():
-    """Build comprehensive territory intelligence from ALL data sources.
-    Returns structured data for the expansion dashboard."""
-    import json as _json
-    from collections import defaultdict
+def _ensure_scprs_tables():
+    """Create SCPRS tables if they don't exist (idempotent)."""
     import sqlite3
+    db_path = os.path.join(DATA_DIR, "reytech.db")
+    conn = sqlite3.connect(db_path, timeout=10)
+    try:
+        conn.executescript("""
+        CREATE TABLE IF NOT EXISTS scprs_po_master (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pulled_at TEXT, po_number TEXT UNIQUE,
+            dept_code TEXT, dept_name TEXT, institution TEXT,
+            supplier TEXT, supplier_id TEXT, status TEXT,
+            start_date TEXT, end_date TEXT,
+            acq_type TEXT, acq_method TEXT,
+            merch_amount REAL, grand_total REAL,
+            buyer_name TEXT, buyer_email TEXT, buyer_phone TEXT,
+            search_term TEXT, agency_code TEXT
+        );
+        CREATE TABLE IF NOT EXISTS scprs_po_lines (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            po_id INTEGER REFERENCES scprs_po_master(id),
+            po_number TEXT, line_num INTEGER,
+            item_id TEXT, description TEXT, unspsc TEXT,
+            uom TEXT, quantity REAL, unit_price REAL,
+            line_total REAL, line_status TEXT,
+            category TEXT, reytech_sells INTEGER DEFAULT 0,
+            reytech_sku TEXT, opportunity_flag TEXT
+        );
+        CREATE TABLE IF NOT EXISTS scprs_pull_schedule (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            agency_key TEXT UNIQUE, priority TEXT,
+            pull_interval_hours INTEGER DEFAULT 24,
+            last_pull TEXT, next_pull TEXT
+        );
+        CREATE TABLE IF NOT EXISTS scprs_pull_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pulled_at TEXT, search_term TEXT, dept_filter TEXT,
+            results_found INTEGER DEFAULT 0, lines_parsed INTEGER DEFAULT 0,
+            new_pos INTEGER DEFAULT 0, error TEXT, duration_sec REAL
+        );
+        CREATE INDEX IF NOT EXISTS idx_po_institution ON scprs_po_master(institution);
+        CREATE INDEX IF NOT EXISTS idx_po_buyer ON scprs_po_master(buyer_email);
+        CREATE INDEX IF NOT EXISTS idx_po_supplier ON scprs_po_master(supplier);
+        """)
+        conn.commit()
+    except Exception as e:
+        log.debug("ensure_scprs_tables: %s", e)
+    finally:
+        conn.close()
+
+
+def _get_scprs_intel():
+    """Query SCPRS tables for buyer contacts, spending, competitors per institution.
+    Returns empty dicts if no SCPRS data yet — graceful degradation."""
+    import sqlite3
+    db_path = os.path.join(DATA_DIR, "reytech.db")
+    conn = sqlite3.connect(db_path, timeout=10)
+    conn.row_factory = sqlite3.Row
+
+    result = {
+        "buyers_by_institution": {},
+        "spend_by_institution": {},
+        "competitors_by_institution": {},
+        "items_by_institution": {},
+        "total_scprs_spend": 0, "total_pos": 0, "total_buyers": 0,
+        "last_pull": None, "has_data": False,
+    }
+
+    try:
+        count = conn.execute("SELECT count(*) FROM scprs_po_master").fetchone()[0]
+        if count == 0:
+            conn.close()
+            return result
+        result["has_data"] = True
+        result["total_pos"] = count
+        result["total_scprs_spend"] = conn.execute(
+            "SELECT coalesce(sum(grand_total),0) FROM scprs_po_master").fetchone()[0] or 0
+        result["last_pull"] = (conn.execute(
+            "SELECT max(pulled_at) FROM scprs_po_master").fetchone()[0] or None)
+
+        # Buyers per institution
+        for r in conn.execute("""
+            SELECT institution, buyer_name, buyer_email, buyer_phone,
+                   count(*) as po_count, max(start_date) as last_po,
+                   sum(grand_total) as total_spend
+            FROM scprs_po_master
+            WHERE buyer_email != '' AND buyer_email IS NOT NULL
+            GROUP BY institution, buyer_email ORDER BY total_spend DESC
+        """):
+            d = dict(r)
+            inst = d["institution"] or ""
+            if inst not in result["buyers_by_institution"]:
+                result["buyers_by_institution"][inst] = []
+            result["buyers_by_institution"][inst].append({
+                "name": d["buyer_name"] or "", "email": d["buyer_email"] or "",
+                "phone": d["buyer_phone"] or "", "po_count": d["po_count"],
+                "last_po": d["last_po"] or "", "total_spend": d["total_spend"] or 0,
+            })
+        result["total_buyers"] = sum(len(v) for v in result["buyers_by_institution"].values())
+
+        # Spend per institution
+        for r in conn.execute("""
+            SELECT institution, sum(grand_total) as total,
+                   count(*) as po_count, max(start_date) as last_date
+            FROM scprs_po_master GROUP BY institution ORDER BY total DESC
+        """):
+            d = dict(r)
+            result["spend_by_institution"][d["institution"] or ""] = {
+                "total": d["total"] or 0, "po_count": d["po_count"],
+                "last_date": d["last_date"] or "",
+            }
+
+        # Competitors per institution
+        for r in conn.execute("""
+            SELECT institution, supplier, sum(grand_total) as total, count(*) as po_count
+            FROM scprs_po_master WHERE supplier != '' AND supplier IS NOT NULL
+            GROUP BY institution, supplier ORDER BY total DESC
+        """):
+            d = dict(r)
+            inst = d["institution"] or ""
+            if inst not in result["competitors_by_institution"]:
+                result["competitors_by_institution"][inst] = []
+            result["competitors_by_institution"][inst].append({
+                "supplier": d["supplier"] or "", "total": d["total"] or 0,
+                "po_count": d["po_count"],
+            })
+
+        # Top items per institution
+        for r in conn.execute("""
+            SELECT p.institution, l.description, l.category,
+                   sum(l.quantity) as total_qty, avg(l.unit_price) as avg_price,
+                   sum(l.line_total) as total_spend, l.reytech_sells
+            FROM scprs_po_lines l JOIN scprs_po_master p ON l.po_id = p.id
+            WHERE l.description != ''
+            GROUP BY p.institution, l.description ORDER BY total_spend DESC
+        """):
+            d = dict(r)
+            inst = d["institution"] or ""
+            if inst not in result["items_by_institution"]:
+                result["items_by_institution"][inst] = []
+            if len(result["items_by_institution"][inst]) < 10:
+                result["items_by_institution"][inst].append({
+                    "description": d["description"][:60], "category": d["category"] or "",
+                    "total_qty": d["total_qty"] or 0,
+                    "avg_price": round(d["avg_price"] or 0, 2),
+                    "total_spend": d["total_spend"] or 0,
+                    "we_sell": bool(d["reytech_sells"]),
+                })
+    except Exception as e:
+        log.debug("SCPRS intel query error: %s", e)
+    finally:
+        conn.close()
+    return result
+
+
+def _build_expansion_intel_v4():
+    """V4 Territory Intelligence — merges QB, CRM, PCs, SCPRS, market intel, catalog.
+    Key fix: separates central contacts (Timothy) from facility-specific buyers."""
+    import json as _json
+    from collections import Counter
+    import sqlite3
+
+    _ensure_scprs_tables()
 
     customers = _load_customers()
     pcs_path = os.path.join(DATA_DIR, "price_checks.json")
@@ -2378,10 +2385,27 @@ def _build_expansion_intel():
     orders = _json.load(open(orders_path)) if os.path.exists(orders_path) else {}
     crm = _load_crm_contacts()
     crm_list = list(crm.values()) if isinstance(crm, dict) else crm
-    activity_path = os.path.join(DATA_DIR, "crm_activity.json")
-    activities = _json.load(open(activity_path)) if os.path.exists(activity_path) else []
+    mi_path = os.path.join(DATA_DIR, "market_intelligence.json")
+    market_intel = _json.load(open(mi_path)) if os.path.exists(mi_path) else {}
+    scprs = _get_scprs_intel()
 
-    # ── 1. Build facility registry from QB customers ──
+    # ── 1. Detect central contacts (email on 3+ facilities) ──
+    email_fac_count = Counter()
+    for c in customers:
+        em = (c.get("email","") or "").lower().strip()
+        if em:
+            email_fac_count[em] += 1
+
+    central_contacts = {}
+    for em, cnt in email_fac_count.items():
+        if cnt >= 3:
+            central_contacts[em] = {
+                "email": em, "role": "CENTRAL", "source": "quickbooks",
+                "facility_count": cnt,
+                "note": f"Central procurement — on {cnt} QB facilities",
+            }
+
+    # ── 2. Build facility registry ──
     facilities = {}
     for c in customers:
         raw_name = c.get("qb_name","") or c.get("display_name","")
@@ -2390,11 +2414,12 @@ def _build_expansion_intel():
         email = c.get("email","")
         abbr = c.get("abbreviation","")
 
-        # Classify agency
         name_parent = (parent or raw_name).lower()
-        if "correctional" in name_parent or "state prison" in raw_name.lower() or "calipatria" in raw_name.lower() or "medical facility" in raw_name.lower():
+        if "correctional" in name_parent or "state prison" in raw_name.lower() \
+                or "calipatria" in raw_name.lower() or "medical facility" in raw_name.lower():
             atype = "CCHCS"
-        elif "veterans" in raw_name.lower() or "dept of veterans" in raw_name.lower() or "calvet" in raw_name.lower():
+        elif "veterans" in raw_name.lower() or "dept of veterans" in raw_name.lower() \
+                or "calvet" in raw_name.lower():
             atype = "CalVet"
         elif "state hospital" in raw_name.lower():
             atype = "DSH"
@@ -2407,371 +2432,281 @@ def _build_expansion_intel():
 
         fkey = short_name.lower()[:30].strip()
         if fkey in facilities:
-            # Merge: keep highest balance, collect emails
-            existing = facilities[fkey]
-            if bal > existing["ar"]:
-                existing["ar"] = bal
-            if email and email not in [e["email"] for e in existing["contacts"]]:
-                existing["contacts"].append({"email": email, "source": "quickbooks", "role": "Billing/AP"})
-            existing["qb_names"].append(raw_name)
+            ex = facilities[fkey]
+            if bal > ex["ar"]:
+                ex["ar"] = bal
+            ex["qb_names"].append(raw_name)
+            if email and email.lower() not in central_contacts:
+                if not any(cc.get("email","").lower() == email.lower() for cc in ex["contacts"]):
+                    ex["contacts"].append({"email": email, "source": "quickbooks", "role": "Billing/AP"})
         else:
             contacts = []
-            if email:
+            if email and email.lower() not in central_contacts:
                 contacts.append({"email": email, "source": "quickbooks", "role": "Billing/AP"})
             facilities[fkey] = {
-                "id": fkey,
-                "name": short_name,
-                "raw_name": raw_name,
-                "parent": parent_name,
-                "abbr": abbr,
-                "type": atype,
-                "ar": bal,
-                "contacts": contacts,
-                "orders": [],
-                "pcs": [],
-                "qb_names": [raw_name],
-                "activities": [],
-                "outreach_status": "untouched",  # untouched, researching, contacted, responded, quoting, won
-                "last_activity": None,
-                "notes": "",
-                "score": 0,
+                "id": fkey, "name": short_name, "raw_name": raw_name,
+                "parent": parent_name, "abbr": abbr, "type": atype,
+                "ar": bal, "contacts": contacts, "orders": [], "pcs": [],
+                "qb_names": [raw_name], "outreach_status": "untouched",
+                "last_activity": None, "score": 0,
+                "scprs_spend": 0, "scprs_buyers": [],
+                "competitors": [], "top_items": [],
+                "est_annual": _EST_ANNUAL.get(atype, 5000), "gap": 0,
             }
 
-    # ── 2. Link CRM contacts to facilities ──
-    for contact in crm_list:
-        agency = (contact.get("agency","") or "").upper()
-        facility_name = contact.get("facility","") or ""
-        buyer_name = contact.get("buyer_name","")
-        buyer_email = contact.get("buyer_email","")
-        title = contact.get("title","")
-
-        if not buyer_email:
-            continue
-
-        # Match to known agency types
-        is_relevant = False
-        if agency in ("CDCR","CCHCS") or "correctional" in agency.lower():
-            is_relevant = True
-        elif "calvet" in agency.lower() or "veterans" in agency.lower():
-            is_relevant = True
-        elif "dsh" in agency.lower() or "state hospital" in agency.lower():
-            is_relevant = True
-
-        if not is_relevant:
-            continue
-
-        # Try to match to a specific facility
-        matched = False
+    # ── 3. Inject SCPRS buyer contacts (the REAL buyers) ──
+    for scprs_inst, buyers in scprs["buyers_by_institution"].items():
         for fkey, fac in facilities.items():
-            if facility_name and facility_name_match(facility_name, fac["name"]):
-                matched = True
-            elif buyer_email and any(buyer_email.lower() == c["email"].lower() for c in fac["contacts"]):
-                matched = True
-
-            if matched:
-                if not any(c.get("email","").lower() == buyer_email.lower() for c in fac["contacts"]):
-                    fac["contacts"].append({
-                        "name": buyer_name,
-                        "email": buyer_email,
-                        "title": title,
-                        "source": "crm",
-                        "role": title or "Procurement",
-                    })
+            if facility_name_match(scprs_inst, fac["name"]) or \
+               facility_name_match(scprs_inst, fac["raw_name"]) or \
+               any(facility_name_match(scprs_inst, qn) for qn in fac.get("qb_names",[])):
+                for buyer in buyers:
+                    be = (buyer.get("email","") or "").lower()
+                    if not be or be in central_contacts:
+                        continue
+                    if not any(c.get("email","").lower() == be for c in fac["contacts"]):
+                        fac["contacts"].append({
+                            "name": buyer["name"], "email": buyer["email"],
+                            "phone": buyer.get("phone",""), "source": "scprs",
+                            "role": "Buyer", "po_count": buyer.get("po_count",0),
+                            "last_po": buyer.get("last_po",""),
+                        })
+                    fac["scprs_buyers"].append(buyer)
                 break
 
-        # If no facility match, add as agency-level contact
-        if not matched:
-            for fkey, fac in facilities.items():
-                if agency in ("CDCR","CCHCS") and fac["type"] == "CCHCS" and fac.get("parent","") == "":
-                    if not any(c.get("email","").lower() == buyer_email.lower() for c in fac["contacts"]):
-                        fac["contacts"].append({
-                            "name": buyer_name,
-                            "email": buyer_email,
-                            "title": title,
-                            "source": "crm",
-                            "role": title or "Agency Contact",
-                        })
-                    break
+    # ── 4. SCPRS spending & competitors ──
+    for scprs_inst, spend in scprs["spend_by_institution"].items():
+        for fkey, fac in facilities.items():
+            if facility_name_match(scprs_inst, fac["name"]) or \
+               facility_name_match(scprs_inst, fac["raw_name"]) or \
+               any(facility_name_match(scprs_inst, qn) for qn in fac.get("qb_names",[])):
+                fac["scprs_spend"] = spend["total"]
+                fac["gap"] = max(0, spend["total"] - fac["ar"])
+                break
 
-    # ── 3. Link PC contacts to facilities ──
+    for scprs_inst, comps in scprs["competitors_by_institution"].items():
+        for fkey, fac in facilities.items():
+            if facility_name_match(scprs_inst, fac["name"]) or \
+               facility_name_match(scprs_inst, fac["raw_name"]):
+                fac["competitors"] = comps[:8]
+                break
+
+    for scprs_inst, items in scprs["items_by_institution"].items():
+        for fkey, fac in facilities.items():
+            if facility_name_match(scprs_inst, fac["name"]) or \
+               facility_name_match(scprs_inst, fac["raw_name"]):
+                fac["top_items"] = items[:8]
+                break
+
+    # ── 5. CRM contacts (skip centrals) ──
+    for contact in crm_list:
+        agency = (contact.get("agency","") or "").upper()
+        buyer_email = (contact.get("buyer_email","") or "").lower()
+        if not buyer_email or buyer_email in central_contacts:
+            continue
+        is_relevant = agency in ("CDCR","CCHCS") or \
+            any(k in agency.lower() for k in ("calvet","veterans","dsh","state hospital","correctional"))
+        if not is_relevant:
+            continue
+        for fkey, fac in facilities.items():
+            if not any(c.get("email","").lower() == buyer_email for c in fac["contacts"]):
+                fac["contacts"].append({
+                    "name": contact.get("buyer_name",""), "email": contact.get("buyer_email",""),
+                    "title": contact.get("title",""), "source": "crm",
+                    "role": contact.get("title","") or "Procurement",
+                })
+                break
+
+    # ── 6. Price Checks ──
     for pid, pc in pcs.items():
         inst = pc.get("institution","") or ""
-        pc_email = pc.get("contact_email","") or ""
+        pc_email = (pc.get("contact_email","") or "").lower()
         pc_contact = pc.get("contact_name","") or pc.get("header",{}).get("requestor","") or ""
-        pc_items = len(pc.get("items",[]))
-        pc_total = pc.get("total",0) or 0
-        pc_status = pc.get("status","")
-
         if not inst:
             continue
-
         for fkey, fac in facilities.items():
             if facility_name_match(inst, fac["name"]) or facility_name_match(inst, fac["raw_name"]):
                 fac["pcs"].append({
-                    "id": pid,
-                    "number": pc.get("pc_number",""),
-                    "items": pc_items,
-                    "total": pc_total,
-                    "status": pc_status,
-                    "date": pc.get("created_at",""),
+                    "id": pid, "number": pc.get("pc_number",""),
+                    "items": len(pc.get("items",[])), "total": pc.get("total",0) or 0,
+                    "status": pc.get("status",""), "date": pc.get("created_at",""),
                 })
-                if pc_email and not any(c.get("email","").lower() == pc_email.lower() for c in fac["contacts"]):
-                    fac["contacts"].append({
-                        "name": pc_contact,
-                        "email": pc_email,
-                        "source": "price_check",
-                        "role": "Requestor",
-                    })
+                if pc_email and pc_email not in central_contacts:
+                    if not any(c.get("email","").lower() == pc_email for c in fac["contacts"]):
+                        fac["contacts"].append({
+                            "name": pc_contact, "email": pc.get("contact_email",""),
+                            "source": "price_check", "role": "Requestor",
+                        })
                 if fac["outreach_status"] == "untouched":
                     fac["outreach_status"] = "responded"
                 break
 
-    # ── 4. Link orders to facilities ──
+    # ── 7. Orders ──
     for oid, order in orders.items():
         inst = order.get("institution","") or ""
         for fkey, fac in facilities.items():
             if facility_name_match(inst, fac["name"]) or facility_name_match(inst, fac["raw_name"]):
-                items_summary = []
-                for it in order.get("line_items",[])[:5]:
-                    items_summary.append(it.get("description","")[:40])
                 fac["orders"].append({
-                    "id": oid,
-                    "total": order.get("total",0),
-                    "status": order.get("status",""),
-                    "date": order.get("created_at",""),
-                    "items": items_summary,
+                    "id": oid, "total": order.get("total",0),
+                    "status": order.get("status",""), "date": order.get("created_at",""),
+                    "items": [it.get("description","")[:40] for it in order.get("line_items",[])[:5]],
                 })
                 break
 
-    # ── 5. Smart product recommendations from catalog ──
+    # ── 8. Product recommendations ──
     product_recs = {"CCHCS": [], "CalVet": [], "DSH": []}
     try:
         db_path = os.path.join(DATA_DIR, "reytech.db")
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
-        # Get top products by category that state facilities buy
-        for cat in ["Medical/Clinical","Gloves","Cleaning/Sanitation","Personal Care","Safety/PPE","Paper/Towels"]:
-            for r in conn.execute("""
-                SELECT name, category, sell_price, cost, manufacturer, recommended_price
-                FROM product_catalog WHERE category = ? AND cost > 0
-                ORDER BY sell_price DESC LIMIT 3
-            """, (cat,)):
-                item = dict(r)
-                item["margin_pct"] = round((item["sell_price"] - item["cost"]) / item["sell_price"] * 100) if item["sell_price"] > 0 else 0
-                # CCHCS buys everything, CalVet = personal care heavy, DSH = safety heavy
-                if cat in ("Medical/Clinical","Gloves","Cleaning/Sanitation"):
-                    for at in ["CCHCS","CalVet","DSH"]:
-                        product_recs[at].append(item)
-                elif cat == "Personal Care":
-                    product_recs["CalVet"].append(item)
-                    product_recs["CCHCS"].append(item)
-                elif cat == "Safety/PPE":
-                    product_recs["DSH"].append(item)
-                    product_recs["CCHCS"].append(item)
+        cat_map = {
+            "CCHCS": ["Medical/Clinical","Gloves","Cleaning/Sanitation","Personal Care","Safety/PPE"],
+            "CalVet": ["Medical/Clinical","Personal Care","Gloves","Cleaning/Sanitation"],
+            "DSH": ["Medical/Clinical","Safety/PPE","Gloves","Cleaning/Sanitation"],
+        }
+        for atype, cats in cat_map.items():
+            for cat in cats:
+                for r in conn.execute("""
+                    SELECT name, category, sell_price, cost, manufacturer, recommended_price
+                    FROM product_catalog WHERE category = ? AND cost > 0
+                    ORDER BY sell_price DESC LIMIT 2
+                """, (cat,)):
+                    item = dict(r)
+                    item["margin_pct"] = round((item["sell_price"] - item["cost"]) / item["sell_price"] * 100) if item["sell_price"] > 0 else 0
+                    product_recs[atype].append(item)
         conn.close()
     except Exception as e:
         log.debug("Product recs error: %s", e)
 
-    # ── 6. Score each facility ──
-    for fkey, fac in facilities.items():
-        score = 0
-        # Active accounts are proven revenue
+    # ── 9. Score (SCPRS-enhanced) ──
+    for fac in facilities.values():
+        s = 0
         if fac["ar"] > 0:
-            score += 40
-            fac["outreach_status"] = "won"
-        # Contacts increase reachability
-        score += min(len(fac["contacts"]) * 10, 25)
-        # Orders prove buying pattern
-        score += min(len(fac["orders"]) * 8, 16)
-        # PCs show engagement
-        score += min(len(fac["pcs"]) * 5, 15)
-        # Email on file = can reach them
-        if any(c.get("email") for c in fac["contacts"]):
-            score += 10
-        # Agency type weighting (CalVet = larger orders historically)
-        type_bonus = {"CalVet": 8, "CCHCS": 5, "DSH": 3}
-        score += type_bonus.get(fac["type"], 0)
-        # Estimated annual opportunity
-        fac["est_annual"] = _estimate_annual_opportunity(fac["type"])
-        fac["score"] = min(score, 100)
-        # Fix status: if has AR, it's won regardless of initial dedup
+            s += 35; fac["outreach_status"] = "won"
+        scprs_c = len([c for c in fac["contacts"] if c.get("source") == "scprs"])
+        other_c = len(fac["contacts"]) - scprs_c
+        s += min(scprs_c * 12, 24)
+        s += min(other_c * 5, 10)
+        if fac["scprs_spend"] > 0: s += 15
+        if fac["scprs_spend"] > 50000: s += 5
+        s += min(len(fac["orders"]) * 6, 12)
+        s += min(len(fac["pcs"]) * 4, 8)
+        s += {"CalVet": 6, "CCHCS": 4, "DSH": 2}.get(fac["type"], 0)
+        fac["score"] = min(s, 100)
         if fac["ar"] > 0 and fac["outreach_status"] == "untouched":
             fac["outreach_status"] = "won"
-            fac["score"] = max(fac["score"], 40)
-        # Last activity date
-        dates = []
-        for pc in fac["pcs"]:
-            if pc.get("date"): dates.append(pc["date"])
-        for o in fac["orders"]:
-            if o.get("date"): dates.append(o["date"])
+        dates = [pc.get("date","") for pc in fac["pcs"]] + [o.get("date","") for o in fac["orders"]]
+        dates = [d for d in dates if d]
         fac["last_activity"] = max(dates) if dates else None
 
-    # ── 7. Aggregate stats ──
+    # ── 10. Aggregate ──
     fac_list = sorted(facilities.values(), key=lambda x: (-x["score"], -x["ar"], x["name"]))
     active = [f for f in fac_list if f["ar"] > 0]
     untouched = [f for f in fac_list if f["outreach_status"] == "untouched"]
-    contacted = [f for f in fac_list if f["outreach_status"] in ("researching","contacted")]
-    responding = [f for f in fac_list if f["outreach_status"] in ("responded","quoting")]
-
     total_ar = sum(f["ar"] for f in active)
-    total_contacts = sum(len(f["contacts"]) for f in fac_list)
-    total_untouched_opportunity = sum(f["est_annual"] for f in untouched)
+    total_contacts = sum(len(f["contacts"]) for f in fac_list) + len(central_contacts)
+    total_scprs = scprs["total_scprs_spend"]
+    total_gap = max(0, total_scprs - total_ar) if total_scprs > 0 else sum(f["est_annual"] for f in untouched)
 
-    # Contacts with email across all facilities
-    all_contacts = []
-    for fac in fac_list:
-        for c in fac["contacts"]:
-            c["facility"] = fac["name"]
-            c["facility_type"] = fac["type"]
-            c["facility_id"] = fac["id"]
-            all_contacts.append(c)
-
-    # Cross-sell: what do active facilities buy that untouched don't?
-    # (simplified: active facilities have orders, untouched don't)
-    cross_sell = []
-    active_products = set()
-    for fac in active:
-        for o in fac["orders"]:
-            for item in o.get("items",[]):
-                active_products.add(item[:30].lower())
-
-    # Per-type stats
     type_stats = {}
     for atype in ["CCHCS","CalVet","DSH"]:
-        type_facs = [f for f in fac_list if f["type"] == atype]
-        type_active = [f for f in type_facs if f["ar"] > 0]
+        tf = [f for f in fac_list if f["type"] == atype]
+        ta = [f for f in tf if f["ar"] > 0]
+        ss = sum(f["scprs_spend"] for f in tf)
         type_stats[atype] = {
-            "total": len(type_facs),
-            "active": len(type_active),
-            "ar": sum(f["ar"] for f in type_active),
-            "contacts": sum(len(f["contacts"]) for f in type_facs),
-            "untouched": len([f for f in type_facs if f["outreach_status"] == "untouched"]),
-            "avg_score": round(sum(f["score"] for f in type_facs) / max(len(type_facs),1)),
-            "top_products": [p["name"][:35] for p in product_recs.get(atype,[])[:4]],
+            "total": len(tf), "active": len(ta),
+            "ar": sum(f["ar"] for f in ta), "scprs_spend": ss,
+            "gap": max(0, ss - sum(f["ar"] for f in ta)),
+            "contacts": sum(len(f["contacts"]) for f in tf),
+            "untouched": len([f for f in tf if f["outreach_status"] == "untouched"]),
+            "avg_score": round(sum(f["score"] for f in tf) / max(len(tf),1)),
         }
 
-    # Re-engagement: active facilities with no recent orders
-    stale_accounts = [f for f in active if not f["orders"] or not f["last_activity"]]
+    # All contacts (deduped)
+    all_contacts = []
+    seen_em = set()
+    for fac in fac_list:
+        for c in fac["contacts"]:
+            em = (c.get("email","") or "").lower()
+            if em and em not in seen_em:
+                seen_em.add(em)
+                c2 = dict(c)
+                c2["facility"] = fac["name"]
+                c2["facility_type"] = fac["type"]
+                c2["facility_id"] = fac["id"]
+                all_contacts.append(c2)
 
     return {
-        "facilities": fac_list,
-        "active": active,
-        "untouched": untouched,
-        "contacted": contacted,
-        "responding": responding,
-        "total_ar": total_ar,
-        "total_contacts": total_contacts,
-        "total_untouched_opportunity": total_untouched_opportunity,
+        "facilities": fac_list, "active": active, "untouched": untouched,
+        "total_ar": total_ar, "total_contacts": total_contacts,
+        "total_gap": total_gap, "total_scprs_spend": total_scprs,
+        "type_stats": type_stats, "product_recs": product_recs,
+        "stale_accounts": [f for f in active if not f["orders"] and not f["last_activity"]],
         "all_contacts": all_contacts,
-        "type_stats": type_stats,
-        "product_recs": product_recs,
-        "stale_accounts": stale_accounts,
+        "central_contacts": list(central_contacts.values()),
+        "scprs_has_data": scprs["has_data"], "scprs_last_pull": scprs["last_pull"],
+        "scprs_total_buyers": scprs["total_buyers"],
+        "competitive_gaps": market_intel.get("competitive_product_gaps", [])[:12],
+        "vendor_registrations": market_intel.get("accounts_to_register_now", [])[:8],
     }
 
 
 @bp.route("/cchcs/expansion")
 @auth_required
 def page_cchcs_expansion():
-    """Territory Intelligence Dashboard v3 — sales prospecting command center."""
+    """Territory Intelligence v4 — SCPRS-powered sales command center."""
     import json as _json
+    intel = _build_expansion_intel_v4()
 
-    intel = _build_expansion_intel()
-    fac_list = intel["facilities"]
-    active = intel["active"]
-    untouched = intel["untouched"]
-    type_stats = intel["type_stats"]
-    all_contacts = intel["all_contacts"]
-    product_recs = intel["product_recs"]
-    stale_accounts = intel["stale_accounts"]
-
-    # Serialize for JS
     facilities_json = _json.dumps([{
         "id": f["id"], "name": f["name"], "type": f["type"], "ar": f["ar"],
         "score": f["score"], "outreach_status": f["outreach_status"],
         "contacts": f["contacts"], "orders": f["orders"], "pcs": f["pcs"],
         "est_annual": f["est_annual"], "abbr": f["abbr"],
         "last_activity": f["last_activity"],
-    } for f in fac_list], default=str)
+        "scprs_spend": f["scprs_spend"], "gap": f["gap"],
+        "competitors": f["competitors"][:5],
+        "top_items": f["top_items"][:6],
+        "scprs_buyers": f["scprs_buyers"][:5],
+    } for f in intel["facilities"]], default=str)
 
-    contacts_json = _json.dumps(all_contacts[:100], default=str)
-
-    # Product recs: just top 6 per type
-    recs_json = _json.dumps({k: v[:6] for k, v in product_recs.items()}, default=str)
+    contacts_json = _json.dumps(intel["all_contacts"][:150], default=str)
+    central_json = _json.dumps(intel["central_contacts"], default=str)
+    recs_json = _json.dumps({k: v[:6] for k, v in intel["product_recs"].items()}, default=str)
+    gaps_json = _json.dumps(intel["competitive_gaps"], default=str)
+    vendors_json = _json.dumps(intel["vendor_registrations"], default=str)
 
     from src.api.render import render_page
-    html = render_page("expand.html", active_page="Expand",
-        facilities_json=facilities_json,
-        contacts_json=contacts_json,
-        recs_json=recs_json,
-        type_stats=type_stats,
-        total_ar=intel["total_ar"],
-        total_contacts=intel["total_contacts"],
-        total_untouched_opp=intel["total_untouched_opportunity"],
-        n_active=len(active),
-        n_untouched=len(untouched),
-        n_contacted=len(intel["contacted"]),
-        n_responding=len(intel["responding"]),
-        n_total=len(fac_list),
-        n_stale=len(stale_accounts),
+    return render_page("expand.html", active_page="Expand",
+        facilities_json=facilities_json, contacts_json=contacts_json,
+        central_json=central_json, recs_json=recs_json,
+        gaps_json=gaps_json, vendors_json=vendors_json,
+        type_stats=intel["type_stats"],
+        total_ar=intel["total_ar"], total_contacts=intel["total_contacts"],
+        total_gap=intel["total_gap"], total_scprs_spend=intel["total_scprs_spend"],
+        scprs_has_data=intel["scprs_has_data"], scprs_last_pull=intel["scprs_last_pull"],
+        scprs_total_buyers=intel["scprs_total_buyers"],
+        n_active=len(intel["active"]), n_untouched=len(intel["untouched"]),
+        n_total=len(intel["facilities"]), n_stale=len(intel["stale_accounts"]),
+        n_gaps=len(intel["competitive_gaps"]),
     )
-    return html
 
 
 @bp.route("/api/expansion/facility/<fac_id>")
 @auth_required
 def api_expansion_facility(fac_id):
-    """Get full detail for one facility."""
-    intel = _build_expansion_intel()
+    """Full detail for one facility."""
+    intel = _build_expansion_intel_v4()
     for f in intel["facilities"]:
         if f["id"] == fac_id:
             return jsonify({"ok": True, "facility": f})
-    return jsonify({"ok": False, "error": "Facility not found"})
-
-
-@bp.route("/api/expansion/recommend-products", methods=["POST"])
-@auth_required
-def api_expansion_recommend():
-    """Get smart product recommendations for a facility type."""
-    import sqlite3 as _sql
-    data = request.get_json() or {}
-    agency_type = data.get("agency_type", "CCHCS")
-    limit = min(int(data.get("limit", 12)), 30)
-
-    # Pick categories likely for this agency type
-    cat_map = {
-        "CCHCS": ["Medical/Clinical","Gloves","Cleaning/Sanitation","Personal Care","Safety/PPE"],
-        "CalVet": ["Medical/Clinical","Personal Care","Gloves","Cleaning/Sanitation","Paper/Towels"],
-        "DSH": ["Medical/Clinical","Safety/PPE","Gloves","Cleaning/Sanitation","Personal Care"],
-    }
-    categories = cat_map.get(agency_type, cat_map["CCHCS"])
-
-    products = []
-    try:
-        db_path = os.path.join(DATA_DIR, "reytech.db")
-        conn = _sql.connect(db_path)
-        conn.row_factory = _sql.Row
-        for cat in categories:
-            for r in conn.execute("""
-                SELECT id, name, category, sell_price, cost, manufacturer, recommended_price
-                FROM product_catalog WHERE category = ? AND cost > 0
-                ORDER BY recommended_price DESC LIMIT ?
-            """, (cat, limit // len(categories) + 1)):
-                d = dict(r)
-                d["margin_pct"] = round((d["sell_price"] - d["cost"]) / d["sell_price"] * 100) if d["sell_price"] > 0 else 0
-                products.append(d)
-        conn.close()
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)})
-
-    products.sort(key=lambda x: -(x.get("recommended_price") or x["sell_price"]))
-    return jsonify({"ok": True, "products": products[:limit], "agency_type": agency_type})
+    return jsonify({"ok": False, "error": "Not found"})
 
 
 @bp.route("/api/expansion/outreach", methods=["POST"])
 @auth_required
 def api_expansion_outreach():
-    """Create targeted outreach for a facility — smart PC + email draft.
-    Uses actual catalog products, not hardcoded items."""
+    """Create targeted outreach — smart PC + email to the REAL buyer."""
     import json as _json
     import sqlite3 as _sql
     data = request.get_json() or {}
@@ -2779,159 +2714,112 @@ def api_expansion_outreach():
     agency_type = data.get("agency_type","CCHCS")
     contact_email = data.get("email","")
     contact_name = data.get("contact_name","")
-    action = data.get("action", "email_and_pc")  # email_and_pc, pc_only, email_only, research
+    action = data.get("action", "email_and_pc")
 
     if not facility_name:
         return jsonify({"ok": False, "error": "Facility name required"})
 
     results = {"ok": True, "facility": facility_name, "agency_type": agency_type}
 
-    # ── Get real products from our catalog ──
+    # Real catalog products
     items = []
     try:
         db_path = os.path.join(DATA_DIR, "reytech.db")
-        conn = _sql.connect(db_path)
-        conn.row_factory = _sql.Row
+        conn = _sql.connect(db_path); conn.row_factory = _sql.Row
         cat_map = {
             "CCHCS": ["Medical/Clinical","Gloves","Cleaning/Sanitation"],
             "CalVet": ["Medical/Clinical","Personal Care","Gloves"],
             "DSH": ["Medical/Clinical","Safety/PPE","Gloves"],
         }
         for cat in cat_map.get(agency_type, ["Medical/Clinical","Gloves"]):
-            for r in conn.execute("""
-                SELECT name, sell_price, cost, recommended_price, manufacturer
-                FROM product_catalog WHERE category = ? AND cost > 0
-                ORDER BY RANDOM() LIMIT 2
-            """, (cat,)):
+            for r in conn.execute(
+                "SELECT name, sell_price, cost, recommended_price FROM product_catalog "
+                "WHERE category = ? AND cost > 0 ORDER BY RANDOM() LIMIT 2", (cat,)):
                 d = dict(r)
-                items.append({
-                    "description": d["name"][:80],
-                    "qty": 10,
+                items.append({"description": d["name"][:80], "qty": 10,
                     "unit_price": round(d.get("recommended_price") or d["sell_price"], 2),
-                    "cost": round(d["cost"], 2),
-                    "manufacturer": d.get("manufacturer",""),
-                })
+                    "cost": round(d["cost"], 2)})
         conn.close()
-    except Exception:
-        pass
-
+    except Exception: pass
     if not items:
-        # Fallback
-        items = [
-            {"description": "Nitrile Exam Gloves, Medium, Box/100", "qty": 50, "unit_price": 12.99, "cost": 9.50},
-            {"description": "Hand Sanitizer, 8oz, 75% Alcohol", "qty": 30, "unit_price": 6.99, "cost": 4.25},
-        ]
-
+        items = [{"description": "Nitrile Exam Gloves, Medium, Box/100", "qty": 50, "unit_price": 12.99, "cost": 9.50}]
     total = sum(it["qty"] * it["unit_price"] for it in items)
 
-    # ── Create PC ──
+    # PC
     if action in ("email_and_pc", "pc_only"):
         import time as _time
         pc_id = f"expand-{agency_type.lower()}-{int(_time.time())}"
         short = facility_name.split(":")[-1].strip()[:20] if ":" in facility_name else facility_name[:20]
         pc = {
-            "id": pc_id,
-            "created_at": datetime.now().isoformat(),
+            "id": pc_id, "created_at": datetime.now().isoformat(),
             "pc_number": f"EXP-{agency_type}-{short}",
-            "institution": facility_name,
-            "agency": "CDCR" if agency_type == "CCHCS" else agency_type,
-            "contact_email": contact_email,
-            "contact_name": contact_name,
-            "items": items,
-            "total": round(total, 2),
-            "status": "pending",
-            "tags": [f"{agency_type.lower()}_expansion", "outreach"],
-            "source": "cchcs_expansion",
-            "notes": f"Expansion target: {facility_name} ({agency_type})",
+            "institution": facility_name, "agency": "CDCR" if agency_type == "CCHCS" else agency_type,
+            "contact_email": contact_email, "contact_name": contact_name,
+            "items": items, "total": round(total, 2), "status": "pending",
+            "source": "cchcs_expansion", "tags": [f"{agency_type.lower()}_expansion", "outreach"],
         }
         pcs_path = os.path.join(DATA_DIR, "price_checks.json")
         pcs = _json.load(open(pcs_path)) if os.path.exists(pcs_path) else {}
         pcs[pc_id] = pc
-        with open(pcs_path, "w") as f:
-            _json.dump(pcs, f, indent=2)
-        results["pc_id"] = pc_id
-        results["items_count"] = len(items)
-        results["total"] = round(total, 2)
+        with open(pcs_path, "w") as f: _json.dump(pcs, f, indent=2)
+        results["pc_id"] = pc_id; results["items_count"] = len(items); results["total"] = round(total, 2)
 
-    # ── Draft email ──
+    # Email
     if action in ("email_and_pc", "email_only") and contact_email:
         short = facility_name.split(":")[-1].strip() if ":" in facility_name else facility_name
-        product_lines = "\n".join(f"  - {it['description'][:60]}" for it in items[:4])
-        body = f"""Hello{(' ' + contact_name.split()[0]) if contact_name else ''},
-
-I'm reaching out from Reytech Inc., a California-certified small business and SCPRS-registered medical supply vendor.
-
-We currently serve multiple {agency_type} facilities and would like to introduce our services to {short}. Some of our most relevant products include:
-
-{product_lines}
-
-We can respond to AMS 704 price check forms and offer competitive SCPRS pricing. Would it be possible to connect with your procurement team?
-
-Best regards,
-Mike Guzman
-Reytech Inc.
-(916) 995-4713 | mike@reytechinc.com
-CA Certified Small Business | SCPRS Supplier"""
-
+        plines = "\n".join(f"  - {it['description'][:60]}" for it in items[:4])
+        body = (f"Hello{(' ' + contact_name.split()[0]) if contact_name else ''},\n\n"
+                f"I'm reaching out from Reytech Inc., a CA-certified small business and SCPRS-registered vendor.\n\n"
+                f"We serve multiple {agency_type} facilities and would like to introduce our services to {short}:\n\n"
+                f"{plines}\n\n"
+                f"We respond to AMS 704 price checks and offer competitive SCPRS pricing.\n\n"
+                f"Best regards,\nMike Guzman\nReytech Inc.\n(916) 995-4713 | mike@reytechinc.com\n"
+                f"CA Certified Small Business | DVBE | SCPRS Supplier")
         try:
             from src.core.dal import get_outbox as _ob
             outbox = _ob()
-            draft_id = f"draft-expand-{int(__import__('time').time())}"
             outbox_path_local = os.path.join(DATA_DIR, "outbox.json")
-            outbox.append({
-                "id": draft_id, "to": contact_email,
-                "subject": f"Reytech Inc — Medical Supplies for {short}",
+            outbox.append({"id": f"draft-expand-{int(__import__('time').time())}",
+                "to": contact_email, "subject": f"Reytech Inc — Medical Supplies for {short}",
                 "body": body, "status": "draft", "type": "expansion_outreach",
-                "facility": facility_name, "agency_type": agency_type,
-                "created_at": datetime.now().isoformat(),
-            })
-            with open(outbox_path_local, "w") as f:
-                _json.dump(outbox, f, indent=2, default=str)
-            results["email_drafted"] = True
-            results["email_to"] = contact_email
-        except Exception as e:
-            results["email_error"] = str(e)
+                "facility": facility_name, "created_at": datetime.now().isoformat()})
+            with open(outbox_path_local, "w") as f: _json.dump(outbox, f, indent=2, default=str)
+            results["email_drafted"] = True; results["email_to"] = contact_email
+        except Exception as e: results["email_error"] = str(e)
 
-    # ── Update facility outreach status ──
+    # Activity log
     try:
         act_path = os.path.join(DATA_DIR, "crm_activity.json")
         acts = _json.load(open(act_path)) if os.path.exists(act_path) else []
-        acts.append({
-            "type": "expansion_outreach",
-            "facility": facility_name,
-            "agency_type": agency_type,
-            "action": action,
-            "email": contact_email,
-            "timestamp": datetime.now().isoformat(),
-            "total": round(total, 2),
-        })
-        with open(act_path, "w") as f:
-            _json.dump(acts, f, indent=2, default=str)
-    except Exception:
-        pass
-
-    # ── Notification ──
+        acts.append({"type": "expansion_outreach", "facility": facility_name,
+            "agency_type": agency_type, "action": action, "email": contact_email,
+            "timestamp": datetime.now().isoformat(), "total": round(total, 2)})
+        with open(act_path, "w") as f: _json.dump(acts, f, indent=2, default=str)
+    except Exception: pass
     try:
         from src.agents.notify_agent import send_alert
-        send_alert("bell", f"Outreach: {facility_name} ({agency_type})", {
-            "type": "expansion_target", "facility": facility_name,
-        })
-    except Exception:
-        pass
-
+        send_alert("bell", f"Outreach: {facility_name} ({agency_type})", {"type": "expansion_target"})
+    except Exception: pass
     return jsonify(results)
 
 
-def facility_name_match(name1, name2):
-    """Loose match between facility names."""
-    if not name1 or not name2: return False
-    n1 = name1.lower().replace(" ","")
-    n2 = name2.lower().replace(" ","")
-    return n1[:15] in n2 or n2[:15] in n1
+@bp.route("/api/expansion/scprs-pull", methods=["POST"])
+@auth_required
+def api_expansion_scprs_pull():
+    """Trigger SCPRS pull for an agency (background thread)."""
+    data = request.get_json() or {}
+    agency_key = data.get("agency_key", "CCHCS")
+    try:
+        from src.agents.scprs_intelligence_engine import pull_agency
+        import threading
+        threading.Thread(target=pull_agency, args=(agency_key,), daemon=True).start()
+        return jsonify({"ok": True, "message": f"SCPRS pull started for {agency_key}"})
+    except ImportError:
+        return jsonify({"ok": False, "error": "SCPRS engine not available"})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
 
 
-
-# ════════════════════════════════════════════════════════════════════════════════
 # VENDOR REGISTRATION TRACKER (F31-05)
 # ════════════════════════════════════════════════════════════════════════════════
 
