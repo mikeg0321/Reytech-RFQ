@@ -1955,6 +1955,85 @@ def api_pricecheck_price_sweep(pcid):
         return jsonify({"ok": False, "error": str(e)})
 
 
+@bp.route("/api/pricecheck/<pcid>/portfolio-price", methods=["POST"])
+@auth_required
+def api_pricecheck_portfolio_price(pcid):
+    """Portfolio pricing — optimizes entire quote as a portfolio."""
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"})
+    try:
+        from src.agents.product_catalog import optimize_portfolio, init_catalog_db
+        init_catalog_db()
+        items = []
+        for i, it in enumerate(pc.get("items", [])):
+            cost = it.get("vendor_cost") or it.get("pricing", {}).get("unit_cost") or 0
+            # Also try reading from form input if cost was recently entered
+            items.append({
+                "idx": i,
+                "description": it.get("description", ""),
+                "item_number": str(it.get("item_number", "")),
+                "cost": cost,
+                "qty": it.get("qty", 1),
+            })
+        result = optimize_portfolio(items, agency=pc.get("institution", ""))
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        log.exception("portfolio-price error")
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/pricecheck/<pcid>/competitor-intel")
+@auth_required
+def api_pricecheck_competitor_intel(pcid):
+    """Get competitor intelligence relevant to this PC's items."""
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"})
+    try:
+        from src.agents.award_monitor import get_price_suggestions
+        suggestions = get_price_suggestions(pc.get("items", []), pc.get("institution", ""))
+
+        # Also get catalog competitor data for each item
+        from src.agents.product_catalog import match_item, init_catalog_db
+        init_catalog_db()
+        catalog_intel = []
+        for i, it in enumerate(pc.get("items", [])):
+            desc = (it.get("description") or "").strip()
+            pn = str(it.get("item_number") or "").strip()
+            if not desc and not pn:
+                continue
+            matches = match_item(desc, pn, top_n=1)
+            if matches and matches[0].get("match_confidence", 0) >= 0.50:
+                m = matches[0]
+                if m.get("competitor_low_price") or m.get("scprs_last_price"):
+                    catalog_intel.append({
+                        "idx": i,
+                        "description": desc[:60],
+                        "scprs_price": m.get("scprs_last_price"),
+                        "scprs_agency": m.get("scprs_agency", ""),
+                        "competitor_price": m.get("competitor_low_price"),
+                        "competitor_source": m.get("competitor_source", ""),
+                        "web_lowest": m.get("web_lowest_price"),
+                        "win_rate": m.get("win_rate", 0),
+                        "times_won": m.get("times_won", 0),
+                        "times_lost": m.get("times_lost", 0),
+                    })
+
+        return jsonify({
+            "ok": True,
+            "suggestions": suggestions,
+            "catalog_intel": catalog_intel,
+            "suggestion_count": len(suggestions),
+            "intel_count": len(catalog_intel),
+        })
+    except Exception as e:
+        log.exception("competitor-intel error")
+        return jsonify({"ok": False, "error": str(e)})
+
+
 @bp.route("/competitors")
 @auth_required
 def competitors_page():

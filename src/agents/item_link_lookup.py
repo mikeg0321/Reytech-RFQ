@@ -272,6 +272,40 @@ def _scrape_generic(url: str) -> dict:
     if jld_name:
         result["title"] = jld_name.group(1).strip()[:200]
 
+    # Product image — extract from JSON-LD, OG, or meta
+    image_patterns = [
+        r'"@type"\s*:\s*"Product"[^}]*"image"\s*:\s*"([^"]{10,500})"',
+        r'<meta\s+(?:property|name)\s*=\s*"og:image"\s+content\s*=\s*"([^"]{10,500})"',
+        r'<meta\s+content\s*=\s*"([^"]{10,500})"\s+(?:property|name)\s*=\s*"og:image"',
+        r'"image"\s*:\s*\[\s*"([^"]{10,500})"',
+        r'data-main-image\s*=\s*"([^"]{10,500})"',
+        r'id\s*=\s*"[^"]*main[^"]*image[^"]*"\s+src\s*=\s*"([^"]{10,500})"',
+    ]
+    for pat in image_patterns:
+        m = re.search(pat, html, re.IGNORECASE | re.DOTALL)
+        if m:
+            img_url = m.group(1).strip()
+            if img_url.startswith("//"):
+                img_url = "https:" + img_url
+            if img_url.startswith("http"):
+                result["photo_url"] = img_url
+                break
+
+    # UOM detection from description/title
+    uom_patterns = [
+        (r'\b(\d+)\s*(?:per|/)\s*(?:case|cs)\b', 'CS'),
+        (r'\b(\d+)\s*(?:per|/)\s*(?:box|bx)\b', 'BX'),
+        (r'\b(\d+)\s*(?:per|/)\s*(?:pack|pk)\b', 'PK'),
+        (r'\beach\b', 'EA'),
+        (r'\bper\s+pair\b', 'PR'),
+        (r'\bper\s+roll\b', 'RL'),
+    ]
+    text_to_check = (result.get("title", "") + " " + result.get("meta_description", "")).lower()
+    for pat, uom in uom_patterns:
+        if re.search(pat, text_to_check, re.IGNORECASE):
+            result["uom"] = uom
+            break
+
     return result
 
 

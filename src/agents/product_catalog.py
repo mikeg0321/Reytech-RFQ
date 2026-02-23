@@ -1313,6 +1313,147 @@ def bulk_smart_price(items: list, agency: str = "") -> list:
     return results
 
 
+def optimize_portfolio(items: list, agency: str = "",
+                       target_win_pct: float = 70.0) -> dict:
+    """
+    Portfolio Pricing Optimizer — optimizes the WHOLE quote, not per-item.
+    
+    Strategy: Loss-leader on commodities + profit-center on specialty items.
+    Government buyers evaluate total quote price, so we can take thin margins
+    on competitive items and make it up on niche items.
+    
+    Returns: {items: [...], total_cost, total_revenue, blended_margin,
+              estimated_win_pct, vs_flat: {revenue, margin, win_pct}}
+    """
+    conn = _get_conn()
+    portfolio = []
+    total_cost = 0
+    total_revenue = 0
+
+    for item in items:
+        desc = (item.get("description") or "").strip()
+        pn = str(item.get("item_number") or "").strip()
+        idx = item.get("idx", 0)
+        qty = max(item.get("qty", 1), 1)
+        cost = float(item.get("cost") or item.get("vendor_cost") or 0)
+
+        if cost <= 0:
+            portfolio.append({"idx": idx, "strategy": "skip", "reason": "no cost"})
+            continue
+
+        # Match to catalog
+        matches = match_item(desc, pn, top_n=1)
+        product = None
+        if matches and matches[0].get("match_confidence", 0) >= 0.50:
+            pid = matches[0]["id"]
+            row = conn.execute("SELECT * FROM product_catalog WHERE id = ?", (pid,)).fetchone()
+            if row:
+                product = dict(row)
+
+        # Classify item competitiveness
+        scprs = product.get("scprs_last_price", 0) if product else 0
+        comp_low = product.get("competitor_low_price", 0) if product else 0
+        web_low = product.get("web_lowest_price", 0) if product else 0
+        times_won = product.get("times_won", 0) if product else 0
+        times_lost = product.get("times_lost", 0) if product else 0
+        win_rate = product.get("win_rate", 0) if product else 0
+
+        # Determine competition level
+        price_refs = [p for p in [scprs, comp_low, web_low] if p and p > 0]
+        if len(price_refs) >= 2:
+            competition = "high"  # Multiple price references = competitive
+        elif len(price_refs) == 1:
+            competition = "medium"
+        elif times_lost > times_won:
+            competition = "high"  # We lose more than win = competitive
+        else:
+            competition = "low"  # No price refs, likely niche/specialty
+
+        # Set strategy based on competition
+        if competition == "high":
+            # LOSS LEADER: Thin margin, win on price
+            markup_pct = 0.10  # 10%
+            strategy = "loss_leader"
+            reason = "Competitive item — thin margin to win"
+            if scprs and scprs > 0:
+                price = min(round(cost * (1 + markup_pct), 2), round(scprs * 0.97, 2))
+            else:
+                price = round(cost * (1 + markup_pct), 2)
+        elif competition == "low":
+            # PROFIT CENTER: Maximize margin on niche items
+            markup_pct = 0.45  # 45%
+            strategy = "profit_center"
+            reason = "Niche/specialty — maximize margin"
+            price = round(cost * (1 + markup_pct), 2)
+            if scprs and scprs > 0:
+                price = min(price, round(scprs * 0.95, 2))
+        else:
+            # BALANCED: Standard markup
+            markup_pct = 0.25  # 25%
+            strategy = "balanced"
+            reason = "Standard competitive positioning"
+            price = round(cost * (1 + markup_pct), 2)
+            if scprs and scprs > 0:
+                price = min(price, round(scprs * 0.97, 2))
+
+        # Ensure minimum profit
+        min_profit = max(5, cost * 0.05)
+        price = max(price, round(cost + min_profit, 2))
+
+        ext_cost = round(cost * qty, 2)
+        ext_price = round(price * qty, 2)
+        margin = round((price - cost) / price * 100, 1) if price > 0 else 0
+
+        total_cost += ext_cost
+        total_revenue += ext_price
+
+        portfolio.append({
+            "idx": idx,
+            "strategy": strategy,
+            "reason": reason,
+            "competition": competition,
+            "cost": round(cost, 2),
+            "price": round(price, 2),
+            "margin_pct": margin,
+            "qty": qty,
+            "ext_cost": ext_cost,
+            "ext_price": ext_price,
+            "markup_pct": round((price / cost - 1) * 100, 1) if cost > 0 else 0,
+            "scprs_ceiling": scprs,
+            "catalog_matched": product is not None,
+        })
+
+    conn.close()
+
+    blended_margin = round((total_revenue - total_cost) / total_revenue * 100, 1) if total_revenue > 0 else 0
+    total_profit = round(total_revenue - total_cost, 2)
+
+    # Compare vs flat 25% markup
+    flat_revenue = round(total_cost * 1.25, 2)
+    flat_margin = round((flat_revenue - total_cost) / flat_revenue * 100, 1) if flat_revenue > 0 else 0
+    flat_profit = round(flat_revenue - total_cost, 2)
+
+    return {
+        "items": portfolio,
+        "total_cost": round(total_cost, 2),
+        "total_revenue": round(total_revenue, 2),
+        "total_profit": total_profit,
+        "blended_margin": blended_margin,
+        "estimated_win_pct": min(95, max(30, target_win_pct + (blended_margin - 25) * -1.5)),
+        "vs_flat": {
+            "revenue": round(flat_revenue, 2),
+            "profit": flat_profit,
+            "margin": flat_margin,
+            "profit_delta": round(total_profit - flat_profit, 2),
+        },
+        "strategy_summary": {
+            "loss_leaders": sum(1 for p in portfolio if p.get("strategy") == "loss_leader"),
+            "profit_centers": sum(1 for p in portfolio if p.get("strategy") == "profit_center"),
+            "balanced": sum(1 for p in portfolio if p.get("strategy") == "balanced"),
+        }
+    }
+
+
 def bulk_margin_analysis(min_price: float = 5.0) -> list:
     """
     Find all products where margin can be increased.

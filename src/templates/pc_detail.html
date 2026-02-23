@@ -180,6 +180,9 @@
         {% endif %}
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#c9d1d9;border:none;padding:8px 10px;font-size:12px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="window.print()">🖨️ Print Page</button>
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#58a6ff;border:none;padding:8px 10px;font-size:12px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="generateQuote1Click(this)">📋 Generate Quote (formal 704b/703b only)</button>
+        <hr style="border-color:#30363d;margin:4px 0">
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#d2a8ff;border:none;padding:8px 10px;font-size:12px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runPortfolioPrice(this)">📊 Portfolio Optimizer</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#f0883e;border:none;padding:8px 10px;font-size:12px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runCompetitorIntel(this)">🏢 Competitor Intel</button>
        </div>
       </details>
      </div>
@@ -1032,6 +1035,182 @@
      }
      recalcRow(idx);recalcPC();
      showMsg('✅ Applied '+opt.source+' pricing: $'+Number(opt.price).toFixed(2),'ok');
+    }
+
+    /* ═══ 📊 PORTFOLIO OPTIMIZER: Quote-level pricing strategy ═══ */
+    function runPortfolioPrice(btn) {
+     btn.disabled=true;const origText=btn.textContent;btn.textContent='⏳ Optimizing...';
+     showMsg('📊 Running portfolio optimization across all items...','warn');
+
+     // Read current costs from form
+     const items=[];
+     document.querySelectorAll('textarea[name^=desc_]').forEach(ta=>{
+      const idx=ta.name.replace('desc_','');
+      const desc=(ta.value||'').trim();
+      const pn=(document.querySelector('[name=itemnum_'+idx+']')||{}).value||'';
+      const cost=parseFloat((document.querySelector('[name=cost_'+idx+']')||{}).value)||0;
+      const qty=parseInt((document.querySelector('[name=qty_'+idx+']')||{}).value)||1;
+      if(desc||pn) items.push({idx:parseInt(idx), description:desc, item_number:pn, cost:cost, qty:qty});
+     });
+
+     fetch('/api/pricecheck/{{ pcid }}/portfolio-price',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({items:items})
+     }).then(r=>r.json()).then(d=>{
+      btn.disabled=false;btn.textContent=origText;
+      if(!d.ok){showMsg('❌ '+d.error,'err');return;}
+
+      // Show portfolio summary panel
+      let panelEl=document.getElementById('portfolioPanel');
+      if(!panelEl){
+       panelEl=document.createElement('div');panelEl.id='portfolioPanel';
+       panelEl.style.cssText='background:#0d1117;border:2px solid #d2a8ff44;border-radius:12px;padding:16px;margin:12px 0';
+       const tierRow=document.querySelector('.tier-btn')?.closest('div[style]')?.parentElement;
+       if(tierRow) tierRow.parentElement.insertBefore(panelEl,tierRow.nextSibling);
+       else document.querySelector('#itemsTable')?.parentElement?.insertBefore(panelEl,document.querySelector('#itemsTable'));
+      }
+
+      const ss=d.strategy_summary||{};
+      const vs=d.vs_flat||{};
+      const deltaColor=vs.profit_delta>=0?'#3fb950':'#f85149';
+      const deltaSign=vs.profit_delta>=0?'+':'';
+
+      panelEl.innerHTML=`
+       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <span style="font-weight:700;color:#d2a8ff;font-size:15px">📊 Portfolio Pricing Strategy</span>
+        <button onclick="this.parentElement.parentElement.remove()" style="background:none;border:none;color:#8b949e;cursor:pointer;font-size:16px">✕</button>
+       </div>
+       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:12px">
+        <div style="text-align:center;padding:10px;background:#161b22;border-radius:8px">
+         <div style="font-size:20px;font-weight:700;color:#3fb950;font-family:JetBrains Mono,monospace">$${Number(d.total_profit).toLocaleString('en',{minimumFractionDigits:2})}</div>
+         <div style="font-size:11px;color:#8b949e">Total Profit</div>
+        </div>
+        <div style="text-align:center;padding:10px;background:#161b22;border-radius:8px">
+         <div style="font-size:20px;font-weight:700;color:#58a6ff;font-family:JetBrains Mono,monospace">${d.blended_margin}%</div>
+         <div style="font-size:11px;color:#8b949e">Blended Margin</div>
+        </div>
+        <div style="text-align:center;padding:10px;background:#161b22;border-radius:8px">
+         <div style="font-size:20px;font-weight:700;color:#d29922;font-family:JetBrains Mono,monospace">~${Math.round(d.estimated_win_pct)}%</div>
+         <div style="font-size:11px;color:#8b949e">Est. Win Prob</div>
+        </div>
+        <div style="text-align:center;padding:10px;background:#161b22;border-radius:8px">
+         <div style="font-size:20px;font-weight:700;color:${deltaColor};font-family:JetBrains Mono,monospace">${deltaSign}$${Math.abs(vs.profit_delta).toFixed(2)}</div>
+         <div style="font-size:11px;color:#8b949e">vs Flat 25%</div>
+        </div>
+       </div>
+       <div style="display:flex;gap:16px;font-size:11px;color:#8b949e;margin-bottom:10px">
+        <span>⚡ ${ss.loss_leaders||0} loss leaders (10%)</span>
+        <span>🎯 ${ss.balanced||0} balanced (25%)</span>
+        <span>💰 ${ss.profit_centers||0} profit centers (45%)</span>
+       </div>
+       <div style="display:flex;gap:8px">
+        <button onclick="applyPortfolioPrices()" style="background:#d2a8ff22;color:#d2a8ff;border:1px solid #d2a8ff44;border-radius:6px;padding:6px 16px;cursor:pointer;font-weight:600;font-size:12px">✅ Apply Portfolio Prices</button>
+        <button onclick="this.parentElement.parentElement.remove()" style="background:#21262d;color:#8b949e;border:1px solid #30363d;border-radius:6px;padding:6px 16px;cursor:pointer;font-size:12px">Cancel</button>
+       </div>`;
+
+      // Store portfolio data for apply
+      window._portfolioData=d.items||[];
+      showMsg('📊 Portfolio: $'+Number(d.total_profit).toFixed(2)+' profit at '+d.blended_margin+'% margin ('+(vs.profit_delta>=0?'+':'')+vs.profit_delta.toFixed(2)+' vs flat 25%)','ok');
+     }).catch(e=>{
+      btn.disabled=false;btn.textContent=origText;
+      showMsg('❌ Portfolio error: '+e.message,'err');
+     });
+    }
+
+    function applyPortfolioPrices() {
+     if(!window._portfolioData) return;
+     let applied=0;
+     window._portfolioData.forEach(p=>{
+      if(!p.price || p.strategy==='skip') return;
+      const priceEl=document.querySelector('[name=price_'+p.idx+']');
+      const descEl=document.querySelector('[name=desc_'+p.idx+']');
+      if(priceEl){
+       priceEl.value=Number(p.price).toFixed(2);
+       const color=p.strategy==='loss_leader'?'#f8514922':p.strategy==='profit_center'?'#3fb95022':'#58a6ff22';
+       priceEl.style.background=color;
+       setTimeout(()=>{priceEl.style.background='';},2000);
+       recalcRow(p.idx);
+       applied++;
+      }
+      // Show strategy badge
+      if(descEl){
+       const oldBadge=descEl.parentElement.querySelector('.port-badge');
+       if(oldBadge)oldBadge.remove();
+       const icon=p.strategy==='loss_leader'?'⚡':p.strategy==='profit_center'?'💰':'🎯';
+       const color=p.strategy==='loss_leader'?'#f85149':p.strategy==='profit_center'?'#3fb950':'#58a6ff';
+       const badge=document.createElement('div');
+       badge.className='port-badge';
+       badge.style.cssText='font-size:10px;margin-bottom:1px';
+       badge.innerHTML='<span style="color:'+color+'">'+icon+' '+p.strategy.replace('_',' ')+' ('+p.markup_pct+'% markup)</span>';
+       descEl.parentElement.insertBefore(badge,descEl);
+      }
+     });
+     recalcPC();
+     const panel=document.getElementById('portfolioPanel');
+     if(panel) panel.remove();
+     showMsg('✅ Applied portfolio pricing to '+applied+' items','ok');
+    }
+
+    /* ═══ 🏢 COMPETITOR INTEL: Show competitive intelligence for this quote ═══ */
+    function runCompetitorIntel(btn) {
+     btn.disabled=true;const origText=btn.textContent;btn.textContent='⏳ Loading...';
+
+     fetch('/api/pricecheck/{{ pcid }}/competitor-intel')
+     .then(r=>r.json()).then(d=>{
+      btn.disabled=false;btn.textContent=origText;
+      if(!d.ok){showMsg('❌ '+d.error,'err');return;}
+
+      // Show intel panel
+      let panelEl=document.getElementById('compIntelPanel');
+      if(!panelEl){
+       panelEl=document.createElement('div');panelEl.id='compIntelPanel';
+       panelEl.style.cssText='background:#0d1117;border:2px solid #f0883e44;border-radius:12px;padding:16px;margin:12px 0';
+       const tierRow=document.querySelector('.tier-btn')?.closest('div[style]')?.parentElement;
+       if(tierRow) tierRow.parentElement.insertBefore(panelEl,tierRow.nextSibling);
+       else document.querySelector('#itemsTable')?.parentElement?.insertBefore(panelEl,document.querySelector('#itemsTable'));
+      }
+
+      let html='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><span style="font-weight:700;color:#f0883e;font-size:15px">🏢 Competitor Intelligence</span><button onclick="this.parentElement.parentElement.remove()" style="background:none;border:none;color:#8b949e;cursor:pointer;font-size:16px">✕</button></div>';
+
+      // Previous losses (suggestions)
+      if(d.suggestions && d.suggestions.length>0){
+       html+='<div style="margin-bottom:12px"><div style="font-weight:600;color:#f85149;font-size:12px;margin-bottom:6px">⚠️ Previous Losses on Similar Items</div>';
+       d.suggestions.slice(0,5).forEach(s=>{
+        html+='<div style="background:#161b22;border-radius:6px;padding:8px 10px;margin-bottom:4px;font-size:11px">';
+        html+='<span style="color:#c9d1d9;font-weight:600">'+escHtml(s.item_desc)+'</span> ';
+        html+='<span style="color:#f85149">Lost to '+escHtml(s.competitor)+' at $'+Number(s.their_price).toFixed(2)+'</span> ';
+        html+='<span style="color:#8b949e">(we quoted $'+Number(s.our_price).toFixed(2)+', '+s.delta_pct+'%)</span>';
+        html+='</div>';
+       });
+       html+='</div>';
+      }
+
+      // Catalog intel (SCPRS/competitor data)
+      if(d.catalog_intel && d.catalog_intel.length>0){
+       html+='<div><div style="font-weight:600;color:#58a6ff;font-size:12px;margin-bottom:6px">📈 Known Price Ceilings</div>';
+       d.catalog_intel.forEach(ci=>{
+        html+='<div style="background:#161b22;border-radius:6px;padding:8px 10px;margin-bottom:4px;font-size:11px;display:flex;gap:12px;flex-wrap:wrap">';
+        html+='<span style="color:#c9d1d9;font-weight:600;min-width:150px">Item '+ci.idx+': '+escHtml(ci.description)+'</span>';
+        if(ci.scprs_price) html+='<span style="color:#58a6ff">SCPRS: $'+Number(ci.scprs_price).toFixed(2)+'</span>';
+        if(ci.competitor_price) html+='<span style="color:#f85149">Competitor: $'+Number(ci.competitor_price).toFixed(2)+' ('+escHtml(ci.competitor_source)+')</span>';
+        if(ci.web_lowest) html+='<span style="color:#d29922">Web: $'+Number(ci.web_lowest).toFixed(2)+'</span>';
+        if(ci.win_rate>0) html+='<span style="color:'+(ci.win_rate>=60?'#3fb950':'#f85149')+'">Win: '+Math.round(ci.win_rate)+'%</span>';
+        html+='</div>';
+       });
+       html+='</div>';
+      }
+
+      if(!d.suggestions?.length && !d.catalog_intel?.length){
+       html+='<div style="color:#8b949e;font-size:12px;padding:12px;text-align:center">No competitor data available yet. Win/loss tracking will build intelligence over time.</div>';
+      }
+
+      panelEl.innerHTML=html;
+      showMsg('🏢 Competitor Intel: '+d.suggestion_count+' loss warnings, '+d.intel_count+' price ceilings found','ok');
+     }).catch(e=>{
+      btn.disabled=false;btn.textContent=origText;
+      showMsg('❌ Intel error: '+e.message,'err');
+     });
     }
 
     /* ═══ AUTO-MATCH ON PAGE LOAD ═══ */
