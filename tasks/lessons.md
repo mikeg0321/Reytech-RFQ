@@ -117,3 +117,18 @@ show separately. Never display as a facility-specific buyer. Real buyer contacts
 2. Price Check requestor fields
 3. CRM manual entries
 The hierarchy: SCPRS Buyer > PC Requestor > CRM > QB Billing > Central/Shared
+
+## L19: Use Anthropic API + web_search as universal price finder
+**Pattern**: SerpApi costs $50/mo and requires a separate key. The Anthropic API with 
+web_search tool is more powerful (Claude understands product descriptions, searches any 
+site) and uses the same API key already on Railway.
+**Rule**: Default to Claude Haiku + web_search for product pricing. Falls back gracefully.
+Pipeline: Catalog (local) → SCPRS (local) → Claude Web Search (API) → Manual.
+The web search module caches results for 7 days to avoid redundant API calls.
+
+## L20: Protect all IIFEs and DOM operations in script blocks with try/catch
+**Pattern**: An unprotected `recalcPC()` or `getElementById()` crash at the top of a
+<script> block kills ALL function definitions below it. Every button handler becomes
+undefined, the page looks functional but nothing works.
+**Rule**: Wrap ALL early-executing code (IIFEs, DOM queries, recalc calls) in try/catch.
+Function definitions below are never guarded — they rely on not being blocked.
