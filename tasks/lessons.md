@@ -107,3 +107,13 @@ multiple sizes = same description). Append [part#] on collision.
 **Pattern**: Sprint 1 fixes (name fixing, pricing) should run on deploy but not on every restart.
 **Rule**: Use a measurable signal (e.g., "count products with NULL recommended_price > 50")
 to decide if fixes need to run. Avoids re-processing and keeps startup fast.
+
+## L18: Shared QB emails are NOT facility-specific contacts
+**Pattern**: QuickBooks customer records often have one email (e.g., timothy.anderson@cdcr.ca.gov) 
+copied across 33 facilities. That person is a central billing contact, NOT a buyer at each facility.
+**Rule**: Count emails across facilities. If email appears on 3+ facilities → tag as "CENTRAL" and 
+show separately. Never display as a facility-specific buyer. Real buyer contacts come from:
+1. SCPRS PO data (buyer_name/buyer_email per PO)
+2. Price Check requestor fields
+3. CRM manual entries
+The hierarchy: SCPRS Buyer > PC Requestor > CRM > QB Billing > Central/Shared
