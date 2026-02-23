@@ -23,7 +23,11 @@ table{width:100%;border-collapse:collapse}
   </div>
 </div>
 
-{{ pull_banner|safe }}
+{% if running %}
+<div style="background:rgba(37,99,235,.1);border:1px solid var(--ac);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:13px;font-weight:600;color:var(--ac)">⏳ Pulling {{ current_agency }}... Auto-refreshing every 10s</div>
+{% elif no_data %}
+<div style="background:rgba(220,38,38,.06);border:1px solid var(--rd);border-radius:8px;padding:14px 18px;margin-bottom:16px"><div style="font-size:14px;font-weight:700;color:var(--rd)">📡 No SCPRS data yet</div><div style="font-size:13px;color:var(--tx2);margin-top:4px">Click "Pull All Agencies" to search public SCPRS records for what every agency is buying. Takes 10-15 min. Runs automatically after that.</div></div>
+{% endif %}
 
 <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:20px">
   <div class="card" style="text-align:center">
@@ -75,7 +79,38 @@ table{width:100%;border-collapse:collapse}
   <div style="font-size:13px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">
     🎯 What To Do Next — Ranked by Revenue Impact
   </div>
-  {{ rec_html if rec_html else '<div class="card" style="text-align:center;padding:32px;color:var(--tx2)">Pull SCPRS data to generate recommendations</div>'|safe }}
+  {% if recs %}
+    {% for rec in recs[:8] %}
+    {% set prio = rec.get("priority", "P1") %}
+    {% set prio_color = {"P0": "var(--rd)", "P1": "var(--ac)", "P2": "var(--tx2)"}.get(prio, "var(--tx)") %}
+    {% set rtype = rec.get("type", "") %}
+    {% set type_icon = {"add_product": "📦", "win_back": "⚔️", "pricing": "💲", "expand_agency": "🏛️", "dvbe_displace": "🏅", "dvbe_partner": "🤝", "source_anything": "🔍"}.get(rtype, "🎯") %}
+    {% set val = rec.get("estimated_annual_value", 0) or 0 %}
+    {% set rec_agencies = rec.get("agencies", [])|join(", ") %}
+    <div style="border:1px solid var(--bd);border-left:4px solid {{ prio_color }};border-radius:8px;padding:14px 18px;margin-bottom:10px;background:var(--bg2)">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
+        <div style="flex:1">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
+            <span style="font-size:16px">{{ type_icon }}</span>
+            <span style="font-size:14px;font-weight:700;color:var(--tx)">{{ rec.get("action","") }}</span>
+            <span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;background:rgba(0,0,0,.08);color:{{ prio_color }}">{{ prio }}</span>
+            {% if rec.get("dvbe_angle") %}<span style="background:rgba(22,163,74,.15);color:var(--gn);padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700">DVBE</span>{% endif %}
+            {% if rec.get("partner_model") %}<span style="background:rgba(37,99,235,.15);color:var(--ac);padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700">PARTNER</span>{% endif %}
+          </div>
+          <div style="font-size:12px;color:var(--tx2);margin-bottom:6px;line-height:1.5">{{ rec.get("why","") }}</div>
+          <div style="font-size:12px;color:var(--ac);font-weight:500">▶ {{ rec.get("how","")[:120] }}</div>
+          {% if rec_agencies %}<div style="font-size:11px;color:var(--tx2);margin-top:4px">📍 {{ rec_agencies }}</div>{% endif %}
+        </div>
+        <div style="text-align:right;flex-shrink:0">
+          <div style="font-size:20px;font-weight:800;color:var(--gn)">${{ "{:,.0f}".format(val) }}</div>
+          <div style="font-size:10px;color:var(--tx2)">est/yr</div>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  {% else %}
+    <div class="card" style="text-align:center;padding:32px;color:var(--tx2)">Pull SCPRS data to generate recommendations</div>
+  {% endif %}
 </div>
 
 <!-- TABS -->
@@ -89,14 +124,46 @@ table{width:100%;border-collapse:collapse}
 <div id="tab-gaps" class="card" style="padding:0;overflow-x:auto">
   <table>
     <thead><tr><th>Item CCHCS/Agencies Buy</th><th>Category</th><th>Agencies</th><th style="text-align:center">Orders</th><th style="text-align:right">Avg Price</th><th style="text-align:right">Annual Spend</th></tr></thead>
-    <tbody>{{ gap_rows if gap_rows else '<tr><td colspan="6" style="padding:24px;text-align:center;color:var(--tx2)">Pull data to see gaps →</td></tr>'|safe }}</tbody>
+    <tbody>
+    {% if gaps %}
+      {% for g in gaps[:20] %}
+      <tr style="border-bottom:1px solid var(--bd)">
+        <td style="padding:7px 12px;font-size:12px">{{ g.get("description","")[:50] }}</td>
+        <td style="padding:7px 12px;font-size:11px;color:var(--tx2)">{{ (g.get("category") or "").replace("_"," ").title() }}</td>
+        <td style="padding:7px 12px;font-size:11px;text-align:center">{{ (g.get("agencies") or "").split(",")[:3]|join(", ") }}</td>
+        <td style="padding:7px 12px;font-size:11px;text-align:center">{{ g.get("order_count",0) }}</td>
+        <td style="padding:7px 12px;font-size:12px;text-align:right">${{ "%.2f"|format(g.get("avg_price") or 0) }}</td>
+        <td style="padding:7px 12px;font-size:13px;font-weight:700;text-align:right;color:var(--rd)">${{ "{:,.0f}".format(g.get("total_spend") or 0) }}</td>
+      </tr>
+      {% endfor %}
+    {% else %}
+      <tr><td colspan="6" style="padding:24px;text-align:center;color:var(--tx2)">Pull data to see gaps →</td></tr>
+    {% endif %}
+    </tbody>
   </table>
 </div>
 
 <div id="tab-winback" class="card" style="padding:0;overflow-x:auto;display:none">
   <table>
     <thead><tr><th>Item We Sell</th><th>Our SKU</th><th>Current Vendor</th><th>Agencies</th><th style="text-align:right">Their Price</th><th style="text-align:right">Spend</th></tr></thead>
-    <tbody>{{ wb_rows if wb_rows else '<tr><td colspan="6" style="padding:16px;text-align:center;color:var(--tx2)">Pull data to see win-back opportunities</td></tr>'|safe }}</tbody>
+    <tbody>
+    {% if win_back %}
+      {% for w in win_back[:15] %}
+      {% set vendors = (w.get("incumbent_vendors") or "Unknown").split(",") %}
+      {% set w_ags = (w.get("agencies") or "").split(",") %}
+      <tr style="border-bottom:1px solid var(--bd)">
+        <td style="padding:7px 12px;font-size:12px">{{ w.get("description","")[:45] }}</td>
+        <td style="padding:7px 12px;font-size:11px;font-weight:600;color:var(--ac)">{{ w.get("reytech_sku","—") }}</td>
+        <td style="padding:7px 12px;font-size:11px;color:var(--rd)">{{ vendors[0][:25] if vendors else "?" }}</td>
+        <td style="padding:7px 12px;font-size:11px;color:var(--tx2)">{{ w_ags[:3]|join(", ") }}</td>
+        <td style="padding:7px 12px;font-size:12px;text-align:right">${{ "%.2f"|format(w.get("avg_price") or 0) }}</td>
+        <td style="padding:7px 12px;font-size:13px;font-weight:700;text-align:right;color:var(--gn)">${{ "{:,.0f}".format(w.get("total_spend") or 0) }}</td>
+      </tr>
+      {% endfor %}
+    {% else %}
+      <tr><td colspan="6" style="padding:16px;text-align:center;color:var(--tx2)">Pull data to see win-back opportunities</td></tr>
+    {% endif %}
+    </tbody>
   </table>
 </div>
 
@@ -106,7 +173,25 @@ table{width:100%;border-collapse:collapse}
   </div>
   <table>
     <thead><tr><th>Quote</th><th>Agency / Facility</th><th>Who Won</th><th style="text-align:right">Winner Price</th><th style="text-align:right">Our Quote</th><th style="text-align:right">Diff</th></tr></thead>
-    <tbody>{{ loss_rows if loss_rows else '<tr><td colspan="6" style="padding:16px;text-align:center;color:var(--tx2)">No auto-closed quotes yet — run "Check Lost Quotes"</td></tr>'|safe }}</tbody>
+    <tbody>
+    {% if losses %}
+      {% for l in losses[:6] %}
+      {% set our = l.get("total") or 0 %}
+      {% set theirs = l.get("scprs_total") or 0 %}
+      {% set delta = our - theirs %}
+      <tr style="border-bottom:1px solid var(--bd)">
+        <td style="padding:7px 12px;font-size:12px;font-weight:600">{{ l.get("quote_number","") }}</td>
+        <td style="padding:7px 12px;font-size:12px">{{ l.get("agency","") }} — {{ l.get("institution","")[:25] }}</td>
+        <td style="padding:7px 12px;font-size:12px;color:var(--rd)">{{ l.get("scprs_supplier","")[:25] }}</td>
+        <td style="padding:7px 12px;font-size:12px;text-align:right">${{ "{:,.0f}".format(theirs) }}</td>
+        <td style="padding:7px 12px;font-size:12px;text-align:right">${{ "{:,.0f}".format(our) }}</td>
+        <td style="padding:7px 12px;font-size:12px;font-weight:700;text-align:right;color:{{ 'var(--rd)' if delta > 0 else 'var(--gn)' }}">${{ "{:,.0f}".format(delta|abs) }} {{ 'over' if delta > 0 else 'under' }}</td>
+      </tr>
+      {% endfor %}
+    {% else %}
+      <tr><td colspan="6" style="padding:16px;text-align:center;color:var(--tx2)">No auto-closed quotes yet — run "Check Lost Quotes"</td></tr>
+    {% endif %}
+    </tbody>
   </table>
 </div>
 
@@ -116,7 +201,23 @@ table{width:100%;border-collapse:collapse}
   </div>
   <table>
     <thead><tr><th>Agency</th><th>Status</th><th>Last Pull</th><th>Frequency</th><th>Action</th></tr></thead>
-    <tbody>{{ ag_rows|safe }}</tbody>
+    <tbody>
+    {% for ak in all_agencies %}
+      {% set ag_data = agency_map.get(ak, {}) %}
+      {% set pos = ag_data.get("pos") or 0 %}
+      {% set sch = schedule_map.get(ak, {}) %}
+      {% set last = (sch.get("last_pull") or "Never")[:10] %}
+      <tr style="border-bottom:1px solid var(--bd)">
+        <td style="padding:7px 12px;font-size:13px;font-weight:600">{{ ak }}</td>
+        <td style="padding:7px 12px;font-size:12px;color:{{ 'var(--gn)' if pos > 0 else 'var(--rd)' }}">{{ '✅ %d POs'|format(pos) if pos > 0 else '⬜ No data' }}</td>
+        <td style="padding:7px 12px;font-size:11px;color:var(--tx2)">{{ last }}</td>
+        <td style="padding:7px 12px;font-size:11px;color:var(--tx2)">Every {{ sch.get("pull_interval_hours",168) }}h</td>
+        <td style="padding:7px 12px">
+          <button onclick="pullAgency('{{ ak }}')" style="font-size:10px;padding:3px 10px;border:1px solid var(--bd);border-radius:4px;background:none;color:var(--tx);cursor:pointer">Pull Now</button>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
   </table>
 </div>
 
