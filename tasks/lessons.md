@@ -164,3 +164,14 @@ item_number field, so the MFG# column stayed blank.
 **Rule**: After every match (SCPRS, catalog, web), check if item.item_number is empty.
 If so, copy the best available part number from the match result.
 Priority: mfg_number > part_number > sku > asin > sequential.
+
+## L25: 704 ITEM field is just a row number — real part numbers are elsewhere
+**Pattern**: The AMS 704 "ITEM" column contains sequential row numbers (1, 2, 3).
+Real MFG/part/reference numbers are in:
+1. SUBSTITUTED ITEM column ("Include manufacturer, part number, and/or reference number")
+2. Embedded in the DESCRIPTION field (e.g. "MFG#: ABC-123")
+3. Occasionally the ITEM field has a real code (alphanumeric, not sequential)
+**Rule**: Parse ALL three sources. Priority: substituted > description > item_number.
+Use regex patterns for labeled formats (MFG#, SKU:, Part:, Ref#) and structural
+patterns (dash-separated codes, alphanumeric combos). Filter out false positives
+(UOMs, common words, row numbers 1-50). Store as both `mfg_number` and `item_number`.

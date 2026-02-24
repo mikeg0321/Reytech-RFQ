@@ -188,6 +188,7 @@
         <hr style="border-color:#30363d;margin:4px 0">
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#d2a8ff;border:none;padding:8px 10px;font-size:12px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runPortfolioPrice(this)">📊 Portfolio Optimizer</button>
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#f0883e;border:none;padding:8px 10px;font-size:12px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runCompetitorIntel(this)">🏢 Competitor Intel</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#58a6ff;border:none;padding:8px 10px;font-size:12px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="rescanMfgNumbers(this)">🔍 Rescan MFG#s</button>
         <hr style="border-color:#30363d;margin:4px 0">
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#3fb950;border:none;padding:8px 10px;font-size:12px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('won')">🏆 Mark Won</button>
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#d29922;border:none;padding:8px 10px;font-size:12px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('lost')">❌ Mark Lost</button>
@@ -1030,6 +1031,21 @@
     }
 
     /* ═══ ADMIN ACTIONS: Archive, Duplicate, No Response, Delete, Won/Lost ═══ */
+    function rescanMfgNumbers(btn) {
+     btn.disabled=true;btn.textContent='⏳ Scanning PDF...';
+     fetch('/pricecheck/{{ pcid }}/rescan-mfg',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})
+     .then(r=>r.json()).then(d=>{
+      btn.disabled=false;btn.textContent='🔍 Rescan MFG#s';
+      if(!d.ok){showMsg('❌ '+d.error,'err');return;}
+      if(d.updated>0){
+       showMsg('✅ Found '+d.updated+' MFG#s from '+d.total+' items. Reloading...','ok');
+       setTimeout(()=>location.reload(),1200);
+      } else {
+       showMsg('ℹ️ No new MFG#s found in '+d.total+' items','warn');
+      }
+     }).catch(e=>{btn.disabled=false;btn.textContent='🔍 Rescan MFG#s';showMsg('❌ '+e,'err');});
+    }
+
     function adminAction(action) {
      const labels = {
       'won': '🏆 Mark as Won', 'lost': '❌ Mark as Lost',

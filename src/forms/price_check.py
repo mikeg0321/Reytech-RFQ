@@ -174,6 +174,99 @@ TOTAL_FIELDS = {
 MAX_ROWS_PER_PAGE = 8
 
 
+# ── Part Number Extraction ────────────────────────────────────────────────
+# The 704 "ITEM" field is just a sequential row number (1, 2, 3).
+# Real part/MFG/reference numbers appear in:
+#   1. SUBSTITUTED ITEM column ("Include manufacturer, part number, and/or reference number")
+#   2. Embedded in the DESCRIPTION field (e.g. "MFG#: ABC-123" or "Item #12345")
+#   3. Sometimes the ITEM field itself has a real part number (alphanumeric, not just digits)
+
+_PN_PATTERNS = [
+    # Explicit labeled patterns
+    re.compile(r'(?:MFG|Mfg)[\s.#:]*\s*([A-Z0-9][A-Z0-9\-\.\/]{2,25})', re.IGNORECASE),
+    re.compile(r'(?:Part|P/N|PN)[\s.#:]*\s*([A-Z0-9][A-Z0-9\-\.\/]{2,25})', re.IGNORECASE),
+    re.compile(r'(?:Item|Catalog|Cat)[\s.#:]+\s*([A-Z0-9][A-Z0-9\-\.\/]{3,25})', re.IGNORECASE),
+    re.compile(r'(?:SKU|Model|MDL)[\s.#:]*\s*([A-Z0-9][A-Z0-9\-\.\/]{2,25})', re.IGNORECASE),
+    re.compile(r'(?:Ref|Reference)[\s.#:]*\s*([A-Z0-9][A-Z0-9\-\.\/]{2,25})', re.IGNORECASE),
+    # Dash-separated codes: ABC-12345, 5110-00-079-3230 (NSN format)
+    re.compile(r'\b(\d{4,5}[\-]\d{2,5}[\-]\d{2,5}[\-]\d{2,5})\b'),
+    re.compile(r'\b([A-Z]{1,4}[\-][A-Z0-9\-]{3,20})\b'),
+    re.compile(r'\b(\d{4,5}[\-]\d{2,5}[\-]?\d{0,5})\b'),
+    # Alphanumeric codes: ABC1234, AB-12.34
+    re.compile(r'\b([A-Z][A-Z0-9]{2,}[\-\.][A-Z0-9]{1,10})\b'),
+    re.compile(r'\b([A-Z]{2,4}\d{3,8})\b'),
+]
+
+_PN_SKIP = {
+    'ea', 'each', 'box', 'bx', 'case', 'cs', 'pk', 'pack', 'bag',
+    'roll', 'rl', 'dz', 'dozen', 'pr', 'pair', 'set',
+    'n/a', 'na', 'none', 'tbd', 'see', 'per', 'uom', 'row',
+}
+
+
+def _extract_part_number(text: str) -> str:
+    """Extract a MFG/part/reference number from text. Returns best candidate or ''."""
+    if not text or not text.strip():
+        return ""
+    text = text.strip()
+    for pat in _PN_PATTERNS:
+        m = pat.search(text)
+        if m:
+            candidate = m.group(1).strip().rstrip('.')
+            if candidate.lower() in _PN_SKIP or len(candidate) < 3:
+                continue
+            has_letter = any(c.isalpha() for c in candidate)
+            has_digit = any(c.isdigit() for c in candidate)
+            has_dash = '-' in candidate
+            if (has_letter and has_digit) or (has_dash and has_digit and len(candidate) >= 5):
+                return candidate
+    return ""
+
+
+def _is_sequential_number(val: str) -> bool:
+    """Check if value is just a sequential row number (1-50), not a real part number."""
+    v = val.strip()
+    if not v:
+        return True
+    try:
+        return 0 < int(float(v)) <= 50
+    except (ValueError, TypeError):
+        return False
+
+
+def extract_item_numbers(item: dict) -> str:
+    """
+    Extract the best MFG/part/reference number for a line item.
+    Checks: substituted field → description → item_number field.
+    Returns the number or empty string.
+    """
+    # 1. Check substituted item field (most likely source on 704s)
+    sub = (item.get("substituted") or "").strip()
+    if sub:
+        pn = _extract_part_number(sub)
+        if pn:
+            return pn
+        # If the whole substituted field looks like a part number itself
+        if len(sub) >= 3 and not sub.lower().startswith(("see ", "per ", "n/a")):
+            clean = sub.strip().split('\n')[0].strip()
+            if len(clean) <= 30 and any(c.isdigit() for c in clean):
+                return clean
+
+    # 2. Check description for embedded part numbers
+    desc = (item.get("description_raw") or item.get("description") or "").strip()
+    if desc:
+        pn = _extract_part_number(desc)
+        if pn:
+            return pn
+
+    # 3. Check item_number field if it's not just a sequential row number
+    item_num = (item.get("item_number") or "").strip()
+    if item_num and not _is_sequential_number(item_num):
+        return item_num
+
+    return ""
+
+
 # ─── Parse AMS 704 ──────────────────────────────────────────────────────────
 
 def parse_ams704(pdf_path: str) -> dict:
@@ -266,8 +359,18 @@ def parse_ams704(pdf_path: str) -> dict:
                 "qty_per_uom": qty_per_uom,
                 "description": clean_description(row_data["description"]),
                 "description_raw": row_data["description"],
+                "substituted": row_data.get("substituted", ""),
                 "row_index": row_num,
             }
+
+            # Extract real MFG/part number from substituted field, description, etc.
+            real_pn = extract_item_numbers(item)
+            if real_pn:
+                item["mfg_number"] = real_pn
+                # Replace sequential row number with real part number
+                if _is_sequential_number(item["item_number"]):
+                    item["item_number"] = real_pn
+
             result["line_items"].append(item)
 
             # Check for existing price
@@ -377,6 +480,8 @@ def _extract_items_from_table(table: list, result: dict, page_num: int):
             col_map["uom"] = j
         elif "description" in h_text:
             col_map["description"] = j
+        elif "substitut" in h_text or ("part" in h_text and "number" in h_text):
+            col_map["substituted"] = j
         elif "price" in h_text and "unit" in h_text:
             col_map["unit_price"] = j
         elif "extension" in h_text:
@@ -400,14 +505,28 @@ def _extract_items_from_table(table: list, result: dict, page_num: int):
 
         row_num = len(result["line_items"]) + 1 + (page_num * MAX_ROWS_PER_PAGE)
 
+        # Get substituted item text if column exists
+        sub_text = ""
+        if "substituted" in col_map and col_map["substituted"] < len(row):
+            sub_text = str(row[col_map["substituted"]] or "").strip()
+
         item = {
             "item_number": str(row[col_map.get("item_number", 0)] or row_num),
             "qty": qty,
             "uom": str(row[col_map.get("uom", "")] or "ea").upper(),
             "qty_per_uom": 1,
             "description": desc.strip(),
+            "substituted": sub_text,
             "row_index": row_num,
         }
+
+        # Extract real MFG/part number
+        real_pn = extract_item_numbers(item)
+        if real_pn:
+            item["mfg_number"] = real_pn
+            if _is_sequential_number(item["item_number"]):
+                item["item_number"] = real_pn
+
         result["line_items"].append(item)
 
 
@@ -690,10 +809,27 @@ def fill_ams704(
             "value": f"{extension:,.2f}",
         })
 
-        # Add substituted item info if we found an Amazon match
+        # Fill SUBSTITUTED ITEM column: include MFG#, source, and product title
+        sub_field = ROW_FIELDS["substituted"].format(n=row)
+        sub_parts = []
+        # Add MFG/part number if found
+        _sub_mfg = (item.get("mfg_number") or pricing.get("mfg_number")
+                     or pricing.get("manufacturer_part") or "")
+        if _sub_mfg:
+            sub_parts.append(f"MFG#: {_sub_mfg}")
+        # Add product match title
         if pricing.get("amazon_title"):
-            sub_field = ROW_FIELDS["substituted"].format(n=row)
-            sub_text = pricing["amazon_title"][:80]
+            sub_parts.append(pricing["amazon_title"][:60])
+        elif pricing.get("web_title"):
+            sub_parts.append(pricing["web_title"][:60])
+        elif pricing.get("catalog_match"):
+            sub_parts.append(pricing["catalog_match"][:60])
+        # Add supplier
+        _sub_supplier = item.get("item_supplier") or pricing.get("web_source", "")
+        if _sub_supplier and _sub_supplier not in str(sub_parts):
+            sub_parts.append(f"({_sub_supplier})")
+        sub_text = " | ".join(sub_parts)[:100]
+        if sub_text:
             field_values.append({
                 "field_id": sub_field,
                 "page": 1,

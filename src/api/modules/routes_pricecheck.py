@@ -157,9 +157,21 @@ def pricecheck_detail(pcid):
         bid_checked = "" if no_bid else "checked"
         row_opacity = "opacity:0.4" if no_bid else ""
 
+        # MFG# display: use mfg_number, item_number, or pricing mfg_number — hide sequential row numbers
+        _raw_num = (item.get("mfg_number") or item.get("item_number")
+                    or p.get("mfg_number") or p.get("manufacturer_part") or "")
+        _raw_num = str(_raw_num).strip()
+        # Hide sequential row numbers (1-50 digit-only values)
+        try:
+            if _raw_num.isdigit() and 0 < int(_raw_num) <= 50:
+                _raw_num = ""
+        except (ValueError, TypeError):
+            pass
+        mfg_display = _raw_num.replace('"', '&quot;')
+
         items_html += f"""<tr style="{row_opacity}" data-row="{idx}">
          <td style="text-align:center"><input type="checkbox" name="bid_{idx}" {bid_checked} onchange="toggleBid({idx},this)" style="width:18px;height:18px;cursor:pointer"></td>
-         <td><input type="text" name="itemnum_{idx}" value="{item.get('item_number','') if not str(item.get('item_number','')).strip().isdigit() or len(str(item.get('item_number','')).strip()) > 2 else ''}" class="text-in" style="width:80px;text-align:center;font-weight:600;font-size:12px;font-family:'JetBrains Mono',monospace;padding:6px 4px" placeholder="MFG#"></td>
+         <td><input type="text" name="itemnum_{idx}" value="{mfg_display}" class="text-in" style="width:80px;text-align:center;font-weight:600;font-size:12px;font-family:'JetBrains Mono',monospace;padding:6px 4px" placeholder="MFG#"></td>
          <td><input type="number" name="qty_{idx}" value="{qty}" class="num-in sm" style="width:55px" onchange="recalcPC()"></td>
          <td><input type="text" name="uom_{idx}" value="{item.get('uom','EA').upper()}" class="text-in" style="width:45px;text-transform:uppercase;text-align:center;font-weight:600"></td>
          <td><textarea name="desc_{idx}" class="text-in" style="width:100%;min-height:38px;resize:vertical;font-family:inherit;font-size:13px;line-height:1.4;padding:6px 8px" title="{raw_desc.replace('"','&quot;').replace('<','&lt;')}" oninput="detectDescUrl({idx},this)" placeholder="Enter description or paste URL">{display_desc.replace('&','&amp;').replace('<','&lt;').replace('>','&gt;')}</textarea></td>
@@ -483,6 +495,61 @@ def pricecheck_scprs_lookup(pcid):
     return jsonify({"ok": True, "found": found, "total": len(items)})
 
 
+@bp.route("/pricecheck/<pcid>/rescan-mfg", methods=["POST"])
+@auth_required
+def pricecheck_rescan_mfg(pcid):
+    """Re-scan this PC's source PDF and items to extract MFG/part/reference numbers."""
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"})
+
+    items = pc.get("items", [])
+    if not items:
+        items = pc.get("parsed", {}).get("line_items", [])
+    updated = 0
+
+    # Step 1: Re-parse source PDF if available (to get substituted column)
+    source_pdf = pc.get("source_pdf", "")
+    if source_pdf and os.path.exists(source_pdf):
+        try:
+            from src.forms.price_check import parse_ams704
+            fresh = parse_ams704(source_pdf)
+            fresh_items = fresh.get("line_items", [])
+            for fi in fresh_items:
+                row_idx = fi.get("row_index", 0)
+                for item in items:
+                    if item.get("row_index") == row_idx:
+                        if fi.get("substituted") and not item.get("substituted"):
+                            item["substituted"] = fi["substituted"]
+                        if fi.get("mfg_number"):
+                            item["mfg_number"] = fi["mfg_number"]
+                            item["item_number"] = fi["mfg_number"]
+                            updated += 1
+                        break
+        except Exception as e:
+            log.debug("Rescan PDF %s: %s", pcid, e)
+
+    # Step 2: Run extraction on all items that still lack a real part number
+    from src.forms.price_check import extract_item_numbers, _is_sequential_number
+    for item in items:
+        current = (item.get("item_number") or "").strip()
+        if current and not _is_sequential_number(current):
+            continue  # Already has a real number
+        pn = extract_item_numbers(item)
+        if pn:
+            item["mfg_number"] = pn
+            item["item_number"] = pn
+            updated += 1
+
+    pc["items"] = items
+    if "parsed" in pc:
+        pc["parsed"]["line_items"] = items
+    _save_price_checks(pcs)
+
+    return jsonify({"ok": True, "updated": updated, "total": len(items)})
+
+
 @bp.route("/pricecheck/<pcid>/client-error", methods=["POST"])
 @auth_required
 def pricecheck_client_error(pcid):
@@ -595,6 +662,7 @@ def pricecheck_save_prices(pcid):
                     items[idx]["uom"] = str(val).upper() if val else "EA"
                 elif field_type in ("itemno", "itemnum"):
                     items[idx]["item_number"] = str(val) if val else ""
+                    items[idx]["mfg_number"] = str(val) if val else ""
                 elif field_type == "bid":
                     items[idx]["no_bid"] = not bool(val)
                 elif field_type == "link":
@@ -2583,6 +2651,108 @@ def api_admin_cleanup():
 
     results["ok"] = True
     return jsonify(results)
+
+
+@bp.route("/api/admin/rescan-item-numbers", methods=["POST"])
+@auth_required
+def api_admin_rescan_item_numbers():
+    """
+    Re-scan ALL Price Checks to extract MFG/part/reference numbers.
+    
+    For each PC:
+    1. Re-reads the source PDF if available (gets substituted column)
+    2. Runs extract_item_numbers() on each line item
+    3. Updates item_number and mfg_number fields
+    
+    POST body: { "reparse_pdfs": true } to also re-read source PDFs
+    Returns: { ok, scanned, updated, details: [{pcid, pc_number, items_updated}] }
+    """
+    data = request.get_json(silent=True) or {}
+    reparse_pdfs = data.get("reparse_pdfs", True)
+    
+    pcs = _load_price_checks()
+    total_scanned = 0
+    total_updated = 0
+    details = []
+    
+    for pcid, pc in pcs.items():
+        items = pc.get("items", [])
+        if not items:
+            items = pc.get("parsed", {}).get("line_items", [])
+        if not items:
+            continue
+        
+        total_scanned += 1
+        items_updated = 0
+        
+        # Option 1: Re-parse the source PDF to get substituted column
+        if reparse_pdfs:
+            source_pdf = pc.get("source_pdf", "")
+            if source_pdf and os.path.exists(source_pdf):
+                try:
+                    from src.forms.price_check import parse_ams704
+                    fresh = parse_ams704(source_pdf)
+                    fresh_items = fresh.get("line_items", [])
+                    # Merge substituted field + mfg_number from fresh parse
+                    for fi in fresh_items:
+                        row_idx = fi.get("row_index", 0)
+                        # Find matching item by row_index
+                        for item in items:
+                            if item.get("row_index") == row_idx:
+                                # Copy substituted field if not already set
+                                if fi.get("substituted") and not item.get("substituted"):
+                                    item["substituted"] = fi["substituted"]
+                                # Copy mfg_number if fresh parse found one
+                                if fi.get("mfg_number") and not item.get("mfg_number"):
+                                    item["mfg_number"] = fi["mfg_number"]
+                                    if _is_sequential(item.get("item_number", "")):
+                                        item["item_number"] = fi["mfg_number"]
+                                    items_updated += 1
+                                break
+                except Exception as e:
+                    log.debug("Rescan PDF %s: %s", pcid, e)
+        
+        # Option 2: Run extraction on existing item data
+        from src.forms.price_check import extract_item_numbers, _is_sequential_number
+        for item in items:
+            current_num = (item.get("item_number") or "").strip()
+            # Skip if already has a real part number
+            if current_num and not _is_sequential_number(current_num):
+                continue
+            
+            pn = extract_item_numbers(item)
+            if pn:
+                item["mfg_number"] = pn
+                item["item_number"] = pn
+                items_updated += 1
+        
+        if items_updated > 0:
+            total_updated += items_updated
+            pc["items"] = items
+            pc["parsed"]["line_items"] = items
+            details.append({
+                "pcid": pcid,
+                "pc_number": pc.get("pc_number", ""),
+                "items_updated": items_updated,
+            })
+    
+    if total_updated > 0:
+        _save_price_checks(pcs)
+    
+    return jsonify({
+        "ok": True,
+        "scanned": total_scanned,
+        "updated": total_updated,
+        "details": details,
+    })
+
+
+def _is_sequential(val):
+    """Helper: check if value is just a row number."""
+    try:
+        return 0 < int(float(str(val).strip())) <= 50
+    except (ValueError, TypeError):
+        return False
 
 
 @bp.route("/api/admin/status")
