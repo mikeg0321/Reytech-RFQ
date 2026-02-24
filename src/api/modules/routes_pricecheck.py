@@ -7,7 +7,11 @@ import json as _json
 def _sync_pc_items(pc, items):
     """Safely sync items list to both pc['items'] and pc['parsed']['line_items'].
     Creates pc['parsed'] if it doesn't exist (e.g. after SQLite restore)."""
-    _sync_pc_items(pc, items)
+    pc["items"] = items
+    if "parsed" not in pc:
+        pc["parsed"] = {"header": {}, "line_items": items}
+    else:
+        pc["parsed"]["line_items"] = items
 
 
 # Price Check Pages (v6.2)
