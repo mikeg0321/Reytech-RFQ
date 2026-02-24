@@ -723,8 +723,8 @@ def fill_ams704(
 
         pricing = item.get("pricing", {})
 
-        # Select price based on tier
-        unit_price = pricing.get("recommended_price")
+        # Select price based on tier — check first-class field first, then pricing dict
+        unit_price = item.get("unit_price") or pricing.get("recommended_price")
         if not unit_price:
             unit_price = pricing.get("amazon_price")
         if not unit_price:

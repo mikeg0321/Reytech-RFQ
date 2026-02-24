@@ -690,8 +690,6 @@ def pricecheck_save_prices(pcid):
                             pass
                 elif field_type == "notes":
                     items[idx]["notes"] = str(val).strip() if val else ""
-                elif field_type == "substitute":
-                    items[idx]["is_substitute"] = bool(val)
         except (ValueError, IndexError):
             pass
 
