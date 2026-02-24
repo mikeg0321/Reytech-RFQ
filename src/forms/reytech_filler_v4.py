@@ -292,10 +292,12 @@ def fill_704b(input_path, rfq_data, config, output_path):
     line_items = rfq_data.get("line_items", [])
     merchandise_subtotal = 0.0
 
+    seq = 0  # sequential line item counter
     for item in line_items:
         row_num = item.get("form_row", item.get("row_index", item.get("line_number", 0)))
         if not row_num:
             continue
+        seq += 1
         price = item.get("price_per_unit", 0)
         qty = item.get("qty", 0)
         subtotal = round(price * qty, 2)
@@ -303,10 +305,8 @@ def fill_704b(input_path, rfq_data, config, output_path):
         values[f"PRICE PER UNITRow{row_num}"] = f"{price:.2f}" if price else ""
         values[f"SUBTOTALRow{row_num}"] = f"{subtotal:.2f}" if subtotal else ""
 
-        # Fill ITEM NUMBER column with original item number from 704A (not sequential)
-        item_num = item.get("item_number", "")
-        if item_num:
-            values[f"ITEM NUMBERRow{row_num}"] = str(item_num)
+        # Fill ITEM # column with sequential line number (1, 2, 3...)
+        values[f"ITEM NUMBERRow{row_num}"] = str(seq)
 
         # Fill SUBSTITUTED ITEM column only when item is marked as a substitute
         if item.get("is_substitute"):

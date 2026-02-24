@@ -715,6 +715,7 @@ def fill_ams704(
     subtotal = 0.0
     items_priced = 0
 
+    seq = 0  # sequential line item counter
     for item in items:
         row = item.get("row_index", 0)
         if row < 1 or row > MAX_ROWS_PER_PAGE:
@@ -729,15 +730,20 @@ def fill_ams704(
         if not unit_price:
             continue  # Can't price this item
 
+        seq += 1
         qty = item.get("qty", 1)
         qty_per_uom = item.get("qty_per_uom", 1)
         extension = round(unit_price * qty, 2)
         subtotal += extension
         items_priced += 1
 
-        # ── ITEM NUMBER field on 704 ──
-        # DO NOT overwrite — the requestor already filled in line item numbers.
-        # As the supplier, we leave the ITEM column untouched.
+        # ── ITEM NUMBER field: sequential line numbers (1, 2, 3...) ──
+        item_num_field = ROW_FIELDS["item_number"].format(n=row)
+        field_values.append({
+            "field_id": item_num_field,
+            "page": 1,
+            "value": str(seq),
+        })
 
         # ── QTY field ──
         qty_field = ROW_FIELDS["qty"].format(n=row)
@@ -796,8 +802,8 @@ def fill_ams704(
 
         # Fill SUBSTITUTED ITEM column: only when quoting a replacement/substitute item
         # (controlled by the "Sub?" checkbox on the pricecheck detail page)
+        sub_field = ROW_FIELDS["substituted"].format(n=row)
         if item.get("is_substitute"):
-            sub_field = ROW_FIELDS["substituted"].format(n=row)
             # Use the description of what we're actually quoting (the substitute)
             sub_text = desc_clean or item.get("description", "")
             # Prepend MFG# if available and not already in description
@@ -812,6 +818,13 @@ def fill_ams704(
                     "page": 1,
                     "value": sub_text,
                 })
+        else:
+            # Clear any pre-filled substituted text from original 704A
+            field_values.append({
+                "field_id": sub_field,
+                "page": 1,
+                "value": "",
+            })
 
     # Totals
     tax = round(subtotal * tax_rate, 2)
