@@ -14,7 +14,7 @@
   <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 20px;border-bottom:2px solid #1a1a1a;background:#f5f5f0;border-radius:10px 10px 0 0">
    <h2 style="margin:0;font-size:16px;color:#1a1a1a">📋 Quote Preview — <span id="rfqPreviewType">704B Quote Worksheet</span></h2>
    <div>
-    <button class="btn btn-sm" style="background:var(--gn);color:#fff;margin-right:8px;font-size:12px" onclick="window.print()">🖨️ Print</button>
+    <button class="btn btn-sm" style="background:var(--gn);color:#fff;margin-right:8px;font-size:12px" onclick="printPreview()">🖨️ Print</button>
     <button style="background:none;border:none;font-size:24px;cursor:pointer;color:#666" onclick="document.getElementById('previewModal').style.display='none'">×</button>
    </div>
   </div>
@@ -31,11 +31,26 @@
   <span class="badge b-{{r.status}}">{{r.status}}</span>
  </div>
  <div class="meta-g">
-  <div class="meta-i"><div class="meta-l">Requestor</div><div class="meta-v">{{r.requestor_name}}</div></div>
-  <div class="meta-i"><div class="meta-l">Email</div><div class="meta-v">{{r.requestor_email}}</div></div>
+  <div class="meta-i"><div class="meta-l">Requestor</div><div class="meta-v">{% if r.requestor_name %}<a href="/contacts?q={{ r.requestor_name|urlencode }}" style="color:#58a6ff;text-decoration:none" title="View buyer profile">{{r.requestor_name}}</a>{% else %}—{% endif %}</div></div>
+  <div class="meta-i"><div class="meta-l">Email</div><div class="meta-v">{% if r.requestor_email %}<a href="mailto:{{r.requestor_email}}" style="color:#58a6ff;text-decoration:none" title="Send email">{{r.requestor_email}}</a>{% else %}—{% endif %}</div></div>
   <div class="meta-i"><div class="meta-l">Due Date</div><div class="meta-v">{{r.due_date}}</div></div>
   <div class="meta-i"><div class="meta-l">Delivery</div><div class="meta-v" style="font-size:11px">{{r.get('delivery_location','N/A')[:55]}}</div></div>
  </div>
+ {% set lookup = r.get('auto_lookup_results', {}) %}
+ {% if lookup %}
+ <div style="margin-top:12px;padding:10px 14px;border-radius:8px;background:rgba(79,140,255,.05);border:1px solid rgba(79,140,255,.15);font-size:12px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+  <span style="font-weight:600;color:var(--tx2)">🔍 Auto-Lookup Results:</span>
+  <span style="color:{% if lookup.scprs_found %}#3fb950{% else %}#8b949e{% endif %}">SCPRS: {{ lookup.scprs_found or 0 }}/{{ lookup.total or 0 }}</span>
+  <span style="color:{% if lookup.amazon_found %}#f0883e{% else %}#8b949e{% endif %}">Amazon: {{ lookup.amazon_found or 0 }}/{{ lookup.total or 0 }}</span>
+  <span style="color:{% if lookup.catalog_found %}#a78bfa{% else %}#8b949e{% endif %}">Catalog: {{ lookup.catalog_found or 0 }}/{{ lookup.total or 0 }}</span>
+  <span style="color:{% if lookup.priced %}#3fb950{% else %}#f85149{% endif %};font-weight:600">{{ lookup.priced or 0 }}/{{ lookup.total or 0 }} priced</span>
+  {% if lookup.ran_at %}<span style="color:#484f58;font-size:10px">{{ lookup.ran_at[:16].replace('T',' ') }}</span>{% endif %}
+ </div>
+ {% elif r.get('auto_priced_at') %}
+ <div style="margin-top:12px;padding:10px 14px;border-radius:8px;background:rgba(79,140,255,.05);border:1px solid rgba(79,140,255,.15);font-size:12px;color:var(--tx2)">
+  🔍 Auto-lookup ran at {{ r.auto_priced_at[:16].replace('T',' ') }} — no prices found for any items
+ </div>
+ {% endif %}
 </div>
 
 <div class="card">
@@ -506,6 +521,15 @@ function showRfqPreview(){
  modal.onclick=function(e){if(e.target===modal) modal.style.display='none';};
 }
 document.addEventListener('keydown',function(e){if(e.key==='Escape'){const m=document.getElementById('previewModal');if(m)m.style.display='none';}});
+
+function printPreview(){
+ var content=document.getElementById('rfqPreviewBody').innerHTML;
+ var w=window.open('','_blank','width=850,height=1100');
+ w.document.write('<html><head><title>Quote Preview</title><style>body{margin:20px;font-family:"Times New Roman",serif;}@media print{body{margin:0;} @page{margin:0.5in;}}</style></head><body>'+content+'</body></html>');
+ w.document.close();
+ w.focus();
+ setTimeout(function(){w.print();},300);
+}
 
 recalc();
 

@@ -59,11 +59,28 @@ def upload():
     
     rfq = parse_rfq_attachments(templates)
     rfq["id"] = rfq_id
-    _transition_status(rfq, "pending", actor="system", notes="Parsed from email")
     rfq["source"] = "upload"
     
     # Auto SCPRS lookup
     rfq["line_items"] = bulk_lookup(rfq.get("line_items", []))
+    
+    # Store lookup results summary
+    items = rfq.get("line_items", [])
+    priced_count = sum(1 for i in items if i.get("price_per_unit") or i.get("scprs_last_price"))
+    rfq["auto_lookup_results"] = {
+        "scprs_found": sum(1 for i in items if i.get("scprs_last_price")),
+        "amazon_found": sum(1 for i in items if i.get("amazon_price")),
+        "catalog_found": 0,
+        "priced": priced_count,
+        "total": len(items),
+        "ran_at": datetime.now().isoformat(),
+    }
+    
+    # Set status based on whether prices were actually found
+    if priced_count > 0:
+        _transition_status(rfq, "priced", actor="system", notes=f"Parsed + {priced_count}/{len(items)} items priced")
+    else:
+        _transition_status(rfq, "draft", actor="system", notes="Parsed from upload — no prices found yet")
     
     rfqs = load_rfqs()
     rfqs[rfq_id] = rfq

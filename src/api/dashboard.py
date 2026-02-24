@@ -1571,11 +1571,16 @@ def _auto_price_pipeline(rfq_data: dict):
     try:
         from src.forms.price_check import lookup_prices
         pc = lookup_prices(pc)
-        pc["status"] = "priced"
-        _merge_save_pc(pc_id, pc)
+        # Only mark 'priced' if items actually got prices — otherwise 'draft'
         priced = sum(1 for it in pc.get("items", []) if it.get("pricing", {}).get("recommended_price"))
-        t.step("Prices looked up", priced=priced, total=len(pc_items))
-        log.info("[AutoPrice] Prices found: %d/%d items", priced, len(pc_items))
+        total_items = len(pc.get("items", []))
+        if priced > 0:
+            pc["status"] = "priced"
+        else:
+            pc["status"] = "draft"
+        _merge_save_pc(pc_id, pc)
+        t.step("Prices looked up", priced=priced, total=total_items)
+        log.info("[AutoPrice] Prices found: %d/%d items → status=%s", priced, total_items, pc["status"])
     except Exception as pe:
         t.warn("Price lookup failed", error=str(pe))
         log.warning("[AutoPrice] Price lookup failed: %s", pe)
@@ -1597,7 +1602,17 @@ def _auto_price_pipeline(rfq_data: dict):
     if rfq_id in rfqs:
         rfqs[rfq_id]["auto_price_pc_id"] = pc_id
         rfqs[rfq_id]["auto_priced_at"] = datetime.now().isoformat()
-        rfqs[rfq_id]["status"] = "priced"
+        # Only set 'priced' if prices were actually found
+        priced_count = sum(1 for it in pc.get("items", []) if it.get("pricing", {}).get("recommended_price"))
+        rfqs[rfq_id]["status"] = "priced" if priced_count > 0 else "draft"
+        rfqs[rfq_id]["auto_lookup_results"] = {
+            "scprs_found": sum(1 for it in pc.get("items", []) if it.get("pricing", {}).get("scprs_price")),
+            "amazon_found": sum(1 for it in pc.get("items", []) if it.get("pricing", {}).get("amazon_cost")),
+            "catalog_found": sum(1 for it in pc.get("items", []) if it.get("pricing", {}).get("catalog_match")),
+            "priced": priced_count,
+            "total": len(pc.get("items", [])),
+            "ran_at": datetime.now().isoformat(),
+        }
         save_rfqs(rfqs)
 
     # Step 6: Log activity
