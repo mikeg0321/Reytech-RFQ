@@ -109,10 +109,27 @@
       {{ pipeline_html | safe }}
      </div>
 
-     {% if pc.get('status') in ('completed','converted') %}
-     <div style="padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(52,211,153,.08);border:1px solid rgba(52,211,153,.25);color:#3fb950;margin-bottom:10px"><span style="font-size:18px">✅</span><div><b>704 Complete</b> — Download below or re-fill if prices changed.</div></div>
+     {% if pc.get('status') == 'sent' %}
+     <div style="padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;justify-content:space-between;background:rgba(63,185,80,.08);border:1px solid rgba(63,185,80,.25);color:#3fb950;margin-bottom:10px">
+      <div style="display:flex;align-items:center;gap:10px"><span style="font-size:18px">📨</span><div><b>Sent</b> — Awaiting award decision{% if pc.get('sent_at') %} · Sent {{ pc.get('sent_at','')[:10] }}{% endif %}</div></div>
+      <div style="display:flex;gap:6px">
+       <button class="btn btn-sm" onclick="adminAction('won')" style="background:#238636;color:#fff;font-size:12px;padding:4px 12px;border-radius:6px;border:none;cursor:pointer">🏆 Mark Won</button>
+       <button class="btn btn-sm" onclick="adminAction('lost')" style="background:#da3633;color:#fff;font-size:12px;padding:4px 12px;border-radius:6px;border:none;cursor:pointer">❌ Mark Lost</button>
+      </div>
+     </div>
+     {% elif pc.get('status') == 'won' %}
+     <div style="padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(63,185,80,.12);border:1px solid rgba(63,185,80,.35);color:#3fb950;margin-bottom:10px"><span style="font-size:18px">🏆</span><div><b>Won</b>{% if pc.get('closed_at') %} — {{ pc.get('closed_at','')[:10] }}{% endif %}</div></div>
+     {% elif pc.get('status') == 'lost' %}
+     <div style="padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.25);color:#f85149;margin-bottom:10px"><span style="font-size:18px">❌</span><div><b>Lost</b>{% if pc.get('closed_at') %} — {{ pc.get('closed_at','')[:10] }}{% endif %}{% if pc.get('closed_reason') %} · {{ pc.get('closed_reason','') }}{% endif %}</div></div>
+     {% elif pc.get('status') in ('completed','converted') %}
+     <div style="padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;justify-content:space-between;background:rgba(52,211,153,.08);border:1px solid rgba(52,211,153,.25);color:#3fb950;margin-bottom:10px">
+      <div style="display:flex;align-items:center;gap:10px"><span style="font-size:18px">✅</span><div><b>704 Complete</b> — Re-fill if prices changed, then mark sent.</div></div>
+      <button class="btn btn-sm" onclick="markSent(this)" style="background:#238636;color:#fff;font-size:13px;padding:6px 16px;border-radius:6px;border:none;cursor:pointer;font-weight:600">📨 Mark Sent</button>
+     </div>
      {% elif pc.get('status') == 'priced' %}
      <div style="padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(88,166,255,.08);border:1px solid rgba(88,166,255,.25);color:#58a6ff;margin-bottom:10px"><span style="font-size:18px">💰</span><div><b>Priced</b> — review costs below, then Save &amp; Fill 704.</div></div>
+     {% elif pc.get('status') == 'new' %}
+     <div style="padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(79,140,255,.08);border:1px solid rgba(79,140,255,.25);color:#4f8cff;margin-bottom:10px"><span style="font-size:18px">📋</span><div><b>New</b> — run SCPRS/Amazon/Catalog to find prices, then Save.</div></div>
      {% elif pc.get('status') == 'parsed' %}
      <div id="autoStatusBanner" style="padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(210,153,34,.08);border:1px solid rgba(210,153,34,.25);color:#d29922;margin-bottom:10px"><span style="font-size:18px">📥</span><div><b>Parsed</b> — checking Catalog, Amazon, SCPRS for prices...</div></div>
      {% endif %}
@@ -1188,6 +1205,23 @@
         showMsg('❌ ' + (d.error || 'Unknown error'), 'err');
        }
       }).catch(e => showMsg('❌ ' + e.message, 'err'));
+    }
+
+    function markSent(btn) {
+     if (!confirm('Mark this PC as SENT to the requestor?\n\nIt will move from the active queue to the archive.\nYou can still access it from the Price Check Archive page.')) return;
+     btn.disabled=true;btn.textContent='⏳ Updating...';
+     fetch('/api/pricecheck/{{ pcid }}/mark-sent', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({notes: '704 sent to requestor'})
+     }).then(r=>r.json()).then(d=>{
+      if(d.ok){
+       showMsg('📨 Marked as Sent! Reloading...','ok');
+       setTimeout(()=>location.reload(),1200);
+      } else {
+       btn.disabled=false;btn.textContent='📨 Mark Sent';
+       showMsg('❌ '+(d.error||'Failed'),'err');
+      }
+     }).catch(e=>{btn.disabled=false;btn.textContent='📨 Mark Sent';showMsg('❌ '+e.message,'err');});
     }
 
     function escHtml(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}

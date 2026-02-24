@@ -2406,57 +2406,88 @@ def api_pricechecks_list():
 @bp.route("/api/pricecheck/<pcid>/mark-sent", methods=["POST"])
 @auth_required
 def api_pricecheck_mark_sent(pcid):
-    """Mark PC as sent — starts award monitoring clock."""
+    """Mark PC as sent — starts award monitoring clock. Records in DB."""
     pcs = _load_price_checks()
     if pcid not in pcs: return jsonify({"ok": False, "error": "PC not found"})
-    pcs[pcid]["status"] = "sent"
-    pcs[pcid]["sent_at"] = datetime.now().isoformat()
-    pcs[pcid]["award_status"] = "pending"
+    pc = pcs[pcid]
+    data = request.get_json(silent=True) or {}
+    
+    now = datetime.now().isoformat()
+    _transition_status(pc, "sent", actor="user", 
+                      notes=data.get("notes", "704 sent to requestor"))
+    pc["sent_at"] = now
+    pc["award_status"] = "pending"
+    pc["sent_to"] = data.get("sent_to", pc.get("requestor", ""))
+    pc["sent_method"] = data.get("method", "email")  # email, fax, hand-deliver
     _save_price_checks(pcs)
-    _log_crm_activity(pcs[pcid].get("reytech_quote_number", pcid), "quote_sent",
-        f"Quote sent for PC #{pcs[pcid].get('pc_number','')}", actor="user")
-    return jsonify({"ok": True, "status": "sent"})
+    
+    # Record in SQLite
+    try:
+        upsert_price_check(pcid, pc)
+    except Exception:
+        pass
+    
+    _log_crm_activity(pc.get("reytech_quote_number", pcid), "quote_sent",
+        f"Quote sent for PC #{pc.get('pc_number','')} to {pc.get('institution','')}", actor="user")
+    
+    log.info("PC %s marked SENT: pc#=%s institution=%s sent_at=%s", 
+             pcid, pc.get("pc_number"), pc.get("institution"), now)
+    return jsonify({"ok": True, "status": "sent", "sent_at": now})
 
 
 @bp.route("/api/pricecheck/<pcid>/mark-won", methods=["POST"])
 @auth_required
 def api_pricecheck_mark_won(pcid):
-    """Manually mark PC as won."""
+    """Manually mark PC as won — records to DB, catalog, CRM."""
     pcs = _load_price_checks()
     if pcid not in pcs: return jsonify({"ok": False, "error": "PC not found"})
     data = request.get_json(silent=True) or {}
-    pcs[pcid].update({"status": "won", "award_status": "won",
+    pc = pcs[pcid]
+    _transition_status(pc, "won", actor="user", notes=data.get("notes", "Won"))
+    pc.update({"award_status": "won",
         "closed_at": datetime.now().isoformat(), "closed_reason": data.get("notes", "Won")})
     _save_price_checks(pcs)
-    _log_crm_activity(pcs[pcid].get("reytech_quote_number", pcid), "quote_won",
-        f"WON: PC #{pcs[pcid].get('pc_number','')}", actor="user")
+    try:
+        upsert_price_check(pcid, pc)
+    except Exception:
+        pass
+    _log_crm_activity(pc.get("reytech_quote_number", pcid), "quote_won",
+        f"WON: PC #{pc.get('pc_number','')} — {pc.get('institution','')}", actor="user")
     # ── Feed win data back to product catalog ──
     try:
         from src.agents.product_catalog import record_outcome_to_catalog, init_catalog_db
         init_catalog_db()
-        result = record_outcome_to_catalog(pcs[pcid], outcome="won")
+        result = record_outcome_to_catalog(pc, outcome="won")
         log.info("mark-won catalog feedback: %s", result)
     except Exception as e:
         log.debug("mark-won catalog feedback error: %s", e)
-    _enrich_catalog_from_pc(pcs[pcid])
+    _enrich_catalog_from_pc(pc)
+    log.info("PC %s marked WON: pc#=%s institution=%s", pcid, pc.get("pc_number"), pc.get("institution"))
     return jsonify({"ok": True, "status": "won"})
 
 
 @bp.route("/api/pricecheck/<pcid>/mark-lost", methods=["POST"])
 @auth_required
 def api_pricecheck_mark_lost(pcid):
-    """Mark PC as lost with competitor details."""
+    """Mark PC as lost with competitor details — records to DB, competitor tracking."""
     pcs = _load_price_checks()
     if pcid not in pcs: return jsonify({"ok": False, "error": "PC not found"})
     data = request.get_json(silent=True) or {}
     pc = pcs[pcid]
-    pc.update({"status": "lost", "award_status": "lost",
-        "competitor_name": data.get("competitor_name", "Unknown"),
+    comp_name = data.get("competitor_name", "Unknown")
+    _transition_status(pc, "lost", actor="user", 
+                      notes=f"Lost to {comp_name}")
+    pc.update({"award_status": "lost",
+        "competitor_name": comp_name,
         "competitor_price": data.get("competitor_price", 0),
         "competitor_po": data.get("po_number", ""),
         "closed_at": datetime.now().isoformat(),
-        "closed_reason": f"Lost to {data.get('competitor_name', 'Unknown')}"})
+        "closed_reason": f"Lost to {comp_name}"})
     _save_price_checks(pcs)
+    try:
+        upsert_price_check(pcid, pc)
+    except Exception:
+        pass
     try:
         from src.agents.award_monitor import log_competitor
         our_total = sum((it.get("pricing", {}).get("recommended_price", 0) or 0) * it.get("qty", 1)

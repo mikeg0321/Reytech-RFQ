@@ -783,6 +783,7 @@ def _is_user_facing_pc(pc: dict) -> bool:
     Auto-price PCs (created from RFQ imports) belong to the RFQ row, not the PC queue.
     Standalone email PCs (Valentina's 704s) DO belong in the PC queue.
     Dismissed/archived/deleted PCs are hidden from active queue.
+    Terminal statuses (won/lost/expired) fall off the active queue → visible in Archive.
     Used by: home page, manager brief, workflow tester, pipeline summary."""
     if pc.get("source") == "email_auto_draft":
         return False
@@ -792,6 +793,9 @@ def _is_user_facing_pc(pc: dict) -> bool:
         return False
     # Admin cleanup statuses — hide from active queue
     if pc.get("status") in ("dismissed", "archived", "deleted", "duplicate", "no_response"):
+        return False
+    # Terminal statuses — done, move to archive
+    if pc.get("status") in ("won", "lost", "expired"):
         return False
     return True
 
