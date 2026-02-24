@@ -753,10 +753,17 @@ def fill_ams704(
             "value": str(qty),
         })
 
-        # Overwrite description with cleaned version (strips font specs, dimensions, etc.)
-        desc_raw = item.get("description_raw") or item.get("description", "")
-        desc_clean = clean_description(desc_raw) if desc_raw else ""
-        if desc_clean:
+        # ── DESCRIPTION field: always write to PDF ──
+        # Priority: user-edited description > original parsed text
+        # (User may have corrected/shortened the description in the UI)
+        desc_user = (item.get("description") or "").strip()
+        desc_raw = (item.get("description_raw") or "").strip()
+        # Use user edit if available, else fall back to raw parsed text
+        desc_source = desc_user or desc_raw
+        desc_clean = clean_description(desc_source) if desc_source else ""
+        # Always write description — fall back to raw if cleaning strips too much
+        desc_final = desc_clean or desc_source
+        if desc_final:
             desc_field = ROW_FIELDS["description"].format(n=row)
             # Only append MFG#/ASIN to description when quoting a substitute item
             # (if quoting exactly what was asked, keep the description as-is)
@@ -764,18 +771,18 @@ def fill_ams704(
                 mfg_num = (pricing.get("mfg_number") or pricing.get("manufacturer_part") 
                            or item.get("mfg_number") or "")
                 asin = pricing.get("amazon_asin", "")
-                if mfg_num and mfg_num.lower() not in desc_clean.lower():
-                    desc_clean = f"{desc_clean}\nMFG#: {mfg_num}"
-                elif asin and asin not in desc_clean:
-                    desc_clean = f"{desc_clean}\nASIN: {asin}"
+                if mfg_num and mfg_num.lower() not in desc_final.lower():
+                    desc_final = f"{desc_final}\nMFG#: {mfg_num}"
+                elif asin and asin not in desc_final:
+                    desc_final = f"{desc_final}\nASIN: {asin}"
             # Append per-item notes if present
             item_notes = (item.get("notes") or "").strip()
             if item_notes:
-                desc_clean = f"{desc_clean}\nNote: {item_notes}"
+                desc_final = f"{desc_final}\nNote: {item_notes}"
             field_values.append({
                 "field_id": desc_field,
                 "page": 1,
-                "value": desc_clean,
+                "value": desc_final,
             })
 
         # Issue 3: Write UOM (uppercase) to PDF
