@@ -222,11 +222,12 @@ def init_catalog_db():
     """Create tables if they don't exist. Adds new columns on existing tables."""
     conn = _get_conn()
     conn.executescript(CATALOG_SCHEMA)
-    conn.executescript(CATALOG_INDEXES)
     conn.executescript(PRICE_HISTORY_SCHEMA)
     conn.executescript(PRICE_HISTORY_INDEXES)
     conn.executescript(SUPPLIER_SCHEMA)
-    # Migrate: add columns that may not exist on older DBs
+
+    # Migrate FIRST: add columns that may not exist on older DBs
+    # This MUST run before index creation (indexes reference these columns)
     for col_def in [
         ("uom", "TEXT DEFAULT 'EA'"),
         ("times_lost", "INTEGER DEFAULT 0"),
@@ -239,12 +240,40 @@ def init_catalog_db():
     ]:
         try:
             conn.execute(f"ALTER TABLE product_catalog ADD COLUMN {col_def[0]} {col_def[1]}")
+            log.info("Added column %s to product_catalog", col_def[0])
         except sqlite3.OperationalError as e:
             if "duplicate column" in str(e).lower():
                 pass  # Column already exists
             else:
                 log.warning("Catalog migration for %s: %s", col_def[0], e)
     conn.commit()
+
+    # Verify search_tokens column exists (belt-and-suspenders)
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(product_catalog)").fetchall()}
+    if "search_tokens" not in cols:
+        log.error("CRITICAL: search_tokens column still missing after migration! Columns: %s", cols)
+    else:
+        log.debug("Verified: search_tokens column exists in product_catalog")
+
+    # Create indexes AFTER migrations (indexes may reference migrated columns)
+    try:
+        conn.executescript(CATALOG_INDEXES)
+    except sqlite3.OperationalError as e:
+        log.warning("Index creation error (non-fatal): %s", e)
+        # Try indexes one at a time so one failure doesn't block others
+        for idx_sql in [
+            "CREATE INDEX IF NOT EXISTS idx_catalog_sku ON product_catalog(sku)",
+            "CREATE INDEX IF NOT EXISTS idx_catalog_category ON product_catalog(category)",
+            "CREATE INDEX IF NOT EXISTS idx_catalog_name ON product_catalog(name)",
+            "CREATE INDEX IF NOT EXISTS idx_catalog_tokens ON product_catalog(search_tokens)",
+            "CREATE INDEX IF NOT EXISTS idx_catalog_mfg ON product_catalog(mfg_number)",
+        ]:
+            try:
+                conn.execute(idx_sql)
+            except sqlite3.OperationalError:
+                pass
+        conn.commit()
+
     conn.close()
     log.info("Product catalog DB initialized (with product_suppliers + search_tokens)")
 

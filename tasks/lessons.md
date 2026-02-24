@@ -175,3 +175,27 @@ Real MFG/part/reference numbers are in:
 Use regex patterns for labeled formats (MFG#, SKU:, Part:, Ref#) and structural
 patterns (dash-separated codes, alphanumeric combos). Filter out false positives
 (UOMs, common words, row numbers 1-50). Store as both `mfg_number` and `item_number`.
+
+## L26: DB migrations must run BEFORE index creation
+**Pattern**: `init_catalog_db()` ran CREATE INDEX on `search_tokens` column BEFORE
+the ALTER TABLE loop that adds that column. On fresh DBs, CREATE TABLE includes the column
+so indexes work. On existing DBs, the index fails → exception propagates → migration
+loop never runs → column never gets added → all queries referencing it fail forever.
+**Rule**: In any DB init function, always order: 1) CREATE TABLE, 2) ALTER TABLE migrations,
+3) verify columns exist, 4) CREATE INDEX. Wrap index creation in try/except so one
+index failure doesn't block others. Log confirmation of critical columns after migration.
+
+## L27: Pricing source URLs should auto-populate item_link
+**Pattern**: Amazon lookup stores URL in `pricing.amazon_url` but not in `item_link`.
+User sees "$5.99 Amazon" in Sources column but ITEM LINK field stays empty.
+After page reload, the URL is lost from the user's perspective.
+**Rule**: After any pricing lookup (Amazon, web search, SCPRS), if `item_link` is empty,
+copy the best source URL into it. This ensures the URL persists across page loads
+and flows through to catalog enrichment on save.
+
+## L28: Form fields need onchange/onblur handlers for dependent actions
+**Pattern**: MFG# input was a passive text field. User types a part number, tabs away,
+nothing happens. Expected behavior: catalog lookup triggers automatically.
+**Rule**: Any form field that could trigger a lookup or computation needs an event handler.
+MFG# → catalog search. Description → catalog match. URL paste → price lookup.
+Don't rely on the user clicking a separate button when the trigger data is right there.

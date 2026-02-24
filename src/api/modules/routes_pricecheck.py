@@ -186,7 +186,7 @@ def pricecheck_detail(pcid):
         items_html += f"""<tr style="{row_opacity}" data-row="{idx}">
          <td style="text-align:center"><input type="checkbox" name="bid_{idx}" {bid_checked} onchange="toggleBid({idx},this)" style="width:18px;height:18px;cursor:pointer"></td>
          <td style="text-align:center;font-weight:600;font-size:13px;color:#8b949e;font-family:'JetBrains Mono',monospace">{line_num}</td>
-         <td><input type="text" name="itemnum_{idx}" value="{mfg_display}" class="text-in" style="width:80px;text-align:center;font-weight:600;font-size:12px;font-family:'JetBrains Mono',monospace;padding:6px 4px" placeholder="MFG#"></td>
+         <td><input type="text" name="itemnum_{idx}" value="{mfg_display}" class="text-in" style="width:80px;text-align:center;font-weight:600;font-size:12px;font-family:'JetBrains Mono',monospace;padding:6px 4px" placeholder="MFG#" onblur="handleMfgInput({idx}, this)"></td>
          <td><input type="number" name="qty_{idx}" value="{qty}" class="num-in sm" style="width:55px" onchange="recalcPC()"></td>
          <td><input type="text" name="uom_{idx}" value="{item.get('uom','EA').upper()}" class="text-in" style="width:45px;text-transform:uppercase;text-align:center;font-weight:600"></td>
          <td><textarea name="desc_{idx}" class="text-in" style="width:100%;min-height:38px;resize:vertical;font-family:inherit;font-size:13px;line-height:1.4;padding:6px 8px" title="{raw_desc.replace('"','&quot;').replace('<','&lt;')}" oninput="detectDescUrl({idx},this)" placeholder="Enter description or paste URL">{display_desc.replace('&','&amp;').replace('<','&lt;').replace('>','&gt;')}</textarea></td>
@@ -445,6 +445,22 @@ def pricecheck_lookup(pcid):
             log.debug("Claude web search failed: %s", e)
 
     if found > 0:
+        # Auto-populate item_link from pricing source URLs if not already set
+        for item in pc.get("items", []):
+            if item.get("item_link"):
+                continue  # User already pasted a URL, don't overwrite
+            p = item.get("pricing", {})
+            best_url = (p.get("amazon_url") or p.get("web_search_url") or "").strip()
+            if best_url:
+                item["item_link"] = best_url
+                # Detect supplier from the URL
+                try:
+                    from src.agents.item_link_lookup import detect_supplier
+                    item["item_supplier"] = detect_supplier(best_url)
+                except Exception:
+                    # Fallback: guess supplier from URL domain
+                    if "amazon.com" in best_url:
+                        item["item_supplier"] = "Amazon"
         _transition_status(pc, "priced", actor="user", notes=f"Prices found via {source}")
         _save_price_checks(pcs)
 
