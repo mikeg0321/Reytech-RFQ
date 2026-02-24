@@ -927,6 +927,12 @@ def _do_save_prices(pcid):
         "fully_costed":     costed_items == len([i for i in items if not i.get("no_bid")]),
     }
 
+    # Keep parsed.line_items in sync with items (source of truth)
+    if "parsed" not in pc:
+        pc["parsed"] = {"header": {}, "line_items": items}
+    else:
+        pc["parsed"]["line_items"] = items
+
     _save_price_checks(pcs)
 
     # Also mirror to SQLite
@@ -1263,6 +1269,18 @@ def _do_generate(pcid):
     if not source_pdf or not os.path.exists(source_pdf):
         return jsonify({"ok": False, "error": "Source PDF not found"})
 
+    # Detailed logging: what exactly will fill_ams704 receive?
+    _fill_items = parsed.get("line_items", [])
+    log.info("GENERATE %s: %d items going to fill_ams704 (source: %s)",
+             pcid, len(_fill_items), os.path.basename(source_pdf))
+    for i, it in enumerate(_fill_items):
+        log.info("  → item[%d]: row_idx=%s desc='%s' qty=%s uom=%s price=%s cost=%s mfg='%s'",
+                 i, it.get("row_index"), (it.get("description") or "")[:50],
+                 it.get("qty"), it.get("uom"),
+                 it.get("unit_price") or it.get("pricing", {}).get("recommended_price"),
+                 it.get("vendor_cost") or it.get("pricing", {}).get("unit_cost"),
+                 it.get("mfg_number", ""))
+
     pc_num = pc.get("pc_number", "unknown")
     safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', pc_num.strip())
     output_path = os.path.join(DATA_DIR, f"PC_{safe_name}_Reytech_.pdf")
@@ -1276,16 +1294,12 @@ def _do_generate(pcid):
         delivery_option=pc.get("delivery_option", ""),
     )
 
-    # Log what fill_ams704 received
-    _fill_items = parsed.get("line_items", [])
-    log.info("GENERATE %s: %d items passed to fill_ams704, source=%s",
-             pcid, len(_fill_items), os.path.basename(source_pdf))
-    for i, it in enumerate(_fill_items[:5]):
-        log.info("  fill item[%d]: row_idx=%s desc='%s' price=%s cost=%s has_pricing=%s",
-                 i, it.get("row_index"), (it.get("description") or "")[:40],
-                 it.get("unit_price") or it.get("pricing", {}).get("recommended_price"),
-                 it.get("vendor_cost") or it.get("pricing", {}).get("unit_cost"),
-                 bool(it.get("pricing")))
+    # Log result
+    log.info("GENERATE %s: fill_ams704 result: ok=%s, items_priced=%s, subtotal=%s",
+             pcid, result.get("ok"), result.get("summary", {}).get("items_priced"),
+             result.get("summary", {}).get("subtotal"))
+    if not result.get("ok"):
+        log.error("GENERATE %s FAILED: %s", pcid, result.get("error"))
 
     if result.get("ok"):
         pc["output_pdf"] = output_path

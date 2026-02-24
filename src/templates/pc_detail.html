@@ -161,7 +161,9 @@
      <div class="action-bar" style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center" id="actionBar">
       <button class="btn btn-p" onclick="savePrices(this)" id="saveBtn" style="font-size:14px;padding:8px 20px">💾 Save</button>
       <button class="btn" onclick="showPreview()" style="background:#21262d;color:#c9d1d9;border:1px solid #484f58;font-size:14px;padding:8px 20px">👁️ Preview</button>
-      {% if pc.get('status') not in ('completed','converted') %}
+      {% if pc.get('status') in ('completed','converted') %}
+      <button class="btn btn-g" id="submitBtn" onclick="saveAndGenerate(this)" style="font-size:14px;padding:8px 20px">♻️ Re-fill 704</button>
+      {% else %}
       <button class="btn btn-g" id="submitBtn" onclick="saveAndGenerate(this)" style="font-size:14px;padding:8px 20px">📄 Save &amp; Fill 704</button>
       {% endif %}
       {% if pc.get('status') == 'parsed' %}
@@ -1822,10 +1824,15 @@
       if(!d) return; // earlier step failed
       btn.disabled=false;
       if(d&&d.ok){
-       showMsg('✅ AMS 704 filled! Reloading...','ok');
-       btn.textContent='📥 Download 704';btn.className='btn btn-g';
-       btn.onclick=function(){window.location=d.download};
-       setTimeout(()=>location.reload(),2000);
+       showMsg('✅ AMS 704 filled! Downloading...','ok');
+       btn.textContent='♻️ Re-fill 704';btn.className='btn btn-g';
+       btn.onclick=function(){saveAndGenerate(this)};
+       // Auto-download the generated PDF
+       if(d.download){
+        var a=document.createElement('a');a.href=d.download;a.download='';
+        document.body.appendChild(a);a.click();document.body.removeChild(a);
+       }
+       setTimeout(()=>location.reload(),2500);
       }
       else{btn.textContent='📄 Save & Fill 704';showMsg('❌ Generation failed: '+(d?.error||'unknown'),'err')}
      }).catch(e=>{btn.textContent='📄 Save & Fill 704';btn.disabled=false;showMsg('❌ '+e.message,'err')});
