@@ -2254,9 +2254,13 @@
        let webFound = wd.found || 0;
        let total = catFound + webFound;
        if (total > 0) {
-        updateBanner('✅', '<b>Found prices!</b> ' + catFound + ' catalog + ' + webFound + ' web search. Reloading...', '#3fb950');
-        showMsg('✅ Auto-priced: ' + catFound + ' from catalog, ' + webFound + ' from web. Reloading...', 'ok');
-        setTimeout(() => location.reload(), 1500);
+        updateBanner('✅', '<b>Found prices!</b> ' + catFound + ' catalog + ' + webFound + ' web search.', '#3fb950');
+        showMsg('✅ Auto-priced: ' + catFound + ' from catalog, ' + webFound + ' from web. Auto-saving...', 'ok');
+        // Auto-save instead of reloading (prevents page flash + data loss)
+        recalcPC();
+        fetch('/pricecheck/{{ pcid }}/save-prices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(collectPrices())})
+         .then(r=>r.json()).then(sd=>{if(sd.ok) showMsg('✅ Auto-priced '+total+' items and saved.','ok')})
+         .catch(()=>{});
        } else {
         // Try SCPRS as last resort
         updateBanner('🔍', '<b>Step 3:</b> Checking SCPRS won quotes KB...', '#58a6ff');
@@ -2276,19 +2280,25 @@
         });
        }
       }).catch(() => {
-       // Web search failed, try SCPRS alone
-       updateBanner('🔍', '<b>Web search unavailable.</b> Checking SCPRS...', '#d29922');
-       fetch('/pricecheck/{{ pcid }}/scprs-lookup').then(r=>r.json()).then(sd=>{
-        if(sd.found > 0){
-         showMsg('✅ SCPRS: Found '+sd.found+' matches. Reloading...', 'ok');
-         updateBanner('✅', '<b>Found prices!</b> '+sd.found+' from SCPRS. Reloading...', '#3fb950');
-         setTimeout(()=>location.reload(), 1500);
-        } else if(catFound > 0){
-         showMsg('✅ Catalog: '+catFound+' matches.', 'ok');
-         updateBanner('✅', '<b>Catalog:</b> '+catFound+' matches applied.', '#3fb950');
-         recalcPC();
-        }
-       }).catch(()=>{});
+       // Web search failed — if catalog found results, just save those
+       if(catFound > 0){
+        updateBanner('✅', '<b>Catalog:</b> '+catFound+' matches applied.', '#3fb950');
+        showMsg('✅ Catalog: '+catFound+' matches applied. Auto-saving...', 'ok');
+        recalcPC();
+        fetch('/pricecheck/{{ pcid }}/save-prices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(collectPrices())})
+         .then(r=>r.json()).then(sd=>{if(sd.ok) showMsg('✅ '+catFound+' catalog prices saved.','ok')})
+         .catch(()=>{});
+       } else {
+        // Try SCPRS alone
+        updateBanner('🔍', '<b>Web search unavailable.</b> Checking SCPRS...', '#d29922');
+        fetch('/pricecheck/{{ pcid }}/scprs-lookup').then(r=>r.json()).then(sd=>{
+         if(sd.found > 0){
+          showMsg('✅ SCPRS: Found '+sd.found+' matches. Reloading...', 'ok');
+          updateBanner('✅', '<b>Found prices!</b> '+sd.found+' from SCPRS. Reloading...', '#3fb950');
+          setTimeout(()=>location.reload(), 1500);
+         }
+        }).catch(()=>{});
+       }
       });
      }).catch(e => {
       console.warn('Auto-price catalog error:', e);
@@ -2304,14 +2314,7 @@
         showMsg('ℹ️ No auto-matches. Use the pricing buttons or paste supplier URLs.', 'warn');
        }
       }).catch(() => {
-       // Last resort: SCPRS
-       fetch('/pricecheck/{{ pcid }}/scprs-lookup').then(r=>r.json()).then(sd=>{
-        if(sd.found > 0){
-         showMsg('✅ SCPRS: Found '+sd.found+' matches. Reloading...', 'ok');
-         updateBanner('✅', '<b>Found!</b> '+sd.found+' from SCPRS. Reloading...', '#3fb950');
-         setTimeout(()=>location.reload(), 1500);
-        }
-       }).catch(()=>{});
+       updateBanner('ℹ️', '<b>No auto-matches.</b> Try the pricing buttons manually.', '#8b949e');
       });
      });
     })();

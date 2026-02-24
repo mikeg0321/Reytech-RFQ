@@ -853,6 +853,22 @@ def _do_save_prices(pcid):
 
     _sync_pc_items(pc, items)
 
+    # Auto-compute missing prices: if cost exists but price doesn't, apply markup
+    for it in items:
+        if it.get("no_bid"):
+            continue
+        cost = it.get("vendor_cost") or it.get("pricing", {}).get("unit_cost") or 0
+        price = it.get("unit_price") or it.get("pricing", {}).get("recommended_price") or 0
+        if cost > 0 and not price:
+            markup = it.get("markup_pct") or it.get("pricing", {}).get("markup_pct") or 25
+            computed_price = round(cost * (1 + markup / 100), 2)
+            it["unit_price"] = computed_price
+            if not it.get("pricing"):
+                it["pricing"] = {}
+            it["pricing"]["recommended_price"] = computed_price
+            log.info("SAVE-PRICES auto-price: cost=%.2f × (1+%d%%) = %.2f",
+                     cost, markup, computed_price)
+
     # Log what we're about to save for debugging
     for i, it in enumerate(items[:3]):  # first 3 items
         log.info("SAVE-PRICES %s item[%d]: desc='%s' mfg='%s' cost=%s price=%s link='%s'",
@@ -1160,6 +1176,18 @@ def _do_generate(pcid):
         pc["parsed"] = {"header": {}, "line_items": pc.get("items", [])}
     elif not pc["parsed"].get("line_items"):
         pc["parsed"]["line_items"] = pc.get("items", [])
+    
+    # Auto-compute missing prices before PDF generation
+    for it in pc.get("items", []):
+        cost = it.get("vendor_cost") or it.get("pricing", {}).get("unit_cost") or 0
+        price = it.get("unit_price") or it.get("pricing", {}).get("recommended_price") or 0
+        if cost > 0 and not price and not it.get("no_bid"):
+            markup = it.get("markup_pct") or it.get("pricing", {}).get("markup_pct") or 25
+            computed = round(cost * (1 + markup / 100), 2)
+            it["unit_price"] = computed
+            if not it.get("pricing"):
+                it["pricing"] = {}
+            it["pricing"]["recommended_price"] = computed
     
     _save_price_checks(pcs)
 

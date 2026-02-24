@@ -727,27 +727,13 @@ def fill_ams704(
             continue
 
         pricing = item.get("pricing", {})
-
-        # Select price based on tier — check first-class field first, then pricing dict
-        unit_price = item.get("unit_price") or pricing.get("recommended_price")
-        if not unit_price:
-            unit_price = pricing.get("amazon_price")
-        if not unit_price:
-            _skipped_no_price += 1
-            log.debug("fill_ams704 SKIP item (no price): row=%s desc='%s'",
-                       row, (item.get("description") or "")[:40])
-            continue  # Can't price this item
-
         seq += 1
         qty = item.get("qty", 1)
-        qty_per_uom = item.get("qty_per_uom", 1)
-        extension = round(unit_price * qty, 2)
-        subtotal += extension
-        items_priced += 1
-        log.info("fill_ams704 WRITE row=%d: desc='%s' price=%.2f qty=%d ext=%.2f",
-                 row, (item.get("description") or "")[:40], unit_price, qty, extension)
 
-        # ── ITEM NUMBER field: sequential line numbers (1, 2, 3...) ──
+        # ── ALWAYS WRITE: Item#, Qty, Description, UOM ──
+        # These fields appear on every 704 regardless of pricing status
+
+        # ITEM NUMBER field: sequential line numbers (1, 2, 3...)
         item_num_field = ROW_FIELDS["item_number"].format(n=row)
         field_values.append({
             "field_id": item_num_field,
@@ -755,7 +741,7 @@ def fill_ams704(
             "value": str(seq),
         })
 
-        # ── QTY field ──
+        # QTY field
         qty_field = ROW_FIELDS["qty"].format(n=row)
         field_values.append({
             "field_id": qty_field,
@@ -763,20 +749,15 @@ def fill_ams704(
             "value": str(qty),
         })
 
-        # ── DESCRIPTION field: always write to PDF ──
+        # DESCRIPTION field: always write to PDF
         # Priority: user-edited description > original parsed text
-        # (User may have corrected/shortened the description in the UI)
         desc_user = (item.get("description") or "").strip()
         desc_raw = (item.get("description_raw") or "").strip()
-        # Use user edit if available, else fall back to raw parsed text
         desc_source = desc_user or desc_raw
         desc_clean = clean_description(desc_source) if desc_source else ""
-        # Always write description — fall back to raw if cleaning strips too much
         desc_final = desc_clean or desc_source
         if desc_final:
             desc_field = ROW_FIELDS["description"].format(n=row)
-            # Only append MFG#/ASIN to description when quoting a substitute item
-            # (if quoting exactly what was asked, keep the description as-is)
             if item.get("is_substitute"):
                 mfg_num = (pricing.get("mfg_number") or pricing.get("manufacturer_part") 
                            or item.get("mfg_number") or "")
@@ -785,7 +766,6 @@ def fill_ams704(
                     desc_final = f"{desc_final}\nMFG#: {mfg_num}"
                 elif asin and asin not in desc_final:
                     desc_final = f"{desc_final}\nASIN: {asin}"
-            # Append per-item notes if present
             item_notes = (item.get("notes") or "").strip()
             if item_notes:
                 desc_final = f"{desc_final}\nNote: {item_notes}"
@@ -795,7 +775,7 @@ def fill_ams704(
                 "value": desc_final,
             })
 
-        # Issue 3: Write UOM (uppercase) to PDF
+        # UOM (uppercase)
         uom_val = (item.get("uom") or "EA").upper()
         uom_field = ROW_FIELDS["uom"].format(n=row)
         field_values.append({
@@ -803,6 +783,32 @@ def fill_ams704(
             "page": 1,
             "value": uom_val,
         })
+
+        # ── CONDITIONALLY WRITE: Price and Extension (only if we have a price) ──
+        unit_price = item.get("unit_price") or pricing.get("recommended_price")
+        if not unit_price:
+            unit_price = pricing.get("amazon_price")
+        if not unit_price:
+            _skipped_no_price += 1
+            log.info("fill_ams704 row=%d: desc WRITTEN, but NO PRICE (desc='%s')",
+                     row, (desc_final or "")[:40])
+            # Still write substituted item if applicable, but skip price fields
+            sub_field = ROW_FIELDS["substituted"].format(n=row)
+            if item.get("is_substitute"):
+                sub_text = desc_clean or item.get("description", "")
+                _sub_mfg = (item.get("mfg_number") or pricing.get("mfg_number")
+                             or pricing.get("manufacturer_part") or "")
+                if _sub_mfg:
+                    sub_text = f"{_sub_mfg} — {sub_text}" if sub_text else _sub_mfg
+                field_values.append({"field_id": sub_field, "page": 1, "value": sub_text[:120]})
+            continue  # Skip price/extension fields
+
+        qty_per_uom = item.get("qty_per_uom", 1)
+        extension = round(unit_price * qty, 2)
+        subtotal += extension
+        items_priced += 1
+        log.info("fill_ams704 WRITE row=%d: desc='%s' price=%.2f qty=%d ext=%.2f",
+                 row, (desc_final or "")[:40], unit_price, qty, extension)
 
         # Fill price and extension
         price_field = ROW_FIELDS["unit_price"].format(n=row)
