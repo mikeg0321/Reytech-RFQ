@@ -699,6 +699,8 @@ def match_items_batch(items: list) -> list:
                 "product_id": best["id"],
                 "canonical_name": best.get("description") or best.get("name", ""),
                 "part_number": best.get("mfg_number") or best.get("name", ""),
+                "mfg_number": best.get("mfg_number", ""),
+                "sku": best.get("sku", ""),
                 "manufacturer": best.get("manufacturer", ""),
                 "uom": best.get("uom", "EA"),
                 "last_cost": best.get("cost"),
@@ -1301,13 +1303,20 @@ def save_pc_items_to_catalog(pc: dict) -> dict:
             result["existing"] += 1
         else:
             # NEW item → add to catalog
+            _supplier = (item.get("item_supplier") or "").strip()
+            _mfg = str(item.get("item_number") or "").strip() if pn else ""
             pid = add_to_catalog(
                 description=desc, part_number=pn,
                 cost=float(cost) if cost else 0,
                 sell_price=float(price) if price else 0,
                 supplier_url=link,
+                supplier_name=_supplier,
+                uom=(item.get("uom") or "EA"),
+                mfg_number=_mfg,
                 source="price_check"
             )
+            if pid and _supplier and cost:
+                add_supplier_price(pid, _supplier, float(cost), url=link)
             if pid:
                 result["added"] += 1
             else:

@@ -836,11 +836,19 @@ def _auto_price_new_pc(pc_id: str):
                         p["catalog_match"] = best.get("name", "")[:60]
                         p["catalog_confidence"] = best.get("match_confidence", 0)
                         p["catalog_sku"] = best.get("sku", "")
+                        p["catalog_product_id"] = best.get("id")
+                        p["catalog_cost"] = cat_cost if cat_cost > 0 else None
+                        p["catalog_best_supplier"] = best.get("best_supplier", "")
                         if cat_cost > 0:
                             p["unit_cost"] = cat_cost
+                            p["last_cost"] = cat_cost
                         p["recommended_price"] = round(cat_price, 2)
+                        # Propagate MFG# if item doesn't have one
+                        cat_mfg = best.get("mfg_number") or best.get("sku", "")
+                        if cat_mfg and not item.get("item_number"):
+                            item["item_number"] = cat_mfg
                         found_count += 1
-                        log.debug("  Catalog match: %s → $%.2f", desc[:40], cat_price)
+                        log.debug("  Catalog match: %s → $%.2f (pid=%s)", desc[:40], cat_price, best.get("id"))
         except Exception as e:
             log.debug("Auto-price catalog error: %s", e)
 
@@ -864,6 +872,10 @@ def _auto_price_new_pc(pc_id: str):
                             item["pricing"]["scprs_price"] = scprs_price
                             item["pricing"]["scprs_match"] = quote.get("description", "")[:60]
                             item["pricing"]["scprs_confidence"] = best.get("match_confidence", 0)
+                            # Propagate item_number from SCPRS match
+                            scprs_pn = quote.get("item_number", "")
+                            if scprs_pn and not item.get("item_number"):
+                                item["item_number"] = scprs_pn
                             if not item["pricing"].get("unit_cost"):
                                 item["pricing"]["unit_cost"] = scprs_price
                             if not item["pricing"].get("recommended_price"):
@@ -904,6 +916,24 @@ def _auto_price_new_pc(pc_id: str):
                     item["pricing"]["recommended_price"] = round(result["price"] * (1 + markup / 100), 2)
                     found_count += 1
                     log.debug("  Web match: %s → $%.2f via %s", desc[:40], result["price"], result.get("source",""))
+                    # Write-back: save to catalog + product_suppliers
+                    try:
+                        from src.agents.product_catalog import (
+                            match_item as _wm, add_to_catalog as _wa,
+                            add_supplier_price as _ws, init_catalog_db as _wi
+                        )
+                        _wi()
+                        _wmatches = _wm(desc, pn, top_n=1) if (desc or pn) else []
+                        if _wmatches and _wmatches[0].get("match_confidence", 0) >= 0.55:
+                            _wpid = _wmatches[0]["id"]
+                        else:
+                            _wpid = _wa(description=desc, part_number=pn or web_pn,
+                                        cost=result["price"], source="auto_web_search")
+                        if _wpid and result.get("source"):
+                            _ws(_wpid, result["source"], result["price"],
+                                url=result.get("url", ""), sku=web_pn)
+                    except Exception:
+                        pass
                 time.sleep(1.0)  # Rate limit
         except ImportError:
             log.debug("web_price_research not available")

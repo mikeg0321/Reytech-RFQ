@@ -96,21 +96,31 @@ def pricecheck_detail(pcid):
 
         # ── Unified Sources column: all price sources as compact chips ──
         sources = []  # list of (price, label, url, color, is_preferred)
+        known_supplier = item.get("item_supplier", "").lower()  # supplier from pasted URL
+        cat_best_sup = p.get("catalog_best_supplier", "").lower()
+
         if scprs_cost:
             scprs_conf_str = f" ({scprs_conf:.0%})" if scprs_conf else ""
             sources.append((scprs_cost, f"SCPRS{scprs_conf_str}", "", "#3fb950", True))
         if amazon_cost:
             a_url = p.get("amazon_url", "")
-            a_title = (p.get("amazon_title") or "")[:30]
             a_label = f"Amazon" + (f" · {asin}" if asin else "")
-            sources.append((amazon_cost, a_label, a_url, "#ff9900", False))
+            # Preferred if we've used Amazon before for this product
+            a_pref = "amazon" in cat_best_sup or "amazon" in known_supplier
+            sources.append((amazon_cost, a_label, a_url, "#ff9900", a_pref))
         web_price = p.get("web_price", 0)
         if web_price and web_price != amazon_cost:
-            sources.append((web_price, p.get("web_source", "Web")[:20], p.get("web_url", ""), "#d2a8ff", False))
+            w_src = p.get("web_source", "Web")[:20]
+            w_pref = w_src.lower() in cat_best_sup or w_src.lower() in known_supplier
+            sources.append((web_price, w_src, p.get("web_url", ""), "#d2a8ff", w_pref))
         cat_cost = p.get("catalog_cost") or p.get("last_cost", 0)
         cat_match = p.get("catalog_match", "")
+        cat_pid = p.get("catalog_product_id")
         if cat_cost and cat_match:
-            sources.append((cat_cost, f"📦 Catalog", "", "#58a6ff", True))
+            cat_url = f"/catalog/{cat_pid}" if cat_pid else ""
+            cat_sup = p.get("catalog_best_supplier", "")
+            cat_label = f"📦 {cat_sup}" if cat_sup else "📦 Catalog"
+            sources.append((cat_cost, cat_label, cat_url, "#58a6ff", True))
 
         # Sort by price, preferred suppliers get a small boost (within 10% of cheapest = preferred wins)
         if sources:
@@ -444,6 +454,10 @@ def pricecheck_scprs_lookup(pcid):
                     item["pricing"]["scprs_confidence"] = best.get("match_confidence", 0)
                     item["pricing"]["scprs_source"]     = quote.get("source", "scprs_kb")
                     item["pricing"]["scprs_po"]         = quote.get("po_number", "")
+                    # Propagate item_number from SCPRS match if item doesn't have one
+                    scprs_item_num = quote.get("item_number", "")
+                    if scprs_item_num and not item.get("item_number"):
+                        item["item_number"] = scprs_item_num
                     # GAP 4 FIX: record this match to price_history
                     if scprs_price and scprs_price > 0:
                         try:
@@ -3163,6 +3177,7 @@ def api_item_link_lookup():
     POST { url: "https://grainger.com/product/..." }
     Returns structured product data: title, price, part_number, shipping, supplier.
     Used for the item_link autofill on PC and RFQ line items.
+    Also writes price+supplier to catalog DB for future intelligence.
     """
     data = request.get_json(silent=True) or {}
     url = (data.get("url") or "").strip()
@@ -3172,6 +3187,49 @@ def api_item_link_lookup():
     try:
         from src.agents.item_link_lookup import lookup_from_url
         result = lookup_from_url(url)
+
+        # ── Write-back to catalog DB ──
+        if result.get("ok") and result.get("price"):
+            try:
+                from src.agents.product_catalog import (
+                    match_item, add_to_catalog, add_supplier_price, init_catalog_db
+                )
+                init_catalog_db()
+                desc = result.get("title") or result.get("description", "")
+                pn = result.get("mfg_number") or result.get("part_number", "")
+                supplier = result.get("supplier", "")
+                price = float(result["price"])
+
+                # Find or create catalog product
+                matches = match_item(desc, pn, top_n=1) if (desc or pn) else []
+                if matches and matches[0].get("match_confidence", 0) >= 0.55:
+                    pid = matches[0]["id"]
+                    result["catalog_product_id"] = pid
+                else:
+                    pid = add_to_catalog(
+                        description=desc, part_number=pn,
+                        cost=price, supplier_url=url,
+                        manufacturer=result.get("manufacturer", ""),
+                        mfg_number=result.get("mfg_number", ""),
+                        source=f"link_lookup_{supplier.lower()[:20]}"
+                    )
+                    if pid:
+                        result["catalog_product_id"] = pid
+
+                # Record supplier price
+                if pid and supplier and price > 0:
+                    add_supplier_price(
+                        product_id=pid,
+                        supplier_name=supplier,
+                        price=price,
+                        url=url,
+                        sku=result.get("part_number", ""),
+                        shipping=result.get("shipping") or 0,
+                    )
+                    log.info("link_lookup → catalog pid=%d supplier=%s $%.2f", pid, supplier, price)
+            except Exception as cat_err:
+                log.debug("link_lookup catalog write-back: %s", cat_err)
+
         return jsonify(result)
     except Exception as e:
         log.error("item_link_lookup API error: %s", e)

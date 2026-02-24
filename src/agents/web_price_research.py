@@ -413,6 +413,27 @@ def web_search_for_pc(pc_id: str) -> dict:
             p["amazon_url"] = r.get("url", "")
         
         found += 1
+
+        # Write-back to catalog DB
+        try:
+            from src.agents.product_catalog import (
+                match_item as _wm, add_to_catalog as _wa,
+                add_supplier_price as _ws, init_catalog_db as _wi
+            )
+            _wi()
+            _desc = item.get("description", "")
+            _pn = str(item.get("item_number", "") or web_pn or "")
+            _wmatches = _wm(_desc, _pn, top_n=1) if (_desc or _pn) else []
+            if _wmatches and _wmatches[0].get("match_confidence", 0) >= 0.55:
+                _wpid = _wmatches[0]["id"]
+            else:
+                _wpid = _wa(description=_desc, part_number=_pn,
+                            cost=r["price"], source="web_search_pc")
+            if _wpid and r.get("source"):
+                _ws(_wpid, r["source"], r["price"],
+                    url=r.get("url", ""), sku=web_pn)
+        except Exception:
+            pass
     
     # Save
     if found > 0:

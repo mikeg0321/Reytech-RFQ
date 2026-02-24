@@ -146,3 +146,21 @@ data islands (never inline in JS). Node --check validates each block at build ti
 **Rule**: Merge related data into smart composite columns. "Sources" column shows all
 price sources as clickable chips with cost comparison. Preferred suppliers (★) float
 to top if within 10% of cheapest. Each chip links to source (internal/external).
+
+## L23: Every pricing discovery must write back to product DB
+**Pattern**: URL paste, web search, SCPRS match, and catalog match all found pricing
+data but stored it only on the PC item's JSON dict — never wrote back to product_catalog
+or product_suppliers tables. Data disappeared after the session.
+**Rule**: Every pricing path must do 3 things:
+1. Set pricing on the PC item (for immediate display)
+2. Find-or-create a catalog product (for future matching)
+3. Record the supplier + price in product_suppliers (for intelligence)
+Write-backs use try/except so failures don't break the main flow.
+
+## L24: Propagate part numbers from every match source
+**Pattern**: SCPRS matches often have item_numbers from POs. Catalog matches have
+mfg_numbers. Web search finds part_numbers. None of these flowed back to the item's
+item_number field, so the MFG# column stayed blank.
+**Rule**: After every match (SCPRS, catalog, web), check if item.item_number is empty.
+If so, copy the best available part number from the match result.
+Priority: mfg_number > part_number > sku > asin > sequential.
