@@ -716,9 +716,14 @@ def fill_ams704(
     items_priced = 0
 
     seq = 0  # sequential line item counter
-    for item in items:
-        row = item.get("row_index", 0)
+    _skipped_no_row = 0
+    _skipped_no_price = 0
+    for item_idx, item in enumerate(items):
+        row = item.get("row_index") or (item_idx + 1)  # default to 1-based position
         if row < 1 or row > MAX_ROWS_PER_PAGE:
+            _skipped_no_row += 1
+            log.debug("fill_ams704 SKIP item (bad row_index=%s): desc='%s'",
+                       row, (item.get("description") or "")[:40])
             continue
 
         pricing = item.get("pricing", {})
@@ -728,6 +733,9 @@ def fill_ams704(
         if not unit_price:
             unit_price = pricing.get("amazon_price")
         if not unit_price:
+            _skipped_no_price += 1
+            log.debug("fill_ams704 SKIP item (no price): row=%s desc='%s'",
+                       row, (item.get("description") or "")[:40])
             continue  # Can't price this item
 
         seq += 1
@@ -736,6 +744,8 @@ def fill_ams704(
         extension = round(unit_price * qty, 2)
         subtotal += extension
         items_priced += 1
+        log.info("fill_ams704 WRITE row=%d: desc='%s' price=%.2f qty=%d ext=%.2f",
+                 row, (item.get("description") or "")[:40], unit_price, qty, extension)
 
         # ── ITEM NUMBER field: sequential line numbers (1, 2, 3...) ──
         item_num_field = ROW_FIELDS["item_number"].format(n=row)
@@ -859,6 +869,11 @@ def fill_ams704(
         _fill_pdf_fields(source_pdf, field_values, output_pdf)
     except Exception as e:
         return {"ok": False, "error": f"PDF fill error: {e}"}
+
+    log.info("fill_ams704 COMPLETE: %d/%d items priced, %d skipped(no row), %d skipped(no price), "
+             "subtotal=$%.2f, %d field_values written to %s",
+             items_priced, len(items), _skipped_no_row, _skipped_no_price,
+             subtotal, len(field_values), os.path.basename(output_pdf))
 
     return {
         "ok": True,

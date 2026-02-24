@@ -3,6 +3,13 @@ import json as _json
 # 26 routes, 985 lines
 # Loaded by dashboard.py via load_module()
 
+
+def _sync_pc_items(pc, items):
+    """Safely sync items list to both pc['items'] and pc['parsed']['line_items'].
+    Creates pc['parsed'] if it doesn't exist (e.g. after SQLite restore)."""
+    _sync_pc_items(pc, items)
+
+
 # Price Check Pages (v6.2)
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -224,6 +231,9 @@ def pricecheck_detail(pcid):
         qfname = os.path.basename(pc["reytech_quote_pdf"])
         qnum = pc.get("reytech_quote_number", "")
         download_html += f' <a href="/api/pricecheck/download/{qfname}" class="btn btn-sm" style="background:#1a3a5c;color:#fff;font-size:13px">📥 Quote {qnum}</a>'
+
+    # Diagnostic link (small, unobtrusive)
+    download_html += f' <a href="/pricecheck/{pcid}/diagnose" target="_blank" style="font-size:10px;color:#484f58;margin-left:8px" title="Check data integrity">🔍 diagnose</a>'
 
     # 45-day expiry from TODAY (not upload date)
     try:
@@ -539,8 +549,7 @@ def pricecheck_scprs_lookup(pcid):
             except Exception as e:
                 log.error(f"SCPRS lookup error: {e}")
 
-    pc["items"] = items
-    pc["parsed"]["line_items"] = items
+    _sync_pc_items(pc, items)
     _save_price_checks(pcs)
     return jsonify({"ok": True, "found": found, "total": len(items)})
 
@@ -590,9 +599,7 @@ def pricecheck_rescan_mfg(pcid):
             item["mfg_number"] = pn
             updated += 1
 
-    pc["items"] = items
-    if "parsed" in pc:
-        pc["parsed"]["line_items"] = items
+    _sync_pc_items(pc, items)
     _save_price_checks(pcs)
 
     return jsonify({"ok": True, "updated": updated, "total": len(items)})
@@ -630,6 +637,97 @@ def pricecheck_rename(pcid):
     return jsonify({"ok": True, "pc_number": new_name})
 
 
+@bp.route("/pricecheck/<pcid>/diagnose")
+@auth_required
+def pricecheck_diagnose(pcid):
+    """Diagnostic endpoint — checks data integrity for a PC."""
+    diag = {"pcid": pcid, "checks": [], "errors": []}
+
+    # 1. Can we load the PC?
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        diag["errors"].append("PC not found in price_checks.json")
+        return jsonify(diag)
+    diag["checks"].append(f"PC loaded: {pc.get('pc_number','?')}")
+
+    # 2. Items state
+    items = pc.get("items", [])
+    diag["item_count"] = len(items)
+    diag["checks"].append(f"{len(items)} items")
+    
+    # 3. Check each item for key fields
+    item_issues = []
+    for i, it in enumerate(items):
+        issues = []
+        desc = (it.get("description") or "").strip()
+        if not desc:
+            issues.append("no description")
+        mfg = it.get("mfg_number", "")
+        cost = it.get("vendor_cost") or it.get("pricing", {}).get("unit_cost")
+        price = it.get("unit_price") or it.get("pricing", {}).get("recommended_price")
+        row_idx = it.get("row_index")
+        if not row_idx:
+            issues.append(f"no row_index (fill_ams704 will SKIP this item)")
+        if not price:
+            issues.append("no price (fill_ams704 will SKIP this item)")
+        if issues:
+            item_issues.append(f"item[{i}] '{desc[:30]}': {', '.join(issues)}")
+        else:
+            diag["checks"].append(f"item[{i}] OK: desc='{desc[:30]}' mfg='{mfg}' cost={cost} price={price} row={row_idx}")
+    if item_issues:
+        diag["item_issues"] = item_issues
+        diag["errors"].extend(item_issues)
+
+    # 4. parsed dict state
+    parsed = pc.get("parsed")
+    if not parsed:
+        diag["errors"].append("pc['parsed'] is MISSING — fill_ams704 will get no items!")
+    else:
+        p_items = parsed.get("line_items", [])
+        diag["checks"].append(f"parsed.line_items: {len(p_items)} items")
+        if len(p_items) != len(items):
+            diag["errors"].append(f"DESYNC: pc.items has {len(items)} but parsed.line_items has {len(p_items)}")
+
+    # 5. Source PDF exists?
+    src = pc.get("source_pdf", "")
+    if src and os.path.exists(src):
+        diag["checks"].append(f"source_pdf exists: {os.path.basename(src)}")
+    elif src:
+        diag["errors"].append(f"source_pdf MISSING: {src}")
+    else:
+        diag["errors"].append("no source_pdf set")
+
+    # 6. Catalog DB state
+    try:
+        from src.agents.product_catalog import init_catalog_db, _get_conn
+        init_catalog_db()
+        conn = _get_conn()
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(product_catalog)").fetchall()}
+        count = conn.execute("SELECT COUNT(*) FROM product_catalog").fetchone()[0]
+        conn.close()
+        has_search_tokens = "search_tokens" in cols
+        diag["catalog"] = {"count": count, "has_search_tokens": has_search_tokens, "columns": sorted(cols)}
+        if not has_search_tokens:
+            diag["errors"].append("Catalog DB MISSING search_tokens column!")
+        else:
+            diag["checks"].append(f"Catalog: {count} products, search_tokens=OK")
+    except Exception as e:
+        diag["errors"].append(f"Catalog DB error: {e}")
+
+    # 7. DATA_DIR info
+    try:
+        from src.core.paths import DATA_DIR as _dd
+        diag["data_dir"] = _dd
+        diag["data_dir_writable"] = os.access(_dd, os.W_OK)
+        diag["data_dir_files"] = len(os.listdir(_dd))
+    except Exception as e:
+        diag["errors"].append(f"DATA_DIR error: {e}")
+
+    diag["ok"] = len(diag["errors"]) == 0
+    return jsonify(diag)
+
+
 @bp.route("/pricecheck/<pcid>/save-prices", methods=["POST"])
 @auth_required
 def pricecheck_save_prices(pcid):
@@ -637,10 +735,23 @@ def pricecheck_save_prices(pcid):
     pcs = _load_price_checks()
     pc = pcs.get(pcid)
     if not pc:
+        log.error("SAVE-PRICES %s: PC not found", pcid)
         return jsonify({"ok": False, "error": "PC not found"})
 
-    data = request.json or {}
+    # Use force=True to parse JSON even if Content-Type header is wrong
+    data = request.get_json(force=True, silent=True) or {}
+    if not data:
+        log.error("SAVE-PRICES %s: Empty request body! Content-Type=%s, body=%s",
+                  pcid, request.content_type, request.get_data(as_text=True)[:200])
+        return jsonify({"ok": False, "error": "Empty request body"})
+
     items = pc.get("items", [])
+    log.info("SAVE-PRICES %s: %d keys in data, %d existing items",
+             pcid, len(data), len(items))
+    
+    # Ensure parsed dict exists (may be missing after SQLite restore or manual creation)
+    if "parsed" not in pc:
+        pc["parsed"] = {"header": {}, "line_items": items}
     
     # Save tax state
     pc["tax_enabled"] = data.get("tax_enabled", False)
@@ -661,8 +772,10 @@ def pricecheck_save_prices(pcid):
             idx = int(parts[1])
             # Expand items list if new rows were added via UI
             while idx >= len(items):
+                new_row_idx = len(items) + 1  # 1-based row index for PDF
                 items.append({"item_number": "", "qty": 1, "uom": "ea",
-                              "description": "", "pricing": {}})
+                              "description": "", "pricing": {},
+                              "row_index": new_row_idx})
             if 0 <= idx < len(items):
                 if field_type in ("price", "cost", "markup"):
                     if not items[idx].get("pricing"):
@@ -728,8 +841,17 @@ def pricecheck_save_prices(pcid):
         except (ValueError, IndexError):
             pass
 
-    pc["items"] = items
-    pc["parsed"]["line_items"] = items
+    _sync_pc_items(pc, items)
+
+    # Log what we're about to save for debugging
+    for i, it in enumerate(items[:3]):  # first 3 items
+        log.info("SAVE-PRICES %s item[%d]: desc='%s' mfg='%s' cost=%s price=%s link='%s'",
+                 pcid, i,
+                 (it.get("description") or "")[:40],
+                 it.get("mfg_number", ""),
+                 it.get("vendor_cost") or it.get("pricing", {}).get("unit_cost"),
+                 it.get("unit_price") or it.get("pricing", {}).get("recommended_price"),
+                 (it.get("item_link") or "")[:40])
 
     # Compute PC-level profit summary — always kept current
     total_revenue = 0
@@ -804,7 +926,7 @@ def pricecheck_save_prices(pcid):
     # ── CATALOG ENRICHMENT: feed PC items back into product catalog ─────
     _cat_result = _enrich_catalog_from_pc(pc)
 
-    summary = pc["profit_summary"]
+    summary = pc.get("profit_summary", {})
     resp = {"ok": True, "profit_summary": summary}
     if _cat_result:
         resp["catalog"] = _cat_result
@@ -990,8 +1112,7 @@ def pricecheck_reparse(pcid):
 
     # Update PC with fresh parse
     pc["parsed"] = fresh
-    pc["parsed"]["line_items"] = fresh["line_items"]
-    pc["items"] = fresh["line_items"]
+    _sync_pc_items(pc, fresh["line_items"])
     _save_price_checks(pcs)
 
     log.info("REPARSE PC %s: %d items re-parsed from source PDF", pcid, len(fresh["line_items"]))
@@ -1013,8 +1134,14 @@ def pricecheck_generate(pcid):
     from src.forms.price_check import fill_ams704
 
     # ── Sanitize stored data before PDF generation ──
-    # Fixes corrupted data from older code versions
     _sanitize_pc_items(pc)
+    
+    # Ensure parsed dict exists and has items (critical for fill_ams704)
+    if "parsed" not in pc:
+        pc["parsed"] = {"header": {}, "line_items": pc.get("items", [])}
+    elif not pc["parsed"].get("line_items"):
+        pc["parsed"]["line_items"] = pc.get("items", [])
+    
     _save_price_checks(pcs)
 
     parsed = pc.get("parsed", {})
@@ -1034,6 +1161,17 @@ def pricecheck_generate(pcid):
         custom_notes=pc.get("custom_notes", ""),
         delivery_option=pc.get("delivery_option", ""),
     )
+
+    # Log what fill_ams704 received
+    _fill_items = parsed.get("line_items", [])
+    log.info("GENERATE %s: %d items passed to fill_ams704, source=%s",
+             pcid, len(_fill_items), os.path.basename(source_pdf))
+    for i, it in enumerate(_fill_items[:5]):
+        log.info("  fill item[%d]: row_idx=%s desc='%s' price=%s cost=%s has_pricing=%s",
+                 i, it.get("row_index"), (it.get("description") or "")[:40],
+                 it.get("unit_price") or it.get("pricing", {}).get("recommended_price"),
+                 it.get("vendor_cost") or it.get("pricing", {}).get("unit_cost"),
+                 bool(it.get("pricing")))
 
     if result.get("ok"):
         pc["output_pdf"] = output_path
@@ -2962,8 +3100,7 @@ def api_admin_rescan_item_numbers():
         
         if items_updated > 0:
             total_updated += items_updated
-            pc["items"] = items
-            pc["parsed"]["line_items"] = items
+            _sync_pc_items(pc, items)
             details.append({
                 "pcid": pcid,
                 "pc_number": pc.get("pc_number", ""),

@@ -207,3 +207,34 @@ the old items but not in the freshly-parsed line_items.
 **Rule**: When a lookup/enrichment adds data to items, MERGE into existing items
 using `.update()` on the pricing dict. Never replace the items list wholesale.
 Only the initial parse and explicit re-parse should replace items.
+
+## L30: pc["parsed"] may not exist — use _sync_pc_items()
+**Pattern**: `pc["parsed"]["line_items"] = items` crashes with KeyError when
+pc["parsed"] doesn't exist. This happens after SQLite restore (which only stores
+items, not the full parsed dict) or manual PC creation.
+**Rule**: Never write to pc["parsed"] directly. Use `_sync_pc_items(pc, items)`
+which creates pc["parsed"] if missing and preserves the header dict if present.
+All 5+ save paths must use this helper.
+
+## L31: fill_ams704 skips items without row_index or unit_price
+**Pattern**: Items added via "Add Row" in the UI had no row_index, so fill_ams704
+skipped them entirely. Items without any price also get skipped silently.
+**Rule**: New items must get row_index = len(items)+1. fill_ams704 defaults
+row_index to item position if missing. Always log what fill_ams704 skips so
+silent data loss is visible in Railway logs.
+
+## L32: request.json can silently return None — use get_json(force=True)
+**Pattern**: Flask's `request.json` returns None if Content-Type isn't exactly
+"application/json" (e.g. browser adds charset). Save handler got empty dict,
+iterated nothing, saved unchanged items, returned {"ok": true} — looked like
+success but nothing persisted.
+**Rule**: Use `request.get_json(force=True, silent=True)` for all POST handlers.
+Log when body is empty. Never return ok:true unless actual changes were made.
+
+## L33: Add diagnostic endpoints for critical flows
+**Pattern**: Four separate failures (save, PDF, catalog, descriptions) with no
+visibility into what's happening on Railway. Debugging was impossible without
+logs showing what data entered each function.
+**Rule**: Critical flows (save-prices, fill_ams704, catalog enrichment) must
+log their inputs, outputs, and skip reasons. Add /diagnose endpoints that
+check data integrity (row_index, pricing, parsed dict, catalog DB state).
