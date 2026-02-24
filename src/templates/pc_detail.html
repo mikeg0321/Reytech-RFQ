@@ -620,34 +620,31 @@
       const filled = [];
       const metaEl = mode==='pc' ? document.getElementById('link_meta_'+idx) : document.getElementById('rfq_link_meta_'+idx);
       
-      // Fill description — more aggressive: fill if empty, very short, or placeholder
+      // Fill description — override if lookup has a better one (longer or current is placeholder)
       const descEl = document.querySelector('[name=desc_'+idx+']');
       if (descEl && d.description) {
         const cur = descEl.value.trim();
-        if (!cur || cur.length < 5 || descEl.placeholder.includes('Loading')) {
+        if (!cur || cur.length < 5 || descEl.placeholder.includes('Loading') || d.description.length > cur.length) {
           descEl.value = d.description;
           descEl.placeholder = 'Enter description';
           filled.push('description');
         }
       }
       
-      // Fill cost — always fill if lookup returned a price
+      // Fill cost — ALWAYS override: user pasted URL to get this price
       const costEl = document.querySelector('[name=cost_'+idx+']');
-      if (costEl && d.price) {
-        const curCost = parseFloat(costEl.value) || 0;
-        if (curCost === 0) {
-          costEl.value = d.price.toFixed(2);
-          filled.push('cost $'+d.price.toFixed(2));
-        }
+      if (costEl && d.price && d.price > 0) {
+        costEl.value = d.price.toFixed(2);
+        costEl.style.background='#0d2818';
+        setTimeout(()=>{costEl.style.background='';},1500);
+        filled.push('cost $'+d.price.toFixed(2));
       }
       
-      // Fill MFG#/Part# — prefer mfg_number > part_number > asin
+      // Fill MFG#/Part# — ALWAYS override if we got a better number
       const itemNumEl = document.querySelector('[name=itemnum_'+idx+']');
       if (itemNumEl) {
         const bestNum = d.mfg_number || d.part_number || d.asin || '';
-        const curNum = itemNumEl.value.trim();
-        // Fill if empty or just a sequential number (1,2,3...)
-        if (bestNum && (!curNum || /^\d{1,2}$/.test(curNum))) {
+        if (bestNum) {
           itemNumEl.value = bestNum;
           filled.push('MFG# ' + bestNum);
         }
