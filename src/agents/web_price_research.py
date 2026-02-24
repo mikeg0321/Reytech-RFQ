@@ -180,7 +180,7 @@ If you can't find the product, respond: {{"found": false, "reason": "..."}}"""
                 }],
                 "messages": [{"role": "user", "content": prompt}],
             },
-            timeout=30,
+            timeout=60,
         )
         
         # Retry once on transient errors (502/503/529)
@@ -205,7 +205,7 @@ If you can't find the product, respond: {{"found": false, "reason": "..."}}"""
                     }],
                     "messages": [{"role": "user", "content": prompt}],
                 },
-                timeout=30,
+                timeout=60,
             )
         
         if resp.status_code != 200:
