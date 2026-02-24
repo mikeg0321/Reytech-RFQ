@@ -736,14 +736,8 @@ def fill_ams704(
         items_priced += 1
 
         # ── ITEM NUMBER field on 704 ──
-        # Preserve the original line item number from the parsed 704 form
-        item_num_val = item.get("item_number") or str(row)
-        item_field = ROW_FIELDS["item_number"].format(n=row)
-        field_values.append({
-            "field_id": item_field,
-            "page": 1,
-            "value": str(item_num_val)[:20],
-        })
+        # DO NOT overwrite — the requestor already filled in line item numbers.
+        # As the supplier, we leave the ITEM column untouched.
 
         # ── QTY field ──
         qty_field = ROW_FIELDS["qty"].format(n=row)
@@ -801,31 +795,17 @@ def fill_ams704(
         })
 
         # Fill SUBSTITUTED ITEM column: only when quoting a replacement/substitute item
+        # (controlled by the "Sub?" checkbox on the pricecheck detail page)
         if item.get("is_substitute"):
             sub_field = ROW_FIELDS["substituted"].format(n=row)
-            sub_parts = []
-            # Add MFG/part number if found
+            # Use the description of what we're actually quoting (the substitute)
+            sub_text = desc_clean or item.get("description", "")
+            # Prepend MFG# if available and not already in description
             _sub_mfg = (item.get("mfg_number") or pricing.get("mfg_number")
                          or pricing.get("manufacturer_part") or "")
-            if _sub_mfg:
-                sub_parts.append(f"MFG#: {_sub_mfg}")
-            # Add product match title
-            if pricing.get("amazon_title"):
-                sub_parts.append(pricing["amazon_title"][:60])
-            elif pricing.get("web_title"):
-                sub_parts.append(pricing["web_title"][:60])
-            elif pricing.get("catalog_match"):
-                sub_parts.append(pricing["catalog_match"][:60])
-            # Add description as fallback for substitute identification
-            if not sub_parts:
-                _sub_desc = item.get("description", "")[:80]
-                if _sub_desc:
-                    sub_parts.append(_sub_desc)
-            # Add supplier
-            _sub_supplier = item.get("item_supplier") or pricing.get("web_source", "")
-            if _sub_supplier and _sub_supplier not in str(sub_parts):
-                sub_parts.append(f"({_sub_supplier})")
-            sub_text = " | ".join(sub_parts)[:100]
+            if _sub_mfg and _sub_mfg.lower() not in sub_text.lower():
+                sub_text = f"MFG#: {_sub_mfg}\n{sub_text}"
+            sub_text = sub_text.strip()[:120]
             if sub_text:
                 field_values.append({
                     "field_id": sub_field,
