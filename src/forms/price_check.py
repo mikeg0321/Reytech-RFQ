@@ -656,6 +656,10 @@ def fill_ams704(
                 desc_clean = f"{desc_clean}\nMFG#: {mfg_num}"
             elif asin and asin not in desc_clean:
                 desc_clean = f"{desc_clean}\nASIN: {asin}"
+            # Append per-item notes if present
+            item_notes = (item.get("notes") or "").strip()
+            if item_notes:
+                desc_clean = f"{desc_clean}\nNote: {item_notes}"
             field_values.append({
                 "field_id": desc_field,
                 "page": 1,

@@ -94,6 +94,54 @@ def pricecheck_detail(pcid):
         link_display = f'<a href="{item_link}" target="_blank" style="font-size:11px;color:#58a6ff;word-break:break-all">{item_supplier or item_link[:30]}</a>' if item_link else ""
         supplier_badge = f'<span style="font-size:10px;color:#8b949e;display:block;margin-top:1px">{item_supplier}</span>' if item_supplier else ""
 
+        # ── Unified Sources column: all price sources as compact chips ──
+        sources = []  # list of (price, label, url, color, is_preferred)
+        if scprs_cost:
+            scprs_conf_str = f" ({scprs_conf:.0%})" if scprs_conf else ""
+            sources.append((scprs_cost, f"SCPRS{scprs_conf_str}", "", "#3fb950", True))
+        if amazon_cost:
+            a_url = p.get("amazon_url", "")
+            a_title = (p.get("amazon_title") or "")[:30]
+            a_label = f"Amazon" + (f" · {asin}" if asin else "")
+            sources.append((amazon_cost, a_label, a_url, "#ff9900", False))
+        web_price = p.get("web_price", 0)
+        if web_price and web_price != amazon_cost:
+            sources.append((web_price, p.get("web_source", "Web")[:20], p.get("web_url", ""), "#d2a8ff", False))
+        cat_cost = p.get("catalog_cost") or p.get("last_cost", 0)
+        cat_match = p.get("catalog_match", "")
+        if cat_cost and cat_match:
+            sources.append((cat_cost, f"📦 Catalog", "", "#58a6ff", True))
+
+        # Sort by price, preferred suppliers get a small boost (within 10% of cheapest = preferred wins)
+        if sources:
+            cheapest = min(s[0] for s in sources)
+            def _sort_key(s):
+                price, label, url, color, preferred = s
+                # If preferred and within 10% of cheapest, rank it first
+                if preferred and price <= cheapest * 1.10:
+                    return (0, price)
+                return (1, price)
+            sources.sort(key=_sort_key)
+
+        # Build source chips HTML
+        source_chips = []
+        for i_src, (sprice, slabel, surl, scolor, spref) in enumerate(sources):
+            pref_icon = "★ " if spref else ""
+            price_fmt = f"${sprice:.2f}"
+            if surl:
+                chip = f'<a href="{surl}" target="_blank" style="display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:4px;font-size:10px;background:{scolor}15;border:1px solid {scolor}40;color:{scolor};text-decoration:none;white-space:nowrap;cursor:pointer" title="{slabel} · {price_fmt}">{pref_icon}<b>{price_fmt}</b> {slabel}</a>'
+            else:
+                chip = f'<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:4px;font-size:10px;background:{scolor}15;border:1px solid {scolor}40;color:{scolor};white-space:nowrap" title="{slabel}">{pref_icon}<b>{price_fmt}</b> {slabel}</span>'
+            # First source gets "Use" action
+            if i_src == 0 and len(sources) > 1 and sprice != unit_cost:
+                chip += f' <a href="#" onclick="document.querySelector(\'[name=cost_{idx}]\').value=\'{sprice:.2f}\';recalcRow({idx});recalcPC();return false" style="color:{scolor};font-size:9px;text-decoration:none" title="Use this price">⬇</a>'
+            source_chips.append(chip)
+        source_html = '<div style="display:flex;flex-wrap:wrap;gap:3px">' + ''.join(source_chips) + '</div>' if source_chips else '<span style="color:#484f58;font-size:11px">No sources</span>'
+
+        # Per-item notes
+        item_notes = item.get("notes", "")
+        notes_escaped = item_notes.replace('"', '&quot;').replace('<', '&lt;').replace('>', '&gt;')
+
         # No-bid state
         no_bid = item.get("no_bid", False)
         bid_checked = "" if no_bid else "checked"
@@ -105,20 +153,26 @@ def pricecheck_detail(pcid):
          <td><input type="number" name="qty_{idx}" value="{qty}" class="num-in sm" style="width:55px" onchange="recalcPC()"></td>
          <td><input type="text" name="uom_{idx}" value="{item.get('uom','EA').upper()}" class="text-in" style="width:45px;text-transform:uppercase;text-align:center;font-weight:600"></td>
          <td><textarea name="desc_{idx}" class="text-in" style="width:100%;min-height:38px;resize:vertical;font-family:inherit;font-size:13px;line-height:1.4;padding:6px 8px" title="{raw_desc.replace('"','&quot;').replace('<','&lt;')}" oninput="detectDescUrl({idx},this)" placeholder="Enter description or paste URL">{display_desc.replace('&','&amp;').replace('<','&lt;').replace('>','&gt;')}</textarea></td>
-         <td style="min-width:220px">
+         <td style="min-width:180px">
           <div style="display:flex;flex-direction:column;gap:3px">
            <input type="text" name="link_{idx}" value="{item_link.replace(chr(34), '&quot;')}" placeholder="Paste supplier URL…" class="text-in" style="width:100%;font-size:12px;color:#58a6ff;padding:5px 7px" oninput="handleLinkInput({idx}, this)" onpaste="setTimeout(()=>handleLinkInput({idx},this),50)">
            <div id="link_meta_{idx}" style="font-size:10px;color:#8b949e">{supplier_badge}</div>
           </div>
          </td>
-         <td style="font-weight:600;font-size:14px">{scprs_str}{scprs_badge}</td>
-         <td style="font-weight:600;font-size:14px" {amazon_data}>{amazon_str}</td>
-         <td style="font-size:12px;max-width:180px">{link}</td>
+         <td style="min-width:160px;max-width:220px;vertical-align:top;padding:6px 4px">{source_html}</td>
          <td><div class="currency-wrap"><input type="text" inputmode="decimal" name="cost_{idx}" value="{cost_str}" class="num-in" placeholder="0.00" oninput="sanitizePrice(this)" onchange="recalcRow({idx})" onblur="fmtCurrency(this)"></div></td>
          <td><input type="text" inputmode="numeric" name="markup_{idx}" value="{markup_pct}" class="num-in sm" style="width:48px" oninput="sanitizeInt(this)" onchange="recalcRow({idx})"><span style="color:#8b949e;font-size:13px">%</span></td>
          <td><div class="currency-wrap"><input type="text" inputmode="decimal" name="price_{idx}" value="{final_str}" class="num-in price-out" placeholder="0.00" oninput="sanitizePrice(this)" onchange="recalcPC()" onblur="fmtCurrency(this)"></div></td>
          <td class="ext" style="font-weight:600;font-size:14px">{ext}</td>
          <td class="profit" style="font-size:14px">{profit_str}</td>
+        </tr>
+        <tr class="notes-row" data-row="{idx}" style="display:{'table-row' if item_notes else 'none'}">
+         <td colspan="12" style="padding:0 8px 6px 120px;border-top:none">
+          <div style="display:flex;align-items:center;gap:6px">
+           <span style="font-size:10px;color:#8b949e">📝</span>
+           <input type="text" name="notes_{idx}" value="{notes_escaped}" placeholder="Add note (prints on quote)…" class="text-in" style="flex:1;font-size:11px;padding:3px 8px;color:#d2a8ff">
+          </div>
+         </td>
         </tr>"""
 
     download_html = ""
@@ -538,6 +592,8 @@ def pricecheck_save_prices(pcid):
                             items[idx]["item_supplier"] = detect_supplier(items[idx]["item_link"])
                         except Exception:
                             pass
+                elif field_type == "notes":
+                    items[idx]["notes"] = str(val).strip() if val else ""
         except (ValueError, IndexError):
             pass
 

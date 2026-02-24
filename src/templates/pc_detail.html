@@ -18,6 +18,9 @@
      .totals{text-align:right;font-size:16px;margin-top:12px} .totals b{color:#3fb950}
      .num-in{width:82px;background:#0d1117;border:1px solid #484f58;color:#e6edf3;padding:8px 8px;border-radius:5px;text-align:right;font-size:15px;font-weight:600;font-family:'JetBrains Mono','Segoe UI',system-ui,sans-serif;font-variant-numeric:tabular-nums;letter-spacing:-0.3px}
      .num-in:focus{border-color:#58a6ff;outline:none;box-shadow:0 0 0 2px #1f6feb44}
+     .pc-table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 -4px;padding:0 4px}
+     .notes-row td{border-top:none!important;padding-top:0!important}
+     #itemsTable{table-layout:auto}
      .num-in.sm{width:52px;font-size:14px;padding:6px 6px}
      /* Currency input wrapper — $ prefix */
      .currency-wrap{position:relative;display:inline-block}
@@ -173,6 +176,7 @@
       <button class="btn btn-sm" onclick="runWebSearch(this)" data-testid="pc-web-search" style="background:#21262d;color:#d2a8ff;border:1px solid #30363d;font-size:13px;padding:6px 14px">🌐 Web Search</button>
       <button class="btn btn-sm" onclick="runAutoPrice(this)" data-testid="pc-auto-price" style="background:#21262d;color:#bc8cff;border:1px solid #30363d;font-size:13px;padding:6px 14px">🧠 Auto-Price</button>
       <button class="btn btn-sm" onclick="runPriceSweep(this)" data-testid="pc-price-sweep" style="background:#21262d;color:#f778ba;border:1px solid #30363d;font-size:13px;padding:6px 14px">🛒 Sweep</button>
+      <button class="btn btn-sm" onclick="toggleAllNotes()" style="background:#21262d;color:#d2a8ff;border:1px solid #30363d;font-size:13px;padding:6px 14px" title="Show/hide notes row for each item">📝 Notes</button>
       <details style="position:relative;display:inline-block">
        <summary class="btn btn-sm" style="background:#21262d;color:#8b949e;border:1px solid #30363d;font-size:12px;padding:4px 10px;cursor:pointer;list-style:none">⋯ More</summary>
        <div style="position:absolute;top:100%;left:0;z-index:50;margin-top:4px;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:6px;min-width:220px;box-shadow:0 8px 24px rgba(0,0,0,.4)">
@@ -242,7 +246,7 @@
      <h3 style="margin-top:0;font-size:18px">Line Items <span id="itemCount" style="font-weight:normal;color:#8b949e;font-size:15px">({{ items|length }} items)</span></h3>
      <div class="pc-table-wrap">
      <table id="itemsTable">
-      <tr><th style="width:28px">Bid</th><th>MFG#</th><th>Qty</th><th>UOM</th><th style="min-width:280px">Description</th><th style="min-width:220px">Item Link</th><th>SCPRS $</th><th>Amazon $</th><th>Source</th><th>Unit Cost</th><th>Markup</th><th>Our Price</th><th>Extension</th><th>Profit</th></tr>
+      <tr><th style="width:28px">Bid</th><th>MFG#</th><th>Qty</th><th>UOM</th><th style="min-width:250px">Description</th><th style="min-width:160px">Item Link</th><th style="min-width:160px">Sources</th><th>Unit Cost</th><th>Markup</th><th>Our Price</th><th>Extension</th><th>Profit</th></tr>
       {{ items_html | safe }}
      </table>
      </div>
@@ -501,14 +505,21 @@
     }
 
     function toggleBid(idx, cb) {
-     const row=document.querySelector('tr[data-row="'+idx+'"]');
+     const row=document.querySelector('tr[data-row="'+idx+'"]:not(.notes-row)');
      if(row) row.style.opacity=cb.checked?'1':'0.4';
      recalcPC();
     }
 
+    function toggleAllNotes() {
+     var rows = document.querySelectorAll('.notes-row');
+     var anyHidden = false;
+     for(var i=0;i<rows.length;i++){if(rows[i].style.display==='none'){anyHidden=true;break;}}
+     for(var i=0;i<rows.length;i++){rows[i].style.display=anyHidden?'table-row':'none';}
+    }
+
     function addRow() {
      const table=document.getElementById('itemsTable');
-     const rows=table.querySelectorAll('tr[data-row]');
+     const rows=table.querySelectorAll('tr[data-row]:not(.notes-row)');
      const idx=rows.length;
      const tr=document.createElement('tr');
      tr.setAttribute('data-row',idx);
@@ -517,13 +528,20 @@
       +'<td><input type="number" name="qty_'+idx+'" value="1" class="num-in sm" style="width:55px" onchange="recalcPC()"></td>'
       +'<td><input type="text" name="uom_'+idx+'" value="EA" class="text-in" style="width:45px;text-transform:uppercase;text-align:center;font-weight:600"></td>'
       +'<td><textarea name="desc_'+idx+'" class="text-in" style="width:100%;min-height:38px;resize:vertical;font-size:13px;line-height:1.4;padding:6px 8px" placeholder="Enter description or paste URL" oninput="detectDescUrl('+idx+',this)"></textarea></td>'
-      +'<td style="min-width:220px"><div style="display:flex;flex-direction:column;gap:3px"><input type="text" name="link_'+idx+'" value="" placeholder="Paste supplier URL\u2026" class="text-in" style="width:100%;font-size:12px;color:#58a6ff;padding:5px 7px" oninput="handleLinkInput('+idx+',this)" onpaste="setTimeout(()=>handleLinkInput('+idx+',this),50)"><div id="link_meta_'+idx+'" style="font-size:10px;color:#8b949e"></div></div></td>'
-      +'<td style="font-weight:600;font-size:14px">\u2014</td><td style="font-weight:600;font-size:14px">\u2014</td><td style="font-size:12px;max-width:180px">\u2014</td>'
+      +'<td style="min-width:160px"><div style="display:flex;flex-direction:column;gap:3px"><input type="text" name="link_'+idx+'" value="" placeholder="Paste supplier URL\u2026" class="text-in" style="width:100%;font-size:12px;color:#58a6ff;padding:5px 7px" oninput="handleLinkInput('+idx+',this)" onpaste="setTimeout(()=>handleLinkInput('+idx+',this),50)"><div id="link_meta_'+idx+'" style="font-size:10px;color:#8b949e"></div></div></td>'
+      +'<td style="min-width:160px"><span style="color:#484f58;font-size:11px">No sources</span></td>'
       +'<td><div class="currency-wrap"><input type="text" inputmode="decimal" name="cost_'+idx+'" value="" class="num-in" placeholder="0.00" oninput="sanitizePrice(this)" onchange="recalcRow('+idx+')" onblur="fmtCurrency(this)"></div></td>'
       +'<td><input type="text" inputmode="numeric" name="markup_'+idx+'" value="25" class="num-in sm" style="width:48px" oninput="sanitizeInt(this)" onchange="recalcRow('+idx+')"><span style="color:#8b949e;font-size:13px">%</span></td>'
       +'<td><div class="currency-wrap"><input type="text" inputmode="decimal" name="price_'+idx+'" value="" class="num-in price-out" placeholder="0.00" oninput="sanitizePrice(this)" onchange="recalcPC()" onblur="fmtCurrency(this)"></div></td>'
-      +'<td class="ext">—</td><td class="profit">—</td><td style="text-align:center">—</td>';
+      +'<td class="ext">\u2014</td><td class="profit">\u2014</td>';
      table.appendChild(tr);
+     // Add notes row (hidden by default)
+     const ntr=document.createElement('tr');
+     ntr.className='notes-row';
+     ntr.setAttribute('data-row',idx);
+     ntr.style.display='none';
+     ntr.innerHTML='<td colspan="12" style="padding:0 8px 6px 120px;border-top:none"><div style="display:flex;align-items:center;gap:6px"><span style="font-size:10px;color:#8b949e">\uD83D\uDCDD</span><input type="text" name="notes_'+idx+'" value="" placeholder="Add note (prints on quote)\u2026" class="text-in" style="flex:1;font-size:11px;padding:3px 8px;color:#d2a8ff"></div></td>';
+     table.appendChild(ntr);
      recalcPC();
     }
 
@@ -1500,6 +1518,9 @@
       data[inp.name]=inp.checked;
      });
      document.querySelectorAll('input[name^=link_]').forEach(inp=>{
+      data[inp.name]=inp.value.trim();
+     });
+     document.querySelectorAll('input[name^=notes_]').forEach(inp=>{
       data[inp.name]=inp.value.trim();
      });
      data['tax_enabled']=document.getElementById('taxToggle').checked;

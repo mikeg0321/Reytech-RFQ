@@ -132,3 +132,17 @@ The web search module caches results for 7 days to avoid redundant API calls.
 undefined, the page looks functional but nothing works.
 **Rule**: Wrap ALL early-executing code (IIFEs, DOM queries, recalc calls) in try/catch.
 Function definitions below are never guarded — they rely on not being blocked.
+
+## L21: Monolithic script blocks are fragile — split by concern
+**Pattern**: 2000 lines in one <script> tag. One bad regex or template injection = 
+entire block fails to parse = zero functions defined = every button dead.
+**Rule**: Split by concern into independent <script> blocks. CRM rendering, auto-pricing,
+and core functions each get their own block. Cross-block references use 
+`window.X || fallback` pattern. Data injected via `<script type="application/json">` 
+data islands (never inline in JS). Node --check validates each block at build time.
+
+## L22: Consolidate table columns — 14 is too many
+**Pattern**: SCPRS$, Amazon$, Source as 3 separate columns wastes space and overflows.
+**Rule**: Merge related data into smart composite columns. "Sources" column shows all
+price sources as clickable chips with cost comparison. Preferred suppliers (★) float
+to top if within 10% of cheapest. Each chip links to source (internal/external).
