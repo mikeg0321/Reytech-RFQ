@@ -360,7 +360,10 @@
        const profitMsg = ps && ps.gross_profit
          ? ' · Profit: $' + ps.gross_profit.toFixed(2) + ' (' + ps.margin_pct.toFixed(1) + '% margin)'
          : '';
-       showMsg('✅ Prices saved.' + profitMsg,'ok');
+       const catMsg = d.catalog
+         ? ' · Catalog: ' + (d.catalog.added||0) + ' new, ' + (d.catalog.updated||0) + ' updated'
+         : '';
+       showMsg('✅ Prices saved.' + profitMsg + catMsg,'ok');
        setTimeout(()=>{btn.textContent=origText;btn.style.background=''},2500);
       } else {
        btn.textContent=origText;

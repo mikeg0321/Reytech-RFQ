@@ -1134,6 +1134,11 @@ def pricecheck_auto_process(pcid):
         _save_price_checks(pcs)
         # Ingest into KB
         _ingest_pc_to_won_quotes(pc)
+        # Catalog all items for future matching
+        try:
+            _enrich_catalog_from_pc(pc)
+        except Exception:
+            pass  # Don't break auto-process if enrichment fails
 
     return jsonify(json.loads(json.dumps({
         "ok": result.get("ok", False),

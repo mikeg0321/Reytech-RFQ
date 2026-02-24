@@ -801,67 +801,14 @@ def pricecheck_save_prices(pcid):
     except Exception as _e:
         log.debug("price learning write: %s", _e)
 
-    # ── CATALOG ENRICHMENT: feed PC pricing back into product catalog ─────
-    try:
-        from src.agents.product_catalog import (
-            match_item as _cat_match, update_product_pricing as _cat_update,
-            add_supplier_price as _cat_add_sup, init_catalog_db as _cat_init,
-            add_to_catalog as _cat_add,
-        )
-        _cat_init()
-        _catalog_added = 0
-        _catalog_updated = 0
-        for _item in items:
-            if _item.get("no_bid"):
-                continue
-            _desc = (_item.get("description") or "").strip()
-            _part = str(_item.get("item_number") or "").strip()
-            _up   = _item.get("unit_price") or _item.get("pricing", {}).get("recommended_price") or 0
-            _cost = _item.get("vendor_cost") or _item.get("pricing", {}).get("unit_cost") or 0
-            if not _desc and not _part:
-                continue
-            # Find matching catalog product
-            _matches = _cat_match(_desc, _part, top_n=1)
-            if _matches and _matches[0].get("match_confidence", 0) >= 0.60:
-                _pid = _matches[0]["id"]
-                _updates = {"times_quoted": (_matches[0].get("times_quoted") or 0) + 1}
-                if _up > 0:
-                    _updates["last_sold_price"] = float(_up)
-                    _updates["last_sold_date"] = datetime.now().isoformat()
-                if _cost > 0:
-                    _updates["sell_price"] = float(_up) if _up > 0 else None
-                    _updates["cost"] = float(_cost)
-                _cat_update(_pid, **_updates)
-                # Record supplier if item has a URL
-                _link = (_item.get("item_link") or "").strip()
-                _supplier = (_item.get("item_supplier") or "").strip()
-                if _cost > 0 and _supplier:
-                    _cat_add_sup(_pid, _supplier, float(_cost), url=_link)
-                _catalog_updated += 1
-            else:
-                # NEW item → add to catalog so we have it next time
-                if _desc and (_cost > 0 or _up > 0):
-                    _link = (_item.get("item_link") or "").strip()
-                    _supplier = (_item.get("item_supplier") or "").strip()
-                    _new_pid = _cat_add(
-                        description=_desc, part_number=_part,
-                        cost=float(_cost) if _cost else 0,
-                        sell_price=float(_up) if _up else 0,
-                        supplier_url=_link, supplier_name=_supplier,
-                        uom=(_item.get("uom") or "EA"),
-                        source="pc_save"
-                    )
-                    if _new_pid:
-                        _catalog_added += 1
-        log.info("catalog enrichment: updated=%d added=%d", _catalog_updated, _catalog_added)
-    except Exception as _e:
-        log.debug("catalog enrichment: %s", _e)
+    # ── CATALOG ENRICHMENT: feed PC items back into product catalog ─────
+    _cat_result = _enrich_catalog_from_pc(pc)
 
     summary = pc["profit_summary"]
-    return jsonify({
-        "ok": True,
-        "profit_summary": summary,
-    })
+    resp = {"ok": True, "profit_summary": summary}
+    if _cat_result:
+        resp["catalog"] = _cat_result
+    return jsonify(resp)
 
 
 def _sanitize_pc_items(pc):
@@ -907,6 +854,79 @@ def _sanitize_pc_items(pc):
     pc["items"] = items
     if "parsed" in pc:
         pc["parsed"]["line_items"] = items
+
+
+def _enrich_catalog_from_pc(pc):
+    """Write all PC line items to the product catalog.
+    
+    Called on Save, Generate 704, and Generate Quote.
+    - Existing catalog items get updated (pricing, times_quoted)
+    - New items get added (description alone is enough)
+    - MFG# is used for matching (not item_number which is just a row number)
+    
+    Returns: {"updated": int, "added": int} or None on error
+    """
+    try:
+        from src.agents.product_catalog import (
+            match_item as _cat_match, update_product_pricing as _cat_update,
+            add_supplier_price as _cat_add_sup, init_catalog_db as _cat_init,
+            add_to_catalog as _cat_add,
+        )
+        _cat_init()
+    except Exception as e:
+        log.warning("catalog enrichment: import failed: %s", e)
+        return None
+
+    items = pc.get("items", [])
+    added = 0
+    updated = 0
+    for item in items:
+        if item.get("no_bid"):
+            continue
+        desc = (item.get("description") or "").strip()
+        mfg = str(item.get("mfg_number") or "").strip()
+        up = item.get("unit_price") or item.get("pricing", {}).get("recommended_price") or 0
+        cost = item.get("vendor_cost") or item.get("pricing", {}).get("unit_cost") or 0
+        if not desc and not mfg:
+            continue
+        try:
+            matches = _cat_match(desc, mfg, top_n=1)
+            if matches and matches[0].get("match_confidence", 0) >= 0.60:
+                pid = matches[0]["id"]
+                updates = {"times_quoted": (matches[0].get("times_quoted") or 0) + 1}
+                if up > 0:
+                    updates["last_sold_price"] = float(up)
+                    updates["last_sold_date"] = datetime.now().isoformat()
+                if cost > 0:
+                    updates["sell_price"] = float(up) if up > 0 else None
+                    updates["cost"] = float(cost)
+                _cat_update(pid, **updates)
+                link = (item.get("item_link") or "").strip()
+                supplier = (item.get("item_supplier") or "").strip()
+                if cost > 0 and supplier:
+                    _cat_add_sup(pid, supplier, float(cost), url=link)
+                updated += 1
+            else:
+                # New item — catalog it even without pricing
+                link = (item.get("item_link") or "").strip()
+                supplier = (item.get("item_supplier") or "").strip()
+                new_pid = _cat_add(
+                    description=desc,
+                    part_number=mfg,
+                    mfg_number=mfg,
+                    cost=float(cost) if cost else 0,
+                    sell_price=float(up) if up else 0,
+                    supplier_url=link, supplier_name=supplier,
+                    uom=(item.get("uom") or "EA"),
+                    source="pc_save"
+                )
+                if new_pid:
+                    added += 1
+        except Exception as e:
+            log.debug("catalog enrichment item error: %s", e)
+
+    log.info("catalog enrichment: updated=%d added=%d", updated, added)
+    return {"updated": updated, "added": added}
 
 
 @bp.route("/pricecheck/<pcid>/reparse", methods=["POST"])
@@ -1024,6 +1044,9 @@ def pricecheck_generate(pcid):
         # Ingest completed prices into Won Quotes KB for future reference
         _ingest_pc_to_won_quotes(pc)
 
+        # Catalog all line items for future matching
+        _enrich_catalog_from_pc(pc)
+
         return jsonify({"ok": True, "download": f"/api/pricecheck/download/{os.path.basename(output_path)}"})
     return jsonify({"ok": False, "error": result.get("error", "Unknown error")})
 
@@ -1063,6 +1086,7 @@ def pricecheck_generate_quote(pcid):
         pc["reytech_quote_number"] = result.get("quote_number", "")
         pc["status"] = "quoted"
         _save_price_checks(pcs)
+        _enrich_catalog_from_pc(pc)
         _log_crm_activity(result.get("quote_number", ""), "quote_generated",
                           f"Quote {result.get('quote_number','')} generated — ${result.get('total',0):,.2f} for {pc.get('institution','')}",
                           actor="user", metadata={"institution": pc.get("institution",""), "agency": result.get("agency","")})
@@ -2126,6 +2150,7 @@ def api_pricecheck_mark_won(pcid):
         log.info("mark-won catalog feedback: %s", result)
     except Exception as e:
         log.debug("mark-won catalog feedback error: %s", e)
+    _enrich_catalog_from_pc(pcs[pcid])
     return jsonify({"ok": True, "status": "won"})
 
 
