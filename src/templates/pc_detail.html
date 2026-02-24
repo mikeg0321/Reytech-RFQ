@@ -882,7 +882,7 @@
       }
      }).catch(e=>{
       btn.textContent=origText;btn.disabled=false;
-      showMsg('❌ Web search failed: '+e.message+'. Check ANTHROPIC_API_KEY is set.','err');
+      showMsg('❌ Web search failed: '+e.message+'. Try again or paste supplier URLs directly.','err');
      });
     }
 

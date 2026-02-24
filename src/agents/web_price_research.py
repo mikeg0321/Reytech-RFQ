@@ -167,6 +167,7 @@ If you can't find the product, respond: {{"found": false, "reason": "..."}}"""
             headers={
                 "x-api-key": api_key,
                 "anthropic-version": "2023-06-01",
+                "anthropic-beta": "web-search-2025-03-05",
                 "content-type": "application/json",
             },
             json={
@@ -175,11 +176,37 @@ If you can't find the product, respond: {{"found": false, "reason": "..."}}"""
                 "tools": [{
                     "type": "web_search_20250305",
                     "name": "web_search",
+                    "max_uses": 3,
                 }],
                 "messages": [{"role": "user", "content": prompt}],
             },
-            timeout=30,
+            timeout=45,
         )
+        
+        # Retry once on 502/503 (transient server errors)
+        if resp.status_code in (502, 503, 529):
+            log.warning("Claude API %d, retrying once...", resp.status_code)
+            time.sleep(2)
+            resp = requests.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": api_key,
+                    "anthropic-version": "2023-06-01",
+                    "anthropic-beta": "web-search-2025-03-05",
+                    "content-type": "application/json",
+                },
+                json={
+                    "model": "claude-haiku-4-5-20251001",
+                    "max_tokens": 1024,
+                    "tools": [{
+                        "type": "web_search_20250305",
+                        "name": "web_search",
+                        "max_uses": 3,
+                    }],
+                    "messages": [{"role": "user", "content": prompt}],
+                },
+                timeout=45,
+            )
         
         if resp.status_code != 200:
             err = resp.text[:200]
