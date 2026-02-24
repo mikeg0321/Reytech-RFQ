@@ -580,14 +580,18 @@ def api_catalog_match_batch():
     """
     if not CATALOG_AVAILABLE:
         return jsonify({"ok": False, "error": "Catalog not available"})
-    data = request.get_json(silent=True) or {}
-    items = data.get("items", [])
-    results = match_items_batch(items)
-    matched_count = sum(1 for r in results if r.get("matched"))
-    return jsonify({
-        "ok": True, "results": results,
-        "matched": matched_count, "total": len(results),
-    })
+    try:
+        data = request.get_json(silent=True) or {}
+        items = data.get("items", [])
+        results = match_items_batch(items)
+        matched_count = sum(1 for r in results if r.get("matched"))
+        return jsonify({
+            "ok": True, "results": results,
+            "matched": matched_count, "total": len(results),
+        })
+    except Exception as e:
+        log.error("Catalog match-batch error: %s", e)
+        return jsonify({"ok": False, "error": str(e)})
 
 
 @bp.route("/api/catalog/<int:pid>/suppliers")

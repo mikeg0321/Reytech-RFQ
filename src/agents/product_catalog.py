@@ -607,34 +607,37 @@ def match_item(description: str, part_number: str = "", top_n: int = 3) -> list:
     if len(matches) < top_n and description:
         desc_tokens = set(_tokenize(description).split())
         if desc_tokens:
-            # Use longest tokens for best selectivity
-            search_terms = sorted(desc_tokens, key=len, reverse=True)[:3]
-            conditions = " OR ".join(["search_tokens LIKE ?" for _ in search_terms])
-            params = [f"%{t}%" for t in search_terms]
-            candidates = conn.execute(
-                f"SELECT * FROM product_catalog WHERE {conditions} LIMIT 50",
-                params
-            ).fetchall()
+            try:
+                # Use longest tokens for best selectivity
+                search_terms = sorted(desc_tokens, key=len, reverse=True)[:3]
+                conditions = " OR ".join(["search_tokens LIKE ?" for _ in search_terms])
+                params = [f"%{t}%" for t in search_terms]
+                candidates = conn.execute(
+                    f"SELECT * FROM product_catalog WHERE {conditions} LIMIT 50",
+                    params
+                ).fetchall()
 
-            for r in candidates:
-                if r["id"] in seen_ids:
-                    continue
-                prod_tokens = set((r["search_tokens"] or "").split())
-                if not prod_tokens:
-                    # Fallback: tokenize description for old rows without search_tokens
-                    prod_tokens = set(_tokenize(f"{r['name']} {r['description'] or ''}").split())
-                if not prod_tokens:
-                    continue
-                # Jaccard similarity
-                intersection = desc_tokens & prod_tokens
-                union = desc_tokens | prod_tokens
-                similarity = len(intersection) / len(union) if union else 0
-                if similarity >= 0.25:
-                    m = dict(r)
-                    m["match_confidence"] = round(min(similarity * 1.3, 0.95), 2)
-                    m["match_reason"] = f"Token match: {len(intersection)} shared ({similarity:.0%})"
-                    matches.append(m)
-                    seen_ids.add(r["id"])
+                for r in candidates:
+                    if r["id"] in seen_ids:
+                        continue
+                    prod_tokens = set((r["search_tokens"] or "").split())
+                    if not prod_tokens:
+                        # Fallback: tokenize description for old rows without search_tokens
+                        prod_tokens = set(_tokenize(f"{r['name']} {r['description'] or ''}").split())
+                    if not prod_tokens:
+                        continue
+                    # Jaccard similarity
+                    intersection = desc_tokens & prod_tokens
+                    union = desc_tokens | prod_tokens
+                    similarity = len(intersection) / len(union) if union else 0
+                    if similarity >= 0.25:
+                        m = dict(r)
+                        m["match_confidence"] = round(min(similarity * 1.3, 0.95), 2)
+                        m["match_reason"] = f"Token match: {len(intersection)} shared ({similarity:.0%})"
+                        matches.append(m)
+                        seen_ids.add(r["id"])
+            except Exception as e:
+                log.debug("Token match failed (search_tokens column may be missing): %s", e)
 
     # Strategy 4: Description LIKE (broadest)
     if len(matches) < top_n and description and len(description) > 5:
@@ -1185,20 +1188,23 @@ def add_to_catalog(description: str, part_number: str = "", cost: float = 0,
     # Also check by description tokens to prevent near-duplicates
     desc_tokens = set(_tokenize(description).split())
     if desc_tokens:
-        search_terms = sorted(desc_tokens, key=len, reverse=True)[:3]
-        conditions = " AND ".join(["search_tokens LIKE ?" for _ in search_terms])
-        params = [f"%{t}%" for t in search_terms]
-        candidate = conn.execute(
-            f"SELECT id, search_tokens FROM product_catalog WHERE {conditions} LIMIT 1",
-            params
-        ).fetchone()
-        if candidate:
-            # High token overlap → likely duplicate
-            prod_tokens = set((candidate["search_tokens"] or "").split())
-            overlap = len(desc_tokens & prod_tokens) / max(len(desc_tokens | prod_tokens), 1)
-            if overlap >= 0.60:
-                conn.close()
-                return candidate["id"]
+        try:
+            search_terms = sorted(desc_tokens, key=len, reverse=True)[:3]
+            conditions = " AND ".join(["search_tokens LIKE ?" for _ in search_terms])
+            params = [f"%{t}%" for t in search_terms]
+            candidate = conn.execute(
+                f"SELECT id, search_tokens FROM product_catalog WHERE {conditions} LIMIT 1",
+                params
+            ).fetchone()
+            if candidate:
+                # High token overlap → likely duplicate
+                prod_tokens = set((candidate["search_tokens"] or "").split())
+                overlap = len(desc_tokens & prod_tokens) / max(len(desc_tokens | prod_tokens), 1)
+                if overlap >= 0.60:
+                    conn.close()
+                    return candidate["id"]
+        except Exception as e:
+            log.debug("Token dedup check failed: %s", e)
 
     # Calculate fields
     margin_pct = round((sell_price - cost) / sell_price * 100, 2) if sell_price > 0 and cost > 0 else 0

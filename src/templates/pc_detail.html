@@ -962,7 +962,10 @@
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({items:items})
-     }).then(r=>r.json()).then(d=>{
+     }).then(r=>{
+      if(!r.ok) throw new Error('Server error '+r.status);
+      return r.json();
+     }).then(d=>{
       btn.disabled=false;btn.textContent=origText;
       if(!d.ok){showMsg('❌ '+d.error,'err');return;}
 
@@ -1464,7 +1467,10 @@
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({items:items})
-       }).then(r=>r.json()).then(d=>{
+       }).then(r=>{
+        if(!r.ok) throw new Error('Server error');
+        return r.json();
+       }).then(d=>{
         if(!d.ok) return;
         let unmatched=0;
         (d.results||[]).forEach(r=>{
@@ -2154,7 +2160,10 @@
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({items: items})
-     }).then(r => r.json()).then(d => {
+     }).then(r => {
+      if(!r.ok) throw new Error('Server error');
+      return r.json();
+     }).then(d => {
       let catFound = 0;
       if (d.ok && d.results) {
        d.results.forEach(r => {
