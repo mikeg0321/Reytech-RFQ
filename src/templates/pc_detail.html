@@ -1702,29 +1702,35 @@
 
     function showPreview() {
      // Build preview matching the AMS 704 Price Check format
-     const rows=document.querySelectorAll('tr[data-row]');
+     // CRITICAL: exclude .notes-row — those are hidden sub-rows, not line items
+     const rows=document.querySelectorAll('tr[data-row]:not(.notes-row)');
      let itemsHtml='';
      let subtotal=0;
      let itemCount=0;
-     rows.forEach((row,i)=>{
-      const bid=row.querySelector('[name=bid_'+i+']');
+     rows.forEach((row)=>{
+      // Use the data-row attribute as the index (matches form field names)
+      const idx=row.getAttribute('data-row');
+      const bid=row.querySelector('[name=bid_'+idx+']');
       if(bid&&!bid.checked) return;
-      // Line # is in the 2nd td (plain text), MFG# is in itemnum input
-      const lineNo=row.children[1]?.textContent?.trim()||i+1;
-      const qty=parseInt(row.querySelector('[name=qty_'+i+']')?.value)||1;
-      const uom=row.querySelector('[name=uom_'+i+']')?.value||'EA';
-      const desc=row.querySelector('[name=desc_'+i+']')?.value||'';
-      const price=parseFloat(row.querySelector('[name=price_'+i+']')?.value)||0;
+      const lineNo=row.children[1]?.textContent?.trim()||parseInt(idx)+1;
+      const qty=parseInt(row.querySelector('[name=qty_'+idx+']')?.value)||1;
+      const uom=row.querySelector('[name=uom_'+idx+']')?.value||'EA';
+      const desc=row.querySelector('[name=desc_'+idx+']')?.value||'';
+      const mfg=row.querySelector('[name=itemnum_'+idx+']')?.value||'';
+      const price=parseFloat(row.querySelector('[name=price_'+idx+']')?.value)||0;
       const ext=Math.round(price*qty*100)/100;
+      // Build description with MFG# appended
+      let fullDesc=desc;
+      if(mfg && !desc.toLowerCase().includes(mfg.toLowerCase())) fullDesc+=`<br><span style="font-size:10px;color:#555">MFG#: ${mfg}</span>`;
       subtotal+=ext;
       itemCount++;
       itemsHtml+=`<tr>
-       <td style="text-align:center;border:1px solid #999;padding:6px;font-size:12px">${lineNo}</td>
+       <td style="text-align:center;border:1px solid #999;padding:6px;font-size:12px">${itemCount}</td>
        <td style="text-align:center;border:1px solid #999;padding:6px;font-size:12px">${qty}</td>
        <td style="text-align:center;border:1px solid #999;padding:6px;font-size:12px">${uom.toUpperCase()}</td>
-       <td style="border:1px solid #999;padding:6px;font-size:11px;max-width:300px">${desc}</td>
-       <td style="text-align:right;border:1px solid #999;padding:6px;font-size:12px">$${price.toFixed(2)}</td>
-       <td style="text-align:right;border:1px solid #999;padding:6px;font-size:12px;font-weight:600">$${ext.toFixed(2)}</td>
+       <td style="border:1px solid #999;padding:6px;font-size:11px;max-width:300px">${fullDesc}</td>
+       <td style="text-align:right;border:1px solid #999;padding:6px;font-size:12px">${price?'$'+price.toFixed(2):''}</td>
+       <td style="text-align:right;border:1px solid #999;padding:6px;font-size:12px;font-weight:600">${ext?'$'+ext.toFixed(2):''}</td>
       </tr>`;
      });
      const taxOn=document.getElementById('taxToggle')?.checked;

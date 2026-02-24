@@ -906,6 +906,27 @@ def fill_ams704(
                 "value": " ",
             })
 
+    # Clear unused rows to prevent ghost data from previous fills
+    filled_rows = set()
+    for item_idx, item in enumerate(items):
+        r = item.get("row_index") or (item_idx + 1)
+        if 1 <= r <= max_row:
+            filled_rows.add(r)
+    
+    for empty_row in range(1, max_row + 1):
+        if empty_row in filled_rows:
+            continue
+        # Blank out all fields for this row
+        for key, pattern in ROW_FIELDS.items():
+            field_values.append({
+                "field_id": pattern.format(n=empty_row),
+                "page": 1,
+                "value": " ",  # Space forces pypdf to overwrite (empty string may not)
+            })
+    
+    log.info("fill_ams704: cleared %d unused rows (filled: %s)", 
+             max_row - len(filled_rows), sorted(filled_rows))
+
     # Totals
     tax = round(subtotal * tax_rate, 2)
     total = round(subtotal + tax, 2)
