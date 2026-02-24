@@ -180,13 +180,13 @@ If you can't find the product, respond: {{"found": false, "reason": "..."}}"""
                 }],
                 "messages": [{"role": "user", "content": prompt}],
             },
-            timeout=45,
+            timeout=30,
         )
         
-        # Retry once on 502/503 (transient server errors)
+        # Retry once on transient errors (502/503/529)
         if resp.status_code in (502, 503, 529):
-            log.warning("Claude API %d, retrying once...", resp.status_code)
-            time.sleep(2)
+            log.warning("Claude API %d on first try, retrying...", resp.status_code)
+            time.sleep(1)
             resp = requests.post(
                 "https://api.anthropic.com/v1/messages",
                 headers={
@@ -205,7 +205,7 @@ If you can't find the product, respond: {{"found": false, "reason": "..."}}"""
                     }],
                     "messages": [{"role": "user", "content": prompt}],
                 },
-                timeout=45,
+                timeout=30,
             )
         
         if resp.status_code != 200:

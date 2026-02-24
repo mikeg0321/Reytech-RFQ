@@ -1,4 +1,5 @@
 import json as _json
+import time
 # Price Check Routes
 # 26 routes, 985 lines
 # Loaded by dashboard.py via load_module()
@@ -2193,21 +2194,54 @@ def api_pricecheck_price_sweep(pcid):
 @auth_required
 def api_pricecheck_web_search(pcid):
     """Claude-powered web price search — uses Anthropic API + web_search tool.
-    Searches Google Shopping, Amazon, medical supply sites for real prices.
-    Cost: ~$0.001-0.003 per item (Claude Haiku + web search)."""
+    Runs in background thread to avoid gunicorn timeout.
+    Poll /api/pricecheck/<pcid>/web-search/status for progress."""
     pcs = _load_price_checks()
     pc = pcs.get(pcid)
     if not pc:
         return jsonify({"ok": False, "error": "PC not found"})
-    try:
-        from src.agents.web_price_research import web_search_for_pc
-        result = web_search_for_pc(pcid)
+    
+    # Check if already running
+    status_key = f"web_search_{pcid}"
+    from src.api.dashboard import POLL_STATUS
+    if POLL_STATUS.get(status_key, {}).get("running"):
+        return jsonify({"ok": True, "status": "already_running", 
+                        "message": "Web search already in progress"})
+    
+    # Start background thread
+    POLL_STATUS[status_key] = {"running": True, "started": time.time()}
+    
+    def _run():
+        try:
+            from src.agents.web_price_research import web_search_for_pc
+            result = web_search_for_pc(pcid)
+            POLL_STATUS[status_key] = {"running": False, "result": result, "done": True}
+        except Exception as e:
+            log.exception("web-search background error")
+            POLL_STATUS[status_key] = {"running": False, "result": {"ok": False, "error": str(e)}, "done": True}
+    
+    import threading
+    threading.Thread(target=_run, daemon=True).start()
+    return jsonify({"ok": True, "status": "started", "message": "Web search started in background"})
+
+
+@bp.route("/api/pricecheck/<pcid>/web-search/status")
+@auth_required
+def api_pricecheck_web_search_status(pcid):
+    """Poll web search progress."""
+    from src.api.dashboard import POLL_STATUS
+    status_key = f"web_search_{pcid}"
+    status = POLL_STATUS.get(status_key, {})
+    if status.get("done"):
+        result = status.get("result", {})
+        # Clean up
+        POLL_STATUS.pop(status_key, None)
         return jsonify(result)
-    except ImportError:
-        return jsonify({"ok": False, "error": "web_price_research module not available"})
-    except Exception as e:
-        log.exception("web-search error")
-        return jsonify({"ok": False, "error": str(e)})
+    elif status.get("running"):
+        elapsed = int(time.time() - status.get("started", time.time()))
+        return jsonify({"ok": True, "status": "running", "elapsed": elapsed})
+    else:
+        return jsonify({"ok": True, "status": "idle"})
 
 
 @bp.route("/api/pricecheck/<pcid>/portfolio-price", methods=["POST"])

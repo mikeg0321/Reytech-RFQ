@@ -853,37 +853,62 @@
     }
 
     function runWebSearch(btn) {
-     btn.disabled=true;const origText=btn.textContent;btn.textContent='⏳ Searching web...';
+     btn.disabled=true;const origText=btn.textContent;btn.textContent='⏳ Starting search...';
      showMsg('🌐 Searching Google Shopping, Amazon, and suppliers via Claude AI...','warn');
      fetch('/api/pricecheck/{{ pcid }}/web-search',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(r=>{
       if(!r.ok) throw new Error('HTTP '+r.status);
       return r.json();
      }).then(d=>{
-      btn.disabled=false;btn.textContent=origText;
-      if(!d.ok){
-       showMsg('❌ Web search error: '+(d.error||'Unknown'),'err');
-       return;
-      }
-      if(d.found>0){
-       // Show what was found
-       let details=[];
-       (d.results||[]).forEach(r=>{
-        if(!r.found)return;
-        details.push(r.source+' $'+Number(r.price).toFixed(2));
-       });
-       showMsg('✅ Web Search: Found prices for '+d.found+'/'+d.total+' items'
-        +(details.length?' ('+details.slice(0,3).join(', ')+'...)':'')
-        +'. Reloading...','ok');
-       setTimeout(()=>location.reload(),1500);
-      } else if(d.message){
-       showMsg('ℹ️ '+d.message,'warn');
+      if(d.status==='started'||d.status==='already_running'){
+       btn.textContent='⏳ Searching...';
+       _pollWebSearch(btn, origText, 0);
+      } else if(d.ok){
+       _handleWebSearchResult(btn, origText, d);
       } else {
-       showMsg('ℹ️ Web search: no results for '+d.searched+' items. Try pasting supplier URLs directly.','warn');
+       btn.disabled=false;btn.textContent=origText;
+       showMsg('❌ '+(d.error||'Unknown error'),'err');
       }
      }).catch(e=>{
       btn.textContent=origText;btn.disabled=false;
-      showMsg('❌ Web search failed: '+e.message+'. Try again or paste supplier URLs directly.','err');
+      showMsg('❌ Web search failed: '+e.message,'err');
      });
+    }
+
+    function _pollWebSearch(btn, origText, attempts) {
+     if(attempts>60){btn.disabled=false;btn.textContent=origText;showMsg('⏰ Web search timed out. Try fewer items or paste URLs directly.','err');return;}
+     setTimeout(()=>{
+      const dots='.'.repeat((attempts%3)+1);
+      btn.textContent='⏳ Searching'+dots+' ('+Math.round(attempts*2)+'s)';
+      fetch('/api/pricecheck/{{ pcid }}/web-search/status').then(r=>r.json()).then(d=>{
+       if(d.status==='running'){
+        _pollWebSearch(btn, origText, attempts+1);
+       } else if(d.ok!==undefined){
+        _handleWebSearchResult(btn, origText, d);
+       } else {
+        _pollWebSearch(btn, origText, attempts+1);
+       }
+      }).catch(()=>_pollWebSearch(btn, origText, attempts+1));
+     }, 2000);
+    }
+
+    function _handleWebSearchResult(btn, origText, d) {
+     btn.disabled=false;btn.textContent=origText;
+     if(!d.ok){showMsg('❌ Web search error: '+(d.error||'Unknown'),'err');return;}
+     if(d.found>0){
+      let details=[];
+      (d.results||[]).forEach(r=>{
+       if(!r.found)return;
+       details.push(r.source+' $'+Number(r.price).toFixed(2));
+      });
+      showMsg('✅ Web Search: Found prices for '+d.found+'/'+d.total+' items'
+       +(details.length?' ('+details.slice(0,3).join(', ')+'...)':'')
+       +'. Reloading...','ok');
+      setTimeout(()=>location.reload(),1500);
+     } else if(d.message){
+      showMsg('ℹ️ '+d.message,'warn');
+     } else {
+      showMsg('ℹ️ Web search: no results for '+(d.searched||'?')+' items. Try pasting supplier URLs directly.','warn');
+     }
     }
 
     // Legacy alias for backward compatibility
