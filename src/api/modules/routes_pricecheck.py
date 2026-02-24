@@ -32,14 +32,17 @@ def pricecheck_detail(pcid):
     for idx, item in enumerate(items):
         p = item.get("pricing", {})
         # Clean description for display (strip font specs, dimensions, etc.)
-        raw_desc = item.get("description_raw") or item.get("description", "")
+        # ONLY auto-clean on first load (when description_raw hasn't been set yet).
+        # Once description_raw exists, the user may have edited description — don't overwrite.
+        raw_desc = item.get("description_raw") or ""
+        if PRICE_CHECK_AVAILABLE and not raw_desc and item.get("description", ""):
+            # First time: clean the parsed description, save original as description_raw
+            original = item.get("description", "")
+            cleaned = clean_description(original)
+            if cleaned != original:
+                item["description_raw"] = original
+                item["description"] = cleaned
         display_desc = item.get("description", raw_desc)
-        if PRICE_CHECK_AVAILABLE and raw_desc:
-            display_desc = clean_description(raw_desc)
-            # Persist cleaned version back
-            if display_desc != item.get("description"):
-                item["description"] = display_desc
-                item["description_raw"] = raw_desc
         # Cost sources
         amazon_cost = p.get("amazon_price")
         scprs_cost = p.get("scprs_price")

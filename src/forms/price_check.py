@@ -758,13 +758,15 @@ def fill_ams704(
         desc_final = desc_clean or desc_source
         if desc_final:
             desc_field = ROW_FIELDS["description"].format(n=row)
-            if item.get("is_substitute"):
-                mfg_num = (pricing.get("mfg_number") or pricing.get("manufacturer_part") 
-                           or item.get("mfg_number") or "")
+            # Always append MFG# to PDF description so purchasing sees the part number
+            mfg_num = (item.get("mfg_number") or pricing.get("mfg_number") 
+                       or pricing.get("manufacturer_part") or "")
+            if mfg_num and mfg_num.lower() not in desc_final.lower():
+                desc_final = f"{desc_final}\nMFG#: {mfg_num}"
+            # For substitutes, also add ASIN if no MFG#
+            if item.get("is_substitute") and not mfg_num:
                 asin = pricing.get("amazon_asin", "")
-                if mfg_num and mfg_num.lower() not in desc_final.lower():
-                    desc_final = f"{desc_final}\nMFG#: {mfg_num}"
-                elif asin and asin not in desc_final:
+                if asin and asin not in desc_final:
                     desc_final = f"{desc_final}\nASIN: {asin}"
             item_notes = (item.get("notes") or "").strip()
             if item_notes:
