@@ -822,10 +822,11 @@ def fill_ams704(
                 })
         else:
             # Clear any pre-filled substituted text from original 704A
+            # Use space (not empty string) to force pypdf to overwrite the field
             field_values.append({
                 "field_id": sub_field,
                 "page": 1,
-                "value": "",
+                "value": " ",
             })
 
     # Totals

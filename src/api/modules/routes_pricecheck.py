@@ -829,6 +829,121 @@ def pricecheck_save_prices(pcid):
     })
 
 
+def _sanitize_pc_items(pc):
+    """Sanitize stored PC data to fix issues from older code versions.
+    
+    Fixes:
+    - is_substitute defaults to False (not True) unless user explicitly checked it
+    - mfg_number: clear if it looks like a year range or sequential number (not a real part#)
+    - item_number: keep original parsed value but it won't be used for ITEM # column
+      (fill_ams704 uses sequential counter instead)
+    - Ensure parsed.line_items and items stay in sync
+    """
+    items = pc.get("items", [])
+    for item in items:
+        # is_substitute: only True if user explicitly checked the Sub? box
+        # Old code may have auto-set this; force False unless clearly user-set
+        if "is_substitute" not in item:
+            item["is_substitute"] = False
+        
+        # Clean mfg_number: reject values that look like year ranges (2025-2026),
+        # pure sequential numbers (1-50), or ISBN-like numbers from substituted field
+        mfg = (item.get("mfg_number") or "").strip()
+        if mfg:
+            import re as _re
+            # Year ranges like 2025-2026, 2024-2025
+            if _re.match(r'^\d{4}-\d{4}$', mfg):
+                item["mfg_number"] = ""
+            # Pure digits 1-50 (sequential row numbers)
+            elif mfg.isdigit() and 0 < int(mfg) <= 50:
+                item["mfg_number"] = ""
+        
+        # Also clean mfg_number in pricing dict
+        pricing = item.get("pricing", {})
+        p_mfg = (pricing.get("mfg_number") or "").strip()
+        if p_mfg:
+            import re as _re
+            if _re.match(r'^\d{4}-\d{4}$', p_mfg):
+                pricing["mfg_number"] = ""
+            elif p_mfg.isdigit() and 0 < int(p_mfg) <= 50:
+                pricing["mfg_number"] = ""
+    
+    # Keep parsed.line_items in sync
+    pc["items"] = items
+    if "parsed" in pc:
+        pc["parsed"]["line_items"] = items
+
+
+@bp.route("/pricecheck/<pcid>/reparse", methods=["POST"])
+@auth_required
+def pricecheck_reparse(pcid):
+    """Re-parse a price check from its source PDF, preserving user-edited pricing."""
+    if not PRICE_CHECK_AVAILABLE:
+        return jsonify({"ok": False, "error": "price_check.py not available"})
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"})
+
+    source_pdf = pc.get("source_pdf", "")
+    if not source_pdf or not os.path.exists(source_pdf):
+        return jsonify({"ok": False, "error": "Source PDF not found"})
+
+    from src.forms.price_check import parse_ams704
+
+    # Save user-edited pricing data keyed by row_index
+    old_items = pc.get("items", [])
+    user_data = {}
+    for item in old_items:
+        row = item.get("row_index", 0)
+        if row:
+            user_data[row] = {
+                "pricing": item.get("pricing", {}),
+                "vendor_cost": item.get("vendor_cost"),
+                "unit_price": item.get("unit_price"),
+                "markup_pct": item.get("markup_pct"),
+                "item_link": item.get("item_link", ""),
+                "item_supplier": item.get("item_supplier", ""),
+                "notes": item.get("notes", ""),
+                "no_bid": item.get("no_bid", False),
+                # Explicitly do NOT carry over is_substitute or mfg_number
+            }
+
+    # Re-parse from source PDF
+    fresh = parse_ams704(source_pdf)
+    if not fresh.get("line_items"):
+        return jsonify({"ok": False, "error": "Re-parse found no line items"})
+
+    # Merge user pricing back onto fresh items
+    for item in fresh["line_items"]:
+        row = item.get("row_index", 0)
+        if row in user_data:
+            ud = user_data[row]
+            item["pricing"] = ud["pricing"]
+            if ud.get("vendor_cost") is not None:
+                item["vendor_cost"] = ud["vendor_cost"]
+            if ud.get("unit_price") is not None:
+                item["unit_price"] = ud["unit_price"]
+            if ud.get("markup_pct") is not None:
+                item["markup_pct"] = ud["markup_pct"]
+            item["item_link"] = ud.get("item_link", "")
+            item["item_supplier"] = ud.get("item_supplier", "")
+            item["notes"] = ud.get("notes", "")
+            item["no_bid"] = ud.get("no_bid", False)
+        # Ensure is_substitute defaults to False on reparse
+        item["is_substitute"] = False
+
+    # Update PC with fresh parse
+    pc["parsed"] = fresh
+    pc["parsed"]["line_items"] = fresh["line_items"]
+    pc["items"] = fresh["line_items"]
+    _save_price_checks(pcs)
+
+    log.info("REPARSE PC %s: %d items re-parsed from source PDF", pcid, len(fresh["line_items"]))
+    return jsonify({"ok": True, "items": len(fresh["line_items"]),
+                    "msg": f"Re-parsed {len(fresh['line_items'])} items from source PDF"})
+
+
 @bp.route("/pricecheck/<pcid>/generate")
 @auth_required
 def pricecheck_generate(pcid):
@@ -841,6 +956,12 @@ def pricecheck_generate(pcid):
         return jsonify({"ok": False, "error": "PC not found"})
 
     from src.forms.price_check import fill_ams704
+
+    # ── Sanitize stored data before PDF generation ──
+    # Fixes corrupted data from older code versions
+    _sanitize_pc_items(pc)
+    _save_price_checks(pcs)
+
     parsed = pc.get("parsed", {})
     source_pdf = pc.get("source_pdf", "")
     if not source_pdf or not os.path.exists(source_pdf):

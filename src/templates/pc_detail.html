@@ -188,6 +188,7 @@
         <hr style="border-color:#30363d;margin:4px 0">
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#d2a8ff;border:none;padding:8px 10px;font-size:12px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runPortfolioPrice(this)">📊 Portfolio Optimizer</button>
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#f0883e;border:none;padding:8px 10px;font-size:12px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runCompetitorIntel(this)">🏢 Competitor Intel</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#58a6ff;border:none;padding:8px 10px;font-size:12px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runReparse(this)">🔄 Re-parse from PDF</button>
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#58a6ff;border:none;padding:8px 10px;font-size:12px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="rescanMfgNumbers(this)">🔍 Rescan MFG#s</button>
         <hr style="border-color:#30363d;margin:4px 0">
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#3fb950;border:none;padding:8px 10px;font-size:12px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('won')">🏆 Mark Won</button>
@@ -1052,6 +1053,19 @@
      const supplier = match.best_supplier ? ' ('+match.best_supplier+')' : '';
      const winInfo = (match.times_won||0) > 0 ? ' | Won '+match.times_won+'x at '+Number(match.win_rate||0).toFixed(0)+'%' : '';
      showMsg('✅ Applied '+src+': $'+Number(bestCost||0).toFixed(2)+supplier+' → $'+Number(bestPrice||0).toFixed(2)+winInfo,'ok');
+    }
+
+    /* ═══ RE-PARSE FROM SOURCE PDF ═══ */
+    function runReparse(btn) {
+     if(!confirm('Re-parse from source PDF? This will reset descriptions, MFG#s, and substitute flags.\nYour pricing data (costs, markups, prices) will be preserved.')) return;
+     btn.disabled=true;btn.textContent='⏳ Re-parsing...';
+     fetch('/pricecheck/{{ pcid }}/reparse',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})
+     .then(r=>r.json()).then(d=>{
+      btn.disabled=false;btn.textContent='🔄 Re-parse from PDF';
+      if(!d.ok){showMsg('❌ '+(d.error||'Re-parse failed'),'err');return;}
+      showMsg('✅ '+d.msg+'. Reloading...','ok');
+      setTimeout(()=>location.reload(),1200);
+     }).catch(e=>{btn.disabled=false;btn.textContent='🔄 Re-parse from PDF';showMsg('❌ '+e,'err');});
     }
 
     /* ═══ ADMIN ACTIONS: Archive, Duplicate, No Response, Delete, Won/Lost ═══ */
