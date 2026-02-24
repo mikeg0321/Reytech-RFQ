@@ -311,6 +311,14 @@ def parse_ams704(pdf_path: str) -> dict:
 
     result["field_count"] = len(fields)
 
+    # Log all field names for debugging (helps identify naming patterns)
+    log.info("parse_ams704 %s: %d fields found", os.path.basename(pdf_path), len(fields))
+    field_names = sorted(fields.keys())
+    for fn in field_names[:40]:
+        fval = fields[fn].get("/V", "") if isinstance(fields[fn], dict) else ""
+        if fval:
+            log.info("  field '%s' = '%s'", fn, str(fval)[:60])
+
     # Extract header
     for key, field_name in HEADER_FIELDS.items():
         field = fields.get(field_name, {})
@@ -324,13 +332,51 @@ def parse_ams704(pdf_path: str) -> dict:
 
     result["ship_to"] = str(fields.get("Ship to", {}).get("/V", "")).strip()
 
-    # Extract line items (check rows 1-8 per page, could have multiple pages)
-    for row_num in range(1, MAX_ROWS_PER_PAGE + 1):
+    # Extract line items — check rows 1-24 to support multi-page 704s
+    # (Standard 704 has 8 rows per page, up to 3 pages = 24 items)
+    max_row_check = 24
+    
+    # Build a field lookup that handles naming variants
+    # Some 704s use "SUBSTITUTED ITEM..." while others use "REPLACEMENT..." etc.
+    field_map_cache = {}
+    def _find_field(pattern_key, row_n):
+        """Find the best matching field for a given key/row combo."""
+        cache_key = f"{pattern_key}_{row_n}"
+        if cache_key in field_map_cache:
+            return field_map_cache[cache_key]
+        # Try exact match first
+        exact = ROW_FIELDS[pattern_key].format(n=row_n)
+        if exact in fields:
+            field_map_cache[cache_key] = exact
+            return exact
+        # Fuzzy match: look for fields containing key words + row number
+        key_words = {
+            "substituted": ["substitut", "replacement", "alternate"],
+            "description": ["description", "item desc"],
+            "qty": ["qty", "quantity"],
+            "uom": ["uom", "unit of measure", "unit measure"],
+            "unit_price": ["price per", "unit price"],
+            "extension": ["extension", "ext"],
+            "item_number": ["item row", "item #"],
+            "qty_per_uom": ["qty per"],
+        }
+        search_terms = key_words.get(pattern_key, [pattern_key])
+        row_str = str(row_n)
+        for fname in fields:
+            fl = fname.lower()
+            if row_str in fname and any(t in fl for t in search_terms):
+                field_map_cache[cache_key] = fname
+                log.debug("Fuzzy field match: '%s' row %d → '%s'", pattern_key, row_n, fname)
+                return fname
+        field_map_cache[cache_key] = exact  # Fall back to exact even if not found
+        return exact
+
+    for row_num in range(1, max_row_check + 1):
         row_data = {}
         has_data = False
 
         for key, pattern in ROW_FIELDS.items():
-            field_name = pattern.format(n=row_num)
+            field_name = _find_field(key, row_num)
             field = fields.get(field_name, {})
             val = field.get("/V", "") if isinstance(field, dict) else ""
             val = str(val).strip() if val else ""
@@ -367,6 +413,10 @@ def parse_ams704(pdf_path: str) -> dict:
             real_pn = extract_item_numbers(item)
             if real_pn:
                 item["mfg_number"] = real_pn
+            
+            log.info("  parsed row %d: desc='%s' mfg='%s' sub='%s' qty=%d uom=%s",
+                     row_num, item["description"][:40], item.get("mfg_number",""),
+                     (item.get("substituted",""))[:40], qty, item["uom"])
 
             result["line_items"].append(item)
 
@@ -378,6 +428,7 @@ def parse_ams704(pdf_path: str) -> dict:
                 except (ValueError, TypeError):
                     pass
 
+    log.info("parse_ams704: %d items found across rows 1-%d", len(result["line_items"]), max_row_check)
     return result
 
 
@@ -718,9 +769,10 @@ def fill_ams704(
     seq = 0  # sequential line item counter
     _skipped_no_row = 0
     _skipped_no_price = 0
+    max_row = 24  # Support up to 3 pages (8 rows each)
     for item_idx, item in enumerate(items):
         row = item.get("row_index") or (item_idx + 1)  # default to 1-based position
-        if row < 1 or row > MAX_ROWS_PER_PAGE:
+        if row < 1 or row > max_row:
             _skipped_no_row += 1
             log.debug("fill_ams704 SKIP item (bad row_index=%s): desc='%s'",
                        row, (item.get("description") or "")[:40])

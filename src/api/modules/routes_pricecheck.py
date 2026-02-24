@@ -700,6 +700,21 @@ def pricecheck_diagnose(pcid):
     src = pc.get("source_pdf", "")
     if src and os.path.exists(src):
         diag["checks"].append(f"source_pdf exists: {os.path.basename(src)}")
+        # Dump PDF field names and values for debugging parse issues
+        try:
+            from pypdf import PdfReader as _PR
+            _r = _PR(src)
+            _f = _r.get_fields() or {}
+            pdf_fields = {}
+            for fn, fv in sorted(_f.items()):
+                val = fv.get("/V", "") if isinstance(fv, dict) else ""
+                if val:
+                    pdf_fields[fn] = str(val)[:80]
+            diag["pdf_fields_with_data"] = pdf_fields
+            diag["pdf_field_count"] = len(_f)
+            diag["checks"].append(f"PDF has {len(_f)} fields, {len(pdf_fields)} with data")
+        except Exception as e:
+            diag["errors"].append(f"PDF field read error: {e}")
     elif src:
         diag["errors"].append(f"source_pdf MISSING: {src}")
     else:
