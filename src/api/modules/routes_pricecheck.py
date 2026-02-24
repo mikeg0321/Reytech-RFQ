@@ -1018,6 +1018,7 @@ def _enrich_catalog_from_pc(pc):
     - Existing catalog items get updated (pricing, times_quoted)
     - New items get added (description alone is enough)
     - MFG# is used for matching (not item_number which is just a row number)
+    - Records full quote context: agency, institution, qty, PC#, URL
     
     Returns: {"updated": int, "added": int} or None on error
     """
@@ -1025,7 +1026,7 @@ def _enrich_catalog_from_pc(pc):
         from src.agents.product_catalog import (
             match_item as _cat_match, update_product_pricing as _cat_update,
             add_supplier_price as _cat_add_sup, init_catalog_db as _cat_init,
-            add_to_catalog as _cat_add,
+            add_to_catalog as _cat_add, record_catalog_quote as _cat_record,
         )
         _cat_init()
     except Exception as e:
@@ -1033,6 +1034,10 @@ def _enrich_catalog_from_pc(pc):
         return None
 
     items = pc.get("items", [])
+    institution = pc.get("institution", "")
+    agency = pc.get("agency", "") or institution
+    pc_num = pc.get("pc_number", "")
+    pcid = pc.get("id", "")
     added = 0
     updated = 0
     for item in items:
@@ -1042,6 +1047,10 @@ def _enrich_catalog_from_pc(pc):
         mfg = str(item.get("mfg_number") or "").strip()
         up = item.get("unit_price") or item.get("pricing", {}).get("recommended_price") or 0
         cost = item.get("vendor_cost") or item.get("pricing", {}).get("unit_cost") or 0
+        qty = item.get("qty", 1) or 1
+        link = (item.get("item_link") or "").strip()
+        supplier = (item.get("item_supplier") or "").strip()
+        uom = (item.get("uom") or "EA").upper()
         if not desc and not mfg:
             continue
         try:
@@ -1056,15 +1065,23 @@ def _enrich_catalog_from_pc(pc):
                     updates["sell_price"] = float(up) if up > 0 else None
                     updates["cost"] = float(cost)
                 _cat_update(pid, **updates)
-                link = (item.get("item_link") or "").strip()
-                supplier = (item.get("item_supplier") or "").strip()
-                if cost > 0 and supplier:
-                    _cat_add_sup(pid, supplier, float(cost), url=link)
+                # Record supplier with URL (even without cost — URL is valuable)
+                if supplier and link:
+                    _cat_add_sup(pid, supplier, float(cost) if cost > 0 else 0, url=link)
+                elif link and cost > 0:
+                    _cat_add_sup(pid, "Web", float(cost), url=link)
+                # Record full price events for history
+                if up > 0:
+                    _cat_record(pid, "quoted", float(up), quantity=float(qty),
+                               source="pc_save", agency=agency, institution=institution,
+                               quote_number=pc_num, pc_id=pcid, supplier_url=link)
+                if cost > 0:
+                    _cat_record(pid, "cost", float(cost), quantity=float(qty),
+                               source="pc_save", agency=agency, institution=institution,
+                               quote_number=pc_num, pc_id=pcid, supplier_url=link)
                 updated += 1
             else:
                 # New item — catalog it even without pricing
-                link = (item.get("item_link") or "").strip()
-                supplier = (item.get("item_supplier") or "").strip()
                 new_pid = _cat_add(
                     description=desc,
                     part_number=mfg,
@@ -1072,10 +1089,24 @@ def _enrich_catalog_from_pc(pc):
                     cost=float(cost) if cost else 0,
                     sell_price=float(up) if up else 0,
                     supplier_url=link, supplier_name=supplier,
-                    uom=(item.get("uom") or "EA"),
+                    uom=uom,
                     source="pc_save"
                 )
                 if new_pid:
+                    # Record full price events for the new item too
+                    if up > 0:
+                        _cat_record(new_pid, "quoted", float(up), quantity=float(qty),
+                                   source="pc_save", agency=agency, institution=institution,
+                                   quote_number=pc_num, pc_id=pcid, supplier_url=link)
+                    if cost > 0:
+                        _cat_record(new_pid, "cost", float(cost), quantity=float(qty),
+                                   source="pc_save", agency=agency, institution=institution,
+                                   quote_number=pc_num, pc_id=pcid, supplier_url=link)
+                    # Also register supplier if URL given
+                    if link and supplier:
+                        _cat_add_sup(new_pid, supplier, float(cost) if cost > 0 else 0, url=link)
+                    elif link:
+                        _cat_add_sup(new_pid, "Web", float(cost) if cost > 0 else 0, url=link)
                     added += 1
         except Exception as e:
             log.debug("catalog enrichment item error: %s", e)

@@ -269,14 +269,40 @@ def catalog_product_detail(pid):
     margin_color = "#f85149" if p["margin_pct"] < 0 else "#d29922" if p["margin_pct"] < 10 else "#3fb950"
     strat_map = {"loss_leader": "🔴 Loss Leader", "margin_protect": "🟡 Margin Protect", "competitive": "🟢 Competitive", "premium": "🔵 Premium"}
 
-    # Price history rows
+    # Price history rows (with qty + institution context)
     ph_rows = ""
-    for h in p.get("price_history", [])[:20]:
+    for h in p.get("price_history", [])[:30]:
+        qty_str = f"{h.get('quantity',0):g}" if h.get('quantity') else "—"
+        inst_str = h.get('institution', '') or h.get('agency', '') or ''
+        pc_str = h.get('quote_number', '') or h.get('pc_id', '') or ''
+        url_str = h.get('supplier_url', '') or ''
+        url_link = f'<a href="{url_str}" target="_blank" style="color:var(--ac);font-size:10px">🔗 link</a>' if url_str else ''
         ph_rows += f"""<tr>
          <td class="mono" style="font-size:11px">{h.get('recorded_at','')[:10]}</td>
-         <td style="font-size:12px">{h.get('price_type','')}</td>
+         <td style="font-size:12px"><span style="padding:1px 6px;border-radius:3px;font-size:10px;background:{'#238636' if h.get('price_type')=='quoted' else '#1a3a5c' if h.get('price_type')=='cost' else '#6e40c9'}20;color:{'#3fb950' if h.get('price_type')=='quoted' else '#58a6ff' if h.get('price_type')=='cost' else '#bc8cff'}">{h.get('price_type','')}</span></td>
          <td class="mono" style="text-align:right">${h.get('price',0):,.2f}</td>
+         <td class="mono" style="text-align:center">{qty_str}</td>
+         <td style="font-size:11px">{inst_str}</td>
+         <td style="font-size:11px;color:var(--tx2)">{pc_str}</td>
          <td style="font-size:11px;color:var(--tx2)">{h.get('source','')}</td>
+         <td>{url_link}</td>
+        </tr>"""
+
+    # Supplier rows
+    sup_rows = ""
+    for s in p.get("suppliers", []):
+        url = s.get('supplier_url', '') or ''
+        url_display = url[:50] + '...' if len(url) > 50 else url
+        url_cell = f'<a href="{url}" target="_blank" style="color:var(--ac);word-break:break-all;font-size:11px">{url_display}</a>' if url else '<span style="color:var(--tx2)">—</span>'
+        rel_pct = int((s.get('reliability', 0.5) or 0.5) * 100)
+        rel_color = '#3fb950' if rel_pct >= 80 else '#d29922' if rel_pct >= 50 else '#f85149'
+        sup_rows += f"""<tr>
+         <td style="font-size:12px;font-weight:600">{s.get('supplier_name','')}</td>
+         <td class="mono" style="text-align:right">${s.get('last_price',0) or 0:,.2f}</td>
+         <td style="font-size:11px">{url_cell}</td>
+         <td class="mono" style="font-size:11px">{(s.get('last_checked','') or '')[:10]}</td>
+         <td style="text-align:center"><span style="color:{rel_color}">{rel_pct}%</span></td>
+         <td style="text-align:center">{'✅' if s.get('in_stock') else '❌'}</td>
         </tr>"""
 
     content = f"""
@@ -284,6 +310,7 @@ def catalog_product_detail(pid):
      <div>
       <a href="/catalog" style="color:var(--tx2);text-decoration:none;font-size:12px">← Catalog</a>
       <h2 style="margin:4px 0 0;font-size:18px;font-weight:700">{p['name']}</h2>
+      <div style="font-size:12px;color:var(--tx2);margin-top:2px">{(p.get('description','') or '')[:200]}</div>
      </div>
      <span style="padding:4px 12px;border-radius:12px;font-size:12px;font-weight:600;background:var(--sf)">{strat_map.get(p.get('price_strategy',''), p.get('price_strategy',''))}</span>
     </div>
@@ -310,17 +337,20 @@ def catalog_product_detail(pid):
     <div class="bento bento-2" style="margin-bottom:16px">
      <div class="card" style="padding:12px">
       <div class="card-t">Product Details</div>
-      <div style="display:grid;grid-template-columns:100px 1fr;gap:4px;font-size:12px">
+      <div style="display:grid;grid-template-columns:110px 1fr;gap:4px;font-size:12px">
+       <span style="color:var(--tx2)">MFG#</span><span class="mono" style="font-weight:600">{p.get('mfg_number','—') or '—'}</span>
        <span style="color:var(--tx2)">SKU</span><span class="mono">{p.get('sku','—')}</span>
+       <span style="color:var(--tx2)">UOM</span><span class="mono" style="font-weight:600">{p.get('uom','EA')}</span>
        <span style="color:var(--tx2)">Category</span><span>{p.get('category','—')}</span>
+       <span style="color:var(--tx2)">Manufacturer</span><span>{p.get('manufacturer','—') or '—'}</span>
        <span style="color:var(--tx2)">Item Type</span><span>{p.get('item_type','')}</span>
        <span style="color:var(--tx2)">Taxable</span><span>{'Yes' if p.get('taxable') else 'No'}</span>
        <span style="color:var(--tx2)">Times Quoted</span><span class="mono">{p.get('times_quoted',0)}</span>
        <span style="color:var(--tx2)">Times Won</span><span class="mono">{p.get('times_won',0)}</span>
        <span style="color:var(--tx2)">Last Sold</span><span class="mono">${p.get('last_sold_price',0) or 0:,.2f} ({(p.get('last_sold_date') or '—')[:10]})</span>
+       <span style="color:var(--tx2)">Best Cost</span><span class="mono">${p.get('best_cost',0) or 0:,.2f} <span style="font-size:10px">({p.get('best_supplier','') or '—'})</span></span>
        <span style="color:var(--tx2)">Tags</span><span>{p.get('tags','')}</span>
       </div>
-      <div style="margin-top:8px;font-size:12px;color:var(--tx2);white-space:pre-wrap">{(p.get('description','') or '')[:300]}</div>
      </div>
 
      <div class="card" style="padding:12px">
@@ -339,9 +369,16 @@ def catalog_product_detail(pid):
     </div>
 
     {f'''<div class="card" style="margin-bottom:16px;padding:0;overflow-x:auto">
-     <div style="padding:10px 12px;font-weight:600;font-size:13px;border-bottom:1px solid var(--bd)">📊 Price History</div>
+     <div style="padding:10px 12px;font-weight:600;font-size:13px;border-bottom:1px solid var(--bd)">🏪 Suppliers & Source URLs</div>
      <table class="home-tbl"><thead><tr>
-      <th>Date</th><th>Type</th><th style="text-align:right">Price</th><th>Source</th>
+      <th>Supplier</th><th style="text-align:right">Price</th><th>URL</th><th>Last Checked</th><th>Reliability</th><th>Stock</th>
+     </tr></thead><tbody>{sup_rows}</tbody></table>
+    </div>''' if sup_rows else ''}
+
+    {f'''<div class="card" style="margin-bottom:16px;padding:0;overflow-x:auto">
+     <div style="padding:10px 12px;font-weight:600;font-size:13px;border-bottom:1px solid var(--bd)">📊 Quote & Price History</div>
+     <table class="home-tbl"><thead><tr>
+      <th>Date</th><th>Type</th><th style="text-align:right">Price</th><th style="text-align:center">Qty</th><th>Institution</th><th>PC#</th><th>Source</th><th>Link</th>
      </tr></thead><tbody>{ph_rows}</tbody></table>
     </div>''' if ph_rows else ''}
 

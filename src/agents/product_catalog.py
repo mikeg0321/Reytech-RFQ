@@ -99,10 +99,13 @@ CREATE TABLE IF NOT EXISTS catalog_price_history (
     product_id INTEGER,
     price_type TEXT,
     price REAL,
+    quantity REAL,
     source TEXT,
     agency TEXT,
     institution TEXT,
     quote_number TEXT,
+    pc_id TEXT,
+    supplier_url TEXT,
     recorded_at TEXT
 );
 """
@@ -276,6 +279,21 @@ def init_catalog_db():
 
     conn.close()
     log.info("Product catalog DB initialized (with product_suppliers + search_tokens)")
+
+    # Migrate price_history: add columns for richer tracking
+    conn = _get_conn()
+    for tbl, col_def in [
+        ("catalog_price_history", ("quantity", "REAL")),
+        ("catalog_price_history", ("pc_id", "TEXT")),
+        ("catalog_price_history", ("supplier_url", "TEXT")),
+    ]:
+        try:
+            conn.execute(f"ALTER TABLE {tbl} ADD COLUMN {col_def[0]} {col_def[1]}")
+            log.info("Added column %s to %s", col_def[0], tbl)
+        except sqlite3.OperationalError:
+            pass  # Already exists
+    conn.commit()
+    conn.close()
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -531,7 +549,7 @@ def search_products(query: str, limit: int = 20, category: str = "",
 
 
 def get_product(product_id: int) -> Optional[dict]:
-    """Get single product with price history."""
+    """Get single product with price history and suppliers."""
     conn = _get_conn()
     row = conn.execute(
         "SELECT * FROM product_catalog WHERE id = ?", (product_id,)
@@ -542,13 +560,21 @@ def get_product(product_id: int) -> Optional[dict]:
     
     product = dict(row)
     
-    # Get price history
+    # Get price history (with full context)
     history = conn.execute("""
         SELECT * FROM catalog_price_history
         WHERE product_id = ?
         ORDER BY recorded_at DESC LIMIT 50
     """, (product_id,)).fetchall()
     product["price_history"] = [dict(h) for h in history]
+    
+    # Get suppliers
+    suppliers = conn.execute("""
+        SELECT * FROM product_suppliers
+        WHERE product_id = ?
+        ORDER BY last_price ASC
+    """, (product_id,)).fetchall()
+    product["suppliers"] = [dict(s) for s in suppliers]
     
     conn.close()
     return product
@@ -805,6 +831,34 @@ def add_supplier_price(product_id: int, supplier_name: str, price: float,
     finally:
         conn.close()
     return True
+
+
+def record_catalog_quote(product_id: int, price_type: str, price: float,
+                         quantity: float = 1, source: str = "pc_save",
+                         agency: str = "", institution: str = "",
+                         quote_number: str = "", pc_id: str = "",
+                         supplier_url: str = ""):
+    """Record a price event with full context for history tracking.
+    
+    price_type: 'sell', 'cost', 'quoted', 'won_bid'
+    Stores qty for volume pricing analysis, agency/institution for quote history,
+    and supplier_url for re-ordering.
+    """
+    conn = _get_conn()
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        conn.execute("""
+            INSERT INTO catalog_price_history 
+            (product_id, price_type, price, quantity, source, agency, institution,
+             quote_number, pc_id, supplier_url, recorded_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (product_id, price_type, price, quantity, source, agency, institution,
+              quote_number, pc_id, supplier_url, now))
+        conn.commit()
+    except Exception as e:
+        log.debug("record_catalog_quote error: %s", e)
+    finally:
+        conn.close()
 
 
 def get_product_suppliers(product_id: int) -> list:
