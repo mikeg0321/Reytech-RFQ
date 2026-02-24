@@ -532,7 +532,7 @@
       +'<td><input type="text" name="uom_'+idx+'" value="EA" class="text-in" style="width:45px;text-transform:uppercase;text-align:center;font-weight:600"></td>'
       +'<td><textarea name="desc_'+idx+'" class="text-in" style="width:100%;min-height:38px;resize:vertical;font-size:13px;line-height:1.4;padding:6px 8px" placeholder="Enter description or paste URL" oninput="detectDescUrl('+idx+',this)"></textarea></td>'
       +'<td style="text-align:center"><input type="checkbox" name="substitute_'+idx+'" style="width:16px;height:16px;cursor:pointer;accent-color:#d29922" title="Check if quoting a replacement/substitute item"></td>'
-      +'<td style="min-width:160px"><div style="display:flex;flex-direction:column;gap:3px"><input type="text" name="link_'+idx+'" value="" placeholder="Paste supplier URL\u2026" class="text-in" style="width:100%;font-size:12px;color:#58a6ff;padding:5px 7px" oninput="handleLinkInput('+idx+',this)" onpaste="setTimeout(()=>handleLinkInput('+idx+',this),50)"><div id="link_meta_'+idx+'" style="font-size:10px;color:#8b949e"></div></div></td>'
+      +'<td style="min-width:160px"><div style="display:flex;flex-direction:column;gap:3px"><div style="display:flex;gap:2px;align-items:center"><input type="text" name="link_'+idx+'" value="" placeholder="Paste supplier URL\u2026" class="text-in" style="flex:1;font-size:12px;color:#58a6ff;padding:5px 7px" oninput="handleLinkInput('+idx+',this)" onpaste="setTimeout(()=>handleLinkInput('+idx+',this),50)"><a href="" target="_blank" id="linkopen_'+idx+'" style="display:none;align-items:center;justify-content:center;width:28px;height:28px;border-radius:4px;background:#21262d;border:1px solid #30363d;color:#58a6ff;font-size:14px;text-decoration:none;flex-shrink:0" title="Open link">\u2197</a></div><div id="link_meta_'+idx+'" style="font-size:10px;color:#8b949e"></div></div></td>'
       +'<td style="min-width:160px"><span style="color:#484f58;font-size:11px">No sources</span></td>'
       +'<td><div class="currency-wrap"><input type="text" inputmode="decimal" name="cost_'+idx+'" value="" class="num-in" placeholder="0.00" oninput="sanitizePrice(this)" onchange="recalcRow('+idx+')" onblur="fmtCurrency(this)"></div></td>'
       +'<td><input type="text" inputmode="numeric" name="markup_'+idx+'" value="25" class="num-in sm" style="width:48px" oninput="sanitizeInt(this)" onchange="recalcRow('+idx+')"><span style="color:#8b949e;font-size:13px">%</span></td>'
@@ -586,9 +586,17 @@
     function handleLinkInput(idx, inp) {
       let url = inp.value.trim();
       const metaEl = document.getElementById('link_meta_'+idx);
-      if (!url) { if(metaEl) metaEl.innerHTML=''; return; }
+      const openBtn = document.getElementById('linkopen_'+idx);
+      if (!url) {
+        if(metaEl) metaEl.innerHTML='';
+        if(openBtn) { openBtn.style.display='none'; openBtn.href=''; }
+        return;
+      }
       // Auto-prepend https:// if looks like URL but missing protocol
       if (!url.startsWith('http') && _isUrl(url)) { url='https://'+url; inp.value=url; }
+      // Update the open-link button
+      if (openBtn && _isUrl(url)) { openBtn.href=url; openBtn.style.display='flex'; }
+      else if (openBtn) { openBtn.style.display='none'; }
       const supplier = _detectSupplierJS(url);
       if (metaEl && supplier) metaEl.innerHTML='<span style="color:#d29922">⏳ Looking up '+supplier+'…</span>';
       else if (metaEl && _isUrl(url)) metaEl.innerHTML='<span style="color:#d29922">⏳ Looking up…</span>';

@@ -199,3 +199,11 @@ nothing happens. Expected behavior: catalog lookup triggers automatically.
 **Rule**: Any form field that could trigger a lookup or computation needs an event handler.
 MFG# → catalog search. Description → catalog match. URL paste → price lookup.
 Don't rely on the user clicking a separate button when the trigger data is right there.
+
+## L29: Never replace pc["items"] — always merge
+**Pattern**: Amazon lookup did `pc["items"] = parsed.get("line_items", [])`, wiping
+user-edited fields (item_link, notes, is_substitute, vendor_cost) that existed on
+the old items but not in the freshly-parsed line_items.
+**Rule**: When a lookup/enrichment adds data to items, MERGE into existing items
+using `.update()` on the pricing dict. Never replace the items list wholesale.
+Only the initial parse and explicit re-parse should replace items.

@@ -193,7 +193,10 @@ def pricecheck_detail(pcid):
          <td style="text-align:center"><input type="checkbox" name="substitute_{idx}" {sub_checked} style="width:16px;height:16px;cursor:pointer;accent-color:#d29922" title="Check if quoting a replacement/substitute item"></td>
          <td style="min-width:180px">
           <div style="display:flex;flex-direction:column;gap:3px">
-           <input type="text" name="link_{idx}" value="{item_link.replace(chr(34), '&quot;')}" placeholder="Paste supplier URL…" class="text-in" style="width:100%;font-size:12px;color:#58a6ff;padding:5px 7px" oninput="handleLinkInput({idx}, this)" onpaste="setTimeout(()=>handleLinkInput({idx},this),50)">
+           <div style="display:flex;gap:2px;align-items:center">
+            <input type="text" name="link_{idx}" value="{item_link.replace(chr(34), '&quot;')}" placeholder="Paste supplier URL…" class="text-in" style="flex:1;font-size:12px;color:#58a6ff;padding:5px 7px" oninput="handleLinkInput({idx}, this)" onpaste="setTimeout(()=>handleLinkInput({idx},this),50)">
+            <a href="{item_link}" target="_blank" id="linkopen_{idx}" onclick="return !!this.href && this.href!==''" style="display:{'flex' if item_link else 'none'};align-items:center;justify-content:center;width:28px;height:28px;border-radius:4px;background:#21262d;border:1px solid #30363d;color:#58a6ff;font-size:14px;text-decoration:none;flex-shrink:0" title="Open link">↗</a>
+           </div>
            <div id="link_meta_{idx}" style="font-size:10px;color:#8b949e">{supplier_badge}</div>
           </div>
          </td>
@@ -422,7 +425,23 @@ def pricecheck_lookup(pcid):
             parsed = pc.get("parsed", {})
             parsed = lookup_prices(parsed)
             pc["parsed"] = parsed
-            pc["items"] = parsed.get("line_items", [])
+            # MERGE pricing into existing items (don't replace — preserves item_link, notes, etc.)
+            fresh_items = parsed.get("line_items", [])
+            existing_items = pc.get("items", [])
+            if existing_items and len(existing_items) == len(fresh_items):
+                for i, fresh in enumerate(fresh_items):
+                    fp = fresh.get("pricing", {})
+                    if fp:
+                        if not existing_items[i].get("pricing"):
+                            existing_items[i]["pricing"] = {}
+                        existing_items[i]["pricing"].update(fp)
+                    # Copy new fields that don't overwrite user edits
+                    for k in ("mfg_number", "description_raw"):
+                        if fresh.get(k) and not existing_items[i].get(k):
+                            existing_items[i][k] = fresh[k]
+                pc["items"] = existing_items
+            else:
+                pc["items"] = fresh_items
             found = sum(1 for i in pc["items"] if i.get("pricing", {}).get("amazon_price"))
             source = "serpapi"
         except Exception as e:
