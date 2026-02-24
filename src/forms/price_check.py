@@ -758,14 +758,16 @@ def fill_ams704(
         desc_clean = clean_description(desc_raw) if desc_raw else ""
         if desc_clean:
             desc_field = ROW_FIELDS["description"].format(n=row)
-            # Issue 1: Append MFG/ASIN if available
-            mfg_num = (pricing.get("mfg_number") or pricing.get("manufacturer_part") 
-                       or item.get("mfg_number") or "")
-            asin = pricing.get("amazon_asin", "")
-            if mfg_num and mfg_num.lower() not in desc_clean.lower():
-                desc_clean = f"{desc_clean}\nMFG#: {mfg_num}"
-            elif asin and asin not in desc_clean:
-                desc_clean = f"{desc_clean}\nASIN: {asin}"
+            # Only append MFG#/ASIN to description when quoting a substitute item
+            # (if quoting exactly what was asked, keep the description as-is)
+            if item.get("is_substitute"):
+                mfg_num = (pricing.get("mfg_number") or pricing.get("manufacturer_part") 
+                           or item.get("mfg_number") or "")
+                asin = pricing.get("amazon_asin", "")
+                if mfg_num and mfg_num.lower() not in desc_clean.lower():
+                    desc_clean = f"{desc_clean}\nMFG#: {mfg_num}"
+                elif asin and asin not in desc_clean:
+                    desc_clean = f"{desc_clean}\nASIN: {asin}"
             # Append per-item notes if present
             item_notes = (item.get("notes") or "").strip()
             if item_notes:

@@ -308,12 +308,16 @@ def fill_704b(input_path, rfq_data, config, output_path):
         # Fill ITEM # column with sequential line number (1, 2, 3...)
         values[f"ITEM NUMBERRow{row_num}"] = str(seq)
 
-        # Fill SUBSTITUTED ITEM column only when item is marked as a substitute
+        # SUBSTITUTED ITEM column: only fill when item is marked as a substitute
+        # Otherwise explicitly clear it (original 704A may have reference data in this field)
+        sub_field = f"SUBSTITUTED ITEM Include manufacturer part number andor reference numberRow{row_num}"
         if item.get("is_substitute"):
             sub_desc = item.get("description", "")
             mfg = item.get("mfg_number", "")
             sub_text = f"{sub_desc} (MFG# {mfg})" if mfg else sub_desc
-            values[f"SUBSTITUTED ITEM Include manufacturer part number andor reference numberRow{row_num}"] = sub_text
+            values[sub_field] = sub_text
+        else:
+            values[sub_field] = ""
 
     # Leading space pushes text past the printed "$"
     values["fill_154"] = f" {merchandise_subtotal:.2f}"
