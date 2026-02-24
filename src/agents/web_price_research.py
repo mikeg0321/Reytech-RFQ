@@ -426,8 +426,8 @@ def web_search_for_pc(pc_id: str) -> dict:
         if web_pn:
             p["web_part_number"] = web_pn
             # Also set on item if empty
-            if not item.get("item_number"):
-                item["item_number"] = web_pn
+            if not item.get("mfg_number"):
+                item["mfg_number"] = web_pn
         
         # Set as unit_cost if not already set
         if not p.get("unit_cost") and r["price"] > 0:

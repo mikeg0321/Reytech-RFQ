@@ -481,10 +481,10 @@ def pricecheck_scprs_lookup(pcid):
                     item["pricing"]["scprs_confidence"] = best.get("match_confidence", 0)
                     item["pricing"]["scprs_source"]     = quote.get("source", "scprs_kb")
                     item["pricing"]["scprs_po"]         = quote.get("po_number", "")
-                    # Propagate item_number from SCPRS match if item doesn't have one
+                    # Propagate part number from SCPRS match to mfg_number
                     scprs_item_num = quote.get("item_number", "")
-                    if scprs_item_num and not item.get("item_number"):
-                        item["item_number"] = scprs_item_num
+                    if scprs_item_num and not item.get("mfg_number"):
+                        item["mfg_number"] = scprs_item_num
                     # GAP 4 FIX: record this match to price_history
                     if scprs_price and scprs_price > 0:
                         try:
@@ -677,6 +677,8 @@ def pricecheck_save_prices(pcid):
                     items[idx]["mfg_number"] = str(val) if val else ""
                 elif field_type == "bid":
                     items[idx]["no_bid"] = not bool(val)
+                elif field_type == "substitute":
+                    items[idx]["is_substitute"] = bool(val)
                 elif field_type == "link":
                     items[idx]["item_link"] = str(val).strip() if val else ""
                     # Auto-detect supplier from the URL when it's saved

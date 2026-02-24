@@ -845,8 +845,8 @@ def _auto_price_new_pc(pc_id: str):
                         p["recommended_price"] = round(cat_price, 2)
                         # Propagate MFG# if item doesn't have one
                         cat_mfg = best.get("mfg_number") or best.get("sku", "")
-                        if cat_mfg and not item.get("item_number"):
-                            item["item_number"] = cat_mfg
+                        if cat_mfg and not item.get("mfg_number"):
+                            item["mfg_number"] = cat_mfg
                         found_count += 1
                         log.debug("  Catalog match: %s → $%.2f (pid=%s)", desc[:40], cat_price, best.get("id"))
         except Exception as e:
@@ -872,10 +872,10 @@ def _auto_price_new_pc(pc_id: str):
                             item["pricing"]["scprs_price"] = scprs_price
                             item["pricing"]["scprs_match"] = quote.get("description", "")[:60]
                             item["pricing"]["scprs_confidence"] = best.get("match_confidence", 0)
-                            # Propagate item_number from SCPRS match
+                            # Propagate part number from SCPRS match
                             scprs_pn = quote.get("item_number", "")
-                            if scprs_pn and not item.get("item_number"):
-                                item["item_number"] = scprs_pn
+                            if scprs_pn and not item.get("mfg_number"):
+                                item["mfg_number"] = scprs_pn
                             if not item["pricing"].get("unit_cost"):
                                 item["pricing"]["unit_cost"] = scprs_price
                             if not item["pricing"].get("recommended_price"):
@@ -910,8 +910,8 @@ def _auto_price_new_pc(pc_id: str):
                     web_pn = result.get("part_number", "")
                     if web_pn:
                         item["pricing"]["web_part_number"] = web_pn
-                        if not item.get("item_number"):
-                            item["item_number"] = web_pn
+                        if not item.get("mfg_number"):
+                            item["mfg_number"] = web_pn
                     markup = 25
                     item["pricing"]["recommended_price"] = round(result["price"] * (1 + markup / 100), 2)
                     found_count += 1
