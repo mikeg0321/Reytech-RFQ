@@ -43,7 +43,8 @@ SIGN_FIELDS = {
 TIGHT_FIELDS = set()
 for i in range(1, 16):
     for prefix in ["Row", "QTYRow", "UOMRow", "QTY PER UOMRow", "UNSPSCRow",
-                    "ITEM NUMBERRow", "PRICE PER UNITRow", "SUBTOTALRow"]:
+                    "ITEM NUMBERRow", "PRICE PER UNITRow", "SUBTOTALRow",
+                    "SUBSTITUTED ITEM Include manufacturer part number andor reference numberRow"]:
         TIGHT_FIELDS.add(f"{prefix}{i}")
 TIGHT_FIELDS.add("fill_154")
 
@@ -292,7 +293,7 @@ def fill_704b(input_path, rfq_data, config, output_path):
     merchandise_subtotal = 0.0
 
     for item in line_items:
-        row_num = item.get("form_row", item.get("line_number", 0))
+        row_num = item.get("form_row", item.get("row_index", item.get("line_number", 0)))
         if not row_num:
             continue
         price = item.get("price_per_unit", 0)
@@ -301,6 +302,13 @@ def fill_704b(input_path, rfq_data, config, output_path):
         merchandise_subtotal += subtotal
         values[f"PRICE PER UNITRow{row_num}"] = f"{price:.2f}" if price else ""
         values[f"SUBTOTALRow{row_num}"] = f"{subtotal:.2f}" if subtotal else ""
+
+        # Fill SUBSTITUTED ITEM column only when item is marked as a substitute
+        if item.get("is_substitute"):
+            sub_desc = item.get("description", "")
+            mfg = item.get("mfg_number", "")
+            sub_text = f"{sub_desc} (MFG# {mfg})" if mfg else sub_desc
+            values[f"SUBSTITUTED ITEM Include manufacturer part number andor reference numberRow{row_num}"] = sub_text
 
     # Leading space pushes text past the printed "$"
     values["fill_154"] = f" {merchandise_subtotal:.2f}"

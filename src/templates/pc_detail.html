@@ -1557,7 +1557,7 @@
      document.querySelectorAll('input[name^=bid_]').forEach(inp=>{
       data[inp.name]=inp.checked;
      });
-     document.querySelectorAll('input[name^=sub_]').forEach(inp=>{
+     document.querySelectorAll('input[name^=substitute_]').forEach(inp=>{
       data[inp.name]=inp.checked;
      });
      document.querySelectorAll('input[name^=link_]').forEach(inp=>{
@@ -1631,7 +1631,8 @@
      rows.forEach((row,i)=>{
       const bid=row.querySelector('[name=bid_'+i+']');
       if(bid&&!bid.checked) return;
-      const itemNo=row.querySelector('[name=itemnum_'+i+']')?.value||i+1;
+      // Line # is in the 2nd td (plain text), MFG# is in itemnum input
+      const lineNo=row.children[1]?.textContent?.trim()||i+1;
       const qty=parseInt(row.querySelector('[name=qty_'+i+']')?.value)||1;
       const uom=row.querySelector('[name=uom_'+i+']')?.value||'EA';
       const desc=row.querySelector('[name=desc_'+i+']')?.value||'';
@@ -1640,7 +1641,7 @@
       subtotal+=ext;
       itemCount++;
       itemsHtml+=`<tr>
-       <td style="text-align:center;border:1px solid #999;padding:6px;font-size:12px">${itemNo}</td>
+       <td style="text-align:center;border:1px solid #999;padding:6px;font-size:12px">${lineNo}</td>
        <td style="text-align:center;border:1px solid #999;padding:6px;font-size:12px">${qty}</td>
        <td style="text-align:center;border:1px solid #999;padding:6px;font-size:12px">${uom.toUpperCase()}</td>
        <td style="border:1px solid #999;padding:6px;font-size:11px;max-width:300px">${desc}</td>

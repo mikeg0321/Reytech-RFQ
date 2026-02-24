@@ -677,8 +677,6 @@ def pricecheck_save_prices(pcid):
                     items[idx]["mfg_number"] = str(val) if val else ""
                 elif field_type == "bid":
                     items[idx]["no_bid"] = not bool(val)
-                elif field_type == "sub":
-                    items[idx]["is_substitute"] = bool(val)
                 elif field_type == "link":
                     items[idx]["item_link"] = str(val).strip() if val else ""
                     # Auto-detect supplier from the URL when it's saved
@@ -978,6 +976,9 @@ def pricecheck_convert_to_quote(pcid):
 
         li = {
             "item_number":     item.get("item_number", ""),
+            "row_index":       item.get("row_index", idx + 1),
+            "mfg_number":      item.get("mfg_number", ""),
+            "is_substitute":   item.get("is_substitute", False),
             "description":     item.get("description", ""),
             "qty":             qty,
             "uom":             item.get("uom", "ea"),
@@ -2754,8 +2755,6 @@ def api_admin_rescan_item_numbers():
                                 # Copy mfg_number if fresh parse found one
                                 if fi.get("mfg_number") and not item.get("mfg_number"):
                                     item["mfg_number"] = fi["mfg_number"]
-                                    if _is_sequential(item.get("item_number", "")):
-                                        item["item_number"] = fi["mfg_number"]
                                     items_updated += 1
                                 break
                 except Exception as e:
@@ -2764,15 +2763,14 @@ def api_admin_rescan_item_numbers():
         # Option 2: Run extraction on existing item data
         from src.forms.price_check import extract_item_numbers, _is_sequential_number
         for item in items:
-            current_num = (item.get("item_number") or "").strip()
-            # Skip if already has a real part number
-            if current_num and not _is_sequential_number(current_num):
+            current_mfg = (item.get("mfg_number") or "").strip()
+            # Skip if already has a real MFG number
+            if current_mfg:
                 continue
             
             pn = extract_item_numbers(item)
             if pn:
                 item["mfg_number"] = pn
-                item["item_number"] = pn
                 items_updated += 1
         
         if items_updated > 0:

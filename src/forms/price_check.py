@@ -521,8 +521,6 @@ def _extract_items_from_table(table: list, result: dict, page_num: int):
         real_pn = extract_item_numbers(item)
         if real_pn:
             item["mfg_number"] = real_pn
-            if _is_sequential_number(item["item_number"]):
-                item["item_number"] = real_pn
 
         result["line_items"].append(item)
 

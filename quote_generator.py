@@ -952,7 +952,7 @@ def generate_quote_from_pc(pc: dict, output_path: str, **kwargs) -> dict:
             desc = f"{desc}\nRef ASIN: {asin}"
 
         data["line_items"].append({
-            "line_number": item.get("item_number", ""),
+            "line_number": item.get("row_index", item.get("item_number", "")),
             "part_number": part_num,
             "qty": item.get("qty", 1),
             "uom": item.get("uom", "EA"),
