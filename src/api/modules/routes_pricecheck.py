@@ -357,7 +357,6 @@ def pricecheck_detail(pcid):
             except Exception:
                 pass
     
-    import json as _json
     # Sanitize JSON for safe embedding in <script type="application/json"> tags
     def _safe_json(obj):
         """Serialize to JSON and escape chars that could break script blocks."""

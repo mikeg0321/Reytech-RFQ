@@ -239,8 +239,11 @@ def init_catalog_db():
     ]:
         try:
             conn.execute(f"ALTER TABLE product_catalog ADD COLUMN {col_def[0]} {col_def[1]}")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
+        except sqlite3.OperationalError as e:
+            if "duplicate column" in str(e).lower():
+                pass  # Column already exists
+            else:
+                log.warning("Catalog migration for %s: %s", col_def[0], e)
     conn.commit()
     conn.close()
     log.info("Product catalog DB initialized (with product_suppliers + search_tokens)")

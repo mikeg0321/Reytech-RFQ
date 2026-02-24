@@ -2246,7 +2246,8 @@ def _ensure_scprs_tables():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             agency_key TEXT UNIQUE, priority TEXT,
             pull_interval_hours INTEGER DEFAULT 24,
-            last_pull TEXT, next_pull TEXT
+            last_pull TEXT, next_pull TEXT,
+            enabled INTEGER DEFAULT 1
         );
         CREATE TABLE IF NOT EXISTS scprs_pull_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2259,6 +2260,12 @@ def _ensure_scprs_tables():
         CREATE INDEX IF NOT EXISTS idx_po_supplier ON scprs_po_master(supplier);
         """)
         conn.commit()
+        # Migrate: add enabled column to existing scprs_pull_schedule tables
+        try:
+            conn.execute("ALTER TABLE scprs_pull_schedule ADD COLUMN enabled INTEGER DEFAULT 1")
+            conn.commit()
+        except Exception:
+            pass  # Column already exists
     except Exception as e:
         log.debug("ensure_scprs_tables: %s", e)
     finally:
