@@ -351,7 +351,10 @@
      const origText=btn.textContent;
      btn.disabled=true;btn.textContent='⏳ Saving...';
      fetch('/pricecheck/{{ pcid }}/save-prices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(collectPrices())})
-     .then(r=>r.json()).then(d=>{
+     .then(r=>{
+      if(!r.ok) return r.text().then(t=>{throw new Error('Server '+r.status+': '+(t||'').substring(0,100))});
+      return r.json();
+     }).then(d=>{
       btn.disabled=false;
       if(d.ok){
        if (d.profit_summary) updateProfitPanel(d.profit_summary);
@@ -369,7 +372,7 @@
        btn.textContent=origText;
        showMsg('❌ Save failed: '+(d.error||'unknown'),'err');
       }
-     }).catch(e=>{btn.disabled=false;btn.textContent=origText;showMsg('❌ Error: '+e,'err')});
+     }).catch(e=>{btn.disabled=false;btn.textContent=origText;showMsg('❌ Error: '+e.message,'err')});
     }
 
     function getCurrentBuffer() {
@@ -1798,11 +1801,19 @@
      btn.disabled=true;btn.textContent='⏳ Saving prices...';
      showMsg('Saving prices and filling AMS 704 PDF...','warn');
      fetch('/pricecheck/{{ pcid }}/save-prices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(collectPrices())})
-     .then(r=>r.json()).then(d=>{
-      if(!d.ok){btn.textContent='📄 Save & Fill 704';btn.disabled=false;showMsg('❌ Save failed','err');return;}
+     .then(r=>{
+      if(!r.ok) return r.text().then(t=>{throw new Error('Save: Server '+r.status)});
+      return r.json();
+     }).then(d=>{
+      if(!d.ok){btn.textContent='📄 Save & Fill 704';btn.disabled=false;showMsg('❌ Save failed: '+(d.error||'unknown'),'err');return;}
       btn.textContent='⏳ Generating PDF...';
       return fetch('/pricecheck/{{ pcid }}/generate');
-     }).then(r=>r.json()).then(d=>{
+     }).then(r=>{
+      if(!r||!r.json) return; // save failed, chain stopped
+      if(!r.ok) return r.text().then(t=>{throw new Error('Generate: Server '+r.status)});
+      return r.json();
+     }).then(d=>{
+      if(!d) return; // earlier step failed
       btn.disabled=false;
       if(d&&d.ok){
        showMsg('✅ AMS 704 filled! Reloading...','ok');
@@ -1811,7 +1822,7 @@
        setTimeout(()=>location.reload(),2000);
       }
       else{btn.textContent='📄 Save & Fill 704';showMsg('❌ Generation failed: '+(d?.error||'unknown'),'err')}
-     }).catch(e=>{btn.textContent='📄 Save & Fill 704';btn.disabled=false;showMsg('❌ Error: '+e,'err')});
+     }).catch(e=>{btn.textContent='📄 Save & Fill 704';btn.disabled=false;showMsg('❌ '+e.message,'err')});
     }
 
     // ═══ PRD Feature 3.2.1: 1-click Price Check → Quote ═══

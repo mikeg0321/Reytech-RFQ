@@ -732,6 +732,16 @@ def pricecheck_diagnose(pcid):
 @auth_required
 def pricecheck_save_prices(pcid):
     """Save manually edited prices, costs, and markups from the UI."""
+    try:
+        return _do_save_prices(pcid)
+    except Exception as e:
+        log.error("SAVE-PRICES %s CRASHED: %s", pcid, e)
+        import traceback; traceback.print_exc()
+        return jsonify({"ok": False, "error": f"Server error: {e}"})
+
+
+def _do_save_prices(pcid):
+    """Inner save handler — separated so exceptions always return JSON."""
     pcs = _load_price_checks()
     pc = pcs.get(pcid)
     if not pc:
@@ -1124,6 +1134,15 @@ def pricecheck_reparse(pcid):
 @auth_required
 def pricecheck_generate(pcid):
     """Generate completed Price Check PDF and ingest into Won Quotes KB."""
+    try:
+        return _do_generate(pcid)
+    except Exception as e:
+        log.error("GENERATE %s CRASHED: %s", pcid, e)
+        import traceback; traceback.print_exc()
+        return jsonify({"ok": False, "error": f"Server error: {e}"})
+
+
+def _do_generate(pcid):
     if not PRICE_CHECK_AVAILABLE:
         return jsonify({"ok": False, "error": "price_check.py not available"})
     pcs = _load_price_checks()
