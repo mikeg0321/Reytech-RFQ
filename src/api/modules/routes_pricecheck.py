@@ -1,5 +1,4 @@
 import json as _json
-import time
 # Price Check Routes
 # 26 routes, 985 lines
 # Loaded by dashboard.py via load_module()
@@ -2209,7 +2208,7 @@ def api_pricecheck_web_search(pcid):
                         "message": "Web search already in progress"})
     
     # Start background thread
-    POLL_STATUS[status_key] = {"running": True, "started": time.time()}
+    POLL_STATUS[status_key] = {"running": True, "started": datetime.now().timestamp()}
     
     def _run():
         try:
@@ -2238,7 +2237,7 @@ def api_pricecheck_web_search_status(pcid):
         POLL_STATUS.pop(status_key, None)
         return jsonify(result)
     elif status.get("running"):
-        elapsed = int(time.time() - status.get("started", time.time()))
+        elapsed = int(datetime.now().timestamp() - status.get("started", datetime.now().timestamp()))
         return jsonify({"ok": True, "status": "running", "elapsed": elapsed})
     else:
         return jsonify({"ok": True, "status": "idle"})
