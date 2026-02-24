@@ -541,6 +541,24 @@ CREATE TABLE IF NOT EXISTS vendors (
 CREATE INDEX IF NOT EXISTS idx_vendor_name ON vendors(name);
 CREATE INDEX IF NOT EXISTS idx_vendor_email ON vendors(email);
 CREATE INDEX IF NOT EXISTS idx_vendor_score ON vendors(overall_score);
+
+-- Sent document versions: tracks every PDF revision for a price check
+CREATE TABLE IF NOT EXISTS sent_documents (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    pc_id           TEXT NOT NULL,
+    version         INTEGER NOT NULL DEFAULT 1,
+    created_at      TEXT NOT NULL,
+    filename        TEXT NOT NULL,
+    filepath        TEXT NOT NULL,
+    file_size       INTEGER DEFAULT 0,
+    status          TEXT DEFAULT 'current',   -- current, superseded, draft
+    notes           TEXT,
+    created_by      TEXT DEFAULT 'user',
+    items_json      TEXT,                     -- snapshot of line items at this version
+    header_json     TEXT,                     -- snapshot of header fields
+    change_summary  TEXT                      -- what changed from previous version
+);
+CREATE INDEX IF NOT EXISTS idx_sentdoc_pcid ON sent_documents(pc_id, version);
 """
 
 def init_db():
@@ -2244,3 +2262,104 @@ def log_workflow_run(run: dict) -> str:
         conn.close()
     return rid
 
+
+# ── SENT DOCUMENTS ──────────────────────────────────────────────────────────
+
+def create_sent_document(pc_id: str, filepath: str, items: list = None,
+                         header: dict = None, notes: str = "", 
+                         created_by: str = "user") -> int:
+    """Create a sent document version. Returns the new document ID."""
+    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        row = conn.execute(
+            "SELECT COALESCE(MAX(version), 0) FROM sent_documents WHERE pc_id = ?",
+            (pc_id,)
+        ).fetchone()
+        next_version = (row[0] if row else 0) + 1
+        conn.execute(
+            "UPDATE sent_documents SET status = 'superseded' WHERE pc_id = ? AND status = 'current'",
+            (pc_id,)
+        )
+        file_size = 0
+        try:
+            file_size = __import__('os').path.getsize(filepath)
+        except Exception:
+            pass
+        filename = __import__('os').path.basename(filepath)
+        change_summary = ""
+        if next_version > 1:
+            prev = conn.execute(
+                "SELECT items_json FROM sent_documents WHERE pc_id = ? AND version = ?",
+                (pc_id, next_version - 1)
+            ).fetchone()
+            if prev and prev[0] and items:
+                try:
+                    old_items = __import__('json').loads(prev[0])
+                    changes = []
+                    for i, (new, old) in enumerate(zip(items, old_items)):
+                        if new.get("unit_price") != old.get("unit_price"):
+                            changes.append(f"Item {i+1}: price {old.get('unit_price')} -> {new.get('unit_price')}")
+                        if new.get("description","")[:30] != old.get("description","")[:30]:
+                            changes.append(f"Item {i+1}: desc changed")
+                        if new.get("qty") != old.get("qty"):
+                            changes.append(f"Item {i+1}: qty {old.get('qty')} -> {new.get('qty')}")
+                    if len(items) != len(old_items):
+                        changes.append(f"Items: {len(old_items)} -> {len(items)}")
+                    change_summary = "; ".join(changes) if changes else "Minor edits"
+                except Exception:
+                    change_summary = "Updated"
+        conn.execute("""
+            INSERT INTO sent_documents
+              (pc_id, version, created_at, filename, filepath, file_size, status,
+               notes, created_by, items_json, header_json, change_summary)
+            VALUES (?, ?, ?, ?, ?, ?, 'current', ?, ?, ?, ?, ?)
+        """, (pc_id, next_version, now, filename, filepath, file_size,
+              notes, created_by, _jd(items or []), _jd(header or {}),
+              change_summary))
+        conn.commit()
+        doc_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        log.info("sent_document created: pc=%s v%d id=%d file=%s", 
+                 pc_id, next_version, doc_id, filename)
+        return doc_id
+    except Exception as e:
+        log.error("create_sent_document %s: %s", pc_id, e)
+        return 0
+    finally:
+        conn.close()
+
+
+def get_sent_documents(pc_id: str) -> list:
+    """Get all document versions for a PC, newest first."""
+    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            "SELECT * FROM sent_documents WHERE pc_id = ? ORDER BY version DESC",
+            (pc_id,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+    except Exception as e:
+        log.error("get_sent_documents %s: %s", pc_id, e)
+        return []
+    finally:
+        conn.close()
+
+
+def get_sent_document(doc_id: int) -> dict:
+    """Get a single sent document by ID."""
+    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute("SELECT * FROM sent_documents WHERE id = ?", (doc_id,)).fetchone()
+        if row:
+            d = dict(row)
+            d["items"] = _jl(d.get("items_json"), [])
+            d["header"] = _jl(d.get("header_json"), {})
+            return d
+        return {}
+    except Exception as e:
+        log.error("get_sent_document %d: %s", doc_id, e)
+        return {}
+    finally:
+        conn.close()

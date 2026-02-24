@@ -2406,7 +2406,7 @@ def api_pricechecks_list():
 @bp.route("/api/pricecheck/<pcid>/mark-sent", methods=["POST"])
 @auth_required
 def api_pricecheck_mark_sent(pcid):
-    """Mark PC as sent — starts award monitoring clock. Records in DB."""
+    """Mark PC as sent — creates versioned document record in DB."""
     pcs = _load_price_checks()
     if pcid not in pcs: return jsonify({"ok": False, "error": "PC not found"})
     pc = pcs[pcid]
@@ -2418,10 +2418,46 @@ def api_pricecheck_mark_sent(pcid):
     pc["sent_at"] = now
     pc["award_status"] = "pending"
     pc["sent_to"] = data.get("sent_to", pc.get("requestor", ""))
-    pc["sent_method"] = data.get("method", "email")  # email, fax, hand-deliver
+    pc["sent_method"] = data.get("method", "email")
+    
+    # Create versioned document record
+    doc_id = 0
+    output_pdf = pc.get("output_pdf", "")
+    if output_pdf and os.path.exists(output_pdf):
+        import shutil
+        # Copy to versioned filename: PC_BLS_IT_v1_sent_20260224.pdf
+        pc_num = pc.get("pc_number", "unknown")
+        safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', pc_num.strip())
+        date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        # Get next version
+        try:
+            from src.core.db import get_sent_documents
+            existing = get_sent_documents(pcid)
+            ver = len(existing) + 1
+        except Exception:
+            ver = 1
+        
+        versioned_name = f"PC_{safe_name}_v{ver}_sent_{date_str}.pdf"
+        versioned_path = os.path.join(DATA_DIR, versioned_name)
+        shutil.copy2(output_pdf, versioned_path)
+        
+        # Store in DB with full item snapshot
+        try:
+            from src.core.db import create_sent_document
+            doc_id = create_sent_document(
+                pc_id=pcid, filepath=versioned_path,
+                items=pc.get("items", []),
+                header=pc.get("parsed", {}).get("header", {}),
+                notes=data.get("notes", "Initial send"),
+                created_by="user"
+            )
+            pc["current_doc_id"] = doc_id
+        except Exception as e:
+            log.warning("sent_document DB write failed: %s", e)
+    
     _save_price_checks(pcs)
     
-    # Record in SQLite
     try:
         upsert_price_check(pcid, pc)
     except Exception:
@@ -2430,9 +2466,316 @@ def api_pricecheck_mark_sent(pcid):
     _log_crm_activity(pc.get("reytech_quote_number", pcid), "quote_sent",
         f"Quote sent for PC #{pc.get('pc_number','')} to {pc.get('institution','')}", actor="user")
     
-    log.info("PC %s marked SENT: pc#=%s institution=%s sent_at=%s", 
-             pcid, pc.get("pc_number"), pc.get("institution"), now)
-    return jsonify({"ok": True, "status": "sent", "sent_at": now})
+    log.info("PC %s marked SENT: pc#=%s institution=%s doc_id=%s", 
+             pcid, pc.get("pc_number"), pc.get("institution"), doc_id)
+    return jsonify({"ok": True, "status": "sent", "sent_at": now, 
+                    "doc_id": doc_id,
+                    "doc_url": f"/pricecheck/{pcid}/document/{doc_id}" if doc_id else ""})
+
+
+@bp.route("/pricecheck/<pcid>/documents")
+@auth_required
+def pricecheck_documents(pcid):
+    """List all sent document versions for a PC."""
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return redirect("/pricechecks")
+    from src.core.db import get_sent_documents
+    docs = get_sent_documents(pcid)
+    
+    rows = ""
+    for d in docs:
+        status_badge = {"current": ("Current", "#3fb950"), "superseded": ("Superseded", "#8b949e")}.get(
+            d.get("status", ""), ("?", "#8b949e"))
+        rows += f'''<tr style="cursor:pointer" onclick="location.href='/pricecheck/{pcid}/document/{d['id']}'">
+         <td style="font-family:monospace;font-weight:600;color:#58a6ff">v{d['version']}</td>
+         <td>{d['created_at'][:19].replace('T',' ')}</td>
+         <td>{d.get('notes','')[:40]}</td>
+         <td>{d.get('change_summary','')[:60]}</td>
+         <td><span style="background:{status_badge[1]};color:#0d1117;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">{status_badge[0]}</span></td>
+         <td style="text-align:right;font-family:monospace">{d.get('file_size',0)//1024}KB</td>
+         <td><a href="/api/pricecheck/document/{d['id']}/pdf" style="color:#58a6ff">📥 Download</a></td>
+        </tr>'''
+    
+    content = f'''
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h2 style="margin:0">📄 Sent Documents — PC #{pc.get("pc_number","?")}</h2>
+      <a href="/pricecheck/{pcid}" style="color:#58a6ff;text-decoration:none;font-size:13px">← Back to PC Detail</a>
+    </div>
+    <div style="font-size:13px;color:var(--tx2);margin-bottom:16px">{pc.get("institution","")} · {len(docs)} version(s)</div>
+    <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;overflow:hidden">
+     <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead><tr style="border-bottom:1px solid var(--bd);font-size:11px;color:var(--tx2);text-transform:uppercase">
+       <th style="padding:10px;text-align:left">Ver</th><th style="padding:10px">Date</th>
+       <th style="padding:10px">Notes</th><th style="padding:10px">Changes</th>
+       <th style="padding:10px">Status</th><th style="padding:10px;text-align:right">Size</th>
+       <th style="padding:10px"></th>
+      </tr></thead>
+      <tbody>{rows if rows else '<tr><td colspan="7" style="padding:20px;text-align:center;color:var(--tx2)">No documents yet — mark PC as Sent to create the first version</td></tr>'}</tbody>
+     </table>
+    </div>'''
+    from src.api.render import render_page
+    return render_page("generic.html", active_page="PCs", page_title=f"Documents — PC #{pc.get('pc_number','?')}", content=content)
+
+
+@bp.route("/api/pricecheck/document/<int:doc_id>/pdf")
+@auth_required
+def serve_sent_document_pdf(doc_id):
+    """Serve a specific document version's PDF."""
+    from src.core.db import get_sent_document
+    doc = get_sent_document(doc_id)
+    if not doc or not doc.get("filepath"):
+        return jsonify({"ok": False, "error": "Document not found"}), 404
+    fp = doc["filepath"]
+    if not os.path.exists(fp):
+        return jsonify({"ok": False, "error": "PDF file not found on disk"}), 404
+    return send_file(fp, mimetype="application/pdf")
+
+
+@bp.route("/pricecheck/<pcid>/document/<int:doc_id>")
+@auth_required
+def pricecheck_document_editor(pcid, doc_id):
+    """Inline PDF viewer + editor for a sent document version."""
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return redirect("/pricechecks")
+    
+    from src.core.db import get_sent_document, get_sent_documents
+    doc = get_sent_document(doc_id)
+    if not doc:
+        return redirect(f"/pricecheck/{pcid}/documents")
+    
+    all_docs = get_sent_documents(pcid)
+    items = doc.get("items", []) or pc.get("items", [])
+    header = doc.get("header", {}) or pc.get("parsed", {}).get("header", {})
+    
+    # Build version selector
+    ver_options = "".join(
+        f'<option value="{d["id"]}" {"selected" if d["id"]==doc_id else ""}>'
+        f'v{d["version"]} — {d["created_at"][:16].replace("T"," ")}'
+        f'{" (current)" if d.get("status")=="current" else ""}</option>'
+        for d in all_docs
+    )
+    
+    # Build editable item rows
+    item_rows = ""
+    for i, item in enumerate(items):
+        desc = (item.get("description") or "").replace('"', '&quot;')
+        mfg = (item.get("mfg_number") or "").replace('"', '&quot;')
+        qty = item.get("qty", 1)
+        uom = (item.get("uom") or "EA").upper()
+        price = item.get("unit_price") or item.get("pricing", {}).get("recommended_price") or 0
+        cost = item.get("vendor_cost") or item.get("pricing", {}).get("unit_cost") or 0
+        ext = round(float(price) * int(qty), 2) if price else 0
+        item_rows += f'''<tr>
+         <td style="text-align:center;padding:8px;font-weight:600">{i+1}</td>
+         <td style="padding:4px"><input name="ed_qty_{i}" value="{qty}" type="number" min="1" style="width:60px;background:var(--sf);border:1px solid var(--bd);border-radius:4px;padding:6px;color:var(--tx);font-size:13px;text-align:center" onchange="recalcDoc()"></td>
+         <td style="padding:4px"><input name="ed_uom_{i}" value="{uom}" style="width:60px;background:var(--sf);border:1px solid var(--bd);border-radius:4px;padding:6px;color:var(--tx);font-size:13px;text-align:center"></td>
+         <td style="padding:4px"><textarea name="ed_desc_{i}" rows="2" style="width:100%;background:var(--sf);border:1px solid var(--bd);border-radius:4px;padding:6px;color:var(--tx);font-size:12px;resize:vertical">{desc}</textarea></td>
+         <td style="padding:4px"><input name="ed_mfg_{i}" value="{mfg}" style="width:120px;background:var(--sf);border:1px solid var(--bd);border-radius:4px;padding:6px;color:var(--tx);font-size:12px;font-family:monospace"></td>
+         <td style="padding:4px"><input name="ed_price_{i}" value="{float(price):.2f}" type="number" step="0.01" min="0" style="width:90px;background:var(--sf);border:1px solid var(--bd);border-radius:4px;padding:6px;color:var(--tx);font-size:13px;text-align:right" onchange="recalcDoc()"></td>
+         <td style="padding:8px;text-align:right;font-weight:600;font-family:monospace" class="doc-ext">${ext:,.2f}</td>
+        </tr>'''
+    
+    change_log = ""
+    if doc.get("change_summary"):
+        change_log = f'<div style="font-size:11px;color:#d29922;margin-top:4px">Changes: {doc["change_summary"]}</div>'
+    
+    content = f'''
+    <style>
+     .doc-split {{ display:grid; grid-template-columns:1fr 1fr; gap:16px; height:calc(100vh - 180px); }}
+     .doc-pdf {{ border:1px solid var(--bd); border-radius:8px; overflow:hidden; background:#1e1e1e; }}
+     .doc-editor {{ overflow-y:auto; }}
+     @media(max-width:1100px) {{ .doc-split {{ grid-template-columns:1fr; height:auto; }} .doc-pdf {{ height:600px; }} }}
+    </style>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+     <div>
+      <h2 style="margin:0;font-size:18px">📄 PC #{pc.get("pc_number","")} — {pc.get("institution","")}</h2>
+      <div style="font-size:12px;color:var(--tx2);margin-top:2px">
+       Version {doc.get("version",1)} · {doc.get("created_at","")[:19].replace("T"," ")}
+       · <span style="color:{("#3fb950" if doc.get("status")=="current" else "#8b949e")}">{doc.get("status","").title()}</span>
+       {change_log}
+      </div>
+     </div>
+     <div style="display:flex;gap:8px;align-items:center">
+      <select id="verSelect" onchange="location.href='/pricecheck/{pcid}/document/'+this.value" style="background:var(--sf);border:1px solid var(--bd);border-radius:6px;padding:6px 10px;color:var(--tx);font-size:12px">{ver_options}</select>
+      <a href="/pricecheck/{pcid}/documents" style="color:#58a6ff;font-size:12px;text-decoration:none">📋 All Versions</a>
+      <a href="/pricecheck/{pcid}" style="color:#58a6ff;font-size:12px;text-decoration:none">← PC Detail</a>
+     </div>
+    </div>
+    <div class="doc-split">
+     <div class="doc-pdf">
+      <iframe src="/api/pricecheck/document/{doc_id}/pdf" style="width:100%;height:100%;border:none"></iframe>
+     </div>
+     <div class="doc-editor" style="background:var(--sf2);border:1px solid var(--bd);border-radius:8px;padding:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+       <span style="font-size:14px;font-weight:700;color:var(--tx)">✏️ Edit Line Items</span>
+       <div style="display:flex;gap:8px">
+        <button onclick="saveDocument(this)" class="btn btn-sm" style="background:#238636;color:#fff;font-size:13px;padding:6px 16px;border-radius:6px;border:none;cursor:pointer;font-weight:600">💾 Save & Regenerate</button>
+        <a href="/api/pricecheck/document/{doc_id}/pdf" download class="btn btn-sm" style="background:#21262d;color:#58a6ff;font-size:12px;padding:6px 12px;border-radius:6px;border:1px solid #30363d;text-decoration:none">📥 Download</a>
+       </div>
+      </div>
+      <div id="docMsg" style="display:none;padding:8px 12px;border-radius:6px;font-size:12px;margin-bottom:10px"></div>
+      <textarea id="ed_notes" placeholder="Revision notes (optional)" style="width:100%;background:var(--sf);border:1px solid var(--bd);border-radius:4px;padding:6px;color:var(--tx);font-size:12px;resize:none;margin-bottom:10px;height:32px">{doc.get("notes","")}</textarea>
+      <div style="overflow-x:auto">
+       <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead><tr style="border-bottom:1px solid var(--bd);font-size:10px;color:var(--tx2);text-transform:uppercase">
+         <th style="padding:8px;width:30px">#</th><th style="padding:8px;width:60px">Qty</th><th style="padding:8px;width:60px">UOM</th>
+         <th style="padding:8px">Description</th><th style="padding:8px;width:120px">MFG#</th>
+         <th style="padding:8px;width:90px;text-align:right">Price</th><th style="padding:8px;width:90px;text-align:right">Extension</th>
+        </tr></thead>
+        <tbody>{item_rows}</tbody>
+        <tfoot>
+         <tr style="border-top:2px solid var(--bd)">
+          <td colspan="6" style="text-align:right;padding:10px;font-weight:700;font-size:14px">Subtotal:</td>
+          <td style="text-align:right;padding:10px;font-weight:700;font-size:14px;font-family:monospace" id="docSubtotal">—</td>
+         </tr>
+        </tfoot>
+       </table>
+      </div>
+     </div>
+    </div>
+    <script>
+    var ITEM_COUNT={len(items)};
+    function recalcDoc(){{
+     var sub=0;
+     for(var i=0;i<ITEM_COUNT;i++){{
+      var q=parseInt(document.querySelector('[name=ed_qty_'+i+']').value)||1;
+      var p=parseFloat(document.querySelector('[name=ed_price_'+i+']').value)||0;
+      var ext=Math.round(q*p*100)/100;
+      sub+=ext;
+      var cells=document.querySelectorAll('.doc-ext');
+      if(cells[i]) cells[i].textContent='$'+ext.toFixed(2);
+     }}
+     document.getElementById('docSubtotal').textContent='$'+sub.toFixed(2);
+    }}
+    recalcDoc();
+    function saveDocument(btn){{
+     btn.disabled=true;btn.textContent='⏳ Saving...';
+     var items=[];
+     for(var i=0;i<ITEM_COUNT;i++){{
+      items.push({{
+       qty:parseInt(document.querySelector('[name=ed_qty_'+i+']').value)||1,
+       uom:document.querySelector('[name=ed_uom_'+i+']').value||'EA',
+       description:document.querySelector('[name=ed_desc_'+i+']').value||'',
+       mfg_number:document.querySelector('[name=ed_mfg_'+i+']').value||'',
+       unit_price:parseFloat(document.querySelector('[name=ed_price_'+i+']').value)||0,
+      }});
+     }}
+     var notes=document.getElementById('ed_notes').value;
+     fetch('/pricecheck/{pcid}/document/save',{{
+      method:'POST',headers:{{'Content-Type':'application/json'}},
+      body:JSON.stringify({{items:items,notes:notes,from_doc_id:{doc_id}}})
+     }}).then(r=>r.json()).then(d=>{{
+      btn.disabled=false;
+      if(d.ok){{
+       var msg=document.getElementById('docMsg');
+       msg.style.display='block';msg.style.background='rgba(52,211,153,.1)';
+       msg.style.border='1px solid rgba(52,211,153,.3)';msg.style.color='#3fb950';
+       msg.textContent='✅ Saved as v'+d.version+'. Reloading...';
+       setTimeout(()=>location.href='/pricecheck/{pcid}/document/'+d.doc_id,1500);
+      }}else{{
+       btn.textContent='💾 Save & Regenerate';
+       var msg=document.getElementById('docMsg');
+       msg.style.display='block';msg.style.background='rgba(248,81,73,.1)';
+       msg.style.border='1px solid rgba(248,81,73,.3)';msg.style.color='#f85149';
+       msg.textContent='❌ '+(d.error||'Save failed');
+      }}
+     }}).catch(e=>{{btn.disabled=false;btn.textContent='💾 Save & Regenerate';alert('Error: '+e.message)}});
+    }}
+    </script>'''
+    
+    from src.api.render import render_page
+    return render_page("generic.html", active_page="PCs", 
+                      page_title=f"Document Editor — PC #{pc.get('pc_number','?')}",
+                      content=content)
+
+
+@bp.route("/pricecheck/<pcid>/document/save", methods=["POST"])
+@auth_required
+def pricecheck_document_save(pcid):
+    """Save edits from document editor → re-generates PDF → creates new version."""
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"})
+    
+    data = request.get_json(silent=True) or {}
+    edited_items = data.get("items", [])
+    notes = data.get("notes", "")
+    
+    if not edited_items:
+        return jsonify({"ok": False, "error": "No items provided"})
+    
+    # Merge edits into PC items (preserve pricing/catalog data, update user-editable fields)
+    items = pc.get("items", [])
+    for i, edit in enumerate(edited_items):
+        if i < len(items):
+            items[i]["qty"] = edit.get("qty", items[i].get("qty", 1))
+            items[i]["uom"] = edit.get("uom", items[i].get("uom", "EA"))
+            items[i]["description"] = edit.get("description", items[i].get("description", ""))
+            items[i]["mfg_number"] = edit.get("mfg_number", items[i].get("mfg_number", ""))
+            items[i]["unit_price"] = edit.get("unit_price", 0)
+            if not items[i].get("pricing"):
+                items[i]["pricing"] = {}
+            items[i]["pricing"]["recommended_price"] = edit.get("unit_price", 0)
+    
+    # Sync to parsed
+    if "parsed" not in pc:
+        pc["parsed"] = {"header": {}, "line_items": items}
+    else:
+        pc["parsed"]["line_items"] = items
+    _save_price_checks(pcs)
+    
+    # Re-generate the PDF
+    from src.forms.price_check import fill_ams704
+    source_pdf = pc.get("source_pdf", "")
+    if not source_pdf or not os.path.exists(source_pdf):
+        return jsonify({"ok": False, "error": "Source PDF not found"})
+    
+    pc_num = pc.get("pc_number", "unknown")
+    safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', pc_num.strip())
+    
+    # Get next version number
+    from src.core.db import get_sent_documents, create_sent_document
+    existing = get_sent_documents(pcid)
+    ver = len(existing) + 1
+    
+    date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+    versioned_name = f"PC_{safe_name}_v{ver}_sent_{date_str}.pdf"
+    output_path = os.path.join(DATA_DIR, versioned_name)
+    
+    result = fill_ams704(
+        source_pdf=source_pdf,
+        parsed_pc=pc.get("parsed", {}),
+        output_pdf=output_path,
+        tax_rate=pc.get("tax_rate", 0) if pc.get("tax_enabled") else 0.0,
+        custom_notes=pc.get("custom_notes", ""),
+        delivery_option=pc.get("delivery_option", ""),
+    )
+    
+    if not result.get("ok"):
+        return jsonify({"ok": False, "error": result.get("error", "PDF generation failed")})
+    
+    # Update the main output_pdf to this latest version
+    pc["output_pdf"] = output_path
+    _save_price_checks(pcs)
+    
+    # Create document version record
+    doc_id = create_sent_document(
+        pc_id=pcid, filepath=output_path,
+        items=items,
+        header=pc.get("parsed", {}).get("header", {}),
+        notes=notes or "Edited from document viewer",
+        created_by="user"
+    )
+    
+    log.info("DOCUMENT SAVE pc=%s v%d doc_id=%d: %d items, file=%s",
+             pcid, ver, doc_id, len(items), versioned_name)
+    
+    return jsonify({"ok": True, "doc_id": doc_id, "version": ver, "filename": versioned_name})
 
 
 @bp.route("/api/pricecheck/<pcid>/mark-won", methods=["POST"])
