@@ -1224,11 +1224,15 @@ def _do_generate(pcid):
     # ── Sanitize stored data before PDF generation ──
     _sanitize_pc_items(pc)
     
-    # Ensure parsed dict exists and has items (critical for fill_ams704)
+    # ALWAYS sync parsed.line_items from pc.items (the source of truth)
+    # pc["items"] gets updated on every save; parsed["line_items"] may be stale
+    # from the original parse if not explicitly synced.
     if "parsed" not in pc:
-        pc["parsed"] = {"header": {}, "line_items": pc.get("items", [])}
-    elif not pc["parsed"].get("line_items"):
-        pc["parsed"]["line_items"] = pc.get("items", [])
+        pc["parsed"] = {"header": {}, "line_items": []}
+    pc["parsed"]["line_items"] = pc.get("items", [])
+    
+    log.info("GENERATE %s: synced %d items from pc['items'] to parsed['line_items']",
+             pcid, len(pc.get("items", [])))
     
     # Auto-compute missing prices before PDF generation
     for it in pc.get("items", []):
@@ -1287,6 +1291,24 @@ def _do_generate(pcid):
 
         return jsonify({"ok": True, "download": f"/api/pricecheck/download/{os.path.basename(output_path)}"})
     return jsonify({"ok": False, "error": result.get("error", "Unknown error")})
+
+
+@bp.route("/api/pricecheck/download/<fname>")
+@auth_required
+def pricecheck_download(fname):
+    """Serve generated PDF files (704s, quotes) from DATA_DIR."""
+    # Sanitize filename to prevent directory traversal
+    safe_fname = os.path.basename(fname)
+    filepath = os.path.join(DATA_DIR, safe_fname)
+    if os.path.exists(filepath):
+        return send_file(filepath, as_attachment=True, download_name=safe_fname)
+    # Also check common subdirectories
+    for subdir in ["output", "quotes"]:
+        alt = os.path.join(DATA_DIR, subdir, safe_fname)
+        if os.path.exists(alt):
+            return send_file(alt, as_attachment=True, download_name=safe_fname)
+    log.warning("Download not found: %s (looked in %s)", safe_fname, DATA_DIR)
+    return jsonify({"ok": False, "error": "File not found"}), 404
 
 
 @bp.route("/pricecheck/<pcid>/generate-quote")
