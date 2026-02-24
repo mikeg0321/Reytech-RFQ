@@ -965,7 +965,7 @@ def pricecheck_convert_to_quote(pcid):
     # Build RFQ record from PC data
     rfq_id = str(uuid.uuid4())[:8]
     line_items = []
-    for item in items:
+    for idx, item in enumerate(items):
         pricing = item.get("pricing", {})
         # First-class fields take precedence over oracle suggestions
         vendor_cost = item.get("vendor_cost") or pricing.get("unit_cost") or pricing.get("amazon_price") or 0
@@ -976,9 +976,14 @@ def pricecheck_convert_to_quote(pcid):
         profit_total = round(profit_unit * qty, 2) if profit_unit is not None else None
         margin_pct   = round((unit_price - vendor_cost) / unit_price * 100, 1) if (unit_price and vendor_cost) else None
 
+        # row_index = original 704A form row (1-based), used for placing data in 704B
+        row_idx = item.get("row_index", idx + 1)
+
         li = {
             "item_number":     item.get("item_number", ""),
-            "row_index":       item.get("row_index", idx + 1),
+            "row_index":       row_idx,
+            "form_row":        row_idx,
+            "line_number":     row_idx,
             "mfg_number":      item.get("mfg_number", ""),
             "is_substitute":   item.get("is_substitute", False),
             "description":     item.get("description", ""),
@@ -989,6 +994,7 @@ def pricecheck_convert_to_quote(pcid):
             "vendor_cost":     vendor_cost,
             "markup_pct":      markup_pct,
             "unit_price":      unit_price,
+            "price_per_unit":  unit_price,
             "extension":       round(unit_price * qty, 2),
             "profit_unit":     profit_unit,
             "profit_total":    profit_total,

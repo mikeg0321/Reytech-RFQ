@@ -303,6 +303,11 @@ def fill_704b(input_path, rfq_data, config, output_path):
         values[f"PRICE PER UNITRow{row_num}"] = f"{price:.2f}" if price else ""
         values[f"SUBTOTALRow{row_num}"] = f"{subtotal:.2f}" if subtotal else ""
 
+        # Fill ITEM NUMBER column with original item number from 704A (not sequential)
+        item_num = item.get("item_number", "")
+        if item_num:
+            values[f"ITEM NUMBERRow{row_num}"] = str(item_num)
+
         # Fill SUBSTITUTED ITEM column only when item is marked as a substitute
         if item.get("is_substitute"):
             sub_desc = item.get("description", "")
