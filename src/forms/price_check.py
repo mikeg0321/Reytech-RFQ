@@ -367,9 +367,6 @@ def parse_ams704(pdf_path: str) -> dict:
             real_pn = extract_item_numbers(item)
             if real_pn:
                 item["mfg_number"] = real_pn
-                # Replace sequential row number with real part number
-                if _is_sequential_number(item["item_number"]):
-                    item["item_number"] = real_pn
 
             result["line_items"].append(item)
 
@@ -741,17 +738,13 @@ def fill_ams704(
         items_priced += 1
 
         # ── ITEM NUMBER field on 704 ──
-        # Priority: mfg_number > item_number > ASIN > sequential
-        item_num_val = (
-            pricing.get("mfg_number") or pricing.get("manufacturer_part")
-            or item.get("mfg_number") or item.get("item_number")
-            or pricing.get("amazon_asin") or str(row)
-        )
+        # Preserve the original line item number from the parsed 704 form
+        item_num_val = item.get("item_number") or str(row)
         item_field = ROW_FIELDS["item_number"].format(n=row)
         field_values.append({
             "field_id": item_field,
             "page": 1,
-            "value": str(item_num_val)[:20],  # 704 field is narrow
+            "value": str(item_num_val)[:20],
         })
 
         # ── QTY field ──
@@ -809,32 +802,38 @@ def fill_ams704(
             "value": f"{extension:,.2f}",
         })
 
-        # Fill SUBSTITUTED ITEM column: include MFG#, source, and product title
-        sub_field = ROW_FIELDS["substituted"].format(n=row)
-        sub_parts = []
-        # Add MFG/part number if found
-        _sub_mfg = (item.get("mfg_number") or pricing.get("mfg_number")
-                     or pricing.get("manufacturer_part") or "")
-        if _sub_mfg:
-            sub_parts.append(f"MFG#: {_sub_mfg}")
-        # Add product match title
-        if pricing.get("amazon_title"):
-            sub_parts.append(pricing["amazon_title"][:60])
-        elif pricing.get("web_title"):
-            sub_parts.append(pricing["web_title"][:60])
-        elif pricing.get("catalog_match"):
-            sub_parts.append(pricing["catalog_match"][:60])
-        # Add supplier
-        _sub_supplier = item.get("item_supplier") or pricing.get("web_source", "")
-        if _sub_supplier and _sub_supplier not in str(sub_parts):
-            sub_parts.append(f"({_sub_supplier})")
-        sub_text = " | ".join(sub_parts)[:100]
-        if sub_text:
-            field_values.append({
-                "field_id": sub_field,
-                "page": 1,
-                "value": sub_text,
-            })
+        # Fill SUBSTITUTED ITEM column: only when quoting a replacement/substitute item
+        if item.get("is_substitute"):
+            sub_field = ROW_FIELDS["substituted"].format(n=row)
+            sub_parts = []
+            # Add MFG/part number if found
+            _sub_mfg = (item.get("mfg_number") or pricing.get("mfg_number")
+                         or pricing.get("manufacturer_part") or "")
+            if _sub_mfg:
+                sub_parts.append(f"MFG#: {_sub_mfg}")
+            # Add product match title
+            if pricing.get("amazon_title"):
+                sub_parts.append(pricing["amazon_title"][:60])
+            elif pricing.get("web_title"):
+                sub_parts.append(pricing["web_title"][:60])
+            elif pricing.get("catalog_match"):
+                sub_parts.append(pricing["catalog_match"][:60])
+            # Add description as fallback for substitute identification
+            if not sub_parts:
+                _sub_desc = item.get("description", "")[:80]
+                if _sub_desc:
+                    sub_parts.append(_sub_desc)
+            # Add supplier
+            _sub_supplier = item.get("item_supplier") or pricing.get("web_source", "")
+            if _sub_supplier and _sub_supplier not in str(sub_parts):
+                sub_parts.append(f"({_sub_supplier})")
+            sub_text = " | ".join(sub_parts)[:100]
+            if sub_text:
+                field_values.append({
+                    "field_id": sub_field,
+                    "page": 1,
+                    "value": sub_text,
+                })
 
     # Totals
     tax = round(subtotal * tax_rate, 2)

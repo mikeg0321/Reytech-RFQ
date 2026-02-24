@@ -157,11 +157,15 @@ def pricecheck_detail(pcid):
         bid_checked = "" if no_bid else "checked"
         row_opacity = "opacity:0.4" if no_bid else ""
 
-        # MFG# display: use mfg_number, item_number, or pricing mfg_number — hide sequential row numbers
-        _raw_num = (item.get("mfg_number") or item.get("item_number")
+        # Substitute item state
+        is_sub = item.get("is_substitute", False)
+        sub_checked = "checked" if is_sub else ""
+
+        # MFG# display: use mfg_number or pricing mfg_number — NOT item_number (that's the line#)
+        _raw_num = (item.get("mfg_number")
                     or p.get("mfg_number") or p.get("manufacturer_part") or "")
         _raw_num = str(_raw_num).strip()
-        # Hide sequential row numbers (1-50 digit-only values)
+        # Hide sequential row numbers (1-50 digit-only values) from MFG# field
         try:
             if _raw_num.isdigit() and 0 < int(_raw_num) <= 50:
                 _raw_num = ""
@@ -169,12 +173,24 @@ def pricecheck_detail(pcid):
             pass
         mfg_display = _raw_num.replace('"', '&quot;')
 
+        # Line item # from original 704 form
+        line_num = item.get("row_index") or item.get("item_number", idx + 1)
+        try:
+            _ln = str(line_num).strip()
+            # If item_number looks like a part number (not 1-50), fall back to row_index
+            if not (_ln.replace('.','',1).isdigit() and 0 < float(_ln) <= 50):
+                line_num = item.get("row_index", idx + 1)
+        except (ValueError, TypeError):
+            line_num = item.get("row_index", idx + 1)
+
         items_html += f"""<tr style="{row_opacity}" data-row="{idx}">
          <td style="text-align:center"><input type="checkbox" name="bid_{idx}" {bid_checked} onchange="toggleBid({idx},this)" style="width:18px;height:18px;cursor:pointer"></td>
+         <td style="text-align:center;font-weight:600;font-size:13px;color:#8b949e;font-family:'JetBrains Mono',monospace">{line_num}</td>
          <td><input type="text" name="itemnum_{idx}" value="{mfg_display}" class="text-in" style="width:80px;text-align:center;font-weight:600;font-size:12px;font-family:'JetBrains Mono',monospace;padding:6px 4px" placeholder="MFG#"></td>
          <td><input type="number" name="qty_{idx}" value="{qty}" class="num-in sm" style="width:55px" onchange="recalcPC()"></td>
          <td><input type="text" name="uom_{idx}" value="{item.get('uom','EA').upper()}" class="text-in" style="width:45px;text-transform:uppercase;text-align:center;font-weight:600"></td>
          <td><textarea name="desc_{idx}" class="text-in" style="width:100%;min-height:38px;resize:vertical;font-family:inherit;font-size:13px;line-height:1.4;padding:6px 8px" title="{raw_desc.replace('"','&quot;').replace('<','&lt;')}" oninput="detectDescUrl({idx},this)" placeholder="Enter description or paste URL">{display_desc.replace('&','&amp;').replace('<','&lt;').replace('>','&gt;')}</textarea></td>
+         <td style="text-align:center"><input type="checkbox" name="substitute_{idx}" {sub_checked} style="width:16px;height:16px;cursor:pointer;accent-color:#d29922" title="Check if quoting a replacement/substitute item"></td>
          <td style="min-width:180px">
           <div style="display:flex;flex-direction:column;gap:3px">
            <input type="text" name="link_{idx}" value="{item_link.replace(chr(34), '&quot;')}" placeholder="Paste supplier URL…" class="text-in" style="width:100%;font-size:12px;color:#58a6ff;padding:5px 7px" oninput="handleLinkInput({idx}, this)" onpaste="setTimeout(()=>handleLinkInput({idx},this),50)">
@@ -189,7 +205,7 @@ def pricecheck_detail(pcid):
          <td class="profit" style="font-size:14px">{profit_str}</td>
         </tr>
         <tr class="notes-row" data-row="{idx}" style="display:{'table-row' if item_notes else 'none'}">
-         <td colspan="12" style="padding:0 8px 6px 120px;border-top:none">
+         <td colspan="14" style="padding:0 8px 6px 120px;border-top:none">
           <div style="display:flex;align-items:center;gap:6px">
            <span style="font-size:10px;color:#8b949e">📝</span>
            <input type="text" name="notes_{idx}" value="{notes_escaped}" placeholder="Add note (prints on quote)…" class="text-in" style="flex:1;font-size:11px;padding:3px 8px;color:#d2a8ff">
@@ -523,7 +539,6 @@ def pricecheck_rescan_mfg(pcid):
                             item["substituted"] = fi["substituted"]
                         if fi.get("mfg_number"):
                             item["mfg_number"] = fi["mfg_number"]
-                            item["item_number"] = fi["mfg_number"]
                             updated += 1
                         break
         except Exception as e:
@@ -532,13 +547,12 @@ def pricecheck_rescan_mfg(pcid):
     # Step 2: Run extraction on all items that still lack a real part number
     from src.forms.price_check import extract_item_numbers, _is_sequential_number
     for item in items:
-        current = (item.get("item_number") or "").strip()
-        if current and not _is_sequential_number(current):
-            continue  # Already has a real number
+        current_mfg = (item.get("mfg_number") or "").strip()
+        if current_mfg:
+            continue  # Already has a real MFG number
         pn = extract_item_numbers(item)
         if pn:
             item["mfg_number"] = pn
-            item["item_number"] = pn
             updated += 1
 
     pc["items"] = items
@@ -660,10 +674,11 @@ def pricecheck_save_prices(pcid):
                 elif field_type == "uom":
                     items[idx]["uom"] = str(val).upper() if val else "EA"
                 elif field_type in ("itemno", "itemnum"):
-                    items[idx]["item_number"] = str(val) if val else ""
                     items[idx]["mfg_number"] = str(val) if val else ""
                 elif field_type == "bid":
                     items[idx]["no_bid"] = not bool(val)
+                elif field_type == "sub":
+                    items[idx]["is_substitute"] = bool(val)
                 elif field_type == "link":
                     items[idx]["item_link"] = str(val).strip() if val else ""
                     # Auto-detect supplier from the URL when it's saved
@@ -675,6 +690,8 @@ def pricecheck_save_prices(pcid):
                             pass
                 elif field_type == "notes":
                     items[idx]["notes"] = str(val).strip() if val else ""
+                elif field_type == "substitute":
+                    items[idx]["is_substitute"] = bool(val)
         except (ValueError, IndexError):
             pass
 
