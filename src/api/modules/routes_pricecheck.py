@@ -974,6 +974,16 @@ def _do_save_prices(pcid):
     # ── CATALOG ENRICHMENT: feed PC items back into product catalog ─────
     _cat_result = _enrich_catalog_from_pc(pc)
 
+    # ── STATUS TRANSITION: new/parsed → priced when items have prices ─────
+    current_status = pc.get("status", "new")
+    if current_status in ("new", "parsed", "parse_error"):
+        bid_items = [i for i in items if not i.get("no_bid")]
+        priced_items = [i for i in bid_items if (i.get("unit_price") or i.get("pricing", {}).get("recommended_price"))]
+        if priced_items:
+            _transition_status(pc, "priced", actor="user", 
+                             notes=f"Saved: {len(priced_items)}/{len(bid_items)} items priced")
+            _save_price_checks(pcs)
+
     summary = pc.get("profit_summary", {})
     resp = {"ok": True, "profit_summary": summary}
     if _cat_result:
@@ -2278,11 +2288,12 @@ def pricechecks_archive():
             "status": pc.get("status", "new"), "items_count": len(pc.get("items", [])),
             "quote_number": pc.get("reytech_quote_number", ""),
             "created_at": pc.get("created_at", ""), "sent_at": pc.get("sent_at", ""),
+            "due_date": pc.get("due_date", "") or pc.get("parsed", {}).get("header", {}).get("due_date", ""),
+            "source": pc.get("source", ""),
             "competitor_name": pc.get("competitor_name", ""),
             "competitor_price": pc.get("competitor_price", 0),
             "revision_of": pc.get("revision_of", ""),
-            "due_date": pc.get("parsed", {}).get("header", {}).get("due_date", ""),
-            "total": sum((it.get("pricing", {}).get("recommended_price", 0) or 0) * it.get("qty", 1)
+            "total": sum((it.get("unit_price") or it.get("pricing", {}).get("recommended_price", 0) or 0) * it.get("qty", 1)
                         for it in pc.get("items", [])),
         })
     pc_list.sort(key=lambda x: x["created_at"], reverse=True)
@@ -2301,23 +2312,27 @@ def pricechecks_archive():
         st = p["status"]
         label, color = PC_STATUS_LABELS.get(st, (st, "#8b90a0"))
         date_str = p["created_at"][:10] if p["created_at"] else "—"
+        due_str = p.get("due_date", "")[:10] if p.get("due_date") else "—"
         total_str = f"${p['total']:,.2f}" if p["total"] else "—"
         qn = p.get("quote_number", "")
         comp = p.get("competitor_name", "")
-        rev = " \\u1F504" if p.get("revision_of") else ""
+        src_icon = "📧" if p.get("source") == "email_auto" else "📄" if p.get("source") == "manual_upload" else ""
         rows += f'''<tr data-status="{st}" data-search="{p['pc_number'].lower()} {p['institution'].lower()} {p['requestor'].lower()} {qn.lower()}" style="cursor:pointer" onclick="location.href='/pricecheck/{p['id']}'">
          <td><a href="/pricecheck/{p['id']}" style="color:#58a6ff;font-family:'JetBrains Mono',monospace;font-weight:600">#{p['pc_number']}</a></td>
          <td>{p['institution']}</td><td>{p['requestor'][:25]}</td>
-         <td>{date_str}</td><td style="text-align:center">{p['items_count']}</td>
+         <td>{due_str}</td><td>{date_str}</td><td style="text-align:center">{p['items_count']}</td>
          <td style="text-align:right">{total_str}</td>
          <td style="text-align:center">{f'<span style="color:#58a6ff;font-family:JetBrains Mono,monospace;font-weight:600">{qn}</span>' if qn else chr(8212)}</td>
-         <td style="text-align:center"><span style="background:{color};color:#0d1117;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">{label}</span></td>
-         <td style="color:#f85149">{comp}</td></tr>'''
+         <td style="text-align:center"><span style="background:{color};color:#0d1117;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">{label}</span> {src_icon}</td></tr>'''
 
     content = f'''
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
       <h2 style="margin:0">Price Check Archive</h2>
-      <div style="display:flex;gap:8px">
+      <div style="display:flex;gap:8px;align-items:center">
+        <form method="POST" action="/upload" enctype="multipart/form-data" style="display:inline-flex;gap:6px;align-items:center">
+          <input type="file" name="files" accept=".pdf" id="pc-upload-file" style="display:none" onchange="this.form.submit()">
+          <button type="button" onclick="document.getElementById('pc-upload-file').click()" class="btn btn-sm" style="background:#238636;color:#fff;font-size:13px;font-weight:600;padding:6px 14px;border-radius:6px;border:none;cursor:pointer">📄 Upload 704 PDF</button>
+        </form>
         <a href="/competitors" style="background:#1f6feb;color:white;padding:6px 14px;border-radius:6px;text-decoration:none;font-size:13px;font-weight:600">Competitors</a>
       </div>
     </div>
@@ -2341,10 +2356,9 @@ def pricechecks_archive():
       <table style="width:100%;border-collapse:collapse;font-size:13px">
         <thead><tr style="border-bottom:1px solid var(--bd);text-transform:uppercase;font-size:11px;color:var(--tx2)">
           <th style="padding:10px;text-align:left">PC #</th><th style="padding:10px;text-align:left">Institution</th>
-          <th style="padding:10px;text-align:left">Requestor</th><th style="padding:10px;text-align:left">Date</th>
+          <th style="padding:10px;text-align:left">Requestor</th><th style="padding:10px;text-align:left">Due</th><th style="padding:10px;text-align:left">Created</th>
           <th style="padding:10px;text-align:center">Items</th><th style="padding:10px;text-align:right">Total</th>
           <th style="padding:10px;text-align:center">Quote</th><th style="padding:10px;text-align:center">Status</th>
-          <th style="padding:10px;text-align:left">Competitor</th>
         </tr></thead>
         <tbody id="pc-tbody">{rows}</tbody>
       </table>

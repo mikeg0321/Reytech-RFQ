@@ -157,8 +157,12 @@ def _transition_status(record, new_status, actor="system", notes=""):
 def _handle_price_check_upload(pdf_path, pc_id, from_email=False):
     """Process an uploaded Price Check PDF.
     
-    Option C: Creates PC record ONLY. No quote number assigned.
-    User clicks "Generate Quote" when ready → that's when R26Qxx is consumed.
+    Full pipeline:
+    1. Parse PDF → extract header + line items
+    2. Dedup check
+    3. Catalog matching → pull costs, MFG#, UOM from known products
+    4. Save with status 'new' (ready for work in queue)
+    5. Return/redirect to PC detail page
     
     Args:
         from_email: If True, returns dict instead of redirect (email pipeline call)
@@ -170,6 +174,8 @@ def _handle_price_check_upload(pdf_path, pc_id, from_email=False):
     # Parse
     parsed = parse_ams704(pc_file)
     parse_error = parsed.get("error")
+    now = datetime.now().isoformat()
+    source = "email_auto" if from_email else "manual_upload"
     
     if parse_error:
         if from_email:
@@ -187,8 +193,9 @@ def _handle_price_check_upload(pdf_path, pc_id, from_email=False):
                 "items": [],
                 "source_pdf": pc_file,
                 "status": "parse_error",
-                "status_history": [{"from": "", "to": "parse_error", "timestamp": datetime.now().isoformat(), "actor": "system"}],
-                "created_at": datetime.now().isoformat(),
+                "status_history": [{"from": "", "to": "parse_error", "timestamp": now, "actor": "system"}],
+                "created_at": now,
+                "source": source,
                 "parsed": {"error": parse_error},
                 "parse_error": parse_error,
                 "reytech_quote_number": "",
@@ -200,13 +207,12 @@ def _handle_price_check_upload(pdf_path, pc_id, from_email=False):
         return redirect("/")
 
     items = parsed.get("line_items", [])
-    pc_num = parsed.get("header", {}).get("price_check_number", "unknown")
-    institution = parsed.get("header", {}).get("institution", "")
-    due_date = parsed.get("header", {}).get("due_date", "")
+    header = parsed.get("header", {})
+    pc_num = header.get("price_check_number", "unknown")
+    institution = header.get("institution", "")
+    due_date = header.get("due_date", "")
 
     # ── DEDUP CHECK: same PC number + institution + due date = true duplicate ──
-    # Must include due_date because same institution sends different PCs
-    # (e.g. Valentina sends Airway Adapter AND BLS Med from CSP-Sacramento)
     pcs = _load_price_checks()
     for existing_id, existing_pc in pcs.items():
         if (existing_pc.get("pc_number", "").strip() == pc_num.strip()
@@ -219,34 +225,77 @@ def _handle_price_check_upload(pdf_path, pc_id, from_email=False):
                 return {"dedup": True, "existing_id": existing_id}
             return redirect(f"/pricecheck/{existing_id}")
 
-    # Option C: NO quote number assigned here. User generates manually.
-    # Save PC record
+    # ── CATALOG MATCHING: enrich items with known costs, MFG#, UOM ──
+    try:
+        from src.agents.product_catalog import match_item as _cat_match, init_catalog_db as _cat_init
+        _cat_init()
+        for item in items:
+            desc = (item.get("description") or "").strip()
+            mfg = (item.get("mfg_number") or "").strip()
+            if not desc and not mfg:
+                continue
+            matches = _cat_match(desc, mfg, top_n=1)
+            if matches and matches[0].get("match_confidence", 0) >= 0.50:
+                best = matches[0]
+                # Initialize pricing dict
+                pricing = item.get("pricing", {})
+                if not pricing:
+                    item["pricing"] = pricing
+                # Pull catalog data into the item
+                if best.get("cost") and not pricing.get("unit_cost"):
+                    pricing["unit_cost"] = best["cost"]
+                    pricing["price_source"] = "catalog"
+                if best.get("sell_price") and not pricing.get("recommended_price"):
+                    pricing["recommended_price"] = best["sell_price"]
+                if best.get("mfg_number") and not item.get("mfg_number"):
+                    item["mfg_number"] = best["mfg_number"]
+                if best.get("uom"):
+                    item["uom"] = best["uom"]
+                if best.get("manufacturer"):
+                    pricing["manufacturer"] = best["manufacturer"]
+                pricing["catalog_match"] = best.get("name", "")[:50]
+                pricing["catalog_id"] = best.get("id")
+                pricing["catalog_confidence"] = best.get("match_confidence", 0)
+                log.info("  catalog match for '%s': %s (%.0f%%) cost=$%.2f",
+                         desc[:30], best.get("name", "")[:30],
+                         best.get("match_confidence", 0) * 100,
+                         best.get("cost", 0))
+    except Exception as e:
+        log.debug("Catalog matching on upload failed (non-fatal): %s", e)
+
+    # ── Save PC Record ──
     pcs = _load_price_checks()
     pcs[pc_id] = {
         "id": pc_id,
         "pc_number": pc_num,
         "institution": institution,
         "due_date": due_date,
-        "requestor": parsed.get("header", {}).get("requestor", ""),
+        "requestor": header.get("requestor", ""),
         "ship_to": parsed.get("ship_to", ""),
+        "phone": header.get("phone", ""),
+        "agency": institution,
         "items": items,
         "source_pdf": pc_file,
-        "status": "parsed",
-        "status_history": [{"from": "", "to": "parsed", "timestamp": datetime.now().isoformat(), "actor": "system"}],
-        "created_at": datetime.now().isoformat(),
+        "status": "new",
+        "status_history": [
+            {"from": "", "to": "parsed", "timestamp": now, "actor": "system", "notes": f"Parsed {len(items)} items"},
+            {"from": "parsed", "to": "new", "timestamp": now, "actor": "system", "notes": f"Source: {source}"},
+        ],
+        "created_at": now,
+        "source": source,
         "parsed": parsed,
-        "reytech_quote_number": "",  # Empty until user clicks Generate Quote
+        "reytech_quote_number": "",
         "linked_quote_number": "",
     }
     _save_price_checks(pcs)
 
-    log.info("PC #%s created from %s — %d items, due %s (no quote assigned — Option C)",
-             pc_num, institution, len(items), due_date)
+    log.info("PC #%s created (%s) — %d items from %s, due %s, status=new",
+             pc_num, source, len(items), institution, due_date)
     
     if from_email:
         return {"ok": True, "pc_id": pc_id, "pc_number": pc_num, "items": len(items)}
     
-    flash(f"Price Check #{pc_num} parsed — {len(items)} items from {institution}. Due {due_date}", "success")
+    flash(f"Price Check #{pc_num} — {len(items)} items from {institution}. Due {due_date}", "success")
     return redirect(f"/pricecheck/{pc_id}")
 
 
