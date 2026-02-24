@@ -101,7 +101,7 @@ def pricecheck_detail(pcid):
 
         items_html += f"""<tr style="{row_opacity}" data-row="{idx}">
          <td style="text-align:center"><input type="checkbox" name="bid_{idx}" {bid_checked} onchange="toggleBid({idx},this)" style="width:18px;height:18px;cursor:pointer"></td>
-         <td><input type="text" name="itemnum_{idx}" value="{item.get('item_number','')}" class="text-in" style="width:55px;text-align:center;font-weight:600;font-size:13px;font-family:'JetBrains Mono',monospace;padding:6px 4px" placeholder="#"></td>
+         <td><input type="text" name="itemnum_{idx}" value="{item.get('item_number','') if not str(item.get('item_number','')).strip().isdigit() or len(str(item.get('item_number','')).strip()) > 2 else ''}" class="text-in" style="width:80px;text-align:center;font-weight:600;font-size:12px;font-family:'JetBrains Mono',monospace;padding:6px 4px" placeholder="MFG#"></td>
          <td><input type="number" name="qty_{idx}" value="{qty}" class="num-in sm" style="width:55px" onchange="recalcPC()"></td>
          <td><input type="text" name="uom_{idx}" value="{item.get('uom','EA').upper()}" class="text-in" style="width:45px;text-transform:uppercase;text-align:center;font-weight:600"></td>
          <td><textarea name="desc_{idx}" class="text-in" style="width:100%;min-height:38px;resize:vertical;font-family:inherit;font-size:13px;line-height:1.4;padding:6px 8px" title="{raw_desc.replace('"','&quot;').replace('<','&lt;')}" oninput="detectDescUrl({idx},this)" placeholder="Enter description or paste URL">{display_desc.replace('&','&amp;').replace('<','&lt;').replace('>','&gt;')}</textarea></td>

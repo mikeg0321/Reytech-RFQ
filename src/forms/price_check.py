@@ -621,6 +621,28 @@ def fill_ams704(
         subtotal += extension
         items_priced += 1
 
+        # ── ITEM NUMBER field on 704 ──
+        # Priority: mfg_number > item_number > ASIN > sequential
+        item_num_val = (
+            pricing.get("mfg_number") or pricing.get("manufacturer_part")
+            or item.get("mfg_number") or item.get("item_number")
+            or pricing.get("amazon_asin") or str(row)
+        )
+        item_field = ROW_FIELDS["item_number"].format(n=row)
+        field_values.append({
+            "field_id": item_field,
+            "page": 1,
+            "value": str(item_num_val)[:20],  # 704 field is narrow
+        })
+
+        # ── QTY field ──
+        qty_field = ROW_FIELDS["qty"].format(n=row)
+        field_values.append({
+            "field_id": qty_field,
+            "page": 1,
+            "value": str(qty),
+        })
+
         # Overwrite description with cleaned version (strips font specs, dimensions, etc.)
         desc_raw = item.get("description_raw") or item.get("description", "")
         desc_clean = clean_description(desc_raw) if desc_raw else ""

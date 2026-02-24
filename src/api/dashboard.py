@@ -894,6 +894,12 @@ def _auto_price_new_pc(pc_id: str):
                     item["pricing"]["web_source"] = result.get("source", "")
                     item["pricing"]["web_url"] = result.get("url", "")
                     item["pricing"]["unit_cost"] = result["price"]
+                    # Store part/MFG number if found
+                    web_pn = result.get("part_number", "")
+                    if web_pn:
+                        item["pricing"]["web_part_number"] = web_pn
+                        if not item.get("item_number"):
+                            item["item_number"] = web_pn
                     markup = 25
                     item["pricing"]["recommended_price"] = round(result["price"] * (1 + markup / 100), 2)
                     found_count += 1

@@ -147,7 +147,8 @@ Search for this exact product or the closest match. I need:
 1. The unit price (per {uom})
 2. The retailer/supplier name
 3. The product URL
-4. How confident you are this is the right product (0-100%)
+4. The MFG part number, SKU, or item number from the product page
+5. How confident you are this is the right product (0-100%)
 
 If you find multiple sources, list them all sorted by price (lowest first).
 
@@ -155,7 +156,7 @@ IMPORTANT: Respond in this exact JSON format only, no other text:
 {{
   "found": true,
   "results": [
-    {{"price": 12.99, "source": "Amazon", "url": "https://...", "title": "Product Name", "confidence": 85}}
+    {{"price": 12.99, "source": "Amazon", "url": "https://...", "title": "Product Name", "part_number": "ABC-123", "confidence": 85}}
   ]
 }}
 If you can't find the product, respond: {{"found": false, "reason": "..."}}"""
@@ -253,12 +254,14 @@ def _parse_price_response(text: str, original_desc: str) -> dict:
             result["source"] = best.get("source", "")
             result["url"] = best.get("url", "")
             result["title"] = best.get("title", "")[:100]
+            result["part_number"] = best.get("part_number", "")
             result["confidence"] = best["confidence"] / 100
             result["options"] = [{
                 "price": r["price"],
                 "source": r.get("source", ""),
                 "url": r.get("url", ""),
                 "title": r.get("title", "")[:80],
+                "part_number": r.get("part_number", ""),
             } for r in results_list[:6]]
             
             return result
@@ -390,6 +393,14 @@ def web_search_for_pc(pc_id: str) -> dict:
         p["web_confidence"] = r.get("confidence", 0)
         p["web_options"] = r.get("options", [])[:5]
         p["web_searched_at"] = datetime.now(timezone.utc).isoformat()
+        
+        # Store part/MFG number if found
+        web_pn = r.get("part_number", "")
+        if web_pn:
+            p["web_part_number"] = web_pn
+            # Also set on item if empty
+            if not item.get("item_number"):
+                item["item_number"] = web_pn
         
         # Set as unit_cost if not already set
         if not p.get("unit_cost") and r["price"] > 0:
