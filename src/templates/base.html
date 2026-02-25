@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{% block title %}Reytech RFQ{% endblock %}</title>
 <meta name="description" content="Reytech RFQ Dashboard — AI-powered sales automation for CA state agency reseller">
+<meta name="csrf-token" content="{{ csrf_token_value }}">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/styles.css">
 {% block head_extra %}{% endblock %}
@@ -88,6 +89,44 @@
 {% block after_content %}{% endblock %}
 </main>
 <script src="/static/header.js"></script>
+<script>
+// E5: Auto-inject CSRF tokens into all forms and AJAX calls
+(function(){
+ var t=document.querySelector('meta[name="csrf-token"]');
+ if(!t)return;
+ var token=t.getAttribute('content');
+ // Inject hidden input into every form
+ document.querySelectorAll('form').forEach(function(f){
+  if(!f.querySelector('input[name="_csrf_token"]')){
+   var i=document.createElement('input');
+   i.type='hidden';i.name='_csrf_token';i.value=token;
+   f.appendChild(i);
+  }
+ });
+ // Patch fetch to auto-include CSRF header on POST/PUT/DELETE
+ var _fetch=window.fetch;
+ window.fetch=function(url,opts){
+  opts=opts||{};
+  var m=(opts.method||'GET').toUpperCase();
+  if(m==='POST'||m==='PUT'||m==='DELETE'){
+   opts.headers=opts.headers||{};
+   if(opts.headers instanceof Headers){opts.headers.set('X-CSRF-Token',token);}
+   else{opts.headers['X-CSRF-Token']=token;}
+  }
+  return _fetch(url,opts);
+ };
+ // Patch XMLHttpRequest for legacy AJAX
+ var _open=XMLHttpRequest.prototype.open;
+ var _send=XMLHttpRequest.prototype.send;
+ XMLHttpRequest.prototype.open=function(m,u){this._method=m;return _open.apply(this,arguments);};
+ XMLHttpRequest.prototype.send=function(){
+  if(this._method&&this._method.toUpperCase()!=='GET'){
+   try{this.setRequestHeader('X-CSRF-Token',token);}catch(e){}
+  }
+  return _send.apply(this,arguments);
+ };
+})();
+</script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

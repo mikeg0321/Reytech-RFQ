@@ -732,8 +732,8 @@ def contacts_page():
                         "last_purchase": p.get("last_purchase",""),
                         "score": p.get("score",0), "outreach_status": p.get("outreach_status","new"), "activity":[],
                     }
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("Suppressed: %s", _e)
 
     contacts = list(contacts_dict.values())
     total = len(contacts)

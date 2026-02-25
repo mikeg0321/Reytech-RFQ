@@ -826,8 +826,8 @@ def universal_search_page():
                             "meta": f"${qt.get('total',0):,.0f} · {qt.get('status','')} · {str(qt.get('created_at',''))[:10]}",
                             "url": f"/quote/{qn}",
                         })
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug("Suppressed: %s", _e)
 
             # ── CRM Contacts ──
             try:
@@ -849,8 +849,8 @@ def universal_search_page():
                             "meta": f"${spend:,.0f} spend · {c.get('outreach_status','new')} · {len(c.get('activity',[]))} interactions",
                             "url": f"/growth/prospect/{cid}",
                         })
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("Suppressed: %s", _e)
 
             # ── Intel Buyers (not yet in CRM) ──
             if INTEL_AVAILABLE:
@@ -877,8 +877,8 @@ def universal_search_page():
                                     "meta": f"${b.get('total_spend',0):,.0f} spend · score {b.get('opportunity_score',0)} · not in CRM",
                                     "url": f"/growth/prospect/{b.get('id','')}",
                                 })
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug("Suppressed: %s", _e)
 
             # ── Orders ──
             try:
@@ -896,8 +896,8 @@ def universal_search_page():
                             "meta": f"PO {o.get('po_number','—')} · {o.get('status','')}",
                             "url": f"/order/{oid}",
                         })
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("Suppressed: %s", _e)
 
             # ── RFQs ──
             try:
@@ -916,8 +916,8 @@ def universal_search_page():
                             "meta": f"{len(r.get('items',[]))} items · {r.get('status','')}",
                             "url": f"/rfq/{rid}",
                         })
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("Suppressed: %s", _e)
 
             # Dedupe by URL
             seen = set()
@@ -1166,8 +1166,8 @@ def quote_detail(qn):
                 expiry_class = "color:var(--yl);font-weight:600"
             else:
                 expiry_display = f"{days_left}d left"
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("Suppressed: %s", _e)
     elif st == "won":
         expiry_display = "Won ✅"
         expiry_class = "color:var(--gn);font-weight:600"
@@ -1207,8 +1207,8 @@ def quote_detail(qn):
                     if _pnum == _pc_num:
                         source_link = f"/pricecheck/{_pid}"
                         break
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("Suppressed: %s", _e)
 
     # Status config
     status_cfg = {
@@ -1278,8 +1278,8 @@ def pipeline_page():
     try:
         from src.core.dal import get_all_leads
         leads = get_all_leads()
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
 
     # ── Funnel Counts ──
     total_leads = len(leads)
@@ -1384,8 +1384,8 @@ def pipeline_page():
                 "on_track": rev.get("on_track", False),
                 "color": "#3fb950" if rv_pct >= 50 else "#d29922" if rv_pct >= 25 else "#f85149",
             }
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
 
     return render_page("pipeline.html", active_page="Pipeline",
         total_leads=total_leads, total_quotes=total_quotes,
@@ -1845,8 +1845,8 @@ try:
     QA_AVAILABLE = True
     try:
         start_qa_monitor()
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
 except ImportError:
     QA_AVAILABLE = False
 
@@ -2104,8 +2104,8 @@ def api_qa_health():
     try:
         from src.agents.qa_agent import save_qa_run_to_db
         save_qa_run_to_db(report)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
     return jsonify({"ok": True, **report})
 
 
@@ -2370,8 +2370,8 @@ def api_manager_metrics():
             orders_active = _oconn.execute(
                 "SELECT COUNT(*) FROM orders WHERE status IN ('active', 'processing', 'shipped')"
             ).fetchone()[0]
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
 
     # Response time (avg hours from PC upload to priced)
     response_times = []
@@ -2821,8 +2821,8 @@ def _save_crm_contacts(contacts: dict):
             c_copy = dict(c)
             c_copy["id"] = cid
             upsert_contact(c_copy)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
 
 def _get_or_create_crm_contact(prospect_id: str, prospect: dict = None) -> dict:
     """Get or create a CRM contact record, merging SCPRS intel data."""
@@ -2926,15 +2926,15 @@ def api_crm_contact_log(contact_id):
             actor=actor,
             metadata=metadata,
         )
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
 
     # Auto-update prospect status on meaningful interactions
     if GROWTH_AVAILABLE and event_type in ("email_sent","voice_called","chat","meeting"):
         try:
             update_prospect(contact_id, {"outreach_status": "emailed" if event_type=="email_sent" else "called"})
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("Suppressed: %s", _e)
 
     return jsonify({"ok": True, "entry": entry, "contact_id": contact_id})
 
@@ -2951,8 +2951,8 @@ def api_crm_contact_get(contact_id):
                 pr_result = get_prospect(contact_id)
                 if pr_result.get("ok"):
                     contacts[contact_id] = _get_or_create_crm_contact(contact_id, pr_result["prospect"])
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("Suppressed: %s", _e)
     contact = contacts.get(contact_id)
     if not contact:
         return jsonify({"ok": False, "error": "Contact not found"})
@@ -2975,8 +2975,8 @@ def api_crm_contact_update(contact_id):
                 if pr_result.get("ok"):
                     _get_or_create_crm_contact(contact_id, pr_result["prospect"])
                     contacts = _load_crm_contacts()
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("Suppressed: %s", _e)
     if contact_id not in contacts:
         return jsonify({"ok": False, "error": "Contact not found"})
 
@@ -2992,8 +2992,8 @@ def api_crm_contact_update(contact_id):
             sync = {k: data[k] for k in ("buyer_name","buyer_phone") if k in data}
             if sync:
                 update_prospect(contact_id, sync)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("Suppressed: %s", _e)
     return jsonify({"ok": True, "contact_id": contact_id})
 
 
@@ -3140,8 +3140,8 @@ def api_funnel_stats():
                     elif s == "lost":
                         quotes_lost = r["c"]
                     total_quoted += r["t"]
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
 
     # Fallback to JSON if SQLite had no data
     if _q_source == "none":
@@ -3211,8 +3211,8 @@ def api_funnel_stats():
                 qb_overdue = ctx.get("overdue_amount", 0)
                 qb_collected = ctx.get("total_collected", 0)
                 qb_open_invoices = ctx.get("open_invoices", 0)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("Suppressed: %s", _e)
 
     # Next quote number + CRM stats
     next_quote = ""
@@ -3220,19 +3220,19 @@ def api_funnel_stats():
     intel_buyers_count = 0
     try:
         next_quote = peek_next_quote_number() if QUOTE_GEN_AVAILABLE else ""
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
     try:
         crm_contacts_count = len(_load_crm_contacts())
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
     if INTEL_AVAILABLE:
         try:
             from src.agents.sales_intel import _load_json as _il, BUYERS_FILE as _BF
             bd = _il(_BF)
             intel_buyers_count = bd.get("total_buyers", 0) if isinstance(bd, dict) else 0
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("Suppressed: %s", _e)
 
     return jsonify({
         "ok": True,
@@ -3953,8 +3953,8 @@ def _parse_simple_cron(cron_expr: str) -> dict:
         try:
             return {"day_of_week": int(parts[4]) % 7, "hour": int(parts[1]),
                     "minute": int(parts[0]), "label": f"cron: {expr}"}
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("Suppressed: %s", _e)
     return {"day_of_week": 6, "hour": 2, "minute": 0, "label": "Sundays at 2:00 AM"}
 
 
@@ -4399,8 +4399,8 @@ def api_growth_create_campaign():
             try:
                 BUYER_STATUS["running"] = False
                 DEEP_PULL_STATUS["running"] = False
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("Suppressed: %s", _e)
 
     t = threading.Thread(target=run_campaign, daemon=True)
     t.start()
@@ -4856,8 +4856,8 @@ def api_data_sync_clean():
                         empty = [] if isinstance(data, list) else {}
                         with open(fpath, "w") as f:
                             json.dump(empty, f, indent=2)
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("Suppressed: %s", _e)
 
     # 5. Ensure quote counter matches highest quote number
     # ?counter=16 to force a specific value
@@ -4890,8 +4890,8 @@ def api_data_sync_clean():
                     counter["counter"] = target
                     with open(cpath, "w") as f:
                         json.dump(counter, f, indent=2)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
 
     # 6. Clear orders
     try:
@@ -4904,8 +4904,8 @@ def api_data_sync_clean():
                 if not dry_run:
                     with open(opath, "w") as f:
                         json.dump({}, f, indent=2)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
 
     if not report["actions"]:
         report["message"] = "Data is already clean — nothing to do"

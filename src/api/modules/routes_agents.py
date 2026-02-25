@@ -88,8 +88,8 @@ def _get_recent_scprs_pos(agency: str, months: int = 3) -> list:
                                 "link": po.get("link") or po.get("scprs_link") or
                                         f"https://www.dgsapps.dgs.ca.gov/OA_HTML/OA.jsp?OAFunc=SCPRS_SEARCH&agency={agency.replace(' ', '%20')}",
                             })
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug("Suppressed: %s", _e)
             # Also check top_purchases / categories
             for item in b.get("top_purchases", [])[:3]:
                 if isinstance(item, dict) and item.get("date"):
@@ -105,10 +105,10 @@ def _get_recent_scprs_pos(agency: str, months: int = 3) -> list:
                                 "link": item.get("scprs_link") or
                                         f"https://www.dgsapps.dgs.ca.gov/OA_HTML/OA.jsp?OAFunc=SCPRS_SEARCH",
                             })
-                    except Exception:
-                        pass
-    except Exception:
-        pass
+                    except Exception as _e:
+                        log.debug("Suppressed: %s", _e)
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
     # Sort newest first, deduplicate by PO number
     seen = set()
     out = []
@@ -465,8 +465,8 @@ def api_email_draft():
                         contact = c
                         to_email = c.get("buyer_email", "")
                         break
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("Suppressed: %s", _e)
 
     quote = None
     qn = body.get("quote_number", "")
@@ -477,8 +477,8 @@ def api_email_draft():
                 if q.get("quote_number") == qn:
                     quote = q
                     break
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("Suppressed: %s", _e)
 
     result = _personalize_template(template, contact=contact, quote=quote)
     return jsonify({

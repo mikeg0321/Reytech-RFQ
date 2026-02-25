@@ -385,8 +385,8 @@ def api_order_import_po(oid):
             for page in reader.pages:
                 raw_text += (page.extract_text() or "") + "\n"
             raw_text = raw_text[:3000]
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("Suppressed: %s", _e)
         return jsonify({"ok": False, "error": "Could not parse PDF — see console for raw text",
                         "raw_text": raw_text})
 
@@ -785,8 +785,8 @@ def api_supplier_search():
                 "asin": research.get("asin", ""),
                 "source": research.get("source", ""),
             }
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
 
     return jsonify({"ok": True, "query": query, "search_urls": urls, "amazon": amazon_result})
 
@@ -826,8 +826,8 @@ def api_order_link_quote(oid):
                 items_detail = json.loads(row["items_detail"] or "[]") if row["items_detail"] else []
                 line_items_raw = json.loads(row["line_items"] or "[]") if row["line_items"] else []
                 quote_data["items_detail"] = items_detail or line_items_raw
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
 
     if not quote_data:
         # Try quotes_log.json
@@ -838,8 +838,8 @@ def api_order_link_quote(oid):
                     if q.get("quote_number") == qn:
                         quote_data = q
                         break
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("Suppressed: %s", _e)
 
     if not quote_data:
         return jsonify({"ok": False, "error": f"Quote {qn} not found"})
@@ -891,8 +891,8 @@ def api_order_link_quote(oid):
     try:
         from src.knowledge.pricing_intel import record_winning_prices
         record_winning_prices(order)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
 
     _log_crm_activity(qn, "order_linked",
                       f"Order {oid} linked to quote {qn} — enriched {enriched} items",
@@ -932,8 +932,8 @@ def _auto_find_quote_for_order(order: dict) -> str:
                     if q_inst and inst in q_inst or q_inst in inst:
                         if q_total > 0 and abs(q_total - total) / q_total < 0.10:
                             return r["quote_number"]
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
     return ""
 
 
@@ -1094,8 +1094,8 @@ SB/DVBE Cert #2002605"""
                     if not subject.lower().startswith("re:"):
                         subject = f"Re: {subj}"
                     break
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
 
     # Build CC list from original thread
     cc_addrs = set()

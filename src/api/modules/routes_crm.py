@@ -35,8 +35,8 @@ def _load_customers():
             result = get_all_customers()
             if result:
                 return result
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
     # Fallback to JSON
     try:
         with open(path) as f:
@@ -55,8 +55,8 @@ def _save_customers(customers):
         if DATA_DIR == _dal_dir:
             save_all_customers(customers)
             return
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
     # Fallback to JSON
     os.makedirs(DATA_DIR, exist_ok=True)
     path = os.path.join(DATA_DIR, "customers.json")
@@ -273,8 +273,8 @@ def api_universal_search():
                     "url": f"/quote/{qn}",
                     "score": 100,
                 })
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("Suppressed: %s", _e)
 
     # ── CRM Contacts ──────────────────────────────────────────────────────────
     try:
@@ -299,8 +299,8 @@ def api_universal_search():
                     "score": 90,
                 })
                 if len(results) >= limit: break
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
 
     # ── Intel Buyers (not yet in CRM) ─────────────────────────────────────────
     if INTEL_AVAILABLE:
@@ -331,8 +331,8 @@ def api_universal_search():
                             "score": 80,
                         })
                         if len(results) >= limit: break
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("Suppressed: %s", _e)
 
     # ── Orders ────────────────────────────────────────────────────────────────
     try:
@@ -354,8 +354,8 @@ def api_universal_search():
                     "score": 70,
                 })
                 if len(results) >= limit: break
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
 
     # ── RFQs ──────────────────────────────────────────────────────────────────
     try:
@@ -378,8 +378,8 @@ def api_universal_search():
                     "score": 60,
                 })
                 if len(results) >= limit: break
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
 
     # Sort by type priority, dedupe urls
     seen_urls = set()
@@ -827,8 +827,8 @@ def api_reclassify_to_pc():
                 ).fetchall()
                 if files:
                     source_pdf = files[0]["filename"]
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("Suppressed: %s", _e)
         
         pcs[pc_id] = {
             "id": pc_id,
@@ -911,15 +911,15 @@ def api_metrics():
             from src.agents.sales_intel import DEEP_PULL_STATUS
             agent_states["intel_pull_running"] = DEEP_PULL_STATUS.get("running", False)
             agent_states["intel_buyers"] = DEEP_PULL_STATUS.get("total_buyers", 0)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("Suppressed: %s", _e)
     if GROWTH_AVAILABLE:
         try:
             from src.agents.growth_agent import PULL_STATUS, BUYER_STATUS
             agent_states["growth_pull_running"] = PULL_STATUS.get("running", False)
             agent_states["growth_buyer_running"] = BUYER_STATUS.get("running", False)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("Suppressed: %s", _e)
 
     # GC stats
     gc_counts = gc.get_count()
@@ -929,8 +929,8 @@ def api_metrics():
     try:
         from src.core.db import get_db_stats
         db_stats = get_db_stats()
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
 
     return jsonify({
         "ok": True,
@@ -1602,8 +1602,8 @@ def api_crm_bulk_outreach():
             subject=f"Bulk {template_id}: {sent} sent, {staged} staged",
             body=f"contacts={len(contacts)}, dry_run={dry_run}",
             actor="user", metadata={"template": template_id, "sent": sent, "staged": staged})
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
 
     return jsonify({
         "ok": True,
@@ -1862,8 +1862,8 @@ def api_approve_cs_draft():
                 intent=f"cs_{draft.get('intent','reply')}",
                 status="sent",
             )
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("Suppressed: %s", _e)
         
         log.info("CS draft %s sent to %s", draft_id, draft["to"])
         return jsonify({"ok": True, "sent_to": draft["to"]})
@@ -3544,8 +3544,8 @@ def _build_text_brief():
             lines.append(f"{awaiting} outreach awaiting response")
         if overdue > 0:
             lines.append(f"! {overdue} overdue (7d+ no reply)")
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
 
     try:
         from src.core.dal import get_outbox as _dal_ob4
@@ -3555,16 +3555,16 @@ def _build_text_brief():
                 drafts = [e for e in ob if e.get("status") in ("draft", "follow_up_draft", "cs_draft")]
                 if drafts:
                     lines.append(f"{len(drafts)} email drafts to review")
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
 
     try:
         orders = _load_orders()
         active_orders = [o for o in orders.values() if o.get("status") not in ("completed", "cancelled")]
         if active_orders:
             lines.append(f"{len(active_orders)} active orders")
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
 
     return "\n".join(lines)
 
@@ -3619,8 +3619,8 @@ def daily_brief_page():
                 age = (now - created).days
                 if age >= 5:
                     aging.append((q.get("quote_number", ""), q.get("bill_to", {}).get("name", "?"), age, float(q.get("total", 0))))
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("Suppressed: %s", _e)
         aging.sort(key=lambda x: -x[2])
     except Exception:
         aging = []

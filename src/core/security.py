@@ -237,4 +237,34 @@ def init_security(app):
     """Initialize security middleware on the Flask app."""
     app.after_request(add_security_headers)
     app.jinja_env.globals["csrf_token"] = generate_csrf_token
-    log.info("Security middleware initialized: rate limiting, CSRF, security headers")
+    
+    # ── E2: Request Access Logging + Timing ──────────────────────────────────
+    import time as _time
+    import uuid as _uuid
+    
+    @app.before_request
+    def _before_request():
+        request._start_time = _time.time()
+        request._request_id = str(_uuid.uuid4())[:8]
+    
+    @app.after_request
+    def _after_request(response):
+        if hasattr(request, '_start_time'):
+            duration_ms = (_time.time() - request._start_time) * 1000
+            rid = getattr(request, '_request_id', '-')
+            # Skip health checks and static files from access log
+            if request.path not in ('/health',) and not request.path.startswith('/static/'):
+                level = logging.WARNING if duration_ms > 2000 else logging.DEBUG
+                log.log(level, "ACCESS %s %s %s %.0fms [%s] %s",
+                        request.method, request.path, response.status_code,
+                        duration_ms, rid, request.remote_addr or '-')
+            # Add request ID to response headers for debugging
+            response.headers['X-Request-ID'] = rid
+        return response
+    
+    # ── E5: Auto-inject CSRF token into template context ─────────────────────
+    @app.context_processor
+    def _inject_csrf():
+        return {"csrf_token_value": generate_csrf_token()}
+    
+    log.info("Security middleware initialized: rate limiting, CSRF, security headers, access logging")

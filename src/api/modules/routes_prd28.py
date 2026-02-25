@@ -315,8 +315,8 @@ def api_dashboard_actions():
                 "icon": "🟠", "label": f"{ob['failed']} emails failed (retrying)",
                 "link": "/outbox", "type": "retrying_emails"
             })
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
 
     # Expiring quotes
     try:
@@ -328,8 +328,8 @@ def api_dashboard_actions():
                 "link": "/quotes", "type": "expiring_quotes",
                 "items": [{"qn": q["quote_number"], "agency": q.get("agency",""), "total": q.get("total",0)} for q in exp[:5]]
             })
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
 
     # ── ACTION NEEDED (yellow) ────────────────────────────
     # Draft emails awaiting review
@@ -341,8 +341,8 @@ def api_dashboard_actions():
                 "icon": "📧", "label": f"{ob['drafts']} email drafts to review",
                 "link": "/outbox", "type": "draft_emails", "count": ob['drafts']
             })
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
 
     # New leads needing attention
     try:
@@ -354,8 +354,8 @@ def api_dashboard_actions():
                 "icon": "🎯", "label": f"{new_count} new leads to review",
                 "link": "/growth", "type": "new_leads", "count": new_count
             })
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
 
     # Quotes needing follow-up (sent > 7d ago, no follow-up yet)
     try:
@@ -367,8 +367,8 @@ def api_dashboard_actions():
                 "icon": "📋", "label": f"{len(sent_need_followup)} sent quotes need follow-up",
                 "link": "/quotes", "type": "followup_quotes"
             })
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
 
     # ── PROGRESS (green) ──────────────────────────────────
     # Revenue goal
@@ -385,8 +385,8 @@ def api_dashboard_actions():
                 "icon": "📊", "label": f"${goal['weighted_pipeline']:,.0f} weighted pipeline",
                 "link": "/revenue", "type": "pipeline",
             })
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
 
     # Quote pipeline
     try:
@@ -404,8 +404,8 @@ def api_dashboard_actions():
                 "icon": "📈", "label": f"{conv}% quote conversion rate",
                 "link": "/pipeline", "type": "conversion"
             })
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
 
     # Email engagement
     try:
@@ -416,8 +416,8 @@ def api_dashboard_actions():
                 "icon": "📬", "label": f"{eng['open_rate']}% email open rate ({eng['total_sent']} sent)",
                 "link": "/outbox", "type": "email_engagement"
             })
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
 
     # Vendor intelligence
     try:
@@ -429,8 +429,8 @@ def api_dashboard_actions():
                 "icon": "🏭", "label": f"{ve['total_vendors']} vendors tracked ({scored_pct}% scored)",
                 "link": "/vendors", "type": "vendor_intel"
             })
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
 
     return jsonify({
         "ok": True,

@@ -681,8 +681,8 @@ try:
             _conn = _sql3.connect(os.path.join(DATA_DIR, "reytech.db"), timeout=5)
             _cat_count = _conn.execute("SELECT COUNT(*) FROM product_catalog").fetchone()[0]
             _conn.close()
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("Suppressed: %s", _e)
         if _cat_count == 0:
             csv_path = os.path.join(DATA_DIR, "product_catalog_import.csv")
             if os.path.exists(csv_path):
@@ -868,8 +868,8 @@ def record_email_fingerprint(subject: str, sender: str, date_str: str = "",
             """, (fp, inbox, subject[:200], sender[:200], message_id[:200],
                   datetime.now().isoformat(), result_type, result_id))
             conn.commit()
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1401,8 +1401,8 @@ def audit_trail_page():
                 "SELECT * FROM audit_trail ORDER BY timestamp DESC LIMIT 200"
             ).fetchall()
             entries = [dict(r) for r in rows]
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
 
     # Group by action type for stats
     action_counts = {}

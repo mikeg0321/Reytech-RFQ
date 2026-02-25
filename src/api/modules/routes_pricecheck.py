@@ -356,8 +356,8 @@ def pricecheck_detail(pcid):
                             created_dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
                             delta = datetime.now() - created_dt.replace(tzinfo=None)
                             days_ago = f"{delta.days}d ago" if delta.days > 0 else "today"
-                        except Exception:
-                            pass
+                        except Exception as _e:
+                            log.debug("Suppressed: %s", _e)
                     quote_history.append({
                         "quote_number": qt.get("quote_number"),
                         "date": qt.get("date"),
@@ -390,8 +390,8 @@ def pricecheck_detail(pcid):
                 if result and result.get("rate"):
                     tax_rate = result["rate"]
                     tax_source = result.get("jurisdiction", "CDTFA")
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("Suppressed: %s", _e)
     
     # Sanitize JSON for safe embedding in <script type="application/json"> tags
     def _safe_json(obj):
@@ -550,8 +550,8 @@ def pricecheck_scprs_lookup(pcid):
                                 price_check_id=pcid,
                                 notes=f"conf={best.get('match_confidence',0):.2f}|po={quote.get('po_number','')}",
                             )
-                        except Exception:
-                            pass
+                        except Exception as _e:
+                            log.debug("Suppressed: %s", _e)
                     found += 1
             except Exception as e:
                 log.error(f"SCPRS lookup error: {e}")
@@ -866,8 +866,8 @@ def _do_save_prices(pcid):
                         try:
                             from src.agents.item_link_lookup import detect_supplier
                             items[idx]["item_supplier"] = detect_supplier(items[idx]["item_link"])
-                        except Exception:
-                            pass
+                        except Exception as _e:
+                            log.debug("Suppressed: %s", _e)
                 elif field_type == "notes":
                     items[idx]["notes"] = str(val).strip() if val else ""
         except (ValueError, IndexError):
@@ -938,8 +938,8 @@ def _do_save_prices(pcid):
     # Also mirror to SQLite
     try:
         upsert_price_check(pcid, pc)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
 
     # ── GAP 3 FIX: write confirmed prices to price_history + won_quotes ───────
     institution = pc.get("institution", "")
@@ -1767,8 +1767,8 @@ def api_poll_reset_processed():
             with open(proc_file) as f:
                 old_count = len(_json2.load(f))
             os.remove(proc_file)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
     
     # Step 2: Kill the shared poller so a fresh one gets created
     _shared_poller = None
@@ -2090,8 +2090,8 @@ def api_debug_pcs():
     try:
         from src.core.paths import _USING_VOLUME
         result["using_volume"] = _USING_VOLUME
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
     return jsonify(result)
 
 
@@ -2228,8 +2228,8 @@ def api_pricecheck_delete(pcid):
                 try:
                     with get_db() as conn:
                         conn.execute("DELETE FROM quotes WHERE quote_number=? AND status IN ('draft','pending')", (linked_qn,))
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug("Suppressed: %s", _e)
         except Exception as e:
             log.debug("Quote cleanup: %s", e)
 
@@ -2460,8 +2460,8 @@ def api_pricecheck_mark_sent(pcid):
     
     try:
         upsert_price_check(pcid, pc)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
     
     _log_crm_activity(pc.get("reytech_quote_number", pcid), "quote_sent",
         f"Quote sent for PC #{pc.get('pc_number','')} to {pc.get('institution','')}", actor="user")
@@ -2792,8 +2792,8 @@ def api_pricecheck_mark_won(pcid):
     _save_price_checks(pcs)
     try:
         upsert_price_check(pcid, pc)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
     _log_crm_activity(pc.get("reytech_quote_number", pcid), "quote_won",
         f"WON: PC #{pc.get('pc_number','')} — {pc.get('institution','')}", actor="user")
     # ── Feed win data back to product catalog ──
@@ -2829,8 +2829,8 @@ def api_pricecheck_mark_lost(pcid):
     _save_price_checks(pcs)
     try:
         upsert_price_check(pcid, pc)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
     try:
         from src.agents.award_monitor import log_competitor
         our_total = sum((it.get("pricing", {}).get("recommended_price", 0) or 0) * it.get("qty", 1)
@@ -3047,8 +3047,8 @@ def api_pricecheck_price_sweep(pcid):
             if result.get("ok"):
                 result["source"] = "claude_web_fallback"
                 return jsonify(result)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("Suppressed: %s", _e)
         return jsonify({"ok": False, "error": f"Missing dependency: {e}. Set ANTHROPIC_API_KEY for Claude web search fallback."})
     except Exception as e:
         log.exception("price-sweep error")
@@ -3357,8 +3357,8 @@ def competitors_page():
                   <td class="mono" style="text-align:right;color:var(--gn)">${target_price:,.2f}</td>
                   <td class="mono" style="text-align:right;color:var(--gn)">${gain:,.2f}</td>
                 </tr>'''
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
 
     has_award_data = total_losses > 0
     neg = catalog_stats["negative"]
@@ -3806,8 +3806,8 @@ def api_admin_recall():
             try:
                 with get_db() as conn:
                     conn.execute("DELETE FROM price_checks WHERE id=?", (pcid,))
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("Suppressed: %s", _e)
             
             # Remove linked draft quote
             quote_freed = None
@@ -3824,8 +3824,8 @@ def api_admin_recall():
                         try:
                             with get_db() as conn:
                                 conn.execute("DELETE FROM quotes WHERE quote_number=? AND status IN ('draft','pending')", (linked_qn,))
-                        except Exception:
-                            pass
+                        except Exception as _e:
+                            log.debug("Suppressed: %s", _e)
                 except Exception as e:
                     results["errors"].append(f"Quote cleanup for {linked_qn}: {e}")
             
@@ -3925,8 +3925,8 @@ def api_admin_purge_rfqs():
         with get_db() as conn:
             for d in deleted:
                 conn.execute("DELETE FROM rfqs WHERE id=?", (d["id"],))
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
     
     log.info("ADMIN PURGE-RFQS: deleted %d of %d RFQs", len(deleted), before_count)
     
@@ -4333,8 +4333,8 @@ def api_admin_system_reset():
             from src.api.dashboard import POLL_STATUS
             POLL_STATUS["paused"] = True
             log.info("Background poller paused for system reset")
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("Suppressed: %s", _e)
     
     results = {
         "dry_run": dry_run,
@@ -4472,8 +4472,8 @@ def api_admin_system_reset():
             if not dry_run:
                 with open(act_path, "w") as f:
                     json.dump(cleaned_acts, f, indent=2, default=str)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
     
     action = "DRY RUN" if dry_run else "EXECUTED"
     log.info(f"SYSTEM RESET {action}: quotes {results['quotes_before']}→{results['quotes_after']}, "
@@ -4534,8 +4534,8 @@ def api_admin_reset_and_poll():
                 else:
                     conn.execute("DELETE FROM quotes")
                 conn.commit()
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("Suppressed: %s", _e)
         steps["quotes_cleaned"] = q_removed
         # Invalidate quotes cache
         try:
@@ -4543,8 +4543,8 @@ def api_admin_reset_and_poll():
             _invalidate_cache(q_path)
             if os.path.exists(legacy_q):
                 _invalidate_cache(legacy_q)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("Suppressed: %s", _e)
         
         # Clean PCs — preserve any that have been worked on (priced, quoted, sent, completed)
         pcs = _load_price_checks()
@@ -4572,8 +4572,8 @@ def api_admin_reset_and_poll():
             pc_path = os.path.join(DATA_DIR, 'price_checks.json')
             from src.api.dashboard import _invalidate_cache
             _invalidate_cache(pc_path)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("Suppressed: %s", _e)
         
         # Clear RFQs — must match rfq_db_path() which is rfqs.json
         rfq_path = os.path.join(DATA_DIR, 'rfqs.json')
@@ -4618,8 +4618,8 @@ def api_admin_reset_and_poll():
                 cleaned_acts = [a for a in acts if a.get("event_type") not in ("auto_draft_generated", "auto_draft_ready")]
                 with open(act_path, "w") as f:
                     json.dump(cleaned_acts, f, indent=2, default=str)
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("Suppressed: %s", _e)
         
         log.info("RESET+POLL: Step 2 — reset complete (cleared %d PCs, %d quotes)", steps["pcs_before"], q_removed)
     except Exception as e:
@@ -4657,15 +4657,15 @@ def api_admin_reset_and_poll():
                         final_rfqs = json.load(f)
                     POLL_STATUS["_reset_poll_result"]["final_rfqs"] = len(final_rfqs)
                     POLL_STATUS["_reset_poll_result"]["rfq_sols"] = [r.get("solicitation_number", "?") for r in final_rfqs.values()]
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("Suppressed: %s", _e)
             # Grab poller diag
             try:
                 from src.api.dashboard import _shared_poller
                 if _shared_poller and hasattr(_shared_poller, '_diag'):
                     POLL_STATUS["_reset_poll_result"]["poller_diag"] = _shared_poller._diag
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("Suppressed: %s", _e)
                 
             log.info("RESET+POLL background: PCs=%d RFQs=%d", new_pcs, len(imported))
             
