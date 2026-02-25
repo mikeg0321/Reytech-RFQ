@@ -230,6 +230,9 @@ def _pst_now_iso():
 DASH_USER = os.environ.get("DASH_USER", "reytech")
 DASH_PASS = os.environ.get("DASH_PASS", "changeme")
 
+if DASH_PASS == "changeme":
+    log.warning("⚠️  SECURITY: DASH_PASS is set to default 'changeme'. Set DASH_PASS env var for production!")
+
 
 # ── Security: Path validation utilities ──────────────────────────────────────
 import re as _re
@@ -680,8 +683,8 @@ def _load_price_checks():
                         items = []
                         try:
                             items = json.loads(r["items"] or "[]")
-                        except Exception:
-                            pass
+                        except Exception as _e:
+                            log.debug("Suppressed: %s", _e)
                         data[pc_id] = {
                             "id": pc_id,
                             "pc_number": r.get("pc_number") or r.get("quote_number") or pc_id,
@@ -700,8 +703,8 @@ def _load_price_checks():
                     if data:
                         _save_price_checks(data)
                         log.info("Restored %d price checks from SQLite → JSON", len(data))
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("Suppressed: %s", _e)
     # ── End SQLite restore ────────────────────────────────────────────
 
     return data
@@ -748,8 +751,8 @@ def _save_price_checks(pcs):
                     pc.get("email_subject", ""),
                     pc.get("due_date", ""),
                 ))
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
     # ── End SQLite sync ───────────────────────────────────────────
 
 
@@ -936,8 +939,8 @@ def _auto_price_new_pc(pc_id: str):
                         if _wpid and result.get("source"):
                             _ws(_wpid, result["source"], result["price"],
                                 url=result.get("url", ""), sku=web_pn)
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug("Suppressed: %s", _e)
                 time.sleep(1.0)  # Rate limit
         except ImportError:
             log.debug("web_price_research not available")
@@ -959,8 +962,8 @@ def _auto_price_new_pc(pc_id: str):
                 try:
                     from src.agents.notify_agent import send_alert
                     send_alert("bell", f"Auto-priced: {pc.get('pc_number',pc_id)} — {found_count}/{len(items)} items", {"type": "auto_price"})
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug("Suppressed: %s", _e)
         else:
             log.info("Auto-price PC %s: no matches found for %d items", pc_id, len(items))
 
@@ -1136,8 +1139,8 @@ def process_rfq_email(rfq_email):
                         fnames = set(fields.keys())
                         if len({"COMPANY NAME", "Requestor", "PRICE PER UNITRow1", "EXTENSIONRow1"} & fnames) >= 3:
                             return True
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug("Suppressed: %s", _e)
                 return False
             
             # If early PC detect, try ALL PDFs as PC candidates (don't require filename match)
@@ -1335,8 +1338,8 @@ def process_rfq_email(rfq_email):
                 if _erfq.get("email_uid") == _email_uid:
                     log.info("Duplicate RFQ blocked: email UID %s already imported as %s", _email_uid, _eid)
                     return None
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
     
     # Block: self-email (our own sent replies picked up by poller)
     _sender_email = rfq_email.get("sender_email", rfq_email.get("sender", "")).lower()
@@ -1400,8 +1403,8 @@ def process_rfq_email(rfq_email):
                         _f.read(),
                         category="attachment",
                     )
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("Suppressed: %s", _e)
     
     _trace.append(f"→ RFQ PATH: templates={list(templates.keys())}, attachments={[a.get('filename','?') for a in rfq_email.get('attachments',[])]}")
     
@@ -1594,8 +1597,8 @@ def _auto_price_pipeline(rfq_data: dict):
             pc["price_suggestions"] = suggestions
             _merge_save_pc(pc_id, pc)
             log.info("[AutoPrice] %d price suggestions from competitor history", len(suggestions))
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
 
     # Step 5: Update RFQ with PC link
     rfqs = load_rfqs()
@@ -1846,8 +1849,8 @@ def _load_orders() -> dict:
                     items = []
                     try:
                         items = json.loads(r["items"] or "[]")
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug("Suppressed: %s", _e)
                     data[oid] = {
                         "order_id": oid,
                         "quote_number": r.get("quote_number") or "",
@@ -1862,8 +1865,8 @@ def _load_orders() -> dict:
                 if data:
                     _save_orders(data)
                     log.info("Restored %d orders from SQLite → JSON", len(data))
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("Suppressed: %s", _e)
     # ── End restore ──────────────────────────────────────────────
     return data
 
@@ -1895,8 +1898,8 @@ def _save_orders(orders: dict):
                     o.get("created_at", ""),
                     datetime.now().isoformat(),
                 ))
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
     # ── End sync ─────────────────────────────────────────────────
 
 def _create_order_from_quote(qt: dict, po_number: str = "") -> dict:
@@ -1966,8 +1969,8 @@ def _create_order_from_quote(qt: dict, po_number: str = "") -> dict:
                         updated_at = ?
                     WHERE quote_number = ? AND status NOT IN ('won', 'cancelled')
                 """, (po_number, datetime.now().isoformat(), qn))
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("Suppressed: %s", _e)
     # ── Pricing Intelligence: capture winning prices ──
     try:
         from src.knowledge.pricing_intel import record_winning_prices
@@ -2005,8 +2008,8 @@ def _create_order_from_po_email(po_data: dict) -> dict:
                         quote_data = q
                         quote_items = q.get("items_detail", q.get("items", []))
                         break
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("Suppressed: %s", _e)
 
     # Build line items — prefer PO data, enrich from quote
     po_items = po_data.get("items", [])
@@ -2128,8 +2131,8 @@ def _create_order_from_po_email(po_data: dict) -> dict:
                         updated_at = ?
                     WHERE quote_number = ? AND status NOT IN ('won', 'cancelled')
                 """, (po_num, datetime.now().isoformat(), qn))
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("Suppressed: %s", _e)
     log.info("Order %s created from PO email (quote=%s, po=%s, items=%d, total=$%.2f, costs=%d)",
              oid, qn, po_num, len(line_items), total, sum(1 for it in line_items if it.get("cost")))
     # ── Pricing Intelligence: capture winning prices ──

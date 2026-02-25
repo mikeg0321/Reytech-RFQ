@@ -2,6 +2,33 @@
 # 9 routes, 484 lines
 # Loaded by dashboard.py via load_module()
 
+@bp.route("/health")
+def health_check():
+    """Health check endpoint for Railway/load balancers. No auth required."""
+    import sqlite3
+    checks = {"status": "ok", "timestamp": datetime.now().isoformat()}
+    # Check SQLite
+    try:
+        db_path = os.path.join(DATA_DIR, "reytech.db")
+        conn = sqlite3.connect(db_path, timeout=5)
+        conn.execute("SELECT 1")
+        conn.close()
+        checks["db"] = "ok"
+    except Exception as e:
+        checks["db"] = f"error: {e}"
+        checks["status"] = "degraded"
+    # Check data dir writable
+    try:
+        test_path = os.path.join(DATA_DIR, ".health_check")
+        with open(test_path, "w") as f: f.write("ok")
+        os.remove(test_path)
+        checks["disk"] = "ok"
+    except Exception as e:
+        checks["disk"] = f"error: {e}"
+        checks["status"] = "degraded"
+    code = 200 if checks["status"] == "ok" else 503
+    return jsonify(checks), code
+
 @bp.route("/")
 @auth_required
 def home():
@@ -431,8 +458,8 @@ def update(rid):
             try:
                 from src.agents.item_link_lookup import detect_supplier
                 item["item_supplier"] = detect_supplier(link_val)
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("Suppressed: %s", _e)
     
     _transition_status(r, "ready", actor="user", notes="Pricing updated")
     save_rfqs(rfqs)
@@ -483,8 +510,8 @@ def upload_templates(rid):
                 try:
                     with open(p, "rb") as _rb:
                         save_rfq_file(rid, safe_fn, "template_upload", _rb.read(), category="template", uploaded_by="user")
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug("Suppressed: %s", _e)
 
     if not saved:
         flash("No PDFs found in upload", "error"); return redirect(f"/rfq/{rid}")
@@ -550,8 +577,8 @@ def generate_rfq_package(rid):
             if v:
                 try:
                     item[key] = float(v)
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug("Suppressed: %s", _e)
     
     r["sign_date"] = get_pst_date()
     safe_sol = re.sub(r'[^a-zA-Z0-9_-]', '_', sol.strip())
@@ -700,8 +727,8 @@ def generate_rfq_package(rid):
     # Save SCPRS prices for history
     try:
         save_prices_from_rfq(r)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
     
     save_rfqs(rfqs)
     
@@ -929,8 +956,8 @@ def api_rfq_dismiss(rid):
                 if desc and len(desc) > 3:
                     queue_background_lookup(desc, source=f"dismissed_rfq_{rid}")
             scprs_queued = True
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("Suppressed: %s", _e)
     
     return jsonify({
         "ok": True,
@@ -1185,8 +1212,8 @@ def save_email_signature():
             cfg["email"]["signature_enabled"] = True
             with open(cfg_path, "w") as f:
                 _json.dump(cfg, f, indent=2)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("Suppressed: %s", _e)
     
     return jsonify({"ok": True})
 
@@ -1304,8 +1331,8 @@ def send_email_enhanced(rid):
                 row = conn.execute("SELECT id FROM contacts WHERE buyer_email = ?", (to_addr.lower(),)).fetchone()
                 if row:
                     contact_id = row[0]
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("Suppressed: %s", _e)
         
         email_log_id = log_email_sent_db(
             direction="outbound", sender=sender.email_addr, recipient=to_addr,
