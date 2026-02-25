@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Follow-Ups — Reytech{% endblock %}
+{% block content %}
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+ <h2 style="margin:0;font-size:20px;font-weight:700">📬 Stale Quotes & Follow-Ups</h2>
+ <div style="display:flex;gap:8px;align-items:center">
+  <label style="font-size:11px;color:var(--tx2)">Stale after:</label>
+  <select id="days-select" onchange="loadStale()" style="padding:6px 10px;border-radius:6px;background:var(--sf2);color:var(--tx);border:1px solid var(--bd);font-size:13px">
+   <option value="2">2 days</option>
+   <option value="3" selected>3 days</option>
+   <option value="5">5 days</option>
+   <option value="7">7 days</option>
+   <option value="14">14 days</option>
+  </select>
+ </div>
+</div>
+
+<div id="stale-count" class="card" style="text-align:center;padding:16px;margin-bottom:12px">
+ <div style="font-size:28px;font-weight:700;color:var(--yl);font-family:'JetBrains Mono',monospace" id="count-num">—</div>
+ <div style="font-size:11px;color:var(--tx2)">Quotes awaiting response</div>
+</div>
+
+<div id="stale-list" class="card">
+ <div style="color:var(--tx2);padding:30px;text-align:center">Loading...</div>
+</div>
+
+<script>
+function loadStale(){
+ var days=document.getElementById('days-select').value;
+ fetch('/api/stale-quotes?days='+days,{credentials:'same-origin'})
+ .then(function(r){return r.json();})
+ .then(function(d){
+  document.getElementById('count-num').textContent=d.count||0;
+  var el=document.getElementById('stale-list');
+  if(!d.stale||!d.stale.length){
+   el.innerHTML='<div style="color:var(--gn);padding:30px;text-align:center;font-size:15px">✅ No stale quotes! All responses are current.</div>';
+   return;
+  }
+  var html='<table class="it"><thead><tr><th>Type</th><th>#</th><th>Institution</th><th>Requestor</th><th>Sent</th><th>Days</th><th>Total</th><th>Action</th></tr></thead><tbody>';
+  d.stale.forEach(function(s){
+   var urgency=s.days_since>7?'#f85149':s.days_since>5?'#f0883e':'var(--yl)';
+   html+='<tr onclick="location.href=\''+s.link+'\'" style="cursor:pointer">';
+   html+='<td><span class="badge b-'+(s.type==='pc'?'parsed':'new')+'">'+s.type.toUpperCase()+'</span></td>';
+   html+='<td style="font-weight:700;font-family:\'JetBrains Mono\',monospace">#'+s.number+'</td>';
+   html+='<td>'+s.institution+'</td>';
+   html+='<td>'+(s.requestor||'—')+'</td>';
+   html+='<td style="font-size:12px;color:var(--tx2)">'+s.sent_at.substring(0,10)+'</td>';
+   html+='<td style="font-weight:700;color:'+urgency+';font-family:\'JetBrains Mono\',monospace">'+s.days_since+'d</td>';
+   html+='<td style="font-family:\'JetBrains Mono\',monospace">$'+(s.total?s.total.toLocaleString('en',{minimumFractionDigits:2}):'—')+'</td>';
+   html+='<td onclick="event.stopPropagation()">';
+   if(s.email){
+    html+='<button class="btn btn-sm btn-p" style="font-size:10px;padding:3px 8px" onclick="sendFollowUp(\''+s.type+'\',\''+s.id+'\',\''+s.email+'\',\''+s.number+'\')">📧 Follow Up</button>';
+   } else {
+    html+='<a href="'+s.link+'" class="btn btn-sm btn-s" style="font-size:10px;padding:3px 8px">View →</a>';
+   }
+   html+='</td></tr>';
+  });
+  html+='</tbody></table>';
+  el.innerHTML=html;
+ });
+}
+function sendFollowUp(type,id,email,num){
+ if(!confirm('Send follow-up to '+email+' for #'+num+'?'))return;
+ fetch('/api/stale-quotes/'+type+'/'+id+'/follow-up',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({to:email})})
+ .then(function(r){return r.json();})
+ .then(function(d){
+  if(d.ok){alert('Follow-up sent to '+d.sent_to);loadStale();}
+  else{alert('Error: '+(d.error||'unknown'));}
+ });
+}
+loadStale();
+</script>
+{% endblock %}

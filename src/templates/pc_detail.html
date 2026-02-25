@@ -144,6 +144,22 @@
      </div>
 
      <!-- CRM Customer Card + Quote History -->
+     <!-- PC→RFQ Linkage Banner -->
+     {% if pc.get('linked_rfq_id') %}
+     <div style="padding:8px 14px;border-radius:8px;font-size:12px;display:flex;align-items:center;gap:8px;background:rgba(167,139,250,.08);border:1px solid rgba(167,139,250,.25);color:#a78bfa;margin-top:10px;margin-bottom:4px">
+      <span>🔗</span>
+      <span>Linked to <a href="/rfq/{{pc.linked_rfq_id}}" style="color:#a78bfa;font-weight:700">RFQ {{pc.linked_rfq_id}}</a>
+      {% if pc.get('converted_to_rfq') %} (converted){% endif %}</span>
+     </div>
+     {% else %}
+     <div style="display:flex;gap:6px;margin-top:10px;margin-bottom:4px">
+      <button class="btn btn-sm" style="font-size:11px;padding:4px 10px;background:rgba(167,139,250,.08);color:#a78bfa;border:1px solid rgba(167,139,250,.25)" 
+        onclick="linkToRFQ()">🔗 Link to Existing RFQ</button>
+      <button class="btn btn-sm" style="font-size:11px;padding:4px 10px;background:rgba(52,211,153,.08);color:#3fb950;border:1px solid rgba(52,211,153,.25)" 
+        onclick="convertPCToRFQ()">🔄 Convert to New RFQ</button>
+     </div>
+     {% endif %}
+
      <div id="crmPanel" style="margin-top:10px;display:flex;gap:12px;flex-wrap:wrap">
       <div id="crmCard" style="flex:1;min-width:260px;background:var(--sf2);border:1px solid var(--bd);border-radius:8px;padding:12px;font-size:13px">
        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
@@ -2004,6 +2020,25 @@
       if(d&&d.ok){showMsg('✅ Reytech Quote #'+d.quote_number+' generated! Reloading...','ok');setTimeout(()=>location.reload(),1200)}
       else{showMsg('❌ Quote generation failed: '+(d?.error||'unknown'),'err')}
      }).catch(e=>{btn.textContent='📋 Reytech Quote PDF';btn.disabled=false;showMsg('❌ Error: '+e,'err')});
+    }
+
+    // Enhancement 5: PC→RFQ Linkage
+    function linkToRFQ(){
+     var rfqId=prompt('Enter RFQ ID to link to (or leave blank to auto-match):','');
+     fetch('/api/pc/{{ pcid }}/link-rfq',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rfq_id:rfqId||''})})
+     .then(r=>r.json()).then(d=>{
+      if(d.ok&&d.matched){showMsg('✅ Linked to RFQ '+d.rfq_id,'ok');setTimeout(()=>location.reload(),1000);}
+      else if(d.ok&&!d.matched){showMsg('⚠️ No matching RFQ found. Try entering the RFQ ID manually.','warn');}
+      else{showMsg('❌ '+(d.error||'Link failed'),'err');}
+     });
+    }
+    function convertPCToRFQ(){
+     if(!confirm('Convert this PC to a new RFQ?\n\nAll item data and pricing will carry over.'))return;
+     fetch('/api/pc/{{ pcid }}/convert-to-rfq',{method:'POST'})
+     .then(r=>r.json()).then(d=>{
+      if(d.ok){showMsg('✅ Converted! '+d.items+' items. Redirecting...','ok');setTimeout(()=>location.href='/rfq/'+d.rfq_id,1200);}
+      else{showMsg('❌ '+(d.error||'Conversion failed'),'err');}
+     });
     }
 
     function convertToQuote(btn) {

@@ -36,20 +36,82 @@ def home():
     # Use canonical filter — auto-price PCs belong to RFQ rows, not PC queue
     from src.api.dashboard import _is_user_facing_pc
     user_pcs = {k: v for k, v in all_pcs.items() if _is_user_facing_pc(v)}
-    # Sort by quote number (R26Q17 → 17) descending so newest quotes appear first
+    # Sort by URGENCY: overdue first, then soonest due date, then newest
     def _pc_sort_key(item):
         pc = item[1]
-        qn = pc.get("reytech_quote_number", "") or ""
-        # Extract numeric part from R26Q17 → 17
-        import re as _re
-        m = _re.search(r'Q(\d+)', qn)
-        if m:
-            return int(m.group(1))
-        # Fallback to created_at timestamp
-        return pc.get("created_at", "")
-    sorted_pcs = dict(sorted(user_pcs.items(), key=_pc_sort_key, reverse=True))
-    # Filter dismissed RFQs from active queue
+        due = pc.get("due_date", "") or ""
+        status = pc.get("status", "")
+        now_str = datetime.now().strftime("%m/%d/%y")
+        # Terminal statuses go to bottom
+        if status in ("won", "lost", "dismissed", "archived", "expired"):
+            return (3, "9999-99-99", "")
+        # Parse due date and compute urgency
+        urgency = 1  # default: normal
+        try:
+            for fmt in ("%m/%d/%y", "%m/%d/%Y", "%Y-%m-%d", "%m-%d-%Y"):
+                try:
+                    d = datetime.strptime(due.strip(), fmt)
+                    days_left = (d - datetime.now()).days
+                    if days_left < 0:
+                        urgency = 0  # OVERDUE — top of queue
+                    elif days_left <= 2:
+                        urgency = 0  # Due within 48h — also top
+                    due_sort = d.strftime("%Y-%m-%d")
+                    return (urgency, due_sort, pc.get("created_at", ""))
+                except ValueError:
+                    continue
+        except Exception:
+            pass
+        # No parseable due date — sort by creation
+        return (2, "", pc.get("created_at", ""))
+    sorted_pcs = dict(sorted(user_pcs.items(), key=_pc_sort_key))
+    
+    # Also compute urgency metadata for template
+    _today = datetime.now()
+    for pid, pc in sorted_pcs.items():
+        due = pc.get("due_date", "") or ""
+        pc["_days_left"] = None
+        pc["_urgency"] = "normal"
+        try:
+            for fmt in ("%m/%d/%y", "%m/%d/%Y", "%Y-%m-%d"):
+                try:
+                    d = datetime.strptime(due.strip(), fmt)
+                    days = (d - _today).days
+                    pc["_days_left"] = days
+                    if days < 0: pc["_urgency"] = "overdue"
+                    elif days <= 1: pc["_urgency"] = "critical"
+                    elif days <= 3: pc["_urgency"] = "soon"
+                    break
+                except ValueError:
+                    continue
+        except Exception:
+            pass
+
+    # Same for RFQs
     active_rfqs = {k: v for k, v in load_rfqs().items() if v.get("status") != "dismissed"}
+    for rid, r in active_rfqs.items():
+        due = r.get("due_date", "") or ""
+        r["_days_left"] = None
+        r["_urgency"] = "normal"
+        try:
+            for fmt in ("%m/%d/%y", "%m/%d/%Y", "%Y-%m-%d"):
+                try:
+                    d = datetime.strptime(due.strip(), fmt)
+                    days = (d - _today).days
+                    r["_days_left"] = days
+                    if days < 0: r["_urgency"] = "overdue"
+                    elif days <= 1: r["_urgency"] = "critical"
+                    elif days <= 3: r["_urgency"] = "soon"
+                    break
+                except ValueError:
+                    continue
+        except Exception:
+            pass
+    # Sort RFQs by urgency too
+    active_rfqs = dict(sorted(active_rfqs.items(), key=lambda x: (
+        3 if x[1].get("status") in ("sent","generated") else 0 if x[1].get("_urgency") in ("overdue","critical") else 1,
+        x[1].get("due_date", "9999"),
+    )))
     return render_page("home.html", active_page="Home", rfqs=active_rfqs, price_checks=sorted_pcs)
 
 @bp.route("/upload", methods=["POST"])

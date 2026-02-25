@@ -821,3 +821,470 @@ def api_v1_stats():
         "won": sum(1 for r in rfqs.values() if r.get("status") == "won"),
         "lost": sum(1 for r in rfqs.values() if r.get("status") == "lost"),
     })
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Enhancement 2: Quick-Price Panel — Price items without leaving queue
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/quick-price/<entity_type>/<eid>")
+@auth_required
+def quick_price_data(entity_type, eid):
+    """Return items for inline quick-price panel on home queue."""
+    if entity_type == "pc":
+        pcs = _load_price_checks()
+        pc = pcs.get(eid)
+        if not pc:
+            return jsonify({"ok": False, "error": "Not found"}), 404
+        items = []
+        for i, item in enumerate(pc.get("items", [])):
+            pricing = item.get("pricing", {})
+            rec = _compute_recommended_price({
+                "scprs_last_price": pricing.get("scprs_price"),
+                "amazon_price": pricing.get("amazon_cost"),
+                "supplier_cost": pricing.get("your_cost"),
+            })
+            hist = _find_won_history(item.get("description", ""), item.get("mfg_number", ""))
+            items.append({
+                "idx": i,
+                "description": item.get("description", "")[:60],
+                "mfg": item.get("mfg_number", ""),
+                "qty": item.get("qty", 0),
+                "uom": item.get("uom", "EA"),
+                "cost": pricing.get("your_cost", 0),
+                "scprs": pricing.get("scprs_price"),
+                "amazon": pricing.get("amazon_cost"),
+                "current_price": pricing.get("recommended_price", 0),
+                "recommended": rec,
+                "won_history": hist,
+            })
+        return jsonify({"ok": True, "items": items, "entity": "pc", "id": eid,
+                        "institution": pc.get("institution", ""), "pc_number": pc.get("pc_number", "")})
+
+    elif entity_type == "rfq":
+        rfqs = load_rfqs()
+        r = rfqs.get(eid)
+        if not r:
+            return jsonify({"ok": False, "error": "Not found"}), 404
+        items = []
+        for i, item in enumerate(r.get("line_items", [])):
+            rec = _compute_recommended_price(item)
+            hist = _find_won_history(item.get("description", ""), item.get("item_number", ""))
+            items.append({
+                "idx": i,
+                "description": item.get("description", "")[:60],
+                "part": item.get("item_number", ""),
+                "qty": item.get("qty", 0),
+                "uom": item.get("uom", "EA"),
+                "cost": item.get("supplier_cost", 0),
+                "scprs": item.get("scprs_last_price"),
+                "amazon": item.get("amazon_price"),
+                "current_price": item.get("price_per_unit", 0),
+                "recommended": rec,
+                "won_history": hist,
+            })
+        return jsonify({"ok": True, "items": items, "entity": "rfq", "id": eid,
+                        "solicitation": r.get("solicitation_number", "")})
+
+    return jsonify({"ok": False, "error": "Unknown entity type"}), 400
+
+
+@bp.route("/api/quick-price/<entity_type>/<eid>/save", methods=["POST"])
+@auth_required
+def quick_price_save(entity_type, eid):
+    """Save prices from the quick-price panel without navigating to detail."""
+    data = request.get_json(silent=True) or {}
+    prices = data.get("prices", {})  # {idx: price}
+
+    if entity_type == "pc":
+        pcs = _load_price_checks()
+        pc = pcs.get(eid)
+        if not pc:
+            return jsonify({"ok": False, "error": "Not found"}), 404
+        for idx_str, price in prices.items():
+            idx = int(idx_str)
+            if 0 <= idx < len(pc.get("items", [])):
+                pc["items"][idx].setdefault("pricing", {})["recommended_price"] = float(price)
+                pc["items"][idx]["pricing"]["unit_price"] = float(price)
+        pc["status"] = "priced"
+        pc["quick_priced_at"] = datetime.now().isoformat()
+        _save_price_checks(pcs)
+        return jsonify({"ok": True, "priced": len(prices)})
+
+    elif entity_type == "rfq":
+        rfqs = load_rfqs()
+        r = rfqs.get(eid)
+        if not r:
+            return jsonify({"ok": False, "error": "Not found"}), 404
+        for idx_str, price in prices.items():
+            idx = int(idx_str)
+            if 0 <= idx < len(r.get("line_items", [])):
+                r["line_items"][idx]["price_per_unit"] = float(price)
+        r["status"] = "priced"
+        save_rfqs(rfqs)
+        return jsonify({"ok": True, "priced": len(prices)})
+
+    return jsonify({"ok": False, "error": "Unknown entity type"}), 400
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Enhancement 3: Won History Intelligence — Surface past wins on every item
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _find_won_history(description, item_number=""):
+    """Find past winning prices for similar items."""
+    results = []
+    try:
+        from src.knowledge.won_quotes_db import find_similar_wins
+        wins = find_similar_wins(description, item_number)
+        if wins:
+            for w in wins[:3]:
+                results.append({
+                    "price": w.get("price", 0),
+                    "institution": w.get("institution", ""),
+                    "date": w.get("date", ""),
+                    "qty": w.get("qty", 0),
+                    "quote_number": w.get("quote_number", ""),
+                })
+    except Exception:
+        pass
+
+    # Also check recent PCs that were marked won
+    try:
+        pcs = _load_price_checks()
+        desc_lower = (description or "").lower().strip()[:30]
+        if desc_lower and len(desc_lower) > 5:
+            for pid, pc in pcs.items():
+                if pc.get("status") != "won":
+                    continue
+                for item in pc.get("items", []):
+                    item_desc = (item.get("description", "") or "").lower().strip()
+                    if desc_lower in item_desc or item_desc in desc_lower:
+                        price = item.get("pricing", {}).get("recommended_price") or item.get("pricing", {}).get("unit_price", 0)
+                        if price and price > 0:
+                            results.append({
+                                "price": price,
+                                "institution": pc.get("institution", ""),
+                                "date": pc.get("won_at", pc.get("created_at", ""))[:10],
+                                "qty": item.get("qty", 0),
+                                "quote_number": pc.get("reytech_quote_number", ""),
+                                "source": "pc_won",
+                            })
+    except Exception:
+        pass
+
+    # Deduplicate and sort by recency
+    seen = set()
+    unique = []
+    for r in results:
+        key = f"{r.get('price', 0)}-{r.get('institution', '')}"
+        if key not in seen:
+            seen.add(key)
+            unique.append(r)
+    return sorted(unique, key=lambda x: x.get("date", ""), reverse=True)[:5]
+
+
+@bp.route("/api/won-history/search")
+@auth_required
+def won_history_search():
+    """Search won history for a description or part number."""
+    q = request.args.get("q", "").strip()
+    if not q:
+        return jsonify({"ok": False, "error": "Query required"}), 400
+    results = _find_won_history(q)
+    return jsonify({"ok": True, "results": results, "query": q})
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Enhancement 4: Stale Quote Follow-Up Tracker
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/stale-quotes")
+@auth_required
+def stale_quotes():
+    """Find quotes sent but with no response after configurable days."""
+    days_threshold = int(request.args.get("days", 3))
+    cutoff = (datetime.now() - _timedelta(days=days_threshold)).isoformat()
+
+    stale = []
+
+    # Check RFQs
+    rfqs = load_rfqs()
+    for rid, r in rfqs.items():
+        if r.get("status") != "sent":
+            continue
+        sent_at = r.get("sent_at", "")
+        if sent_at and sent_at < cutoff:
+            try:
+                days_since = (datetime.now() - datetime.fromisoformat(
+                    sent_at.replace("Z", "+00:00").split("+")[0]
+                )).days
+            except Exception:
+                days_since = days_threshold
+            stale.append({
+                "type": "rfq", "id": rid,
+                "number": r.get("solicitation_number", ""),
+                "institution": r.get("delivery_location", r.get("department", "")),
+                "requestor": r.get("requestor_name", ""),
+                "email": r.get("requestor_email", ""),
+                "sent_at": sent_at,
+                "days_since": days_since,
+                "total": sum(
+                    (i.get("qty", 0) or 0) * (i.get("price_per_unit", 0) or 0)
+                    for i in r.get("line_items", [])
+                ),
+                "link": f"/rfq/{rid}",
+            })
+
+    # Check PCs
+    pcs = _load_price_checks()
+    for pid, pc in pcs.items():
+        if pc.get("status") != "sent":
+            continue
+        sent_at = pc.get("sent_at", pc.get("completed_at", ""))
+        if sent_at and sent_at < cutoff:
+            try:
+                days_since = (datetime.now() - datetime.fromisoformat(
+                    sent_at.replace("Z", "+00:00").split("+")[0]
+                )).days
+            except Exception:
+                days_since = days_threshold
+            stale.append({
+                "type": "pc", "id": pid,
+                "number": pc.get("pc_number", ""),
+                "institution": pc.get("institution", ""),
+                "requestor": pc.get("requestor", ""),
+                "email": "",
+                "sent_at": sent_at,
+                "days_since": days_since,
+                "total": 0,
+                "link": f"/pricecheck/{pid}",
+            })
+
+    stale.sort(key=lambda x: x.get("days_since", 0), reverse=True)
+    return jsonify({"ok": True, "stale": stale, "threshold_days": days_threshold,
+                    "count": len(stale)})
+
+
+@bp.route("/api/stale-quotes/<entity_type>/<eid>/follow-up", methods=["POST"])
+@auth_required
+def send_follow_up(entity_type, eid):
+    """Send a follow-up email for a stale quote."""
+    data = request.get_json(silent=True) or {}
+
+    if entity_type == "rfq":
+        rfqs = load_rfqs()
+        r = rfqs.get(eid)
+        if not r:
+            return jsonify({"ok": False, "error": "Not found"}), 404
+        to_email = data.get("to") or r.get("requestor_email", "")
+        name = r.get("requestor_name", "")
+        sol = r.get("solicitation_number", "")
+    elif entity_type == "pc":
+        pcs = _load_price_checks()
+        pc = pcs.get(eid)
+        if not pc:
+            return jsonify({"ok": False, "error": "Not found"}), 404
+        to_email = data.get("to") or ""
+        name = pc.get("requestor", "")
+        sol = pc.get("pc_number", "")
+    else:
+        return jsonify({"ok": False, "error": "Unknown type"}), 400
+
+    if not to_email:
+        return jsonify({"ok": False, "error": "No recipient email"}), 400
+
+    subject = data.get("subject") or f"Follow Up — Quote for #{sol}"
+    body = data.get("body") or f"""<div style="font-family:Arial,sans-serif;color:#333">
+<p>Dear {name or 'Procurement Officer'},</p>
+<p>I'm following up on our quote submitted for <strong>#{sol}</strong>.
+Please let us know if you have any questions or need any revisions.</p>
+<p>We remain ready to support your procurement needs.</p>
+<br>
+<p>Best regards,<br><strong>Reytech Inc.</strong><br>
+Michael Guadan · 949-229-1575 · sales@reytechinc.com</p>
+</div>"""
+
+    # Send via Gmail
+    try:
+        email_cfg = CONFIG.get("email", {})
+        gmail_user = email_cfg.get("email") or os.environ.get("GMAIL_ADDRESS", "")
+        gmail_pass = email_cfg.get("email_password") or os.environ.get("GMAIL_PASSWORD", "")
+        if not gmail_user or not gmail_pass:
+            return jsonify({"ok": False, "error": "Gmail not configured"}), 400
+
+        import smtplib
+        from email.mime.multipart import MIMEMultipart
+        from email.mime.text import MIMEText
+
+        msg = MIMEMultipart()
+        msg["From"] = gmail_user
+        msg["To"] = to_email
+        msg["Subject"] = subject
+        msg.attach(MIMEText(body, "html"))
+
+        server = smtplib.SMTP_SSL("smtp.gmail.com", 465)
+        server.login(gmail_user, gmail_pass)
+        server.send_message(msg)
+        server.quit()
+
+        # Record follow-up
+        if entity_type == "rfq":
+            rfqs = load_rfqs()
+            r = rfqs.get(eid, {})
+            r.setdefault("follow_ups", []).append({
+                "sent_at": datetime.now().isoformat(),
+                "to": to_email,
+            })
+            r["last_follow_up"] = datetime.now().isoformat()
+            save_rfqs(rfqs)
+        elif entity_type == "pc":
+            pcs = _load_price_checks()
+            pc = pcs.get(eid, {})
+            pc.setdefault("follow_ups", []).append({
+                "sent_at": datetime.now().isoformat(),
+                "to": to_email,
+            })
+            pc["last_follow_up"] = datetime.now().isoformat()
+            _save_price_checks(pcs)
+
+        log.info("Follow-up sent for %s/%s to %s", entity_type, eid, to_email)
+        return jsonify({"ok": True, "sent_to": to_email})
+    except Exception as e:
+        log.error("Follow-up send failed: %s", e)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Enhancement 5: PC→RFQ Linkage — Track when a PC becomes a formal RFQ
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/pc/<pcid>/link-rfq", methods=["POST"])
+@auth_required
+def link_pc_to_rfq(pcid):
+    """Link a Price Check to an RFQ (PC became formal solicitation)."""
+    data = request.get_json(silent=True) or {}
+    rfq_id = data.get("rfq_id", "")
+
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"}), 404
+
+    if rfq_id:
+        rfqs = load_rfqs()
+        if rfq_id not in rfqs:
+            return jsonify({"ok": False, "error": "RFQ not found"}), 404
+        pc["linked_rfq_id"] = rfq_id
+        pc["linked_rfq_at"] = datetime.now().isoformat()
+        # Also backlink on the RFQ
+        rfqs[rfq_id]["linked_pc_id"] = pcid
+        rfqs[rfq_id]["linked_pc_number"] = pc.get("pc_number", "")
+        save_rfqs(rfqs)
+    else:
+        # Auto-match: find RFQ with same solicitation/PC number
+        sol = pc.get("pc_number", "").strip()
+        rfqs = load_rfqs()
+        match = None
+        for rid, r in rfqs.items():
+            if r.get("solicitation_number", "").strip() == sol and sol:
+                match = rid
+                break
+        if not match:
+            # Try matching by institution + similar items
+            inst = (pc.get("institution", "") or "").lower().strip()
+            pc_items = {(i.get("description", "") or "").lower()[:30] for i in pc.get("items", []) if i.get("description")}
+            for rid, r in rfqs.items():
+                r_inst = (r.get("delivery_location", "") or r.get("department", "") or "").lower().strip()
+                if inst and inst in r_inst:
+                    r_items = {(i.get("description", "") or "").lower()[:30] for i in r.get("line_items", []) if i.get("description")}
+                    overlap = pc_items & r_items
+                    if len(overlap) >= max(1, len(pc_items) * 0.5):
+                        match = rid
+                        break
+        if match:
+            pc["linked_rfq_id"] = match
+            pc["linked_rfq_at"] = datetime.now().isoformat()
+            rfqs[match]["linked_pc_id"] = pcid
+            rfqs[match]["linked_pc_number"] = pc.get("pc_number", "")
+            save_rfqs(rfqs)
+        else:
+            _save_price_checks(pcs)
+            return jsonify({"ok": True, "matched": False, "message": "No matching RFQ found"})
+
+    _save_price_checks(pcs)
+    return jsonify({"ok": True, "matched": True, "rfq_id": pc.get("linked_rfq_id")})
+
+
+@bp.route("/api/pc/<pcid>/convert-to-rfq", methods=["POST"])
+@auth_required
+def convert_pc_to_rfq(pcid):
+    """Convert a Price Check into a new RFQ, carrying over all item data and pricing."""
+    import uuid as _uuid
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"}), 404
+
+    rfq_id = str(_uuid.uuid4())[:8]
+    now = datetime.now().isoformat()
+
+    # Convert PC items to RFQ line items, preserving all pricing intelligence
+    line_items = []
+    for i, item in enumerate(pc.get("items", [])):
+        pricing = item.get("pricing", {})
+        line_items.append({
+            "row_index": i,
+            "description": item.get("description", ""),
+            "item_number": item.get("mfg_number", "") or item.get("item_number", ""),
+            "qty": item.get("qty", 0),
+            "uom": item.get("uom", "EA"),
+            "price_per_unit": pricing.get("recommended_price") or pricing.get("unit_price", 0),
+            "supplier_cost": pricing.get("your_cost", 0),
+            "scprs_last_price": pricing.get("scprs_price", 0),
+            "amazon_price": pricing.get("amazon_cost", 0),
+            "catalog_match": pricing.get("catalog_match"),
+            "extension": (item.get("qty", 0) or 0) * (pricing.get("recommended_price") or pricing.get("unit_price", 0) or 0),
+            "_from_pc": pcid,
+        })
+
+    rfq_data = {
+        "id": rfq_id,
+        "solicitation_number": pc.get("pc_number", ""),
+        "status": "priced" if any(li.get("price_per_unit") for li in line_items) else "new",
+        "source": "pc_conversion",
+        "requestor_name": pc.get("requestor", ""),
+        "requestor_email": "",
+        "department": pc.get("institution", ""),
+        "delivery_location": pc.get("ship_to", ""),
+        "due_date": pc.get("due_date", ""),
+        "line_items": line_items,
+        "created_at": now,
+        "linked_pc_id": pcid,
+        "linked_pc_number": pc.get("pc_number", ""),
+        "reytech_quote_number": pc.get("reytech_quote_number", ""),
+    }
+
+    rfqs = load_rfqs()
+    rfqs[rfq_id] = rfq_data
+    save_rfqs(rfqs)
+
+    # Update PC with link
+    pc["linked_rfq_id"] = rfq_id
+    pc["linked_rfq_at"] = now
+    pc["converted_to_rfq"] = True
+    _save_price_checks(pcs)
+
+    log.info("PC %s converted to RFQ %s with %d items", pcid, rfq_id, len(line_items))
+    return jsonify({"ok": True, "rfq_id": rfq_id, "items": len(line_items)})
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Enhancement 5b: Follow-Up Dashboard Page
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@bp.route("/follow-ups")
+@auth_required
+def follow_ups_page():
+    """Dashboard showing all stale quotes needing follow-up."""
+    return render_page("follow_ups.html", active_page="Pipeline")

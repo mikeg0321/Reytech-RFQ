@@ -93,11 +93,20 @@
      <td><a href="/pricecheck/{{id}}" class="sol">#{{pc.pc_number or '(blank)'}}</a></td>
      <td style="font-weight:600">{{pc.institution or '—'}}</td>
      <td style="color:var(--tx2)">{{pc.requestor or '—'}}</td>
-     <td class="mono">{{pc.due_date or '—'}}</td>
+     <td class="mono">
+      {% if pc._urgency == 'overdue' %}<span style="color:#f85149;font-weight:700">{{pc.due_date}} ⚠️</span>
+      {% elif pc._urgency == 'critical' %}<span style="color:#f0883e;font-weight:700">{{pc.due_date}} 🔥</span>
+      {% elif pc._urgency == 'soon' %}<span style="color:#d29922;font-weight:600">{{pc.due_date}}</span>
+      {% else %}{{pc.due_date or '—'}}{% endif %}
+      {% if pc._days_left is not none %}<div style="font-size:9px;color:{% if pc._days_left < 0 %}#f85149{% elif pc._days_left <= 1 %}#f0883e{% elif pc._days_left <= 3 %}#d29922{% else %}var(--tx2){% endif %}">
+       {% if pc._days_left < 0 %}{{-pc._days_left}}d overdue{% elif pc._days_left == 0 %}Due today{% elif pc._days_left == 1 %}Tomorrow{% else %}{{pc._days_left}}d left{% endif %}
+      </div>{% endif %}
+     </td>
      <td style="text-align:center" class="mono">{{pc.get('items',[])|length}}</td>
      <td style="text-align:center" onclick="event.stopPropagation()">{% if pc.reytech_quote_number %}<span style="color:var(--gn);font-weight:600;font-family:'JetBrains Mono',monospace;font-size:12px">{{pc.reytech_quote_number}}</span>{% else %}—{% endif %}</td>
      <td style="text-align:center"><span class="badge b-{{pc.status}}">{{pc.status}}</span></td>
      <td style="text-align:center" onclick="event.stopPropagation()">
+      <button onclick="openQP('pc','{{id}}',event)" title="Quick Price" style="background:rgba(52,211,153,.08);border:1px solid rgba(52,211,153,.2);color:#3fb950;cursor:pointer;font-size:10px;padding:2px 6px;border-radius:4px;font-weight:600;margin-right:2px" onmouseover="this.style.background='rgba(52,211,153,.2)'" onmouseout="this.style.background='rgba(52,211,153,.08)'">⚡</button>
       <div style="position:relative;display:inline-block" class="dismiss-wrap">
        <button onclick="event.stopPropagation();this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'" title="Dismiss this Price Check" style="background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.2);color:#f85149;cursor:pointer;font-size:10px;padding:2px 6px;border-radius:4px;font-weight:600" onmouseover="this.style.background='rgba(248,81,73,.2)'" onmouseout="this.style.background='rgba(248,81,73,.08)'">✕</button>
        <div style="display:none;position:absolute;right:0;top:22px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;padding:4px 0;min-width:180px;z-index:99;box-shadow:0 4px 12px rgba(0,0,0,.3)">
@@ -152,7 +161,15 @@
      <td onclick="event.stopPropagation()"><input type="checkbox" class="row-check rfq-check" value="{{id}}" onchange="updateBulkBar('rfq')"></td>
      <td><a href="/rfq/{{id}}" class="sol">#{{r.solicitation_number}}</a></td>
      <td style="font-weight:600">{{r.requestor_name}}</td>
-     <td class="mono">{{r.due_date}}</td>
+     <td class="mono">
+      {% if r._urgency == 'overdue' %}<span style="color:#f85149;font-weight:700">{{r.due_date}} ⚠️</span>
+      {% elif r._urgency == 'critical' %}<span style="color:#f0883e;font-weight:700">{{r.due_date}} 🔥</span>
+      {% elif r._urgency == 'soon' %}<span style="color:#d29922;font-weight:600">{{r.due_date}}</span>
+      {% else %}{{r.due_date}}{% endif %}
+      {% if r._days_left is not none %}<div style="font-size:9px;color:{% if r._days_left < 0 %}#f85149{% elif r._days_left <= 1 %}#f0883e{% elif r._days_left <= 3 %}#d29922{% else %}var(--tx2){% endif %}">
+       {% if r._days_left < 0 %}{{-r._days_left}}d overdue{% elif r._days_left == 0 %}Due today{% elif r._days_left == 1 %}Tomorrow{% else %}{{r._days_left}}d left{% endif %}
+      </div>{% endif %}
+     </td>
      <td style="text-align:center" class="mono">{{r.line_items|length}}</td>
      <td style="text-align:center"><span class="badge b-{{r.status}}">{{r.status}}</span></td>
      <td style="text-align:center" onclick="event.stopPropagation()">
@@ -180,6 +197,30 @@
   {% endif %}
  </div>
 
+</div>
+
+<!-- ═══ Stale Quotes Widget ═══ -->
+<div class="card" id="stale-widget" style="display:none;margin-bottom:12px;border:1px solid rgba(251,191,36,.3);background:rgba(251,191,36,.04)">
+ <div style="display:flex;justify-content:space-between;align-items:center">
+  <div class="card-t" style="margin:0;color:var(--yl)">📬 Awaiting Response <span id="stale-badge" style="font-family:'JetBrains Mono',monospace;font-weight:700"></span></div>
+  <a href="/follow-ups" class="btn btn-sm btn-s" style="font-size:11px">View All →</a>
+ </div>
+ <div id="stale-items" style="margin-top:8px;font-size:12px"></div>
+</div>
+
+<!-- ═══ Quick-Price Slide Panel ═══ -->
+<div id="qp-panel" style="display:none;position:fixed;right:0;top:0;bottom:0;width:520px;background:var(--bg);border-left:2px solid var(--ac);z-index:1000;overflow-y:auto;box-shadow:-8px 0 30px rgba(0,0,0,.4)">
+ <div style="padding:16px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;background:var(--bg);z-index:1">
+  <div>
+   <div style="font-size:16px;font-weight:700" id="qp-title">Quick Price</div>
+   <div style="font-size:11px;color:var(--tx2)" id="qp-subtitle"></div>
+  </div>
+  <div style="display:flex;gap:6px">
+   <button class="btn btn-sm btn-p" onclick="saveQuickPrices()">💾 Save & Close</button>
+   <button class="btn btn-sm btn-s" onclick="closeQP()">✕</button>
+  </div>
+ </div>
+ <div id="qp-items" style="padding:12px"></div>
 </div>
 
 <!-- ═══ KPI Dashboard — Bento analytics ═══ -->
@@ -548,6 +589,99 @@ fetch('/api/manager/metrics',{credentials:'same-origin'}).then(function(r){
   document.getElementById('top-inst').innerHTML='<div class="brief-empty">Win quotes to see top institutions here</div>';
  }
 }).catch(function(err){ console.error('Manager metrics failed:',err); });
+</script>
+
+<script>
+// ═══ Stale Quotes Widget ═══
+(function loadStaleWidget(){
+ fetch('/api/stale-quotes?days=3',{credentials:'same-origin'})
+ .then(function(r){return r.json();})
+ .then(function(d){
+  if(!d.stale||!d.stale.length)return;
+  var w=document.getElementById('stale-widget');
+  w.style.display='block';
+  document.getElementById('stale-badge').textContent=d.count;
+  var html='';
+  d.stale.slice(0,5).forEach(function(s){
+   var c=s.days_since>7?'#f85149':s.days_since>5?'#f0883e':'var(--yl)';
+   html+='<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid var(--bd)">';
+   html+='<a href="'+s.link+'" style="color:var(--tx);text-decoration:none;font-weight:600">#'+s.number+'</a>';
+   html+='<span style="color:var(--tx2)">'+s.institution+'</span>';
+   html+='<span style="font-weight:700;color:'+c+';font-family:\'JetBrains Mono\',monospace">'+s.days_since+'d</span>';
+   if(s.email){
+    html+='<button class="btn btn-sm" style="font-size:10px;padding:2px 6px;background:rgba(79,140,255,.1);color:var(--ac);border:1px solid rgba(79,140,255,.3)" onclick="event.stopPropagation();sendQuickFollowUp(\''+s.type+'\',\''+s.id+'\',\''+s.email+'\',\''+s.number+'\')">📧</button>';
+   }
+   html+='</div>';
+  });
+  if(d.count>5)html+='<div style="text-align:center;padding:6px;color:var(--tx2);font-size:11px">+'+(d.count-5)+' more — <a href="/follow-ups" style="color:var(--ac)">view all</a></div>';
+  document.getElementById('stale-items').innerHTML=html;
+ }).catch(function(){});
+})();
+function sendQuickFollowUp(type,id,email,num){
+ if(!confirm('Send follow-up to '+email+'?'))return;
+ fetch('/api/stale-quotes/'+type+'/'+id+'/follow-up',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({to:email})})
+ .then(function(r){return r.json();})
+ .then(function(d){if(d.ok)alert('Follow-up sent to '+d.sent_to);else alert('Error: '+(d.error||'unknown'));});
+}
+
+// ═══ Quick-Price Panel ═══
+var _qpEntity=null,_qpId=null;
+function openQP(entityType,eid,evt){
+ if(evt)evt.stopPropagation();
+ _qpEntity=entityType;_qpId=eid;
+ var panel=document.getElementById('qp-panel');
+ panel.style.display='block';
+ document.getElementById('qp-items').innerHTML='<div style="color:var(--tx2);padding:20px;text-align:center">Loading items...</div>';
+ fetch('/api/quick-price/'+entityType+'/'+eid,{credentials:'same-origin'})
+ .then(function(r){return r.json();})
+ .then(function(d){
+  if(!d.ok){document.getElementById('qp-items').innerHTML='Error: '+(d.error||'');return;}
+  document.getElementById('qp-title').textContent=(entityType==='pc'?'PC #'+(d.pc_number||eid):'RFQ #'+(d.solicitation||eid));
+  document.getElementById('qp-subtitle').textContent=d.institution||d.solicitation||'';
+  var html='';
+  d.items.forEach(function(item){
+   var rec=item.recommended;
+   html+='<div style="padding:10px;margin-bottom:8px;border:1px solid var(--bd);border-radius:8px;background:var(--sf)">';
+   html+='<div style="font-weight:600;font-size:12px;margin-bottom:4px">'+item.description+'</div>';
+   html+='<div style="display:flex;gap:12px;font-size:11px;color:var(--tx2);margin-bottom:6px">';
+   html+='<span>Qty: <b>'+item.qty+'</b></span>';
+   if(item.scprs)html+='<span>SCPRS: <b style="color:#58a6ff">$'+item.scprs.toFixed(2)+'</b></span>';
+   if(item.amazon)html+='<span>Amazon: <b style="color:#f0883e">$'+item.amazon.toFixed(2)+'</b></span>';
+   if(item.cost)html+='<span>Cost: <b>$'+item.cost.toFixed(2)+'</b></span>';
+   html+='</div>';
+   // Won history
+   if(item.won_history&&item.won_history.length){
+    html+='<div style="font-size:10px;color:var(--gn);margin-bottom:4px">🏆 Won: ';
+    item.won_history.slice(0,2).forEach(function(w){html+='$'+w.price.toFixed(2)+' ('+w.institution.substring(0,15)+') ';});
+    html+='</div>';
+   }
+   // Price input
+   html+='<div style="display:flex;gap:6px;align-items:center">';
+   html+='<span style="font-size:11px;font-weight:600">Your Price:</span>';
+   html+='<input type="number" step="0.01" class="qp-price" data-idx="'+item.idx+'" value="'+(item.current_price||rec&&rec.price||'')+'" style="width:100px;padding:6px 8px;border-radius:6px;background:var(--sf2);color:var(--tx);border:1px solid var(--bd);font-family:\'JetBrains Mono\',monospace;font-size:13px">';
+   if(rec){html+='<button class="btn btn-sm" style="font-size:10px;padding:2px 6px;background:rgba(52,211,153,.1);color:var(--gn);border:1px solid rgba(52,211,153,.3)" onclick="this.previousElementSibling.value='+rec.price+'" title="'+rec.reason+'">⚡ $'+rec.price.toFixed(2)+'</button>';}
+   html+='</div></div>';
+  });
+  document.getElementById('qp-items').innerHTML=html;
+ });
+}
+function closeQP(){document.getElementById('qp-panel').style.display='none';}
+function saveQuickPrices(){
+ var prices={};
+ document.querySelectorAll('.qp-price').forEach(function(inp){
+  var v=parseFloat(inp.value);
+  if(v>0)prices[inp.dataset.idx]=v;
+ });
+ if(!Object.keys(prices).length){alert('No prices entered');return;}
+ fetch('/api/quick-price/'+_qpEntity+'/'+_qpId+'/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prices:prices})})
+ .then(function(r){return r.json();})
+ .then(function(d){
+  if(d.ok){closeQP();location.reload();}
+  else{alert('Error: '+(d.error||'unknown'));}
+ });
+}
+// Keyboard: Escape closes panel
+document.addEventListener('keydown',function(e){if(e.key==='Escape')closeQP();});
 </script>
 
 {% endblock %}
