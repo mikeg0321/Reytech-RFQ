@@ -1203,9 +1203,13 @@ class EmailPoller:
                     # Track for diagnostics
                     self._diag["subjects_seen"].append(subject[:60])
                     
+                    # Get PDF names early (needed by self-email filter for forward detection)
+                    pdf_names = self._get_pdf_names(msg)
+                    
                     # ── SELF-EMAIL FILTER — skip our own sent emails ──────────
                     # Gmail threads sent replies into INBOX view. The poller must
-                    # never process emails FROM our own address.
+                    # never process emails FROM our own address — UNLESS it's a
+                    # forwarded email with PDF attachments (user forwarding an RFQ).
                     sender_email_raw = self._extract_email(sender).lower()
                     our_email = self.email_addr.lower()
                     our_domains = ["reytechinc.com", "reytech.com"]
@@ -1214,11 +1218,36 @@ class EmailPoller:
                         or any(sender_email_raw.endswith(f"@{d}") for d in our_domains)
                     )
                     if is_self:
-                        log.debug("Skipping own email: %s — %s", sender_email_raw, subject[:50])
-                        self._diag.setdefault("self_skipped", 0)
-                        self._diag["self_skipped"] = self._diag.get("self_skipped", 0) + 1
-                        self._processed.add(uid)
-                        continue
+                        # Check if this is a forwarded RFQ (user forwarded an email to the inbox)
+                        subj_lower = subject.lower().strip()
+                        is_forward = any(subj_lower.startswith(p) for p in ["fwd:", "fw:", "fwd :", "fw :"])
+                        has_fwd_body = body and any(ind in body.lower() for ind in [
+                            "---------- forwarded", "begin forwarded", "original message",
+                            "from:", "forwarded message",
+                        ])
+                        has_pdfs = bool(pdf_names)  # pdf_names populated at line ~1242
+                        
+                        if (is_forward or has_fwd_body) and has_pdfs:
+                            # This is a forwarded RFQ — let it through
+                            log.info("Forwarded email from self with PDFs — processing as RFQ: %s — %s (%d PDFs)",
+                                     sender_email_raw, subject[:60], len(pdf_names))
+                            self._diag.setdefault("self_forward_passed", 0)
+                            self._diag["self_forward_passed"] += 1
+                            # Rewrite sender to the original forwarded sender if we can parse it
+                            try:
+                                fwd_sender = self._extract_forwarded_sender(body)
+                                if fwd_sender:
+                                    log.info("Extracted original sender from forward: %s", fwd_sender)
+                                    sender_email_raw = fwd_sender.lower()
+                                    sender = fwd_sender
+                            except Exception:
+                                pass
+                        else:
+                            log.debug("Skipping own email: %s — %s", sender_email_raw, subject[:50])
+                            self._diag.setdefault("self_skipped", 0)
+                            self._diag["self_skipped"] = self._diag.get("self_skipped", 0) + 1
+                            self._processed.add(uid)
+                            continue
                     # ── END SELF-EMAIL FILTER ──────────────────────────────────
                     
                     # ── CROSS-INBOX DEDUP (#10) — shared fingerprint check ─────
@@ -1237,9 +1266,6 @@ class EmailPoller:
                     except Exception:
                         pass  # Dedup is best-effort, don't block processing
                     # ── END CROSS-INBOX DEDUP ──────────────────────────────────
-                    
-                    # Get PDF names without saving
-                    pdf_names = self._get_pdf_names(msg)
                     
                     # ── RECALL DETECTION — fires FIRST ─────────────────────
                     # Outlook/Exchange recall requests delete the original PC
@@ -1992,6 +2018,49 @@ class EmailPoller:
     def _extract_email(self, from_str):
         match = re.search(r'[\w.+-]+@[\w-]+\.[\w.]+', from_str)
         return match.group(0) if match else from_str
+
+    def _extract_forwarded_sender(self, body):
+        """Extract the original sender from a forwarded email body.
+        Looks for patterns like 'From: John Doe <john@calvet.ca.gov>'
+        in the forwarded message section."""
+        if not body:
+            return None
+        # Find the forwarded message block
+        fwd_markers = [
+            "---------- forwarded message",
+            "begin forwarded message",
+            "-------- original message",
+        ]
+        body_lower = body.lower()
+        start = -1
+        for marker in fwd_markers:
+            idx = body_lower.find(marker)
+            if idx >= 0:
+                start = idx
+                break
+        if start < 0:
+            # Try to find "From:" after any forward indicator
+            start = 0
+
+        # Search for "From:" line in the forwarded portion
+        search_block = body[start:start+1000]
+        # Pattern: From: Name <email> or From: email
+        from_match = re.search(
+            r'From:\s*(?:.*?<([\w.+-]+@[\w.-]+)>|([\w.+-]+@[\w.-]+))',
+            search_block, re.IGNORECASE
+        )
+        if from_match:
+            return from_match.group(1) or from_match.group(2)
+
+        # Try simpler pattern — just find first non-self email after "From:"
+        all_from = re.findall(r'From:\s*([^\n]+)', search_block, re.IGNORECASE)
+        for from_line in all_from:
+            email = re.search(r'[\w.+-]+@[\w.-]+', from_line)
+            if email:
+                addr = email.group(0).lower()
+                if not any(addr.endswith(f"@{d}") for d in ["reytechinc.com", "reytech.com"]):
+                    return email.group(0)
+        return None
 
     def disconnect(self):
         try:

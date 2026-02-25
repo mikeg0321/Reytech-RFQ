@@ -1342,14 +1342,22 @@ def process_rfq_email(rfq_email):
         log.debug("Suppressed: %s", _e)
     
     # Block: self-email (our own sent replies picked up by poller)
+    # EXCEPTION: forwarded emails from our own domain are valid (user forwarding an RFQ)
     _sender_email = rfq_email.get("sender_email", rfq_email.get("sender", "")).lower()
     _our_domains = ["reytechinc.com", "reytech.com"]
-    if any(_sender_email.endswith(f"@{d}") for d in _our_domains):
+    _is_from_self = any(_sender_email.endswith(f"@{d}") for d in _our_domains)
+    _subject_lower = rfq_email.get("subject", "").lower().strip()
+    _is_forward = any(_subject_lower.startswith(p) for p in ["fwd:", "fw:", "fwd :", "fw :"])
+    _has_attachments = bool(rfq_email.get("attachments"))
+    if _is_from_self and not (_is_forward and _has_attachments):
         _trace.append(f"SKIP: self-email from {_sender_email}")
         log.info("Blocking self-email from %s: %s", _sender_email, _subj)
         POLL_STATUS.setdefault("_email_traces", []).append(_trace)
         t.ok("Skipped: self-email")
         return None
+    elif _is_from_self and _is_forward:
+        _trace.append(f"FORWARD from self: {_sender_email} — processing as RFQ with {len(rfq_email.get('attachments',[]))} attachments")
+        log.info("Processing forwarded email from self: %s — %s", _sender_email, _subj)
     
     # Block: solicitation number already exists in active RFQ queue
     # E12: Enhanced duplicate detection — detect amendments and link revisions
