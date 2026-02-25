@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block title %}PO Tracking — Reytech{% endblock %}
+{% block content %}
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+ <h2 style="margin:0;font-size:20px;font-weight:700">📦 Purchase Order Tracking</h2>
+ <div style="display:flex;gap:8px;align-items:center">
+  <span style="font-size:11px;color:var(--tx2)">
+   {% if poll_status.get('last_poll') %}Last poll: {{poll_status.last_poll[:16].replace('T',' ')}}{% else %}Not polled yet{% endif %}
+  </span>
+  <button class="btn btn-sm btn-s" onclick="pollPOInbox()">⚡ Check PO Inbox</button>
+  <button class="btn btn-sm btn-p" onclick="showCreatePO()">+ New PO</button>
+ </div>
+</div>
+
+<!-- Status KPIs -->
+<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:8px;margin-bottom:16px">
+ {% set kpis = [
+   ('Total', stats.total, 'var(--tx)', '📦'),
+   ('Received', stats.received, '#58a6ff', '📋'),
+   ('Processing', stats.processing, 'var(--yl)', '🔄'),
+   ('Shipped', stats.shipped, '#f0883e', '🚚'),
+   ('Delivered', stats.delivered, 'var(--gn)', '✅'),
+   ('Invoiced', stats.invoiced, '#a78bfa', '💰'),
+   ('Backordered', stats.backordered, 'var(--rd)', '⚠️'),
+ ] %}
+ {% for label, count, color, icon in kpis %}
+ <div class="card" style="text-align:center;padding:10px 8px">
+  <div style="font-size:11px">{{icon}}</div>
+  <div style="font-size:22px;font-weight:700;color:{{color}};font-family:'JetBrains Mono',monospace">{{count}}</div>
+  <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px">{{label}}</div>
+ </div>
+ {% endfor %}
+</div>
+
+<!-- PO List -->
+<div class="card">
+ <div class="card-t">Active Purchase Orders</div>
+ {% if pos %}
+ <table class="it" style="margin-top:10px">
+  <thead><tr>
+   <th>PO #</th><th>Vendor</th><th>Buyer</th><th>Items</th><th>Total</th><th>Status</th><th>Created</th>
+  </tr></thead>
+  <tbody>
+  {% for po in pos %}
+  <tr onclick="location.href='/po-tracking/{{po.id}}'" style="cursor:pointer">
+   <td style="font-weight:700;font-family:'JetBrains Mono',monospace">{{po.po_number}}</td>
+   <td>{{po.vendor_name or '—'}}</td>
+   <td>{{po.buyer_name or '—'}}</td>
+   <td style="text-align:center">—</td>
+   <td style="font-family:'JetBrains Mono',monospace">${{'%,.2f'|format(po.total_amount or 0)}}</td>
+   <td>
+    {% set sc = {'received':'#58a6ff','processing':'var(--yl)','shipped':'#f0883e','partial_shipped':'#f0883e',
+                 'delivered':'var(--gn)','invoiced':'#a78bfa','backordered':'var(--rd)'} %}
+    <span style="padding:3px 8px;border-radius:10px;font-size:11px;font-weight:600;
+     background:{{sc.get(po.status,'var(--sf2)')}}22;color:{{sc.get(po.status,'var(--tx2)')}}">
+     {{po.status|replace('_',' ')|title}}
+    </span>
+   </td>
+   <td style="color:var(--tx2);font-size:12px">{{po.created_at[:10]}}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+ </table>
+ {% else %}
+ <div style="color:var(--tx2);padding:40px;text-align:center">
+  <div style="font-size:32px;margin-bottom:8px">📦</div>
+  <div>No purchase orders yet. Create one from a won RFQ or manually.</div>
+ </div>
+ {% endif %}
+</div>
+
+<!-- Create PO Modal -->
+<div id="create-po-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;display:none;justify-content:center;align-items:center">
+ <div style="background:var(--bg);border:1px solid var(--bd);border-radius:12px;padding:24px;max-width:500px;width:90%">
+  <h3 style="margin:0 0 16px">Create Purchase Order</h3>
+  <div style="display:grid;gap:10px">
+   <div><label style="font-size:11px;color:var(--tx2)">PO Number</label><input type="text" id="new-po-number" class="text-in" style="width:100%" placeholder="e.g. 4500012345"></div>
+   <div><label style="font-size:11px;color:var(--tx2)">Vendor Name</label><input type="text" id="new-po-vendor" class="text-in" style="width:100%"></div>
+   <div><label style="font-size:11px;color:var(--tx2)">Buyer Name</label><input type="text" id="new-po-buyer" class="text-in" style="width:100%"></div>
+   <div><label style="font-size:11px;color:var(--tx2)">Link to RFQ ID (optional)</label><input type="text" id="new-po-rfq" class="text-in" style="width:100%" placeholder="Leave blank for standalone PO"></div>
+  </div>
+  <div style="display:flex;gap:8px;margin-top:16px">
+   <button class="btn btn-p" onclick="createPO()">Create</button>
+   <button class="btn btn-s" onclick="document.getElementById('create-po-modal').style.display='none'">Cancel</button>
+  </div>
+ </div>
+</div>
+
+<script>
+function showCreatePO(){document.getElementById('create-po-modal').style.display='flex';}
+function createPO(){
+ var d={
+  po_number:document.getElementById('new-po-number').value,
+  vendor_name:document.getElementById('new-po-vendor').value,
+  buyer_name:document.getElementById('new-po-buyer').value,
+  rfq_id:document.getElementById('new-po-rfq').value
+ };
+ if(!d.po_number){alert('PO number required');return;}
+ fetch('/api/po/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)})
+ .then(r=>r.json()).then(r=>{
+  if(r.ok){location.href='/po-tracking/'+r.po_id;}
+  else{alert('Error: '+(r.error||'unknown'));}
+ });
+}
+function pollPOInbox(){
+ fetch('/api/po/poll',{method:'POST'}).then(r=>r.json()).then(d=>{
+  if(d.ok)alert('Processed '+d.processed+' emails');
+  else alert('Error: '+(d.error||'not configured'));
+ });
+}
+</script>
+{% endblock %}

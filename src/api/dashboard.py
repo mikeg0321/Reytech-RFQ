@@ -2628,6 +2628,7 @@ _ROUTE_MODULES = [
     "routes_catalog_finance",  # Catalog, shipping, pricing, margins, payments, audit
     "routes_prd28",           # PRD-28: Quote lifecycle, email overhaul, leads, revenue, vendor intel
     "routes_analytics",       # PRD-29: Pipeline analytics, buyer intel, margin optimizer, settings, API v1
+    "routes_order_tracking",  # PRD-29: PO tracking, separate email inbox, line item lifecycle
 ]
 
 for _mod in _ROUTE_MODULES:
