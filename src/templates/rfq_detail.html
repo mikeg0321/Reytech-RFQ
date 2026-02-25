@@ -70,6 +70,13 @@
   <button class="btn btn-sm btn-s" onclick="applyScprsUndercut(0.05)">-5%</button>
   <button class="btn btn-sm btn-p" data-testid="rfq-scprs-lookup" onclick="lookupScprs()" style="margin-left:8px">🔍 SCPRS Lookup</button>
   <button class="btn btn-sm btn-o" data-testid="rfq-amazon-lookup" onclick="researchPrices()" style="margin-left:4px">🔬 Amazon Lookup</button>
+  <button class="btn btn-sm" style="background:rgba(167,139,250,.15);color:#a78bfa;border:1px solid rgba(167,139,250,.3);margin-left:4px" onclick="runAutoLookup()">🤖 Full Auto-Lookup</button>
+  <button class="btn btn-sm" style="background:rgba(52,211,153,.15);color:#3fb950;border:1px solid rgba(52,211,153,.3);margin-left:4px" onclick="applyRecommendations()">⚡ Apply Recommendations</button>
+ </div>
+ <!-- E3: Auto-lookup progress bar -->
+ <div id="lookup-progress" style="display:none;margin:10px 0;padding:10px 14px;border-radius:8px;background:var(--sf2);border:1px solid var(--bd)">
+  <div style="font-size:12px;font-weight:600;margin-bottom:6px">🔄 Running auto-lookup...</div>
+  <div id="lookup-steps" style="font-size:11px;color:var(--tx2)"></div>
  </div>
 
  <form method="POST" action="/rfq/{{rid}}/update" id="pf">
@@ -123,6 +130,7 @@
   <button type="submit" class="btn btn-p" data-testid="rfq-save-pricing">💾 Save Pricing</button>
   <button type="button" class="btn" data-testid="rfq-preview-quote" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd)" onclick="showRfqPreview()">👁️ Preview Quote</button>
   <button type="submit" formaction="/rfq/{{rid}}/generate-package" data-testid="rfq-generate-package" class="btn btn-g" style="font-size:14px;padding:10px 24px">📦 Generate RFQ Package</button>
+  <button type="button" class="btn" style="background:rgba(79,140,255,.15);color:var(--ac);border:1px solid rgba(79,140,255,.3)" onclick="sendQuoteEmail()">📧 Send Quote</button>
  </div>
  </form>
 </div>
@@ -529,6 +537,64 @@ function printPreview(){
  w.document.close();
  w.focus();
  setTimeout(function(){w.print();},300);
+}
+
+// E3: Full Auto-Lookup with SSE progress
+function runAutoLookup(){
+ var prog=document.getElementById('lookup-progress');
+ var steps=document.getElementById('lookup-steps');
+ prog.style.display='block';
+ steps.innerHTML='Starting...';
+ fetch('/api/rfq/'+RID+'/auto-lookup',{method:'POST'})
+ .then(r=>r.json()).then(d=>{
+  if(!d.ok){steps.innerHTML='Error: '+(d.error||'unknown');return;}
+  var es=new EventSource('/api/progress/'+d.task_id);
+  es.onmessage=function(e){
+   var s=JSON.parse(e.data);
+   if(s.step==='done'){
+    es.close();
+    steps.innerHTML+='<div style="color:var(--gn);font-weight:600;margin-top:4px">✅ Complete — reloading...</div>';
+    setTimeout(function(){location.reload();},1000);
+   } else {
+    var icon=s.step.includes('error')?'❌':s.step.includes('done')?'✅':'⏳';
+    steps.innerHTML+='<div>'+icon+' '+s.detail+'</div>';
+   }
+  };
+  es.onerror=function(){es.close();steps.innerHTML+='<div>Connection closed</div>';};
+ });
+}
+
+// E7: Apply Margin Recommendations
+function applyRecommendations(){
+ fetch('/api/rfq/'+RID+'/apply-recommendations',{method:'POST'})
+ .then(r=>r.json()).then(d=>{
+  if(d.ok){
+   alert('Applied '+d.applied+'/'+d.total+' recommended prices');
+   location.reload();
+  } else {
+   alert('Error: '+(d.error||'unknown'));
+  }
+ });
+}
+
+// E8: Send Quote Email
+function sendQuoteEmail(){
+ var to=prompt('Send quote to:','{{r.requestor_email}}');
+ if(!to)return;
+ var subject=prompt('Subject:','Quote — Solicitation #{{r.solicitation_number}}');
+ if(subject===null)return;
+ fetch('/api/rfq/'+RID+'/send-quote',{
+  method:'POST',
+  headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({to:to,subject:subject})
+ }).then(r=>r.json()).then(d=>{
+  if(d.ok){
+   alert('Quote sent to '+d.sent_to);
+   location.reload();
+  } else {
+   alert('Error: '+(d.error||'unknown'));
+  }
+ });
 }
 
 recalc();

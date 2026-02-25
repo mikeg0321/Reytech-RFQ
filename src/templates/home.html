@@ -125,11 +125,19 @@
  <!-- RFQ Queue (narrower column) -->
  <div class="card" style="margin:0;overflow:hidden">
   <div class="card-t">RFQ Queue <span style="font-size:11px;font-weight:400;color:var(--tx2)">(704A/704B + formal quote package)</span> <span style="font-family:'JetBrains Mono',monospace;font-weight:700">{{rfqs|length}}</span></div>
+  <!-- E11: Bulk Action Bar -->
+  <div class="bulk-bar" id="rfq-bulk-bar">
+   <span class="bulk-count"><span id="rfq-bulk-count">0</span> selected</span>
+   <button class="btn btn-sm btn-s" onclick="bulkAction('rfq','dismiss')">Dismiss</button>
+   <button class="btn btn-sm btn-s" onclick="bulkAction('rfq','archive')">Archive</button>
+   <button class="btn btn-sm" style="background:rgba(251,191,36,.15);color:var(--yl)" onclick="bulkAction('rfq','markup')">+20% Markup</button>
+  </div>
   {% if rfqs %}
   <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
   <table class="home-tbl">
    <thead>
     <tr>
+     <th style="width:28px"><input type="checkbox" class="row-check" onchange="toggleAllChecks('rfq',this)"></th>
      <th>Solicitation</th>
      <th>Requestor</th>
      <th style="width:90px">Due</th>
@@ -141,6 +149,7 @@
    <tbody>
     {% for id, r in rfqs|dictsort(reverse=true) %}
     <tr class="home-row" onclick="location.href='/rfq/{{id}}'" style="{% if r.status in ('sent','generated') %}opacity:0.55{% endif %}">
+     <td onclick="event.stopPropagation()"><input type="checkbox" class="row-check rfq-check" value="{{id}}" onchange="updateBulkBar('rfq')"></td>
      <td><a href="/rfq/{{id}}" class="sol">#{{r.solicitation_number}}</a></td>
      <td style="font-weight:600">{{r.requestor_name}}</td>
      <td class="mono">{{r.due_date}}</td>
@@ -392,6 +401,36 @@ document.querySelectorAll('details').forEach(d=>{
       })
       .catch(function(){ 
         wrap.querySelectorAll('button').forEach(function(b){ b.disabled=false; b.style.opacity='1'; }); 
+      });
+    }
+
+    // E11: Bulk Action Functions
+    function toggleAllChecks(type, master){
+      document.querySelectorAll('.'+type+'-check').forEach(function(c){c.checked=master.checked;});
+      updateBulkBar(type);
+    }
+    function updateBulkBar(type){
+      var checks=document.querySelectorAll('.'+type+'-check:checked');
+      var bar=document.getElementById(type+'-bulk-bar');
+      var count=document.getElementById(type+'-bulk-count');
+      if(checks.length>0){bar.classList.add('active');count.textContent=checks.length;}
+      else{bar.classList.remove('active');}
+    }
+    function bulkAction(type, action){
+      var ids=[];
+      document.querySelectorAll('.'+type+'-check:checked').forEach(function(c){ids.push(c.value);});
+      if(!ids.length){alert('No items selected');return;}
+      if(action==='dismiss'&&!confirm('Dismiss '+ids.length+' items?'))return;
+      var body={ids:ids,action:action,type:type};
+      if(action==='markup'){
+        var pct=prompt('Markup percentage:','20');
+        if(!pct)return;
+        body.markup_pct=parseFloat(pct);
+      }
+      fetch('/api/bulk/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+      .then(function(r){return r.json();}).then(function(d){
+        if(d.ok){alert('Applied to '+d.applied+' items');location.reload();}
+        else{alert('Error: '+(d.error||'unknown'));}
       });
     }
 

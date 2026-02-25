@@ -1352,16 +1352,28 @@ def process_rfq_email(rfq_email):
         return None
     
     # Block: solicitation number already exists in active RFQ queue
+    # E12: Enhanced duplicate detection — detect amendments and link revisions
     _sol_hint = rfq_email.get("solicitation_hint", "")
     if _sol_hint and _sol_hint != "unknown":
         for _eid, _erfq in rfqs.items():
             if (_erfq.get("solicitation_number") == _sol_hint 
                     and _erfq.get("status") not in ("dismissed",)):
-                _trace.append(f"DEDUP: sol {_sol_hint} already in RFQ queue as {_eid}")
-                log.info("Solicitation dedup: #%s already exists (id=%s) — skipping", _sol_hint, _eid)
-                POLL_STATUS.setdefault("_email_traces", []).append(_trace)
-                t.ok("Skipped: solicitation dedup", existing_id=_eid, sol=_sol_hint)
-                return None
+                # Check if this is an amendment (different attachments or later date)
+                _existing_uid = _erfq.get("email_uid", "")
+                _new_uid = rfq_email.get("email_uid", "")
+                if _existing_uid and _new_uid and _existing_uid != _new_uid:
+                    # Different email — likely an amendment. Link them but still create.
+                    _trace.append(f"AMENDMENT: sol {_sol_hint} exists as {_eid} but different email — creating as amendment")
+                    log.info("Amendment detected: sol#%s existing=%s, creating linked amendment", _sol_hint, _eid)
+                    rfq_email["_amendment_of"] = _eid
+                    rfq_email["_is_amendment"] = True
+                    break
+                else:
+                    _trace.append(f"DEDUP: sol {_sol_hint} already in RFQ queue as {_eid}")
+                    log.info("Solicitation dedup: #%s already exists (id=%s) — skipping", _sol_hint, _eid)
+                    POLL_STATUS.setdefault("_email_traces", []).append(_trace)
+                    t.ok("Skipped: solicitation dedup", existing_id=_eid, sol=_sol_hint)
+                    return None
 
     templates = {}
     for att in rfq_email["attachments"]:
@@ -2615,6 +2627,7 @@ _ROUTE_MODULES = [
     "routes_voice_contacts",   # Intelligence page, voice, contacts, campaigns
     "routes_catalog_finance",  # Catalog, shipping, pricing, margins, payments, audit
     "routes_prd28",           # PRD-28: Quote lifecycle, email overhaul, leads, revenue, vendor intel
+    "routes_analytics",       # PRD-29: Pipeline analytics, buyer intel, margin optimizer, settings, API v1
 ]
 
 for _mod in _ROUTE_MODULES:

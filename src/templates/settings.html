@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Settings — Reytech{% endblock %}
+{% block content %}
+<h2 style="font-size:20px;font-weight:700;margin-bottom:16px">⚙️ Settings</h2>
+
+<form id="settings-form">
+{% for cat, items in groups.items()|sort %}
+<div class="card" style="margin-bottom:12px">
+ <div class="card-t" style="text-transform:capitalize">{{cat}} Settings</div>
+ <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px">
+  {% for key, value in items.items()|sort %}
+  <div>
+   <label style="font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px">
+    {{key.split('.')[-1]|replace('_',' ')|title}}
+   </label>
+   {% if value is sameas true or value is sameas false %}
+   <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+    <input type="checkbox" name="{{key}}" {% if value %}checked{% endif %}
+     style="width:18px;height:18px;accent-color:var(--ac)"
+     onchange="this.nextElementSibling.textContent=this.checked?'On':'Off'">
+    <span style="font-size:13px;font-weight:500">{% if value %}On{% else %}Off{% endif %}</span>
+   </label>
+   {% elif value is number %}
+   <input type="number" name="{{key}}" value="{{value}}" class="num-in" style="width:120px;font-size:14px;padding:8px">
+   {% else %}
+   <input type="text" name="{{key}}" value="{{value}}" class="text-in" style="width:100%;font-size:13px;padding:8px">
+   {% endif %}
+  </div>
+  {% endfor %}
+ </div>
+</div>
+{% endfor %}
+
+<div style="display:flex;gap:12px;margin-top:16px">
+ <button type="button" class="btn btn-p" onclick="saveSettings()">💾 Save Settings</button>
+ <button type="button" class="btn btn-s" onclick="location.reload()">↩️ Reset</button>
+</div>
+</form>
+
+<script>
+function saveSettings(){
+ var form=document.getElementById('settings-form');
+ var data={};
+ form.querySelectorAll('input').forEach(function(inp){
+  if(inp.type==='checkbox') data[inp.name]=inp.checked?'true':'false';
+  else data[inp.name]=inp.value;
+ });
+ fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)})
+ .then(r=>r.json()).then(d=>{
+  if(d.ok) alert('Settings saved ('+d.saved+' values)');
+  else alert('Error: '+(d.error||'unknown'));
+ });
+}
+</script>
+{% endblock %}

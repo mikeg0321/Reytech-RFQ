@@ -264,3 +264,35 @@ table.it .text-in:focus{border-color:var(--ac);outline:none}
   .hdr-btn,.g-btn,.btn,.act-btn,.notif-bell{min-height:44px;min-width:44px}
   input,select,textarea{min-height:44px;font-size:16px}
 }
+
+/* ═══ E9: Enhanced Mobile Responsive ═══════════════════════════════════════ */
+@media(max-width:768px){
+  .ctr{padding:10px 12px}
+  .card{padding:12px 14px;margin-bottom:10px}
+  .card-t{font-size:14px}
+  .meta-g{grid-template-columns:1fr 1fr;gap:8px}
+  .markup-bar{flex-wrap:wrap;gap:6px}
+  .markup-bar .btn{padding:6px 10px;font-size:11px}
+  .it{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .it thead{display:none}
+  .bg{flex-wrap:wrap;gap:8px}
+  .bg .btn{flex:1;min-width:120px;text-align:center}
+  h2{font-size:18px}
+  /* Bulk action bar */
+  .bulk-bar{flex-direction:column;gap:8px}
+  .bulk-bar .btn{width:100%}
+}
+@media(max-width:480px){
+  .ctr{padding:8px}
+  .card{padding:10px;border-radius:8px}
+  .meta-g{grid-template-columns:1fr}
+  .num-in,.text-in{font-size:14px;padding:8px}
+  .hdr{padding:8px 12px 0}
+  nav{margin:0 -12px;padding-left:12px;padding-right:12px}
+}
+
+/* ═══ E11: Bulk Action Styles ══════════════════════════════════════════════ */
+.bulk-bar{display:none;padding:10px 16px;background:rgba(79,140,255,.08);border:1px solid rgba(79,140,255,.2);border-radius:8px;margin-bottom:12px;align-items:center;gap:10px;flex-wrap:wrap}
+.bulk-bar.active{display:flex}
+.bulk-count{font-weight:700;color:var(--ac);font-size:14px}
+.row-check{width:16px;height:16px;accent-color:var(--ac);cursor:pointer}

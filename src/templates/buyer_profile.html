@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}Buyer: {{ buyer_name or buyer_key }} — Reytech{% endblock %}
+{% block content %}
+<a href="/contacts" class="btn btn-s" style="margin-bottom:16px">← CRM</a>
+
+<div class="card">
+ <div style="display:flex;justify-content:space-between;align-items:flex-start">
+  <div>
+   <div style="font-size:22px;font-weight:700">{{buyer_name or buyer_key}}</div>
+   <div style="color:var(--tx2);font-size:13px;margin-top:2px">
+    {% if buyer_email %}<a href="mailto:{{buyer_email}}" style="color:#58a6ff">{{buyer_email}}</a> · {% endif %}
+    {{agency or 'Unknown Agency'}}
+   </div>
+  </div>
+  <div style="text-align:right">
+   {% if stats.win_rate > 0 %}
+   <div style="font-size:28px;font-weight:700;color:var(--gn);font-family:'JetBrains Mono',monospace">{{stats.win_rate}}%</div>
+   <div style="font-size:10px;color:var(--tx2);text-transform:uppercase">Win Rate</div>
+   {% endif %}
+  </div>
+ </div>
+</div>
+
+<!-- KPIs -->
+<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:16px">
+ {% set kpis = [
+   ('RFQs', stats.total_rfqs, 'var(--ac)'),
+   ('PCs', stats.total_pcs, '#a78bfa'),
+   ('Won', stats.won, 'var(--gn)'),
+   ('Lost', stats.lost, 'var(--rd)'),
+   ('Revenue', '$' ~ '%,.0f'|format(stats.total_revenue), 'var(--gn)'),
+ ] %}
+ {% for label, val, color in kpis %}
+ <div class="card" style="text-align:center;padding:12px">
+  <div style="font-size:20px;font-weight:700;color:{{color}};font-family:'JetBrains Mono',monospace">{{val}}</div>
+  <div style="font-size:10px;color:var(--tx2);text-transform:uppercase">{{label}}</div>
+ </div>
+ {% endfor %}
+</div>
+
+<!-- RFQ History -->
+<div class="card">
+ <div class="card-t">RFQ History ({{buyer_rfqs|length}})</div>
+ {% if buyer_rfqs %}
+ <table class="it" style="margin-top:10px">
+  <thead><tr><th>Sol #</th><th>Status</th><th>Items</th><th>Total</th><th>Due</th><th>Created</th></tr></thead>
+  <tbody>
+  {% for r in buyer_rfqs %}
+  {% set total = 0 %}
+  {% for item in r.get('line_items', []) %}
+   {% set total = total + (item.qty or 0) * (item.price_per_unit or 0) %}
+  {% endfor %}
+  <tr onclick="location.href='/rfq/{{r.id}}'" style="cursor:pointer">
+   <td style="font-weight:600;font-family:'JetBrains Mono',monospace">#{{r.solicitation_number}}</td>
+   <td><span class="badge b-{{r.status}}">{{r.status}}</span></td>
+   <td>{{r.get('line_items',[])|length}}</td>
+   <td style="font-family:'JetBrains Mono',monospace">${{'%,.2f'|format(total)}}</td>
+   <td>{{r.due_date}}</td>
+   <td style="color:var(--tx2);font-size:12px">{{r.get('created_at','')[:10]}}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+ </table>
+ {% else %}
+ <div style="color:var(--tx2);padding:20px;text-align:center">No RFQs found</div>
+ {% endif %}
+</div>
+
+<!-- PC History -->
+{% if buyer_pcs %}
+<div class="card">
+ <div class="card-t">Price Check History ({{buyer_pcs|length}})</div>
+ <table class="it" style="margin-top:10px">
+  <thead><tr><th>PC #</th><th>Status</th><th>Items</th><th>Institution</th><th>Created</th></tr></thead>
+  <tbody>
+  {% for pc in buyer_pcs %}
+  <tr onclick="location.href='/pricecheck/{{pc.id}}'" style="cursor:pointer">
+   <td style="font-weight:600">{{pc.pc_number}}</td>
+   <td><span class="badge b-{{pc.status}}">{{pc.status}}</span></td>
+   <td>{{pc.get('items',[])|length}}</td>
+   <td>{{pc.institution}}</td>
+   <td style="color:var(--tx2);font-size:12px">{{pc.get('created_at','')[:10]}}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+ </table>
+</div>
+{% endif %}
+
+<!-- Activity -->
+{% if activities %}
+<div class="card">
+ <div class="card-t">Recent Activity</div>
+ <div style="margin-top:10px">
+  {% for a in activities %}
+  <div style="padding:8px 0;border-bottom:1px solid var(--bd);font-size:12px">
+   <span style="color:var(--tx2)">{{a.created_at[:16].replace('T',' ')}}</span>
+   <span style="margin-left:8px">{{a.details[:100]}}</span>
+  </div>
+  {% endfor %}
+ </div>
+</div>
+{% endif %}
+{% endblock %}
