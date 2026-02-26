@@ -2997,8 +2997,19 @@ def api_disk_cleanup():
     if os.path.exists(DATA_DIR):
         for entry in os.scandir(DATA_DIR):
             if entry.is_file():
-                data_sizes[entry.name] = entry.stat().st_size
-                total_data += entry.stat().st_size
+                sz = entry.stat().st_size
+                data_sizes[entry.name] = round(sz / 1024 / 1024, 2)
+                total_data += sz
+            elif entry.is_dir():
+                dir_sz = 0
+                try:
+                    for root, dirs, files in os.walk(entry.path):
+                        for f in files:
+                            dir_sz += os.path.getsize(os.path.join(root, f))
+                except:
+                    pass
+                data_sizes[entry.name + "/"] = round(dir_sz / 1024 / 1024, 2)
+                total_data += dir_sz
     
     result = {
         "disk_total_mb": round(total / 1024 / 1024),
@@ -3007,6 +3018,7 @@ def api_disk_cleanup():
         "uploads_total_mb": round(total_upload / 1024 / 1024, 1),
         "uploads_dirs": len([k for k in upload_sizes if not k.startswith(".")]),
         "data_total_mb": round(total_data / 1024 / 1024, 1),
+        "data_files": dict(sorted(data_sizes.items(), key=lambda x: -x[1])[:20]),
     }
     
     if action == "clean":
@@ -3058,6 +3070,56 @@ def api_disk_cleanup():
         result["action"] = "nuked-uploads"
         result["removed_dirs"] = removed
         result["freed_mb"] = round(freed / 1024 / 1024, 1)
+    
+    if action == "trim-data":
+        # Trim large data files: truncate logs, compact JSON, remove caches
+        freed = 0
+        trimmed = []
+        safe_to_truncate = ["crm_activity.json", "email_log.json", "notification_log.json",
+                            "follow_up_log.json", "detected_shipments.json", "lead_scores.json"]
+        safe_to_delete = []
+        
+        for fname in os.listdir(DATA_DIR):
+            fpath = os.path.join(DATA_DIR, fname)
+            if not os.path.isfile(fpath):
+                continue
+            fsize = os.path.getsize(fpath)
+            
+            # Truncate large log-type JSON files to last 200 entries
+            if fname in safe_to_truncate and fsize > 100_000:
+                try:
+                    with open(fpath) as f:
+                        data = json.load(f)
+                    if isinstance(data, list) and len(data) > 200:
+                        old_size = fsize
+                        with open(fpath, "w") as f:
+                            json.dump(data[-200:], f)
+                        new_size = os.path.getsize(fpath)
+                        freed += old_size - new_size
+                        trimmed.append(f"{fname}: {round(old_size/1024)}K → {round(new_size/1024)}K")
+                except:
+                    pass
+            
+            # Delete .bak files and temp files
+            if fname.endswith(".bak") or fname.endswith(".tmp"):
+                freed += fsize
+                os.remove(fpath)
+                trimmed.append(f"deleted {fname} ({round(fsize/1024)}K)")
+        
+        # Clean SQLite WAL/SHM files (they can get huge)
+        for ext in ["-wal", "-shm"]:
+            for fname in os.listdir(DATA_DIR):
+                if fname.endswith(ext):
+                    fpath = os.path.join(DATA_DIR, fname)
+                    fsize = os.path.getsize(fpath)
+                    if fsize > 1_000_000:  # Only if > 1MB
+                        freed += fsize
+                        os.remove(fpath)
+                        trimmed.append(f"deleted {fname} ({round(fsize/1024/1024,1)}MB)")
+        
+        result["action"] = "trimmed-data"
+        result["freed_mb"] = round(freed / 1024 / 1024, 1)
+        result["trimmed"] = trimmed
     
     return Response(json.dumps(result, default=str), mimetype="application/json")
 
