@@ -277,12 +277,17 @@ def classify_food_item(description: str) -> tuple:
         (r'(?:whole|peeled|diced|crushed|stewed)\s+tomato', 5, "Fruit - Extended Shelf Life"),
         (r'\btomato\s+puree\b', 12, "Puree"),
         (r'\bgreen\s+bean', 10, "Legumes"),
-        # #10 can items are always shelf-stable — classify by content
-        (r'\bpeach\w*\s*#\d+', 5, "Fruit - Extended Shelf Life"),
-        (r'\bpear\w*\s*#\d+', 5, "Fruit - Extended Shelf Life"),
-        (r'\bpineapple\w*\s*#\d+', 5, "Fruit - Extended Shelf Life"),
-        (r'\bapricot\w*\s*#\d+', 5, "Fruit - Extended Shelf Life"),
+        # Fruit overrides (must come before cat 4 sauce/oil catch-all)
+        (r'\bapple\s*sauce\b', 5, "Fruit - Extended Shelf Life"),
+        (r'\bapplesauce\b', 5, "Fruit - Extended Shelf Life"),
+        (r'\bpeach\w*\b.*(?:#\d+|canned|can\b|sliced|halv)', 5, "Fruit - Extended Shelf Life"),
+        (r'\bpear\w*\b.*(?:#\d+|canned|can\b|sliced|halv)', 5, "Fruit - Extended Shelf Life"),
+        (r'\bpineapple\w*\b.*(?:#\d+|canned|can\b|chunk|crush|slice)', 5, "Fruit - Extended Shelf Life"),
+        (r'\bapricot\w*\b.*(?:#\d+|canned|can\b)', 5, "Fruit - Extended Shelf Life"),
+        (r'\bfruit\s+cocktail\b', 5, "Fruit - Extended Shelf Life"),
         (r'\bfruit.*#\d+', 5, "Fruit - Extended Shelf Life"),
+        (r'\bmandarin\s+orange', 5, "Fruit - Extended Shelf Life"),
+        # #10 can items — classify by content
         (r'\bcorn\b.*#\d+', 13, "Vegetables - Extended Shelf Life"),
         (r'\bcarrot\b.*#\d+', 13, "Vegetables - Extended Shelf Life"),
         (r'\bpotato\b.*#\d+', 13, "Vegetables - Extended Shelf Life"),
