@@ -2838,19 +2838,14 @@ def _force_recapture():
     if not removed_rfqs and not removed_pcs:
         return jsonify({"ok": False, "error": f"No matches for '{match_kw or exact_id}'"})
     
-    # Reset poller and re-poll
+    # Reset poller so next Check Now uses fresh state
     global _shared_poller
     _shared_poller = None
-    try:
-        imported = do_poll_check()
-    except Exception:
-        imported = []
     
     return jsonify({
         "ok": True,
         "removed_rfqs": removed_rfqs,
         "removed_pcs": removed_pcs,
         "cleared_uids": len(cleared_uids),
-        "reimported": len(imported),
-        "new_rfqs": [{"id": r["id"], "sol": r.get("solicitation_number", "?")} for r in imported],
+        "next_step": "Hit Check Now to re-import",
     })
