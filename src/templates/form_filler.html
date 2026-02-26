@@ -1,0 +1,251 @@
+{% extends "base.html" %}
+{% block title %}Form Filler — Bid Package{% endblock %}
+{% block content %}
+<style>
+.ff-card{background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:20px;margin-bottom:16px}
+.ff-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:900px){.ff-grid{grid-template-columns:1fr}}
+.ff-label{font-size:13px;color:var(--tx2);margin-bottom:4px}
+.ff-input{width:100%;padding:8px 12px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:14px}
+.ff-input:focus{outline:none;border-color:var(--ac)}
+.ff-btn{padding:10px 24px;border-radius:8px;font-weight:600;cursor:pointer;border:none;font-size:14px;transition:all .2s}
+.ff-btn-primary{background:var(--ac);color:#fff}
+.ff-btn-primary:hover{filter:brightness(1.15)}
+.ff-btn-green{background:rgba(34,197,94,.15);color:#22c55e;border:1px solid rgba(34,197,94,.3)}
+.ff-btn-green:hover{background:rgba(34,197,94,.25)}
+.item-row{display:grid;grid-template-columns:60px 1fr 80px 40px;gap:8px;align-items:center;margin-bottom:6px}
+.item-row input{padding:6px 10px;background:var(--sf2);border:1px solid var(--bd);border-radius:5px;color:var(--tx);font-size:13px}
+.item-row .remove-btn{cursor:pointer;color:#ef4444;font-size:18px;text-align:center;border:none;background:none}
+.food-badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600}
+.food-badge.yes{background:rgba(34,197,94,.15);color:#22c55e}
+.food-badge.no{background:rgba(156,163,175,.15);color:#9ca3af}
+.result-area{margin-top:16px;padding:16px;background:var(--sf2);border-radius:8px;display:none}
+.forms-list{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.form-chip{padding:4px 10px;background:rgba(59,130,246,.12);color:#3b82f6;border-radius:5px;font-size:12px}
+.category-ref{font-size:12px;color:var(--tx2);line-height:1.6}
+.category-ref td{padding:2px 8px;border-bottom:1px solid var(--bd)}
+.category-ref th{padding:4px 8px;text-align:left;border-bottom:2px solid var(--bd);font-size:11px;text-transform:uppercase;color:var(--tx2)}
+</style>
+
+<h2 style="margin-bottom:4px">📋 Bid Package Form Filler</h2>
+<p style="color:var(--tx2);margin-bottom:16px">Auto-fill CDCR bid package forms. Food items get OBS 1600 Agricultural Food Product codes. All standard forms (CUF, Darfur, DVBE, CalRecycle, Drug-Free) are pre-filled with Reytech info.</p>
+
+<div class="ff-grid">
+ <div>
+  <div class="ff-card">
+   <h3 style="margin-bottom:12px">Solicitation Info</h3>
+   <div class="ff-label">Solicitation Number</div>
+   <input type="text" id="solNumber" class="ff-input" placeholder="e.g. 10837814" style="margin-bottom:12px">
+   
+   <div style="display:flex;gap:8px;margin-bottom:12px">
+    <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+     <input type="radio" name="fillType" value="all" checked> Fill All Forms
+    </label>
+    <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+     <input type="radio" name="fillType" value="obs1600_only"> OBS 1600 Only
+    </label>
+   </div>
+  </div>
+
+  <div class="ff-card">
+   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+    <h3>Line Items</h3>
+    <button class="ff-btn ff-btn-green" onclick="addItem()" style="padding:6px 14px;font-size:13px">+ Add Item</button>
+   </div>
+   
+   <div class="item-row" style="font-size:11px;color:var(--tx2);font-weight:600">
+    <div>LINE #</div><div>DESCRIPTION</div><div>FOOD?</div><div></div>
+   </div>
+   <div id="itemsList"></div>
+   
+   <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--bd);display:flex;gap:8px;flex-wrap:wrap">
+    <button class="ff-btn ff-btn-primary" onclick="classifyItems()">🔍 Classify Food Items</button>
+    <button class="ff-btn ff-btn-primary" onclick="fillAndDownload()" style="background:#22c55e">📄 Fill & Download PDF</button>
+    <button class="ff-btn" onclick="loadFromRFQ()" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd)">📥 Load from RFQ</button>
+   </div>
+  </div>
+
+  <div id="resultArea" class="ff-card result-area">
+   <h3 id="resultTitle">Results</h3>
+   <div id="resultContent"></div>
+  </div>
+ </div>
+
+ <div>
+  <div class="ff-card">
+   <h3 style="margin-bottom:8px">🌾 Agricultural Food Category Codes</h3>
+   <p style="font-size:12px;color:var(--tx2);margin-bottom:8px">OBS 1600 (Rev. 1/26) — CDCR/CCHCS</p>
+   <table class="category-ref" style="width:100%">
+    <tr><th>Code</th><th>Category</th><th>Examples</th></tr>
+    <tr><td>1</td><td>Coffee, Tea</td><td>Beans, Decaf, Ground, Instant</td></tr>
+    <tr><td>2</td><td>Dairy</td><td>Butter, Cheese, Cream, Milk</td></tr>
+    <tr><td>3</td><td>Eggs</td><td>Fresh, Frozen, Patty, Liquid</td></tr>
+    <tr><td>4</td><td>Extended Shelf Life</td><td>Flour, Sugar, Salt, Oil, Sauces</td></tr>
+    <tr><td>5</td><td>Fruit - Shelf Life</td><td>Canned peaches, Applesauce, Olives</td></tr>
+    <tr><td>6</td><td>Fruit - Fresh/Frozen</td><td>Apples, Bananas, Berries, Melons</td></tr>
+    <tr><td>7</td><td>Fungi/Herbs</td><td>Mushrooms, Ginger, Cilantro, Spices</td></tr>
+    <tr><td>8</td><td>Grains/Nuts/Rice</td><td>Rice, Oats, Almonds, Bread, Pasta</td></tr>
+    <tr><td>9</td><td>Honey, Pollen</td><td>Honey, Pollen</td></tr>
+    <tr><td>10</td><td>Legumes</td><td>Pinto, Kidney, Lima, Lentils, Peas</td></tr>
+    <tr><td>11</td><td>Meat/Poultry/Seafood</td><td>Beef, Chicken, Tuna, Fish, Halal</td></tr>
+    <tr><td>12</td><td>Puree</td><td>Dairy, Fruit, Meats, Vegetable</td></tr>
+    <tr><td>13</td><td>Vegetables - Shelf Life</td><td>Canned corn, Potato flakes</td></tr>
+    <tr><td>14</td><td>Vegetables - Fresh/Frozen</td><td>Broccoli, Carrots, Onions, Spinach</td></tr>
+   </table>
+  </div>
+
+  <div class="ff-card">
+   <h3 style="margin-bottom:8px">📦 Forms Auto-Filled</h3>
+   <div class="forms-list">
+    <span class="form-chip">✅ CUF (MC-345)</span>
+    <span class="form-chip">✅ Darfur Act</span>
+    <span class="form-chip">✅ Bidder Declaration</span>
+    <span class="form-chip">✅ DVBE (PD 843)</span>
+    <span class="form-chip">✅ Drug-Free (STD 21)</span>
+    <span class="form-chip">✅ CalRecycle 74</span>
+    <span class="form-chip">🌾 OBS 1600 Food Cert</span>
+   </div>
+   <p style="font-size:12px;color:var(--tx2);margin-top:8px">
+    All forms pre-filled with Reytech Inc. info, signature, FEIN, cert #2002605.<br>
+    Food items auto-classified into CDCR category codes.<br>
+    CA-Grown: <strong>No</strong> | Percentage: <strong>N/A</strong> (processed food default).
+   </p>
+  </div>
+
+  <div class="ff-card">
+   <h3 style="margin-bottom:8px">💡 Quick Tips</h3>
+   <ul style="font-size:13px;color:var(--tx2);padding-left:16px;line-height:1.8">
+    <li>Non-food items (gloves, supplies) are <strong>skipped</strong> on OBS 1600</li>
+    <li>Processed food always = <strong>No</strong> for CA-Grown</li>
+    <li>Max 18 food items per OBS 1600 page</li>
+    <li>Use "Load from RFQ" to pull items from an active RFQ</li>
+    <li>"Fill All" fills every form; "OBS 1600 Only" fills just the food cert</li>
+   </ul>
+  </div>
+ </div>
+</div>
+
+<script>
+var itemCount=0;
+
+function addItem(ln, desc){
+ itemCount++;
+ var num = ln || itemCount;
+ var d = desc || '';
+ var div = document.createElement('div');
+ div.className = 'item-row';
+ div.id = 'item-'+itemCount;
+ div.innerHTML = '<input type="number" value="'+num+'" min="1" class="item-ln">'
+  +'<input type="text" value="'+d.replace(/"/g,'&quot;')+'" placeholder="Item description..." class="item-desc">'
+  +'<span class="food-badge" id="badge-'+itemCount+'">—</span>'
+  +'<button class="remove-btn" onclick="this.parentElement.remove()">×</button>';
+ document.getElementById('itemsList').appendChild(div);
+}
+
+function getItems(){
+ var items = [];
+ document.querySelectorAll('.item-row:not(:first-child)').forEach(function(row){
+  var ln = row.querySelector('.item-ln');
+  var desc = row.querySelector('.item-desc');
+  if(ln && desc && desc.value.trim()){
+   items.push({line_number: parseInt(ln.value)||1, description: desc.value.trim()});
+  }
+ });
+ return items;
+}
+
+function classifyItems(){
+ var items = getItems();
+ if(!items.length){alert('Add some items first');return;}
+ fetch('/api/food-classify',{
+  method:'POST',
+  headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({items:items})
+ }).then(r=>r.json()).then(function(d){
+  if(!d.ok){alert('Error: '+d.error);return;}
+  var rows = document.querySelectorAll('.item-row');
+  d.items.forEach(function(item, i){
+   var badge = rows[i+1] ? rows[i+1].querySelector('.food-badge') : null;
+   if(badge){
+    if(item.is_food){
+     badge.className='food-badge yes';
+     badge.textContent='Code '+item.food_code;
+    } else {
+     badge.className='food-badge no';
+     badge.textContent='N/A';
+    }
+   }
+  });
+  showResult('🔍 Classification Results',
+   '<p>'+d.food_count+' of '+d.total_count+' items are food products</p>'
+   +'<div style="margin-top:8px">'+d.items.map(function(it){
+    return '<div style="padding:4px 0;font-size:13px">'
+     +(it.is_food?'🌾':'⬜')+' <strong>'+it.description.substring(0,50)+'</strong>'
+     +(it.is_food?' → Code '+it.food_code+' ('+it.food_category+')':' — not food')
+     +'</div>';
+   }).join('')+'</div>'
+  );
+ });
+}
+
+function fillAndDownload(){
+ var items = getItems();
+ if(!items.length){alert('Add some items first');return;}
+ var sol = document.getElementById('solNumber').value.trim() || 'STANDALONE';
+ var fillType = document.querySelector('input[name="fillType"]:checked').value;
+ 
+ var btn = event.target;
+ btn.disabled=true;btn.textContent='⏳ Filling...';
+ 
+ fetch('/api/fill-forms',{
+  method:'POST',
+  headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({solicitation_number:sol, items:items, fill_type:fillType})
+ }).then(r=>r.json()).then(function(d){
+  btn.disabled=false;btn.textContent='📄 Fill & Download PDF';
+  if(!d.ok){alert('Error: '+d.error);return;}
+  
+  showResult('✅ Forms Filled Successfully',
+   '<p><strong>'+d.food_count+'</strong> food items classified, <strong>'+d.total_items+'</strong> total items</p>'
+   +(d.food_items||[]).map(function(fi){
+    return '<div style="padding:3px 0;font-size:13px">🌾 #'+fi.line_number+' '+fi.description.substring(0,45)+' → Code '+fi.code+' ('+fi.category_name+')</div>';
+   }).join('')
+   +'<div style="margin-top:12px"><a href="'+d.download_url+'" class="ff-btn ff-btn-primary" style="text-decoration:none;display:inline-block" download>⬇️ Download '+d.filename+'</a></div>'
+  );
+  window.open(d.download_url,'_blank');
+ }).catch(function(e){
+  btn.disabled=false;btn.textContent='📄 Fill & Download PDF';
+  alert('Error: '+e.message);
+ });
+}
+
+function loadFromRFQ(){
+ var sol = prompt('Enter RFQ solicitation number or ID:');
+ if(!sol)return;
+ fetch('/api/search?q='+encodeURIComponent(sol)).then(r=>r.json()).then(function(d){
+  var rfqs = (d.results||[]).filter(function(r){return r.type==='rfq'||r.type==='price_check';});
+  if(!rfqs.length){alert('No RFQ found for "'+sol+'"');return;}
+  var rfq = rfqs[0];
+  if(rfq.solicitation_number) document.getElementById('solNumber').value = rfq.solicitation_number;
+  // Try to load items from the RFQ detail
+  fetch('/api/rfq/'+rfq.id+'/detail').then(r=>r.json()).then(function(rd){
+   var items = rd.line_items || rd.items || [];
+   document.getElementById('itemsList').innerHTML='';
+   itemCount=0;
+   items.forEach(function(it){addItem(it.line_number, it.description);});
+   if(items.length) classifyItems();
+  }).catch(function(){alert('Could not load items from RFQ');});
+ }).catch(function(){alert('Search failed');});
+}
+
+function showResult(title, html){
+ var area = document.getElementById('resultArea');
+ area.style.display='block';
+ document.getElementById('resultTitle').textContent=title;
+ document.getElementById('resultContent').innerHTML=html;
+}
+
+// Start with 3 empty rows
+addItem(1,'');addItem(2,'');addItem(3,'');
+</script>
+{% endblock %}

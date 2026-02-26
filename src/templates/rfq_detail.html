@@ -155,6 +155,7 @@
   <button type="submit" formaction="/rfq/{{rid}}/generate-package" data-testid="rfq-generate-package" class="btn btn-g" style="font-size:14px;padding:10px 24px">{% if r.get('form_type') == 'generic_rfq' %}📄 Generate Reytech Quote{% else %}📦 Generate RFQ Package{% endif %}</button>
   <button type="button" class="btn" style="background:rgba(79,140,255,.15);color:var(--ac);border:1px solid rgba(79,140,255,.3)" onclick="sendQuoteEmail()">📧 Send Quote</button>
   <button type="button" class="btn" style="background:rgba(34,197,94,.12);color:#22c55e;border:1px solid rgba(34,197,94,.3)" onclick="generateOBS1600()" title="Generate CA Agricultural Food Product Certification (OBS 1600)">🌾 Food Cert</button>
+  <button type="button" class="btn" style="background:rgba(168,85,247,.12);color:#a855f7;border:1px solid rgba(168,85,247,.3)" onclick="fillBidPackage()" title="Fill ALL forms in bid package (CUF, Darfur, DVBE, CalRecycle, OBS 1600, etc.)">📋 Fill All Forms</button>
  </div>
  </form>
 </div>
@@ -732,6 +733,27 @@ function generateOBS1600(){
    alert('⚠️ '+(d.error||'Could not generate OBS 1600'));
   }
  }).catch(function(e){
+  alert('Error: '+e.message);
+ });
+}
+
+function fillBidPackage(){
+ if(!confirm('Fill ALL Bid Package Forms?\n\nThis will fill:\n• CUF (MC-345)\n• Darfur Contracting Act\n• Bidder Declaration\n• DVBE (PD 843)\n• Drug-Free Workplace (STD 21)\n• CalRecycle 74\n• OBS 1600 Food Certification\n\nAll with Reytech Inc. info + signature.'))return;
+ var btn=event.target;btn.disabled=true;btn.textContent='⏳ Filling...';
+ fetch('/api/rfq/'+RID+'/fill-bid-package',{
+  method:'POST',
+  headers:{'Content-Type':'application/json'}
+ }).then(r=>r.json()).then(d=>{
+  btn.disabled=false;btn.textContent='📋 Fill All Forms';
+  if(d.ok){
+   alert('✅ Bid Package Filled!\n\n'+d.total_items+' items, '+d.food_items+' food items\n\nForms filled: '+d.forms_filled.join(', ')+'\n\nDownloading now...');
+   if(d.download_url) window.open(d.download_url,'_blank');
+   location.reload();
+  } else {
+   alert('⚠️ '+(d.error||'Could not fill bid package'));
+  }
+ }).catch(function(e){
+  btn.disabled=false;btn.textContent='📋 Fill All Forms';
   alert('Error: '+e.message);
  });
 }

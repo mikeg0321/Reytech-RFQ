@@ -35,6 +35,7 @@ SIGN_FIELDS = {
     "Signature1_PD843",    # DVBE 1st block only
     "708_Signature15",     # GenAI 708
     "Signature_std21",     # STD 21 Drug-Free
+    "OBS 1600 Signature",  # OBS 1600 Food Cert — text field but needs signature image
 }
 # NOTE: Signature1 appears in 703B, 704B, and CalRecycle 74 — all get signed.
 # NOT signed: Signature2_darfur (Option #2), Signature2/3/4_PD843 (blocks 2-4)
@@ -199,7 +200,17 @@ def fill_and_sign_pdf(input_path, field_values, output_path,
             obj = annot.get_object()
             ft = str(obj.get("/FT", ""))
             name = str(obj.get("/T", ""))
-            if ft == "/Sig" and "/Rect" in obj:
+            if "/Rect" not in obj:
+                continue
+            # Overlay signature on /Sig fields
+            if ft == "/Sig":
+                try:
+                    r = [float(x) for x in obj["/Rect"]]
+                    sig_entries.append((name, r))
+                except Exception:
+                    pass
+            # Also overlay on text fields that are in the SIGN_FIELDS whitelist
+            elif name in SIGN_FIELDS:
                 try:
                     r = [float(x) for x in obj["/Rect"]]
                     sig_entries.append((name, r))

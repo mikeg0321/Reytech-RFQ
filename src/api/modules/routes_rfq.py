@@ -1673,6 +1673,13 @@ def api_generate_obs1600(rid):
                     if bid_pkg: break
                 if bid_pkg: break
         
+        # Fallback: use saved CDCR bid package template
+        if not bid_pkg:
+            default_tmpl = os.path.join(os.path.dirname(__file__), "..", "..", "..", "data", "templates", "cdcr_bid_package_template.pdf")
+            if os.path.exists(default_tmpl):
+                bid_pkg = default_tmpl
+                t.step("Using saved CDCR bid package template")
+        
         # Build rfq_data for the filler
         rfq_data = {
             "solicitation_number": sol,
@@ -1816,3 +1823,156 @@ def api_download_file(sol, filename):
         return jsonify({"ok": False, "error": "File not found"}), 404
     from flask import send_file
     return send_file(filepath, as_attachment=True, download_name=filename)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Fill ALL Bid Package Forms (CUF, Darfur, DVBE, CalRecycle, OBS 1600, etc.)
+# ═══════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/rfq/<rid>/fill-bid-package", methods=["POST"])
+@auth_required
+def api_fill_bid_package(rid):
+    """Fill ALL forms in the CDCR bid package for an RFQ."""
+    from src.api.trace import Trace
+    t = Trace("fill_bid_package", rfq_id=rid)
+    
+    try:
+        from src.forms.reytech_filler_v4 import load_config, fill_bid_package, get_pst_date
+        
+        rfqs = load_rfqs()
+        r = rfqs.get(rid)
+        if not r:
+            t.fail("RFQ not found")
+            return jsonify({"ok": False, "error": "RFQ not found"}), 404
+        
+        config = load_config()
+        sol = r.get("solicitation_number", "unknown")
+        
+        # Get items
+        items = r.get("line_items", [])
+        if not items:
+            items = r.get("items_detail", r.get("items", []))
+            if isinstance(items, str):
+                import json as _json
+                try: items = _json.loads(items)
+                except: items = []
+        
+        # Find template
+        bid_pkg = None
+        tmpl = r.get("templates", {})
+        if tmpl.get("bidpkg") and os.path.exists(tmpl["bidpkg"]):
+            bid_pkg = tmpl["bidpkg"]
+        
+        # Fallback to saved template
+        if not bid_pkg:
+            default_tmpl = os.path.join(os.path.dirname(__file__), "..", "..", "..", "data", "templates", "cdcr_bid_package_template.pdf")
+            if os.path.exists(default_tmpl):
+                bid_pkg = default_tmpl
+        
+        if not bid_pkg:
+            t.fail("No bid package template found")
+            return jsonify({"ok": False, "error": "No bid package template found. Upload one at /form-filler or place in data/templates/"}), 400
+        
+        out_dir = os.path.join(os.path.dirname(__file__), "..", "..", "..", "data", "output", sol)
+        os.makedirs(out_dir, exist_ok=True)
+        output_path = os.path.join(out_dir, f"{sol}_BidPackage_Reytech.pdf")
+        
+        rfq_data = {
+            "solicitation_number": sol,
+            "sign_date": get_pst_date(),
+            "line_items": items,
+        }
+        
+        fill_bid_package(bid_pkg, rfq_data, config, output_path)
+        
+        # Count food items
+        from src.forms.food_classifier import get_food_items_for_obs1600
+        food_items = get_food_items_for_obs1600(items)
+        
+        t.ok(f"Filled bid package: {len(items)} items, {len(food_items)} food items")
+        
+        return jsonify({
+            "ok": True,
+            "filename": os.path.basename(output_path),
+            "download_url": f"/api/download/{sol}/{os.path.basename(output_path)}",
+            "total_items": len(items),
+            "food_items": len(food_items),
+            "forms_filled": ["CUF", "Darfur", "Bidder Declaration", "DVBE", "Drug-Free", "CalRecycle", "OBS 1600"],
+        })
+    except Exception as e:
+        import traceback
+        t.fail(str(e))
+        return jsonify({"ok": False, "error": str(e), "trace": traceback.format_exc()}), 500
+
+
+@bp.route("/api/fill-forms", methods=["POST"])
+@auth_required
+def api_fill_forms_standalone():
+    """Standalone form filler — fill bid package from manually entered items.
+    Body: {
+        "solicitation_number": "...",
+        "items": [{"line_number": 1, "description": "..."}],
+        "fill_type": "all" | "obs1600_only"
+    }
+    """
+    from src.api.trace import Trace
+    t = Trace("fill_forms_standalone")
+    
+    try:
+        from src.forms.reytech_filler_v4 import load_config, fill_bid_package, fill_obs1600, get_pst_date
+        from src.forms.food_classifier import get_food_items_for_obs1600
+        
+        data = request.get_json(force=True)
+        sol = data.get("solicitation_number", "STANDALONE")
+        items = data.get("items", [])
+        fill_type = data.get("fill_type", "all")
+        
+        if not items:
+            return jsonify({"ok": False, "error": "No items provided"}), 400
+        
+        config = load_config()
+        
+        # Find template
+        bid_pkg = os.path.join(os.path.dirname(__file__), "..", "..", "..", "data", "templates", "cdcr_bid_package_template.pdf")
+        if not os.path.exists(bid_pkg):
+            return jsonify({"ok": False, "error": "No bid package template found. Upload cdcr_bid_package_template.pdf to data/templates/"}), 400
+        
+        out_dir = os.path.join(os.path.dirname(__file__), "..", "..", "..", "data", "output", sol)
+        os.makedirs(out_dir, exist_ok=True)
+        
+        rfq_data = {
+            "solicitation_number": sol,
+            "sign_date": get_pst_date(),
+            "line_items": items,
+        }
+        
+        food_items = get_food_items_for_obs1600(items)
+        
+        if fill_type == "obs1600_only":
+            output_path = os.path.join(out_dir, f"{sol}_OBS1600_FoodCert_Reytech.pdf")
+            fill_obs1600(bid_pkg, rfq_data, config, output_path, food_items=food_items)
+        else:
+            output_path = os.path.join(out_dir, f"{sol}_BidPackage_Reytech.pdf")
+            fill_bid_package(bid_pkg, rfq_data, config, output_path)
+        
+        t.ok(f"Filled {fill_type}: {sol}, {len(food_items)} food items")
+        
+        return jsonify({
+            "ok": True,
+            "filename": os.path.basename(output_path),
+            "download_url": f"/api/download/{sol}/{os.path.basename(output_path)}",
+            "food_items": food_items,
+            "food_count": len(food_items),
+            "total_items": len(items),
+        })
+    except Exception as e:
+        import traceback
+        t.fail(str(e))
+        return jsonify({"ok": False, "error": str(e), "trace": traceback.format_exc()}), 500
+
+
+@bp.route("/form-filler")
+@auth_required
+def form_filler_page():
+    """Standalone form filler page."""
+    return render_template("form_filler.html", active_page="Forms")
