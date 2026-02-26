@@ -182,6 +182,33 @@ def _check_templates():
 
 check("Jinja2 templates compile", _check_templates)
 
+# 8. Duplicate function names across route modules (Flask AssertionError)
+print("\n[8] Duplicate endpoint check...")
+def _check_duplicate_endpoints():
+    import re
+    from collections import defaultdict
+    funcs = defaultdict(list)
+    modules_dir = os.path.join("src", "api", "modules")
+    if not os.path.isdir(modules_dir):
+        return
+    for fname in sorted(os.listdir(modules_dir)):
+        if not fname.endswith(".py"):
+            continue
+        fpath = os.path.join(modules_dir, fname)
+        with open(fpath) as f:
+            for i, line in enumerate(f, 1):
+                m = re.match(r'^def (\w+)\(', line)
+                if m:
+                    funcs[m.group(1)].append(f"{fname}:{i}")
+    dupes = {k: v for k, v in funcs.items() if len(v) > 1}
+    if dupes:
+        issues = []
+        for name, locs in sorted(dupes.items()):
+            issues.append(f"DUPLICATE def {name}() in: {', '.join(locs)}")
+        raise ValueError("\n  ".join(["Flask will crash on duplicate endpoints:"] + issues))
+
+check("no duplicate endpoint functions", _check_duplicate_endpoints)
+
 # Summary
 print(f"\n{'═'*40}")
 if ERRORS:
