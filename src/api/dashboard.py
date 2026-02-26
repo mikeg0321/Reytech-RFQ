@@ -2940,12 +2940,20 @@ def api_email_trace():
         })
     
     # Diagnostic only
+    diag = {}
+    if _shared_poller and hasattr(_shared_poller, '_diag'):
+        raw = _shared_poller._diag
+        # Convert sets to lists for JSON
+        diag = {k: (list(v) if isinstance(v, set) else v) for k, v in raw.items()}
+    
     return jsonify({
         "processed_on_disk": len(processed_disk),
         "processed_in_memory": len(poller_mem),
         "poller_exists": _shared_poller is not None,
         "disk_uids": processed_disk,
         "memory_uids": poller_mem,
+        "last_poll_diag": diag,
+        "poll_status": dict(POLL_STATUS),
         "hint": "Add ?action=nuke to clear everything, then hit Check Now",
     })
 
