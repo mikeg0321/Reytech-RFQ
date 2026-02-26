@@ -1546,3 +1546,273 @@ def api_email_history():
             return jsonify({"ok": True, "emails": [dict(r) for r in rows], "count": len(rows)})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
+
+# ═══════════════════════════════════════════════════════════════════════
+# OBS 1600 — CA Agricultural Food Product Certification
+# ═══════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/food-classify", methods=["POST"])
+@auth_required
+def api_food_classify():
+    """Classify quote/RFQ items into CDCR food category codes.
+    Body: {"items": [{"description": "..."}, ...]}
+    Returns classified items with food codes.
+    """
+    try:
+        from src.forms.food_classifier import classify_quote_items, is_food_item
+        data = request.get_json(force=True)
+        items = data.get("items", [])
+        classified = classify_quote_items(items)
+        food_count = sum(1 for r in classified if r['is_food'])
+        return jsonify({"ok": True, "items": classified, "food_count": food_count,
+                        "total_count": len(classified)})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route("/api/rfq/<rid>/obs1600", methods=["POST"])
+@auth_required
+def api_generate_obs1600(rid):
+    """Generate filled OBS 1600 food certification form for an RFQ.
+    Uses the bid package PDF if available, or a standalone template.
+    """
+    from src.api.trace import Trace
+    t = Trace("obs1600_fill", rfq_id=rid)
+    
+    try:
+        from src.forms.reytech_filler_v4 import load_config, fill_obs1600, fill_obs1600_fields, get_pst_date, fill_and_sign_pdf
+        from src.forms.food_classifier import classify_food_item, get_food_items_for_obs1600
+        
+        rfqs = load_rfqs()
+        r = rfqs.get(rid)
+        if not r:
+            t.fail("RFQ not found")
+            return jsonify({"ok": False, "error": "RFQ not found"}), 404
+        
+        config = load_config()
+        sol = r.get("solicitation_number", "unknown")
+        
+        # Get items — try line_items first, then items_detail from quote
+        items = r.get("line_items", [])
+        if not items:
+            items = r.get("items_detail", r.get("items", []))
+            if isinstance(items, str):
+                import json as _json
+                try: items = _json.loads(items)
+                except: items = []
+        
+        # Classify food items
+        food_items = get_food_items_for_obs1600(items)
+        
+        if not food_items:
+            t.step("No food items found", item_count=len(items))
+            return jsonify({"ok": False, "error": "No food items found in this RFQ. Only food products need the OBS 1600 form.",
+                            "items_checked": len(items)}), 400
+        
+        t.step("Classified food items", food_count=len(food_items),
+               items=[f"{fi['description'][:40]} → Code {fi['code']}" for fi in food_items[:5]])
+        
+        # Output directory
+        out_dir = os.path.join(os.path.dirname(__file__), "..", "..", "..", "data", "output", sol)
+        os.makedirs(out_dir, exist_ok=True)
+        
+        # Find bid package template — use RFQ's stored template paths
+        bid_pkg = None
+        tmpl = r.get("templates", {})
+        
+        # Check bid package template from RFQ data
+        if tmpl.get("bidpkg") and os.path.exists(tmpl["bidpkg"]):
+            bid_pkg = tmpl["bidpkg"]
+        
+        # Try to restore from DB if not on disk
+        if not bid_pkg:
+            try:
+                from src.core.db import get_db
+                with get_db() as conn:
+                    db_files = conn.execute(
+                        "SELECT id, filename, file_type FROM rfq_files WHERE rfq_id=? AND category='template'",
+                        (rid,)).fetchall()
+                    for db_f in db_files:
+                        fname = db_f["filename"].lower()
+                        if "bid" in fname or "package" in fname or "form" in fname:
+                            full_f_row = conn.execute("SELECT data FROM rfq_files WHERE id=?", (db_f["id"],)).fetchone()
+                            if full_f_row and full_f_row["data"]:
+                                restore_dir = os.path.join(os.path.dirname(__file__), "..", "..", "..", "data", "rfq_templates", rid)
+                                os.makedirs(restore_dir, exist_ok=True)
+                                restore_path = os.path.join(restore_dir, db_f["filename"])
+                                with open(restore_path, "wb") as _fw:
+                                    _fw.write(full_f_row["data"])
+                                bid_pkg = restore_path
+                                t.step(f"Restored bid package from DB: {db_f['filename']}")
+                                break
+            except Exception as db_err:
+                t.step(f"DB restore failed: {db_err}")
+        
+        # Check uploaded files directory
+        if not bid_pkg:
+            import glob
+            for pattern in [f"*{sol}*BID*PACKAGE*", f"*{sol}*bid*pack*", f"*{sol}*form*", f"*{sol}*.pdf"]:
+                for search_dir in ["data/uploads", "data/rfq_templates", f"data/output/{sol}"]:
+                    matches = glob.glob(os.path.join(os.path.dirname(__file__), "..", "..", "..", search_dir, pattern))
+                    for m in matches:
+                        # Verify it has OBS 1600 fields
+                        try:
+                            from pypdf import PdfReader
+                            _r = PdfReader(m)
+                            for page in _r.pages:
+                                if "/Annots" in page:
+                                    for annot in page["/Annots"]:
+                                        obj = annot.get_object()
+                                        if "OBS 1600" in str(obj.get("/T", "")):
+                                            bid_pkg = m
+                                            break
+                                if bid_pkg: break
+                        except:
+                            pass
+                        if bid_pkg: break
+                    if bid_pkg: break
+                if bid_pkg: break
+        
+        # Build rfq_data for the filler
+        rfq_data = {
+            "solicitation_number": sol,
+            "sign_date": get_pst_date(),
+            "line_items": items,
+        }
+        
+        output_path = os.path.join(out_dir, f"{sol}_OBS1600_FoodCert_Reytech.pdf")
+        
+        if bid_pkg and os.path.exists(bid_pkg):
+            # Fill OBS 1600 fields in the existing bid package
+            fill_obs1600(bid_pkg, rfq_data, config, output_path, food_items=food_items)
+            t.ok(f"Filled from bid package template: {os.path.basename(bid_pkg)}")
+        else:
+            # Generate standalone OBS 1600 using reportlab
+            _generate_standalone_obs1600(food_items, config, rfq_data, output_path)
+            t.ok("Generated standalone OBS 1600")
+        
+        return jsonify({
+            "ok": True,
+            "file": output_path,
+            "filename": os.path.basename(output_path),
+            "food_items": food_items,
+            "food_count": len(food_items),
+            "download_url": f"/api/download/{sol}/{os.path.basename(output_path)}",
+        })
+        
+    except Exception as e:
+        import traceback
+        t.fail(str(e))
+        return jsonify({"ok": False, "error": str(e), "trace": traceback.format_exc()}), 500
+
+
+def _generate_standalone_obs1600(food_items, config, rfq_data, output_path):
+    """Generate a standalone OBS 1600 PDF using reportlab when no template is available."""
+    from reportlab.lib.pagesizes import letter
+    from reportlab.pdfgen import canvas as rl_canvas
+    from reportlab.lib.units import inch
+    
+    company = config["company"]
+    sol = rfq_data.get("solicitation_number", "")
+    sign_date = rfq_data.get("sign_date", "")
+    
+    c = rl_canvas.Canvas(output_path, pagesize=letter)
+    w, h = letter
+    
+    # Header
+    c.setFont("Helvetica-Bold", 9)
+    c.drawString(0.5*inch, h - 0.5*inch, "California Department of Corrections and Rehabilitation/California Correctional Health Care Services")
+    c.setFont("Helvetica", 8)
+    c.drawString(0.5*inch, h - 0.65*inch, "Office of Business Services - Non-IT Goods Procurement/Acquisitions Management Section, Procurement Services")
+    c.drawString(0.5*inch, h - 0.8*inch, "OBS 1600 (Rev. 1/26)")
+    
+    # Title
+    c.setFont("Helvetica-Bold", 12)
+    c.drawCentredString(w/2, h - 1.2*inch, "California-Grown/Produced Agricultural Food Products Vendor Certification")
+    
+    # Vendor info
+    y = h - 1.6*inch
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(0.5*inch, y, f"Vendor Name : {company['name']}")
+    y -= 0.25*inch
+    c.drawString(0.5*inch, y, f"Solicitation # : {sol}")
+    
+    # Table header
+    y -= 0.45*inch
+    c.setFont("Helvetica-Bold", 8)
+    col_x = [0.5*inch, 1.2*inch, 4.5*inch, 5.2*inch, 6.2*inch]
+    headers = ["Quoted Line\nItem #", "Food Product Description", "Code", "CA-Grown\nor Produced\n(Yes/No)", "If Yes, % of\nProduct"]
+    
+    # Header row background
+    c.setFillColorRGB(0.9, 0.9, 0.9)
+    c.rect(0.5*inch, y - 0.15*inch, 7*inch, 0.45*inch, fill=True, stroke=True)
+    c.setFillColorRGB(0, 0, 0)
+    
+    for i, hdr in enumerate(headers):
+        lines = hdr.split("\n")
+        for j, line in enumerate(lines):
+            c.drawString(col_x[i] + 0.05*inch, y + 0.2*inch - j*0.12*inch, line)
+    
+    # Data rows
+    y -= 0.35*inch
+    c.setFont("Helvetica", 9)
+    for item in food_items[:18]:
+        y -= 0.28*inch
+        c.line(0.5*inch, y - 0.05*inch, 7.5*inch, y - 0.05*inch)
+        c.drawString(col_x[0] + 0.1*inch, y + 0.05*inch, str(item.get("line_number", "")))
+        c.drawString(col_x[1] + 0.05*inch, y + 0.05*inch, item.get("description", "")[:55])
+        c.drawCentredString(col_x[2] + 0.35*inch, y + 0.05*inch, str(item.get("code", "")))
+        c.drawCentredString(col_x[3] + 0.4*inch, y + 0.05*inch, item.get("ca_grown", "No"))
+        c.drawCentredString(col_x[4] + 0.4*inch, y + 0.05*inch, item.get("pct", "N/A"))
+    
+    # Fill remaining empty rows
+    for _ in range(18 - len(food_items)):
+        y -= 0.28*inch
+        c.line(0.5*inch, y - 0.05*inch, 7.5*inch, y - 0.05*inch)
+    
+    # Table border
+    table_top = h - 2.1*inch
+    c.rect(0.5*inch, y - 0.05*inch, 7*inch, table_top - (y - 0.05*inch))
+    
+    # Certification text
+    y -= 0.45*inch
+    c.setFont("Helvetica", 7.5)
+    c.drawString(0.5*inch, y, "Pursuant to California Code, Food and Agricultural Code, Section 58595(a), I certify under the laws of the State of California")
+    y -= 0.15*inch
+    c.drawString(0.5*inch, y, "that the above information is true and correct.")
+    
+    # Signature block
+    y -= 0.4*inch
+    c.setFont("Helvetica", 10)
+    c.drawString(0.5*inch, y, company["owner"])
+    c.drawString(3.2*inch, y, company["title"])
+    c.drawString(5.5*inch, y, sign_date)
+    
+    y -= 0.15*inch
+    c.line(0.5*inch, y, 2.8*inch, y)
+    c.line(3.2*inch, y, 4.8*inch, y)
+    c.line(5.5*inch, y, 7.5*inch, y)
+    
+    y -= 0.15*inch
+    c.setFont("Helvetica-Bold", 8)
+    c.drawString(0.5*inch, y, "Print Name")
+    c.drawString(2.2*inch, y, "Signature")
+    c.drawString(3.2*inch, y, "Title")
+    c.drawString(5.5*inch, y, "Date")
+    
+    c.save()
+
+
+@bp.route("/api/download/<sol>/<filename>")
+@auth_required
+def api_download_file(sol, filename):
+    """Download a generated file."""
+    import re as _re
+    # Sanitize inputs
+    sol = _re.sub(r'[^a-zA-Z0-9_-]', '', sol)
+    filename = os.path.basename(filename)
+    filepath = os.path.join(os.path.dirname(__file__), "..", "..", "..", "data", "output", sol, filename)
+    if not os.path.exists(filepath):
+        return jsonify({"ok": False, "error": "File not found"}), 404
+    from flask import send_file
+    return send_file(filepath, as_attachment=True, download_name=filename)

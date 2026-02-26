@@ -326,6 +326,85 @@ def fill_704b(input_path, rfq_data, config, output_path):
     print(f"  ✓ 704B filled + signed — ${merchandise_subtotal:,.2f}")
 
 
+def fill_obs1600_fields(rfq_data, config, food_items=None):
+    """
+    Build field values dict for OBS 1600 (CA Agricultural Food Product Certification).
+    
+    Args:
+        rfq_data: RFQ data dict with 'line_items' or 'items'
+        config: Config dict with company info
+        food_items: Pre-classified food items (optional; will auto-classify if None)
+    
+    Returns:
+        dict of field_id -> value for all OBS 1600 fields
+    """
+    from src.forms.food_classifier import classify_food_item, is_food_item
+    
+    company = config["company"]
+    sign_date = rfq_data.get("sign_date", get_pst_date())
+    
+    # Get items from rfq_data
+    items = rfq_data.get("line_items", rfq_data.get("items", rfq_data.get("items_detail", [])))
+    if isinstance(items, str):
+        import json as _json
+        try: items = _json.loads(items)
+        except: items = []
+    
+    # Classify food items if not pre-classified
+    if food_items is None:
+        food_items = []
+        for item in items:
+            desc = item.get("description", "")
+            code, cat = classify_food_item(desc)
+            if code is not None:
+                food_items.append({
+                    "line_number": item.get("line_number", len(food_items) + 1),
+                    "description": desc,
+                    "code": code,
+                    "ca_grown": "No",
+                    "pct": "N/A",
+                })
+    
+    values = {}
+    
+    # Clear ALL 18 rows first (in case template has pre-filled data)
+    for row in range(1, 19):
+        values[f"OBS 1600 PG 1 LI # - ROW {row}"] = ""
+        values[f"OBS 1600 FOOD PROD PG 1 - ROW {row}"] = ""
+        values[f"OBS 1600 PG 1 CODE - ROW {row}"] = ""
+        values[f"OBS 1600 CA GROWN PG1 - ROW {row}"] = ""
+        values[f"OBS 1600 % OF PRODUCT PG 1 - ROW {row}"] = ""
+    
+    # Fill rows 1-18 with food items
+    for i, item in enumerate(food_items[:18]):
+        row = i + 1
+        values[f"OBS 1600 PG 1 LI # - ROW {row}"] = str(item.get("line_number", row))
+        values[f"OBS 1600 FOOD PROD PG 1 - ROW {row}"] = item.get("description", "")[:80]
+        values[f"OBS 1600 PG 1 CODE - ROW {row}"] = str(item.get("code", ""))
+        values[f"OBS 1600 CA GROWN PG1 - ROW {row}"] = item.get("ca_grown", "No")
+        values[f"OBS 1600 % OF PRODUCT PG 1 - ROW {row}"] = item.get("pct", "N/A")
+    
+    # Signature block
+    values["OBS 1600 Print Name"] = company["owner"]
+    values["OBS 1600 Title"] = company["title"]
+    values["OBS 1600 Date"] = sign_date
+    
+    return values
+
+
+def fill_obs1600(input_path, rfq_data, config, output_path, food_items=None):
+    """
+    Fill OBS 1600 form as standalone PDF.
+    Uses fillable fields if present, otherwise overlays text.
+    """
+    sign_date = rfq_data.get("sign_date", get_pst_date())
+    values = fill_obs1600_fields(rfq_data, config, food_items)
+    fill_and_sign_pdf(input_path, values, output_path, sign_date=sign_date)
+    actual_food = len([k for k in values if 'FOOD PROD' in k and values[k]])
+    sol = rfq_data.get("solicitation_number", "")
+    print(f"  ✓ OBS 1600 Food Certification filled ({sol}, {actual_food} food items)")
+
+
 def fill_bid_package(input_path, rfq_data, config, output_path):
     company = config["company"]
     sol = rfq_data.get("solicitation_number", "")
@@ -391,8 +470,14 @@ def fill_bid_package(input_path, rfq_data, config, output_path):
         "Date_PD802": sign_date,
     }
 
+    # ── OBS 1600: Auto-fill food items if present in RFQ ──
+    obs1600_values = fill_obs1600_fields(rfq_data, config)
+    values.update(obs1600_values)
+
     fill_and_sign_pdf(input_path, values, output_path, sign_date=sign_date)
-    print(f"  ✓ Bid Package filled + signed ({sol})")
+    food_count = len([k for k in obs1600_values if 'FOOD PROD' in k and obs1600_values[k]])
+    extra = f", {food_count} food items" if food_count else ""
+    print(f"  ✓ Bid Package filled + signed ({sol}{extra})")
 
 
 # ═══════════════════════════════════════════════════════════════════════

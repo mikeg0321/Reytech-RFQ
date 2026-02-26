@@ -18,7 +18,7 @@ if _project_root not in sys.path:
 
 # Import from src modules (with fallback to root-level imports)
 try:
-    from src.forms.reytech_filler_v4 import (load_config, get_pst_date, fill_703b, fill_704b, fill_bid_package)
+    from src.forms.reytech_filler_v4 import (load_config, get_pst_date, fill_703b, fill_704b, fill_bid_package, fill_obs1600, fill_obs1600_fields)
 except ImportError:
     from reytech_filler_v4 import (load_config, get_pst_date, fill_703b, fill_704b, fill_bid_package)
 
@@ -2764,6 +2764,7 @@ _ROUTE_MODULES = [
     "routes_order_tracking",  # PRD-29: PO tracking, separate email inbox, line item lifecycle
     "routes_growth_intel",    # Features #8,10,11,13: Catalog growth, price alerts, win/loss, outreach
     "routes_features",        # 24 new endpoints: QB actions, pipeline, catalog intel, system, data quality
+    "routes_features2",       # 17 new endpoints: customer health, CLV, sales velocity, agency penetration
 ]
 
 for _mod in _ROUTE_MODULES:

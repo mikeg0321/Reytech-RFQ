@@ -336,6 +336,13 @@ h1 { font-size:22px; margin-bottom:4px; }
   <button class="btn" onclick="ac(this,'/api/qb/profit-margins')"><span class="label">💹 Profit Margins</span><span class="desc">By customer & product</span><span class="spin"></span></button>
   <button class="btn" onclick="ac(this,'/api/qb/expense-summary')"><span class="label">📉 Expenses</span><span class="desc">Category breakdown</span><span class="spin"></span></button>
  </div>
+ <div class="step-label">Customer Intelligence</div>
+ <div class="grid" style="margin-bottom:12px">
+  <button class="btn btn-go" onclick="ac(this,'/api/qb/customer-health')"><span class="label">❤️ Customer Health</span><span class="desc">Payment reliability scores</span><span class="spin"></span></button>
+  <button class="btn" onclick="ac(this,'/api/qb/customer-lifetime-value')"><span class="label">💎 Customer LTV</span><span class="desc">Lifetime value projection</span><span class="spin"></span></button>
+  <button class="btn" onclick="ac(this,'/api/qb/payment-aging-trend')"><span class="label">📈 Payment Trends</span><span class="desc">How fast customers pay</span><span class="spin"></span></button>
+  <button class="btn" onclick="ac(this,'/api/system/heartbeat')"><span class="label">💓 System Heartbeat</span><span class="desc">All subsystems at once</span><span class="spin"></span></button>
+ </div>
  <div class="env-box">
   <div style="color:var(--warn);margin-bottom:4px">Railway env vars needed:</div>
   <div>QB_CLIENT_ID=... &nbsp; QB_CLIENT_SECRET=...</div>
@@ -392,6 +399,13 @@ h1 { font-size:22px; margin-bottom:4px; }
   <button class="btn" onclick="ac(this,'/api/pipeline/revenue-goal')"><span class="label">🎯 $2M Goal Tracker</span><span class="desc">Monthly projections</span><span class="spin"></span></button>
   <button class="btn" onclick="ac(this,'/api/pipeline/conversion-funnel')"><span class="label">📊 Conversion Funnel</span><span class="desc">Stage-by-stage drop-off</span><span class="spin"></span></button>
   <button class="btn" onclick="ac(this,'/api/pipeline/avg-deal-size')"><span class="label">📏 Avg Deal Size</span><span class="desc">By agency & category</span><span class="spin"></span></button>
+  <button class="btn btn-go" onclick="ac(this,'/api/pipeline/sales-velocity')"><span class="label">🚀 Sales Velocity</span><span class="desc">Deal speed metrics</span><span class="spin"></span></button>
+  <button class="btn" onclick="ac(this,'/api/pipeline/weekly-summary')"><span class="label">📅 Weekly Summary</span><span class="desc">This week's activity</span><span class="spin"></span></button>
+  <button class="btn" onclick="ac(this,'/api/pipeline/po-match')"><span class="label">🔗 PO Match</span><span class="desc">Match POs to quotes</span><span class="spin"></span></button>
+  <button class="btn btn-go" onclick="ac(this,'/api/quotes/auto-follow-up')"><span class="label">📧 Auto Follow-Up</span><span class="desc">Stale quotes 3+ days</span><span class="spin"></span></button>
+  <button class="btn" onclick="ac(this,'/api/quotes/expiring')"><span class="label">⏰ Expiring Quotes</span><span class="desc">Expires within 7 days</span><span class="spin"></span></button>
+  <button class="btn" onclick="draftFollowUp()"><span class="label">✏️ Draft Follow-Up</span><span class="desc">Email for stale quote</span><span class="spin"></span></button>
+  <button class="btn btn-go" onclick="ac(this,'/api/dashboard/morning-brief')"><span class="label">☀️ Morning Brief</span><span class="desc">Today's consolidated brief</span><span class="spin"></span></button>
  </div></div>
 </div>
 
@@ -407,6 +421,9 @@ h1 { font-size:22px; margin-bottom:4px; }
   <button class="btn" onclick="ac(this,'/api/catalog/margin-analysis')"><span class="label">💹 Margin Analysis</span><span class="desc">Products by margin tier</span><span class="spin"></span></button>
   <button class="btn" onclick="ac(this,'/api/catalog/top-quoted')"><span class="label">🏆 Most Quoted</span><span class="desc">Top 20 by frequency</span><span class="spin"></span></button>
   <button class="btn" onclick="quickQuote()"><span class="label">⚡ Quick Quote</span><span class="desc">Quote from catalog item</span><span class="spin"></span></button>
+  <button class="btn btn-go" onclick="ac(this,'/api/catalog/top-products-report')"><span class="label">📊 Top Products</span><span class="desc">Best quoted & margins</span><span class="spin"></span></button>
+  <button class="btn" onclick="ac(this,'/api/catalog/price-comparison')"><span class="label">💲 Price Compare</span><span class="desc">Our prices vs costs</span><span class="spin"></span></button>
+  <button class="btn" onclick="ac(this,'/api/catalog/reorder-alerts')"><span class="label">🔁 Reorder Alerts</span><span class="desc">Items needing re-quote</span><span class="spin"></span></button>
  </div></div>
 </div>
 
