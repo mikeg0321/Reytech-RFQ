@@ -2835,9 +2835,12 @@ def _force_recapture():
     except Exception:
         pass
     
+    global _shared_poller
+    
     # If nothing matched in queues but we have a keyword, 
     # nuke the processed list entirely so the email gets re-captured
     if not removed_rfqs and not removed_pcs and match_kw:
+        old_count = 0
         try:
             if os.path.exists(proc_file):
                 with open(proc_file) as f:
@@ -2845,19 +2848,16 @@ def _force_recapture():
                 old_count = len(proc_data) if isinstance(proc_data, list) else 0
                 os.remove(proc_file)
                 log.info("Force-recapture: no queue matches for '%s' — cleared %d processed UIDs", match_kw, old_count)
-                global _shared_poller
-                _shared_poller = None
-                return jsonify({
-                    "ok": True,
-                    "message": f"No RFQs/PCs matched '{match_kw}' but cleared {old_count} processed UIDs. Hit Check Now to re-import.",
-                    "cleared_uids": old_count,
-                })
-        except Exception as e:
+        except Exception:
             pass
-        return jsonify({"ok": False, "error": f"No matches for '{match_kw or exact_id}'"})
+        _shared_poller = None
+        return jsonify({
+            "ok": True,
+            "message": f"No RFQs/PCs matched '{match_kw}' but cleared {old_count} processed UIDs. Hit Check Now to re-import.",
+            "cleared_uids": old_count,
+        })
     
     # Reset poller so next Check Now uses fresh state
-    global _shared_poller
     _shared_poller = None
     
     return jsonify({
