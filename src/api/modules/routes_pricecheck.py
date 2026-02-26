@@ -1549,10 +1549,14 @@ def api_resync():
                 cleared_count += 1
         
         # Also build set of PC email_uids to skip (don't re-create PCs that already exist)
+        # BUT: exclude parse_error PCs with 0 items — those need re-processing after fixes
         pc_uids = set()
         for pc in pcs_before.values():
             uid = pc.get("email_uid")
             if uid:
+                # Skip broken PCs — they should be re-imported after a fix
+                if pc.get("status") == "parse_error" and not pc.get("items"):
+                    continue
                 pc_uids.add(uid)
         
         log.info("Resync: keeping %d terminal RFQs, clearing %d stale, %d PCs preserved",
@@ -1561,13 +1565,16 @@ def api_resync():
         # ── 2. Save only the kept RFQs ──
         save_rfqs(kept_rfqs)
         
-        # ── 3. Reset processed UIDs — BUT pre-seed with kept UIDs ──
-        # This way kept emails won't be re-imported as duplicates
+        # ── 3. Clear processed UIDs completely ──
+        # The dedup logic in process_rfq_email handles duplicates:
+        #   - email_uid match → skip
+        #   - solicitation_number match → skip or link as amendment
+        # So we don't need to pre-seed. This ensures emails that failed
+        # processing before (e.g. after a bug fix) get a fresh chance.
         proc_file = os.path.join(DATA_DIR, "processed_emails.json")
-        pre_seed = list(kept_by_uid | pc_uids)
-        with open(proc_file, "w") as f:
-            json.dump(pre_seed, f)
-        log.info("Reset processed_emails.json — pre-seeded %d UIDs from kept items", len(pre_seed))
+        if os.path.exists(proc_file):
+            os.remove(proc_file)
+        log.info("Resync: cleared processed_emails.json (dedup handles duplicates)")
         
         # ── 4. Reset poller + re-poll ──
         global _shared_poller
@@ -1616,6 +1623,78 @@ def _remove_processed_uid(uid):
                 json.dump(processed, f)
     except Exception as e:
         log.error(f"Error removing UID: {e}")
+
+
+@bp.route("/api/email-debug")
+@auth_required
+def api_email_debug():
+    """Diagnostic: show processed email count, poller state, recent traces."""
+    proc_file = os.path.join(DATA_DIR, "processed_emails.json")
+    proc_count = 0
+    try:
+        if os.path.exists(proc_file):
+            with open(proc_file) as f:
+                proc_data = json.load(f)
+                proc_count = len(proc_data) if isinstance(proc_data, (list, dict)) else 0
+    except Exception:
+        pass
+    
+    # Get poller diagnostics
+    diag = {}
+    global _shared_poller
+    if _shared_poller and hasattr(_shared_poller, '_diag'):
+        diag = _shared_poller._diag.copy()
+        diag.pop("subjects_seen", None)  # too verbose
+    
+    traces = POLL_STATUS.get("_email_traces", [])[-10:]
+    
+    return jsonify({
+        "ok": True,
+        "processed_count": proc_count,
+        "poll_status": {
+            "running": POLL_STATUS.get("running"),
+            "last_check": POLL_STATUS.get("last_check"),
+            "emails_found": POLL_STATUS.get("emails_found"),
+            "error": POLL_STATUS.get("error"),
+        },
+        "poller_diag": diag,
+        "recent_traces": traces,
+    })
+
+
+@bp.route("/api/force-reprocess", methods=["POST"])
+@auth_required
+def api_force_reprocess():
+    """Nuclear option: clear ALL processed UIDs and re-poll.
+    Use when a specific email isn't being picked up despite code fixes."""
+    proc_file = os.path.join(DATA_DIR, "processed_emails.json")
+    old_count = 0
+    
+    try:
+        if os.path.exists(proc_file):
+            with open(proc_file) as f:
+                old_data = json.load(f)
+                old_count = len(old_data) if isinstance(old_data, (list, dict)) else 0
+            os.remove(proc_file)
+            log.info("Force-reprocess: cleared %d processed UIDs", old_count)
+    except Exception as e:
+        log.error("Force-reprocess clear failed: %s", e)
+    
+    # Reset poller
+    global _shared_poller
+    _shared_poller = None
+    
+    # Re-poll
+    try:
+        imported = do_poll_check()
+        return jsonify({
+            "ok": True,
+            "cleared_uids": old_count,
+            "found": len(imported),
+            "rfqs": [{"id": r["id"], "sol": r.get("solicitation_number", "?")} for r in imported],
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
 
 
 @bp.route("/api/clear-queue")

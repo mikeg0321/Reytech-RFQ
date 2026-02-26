@@ -1700,12 +1700,13 @@ class EmailPoller:
                             "message_id": msg.get("Message-ID", ""),
                             "subject": subject,
                             "sender": sender,
-                            "sender_email": self._extract_email(sender),
+                            "sender_email": sender_email_raw if sender_email_raw else self._extract_email(sender),
                             "date": msg.get("Date"),
                             "solicitation_hint": extract_solicitation_number(subject, body, pdf_names),
                             "attachments": pc_attachments,
                             "rfq_dir": pc_rfq_dir,
                             "body_preview": body[:500] if body else "",
+                            "body_text": body or "",
                             "_pc_early_detect": True,  # Flag for process_rfq_email
                             "_pc_signals": pc_detect.get("signals", []),
                         }
@@ -1716,7 +1717,7 @@ class EmailPoller:
                         continue
                     # ── END EARLY PC DETECTION ─────────────────────────────────
 
-                    if not is_rfq_email(subject, body, pdf_names, sender_email=self._extract_email(sender)):
+                    if not is_rfq_email(subject, body, pdf_names, sender_email=sender_email_raw or self._extract_email(sender)):
                         # Not an RFQ — classify what kind of email it is
                         email_handled = False
 
@@ -1849,12 +1850,13 @@ class EmailPoller:
                             "message_id": msg.get("Message-ID", ""),
                             "subject": subject,
                             "sender": sender,
-                            "sender_email": self._extract_email(sender),
+                            "sender_email": sender_email_raw if sender_email_raw else self._extract_email(sender),
                             "date": msg["Date"],
                             "solicitation_hint": sol_num,
                             "attachments": attachments,
                             "rfq_dir": rfq_dir,
                             "body_preview": body[:500] if body else "",
+                            "body_text": body or "",
                         }
                         results.append(rfq_info)
                         self._diag["rfq_captured"] += 1

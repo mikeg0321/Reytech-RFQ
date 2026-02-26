@@ -148,3 +148,27 @@ document.addEventListener('click',function(e){
   try{var d=new Date(el.dataset.utc);if(!isNaN(d)){el.textContent=d.toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true})}}catch(e){}
  }
 })();
+
+// ══════════════════════════════════════════════════════════════════════════
+// FORCE REPROCESS: Clears ALL processed email UIDs and re-polls.
+// Use when an email isn't being picked up despite code fixes.
+// ══════════════════════════════════════════════════════════════════════════
+function forceReprocess(btn){
+ if(!confirm('FORCE REPROCESS:\n\n\u2022 Clears ALL processed email tracking\n\u2022 Re-scans entire inbox from scratch\n\u2022 May create duplicates of existing items\n\nUse ONLY when a specific email isn\'t being picked up.\nContinue?'))return;
+ btn.disabled=true;btn.textContent='\uD83D\uDD27';
+ btn.style.background='rgba(248,81,73,.15)';
+ fetch('/api/force-reprocess',{method:'POST',credentials:'same-origin'}).then(function(r){return r.json()}).then(function(d){
+  if(d.ok){
+   btn.textContent='\u2705';btn.style.background='rgba(52,211,153,.2)';
+   alert('Force reprocess complete:\n\u2022 Cleared '+d.cleared_uids+' tracked emails\n\u2022 Found '+d.found+' emails to import');
+   if(d.found>0)setTimeout(function(){location.reload()},500);
+   else setTimeout(function(){_resetBtn(btn,'\uD83D\uDD27')},2000);
+  }else{
+   alert('Error: '+(d.error||'unknown'));
+   setTimeout(function(){_resetBtn(btn,'\uD83D\uDD27')},2000);
+  }
+ }).catch(function(){
+  btn.textContent='\u274C';
+  setTimeout(function(){_resetBtn(btn,'\uD83D\uDD27')},2000);
+ });
+}

@@ -21,6 +21,7 @@
    <button class="mobile-toggle" onclick="document.querySelector('nav').classList.toggle('mobile-open')" aria-label="Toggle navigation menu">☰</button>
    <button class="hdr-btn" onclick="pollNow(this)" id="poll-btn" aria-label="Check for new emails now" style="padding:7px 14px;font-size:12px">⚡ Check Now</button>
    <button class="hdr-btn hdr-warn" onclick="resyncAll(this)" title="Re-import emails (keeps sent/won)" aria-label="Resync emails from inbox" style="padding:7px 14px;font-size:12px">🔄 Resync</button>
+   <button class="hdr-btn" onclick="forceReprocess(this)" title="Clear ALL processed emails and re-import everything" style="padding:7px 8px;font-size:11px;color:var(--tx2)" aria-label="Force reprocess all emails">🔧</button>
    <div style="position:relative" id="notif-wrap">
     <button class="notif-bell" onclick="toggleNotifPanel()" id="notif-bell-btn" aria-label="Notifications" title="Notifications">
      🔔<span class="notif-badge" id="notif-badge">0</span>
