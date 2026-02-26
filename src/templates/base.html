@@ -94,18 +94,18 @@
  {% else %}
    {% set top_names = ['PCs','Quotes','Orders','PO Track','Follow-Up','CRM','Catalog','Analytics','Pipeline'] %}
  {% endif %}
- <nav aria-label="Main navigation" style="overflow-x:auto;overflow-y:hidden;white-space:nowrap;padding-bottom:6px;margin:0 -28px;padding-left:28px;padding-right:28px;-webkit-overflow-scrolling:touch;scrollbar-width:thin;scrollbar-color:var(--bd) transparent">
-  <div style="display:inline-flex;align-items:center;gap:5px">
-   <a href="/" class="hdr-btn{% if active_page == 'Home' %} hdr-active{% endif %}" style="padding:7px 14px;font-size:12px;font-weight:600">🏠 Home</a>
+ <nav aria-label="Main navigation" style="padding-bottom:6px;margin:0 -28px;padding-left:28px;padding-right:28px">
+  <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">
+   <a href="/" class="hdr-btn{% if active_page == 'Home' %} hdr-active{% endif %}" style="padding:9px 18px;font-size:13px;font-weight:600;flex:1;text-align:center;min-width:0">🏠 Home</a>
    {% for href, label, name in all_pages %}
     {% if name in top_names %}
-   <a href="{{ href }}" class="hdr-btn{% if active_page == name %} hdr-active{% endif %}" style="padding:7px 14px;font-size:12px">{{ label }}</a>
+   <a href="{{ href }}" class="hdr-btn{% if active_page == name %} hdr-active{% endif %}" style="padding:9px 18px;font-size:13px;flex:1;text-align:center;min-width:0">{{ label }}</a>
     {% endif %}
    {% endfor %}
-   <a href="/settings#nav" class="hdr-btn" style="padding:7px 10px;font-size:12px" title="Nav & Settings">⚙️</a>
+   <a href="/settings#nav" class="hdr-btn" style="padding:9px 12px;font-size:13px" title="Nav & Settings">⚙️</a>
    <div style="position:relative;display:inline-block" id="more-nav">
-    <button class="hdr-btn" style="padding:7px 14px;font-size:12px" onclick="var m=document.getElementById('more-menu');m.style.display=m.style.display==='block'?'none':'block'">⋯ More</button>
-    <div id="more-menu" style="display:none;position:absolute;right:0;top:32px;background:var(--sf2);border:1px solid var(--bd);border-radius:8px;padding:4px 0;min-width:170px;z-index:100;box-shadow:0 4px 16px rgba(0,0,0,.4)">
+    <button class="hdr-btn" style="padding:9px 18px;font-size:13px" onclick="var m=document.getElementById('more-menu');m.style.display=m.style.display==='block'?'none':'block'">⋯ More</button>
+    <div id="more-menu" style="display:none;position:absolute;right:0;top:38px;background:var(--sf2);border:1px solid var(--bd);border-radius:8px;padding:4px 0;min-width:180px;z-index:9999;box-shadow:0 8px 24px rgba(0,0,0,.5)">
      {% for href, label, name in all_pages %}
       {% if name not in top_names %}
      <a href="{{ href }}" style="display:block;padding:8px 16px;font-size:13px;color:var(--tx);text-decoration:none;white-space:nowrap" onmouseover="this.style.background='var(--sf)'" onmouseout="this.style.background='transparent'">{{ label }}</a>
