@@ -1697,6 +1697,125 @@ def api_force_reprocess():
         return jsonify({"ok": False, "error": str(e)})
 
 
+@bp.route("/api/force-recapture", methods=["POST"])
+@auth_required
+def api_force_recapture():
+    """Delete a specific RFQ/PC by keyword match, clear its UID, and re-poll.
+    
+    POST body: {"match": "calvet"} or {"rfq_id": "exact_id"}
+    Searches solicitation_number, email_sender, email_subject, agency.
+    """
+    data = request.get_json(silent=True) or {}
+    match_kw = (data.get("match") or "").lower().strip()
+    exact_id = data.get("rfq_id", "").strip()
+    
+    if not match_kw and not exact_id:
+        return jsonify({"ok": False, "error": "Provide 'match' keyword or 'rfq_id'"})
+    
+    removed_rfqs = []
+    removed_pcs = []
+    cleared_uids = []
+    
+    # ── Remove matching RFQs ──
+    rfqs = load_rfqs()
+    to_remove = []
+    for rid, r in rfqs.items():
+        if exact_id and rid == exact_id:
+            to_remove.append(rid)
+        elif match_kw:
+            searchable = " ".join([
+                r.get("solicitation_number", ""),
+                r.get("email_sender", ""),
+                r.get("email_subject", ""),
+                r.get("agency", ""),
+                r.get("agency_name", ""),
+                r.get("requestor_email", ""),
+            ]).lower()
+            if match_kw in searchable:
+                to_remove.append(rid)
+    
+    for rid in to_remove:
+        r = rfqs.pop(rid)
+        uid = r.get("email_uid")
+        if uid:
+            cleared_uids.append(uid)
+        removed_rfqs.append({
+            "id": rid,
+            "sol": r.get("solicitation_number", "?"),
+            "sender": r.get("email_sender", "?"),
+            "items": len(r.get("line_items", [])),
+        })
+        log.info("Force-recapture: removed RFQ %s (sol=%s)", rid, r.get("solicitation_number", "?"))
+    
+    if to_remove:
+        save_rfqs(rfqs)
+    
+    # ── Remove matching PCs ──
+    pcs = _load_price_checks()
+    pc_remove = []
+    for pid, pc in pcs.items():
+        if exact_id and pid == exact_id:
+            pc_remove.append(pid)
+        elif match_kw:
+            searchable = " ".join([
+                pc.get("pc_number", ""),
+                pc.get("email_subject", ""),
+                pc.get("requestor", ""),
+                str(pc.get("institution", "")),
+            ]).lower()
+            if match_kw in searchable:
+                pc_remove.append(pid)
+    
+    for pid in pc_remove:
+        pc = pcs.pop(pid)
+        uid = pc.get("email_uid")
+        if uid:
+            cleared_uids.append(uid)
+        removed_pcs.append({"id": pid, "pc_number": pc.get("pc_number", "?")})
+        log.info("Force-recapture: removed PC %s", pid)
+    
+    if pc_remove:
+        _save_price_checks(pcs)
+    
+    # ── Clear UIDs from processed list ──
+    if cleared_uids:
+        proc_file = os.path.join(DATA_DIR, "processed_emails.json")
+        try:
+            if os.path.exists(proc_file):
+                with open(proc_file) as f:
+                    processed = json.load(f)
+                if isinstance(processed, list):
+                    before = len(processed)
+                    processed = [u for u in processed if u not in cleared_uids]
+                    with open(proc_file, "w") as f:
+                        json.dump(processed, f)
+                    log.info("Cleared %d UIDs from processed list", before - len(processed))
+        except Exception as e:
+            log.warning("UID clearing failed: %s", e)
+    
+    if not removed_rfqs and not removed_pcs:
+        return jsonify({"ok": False, "error": f"No matches found for '{match_kw or exact_id}'"})
+    
+    # ── Reset poller and re-poll ──
+    global _shared_poller
+    _shared_poller = None
+    
+    try:
+        imported = do_poll_check()
+    except Exception as e:
+        imported = []
+        log.error("Re-poll failed: %s", e)
+    
+    return jsonify({
+        "ok": True,
+        "removed_rfqs": removed_rfqs,
+        "removed_pcs": removed_pcs,
+        "cleared_uids": len(cleared_uids),
+        "reimported": len(imported),
+        "new_rfqs": [{"id": r["id"], "sol": r.get("solicitation_number", "?")} for r in imported],
+    })
+
+
 @bp.route("/api/clear-queue")
 @auth_required
 def api_clear_queue():
