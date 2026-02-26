@@ -197,6 +197,48 @@ FOOD_INDICATORS = [
     r'\bcereal\b', r'\boatmeal\b', r'\bnoodle',
     r'\btortilla\b', r'\bcrackers?\b', r'\bcookie',
     r'\bjuice\b', r'\bwater\b.*(?:spring|bottled)',
+    # Fruits & vegetables (missing before)
+    r'\btomato', r'\bpotato', r'\bonion', r'\bgarlic\b',
+    r'\blettuce\b', r'\bcarrot', r'\bcelery\b', r'\bcorn\b',
+    r'\bpepper\b', r'\bbroccoli\b', r'\bcabbage\b', r'\bspinach\b',
+    r'\bcucumber\b', r'\bsquash\b', r'\bzucchini\b', r'\byam\b',
+    r'\bsweet\s+potato', r'\bpeas?\b', r'\bmushroom',
+    r'\bapple\b', r'\borange\b', r'\bbanana', r'\bgrape',
+    r'\bstrawberr', r'\bblueberr', r'\braspberr', r'\bpeach',
+    r'\bpear\b', r'\bmelon\b', r'\bpineapple\b', r'\bmango\b',
+    r'\blemon\b', r'\blime\b', r'\bcherry\b', r'\bcherries\b',
+    r'\bavocado\b', r'\bplum\b', r'\bapricot\b', r'\bberr(?:y|ies)\b',
+    r'\bcitrus\b', r'\bfig\b', r'\bdate\b.*(?:fruit|dried|medjool)',
+    # Condiments, spreads, oils
+    r'\bjam\b', r'\bjelly\b', r'\bpreserve', r'\bmarmalade\b',
+    r'\bketchup\b', r'\bmustard\b', r'\bmayonnaise\b', r'\brelish\b',
+    r'\bvinegar\b', r'\bsalsa\b', r'\bdressing\b',
+    r'\bpeanut\s+butter\b', r'\balmond\s+butter\b',
+    r'\bolive\s+oil\b', r'\bvegetable\s+oil\b', r'\bcanola\b',
+    r'\bcooking\s+oil\b', r'\bshortening\b', r'\blard\b',
+    r'\bsalt\b', r'\bpepper\b', r'\bcinnamon\b', r'\bvanilla\b',
+    # Proteins
+    r'\bturkey\b', r'\bsalmon\b', r'\bshrimp\b', r'\bsausage\b',
+    r'\bbacon\b', r'\bham\b', r'\bhotdog\b', r'\bhot\s+dog\b',
+    r'\bground\b.*(?:beef|turkey|pork|meat)',
+    r'\bpatty\b', r'\bpatties\b', r'\bfillet\b', r'\bsteak\b',
+    r'\broast\b', r'\brib\b', r'\bwing', r'\bthigh\b', r'\bbreast\b',
+    r'\btofu\b', r'\btempeh\b',
+    # Baking & pantry
+    r'\bbaking', r'\byeast\b', r'\bcornstarch\b', r'\bcornmeal\b',
+    r'\bpancake\b', r'\bwaffle\b', r'\bmuffin\b', r'\bcake\b',
+    r'\bpie\b', r'\bbrownie\b', r'\bdoughnut\b', r'\bdonut\b',
+    # Canned goods
+    r'\b#10\s*can\b', r'\b#\d+\s*can\b', r'\bcan\s+(?:of|size)',
+    r'\bcase\b.*(?:lb|oz|ct)', r'\bbag\b.*(?:lb|oz)',
+    # Beverages
+    r'\bsoda\b', r'\bbeverage\b', r'\bcocoa\b', r'\bcider\b',
+    r'\blemonade\b', r'\bpunch\b',
+    # Grains & nuts
+    r'\boats?\b', r'\bwheat\b', r'\bbarley\b', r'\bquinoa\b',
+    r'\balmond\b', r'\bwalnut\b', r'\bpecan\b', r'\bcashew\b',
+    r'\bpeanut\b', r'\bsunflower\b', r'\bseed\b',
+    r'\bgranola\b', r'\bgrits\b', r'\bcouscous\b',
 ]
 
 
@@ -230,9 +272,23 @@ def classify_food_item(description: str) -> tuple:
         (r'\bcocoa\s+butter\b', 4, "Extended Shelf Life Products"),
         (r'\bice\s+cream\b', 2, "Dairy"),
         (r'\begg\s+noodle', 8, "Grains, Nuts, Rice, Seeds"),
-        (r'\btomato\s+(?:sauce|paste|crushed|diced|stewed)', 5, "Fruit - Extended Shelf Life"),
+        (r'\btomato\w*\s+(?:sauce|paste|crushed|diced|stewed|whole|peeled)', 5, "Fruit - Extended Shelf Life"),
+        (r'\btomato\w*\b.*#\d+\s*can', 5, "Fruit - Extended Shelf Life"),
+        (r'(?:whole|peeled|diced|crushed|stewed)\s+tomato', 5, "Fruit - Extended Shelf Life"),
         (r'\btomato\s+puree\b', 12, "Puree"),
         (r'\bgreen\s+bean', 10, "Legumes"),
+        # #10 can items are always shelf-stable — classify by content
+        (r'\bpeach\w*\s*#\d+', 5, "Fruit - Extended Shelf Life"),
+        (r'\bpear\w*\s*#\d+', 5, "Fruit - Extended Shelf Life"),
+        (r'\bpineapple\w*\s*#\d+', 5, "Fruit - Extended Shelf Life"),
+        (r'\bapricot\w*\s*#\d+', 5, "Fruit - Extended Shelf Life"),
+        (r'\bfruit.*#\d+', 5, "Fruit - Extended Shelf Life"),
+        (r'\bcorn\b.*#\d+', 13, "Vegetables - Extended Shelf Life"),
+        (r'\bcarrot\b.*#\d+', 13, "Vegetables - Extended Shelf Life"),
+        (r'\bpotato\b.*#\d+', 13, "Vegetables - Extended Shelf Life"),
+        (r'\bbean\b.*#\d+', 10, "Legumes"),
+        (r'\binstant\s+(?:mashed\s+)?potato', 13, "Vegetables - Extended Shelf Life"),
+        (r'\bpotato\s+flake', 13, "Vegetables - Extended Shelf Life"),
     ]
     for pattern, code, name in OVERRIDES:
         if re.search(pattern, desc, re.IGNORECASE):
