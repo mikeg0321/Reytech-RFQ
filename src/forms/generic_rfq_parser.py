@@ -651,6 +651,8 @@ def parse_generic_rfq(pdf_paths, subject="", sender_email="", body=""):
     parse_details = []
     xfa_header = {}
 
+    xfa_found = False
+
     for pdf_path in pdf_paths:
         if not os.path.exists(pdf_path):
             continue
@@ -666,9 +668,26 @@ def parse_generic_rfq(pdf_paths, subject="", sender_email="", body=""):
             })
             all_items.extend(xfa_result["line_items"])
             xfa_header = xfa_result.get("header", {})
-            log.info("XFA form parsed: %s → %d items",
+            xfa_found = True
+            log.info("XFA form parsed: %s → %d items — skipping remaining PDFs (boilerplate)",
                      os.path.basename(pdf_path), len(xfa_result["line_items"]))
-            continue  # Don't also do text extraction on this file
+            break  # XFA has the real items; other PDFs are compliance docs
+
+        # ── Skip known boilerplate PDFs ──
+        fname_lower = os.path.basename(pdf_path).lower()
+        boilerplate_patterns = [
+            "bidder", "declaration", "commercially useful", "darfur",
+            "iran contract", "disabled veteran", "dvbe", "small business",
+            "std ", "std.", "certification", "nondiscrimination",
+            "terms and conditions", "general provisions", "instructions to bidders",
+        ]
+        if any(bp in fname_lower for bp in boilerplate_patterns):
+            parse_details.append({
+                "file": os.path.basename(pdf_path),
+                "status": "skipped_boilerplate",
+            })
+            log.debug("Skipping boilerplate PDF: %s", os.path.basename(pdf_path))
+            continue
 
         # ── Strategy 1+: Text extraction heuristics ──
         text = extract_pdf_text(pdf_path)
@@ -677,6 +696,25 @@ def parse_generic_rfq(pdf_paths, subject="", sender_email="", body=""):
             continue
 
         all_text += f"\n\n{text}"
+
+        # Skip boilerplate content even if filename didn't match
+        text_lower = text[:500].lower()
+        boilerplate_content = [
+            "bidder declaration", "commercially useful function",
+            "iran contracting act", "darfur contracting act",
+            "disabled veteran business", "nondiscrimination clause",
+            "small business preference", "general provisions",
+            "instructions to bidders", "terms and conditions",
+            "contractor certification", "conflict of interest",
+            "drug-free workplace", "americans with disabilities",
+        ]
+        if any(bp in text_lower for bp in boilerplate_content):
+            parse_details.append({
+                "file": os.path.basename(pdf_path),
+                "status": "skipped_boilerplate_content",
+            })
+            log.debug("Skipping boilerplate content: %s", os.path.basename(pdf_path))
+            continue
 
         items = parse_line_items_from_text(text)
         if items:
