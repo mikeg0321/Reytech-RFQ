@@ -1017,7 +1017,7 @@ def quotes_list():
 
     rows_html = ""
     for qt in quotes:
-        fname = os.path.basename(qt.get("pdf_path", ""))
+        fname = os.path.basename(qt.get("pdf_path") or "")
         dl = f'<a href="/api/pricecheck/download/{fname}" title="Download PDF" style="font-size:14px">📥</a>' if fname else ""
         st = qt.get("status", "pending")
 
@@ -1144,7 +1144,7 @@ def quote_detail(qn):
         agency = ""
 
     st = qt.get("status", "pending")
-    fname = os.path.basename(qt.get("pdf_path", ""))
+    fname = os.path.basename(qt.get("pdf_path") or "")
 
     # ── PRD-28 WI-1: Lifecycle info ──
     expires_at = qt.get("expires_at", "")
@@ -1192,23 +1192,53 @@ def quote_detail(qn):
     elif qt.get("source_rfq_id"):
         source_link = f'/rfq/{qt["source_rfq_id"]}'
         source_label = "RFQ"
-    elif not source_link and qt.get("notes") and "PC#" in str(qt.get("notes", "")):
-        import re as _re2
-        _m = _re2.search(r"PC#\s*([^|\n]+)", str(qt.get("notes", "")))
-        if _m:
-            source_label = f"PC # {_m.group(1).strip()}"
-            # Search for the PC in price_checks.json by pc_number match
+    
+    # Smart fallback: search by rfq_number in PCs and RFQs
+    if not source_link:
+        rfq_num = qt.get("rfq_number", "") or ""
+        if rfq_num:
+            # Search price_checks
             try:
                 import json as _j2
                 _pcs = _j2.load(open(os.path.join(DATA_DIR, "price_checks.json")))
-                _pc_num = _m.group(1).strip().lower().replace(" ", "").replace("-", "")
+                _rn = str(rfq_num).strip().lower().replace(" ", "").replace("-", "")
                 for _pid, _pc in _pcs.items():
-                    _pnum = str(_pc.get("pc_number","")).lower().replace(" ", "").replace("-", "")
-                    if _pnum == _pc_num:
+                    _pnum = str(_pc.get("pc_number", "")).lower().replace(" ", "").replace("-", "")
+                    if _pnum == _rn:
                         source_link = f"/pricecheck/{_pid}"
+                        source_label = f"PC # {rfq_num}"
                         break
-            except Exception as _e:
-                log.debug("Suppressed: %s", _e)
+            except Exception:
+                pass
+            # Search RFQs
+            if not source_link:
+                try:
+                    from src.api.modules.routes_rfq import load_rfqs as _load_rfqs
+                    _rfqs = _load_rfqs()
+                    for _rid, _r in _rfqs.items():
+                        if str(_r.get("solicitation_number", "")).strip() == str(rfq_num).strip():
+                            source_link = f"/rfq/{_rid}"
+                            source_label = f"RFQ # {rfq_num}"
+                            break
+                except Exception:
+                    pass
+        # Also check notes for PC#
+        if not source_link and qt.get("notes") and "PC#" in str(qt.get("notes", "")):
+            import re as _re2
+            _m = _re2.search(r"PC#\s*([^|\n]+)", str(qt.get("notes", "")))
+            if _m:
+                source_label = f"PC # {_m.group(1).strip()}"
+                try:
+                    import json as _j2
+                    _pcs = _j2.load(open(os.path.join(DATA_DIR, "price_checks.json")))
+                    _pc_num = _m.group(1).strip().lower().replace(" ", "").replace("-", "")
+                    for _pid, _pc in _pcs.items():
+                        _pnum = str(_pc.get("pc_number","")).lower().replace(" ", "").replace("-", "")
+                        if _pnum == _pc_num:
+                            source_link = f"/pricecheck/{_pid}"
+                            break
+                except Exception as _e:
+                    log.debug("Suppressed: %s", _e)
 
     # Status config
     status_cfg = {

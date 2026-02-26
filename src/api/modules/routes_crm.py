@@ -663,10 +663,27 @@ def api_pricecheck_process():
 def api_pricecheck_download(filename):
     """Download a completed Price Check PDF."""
     safe = os.path.basename(filename)
-    path = os.path.join(DATA_DIR, safe)
-    if not os.path.exists(path):
-        return jsonify({"error": "File not found"}), 404
-    return send_file(path, as_attachment=True, download_name=safe)
+    # Search filesystem first
+    for search_root in [DATA_DIR, os.path.join(DATA_DIR, "output"), os.path.join(DATA_DIR, "outputs")]:
+        if os.path.isdir(search_root):
+            for root, dirs, files in os.walk(search_root):
+                if safe in files:
+                    return send_file(os.path.join(root, safe), as_attachment=True, download_name=safe)
+    # Fallback: check DB
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            row = conn.execute("SELECT data FROM rfq_files WHERE filename=? ORDER BY id DESC LIMIT 1", (safe,)).fetchone()
+            if row and row["data"]:
+                restore_dir = os.path.join(DATA_DIR, "output", "_restored")
+                os.makedirs(restore_dir, exist_ok=True)
+                restore_path = os.path.join(restore_dir, safe)
+                with open(restore_path, "wb") as _fw:
+                    _fw.write(row["data"])
+                return send_file(restore_path, as_attachment=True, download_name=safe)
+    except Exception:
+        pass
+    return jsonify({"error": "File not found"}), 404
 
 
 @bp.route("/api/pricecheck/view-pdf/<path:filename>")
@@ -677,7 +694,8 @@ def api_pricecheck_view_pdf(filename):
     safe = os.path.basename(filename)
     # Search: data dir, outputs subfolders, uploads subfolders
     search_paths = [os.path.join(DATA_DIR, safe)]
-    for search_root in [os.path.join(DATA_DIR, "outputs"), os.path.join(DATA_DIR, "uploads"), DATA_DIR]:
+    for search_root in [os.path.join(DATA_DIR, "outputs"), os.path.join(DATA_DIR, "uploads"),
+                        os.path.join(DATA_DIR, "output"), DATA_DIR]:
         if os.path.isdir(search_root):
             for root, dirs, files in os.walk(search_root):
                 for f in files:
@@ -686,6 +704,25 @@ def api_pricecheck_view_pdf(filename):
     for path in search_paths:
         if os.path.exists(path):
             return send_file(path, mimetype="application/pdf", download_name=safe)
+    
+    # Fallback: check DB (rfq_files) — survives redeploys
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT data, filename FROM rfq_files WHERE filename=? ORDER BY id DESC LIMIT 1",
+                (safe,)).fetchone()
+            if row and row["data"]:
+                # Restore to disk for future requests
+                restore_dir = os.path.join(DATA_DIR, "output", "_restored")
+                os.makedirs(restore_dir, exist_ok=True)
+                restore_path = os.path.join(restore_dir, safe)
+                with open(restore_path, "wb") as _fw:
+                    _fw.write(row["data"])
+                return send_file(restore_path, mimetype="application/pdf", download_name=safe)
+    except Exception as _e:
+        log.debug("DB PDF lookup failed: %s", _e)
+    
     return jsonify({"error": f"PDF not found: {safe}"}), 404
 
 
