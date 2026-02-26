@@ -2750,3 +2750,107 @@ try:
     log.info("Lead nurture scheduler started (daily)")
 except Exception as _e:
     log.warning("Lead nurture scheduler failed to start: %s", _e)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Force Recapture — guaranteed to load (not in exec'd module)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/force-recapture", methods=["POST", "GET"])
+@auth_required
+def _force_recapture():
+    """Delete RFQ/PC by keyword, clear UID, re-poll. GET with ?match=calvet also works."""
+    if request.method == "GET":
+        match_kw = request.args.get("match", "").lower().strip()
+        exact_id = request.args.get("rfq_id", "").strip()
+    else:
+        data = request.get_json(silent=True) or {}
+        match_kw = (data.get("match") or request.args.get("match", "")).lower().strip()
+        exact_id = (data.get("rfq_id") or request.args.get("rfq_id", "")).strip()
+    
+    if not match_kw and not exact_id:
+        return jsonify({"ok": False, "error": "Provide ?match=keyword or ?rfq_id=id"})
+    
+    removed_rfqs = []
+    removed_pcs = []
+    cleared_uids = []
+    
+    # Remove matching RFQs
+    rfqs = load_rfqs()
+    to_remove = []
+    for rid, r in rfqs.items():
+        if exact_id and rid == exact_id:
+            to_remove.append(rid)
+        elif match_kw:
+            searchable = " ".join([
+                r.get("solicitation_number", ""), r.get("email_sender", ""),
+                r.get("email_subject", ""), r.get("agency", ""),
+                r.get("agency_name", ""), r.get("requestor_email", ""),
+            ]).lower()
+            if match_kw in searchable:
+                to_remove.append(rid)
+    
+    for rid in to_remove:
+        r = rfqs.pop(rid)
+        uid = r.get("email_uid")
+        if uid:
+            cleared_uids.append(uid)
+        removed_rfqs.append({"id": rid, "sol": r.get("solicitation_number", "?"),
+                             "items": len(r.get("line_items", []))})
+    if to_remove:
+        save_rfqs(rfqs)
+    
+    # Remove matching PCs
+    pcs = _load_price_checks()
+    pc_remove = []
+    for pid, pc in pcs.items():
+        if exact_id and pid == exact_id:
+            pc_remove.append(pid)
+        elif match_kw:
+            searchable = " ".join([
+                pc.get("pc_number", ""), pc.get("email_subject", ""),
+                pc.get("requestor", ""), str(pc.get("institution", "")),
+            ]).lower()
+            if match_kw in searchable:
+                pc_remove.append(pid)
+    for pid in pc_remove:
+        pc = pcs.pop(pid)
+        uid = pc.get("email_uid")
+        if uid:
+            cleared_uids.append(uid)
+        removed_pcs.append({"id": pid, "pc": pc.get("pc_number", "?")})
+    if pc_remove:
+        _save_price_checks(pcs)
+    
+    # Clear UIDs from processed list
+    proc_file = os.path.join(DATA_DIR, "processed_emails.json")
+    try:
+        if cleared_uids and os.path.exists(proc_file):
+            with open(proc_file) as f:
+                processed = json.load(f)
+            if isinstance(processed, list):
+                processed = [u for u in processed if u not in cleared_uids]
+                with open(proc_file, "w") as f:
+                    json.dump(processed, f)
+    except Exception:
+        pass
+    
+    if not removed_rfqs and not removed_pcs:
+        return jsonify({"ok": False, "error": f"No matches for '{match_kw or exact_id}'"})
+    
+    # Reset poller and re-poll
+    global _shared_poller
+    _shared_poller = None
+    try:
+        imported = do_poll_check()
+    except Exception:
+        imported = []
+    
+    return jsonify({
+        "ok": True,
+        "removed_rfqs": removed_rfqs,
+        "removed_pcs": removed_pcs,
+        "cleared_uids": len(cleared_uids),
+        "reimported": len(imported),
+        "new_rfqs": [{"id": r["id"], "sol": r.get("solicitation_number", "?")} for r in imported],
+    })
