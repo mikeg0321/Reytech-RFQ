@@ -73,6 +73,7 @@
     <div class="card" style="margin-top:14px">
      <div class="card-t">Quick Actions</div>
      <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button onclick="openAmazonCart('{{ oid }}')" class="btn btn-s" style="font-size:12px;background:rgba(255,153,0,.15);color:#ff9900;border:1px solid rgba(255,153,0,.3)" id="amazon-cart-btn">🛒 Amazon Cart</button>
       <button onclick="bulkAddTracking('{{ oid }}')" class="btn btn-s" style="font-size:12px">📋 Bulk Add Tracking</button>
       <button onclick="markAllOrdered('{{ oid }}')" class="btn btn-s" style="font-size:12px">🛒 Mark All Ordered</button>
       <button onclick="markAllDelivered('{{ oid }}')" class="btn btn-s" style="font-size:12px">✅ Mark All Delivered</button>
@@ -140,6 +141,48 @@
     {% endif %}
 
     <script>
+    // Order items data for JS functions
+    var ORDER_ITEMS = [
+      {% for it in items %}
+      {lid: "{{ it.get('line_id','') }}", pn: "{{ it.get('part_number','') }}", qty: {{ it.get('qty',0) }}, desc: "{{ it.get('description','')[:60]|e }}", supplier_url: "{{ it.get('supplier_url','') }}"},
+      {% endfor %}
+    ];
+
+    function openAmazonCart(oid) {
+      // Build Amazon add-to-cart URL for all items with ASINs
+      var asins = ORDER_ITEMS.filter(function(it) {
+        return it.pn && (it.pn.startsWith('B0') || it.pn.match(/^[A-Z0-9]{10}$/));
+      });
+      if (asins.length === 0) {
+        // No ASINs — try searching items on Amazon instead
+        var searchItems = ORDER_ITEMS.filter(function(it) { return it.desc; }).slice(0, 5);
+        if (searchItems.length > 0) {
+          if (confirm('No Amazon ASINs found. Open Amazon search for ' + searchItems.length + ' items?')) {
+            searchItems.forEach(function(it) {
+              var q = (it.pn || '') + ' ' + it.desc.substring(0, 40);
+              window.open('https://www.amazon.com/s?k=' + encodeURIComponent(q.trim()), '_blank');
+            });
+          }
+        } else {
+          alert('No items with Amazon ASINs found.');
+        }
+        return;
+      }
+      // Amazon bulk add-to-cart URL
+      var url = 'https://www.amazon.com/gp/aws/cart/add.html?';
+      var params = [];
+      asins.forEach(function(it, i) {
+        var n = i + 1;
+        params.push('ASIN.' + n + '=' + it.pn);
+        params.push('Quantity.' + n + '=' + it.qty);
+      });
+      url += params.join('&');
+      
+      var btn = document.getElementById('amazon-cart-btn');
+      if (btn) btn.textContent = '✅ Opened (' + asins.length + ' items)';
+      window.open(url, '_blank');
+    }
+
     function updateLine(oid, lid, field, value) {
       fetch('/api/order/' + oid + '/line/' + lid, {
         method: 'POST',

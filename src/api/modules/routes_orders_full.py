@@ -189,13 +189,35 @@ def _render_order_detail(order, oid):
         desc = it.get("description", "")[:80]
         pn = it.get("part_number", "")
         sup_url = it.get("supplier_url", "")
-        supplier_name = it.get("supplier", "") or "—"
+        supplier_name = it.get("supplier", "") or ""
+        
+        # Auto-detect Amazon ASIN and generate link if missing
+        is_asin = pn and (pn.startswith("B0") or (len(pn) == 10 and pn.isalnum() and pn[0].isalpha()))
+        if is_asin and not sup_url:
+            sup_url = f"https://amazon.com/dp/{pn}"
+            supplier_name = supplier_name or "Amazon"
+        
         if sup_url:
-            sup_link = f'<a href="{sup_url}" target="_blank" style="color:var(--ac);font-size:11px" title="{sup_url}">🛒 {supplier_name}</a>'
+            sup_link = f'<a href="{sup_url}" target="_blank" style="color:var(--ac);font-size:11px" title="{sup_url}">🛒 {supplier_name or "Buy"}</a>'
+        elif pn:
+            # Search link for items with part numbers but no supplier URL
+            search_q = f"{pn} {desc[:30]}".strip()
+            import urllib.parse
+            amz_search = f"https://amazon.com/s?k={urllib.parse.quote_plus(search_q)}"
+            sup_link = f'<a href="{amz_search}" target="_blank" style="color:var(--tx2);font-size:10px" title="Search Amazon">🔍</a>'
+            if supplier_name:
+                sup_link = f'<span style="color:var(--tx2);font-size:11px">{supplier_name}</span> {sup_link}'
         else:
-            sup_link = f'<span style="color:var(--tx2);font-size:11px">{supplier_name}</span>'
+            sup_link = f'<span style="color:var(--tx2);font-size:11px">{supplier_name or "—"}</span>'
+        
         # Edit link button
         sup_edit = f'<button onclick="editSupplier(\'{oid}\',\'{lid}\')" style="background:none;border:none;cursor:pointer;font-size:10px;color:var(--tx2);padding:0" title="Edit supplier/link">✏️</button>'
+
+        # Part number: make clickable if ASIN
+        if is_asin:
+            pn_html = f'<a href="https://amazon.com/dp/{pn}" target="_blank" style="color:var(--ac);text-decoration:none" title="View on Amazon">{pn}</a>'
+        else:
+            pn_html = pn or '—'
 
         ss = it.get("sourcing_status", "pending")
         s_lbl, s_clr, s_bg = sourcing_cfg.get(ss, sourcing_cfg["pending"])
@@ -223,7 +245,7 @@ def _render_order_detail(order, oid):
         items_rows += f"""<tr data-lid="{lid}">
          <td style="color:var(--tx2);font-size:11px">{lid}</td>
          <td style="max-width:300px;word-wrap:break-word;white-space:normal">{desc}</td>
-         <td class="mono" style="font-size:11px">{pn or '—'}</td>
+         <td class="mono" style="font-size:11px">{pn_html}</td>
          <td>{sup_link} {sup_edit}</td>
          <td class="mono" style="text-align:center">{it.get('qty',0)}</td>
          <td class="mono" style="text-align:right">${it.get('unit_price',0):,.2f}</td>
