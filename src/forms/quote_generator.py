@@ -117,9 +117,110 @@ AGENCY_CONFIGS = {
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# QUOTE NUMBERING — R{YY}{seq}, resets Jan 1 each year
-# Format: R2616, R2617 ... R27001 (new year)
+# FACILITY DATABASE — maps abbreviations/names to parent agency + full address
+# Used for To: (parent agency) and Ship To: (facility + address)
 # ═══════════════════════════════════════════════════════════════════════════════
+
+FACILITY_DB = {
+    # CDCR facilities
+    "CIW":  {"name": "CIW - California Institution for Women", "parent": "CCHCS", "parent_full": "California Correctional Health Care Services", "address": ["16756 Chino-Corona Road", "Corona, CA 92880"]},
+    "CIM":  {"name": "CIM - California Institution for Men", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["14901 S Central Ave", "Chino, CA 91710"]},
+    "CSP-SAC": {"name": "CSP Sacramento - New Folsom", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["300 Prison Road", "Represa, CA 95671"]},
+    "CSP-COR": {"name": "CSP Corcoran", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["4001 King Ave", "Corcoran, CA 93212"]},
+    "CSP-LAC": {"name": "CSP Los Angeles County", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["44750 60th St West", "Lancaster, CA 93536"]},
+    "CSP-SOL": {"name": "CSP Solano", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["2100 Peabody Road", "Vacaville, CA 95687"]},
+    "SATF": {"name": "SATF - Substance Abuse Treatment Facility", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["900 Quebec Ave", "Corcoran, CA 93212"]},
+    "CHCF": {"name": "CHCF - California Health Care Facility", "parent": "CCHCS", "parent_full": "California Correctional Health Care Services", "address": ["23370 Road 22", "Stockton, CA 95215"]},
+    "PVSP": {"name": "PVSP - Pleasant Valley State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["24863 W Jayne Ave", "Coalinga, CA 93210"]},
+    "KVSP": {"name": "KVSP - Kern Valley State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["3000 W Cecil Ave", "Delano, CA 93215"]},
+    "NKSP": {"name": "NKSP - North Kern State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["2737 W Cecil Ave", "Delano, CA 93215"]},
+    "MCSP": {"name": "MCSP - Mule Creek State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["4001 Hwy 104", "Ione, CA 95640"]},
+    "WSP":  {"name": "WSP - Wasco State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["701 Scofield Ave", "Wasco, CA 93280"]},
+    "SCC":  {"name": "SCC - Sierra Conservation Center", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["5100 O'Byrnes Ferry Road", "Jamestown, CA 95327"]},
+    "CMC":  {"name": "CMC - California Men's Colony", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["Hwy 1", "San Luis Obispo, CA 93409"]},
+    "CTF":  {"name": "CTF - Correctional Training Facility", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["Hwy 101 North", "Soledad, CA 93960"]},
+    "CCWF": {"name": "CCWF - Central California Women's Facility", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["23370 Road 22", "Chowchilla, CA 93610"]},
+    "VSP":  {"name": "VSP - Valley State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["21633 Avenue 24", "Chowchilla, CA 93610"]},
+    "SVSP": {"name": "SVSP - Salinas Valley State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["31625 Hwy 101", "Soledad, CA 93960"]},
+    "PBSP": {"name": "PBSP - Pelican Bay State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["5905 Lake Earl Dr", "Crescent City, CA 95531"]},
+    "CRC":  {"name": "CRC - California Rehabilitation Center", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["5th Street & Western Ave", "Norco, CA 92860"]},
+    "CCI":  {"name": "CCI - California Correctional Institution", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["24900 Hwy 202", "Tehachapi, CA 93561"]},
+    "ASP":  {"name": "ASP - Avenal State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["1 Kings Way", "Avenal, CA 93204"]},
+    "HDSP": {"name": "HDSP - High Desert State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["475-750 Rice Canyon Rd", "Susanville, CA 96127"]},
+    "ISP":  {"name": "ISP - Ironwood State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["19005 Wiley's Well Rd", "Blythe, CA 92225"]},
+    "FSP":  {"name": "FSP - Folsom State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["300 Prison Road", "Represa, CA 95671"]},
+    "RJD":  {"name": "RJD - Richard J. Donovan Correctional Facility", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["480 Alta Road", "San Diego, CA 92179"]},
+    "CAL":  {"name": "CAL - Calipatria State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["7018 Blair Rd", "Calipatria, CA 92233"]},
+    "CEN":  {"name": "CEN - Centinela State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["2302 Brown Rd", "Imperial, CA 92251"]},
+    "SQ":   {"name": "SQ - San Quentin State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["Main Street", "San Quentin, CA 94964"]},
+    "SQSP": {"name": "SQ - San Quentin State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["Main Street", "San Quentin, CA 94964"]},
+    # CalVet facilities
+    "CALVETHOME-YV": {"name": "Veterans Home of California - Yountville", "parent": "CalVet", "parent_full": "California Department of Veterans Affairs", "address": ["260 California Dr", "Yountville, CA 94599"]},
+    "CALVETHOME-BF": {"name": "Veterans Home of California - Barstow", "parent": "CalVet", "parent_full": "California Department of Veterans Affairs", "address": ["100 E Veterans Pkwy", "Barstow, CA 92311"]},
+    "CALVETHOME-CV": {"name": "Veterans Home of California - Chula Vista", "parent": "CalVet", "parent_full": "California Department of Veterans Affairs", "address": ["700 E Naples Ct", "Chula Vista, CA 91911"]},
+    "CALVETHOME-LA": {"name": "Veterans Home of California - West Los Angeles", "parent": "CalVet", "parent_full": "California Department of Veterans Affairs", "address": ["11500 Nimitz Ave Bldg 209", "Los Angeles, CA 90049"]},
+    "CALVETHOME-FR": {"name": "Veterans Home of California - Fresno", "parent": "CalVet", "parent_full": "California Department of Veterans Affairs", "address": ["2811 W California Ave", "Fresno, CA 93706"]},
+    "CALVETHOME-RD": {"name": "Veterans Home of California - Redding", "parent": "CalVet", "parent_full": "California Department of Veterans Affairs", "address": ["3400 Knighton Rd", "Redding, CA 96002"]},
+    "CALVETHOME-MV": {"name": "Veterans Home of California - Moosehaven", "parent": "CalVet", "parent_full": "California Department of Veterans Affairs", "address": ["11 Moosehaven Blvd", "Moosehaven, CA 95380"]},
+    "CALVETHOME-VM": {"name": "Veterans Home of California - Ventura", "parent": "CalVet", "parent_full": "California Department of Veterans Affairs", "address": ["10900 Telephone Rd", "Ventura, CA 93004"]},
+}
+
+
+def _lookup_facility(text: str) -> dict | None:
+    """Look up a CDCR/CalVet facility from free text (delivery location, ship_to, institution).
+    Returns FACILITY_DB entry or None."""
+    if not text:
+        return None
+    upper = text.upper().strip()
+    # Direct abbreviation match (e.g. "CIW", "CSP-SAC")
+    for key in FACILITY_DB:
+        if upper.startswith(key + " ") or upper.startswith(key + "-") or upper.startswith(key + ",") or upper == key:
+            return FACILITY_DB[key]
+    # Name fragment match (e.g. "California Institution for Women")
+    for key, fac in FACILITY_DB.items():
+        fname = fac["name"].upper()
+        # Check if the facility's descriptive name appears in the text
+        # e.g. "California Institution for Women" in "CIW - California Institution for Women, 16756..."
+        desc_part = fname.split(" - ", 1)[1] if " - " in fname else fname
+        if desc_part and len(desc_part) > 5 and desc_part in upper:
+            return fac
+    # City-based fallback for known prison cities
+    _CITY_MAP = {
+        "CHINO": "CIM", "CORONA": "CIW", "CORCORAN": "CSP-COR", "LANCASTER": "CSP-LAC",
+        "VACAVILLE": "CSP-SOL", "STOCKTON": "CHCF", "COALINGA": "PVSP", "DELANO": "KVSP",
+        "IONE": "MCSP", "WASCO": "WSP", "CHOWCHILLA": "CCWF", "SOLEDAD": "CTF",
+        "CRESCENT CITY": "PBSP", "NORCO": "CRC", "TEHACHAPI": "CCI", "AVENAL": "ASP",
+        "SUSANVILLE": "HDSP", "BLYTHE": "ISP", "REPRESA": "FSP", "SAN QUENTIN": "SQ",
+        "CALIPATRIA": "CAL", "IMPERIAL": "CEN", "JAMESTOWN": "SCC",
+        "SAN LUIS OBISPO": "CMC", "YOUNTVILLE": "CALVETHOME-YV", "BARSTOW": "CALVETHOME-BF",
+    }
+    for city, fac_key in _CITY_MAP.items():
+        if city in upper:
+            return FACILITY_DB.get(fac_key)
+    return None
+
+
+def _parse_address_parts(raw: str) -> tuple:
+    """Parse a raw address string into (name, [address_lines]).
+    Splits on newlines first, then commas. First part is name, rest is address.
+    If it looks like the first part IS an address (has a number), treats the whole thing as address."""
+    if not raw:
+        return "", []
+    lines = [l.strip() for l in raw.replace("\\r\\n", "\\n").replace("\r\n", "\n").split("\n") if l.strip()]
+    if len(lines) > 1:
+        # Multi-line: first line is name, rest is address
+        # But check if first line looks like a street address (starts with number)
+        if lines[0] and lines[0][0].isdigit():
+            return "", lines  # All address, no name
+        return lines[0], lines[1:]
+    # Single line: split on commas
+    parts = [p.strip() for p in raw.split(",") if p.strip()]
+    if len(parts) > 1:
+        # First part is name, rest is address
+        if parts[0] and parts[0][0].isdigit():
+            return "", parts
+        return parts[0], parts[1:]
+    return raw.strip(), []
 
 def _load_counter():
     """Load counter from SQLite (primary) with JSON fallback."""
@@ -1110,14 +1211,39 @@ def generate_quote_from_pc(pc: dict, output_path: str, **kwargs) -> dict:
     # To: and Ship To: should show the same institution + address
     institution = header.get("institution", pc.get("institution", ""))
     ship_to_raw = pc.get("ship_to", "") or ""
-    # Parse address lines from ship_to (typically "Name, Street, City ST ZIP")
-    ship_parts = [p.strip() for p in ship_to_raw.split(",") if p.strip()]
+    delivery = pc.get("delivery_location", "") or ""
+
+    # ── Facility lookup: try all available address sources ──
+    facility = (_lookup_facility(delivery) or 
+                _lookup_facility(ship_to_raw) or 
+                _lookup_facility(institution))
+
+    if facility:
+        ship_name = facility["name"]
+        ship_addr = list(facility["address"])
+        to_name = institution or facility["parent_full"]
+        to_addr = list(facility["address"])
+        if "agency" not in kwargs:
+            _parent_map = {"CDCR": "CDCR", "CCHCS": "CCHCS", "CalVet": "CalVet", "DGS": "DGS", "DSH": "DSH"}
+            if facility["parent"] in _parent_map:
+                kwargs["agency"] = _parent_map[facility["parent"]]
+    else:
+        # Manual parsing
+        source = delivery or ship_to_raw
+        if source:
+            ship_name, ship_addr = _parse_address_parts(source)
+        else:
+            ship_name, ship_addr = institution, []
+        if not ship_name:
+            ship_name = institution
+        to_name = institution
+        to_addr = list(ship_addr)
 
     data = {
-        "institution": institution,
-        "to_address": ship_parts[1:] if len(ship_parts) > 1 else ship_parts,
-        "ship_to_name": ship_parts[0] if ship_parts else institution,
-        "ship_to_address": ship_parts[1:] if len(ship_parts) > 1 else ship_parts,
+        "institution": to_name,
+        "to_address": to_addr,
+        "ship_to_name": ship_name,
+        "ship_to_address": ship_addr,
         "rfq_number": pc.get("pc_number", ""),
         "source_pc_id": pc.get("id", ""),
         "line_items": [],
@@ -1158,32 +1284,50 @@ def generate_quote_from_rfq(rfq: dict, output_path: str, **kwargs) -> dict:
     institution = rfq.get("agency_name", "") or rfq.get("department", rfq.get("requestor_name", ""))
     delivery = rfq.get("delivery_location", "") or ""
     ship_to_raw = rfq.get("ship_to", "") or ""
+    ship_to_name_raw = rfq.get("ship_to_name", "") or ""
 
-    # Parse address: split on newlines first, then commas within each line
-    def _parse_addr(raw):
-        if not raw:
-            return []
-        lines = [l.strip() for l in raw.replace("\r\n", "\n").split("\n") if l.strip()]
-        if len(lines) > 1:
-            return lines
-        parts = [p.strip() for p in raw.split(",") if p.strip()]
-        return parts
+    # ── Facility lookup: try all available address sources ──
+    facility = (_lookup_facility(delivery) or 
+                _lookup_facility(ship_to_raw) or 
+                _lookup_facility(ship_to_name_raw) or
+                _lookup_facility(institution))
 
-    ship_addr_lines = _parse_addr(ship_to_raw)
-    del_parts = _parse_addr(delivery) if delivery else ship_addr_lines
-
-    # Facility name: delivery_location is the canonical source
-    ship_name = delivery or (ship_addr_lines[0] if ship_addr_lines else institution)
-    
-    # If ship_to_raw is empty, try extracting address from delivery_location parts
-    if not ship_addr_lines and len(del_parts) > 1:
-        ship_addr_lines = del_parts[1:]
+    if facility:
+        # Use canonical facility data
+        ship_name = facility["name"]
+        ship_addr = list(facility["address"])
+        to_name = institution or facility["parent_full"]
+        to_addr = list(facility["address"])  # Same address for To:
+        # Override agency detection
+        if "agency" not in kwargs:
+            _parent_agency_map = {"CDCR": "CDCR", "CCHCS": "CCHCS", "CalVet": "CalVet", "DGS": "DGS", "DSH": "DSH"}
+            if facility["parent"] in _parent_agency_map:
+                kwargs["agency"] = _parent_agency_map[facility["parent"]]
+    else:
+        # Manual parsing — separate name from address
+        # Try delivery_location first
+        if delivery:
+            ship_name, ship_addr = _parse_address_parts(delivery)
+        elif ship_to_raw:
+            ship_name, ship_addr = _parse_address_parts(ship_to_raw)
+        elif ship_to_name_raw:
+            ship_name, ship_addr = _parse_address_parts(ship_to_name_raw)
+        else:
+            ship_name = institution
+            ship_addr = []
+        
+        # If we only got an address (no name), use institution as name
+        if not ship_name:
+            ship_name = institution
+        
+        to_name = institution
+        to_addr = list(ship_addr)  # Use same address for To:
 
     data = {
-        "institution": institution,
-        "to_address": del_parts[1:] if len(del_parts) > 1 else del_parts,
+        "institution": to_name,
+        "to_address": to_addr,
         "ship_to_name": ship_name,
-        "ship_to_address": ship_addr_lines,
+        "ship_to_address": ship_addr,
         "rfq_number": rfq.get("solicitation_number", ""),
         "source_rfq_id": rfq.get("id", ""),
         "requestor_email": rfq.get("requestor_email", ""),

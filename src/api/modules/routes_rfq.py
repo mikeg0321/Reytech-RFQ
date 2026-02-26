@@ -1101,12 +1101,18 @@ def api_quote_regenerate(qn):
         os.makedirs(out_dir, exist_ok=True)
         output_path = os.path.join(out_dir, f"{safe_rfq}_Quote_Reytech.pdf")
         
-        # Build quote_data from existing quote
+        # Build quote_data from existing quote — map to generate_quote_from_rfq's expected fields
         quote_data = {
+            "agency_name": qt.get("institution", ""),
             "institution": qt.get("institution", ""),
+            "delivery_location": "",  # Not stored in quote, use ship_to_name instead
+            "ship_to": "",
             "ship_to_name": qt.get("ship_to_name", qt.get("institution", "")),
+            "ship_to_address": qt.get("ship_to_address", []),
             "agency": qt.get("agency", ""),
+            "solicitation_number": rfq_num,
             "rfq_number": rfq_num,
+            "requestor_email": qt.get("requestor_email", ""),
             "line_items": qt.get("items_detail", []),
             "source_pc_id": qt.get("source_pc_id", ""),
             "source_rfq_id": qt.get("source_rfq_id", ""),
