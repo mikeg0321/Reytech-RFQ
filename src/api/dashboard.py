@@ -2967,3 +2967,97 @@ def api_email_trace():
     }
     return Response(_json.dumps(result, default=str), mimetype="application/json")
 
+
+@bp.route("/api/disk-cleanup")
+def api_disk_cleanup():
+    """Show disk usage and clean old upload files."""
+    import shutil
+    
+    action = request.args.get("action", "")
+    
+    # Get disk usage
+    total, used, free = shutil.disk_usage("/")
+    
+    # Count upload dirs
+    upload_sizes = {}
+    total_upload = 0
+    if os.path.exists(UPLOAD_DIR):
+        for entry in os.scandir(UPLOAD_DIR):
+            if entry.is_dir():
+                dir_size = sum(f.stat().st_size for f in os.scandir(entry.path) if f.is_file())
+                upload_sizes[entry.name] = dir_size
+                total_upload += dir_size
+            elif entry.is_file():
+                upload_sizes[entry.name] = entry.stat().st_size
+                total_upload += entry.stat().st_size
+    
+    # Data dir sizes
+    data_sizes = {}
+    total_data = 0
+    if os.path.exists(DATA_DIR):
+        for entry in os.scandir(DATA_DIR):
+            if entry.is_file():
+                data_sizes[entry.name] = entry.stat().st_size
+                total_data += entry.stat().st_size
+    
+    result = {
+        "disk_total_mb": round(total / 1024 / 1024),
+        "disk_used_mb": round(used / 1024 / 1024),
+        "disk_free_mb": round(free / 1024 / 1024),
+        "uploads_total_mb": round(total_upload / 1024 / 1024, 1),
+        "uploads_dirs": len([k for k in upload_sizes if not k.startswith(".")]),
+        "data_total_mb": round(total_data / 1024 / 1024, 1),
+    }
+    
+    if action == "clean":
+        # Get list of RFQ dirs still referenced by active queue items
+        active_dirs = set()
+        try:
+            rfqs = load_rfqs()
+            for r in rfqs.values():
+                d = r.get("rfq_dir", "")
+                if d:
+                    active_dirs.add(os.path.basename(d))
+        except:
+            pass
+        try:
+            pcs = _load_price_checks()
+            for pc in pcs.values():
+                d = pc.get("rfq_dir", "")
+                if d:
+                    active_dirs.add(os.path.basename(d))
+        except:
+            pass
+        
+        removed = 0
+        freed = 0
+        if os.path.exists(UPLOAD_DIR):
+            for entry in os.scandir(UPLOAD_DIR):
+                if entry.is_dir() and entry.name not in active_dirs:
+                    dir_size = sum(f.stat().st_size for f in os.scandir(entry.path) if f.is_file())
+                    shutil.rmtree(entry.path, ignore_errors=True)
+                    removed += 1
+                    freed += dir_size
+        
+        result["action"] = "cleaned"
+        result["removed_dirs"] = removed
+        result["freed_mb"] = round(freed / 1024 / 1024, 1)
+        result["kept_active"] = len(active_dirs)
+    
+    if action == "nuke-uploads":
+        # Remove ALL upload dirs
+        freed = 0
+        removed = 0
+        if os.path.exists(UPLOAD_DIR):
+            for entry in os.scandir(UPLOAD_DIR):
+                if entry.is_dir():
+                    dir_size = sum(f.stat().st_size for f in os.scandir(entry.path) if f.is_file())
+                    shutil.rmtree(entry.path, ignore_errors=True)
+                    removed += 1
+                    freed += dir_size
+        result["action"] = "nuked-uploads"
+        result["removed_dirs"] = removed
+        result["freed_mb"] = round(freed / 1024 / 1024, 1)
+    
+    return Response(json.dumps(result, default=str), mimetype="application/json")
+
