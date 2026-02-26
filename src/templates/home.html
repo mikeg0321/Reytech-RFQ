@@ -160,7 +160,7 @@
     <tr class="home-row" onclick="location.href='/rfq/{{id}}'" style="{% if r.status in ('sent','generated') %}opacity:0.55{% endif %}">
      <td onclick="event.stopPropagation()"><input type="checkbox" class="row-check rfq-check" value="{{id}}" onchange="updateBulkBar('rfq')"></td>
      <td><a href="/rfq/{{id}}" class="sol">#{{r.solicitation_number}}</a></td>
-     <td style="font-weight:600">{{r.requestor_name}}</td>
+     <td style="font-weight:600">{{r.requestor_name}}{% if r.get('agency_name') and r.get('form_type') == 'generic_rfq' %}<span style="display:block;font-size:9px;font-weight:500;color:#a78bfa">{{r.agency_name}}</span>{% endif %}</td>
      <td class="mono">
       {% if r._urgency == 'overdue' %}<span style="color:#f85149;font-weight:700">{{r.due_date}} ⚠️</span>
       {% elif r._urgency == 'critical' %}<span style="color:#f0883e;font-weight:700">{{r.due_date}} 🔥</span>

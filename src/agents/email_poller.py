@@ -40,6 +40,9 @@ RFQ_STRONG = [
     "request for quotation", "rfq", "703b", "704b", "bid package",
     "cchcs", "cdcr", "solicitation", "informal competitive",
     "acquisition quote", "quote worksheet", "bid response",
+    # Non-704 agencies
+    "calvet", "cal vet", "veterans affairs", "veterans home",
+    "cal fire", "calfire", "department of general services",
 ]
 
 # Known Price Check sender patterns (first/last name fragments)
@@ -63,12 +66,20 @@ RFQ_PDF_PATTERNS = [
     r"703b", r"704b", r"bid.?package", r"rfq", r"solicitation",
     r"quote.?worksheet", r"attachment.?\d", r"ams.?7\d\d",
     r"informal.?competitive", r"acquisition",
+    # Generic RFQ indicators (Cal Vet, etc.)
+    r"request.?for.?quot", r"rfq.?package", r"rfq.?form",
+    r"cal.?vet", r"veterans", r"scope.?of.?work",
 ]
 
 ATTACHMENT_PATTERNS = {
     "703b": ["703b", "rfq", "request_for_quotation", "informal_competitive", "attachment_1", "attachment1"],
     "704b": ["704b", "quote_worksheet", "acquisition_quote", "attachment_2", "attachment2"],
     "bidpkg": ["bid_package", "bid package", "forms", "attachment_3", "attachment3", "under_100k", "under 100k"],
+    # Generic RFQ package (non-704 agencies like Cal Vet)
+    "rfq_package": ["rfq_package", "rfq package", "rfq_form", "rfq form",
+                    "request_for_quotation", "request for quotation",
+                    "scope_of_work", "scope of work", "specifications",
+                    "calvet", "cal_vet", "veterans"],
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1007,20 +1018,28 @@ def is_price_check_email(subject, body, sender, pdf_names):
     return None
 
 
-def is_rfq_email(subject, body, attachments):
+def is_rfq_email(subject, body, attachments, sender_email=""):
     """
     Determine if an email is an RFQ. Uses tiered detection:
-    1. Strong keyword match in subject/body → definitely RFQ
-    2. PDF attachments with RFQ-like filenames → likely RFQ
-    3. Any email with 2+ PDF attachments → probable RFQ (dedicated inbox)
-    4. Forwarded email with PDF → probable RFQ
-    5. Single PDF in dedicated inbox → still probably RFQ
+    1. Known agency sender domain → definitely RFQ
+    2. Strong keyword match in subject/body → definitely RFQ
+    3. PDF attachments with RFQ-like filenames → likely RFQ
+    4. Any email with 2+ PDF attachments → probable RFQ (dedicated inbox)
+    5. Forwarded email with PDF → probable RFQ
+    6. Single PDF in dedicated inbox → still probably RFQ
     """
     combined = f"{subject} {body}".lower()
     
     # Guard: recall emails are NOT RFQs even if they contain keywords like "cdcr"
     if subject.lower().startswith("recall:") or "would like to recall" in combined:
         return False
+    
+    # Tier 0: Known agency sender domains → always RFQ
+    _agency_domains = ["calvet.ca.gov", "fire.ca.gov", "dgs.ca.gov",
+                       "cchcs.ca.gov", "cdcr.ca.gov", "dsh.ca.gov"]
+    if sender_email and any(d in sender_email.lower() for d in _agency_domains):
+        log.info("RFQ detected (agency sender domain): %s from %s", subject[:60], sender_email)
+        return True
     
     # Tier 1: Strong keyword match
     if any(kw in combined for kw in RFQ_STRONG):
@@ -1697,7 +1716,7 @@ class EmailPoller:
                         continue
                     # ── END EARLY PC DETECTION ─────────────────────────────────
 
-                    if not is_rfq_email(subject, body, pdf_names):
+                    if not is_rfq_email(subject, body, pdf_names, sender_email=self._extract_email(sender)):
                         # Not an RFQ — classify what kind of email it is
                         email_handled = False
 
@@ -2089,10 +2108,42 @@ class EmailSender:
         sol = rfq_data.get("solicitation_number", "")
         requestor = rfq_data.get("requestor_name", "")
         requestor_email = rfq_data.get("requestor_email", "")
+        agency_name = rfq_data.get("agency_name", "")
+        form_type = rfq_data.get("form_type", "")
+        quote_num = rfq_data.get("reytech_quote_number", "")
         
-        subject = f"Reytech Inc. - Bid Response - Solicitation #{sol}"
-        
-        body = f"""Dear {requestor},
+        # ── Agency-specific subject and body ──
+        if form_type == "generic_rfq":
+            # Cal Vet, CalFire, DGS, etc. — formal Reytech quote, no 704 forms
+            subject = f"Reytech Inc. - Quote Response - Solicitation #{sol}"
+            
+            # List attachments naturally
+            att_names = [os.path.basename(f) for f in output_files if os.path.exists(f)]
+            att_list = "\n".join(f"- {name}" for name in att_names) if att_names else "- Reytech Quote"
+            
+            body = f"""Dear {requestor},
+
+Please find attached our quote response for Solicitation #{sol}.
+
+Attached documents:
+{att_list}
+
+All items are quoted F.O.B. Destination, freight prepaid and included. 
+Pricing is valid for 45 calendar days from the due date.
+
+Please let us know if you need any additional information or have questions regarding our quote.
+
+Best regards,
+Michael Guadan
+Reytech Inc.
+949-229-1575
+sales@reytechinc.com
+SB/DVBE Cert #2002605"""
+        else:
+            # CCHCS, DSH — standard 704B bid package
+            subject = f"Reytech Inc. - Bid Response - Solicitation #{sol}"
+            
+            body = f"""Dear {requestor},
 
 Please find attached our bid response for Solicitation #{sol}.
 
@@ -2113,13 +2164,22 @@ Reytech Inc.
 sales@reytechinc.com
 SB/DVBE Cert #2002605"""
         
-        return {
+        # Thread reply to original email
+        draft = {
             "to": requestor_email,
             "subject": subject,
             "body": body,
             "attachments": output_files,
             "solicitation": sol,
         }
+        
+        # Add reply threading if we have the original message ID
+        msg_id = rfq_data.get("email_message_id", "")
+        if msg_id:
+            draft["in_reply_to"] = msg_id
+            draft["references"] = msg_id
+        
+        return draft
     
     def send(self, draft):
         import smtplib

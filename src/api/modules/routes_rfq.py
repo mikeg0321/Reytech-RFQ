@@ -537,6 +537,66 @@ def update(rid):
     return redirect(f"/rfq/{rid}")
 
 
+@bp.route("/rfq/<rid>/add-item", methods=["POST"])
+@auth_required
+def rfq_add_item(rid):
+    """Add a line item to an RFQ (for generic/Cal Vet RFQs or manual entry)."""
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        flash("RFQ not found", "error"); return redirect("/")
+
+    if "line_items" not in r:
+        r["line_items"] = []
+
+    next_num = max((it.get("line_number", 0) for it in r["line_items"]), default=0) + 1
+
+    new_item = {
+        "line_number": next_num,
+        "qty": int(request.form.get("qty", 1)),
+        "uom": request.form.get("uom", "EA").strip().upper(),
+        "description": request.form.get("description", "").strip(),
+        "item_number": request.form.get("item_number", "").strip(),
+        "supplier_cost": 0,
+        "scprs_last_price": None,
+        "source_type": "manual",
+        "price_per_unit": 0,
+    }
+
+    r["line_items"].append(new_item)
+    save_rfqs(rfqs)
+    _log_rfq_activity(rid, "item_added",
+        f"Line item #{next_num} added: {new_item['description'][:60]}",
+        actor="user")
+    flash(f"Item #{next_num} added", "success")
+    return redirect(f"/rfq/{rid}")
+
+
+@bp.route("/rfq/<rid>/remove-item/<int:idx>", methods=["POST"])
+@auth_required
+def rfq_remove_item(rid, idx):
+    """Remove a line item from an RFQ by index."""
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        flash("RFQ not found", "error"); return redirect("/")
+
+    items = r.get("line_items", [])
+    if 0 <= idx < len(items):
+        removed = items.pop(idx)
+        # Re-number remaining items
+        for i, it in enumerate(items):
+            it["line_number"] = i + 1
+        save_rfqs(rfqs)
+        _log_rfq_activity(rid, "item_removed",
+            f"Line item removed: {removed.get('description','')[:60]}",
+            actor="user")
+        flash("Item removed", "success")
+    else:
+        flash("Invalid item index", "error")
+    return redirect(f"/rfq/{rid}")
+
+
 @bp.route("/rfq/<rid>/upload-templates", methods=["POST"])
 @auth_required
 def upload_templates(rid):
@@ -757,6 +817,32 @@ def generate_rfq_package(rid):
         flash(f"No files generated — {'; '.join(errors) if errors else 'No templates found'}", "error")
         return redirect(f"/rfq/{rid}")
     
+    # ── Step 3.5: For generic agencies (Cal Vet, etc.), include original RFQ attachments ──
+    # These agencies don't have 704B forms — we send our Reytech quote PLUS their
+    # original RFQ package docs back to them.
+    if r.get("form_type") == "generic_rfq":
+        import shutil as _sh2
+        # Include any rfq_package or unknown-type attachments from the original email
+        db_attachments = list_rfq_files(rid, category="attachment") + list_rfq_files(rid, category="template")
+        for db_f in db_attachments:
+            fname = db_f.get("filename", "")
+            # Skip if we already generated a file with this name
+            if fname in output_files:
+                continue
+            # Skip non-PDF
+            if not fname.lower().endswith(".pdf"):
+                continue
+            try:
+                full_f = get_rfq_file(db_f["id"])
+                if full_f and full_f.get("data"):
+                    att_path = os.path.join(out_dir, fname)
+                    with open(att_path, "wb") as _fw:
+                        _fw.write(full_f["data"])
+                    output_files.append(fname)
+                    t.step(f"Included original: {fname}")
+            except Exception as _ae:
+                t.warn(f"Could not include {fname}", error=str(_ae))
+    
     # ── Step 4: Store generated PDFs in DB (survive redeploys) ──
     for f in output_files:
         fpath = f"{out_dir}/{f}"
@@ -796,13 +882,19 @@ def generate_rfq_package(rid):
     
     # Build success message
     parts = []
+    is_generic = r.get("form_type") == "generic_rfq"
     for f in output_files:
         if "703B" in f: parts.append("703B")
         elif "704B" in f: parts.append("704B")
         elif "BidPackage" in f: parts.append("Bid Package")
         elif "Quote" in f: parts.append(f"Quote #{r.get('reytech_quote_number', '?')}")
+        else: parts.append(os.path.basename(f))
     
-    msg = f"✅ RFQ Package generated: {', '.join(parts)}"
+    if is_generic:
+        agency = r.get('agency_name', 'Agency')
+        msg = f"✅ {agency} quote package ready: {', '.join(parts)}"
+    else:
+        msg = f"✅ RFQ Package generated: {', '.join(parts)}"
     if errors:
         msg += f" | ⚠️ {'; '.join(errors)}"
     

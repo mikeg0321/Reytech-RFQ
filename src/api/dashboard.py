@@ -1429,23 +1429,69 @@ def process_rfq_email(rfq_email):
     _trace.append(f"→ RFQ PATH: templates={list(templates.keys())}, attachments={[a.get('filename','?') for a in rfq_email.get('attachments',[])]}")
     
     if "704b" not in templates:
+        # ── Generic RFQ path (Cal Vet, CalFire, DGS, etc.) ──────────────
+        # No 704 forms — extract line items from whatever PDFs we have
+        _all_pdf_paths = []
+        for att in rfq_email.get("attachments", []):
+            p = att.get("path", "")
+            if p and os.path.exists(p) and p.lower().endswith(".pdf"):
+                _all_pdf_paths.append(p)
+        # Also include any template files already copied
+        for _tp in templates.values():
+            if _tp and os.path.exists(_tp) and _tp not in _all_pdf_paths:
+                _all_pdf_paths.append(_tp)
+
+        _generic_result = {}
+        if _all_pdf_paths:
+            try:
+                from src.forms.generic_rfq_parser import parse_generic_rfq
+                _generic_result = parse_generic_rfq(
+                    _all_pdf_paths,
+                    subject=rfq_email.get("subject", ""),
+                    sender_email=rfq_email.get("sender_email", ""),
+                    body=rfq_email.get("body_text", rfq_email.get("body", "")),
+                )
+                _trace.append(f"GENERIC PARSE: agency={_generic_result.get('agency','?')}, "
+                              f"items={len(_generic_result.get('line_items',[]))}, "
+                              f"sol={_generic_result.get('solicitation_number','?')}")
+            except Exception as _gpe:
+                log.warning("Generic RFQ parser failed: %s", _gpe)
+                _trace.append(f"GENERIC PARSE FAILED: {_gpe}")
+
+        _gen_items = _generic_result.get("line_items", [])
+        _gen_sol = (_generic_result.get("solicitation_number")
+                    or rfq_email.get("solicitation_hint", "unknown"))
+        _gen_agency = _generic_result.get("agency", "unknown")
+        _gen_agency_name = _generic_result.get("agency_name", "Unknown")
+
         rfq_data = {
             "id": rfq_email["id"],
-            "solicitation_number": rfq_email.get("solicitation_hint", "unknown"),
+            "solicitation_number": _gen_sol,
             "status": "new",
             "source": "email",
             "email_uid": rfq_email.get("email_uid"),
             "email_subject": rfq_email["subject"],
             "email_sender": rfq_email["sender_email"],
             "email_message_id": rfq_email.get("message_id", ""),
-            "requestor_name": rfq_email["sender_email"],
-            "requestor_email": rfq_email["sender_email"],
-            "due_date": "TBD",
-            "line_items": [],
+            "requestor_name": _generic_result.get("requestor_name") or rfq_email["sender_email"],
+            "requestor_email": _generic_result.get("requestor_email") or rfq_email["sender_email"],
+            "due_date": _generic_result.get("due_date") or "TBD",
+            "delivery_location": _generic_result.get("institution") or _generic_result.get("ship_to", ""),
+            "line_items": _gen_items,
             "attachments_raw": [a["filename"] for a in rfq_email["attachments"]],
             "templates": templates,
-            "parse_note": "704B not identified — manual review needed",
+            "agency": _gen_agency,
+            "agency_name": _gen_agency_name,
+            "form_type": _generic_result.get("form_type", "generic_rfq"),
+            "quote_type": _generic_result.get("quote_type", "formal"),
+            "parse_details": _generic_result.get("parse_details", []),
+            "parse_note": (f"{_gen_agency_name} — {len(_gen_items)} items parsed from PDFs"
+                           if _gen_items
+                           else f"{_gen_agency_name} — No 704B, PDF text parse found 0 items — manual entry needed"),
         }
+        # Run price lookup if we got items
+        if _gen_items:
+            rfq_data["line_items"] = bulk_lookup(_gen_items)
     else:
         rfq_data = parse_rfq_attachments(templates)
         rfq_data["id"] = rfq_email["id"]
@@ -1456,6 +1502,20 @@ def process_rfq_email(rfq_email):
         rfq_data["email_sender"] = rfq_email["sender_email"]
         rfq_data["email_message_id"] = rfq_email.get("message_id", "")
         rfq_data["line_items"] = bulk_lookup(rfq_data.get("line_items", []))
+        # Detect agency for 704-based RFQs too
+        try:
+            from src.forms.generic_rfq_parser import detect_agency as _detect_ag
+            _ak, _ai = _detect_ag(rfq_email.get("subject",""), "",
+                                   rfq_email.get("sender_email",""), "")
+            rfq_data["agency"] = _ak if _ak != "unknown" else "cchcs"
+            rfq_data["agency_name"] = _ai.get("name", "CCHCS")
+            rfq_data["form_type"] = "ams_704"
+            rfq_data["quote_type"] = "704b_fill"
+        except Exception:
+            rfq_data["agency"] = "cchcs"
+            rfq_data["agency_name"] = "CCHCS"
+            rfq_data["form_type"] = "ams_704"
+            rfq_data["quote_type"] = "704b_fill"
     
     rfqs[rfq_data["id"]] = rfq_data
     save_rfqs(rfqs)

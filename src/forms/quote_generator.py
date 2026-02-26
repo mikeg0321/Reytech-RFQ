@@ -1151,7 +1151,7 @@ def generate_quote_from_pc(pc: dict, output_path: str, **kwargs) -> dict:
 
 def generate_quote_from_rfq(rfq: dict, output_path: str, **kwargs) -> dict:
     """Generate Reytech quote from an RFQ record."""
-    institution = rfq.get("department", rfq.get("requestor_name", ""))
+    institution = rfq.get("agency_name", "") or rfq.get("department", rfq.get("requestor_name", ""))
     delivery = rfq.get("delivery_location", "") or ""
     ship_to_raw = rfq.get("ship_to", "") or ""
 
@@ -1168,8 +1168,7 @@ def generate_quote_from_rfq(rfq: dict, output_path: str, **kwargs) -> dict:
     ship_addr_lines = _parse_addr(ship_to_raw)
     del_parts = _parse_addr(delivery) if delivery else ship_addr_lines
 
-    # Facility name: delivery_location is the canonical source (e.g. "CCWF - Central California Women's Facility")
-    # Ship-to address is just the street/city/state — don't use its first line as the name
+    # Facility name: delivery_location is the canonical source
     ship_name = delivery or (ship_addr_lines[0] if ship_addr_lines else institution)
     
     # If ship_to_raw is empty, try extracting address from delivery_location parts
@@ -1183,6 +1182,7 @@ def generate_quote_from_rfq(rfq: dict, output_path: str, **kwargs) -> dict:
         "ship_to_address": ship_addr_lines,
         "rfq_number": rfq.get("solicitation_number", ""),
         "source_rfq_id": rfq.get("id", ""),
+        "requestor_email": rfq.get("requestor_email", ""),
         "line_items": [],
     }
 
@@ -1196,6 +1196,12 @@ def generate_quote_from_rfq(rfq: dict, output_path: str, **kwargs) -> dict:
             "description": item.get("description", ""),
             "unit_price": up,
         })
+
+    # Pass agency explicitly if known from RFQ
+    _agency_map = {"calvet": "CalVet", "cchcs": "CCHCS", "dsh": "DSH", "dgs": "DGS"}
+    _rfq_agency = rfq.get("agency", "")
+    if _rfq_agency in _agency_map and "agency" not in kwargs:
+        kwargs["agency"] = _agency_map[_rfq_agency]
 
     return generate_quote(data, output_path, **kwargs)
 

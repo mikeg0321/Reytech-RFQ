@@ -26,7 +26,7 @@
  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px">
   <div>
    <div style="font-family:'JetBrains Mono',monospace;font-size:24px;font-weight:700">#{{r.solicitation_number}}</div>
-   <div style="color:var(--tx2);font-size:12px;margin-top:2px">{{r.get('award_method','all_or_none')|replace('_',' ')|title}}{% if r.source=='email' %} · 📧 Auto-imported{% endif %}</div>
+   <div style="color:var(--tx2);font-size:12px;margin-top:2px">{{r.get('award_method','all_or_none')|replace('_',' ')|title}}{% if r.source=='email' %} · 📧 Auto-imported{% endif %}{% if r.get('agency_name') %} · <span style="padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;{% if r.get('form_type')=='generic_rfq' %}background:rgba(167,139,250,.15);color:#a78bfa;border:1px solid rgba(167,139,250,.3){% else %}background:rgba(52,211,153,.1);color:#3fb950;border:1px solid rgba(52,211,153,.2){% endif %}">{{ r.agency_name }}</span>{% endif %}</div>
   </div>
   <span class="badge b-{{r.status}}">{{r.status}}</span>
  </div>
@@ -55,6 +55,14 @@
 
 <div class="card">
  <div class="card-t">Line Items & Pricing</div>
+ {% if r.get('parse_note') %}
+ <div style="margin-bottom:12px;padding:10px 14px;border-radius:8px;font-size:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;{% if r.get('line_items') %}background:rgba(52,211,153,.06);border:1px solid rgba(52,211,153,.15);color:#3fb950{% else %}background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.2);color:#f0883e{% endif %}">
+  <span>{% if r.get('line_items') %}✅{% else %}⚠️{% endif %} {{ r.parse_note }}</span>
+  {% if r.get('form_type') == 'generic_rfq' and not r.get('line_items') %}
+  <span style="color:var(--tx2);font-size:11px">— Add items manually below or upload a cleaner PDF</span>
+  {% endif %}
+ </div>
+ {% endif %}
  
  <!-- Markup Buttons -->
  <div class="markup-bar">
@@ -84,7 +92,7 @@
   <thead><tr>
    <th>#</th><th style="width:55px">Qty</th><th style="width:55px">UOM</th><th style="min-width:220px">Description</th><th>Part #</th>
    <th style="min-width:220px">Item Link</th>
-   <th>Your Cost</th><th>SCPRS</th><th>Amazon</th><th>Bid Price</th><th>Subtotal</th><th>Margin</th><th>Profit</th>
+   <th>Your Cost</th><th>SCPRS</th><th>Amazon</th><th>Bid Price</th><th>Subtotal</th><th>Margin</th><th>Profit</th><th style="width:30px"></th>
   </tr></thead>
   <tbody>
   {% for i in r.line_items %}
@@ -114,10 +122,23 @@
    <td class="mono" style="font-size:15px;font-weight:700" id="sub_{{loop.index0}}">—</td>
    <td id="mg_{{loop.index0}}" style="font-weight:700;font-size:14px">—</td>
    <td id="pf_{{loop.index0}}" style="font-weight:700;font-size:14px">—</td>
+   <td><form method="POST" action="/rfq/{{rid}}/remove-item/{{loop.index0}}" style="margin:0"><button type="submit" class="btn btn-sm" style="background:none;border:none;color:#f85149;font-size:14px;padding:2px 6px;cursor:pointer" title="Remove item" onclick="return confirm('Remove this line item?')">×</button></form></td>
   </tr>
   {% endfor %}
   </tbody>
  </table>
+
+ <!-- Add Item (inline form) -->
+ <details style="margin-top:10px" id="add-item-section">
+  <summary style="cursor:pointer;font-size:12px;color:var(--ac);font-weight:600;padding:6px 0">➕ Add Line Item</summary>
+  <form method="POST" action="/rfq/{{rid}}/add-item" style="display:flex;gap:8px;align-items:flex-end;margin-top:8px;padding:10px 14px;background:var(--sf2);border-radius:8px;border:1px solid var(--bd);flex-wrap:wrap">
+   <div><label style="font-size:10px;color:var(--tx2);display:block">Qty</label><input type="number" name="qty" value="1" min="1" class="num-in" style="width:60px;font-size:13px;padding:6px" required></div>
+   <div><label style="font-size:10px;color:var(--tx2);display:block">UOM</label><input type="text" name="uom" value="EA" class="text-in" style="width:55px;font-size:13px;padding:6px;text-transform:uppercase" maxlength="6"></div>
+   <div style="flex:1;min-width:200px"><label style="font-size:10px;color:var(--tx2);display:block">Description</label><input type="text" name="description" placeholder="Item description..." class="text-in" style="width:100%;font-size:13px;padding:6px" required></div>
+   <div><label style="font-size:10px;color:var(--tx2);display:block">Part #</label><input type="text" name="item_number" placeholder="Optional" class="text-in" style="width:100px;font-size:13px;padding:6px"></div>
+   <button type="submit" class="btn btn-sm btn-p" style="padding:6px 14px;font-size:12px">Add</button>
+  </form>
+ </details>
 
  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;padding-top:14px;border-top:1px solid var(--bd)">
   <div>
@@ -129,7 +150,7 @@
  <div class="bg">
   <button type="submit" class="btn btn-p" data-testid="rfq-save-pricing">💾 Save Pricing</button>
   <button type="button" class="btn" data-testid="rfq-preview-quote" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd)" onclick="showRfqPreview()">👁️ Preview Quote</button>
-  <button type="submit" formaction="/rfq/{{rid}}/generate-package" data-testid="rfq-generate-package" class="btn btn-g" style="font-size:14px;padding:10px 24px">📦 Generate RFQ Package</button>
+  <button type="submit" formaction="/rfq/{{rid}}/generate-package" data-testid="rfq-generate-package" class="btn btn-g" style="font-size:14px;padding:10px 24px">{% if r.get('form_type') == 'generic_rfq' %}📄 Generate Reytech Quote{% else %}📦 Generate RFQ Package{% endif %}</button>
   <button type="button" class="btn" style="background:rgba(79,140,255,.15);color:var(--ac);border:1px solid rgba(79,140,255,.3)" onclick="sendQuoteEmail()">📧 Send Quote</button>
  </div>
  </form>
@@ -141,11 +162,42 @@
  <div id="rfq-files-list"></div>
 </div>
 
-<!-- Template Status — shows what forms are available for generation -->
+<!-- Template / Agency Status Card -->
 <div class="card">
+ {% set t = r.get('templates', {}) %}
+ {% set is_generic = r.get('form_type') == 'generic_rfq' %}
+
+ {% if is_generic %}
+ {# ── Generic Agency (Cal Vet, CalFire, DGS, etc.) — No 704 forms ── #}
+ <div class="card-t">📋 {{ r.get('agency_name', 'Agency') }} RFQ Package</div>
+ <div style="padding:10px 14px;border-radius:8px;font-size:12px;margin-bottom:12px;background:rgba(167,139,250,.06);border:1px solid rgba(167,139,250,.15);color:#a78bfa">
+  ℹ️ <b>{{ r.get('agency_name', 'This agency') }}</b> uses a formal Reytech quote — no 704B form filling needed.
+  The response package will include your Reytech quote{% if r.get('attachments_raw') %} plus the original RFQ attachments{% endif %}.
+ </div>
+ <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">
+  {# Show what we have #}
+  {% for att_name in r.get('attachments_raw', []) %}
+  <div style="padding:6px 12px;border-radius:6px;font-size:12px;border:1px solid rgba(52,211,153,.3);background:rgba(52,211,153,.06);color:#3fb950">
+   📎 {{ att_name }}
+  </div>
+  {% endfor %}
+  <div style="padding:6px 12px;border-radius:6px;font-size:12px;border:1px solid rgba(79,140,255,.3);background:rgba(79,140,255,.06);color:var(--ac)">
+   📄 Reytech Quote {{ '✅' if r.get('reytech_quote_number') else '(pending)' }}
+  </div>
+ </div>
+ {# Upload additional docs if needed #}
+ <form method="POST" action="/rfq/{{rid}}/upload-templates" enctype="multipart/form-data">
+  <div style="display:flex;gap:8px;align-items:center">
+   <input type="file" name="templates" multiple accept=".pdf" style="font-size:12px">
+   <button type="submit" class="btn btn-sm btn-p">📎 Add Documents</button>
+  </div>
+  <div style="font-size:11px;color:var(--tx2);margin-top:4px">Upload additional PDFs to include in the response package (e.g. Cal Vet RFQ form)</div>
+ </form>
+
+ {% else %}
+ {# ── Standard 704B Agency (CCHCS, DSH) ── #}
  <div class="card-t">📋 Form Templates</div>
  <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px">
-  {% set t = r.get('templates', {}) %}
   <div style="padding:8px 14px;border-radius:6px;font-size:13px;border:1px solid {{ 'rgba(52,211,153,.3)' if t.get('703b') else 'rgba(248,113,113,.3)' }};background:{{ 'rgba(52,211,153,.06)' if t.get('703b') else 'rgba(248,113,113,.06)' }}">
    {{ '✅' if t.get('703b') else '❌' }} 703B (RFQ)
   </div>
@@ -168,6 +220,7 @@
   </div>
   <div style="font-size:11px;color:var(--tx2);margin-top:4px">Upload the 703B, 704B, and/or Bid Package PDFs from the RFQ email</div>
  </form>
+ {% endif %}
  {% endif %}
 </div>
 
