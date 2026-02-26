@@ -256,17 +256,7 @@ def api_catalog_rebuild():
     return jsonify(result)
 
 
-@bp.route("/api/catalog/stats")
-@auth_required
-def api_catalog_stats():
-    """Get catalog growth stats."""
-    try:
-        from src.agents.product_catalog import get_catalog_stats, init_catalog_db
-        init_catalog_db()
-        stats = get_catalog_stats()
-        return jsonify({"ok": True, **stats})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)})
+# (api_catalog_stats already defined in routes_crm.py — use that instead)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
