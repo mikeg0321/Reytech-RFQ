@@ -3,6 +3,101 @@
 {% block content %}
 <h2 style="font-size:20px;font-weight:700;margin-bottom:16px">⚙️ Settings</h2>
 
+<!-- ═══ Nav Customization ═══ -->
+<div class="card" style="margin-bottom:12px" id="nav">
+ <div class="card-t">🧭 Navigation Bar</div>
+ <div style="font-size:12px;color:var(--tx2);margin-bottom:12px">
+  Check items to show in the top nav bar. Unchecked items go to "⋯ More" dropdown. Home is always first.
+ </div>
+ <div id="nav-items" style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+  <!-- populated by JS -->
+ </div>
+ <div style="margin-top:12px;display:flex;gap:8px">
+  <button type="button" class="btn btn-p" onclick="saveNavConfig()" style="font-size:13px;padding:8px 16px">💾 Save Nav</button>
+  <button type="button" class="btn btn-s" onclick="resetNavConfig()" style="font-size:13px;padding:8px 16px">↩️ Reset Default</button>
+ </div>
+</div>
+
+<script>
+var ALL_NAV=[
+ {name:'PCs',label:'📋 PCs'},
+ {name:'Quotes',label:'📋 Quotes'},
+ {name:'Orders',label:'📦 Orders'},
+ {name:'PO Track',label:'📍 PO Track'},
+ {name:'Follow-Up',label:'📬 Follow-Up'},
+ {name:'CRM',label:'👥 CRM'},
+ {name:'Catalog',label:'📦 Catalog'},
+ {name:'Analytics',label:'📊 Analytics'},
+ {name:'Pipeline',label:'🔄 Pipeline'},
+ {name:'Search',label:'🔍 Search'},
+ {name:'Vendors',label:'🏭 Vendors'},
+ {name:'Competitors',label:'🎯 Competitors'},
+ {name:'Expand',label:'🏥 Expand'},
+ {name:'Campaigns',label:'📞 Campaigns'},
+ {name:'Shipping',label:'🚚 Shipping'},
+ {name:'Pricing',label:'💰 Pricing'},
+ {name:'Growth',label:'🚀 Growth'},
+ {name:'Intel',label:'🧠 Intel'},
+ {name:'Agents',label:'🤖 Agents'},
+ {name:'Revenue',label:'💰 Revenue'},
+ {name:'Brief',label:'☀️ Brief'},
+];
+var DEFAULT_TOP=['PCs','Quotes','Orders','PO Track','Follow-Up','CRM','Catalog','Analytics','Pipeline'];
+var currentTop=[];
+
+function loadNavConfig(){
+ // Read from server
+ fetch('/api/settings/get?key=nav_top_items').then(r=>r.json()).then(d=>{
+  if(d.value){currentTop=d.value.split(',').map(s=>s.trim()).filter(Boolean)}
+  else{currentTop=[...DEFAULT_TOP]}
+  renderNavEditor();
+ }).catch(()=>{currentTop=[...DEFAULT_TOP];renderNavEditor()});
+}
+function renderNavEditor(){
+ var c=document.getElementById('nav-items');
+ c.innerHTML=ALL_NAV.map(function(item){
+  var checked=currentTop.indexOf(item.name)>=0;
+  return '<label style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:6px;cursor:pointer;'
+   +(checked?'background:rgba(52,211,153,.08);border:1px solid rgba(52,211,153,.2)':'background:var(--sf);border:1px solid var(--bd)')
+   +'" ondragover="event.preventDefault()" draggable="false">'
+   +'<input type="checkbox" data-name="'+item.name+'" '+(checked?'checked':'')+' onchange="toggleNavItem(this)" style="width:16px;height:16px;accent-color:var(--ac)">'
+   +'<span style="font-size:13px">'+item.label+'</span>'
+   +(checked?'<span style="margin-left:auto;font-size:10px;color:#3fb950">TOP</span>':'')
+   +'</label>';
+ }).join('');
+}
+function toggleNavItem(cb){
+ var name=cb.dataset.name;
+ if(cb.checked){
+  if(currentTop.indexOf(name)<0)currentTop.push(name);
+ }else{
+  currentTop=currentTop.filter(n=>n!==name);
+ }
+ renderNavEditor();
+}
+function saveNavConfig(){
+ var val=currentTop.join(',');
+ fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({'nav_top_items':val})
+ }).then(r=>r.json()).then(d=>{
+  if(d.ok){
+   var el=document.querySelector('.alert');
+   if(!el){el=document.createElement('div');el.className='alert al-s';el.style.marginBottom='12px';
+    document.getElementById('nav').before(el);}
+   el.textContent='✅ Nav saved — refresh to see changes';
+   el.style.display='block';
+  }
+ });
+}
+function resetNavConfig(){
+ currentTop=[...DEFAULT_TOP];
+ renderNavEditor();
+ saveNavConfig();
+}
+loadNavConfig();
+</script>
+
+<!-- ═══ App Settings ═══ -->
 <form id="settings-form">
 {% for cat, items in groups.items()|sort %}
 <div class="card" style="margin-bottom:12px">

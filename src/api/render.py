@@ -33,4 +33,14 @@ def render_page(template_name: str, active_page: str = "", **context):
     context.setdefault("poll_last", _poll_last)
     context.setdefault("active_page", active_page)
 
+    # Inject app config for nav customization
+    if "config" not in context:
+        try:
+            from src.core.db import get_setting
+            context["config"] = {
+                "nav_top_items": get_setting("nav_top_items", ""),
+            }
+        except Exception:
+            context["config"] = {}
+
     return render_template(template_name, **context)

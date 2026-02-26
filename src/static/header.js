@@ -50,15 +50,16 @@ function pollNow(btn){
 // Use after a bug fix, missed emails, or when the queue looks stale.
 // ══════════════════════════════════════════════════════════════════════════
 function resyncAll(btn){
- if(!confirm('RESYNC will:\n\n\u2022 Clear the RFQ queue\n\u2022 Forget all processed emails\n\u2022 Re-import everything from inbox\n\u2022 Price Checks are KEPT\n\nUse this after a fix or when emails were missed.\nContinue?'))return;
+ if(!confirm('RESYNC will:\n\n\u2022 Keep sent/won/lost/draft RFQs (your work is safe)\n\u2022 Clear only new/stale imports\n\u2022 Re-import missed emails from inbox\n\u2022 Price Checks are KEPT\n\nUse after a fix or when emails were missed.\nContinue?'))return;
  btn.disabled=true;btn.setAttribute('aria-busy','true');
  btn.textContent='\uD83D\uDD04 Resyncing\u2026';
  btn.style.background='rgba(251,191,36,.2)';btn.style.borderColor='rgba(251,191,36,.4)';
  fetch('/api/resync',{credentials:'same-origin'}).then(function(r){return r.json()}).then(function(d){
   _updatePollTime(d.last_check);
   var parts=[];
-  if(d.found>0)parts.push(d.found+' RFQs');
-  if(d.pcs_preserved)parts.push(d.pcs_preserved+' PCs kept');
+  if(d.found>0)parts.push(d.found+' new');
+  if(d.preserved>0)parts.push(d.preserved+' kept');
+  if(d.pcs_preserved)parts.push(d.pcs_preserved+' PCs');
   btn.textContent='\u2705 '+(parts.join(', ')||'Done');
   btn.style.background='rgba(52,211,153,.2)';btn.style.borderColor='rgba(52,211,153,.4)';
   setTimeout(function(){location.reload()},1500);

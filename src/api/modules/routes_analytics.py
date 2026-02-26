@@ -745,6 +745,18 @@ def get_settings_data():
     return jsonify({"ok": True, "settings": _load_settings()})
 
 
+@bp.route("/api/settings/get")
+@auth_required
+def get_single_setting():
+    """Return a single setting value by key."""
+    key = request.args.get("key", "")
+    if not key:
+        return jsonify({"ok": False, "error": "key required"})
+    settings = _load_settings()
+    value = settings.get(key, "")
+    return jsonify({"ok": True, "key": key, "value": value})
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # E13: API v1 Endpoints (Token Auth)
 # ═══════════════════════════════════════════════════════════════════════════════

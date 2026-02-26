@@ -1508,41 +1508,93 @@ def pricecheck_convert_to_quote(pcid):
 @bp.route("/api/resync")
 @auth_required
 def api_resync():
-    """Clear RFQ queue + reset processed UIDs + re-poll inbox.
-    PRESERVES all price checks — PCs persist until explicitly dismissed/processed."""
-    log.info("Full resync triggered — clearing RFQ queue and re-polling (PCs preserved)")
+    """Re-import emails WITHOUT destroying user work.
     
-    # Snapshot PCs before resync so we can report what was preserved
-    pcs_before = _load_price_checks()
-    pc_count_before = len(pcs_before)
+    PRESERVES:
+    - RFQs with terminal status (sent, won, lost, generated, draft)
+    - All price checks (PCs persist until explicitly dismissed)
+    - All user-set pricing, notes, quote numbers
     
-    # 1. Clear RFQ queue only (NOT price checks)
-    save_rfqs({})
-    # 2. Reset processed UIDs
-    proc_file = os.path.join(DATA_DIR, "processed_emails.json")
-    if os.path.exists(proc_file):
-        os.remove(proc_file)
-        log.info("Cleared processed_emails.json")
-    # 3. Reset poller so it rebuilds
-    global _shared_poller
-    _shared_poller = None
-    # 4. Re-poll
-    imported = do_poll_check()
+    CLEARS:
+    - RFQs with status 'new' or 'parse_error' (stale imports)
+    - Processed email UID list (so missed emails get re-imported)
+    """
+    log.info("Smart resync triggered — preserving terminal statuses")
     
-    # Report on PC preservation
-    pcs_after = _load_price_checks()
-    log.info("Resync complete: %d RFQs imported, %d PCs preserved (was %d, now %d)",
-             len(imported), pc_count_before, pc_count_before, len(pcs_after))
-    
-    return jsonify({
-        "ok": True,
-        "cleared": True,
-        "found": len(imported),
-        "rfqs": [{"id": r["id"], "sol": r.get("solicitation_number", "?")} for r in imported],
-        "pcs_preserved": pc_count_before,
-        "pcs_total": len(pcs_after),
-        "last_check": POLL_STATUS.get("last_check"),
-    })
+    try:
+        # ── 1. Snapshot what we want to keep ──
+        rfqs = load_rfqs()
+        pcs_before = _load_price_checks()
+        pc_count = len(pcs_before)
+        
+        TERMINAL_STATUSES = {"sent", "won", "lost", "generated", "draft", "archived"}
+        
+        # Keep RFQs with terminal status — keyed by BOTH id and email_uid
+        kept_rfqs = {}           # id → full rfq data (preserved)
+        kept_by_uid = set()      # email_uids we're keeping (skip on re-import)
+        kept_by_sol = set()      # solicitation numbers we're keeping
+        cleared_count = 0
+        
+        for rid, r in rfqs.items():
+            status = (r.get("status") or "new").lower()
+            if status in TERMINAL_STATUSES:
+                kept_rfqs[rid] = r
+                uid = r.get("email_uid")
+                if uid:
+                    kept_by_uid.add(uid)
+                sol = r.get("solicitation_number", "")
+                if sol and sol != "unknown":
+                    kept_by_sol.add(sol.strip())
+            else:
+                cleared_count += 1
+        
+        # Also build set of PC email_uids to skip (don't re-create PCs that already exist)
+        pc_uids = set()
+        for pc in pcs_before.values():
+            uid = pc.get("email_uid")
+            if uid:
+                pc_uids.add(uid)
+        
+        log.info("Resync: keeping %d terminal RFQs, clearing %d stale, %d PCs preserved",
+                 len(kept_rfqs), cleared_count, pc_count)
+        
+        # ── 2. Save only the kept RFQs ──
+        save_rfqs(kept_rfqs)
+        
+        # ── 3. Reset processed UIDs — BUT pre-seed with kept UIDs ──
+        # This way kept emails won't be re-imported as duplicates
+        proc_file = os.path.join(DATA_DIR, "processed_emails.json")
+        pre_seed = list(kept_by_uid | pc_uids)
+        with open(proc_file, "w") as f:
+            json.dump(pre_seed, f)
+        log.info("Reset processed_emails.json — pre-seeded %d UIDs from kept items", len(pre_seed))
+        
+        # ── 4. Reset poller + re-poll ──
+        global _shared_poller
+        _shared_poller = None
+        imported = do_poll_check()
+        
+        # ── 5. Report ──
+        rfqs_after = load_rfqs()
+        pcs_after = _load_price_checks()
+        
+        log.info("Resync complete: %d new imported, %d preserved, %d total RFQs, %d PCs",
+                 len(imported), len(kept_rfqs), len(rfqs_after), len(pcs_after))
+        
+        return jsonify({
+            "ok": True,
+            "cleared": cleared_count,
+            "found": len(imported),
+            "preserved": len(kept_rfqs),
+            "total_rfqs": len(rfqs_after),
+            "rfqs": [{"id": r["id"], "sol": r.get("solicitation_number", "?")} for r in imported],
+            "pcs_preserved": pc_count,
+            "pcs_total": len(pcs_after),
+            "last_check": POLL_STATUS.get("last_check"),
+        })
+    except Exception as e:
+        log.error("Resync failed: %s", e, exc_info=True)
+        return jsonify({"ok": False, "found": 0, "error": str(e)})
 
 
 def _remove_processed_uid(uid):

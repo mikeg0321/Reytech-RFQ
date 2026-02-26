@@ -800,6 +800,9 @@ def _is_user_facing_pc(pc: dict) -> bool:
     # Terminal statuses — done, move to archive
     if pc.get("status") in ("won", "lost", "expired"):
         return False
+    # Parse errors with 0 items — nothing actionable, hide from queue
+    if pc.get("status") == "parse_error" and not pc.get("items"):
+        return False
     return True
 
 
