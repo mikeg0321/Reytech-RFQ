@@ -12,50 +12,50 @@ from collections import defaultdict as _defaultdict
 from datetime import timedelta as _timedelta
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# E3: SSE Progress Tracking for Long-Running Operations
+# E3: Progress Tracking for Long-Running Operations (file-based for multi-worker)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-_progress_streams = {}  # task_id → {"steps": [], "done": bool}
+def _progress_file(task_id):
+    """Progress file path — uses DATA_DIR so it works on Railway persistent volume."""
+    _pdir = os.path.join(DATA_DIR, "progress")
+    os.makedirs(_pdir, exist_ok=True)
+    return os.path.join(_pdir, f"{task_id}.json")
 
 def _emit_progress(task_id, step, detail="", done=False):
-    """Push progress update to an SSE stream."""
-    if task_id not in _progress_streams:
-        _progress_streams[task_id] = {"steps": [], "done": False}
-    _progress_streams[task_id]["steps"].append({
-        "step": step, "detail": detail, "ts": _time.time()
-    })
+    """Write progress to a file so any gunicorn worker can read it."""
+    pf = _progress_file(task_id)
+    try:
+        with open(pf, "r") as f:
+            data = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        data = {"steps": [], "done": False}
+    data["steps"].append({"step": step, "detail": detail, "ts": _time.time()})
     if done:
-        _progress_streams[task_id]["done"] = True
-
+        data["done"] = True
+    with open(pf, "w") as f:
+        json.dump(data, f)
 
 @bp.route("/api/progress/<task_id>")
 @auth_required
-def sse_progress(task_id):
-    """Server-Sent Events endpoint for long-running task progress."""
-    from flask import Response, stream_with_context
-
-    def generate():
-        last_idx = 0
-        timeout = _time.time() + 120  # 2 min max
-        while _time.time() < timeout:
-            stream = _progress_streams.get(task_id, {})
-            steps = stream.get("steps", [])
-            while last_idx < len(steps):
-                s = steps[last_idx]
-                yield f"data: {json.dumps(s)}\n\n"
-                last_idx += 1
-            if stream.get("done"):
-                yield f"data: {json.dumps({'step': 'done', 'detail': 'Complete'})}\n\n"
-                break
-            _time.sleep(0.3)
-        # Cleanup
-        _progress_streams.pop(task_id, None)
-
-    return Response(
-        stream_with_context(generate()),
-        mimetype="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
-    )
+def poll_progress(task_id):
+    """JSON polling endpoint — returns progress steps since last_idx."""
+    last_idx = int(request.args.get("since", 0))
+    pf = _progress_file(task_id)
+    try:
+        with open(pf, "r") as f:
+            data = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return jsonify({"steps": [], "done": False, "next_idx": last_idx})
+    steps = data.get("steps", [])
+    new_steps = steps[last_idx:]
+    is_done = data.get("done", False)
+    # Cleanup old progress files (>5 min old)
+    if is_done:
+        try:
+            os.remove(pf)
+        except OSError:
+            pass
+    return jsonify({"steps": new_steps, "done": is_done, "next_idx": len(steps)})
 
 
 @bp.route("/api/rfq/<rid>/auto-lookup", methods=["POST"])
@@ -71,69 +71,87 @@ def rfq_auto_lookup(rid):
         return jsonify({"ok": False, "error": "RFQ not found"}), 404
 
     def _run():
-        items = r.get("line_items", [])
-        total = len(items)
-
-        # Step 1: SCPRS
-        _emit_progress(task_id, "scprs", f"Checking SCPRS for {total} items...")
         try:
-            from src.agents.scprs_lookup import bulk_lookup
-            r["line_items"] = bulk_lookup(items)
-            scprs_found = sum(1 for i in r["line_items"] if i.get("scprs_last_price"))
-            _emit_progress(task_id, "scprs_done", f"SCPRS: {scprs_found}/{total} found")
+            items = r.get("line_items", [])
+            total = len(items)
+
+            # Step 1: SCPRS
+            _emit_progress(task_id, "scprs", f"Checking SCPRS for {total} items...")
+            scprs_found = 0
+            try:
+                from src.agents.scprs_lookup import bulk_lookup
+                r["line_items"] = bulk_lookup(items)
+                scprs_found = sum(1 for i in r["line_items"] if i.get("scprs_last_price"))
+                _emit_progress(task_id, "scprs_done", f"SCPRS: {scprs_found}/{total} found")
+            except Exception as e:
+                log.error("Auto-lookup SCPRS error: %s", e, exc_info=True)
+                _emit_progress(task_id, "scprs_error", f"SCPRS error: {str(e)[:80]}")
+
+            # Step 2: Amazon
+            _emit_progress(task_id, "amazon", f"Checking Amazon for {total} items...")
+            amazon_found = 0
+            try:
+                from src.agents.web_price_research import research_items
+                r["line_items"] = research_items(r["line_items"])
+                amazon_found = sum(1 for i in r["line_items"] if i.get("amazon_price"))
+                _emit_progress(task_id, "amazon_done", f"Amazon: {amazon_found}/{total} found")
+            except Exception as e:
+                log.error("Auto-lookup Amazon error: %s", e, exc_info=True)
+                _emit_progress(task_id, "amazon_error", f"Amazon error: {str(e)[:80]}")
+
+            # Step 3: Catalog
+            _emit_progress(task_id, "catalog", "Checking internal catalog...")
+            catalog_found = 0
+            try:
+                from src.agents.product_catalog import match_item, init_catalog_db
+                init_catalog_db()
+                for item in r["line_items"]:
+                    matches = match_item(item.get("description", ""), item.get("item_number", ""))
+                    if matches and isinstance(matches, list) and len(matches) > 0:
+                        best = matches[0]
+                        if best.get("confidence", 0) > 0.5:
+                            item["catalog_match"] = best
+                            catalog_found += 1
+                    elif matches and isinstance(matches, dict) and matches.get("confidence", 0) > 0.5:
+                        item["catalog_match"] = matches
+                        catalog_found += 1
+                _emit_progress(task_id, "catalog_done", f"Catalog: {catalog_found}/{total} found")
+            except Exception as e:
+                log.error("Auto-lookup Catalog error: %s", e, exc_info=True)
+                _emit_progress(task_id, "catalog_error", f"Catalog error: {str(e)[:80]}")
+
+            # Step 4: Apply margin recommendations (E7)
+            _emit_progress(task_id, "margins", "Computing recommended prices...")
+            priced = 0
+            try:
+                for item in r["line_items"]:
+                    rec = _compute_recommended_price(item)
+                    if rec:
+                        item["recommended_price"] = rec["price"]
+                        item["recommended_reason"] = rec["reason"]
+                        item["recommended_confidence"] = rec["confidence"]
+                        priced += 1
+                _emit_progress(task_id, "margins_done", f"Recommendations: {priced}/{total} items")
+            except Exception as e:
+                log.error("Auto-lookup margins error: %s", e, exc_info=True)
+                _emit_progress(task_id, "margins_error", f"Margins error: {str(e)[:80]}")
+
+            # Save results
+            r["auto_lookup_results"] = {
+                "scprs_found": sum(1 for i in r["line_items"] if i.get("scprs_last_price")),
+                "amazon_found": sum(1 for i in r["line_items"] if i.get("amazon_price")),
+                "catalog_found": catalog_found,
+                "priced": priced,
+                "total": total,
+                "ran_at": datetime.now().isoformat(),
+            }
+            rfqs_fresh = load_rfqs()
+            rfqs_fresh[rid] = r
+            save_rfqs(rfqs_fresh)
+            _emit_progress(task_id, "saved", "Results saved", done=True)
         except Exception as e:
-            _emit_progress(task_id, "scprs_error", str(e))
-
-        # Step 2: Amazon
-        _emit_progress(task_id, "amazon", f"Checking Amazon for {total} items...")
-        try:
-            from src.agents.web_price_research import research_items
-            r["line_items"] = research_items(r["line_items"])
-            amazon_found = sum(1 for i in r["line_items"] if i.get("amazon_price"))
-            _emit_progress(task_id, "amazon_done", f"Amazon: {amazon_found}/{total} found")
-        except Exception as e:
-            _emit_progress(task_id, "amazon_error", str(e))
-
-        # Step 3: Catalog
-        _emit_progress(task_id, "catalog", "Checking internal catalog...")
-        catalog_found = 0
-        try:
-            from src.agents.product_catalog import match_item, init_catalog_db
-            init_catalog_db()
-            for item in r["line_items"]:
-                match = match_item(item.get("description", ""), item.get("item_number", ""))
-                if match and match.get("confidence", 0) > 0.5:
-                    item["catalog_match"] = match
-                    catalog_found += 1
-            _emit_progress(task_id, "catalog_done", f"Catalog: {catalog_found}/{total} found")
-        except Exception as e:
-            _emit_progress(task_id, "catalog_error", str(e))
-
-        # Step 4: Apply margin recommendations (E7)
-        _emit_progress(task_id, "margins", "Computing recommended prices...")
-        priced = 0
-        for item in r["line_items"]:
-            rec = _compute_recommended_price(item)
-            if rec:
-                item["recommended_price"] = rec["price"]
-                item["recommended_reason"] = rec["reason"]
-                item["recommended_confidence"] = rec["confidence"]
-                priced += 1
-        _emit_progress(task_id, "margins_done", f"Recommendations: {priced}/{total} items")
-
-        # Save results
-        r["auto_lookup_results"] = {
-            "scprs_found": sum(1 for i in r["line_items"] if i.get("scprs_last_price")),
-            "amazon_found": sum(1 for i in r["line_items"] if i.get("amazon_price")),
-            "catalog_found": catalog_found,
-            "priced": priced,
-            "total": total,
-            "ran_at": datetime.now().isoformat(),
-        }
-        rfqs_fresh = load_rfqs()
-        rfqs_fresh[rid] = r
-        save_rfqs(rfqs_fresh)
-        _emit_progress(task_id, "saved", "Results saved", done=True)
+            log.error("Auto-lookup FATAL error: %s", e, exc_info=True)
+            _emit_progress(task_id, "fatal_error", f"Fatal: {str(e)[:100]}", done=True)
 
     _threading.Thread(target=_run, daemon=True).start()
     return jsonify({"ok": True, "task_id": task_id})

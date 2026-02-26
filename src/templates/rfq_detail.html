@@ -592,7 +592,7 @@ function printPreview(){
  setTimeout(function(){w.print();},300);
 }
 
-// E3: Full Auto-Lookup with SSE progress
+// E3: Full Auto-Lookup with polling progress
 function runAutoLookup(){
  var prog=document.getElementById('lookup-progress');
  var steps=document.getElementById('lookup-steps');
@@ -601,19 +601,30 @@ function runAutoLookup(){
  fetch('/api/rfq/'+RID+'/auto-lookup',{method:'POST'})
  .then(r=>r.json()).then(d=>{
   if(!d.ok){steps.innerHTML='Error: '+(d.error||'unknown');return;}
-  var es=new EventSource('/api/progress/'+d.task_id);
-  es.onmessage=function(e){
-   var s=JSON.parse(e.data);
-   if(s.step==='done'){
-    es.close();
-    steps.innerHTML+='<div style="color:var(--gn);font-weight:600;margin-top:4px">✅ Complete — reloading...</div>';
-    setTimeout(function(){location.reload();},1000);
-   } else {
-    var icon=s.step.includes('error')?'❌':s.step.includes('done')?'✅':'⏳';
-    steps.innerHTML+='<div>'+icon+' '+s.detail+'</div>';
-   }
-  };
-  es.onerror=function(){es.close();steps.innerHTML+='<div>Connection closed</div>';};
+  var nextIdx=0;
+  var pollTimer=setInterval(function(){
+   fetch('/api/progress/'+d.task_id+'?since='+nextIdx)
+   .then(r=>r.json()).then(p=>{
+    if(p.steps && p.steps.length>0){
+     p.steps.forEach(function(s){
+      if(s.step==='done') return;
+      var icon=s.step.includes('error')?'❌':s.step.includes('done')?'✅':'⏳';
+      steps.innerHTML+='<div>'+icon+' '+s.detail+'</div>';
+     });
+     nextIdx=p.next_idx;
+    }
+    if(p.done){
+     clearInterval(pollTimer);
+     steps.innerHTML+='<div style="color:var(--gn);font-weight:600;margin-top:4px">✅ Complete — reloading...</div>';
+     setTimeout(function(){location.reload();},1000);
+    }
+   }).catch(function(err){
+    clearInterval(pollTimer);
+    steps.innerHTML+='<div>❌ Poll error: '+err+'</div>';
+   });
+  },1000);
+ }).catch(function(err){
+  steps.innerHTML='Error starting lookup: '+err;
  });
 }
 
