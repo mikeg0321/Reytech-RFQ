@@ -82,8 +82,14 @@ else:
     log.warning(f"DATA_DIR: {DATA_DIR} (git-tracked, WILL RESET ON DEPLOY ⚠️)")
 
 # ── Core Directories ─────────────────────────────────────────────────────────
-UPLOAD_DIR = os.path.join(PROJECT_ROOT, "uploads")
-OUTPUT_DIR = os.path.join(PROJECT_ROOT, "output")
+# ── Upload/Output dirs: use volume if available ─────────────────────────────
+if _USING_VOLUME:
+    # Put uploads on persistent volume so they survive deploys and don't fill ephemeral disk
+    UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")
+    OUTPUT_DIR = os.path.join(DATA_DIR, "output")
+else:
+    UPLOAD_DIR = os.path.join(PROJECT_ROOT, "uploads")
+    OUTPUT_DIR = os.path.join(PROJECT_ROOT, "output")
 FORMS_DIR = os.path.join(PROJECT_ROOT, "src", "forms")
 
 # ── Key File Paths ───────────────────────────────────────────────────────────
