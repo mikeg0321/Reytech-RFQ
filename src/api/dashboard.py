@@ -2941,19 +2941,29 @@ def api_email_trace():
     
     # Diagnostic only
     diag = {}
-    if _shared_poller and hasattr(_shared_poller, '_diag'):
-        raw = _shared_poller._diag
-        # Convert sets to lists for JSON
-        diag = {k: (list(v) if isinstance(v, set) else v) for k, v in raw.items()}
+    try:
+        if _shared_poller and hasattr(_shared_poller, '_diag'):
+            raw = _shared_poller._diag
+            diag = {k: (list(v) if isinstance(v, set) else v) for k, v in raw.items()}
+    except Exception as e:
+        diag = {"error": str(e)}
     
-    return jsonify({
+    try:
+        poll_st = {k: str(v) for k, v in POLL_STATUS.items()}
+    except:
+        poll_st = {}
+    
+    from flask import Response
+    import json as _json
+    result = {
         "processed_on_disk": len(processed_disk),
         "processed_in_memory": len(poller_mem),
         "poller_exists": _shared_poller is not None,
         "disk_uids": processed_disk,
         "memory_uids": poller_mem,
         "last_poll_diag": diag,
-        "poll_status": dict(POLL_STATUS),
+        "poll_status": poll_st,
         "hint": "Add ?action=nuke to clear everything, then hit Check Now",
-    })
+    }
+    return Response(_json.dumps(result, default=str), mimetype="application/json")
 
