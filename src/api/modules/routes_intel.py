@@ -1753,6 +1753,11 @@ try:
         fetch_invoices, get_invoice_summary, create_invoice,
         fetch_customers, find_customer, get_customer_balance_summary,
         get_financial_context,
+        get_company_info as qb_company_info,
+        get_profit_loss as qb_profit_loss,
+        get_ar_aging as qb_ar_aging,
+        get_recent_payments as qb_recent_payments,
+        diagnose_connection as qb_diagnose,
     )
     QB_AVAILABLE = True
 except ImportError:
@@ -2719,6 +2724,65 @@ def api_qb_financial_context():
     force = request.args.get("refresh", "").lower() in ("true", "1")
     ctx = get_financial_context(force_refresh=force)
     return jsonify(ctx)
+
+
+@bp.route("/api/qb/company")
+@auth_required
+def api_qb_company_info():
+    """Get QuickBooks company information."""
+    if not QB_AVAILABLE or not qb_configured():
+        return jsonify({"ok": False, "error": "QuickBooks not configured"})
+    info = qb_company_info()
+    if info:
+        return jsonify({"ok": True, "company": info})
+    return jsonify({"ok": False, "error": "Failed to fetch company info — check connection"})
+
+
+@bp.route("/api/qb/pnl")
+@auth_required
+def api_qb_profit_loss():
+    """Get Profit & Loss report. ?start=2026-01-01&end=2026-12-31"""
+    if not QB_AVAILABLE or not qb_configured():
+        return jsonify({"ok": False, "error": "QuickBooks not configured"})
+    start = request.args.get("start")
+    end = request.args.get("end")
+    pnl = qb_profit_loss(start_date=start, end_date=end)
+    if pnl:
+        return jsonify({"ok": True, "profit_loss": pnl})
+    return jsonify({"ok": False, "error": "Failed to fetch P&L report"})
+
+
+@bp.route("/api/qb/aging")
+@auth_required
+def api_qb_ar_aging():
+    """Get AR Aging Summary report."""
+    if not QB_AVAILABLE or not qb_configured():
+        return jsonify({"ok": False, "error": "QuickBooks not configured"})
+    aging = qb_ar_aging()
+    if aging:
+        return jsonify({"ok": True, **aging})
+    return jsonify({"ok": False, "error": "Failed to fetch aging report"})
+
+
+@bp.route("/api/qb/payments")
+@auth_required
+def api_qb_recent_payments():
+    """Get recent payments received. ?days=30"""
+    if not QB_AVAILABLE or not qb_configured():
+        return jsonify({"ok": False, "error": "QuickBooks not configured"})
+    days = int(request.args.get("days", 30))
+    payments = qb_recent_payments(days_back=days)
+    return jsonify({"ok": True, "payments": payments, "count": len(payments)})
+
+
+@bp.route("/api/qb/diagnose")
+@auth_required
+def api_qb_diagnose():
+    """Full diagnostic of QB connection — token status, API reachability."""
+    if not QB_AVAILABLE:
+        return jsonify({"ok": False, "error": "QuickBooks agent module not available"})
+    diag = qb_diagnose()
+    return jsonify({"ok": True, "diagnostic": diag})
 
 
 # ─── CRM Activity Routes (Phase 16) ───────────────────────────────────────

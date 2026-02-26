@@ -35,14 +35,11 @@ h1 { font-size:22px; margin-bottom:4px; }
 .btn .spin { display:none; position:absolute; top:8px; right:8px; width:14px; height:14px; border:2px solid var(--bd); border-top-color:var(--blue); border-radius:50%; animation:sp .6s linear infinite; }
 .btn.ld .spin { display:block; }
 @keyframes sp { to { transform:rotate(360deg); } }
-#result { background:#0a0e14; border:1px solid var(--bd); border-radius:12px; padding:16px; margin-top:16px;
+#result { background:#0a0e14; border:1px solid var(--bd); border-radius:8px; padding:16px; margin-top:16px;
   font-family:'SF Mono',Consolas,monospace; font-size:12px; line-height:1.6; white-space:pre-wrap;
-  max-height:60vh; overflow-y:auto; display:none; position:sticky; top:8px; z-index:500; box-shadow:0 8px 32px rgba(0,0,0,.6); }
-#result .close { position:absolute; top:8px; right:12px; cursor:pointer; color:var(--tx2); font-size:18px; background:var(--sf2); border-radius:50%; width:24px; height:24px; display:flex; align-items:center; justify-content:center; }
-#result .close:hover { color:var(--tx); background:var(--err); }
-#result .rh { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; padding-bottom:8px; border-bottom:1px solid var(--bd); }
-#result .rh .rt { font-size:11px; color:var(--tx2); font-weight:600; text-transform:uppercase; letter-spacing:.5px; }
-#result .rh .rd { font-size:10px; color:var(--tx2); }
+  max-height:500px; overflow-y:auto; display:none; position:relative; }
+#result .close { position:absolute; top:8px; right:12px; cursor:pointer; color:var(--tx2); font-size:16px; }
+#result .close:hover { color:var(--tx); }
 .fleet { display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:8px; margin-bottom:16px; }
 .agent-card { padding:10px; border:1px solid var(--bd); border-radius:8px; background:var(--sf2); font-size:12px; }
 .agent-card .name { font-weight:600; font-size:13px; margin-bottom:4px; }
@@ -87,9 +84,6 @@ h1 { font-size:22px; margin-bottom:4px; }
  <button class="qa-btn" onclick="apiGet('/api/price-alerts?limit=5')">🔔 Alerts</button>
  <button class="qa-btn" onclick="apiPost('/api/catalog/rebuild-from-history',{})">📦 Rebuild Catalog</button>
 </div>
-
-<!-- Result Panel — sticky at top -->
-<div id="result"><div class="rh"><span class="rt" id="result-title">Result</span><span class="rd" id="result-dur"></span></div><span class="close" onclick="closeResult()">✕</span><pre id="result-content"></pre></div>
 
 <!-- Fleet -->
 <div id="fleet" class="section">
@@ -338,72 +332,30 @@ h1 { font-size:22px; margin-bottom:4px; }
  </div></div>
 </div>
 
-<script>
-var R=document.getElementById('result'),RC=document.getElementById('result-content'),RT=document.getElementById('result-title'),RD=document.getElementById('result-dur'),_ab=null,_plt=Date.now(),_reqStart=0;
+<div id="result"><span class="close" onclick="closeResult()">✕</span><pre id="result-content"></pre></div>
 
-function showResult(d,title){
-  var dur=_reqStart?((Date.now()-_reqStart)/1000).toFixed(1)+'s':'';
-  if(RT)RT.textContent=title||'Result';
-  if(RD)RD.textContent=dur?'⏱ '+dur:'';
-  RC.textContent=typeof d==='string'?d:JSON.stringify(d,null,2);
-  R.style.display='block';
-  R.scrollIntoView({behavior:'smooth',block:'start'});
-  if(_ab){_ab.classList.remove('ld');_ab.disabled=false;_ab=null;}
-  _reqStart=0;
-}
+<script>
+var R=document.getElementById('result'),RC=document.getElementById('result-content'),_ab=null,_plt=Date.now();
+
+function showResult(d){RC.textContent=typeof d==='string'?d:JSON.stringify(d,null,2);R.style.display='block';R.scrollIntoView({behavior:'smooth',block:'nearest'});if(_ab){_ab.classList.remove('ld');_ab.disabled=false;_ab=null;}}
 function closeResult(){R.style.display='none';}
 
-function toast(m,t){
-  var c=document.getElementById('toasts'),d=document.createElement('div');
-  d.className='toast t-'+(t||'info');d.textContent=m;d.onclick=function(){d.remove();};
-  c.appendChild(d);setTimeout(function(){if(d.parentNode)d.remove();},6000);
-}
+function toast(m,t){var c=document.getElementById('toasts'),d=document.createElement('div');d.className='toast t-'+(t||'info');d.textContent=m;d.onclick=function(){d.remove();};c.appendChild(d);setTimeout(function(){if(d.parentNode)d.remove();},5000);}
 
 function _hr(r){
   if(!r.ok){
-    if(r.status===401){toast('🔒 Auth required — reload page','err');return Promise.reject('401');}
-    return r.text().then(function(t){
-      try{var j=JSON.parse(t);toast('⚠️ '+r.status+': '+(j.error||'Error'),'err');return j;}
-      catch(e){toast('❌ HTTP '+r.status,'err');return{ok:false,error:'HTTP '+r.status+': '+t.substring(0,300)};}
-    });
+    if(r.status===401){toast('Auth required — reload page','err');return Promise.reject('401');}
+    return r.text().then(function(t){try{return JSON.parse(t);}catch(e){toast('Error '+r.status,'err');return{ok:false,error:'HTTP '+r.status+': '+t.substring(0,200)};}});
   }
-  return r.json().catch(function(e){return r.text().then(function(t){return{ok:true,raw_text:t};});});
+  return r.json();
 }
 
-function apiGet(u,title){
-  _reqStart=Date.now();
-  RC.textContent='⏳ Loading...';if(RT)RT.textContent=title||u;R.style.display='block';
-  console.log('[TRACE] GET',u);
-  toast('📡 '+( title||u.split('?')[0].split('/').pop()),'info');
-  fetch(u,{credentials:'same-origin'}).then(_hr).then(function(d){
-    if(d&&d.ok===false&&d.error)toast('⚠️ '+d.error,'err');
-    else if(d&&d.ok!==false)toast('✅ Done','ok');
-    showResult(d,title);
-  }).catch(function(e){
-    console.error('[TRACE] GET error:',u,e);
-    toast('❌ Request failed: '+e,'err');
-    showResult('Error: '+e,title);
-  });
-}
+function apiGet(u){RC.textContent='Loading...';R.style.display='block';fetch(u,{credentials:'same-origin'}).then(_hr).then(function(d){if(d&&d.ok===false&&d.error)toast(d.error,'err');else if(d&&d.ok!==false)toast('✅ Done','ok');showResult(d);}).catch(function(e){showResult('Error: '+e);});}
 
-function apiPost(u,b,title){
-  _reqStart=Date.now();
-  RC.textContent='⏳ Loading...';if(RT)RT.textContent=title||u;R.style.display='block';
-  console.log('[TRACE] POST',u,b);
-  toast('📡 '+(title||u.split('?')[0].split('/').pop()),'info');
-  fetch(u,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:b?JSON.stringify(b):'{}'}).then(_hr).then(function(d){
-    if(d&&d.ok===false&&d.error)toast('⚠️ '+d.error,'err');
-    else if(d&&d.ok!==false)toast('✅ Done','ok');
-    showResult(d,title);
-  }).catch(function(e){
-    console.error('[TRACE] POST error:',u,e);
-    toast('❌ Request failed: '+e,'err');
-    showResult('Error: '+e,title);
-  });
-}
+function apiPost(u,b){RC.textContent='Loading...';R.style.display='block';fetch(u,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:b?JSON.stringify(b):'{}'}).then(_hr).then(function(d){if(d&&d.ok===false&&d.error)toast(d.error,'err');else if(d&&d.ok!==false)toast('✅ Done','ok');showResult(d);}).catch(function(e){showResult('Error: '+e);});}
 
-function ac(btn,u,title){if(btn){btn.classList.add('ld');btn.disabled=true;_ab=btn;}apiGet(u,title||btn?.querySelector('.label')?.textContent);}
-function ap(btn,u,b,title){if(btn){btn.classList.add('ld');btn.disabled=true;_ab=btn;}apiPost(u,b,title||btn?.querySelector('.label')?.textContent);}
+function ac(btn,u){if(btn){btn.classList.add('ld');btn.disabled=true;_ab=btn;}apiGet(u);}
+function ap(btn,u,b){if(btn){btn.classList.add('ld');btn.disabled=true;_ab=btn;}apiPost(u,b);}
 
 // Section collapse (persisted)
 var _col=JSON.parse(localStorage.getItem('agCol')||'{}');

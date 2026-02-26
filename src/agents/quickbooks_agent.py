@@ -87,9 +87,39 @@ API_BASE = (
 )
 
 
+def _get_realm_id() -> str:
+    """Get realm_id from env, module constant, or saved tokens (dynamic)."""
+    rid = os.environ.get("QB_REALM_ID", "") or QB_REALM_ID
+    if rid:
+        return rid
+    tokens = _load_tokens()
+    return tokens.get("realm_id", "")
+
+
+def _get_refresh_token() -> str:
+    """Get refresh token from env, module constant, or saved tokens (dynamic)."""
+    rt = os.environ.get("QB_REFRESH_TOKEN", "") or QB_REFRESH_TOKEN
+    if rt:
+        return rt
+    tokens = _load_tokens()
+    return tokens.get("refresh_token", "")
+
+
+def _get_api_base() -> str:
+    """Build API base URL dynamically using current realm_id."""
+    rid = _get_realm_id()
+    if QB_SANDBOX:
+        return f"https://sandbox-quickbooks.api.intuit.com/v3/company/{rid}"
+    return f"https://quickbooks.api.intuit.com/v3/company/{rid}"
+
+
 def is_configured() -> bool:
-    """Check if QuickBooks credentials are set."""
-    return bool(QB_CLIENT_ID and QB_CLIENT_SECRET and QB_REFRESH_TOKEN and QB_REALM_ID)
+    """Check if QuickBooks credentials are set (checks env + token file)."""
+    has_creds = bool(QB_CLIENT_ID or os.environ.get("QB_CLIENT_ID", ""))
+    has_secret = bool(QB_CLIENT_SECRET or os.environ.get("QB_CLIENT_SECRET", ""))
+    has_refresh = bool(_get_refresh_token())
+    has_realm = bool(_get_realm_id())
+    return has_creds and has_secret and has_refresh and has_realm
 
 
 # ─── Token Management ───────────────────────────────────────────────────────
@@ -113,15 +143,20 @@ def _refresh_access_token() -> Optional[str]:
     if not HAS_REQUESTS:
         log.error("requests library not available")
         return None
-    if not is_configured():
-        log.debug("QuickBooks not configured — skipping token refresh")
+
+    client_id = QB_CLIENT_ID or os.environ.get("QB_CLIENT_ID", "")
+    client_secret = QB_CLIENT_SECRET or os.environ.get("QB_CLIENT_SECRET", "")
+    if not client_id or not client_secret:
+        log.debug("QuickBooks client credentials not set — skipping token refresh")
         return None
 
-    # Use current refresh token (may have been updated)
-    tokens = _load_tokens()
-    refresh = tokens.get("refresh_token", QB_REFRESH_TOKEN)
+    # Use current refresh token from file or env (dynamic)
+    refresh = _get_refresh_token()
+    if not refresh:
+        log.debug("No refresh token available — skipping token refresh")
+        return None
 
-    auth = base64.b64encode(f"{QB_CLIENT_ID}:{QB_CLIENT_SECRET}".encode()).decode()
+    auth = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
 
     try:
         resp = _requests.post(TOKEN_URL, headers={
@@ -172,9 +207,15 @@ def _qb_request(method: str, endpoint: str, data: dict = None) -> Optional[dict]
 
     token = get_access_token()
     if not token:
+        log.error("QB: No access token available")
         return None
 
-    url = f"{API_BASE}/{endpoint}"
+    api_base = _get_api_base()
+    if not _get_realm_id():
+        log.error("QB: No realm_id — cannot make API calls")
+        return None
+
+    url = f"{api_base}/{endpoint}"
     headers = {
         "Authorization": f"Bearer {token}",
         "Accept": "application/json",
@@ -750,13 +791,149 @@ def get_agent_status() -> dict:
 
     return {
         "agent": "quickbooks",
-        "version": "2.0.0",
+        "version": "2.1.0",
         "configured": is_configured(),
         "sandbox_mode": QB_SANDBOX,
         "has_valid_token": has_valid_token,
         "token_expires": tokens.get("expires_at"),
-        "realm_id_set": bool(QB_REALM_ID),
+        "realm_id_set": bool(_get_realm_id()),
+        "realm_id": _get_realm_id()[:4] + "..." if _get_realm_id() else "",
         "cached_vendors": vendor_count,
         "cached_invoices": invoice_count,
         "cached_customers": customer_count,
     }
+
+
+# ─── New Functions (Phase 24) ───────────────────────────────────────────────
+
+def get_company_info() -> Optional[dict]:
+    """Fetch QuickBooks company information."""
+    result = _qb_request("GET", "companyinfo/" + _get_realm_id() + "?minorversion=73")
+    if not result:
+        return None
+    info = result.get("CompanyInfo", {})
+    return {
+        "name": info.get("CompanyName", ""),
+        "legal_name": info.get("LegalName", ""),
+        "address": info.get("CompanyAddr", {}),
+        "phone": info.get("PrimaryPhone", {}).get("FreeFormNumber", ""),
+        "email": info.get("Email", {}).get("Address", ""),
+        "fiscal_year_start": info.get("FiscalYearStartMonth", ""),
+        "country": info.get("Country", ""),
+        "industry": info.get("IndustryType", ""),
+    }
+
+
+def get_profit_loss(start_date: str = None, end_date: str = None) -> Optional[dict]:
+    """Fetch Profit & Loss report from QuickBooks."""
+    if not start_date:
+        start_date = datetime.now().strftime("%Y-01-01")
+    if not end_date:
+        end_date = datetime.now().strftime("%Y-%m-%d")
+    endpoint = f"reports/ProfitAndLoss?start_date={start_date}&end_date={end_date}&minorversion=73"
+    result = _qb_request("GET", endpoint)
+    if not result:
+        return None
+    # Parse the report structure
+    header = result.get("Header", {})
+    rows = result.get("Rows", {}).get("Row", [])
+    summary = {"period": f"{start_date} to {end_date}", "sections": []}
+    for row in rows:
+        if row.get("type") == "Section" and row.get("Header"):
+            section_name = row["Header"].get("ColData", [{}])[0].get("value", "")
+            section_total = ""
+            if row.get("Summary"):
+                cols = row["Summary"].get("ColData", [])
+                if len(cols) > 1:
+                    section_total = cols[1].get("value", "")
+            summary["sections"].append({"name": section_name, "total": section_total})
+        elif row.get("Summary"):
+            cols = row["Summary"].get("ColData", [])
+            if len(cols) > 1:
+                summary["net_income"] = cols[1].get("value", "0")
+    return summary
+
+
+def get_ar_aging() -> Optional[dict]:
+    """Fetch Accounts Receivable Aging Summary from QuickBooks."""
+    endpoint = "reports/AgedReceivables?minorversion=73"
+    result = _qb_request("GET", endpoint)
+    if not result:
+        return None
+    rows = result.get("Rows", {}).get("Row", [])
+    aging = []
+    for row in rows:
+        if row.get("type") == "Data":
+            cols = row.get("ColData", [])
+            if len(cols) >= 6:
+                aging.append({
+                    "customer": cols[0].get("value", ""),
+                    "current": cols[1].get("value", "0"),
+                    "1_30": cols[2].get("value", "0"),
+                    "31_60": cols[3].get("value", "0"),
+                    "61_90": cols[4].get("value", "0"),
+                    "over_90": cols[5].get("value", "0"),
+                })
+    return {"aging": aging, "count": len(aging)}
+
+
+def get_recent_payments(days_back: int = 30) -> list:
+    """Fetch recent payments received."""
+    since = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
+    query = f"SELECT * FROM Payment WHERE TxnDate >= '{since}' ORDERBY TxnDate DESC MAXRESULTS 50"
+    payments = _qb_query(query)
+    return [{
+        "id": p.get("Id"),
+        "date": p.get("TxnDate"),
+        "amount": float(p.get("TotalAmt", 0)),
+        "customer": p.get("CustomerRef", {}).get("name", ""),
+        "memo": p.get("PrivateNote", ""),
+    } for p in payments]
+
+
+def diagnose_connection() -> dict:
+    """Full diagnostic of QB connection — token status, API reachability, config."""
+    diag = {
+        "timestamp": datetime.now().isoformat(),
+        "client_id_set": bool(QB_CLIENT_ID or os.environ.get("QB_CLIENT_ID", "")),
+        "client_secret_set": bool(QB_CLIENT_SECRET or os.environ.get("QB_CLIENT_SECRET", "")),
+        "realm_id": _get_realm_id() or "(empty)",
+        "refresh_token_set": bool(_get_refresh_token()),
+        "sandbox_mode": QB_SANDBOX,
+        "token_file_exists": os.path.exists(TOKEN_FILE),
+        "is_configured": is_configured(),
+    }
+    # Check token file
+    tokens = _load_tokens()
+    if tokens:
+        diag["token_file_keys"] = list(tokens.keys())
+        diag["token_expires_at"] = tokens.get("expires_at")
+        diag["token_expired"] = time.time() > tokens.get("expires_at", 0)
+        diag["connected_at"] = tokens.get("connected_at", tokens.get("refreshed_at", "unknown"))
+    else:
+        diag["token_file_keys"] = []
+
+    # Try to get access token
+    try:
+        token = get_access_token()
+        diag["access_token_available"] = bool(token)
+        if token:
+            diag["access_token_preview"] = token[:10] + "..."
+    except Exception as e:
+        diag["access_token_error"] = str(e)
+
+    # Try a simple API call
+    if diag.get("access_token_available"):
+        try:
+            info = get_company_info()
+            if info:
+                diag["api_reachable"] = True
+                diag["company_name"] = info.get("name", "")
+            else:
+                diag["api_reachable"] = False
+                diag["api_error"] = "get_company_info returned None"
+        except Exception as e:
+            diag["api_reachable"] = False
+            diag["api_error"] = str(e)
+
+    return diag
