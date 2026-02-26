@@ -1,0 +1,313 @@
+{% extends "base.html" %}
+{% block title %}Growth Intelligence{% endblock %}
+{% block content %}
+<div style="max-width:1400px;margin:0 auto">
+
+ <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+  <h2 style="margin:0;font-size:20px">🧠 Growth Intelligence</h2>
+  <div style="display:flex;gap:8px">
+   <button onclick="rebuildCatalog()" class="btn btn-s" id="rebuild-btn" style="font-size:12px">🔄 Rebuild Catalog from History</button>
+  </div>
+ </div>
+
+ <!-- Top Stats Row -->
+ <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
+  <div class="card" style="text-align:center;padding:16px">
+   <div style="font-size:28px;font-weight:800;color:var(--ac)">{{ catalog_stats.get('total_products', 0) }}</div>
+   <div style="font-size:11px;color:var(--tx2)">Catalog Products</div>
+  </div>
+  <div class="card" style="text-align:center;padding:16px">
+   <div style="font-size:28px;font-weight:800;color:var(--gn)">{{ won_count }}</div>
+   <div style="font-size:11px;color:var(--tx2)">Quotes Won</div>
+   <div style="font-size:18px;color:var(--rd);margin-top:2px">{{ lost_count }} lost · {{ pending_count }} pending</div>
+  </div>
+  <div class="card" style="text-align:center;padding:16px">
+   <div style="font-size:28px;font-weight:800;color:{% if alerts|length > 0 %}var(--yl){% else %}var(--gn){% endif %}">{{ alerts|length }}</div>
+   <div style="font-size:11px;color:var(--tx2)">Price Alerts</div>
+  </div>
+  <div class="card" style="text-align:center;padding:16px">
+   <div style="font-size:28px;font-weight:800;color:var(--ac)">{{ outreach_targets_count }}</div>
+   <div style="font-size:11px;color:var(--tx2)">Outreach Targets</div>
+   <div style="font-size:18px;color:var(--yl);margin-top:2px">{{ outreach_sent }} sent · {{ follow_ups_due }} follow-ups due</div>
+  </div>
+ </div>
+
+ <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+
+  <!-- LEFT COLUMN -->
+  <div>
+
+   <!-- #10: Price Alerts -->
+   <div class="card" style="margin-bottom:14px">
+    <div class="card-t">📊 Price Trend Alerts</div>
+    {% if alerts %}
+    <div style="max-height:300px;overflow-y:auto">
+     {% for a in alerts %}
+     <div style="padding:8px 10px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:8px">
+      <span style="font-size:16px">
+       {% if a.severity == 'high' %}🔴{% elif a.severity == 'medium' %}🟡{% else %}🟢{% endif %}
+      </span>
+      <div style="flex:1">
+       <div style="font-size:12px;font-weight:600">{{ a.product_name }}</div>
+       <div style="font-size:11px;color:var(--tx2)">{{ a.message }}</div>
+      </div>
+      <span style="font-size:11px;font-weight:700;color:{% if a.pct_change > 0 %}var(--rd){% else %}var(--gn){% endif %}">
+       {% if a.pct_change > 0 %}↑{% else %}↓{% endif %}{{ a.pct_change|abs }}%
+      </span>
+     </div>
+     {% endfor %}
+    </div>
+    {% else %}
+    <div style="padding:20px;text-align:center;color:var(--tx2);font-size:13px">
+     ✅ No price alerts — click "Rebuild Catalog from History" to populate price history.
+    </div>
+    {% endif %}
+   </div>
+
+   <!-- #11: Win/Loss Analysis -->
+   <div class="card" style="margin-bottom:14px">
+    <div class="card-t">🏆 Win/Loss Analysis</div>
+    {% if total_quotes > 0 %}
+    <div style="display:flex;gap:16px;padding:10px 12px;margin-bottom:8px">
+     <div style="flex:1;text-align:center">
+      <div style="font-size:22px;font-weight:700;color:var(--gn)">{{ won_count }}</div>
+      <div style="font-size:10px;color:var(--tx2)">WON</div>
+     </div>
+     <div style="flex:1;text-align:center">
+      <div style="font-size:22px;font-weight:700;color:var(--rd)">{{ lost_count }}</div>
+      <div style="font-size:10px;color:var(--tx2)">LOST</div>
+     </div>
+     <div style="flex:1;text-align:center">
+      <div style="font-size:22px;font-weight:700;color:var(--yl)">{{ pending_count }}</div>
+      <div style="font-size:10px;color:var(--tx2)">PENDING</div>
+     </div>
+     <div style="flex:1;text-align:center">
+      <div style="font-size:22px;font-weight:700">
+       {% if won_count + lost_count > 0 %}{{ (won_count / (won_count + lost_count) * 100)|round(0)|int }}%{% else %}—{% endif %}
+      </div>
+      <div style="font-size:10px;color:var(--tx2)">WIN RATE</div>
+     </div>
+    </div>
+    {% if pending_count > 0 %}
+    <div style="padding:8px 12px;background:rgba(255,193,7,.08);border-radius:6px;margin:8px 12px">
+     <div style="font-size:11px;font-weight:600;color:var(--yl);margin-bottom:4px">{{ pending_count }} quotes need outcome tracking</div>
+     <div style="font-size:11px;color:var(--tx2)">Go to the RFQ Queue and record win/loss for each sent quote.</div>
+    </div>
+    {% endif %}
+    {% else %}
+    <div style="padding:20px;text-align:center;color:var(--tx2);font-size:13px">No quotes yet</div>
+    {% endif %}
+    {% if wl_log %}
+    <div style="margin-top:8px;max-height:200px;overflow-y:auto">
+     {% for r in wl_log %}
+     <div style="padding:6px 12px;border-top:1px solid var(--bd);font-size:11px;display:flex;gap:8px;align-items:center">
+      <span>{% if r.outcome == 'won' %}🏆{% elif r.outcome == 'lost' %}❌{% else %}⏰{% endif %}</span>
+      <span style="flex:1">{{ r.solicitation or r.rfq_id }} — {{ r.agency }}</span>
+      <span style="color:var(--tx2)">{{ r.reason }}</span>
+      <span style="color:var(--tx2)">{{ r.recorded_at[:10] if r.recorded_at else '' }}</span>
+     </div>
+     {% endfor %}
+    </div>
+    {% endif %}
+   </div>
+
+   <!-- #8: Catalog Growth -->
+   <div class="card">
+    <div class="card-t">📦 Catalog Growth</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;padding:10px 12px">
+     <div style="text-align:center">
+      <div style="font-size:20px;font-weight:700">{{ catalog_stats.get('total_products', 0) }}</div>
+      <div style="font-size:10px;color:var(--tx2)">Products</div>
+     </div>
+     <div style="text-align:center">
+      <div style="font-size:20px;font-weight:700">{{ catalog_stats.get('with_price', 0) }}</div>
+      <div style="font-size:10px;color:var(--tx2)">With Pricing</div>
+     </div>
+     <div style="text-align:center">
+      <div style="font-size:20px;font-weight:700">{{ catalog_stats.get('with_cost', 0) }}</div>
+      <div style="font-size:10px;color:var(--tx2)">With Cost Data</div>
+     </div>
+    </div>
+    <div id="rebuild-status" style="padding:8px 12px;font-size:12px;display:none"></div>
+   </div>
+  </div>
+
+  <!-- RIGHT COLUMN -->
+  <div>
+
+   <!-- #13: Expansion Outreach -->
+   <div class="card" style="margin-bottom:14px">
+    <div class="card-t">📧 Facility Expansion Outreach</div>
+    {% if outreach_targets %}
+    <div style="max-height:400px;overflow-y:auto">
+     {% for t in outreach_targets %}
+     <div style="padding:8px 10px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:8px" id="target-{{ loop.index }}">
+      <div style="flex:1">
+       <div style="font-size:12px;font-weight:600">{{ t.name or t.email }}</div>
+       <div style="font-size:11px;color:var(--tx2)">{{ t.agency }}{% if t.facility %} · {{ t.facility }}{% endif %}{% if t.title %} · {{ t.title }}{% endif %}</div>
+       <div style="font-size:10px;color:var(--tx2)">{{ t.email }}</div>
+      </div>
+      <div style="display:flex;gap:4px;align-items:center">
+       <span style="font-size:10px;font-weight:600;color:{% if t.score >= 80 %}var(--gn){% elif t.score >= 50 %}var(--yl){% else %}var(--tx2){% endif %}">{{ t.score }}pts</span>
+       {% if t.status == 'emailed' %}
+       <span style="font-size:10px;padding:2px 6px;background:rgba(46,160,67,.15);color:var(--gn);border-radius:4px">Sent</span>
+       {% else %}
+       <button onclick="draftOutreach('{{ t.email }}','{{ t.name|e }}','{{ t.agency|e }}','{{ t.facility|e }}')" class="btn btn-s" style="font-size:10px;padding:2px 8px">📧 Draft</button>
+       {% endif %}
+      </div>
+     </div>
+     {% endfor %}
+    </div>
+    {% else %}
+    <div style="padding:20px;text-align:center;color:var(--tx2);font-size:13px">
+     No outreach targets found. Add contacts with email addresses in CRM.
+    </div>
+    {% endif %}
+   </div>
+
+   <!-- Outreach Queue -->
+   <div class="card">
+    <div class="card-t">📬 Outreach Queue ({{ outreach_sent }} sent)</div>
+    {% if outreach_queue %}
+    <div style="max-height:250px;overflow-y:auto">
+     {% for q in outreach_queue %}
+     <div style="padding:6px 10px;border-bottom:1px solid var(--bd);font-size:11px;display:flex;align-items:center;gap:6px">
+      <span>{% if q.replied %}💬{% elif q.get('follow_up_due') %}⚠️{% else %}📨{% endif %}</span>
+      <div style="flex:1">
+       <span style="font-weight:600">{{ q.name or q.email }}</span>
+       <span style="color:var(--tx2)"> — {{ q.agency }}</span>
+      </div>
+      <span style="color:var(--tx2)">{{ q.sent_at[:10] if q.sent_at else '' }}</span>
+      {% if q.get('follow_up_due') and not q.replied %}
+      <button onclick="draftOutreach('{{ q.email }}','{{ (q.name or '')|e }}','{{ (q.agency or '')|e }}','{{ (q.facility or '')|e }}','follow_up')" class="btn btn-s" style="font-size:10px;padding:2px 6px;background:rgba(255,193,7,.15);color:var(--yl)">Follow Up</button>
+      {% endif %}
+     </div>
+     {% endfor %}
+    </div>
+    {% else %}
+    <div style="padding:16px;text-align:center;color:var(--tx2);font-size:12px">No outreach sent yet</div>
+    {% endif %}
+   </div>
+  </div>
+ </div>
+</div>
+
+<!-- Outreach Draft Modal -->
+<div id="outreachModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1000;justify-content:center;align-items:center;padding:20px">
+ <div style="background:var(--sf);border-radius:12px;max-width:600px;width:100%;max-height:90vh;overflow-y:auto;padding:20px">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+   <h3 style="margin:0;font-size:16px">📧 Draft Outreach Email</h3>
+   <button onclick="closeModal()" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--tx2)">✕</button>
+  </div>
+  <div style="margin-bottom:8px">
+   <label style="font-size:11px;color:var(--tx2);display:block">To</label>
+   <input type="email" id="draft-to" class="text-in" style="width:100%;font-size:13px;padding:6px 8px" readonly>
+  </div>
+  <div style="margin-bottom:8px">
+   <label style="font-size:11px;color:var(--tx2);display:block">Subject</label>
+   <input type="text" id="draft-subject" class="text-in" style="width:100%;font-size:13px;padding:6px 8px">
+  </div>
+  <div style="margin-bottom:12px">
+   <label style="font-size:11px;color:var(--tx2);display:block">Body</label>
+   <textarea id="draft-body" class="text-in" style="width:100%;height:300px;font-size:12px;padding:8px;font-family:inherit;line-height:1.5;resize:vertical"></textarea>
+  </div>
+  <div style="display:flex;gap:8px;justify-content:flex-end">
+   <button onclick="closeModal()" class="btn btn-s" style="font-size:12px">Cancel</button>
+   <button onclick="sendDraft()" class="btn btn-g" style="font-size:12px" id="send-btn">📧 Send</button>
+  </div>
+  <div id="send-status" style="margin-top:8px;font-size:12px"></div>
+ </div>
+</div>
+
+<script>
+var _draftMeta = {};
+
+function rebuildCatalog() {
+ var btn = document.getElementById('rebuild-btn');
+ var status = document.getElementById('rebuild-status');
+ btn.disabled = true;
+ btn.textContent = '⏳ Rebuilding...';
+ status.style.display = 'block';
+ status.textContent = 'Processing all quotes, PCs, orders, RFQs...';
+ fetch('/api/catalog/rebuild-from-history', {method: 'POST'})
+ .then(function(r){return r.json()})
+ .then(function(d){
+  if (d.ok) {
+   status.innerHTML = '✅ Added: <b>'+d.items_added+'</b> · Updated: <b>'+d.items_updated+'</b> · Quotes: '+d.quotes_processed+' · PCs: '+d.pcs_processed+' · Orders: '+d.orders_processed+(d.errors?' · ⚠️ '+d.errors+' errors':'');
+   status.style.color = 'var(--gn)';
+   btn.textContent = '✅ Rebuilt';
+   setTimeout(function(){location.reload()}, 2000);
+  } else {
+   status.textContent = '❌ ' + (d.error || 'Failed');
+   status.style.color = 'var(--rd)';
+   btn.textContent = '🔄 Rebuild Catalog from History';
+   btn.disabled = false;
+  }
+ }).catch(function(e){
+  status.textContent = '❌ Error: ' + e;
+  btn.textContent = '🔄 Rebuild Catalog from History';
+  btn.disabled = false;
+ });
+}
+
+function draftOutreach(email, name, agency, facility, template) {
+ template = template || 'intro';
+ fetch('/api/outreach/draft', {
+  method: 'POST',
+  headers: {'Content-Type': 'application/json'},
+  body: JSON.stringify({email: email, name: name, agency: agency, facility: facility, template: template})
+ })
+ .then(function(r){return r.json()})
+ .then(function(d){
+  if (d.ok) {
+   document.getElementById('draft-to').value = d.draft.to;
+   document.getElementById('draft-subject').value = d.draft.subject;
+   document.getElementById('draft-body').value = d.draft.body;
+   _draftMeta = {name: name, agency: agency, facility: facility, template: template};
+   var modal = document.getElementById('outreachModal');
+   modal.style.display = 'flex';
+  }
+ });
+}
+
+function closeModal() {
+ document.getElementById('outreachModal').style.display = 'none';
+}
+
+function sendDraft() {
+ var btn = document.getElementById('send-btn');
+ var status = document.getElementById('send-status');
+ btn.disabled = true;
+ btn.textContent = '⏳ Sending...';
+ fetch('/api/outreach/send', {
+  method: 'POST',
+  headers: {'Content-Type': 'application/json'},
+  body: JSON.stringify({
+   to: document.getElementById('draft-to').value,
+   subject: document.getElementById('draft-subject').value,
+   body: document.getElementById('draft-body').value,
+   name: _draftMeta.name,
+   agency: _draftMeta.agency,
+   facility: _draftMeta.facility,
+   template: _draftMeta.template
+  })
+ })
+ .then(function(r){return r.json()})
+ .then(function(d){
+  if (d.ok) {
+   status.innerHTML = '<span style="color:var(--gn)">✅ Sent!</span>';
+   btn.textContent = '✅ Sent';
+   setTimeout(function(){closeModal(); location.reload()}, 1500);
+  } else {
+   status.innerHTML = '<span style="color:var(--rd)">❌ ' + (d.error || 'Failed') + '</span>';
+   btn.textContent = '📧 Send';
+   btn.disabled = false;
+  }
+ }).catch(function(e){
+  status.textContent = '❌ ' + e;
+  btn.textContent = '📧 Send';
+  btn.disabled = false;
+ });
+}
+</script>
+{% endblock %}

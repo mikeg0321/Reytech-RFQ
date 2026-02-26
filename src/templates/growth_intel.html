@@ -1,313 +1,265 @@
 {% extends "base.html" %}
-{% block title %}Growth Intelligence{% endblock %}
+{% block title %}Growth Intel — Reytech{% endblock %}
+
 {% block content %}
-<div style="max-width:1400px;margin:0 auto">
 
- <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-  <h2 style="margin:0;font-size:20px">🧠 Growth Intelligence</h2>
+<style>
+.card{background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:16px}
+th{padding:7px 12px;font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;border-bottom:2px solid var(--bd);white-space:nowrap}
+table{width:100%;border-collapse:collapse}
+.tab{padding:6px 14px;border-radius:6px;border:1px solid var(--bd);cursor:pointer;font-size:12px;background:none;color:var(--tx)}
+.tab.active{background:var(--ac);color:white;border-color:var(--ac)}
+</style>
+
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+  <div>
+    <h2 style="font-size:22px;font-weight:700">📈 Growth Intelligence</h2>
+    <p style="color:var(--tx2);font-size:13px;margin-top:2px">SCPRS-powered gap analysis · What to sell · Who to beat · Why we lost</p>
+  </div>
   <div style="display:flex;gap:8px">
-   <button onclick="rebuildCatalog()" class="btn btn-s" id="rebuild-btn" style="font-size:12px">🔄 Rebuild Catalog from History</button>
+    <button onclick="pullAll('P0')" style="padding:7px 16px;background:var(--ac);color:white;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">{{ '⏳ Running...' if running else '📡 Pull All Agencies' }}</button>
+    <button onclick="pullAll('all')" style="padding:7px 14px;border:1px solid var(--bd);background:none;color:var(--tx);border-radius:6px;font-size:12px;cursor:pointer">Deep Pull (all products)</button>
+    <button onclick="runMonitor()" style="padding:7px 14px;border:1px solid var(--bd);background:none;color:var(--tx);border-radius:6px;font-size:12px;cursor:pointer">🔍 Check Lost Quotes</button>
   </div>
- </div>
-
- <!-- Top Stats Row -->
- <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
-  <div class="card" style="text-align:center;padding:16px">
-   <div style="font-size:28px;font-weight:800;color:var(--ac)">{{ catalog_stats.get('total_products', 0) }}</div>
-   <div style="font-size:11px;color:var(--tx2)">Catalog Products</div>
-  </div>
-  <div class="card" style="text-align:center;padding:16px">
-   <div style="font-size:28px;font-weight:800;color:var(--gn)">{{ won_count }}</div>
-   <div style="font-size:11px;color:var(--tx2)">Quotes Won</div>
-   <div style="font-size:18px;color:var(--rd);margin-top:2px">{{ lost_count }} lost · {{ pending_count }} pending</div>
-  </div>
-  <div class="card" style="text-align:center;padding:16px">
-   <div style="font-size:28px;font-weight:800;color:{% if alerts|length > 0 %}var(--yl){% else %}var(--gn){% endif %}">{{ alerts|length }}</div>
-   <div style="font-size:11px;color:var(--tx2)">Price Alerts</div>
-  </div>
-  <div class="card" style="text-align:center;padding:16px">
-   <div style="font-size:28px;font-weight:800;color:var(--ac)">{{ outreach_targets_count }}</div>
-   <div style="font-size:11px;color:var(--tx2)">Outreach Targets</div>
-   <div style="font-size:18px;color:var(--yl);margin-top:2px">{{ outreach_sent }} sent · {{ follow_ups_due }} follow-ups due</div>
-  </div>
- </div>
-
- <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
-
-  <!-- LEFT COLUMN -->
-  <div>
-
-   <!-- #10: Price Alerts -->
-   <div class="card" style="margin-bottom:14px">
-    <div class="card-t">📊 Price Trend Alerts</div>
-    {% if alerts %}
-    <div style="max-height:300px;overflow-y:auto">
-     {% for a in alerts %}
-     <div style="padding:8px 10px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:8px">
-      <span style="font-size:16px">
-       {% if a.severity == 'high' %}🔴{% elif a.severity == 'medium' %}🟡{% else %}🟢{% endif %}
-      </span>
-      <div style="flex:1">
-       <div style="font-size:12px;font-weight:600">{{ a.product_name }}</div>
-       <div style="font-size:11px;color:var(--tx2)">{{ a.message }}</div>
-      </div>
-      <span style="font-size:11px;font-weight:700;color:{% if a.pct_change > 0 %}var(--rd){% else %}var(--gn){% endif %}">
-       {% if a.pct_change > 0 %}↑{% else %}↓{% endif %}{{ a.pct_change|abs }}%
-      </span>
-     </div>
-     {% endfor %}
-    </div>
-    {% else %}
-    <div style="padding:20px;text-align:center;color:var(--tx2);font-size:13px">
-     ✅ No price alerts — click "Rebuild Catalog from History" to populate price history.
-    </div>
-    {% endif %}
-   </div>
-
-   <!-- #11: Win/Loss Analysis -->
-   <div class="card" style="margin-bottom:14px">
-    <div class="card-t">🏆 Win/Loss Analysis</div>
-    {% if total_quotes > 0 %}
-    <div style="display:flex;gap:16px;padding:10px 12px;margin-bottom:8px">
-     <div style="flex:1;text-align:center">
-      <div style="font-size:22px;font-weight:700;color:var(--gn)">{{ won_count }}</div>
-      <div style="font-size:10px;color:var(--tx2)">WON</div>
-     </div>
-     <div style="flex:1;text-align:center">
-      <div style="font-size:22px;font-weight:700;color:var(--rd)">{{ lost_count }}</div>
-      <div style="font-size:10px;color:var(--tx2)">LOST</div>
-     </div>
-     <div style="flex:1;text-align:center">
-      <div style="font-size:22px;font-weight:700;color:var(--yl)">{{ pending_count }}</div>
-      <div style="font-size:10px;color:var(--tx2)">PENDING</div>
-     </div>
-     <div style="flex:1;text-align:center">
-      <div style="font-size:22px;font-weight:700">
-       {% if won_count + lost_count > 0 %}{{ (won_count / (won_count + lost_count) * 100)|round(0)|int }}%{% else %}—{% endif %}
-      </div>
-      <div style="font-size:10px;color:var(--tx2)">WIN RATE</div>
-     </div>
-    </div>
-    {% if pending_count > 0 %}
-    <div style="padding:8px 12px;background:rgba(255,193,7,.08);border-radius:6px;margin:8px 12px">
-     <div style="font-size:11px;font-weight:600;color:var(--yl);margin-bottom:4px">{{ pending_count }} quotes need outcome tracking</div>
-     <div style="font-size:11px;color:var(--tx2)">Go to the RFQ Queue and record win/loss for each sent quote.</div>
-    </div>
-    {% endif %}
-    {% else %}
-    <div style="padding:20px;text-align:center;color:var(--tx2);font-size:13px">No quotes yet</div>
-    {% endif %}
-    {% if wl_log %}
-    <div style="margin-top:8px;max-height:200px;overflow-y:auto">
-     {% for r in wl_log %}
-     <div style="padding:6px 12px;border-top:1px solid var(--bd);font-size:11px;display:flex;gap:8px;align-items:center">
-      <span>{% if r.outcome == 'won' %}🏆{% elif r.outcome == 'lost' %}❌{% else %}⏰{% endif %}</span>
-      <span style="flex:1">{{ r.solicitation or r.rfq_id }} — {{ r.agency }}</span>
-      <span style="color:var(--tx2)">{{ r.reason }}</span>
-      <span style="color:var(--tx2)">{{ r.recorded_at[:10] if r.recorded_at else '' }}</span>
-     </div>
-     {% endfor %}
-    </div>
-    {% endif %}
-   </div>
-
-   <!-- #8: Catalog Growth -->
-   <div class="card">
-    <div class="card-t">📦 Catalog Growth</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;padding:10px 12px">
-     <div style="text-align:center">
-      <div style="font-size:20px;font-weight:700">{{ catalog_stats.get('total_products', 0) }}</div>
-      <div style="font-size:10px;color:var(--tx2)">Products</div>
-     </div>
-     <div style="text-align:center">
-      <div style="font-size:20px;font-weight:700">{{ catalog_stats.get('with_price', 0) }}</div>
-      <div style="font-size:10px;color:var(--tx2)">With Pricing</div>
-     </div>
-     <div style="text-align:center">
-      <div style="font-size:20px;font-weight:700">{{ catalog_stats.get('with_cost', 0) }}</div>
-      <div style="font-size:10px;color:var(--tx2)">With Cost Data</div>
-     </div>
-    </div>
-    <div id="rebuild-status" style="padding:8px 12px;font-size:12px;display:none"></div>
-   </div>
-  </div>
-
-  <!-- RIGHT COLUMN -->
-  <div>
-
-   <!-- #13: Expansion Outreach -->
-   <div class="card" style="margin-bottom:14px">
-    <div class="card-t">📧 Facility Expansion Outreach</div>
-    {% if outreach_targets %}
-    <div style="max-height:400px;overflow-y:auto">
-     {% for t in outreach_targets %}
-     <div style="padding:8px 10px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:8px" id="target-{{ loop.index }}">
-      <div style="flex:1">
-       <div style="font-size:12px;font-weight:600">{{ t.name or t.email }}</div>
-       <div style="font-size:11px;color:var(--tx2)">{{ t.agency }}{% if t.facility %} · {{ t.facility }}{% endif %}{% if t.title %} · {{ t.title }}{% endif %}</div>
-       <div style="font-size:10px;color:var(--tx2)">{{ t.email }}</div>
-      </div>
-      <div style="display:flex;gap:4px;align-items:center">
-       <span style="font-size:10px;font-weight:600;color:{% if t.score >= 80 %}var(--gn){% elif t.score >= 50 %}var(--yl){% else %}var(--tx2){% endif %}">{{ t.score }}pts</span>
-       {% if t.status == 'emailed' %}
-       <span style="font-size:10px;padding:2px 6px;background:rgba(46,160,67,.15);color:var(--gn);border-radius:4px">Sent</span>
-       {% else %}
-       <button onclick="draftOutreach('{{ t.email }}','{{ t.name|e }}','{{ t.agency|e }}','{{ t.facility|e }}')" class="btn btn-s" style="font-size:10px;padding:2px 8px">📧 Draft</button>
-       {% endif %}
-      </div>
-     </div>
-     {% endfor %}
-    </div>
-    {% else %}
-    <div style="padding:20px;text-align:center;color:var(--tx2);font-size:13px">
-     No outreach targets found. Add contacts with email addresses in CRM.
-    </div>
-    {% endif %}
-   </div>
-
-   <!-- Outreach Queue -->
-   <div class="card">
-    <div class="card-t">📬 Outreach Queue ({{ outreach_sent }} sent)</div>
-    {% if outreach_queue %}
-    <div style="max-height:250px;overflow-y:auto">
-     {% for q in outreach_queue %}
-     <div style="padding:6px 10px;border-bottom:1px solid var(--bd);font-size:11px;display:flex;align-items:center;gap:6px">
-      <span>{% if q.replied %}💬{% elif q.get('follow_up_due') %}⚠️{% else %}📨{% endif %}</span>
-      <div style="flex:1">
-       <span style="font-weight:600">{{ q.name or q.email }}</span>
-       <span style="color:var(--tx2)"> — {{ q.agency }}</span>
-      </div>
-      <span style="color:var(--tx2)">{{ q.sent_at[:10] if q.sent_at else '' }}</span>
-      {% if q.get('follow_up_due') and not q.replied %}
-      <button onclick="draftOutreach('{{ q.email }}','{{ (q.name or '')|e }}','{{ (q.agency or '')|e }}','{{ (q.facility or '')|e }}','follow_up')" class="btn btn-s" style="font-size:10px;padding:2px 6px;background:rgba(255,193,7,.15);color:var(--yl)">Follow Up</button>
-      {% endif %}
-     </div>
-     {% endfor %}
-    </div>
-    {% else %}
-    <div style="padding:16px;text-align:center;color:var(--tx2);font-size:12px">No outreach sent yet</div>
-    {% endif %}
-   </div>
-  </div>
- </div>
 </div>
 
-<!-- Outreach Draft Modal -->
-<div id="outreachModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1000;justify-content:center;align-items:center;padding:20px">
- <div style="background:var(--sf);border-radius:12px;max-width:600px;width:100%;max-height:90vh;overflow-y:auto;padding:20px">
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-   <h3 style="margin:0;font-size:16px">📧 Draft Outreach Email</h3>
-   <button onclick="closeModal()" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--tx2)">✕</button>
+{% if running %}
+<div style="background:rgba(37,99,235,.1);border:1px solid var(--ac);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:13px;font-weight:600;color:var(--ac)">⏳ Pulling {{ current_agency }}... Auto-refreshing every 10s</div>
+{% elif no_data %}
+<div style="background:rgba(220,38,38,.06);border:1px solid var(--rd);border-radius:8px;padding:14px 18px;margin-bottom:16px"><div style="font-size:14px;font-weight:700;color:var(--rd)">📡 No SCPRS data yet</div><div style="font-size:13px;color:var(--tx2);margin-top:4px">Click "Pull All Agencies" to search public SCPRS records for what every agency is buying. Takes 10-15 min. Runs automatically after that.</div></div>
+{% endif %}
+
+<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:20px">
+  <div class="card" style="text-align:center">
+    <div style="font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Agencies Loaded</div>
+    <div style="font-size:28px;font-weight:800;color:var(--ac)">{{ agencies_loaded }}<span style="font-size:14px;color:var(--tx2)">/8</span></div>
   </div>
-  <div style="margin-bottom:8px">
-   <label style="font-size:11px;color:var(--tx2);display:block">To</label>
-   <input type="email" id="draft-to" class="text-in" style="width:100%;font-size:13px;padding:6px 8px" readonly>
+  <div class="card" style="text-align:center">
+    <div style="font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Line Items</div>
+    <div style="font-size:28px;font-weight:800;color:var(--tx)">{{ "{:,}".format(total_lines) }}</div>
   </div>
-  <div style="margin-bottom:8px">
-   <label style="font-size:11px;color:var(--tx2);display:block">Subject</label>
-   <input type="text" id="draft-subject" class="text-in" style="width:100%;font-size:13px;padding:6px 8px">
+  <div class="card" style="text-align:center">
+    <div style="font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Gap Spend Found</div>
+    <div style="font-size:26px;font-weight:800;color:var(--rd)">${{ "{:,.0f}".format(total_gap_spend) }}</div>
+    <div style="font-size:10px;color:var(--tx2)">buying from others</div>
   </div>
-  <div style="margin-bottom:12px">
-   <label style="font-size:11px;color:var(--tx2);display:block">Body</label>
-   <textarea id="draft-body" class="text-in" style="width:100%;height:300px;font-size:12px;padding:8px;font-family:inherit;line-height:1.5;resize:vertical"></textarea>
+  <div class="card" style="text-align:center">
+    <div style="font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Win-Back</div>
+    <div style="font-size:26px;font-weight:800;color:var(--gn)">${{ "{:,.0f}".format(total_wb_spend) }}</div>
+    <div style="font-size:10px;color:var(--tx2)">we sell, they buy elsewhere</div>
   </div>
-  <div style="display:flex;gap:8px;justify-content:flex-end">
-   <button onclick="closeModal()" class="btn btn-s" style="font-size:12px">Cancel</button>
-   <button onclick="sendDraft()" class="btn btn-g" style="font-size:12px" id="send-btn">📧 Send</button>
+  <div class="card" style="text-align:center">
+    <div style="font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Quotes Auto-Closed</div>
+    <div style="font-size:28px;font-weight:800;color:var(--tx)">{{ auto_closed }}</div>
+    <div style="font-size:10px;color:var(--tx2)">lost via PO monitor</div>
   </div>
-  <div id="send-status" style="margin-top:8px;font-size:12px"></div>
- </div>
+</div>
+
+<!-- DVBE Insight Banner -->
+<div style="background:linear-gradient(135deg,rgba(22,163,74,.08),rgba(37,99,235,.08));border:1px solid rgba(22,163,74,.3);border-radius:10px;padding:14px 20px;margin-bottom:20px;display:flex;align-items:center;gap:16px">
+  <div style="font-size:28px">🏅</div>
+  <div style="flex:1">
+    <div style="font-size:14px;font-weight:700;color:var(--gn)">Your DVBE Cert is a Revenue Engine</div>
+    <div style="font-size:12px;color:var(--tx2);margin-top:3px;line-height:1.6">
+      CA law mandates that state agencies allocate <strong>3% of spend to DVBE suppliers</strong>. 
+      Cardinal Health, McKesson, Grainger — none of them have this cert. When you quote against them, 
+      lead with DVBE. Agencies NEED your cert to hit their quota. You can be priced higher and still win.
+      <span style="color:var(--ac);font-weight:600"> Also consider approaching these large distributors as their DVBE subcontractor on state bids.</span>
+    </div>
+  </div>
+  <div style="text-align:right;flex-shrink:0">
+    <div style="font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px">DVBE Mandate</div>
+    <div style="font-size:22px;font-weight:800;color:var(--gn)">3%</div>
+    <div style="font-size:11px;color:var(--tx2)">of all state spend</div>
+  </div>
+</div>
+
+<!-- RECOMMENDATIONS — the heart of it -->
+<div style="margin-bottom:24px">
+  <div style="font-size:13px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">
+    🎯 What To Do Next — Ranked by Revenue Impact
+  </div>
+  {% if recs %}
+    {% for rec in recs[:8] %}
+    {% set prio = rec.get("priority", "P1") %}
+    {% set prio_color = {"P0": "var(--rd)", "P1": "var(--ac)", "P2": "var(--tx2)"}.get(prio, "var(--tx)") %}
+    {% set rtype = rec.get("type", "") %}
+    {% set type_icon = {"add_product": "📦", "win_back": "⚔️", "pricing": "💲", "expand_agency": "🏛️", "dvbe_displace": "🏅", "dvbe_partner": "🤝", "source_anything": "🔍"}.get(rtype, "🎯") %}
+    {% set val = rec.get("estimated_annual_value", 0) or 0 %}
+    {% set rec_agencies = rec.get("agencies", [])|join(", ") %}
+    <div style="border:1px solid var(--bd);border-left:4px solid {{ prio_color }};border-radius:8px;padding:14px 18px;margin-bottom:10px;background:var(--bg2)">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
+        <div style="flex:1">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
+            <span style="font-size:16px">{{ type_icon }}</span>
+            <span style="font-size:14px;font-weight:700;color:var(--tx)">{{ rec.get("action","") }}</span>
+            <span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;background:rgba(0,0,0,.08);color:{{ prio_color }}">{{ prio }}</span>
+            {% if rec.get("dvbe_angle") %}<span style="background:rgba(22,163,74,.15);color:var(--gn);padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700">DVBE</span>{% endif %}
+            {% if rec.get("partner_model") %}<span style="background:rgba(37,99,235,.15);color:var(--ac);padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700">PARTNER</span>{% endif %}
+          </div>
+          <div style="font-size:12px;color:var(--tx2);margin-bottom:6px;line-height:1.5">{{ rec.get("why","") }}</div>
+          <div style="font-size:12px;color:var(--ac);font-weight:500">▶ {{ rec.get("how","")[:120] }}</div>
+          {% if rec_agencies %}<div style="font-size:11px;color:var(--tx2);margin-top:4px">📍 {{ rec_agencies }}</div>{% endif %}
+        </div>
+        <div style="text-align:right;flex-shrink:0">
+          <div style="font-size:20px;font-weight:800;color:var(--gn)">${{ "{:,.0f}".format(val) }}</div>
+          <div style="font-size:10px;color:var(--tx2)">est/yr</div>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  {% else %}
+    <div class="card" style="text-align:center;padding:32px;color:var(--tx2)">Pull SCPRS data to generate recommendations</div>
+  {% endif %}
+</div>
+
+<!-- TABS -->
+<div style="display:flex;gap:8px;margin-bottom:14px">
+  <button class="tab active" onclick="showTab(this,'gaps')">🚨 Gaps ({{ gaps|length }})</button>
+  <button class="tab" onclick="showTab(this,'winback')">⚔️ Win-Back ({{ win_back|length }})</button>
+  <button class="tab" onclick="showTab(this,'losses')">📉 Lost Quotes ({{ losses|length }})</button>
+  <button class="tab" onclick="showTab(this,'coverage')">📡 Agency Coverage</button>
+</div>
+
+<div id="tab-gaps" class="card" style="padding:0;overflow-x:auto">
+  <table>
+    <thead><tr><th>Item CCHCS/Agencies Buy</th><th>Category</th><th>Agencies</th><th style="text-align:center">Orders</th><th style="text-align:right">Avg Price</th><th style="text-align:right">Annual Spend</th></tr></thead>
+    <tbody>
+    {% if gaps %}
+      {% for g in gaps[:20] %}
+      <tr style="border-bottom:1px solid var(--bd)">
+        <td style="padding:7px 12px;font-size:12px">{{ g.get("description","")[:50] }}</td>
+        <td style="padding:7px 12px;font-size:11px;color:var(--tx2)">{{ (g.get("category") or "").replace("_"," ").title() }}</td>
+        <td style="padding:7px 12px;font-size:11px;text-align:center">{{ (g.get("agencies") or "").split(",")[:3]|join(", ") }}</td>
+        <td style="padding:7px 12px;font-size:11px;text-align:center">{{ g.get("order_count",0) }}</td>
+        <td style="padding:7px 12px;font-size:12px;text-align:right">${{ "%.2f"|format(g.get("avg_price") or 0) }}</td>
+        <td style="padding:7px 12px;font-size:13px;font-weight:700;text-align:right;color:var(--rd)">${{ "{:,.0f}".format(g.get("total_spend") or 0) }}</td>
+      </tr>
+      {% endfor %}
+    {% else %}
+      <tr><td colspan="6" style="padding:24px;text-align:center;color:var(--tx2)">Pull data to see gaps →</td></tr>
+    {% endif %}
+    </tbody>
+  </table>
+</div>
+
+<div id="tab-winback" class="card" style="padding:0;overflow-x:auto;display:none">
+  <table>
+    <thead><tr><th>Item We Sell</th><th>Our SKU</th><th>Current Vendor</th><th>Agencies</th><th style="text-align:right">Their Price</th><th style="text-align:right">Spend</th></tr></thead>
+    <tbody>
+    {% if win_back %}
+      {% for w in win_back[:15] %}
+      {% set vendors = (w.get("incumbent_vendors") or "Unknown").split(",") %}
+      {% set w_ags = (w.get("agencies") or "").split(",") %}
+      <tr style="border-bottom:1px solid var(--bd)">
+        <td style="padding:7px 12px;font-size:12px">{{ w.get("description","")[:45] }}</td>
+        <td style="padding:7px 12px;font-size:11px;font-weight:600;color:var(--ac)">{{ w.get("reytech_sku","—") }}</td>
+        <td style="padding:7px 12px;font-size:11px;color:var(--rd)">{{ vendors[0][:25] if vendors else "?" }}</td>
+        <td style="padding:7px 12px;font-size:11px;color:var(--tx2)">{{ w_ags[:3]|join(", ") }}</td>
+        <td style="padding:7px 12px;font-size:12px;text-align:right">${{ "%.2f"|format(w.get("avg_price") or 0) }}</td>
+        <td style="padding:7px 12px;font-size:13px;font-weight:700;text-align:right;color:var(--gn)">${{ "{:,.0f}".format(w.get("total_spend") or 0) }}</td>
+      </tr>
+      {% endfor %}
+    {% else %}
+      <tr><td colspan="6" style="padding:16px;text-align:center;color:var(--tx2)">Pull data to see win-back opportunities</td></tr>
+    {% endif %}
+    </tbody>
+  </table>
+</div>
+
+<div id="tab-losses" class="card" style="padding:0;overflow-x:auto;display:none">
+  <div style="padding:10px 14px;font-size:12px;color:var(--tx2);border-bottom:1px solid var(--bd)">
+    Auto-detected via SCPRS PO monitor. When SCPRS shows another vendor won a PO you quoted, the quote is automatically closed-lost and their price is saved to your pricing intelligence.
+  </div>
+  <table>
+    <thead><tr><th>Quote</th><th>Agency / Facility</th><th>Who Won</th><th style="text-align:right">Winner Price</th><th style="text-align:right">Our Quote</th><th style="text-align:right">Diff</th></tr></thead>
+    <tbody>
+    {% if losses %}
+      {% for l in losses[:6] %}
+      {% set our = l.get("total") or 0 %}
+      {% set theirs = l.get("scprs_total") or 0 %}
+      {% set delta = our - theirs %}
+      <tr style="border-bottom:1px solid var(--bd)">
+        <td style="padding:7px 12px;font-size:12px;font-weight:600">{{ l.get("quote_number","") }}</td>
+        <td style="padding:7px 12px;font-size:12px">{{ l.get("agency","") }} — {{ l.get("institution","")[:25] }}</td>
+        <td style="padding:7px 12px;font-size:12px;color:var(--rd)">{{ l.get("scprs_supplier","")[:25] }}</td>
+        <td style="padding:7px 12px;font-size:12px;text-align:right">${{ "{:,.0f}".format(theirs) }}</td>
+        <td style="padding:7px 12px;font-size:12px;text-align:right">${{ "{:,.0f}".format(our) }}</td>
+        <td style="padding:7px 12px;font-size:12px;font-weight:700;text-align:right;color:{{ 'var(--rd)' if delta > 0 else 'var(--gn)' }}">${{ "{:,.0f}".format(delta|abs) }} {{ 'over' if delta > 0 else 'under' }}</td>
+      </tr>
+      {% endfor %}
+    {% else %}
+      <tr><td colspan="6" style="padding:16px;text-align:center;color:var(--tx2)">No auto-closed quotes yet — run "Check Lost Quotes"</td></tr>
+    {% endif %}
+    </tbody>
+  </table>
+</div>
+
+<div id="tab-coverage" class="card" style="padding:0;overflow-x:auto;display:none">
+  <div style="padding:10px 14px;font-size:12px;color:var(--tx2);border-bottom:1px solid var(--bd)">
+    Pull schedule — SCPRS data freshness per agency
+  </div>
+  <table>
+    <thead><tr><th>Agency</th><th>Status</th><th>Last Pull</th><th>Frequency</th><th>Action</th></tr></thead>
+    <tbody>
+    {% for ak in all_agencies %}
+      {% set ag_data = agency_map.get(ak, {}) %}
+      {% set pos = ag_data.get("pos") or 0 %}
+      {% set sch = schedule_map.get(ak, {}) %}
+      {% set last = (sch.get("last_pull") or "Never")[:10] %}
+      <tr style="border-bottom:1px solid var(--bd)">
+        <td style="padding:7px 12px;font-size:13px;font-weight:600">{{ ak }}</td>
+        <td style="padding:7px 12px;font-size:12px;color:{{ 'var(--gn)' if pos > 0 else 'var(--rd)' }}">{{ '✅ %d POs'|format(pos) if pos > 0 else '⬜ No data' }}</td>
+        <td style="padding:7px 12px;font-size:11px;color:var(--tx2)">{{ last }}</td>
+        <td style="padding:7px 12px;font-size:11px;color:var(--tx2)">Every {{ sch.get("pull_interval_hours",168) }}h</td>
+        <td style="padding:7px 12px">
+          <button onclick="pullAgency('{{ ak }}')" style="font-size:10px;padding:3px 10px;border:1px solid var(--bd);border-radius:4px;background:none;color:var(--tx);cursor:pointer">Pull Now</button>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
 </div>
 
 <script>
-var _draftMeta = {};
-
-function rebuildCatalog() {
- var btn = document.getElementById('rebuild-btn');
- var status = document.getElementById('rebuild-status');
- btn.disabled = true;
- btn.textContent = '⏳ Rebuilding...';
- status.style.display = 'block';
- status.textContent = 'Processing all quotes, PCs, orders, RFQs...';
- fetch('/api/catalog/rebuild-from-history', {method: 'POST'})
- .then(function(r){return r.json()})
- .then(function(d){
-  if (d.ok) {
-   status.innerHTML = '✅ Added: <b>'+d.items_added+'</b> · Updated: <b>'+d.items_updated+'</b> · Quotes: '+d.quotes_processed+' · PCs: '+d.pcs_processed+' · Orders: '+d.orders_processed+(d.errors?' · ⚠️ '+d.errors+' errors':'');
-   status.style.color = 'var(--gn)';
-   btn.textContent = '✅ Rebuilt';
-   setTimeout(function(){location.reload()}, 2000);
-  } else {
-   status.textContent = '❌ ' + (d.error || 'Failed');
-   status.style.color = 'var(--rd)';
-   btn.textContent = '🔄 Rebuild Catalog from History';
-   btn.disabled = false;
-  }
- }).catch(function(e){
-  status.textContent = '❌ Error: ' + e;
-  btn.textContent = '🔄 Rebuild Catalog from History';
-  btn.disabled = false;
- });
+function showTab(btn, name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  ['gaps','winback','losses','coverage'].forEach(t => {
+    document.getElementById('tab-' + t).style.display = t === name ? '' : 'none';
+  });
 }
-
-function draftOutreach(email, name, agency, facility, template) {
- template = template || 'intro';
- fetch('/api/outreach/draft', {
-  method: 'POST',
-  headers: {'Content-Type': 'application/json'},
-  body: JSON.stringify({email: email, name: name, agency: agency, facility: facility, template: template})
- })
- .then(function(r){return r.json()})
- .then(function(d){
-  if (d.ok) {
-   document.getElementById('draft-to').value = d.draft.to;
-   document.getElementById('draft-subject').value = d.draft.subject;
-   document.getElementById('draft-body').value = d.draft.body;
-   _draftMeta = {name: name, agency: agency, facility: facility, template: template};
-   var modal = document.getElementById('outreachModal');
-   modal.style.display = 'flex';
-  }
- });
+function pullAll(priority) {
+  fetch('/api/intel/scprs/pull-all', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    credentials:'same-origin', body: JSON.stringify({priority})
+  }).then(r=>r.json()).then(()=>{ startPolling(); });
 }
-
-function closeModal() {
- document.getElementById('outreachModal').style.display = 'none';
+function pullAgency(agency) {
+  fetch('/api/cchcs/intel/pull', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    credentials:'same-origin', body: JSON.stringify({priority:'all', agency})
+  }).then(r=>r.json()).then(()=>{ startPolling(); });
 }
-
-function sendDraft() {
- var btn = document.getElementById('send-btn');
- var status = document.getElementById('send-status');
- btn.disabled = true;
- btn.textContent = '⏳ Sending...';
- fetch('/api/outreach/send', {
-  method: 'POST',
-  headers: {'Content-Type': 'application/json'},
-  body: JSON.stringify({
-   to: document.getElementById('draft-to').value,
-   subject: document.getElementById('draft-subject').value,
-   body: document.getElementById('draft-body').value,
-   name: _draftMeta.name,
-   agency: _draftMeta.agency,
-   facility: _draftMeta.facility,
-   template: _draftMeta.template
-  })
- })
- .then(function(r){return r.json()})
- .then(function(d){
-  if (d.ok) {
-   status.innerHTML = '<span style="color:var(--gn)">✅ Sent!</span>';
-   btn.textContent = '✅ Sent';
-   setTimeout(function(){closeModal(); location.reload()}, 1500);
-  } else {
-   status.innerHTML = '<span style="color:var(--rd)">❌ ' + (d.error || 'Failed') + '</span>';
-   btn.textContent = '📧 Send';
-   btn.disabled = false;
-  }
- }).catch(function(e){
-  status.textContent = '❌ ' + e;
-  btn.textContent = '📧 Send';
-  btn.disabled = false;
- });
+function runMonitor() {
+  fetch('/api/intel/scprs/po-monitor', {
+    method:'POST', credentials:'same-origin'
+  }).then(r=>r.json()).then(d=>{
+    alert('Monitor complete: ' + (d.auto_closed_lost||0) + ' quotes auto-closed, ' + (d.matches_found||0) + ' matches found');
+    location.reload();
+  });
 }
+let pollTimer;
+function startPolling() {
+  clearInterval(pollTimer);
+  pollTimer = setInterval(()=>{
+    fetch('/api/intel/scprs/engine-status', {credentials:'same-origin'})
+      .then(r=>r.json()).then(d=>{
+        if (!d.running) { clearInterval(pollTimer); location.reload(); }
+      });
+  }, 10000);
+}
+{{ 'startPolling();' if running else '' }}
 </script>
+
 {% endblock %}

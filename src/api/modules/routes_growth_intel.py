@@ -1036,7 +1036,7 @@ def growth_intel_page():
                          if q.get("status") == "sent"
                          and q.get("follow_up_date", "9999") <= datetime.now().isoformat())
 
-    return render_page("growth_intel.html",
+    return render_page("growth_intelligence.html",
         catalog_stats=catalog_stats,
         alerts=alerts,
         won_count=won_count,
