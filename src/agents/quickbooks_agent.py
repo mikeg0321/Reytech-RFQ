@@ -169,13 +169,15 @@ def _refresh_access_token() -> Optional[str]:
         resp.raise_for_status()
         data = resp.json()
 
-        tokens = {
+        # Merge with existing tokens to preserve realm_id, connected_at, etc.
+        existing = _load_tokens()
+        existing.update({
             "access_token": data["access_token"],
             "refresh_token": data.get("refresh_token", refresh),
             "expires_at": time.time() + data.get("expires_in", 3600),
             "refreshed_at": datetime.now().isoformat(),
-        }
-        _save_tokens(tokens)
+        })
+        _save_tokens(existing)
         log.info("QB access token refreshed (expires in %ds)", data.get("expires_in", 3600))
         return tokens["access_token"]
 

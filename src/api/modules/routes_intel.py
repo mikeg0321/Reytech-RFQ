@@ -2579,8 +2579,9 @@ def api_qb_callback():
             "realm_id": realm_id,
             "connected_at": datetime.now().isoformat(),
         })
-        # Also save realm_id to env for future use
+        # Also save realm_id + refresh_token to env for cross-worker persistence
         os.environ["QB_REALM_ID"] = realm_id or ""
+        os.environ["QB_REFRESH_TOKEN"] = data.get("refresh_token", "")
         flash(f"QuickBooks connected! Realm: {realm_id}", "success")
         _log_crm_activity("system", "qb_connected", f"QuickBooks Online connected (realm {realm_id})", actor="user")
     except Exception as e:
