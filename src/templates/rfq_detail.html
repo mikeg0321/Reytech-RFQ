@@ -213,9 +213,10 @@
   </div>
  </div>
  {% if not t.get('704b') %}
- <div style="background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.2);border-radius:6px;padding:12px 16px;margin-bottom:12px;font-size:13px">
-  ⚠️ <b>704B template missing</b> — Upload the blank 704B form from the RFQ package to generate a filled bid. 
+ <div style="background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.2);border-radius:6px;padding:12px 16px;margin-bottom:12px;font-size:13px">
+  ⚠️ <b>704B template not uploaded</b> — Upload the blank 704B form from the RFQ package for a filled 704B bid sheet.
   {% if r.get('source') == 'price_check' %}This RFQ was converted from a Price Check and needs the original RFQ forms.{% endif %}
+  <div style="font-size:11px;color:var(--tx2);margin-top:4px">✅ The CDCR Bid Package (CUF, Darfur, DVBE, OBS 1600, etc.) and Reytech Formal Quote will still be auto-generated.</div>
  </div>
  <form method="POST" action="/rfq/{{rid}}/upload-templates" enctype="multipart/form-data">
   <div style="display:flex;gap:8px;align-items:center">

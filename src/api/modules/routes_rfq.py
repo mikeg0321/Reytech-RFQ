@@ -742,6 +742,13 @@ def generate_rfq_package(rid):
                     tmpl[ttype] = restore_path
                     t.step(f"Restored {ttype} from DB: {db_f['filename']}")
         
+        # ── Auto-fallback: Use saved CDCR bid package template if none uploaded ──
+        if "bidpkg" not in tmpl or not os.path.exists(tmpl.get("bidpkg", "")):
+            default_bidpkg = os.path.join(DATA_DIR, "templates", "cdcr_bid_package_template.pdf")
+            if os.path.exists(default_bidpkg):
+                tmpl["bidpkg"] = default_bidpkg
+                t.step("Using default CDCR bid package template")
+        
         # Update templates in RFQ data
         r["templates"] = tmpl
         
@@ -1063,6 +1070,96 @@ def send_email(rid):
         flash(f"Send failed: {e}. Use 'Open in Mail App' instead.", "error")
     
     return redirect(f"/rfq/{rid}")
+
+
+@bp.route("/api/quote/<qn>/regenerate", methods=["POST"])
+@auth_required
+def api_quote_regenerate(qn):
+    """Regenerate the formal quote PDF for a given quote number.
+    Finds the quote in quotes_log.json, regenerates PDF, and updates pdf_path.
+    """
+    from src.api.trace import Trace
+    t = Trace("quote_regenerate", quote_number=qn)
+    
+    if not QUOTE_GEN_AVAILABLE:
+        return jsonify({"ok": False, "error": "Quote generator not available"}), 503
+    
+    try:
+        quotes = get_all_quotes()
+        qt = None
+        for q in quotes:
+            if q.get("quote_number") == qn:
+                qt = q
+                break
+        if not qt:
+            return jsonify({"ok": False, "error": f"Quote {qn} not found"}), 404
+        
+        # Build output path
+        rfq_num = qt.get("rfq_number", "") or qn
+        safe_rfq = re.sub(r'[^a-zA-Z0-9_-]', '_', str(rfq_num).strip()) or qn
+        out_dir = os.path.join(OUTPUT_DIR, safe_rfq)
+        os.makedirs(out_dir, exist_ok=True)
+        output_path = os.path.join(out_dir, f"{safe_rfq}_Quote_Reytech.pdf")
+        
+        # Build quote_data from existing quote
+        quote_data = {
+            "institution": qt.get("institution", ""),
+            "ship_to_name": qt.get("ship_to_name", qt.get("institution", "")),
+            "agency": qt.get("agency", ""),
+            "rfq_number": rfq_num,
+            "line_items": qt.get("items_detail", []),
+            "source_pc_id": qt.get("source_pc_id", ""),
+            "source_rfq_id": qt.get("source_rfq_id", ""),
+        }
+        
+        result = generate_quote_from_rfq(
+            quote_data, output_path,
+            include_tax=bool(qt.get("tax", 0) > 0),
+            tax_rate=qt.get("tax", 0) / max(qt.get("subtotal", 1), 0.01) if qt.get("tax", 0) > 0 else 0,
+            quote_number=qn,
+        )
+        
+        if result.get("ok"):
+            # Update pdf_path in quotes_log.json
+            quotes_path = os.path.join(DATA_DIR, "quotes_log.json")
+            try:
+                import json as _json
+                all_quotes = _json.load(open(quotes_path))
+                for i, q in enumerate(all_quotes):
+                    if q.get("quote_number") == qn:
+                        all_quotes[i]["pdf_path"] = output_path
+                        break
+                with open(quotes_path, "w") as f:
+                    _json.dump(all_quotes, f, indent=2)
+            except Exception as _e:
+                t.warn(f"Could not update quotes_log: {_e}")
+            
+            # Store in DB for redeploy survival
+            fname = os.path.basename(output_path)
+            try:
+                with open(output_path, "rb") as _fb:
+                    save_rfq_file(qn, fname, "generated_quote", _fb.read(),
+                                  category="generated", uploaded_by="user")
+            except Exception:
+                pass
+            
+            t.ok("Regenerated", path=output_path, total=result.get("total", 0))
+            return jsonify({
+                "ok": True,
+                "quote_number": qn,
+                "total": result.get("total", 0),
+                "pdf_path": output_path,
+                "download_url": f"/api/pricecheck/download/{fname}",
+                "view_url": f"/api/pricecheck/view-pdf/{fname}",
+            })
+        else:
+            t.fail(result.get("error", "unknown"))
+            return jsonify({"ok": False, "error": result.get("error", "Generation failed")}), 500
+    
+    except Exception as e:
+        import traceback
+        t.fail(str(e))
+        return jsonify({"ok": False, "error": str(e), "trace": traceback.format_exc()}), 500
 
 
 @bp.route("/api/rfq/<rid>/dismiss", methods=["POST"])

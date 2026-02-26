@@ -7,6 +7,7 @@
      {% if source_link %}<a href="{{ source_link }}" class="btn btn-s" style="font-size:13px">📎 {{ source_label }}</a>{% endif %}
      {% if fname %}<a href="/api/pricecheck/download/{{ fname }}" class="btn btn-s" style="font-size:13px">📥 Download PDF</a>{% endif %}
      {% if fname %}<a href="/api/pricecheck/view-pdf/{{ fname }}" target="_blank" class="btn btn-s" style="font-size:13px">📄 View PDF</a>{% endif %}
+     <button onclick="regenerateQuote()" class="btn btn-s" style="font-size:13px;background:rgba(79,140,255,.15);color:var(--ac);border:1px solid rgba(79,140,255,.3)">🔄 Regenerate PDF</button>
      <a href="/outbox?filter=cs" class="btn btn-s" style="font-size:13px;background:rgba(251,191,36,.12);color:var(--yl);border:1px solid rgba(251,191,36,.3)">💬 CS Inbox</a>
     </div>
 
@@ -131,6 +132,24 @@
         if (d.ok) { location.reload(); }
         else { alert('Error: ' + (d.error || 'unknown')); }
       });
+    }
+
+    function regenerateQuote() {
+      if (!confirm('Regenerate the formal quote PDF?\n\nThis will recreate the Reytech-branded quote document.')) return;
+      fetch('/api/quote/{{ qn }}/regenerate', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'}
+      })
+      .then(r => r.json())
+      .then(d => {
+        if (d.ok) {
+          alert('✅ Quote PDF regenerated!\n\nTotal: $' + d.total.toFixed(2) + '\n\nReloading page...');
+          location.reload();
+        } else {
+          alert('⚠️ ' + (d.error || 'Failed to regenerate'));
+        }
+      })
+      .catch(e => alert('❌ Error: ' + e));
     }
 
     function addNote() {
