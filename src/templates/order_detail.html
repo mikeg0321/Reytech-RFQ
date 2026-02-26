@@ -144,14 +144,16 @@
     // Order items data for JS functions
     var ORDER_ITEMS = [
       {% for it in items %}
-      {lid: "{{ it.get('line_id','') }}", pn: "{{ it.get('part_number','') }}", qty: {{ it.get('qty',0) }}, desc: "{{ it.get('description','')[:60]|e }}", supplier_url: "{{ it.get('supplier_url','') }}"},
+      {lid: "{{ it.get('line_id','') }}", pn: "{{ it.get('part_number','') }}", asin: "{{ it.get('asin','') }}", qty: {{ it.get('qty',0) }}, desc: "{{ it.get('description','')[:60]|e }}", supplier_url: "{{ it.get('supplier_url','') }}", supplier: "{{ it.get('supplier','') }}"},
       {% endfor %}
     ];
 
     function openAmazonCart(oid) {
       // Build Amazon add-to-cart URL for all items with ASINs
       var asins = ORDER_ITEMS.filter(function(it) {
-        return it.pn && (it.pn.startsWith('B0') || it.pn.match(/^[A-Z0-9]{10}$/));
+        return it.asin || (it.pn && it.pn.startsWith('B0'));
+      }).map(function(it) {
+        return {asin: it.asin || it.pn, qty: it.qty, desc: it.desc};
       });
       if (asins.length === 0) {
         // No ASINs — try searching items on Amazon instead
@@ -173,7 +175,7 @@
       var params = [];
       asins.forEach(function(it, i) {
         var n = i + 1;
-        params.push('ASIN.' + n + '=' + it.pn);
+        params.push('ASIN.' + n + '=' + it.asin);
         params.push('Quantity.' + n + '=' + it.qty);
       });
       url += params.join('&');

@@ -192,9 +192,11 @@ def _render_order_detail(order, oid):
         supplier_name = it.get("supplier", "") or ""
         
         # Auto-detect Amazon ASIN and generate link if missing
-        is_asin = pn and (pn.startswith("B0") or (len(pn) == 10 and pn.isalnum() and pn[0].isalpha()))
+        asin = it.get("asin", "")
+        is_asin = bool(asin) or (pn and (pn.startswith("B0") or (len(pn) == 10 and pn.isalnum() and pn[0].isalpha())))
         if is_asin and not sup_url:
-            sup_url = f"https://amazon.com/dp/{pn}"
+            _asin_val = asin or pn
+            sup_url = f"https://www.amazon.com/dp/{_asin_val}"
             supplier_name = supplier_name or "Amazon"
         
         if sup_url:
@@ -203,7 +205,7 @@ def _render_order_detail(order, oid):
             # Search link for items with part numbers but no supplier URL
             search_q = f"{pn} {desc[:30]}".strip()
             import urllib.parse
-            amz_search = f"https://amazon.com/s?k={urllib.parse.quote_plus(search_q)}"
+            amz_search = f"https://www.amazon.com/s?k={urllib.parse.quote_plus(search_q)}"
             sup_link = f'<a href="{amz_search}" target="_blank" style="color:var(--tx2);font-size:10px" title="Search Amazon">🔍</a>'
             if supplier_name:
                 sup_link = f'<span style="color:var(--tx2);font-size:11px">{supplier_name}</span> {sup_link}'
@@ -215,7 +217,8 @@ def _render_order_detail(order, oid):
 
         # Part number: make clickable if ASIN
         if is_asin:
-            pn_html = f'<a href="https://amazon.com/dp/{pn}" target="_blank" style="color:var(--ac);text-decoration:none" title="View on Amazon">{pn}</a>'
+            _asin_link = asin or pn
+            pn_html = f'<a href="https://www.amazon.com/dp/{_asin_link}" target="_blank" style="color:var(--ac);text-decoration:none" title="View on Amazon">{pn}</a>'
         else:
             pn_html = pn or '—'
 

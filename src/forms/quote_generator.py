@@ -1081,6 +1081,10 @@ def generate_quote(
                 "part_number": str(it.get("part_number", "")),
                 "qty": it.get("qty", 0),
                 "unit_price": it.get("unit_price", 0),
+                "asin": it.get("asin", ""),
+                "supplier_url": it.get("supplier_url", ""),
+                "supplier": it.get("supplier", ""),
+                "cost": it.get("cost", 0),
             }
             for it in items
         ],
@@ -1188,13 +1192,27 @@ def generate_quote_from_rfq(rfq: dict, output_path: str, **kwargs) -> dict:
 
     for item in rfq.get("line_items", []):
         up = item.get("price_per_unit") or item.get("our_price") or 0
+        pn = item.get("item_number", item.get("part_number", ""))
+        asin = item.get("asin", "")
+        supplier_url = item.get("supplier_url", "") or item.get("item_link", "")
+        
+        # Auto-generate Amazon URL from ASIN/B0 part number
+        if not supplier_url and asin:
+            supplier_url = f"https://www.amazon.com/dp/{asin}"
+        elif not supplier_url and pn and pn.startswith("B0"):
+            supplier_url = f"https://www.amazon.com/dp/{pn}"
+        
         data["line_items"].append({
             "line_number": item.get("line_number", item.get("item_number", "")),
-            "part_number": item.get("item_number", item.get("part_number", "")),
+            "part_number": pn,
             "qty": item.get("qty", 1),
             "uom": item.get("uom", "EA"),
             "description": item.get("description", ""),
             "unit_price": up,
+            "asin": asin,
+            "supplier_url": supplier_url,
+            "supplier": item.get("item_supplier", "") or ("Amazon" if asin or (pn and pn.startswith("B0")) else ""),
+            "cost": item.get("supplier_cost", 0),
         })
 
     # Pass agency explicitly if known from RFQ

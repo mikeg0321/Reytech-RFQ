@@ -2015,18 +2015,28 @@ def _create_order_from_quote(qt: dict, po_number: str = "") -> dict:
     line_items = []
     for i, it in enumerate(qt.get("items_detail", [])):
         pn = it.get("part_number", "")
-        supplier_url = ""
-        if pn and pn.startswith("B0"):
-            supplier_url = f"https://amazon.com/dp/{pn}"
+        asin = it.get("asin", "")
+        # Prefer stored supplier_url, then generate from ASIN/B0 part number
+        supplier_url = it.get("supplier_url", "") or it.get("url", "")
+        supplier = it.get("supplier", "")
+        if not supplier_url:
+            if asin:
+                supplier_url = f"https://www.amazon.com/dp/{asin}"
+            elif pn and pn.startswith("B0"):
+                supplier_url = f"https://www.amazon.com/dp/{pn}"
+        if not supplier and (asin or (pn and pn.startswith("B0"))):
+            supplier = "Amazon"
         line_items.append({
             "line_id": f"L{i+1:03d}",
             "description": it.get("description", ""),
             "part_number": pn,
+            "asin": asin,
             "qty": it.get("qty", 0),
             "unit_price": it.get("unit_price", 0),
             "extended": round(it.get("qty", 0) * it.get("unit_price", 0), 2),
-            "supplier": it.get("supplier", "Amazon") if pn and pn.startswith("B0") else "",
+            "supplier": supplier,
             "supplier_url": supplier_url,
+            "cost": it.get("cost", 0),
             "sourcing_status": "pending",    # pending → ordered → shipped → delivered
             "tracking_number": "",
             "carrier": "",
@@ -2138,6 +2148,7 @@ def _create_order_from_po_email(po_data: dict) -> dict:
         supplier_url = it.get("supplier_url", "")
         supplier = it.get("supplier", "")
         cost = it.get("cost", 0) or it.get("supplier_price", 0)
+        asin = it.get("asin", "")
         
         # Try to match to quote item for enrichment
         if qn and quote_items and not cost:
@@ -2151,14 +2162,19 @@ def _create_order_from_po_email(po_data: dict) -> dict:
                         supplier = qi.get("supplier", "")
                     if not supplier_url:
                         supplier_url = qi.get("supplier_url", "") or qi.get("url", "")
+                    if not asin:
+                        asin = qi.get("asin", "")
                     if not up:
                         up = qi.get("our_price", 0) or qi.get("unit_price", 0)
                     break
 
         # Auto-detect Amazon ASINs
-        if pn and (pn.startswith("B0") or pn.startswith("b0")) and not supplier_url:
-            supplier_url = f"https://amazon.com/dp/{pn}"
-            supplier = supplier or "Amazon"
+        if not asin and pn and (pn.startswith("B0") or pn.startswith("b0")):
+            asin = pn
+        if asin and not supplier_url:
+            supplier_url = f"https://www.amazon.com/dp/{asin}"
+        if (asin or (pn and pn.upper().startswith("B0"))) and not supplier:
+            supplier = "Amazon"
 
         margin = round((up - cost) / up * 100, 1) if up and cost and up > 0 else 0
 
@@ -2166,6 +2182,7 @@ def _create_order_from_po_email(po_data: dict) -> dict:
             "line_id": f"L{i+1:03d}",
             "description": desc,
             "part_number": pn,
+            "asin": asin,
             "qty": qty,
             "unit_price": up,
             "extended": round(qty * up, 2),

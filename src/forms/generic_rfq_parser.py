@@ -337,6 +337,9 @@ def _parse_xfa_datasets(xml_text):
             "parse_method": "xfa",
             "asin": asin,
             "ref_number": ref_number,
+            "item_link": f"https://www.amazon.com/dp/{asin}" if asin else "",
+            "item_supplier": "Amazon" if asin else "",
+            "supplier_url": f"https://www.amazon.com/dp/{asin}" if asin else "",
         })
     
     if not items:
@@ -824,6 +827,21 @@ def parse_generic_rfq(pdf_paths, subject="", sender_email="", body=""):
         item.setdefault("scprs_last_price", None)
         item.setdefault("source_type", "general")
         item.setdefault("price_per_unit", item.get("unit_price", 0))
+        
+        # Auto-generate Amazon URL from ASIN or B0-prefixed item_number
+        _pn = item.get("item_number", "")
+        _asin = item.get("asin", "")
+        if not _asin and _pn and re.match(r'^B0[A-Z0-9]{8,}$', _pn):
+            _asin = _pn
+            item["asin"] = _asin
+        if _asin:
+            _amazon_url = f"https://www.amazon.com/dp/{_asin}"
+            if not item.get("item_link"):
+                item["item_link"] = _amazon_url
+            if not item.get("supplier_url"):
+                item["supplier_url"] = _amazon_url
+            if not item.get("item_supplier"):
+                item["item_supplier"] = "Amazon"
 
     result = {
         "agency": agency_key,
