@@ -52,34 +52,44 @@
  </div>
  {% set nav_items = [
    ('/', '🏠 Home', 'Home'),
-   ('/search', '🔍 Search', 'Search'),
+   ('/pricechecks', '📋 PCs', 'PCs'),
    ('/quotes', '📋 Quotes', 'Quotes'),
    ('/orders', '📦 Orders', 'Orders'),
-   ('/po-tracking', '🔍 PO Track', 'PO Track'),
-   ('/contacts', '👥 CRM', 'CRM'),
-   ('/vendors', '🏭 Vendors', 'Vendors'),
-   ('/catalog', '📦 Catalog', 'Catalog'),
-   ('/pricechecks', '📋 PCs', 'PCs'),
-   ('/competitors', '🎯 Compete', 'Compete'),
-   ('/cchcs/expansion', '🏥 Expand', 'Expand'),
-   ('/campaigns', '📞 Campaigns', 'Campaigns'),
-   ('/pipeline', '🔄 Pipeline', 'Pipeline'),
+   ('/po-tracking', '📍 PO Track', 'PO Track'),
    ('/follow-ups', '📬 Follow-Up', 'Follow-Up'),
-   ('/shipping', '🚚 Shipping', 'Shipping'),
-   ('/pricing', '💰 Pricing', 'Pricing'),
-   ('/growth', '🚀 Growth', 'Growth'),
-   ('/intelligence', '🧠 Intel', 'Intel'),
-   ('/agents', '🤖 Agents', 'Agents'),
-   ('/revenue', '💰 Revenue', 'Revenue'),
+   ('/contacts', '👥 CRM', 'CRM'),
+   ('/catalog', '📦 Catalog', 'Catalog'),
    ('/analytics', '📊 Analytics', 'Analytics'),
-   ('/settings', '⚙️ Settings', 'Settings'),
-   ('/brief', '☀️ Brief', 'Brief'),
+   ('/pipeline', '🔄 Pipeline', 'Pipeline'),
+ ] %}
+ {% set more_items = [
+   ('/search', '🔍 Search'),
+   ('/vendors', '🏭 Vendors'),
+   ('/competitors', '🎯 Competitors'),
+   ('/cchcs/expansion', '🏥 Expand'),
+   ('/campaigns', '📞 Campaigns'),
+   ('/shipping', '🚚 Shipping'),
+   ('/pricing', '💰 Pricing'),
+   ('/growth', '🚀 Growth'),
+   ('/intelligence', '🧠 Intel'),
+   ('/agents', '🤖 Agents'),
+   ('/revenue', '💰 Revenue'),
+   ('/settings', '⚙️ Settings'),
+   ('/brief', '☀️ Brief'),
  ] %}
  <nav aria-label="Main navigation" style="overflow-x:auto;overflow-y:hidden;white-space:nowrap;padding-bottom:8px;margin:0 -28px;padding-left:28px;padding-right:28px;-webkit-overflow-scrolling:touch;scrollbar-width:thin;scrollbar-color:var(--bd) transparent">
   <div style="display:inline-flex;align-items:center;gap:4px">
    {% for href, label, name in nav_items %}
    <a href="{{ href }}" class="hdr-btn{% if active_page == name %} hdr-active{% endif %}" aria-label="{{ name }}" style="padding:5px 10px;font-size:11px">{{ label }}</a>
    {% endfor %}
+   <div style="position:relative;display:inline-block" id="more-nav">
+    <button class="hdr-btn" style="padding:5px 10px;font-size:11px" onclick="var m=document.getElementById('more-menu');m.style.display=m.style.display==='block'?'none':'block'">⋯ More</button>
+    <div id="more-menu" style="display:none;position:absolute;left:0;top:28px;background:var(--sf2);border:1px solid var(--bd);border-radius:8px;padding:4px 0;min-width:160px;z-index:100;box-shadow:0 4px 16px rgba(0,0,0,.4)">
+     {% for href, label in more_items %}
+     <a href="{{ href }}" style="display:block;padding:6px 14px;font-size:12px;color:var(--tx);text-decoration:none;white-space:nowrap" onmouseover="this.style.background='var(--sf)'" onmouseout="this.style.background='transparent'">{{ label }}</a>
+     {% endfor %}
+    </div>
+   </div>
   </div>
  </nav>
 </header>
@@ -93,6 +103,14 @@
 {% block after_content %}{% endblock %}
 </main>
 <script src="/static/header.js"></script>
+<script>
+// Close "More" nav menu on outside click
+document.addEventListener('click',function(e){
+ var wrap=document.getElementById('more-nav');
+ var menu=document.getElementById('more-menu');
+ if(wrap&&menu&&!wrap.contains(e.target)){menu.style.display='none';}
+});
+</script>
 <script>
 // E5: Auto-inject CSRF tokens into all forms and AJAX calls
 (function(){

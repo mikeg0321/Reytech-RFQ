@@ -1,6 +1,6 @@
-// Reytech RFQ — Shared header JS (extracted from dashboard.py)
+// Reytech RFQ — Shared header JS
 
-// ── Keyboard shortcuts (home page) ──
+// ── Keyboard shortcuts ──
 (function(){
   var shortcuts = {'n':'/pricechecks','q':'/quotes','o':'/orders','p':'/pipeline','g':'/growth','b':'/brief','c':'/contacts','i':'/intelligence','v':'/vendors','d':'/debug','h':'/'};
   document.addEventListener('keydown', function(e) {
@@ -9,31 +9,71 @@
     if (e.ctrlKey||e.altKey||e.metaKey) return;
     var key = e.key.toLowerCase();
     if (key==='/'||key==='s') { var s=document.querySelector('input[name="q"],input[type="search"],#search-input'); if(s){e.preventDefault();s.focus();s.select();return;} e.preventDefault();window.location.href='/search';return; }
-    if (key==='?') { e.preventDefault(); var o=document.getElementById('kb-help'); if(o){o.remove();return;} o=document.createElement('div');o.id='kb-help';o.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;display:flex;align-items:center;justify-content:center';o.onclick=function(){o.remove()};o.innerHTML='<div style="background:#1a1b2e;border:1px solid #333;border-radius:12px;padding:24px 32px;max-width:400px;color:#e2e8f0" onclick="event.stopPropagation()"><h3 style="margin:0 0 16px;font-size:18px">Keyboard Shortcuts</h3><div style="display:grid;grid-template-columns:40px 1fr;gap:6px 12px;font-size:14px"><kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">/ s</kbd><span>Search</span><kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">h</kbd><span>Home</span><kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">n</kbd><span>Price Checks</span><kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">q</kbd><span>Quotes</span><kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">o</kbd><span>Orders</span><kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">p</kbd><span>Pipeline</span><kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">g</kbd><span>Growth</span><kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">b</kbd><span>Daily Brief</span><kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">c</kbd><span>Contacts</span><kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">i</kbd><span>Intelligence</span><kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">?</kbd><span>This help</span></div><p style="margin:16px 0 0;font-size:12px;color:#888">Press any key or click outside to close</p></div>';document.body.appendChild(o);return; }
+    if (key==='?') { e.preventDefault(); var o=document.getElementById('kb-help'); if(o){o.remove();return;} o=document.createElement('div');o.id='kb-help';o.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;display:flex;align-items:center;justify-content:center';o.onclick=function(){o.remove()};o.innerHTML='<div style="background:#1a1b2e;border:1px solid #333;border-radius:12px;padding:24px 32px;max-width:400px;color:#e2e8f0" onclick="event.stopPropagation()"><h3 style="margin:0 0 16px;font-size:18px">Keyboard Shortcuts</h3><div style="display:grid;grid-template-columns:40px 1fr;gap:6px 12px;font-size:14px"><kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">/ s</kbd><span>Search</span><kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">h</kbd><span>Home</span><kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">n</kbd><span>Price Checks</span><kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">q</kbd><span>Quotes</span><kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">o</kbd><span>Orders</span><kbd style="background:#333;padding:2px 8px;border-radius:4px;text-align:center;font-family:monospace">p</kbd><span>Pipeline</span></div><p style="margin:16px 0 0;font-size:12px;color:#888">Press any key or click outside to close</p></div>';document.body.appendChild(o);return; }
     if (shortcuts[key]) { e.preventDefault(); window.location.href=shortcuts[key]; }
   });
 })();
+
+// ── Poll time display ──
 function _updatePollTime(ts){
  var el=document.getElementById('poll-time');
  if(el&&ts){el.dataset.utc=ts;try{var d=new Date(ts);if(!isNaN(d)){el.textContent=d.toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true})}}catch(e){el.textContent=ts}}
 }
+
+// ══════════════════════════════════════════════════════════════════════════
+// CHECK NOW: Quick poll for NEW unread emails only.
+// Already-processed emails are skipped. Fast. Use when expecting new mail.
+// ══════════════════════════════════════════════════════════════════════════
 function pollNow(btn){
- btn.disabled=true;btn.setAttribute('aria-busy','true');btn.textContent='Checking...';
+ btn.disabled=true;btn.setAttribute('aria-busy','true');
+ btn.textContent='Checking\u2026';
  fetch('/api/poll-now',{credentials:'same-origin'}).then(function(r){return r.json()}).then(function(d){
   _updatePollTime(d.last_check);
-  if(d.found>0){btn.textContent=d.found+' found!';setTimeout(function(){location.reload()},800)}
-  else{btn.textContent='No new emails';setTimeout(function(){btn.textContent='\\u26A1 Check Now';btn.disabled=false;btn.removeAttribute('aria-busy')},2000)}
- }).catch(function(){btn.textContent='Error';setTimeout(function(){btn.textContent='\\u26A1 Check Now';btn.disabled=false;btn.removeAttribute('aria-busy')},2000)});
+  if(d.found>0){
+   btn.textContent='\u2705 '+d.found+' new!';
+   btn.style.background='rgba(52,211,153,.2)';btn.style.borderColor='rgba(52,211,153,.4)';
+   setTimeout(function(){location.reload()},1000);
+  } else {
+   btn.textContent='\u2705 Up to date';
+   btn.style.background='rgba(52,211,153,.1)';
+   setTimeout(function(){_resetBtn(btn,'\u26A1 Check Now')},2000);
+  }
+ }).catch(function(){
+  btn.textContent='\u274C Error';btn.style.background='rgba(248,81,73,.15)';
+  setTimeout(function(){_resetBtn(btn,'\u26A1 Check Now')},3000);
+ });
 }
+
+// ══════════════════════════════════════════════════════════════════════════
+// RESYNC: Nuclear option. Clears RFQ queue, resets processed-email list,
+// re-imports everything from scratch. PCs are preserved.
+// Use after a bug fix, missed emails, or when the queue looks stale.
+// ══════════════════════════════════════════════════════════════════════════
 function resyncAll(btn){
- if(!confirm('Clear all RFQs and re-import from email?'))return;
- btn.disabled=true;btn.setAttribute('aria-busy','true');btn.textContent='Syncing...';
+ if(!confirm('RESYNC will:\n\n\u2022 Clear the RFQ queue\n\u2022 Forget all processed emails\n\u2022 Re-import everything from inbox\n\u2022 Price Checks are KEPT\n\nUse this after a fix or when emails were missed.\nContinue?'))return;
+ btn.disabled=true;btn.setAttribute('aria-busy','true');
+ btn.textContent='\uD83D\uDD04 Resyncing\u2026';
+ btn.style.background='rgba(251,191,36,.2)';btn.style.borderColor='rgba(251,191,36,.4)';
  fetch('/api/resync',{credentials:'same-origin'}).then(function(r){return r.json()}).then(function(d){
   _updatePollTime(d.last_check);
-  if(d.found>0){btn.textContent=d.found+' imported!';setTimeout(function(){location.reload()},800)}
-  else{btn.textContent='0 found';setTimeout(function(){btn.textContent='Resync';btn.disabled=false},2000)}
- }).catch(function(){btn.textContent='Error';setTimeout(function(){btn.textContent='Resync';btn.disabled=false},2000)});
+  var parts=[];
+  if(d.found>0)parts.push(d.found+' RFQs');
+  if(d.pcs_preserved)parts.push(d.pcs_preserved+' PCs kept');
+  btn.textContent='\u2705 '+(parts.join(', ')||'Done');
+  btn.style.background='rgba(52,211,153,.2)';btn.style.borderColor='rgba(52,211,153,.4)';
+  setTimeout(function(){location.reload()},1500);
+ }).catch(function(){
+  btn.textContent='\u274C Failed';btn.style.background='rgba(248,81,73,.15)';
+  setTimeout(function(){_resetBtn(btn,'\uD83D\uDD04 Resync')},3000);
+ });
 }
+
+function _resetBtn(btn,label){
+ btn.textContent=label;btn.disabled=false;btn.removeAttribute('aria-busy');
+ btn.style.background='';btn.style.borderColor='';
+}
+
+// ── Notifications ──
 (function initBell(){
   function updateBellCount(){
     fetch('/api/notifications/bell-count',{credentials:'same-origin'})
@@ -54,9 +94,8 @@ function resyncAll(btn){
 function toggleNotifPanel(){
   var panel=document.getElementById('notif-panel');
   if(!panel)return;
-  var isOpen=panel.classList.contains('open');
   panel.classList.toggle('open');
-  if(!isOpen) loadNotifications();
+  if(panel.classList.contains('open')) loadNotifications();
 }
 function loadNotifications(){
   fetch('/api/notifications/persistent?limit=20',{credentials:'same-origin'})
@@ -67,11 +106,11 @@ function loadNotifications(){
       list.innerHTML='<div class="notif-empty">No notifications yet.</div>';
       return;
     }
-    var IC={urgent:'\\u1F6A8',deal:'\\u1F4B0',draft:'\\u1F4CB',warning:'\\u23F0',info:'\\u2139\\uFE0F'};
+    var IC={urgent:'\uD83D\uDEA8',deal:'\uD83D\uDCB0',draft:'\uD83D\uDCCB',warning:'\u23F0',info:'\u2139\uFE0F'};
     list.innerHTML=d.notifications.map(function(n){
       var ts=n.created_at?new Date(n.created_at).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true}):'';
-      var icon=IC[n.urgency]||'\\u1F514';
-      return '<div class="notif-item '+(n.is_read?'':'unread')+' urgency-'+(n.urgency||'info')+'" onclick="notifClick(&apos;'+n.deep_link+'&apos;,'+n.id+')">'
+      var icon=IC[n.urgency]||'\uD83D\uDD14';
+      return '<div class="notif-item '+(n.is_read?'':'unread')+' urgency-'+(n.urgency||'info')+'" onclick="notifClick(\''+n.deep_link+'\','+n.id+')">'
         +'<div class="notif-item-title">'+icon+' '+(n.title||'')+'</div>'
         +'<div class="notif-item-body">'+(n.body||'').substring(0,120)+'</div>'
         +'<div class="notif-item-time">'+ts+'</div>'
@@ -101,6 +140,7 @@ document.addEventListener('click',function(e){
     if(panel)panel.classList.remove('open');
   }
 });
+// Format poll time on load
 (function(){
  var el=document.getElementById('poll-time');
  if(el&&el.dataset.utc){
