@@ -33,11 +33,30 @@ def catalog_page():
     stats = get_catalog_stats()
     q = request.args.get("q", "")
     cat_filter = request.args.get("category", "")
-    strategy_filter = request.args.get("strategy", "")
-
+    margin_filter = request.args.get("margin", "")
+    
     products = []
-    if q or cat_filter or strategy_filter:
-        products = search_products(q, limit=50, category=cat_filter, strategy=strategy_filter)
+    if q or cat_filter or margin_filter:
+        # Build search with margin filter
+        min_m = None
+        max_m = None
+        if margin_filter == "negative":
+            max_m = 0
+        elif margin_filter == "low":
+            min_m = 0
+            max_m = 10
+        elif margin_filter == "mid":
+            min_m = 10
+            max_m = 25
+        elif margin_filter == "high":
+            min_m = 25
+        products = search_products(q, limit=100, category=cat_filter, min_margin=min_m, max_margin=max_m)
+    else:
+        # Default: show all products sorted by times_quoted desc
+        try:
+            products = search_products("", limit=100)
+        except Exception:
+            products = []
 
     # Macro stats bento
     tp = stats["total_products"]
@@ -116,9 +135,9 @@ def catalog_page():
       <div style="font-size:11px;color:var(--tx2)">Avg Margin</div>
      </div>
      <div class="card" style="text-align:center">
-      <div style="font-size:28px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#f85149">{neg + low}</div>
+      <a href="/catalog?margin=negative" style="text-decoration:none"><div style="font-size:28px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#f85149">{neg + low}</div></a>
       <div style="font-size:11px;color:var(--tx2)">Need Pricing Review</div>
-      <div style="font-size:10px;color:var(--tx2)">{neg} losing money</div>
+      <div style="font-size:10px"><a href="/catalog?margin=negative" style="color:#f85149">{neg} losing money</a></div>
      </div>
      <div class="card" style="text-align:center">
       <div style="font-size:28px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#3fb950">${stats['total_sell_value']:,.0f}</div>
@@ -145,7 +164,7 @@ def catalog_page():
 
     <div class="bento bento-2" style="margin-bottom:16px">
      <div class="card" style="padding:12px">
-      <div style="font-weight:600;font-size:13px;margin-bottom:8px;color:#f85149">⚠️ Losing Money ({neg} items)</div>
+      <a href="/catalog?margin=negative" style="text-decoration:none;font-weight:600;font-size:13px;margin-bottom:8px;color:#f85149;display:block">⚠️ Losing Money ({neg} items)</a>
       {neg_alerts if neg_alerts else '<div style="font-size:12px;color:var(--tx2)">No negative margin items ✅</div>'}
      </div>
      <div class="card" style="padding:12px">
@@ -164,15 +183,15 @@ def catalog_page():
        <option value="">All Categories</option>
        {cat_options}
       </select>
-      <select name="strategy" style="padding:6px;border:1px solid var(--bd);border-radius:6px;background:var(--sf);color:var(--tx);font-size:12px">
-       <option value="">All Strategies</option>
-       <option value="loss_leader" {"selected" if strategy_filter=="loss_leader" else ""}>🔴 Loss Leader</option>
-       <option value="margin_protect" {"selected" if strategy_filter=="margin_protect" else ""}>🟡 Margin Protect</option>
-       <option value="competitive" {"selected" if strategy_filter=="competitive" else ""}>🟢 Competitive</option>
-       <option value="premium" {"selected" if strategy_filter=="premium" else ""}>🔵 Premium</option>
+      <select name="margin" style="padding:6px;border:1px solid var(--bd);border-radius:6px;background:var(--sf);color:var(--tx);font-size:12px">
+       <option value="">All Margins</option>
+       <option value="negative" {"selected" if margin_filter=="negative" else ""}>🔴 Negative (&lt;0%)</option>
+       <option value="low" {"selected" if margin_filter=="low" else ""}>🟡 Low (0-10%)</option>
+       <option value="mid" {"selected" if margin_filter=="mid" else ""}>🟢 Mid (10-25%)</option>
+       <option value="high" {"selected" if margin_filter=="high" else ""}>🔵 High (&gt;25%)</option>
       </select>
       <button type="submit" class="btn btn-s" style="font-size:12px">🔍 Search</button>
-      {'<a href="/catalog" class="btn" style="font-size:12px">Clear</a>' if (q or cat_filter or strategy_filter) else ''}
+      {'<a href="/catalog" class="btn" style="font-size:12px">Clear</a>' if (q or cat_filter or margin_filter) else ''}
      </form>
     </div>
 
@@ -180,6 +199,7 @@ def catalog_page():
     <div id="search-results-dropdown" style="display:none;position:absolute;z-index:100;background:var(--bg2);border:1px solid var(--bd);border-radius:8px;max-height:300px;overflow-y:auto;width:400px;box-shadow:0 4px 12px rgba(0,0,0,0.3)"></div>
 
     {f'''<div class="card" style="padding:0;overflow-x:auto">
+     <div style="padding:8px 12px;font-size:11px;color:var(--tx2);border-bottom:1px solid var(--bd)">Showing {len(products)} product{"s" if len(products)!=1 else ""}{f" matching '{q}'" if q else ""}{f" in {cat_filter}" if cat_filter else ""}{f" — margin: {margin_filter}" if margin_filter else ""}</div>
      <table class="home-tbl" style="min-width:700px">
       <thead><tr>
        <th style="width:150px">Name</th><th>Description</th><th style="width:80px">SKU</th>
@@ -189,7 +209,7 @@ def catalog_page():
       </tr></thead>
       <tbody>{rows}</tbody>
      </table>
-    </div>''' if products else '<div class="card" style="padding:24px;text-align:center;color:var(--tx2)">Search above to browse products, or <a href="/catalog?strategy=loss_leader" style="color:#f85149">view items losing money</a></div>' if not q else '<div class="card" style="padding:24px;text-align:center;color:var(--tx2)">No products match your search</div>'}
+    </div>''' if products else '<div class="card" style="padding:24px;text-align:center;color:var(--tx2)">No products found{" matching your search" if q else ". Import a QB CSV or rebuild from history on the <a href=\\"/growth-intel\\" style=\\"color:var(--ac)\\">Growth Intel</a> page"}.</div>'}
 
     <script>
     function importCSV(input) {{
