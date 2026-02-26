@@ -35,11 +35,14 @@ h1 { font-size:22px; margin-bottom:4px; }
 .btn .spin { display:none; position:absolute; top:8px; right:8px; width:14px; height:14px; border:2px solid var(--bd); border-top-color:var(--blue); border-radius:50%; animation:sp .6s linear infinite; }
 .btn.ld .spin { display:block; }
 @keyframes sp { to { transform:rotate(360deg); } }
-#result { background:#0a0e14; border:1px solid var(--bd); border-radius:12px; padding:16px; margin-top:16px;
+#result-backdrop { display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:8999;backdrop-filter:blur(2px); }
+#result-backdrop.show { display:block; }
+#result { background:#0a0e14; border:1px solid var(--blue); border-radius:12px; padding:16px; margin-top:16px;
   font-family:'SF Mono',Consolas,monospace; font-size:12px; line-height:1.6; white-space:pre-wrap;
-  max-height:50vh; overflow-y:auto; display:none; position:fixed; bottom:12px; left:12px; right:12px;
-  max-width:960px; margin-left:auto; margin-right:auto;
-  z-index:9000; box-shadow:0 -4px 32px rgba(0,0,0,.7),0 0 0 1px rgba(88,166,255,.15); }
+  max-height:70vh; overflow-y:auto; display:none; position:fixed; top:50%;left:50%;transform:translate(-50%,-50%);
+  width:calc(100% - 40px); max-width:960px;
+  z-index:9000; box-shadow:0 0 60px rgba(79,140,255,.2),0 0 0 1px rgba(88,166,255,.3); animation:fadeIn .2s ease; }
+@keyframes fadeIn { from{opacity:0;transform:translate(-50%,-50%) scale(.95)} to{opacity:1;transform:translate(-50%,-50%) scale(1)} }
 #result .close { position:absolute; top:8px; right:12px; cursor:pointer; color:var(--tx2); font-size:18px; background:var(--sf2); border-radius:50%; width:24px; height:24px; display:flex; align-items:center; justify-content:center; }
 #result .close:hover { color:var(--tx); background:var(--err); }
 #result .rh { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; padding-bottom:8px; border-bottom:1px solid var(--bd); }
@@ -97,7 +100,8 @@ h1 { font-size:22px; margin-bottom:4px; }
  <button class="qa-btn" onclick="apiPost('/api/catalog/rebuild-from-history',{})">📦 Rebuild Catalog</button>
 </div>
 
-<!-- Result Panel — sticky at top -->
+<!-- Result Panel — center overlay -->
+<div id="result-backdrop" onclick="closeResult()"></div>
 <div id="result"><div class="rh"><span class="rt" id="result-title">Result</span><span class="rd" id="result-dur"></span></div><span class="close" onclick="copyResult()" title="Copy" style="right:40px">📋</span><span class="close" onclick="closeResult()">✕</span><pre id="result-content"></pre></div>
 
 <!-- Fleet -->
@@ -269,11 +273,38 @@ h1 { font-size:22px; margin-bottom:4px; }
  <div class="scol" id="qb-sc">
  <p style="color:#8b949e;font-size:12px;margin-bottom:10px">Full financial context — invoices, customers, vendors, AR. All agents use this data.</p>
  <div id="qb-finance" class="fin-cards" style="display:none"></div>
+ <!-- Inline QB Status Cards -->
+ <div id="qb-inline-data" style="display:none;margin-bottom:12px">
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px">
+   <div id="qb-overdue-card" class="qb-data-card" style="background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.25);border-radius:8px;padding:10px;cursor:pointer" onclick="ac(this,'/api/qb/invoices?status=overdue','Overdue Invoices')">
+    <div style="font-size:11px;color:#f87171;font-weight:600">⚠️ OVERDUE</div>
+    <div id="qb-overdue-val" style="font-size:20px;font-weight:700;color:#f87171;margin:4px 0">—</div>
+    <div id="qb-overdue-ct" style="font-size:11px;color:#8b949e">Click to view</div>
+   </div>
+   <div id="qb-open-card" class="qb-data-card" style="background:rgba(79,140,255,.08);border:1px solid rgba(79,140,255,.25);border-radius:8px;padding:10px;cursor:pointer" onclick="ac(this,'/api/qb/invoices?status=open','Open Invoices')">
+    <div style="font-size:11px;color:#58a6ff;font-weight:600">💰 OPEN INVOICES</div>
+    <div id="qb-open-val" style="font-size:20px;font-weight:700;color:#58a6ff;margin:4px 0">—</div>
+    <div id="qb-open-ct" style="font-size:11px;color:#8b949e">Click to view</div>
+   </div>
+   <div id="qb-collected-card" class="qb-data-card" style="background:rgba(52,211,153,.08);border:1px solid rgba(52,211,153,.25);border-radius:8px;padding:10px;cursor:pointer" onclick="ac(this,'/api/qb/payments','Recent Payments')">
+    <div style="font-size:11px;color:#34d399;font-weight:600">✅ COLLECTED (30d)</div>
+    <div id="qb-collected-val" style="font-size:20px;font-weight:700;color:#34d399;margin:4px 0">—</div>
+    <div id="qb-collected-ct" style="font-size:11px;color:#8b949e">Click to view</div>
+   </div>
+   <div id="qb-customers-card" class="qb-data-card" style="background:rgba(188,140,255,.08);border:1px solid rgba(188,140,255,.25);border-radius:8px;padding:10px;cursor:pointer" onclick="ac(this,'/api/qb/customers','Customers')">
+    <div style="font-size:11px;color:#bc8cff;font-weight:600">👤 CUSTOMERS</div>
+    <div id="qb-cust-val" style="font-size:20px;font-weight:700;color:#bc8cff;margin:4px 0">—</div>
+    <div id="qb-cust-ct" style="font-size:11px;color:#8b949e">Click to view</div>
+   </div>
+  </div>
+ </div>
  <div class="step-label">Connection</div>
  <div class="grid" style="margin-bottom:12px">
   <button class="btn btn-go" onclick="window.location='/api/qb/connect'"><span class="label">🔗 Connect QuickBooks</span><span class="desc">Start OAuth2 flow</span></button>
   <button class="btn btn-go" onclick="ac(this,'/api/qb/diagnose')"><span class="label">🔧 Diagnose</span><span class="desc">Full diagnostic trace</span><span class="spin"></span></button>
   <button class="btn" onclick="ac(this,'/api/qb/company')"><span class="label">🏢 Company Info</span><span class="desc">Verify connected company</span><span class="spin"></span></button>
+  <button class="btn" onclick="ac(this,'/api/qb/test-connection')"><span class="label">🧪 Test Connection</span><span class="desc">Quick ping</span><span class="spin"></span></button>
+  <button class="btn" onclick="ap(this,'/api/qb/force-refresh',{})"><span class="label">🔄 Force Refresh</span><span class="desc">Clear cache + re-auth</span><span class="spin"></span></button>
  </div>
  <div class="step-label">Financial Reports</div>
  <div class="grid" style="margin-bottom:12px">
@@ -281,9 +312,11 @@ h1 { font-size:22px; margin-bottom:4px; }
   <button class="btn" onclick="ac(this,'/api/qb/pnl')"><span class="label">📈 Profit & Loss</span><span class="desc">YTD income</span><span class="spin"></span></button>
   <button class="btn" onclick="ac(this,'/api/qb/aging')"><span class="label">📊 AR Aging</span><span class="desc">Receivables by age</span><span class="spin"></span></button>
   <button class="btn" onclick="ac(this,'/api/qb/invoices/summary')"><span class="label">📋 Invoice Summary</span><span class="desc">Open/overdue/paid</span><span class="spin"></span></button>
+  <button class="btn" onclick="ac(this,'/api/qb/revenue-by-month')"><span class="label">📈 Monthly Revenue</span><span class="desc">Revenue trend</span><span class="spin"></span></button>
+  <button class="btn" onclick="ac(this,'/api/qb/summary-card')"><span class="label">🃏 Summary Card</span><span class="desc">Quick KPIs</span><span class="spin"></span></button>
  </div>
  <div class="step-label">Data</div>
- <div class="grid">
+ <div class="grid" style="margin-bottom:12px">
   <button class="btn" onclick="ac(this,'/api/qb/invoices?status=open')"><span class="label">💰 Open Invoices</span><span class="desc">Unpaid</span><span class="spin"></span></button>
   <button class="btn" onclick="ac(this,'/api/qb/invoices?status=overdue')"><span class="label">⚠️ Overdue</span><span class="desc">Past-due</span><span class="spin"></span></button>
   <button class="btn" onclick="ac(this,'/api/qb/payments')"><span class="label">💵 Recent Payments</span><span class="desc">Last 30 days</span><span class="spin"></span></button>
@@ -299,7 +332,9 @@ h1 { font-size:22px; margin-bottom:4px; }
   <button class="btn" onclick="ac(this,'/api/qb/cash-flow')"><span class="label">💹 Cash Flow Forecast</span><span class="desc">30-day projection</span><span class="spin"></span></button>
   <button class="btn" onclick="ac(this,'/api/qb/vendor-spend')"><span class="label">📊 Vendor Spend</span><span class="desc">Top vendors by $</span><span class="spin"></span></button>
   <button class="btn" onclick="createQBInvoice()"><span class="label">📄 Create Invoice</span><span class="desc">From won quote</span><span class="spin"></span></button>
-  <button class="btn" onclick="ac(this,'/api/qb/revenue-by-month')"><span class="label">📈 Monthly Revenue</span><span class="desc">Revenue trend</span><span class="spin"></span></button>
+  <button class="btn" onclick="ap(this,'/api/qb/draft-reminders',{})"><span class="label">📧 Draft Reminders</span><span class="desc">Email overdue customers</span><span class="spin"></span></button>
+  <button class="btn" onclick="ac(this,'/api/qb/profit-margins')"><span class="label">💹 Profit Margins</span><span class="desc">By customer & product</span><span class="spin"></span></button>
+  <button class="btn" onclick="ac(this,'/api/qb/expense-summary')"><span class="label">📉 Expenses</span><span class="desc">Category breakdown</span><span class="spin"></span></button>
  </div>
  <div class="env-box">
   <div style="color:var(--warn);margin-bottom:4px">Railway env vars needed:</div>
@@ -409,7 +444,53 @@ h1 { font-size:22px; margin-bottom:4px; }
   <button class="btn btn-go" onclick="ac(this,'/api/test/create-pc')"><span class="label">📝 Create Test RFQ</span><span class="desc">CSP-Sacramento test</span><span class="spin"></span></button>
   <button class="btn" onclick="ac(this,'/api/test/status')"><span class="label">📊 Test Status</span><span class="desc">Active test records</span><span class="spin"></span></button>
   <button class="btn" onclick="if(confirm('Remove all test data?')) ac(this,'/api/test/cleanup?reset_counter=false')" style="border-color:rgba(248,113,113,.3)"><span class="label">🗑️ Clean Test Data</span><span class="desc">Remove TEST records</span><span class="spin"></span></button>
+  <button class="btn" onclick="runBatchDiag()"><span class="label">🔍 Batch Diagnostics</span><span class="desc">Test ALL endpoints</span><span class="spin"></span></button>
  </div></div>
+</div>
+
+<!-- Revenue Intelligence -->
+<div class="section">
+ <h2 onclick="tog('rev')">💵 Revenue Intelligence <span class="tag tag-ok">Live</span><span class="caret">▼</span></h2>
+ <div class="scol" id="rev-sc">
+ <p style="color:#8b949e;font-size:12px;margin-bottom:10px">Revenue tracking, $2M goal progress, margin analysis.</p>
+ <div class="grid">
+  <button class="btn btn-go" onclick="ac(this,'/api/revenue/dashboard')"><span class="label">📊 Revenue Dashboard</span><span class="desc">Full revenue overview</span><span class="spin"></span></button>
+  <button class="btn" onclick="ac(this,'/api/revenue/goal')"><span class="label">🎯 $2M Goal</span><span class="desc">Track annual target</span><span class="spin"></span></button>
+  <button class="btn" onclick="ac(this,'/api/revenue/monthly')"><span class="label">📅 Monthly Breakdown</span><span class="desc">Revenue by month</span><span class="spin"></span></button>
+  <button class="btn" onclick="ac(this,'/api/revenue/margins')"><span class="label">💹 Margins</span><span class="desc">Profit by category</span><span class="spin"></span></button>
+  <button class="btn" onclick="ac(this,'/api/revenue/top-customers')"><span class="label">🏆 Top Customers</span><span class="desc">Revenue by customer</span><span class="spin"></span></button>
+  <button class="btn" onclick="ac(this,'/api/revenue/pipeline-forecast')"><span class="label">🔮 Forecast</span><span class="desc">Pipeline to revenue</span><span class="spin"></span></button>
+ </div></div>
+</div>
+
+<!-- Smart Actions -->
+<div class="section">
+ <h2 onclick="tog('smart')">🧠 Smart Actions <span class="tag tag-ok">AI</span><span class="caret">▼</span></h2>
+ <div class="scol" id="smart-sc">
+ <p style="color:#8b949e;font-size:12px;margin-bottom:10px">AI-recommended next actions based on pipeline state.</p>
+ <div class="grid">
+  <button class="btn btn-go" onclick="ac(this,'/api/manager/recommendations')"><span class="label">🎯 Recommendations</span><span class="desc">AI-suggested actions</span><span class="spin"></span></button>
+  <button class="btn" onclick="ac(this,'/api/follow-ups/summary')"><span class="label">📧 Follow-Up Summary</span><span class="desc">Who needs contact</span><span class="spin"></span></button>
+  <button class="btn" onclick="ac(this,'/api/stale-quotes')"><span class="label">⏰ Stale Quotes</span><span class="desc">Aging opportunities</span><span class="spin"></span></button>
+  <button class="btn" onclick="ac(this,'/api/quote-lifecycle/expiring')"><span class="label">⚡ Expiring Soon</span><span class="desc">Quotes about to expire</span><span class="spin"></span></button>
+  <button class="btn" onclick="ac(this,'/api/dashboard/kpis')"><span class="label">📊 KPI Dashboard</span><span class="desc">Key performance metrics</span><span class="spin"></span></button>
+  <button class="btn" onclick="ac(this,'/api/quote-lifecycle/pipeline')"><span class="label">🔄 Lifecycle View</span><span class="desc">Every quote by stage</span><span class="spin"></span></button>
+ </div></div>
+</div>
+
+<!-- Trace Log -->
+<div class="section">
+ <h2 onclick="tog('trace')">📋 Trace Log <span class="tag tag-ok" id="trace-tag">0 entries</span><span class="caret">▼</span></h2>
+ <div class="scol" id="trace-sc">
+ <div style="display:flex;gap:8px;margin-bottom:8px">
+  <button class="qa-btn" onclick="clearTraceLog()">🗑️ Clear</button>
+  <button class="qa-btn" onclick="exportTraceLog()">📥 Export</button>
+  <span style="font-size:11px;color:var(--tx2);padding:8px">All API calls logged here</span>
+ </div>
+ <div id="trace-log" style="max-height:300px;overflow-y:auto;font-size:11px;font-family:monospace;background:#0a0e14;border-radius:8px;padding:8px">
+  <div style="color:#8b949e">Trace log will appear as you click buttons...</div>
+ </div>
+ </div>
 </div>
 
 <script>
@@ -424,8 +505,7 @@ function showResult(d,title){
   var txt=typeof d==='string'?d:JSON.stringify(d,null,2);
   RC.textContent=txt;
   R.style.display='block';
-  // Scroll result into view smoothly
-  R.scrollIntoView({behavior:'smooth',block:'nearest'});
+  var bk=document.getElementById('result-backdrop');if(bk)bk.classList.add('show');
   // Re-enable button
   if(_ab){_ab.classList.remove('ld');_ab.disabled=false;
     // Show inline status on button
@@ -441,7 +521,7 @@ function showResult(d,title){
   _actionLog.push({title:title,time:new Date().toLocaleTimeString(),dur:dur,ok:!(d&&d.ok===false)});
   updateRecentBar();
 }
-function closeResult(){R.style.display='none';}
+function closeResult(){R.style.display='none';var bk=document.getElementById('result-backdrop');if(bk)bk.classList.remove('show');}
 
 function toast(m,t){
   var c=document.getElementById('toasts'),d=document.createElement('div');
@@ -470,15 +550,21 @@ function _hr(r){
 function apiGet(u,title){
   _reqStart=Date.now();
   RC.textContent='⏳ Loading...';if(RT)RT.textContent=title||u;R.style.display='block';
+  var bk=document.getElementById('result-backdrop');if(bk)bk.classList.add('show');
   console.log('[TRACE] GET',u,'at',new Date().toLocaleTimeString());
+  traceLog('GET',u,'pending');
   toast('📡 '+(title||u.split('?')[0].split('/').pop()),'info');
-  fetch(u,{credentials:'same-origin'}).then(_hr).then(function(d){
+  fetch(u,{credentials:'same-origin'}).then(function(r){
+    traceLog('GET',u,r.ok?'ok:'+r.status:'err:'+r.status);
+    return _hr(r);
+  }).then(function(d){
     console.log('[TRACE] GET result:',u,d&&d.ok!==undefined?'ok='+d.ok:'(data)');
-    if(d&&d.ok===false&&d.error){toast('⚠️ '+d.error,'err');}
+    if(d&&d.ok===false&&d.error){toast('⚠️ '+d.error,'err');traceLog('GET',u,'error: '+d.error);}
     else if(d&&d.ok!==false){toast('✅ Done','ok');}
     showResult(d,title);
   }).catch(function(e){
     console.error('[TRACE] GET failed:',u,e);
+    traceLog('GET',u,'FAILED: '+e);
     toast('❌ Request failed: '+e,'err');
     showResult({ok:false,error:String(e),url:u,hint:'Check console (F12) for details'},title);
   });
@@ -487,17 +573,71 @@ function apiGet(u,title){
 function apiPost(u,b,title){
   _reqStart=Date.now();
   RC.textContent='⏳ Loading...';if(RT)RT.textContent=title||u;R.style.display='block';
+  var bk=document.getElementById('result-backdrop');if(bk)bk.classList.add('show');
   console.log('[TRACE] POST',u,b,'at',new Date().toLocaleTimeString());
+  traceLog('POST',u,'pending');
   toast('📡 '+(title||u.split('?')[0].split('/').pop()),'info');
-  fetch(u,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:b?JSON.stringify(b):'{}'}).then(_hr).then(function(d){
+  fetch(u,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:b?JSON.stringify(b):'{}'}).then(function(r){
+    traceLog('POST',u,r.ok?'ok:'+r.status:'err:'+r.status);
+    return _hr(r);
+  }).then(function(d){
     console.log('[TRACE] POST result:',u,d&&d.ok!==undefined?'ok='+d.ok:'(data)');
-    if(d&&d.ok===false&&d.error){toast('⚠️ '+d.error,'err');}
+    if(d&&d.ok===false&&d.error){toast('⚠️ '+d.error,'err');traceLog('POST',u,'error: '+d.error);}
     else if(d&&d.ok!==false){toast('✅ Done','ok');}
     showResult(d,title);
   }).catch(function(e){
     console.error('[TRACE] POST failed:',u,e);
+    traceLog('POST',u,'FAILED: '+e);
     toast('❌ Request failed: '+e,'err');
     showResult({ok:false,error:String(e),url:u,hint:'Check console (F12) for details'},title);
+  });
+}
+
+// ── Trace Log ──
+var _traceEntries=[];
+function traceLog(method,url,status){
+  var ts=new Date().toLocaleTimeString();
+  var entry={ts:ts,method:method,url:url,status:status};
+  _traceEntries.push(entry);
+  var el=document.getElementById('trace-log');
+  if(!el)return;
+  var col=String(status).indexOf('err')>=0||String(status).indexOf('FAIL')>=0?'#f87171':
+          String(status).indexOf('ok')>=0?'#34d399':
+          String(status).indexOf('pending')>=0?'#fbbf24':'#8b949e';
+  el.innerHTML+='<div style="color:'+col+';border-bottom:1px solid rgba(255,255,255,.05);padding:2px 0">['+ts+'] '+method+' '+url+' → <b>'+status+'</b></div>';
+  el.scrollTop=el.scrollHeight;
+  var tag=document.getElementById('trace-tag');if(tag)tag.textContent=_traceEntries.length+' entries';
+}
+function clearTraceLog(){_traceEntries=[];var el=document.getElementById('trace-log');if(el)el.innerHTML='<div style="color:#8b949e">Cleared.</div>';var tag=document.getElementById('trace-tag');if(tag)tag.textContent='0 entries';}
+function exportTraceLog(){
+  var txt=_traceEntries.map(function(e){return e.ts+' '+e.method+' '+e.url+' → '+e.status;}).join('\n');
+  var b=new Blob([txt],{type:'text/plain'});var u=URL.createObjectURL(b);
+  var a=document.createElement('a');a.href=u;a.download='trace-log-'+new Date().toISOString().slice(0,10)+'.txt';
+  document.body.appendChild(a);a.click();document.body.removeChild(a);
+  toast('📥 Trace log exported','ok');
+}
+
+// ── Batch Diagnostics ──
+function runBatchDiag(){
+  var endpoints=['/api/health','/api/qb/test-connection','/api/qa/health','/api/agents/status','/api/scanner/status','/api/catalog/stats','/api/pipeline/stats','/api/system/dashboard'];
+  var results=[],done=0;
+  toast('🔍 Testing '+endpoints.length+' endpoints...','info');
+  endpoints.forEach(function(ep){
+    var t0=Date.now();
+    fetch(ep,{credentials:'same-origin'}).then(function(r){return r.json().then(function(d){return{status:r.status,data:d,ms:Date.now()-t0};});}).then(function(res){
+      results.push({endpoint:ep,status:res.status,ok:res.data.ok!==false,ms:res.ms});
+      traceLog('DIAG',ep,'ok:'+res.status+' ('+res.ms+'ms)');
+    }).catch(function(e){
+      results.push({endpoint:ep,status:'error',ok:false,error:String(e),ms:Date.now()-t0});
+      traceLog('DIAG',ep,'FAILED: '+e);
+    }).finally(function(){
+      done++;
+      if(done===endpoints.length){
+        var passed=results.filter(function(r){return r.ok;}).length;
+        showResult({ok:true,summary:passed+'/'+endpoints.length+' passed',results:results},'Batch Diagnostics');
+        toast(passed===endpoints.length?'✅ All '+passed+' endpoints OK':'⚠️ '+passed+'/'+endpoints.length+' passed',passed===endpoints.length?'ok':'err');
+      }
+    });
   });
 }
 
@@ -610,10 +750,22 @@ function loadFleet(){
 }
 function loadQBFinance(){
   fetch('/api/qb/financial-context',{credentials:'same-origin'}).then(_hr).then(function(fc){
-    if(!fc.ok)return;var el=document.getElementById('qb-finance');el.style.display='grid';
+    if(!fc.ok)return;
+    // Show finance summary cards
+    var el=document.getElementById('qb-finance');el.style.display='grid';
     function mk(l,v,c){return '<div class="fin-c"><div class="fl">'+l+'</div><div class="fv" style="color:'+(c||'var(--tx)')+'">'+v+'</div></div>';}
     el.innerHTML=mk('Receivable','$'+(fc.total_receivable||0).toLocaleString(),'var(--yl)')+mk('Overdue','$'+(fc.overdue_amount||0).toLocaleString(),'var(--rd)')+mk('Collected','$'+(fc.total_collected||0).toLocaleString(),'var(--gn)')+mk('Open Inv',fc.open_invoices||0,'var(--ac)')+mk('Customers',fc.customer_count||0,'var(--purple)')+mk('Vendors',fc.vendor_count||0,'var(--tx)');
-  }).catch(function(){});
+    // Populate inline data cards
+    var inl=document.getElementById('qb-inline-data');if(inl)inl.style.display='block';
+    var ov=document.getElementById('qb-overdue-val');if(ov)ov.textContent='$'+(fc.overdue_amount||0).toLocaleString();
+    var oc=document.getElementById('qb-overdue-ct');if(oc)oc.textContent=(fc.overdue_invoices||0)+' invoice'+(fc.overdue_invoices!=1?'s':'');
+    var opv=document.getElementById('qb-open-val');if(opv)opv.textContent='$'+(fc.total_receivable||0).toLocaleString();
+    var opc=document.getElementById('qb-open-ct');if(opc)opc.textContent=(fc.open_invoices||0)+' invoices';
+    var cv=document.getElementById('qb-collected-val');if(cv)cv.textContent='$'+(fc.total_collected||0).toLocaleString();
+    var cc=document.getElementById('qb-collected-ct');if(cc)cc.textContent='Last 30 days';
+    var cuv=document.getElementById('qb-cust-val');if(cuv)cuv.textContent=fc.customer_count||0;
+    var cuc=document.getElementById('qb-cust-ct');if(cuc)cuc.textContent=(fc.vendor_count||0)+' vendors';
+  }).catch(function(e){console.error('[QB] Finance load failed:',e);});
 }
 loadFleet();setInterval(loadFleet,60000);
 setInterval(function(){var s=Math.floor((Date.now()-_plt)/1000),m=Math.floor(s/60),el=document.getElementById('uptime');if(el)el.textContent='Page: '+(m>0?m+'m ':'')+s%60+'s';},1000);

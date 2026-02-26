@@ -908,3 +908,491 @@ def api_data_quality_orphaned_quotes():
                         "total_quotes": len(quotes), "crm_contacts": len(crm_institutions)})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
+
+
+# ── Feature Enhancement Routes (15+ new capabilities) ───────────────────────
+
+# 1. QB Test Connection — quick ping to verify QB is working
+@bp.route("/api/qb/test-connection")
+@auth_required
+def api_qb_test_connection():
+    """Quick QB connection test — tries to fetch company info."""
+    try:
+        from src.agents.quickbooks_agent import is_configured, get_access_token, get_company_info, _load_tokens
+        tokens = _load_tokens()
+        has_token = bool(tokens.get("access_token"))
+        configured = is_configured()
+        result = {
+            "ok": True,
+            "has_token_file": has_token,
+            "is_configured": configured,
+            "realm_id": tokens.get("realm_id", "")[:6] + "..." if tokens.get("realm_id") else "",
+            "connected_at": tokens.get("connected_at", ""),
+            "last_refreshed": tokens.get("refreshed_at", ""),
+        }
+        if configured:
+            token = get_access_token()
+            result["has_valid_access_token"] = bool(token)
+            if token:
+                info = get_company_info()
+                result["company"] = info.get("name", "") if info else "FAILED"
+                result["api_reachable"] = bool(info)
+            else:
+                result["api_reachable"] = False
+                result["hint"] = "Token refresh failed — try reconnecting via Connect QuickBooks"
+        else:
+            missing = []
+            if not os.environ.get("QB_CLIENT_ID"): missing.append("QB_CLIENT_ID")
+            if not os.environ.get("QB_CLIENT_SECRET"): missing.append("QB_CLIENT_SECRET")
+            if not tokens.get("refresh_token") and not os.environ.get("QB_REFRESH_TOKEN"): missing.append("refresh_token (connect QB first)")
+            if not tokens.get("realm_id") and not os.environ.get("QB_REALM_ID"): missing.append("realm_id (connect QB first)")
+            result["missing"] = missing
+            result["hint"] = "Missing: " + ", ".join(missing)
+        return jsonify(result)
+    except ImportError:
+        return jsonify({"ok": False, "error": "QuickBooks agent module not available"})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+# 2. QB Force Refresh — force token refresh
+@bp.route("/api/qb/force-refresh", methods=["POST"])
+@auth_required
+def api_qb_force_refresh():
+    """Force-refresh the QB access token."""
+    try:
+        from src.agents.quickbooks_agent import _refresh_access_token, _load_tokens
+        token = _refresh_access_token()
+        if token:
+            tokens = _load_tokens()
+            return jsonify({"ok": True, "message": "Token refreshed successfully",
+                            "expires_at": tokens.get("expires_at", 0),
+                            "realm_id": tokens.get("realm_id", "")[:6] + "..."})
+        return jsonify({"ok": False, "error": "Token refresh failed — check credentials or reconnect"})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+# 3. Dashboard KPIs — key business metrics in one call
+@bp.route("/api/dashboard/kpis")
+@auth_required
+def api_dashboard_kpis():
+    """Key performance indicators — single-call business health."""
+    try:
+        conn = _get_db()
+        kpis = {}
+        # Quotes
+        kpis["total_quotes"] = conn.execute("SELECT COUNT(*) FROM quotes").fetchone()[0]
+        kpis["quotes_this_month"] = conn.execute(
+            "SELECT COUNT(*) FROM quotes WHERE created_date >= date('now','start of month')").fetchone()[0]
+        # Revenue
+        won = conn.execute("SELECT SUM(total) FROM quotes WHERE status='won'").fetchone()[0]
+        kpis["revenue_won"] = float(won or 0)
+        pipeline = conn.execute("SELECT SUM(total) FROM quotes WHERE status IN ('sent','draft','priced','quoted')").fetchone()[0]
+        kpis["pipeline_value"] = float(pipeline or 0)
+        # Orders
+        kpis["total_orders"] = conn.execute("SELECT COUNT(*) FROM orders").fetchone()[0]
+        # Price checks
+        kpis["total_pcs"] = conn.execute("SELECT COUNT(*) FROM price_checks").fetchone()[0]
+        kpis["open_pcs"] = conn.execute("SELECT COUNT(*) FROM price_checks WHERE status NOT IN ('priced','completed','cancelled')").fetchone()[0]
+        # RFQs
+        try:
+            kpis["total_rfqs"] = conn.execute("SELECT COUNT(*) FROM rfqs").fetchone()[0]
+            kpis["new_rfqs"] = conn.execute("SELECT COUNT(*) FROM rfqs WHERE status='new'").fetchone()[0]
+        except:
+            kpis["total_rfqs"] = 0
+            kpis["new_rfqs"] = 0
+        # Contacts
+        try:
+            kpis["crm_contacts"] = conn.execute("SELECT COUNT(*) FROM contacts").fetchone()[0]
+        except:
+            kpis["crm_contacts"] = 0
+        # Win rate
+        won_count = conn.execute("SELECT COUNT(*) FROM quotes WHERE status='won'").fetchone()[0]
+        lost_count = conn.execute("SELECT COUNT(*) FROM quotes WHERE status='lost'").fetchone()[0]
+        total_decided = (won_count or 0) + (lost_count or 0)
+        kpis["win_rate"] = round((won_count or 0) / total_decided * 100, 1) if total_decided > 0 else 0
+        kpis["$2m_goal_pct"] = round(kpis["revenue_won"] / 2000000 * 100, 2)
+        conn.close()
+        return jsonify({"ok": True, **kpis})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+# 4. Pipeline Daily Summary — today's activity
+@bp.route("/api/pipeline/daily-summary")
+@auth_required
+def api_pipeline_daily_summary():
+    """Today's pipeline activity — new quotes, PCs, orders."""
+    try:
+        conn = _get_db()
+        today = datetime.now().strftime("%Y-%m-%d")
+        summary = {
+            "date": today,
+            "new_quotes_today": conn.execute(
+                "SELECT COUNT(*) FROM quotes WHERE created_date >= ?", (today,)).fetchone()[0],
+            "new_pcs_today": conn.execute(
+                "SELECT COUNT(*) FROM price_checks WHERE created_date >= ?", (today,)).fetchone()[0],
+        }
+        # Recent quotes
+        recent = conn.execute(
+            "SELECT quote_number, institution, total, status FROM quotes ORDER BY created_date DESC LIMIT 5"
+        ).fetchall()
+        summary["recent_quotes"] = [dict(r) for r in recent]
+        # Overdue items
+        overdue_pcs = conn.execute(
+            "SELECT pc_number, institution, due_date FROM price_checks WHERE due_date < ? AND status NOT IN ('priced','completed','cancelled')",
+            (today,)).fetchall()
+        summary["overdue_pcs"] = [dict(r) for r in overdue_pcs]
+        conn.close()
+        return jsonify({"ok": True, **summary})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+# 5. Contact Search — search CRM contacts
+@bp.route("/api/crm/search")
+@auth_required
+def api_crm_contact_search():
+    """Search contacts by name, email, or institution. ?q=keyword"""
+    try:
+        q = request.args.get("q", "").strip()
+        if not q:
+            return jsonify({"ok": False, "error": "Provide ?q=search_term"})
+        conn = _get_db()
+        like = f"%{q}%"
+        rows = conn.execute(
+            "SELECT * FROM contacts WHERE name LIKE ? OR email LIKE ? OR institution LIKE ? LIMIT 20",
+            (like, like, like)).fetchall()
+        conn.close()
+        return jsonify({"ok": True, "contacts": [dict(r) for r in rows], "count": len(rows), "query": q})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+# 6. System Metrics — uptime, request patterns
+@bp.route("/api/system/metrics")
+@auth_required
+def api_system_metrics():
+    """System performance metrics."""
+    import platform
+    metrics = {
+        "ok": True,
+        "python_version": platform.python_version(),
+        "platform": platform.platform(),
+        "uptime_seconds": int(time.time() - _plt_start) if '_plt_start' in dir() else None,
+    }
+    if HAS_PSUTIL:
+        try:
+            metrics["cpu_percent"] = psutil.cpu_percent(interval=0.1)
+            mem = psutil.virtual_memory()
+            metrics["memory_used_mb"] = round(mem.used / 1024 / 1024)
+            metrics["memory_total_mb"] = round(mem.total / 1024 / 1024)
+            metrics["memory_percent"] = mem.percent
+            disk = psutil.disk_usage("/")
+            metrics["disk_used_gb"] = round(disk.used / 1024 / 1024 / 1024, 1)
+            metrics["disk_total_gb"] = round(disk.total / 1024 / 1024 / 1024, 1)
+        except:
+            pass
+    # Count data files
+    data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
+    try:
+        files = os.listdir(data_dir)
+        metrics["data_files"] = len(files)
+        total_size = sum(os.path.getsize(os.path.join(data_dir, f)) for f in files if os.path.isfile(os.path.join(data_dir, f)))
+        metrics["data_size_mb"] = round(total_size / 1024 / 1024, 2)
+    except:
+        pass
+    return jsonify(metrics)
+
+
+# 7. Recent Errors — parse gunicorn/app logs for errors
+@bp.route("/api/system/recent-errors")
+@auth_required
+def api_system_recent_errors_trace():
+    """Recent application errors with context."""
+    errors = []
+    log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
+    # Check for error_log.json
+    err_file = os.path.join(log_dir, "error_log.json")
+    try:
+        if os.path.exists(err_file):
+            with open(err_file) as f:
+                data = json.load(f)
+                if isinstance(data, list):
+                    errors = data[-20:]
+                elif isinstance(data, dict):
+                    errors = data.get("errors", [])[-20:]
+    except:
+        pass
+    # Also check QA reports for failures
+    qa_file = os.path.join(log_dir, "qa_reports.json")
+    qa_errors = []
+    try:
+        if os.path.exists(qa_file):
+            with open(qa_file) as f:
+                reports = json.load(f)
+                if isinstance(reports, list) and reports:
+                    latest = reports[-1]
+                    for r in latest.get("results", []):
+                        if r.get("status") == "fail":
+                            qa_errors.append({"source": "qa", "test": r.get("test"), "message": r.get("message"), "fix": r.get("fix")})
+    except:
+        pass
+    return jsonify({"ok": True, "errors": errors, "qa_failures": qa_errors,
+                     "total": len(errors), "qa_total": len(qa_errors)})
+
+
+# 8. Agent Health Batch — test all major endpoints
+@bp.route("/api/agents/health-sweep")
+@auth_required
+def api_agents_health_sweep():
+    """Quick health sweep of all agent subsystems."""
+    results = {}
+    endpoints = {
+        "database": lambda: bool(_get_db().execute("SELECT 1").fetchone()),
+        "catalog": lambda: bool(_get_db().execute("SELECT COUNT(*) FROM catalog").fetchone()),
+        "quotes": lambda: bool(_get_db().execute("SELECT COUNT(*) FROM quotes").fetchone()),
+        "orders": lambda: bool(_get_db().execute("SELECT COUNT(*) FROM orders").fetchone()),
+        "price_checks": lambda: bool(_get_db().execute("SELECT COUNT(*) FROM price_checks").fetchone()),
+    }
+    # QB check
+    try:
+        from src.agents.quickbooks_agent import is_configured, get_access_token
+        results["quickbooks"] = {"configured": is_configured(), "has_token": bool(get_access_token()) if is_configured() else False}
+    except:
+        results["quickbooks"] = {"configured": False, "error": "module unavailable"}
+    # Test each
+    for name, check in endpoints.items():
+        try:
+            start = time.time()
+            ok = check()
+            dur = round((time.time() - start) * 1000)
+            results[name] = {"ok": ok, "ms": dur}
+        except Exception as e:
+            results[name] = {"ok": False, "error": str(e)}
+    # Summary
+    total = len(results)
+    healthy = sum(1 for v in results.values() if v.get("ok") or v.get("configured"))
+    return jsonify({"ok": True, "results": results, "healthy": healthy, "total": total,
+                     "grade": "A" if healthy == total else "B" if healthy >= total - 1 else "C"})
+
+
+# 9. Price History for Item — trend data for a catalog item
+@bp.route("/api/catalog/price-history")
+@auth_required
+def api_catalog_price_history():
+    """Get price history for a catalog item. ?q=description or ?id=catalog_id"""
+    try:
+        conn = _get_db()
+        q = request.args.get("q", "")
+        cid = request.args.get("id", "")
+        if cid:
+            row = conn.execute("SELECT * FROM catalog WHERE id = ?", (cid,)).fetchone()
+        elif q:
+            row = conn.execute("SELECT * FROM catalog WHERE description LIKE ? LIMIT 1", (f"%{q}%",)).fetchone()
+        else:
+            return jsonify({"ok": False, "error": "Provide ?q=keyword or ?id=catalog_id"})
+        if not row:
+            return jsonify({"ok": False, "error": "Item not found"})
+        item = dict(row)
+        # Parse price history from JSON field
+        history = []
+        try:
+            ph = json.loads(item.get("price_history", "[]"))
+            if isinstance(ph, list):
+                history = ph
+        except:
+            pass
+        conn.close()
+        return jsonify({"ok": True, "item": item.get("description", ""),
+                         "current_price": float(item.get("unit_price", 0) or 0),
+                         "cost": float(item.get("supplier_cost", 0) or 0),
+                         "margin_pct": float(item.get("margin_pct", 0) or 0),
+                         "times_quoted": int(item.get("times_quoted", 0) or 0),
+                         "history": history[-20:], "history_points": len(history)})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+# 10. Action Log — server-side action tracking
+_action_log = []
+
+@bp.route("/api/agents/log-action", methods=["POST"])
+@auth_required
+def api_log_action():
+    """Log a button action for audit trail."""
+    data = request.get_json(silent=True) or {}
+    entry = {
+        "action": data.get("action", "unknown"),
+        "url": data.get("url", ""),
+        "timestamp": datetime.now().isoformat(),
+        "result": data.get("result", ""),
+    }
+    _action_log.append(entry)
+    if len(_action_log) > 200:
+        _action_log.pop(0)
+    return jsonify({"ok": True})
+
+
+@bp.route("/api/agents/action-log")
+@auth_required
+def api_action_log():
+    """Get recent action log."""
+    return jsonify({"ok": True, "actions": _action_log[-50:], "count": len(_action_log)})
+
+
+# 11. QB Summary Card — formatted data for dashboard display
+@bp.route("/api/qb/summary-card")
+@auth_required
+def api_qb_summary_card():
+    """Pre-formatted QB financial summary for dashboard cards."""
+    try:
+        from src.agents.quickbooks_agent import is_configured, get_financial_context
+        if not is_configured():
+            return jsonify({"ok": False, "connected": False, "error": "QB not configured"})
+        ctx = get_financial_context()
+        return jsonify({
+            "ok": True, "connected": True,
+            "receivable": ctx.get("total_receivable", 0),
+            "overdue": ctx.get("overdue_amount", 0),
+            "collected": ctx.get("total_collected", 0),
+            "open_invoices": ctx.get("open_invoices", 0),
+            "customers": ctx.get("customer_count", 0),
+            "vendors": ctx.get("vendor_count", 0),
+            "last_updated": datetime.now().isoformat(),
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+# 12. Workflow History — recent workflow runs
+@bp.route("/api/workflow/history")
+@auth_required
+def api_workflow_history():
+    """Recent workflow execution history."""
+    history = []
+    data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
+    wf_file = os.path.join(data_dir, "workflow_runs.json")
+    try:
+        if os.path.exists(wf_file):
+            with open(wf_file) as f:
+                runs = json.load(f)
+                history = runs[-20:] if isinstance(runs, list) else []
+    except:
+        pass
+    return jsonify({"ok": True, "runs": history, "count": len(history)})
+
+
+# 13. Export Last Result — save to file for download
+@bp.route("/api/export/json", methods=["POST"])
+@auth_required
+def api_export_json():
+    """Save JSON data to downloadable file."""
+    data = request.get_json(silent=True) or {}
+    content = data.get("content", "")
+    filename = data.get("filename", f"reytech-export-{datetime.now().strftime('%Y%m%d-%H%M%S')}.json")
+    export_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "exports")
+    os.makedirs(export_dir, exist_ok=True)
+    filepath = os.path.join(export_dir, filename)
+    with open(filepath, "w") as f:
+        f.write(content if isinstance(content, str) else json.dumps(content, indent=2))
+    return jsonify({"ok": True, "file": filename, "path": filepath})
+
+
+# 14. Favorites — persist user's favorite buttons
+_favorites = []
+
+@bp.route("/api/agents/favorites", methods=["GET", "POST"])
+@auth_required
+def api_agent_favorites():
+    """Get or set favorite agent buttons."""
+    global _favorites
+    if request.method == "POST":
+        data = request.get_json(silent=True) or {}
+        _favorites = data.get("favorites", [])[:10]
+        # Persist to file
+        fav_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "agent_favorites.json")
+        try:
+            with open(fav_file, "w") as f:
+                json.dump(_favorites, f)
+        except:
+            pass
+        return jsonify({"ok": True, "favorites": _favorites})
+    # GET
+    if not _favorites:
+        fav_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "agent_favorites.json")
+        try:
+            with open(fav_file) as f:
+                _favorites = json.load(f)
+        except:
+            pass
+    return jsonify({"ok": True, "favorites": _favorites})
+
+
+# 15. Diagnostic Sweep — comprehensive system check
+@bp.route("/api/system/diagnostic-sweep")
+@auth_required
+def api_diagnostic_sweep():
+    """Comprehensive diagnostic sweep of all systems."""
+    results = {"ok": True, "timestamp": datetime.now().isoformat(), "checks": {}}
+    
+    # Database
+    try:
+        conn = _get_db()
+        tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+        results["checks"]["database"] = {"ok": True, "tables": len(tables), "table_list": tables}
+        # Row counts
+        counts = {}
+        for t in tables[:20]:
+            try:
+                counts[t] = conn.execute(f"SELECT COUNT(*) FROM [{t}]").fetchone()[0]
+            except:
+                counts[t] = "error"
+        results["checks"]["row_counts"] = counts
+        conn.close()
+    except Exception as e:
+        results["checks"]["database"] = {"ok": False, "error": str(e)}
+    
+    # File system
+    data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
+    try:
+        files = os.listdir(data_dir)
+        json_files = [f for f in files if f.endswith(".json")]
+        db_files = [f for f in files if f.endswith(".db") or f.endswith(".sqlite")]
+        results["checks"]["filesystem"] = {"ok": True, "total_files": len(files), "json_files": len(json_files), "db_files": len(db_files)}
+    except Exception as e:
+        results["checks"]["filesystem"] = {"ok": False, "error": str(e)}
+    
+    # Environment
+    env_vars = ["DASH_USER", "DASH_PASS", "QB_CLIENT_ID", "QB_CLIENT_SECRET",
+                "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "VAPI_API_KEY",
+                "SMTP_USER", "IMAP_USER", "QB_REALM_ID"]
+    env_status = {}
+    for v in env_vars:
+        val = os.environ.get(v, "")
+        env_status[v] = "✅ set" if val else "❌ missing"
+    results["checks"]["env_vars"] = env_status
+    
+    # QB
+    try:
+        from src.agents.quickbooks_agent import is_configured, _load_tokens
+        tokens = _load_tokens()
+        results["checks"]["quickbooks"] = {
+            "configured": is_configured(),
+            "token_file_exists": bool(tokens),
+            "has_access_token": bool(tokens.get("access_token")),
+            "has_refresh_token": bool(tokens.get("refresh_token")),
+            "has_realm_id": bool(tokens.get("realm_id")),
+            "connected_at": tokens.get("connected_at", ""),
+        }
+    except:
+        results["checks"]["quickbooks"] = {"configured": False, "error": "module unavailable"}
+    
+    # Summary
+    total = len(results["checks"])
+    ok_count = sum(1 for v in results["checks"].values() if isinstance(v, dict) and v.get("ok", v.get("configured", False)))
+    results["summary"] = f"{ok_count}/{total} checks passed"
+    results["grade"] = "A" if ok_count >= total - 1 else "B" if ok_count >= total - 2 else "C"
+    
+    return jsonify(results)
