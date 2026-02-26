@@ -2881,3 +2881,151 @@ def _force_recapture():
         "cleared_uids": len(cleared_uids),
         "next_step": "Hit Check Now to re-import",
     })
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Deep Email Diagnostic — trace every email through the pipeline
+# ═══════════════════════════════════════════════════════════════════════
+@app.route("/api/email-trace")
+def api_email_trace():
+    """Show every email from IMAP and trace why each was captured/skipped."""
+    import imaplib, email as emaillib
+    from src.agents.email_poller import is_rfq_email, is_reply_followup
+    
+    keyword = request.args.get("match", "").lower()
+    days = int(request.args.get("days", "14"))
+    
+    email_cfg = CONFIG.get("email", {})
+    password = email_cfg.get("email_password") or os.environ.get("GMAIL_PASSWORD", "")
+    imap_server = email_cfg.get("imap_server", "imap.gmail.com")
+    email_addr = email_cfg.get("email_address", "")
+    
+    # Load processed UIDs
+    proc_file = os.path.join(DATA_DIR, "processed_emails.json")
+    try:
+        with open(proc_file) as f:
+            processed_uids = set(json.load(f))
+    except:
+        processed_uids = set()
+    
+    # In-memory poller state
+    poller_mem_count = 0
+    if _shared_poller and hasattr(_shared_poller, '_processed'):
+        poller_mem_count = len(_shared_poller._processed)
+    
+    results = {
+        "processed_file_count": len(processed_uids),
+        "poller_memory_count": poller_mem_count,
+        "poller_is_none": _shared_poller is None,
+        "search_days": days,
+        "keyword_filter": keyword or "(none)",
+        "emails": [],
+    }
+    
+    try:
+        mail = imaplib.IMAP4_SSL(imap_server)
+        mail.login(email_addr, password)
+        mail.select("inbox", readonly=True)
+        
+        since_date = (datetime.now() - timedelta(days=days)).strftime("%d-%b-%Y")
+        status, messages = mail.uid("search", None, f"(SINCE {since_date})")
+        
+        if status != "OK":
+            results["error"] = f"IMAP search failed: {status}"
+            return jsonify(results)
+        
+        uids = messages[0].split() if messages[0] else []
+        results["total_emails"] = len(uids)
+        
+        for uid_bytes in uids:
+            uid = uid_bytes.decode()
+            
+            # Fetch headers only first (fast)
+            status, data = mail.uid("fetch", uid_bytes, "(BODY.PEEK[HEADER])")
+            if status != "OK" or not data[0]:
+                continue
+            
+            msg = emaillib.message_from_bytes(data[0][1])
+            subject = str(msg.get("Subject", ""))
+            sender = str(msg.get("From", ""))
+            date = str(msg.get("Date", ""))
+            
+            # Keyword filter
+            searchable = f"{subject} {sender}".lower()
+            if keyword and keyword not in searchable:
+                continue
+            
+            # Check status
+            in_processed_file = uid in processed_uids
+            in_poller_memory = False
+            if _shared_poller and hasattr(_shared_poller, '_processed'):
+                in_poller_memory = uid in _shared_poller._processed
+            
+            entry = {
+                "uid": uid,
+                "date": date[:30],
+                "sender": sender[:80],
+                "subject": subject[:100],
+                "in_processed_file": in_processed_file,
+                "in_poller_memory": in_poller_memory,
+                "blocked_reason": None,
+            }
+            
+            if in_processed_file:
+                entry["blocked_reason"] = "UID in processed_emails.json"
+            elif in_poller_memory:
+                entry["blocked_reason"] = "UID in poller memory (not on disk)"
+            
+            # If not filtered by UID, check what is_rfq_email would say
+            if not in_processed_file and not in_poller_memory:
+                try:
+                    # Fetch full body for analysis
+                    status2, data2 = mail.uid("fetch", uid_bytes, "(BODY.PEEK[])")
+                    if status2 == "OK" and data2[0]:
+                        full_msg = emaillib.message_from_bytes(data2[0][1])
+                        body = ""
+                        for part in full_msg.walk():
+                            ct = part.get_content_type()
+                            if ct == "text/plain":
+                                try:
+                                    body = part.get_payload(decode=True).decode("utf-8", errors="replace")
+                                except:
+                                    pass
+                                break
+                            elif ct == "text/html" and not body:
+                                try:
+                                    body = part.get_payload(decode=True).decode("utf-8", errors="replace")
+                                except:
+                                    pass
+                        
+                        pdf_names = [p.get_filename() or "" for p in full_msg.walk()
+                                    if p.get_content_type() == "application/pdf"]
+                        
+                        sender_email = ""
+                        from_header = full_msg.get("From", "")
+                        import re as _re
+                        em = _re.findall(r'[\w.+-]+@[\w.-]+', from_header)
+                        sender_email = em[0] if em else ""
+                        
+                        is_rfq = is_rfq_email(subject, body, pdf_names, sender_email=sender_email)
+                        entry["has_pdfs"] = len(pdf_names)
+                        entry["pdf_names"] = pdf_names[:3]
+                        entry["is_rfq_result"] = is_rfq
+                        entry["body_preview"] = body[:200] if body else "(empty)"
+                        entry["sender_email"] = sender_email
+                        
+                        if not is_rfq:
+                            entry["blocked_reason"] = "is_rfq_email() returned False"
+                        else:
+                            entry["blocked_reason"] = None
+                            entry["status"] = "WOULD BE CAPTURED"
+                except Exception as e:
+                    entry["trace_error"] = str(e)
+            
+            results["emails"].append(entry)
+        
+        mail.logout()
+    except Exception as e:
+        results["error"] = str(e)
+    
+    return jsonify(results)
