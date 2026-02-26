@@ -161,6 +161,27 @@ def _check_routes():
 
 check("route decorators use @bp.route", _check_routes)
 
+# 7. Jinja2 template compilation check
+print("\n[7] Template compilation check...")
+def _check_templates():
+    from jinja2 import Environment, FileSystemLoader
+    template_dir = os.path.join("src", "templates")
+    if not os.path.isdir(template_dir):
+        return
+    env = Environment(loader=FileSystemLoader(template_dir))
+    issues = []
+    for fname in os.listdir(template_dir):
+        if not fname.endswith(".html"):
+            continue
+        try:
+            env.get_template(fname)
+        except Exception as e:
+            issues.append(f"{fname} line {getattr(e, 'lineno', '?')}: {getattr(e, 'message', str(e))}")
+    if issues:
+        raise ValueError("\n  ".join(["Template errors:"] + issues))
+
+check("Jinja2 templates compile", _check_templates)
+
 # Summary
 print(f"\n{'═'*40}")
 if ERRORS:

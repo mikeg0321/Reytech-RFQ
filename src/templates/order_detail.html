@@ -4,7 +4,7 @@
 {% block content %}
     <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px">
      <a href="/orders" class="btn btn-s" style="font-size:13px">← Orders</a>
-     {{ f'<a href="/quote/{qn}" class="btn btn-s" style="font-size:13px">📋 Quote {qn}</a>' if qn else '' }}
+     {% if qn %}<a href="/quote/{{ qn }}" class="btn btn-s" style="font-size:13px">📋 Quote {{ qn }}</a>{% endif %}
      <button onclick="if(confirm('Delete order {{ oid }}?'))fetch('/api/order/{{ oid }}/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reason:'manual delete'})}).then(r=>r.json()).then(d=>{if(d.ok)location.href='/orders'})" class="btn btn-s" style="font-size:12px;margin-left:auto;color:var(--rd)">🗑️ Delete</button>
     </div>
 
@@ -27,21 +27,21 @@
      <div class="card" style="margin:0">
       <div style="text-align:center;padding:12px 0">
        <div style="font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px">Order Total</div>
-       <div style="font-family:'JetBrains Mono',monospace;font-size:32px;font-weight:700;color:var(--gn);margin:8px 0">${{ order.get('total',0):,.2f }}</div>
-       {{ f'<div style="font-size:11px;color:var(--tx2)">Subtotal: ${order.get("subtotal",0):,.2f} · Tax: ${order.get("tax",0):,.2f}</div>' if order.get('tax') else '' }}
+       <div style="font-family:'JetBrains Mono',monospace;font-size:32px;font-weight:700;color:var(--gn);margin:8px 0">${{ "{:,.2f}".format(order.get('total',0)) }}</div>
+       {% if order.get('tax') %}<div style="font-size:11px;color:var(--tx2)">Subtotal: ${{ "{:,.2f}".format(order.get("subtotal",0)) }} · Tax: ${{ "{:,.2f}".format(order.get("tax",0)) }}</div>{% endif %}
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:10px">
        <div style="background:var(--sf2);padding:8px;border-radius:8px;text-align:center">
         <div style="font-size:10px;color:var(--tx2)">Sourced</div>
-        <div style="font-size:18px;font-weight:700;color:#58a6ff">{{ sum(1 for i in items if i.get('sourcing_status') in ('ordered','shipped','delivered')) }}/{{ items|length }}</div>
+        <div style="font-size:18px;font-weight:700;color:#58a6ff">{{ sourced_count }}/{{ total_count }}</div>
        </div>
        <div style="background:var(--sf2);padding:8px;border-radius:8px;text-align:center">
         <div style="font-size:10px;color:var(--tx2)">Shipped</div>
-        <div style="font-size:18px;font-weight:700;color:#bc8cff">{{ sum(1 for i in items if i.get('sourcing_status') in ('shipped','delivered')) }}/{{ items|length }}</div>
+        <div style="font-size:18px;font-weight:700;color:#bc8cff">{{ shipped_count }}/{{ total_count }}</div>
        </div>
        <div style="background:var(--sf2);padding:8px;border-radius:8px;text-align:center">
         <div style="font-size:10px;color:var(--tx2)">Delivered</div>
-        <div style="font-size:18px;font-weight:700;color:#3fb950">{{ sum(1 for i in items if i.get('sourcing_status') == 'delivered') }}/{{ items|length }}</div>
+        <div style="font-size:18px;font-weight:700;color:#3fb950">{{ delivered_count }}/{{ total_count }}</div>
        </div>
       </div>
       <div style="margin-top:12px;display:flex;gap:8px;justify-content:center">
@@ -78,7 +78,7 @@
       <button onclick="markAllDelivered('{{ oid }}')" class="btn btn-s" style="font-size:12px">✅ Mark All Delivered</button>
       <button onclick="addLineItem('{{ oid }}')" class="btn btn-s" style="font-size:12px">➕ Add Line Item</button>
       <button onclick="lookupSuppliers('{{ oid }}')" class="btn btn-s" style="font-size:12px" id="lookup-btn">🔍 Lookup Suppliers</button>
-      <button onclick="linkQuote('{{ oid }}')" class="btn btn-s" style="font-size:12px" id="link-quote-btn">{{ f'🔗 Linked: {qn}' if qn else '🔗 Link Quote' }}</button>
+      <button onclick="linkQuote('{{ oid }}')" class="btn btn-s" style="font-size:12px" id="link-quote-btn">{% if qn %}🔗 Linked: {{ qn }}{% else %}🔗 Link Quote{% endif %}</button>
       <a href="/api/order/{{ oid }}/reply-all" class="btn btn-s" style="font-size:12px">📧 Draft PO Confirmation</a>
      </div>
     </div>
@@ -93,8 +93,8 @@
              <td style="max-width:300px;word-wrap:break-word;white-space:normal;font-size:12px">{{ di.get('description','')[:70] }}</td>
              <td class="mono" style="font-size:11px">{{ di.get('part_number','') }}</td>
              <td class="mono" style="text-align:center">{{ di.get('qty',0) }}</td>
-             <td class="mono" style="text-align:right">${{ di.get('unit_price',0):,.2f }}</td>
-             <td class="mono" style="text-align:right">${{ di.get('extended',0):,.2f }}</td>
+             <td class="mono" style="text-align:right">${{ "{:,.2f}".format(di.get('unit_price',0)) }}</td>
+             <td class="mono" style="text-align:right">${{ "{:,.2f}".format(di.get('extended',0)) }}</td>
             </tr>"""
 
         content += f"""
@@ -102,7 +102,7 @@
      <div class="card-t" style="color:var(--gn)">📄 Draft Invoice — {{ draft_inv.get('invoice_number','') }}</div>
      <div style="margin-bottom:12px;font-size:12px;color:var(--tx2)">
       Auto-generated {{ draft_inv.get('created_at','')[:10] }} when all items marked delivered.
-      {{ f'<span style="color:var(--ac)">QB Synced: {draft_inv.get("qb_synced_at","")[:10]}</span>' if draft_inv.get('qb_invoice_id') else 'Review line items, then finalize → push to QuickBooks.' }}
+      {% if draft_inv.get('qb_invoice_id') %}<span style="color:var(--ac)">QB Synced: {{ draft_inv.get("qb_synced_at","")[:10] }}</span>{% else %}Review line items, then finalize → push to QuickBooks.{% endif %}
      </div>
      <div class="meta-g" style="margin-bottom:12px">
       <div class="meta-i"><div class="meta-l">Bill To</div><div class="meta-v">{{ draft_inv.get('bill_to_name','') }}</div></div>
@@ -122,22 +122,22 @@
       <tfoot>
        <tr style="border-top:2px solid var(--bd)">
         <td colspan="4" style="text-align:right;font-weight:600">Subtotal:</td>
-        <td class="mono" style="text-align:right">${{ draft_inv.get('subtotal',0):,.2f }}</td>
+        <td class="mono" style="text-align:right">${{ "{:,.2f}".format(draft_inv.get('subtotal',0)) }}</td>
        </tr>
        <tr><td colspan="4" style="text-align:right;font-weight:600">Tax ({{ draft_inv.get('tax_rate',7.75) }}%):</td>
-        <td class="mono" style="text-align:right">${{ draft_inv.get('tax',0):,.2f }}</td>
+        <td class="mono" style="text-align:right">${{ "{:,.2f}".format(draft_inv.get('tax',0)) }}</td>
        </tr>
        <tr><td colspan="4" style="text-align:right;font-weight:700;font-size:14px">Grand Total:</td>
-        <td class="mono" style="text-align:right;font-weight:700;font-size:14px;color:var(--gn)">${{ draft_inv.get('total',0):,.2f }}</td>
+        <td class="mono" style="text-align:right;font-weight:700;font-size:14px;color:var(--gn)">${{ "{:,.2f}".format(draft_inv.get('total',0)) }}</td>
        </tr>
       </tfoot>
      </table>
      </div>
      <div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end;align-items:center">
       <button onclick="genInvoicePdf('{{ oid }}')" class="btn btn-s" style="font-size:12px" id="inv-pdf-btn">📄 Generate PDF</button>
-      {{ f'<a href="/api/order/{oid}/invoice-pdf/download" class="btn btn-s" style="font-size:12px;color:var(--gn)" download>⬇️ Download PDF</a>' if draft_inv.get('pdf_path') else '' }}
+      {% if draft_inv.get('pdf_path') %}<a href="/api/order/{{ oid }}/invoice-pdf/download" class="btn btn-s" style="font-size:12px;color:var(--gn)" download>⬇️ Download PDF</a>{% endif %}
       <button onclick="invoiceOrder('{{ oid }}','full')" class="btn btn-g" style="font-size:13px">💰 Finalize Invoice</button>
-      {{ f'<span style="font-size:11px;color:var(--tx2);line-height:30px">QB #{draft_inv.get("qb_invoice_id")}</span>' if draft_inv.get('qb_invoice_id') else '<span style="font-size:11px;color:var(--tx2);line-height:30px">QuickBooks API: not yet connected</span>' }}
+      {% if draft_inv.get('qb_invoice_id') %}<span style="font-size:11px;color:var(--tx2);line-height:30px">QB #{{ draft_inv.get("qb_invoice_id") }}</span>{% else %}<span style="font-size:11px;color:var(--tx2);line-height:30px">QuickBooks API: not yet connected</span>{% endif %}
      </div>
     </div>
     """

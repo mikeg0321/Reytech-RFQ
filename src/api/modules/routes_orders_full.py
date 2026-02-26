@@ -274,10 +274,18 @@ def _render_order_detail(order, oid):
          <td style="text-align:right">${it.get('qty',0)*it.get('unit_price',0):,.2f}</td>
         </tr>"""
 
+    # Precompute sourcing counts for template
+    sourced_count = sum(1 for i in items if i.get('sourcing_status') in ('ordered','shipped','delivered'))
+    shipped_count = sum(1 for i in items if i.get('sourcing_status') in ('shipped','delivered'))
+    delivered_count = sum(1 for i in items if i.get('sourcing_status') == 'delivered')
+    total_count = len(items)
+
     return render_page("order_detail.html", active_page="Orders",
         oid=oid, order=order, items_rows=items_rows, items=items,
         qn=qn, institution=institution, st=st, status_cfg=status_cfg,
-        upload_section=upload_section, inv_items_rows=inv_items_rows)
+        upload_section=upload_section, inv_items_rows=inv_items_rows,
+        sourced_count=sourced_count, shipped_count=shipped_count,
+        delivered_count=delivered_count, total_count=total_count)
 
 
 # ─── Order API Routes ──────────────────────────────────────────────────────
