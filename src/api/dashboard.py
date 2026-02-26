@@ -2765,6 +2765,7 @@ _ROUTE_MODULES = [
     "routes_growth_intel",    # Features #8,10,11,13: Catalog growth, price alerts, win/loss, outreach
     "routes_features",        # 24 new endpoints: QB actions, pipeline, catalog intel, system, data quality
     "routes_features2",       # 17 new endpoints: customer health, CLV, sales velocity, agency penetration
+    "routes_features3",       # 15 new endpoints: batch test, QB dashboard, daily wins, health score, notifications
 ]
 
 for _mod in _ROUTE_MODULES:
