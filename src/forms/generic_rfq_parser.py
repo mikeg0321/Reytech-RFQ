@@ -95,6 +95,212 @@ def detect_agency(subject="", body="", sender_email="", pdf_text=""):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# XFA Form Parser (CV-031 and similar Adobe LiveCycle forms)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def parse_xfa_form(pdf_path):
+    """Extract data from XFA (Adobe LiveCycle) forms like CalVet CV-031.
+    
+    XFA forms store data in XML streams inside the PDF, NOT in AcroForm fields
+    or page text. pypdf's normal text extraction returns "Please wait..." for
+    these. We extract the XML datasets directly.
+    
+    Returns: dict with header info and line_items, or None if not XFA.
+    """
+    if not PdfReader or not os.path.exists(pdf_path):
+        return None
+    
+    try:
+        reader = PdfReader(pdf_path)
+        root = reader.trailer.get("/Root")
+        if not root:
+            return None
+        
+        acroform = root.get("/AcroForm")
+        if not acroform:
+            return None
+        acroform = acroform.get_object() if hasattr(acroform, 'get_object') else acroform
+        
+        xfa = acroform.get("/XFA")
+        if not xfa:
+            return None
+        xfa = xfa.get_object() if hasattr(xfa, 'get_object') else xfa
+        
+        # XFA is an array: [label, stream, label, stream, ...]
+        # We want the "datasets" stream which contains the actual form data
+        from pypdf.generic import ArrayObject
+        if not isinstance(xfa, ArrayObject):
+            return None
+        
+        datasets_xml = None
+        for i, item in enumerate(xfa):
+            if isinstance(item, str) and item == "datasets":
+                # Next item is the stream
+                if i + 1 < len(xfa):
+                    stream_obj = xfa[i + 1]
+                    if hasattr(stream_obj, 'get_object'):
+                        stream_obj = stream_obj.get_object()
+                    if hasattr(stream_obj, 'get_data'):
+                        datasets_xml = stream_obj.get_data().decode('utf-8', errors='replace')
+                break
+        
+        if not datasets_xml:
+            return None
+        
+        log.info("XFA form detected in %s — parsing datasets XML (%d bytes)",
+                 os.path.basename(pdf_path), len(datasets_xml))
+        
+        return _parse_xfa_datasets(datasets_xml)
+        
+    except Exception as e:
+        log.warning("XFA parse failed for %s: %s", pdf_path, e)
+        return None
+
+
+def _parse_xfa_datasets(xml_text):
+    """Parse XFA datasets XML to extract header and line items.
+    
+    CalVet CV-031 structure:
+    <form1>
+      <Request_for_Quote_Number>26-02-012</Request_for_Quote_Number>
+      <Subform1>
+        <Name>Drew Sims</Name>
+        <E-mail_Address>drew.sims@calvet.ca.gov</E-mail_Address>
+        <Phone_Number>530.224.2827</Phone_Number>
+      </Subform1>
+      <Table1>
+        <Row1>
+          <Line_Number>1.00000000</Line_Number>
+          <Description_Make_Model>AliMed Foodguard...</Description_Make_Model>
+          <Quantity>10</Quantity>
+          <UOM>EA - Each</UOM>
+        </Row1>
+        ...
+      </Table1>
+    </form1>
+    """
+    import xml.etree.ElementTree as ET
+    
+    # Strip namespaces for easier parsing
+    xml_clean = re.sub(r'\sxmlns[^"]*"[^"]*"', '', xml_text)
+    xml_clean = re.sub(r'</?xfa:[^>]+>', '', xml_clean)
+    # Remove xfa: prefixed attributes
+    xml_clean = re.sub(r'\sxfa:\w+="[^"]*"', '', xml_clean)
+    
+    try:
+        root = ET.fromstring(xml_clean)
+    except ET.ParseError:
+        # Try wrapping in a root element
+        try:
+            root = ET.fromstring(f"<root>{xml_clean}</root>")
+        except ET.ParseError as e:
+            log.warning("XFA XML parse failed: %s", e)
+            return None
+    
+    def _find_text(element, *tag_names):
+        """Find text in element or its children by tag name."""
+        for tag in tag_names:
+            el = element.find(f".//{tag}")
+            if el is not None and el.text:
+                return el.text.strip()
+        return ""
+    
+    # Extract header info
+    header = {
+        "solicitation_number": _find_text(root, "Request_for_Quote_Number", "RFQ_Number",
+                                           "Quote_Number", "Solicitation_Number"),
+        "requestor_name": _find_text(root, "Name", "Requestor_Name", "Contact_Name",
+                                      "Buyer_Name"),
+        "requestor_email": _find_text(root, "E-mail_Address", "Email_Address", "Email",
+                                       "E-mail"),
+        "requestor_phone": _find_text(root, "Phone_Number", "Phone", "Telephone"),
+        "due_date": _find_text(root, "Due_Date", "Response_Due_Date", "Closing_Date",
+                                "Deadline"),
+        "delivery_location": _find_text(root, "Delivery_Location", "Ship_To",
+                                         "Delivery_Address", "Location"),
+    }
+    
+    # Extract line items from table rows
+    items = []
+    # Look for Row elements anywhere in the tree
+    for row in root.iter():
+        if not row.tag.startswith("Row"):
+            continue
+        
+        line_num = _find_text(row, "Line_Number", "Line", "Item_Number", "No")
+        desc = _find_text(row, "Description_Make_Model", "Description", "Item_Description",
+                          "Product_Description", "Item")
+        qty = _find_text(row, "Quantity", "Qty", "QTY")
+        uom = _find_text(row, "UOM", "Unit", "Unit_of_Measure")
+        price = _find_text(row, "Unit_Price", "Price", "Unit_Cost", "Cost")
+        
+        if not desc:
+            continue  # Skip empty/header rows
+        
+        # Parse line number
+        try:
+            ln = int(float(line_num)) if line_num else len(items) + 1
+        except (ValueError, TypeError):
+            ln = len(items) + 1
+        
+        # Parse quantity
+        try:
+            q = int(float(qty)) if qty else 1
+        except (ValueError, TypeError):
+            q = 1
+        
+        # Clean UOM: "EA - Each" → "EA"
+        uom_clean = uom.split(" - ")[0].strip().upper() if uom else "EA"
+        if not uom_clean:
+            uom_clean = "EA"
+        
+        # Parse price
+        try:
+            p = float(price.replace(",", "").replace("$", "")) if price else 0
+        except (ValueError, TypeError):
+            p = 0
+        
+        # Extract part/model numbers from description
+        item_number = ""
+        model_match = re.search(r'(?:Model|REF|Cat|MPN)\s*#?\s*:?\s*([A-Z0-9][\w\-./]+)', desc, re.IGNORECASE)
+        if model_match:
+            item_number = model_match.group(1)
+        
+        # Extract ASIN if present
+        asin_match = re.search(r'ASIN\s*#?\s*:?\s*([A-Z0-9]{10})', desc, re.IGNORECASE)
+        
+        items.append({
+            "line_number": ln,
+            "qty": q,
+            "uom": uom_clean,
+            "description": desc,
+            "item_number": item_number,
+            "unit_price": p,
+            "supplier_cost": 0,
+            "scprs_last_price": None,
+            "source_type": "general",
+            "price_per_unit": p,
+            "parse_method": "xfa",
+            "asin": asin_match.group(1) if asin_match else "",
+        })
+    
+    if not items:
+        return None
+    
+    log.info("XFA parsed: sol=%s, requestor=%s, %d items",
+             header.get("solicitation_number", "?"),
+             header.get("requestor_name", "?"),
+             len(items))
+    
+    return {
+        "header": header,
+        "line_items": items,
+        "form_type": "xfa",
+        "xfa_form": True,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Generic PDF Text Extraction
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -437,22 +643,36 @@ def parse_generic_rfq(pdf_paths, subject="", sender_email="", body=""):
     Parse line items from non-704 RFQ PDFs.
     Returns dict compatible with the standard RFQ data structure.
 
-    Args:
-        pdf_paths: list of PDF file paths
-        subject: email subject
-        sender_email: sender email address
-        body: email body text
+    Tries XFA parsing first (for CalVet CV-031 and similar Adobe LiveCycle forms),
+    then falls back to text extraction heuristics.
     """
     all_text = ""
     all_items = []
     parse_details = []
+    xfa_header = {}
 
     for pdf_path in pdf_paths:
         if not os.path.exists(pdf_path):
             continue
 
+        # ── Strategy 0: XFA form (CalVet CV-031, etc.) ──
+        xfa_result = parse_xfa_form(pdf_path)
+        if xfa_result and xfa_result.get("line_items"):
+            parse_details.append({
+                "file": os.path.basename(pdf_path),
+                "status": "xfa_parsed",
+                "items_found": len(xfa_result["line_items"]),
+                "method": "xfa",
+            })
+            all_items.extend(xfa_result["line_items"])
+            xfa_header = xfa_result.get("header", {})
+            log.info("XFA form parsed: %s → %d items",
+                     os.path.basename(pdf_path), len(xfa_result["line_items"]))
+            continue  # Don't also do text extraction on this file
+
+        # ── Strategy 1+: Text extraction heuristics ──
         text = extract_pdf_text(pdf_path)
-        if not text:
+        if not text or text.strip().startswith("Please wait"):
             parse_details.append({"file": os.path.basename(pdf_path), "status": "no_text"})
             continue
 
@@ -477,8 +697,20 @@ def parse_generic_rfq(pdf_paths, subject="", sender_email="", body=""):
     # Detect agency
     agency_key, agency_info = detect_agency(subject, body, sender_email, all_text)
 
-    # Extract solicitation info
-    sol_info = extract_solicitation_info(all_text, subject, sender_email)
+    # Extract solicitation info — prefer XFA header, fall back to text extraction
+    if xfa_header and xfa_header.get("solicitation_number"):
+        sol_info = {
+            "solicitation_number": xfa_header.get("solicitation_number", ""),
+            "due_date": xfa_header.get("due_date", ""),
+            "requestor_name": xfa_header.get("requestor_name", ""),
+            "requestor_email": xfa_header.get("requestor_email", ""),
+            "requestor_phone": xfa_header.get("requestor_phone", ""),
+            "institution": xfa_header.get("delivery_location", ""),
+            "ship_to": xfa_header.get("delivery_location", ""),
+            "delivery_days": "",
+        }
+    else:
+        sol_info = extract_solicitation_info(all_text, subject, sender_email)
 
     # Ensure items have all required fields
     for i, item in enumerate(all_items):
