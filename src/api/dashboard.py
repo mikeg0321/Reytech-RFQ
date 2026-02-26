@@ -2886,7 +2886,7 @@ def _force_recapture():
 # ═══════════════════════════════════════════════════════════════════════
 # Deep Email Diagnostic — trace every email through the pipeline
 # ═══════════════════════════════════════════════════════════════════════
-@app.route("/api/email-trace")
+@bp.route("/api/email-trace")
 def api_email_trace():
     """Show every email from IMAP and trace why each was captured/skipped."""
     import imaplib, email as emaillib
