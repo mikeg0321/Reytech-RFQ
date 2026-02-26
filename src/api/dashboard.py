@@ -1784,6 +1784,22 @@ def do_poll_check():
     
     imported = []
     try:
+        # Pre-check: ensure we have disk space for new attachments
+        import shutil as _shutil
+        _, _, free_bytes = _shutil.disk_usage(UPLOAD_DIR)
+        free_mb = free_bytes / 1024 / 1024
+        if free_mb < 50:
+            POLL_STATUS["error"] = f"Disk critically low: {free_mb:.0f}MB free — skipping poll"
+            log.error(POLL_STATUS["error"])
+            try:
+                from src.agents.notify_agent import send_alert
+                send_alert(event_type="system_error", title="⚠️ Disk Space Critical",
+                          body=f"Only {free_mb:.0f}MB free. Email polling paused. Free space or resize volume.",
+                          urgency="high", cooldown_key="disk_low")
+            except Exception:
+                pass
+            return []
+        
         connected = _shared_poller.connect()
         POLL_STATUS["_diag"]["imap_connected"] = connected
         if connected:
@@ -1807,6 +1823,12 @@ def do_poll_check():
                 except Exception as pe:
                     POLL_STATUS["_diag"]["errors"].append(f"process_rfq({rfq_email.get('subject','?')[:40]}): {pe}")
                     log.error("process_rfq_email error for '%s': %s", rfq_email.get("subject","?")[:50], pe, exc_info=True)
+                    # CRITICAL: If processing failed (disk full, parse error, etc),
+                    # remove UID from processed set so it gets retried next poll
+                    failed_uid = rfq_email.get("email_uid", "")
+                    if failed_uid and _shared_poller and hasattr(_shared_poller, '_processed'):
+                        _shared_poller._processed.discard(failed_uid)
+                        log.warning("Removed UID %s from processed set — will retry next poll", failed_uid)
         else:
             POLL_STATUS["error"] = f"IMAP connect failed for {email_cfg.get('email', '?')}"
             log.error(POLL_STATUS["error"])
