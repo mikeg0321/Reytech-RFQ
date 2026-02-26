@@ -283,6 +283,15 @@ h1 { font-size:22px; margin-bottom:4px; }
   <button class="btn" onclick="ac(this,'/api/qb/vendors')"><span class="label">👥 Vendors</span><span class="desc">Pull vendor list</span><span class="spin"></span></button>
   <button class="btn" onclick="ac(this,'/api/qb/pos')"><span class="label">📄 Recent POs</span><span class="desc">Last 30 days</span><span class="spin"></span></button>
  </div>
+ <div class="step-label">Actions</div>
+ <div class="grid" style="margin-bottom:12px">
+  <button class="btn btn-go" onclick="ap(this,'/api/qb/sync-customers',{})"><span class="label">🔄 Sync Customers→CRM</span><span class="desc">Import QB customers</span><span class="spin"></span></button>
+  <button class="btn btn-go" onclick="ac(this,'/api/qb/collection-alerts')"><span class="label">🚨 Collection Alerts</span><span class="desc">Overdue w/ aging & amounts</span><span class="spin"></span></button>
+  <button class="btn" onclick="ac(this,'/api/qb/cash-flow')"><span class="label">💹 Cash Flow Forecast</span><span class="desc">30-day projection</span><span class="spin"></span></button>
+  <button class="btn" onclick="ac(this,'/api/qb/vendor-spend')"><span class="label">📊 Vendor Spend</span><span class="desc">Top vendors by $</span><span class="spin"></span></button>
+  <button class="btn" onclick="createQBInvoice()"><span class="label">📄 Create Invoice</span><span class="desc">From won quote</span><span class="spin"></span></button>
+  <button class="btn" onclick="ac(this,'/api/qb/revenue-by-month')"><span class="label">📈 Monthly Revenue</span><span class="desc">Revenue trend</span><span class="spin"></span></button>
+ </div>
  <div class="env-box">
   <div style="color:var(--warn);margin-bottom:4px">Railway env vars needed:</div>
   <div>QB_CLIENT_ID=... &nbsp; QB_CLIENT_SECRET=...</div>
@@ -324,6 +333,62 @@ h1 { font-size:22px; margin-bottom:4px; }
   <button class="btn" onclick="ac(this,'/api/qa/scan')"><span class="label">🔍 Code Scan</span><span class="desc">JS/HTML/Python quality</span><span class="spin"></span></button>
   <button class="btn" onclick="ac(this,'/api/qa/history')"><span class="label">📊 History</span><span class="desc">Past reports</span><span class="spin"></span></button>
   <button class="btn" onclick="ac(this,'/api/qa/trend')"><span class="label">📈 Trend</span><span class="desc">Score over time</span><span class="spin"></span></button>
+ </div></div>
+</div>
+
+<!-- Quote-to-Cash Pipeline -->
+<div class="section">
+ <h2 onclick="tog('q2c')">💰 Quote-to-Cash Pipeline <span class="tag tag-ok">Live</span><span class="caret">▼</span></h2>
+ <div class="scol" id="q2c-sc">
+ <p style="color:#8b949e;font-size:12px;margin-bottom:10px">End-to-end: RFQ → Quote → Won → PO → Invoice → Payment tracking.</p>
+ <div class="grid">
+  <button class="btn btn-go" onclick="ac(this,'/api/pipeline/quote-to-cash')"><span class="label">🔄 Full Pipeline</span><span class="desc">Every quote with status</span><span class="spin"></span></button>
+  <button class="btn" onclick="ac(this,'/api/pipeline/stale-quotes')"><span class="label">⏰ Stale Quotes</span><span class="desc">No response 7+ days</span><span class="spin"></span></button>
+  <button class="btn" onclick="ac(this,'/api/pipeline/follow-up-queue')"><span class="label">📧 Follow-Up Queue</span><span class="desc">Quotes needing action</span><span class="spin"></span></button>
+  <button class="btn" onclick="ac(this,'/api/pipeline/revenue-goal')"><span class="label">🎯 $2M Goal Tracker</span><span class="desc">Monthly projections</span><span class="spin"></span></button>
+  <button class="btn" onclick="ac(this,'/api/pipeline/conversion-funnel')"><span class="label">📊 Conversion Funnel</span><span class="desc">Stage-by-stage drop-off</span><span class="spin"></span></button>
+  <button class="btn" onclick="ac(this,'/api/pipeline/avg-deal-size')"><span class="label">📏 Avg Deal Size</span><span class="desc">By agency & category</span><span class="spin"></span></button>
+ </div></div>
+</div>
+
+<!-- Catalog Intelligence -->
+<div class="section">
+ <h2 onclick="tog('catint')">📦 Catalog Intelligence <span class="tag tag-ok">840+ items</span><span class="caret">▼</span></h2>
+ <div class="scol" id="catint-sc">
+ <p style="color:#8b949e;font-size:12px;margin-bottom:10px">Product catalog with pricing, margins, competitive analysis.</p>
+ <div class="grid">
+  <button class="btn btn-go" onclick="ap(this,'/api/catalog/rebuild-from-history',{})"><span class="label">🔄 Rebuild Catalog</span><span class="desc">Reprocess all history</span><span class="spin"></span></button>
+  <button class="btn" onclick="ac(this,'/api/catalog/stats')"><span class="label">📊 Catalog Stats</span><span class="desc">Growth metrics</span><span class="spin"></span></button>
+  <button class="btn" onclick="ac(this,'/api/price-alerts?limit=20')"><span class="label">🔔 Price Alerts</span><span class="desc">Cost changes >10%</span><span class="spin"></span></button>
+  <button class="btn" onclick="ac(this,'/api/catalog/margin-analysis')"><span class="label">💹 Margin Analysis</span><span class="desc">Products by margin tier</span><span class="spin"></span></button>
+  <button class="btn" onclick="ac(this,'/api/catalog/top-quoted')"><span class="label">🏆 Most Quoted</span><span class="desc">Top 20 by frequency</span><span class="spin"></span></button>
+  <button class="btn" onclick="quickQuote()"><span class="label">⚡ Quick Quote</span><span class="desc">Quote from catalog item</span><span class="spin"></span></button>
+ </div></div>
+</div>
+
+<!-- System Dashboard -->
+<div class="section">
+ <h2 onclick="tog('sys')">🖥️ System Dashboard <span class="tag tag-ok">Monitor</span><span class="caret">▼</span></h2>
+ <div class="scol" id="sys-sc">
+ <div class="grid">
+  <button class="btn btn-go" onclick="ac(this,'/api/system/dashboard')"><span class="label">📊 System Status</span><span class="desc">Disk, memory, uptime</span><span class="spin"></span></button>
+  <button class="btn" onclick="ac(this,'/api/system/error-log')"><span class="label">🚨 Error Log</span><span class="desc">Recent errors</span><span class="spin"></span></button>
+  <button class="btn" onclick="ac(this,'/api/system/route-map')"><span class="label">🗺️ Route Map</span><span class="desc">All API endpoints</span><span class="spin"></span></button>
+  <button class="btn" onclick="ac(this,'/api/system/data-sizes')"><span class="label">💾 Data Sizes</span><span class="desc">File/DB sizes</span><span class="spin"></span></button>
+  <button class="btn" onclick="ap(this,'/api/system/batch-health',{})"><span class="label">🔄 Batch Health Check</span><span class="desc">Test all agents at once</span><span class="spin"></span></button>
+  <button class="btn" onclick="ac(this,'/api/system/env-check')"><span class="label">🔑 Env Check</span><span class="desc">API keys configured?</span><span class="spin"></span></button>
+ </div></div>
+</div>
+
+<!-- Duplicate Detection -->
+<div class="section">
+ <h2 onclick="tog('dedup')">🔍 Data Quality <span class="tag tag-ok">Active</span><span class="caret">▼</span></h2>
+ <div class="scol" id="dedup-sc">
+ <div class="grid">
+  <button class="btn btn-go" onclick="ac(this,'/api/data-quality/duplicates')"><span class="label">👥 Find Duplicates</span><span class="desc">Duplicate contacts/vendors</span><span class="spin"></span></button>
+  <button class="btn" onclick="ac(this,'/api/data-quality/missing-data')"><span class="label">⚠️ Missing Data</span><span class="desc">Incomplete records</span><span class="spin"></span></button>
+  <button class="btn" onclick="ac(this,'/api/data-quality/orphaned-quotes')"><span class="label">🔗 Orphaned Quotes</span><span class="desc">Quotes without contacts</span><span class="spin"></span></button>
+  <button class="btn" onclick="exportReport('csv')"><span class="label">📥 Export CSV</span><span class="desc">Download last result</span></button>
  </div></div>
 </div>
 
@@ -440,6 +505,17 @@ function testCall(){var p=prompt('Phone (E.164):');if(!p)return;var s=prompt('Sc
 function importTwilio(){if(!confirm('Import Twilio number into Vapi?'))return;apiPost('/api/voice/import-twilio',{});}
 function predictWin(){var i=prompt('Institution:');if(!i)return;var a=prompt('Agency:','')||'',v=prompt('PO value ($):','5000')||'0';apiGet('/api/predict/win?institution='+encodeURIComponent(i)+'&agency='+encodeURIComponent(a)+'&value='+v);}
 function testShipping(){var s=prompt('Email subject:','Your Amazon order has shipped');if(!s)return;var b=prompt('Email body:','Tracking: TBA123456789012. Delivery: Feb 20.');apiPost('/api/shipping/scan-email',{subject:s,body:b,sender:'ship-confirm@amazon.com'});}
+
+// New feature helpers
+function createQBInvoice(){var q=prompt('Quote number (e.g. R26Q1):');if(!q)return;apiPost('/api/qb/invoice-from-quote',{quote_number:q},'Create Invoice: '+q);}
+function quickQuote(){var d=prompt('Item description (search catalog):');if(!d)return;apiGet('/api/catalog/quick-quote?q='+encodeURIComponent(d),'Quick Quote: '+d);}
+function exportReport(fmt){
+  var data=RC?RC.textContent:'';if(!data||data==='⏳ Loading...'){toast('No data to export','err');return;}
+  var blob=new Blob([data],{type:'text/plain'});var url=URL.createObjectURL(blob);
+  var a=document.createElement('a');a.href=url;a.download='reytech-export-'+new Date().toISOString().slice(0,10)+'.'+fmt;
+  document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+  toast('📥 Exported as '+fmt.toUpperCase(),'ok');
+}
 
 // Fleet load + auto-refresh
 function loadFleet(){

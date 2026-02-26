@@ -2763,6 +2763,7 @@ _ROUTE_MODULES = [
     "routes_analytics",       # PRD-29: Pipeline analytics, buyer intel, margin optimizer, settings, API v1
     "routes_order_tracking",  # PRD-29: PO tracking, separate email inbox, line item lifecycle
     "routes_growth_intel",    # Features #8,10,11,13: Catalog growth, price alerts, win/loss, outreach
+    "routes_features",        # 24 new endpoints: QB actions, pipeline, catalog intel, system, data quality
 ]
 
 for _mod in _ROUTE_MODULES:
