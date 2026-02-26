@@ -91,10 +91,10 @@ AGENCY_CONFIGS = {
         "full_name": "California Department of Veterans Affairs",
         "show_bill_to": True,
         "show_permit": True,
-        "bill_to_name": "Dept. of Veterans Affairs",
-        "bill_to_lines": ["1227 O Street", "Sacramento, CA 95814", "United States"],
+        "bill_to_name": "California Department of Veterans Affairs",
+        "bill_to_lines": ["APinvoices@calvet.ca.gov", "1227 \"O\" Street, Room 403", "Sacramento, CA 95814", "United States"],
         "default_tax": 0.0725,
-        "default_terms": "Net 30",
+        "default_terms": "Net 45",
     },
     "DGS": {
         "full_name": "Department of General Services",
