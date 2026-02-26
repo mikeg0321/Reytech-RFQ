@@ -88,9 +88,10 @@
  </div>
 
  <form method="POST" action="/rfq/{{rid}}/update" id="pf">
- <table class="it">
+ <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+ <table class="it" style="min-width:1400px">
   <thead><tr>
-   <th>#</th><th style="width:55px">Qty</th><th style="width:55px">UOM</th><th style="min-width:220px">Description</th><th>Part #</th>
+   <th>#</th><th style="width:55px">Qty</th><th style="width:55px">UOM</th><th>Description</th><th>Part #</th>
    <th style="min-width:220px">Item Link</th>
    <th>Your Cost</th><th>SCPRS</th><th>Amazon</th><th>Bid Price</th><th>Subtotal</th><th>Margin</th><th>Profit</th><th style="width:30px"></th>
   </tr></thead>
@@ -100,7 +101,7 @@
    <td style="font-size:13px">{{i.line_number}}</td>
    <td><input type="number" name="qty_{{loop.index0}}" value="{{i.qty}}" min="1" class="num-in" style="width:55px;font-size:14px;font-weight:700;padding:6px 4px;text-align:center" oninput="recalc()"></td>
    <td><input type="text" name="uom_{{loop.index0}}" value="{{(i.uom or 'EA')|upper}}" class="text-in" style="width:55px;font-size:13px;font-weight:600;padding:6px 4px;text-align:center;text-transform:uppercase" maxlength="6"></td>
-   <td style="max-width:260px"><input type="text" name="desc_{{loop.index0}}" value="{{i.description.split('\n')[0]}}" class="text-in" style="width:100%;font-size:13px;padding:6px 8px" title="{{i.description}}"></td>
+   <td><input type="text" name="desc_{{loop.index0}}" value="{{i.description}}" class="text-in" style="width:100%;min-width:280px;font-size:13px;padding:6px 8px" title="{{i.description}}"></td>
    <td><input type="text" name="part_{{loop.index0}}" value="{{i.item_number}}" class="text-in mono" style="width:90px;font-size:12px;padding:6px 8px"></td>
    <td style="min-width:220px">
     <div style="display:flex;align-items:center;gap:4px">
@@ -127,6 +128,7 @@
   {% endfor %}
   </tbody>
  </table>
+ </div><!-- scroll wrapper -->
 
  <!-- Add Item (inline form) -->
  <details style="margin-top:10px" id="add-item-section">

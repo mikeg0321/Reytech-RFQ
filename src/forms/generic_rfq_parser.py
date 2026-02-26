@@ -234,6 +234,17 @@ def _parse_xfa_datasets(xml_text):
         uom = _find_text(row, "UOM", "Unit", "Unit_of_Measure")
         price = _find_text(row, "Unit_Price", "Price", "Unit_Cost", "Cost")
         
+        # Also try dedicated XFA fields for ASIN and part/catalog numbers
+        xfa_asin = _find_text(row, "ASIN", "Amazon_ASIN", "ASIN_Number")
+        xfa_part = _find_text(row, "Part_Number", "Catalog_Number", "MFG_Number",
+                              "Manufacturer_Number", "SKU", "Stock_Number",
+                              "Item_No", "Catalog_No", "MFG_Part_No", "Mfr_Part")
+        
+        # Log all field names in first row for debugging
+        if not items:
+            field_names = [child.tag for child in row]
+            log.info("XFA Row fields found: %s", field_names)
+        
         if not desc:
             continue  # Skip empty/header rows
         
@@ -260,14 +271,57 @@ def _parse_xfa_datasets(xml_text):
         except (ValueError, TypeError):
             p = 0
         
-        # Extract part/model numbers from description
+        # Extract part/model numbers from description AND dedicated XFA fields
         item_number = ""
-        model_match = re.search(r'(?:Model|REF|Cat|MPN)\s*#?\s*:?\s*([A-Z0-9][\w\-./]+)', desc, re.IGNORECASE)
-        if model_match:
-            item_number = model_match.group(1)
+        ref_number = ""
         
-        # Extract ASIN if present
-        asin_match = re.search(r'ASIN\s*#?\s*:?\s*([A-Z0-9]{10})', desc, re.IGNORECASE)
+        # Use dedicated XFA part number field if available
+        if xfa_part:
+            ref_number = xfa_part.strip()
+        
+        # Also try extracting MFG/model/catalog numbers from description text
+        if not ref_number:
+            mfg_patterns = [
+                # Specific prefixes (don't need # or :)
+                r'(?:Model|REF|MPN|MFG|Mfr|Cat(?:alog)?)\s*#?\s*:?\s*([A-Z0-9][\w\-./]+)',
+                # Generic prefixes (require # or :)
+                r'(?:Item|Part|SKU|Stock|UPC)\s*[#:]\s*([A-Z0-9][\w\-./]+)',
+            ]
+            for pat in mfg_patterns:
+                model_match = re.search(pat, desc, re.IGNORECASE)
+                if model_match:
+                    ref_number = model_match.group(1).rstrip('.,;')
+                    break
+        
+        # Extract ASIN: dedicated XFA field first, then from description text
+        asin = xfa_asin.strip() if xfa_asin else ""
+        asin_match = None
+        if not asin:
+            asin_match = re.search(r'ASIN\s*#?\s*:?\s*([A-Z0-9]{10})', desc, re.IGNORECASE)
+            if not asin_match:
+                # Also try bare B0 pattern in description
+                asin_match = re.search(r'\b(B0[A-Z0-9]{8})\b', desc)
+            if asin_match:
+                asin = asin_match.group(1)
+        
+        # ASIN priority: if ASIN found, use as item_number; put MFG ref in description
+        if asin:
+            item_number = asin
+            # Clean ASIN reference from description to avoid redundancy
+            clean_desc = re.sub(r'\s*,?\s*ASIN\s*#?\s*:?\s*[A-Z0-9]{10}', '', desc, flags=re.IGNORECASE)
+            clean_desc = re.sub(r'\s*,?\s*\bB0[A-Z0-9]{8}\b', '', clean_desc)
+            # Also clean out the MFG/ref pattern since we'll add it as Ref:
+            if ref_number:
+                clean_desc = re.sub(
+                    r'\s*,?\s*(?:Model|REF|MPN|MFG|Mfr|Cat(?:alog)?|Item|Part|SKU|Stock|UPC)\s*[#:]?\s*' + re.escape(ref_number),
+                    '', clean_desc, flags=re.IGNORECASE
+                )
+            clean_desc = clean_desc.strip().rstrip(',').strip()
+            if ref_number:
+                clean_desc = f"{clean_desc} (Ref: {ref_number})"
+            desc = clean_desc
+        elif ref_number:
+            item_number = ref_number
         
         items.append({
             "line_number": ln,
@@ -281,7 +335,8 @@ def _parse_xfa_datasets(xml_text):
             "source_type": "general",
             "price_per_unit": p,
             "parse_method": "xfa",
-            "asin": asin_match.group(1) if asin_match else "",
+            "asin": asin,
+            "ref_number": ref_number,
         })
     
     if not items:
