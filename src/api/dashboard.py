@@ -2841,19 +2841,33 @@ def _force_recapture():
     # nuke the processed list entirely so the email gets re-captured
     if not removed_rfqs and not removed_pcs and match_kw:
         old_count = 0
+        # CRITICAL: Pause background poller to prevent race condition
+        # The background thread's poller has an in-memory _processed set
+        # that it saves back to disk at the end of each cycle, overwriting
+        # our deletion. We must: pause → flush memory → delete file → unpause.
+        POLL_STATUS["paused"] = True
+        time.sleep(1)  # Let current cycle finish
         try:
+            # Flush in-memory processed set from existing poller
+            if _shared_poller and hasattr(_shared_poller, '_processed'):
+                old_count = len(_shared_poller._processed)
+                _shared_poller._processed.clear()
+                log.info("Flushed %d UIDs from in-memory poller", old_count)
+            # Delete on-disk file
             if os.path.exists(proc_file):
                 with open(proc_file) as f:
                     proc_data = json.load(f)
-                old_count = len(proc_data) if isinstance(proc_data, list) else 0
+                if not old_count:
+                    old_count = len(proc_data) if isinstance(proc_data, list) else 0
                 os.remove(proc_file)
-                log.info("Force-recapture: no queue matches for '%s' — cleared %d processed UIDs", match_kw, old_count)
-        except Exception:
-            pass
+            log.info("Force-recapture: cleared %d processed UIDs for '%s'", old_count, match_kw)
+        except Exception as e:
+            log.error("Force-recapture cleanup error: %s", e)
         _shared_poller = None
+        POLL_STATUS["paused"] = False
         return jsonify({
             "ok": True,
-            "message": f"No RFQs/PCs matched '{match_kw}' but cleared {old_count} processed UIDs. Hit Check Now to re-import.",
+            "message": f"Cleared {old_count} processed UIDs. Hit Check Now to re-import.",
             "cleared_uids": old_count,
         })
     
