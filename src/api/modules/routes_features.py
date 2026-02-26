@@ -272,6 +272,124 @@ def api_qb_revenue_by_month():
         return jsonify({"ok": False, "error": str(e)})
 
 
+# ── QB Draft Reminders, Profit Margins, Expense Summary ─────────────────────
+
+@bp.route("/api/qb/draft-reminders", methods=["POST"])
+@auth_required
+def api_qb_draft_reminders():
+    """Draft payment reminder emails for overdue invoices."""
+    try:
+        from src.agents.quickbooks_agent import fetch_invoices, fetch_customers, is_configured
+        if not is_configured():
+            return jsonify({"ok": False, "error": "QuickBooks not configured"})
+        invoices = fetch_invoices(status="overdue")
+        if not invoices:
+            return jsonify({"ok": True, "message": "No overdue invoices found", "drafts": []})
+        customers = {c.get("Id"): c for c in fetch_customers()}
+        drafts = []
+        for inv in invoices[:10]:
+            cust_ref = inv.get("CustomerRef", {})
+            cust_id = cust_ref.get("value", "")
+            cust_name = cust_ref.get("name", "Customer")
+            cust = customers.get(cust_id, {})
+            email = cust.get("PrimaryEmailAddr", {}).get("Address", "") if isinstance(cust.get("PrimaryEmailAddr"), dict) else ""
+            balance = float(inv.get("Balance", 0))
+            inv_num = inv.get("DocNumber", "?")
+            due_date = inv.get("DueDate", "?")
+            days_overdue = 0
+            try:
+                due_dt = datetime.strptime(due_date, "%Y-%m-%d")
+                days_overdue = (datetime.now() - due_dt).days
+            except Exception:
+                pass
+            drafts.append({
+                "to": email or f"(no email for {cust_name})",
+                "customer": cust_name, "invoice_number": inv_num,
+                "amount": balance, "due_date": due_date, "days_overdue": days_overdue,
+                "subject": f"Payment Reminder — Invoice #{inv_num} (${balance:,.2f})",
+                "body": (f"Dear {cust_name},\n\nThis is a friendly reminder that Invoice #{inv_num} "
+                         f"for ${balance:,.2f} was due on {due_date} ({days_overdue} days ago).\n\n"
+                         f"Please arrange payment at your earliest convenience.\n\nThank you,\nReytech Inc."),
+            })
+        return jsonify({"ok": True, "drafts": drafts, "count": len(drafts),
+                        "total_overdue": sum(d["amount"] for d in drafts)})
+    except Exception as e:
+        log.exception("Draft reminders failed")
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/qb/profit-margins")
+@auth_required
+def api_qb_profit_margins():
+    """Calculate profit margins from QB invoice and purchase data."""
+    try:
+        from src.agents.quickbooks_agent import fetch_invoices, get_recent_purchase_orders, is_configured
+        if not is_configured():
+            return jsonify({"ok": False, "error": "QuickBooks not configured"})
+        invoices = fetch_invoices(status="all", days_back=180)
+        pos = get_recent_purchase_orders(days_back=180)
+        cust_revenue = defaultdict(float)
+        total_revenue = 0
+        for inv in invoices:
+            cust = inv.get("CustomerRef", {}).get("name", "Unknown")
+            amt = float(inv.get("TotalAmt", 0))
+            cust_revenue[cust] += amt
+            total_revenue += amt
+        total_cost = sum(float(po.get("TotalAmt", 0)) for po in pos)
+        gross_margin = total_revenue - total_cost
+        margin_pct = (gross_margin / total_revenue * 100) if total_revenue > 0 else 0
+        top_customers = sorted(cust_revenue.items(), key=lambda x: -x[1])[:10]
+        return jsonify({
+            "ok": True, "total_revenue_180d": round(total_revenue, 2),
+            "total_cost_180d": round(total_cost, 2),
+            "gross_margin": round(gross_margin, 2),
+            "margin_percent": round(margin_pct, 1),
+            "top_customers": [{"customer": c, "revenue": round(r, 2)} for c, r in top_customers],
+            "invoice_count": len(invoices), "po_count": len(pos),
+        })
+    except Exception as e:
+        log.exception("Profit margins failed")
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/qb/expense-summary")
+@auth_required
+def api_qb_expense_summary():
+    """Expense breakdown from QB purchase orders and bills."""
+    try:
+        from src.agents.quickbooks_agent import get_recent_purchase_orders, is_configured
+        if not is_configured():
+            return jsonify({"ok": False, "error": "QuickBooks not configured"})
+        pos = get_recent_purchase_orders(days_back=90)
+        vendor_spend = defaultdict(float)
+        total = 0
+        for po in pos:
+            vendor = po.get("VendorRef", {}).get("name", "Unknown")
+            amt = float(po.get("TotalAmt", 0))
+            vendor_spend[vendor] += amt
+            total += amt
+        top_vendors = sorted(vendor_spend.items(), key=lambda x: -x[1])[:15]
+        # Try QB bills query
+        bills, bill_total = [], 0
+        try:
+            from src.agents.quickbooks_agent import _qb_query
+            bills = _qb_query("SELECT * FROM Bill WHERE TxnDate >= '{}' MAXRESULTS 100".format(
+                (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")))
+            bill_total = sum(float(b.get("TotalAmt", 0)) for b in bills)
+        except Exception:
+            pass
+        return jsonify({
+            "ok": True, "po_total_90d": round(total, 2),
+            "bill_total_90d": round(bill_total, 2),
+            "combined_expenses": round(total + bill_total, 2),
+            "top_vendors": [{"vendor": v, "amount": round(a, 2)} for v, a in top_vendors],
+            "po_count": len(pos), "bill_count": len(bills),
+        })
+    except Exception as e:
+        log.exception("Expense summary failed")
+        return jsonify({"ok": False, "error": str(e)})
+
+
 # ── Pipeline Endpoints ──────────────────────────────────────────────────────
 
 @bp.route("/api/pipeline/quote-to-cash")
