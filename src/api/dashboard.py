@@ -2082,6 +2082,14 @@ def _create_order_from_quote(qt: dict, po_number: str = "") -> dict:
         record_winning_prices(order)
     except Exception as _e:
         log.debug("Pricing intel capture: %s", _e)
+    # ── Catalog Learning: teach supplier data from quote items ──
+    try:
+        from src.api.modules.routes_orders_full import _learn_supplier_from_order_line
+        for it in line_items:
+            if it.get("supplier") or it.get("supplier_url"):
+                _learn_supplier_from_order_line(it, order)
+    except Exception as _le:
+        log.debug("Catalog learning from new order: %s", _le)
     return order
 
 
@@ -2246,6 +2254,14 @@ def _create_order_from_po_email(po_data: dict) -> dict:
         record_winning_prices(order)
     except Exception as _e:
         log.debug("Pricing intel capture: %s", _e)
+    # ── Catalog Learning: teach supplier data from PO items ──
+    try:
+        from src.api.modules.routes_orders_full import _learn_supplier_from_order_line
+        for it in line_items:
+            if it.get("supplier") or it.get("supplier_url"):
+                _learn_supplier_from_order_line(it, order)
+    except Exception as _le:
+        log.debug("Catalog learning from PO order: %s", _le)
     return order
 
 def _update_order_status(oid: str):
@@ -2375,6 +2391,13 @@ def _update_order_status(oid: str):
         _log_crm_activity(qn, "all_delivered",
                           f"All {len(items)} items delivered for {oid}. Draft invoice {inv_number} created. Total ${total:,.2f}.",
                           actor="system", metadata={"order_id": oid, "po_number": po, "invoice": inv_number})
+        
+        # ── Catalog Learning: teach supplier data from completed order ──
+        try:
+            from src.api.modules.routes_orders_full import learn_from_completed_order
+            learn_from_completed_order(oid)
+        except Exception as _le:
+            log.debug("Catalog learning from completed order: %s", _le)
 
 # ═══════════════════════════════════════════════════════════════════════
 # HTML Templates (extracted to src/api/templates.py)

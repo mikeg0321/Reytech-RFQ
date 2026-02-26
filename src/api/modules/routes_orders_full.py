@@ -535,6 +535,14 @@ def api_order_update_line(oid, lid):
     orders[oid] = order
     _save_orders(orders)
     _update_order_status(oid)
+    
+    # ── Catalog Learning: when supplier info changes, teach the catalog ──
+    if any(f in data for f in ("supplier", "supplier_url", "unit_price")):
+        try:
+            _learn_supplier_from_order_line(it, order)
+        except Exception as _e:
+            log.debug("Catalog learning from order line: %s", _e)
+    
     return jsonify({"ok": True})
 
 
@@ -1175,5 +1183,313 @@ SB/DVBE Cert #2002605"""
 
     flash(f"📧 PO confirmation draft saved to outbox — review and send from Agents page", "success")
     return redirect(f"/order/{oid}")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Supplier Purchase URLs — group by supplier, build cart links
+# ═══════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/order/<oid>/purchase-urls")
+@auth_required
+def api_order_purchase_urls(oid):
+    """Get purchase URLs grouped by supplier for an order."""
+    orders = _load_orders()
+    order = orders.get(oid)
+    if not order:
+        return jsonify({"ok": False, "error": "Order not found"})
+    
+    groups = build_supplier_purchase_urls(order)
+    return jsonify({"ok": True, "suppliers": groups, "order_id": oid})
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Catalog Learning — orders teach the catalog about suppliers & prices
+# ═══════════════════════════════════════════════════════════════════════
+
+# Supplier ordering config — how to build purchase URLs per supplier
+# Future ordering agent uses this to auto-generate cart/PO links
+SUPPLIER_ORDER_CONFIG = {
+    "amazon": {
+        "name": "Amazon",
+        "cart_url": "https://www.amazon.com/gp/aws/cart/add.html",
+        "product_url": "https://amazon.com/dp/{sku}",
+        "search_url": "https://amazon.com/s?k={query}",
+        "id_field": "asin",   # B0xxxxxxxxx
+        "id_pattern": r"^B0[A-Z0-9]{8,}$",
+        "supports_bulk_cart": True,
+        "account_type": "business",  # Amazon Business for tax exempt
+    },
+    "grainger": {
+        "name": "Grainger",
+        "product_url": "https://www.grainger.com/product/{sku}",
+        "search_url": "https://www.grainger.com/search?searchQuery={query}",
+        "id_field": "grainger_item",
+        "id_pattern": r"^\d{3,8}[A-Z]?\d*$",
+        "supports_bulk_cart": False,
+        "account_type": "business",
+    },
+    "uline": {
+        "name": "Uline",
+        "product_url": "https://www.uline.com/{sku}",
+        "search_url": "https://www.uline.com/BL/Search?keywords={query}",
+        "id_field": "uline_model",
+        "id_pattern": r"^[SH]-\d+",
+        "supports_bulk_cart": False,
+        "account_type": "business",
+    },
+    "mckesson": {
+        "name": "McKesson",
+        "search_url": "https://mms.mckesson.com/search?q={query}",
+        "id_field": "mck_number",
+        "supports_bulk_cart": False,
+        "account_type": "medical",
+    },
+    "medline": {
+        "name": "Medline",
+        "search_url": "https://www.medline.com/search?q={query}",
+        "id_field": "medline_number",
+        "supports_bulk_cart": False,
+        "account_type": "medical",
+    },
+    "cardinal_health": {
+        "name": "Cardinal Health",
+        "id_field": "cardinal_cat",
+        "supports_bulk_cart": False,
+        "account_type": "medical",
+    },
+}
+
+
+def _detect_supplier(part_number: str, supplier_url: str = "", supplier_name: str = "") -> str:
+    """Detect which supplier an item belongs to based on PN/URL/name."""
+    import re
+    pn = (part_number or "").strip()
+    url = (supplier_url or "").lower()
+    name = (supplier_name or "").lower()
+    
+    # URL-based detection
+    if "amazon" in url: return "amazon"
+    if "grainger" in url: return "grainger"
+    if "uline" in url: return "uline"
+    if "mckesson" in url or "mms.mckesson" in url: return "mckesson"
+    if "medline" in url: return "medline"
+    if "cardinal" in url: return "cardinal_health"
+    
+    # Name-based
+    if "amazon" in name: return "amazon"
+    if "grainger" in name: return "grainger"
+    if "uline" in name: return "uline"
+    if "mckesson" in name: return "mckesson"
+    if "medline" in name: return "medline"
+    if "cardinal" in name: return "cardinal_health"
+    
+    # Part number pattern detection
+    for key, cfg in SUPPLIER_ORDER_CONFIG.items():
+        pattern = cfg.get("id_pattern")
+        if pattern and pn and re.match(pattern, pn, re.IGNORECASE):
+            return key
+    
+    return ""
+
+
+def _learn_supplier_from_order_line(line_item: dict, order: dict):
+    """When an order line item has supplier info, teach the catalog.
+    
+    This is called when:
+    1. User updates supplier/URL on a line item
+    2. Order is created from quote with supplier data
+    3. Bulk order completes and items have confirmed suppliers
+    
+    The catalog learns:
+    - Which suppliers carry this product
+    - What price was paid (cost tracking)
+    - The supplier URL for re-ordering
+    - Reliability (based on delivery success)
+    """
+    from src.agents.product_catalog import (
+        match_item, add_supplier_price, add_to_catalog, record_catalog_quote
+    )
+    
+    desc = line_item.get("description", "")
+    pn = line_item.get("part_number", "")
+    supplier = line_item.get("supplier", "")
+    supplier_url = line_item.get("supplier_url", "")
+    cost = line_item.get("cost", 0) or line_item.get("unit_price", 0)
+    qty = line_item.get("qty", 0)
+    
+    if not desc and not pn:
+        return
+    
+    # Detect supplier key
+    supplier_key = _detect_supplier(pn, supplier_url, supplier)
+    supplier_name = supplier or (SUPPLIER_ORDER_CONFIG.get(supplier_key, {}).get("name", ""))
+    
+    if not supplier_name:
+        return  # Can't learn without knowing the supplier
+    
+    # Match to existing catalog product (or create new entry)
+    matches = match_item(desc, part_number=pn)
+    product_id = matches[0].get("product_id") if matches else None
+    
+    if not product_id and pn:
+        # Try to add to catalog as new product
+        try:
+            product_id = add_to_catalog(
+                description=desc[:200],
+                part_number=pn,
+                cost=cost,
+                sell_price=line_item.get("unit_price", 0),
+                supplier_url=supplier_url,
+                supplier_name=supplier_name,
+                uom="EA",
+                source="order_sourcing",
+            )
+        except Exception:
+            pass
+    
+    if product_id and cost > 0:
+        # Record this supplier + price in product_suppliers
+        add_supplier_price(
+            product_id=product_id,
+            supplier_name=supplier_name,
+            price=cost,
+            url=supplier_url,
+            sku=pn,
+            in_stock=True,
+        )
+        
+        # Record in price history for trend analysis
+        record_catalog_quote(
+            product_id=product_id,
+            price_type="cost",
+            price=cost,
+            quantity=qty,
+            source="order_sourcing",
+            agency=order.get("agency", ""),
+            institution=order.get("institution", ""),
+            quote_number=order.get("quote_number", ""),
+            supplier_url=supplier_url,
+        )
+        
+        log.info("Catalog learned: %s → %s @ $%.2f (product_id=%s)",
+                 pn or desc[:40], supplier_name, cost, product_id)
+
+
+def learn_from_completed_order(oid: str):
+    """When an order reaches delivered/closed, learn from ALL its line items.
+    
+    Called from _update_order_status when status changes to delivered/closed.
+    Updates supplier reliability based on delivery performance.
+    """
+    orders = _load_orders()
+    order = orders.get(oid)
+    if not order:
+        return
+    
+    learned = 0
+    for it in order.get("line_items", []):
+        supplier = it.get("supplier", "")
+        if supplier:
+            try:
+                _learn_supplier_from_order_line(it, order)
+                learned += 1
+                
+                # Update reliability if delivered successfully
+                if it.get("sourcing_status") == "delivered":
+                    try:
+                        from src.agents.product_catalog import (
+                            match_item, update_supplier_reliability
+                        )
+                        matches = match_item(
+                            it.get("description", ""),
+                            part_number=it.get("part_number", "")
+                        )
+                        if matches and matches[0].get("product_id"):
+                            update_supplier_reliability(matches[0]["product_id"], supplier,
+                                         reliability=0.8,  # Confirmed delivery
+                                         notes=f"Delivered on order {oid}")
+                    except Exception:
+                        pass
+            except Exception as _e:
+                log.debug("Learn from order line: %s", _e)
+    
+    if learned:
+        log.info("Order %s completed: taught catalog %d supplier records", oid, learned)
+
+
+def build_supplier_purchase_urls(order: dict) -> dict:
+    """Group order items by supplier and generate purchase URLs.
+    
+    Returns: {
+        "amazon": {
+            "name": "Amazon",
+            "items": [...],
+            "cart_url": "https://amazon.com/gp/aws/cart/add.html?ASIN.1=...",
+            "total_items": 5,
+            "total_cost": 234.50,
+        },
+        "grainger": {
+            "name": "Grainger", 
+            "items": [...],
+            "search_urls": ["https://grainger.com/..."],
+            "total_items": 2,
+            "total_cost": 89.00,
+        },
+        "unknown": {
+            "items": [...],  # Items without identified supplier
+        }
+    }
+    """
+    import urllib.parse
+    
+    groups = {}
+    for it in order.get("line_items", []):
+        if it.get("sourcing_status") not in ("pending", "ordered"):
+            continue  # Skip already shipped/delivered
+        
+        pn = it.get("part_number", "")
+        supplier_key = _detect_supplier(pn, it.get("supplier_url", ""), it.get("supplier", ""))
+        if not supplier_key:
+            supplier_key = "unknown"
+        
+        if supplier_key not in groups:
+            cfg = SUPPLIER_ORDER_CONFIG.get(supplier_key, {})
+            groups[supplier_key] = {
+                "name": cfg.get("name", supplier_key.title()),
+                "items": [],
+                "total_items": 0,
+                "total_cost": 0,
+            }
+        
+        groups[supplier_key]["items"].append(it)
+        groups[supplier_key]["total_items"] += 1
+        groups[supplier_key]["total_cost"] += it.get("cost", 0) or it.get("unit_price", 0) * it.get("qty", 0)
+    
+    # Generate purchase URLs per supplier
+    for key, group in groups.items():
+        cfg = SUPPLIER_ORDER_CONFIG.get(key, {})
+        
+        if key == "amazon" and cfg.get("supports_bulk_cart"):
+            # Amazon bulk cart URL
+            params = []
+            for i, it in enumerate(group["items"]):
+                asin = it.get("part_number", "")
+                if asin and (asin.startswith("B0") or len(asin) == 10):
+                    params.append(f"ASIN.{i+1}={asin}")
+                    params.append(f"Quantity.{i+1}={it.get('qty', 1)}")
+            if params:
+                group["cart_url"] = f"{cfg['cart_url']}?{'&'.join(params)}"
+        
+        # Search URLs for all suppliers
+        search_tmpl = cfg.get("search_url", "")
+        if search_tmpl:
+            group["search_urls"] = []
+            for it in group["items"]:
+                q = it.get("part_number", "") or it.get("description", "")[:40]
+                group["search_urls"].append(
+                    search_tmpl.format(query=urllib.parse.quote_plus(q))
+                )
+    
+    return groups
 
 
