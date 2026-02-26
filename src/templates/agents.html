@@ -498,28 +498,28 @@ var R=document.getElementById('result'),RC=document.getElementById('result-conte
 var _recentActions=[],_actionLog=[];
 
 function showResult(d,title){
+  try{
   var dur=_reqStart?((Date.now()-_reqStart)/1000).toFixed(1)+'s':'';
   if(RT)RT.textContent=title||'Result';
   if(RD)RD.textContent=dur?'⏱ '+dur:'';
   // Format JSON nicely
   var txt=typeof d==='string'?d:JSON.stringify(d,null,2);
-  RC.textContent=txt;
-  R.style.display='block';
+  if(RC)RC.textContent=txt;
+  if(R)R.style.display='block';
   var bk=document.getElementById('result-backdrop');if(bk)bk.classList.add('show');
-  // Re-enable button
-  if(_ab){_ab.classList.remove('ld');_ab.disabled=false;
-    // Show inline status on button
+  }catch(e){console.error('[showResult] display error:',e);}
+  // Re-enable button — ALWAYS runs
+  if(_ab){try{_ab.classList.remove('ld');_ab.disabled=false;
     var st=_ab.querySelector('.status');
     if(!st){st=document.createElement('span');st.className='status';st.style.cssText='font-size:10px;display:block;margin-top:2px';_ab.appendChild(st);}
     var isErr=(d&&(d.ok===false||d.error));
     st.textContent=isErr?('❌ '+(d.error||'Error').substring(0,40)):('✅ '+dur);
     st.style.color=isErr?'var(--rd)':'var(--gn)';
-    _ab=null;
-  }
+  }catch(e){}
+  _ab=null;}
   _reqStart=0;
-  // Log action
-  _actionLog.push({title:title,time:new Date().toLocaleTimeString(),dur:dur,ok:!(d&&d.ok===false)});
-  updateRecentBar();
+  try{_actionLog.push({title:title,time:new Date().toLocaleTimeString(),dur:dur,ok:!(d&&d.ok===false)});
+  updateRecentBar();}catch(e){}
 }
 function closeResult(){R.style.display='none';var bk=document.getElementById('result-backdrop');if(bk)bk.classList.remove('show');}
 
@@ -539,8 +539,10 @@ function _hr(r){
       catch(e){toast('❌ HTTP '+r.status,'err');return{ok:false,error:'HTTP '+r.status+': '+t.substring(0,200)};}
     });
   }
+  // Clone before reading to avoid body-consumed errors
+  var cloned=r.clone();
   return r.json().catch(function(e){
-    return r.text().then(function(t){
+    return cloned.text().then(function(t){
       console.log('[TRACE] Non-JSON response:',t.substring(0,200));
       return{ok:true,raw_text:t};
     });
@@ -549,12 +551,12 @@ function _hr(r){
 
 function apiGet(u,title){
   _reqStart=Date.now();
-  RC.textContent='⏳ Loading...';if(RT)RT.textContent=title||u;R.style.display='block';
+  try{RC.textContent='⏳ Loading...';if(RT)RT.textContent=title||u;R.style.display='block';}catch(e){}
   var bk=document.getElementById('result-backdrop');if(bk)bk.classList.add('show');
   console.log('[TRACE] GET',u,'at',new Date().toLocaleTimeString());
   traceLog('GET',u,'pending');
   toast('📡 '+(title||u.split('?')[0].split('/').pop()),'info');
-  fetch(u,{credentials:'same-origin'}).then(function(r){
+  fetch(u,{credentials:'same-origin',headers:{'X-Requested-With':'XMLHttpRequest'}}).then(function(r){
     traceLog('GET',u,r.ok?'ok:'+r.status:'err:'+r.status);
     return _hr(r);
   }).then(function(d){
@@ -572,12 +574,12 @@ function apiGet(u,title){
 
 function apiPost(u,b,title){
   _reqStart=Date.now();
-  RC.textContent='⏳ Loading...';if(RT)RT.textContent=title||u;R.style.display='block';
+  try{RC.textContent='⏳ Loading...';if(RT)RT.textContent=title||u;R.style.display='block';}catch(e){}
   var bk=document.getElementById('result-backdrop');if(bk)bk.classList.add('show');
   console.log('[TRACE] POST',u,b,'at',new Date().toLocaleTimeString());
   traceLog('POST',u,'pending');
   toast('📡 '+(title||u.split('?')[0].split('/').pop()),'info');
-  fetch(u,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:b?JSON.stringify(b):'{}'}).then(function(r){
+  fetch(u,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-Requested-With':'XMLHttpRequest'},body:b?JSON.stringify(b):'{}'}).then(function(r){
     traceLog('POST',u,r.ok?'ok:'+r.status:'err:'+r.status);
     return _hr(r);
   }).then(function(d){
@@ -689,14 +691,17 @@ document.addEventListener('keydown',function(e){
   if((e.ctrlKey||e.metaKey)&&e.key==='k'){e.preventDefault();var si=document.getElementById('section-search');if(si)si.focus();}
 });
 
-// CS drafts
+// CS drafts (wrapped to prevent page crash)
+try{
 fetch('/api/cs/drafts',{credentials:'same-origin'}).then(_hr).then(function(d){
   var b=document.getElementById('cs-badge'),p=document.getElementById('cs-drafts-preview'),dr=Array.isArray(d.drafts)?d.drafts:(d.cs_drafts||[]);
   if(b){if(dr.length>0){b.textContent=dr.length+' draft'+(dr.length>1?'s':'');b.className='tag tag-warn';}else{b.textContent='inbox clear';b.className='tag tag-ok';}}
   if(p&&dr.length>0){p.innerHTML=dr.slice(0,3).map(function(x){var m={};try{m=JSON.parse(x.metadata||'{}')}catch(e){}var f=m.original_sender||x.to||'?',s=m.original_subject||x.subject||'Email';return '<div style="background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.25);border-radius:8px;padding:10px 12px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:10px"><div><div style="font-size:12px;font-weight:600;color:#fbbf24">📬 '+s+'</div><div style="font-size:11px;color:#8b949e;margin-top:2px">From: '+f+'</div></div><a href="/outbox" style="font-size:12px;font-weight:600;color:#fbbf24;white-space:nowrap;border:1px solid rgba(251,191,36,.4);padding:4px 10px;border-radius:6px;background:rgba(251,191,36,.1)">Review →</a></div>';}).join('');}
 }).catch(function(){var b=document.getElementById('cs-badge');if(b){b.textContent='unavailable';b.className='tag tag-off';}});
+}catch(e){console.error('[INIT] CS drafts load failed:',e);}
 
-// Workflow tester
+// Workflow tester (wrapped)
+try{
 fetch('/api/qa/workflow/latest',{credentials:'same-origin'}).then(_hr).then(function(d){
   var b=document.getElementById('wf-badge'),p=document.getElementById('wf-latest-preview');
   if(!d||!d.score){if(b)b.textContent='no runs yet';return;}
@@ -706,6 +711,7 @@ fetch('/api/qa/workflow/latest',{credentials:'same-origin'}).then(_hr).then(func
     if(fails.length+warns.length>0){p.innerHTML=(fails.concat(warns)).slice(0,3).map(function(r){var ic=r.status==='fail'?'❌':'⚠️';return '<div style="background:rgba('+(r.status==='fail'?'248,113,113':'251,191,36')+', .08);border:1px solid rgba('+(r.status==='fail'?'248,113,113':'251,191,36')+', .25);border-radius:8px;padding:8px 12px;margin-bottom:6px;font-size:12px">'+ic+' <b>'+r.test+'</b>: '+r.message+(r.fix?'<div style="color:#fbbf24;font-size:11px;margin-top:3px">💡 '+r.fix+'</div>':'')+'</div>';}).join('');}
     else{p.innerHTML='<div style="color:#34d399;font-size:12px;padding:8px">✅ All tests passing</div>';}}
 }).catch(function(){var b=document.getElementById('wf-badge');if(b){b.textContent='unavailable';b.style.color='var(--tx2)';}});
+}catch(e){console.error('[INIT] Workflow tester load failed:',e);}
 
 function runWorkflowTests(){var btn=document.getElementById('wf-run-btn');if(btn){btn.disabled=true;btn.querySelector('.label').textContent='⏳ Running…';btn.classList.add('ld');}fetch('/api/qa/workflow',{method:'POST',credentials:'same-origin'}).then(_hr).then(function(d){var sc=d.score||0,col=sc>=90?'#34d399':sc>=70?'#fbbf24':'#f87171',bg=sc>=90?'rgba(52,211,153,.15)':sc>=70?'rgba(251,191,36,.15)':'rgba(248,113,113,.15)',b=document.getElementById('wf-badge');if(b){b.textContent=sc+'/100 '+d.grade;b.style.background=bg;b.style.color=col;}if(btn){btn.disabled=false;btn.querySelector('.label').textContent='▶ Run Now';btn.classList.remove('ld');}toast('Tests: '+sc+'/100 '+d.grade,sc>=70?'ok':'err');location.href='/qa/workflow';}).catch(function(){if(btn){btn.disabled=false;btn.querySelector('.label').textContent='▶ Run Now';btn.classList.remove('ld');}});}
 
@@ -767,7 +773,8 @@ function loadQBFinance(){
     var cuc=document.getElementById('qb-cust-ct');if(cuc)cuc.textContent=(fc.vendor_count||0)+' vendors';
   }).catch(function(e){console.error('[QB] Finance load failed:',e);});
 }
-loadFleet();setInterval(loadFleet,60000);
+try{loadFleet();}catch(e){console.error('[INIT] Fleet load failed:',e);}
+setInterval(function(){try{loadFleet();}catch(e){}},60000);
 setInterval(function(){var s=Math.floor((Date.now()-_plt)/1000),m=Math.floor(s/60),el=document.getElementById('uptime');if(el)el.textContent='Page: '+(m>0?m+'m ':'')+s%60+'s';},1000);
 </script>
 {{ brief_html|safe }}
