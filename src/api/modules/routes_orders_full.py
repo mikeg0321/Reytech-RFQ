@@ -263,14 +263,21 @@ def _render_order_detail(order, oid):
      <div id="upload-status" style="margin-left:8px;font-size:11px;color:var(--tx2);line-height:28px"></div>
     </div>"""
 
+    # Invoice items rows (for draft invoice section)
+    inv_items_rows = ""
+    for it in items:
+        inv_items_rows += f"""<tr>
+         <td>{it.get('description','')[:70]}</td>
+         <td>{it.get('part_number','')}</td>
+         <td style="text-align:center">{it.get('qty',0)}</td>
+         <td style="text-align:right">${it.get('unit_price',0):,.2f}</td>
+         <td style="text-align:right">${it.get('qty',0)*it.get('unit_price',0):,.2f}</td>
+        </tr>"""
+
     return render_page("order_detail.html", active_page="Orders",
-        oid=oid, order=order, rows=rows, items_count=items_count,
-        macro_cards=macro_cards, link_html=link_html, po_url=po_url,
-        invoice_section=invoice_section, payments_html=payments_html,
-        history_html=history_html, notes_html=notes_html,
-        status_options=status_options, source_tag=source_tag,
-        delivery_pct=delivery_pct, delivery_bar_color=delivery_bar_color,
-        total_str=total_str)
+        oid=oid, order=order, items_rows=items_rows, items=items,
+        qn=qn, institution=institution, st=st, status_cfg=status_cfg,
+        upload_section=upload_section, inv_items_rows=inv_items_rows)
 
 
 # ─── Order API Routes ──────────────────────────────────────────────────────
