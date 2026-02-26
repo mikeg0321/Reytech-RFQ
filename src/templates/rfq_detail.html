@@ -366,6 +366,23 @@
    <button type="submit" class="btn btn-sm btn-s" style="font-size:12px">Update</button>
   </form>
  </div>
+ {% if r.status in ('sent','generated','ready') %}
+ <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--bd)">
+  <div style="font-size:11px;font-weight:600;color:var(--tx2);margin-bottom:6px">Record Outcome</div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+   <button onclick="recordOutcome('won')" class="btn btn-s" style="font-size:11px;background:rgba(46,160,67,.15);color:var(--gn);border:1px solid rgba(46,160,67,.3)">🏆 Won</button>
+   <button onclick="recordOutcome('lost')" class="btn btn-s" style="font-size:11px;background:rgba(248,81,73,.15);color:var(--rd);border:1px solid rgba(248,81,73,.3)">❌ Lost</button>
+   <button onclick="recordOutcome('no_response')" class="btn btn-s" style="font-size:11px;background:rgba(255,193,7,.15);color:var(--yl);border:1px solid rgba(255,193,7,.3)">⏰ No Response</button>
+   <span id="outcome-status" style="font-size:11px;color:var(--tx2)"></span>
+  </div>
+ </div>
+ {% elif r.get('outcome') %}
+ <div style="margin-top:8px;font-size:11px;color:var(--tx2)">
+  Outcome: <b style="color:{% if r.outcome == 'won' %}var(--gn){% elif r.outcome == 'lost' %}var(--rd){% else %}var(--yl){% endif %}">{{r.outcome|upper}}</b>
+  {% if r.get('outcome_reason') %} — {{r.outcome_reason}}{% endif %}
+  {% if r.get('outcome_date') %} ({{r.outcome_date[:10]}}){% endif %}
+ </div>
+ {% endif %}
 </div>
 {% endif %}
 
@@ -627,6 +644,38 @@ function runAutoLookup(){
   },1000);
  }).catch(function(err){
   steps.innerHTML='Error starting lookup: '+err;
+ });
+}
+
+// Win/Loss Outcome Tracking
+function recordOutcome(outcome) {
+ var reasons = {
+  won: ['competitive_price','relationship','fast_response','product_match','sole_source','incumbent','other'],
+  lost: ['too_expensive','competitor_won','no_response','project_cancelled','budget_cut','wrong_product','slow_response','other'],
+  no_response: ['no_follow_up','buyer_unresponsive','project_delayed','other']
+ };
+ var reasonList = reasons[outcome] || ['other'];
+ var reason = prompt('Reason? Options: ' + reasonList.join(', '), reasonList[0]);
+ if (reason === null) return;
+ var notes = '';
+ if (outcome === 'lost') {
+  notes = prompt('Any additional notes? (competitor name, price, etc)', '') || '';
+ }
+ var status = document.getElementById('outcome-status');
+ status.textContent = '⏳ Recording...';
+ fetch('/api/rfq/'+RID+'/outcome', {
+  method: 'POST',
+  headers: {'Content-Type': 'application/json'},
+  body: JSON.stringify({outcome: outcome, reason: reason, notes: notes})
+ })
+ .then(function(r){return r.json()})
+ .then(function(d){
+  if (d.ok) {
+   status.innerHTML = '<span style="color:var(--gn)">✅ '+outcome.toUpperCase()+' recorded</span>';
+   setTimeout(function(){location.reload()}, 1000);
+  } else {
+   status.innerHTML = '<span style="color:var(--rd)">❌ '+(d.error||'Failed')+'</span>';
+  }
  });
 }
 
