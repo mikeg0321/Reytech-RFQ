@@ -139,11 +139,11 @@ def api_qb_cash_flow():
                                 "customer": inv.get("CustomerRef", {}).get("name", "?")})
 
         # Pipeline value
-        db_path = os.path.join(DATA_DIR, "rfq.db")
+        # rfq.db migrated to reytech.db via get_db()
         pipeline_value = 0
-        if os.path.exists(db_path):
+        if True:  # migrated to reytech.db
             try:
-                conn = sqlite3.connect(db_path)
+                from src.core.db import DB_PATH as _DB_PATH; conn = sqlite3.connect(_DB_PATH, timeout=10); conn.row_factory = sqlite3.Row
                 cur = conn.execute("SELECT SUM(total) FROM quotes WHERE status IN ('sent','quoted') AND total > 0")
                 row = cur.fetchone()
                 pipeline_value = float(row[0] or 0)
@@ -206,8 +206,8 @@ def api_qb_invoice_from_quote():
         if not qnum:
             return jsonify({"ok": False, "error": "quote_number required"})
 
-        db_path = os.path.join(DATA_DIR, "rfq.db")
-        conn = sqlite3.connect(db_path)
+        # rfq.db migrated to reytech.db via get_db()
+        from src.core.db import DB_PATH as _DB_PATH; conn = sqlite3.connect(_DB_PATH, timeout=10); conn.row_factory = sqlite3.Row
         conn.row_factory = sqlite3.Row
         quote = conn.execute("SELECT * FROM quotes WHERE quote_number=?", (qnum,)).fetchone()
         if not quote:
@@ -396,11 +396,11 @@ def api_qb_expense_summary():
 @auth_required
 def api_pipeline_quote_to_cash():
     """Full quote-to-cash pipeline with every quote's current stage."""
-    db_path = os.path.join(DATA_DIR, "rfq.db")
+    # rfq.db migrated to reytech.db via get_db()
     if not os.path.exists(db_path):
         return jsonify({"ok": False, "error": "No database"})
     try:
-        conn = sqlite3.connect(db_path)
+        from src.core.db import DB_PATH as _DB_PATH; conn = sqlite3.connect(_DB_PATH, timeout=10); conn.row_factory = sqlite3.Row
         conn.row_factory = sqlite3.Row
         quotes = conn.execute("""
             SELECT quote_number, institution, total, status, created_date, sent_date
@@ -434,11 +434,11 @@ def api_pipeline_quote_to_cash():
 @auth_required
 def api_pipeline_stale_quotes():
     """Quotes with no activity in 7+ days."""
-    db_path = os.path.join(DATA_DIR, "rfq.db")
+    # rfq.db migrated to reytech.db via get_db()
     if not os.path.exists(db_path):
         return jsonify({"ok": True, "stale": [], "count": 0})
     try:
-        conn = sqlite3.connect(db_path)
+        from src.core.db import DB_PATH as _DB_PATH; conn = sqlite3.connect(_DB_PATH, timeout=10); conn.row_factory = sqlite3.Row
         conn.row_factory = sqlite3.Row
         cutoff = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
         quotes = conn.execute("""
@@ -470,11 +470,11 @@ def api_pipeline_stale_quotes():
 @auth_required
 def api_pipeline_follow_up_queue():
     """Prioritized follow-up queue based on value and age."""
-    db_path = os.path.join(DATA_DIR, "rfq.db")
+    # rfq.db migrated to reytech.db via get_db()
     if not os.path.exists(db_path):
         return jsonify({"ok": True, "queue": []})
     try:
-        conn = sqlite3.connect(db_path)
+        from src.core.db import DB_PATH as _DB_PATH; conn = sqlite3.connect(_DB_PATH, timeout=10); conn.row_factory = sqlite3.Row
         conn.row_factory = sqlite3.Row
         quotes = conn.execute("""
             SELECT quote_number, institution, total, status, created_date, sent_date
@@ -507,7 +507,7 @@ def api_pipeline_follow_up_queue():
 def api_pipeline_revenue_goal():
     """$2M annual revenue goal tracker with monthly projections."""
     goal = 2_000_000
-    db_path = os.path.join(DATA_DIR, "rfq.db")
+    # rfq.db migrated to reytech.db via get_db()
     now = datetime.now()
     months_passed = now.month + (now.day / 30.0)
     months_left = 12 - months_passed
@@ -516,9 +516,9 @@ def api_pipeline_revenue_goal():
     pipeline_value = 0
     monthly_data = defaultdict(float)
 
-    if os.path.exists(db_path):
+    if True:  # migrated to reytech.db
         try:
-            conn = sqlite3.connect(db_path)
+            from src.core.db import DB_PATH as _DB_PATH; conn = sqlite3.connect(_DB_PATH, timeout=10); conn.row_factory = sqlite3.Row
             cur = conn.execute("SELECT SUM(total) FROM quotes WHERE status='won' AND total > 0")
             row = cur.fetchone()
             won_total = float(row[0] or 0)
@@ -561,11 +561,11 @@ def api_pipeline_revenue_goal():
 @auth_required
 def api_pipeline_conversion_funnel():
     """Stage-by-stage conversion funnel."""
-    db_path = os.path.join(DATA_DIR, "rfq.db")
+    # rfq.db migrated to reytech.db via get_db()
     if not os.path.exists(db_path):
         return jsonify({"ok": True, "funnel": {}})
     try:
-        conn = sqlite3.connect(db_path)
+        from src.core.db import DB_PATH as _DB_PATH; conn = sqlite3.connect(_DB_PATH, timeout=10); conn.row_factory = sqlite3.Row
         stages = {}
         for row in conn.execute("SELECT status, COUNT(*), SUM(total) FROM quotes GROUP BY status"):
             stages[row[0] or "unknown"] = {"count": row[1], "value": round(float(row[2] or 0), 2)}
@@ -594,11 +594,11 @@ def api_pipeline_conversion_funnel():
 @auth_required
 def api_pipeline_avg_deal_size():
     """Average deal size by agency and overall."""
-    db_path = os.path.join(DATA_DIR, "rfq.db")
+    # rfq.db migrated to reytech.db via get_db()
     if not os.path.exists(db_path):
         return jsonify({"ok": True, "overall": 0, "by_agency": {}})
     try:
-        conn = sqlite3.connect(db_path)
+        from src.core.db import DB_PATH as _DB_PATH; conn = sqlite3.connect(_DB_PATH, timeout=10); conn.row_factory = sqlite3.Row
         overall = conn.execute("SELECT AVG(total), COUNT(*) FROM quotes WHERE total > 0").fetchone()
         by_agency = {}
         for row in conn.execute("""
@@ -631,7 +631,7 @@ def api_catalog_margin_analysis():
     if not os.path.exists(db_path):
         return jsonify({"ok": True, "tiers": {}, "total": 0})
     try:
-        conn = sqlite3.connect(db_path)
+        from src.core.db import DB_PATH as _DB_PATH; conn = sqlite3.connect(_DB_PATH, timeout=10); conn.row_factory = sqlite3.Row
         conn.row_factory = sqlite3.Row
         products = conn.execute("""
             SELECT name, sell_price, cost_price, margin_pct, times_quoted, category
@@ -671,7 +671,7 @@ def api_catalog_top_quoted():
     if not os.path.exists(db_path):
         return jsonify({"ok": True, "items": []})
     try:
-        conn = sqlite3.connect(db_path)
+        from src.core.db import DB_PATH as _DB_PATH; conn = sqlite3.connect(_DB_PATH, timeout=10); conn.row_factory = sqlite3.Row
         conn.row_factory = sqlite3.Row
         items = conn.execute("""
             SELECT name, sell_price, cost_price, margin_pct, times_quoted, category, last_quoted
@@ -698,7 +698,7 @@ def api_catalog_quick_quote():
     if not os.path.exists(db_path):
         return jsonify({"ok": True, "matches": []})
     try:
-        conn = sqlite3.connect(db_path)
+        from src.core.db import DB_PATH as _DB_PATH; conn = sqlite3.connect(_DB_PATH, timeout=10); conn.row_factory = sqlite3.Row
         conn.row_factory = sqlite3.Row
         items = conn.execute("""
             SELECT name, sell_price, cost_price, margin_pct, category, item_number,
@@ -955,10 +955,10 @@ def api_data_quality_missing_data():
     """Find records with incomplete data."""
     issues = []
     # Check quotes with no total
-    db_path = os.path.join(DATA_DIR, "rfq.db")
-    if os.path.exists(db_path):
+    # rfq.db migrated to reytech.db via get_db()
+    if True:  # migrated to reytech.db
         try:
-            conn = sqlite3.connect(db_path)
+            from src.core.db import DB_PATH as _DB_PATH; conn = sqlite3.connect(_DB_PATH, timeout=10); conn.row_factory = sqlite3.Row
             no_total = conn.execute("SELECT COUNT(*) FROM quotes WHERE total IS NULL OR total = 0").fetchone()[0]
             no_inst = conn.execute("SELECT COUNT(*) FROM quotes WHERE institution IS NULL OR institution = ''").fetchone()[0]
             no_items = conn.execute("""
@@ -993,7 +993,7 @@ def api_data_quality_missing_data():
 @auth_required
 def api_data_quality_orphaned_quotes():
     """Find quotes not linked to any CRM contact."""
-    db_path = os.path.join(DATA_DIR, "rfq.db")
+    # rfq.db migrated to reytech.db via get_db()
     crm_path = os.path.join(DATA_DIR, "crm_contacts.json")
     if not os.path.exists(db_path):
         return jsonify({"ok": True, "orphaned": []})
@@ -1008,7 +1008,7 @@ def api_data_quality_orphaned_quotes():
                 if name:
                     crm_institutions.add(name)
 
-        conn = sqlite3.connect(db_path)
+        from src.core.db import DB_PATH as _DB_PATH; conn = sqlite3.connect(_DB_PATH, timeout=10); conn.row_factory = sqlite3.Row
         conn.row_factory = sqlite3.Row
         quotes = conn.execute("SELECT quote_number, institution, total, status FROM quotes").fetchall()
         conn.close()

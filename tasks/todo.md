@@ -63,7 +63,7 @@
 - [x] award_monitor.py: Converted 4 `conn = get_db()` to `with get_db() as conn:`
 - [x] scprs_universal_pull.py: Converted local get_db() to @contextmanager, fixed 5 call sites
 - [x] Early return paths in run_universal_pull now close connections
-- [ ] DEFERRED: Route modules (20+ direct connects) and db.py internals (40+ calls) — lower priority, no thread safety risk
+- [x] DONE: Route modules rfq.db direct connects migrated to reytech.db (19 refs in routes_features + routes_features2)
 
 ### S1.5 — Verification ✅
 - [x] Full compile check (90 files clean)

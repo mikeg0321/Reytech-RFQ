@@ -167,10 +167,10 @@ def api_qb_customer_ltv():
 def api_pipeline_sales_velocity():
     """Measure how fast deals move through the pipeline."""
     try:
-        db = os.path.join(DATA_DIR, "rfq.db")
+        # rfq.db migrated to reytech.db via get_db()
         if not os.path.exists(db):
             return jsonify({"ok": False, "error": "No database"})
-        conn = sqlite3.connect(db)
+        from src.core.db import DB_PATH as _DB_PATH; conn = sqlite3.connect(_DB_PATH, timeout=10); conn.row_factory = sqlite3.Row
         conn.row_factory = sqlite3.Row
         rows = conn.execute("""
             SELECT id, status, created_at, quoted_at, sent_at, won_at, lost_at
@@ -241,10 +241,10 @@ def api_pipeline_sales_velocity():
 def api_pipeline_weekly_summary():
     """This week's pipeline activity — quotes, wins, losses, revenue."""
     try:
-        db = os.path.join(DATA_DIR, "rfq.db")
+        # rfq.db migrated to reytech.db via get_db()
         if not os.path.exists(db):
             return jsonify({"ok": False, "error": "No database"})
-        conn = sqlite3.connect(db)
+        from src.core.db import DB_PATH as _DB_PATH; conn = sqlite3.connect(_DB_PATH, timeout=10); conn.row_factory = sqlite3.Row
         conn.row_factory = sqlite3.Row
         week_start = (datetime.now() - timedelta(days=datetime.now().weekday())).strftime("%Y-%m-%d")
 
@@ -360,10 +360,10 @@ def api_intel_agency_penetration():
                 agencies[agency]["has_phone"] += 1
 
         # Count quotes per agency from DB
-        db = os.path.join(DATA_DIR, "rfq.db")
+        # rfq.db migrated to reytech.db via get_db()
         quote_counts = {}
-        if os.path.exists(db):
-            conn = sqlite3.connect(db)
+        if True:  # migrated to reytech.db
+            from src.core.db import DB_PATH as _DB_PATH; conn = sqlite3.connect(_DB_PATH, timeout=10); conn.row_factory = sqlite3.Row
             conn.row_factory = sqlite3.Row
             rows = conn.execute("SELECT agency, COUNT(*) as c FROM rfq_records WHERE agency IS NOT NULL GROUP BY agency").fetchall()
             conn.close()
@@ -456,10 +456,10 @@ def api_intel_competitive_pricing():
 def api_quotes_auto_follow_up():
     """Quotes sent 3+ days ago with no response — need follow-up."""
     try:
-        db = os.path.join(DATA_DIR, "rfq.db")
+        # rfq.db migrated to reytech.db via get_db()
         if not os.path.exists(db):
             return jsonify({"ok": False, "error": "No database"})
-        conn = sqlite3.connect(db)
+        from src.core.db import DB_PATH as _DB_PATH; conn = sqlite3.connect(_DB_PATH, timeout=10); conn.row_factory = sqlite3.Row
         conn.row_factory = sqlite3.Row
         cutoff = (datetime.now() - timedelta(days=3)).isoformat()
         rows = conn.execute("""
@@ -550,10 +550,10 @@ def api_quotes_expiring():
 def api_intel_revenue_by_agency():
     """Revenue breakdown by agency from quotes and QB data."""
     try:
-        db = os.path.join(DATA_DIR, "rfq.db")
+        # rfq.db migrated to reytech.db via get_db()
         if not os.path.exists(db):
             return jsonify({"ok": False, "error": "No database"})
-        conn = sqlite3.connect(db)
+        from src.core.db import DB_PATH as _DB_PATH; conn = sqlite3.connect(_DB_PATH, timeout=10); conn.row_factory = sqlite3.Row
         conn.row_factory = sqlite3.Row
         rows = conn.execute("""
             SELECT agency, status, total_amount
@@ -612,9 +612,9 @@ def api_dashboard_morning_brief():
 
     # Pipeline stats
     try:
-        db = os.path.join(DATA_DIR, "rfq.db")
-        if os.path.exists(db):
-            conn = sqlite3.connect(db)
+        # rfq.db migrated to reytech.db via get_db()
+        if True:  # migrated to reytech.db
+            from src.core.db import DB_PATH as _DB_PATH; conn = sqlite3.connect(_DB_PATH, timeout=10); conn.row_factory = sqlite3.Row
             conn.row_factory = sqlite3.Row
             today = datetime.now().strftime("%Y-%m-%d")
             week_ago = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
@@ -701,10 +701,10 @@ def api_dashboard_morning_brief():
 def api_pipeline_po_match():
     """Match POs to quotes — find quotes that became orders."""
     try:
-        db = os.path.join(DATA_DIR, "rfq.db")
+        # rfq.db migrated to reytech.db via get_db()
         if not os.path.exists(db):
             return jsonify({"ok": False, "error": "No database"})
-        conn = sqlite3.connect(db)
+        from src.core.db import DB_PATH as _DB_PATH; conn = sqlite3.connect(_DB_PATH, timeout=10); conn.row_factory = sqlite3.Row
         conn.row_factory = sqlite3.Row
 
         # Get won/ordered quotes
@@ -924,9 +924,9 @@ def api_system_heartbeat():
 
     # Database
     try:
-        db = os.path.join(DATA_DIR, "rfq.db")
-        if os.path.exists(db):
-            conn = sqlite3.connect(db)
+        # rfq.db migrated to reytech.db via get_db()
+        if True:  # migrated to reytech.db
+            from src.core.db import DB_PATH as _DB_PATH; conn = sqlite3.connect(_DB_PATH, timeout=10); conn.row_factory = sqlite3.Row
             ct = conn.execute("SELECT COUNT(*) FROM rfq_records").fetchone()[0]
             conn.close()
             results["systems"]["database"] = {"status": "ok", "rfq_count": ct}
@@ -998,8 +998,8 @@ def api_quotes_draft_follow_up():
         if not rfq_id:
             return jsonify({"ok": False, "error": "rfq_id required"})
 
-        db = os.path.join(DATA_DIR, "rfq.db")
-        conn = sqlite3.connect(db)
+        # rfq.db migrated to reytech.db via get_db()
+        from src.core.db import DB_PATH as _DB_PATH; conn = sqlite3.connect(_DB_PATH, timeout=10); conn.row_factory = sqlite3.Row
         conn.row_factory = sqlite3.Row
         row = conn.execute("SELECT * FROM rfq_records WHERE id = ?", (rfq_id,)).fetchone()
         conn.close()
