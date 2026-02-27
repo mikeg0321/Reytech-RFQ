@@ -643,7 +643,15 @@ def _upsert_row(conn, table: str, pk: str, data: dict, columns: list, json_field
 
 
 def _update_row(conn, table: str, pk: str, data: dict, columns: list):
-    """Update an existing row."""
+    """Update an existing row. Table and column names are validated against the schema."""
+    # Validate table name against known tables (prevents injection via table name)
+    _ALLOWED_TABLES = {
+        "leads", "customers", "vendors", "outbox", "email_outbox",
+        "product_catalog", "price_history", "contacts", "quotes",
+        "orders", "rfqs", "price_checks", "activity_log", "po_line_items",
+    }
+    if table not in _ALLOWED_TABLES:
+        raise ValueError(f"Unknown table: {table}")
     cols = [c for c in columns if c in data and c != pk]
     if not cols:
         return

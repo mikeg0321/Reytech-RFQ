@@ -23,6 +23,7 @@ Optional: QB_SANDBOX=true for development
 
 import json
 import os
+import re
 import time
 import logging
 import base64
@@ -403,6 +404,10 @@ def get_recent_purchase_orders(days_back: int = 30) -> list:
         return []
 
     since = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
+    # Validate date format to prevent any injection via days_back manipulation
+    if not re.match(r"^\d{4}-\d{2}-\d{2}$", since):
+        log.error("Invalid date format for QB PO query: %s", since)
+        return []
     raw = _qb_query(
         f"SELECT * FROM PurchaseOrder WHERE MetaData.CreateTime >= '{since}' "
         f"ORDERBY MetaData.CreateTime DESC MAXRESULTS 100"
@@ -462,6 +467,9 @@ def fetch_invoices(status: str = "all", days_back: int = 90,
             pass
 
     cutoff = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
+    if not re.match(r"^\d{4}-\d{2}-\d{2}$", cutoff):
+        log.error("Invalid date format for QB Invoice query: %s", cutoff)
+        return []
     query = f"SELECT * FROM Invoice WHERE TxnDate >= '{cutoff}' ORDERBY TxnDate DESC MAXRESULTS 200"
     raw = _qb_query(query)
 
@@ -882,6 +890,9 @@ def get_ar_aging() -> Optional[dict]:
 def get_recent_payments(days_back: int = 30) -> list:
     """Fetch recent payments received."""
     since = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
+    if not re.match(r"^\d{4}-\d{2}-\d{2}$", since):
+        log.error("Invalid date format for QB Payment query: %s", since)
+        return []
     query = f"SELECT * FROM Payment WHERE TxnDate >= '{since}' ORDERBY TxnDate DESC MAXRESULTS 50"
     payments = _qb_query(query)
     return [{

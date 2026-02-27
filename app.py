@@ -32,7 +32,13 @@ def create_app():
         static_folder=os.path.join(_app_dir, "src", "static"),
         static_url_path="/static",
     )
-    app.secret_key = os.environ.get("SECRET_KEY", "reytech-rfq-2026")
+    _secret = os.environ.get("SECRET_KEY")
+    if not _secret:
+        raise RuntimeError(
+            "SECRET_KEY environment variable is required. "
+            "Set it in Railway: Settings → Variables → SECRET_KEY = <random 32+ char string>"
+        )
+    app.secret_key = _secret
 
     # ── Persistent database init ──────────────────────────────────────────────
     # ── Product catalog init ──────────────────────────────────────────────────

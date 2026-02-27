@@ -1002,10 +1002,15 @@ def get_vendor_orders(limit=50, status=None) -> list:
     try:
         from src.core.db import get_db
         with get_db() as conn:
-            where = f"WHERE status='{status}'" if status else ""
-            rows = conn.execute(
-                f"SELECT * FROM vendor_orders {where} ORDER BY submitted_at DESC LIMIT ?", (limit,)
-            ).fetchall()
+            if status:
+                rows = conn.execute(
+                    "SELECT * FROM vendor_orders WHERE status=? ORDER BY submitted_at DESC LIMIT ?",
+                    (status, limit)
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM vendor_orders ORDER BY submitted_at DESC LIMIT ?", (limit,)
+                ).fetchall()
             results = []
             for r in rows:
                 row = dict(r)

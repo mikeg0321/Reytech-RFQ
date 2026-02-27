@@ -136,7 +136,46 @@ bp = Blueprint("dashboard", __name__)
 import time as _time
 
 @bp.before_request
-def _log_request_start():
+def _global_auth_guard():
+    """Global auth guard — every request must authenticate except allowlisted paths."""
+    # ── Allowlist: paths that don't require auth ──
+    _path = request.path
+    if (_path.startswith("/static/") or
+        _path.startswith("/api/email/track/") or       # Email open/click tracking pixels
+        _path in ("/health", "/api/health", "/favicon.ico", "/login",
+                   "/api/qb/callback",                  # QuickBooks OAuth callback
+                   "/api/voice/webhook",                # Twilio webhook
+                   "/api/build")):                      # Build info (low risk)
+        pass  # skip auth
+    else:
+        # Rate limit auth attempts
+        auth_key = f"auth:{request.remote_addr}"
+        if not _check_rate_limit(auth_key, RATE_LIMIT_AUTH_MAX):
+            return Response("Rate limited — too many auth attempts", 429)
+        auth = request.authorization
+        if not auth or not check_auth(auth.username, auth.password):
+            log.warning("AUTH DENIED: %s %s from %s", request.method, _path, request.remote_addr)
+            try:
+                from src.core.security import _log_audit_internal
+                _log_audit_internal("auth_denied", f"{request.method} {_path} from {request.remote_addr}")
+            except Exception:
+                pass
+            return Response(
+                "🔒 Reytech RFQ Dashboard — Login Required",
+                401, {"WWW-Authenticate": 'Basic realm="Reytech RFQ Dashboard"'})
+    # ── CSRF: Origin check for state-changing requests ──
+    if request.method in ("POST", "PUT", "DELETE") and not _path.startswith("/api/voice/webhook"):
+        origin = request.headers.get("Origin", "")
+        referer = request.headers.get("Referer", "")
+        host = request.host_url.rstrip("/")
+        # Allow: same-origin requests, or JSON API with Basic Auth
+        is_same_origin = (origin == host) or (not origin and referer.startswith(host))
+        is_json_api = request.content_type and "json" in request.content_type
+        if not is_same_origin and not is_json_api:
+            log.warning("CSRF BLOCKED: %s %s origin=%s referer=%s", request.method, _path, origin, referer)
+            return Response(json.dumps({"ok": False, "error": "CSRF validation failed"}),
+                            403, {"Content-Type": "application/json"})
+    # ── Request timing ──
     request._start_time = _time.time()
 
 @bp.after_request
