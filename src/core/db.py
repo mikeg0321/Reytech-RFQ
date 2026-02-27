@@ -1241,7 +1241,8 @@ def _boot_sync_pcs():
             if not rows:
                 return
             restored = {}
-            for r in rows:
+            for row in rows:
+                r = dict(row)
                 pc_id = r["id"]
                 items = []
                 try:

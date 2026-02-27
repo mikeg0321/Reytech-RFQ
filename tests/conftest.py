@@ -92,21 +92,25 @@ class AuthenticatedClient:
         self._client = client
         self._headers = headers
 
+    def _merge(self, kwargs):
+        h = dict(self._headers)
+        h.update(kwargs.pop("headers", {}))
+        # Set Origin for CSRF bypass in tests
+        h.setdefault("Origin", "http://localhost")
+        kwargs["headers"] = h
+        return kwargs
+
     def get(self, *args, **kwargs):
-        kwargs.setdefault("headers", {}).update(self._headers)
-        return self._client.get(*args, **kwargs)
+        return self._client.get(*args, **self._merge(kwargs))
 
     def post(self, *args, **kwargs):
-        kwargs.setdefault("headers", {}).update(self._headers)
-        return self._client.post(*args, **kwargs)
+        return self._client.post(*args, **self._merge(kwargs))
 
     def put(self, *args, **kwargs):
-        kwargs.setdefault("headers", {}).update(self._headers)
-        return self._client.put(*args, **kwargs)
+        return self._client.put(*args, **self._merge(kwargs))
 
     def delete(self, *args, **kwargs):
-        kwargs.setdefault("headers", {}).update(self._headers)
-        return self._client.delete(*args, **kwargs)
+        return self._client.delete(*args, **self._merge(kwargs))
 
 
 @pytest.fixture

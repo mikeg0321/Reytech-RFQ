@@ -3238,7 +3238,23 @@ def api_route_map():
 
 # Cross-module globals: defined in later modules, used by earlier ones.
 # Pre-define defaults so modules loaded first can reference them safely.
-INTEL_AVAILABLE = False  # Set True by routes_intel if sales_intel import succeeds
+# These get overwritten to True when the defining module loads successfully.
+INTEL_AVAILABLE = False
+PREDICT_AVAILABLE = False
+QB_AVAILABLE = False
+GROWTH_AVAILABLE = False
+OUTREACH_AVAILABLE = False
+VOICE_AVAILABLE = False
+CAMPAIGNS_AVAILABLE = False
+SCANNER_AVAILABLE = False
+LEADGEN_AVAILABLE = False
+ITEM_ID_AVAILABLE = False
+REPLY_ANALYZER_AVAILABLE = False
+QA_AVAILABLE = False
+MANAGER_AVAILABLE = False
+ORCHESTRATOR_AVAILABLE = False
+CATALOG_AVAILABLE = False
+_WF_AVAILABLE = False
 
 def _load_route_module(module_name: str):
     """

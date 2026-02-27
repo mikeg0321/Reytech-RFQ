@@ -140,7 +140,7 @@ def _trace_from_rfq(rfq_id: str, lineage: dict):
     
     with get_db() as conn:
         rfq = conn.execute(
-            "SELECT * FROM rfqs WHERE id = ? OR solicitation_number = ?",
+            "SELECT * FROM rfqs WHERE id = ? OR rfq_number = ?",
             (rfq_id, rfq_id)
         ).fetchone()
         
@@ -148,15 +148,15 @@ def _trace_from_rfq(rfq_id: str, lineage: dict):
             r = dict(rfq)
             lineage["pipeline"]["rfq"] = {
                 "id": r.get("id"),
-                "solicitation_number": r.get("solicitation_number"),
+                "rfq_number": r.get("rfq_number"),
                 "status": r.get("status"),
                 "source": r.get("source"),
-                "department": r.get("department"),
-                "due_date": r.get("due_date"),
-                "created_at": r.get("created_at"),
+                "agency": r.get("agency"),
+                "institution": r.get("institution"),
+                "received_at": r.get("received_at"),
             }
-            _add_event(lineage, "rfq_received", r.get("created_at"),
-                       f"RFQ received: {r.get('solicitation_number')} from {r.get('source', 'unknown')}")
+            _add_event(lineage, "rfq_received", r.get("received_at"),
+                       f"RFQ received: {r.get('rfq_number')} from {r.get('source', 'unknown')}")
             
             # Trace forward to quotes
             quotes = conn.execute(
@@ -264,13 +264,13 @@ def _trace_rfq_by_id(rfq_id: str, lineage: dict, conn):
         r = dict(rfq)
         lineage["pipeline"]["rfq"] = {
             "id": r.get("id"),
-            "solicitation_number": r.get("solicitation_number"),
+            "rfq_number": r.get("rfq_number"),
             "status": r.get("status"),
             "source": r.get("source"),
-            "created_at": r.get("created_at"),
+            "received_at": r.get("received_at"),
         }
-        _add_event(lineage, "rfq_received", r.get("created_at"),
-                   f"RFQ: {r.get('solicitation_number')}")
+        _add_event(lineage, "rfq_received", r.get("received_at"),
+                   f"RFQ: {r.get('rfq_number')}")
 
 
 def _trace_pc_by_id(pc_id: str, lineage: dict, conn):
