@@ -244,17 +244,42 @@
 {% if r.status in ('generated','sent','won','lost') and r.output_files %}
 <div class="card">
  <div style="display:flex;justify-content:space-between;align-items:center">
-  <div class="card-t" style="margin-bottom:0">📦 Generated Package</div>
-  <form method="POST" action="/rfq/{{rid}}/reopen" style="display:inline">
-   <button type="submit" class="btn btn-sm" style="background:var(--wn);color:#000;font-size:12px" onclick="return confirm('Reopen this RFQ for editing?')">✏️ Reopen for Editing</button>
-  </form>
+  <div class="card-t" style="margin-bottom:0">📦 Generated Package ({{ r.output_files|length }} files)</div>
+  <div style="display:flex;gap:6px">
+   {% if r.status in ('sent','generated') %}
+   <form method="POST" action="/rfq/{{rid}}/reopen" style="display:inline">
+    <button type="submit" class="btn btn-sm" style="background:var(--wn);color:#000;font-size:12px" onclick="return confirm('Reopen this RFQ for editing? You can re-generate the package after making changes.')">✏️ Reopen for Editing</button>
+   </form>
+   {% endif %}
+   <button class="btn btn-sm btn-s" style="font-size:12px" onclick="regeneratePackage()">🔄 Regenerate</button>
+  </div>
  </div>
- <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px">
+ <div style="display:flex;flex-direction:column;gap:6px;margin-top:12px">
   {% for f in r.output_files %}
-  <a href="/dl/{{rid}}/{{f}}" class="btn btn-s" target="_blank" style="font-size:13px;padding:8px 14px">📄 {{f}}</a>
+  <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px">
+   <span style="font-size:16px">{% if '703B' in f %}📝{% elif '704B' in f %}📊{% elif 'BidPackage' in f %}📋{% elif 'Quote' in f %}💰{% elif 'OBS' in f or '1600' in f %}🌾{% else %}📄{% endif %}</span>
+   <span style="flex:1;font-size:13px;color:var(--tx)">{{f}}</span>
+   <a href="#" onclick="previewPdf('/api/pricecheck/view-pdf/{{f}}','{{f}}');return false" class="btn btn-sm btn-s" style="font-size:11px;padding:4px 8px">👁️ View</a>
+   <a href="/dl/{{rid}}/{{f}}" class="btn btn-sm btn-s" style="font-size:11px;padding:4px 8px">⬇️ Download</a>
+  </div>
   {% endfor %}
  </div>
 </div>
+{% elif r.status in ('generated','sent','won','lost') %}
+<!-- No output_files in memory — JS will load from DB via rfq-files-card above -->
+<div class="card">
+ <div class="card-t">📦 Generated Package</div>
+ <div style="color:var(--tx2);font-size:13px;padding:8px 0">
+  Loading files from database... <span style="font-size:11px">(Files are preserved across deployments)</span>
+ </div>
+ <div style="margin-top:8px">
+  <form method="POST" action="/rfq/{{rid}}/reopen" style="display:inline">
+   <button type="submit" class="btn btn-sm" style="background:var(--wn);color:#000;font-size:12px" onclick="return confirm('Reopen this RFQ for editing?')">✏️ Reopen for Editing</button>
+  </form>
+  <button class="btn btn-sm btn-s" style="font-size:12px" onclick="regeneratePackage()">🔄 Regenerate</button>
+ </div>
+</div>
+{% endif %}
 
 <!-- PDF Preview Modal -->
 <div id="pdfPreviewModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:1100;padding:20px" onclick="if(event.target===this)this.style.display='none'">
@@ -273,6 +298,7 @@
 </div>
 
 <!-- Email Composer with Template Selector -->
+{% if r.status in ('generated','sent','won','lost') %}
 <div class="card">
  <div class="card-t" style="font-size:15px">📧 Email Composer</div>
  
@@ -757,6 +783,16 @@ function fillBidPackage(){
   btn.disabled=false;btn.textContent='📋 Fill All Forms';
   alert('Error: '+e.message);
  });
+}
+
+function regeneratePackage(){
+ if(!confirm('Regenerate the full RFQ package?\n\nThis will re-generate all forms (703B, 704B, Bid Package, Quote) with current data.'))return;
+ // Submit the generate form
+ var form=document.createElement('form');
+ form.method='POST';
+ form.action='/rfq/'+RID+'/generate-package';
+ document.body.appendChild(form);
+ form.submit();
 }
 
 recalc();

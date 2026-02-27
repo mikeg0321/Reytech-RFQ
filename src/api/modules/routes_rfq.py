@@ -479,6 +479,26 @@ def detail(rid):
         rfqs[rid] = r
         save_rfqs(rfqs)
     
+    # ── Restore output_files from DB if empty (post-redeploy) ──
+    if not r.get("output_files") and r.get("status") in ("generated", "sent", "won", "lost"):
+        db_gen_files = list_rfq_files(rid, category="generated")
+        if db_gen_files:
+            r["output_files"] = [f["filename"] for f in db_gen_files]
+            # Also restore files to disk for download
+            for db_f in db_gen_files:
+                fname = db_f.get("filename", "")
+                sol = r.get("solicitation_number", rid)
+                restore_dir = os.path.join(OUTPUT_DIR, sol)
+                restore_path = os.path.join(restore_dir, fname)
+                if not os.path.exists(restore_path):
+                    full_f = get_rfq_file(db_f["id"])
+                    if full_f and full_f.get("data"):
+                        os.makedirs(restore_dir, exist_ok=True)
+                        with open(restore_path, "wb") as _fw:
+                            _fw.write(full_f["data"])
+            rfqs[rid] = r
+            save_rfqs(rfqs)
+    
     return render_page("rfq_detail.html", active_page="Home", r=r, rid=rid)
 
 

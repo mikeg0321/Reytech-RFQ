@@ -1113,6 +1113,44 @@ def quotes_list():
 
 @bp.route("/quote/<qn>")
 @auth_required
+def _get_package_files(qt, source_link):
+    """Get all generated package files from the source RFQ/PC for display on quote detail."""
+    package = []  # list of {filename, download_url, view_url, icon}
+    try:
+        source_rid = qt.get("source_rfq_id", "")
+        if not source_rid and source_link and "/rfq/" in source_link:
+            source_rid = source_link.split("/rfq/")[-1]
+        if source_rid:
+            from src.api.modules.routes_rfq import load_rfqs
+            rfqs = load_rfqs()
+            r = rfqs.get(source_rid)
+            if r and r.get("output_files"):
+                for f in r["output_files"]:
+                    icon = "📝" if "703B" in f else "📊" if "704B" in f else "📋" if "BidPackage" in f else "💰" if "Quote" in f else "📄"
+                    package.append({
+                        "filename": f,
+                        "download_url": f"/dl/{source_rid}/{f}",
+                        "view_url": f"/api/pricecheck/view-pdf/{f}",
+                        "icon": icon,
+                    })
+        # Also try DB files if output_files was empty
+        if not package and source_rid:
+            from src.api.modules.routes_rfq import list_rfq_files
+            db_files = list_rfq_files(source_rid, category="generated")
+            for db_f in db_files:
+                f = db_f.get("filename", "")
+                icon = "📝" if "703B" in f else "📊" if "704B" in f else "📋" if "BidPackage" in f else "💰" if "Quote" in f else "📄"
+                package.append({
+                    "filename": f,
+                    "download_url": f"/dl/{source_rid}/{f}",
+                    "view_url": f"/api/pricecheck/view-pdf/{f}",
+                    "icon": icon,
+                })
+    except Exception:
+        pass
+    return package
+
+
 def quote_detail(qn):
     """Dedicated quote detail page."""
     if not QUOTE_GEN_AVAILABLE:
@@ -1290,6 +1328,7 @@ def quote_detail(qn):
         revision_count=revision_count, follow_up_count=follow_up_count,
         items=items, items_html=items_html, source_link=source_link, source_label=source_label,
         history_html=history_html, action_btns=action_btns,
+        package_files=_get_package_files(qt, source_link),
     )
 
 

@@ -75,6 +75,24 @@
     </div>
     {% endif %}
 
+    <!-- Full Package Files (from source RFQ) -->
+    {% if package_files %}
+    <div class="card" style="margin-bottom:14px">
+     <div class="card-t">📦 Full Package ({{ package_files|length }} files)</div>
+     <div style="display:flex;flex-direction:column;gap:6px">
+      {% for pf in package_files %}
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px">
+       <span style="font-size:16px">{{ pf.icon }}</span>
+       <span style="flex:1;font-size:13px;color:var(--tx)">{{ pf.filename }}</span>
+       <a href="{{ pf.view_url }}" target="_blank" class="btn btn-sm btn-s" style="font-size:11px;padding:4px 8px">👁️ View</a>
+       <a href="{{ pf.download_url }}" class="btn btn-sm btn-s" style="font-size:11px;padding:4px 8px">⬇️ Download</a>
+      </div>
+      {% endfor %}
+     </div>
+     {% if source_link %}<div style="margin-top:8px;font-size:12px;color:var(--tx2)"><a href="{{ source_link }}" style="color:var(--ac)">View full RFQ detail →</a></div>{% endif %}
+    </div>
+    {% endif %}
+
     <!-- Line Items -->
     <div class="card">
      <div class="card-t">Line Items ({{ items|length }} item{{ "s" if items|length != 1 else "" }})</div>

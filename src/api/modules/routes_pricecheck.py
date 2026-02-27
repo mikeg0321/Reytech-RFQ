@@ -1829,10 +1829,50 @@ def api_clear_queue():
 def download(rid, fname):
     rfqs = load_rfqs()
     r = rfqs.get(rid)
-    if not r: return redirect("/")
-    p = os.path.join(OUTPUT_DIR, r["solicitation_number"], fname)
-    if os.path.exists(p): return send_file(p, as_attachment=True)
-    flash("File not found", "error"); return redirect(f"/rfq/{rid}")
+    sol = r["solicitation_number"] if r else rid
+    safe = os.path.basename(fname)
+    
+    # Search filesystem first (multiple possible locations)
+    for search_root in [
+        os.path.join(OUTPUT_DIR, sol),
+        os.path.join(OUTPUT_DIR, rid),
+        os.path.join(DATA_DIR, "output", sol),
+        OUTPUT_DIR,
+        DATA_DIR,
+    ]:
+        if os.path.isdir(search_root):
+            candidate = os.path.join(search_root, safe)
+            if os.path.exists(candidate):
+                return send_file(candidate, as_attachment=True, download_name=safe)
+            # Walk subdirs
+            for root, dirs, files in os.walk(search_root):
+                if safe in files:
+                    return send_file(os.path.join(root, safe), as_attachment=True, download_name=safe)
+    
+    # Fallback: check DB (rfq_files table — survives redeploys)
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT data, filename FROM rfq_files WHERE (rfq_id=? OR rfq_id=?) AND filename=? ORDER BY id DESC LIMIT 1",
+                (rid, sol, safe)).fetchone()
+            if not row:
+                # Try broader match — filename only
+                row = conn.execute(
+                    "SELECT data, filename FROM rfq_files WHERE filename=? ORDER BY id DESC LIMIT 1",
+                    (safe,)).fetchone()
+            if row and row["data"]:
+                restore_dir = os.path.join(OUTPUT_DIR, sol or rid, "_restored")
+                os.makedirs(restore_dir, exist_ok=True)
+                restore_path = os.path.join(restore_dir, safe)
+                with open(restore_path, "wb") as _fw:
+                    _fw.write(row["data"])
+                return send_file(restore_path, as_attachment=True, download_name=safe)
+    except Exception as _e:
+        log.debug("DB file lookup failed for %s: %s", safe, _e)
+    
+    flash("File not found", "error")
+    return redirect(f"/rfq/{rid}")
 
 
 @bp.route("/api/scprs/<rid>")
