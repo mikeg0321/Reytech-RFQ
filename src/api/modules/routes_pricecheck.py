@@ -33,12 +33,14 @@ def _pricecheck_detail_inner(pcid):
     if not pc:
         flash("Price Check not found", "error"); return redirect("/")
 
-    items = pc.get("items", [])
-    header = pc.get("parsed", {}).get("header", {})
+    items = pc.get("items") or []
+    header = (pc.get("parsed") or {}).get("header") or {}
 
     items_html = ""
     for idx, item in enumerate(items):
-        p = item.get("pricing", {})
+        if not isinstance(item, dict):
+            item = {"description": str(item), "qty": 1, "pricing": {}}
+        p = item.get("pricing") or {}
         # Clean description for display (strip font specs, dimensions, etc.)
         # ONLY auto-clean on first load (when description_raw hasn't been set yet).
         # Once description_raw exists, the user may have edited description — don't overwrite.
@@ -131,8 +133,8 @@ def _pricecheck_detail_inner(pcid):
 
         # ── Unified Sources column: all price sources as compact chips ──
         sources = []  # list of (price, label, url, color, is_preferred)
-        known_supplier = item.get("item_supplier", "").lower()  # supplier from pasted URL
-        cat_best_sup = p.get("catalog_best_supplier", "").lower()
+        known_supplier = (item.get("item_supplier") or "").lower()  # supplier from pasted URL
+        cat_best_sup = (p.get("catalog_best_supplier") or "").lower()
 
         if scprs_cost:
             scprs_conf_str = f" ({scprs_conf:.0%})" if scprs_conf else ""
@@ -184,7 +186,7 @@ def _pricecheck_detail_inner(pcid):
         source_html = '<div style="display:flex;flex-wrap:wrap;gap:3px">' + ''.join(source_chips) + '</div>' if source_chips else '<span style="color:#484f58;font-size:11px">No sources</span>'
 
         # Per-item notes
-        item_notes = item.get("notes", "")
+        item_notes = item.get("notes") or ""
         notes_escaped = item_notes.replace('"', '&quot;').replace('<', '&lt;').replace('>', '&gt;')
 
         # No-bid state
@@ -223,7 +225,7 @@ def _pricecheck_detail_inner(pcid):
          <td style="text-align:center;font-weight:600;font-size:13px;color:#8b949e;font-family:'JetBrains Mono',monospace">{line_num}</td>
          <td><input type="text" name="itemnum_{idx}" value="{mfg_display}" class="text-in" style="width:80px;text-align:center;font-weight:600;font-size:12px;font-family:'JetBrains Mono',monospace;padding:6px 4px" placeholder="MFG#" onblur="handleMfgInput({idx}, this)"></td>
          <td><input type="number" name="qty_{idx}" value="{qty}" class="num-in sm" style="width:55px" onchange="recalcPC()"></td>
-         <td><input type="text" name="uom_{idx}" value="{item.get('uom','EA').upper()}" class="text-in" style="width:45px;text-transform:uppercase;text-align:center;font-weight:600"></td>
+         <td><input type="text" name="uom_{idx}" value="{(item.get('uom') or 'EA').upper()}" class="text-in" style="width:45px;text-transform:uppercase;text-align:center;font-weight:600"></td>
          <td><textarea name="desc_{idx}" class="text-in" style="width:100%;min-height:38px;resize:vertical;font-family:inherit;font-size:13px;line-height:1.4;padding:6px 8px" title="{raw_desc.replace('"','&quot;').replace('<','&lt;')}" oninput="detectDescUrl({idx},this)" placeholder="Enter description or paste URL">{display_desc.replace('&','&amp;').replace('<','&lt;').replace('>','&gt;')}</textarea></td>
          <td style="text-align:center"><input type="checkbox" name="substitute_{idx}" {sub_checked} style="width:16px;height:16px;cursor:pointer;accent-color:#d29922" title="Check if quoting a replacement/substitute item"></td>
          <td style="min-width:180px">
