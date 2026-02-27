@@ -238,3 +238,12 @@ logs showing what data entered each function.
 **Rule**: Critical flows (save-prices, fill_ams704, catalog enrichment) must
 log their inputs, outputs, and skip reasons. Add /diagnose endpoints that
 check data integrity (row_index, pricing, parsed dict, catalog DB state).
+
+## L21: Python 3.12+ importlib _check_name_wrapper breaks globals injection
+**Pattern**: _load_route_module injects dashboard globals into route modules via
+`mod.__dict__.update(_shared)`. This overwrites `__name__`, `__spec__`, `__file__`
+with dashboard's values. Python 3.12 added strict name checking in
+`_check_name_wrapper` → "loader cannot handle" error.
+**Rule**: When injecting globals into a module before exec_module(), save and
+restore `__name__`, `__spec__`, `__file__` after the update. The loader
+checks these against the spec and will reject mismatches.

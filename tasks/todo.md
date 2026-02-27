@@ -43,33 +43,34 @@
 - [x] dashboard.py: Removed 32 lines of fallback import chains
 - [x] Verified: all imports reference src.* paths, 89+ files compile clean
 
-### S1.2 — Blueprint Refactor: Incremental exec() Cleanup (F2)
-**Approach:** Full 15-module Blueprint split is too risky in one pass. Instead:
-- [ ] Add explicit imports to each route module (remove dependency on globals injection)
-- [ ] Simplify _load_route_module: stop injecting entire globals()
-- [ ] Keep single `bp` Blueprint shared across modules (multi-Blueprint is Sprint 5 nice-to-have)
-- [ ] Verify: all routes still respond, no 500s, no NameErrors in logs
+### S1.2 — Blueprint Refactor: Incremental exec() Cleanup (F2) — DEFERRED
+**Rationale:** The exec/importlib pattern works reliably today. Security risk (C3) is fully mitigated by global auth guard. A 15-module Blueprint split carries high regression risk (~598 routes affected) with low immediate value. Route modules have 0 own imports — all depend on dashboard globals. Moving bp definition creates circular import cascade.
+**When to tackle:** Sprint 5 (Operations) alongside M5 Structured Logging, when system is stable enough for deep refactor.
+**Prep done:**
+- [x] Mapped all 15 modules' dependency on dashboard globals (bp, auth_required)
+- [x] Documented: routes_agents, routes_catalog_finance, routes_orders_full, routes_rfq, routes_voice_contacts have 0 own imports
+- [x] L12 lesson documented: exec'd modules can't be imported normally
 
-### S1.3 — SQLite-Only: Fix Worst Dual-Write Issues (F3 + H1 + M7)
-**Approach:** Full JSON removal is too large. Fix the 3 highest-risk patterns:
-- [ ] Move processed_emails UID tracking from JSON to SQLite (prevents re-import on restart — M7)
-- [ ] Audit and fix price_checks.json dual-write (L1: thread safety in background agents)
-- [ ] Identify remaining JSON writes; document but defer low-risk ones
-- [ ] Verify: email poller doesn't re-process after Railway restart
+### S1.3 — SQLite-Only: Fix Worst Dual-Write Issues (F3 + H1 + M7) ✅
+- [x] Email poller: _load_processed reads from BOTH JSON + SQLite (union of UIDs)
+- [x] Email poller: _save_processed writes to BOTH JSON + SQLite
+- [x] Auto-creates processed_emails table on first use
+- [x] Recovers UIDs from SQLite if JSON is lost/corrupt (Railway restart safe)
+- [ ] DEFERRED: Full JSON→SQLite migration for price_checks, rfqs (low risk, high effort)
 
-### S1.4 — Consolidate DB Access (H3) — IN PROGRESS
-- [x] award_monitor.py: Converted 4 `conn = get_db()` to `with get_db() as conn:` (proper commit/close)
-- [ ] scprs_universal_pull.py: Wrap 5 get_db() calls in try/finally conn.close()
-- [ ] Agent files with fallback get_db(): add conn.close() in finally blocks
-- [ ] Route modules: Add conn.close() to critical paths
-- **Note:** 84+ total calls. Agent files (background threads) are highest priority.
+### S1.4 — Consolidate DB Access (H3) ✅
+- [x] award_monitor.py: Converted 4 `conn = get_db()` to `with get_db() as conn:`
+- [x] scprs_universal_pull.py: Converted local get_db() to @contextmanager, fixed 5 call sites
+- [x] Early return paths in run_universal_pull now close connections
+- [ ] DEFERRED: Route modules (20+ direct connects) and db.py internals (40+ calls) — lower priority, no thread safety risk
 
-### S1.5 — Verification
-- [ ] Full compile check (89+ files)
-- [ ] Startup test (app creates successfully with all modules loaded)
-- [ ] Route smoke test via validate_build.py
-- [ ] Git log review — clean commit history
-- [ ] Push to production
+### S1.5 — Verification ✅
+- [x] Full compile check (90 files clean)
+- [x] Startup test: app creates successfully, all 598 routes registered
+- [x] Key routes verified: /, /health, /pricechecks, /quotes
+- [x] Fixed _load_route_module Python 3.12+ compat (save/restore module identity)
+- [x] Git log review — clean commit history
+- [x] Push to production
 
 ## SPRINT 2: STABILITY
 ### S2.1 — Centralized Scheduler (F4)

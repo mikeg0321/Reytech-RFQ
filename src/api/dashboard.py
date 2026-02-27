@@ -2798,7 +2798,16 @@ def _load_route_module(module_name: str):
     # Inject shared dashboard globals into module (preserves existing behavior)
     _shared = {k: v for k, v in globals().items()
                if not k.startswith('_load_route_module')}
+    # Save module identity before injection (Python 3.12+ checks name match)
+    _saved_name = mod.__name__
+    _saved_spec = mod.__spec__
+    _saved_file = getattr(mod, '__file__', None)
     mod.__dict__.update(_shared)
+    # Restore identity so loader can find the right module
+    mod.__name__ = _saved_name
+    mod.__spec__ = _saved_spec
+    if _saved_file:
+        mod.__file__ = _saved_file
     spec.loader.exec_module(mod)
     # Copy new definitions back so later modules can reference them
     for k, v in mod.__dict__.items():
