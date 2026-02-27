@@ -1196,6 +1196,13 @@ def generate_quote(
     _log_quote(result)
     log.info("Quote %s generated: $%.2f total, %d items → %s",
              quote_number, result["total"], result["items_count"], output_path)
+    # Stamp template version for audit trail
+    try:
+        from src.forms.pdf_versioning import stamp_pdf_metadata
+        stamp_pdf_metadata("quote", quote_number,
+                           {"generator": "quote_generator", "file_path": output_path})
+    except Exception:
+        pass
     return result
 
 

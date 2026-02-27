@@ -102,6 +102,21 @@ MIGRATIONS = [
             status TEXT DEFAULT 'ok'
         );
     """),
+
+    (6, "add_pdf_generation_log", """
+        CREATE TABLE IF NOT EXISTS pdf_generation_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            template_type TEXT NOT NULL,
+            template_version TEXT NOT NULL,
+            document_id TEXT NOT NULL,
+            generated_at TEXT NOT NULL,
+            generator TEXT,
+            file_path TEXT,
+            metadata TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_pdflog_doc ON pdf_generation_log(document_id);
+        CREATE INDEX IF NOT EXISTS idx_pdflog_type ON pdf_generation_log(template_type);
+    """),
 ]
 
 

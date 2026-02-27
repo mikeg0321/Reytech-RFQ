@@ -169,3 +169,14 @@ class TestDataIntegrity:
         data = resp.get_json()
         assert "total" in data
         assert data["total"] > 500
+
+
+class TestPDFVersioning:
+    """Sprint 10: PDF template versioning."""
+
+    def test_pdf_versions_endpoint(self, auth_client):
+        resp = auth_client.get("/api/system/pdf-versions")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "templates" in data
+        assert "quote" in data["templates"]

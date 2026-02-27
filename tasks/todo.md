@@ -252,4 +252,19 @@
 - [x] Pre-deploy check passes
 - [x] Push to production
 
+## SPRINT 10: PDF VERSIONING + FINAL HARDENING ✅ COMPLETE
+
+### S10.1 — PDF Template Versioning (M6) ✅
+- [x] Created src/forms/pdf_versioning.py — version registry + generation audit log
+- [x] Template versions: quote v2.1, invoice v1.1, price_check v1.0
+- [x] stamp_pdf_metadata() wired into quote_generator + invoice_generator
+- [x] Migration v6: pdf_generation_log table with indexes
+- [x] GET /api/system/pdf-versions — template versions + generation stats
+
+### S10.2 — Verification ✅
+- [x] 101 files compile clean
+- [x] App starts: 617 routes
+- [x] 39/39 tests pass
+- [x] Push to production
+
 ## REVIEW LOG

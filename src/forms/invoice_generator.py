@@ -353,4 +353,12 @@ def generate_invoice_pdf(order: dict, output_dir: str = "") -> Optional[str]:
 
     c.save()
     log.info("Invoice PDF generated: %s (%d items, %d pages)", output_path, len(items), total_pages)
+    # Stamp template version for audit trail
+    try:
+        from src.forms.pdf_versioning import stamp_pdf_metadata
+        inv_id = inv.get("invoice_number", order.get("id", "unknown"))
+        stamp_pdf_metadata("invoice", inv_id,
+                           {"generator": "invoice_generator", "file_path": output_path})
+    except Exception:
+        pass
     return output_path

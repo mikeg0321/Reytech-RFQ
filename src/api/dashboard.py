@@ -3095,6 +3095,19 @@ def data_integrity():
         return jsonify({"ok": False, "error": str(e)})
 
 
+@bp.route("/api/system/pdf-versions")
+@auth_required
+def pdf_template_versions():
+    """Current PDF template versions and generation stats."""
+    try:
+        from src.forms.pdf_versioning import get_version_info, TEMPLATE_VERSIONS
+        info = get_version_info()
+        return jsonify({"ok": True, "templates": info,
+                        "registry": {k: v["history"] for k, v in TEMPLATE_VERSIONS.items()}})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
 @bp.route("/api/system/preflight")
 @auth_required
 def system_preflight():
