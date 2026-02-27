@@ -20,6 +20,14 @@ def _sync_pc_items(pc, items):
 @bp.route("/pricecheck/<pcid>")
 @auth_required
 def pricecheck_detail(pcid):
+    try:
+        return _pricecheck_detail_inner(pcid)
+    except Exception as e:
+        log.exception("Price check detail crashed for %s", pcid)
+        return f"<h2>Error loading price check {pcid}</h2><pre>{type(e).__name__}: {e}</pre><p><a href='/'>← Home</a></p>", 500
+
+
+def _pricecheck_detail_inner(pcid):
     pcs = _load_price_checks()
     pc = pcs.get(pcid)
     if not pc:
@@ -42,15 +50,27 @@ def pricecheck_detail(pcid):
             if cleaned != original:
                 item["description_raw"] = original
                 item["description"] = cleaned
-        display_desc = item.get("description", raw_desc)
-        # Cost sources
-        amazon_cost = p.get("amazon_price")
-        scprs_cost = p.get("scprs_price")
+        display_desc = item.get("description") or raw_desc or ""
+        # Cost sources (ensure numeric types — JSON data can have strings)
+        def _safe_float(v, default=0):
+            if v is None: return default
+            try: return float(v)
+            except (ValueError, TypeError): return default
+        
+        amazon_cost = _safe_float(p.get("amazon_price"), None)
+        scprs_cost = _safe_float(p.get("scprs_price"), None)
         # Best available cost
-        unit_cost = p.get("unit_cost") or amazon_cost or scprs_cost or 0
+        unit_cost = _safe_float(p.get("unit_cost")) or amazon_cost or scprs_cost or 0
         # Markup and final price
-        markup_pct = p.get("markup_pct", 25)
-        final_price = p.get("recommended_price") or (round(unit_cost * (1 + markup_pct/100), 2) if unit_cost else 0)
+        markup_pct = _safe_float(p.get("markup_pct"), 25)
+        final_price = _safe_float(p.get("recommended_price")) or (round(unit_cost * (1 + markup_pct/100), 2) if unit_cost else 0)
+
+        # Type-safe qty (could be string, None, or already int/float)
+        _raw_qty = item.get("qty", 1)
+        try:
+            qty = int(float(_raw_qty)) if _raw_qty else 1
+        except (ValueError, TypeError):
+            qty = 1
 
         amazon_str = f"${amazon_cost:.2f}" if amazon_cost else "—"
         amazon_data = f'data-amazon="{amazon_cost:.2f}"' if amazon_cost else 'data-amazon="0"'
@@ -85,14 +105,15 @@ def pricecheck_detail(pcid):
         link = "<br>".join(link_parts) if link_parts else "—"
 
         # SCPRS confidence indicator
-        scprs_conf = p.get("scprs_confidence", 0)
+        scprs_conf = _safe_float(p.get("scprs_confidence"), 0)
         scprs_badge = ""
         if scprs_cost:
             color = "#3fb950" if scprs_conf > 0.7 else ("#d29922" if scprs_conf > 0.4 else "#8b949e")
             scprs_badge = f' <span style="color:{color};font-size:10px" title="Confidence: {scprs_conf:.0%}">●</span>'
 
         # Confidence grade if scored
-        conf = item.get("confidence", {})
+        conf = item.get("confidence") or {}
+        if not isinstance(conf, dict): conf = {}
         grade = conf.get("grade", "")
         grade_color = {"A": "#3fb950", "B": "#58a6ff", "C": "#d29922", "F": "#f85149"}.get(grade, "#8b949e")
         grade_html = f'<span style="color:{grade_color};font-weight:bold">{grade}</span>' if grade else "—"
@@ -103,8 +124,8 @@ def pricecheck_detail(pcid):
         profit_str = f'<span style="color:{profit_color}">${item_profit:.2f}</span>' if (final_price and unit_cost) else "—"
         
         # Item link
-        item_link = item.get("item_link", "")
-        item_supplier = item.get("item_supplier", "")
+        item_link = item.get("item_link") or ""
+        item_supplier = item.get("item_supplier") or ""
         link_display = f'<a href="{item_link}" target="_blank" style="font-size:11px;color:#58a6ff;word-break:break-all">{item_supplier or item_link[:30]}</a>' if item_link else ""
         supplier_badge = f'<span style="font-size:10px;color:#8b949e;display:block;margin-top:1px">{item_supplier}</span>' if item_supplier else ""
 
@@ -122,12 +143,12 @@ def pricecheck_detail(pcid):
             # Preferred if we've used Amazon before for this product
             a_pref = "amazon" in cat_best_sup or "amazon" in known_supplier
             sources.append((amazon_cost, a_label, a_url, "#ff9900", a_pref))
-        web_price = p.get("web_price", 0)
+        web_price = _safe_float(p.get("web_price"), 0)
         if web_price and web_price != amazon_cost:
             w_src = p.get("web_source", "Web")[:20]
             w_pref = w_src.lower() in cat_best_sup or w_src.lower() in known_supplier
             sources.append((web_price, w_src, p.get("web_url", ""), "#d2a8ff", w_pref))
-        cat_cost = p.get("catalog_cost") or p.get("last_cost", 0)
+        cat_cost = _safe_float(p.get("catalog_cost")) or _safe_float(p.get("last_cost"), 0)
         cat_match = p.get("catalog_match", "")
         cat_pid = p.get("catalog_product_id")
         if cat_cost and cat_match:
@@ -1832,22 +1853,18 @@ def download(rid, fname):
     sol = r["solicitation_number"] if r else rid
     safe = os.path.basename(fname)
     
-    # Search filesystem first (multiple possible locations)
-    for search_root in [
+    # Search filesystem — targeted directories only (no full os.walk)
+    for search_dir in [
         os.path.join(OUTPUT_DIR, sol),
         os.path.join(OUTPUT_DIR, rid),
         os.path.join(DATA_DIR, "output", sol),
+        os.path.join(DATA_DIR, "output", rid),
+        os.path.join(DATA_DIR, "outputs"),
         OUTPUT_DIR,
-        DATA_DIR,
     ]:
-        if os.path.isdir(search_root):
-            candidate = os.path.join(search_root, safe)
-            if os.path.exists(candidate):
-                return send_file(candidate, as_attachment=True, download_name=safe)
-            # Walk subdirs
-            for root, dirs, files in os.walk(search_root):
-                if safe in files:
-                    return send_file(os.path.join(root, safe), as_attachment=True, download_name=safe)
+        candidate = os.path.join(search_dir, safe)
+        if os.path.exists(candidate):
+            return send_file(candidate, as_attachment=True, download_name=safe)
     
     # Fallback: check DB (rfq_files table — survives redeploys)
     try:
@@ -1857,7 +1874,6 @@ def download(rid, fname):
                 "SELECT data, filename FROM rfq_files WHERE (rfq_id=? OR rfq_id=?) AND filename=? ORDER BY id DESC LIMIT 1",
                 (rid, sol, safe)).fetchone()
             if not row:
-                # Try broader match — filename only
                 row = conn.execute(
                     "SELECT data, filename FROM rfq_files WHERE filename=? ORDER BY id DESC LIMIT 1",
                     (safe,)).fetchone()

@@ -402,21 +402,22 @@ def _init_rfq_files_table():
             
             # ── Dedup cleanup: remove older duplicates (keep latest per rfq_id+filename+category) ──
             try:
-                dupes = conn.execute("""
-                    DELETE FROM rfq_files WHERE id NOT IN (
-                        SELECT id FROM (
-                            SELECT id, ROW_NUMBER() OVER (
-                                PARTITION BY rfq_id, filename, category 
-                                ORDER BY created_at DESC
-                            ) as rn FROM rfq_files
-                        ) WHERE rn = 1
-                    )
-                """)
-                if dupes.rowcount > 0:
-                    log.info("Dedup cleanup: removed %d duplicate rfq_files rows", dupes.rowcount)
-            except Exception:
-                # Fallback for older SQLite without window functions
-                pass
+                count = conn.execute("SELECT COUNT(*) FROM rfq_files").fetchone()[0]
+                if count > 0:
+                    dupes = conn.execute("""
+                        DELETE FROM rfq_files WHERE id NOT IN (
+                            SELECT id FROM (
+                                SELECT id, ROW_NUMBER() OVER (
+                                    PARTITION BY rfq_id, filename, category 
+                                    ORDER BY created_at DESC
+                                ) as rn FROM rfq_files
+                            ) WHERE rn = 1
+                        )
+                    """)
+                    if dupes.rowcount > 0:
+                        log.info("Dedup cleanup: removed %d duplicate rfq_files rows", dupes.rowcount)
+            except Exception as _de:
+                log.debug("Dedup cleanup skipped: %s", _de)
     except Exception as e:
         log.debug("rfq_files table init: %s", e)
 
