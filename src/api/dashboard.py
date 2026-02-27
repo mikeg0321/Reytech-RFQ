@@ -2985,6 +2985,92 @@ def unpaid_invoices():
         return jsonify({"ok": False, "error": str(e)})
 
 
+# ── System Operations API (Sprint 5) ────────────────────────────────────────
+
+@bp.route("/api/system/health")
+@auth_required
+def system_health():
+    """Unified health check: DB, scheduler, backups, schema."""
+    import os as _os
+    health = {"status": "ok", "checks": {}}
+    try:
+        # DB health
+        from src.core.db import get_db, DB_PATH
+        with get_db() as conn:
+            tables = conn.execute(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table'"
+            ).fetchone()[0]
+            db_size = _os.path.getsize(DB_PATH) if _os.path.exists(DB_PATH) else 0
+            health["checks"]["database"] = {
+                "ok": True, "tables": tables,
+                "size_mb": round(db_size / 1048576, 1)
+            }
+    except Exception as e:
+        health["checks"]["database"] = {"ok": False, "error": str(e)}
+        health["status"] = "degraded"
+
+    try:
+        # Scheduler health
+        from src.core.scheduler import get_scheduler_status
+        sched = get_scheduler_status()
+        dead = sched.get("dead_count", 0)
+        health["checks"]["scheduler"] = {
+            "ok": dead == 0, "jobs": sched.get("job_count", 0),
+            "dead_jobs": dead
+        }
+        if dead > 0:
+            health["status"] = "degraded"
+    except Exception as e:
+        health["checks"]["scheduler"] = {"ok": False, "error": str(e)}
+
+    try:
+        # Backup health
+        from src.core.db_backup import backup_health
+        bh = backup_health()
+        health["checks"]["backups"] = bh
+        if not bh.get("ok"):
+            health["status"] = "degraded"
+    except Exception as e:
+        health["checks"]["backups"] = {"ok": False, "error": str(e)}
+
+    try:
+        # Schema migration status
+        from src.core.migrations import get_migration_status
+        ms = get_migration_status()
+        health["checks"]["schema"] = {
+            "ok": ms.get("up_to_date", False),
+            "version": ms.get("current_version", 0),
+            "pending": len(ms.get("pending", []))
+        }
+    except Exception as e:
+        health["checks"]["schema"] = {"ok": False, "error": str(e)}
+
+    return jsonify(health)
+
+
+@bp.route("/api/system/migrations")
+@auth_required
+def migration_status():
+    """Schema migration status and history."""
+    try:
+        from src.core.migrations import get_migration_status
+        return jsonify(get_migration_status())
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
+
+@bp.route("/api/system/migrations/run", methods=["POST"])
+@auth_required
+def run_migrations_api():
+    """Apply pending schema migrations."""
+    try:
+        from src.core.migrations import run_migrations
+        result = run_migrations()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
 # Route Modules — loaded at import time, register routes onto this Blueprint
 # Split from dashboard.py for maintainability (was 13,831 lines)
 # ══════════════════════════════════════════════════════════════════════════════

@@ -153,11 +153,34 @@
 - [x] App starts: 610 routes (5 new Sprint 4 endpoints)
 - [x] Push to production
 
-## SPRINT 5: OPERATIONS
-### S5.1 — Settings Dashboard + System Health (F12)
-### S5.2 — Database Migrations Framework (M3)
-### S5.3 — Structured Logging + Alerting (M5)
-### S5.4 — Verification
+## SPRINT 5: OPERATIONS ✅ COMPLETE
+
+### S5.1 — Settings Dashboard + System Health (F12) ✅
+- [x] GET /api/system/health — unified health: DB (tables, size), scheduler (dead jobs), backups (age), schema (version)
+- [x] Aggregates existing /api/system/dashboard, scheduler, backup health into single endpoint
+- [x] Returns status: "ok" | "degraded" with per-check details
+
+### S5.2 — Database Migrations Framework (M3) ✅
+- [x] Created src/core/migrations.py — versioned schema migrations
+- [x] 5 initial migrations: order_status_log, processed_emails, email_classifications, backup_log, scheduler_heartbeats
+- [x] run_migrations() called at app startup — safe to run repeatedly (idempotent)
+- [x] schema_migrations table tracks applied versions
+- [x] GET /api/system/migrations — status + history
+- [x] POST /api/system/migrations/run — trigger migrations manually
+
+### S5.3 — Structured Logging + Alerting (M5) ✅
+- [x] Created src/core/structured_log.py — JSON formatter for Railway
+- [x] Production: single-line JSON with ts, level, logger, msg, error trace
+- [x] Development: human-readable format with timestamps
+- [x] Auto-detects RAILWAY_ENVIRONMENT for format selection
+- [x] Quiets noisy libraries (urllib3, werkzeug, httpx)
+- [x] Wired into app startup via setup_structured_logging()
+
+### S5.4 — Verification ✅
+- [x] 97 files compile clean
+- [x] App starts: 613 routes (3 new Sprint 5 endpoints)
+- [x] Migrations run on startup
+- [x] Push to production
 
 ---
 

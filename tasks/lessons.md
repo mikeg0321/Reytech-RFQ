@@ -247,3 +247,17 @@ with dashboard's values. Python 3.12 added strict name checking in
 **Rule**: When injecting globals into a module before exec_module(), save and
 restore `__name__`, `__spec__`, `__file__` after the update. The loader
 checks these against the spec and will reject mismatches.
+
+## L34: Schema migrations must be idempotent and append-only
+**Pattern**: SQLite has no ALTER TABLE DROP COLUMN (until 3.35). Tables created
+by multiple modules (processed_emails in email_poller + migrations) can collide.
+**Rule**: Always use CREATE TABLE IF NOT EXISTS / CREATE INDEX IF NOT EXISTS in
+migrations. Never modify existing migrations — only append new ones. Track
+applied versions in schema_migrations table. Run on every startup.
+
+## L35: Structured logging format must match Railway expectations
+**Pattern**: Railway log aggregation works best with single-line JSON. Multi-line
+Python tracebacks break log parsing and search.
+**Rule**: In production, format logs as single-line JSON with: ts, level, logger,
+msg, error.type, error.message. Keep traceback to last 3 frames. Use
+RAILWAY_ENVIRONMENT env var to auto-detect production.

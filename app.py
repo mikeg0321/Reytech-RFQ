@@ -62,6 +62,24 @@ def create_app():
     except Exception as e:
         logging.getLogger("reytech").warning("DB init skipped: %s", e)
 
+    # ── Schema migrations (Sprint 5.2) ──────────────────────────────────────
+    try:
+        from src.core.migrations import run_migrations
+        mig = run_migrations()
+        if mig.get("applied", 0) > 0:
+            logging.getLogger("reytech").info(
+                "Migrations: applied %d, now at v%d",
+                mig["applied"], mig["version"])
+    except Exception as e:
+        logging.getLogger("reytech").warning("Migrations skipped: %s", e)
+
+    # ── Structured logging (Sprint 5.3) ─────────────────────────────────────
+    try:
+        from src.core.structured_log import setup_structured_logging
+        setup_structured_logging()
+    except Exception as e:
+        logging.getLogger("reytech").debug("Structured logging skipped: %s", e)
+
     # Register the dashboard blueprint (all routes)
     from src.api.dashboard import bp, start_polling
     app.register_blueprint(bp)
