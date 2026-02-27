@@ -293,4 +293,33 @@ to all 15 route modules. _load_route_module kept as safety net for dashboard-spe
 - [x] 39/39 tests pass
 - [x] Push to production
 
+## SPRINT 13: DATA TRACING + QA PROCEDURES ✅ COMPLETE
+
+### S13.1 — Blueprint Refactor (shared.py) ✅
+- [x] Extracted bp, auth_required, check_auth, rate limiting into src/api/shared.py
+- [x] dashboard.py imports from shared.py (no more duplicate definitions)
+- [x] Fixed conftest autouse fixture to accept any valid credentials
+- [x] All 43 tests pass with refactored auth
+
+### S13.2 — Data Lineage Tracer ✅
+- [x] Created src/core/data_tracer.py — traces documents through full pipeline
+- [x] Supports: RFQ → Price Check → Quote → Order → Revenue → PDF
+- [x] Auto-detects document type from ID format
+- [x] GET /api/system/trace/{doc_id}?type= — per-document lineage
+- [x] GET /api/system/pipeline — conversion rates and stage counts
+
+### S13.3 — QA Dashboard + Procedures ✅
+- [x] GET /api/system/qa — combined health+integrity+pipeline+schema+routes+PDF versions
+- [x] Created docs/QA_PROCEDURES.md — comprehensive QA runbook
+- [x] Manual checklist: auth, pipeline, API endpoints, tracing, DB health
+- [x] Deployment procedure with pre/post verification steps
+- [x] Regression prevention guide with known failure patterns
+
+### S13.4 — Verification ✅
+- [x] 103 files compile clean
+- [x] 621 routes (4 new: trace, pipeline, qa, shared.py auth)
+- [x] 43/43 tests pass (4 new tracing/QA tests)
+- [x] Pre-deploy check passes
+- [x] Push to production
+
 ## REVIEW LOG

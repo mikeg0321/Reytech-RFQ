@@ -3060,6 +3060,99 @@ def pdf_template_versions():
         return jsonify({"ok": False, "error": str(e)})
 
 
+@bp.route("/api/system/trace/<doc_id>")
+@auth_required
+def trace_document_api(doc_id):
+    """Trace a document through the full RFQ→Quote→Order pipeline.
+    GET /api/system/trace/R26Q14?type=quote
+    """
+    from src.core.data_tracer import trace_document
+    doc_type = request.args.get("type", "auto")
+    return jsonify(trace_document(doc_id, doc_type=doc_type))
+
+
+@bp.route("/api/system/pipeline")
+@auth_required
+def pipeline_stats():
+    """Pipeline overview: counts and conversion rates across all stages."""
+    from src.core.data_tracer import get_pipeline_stats
+    return jsonify(get_pipeline_stats())
+
+
+@bp.route("/api/system/qa")
+@auth_required
+def qa_dashboard():
+    """QA dashboard — combined health, integrity, pipeline, and test status."""
+    result = {"ok": True, "checked_at": datetime.now().isoformat(), "sections": {}}
+    
+    # 1. System health
+    try:
+        from src.core.db import get_db, DB_PATH
+        import os as _os
+        with get_db() as conn:
+            tables = conn.execute(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table'"
+            ).fetchone()[0]
+            db_size = _os.path.getsize(DB_PATH) if _os.path.exists(DB_PATH) else 0
+        result["sections"]["database"] = {
+            "ok": True, "tables": tables,
+            "size_mb": round(db_size / 1048576, 1)
+        }
+    except Exception as e:
+        result["sections"]["database"] = {"ok": False, "error": str(e)}
+        result["ok"] = False
+    
+    # 2. Data integrity
+    try:
+        from src.core.data_integrity import run_integrity_checks
+        ic = run_integrity_checks()
+        result["sections"]["integrity"] = {
+            "ok": ic["ok"], "passed": ic["passed"], "failed": ic["failed"],
+            "details": [c for c in ic["checks"] if not c["ok"]]
+        }
+        if not ic["ok"]:
+            result["ok"] = False
+    except Exception as e:
+        result["sections"]["integrity"] = {"ok": False, "error": str(e)}
+    
+    # 3. Pipeline stats
+    try:
+        from src.core.data_tracer import get_pipeline_stats
+        ps = get_pipeline_stats()
+        result["sections"]["pipeline"] = ps
+    except Exception as e:
+        result["sections"]["pipeline"] = {"ok": False, "error": str(e)}
+    
+    # 4. Schema status
+    try:
+        from src.core.migrations import get_migration_status
+        ms = get_migration_status()
+        result["sections"]["schema"] = {
+            "ok": ms.get("up_to_date", False),
+            "version": ms.get("current_version"),
+            "pending": len(ms.get("pending", []))
+        }
+    except Exception as e:
+        result["sections"]["schema"] = {"ok": False, "error": str(e)}
+    
+    # 5. Route health
+    try:
+        from flask import current_app
+        rules = list(current_app.url_map.iter_rules())
+        result["sections"]["routes"] = {"ok": len(rules) > 500, "count": len(rules)}
+    except Exception as e:
+        result["sections"]["routes"] = {"ok": False, "error": str(e)}
+    
+    # 6. PDF template versions
+    try:
+        from src.forms.pdf_versioning import get_version_info
+        result["sections"]["pdf_templates"] = get_version_info()
+    except Exception as e:
+        result["sections"]["pdf_templates"] = {"error": str(e)}
+    
+    return jsonify(result)
+
+
 @bp.route("/api/system/preflight")
 @auth_required
 def system_preflight():

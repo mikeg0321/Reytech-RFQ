@@ -180,3 +180,37 @@ class TestPDFVersioning:
         data = resp.get_json()
         assert "templates" in data
         assert "quote" in data["templates"]
+
+
+class TestDataTracing:
+    """Sprint 13: End-to-end document lineage tracing."""
+
+    def test_trace_endpoint(self, auth_client):
+        resp = auth_client.get("/api/system/trace/R26Q14")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "pipeline" in data
+        assert "timeline" in data
+
+    def test_trace_with_type(self, auth_client):
+        resp = auth_client.get("/api/system/trace/test-123?type=rfq")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data.get("query", {}).get("doc_type") == "rfq"
+
+    def test_pipeline_stats(self, auth_client):
+        resp = auth_client.get("/api/system/pipeline")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "quotes" in data or "ok" in data
+
+    def test_qa_dashboard(self, auth_client):
+        resp = auth_client.get("/api/system/qa")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "sections" in data
+        assert "database" in data["sections"]
+        assert "integrity" in data["sections"]
+        assert "pipeline" in data["sections"]
+        assert "schema" in data["sections"]
+        assert "routes" in data["sections"]
