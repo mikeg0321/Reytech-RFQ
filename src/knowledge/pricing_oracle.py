@@ -30,7 +30,7 @@ try:
         classify_category,
     )
 except ImportError:
-    from won_quotes_db import (
+    from src.knowledge.won_quotes_db import (
         find_similar_items,
         get_price_history,
         win_probability,
@@ -515,7 +515,7 @@ def pricing_health_check() -> dict:
     try:
         from src.knowledge.won_quotes_db import get_kb_stats
     except ImportError:
-        from won_quotes_db import get_kb_stats
+        from src.knowledge.won_quotes_db import get_kb_stats
     stats = get_kb_stats()
 
     health = {

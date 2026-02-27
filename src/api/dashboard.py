@@ -16,71 +16,39 @@ _project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
-# Import from src modules (with fallback to root-level imports)
-try:
-    from src.forms.reytech_filler_v4 import (load_config, get_pst_date, fill_703b, fill_704b, fill_bid_package, fill_obs1600, fill_obs1600_fields)
-except ImportError:
-    from reytech_filler_v4 import (load_config, get_pst_date, fill_703b, fill_704b, fill_bid_package)
+# Import from src modules — no root-level fallbacks (root dupes deleted in S1.1)
+from src.forms.reytech_filler_v4 import (load_config, get_pst_date, fill_703b, fill_704b, fill_bid_package, fill_obs1600, fill_obs1600_fields)
+from src.forms.rfq_parser import parse_rfq_attachments, identify_attachments
+from src.agents.scprs_lookup import bulk_lookup, save_prices_from_rfq, get_price_db_stats
+from src.agents.email_poller import EmailPoller, EmailSender
 
-try:
-    from src.forms.rfq_parser import parse_rfq_attachments, identify_attachments
-except ImportError:
-    from rfq_parser import parse_rfq_attachments, identify_attachments
-
-try:
-    from src.agents.scprs_lookup import bulk_lookup, save_prices_from_rfq, get_price_db_stats
-except ImportError:
-    from scprs_lookup import bulk_lookup, save_prices_from_rfq, get_price_db_stats
-
-try:
-    from src.agents.email_poller import EmailPoller, EmailSender
-except ImportError:
-    from email_poller import EmailPoller, EmailSender
-
-# v6.0: Pricing intelligence (graceful fallback if files not present)
+# v6.0: Pricing intelligence (graceful — module might not exist yet)
 try:
     from src.knowledge.pricing_oracle import recommend_prices_for_rfq, pricing_health_check
     from src.knowledge.won_quotes_db import (ingest_scprs_result, find_similar_items,
                                 get_kb_stats, get_price_history)
     PRICING_ORACLE_AVAILABLE = True
 except ImportError:
-    try:
-        from pricing_oracle import recommend_prices_for_rfq, pricing_health_check
-        from won_quotes_db import (ingest_scprs_result, find_similar_items,
-                                    get_kb_stats, get_price_history)
-        PRICING_ORACLE_AVAILABLE = True
-    except ImportError:
-        PRICING_ORACLE_AVAILABLE = False
+    PRICING_ORACLE_AVAILABLE = False
 
-# v6.1: Product Research Agent (graceful fallback)
+# v6.1: Product Research Agent (graceful — requires API keys)
 try:
     from src.agents.product_research import (research_product, research_rfq_items,
                                    quick_lookup, test_amazon_search,
                                    get_research_cache_stats, RESEARCH_STATUS)
     PRODUCT_RESEARCH_AVAILABLE = True
 except ImportError:
-    try:
-        from product_research import (research_product, research_rfq_items,
-                                       quick_lookup, test_amazon_search,
-                                       get_research_cache_stats, RESEARCH_STATUS)
-        PRODUCT_RESEARCH_AVAILABLE = True
-    except ImportError:
-        PRODUCT_RESEARCH_AVAILABLE = False
+    PRODUCT_RESEARCH_AVAILABLE = False
 
-# v6.2: Price Check Processor (graceful fallback)
+# v6.2: Price Check Processor
 try:
     from src.forms.price_check import (parse_ams704, process_price_check, lookup_prices,
                               test_parse, REYTECH_INFO, clean_description)
     PRICE_CHECK_AVAILABLE = True
 except ImportError:
-    try:
-        from price_check import (parse_ams704, process_price_check, lookup_prices,
-                                  test_parse, REYTECH_INFO, clean_description)
-        PRICE_CHECK_AVAILABLE = True
-    except ImportError:
-        PRICE_CHECK_AVAILABLE = False
+    PRICE_CHECK_AVAILABLE = False
 
-# v7.1: Reytech Quote Generator (graceful fallback)
+# v7.1: Reytech Quote Generator
 try:
     from src.forms.quote_generator import (generate_quote, generate_quote_from_pc,
                                   generate_quote_from_rfq, AGENCY_CONFIGS,
@@ -90,30 +58,16 @@ try:
                                   _detect_agency)
     QUOTE_GEN_AVAILABLE = True
 except ImportError:
-    try:
-        from quote_generator import (generate_quote, generate_quote_from_pc,
-                                      generate_quote_from_rfq, AGENCY_CONFIGS,
-                                      get_all_quotes, search_quotes,
-                                      peek_next_quote_number, update_quote_status,
-                                      get_quote_stats, set_quote_counter)
-        QUOTE_GEN_AVAILABLE = True
-    except ImportError:
-        QUOTE_GEN_AVAILABLE = False
+    QUOTE_GEN_AVAILABLE = False
 
-# v7.0: Auto-Processor Engine (graceful fallback)
+# v7.0: Auto-Processor Engine
 try:
     from src.auto.auto_processor import (auto_process_price_check, detect_document_type,
                                  score_quote_confidence, system_health_check,
                                  get_audit_stats, track_response_time)
     AUTO_PROCESSOR_AVAILABLE = True
 except ImportError:
-    try:
-        from auto_processor import (auto_process_price_check, detect_document_type,
-                                     score_quote_confidence, system_health_check,
-                                     get_audit_stats, track_response_time)
-        AUTO_PROCESSOR_AVAILABLE = True
-    except ImportError:
-        AUTO_PROCESSOR_AVAILABLE = False
+    AUTO_PROCESSOR_AVAILABLE = False
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
 log = logging.getLogger("dashboard")
@@ -2832,14 +2786,26 @@ def api_qa_trace_diagnostic():
 
 def _load_route_module(module_name: str):
     """
-    Load a route module by exec'ing it in this module's global namespace.
-    This lets route functions reference bp, auth_required, etc. from dashboard scope.
+    Load a route module using importlib (not exec).
+    Injects dashboard globals so route functions can reference bp, auth_required, etc.
+    Route registrations (@bp.route) happen during exec_module.
     """
+    import importlib.util
     module_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "modules", f"{module_name}.py")
-    with open(module_path, "r") as _f:
-        _src = _f.read()
-    exec(compile(_src, module_path, "exec"), globals())
-    log.debug(f"Route module loaded: {module_name}")
+    spec = importlib.util.spec_from_file_location(
+        f"src.api.modules.{module_name}", module_path)
+    mod = importlib.util.module_from_spec(spec)
+    # Inject shared dashboard globals into module (preserves existing behavior)
+    _shared = {k: v for k, v in globals().items()
+               if not k.startswith('_load_route_module')}
+    mod.__dict__.update(_shared)
+    spec.loader.exec_module(mod)
+    # Copy new definitions back so later modules can reference them
+    for k, v in mod.__dict__.items():
+        if not k.startswith('__') and k not in _shared:
+            globals()[k] = v
+    log.debug("Route module loaded: %s (%d new symbols)", module_name,
+              sum(1 for k in mod.__dict__ if not k.startswith('__') and k not in _shared))
 
 
 _ROUTE_MODULES = [

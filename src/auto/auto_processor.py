@@ -52,7 +52,7 @@ try:
     HAS_RESEARCH = True
 except ImportError:
     try:
-        from product_research import research_product, quick_lookup
+        from src.agents.product_research import research_product, quick_lookup
         HAS_RESEARCH = True
     except ImportError:
         HAS_RESEARCH = False
@@ -62,7 +62,7 @@ try:
     HAS_ORACLE = True
 except ImportError:
     try:
-        from pricing_oracle import recommend_price
+        from src.knowledge.pricing_oracle import recommend_price
         HAS_ORACLE = True
     except ImportError:
         HAS_ORACLE = False
@@ -72,7 +72,7 @@ try:
     HAS_WON_QUOTES = True
 except ImportError:
     try:
-        from won_quotes_db import find_similar_items, ingest_scprs_result
+        from src.knowledge.won_quotes_db import find_similar_items, ingest_scprs_result
         HAS_WON_QUOTES = True
     except ImportError:
         HAS_WON_QUOTES = False
@@ -82,7 +82,7 @@ try:
     HAS_PRICE_CHECK = True
 except ImportError:
     try:
-        from price_check import parse_ams704, fill_ams704, lookup_prices
+        from src.forms.price_check import parse_ams704, fill_ams704, lookup_prices
         HAS_PRICE_CHECK = True
     except ImportError:
         HAS_PRICE_CHECK = False

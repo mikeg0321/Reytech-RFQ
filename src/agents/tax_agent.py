@@ -335,7 +335,7 @@ def seed_known_locations():
         contacts = load_contacts()
     except ImportError:
         try:
-            from quote_generator import load_contacts
+            from src.forms.quote_generator import load_contacts
             contacts = load_contacts()
         except Exception:
             contacts = []

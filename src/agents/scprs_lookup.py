@@ -36,7 +36,7 @@ try:
     from src.knowledge.won_quotes_db import ingest_scprs_result as _ingest_wq
 except ImportError:
     try:
-        from won_quotes_db import ingest_scprs_result as _ingest_wq
+        from src.knowledge.won_quotes_db import ingest_scprs_result as _ingest_wq
     except ImportError:
         _ingest_wq = None
 

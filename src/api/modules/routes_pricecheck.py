@@ -3252,7 +3252,7 @@ def api_pricecheck_price_sweep(pcid):
         from src.agents.product_catalog import (
             match_item, add_supplier_price, init_catalog_db
         )
-        from product_research import _get_api_key, SERPAPI_BASE
+        from src.agents.product_research import _get_api_key, SERPAPI_BASE
         import requests as _req
 
         init_catalog_db()
