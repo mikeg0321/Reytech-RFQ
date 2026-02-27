@@ -97,54 +97,60 @@ class TestSettings:
 
 class TestMarginOptimizer:
     """Margin recommendations should work."""
-    def test_scprs_undercut(self):
+    def _get_fn(self, app):
+        """Get _compute_recommended_price from loaded dashboard globals."""
+        import src.api.dashboard as dash
+        return dash._compute_recommended_price
+
+    def test_scprs_undercut(self, app):
         """If SCPRS exists, recommend 2% undercut."""
-        from src.api.modules.routes_analytics import _compute_recommended_price
+        fn = self._get_fn(app)
         item = {"scprs_last_price": 100.00}
-        rec = _compute_recommended_price(item)
+        rec = fn(item)
         assert rec is not None
         assert rec["price"] == 98.00
         assert rec["confidence"] == "high"
 
-    def test_amazon_markup(self):
+    def test_amazon_markup(self, app):
         """If only Amazon, recommend 20% markup."""
-        from src.api.modules.routes_analytics import _compute_recommended_price
+        fn = self._get_fn(app)
         item = {"amazon_price": 50.00}
-        rec = _compute_recommended_price(item)
+        rec = fn(item)
         assert rec is not None
         assert rec["price"] == 60.00
         assert rec["confidence"] == "medium"
 
-    def test_cost_markup(self):
+    def test_cost_markup(self, app):
         """If only cost, recommend 25% markup."""
-        from src.api.modules.routes_analytics import _compute_recommended_price
+        fn = self._get_fn(app)
         item = {"supplier_cost": 40.00}
-        rec = _compute_recommended_price(item)
+        rec = fn(item)
         assert rec is not None
         assert rec["price"] == 50.00
         assert rec["confidence"] == "low"
 
-    def test_no_data_returns_none(self):
+    def test_no_data_returns_none(self, app):
         """No pricing data returns None."""
-        from src.api.modules.routes_analytics import _compute_recommended_price
-        rec = _compute_recommended_price({})
+        fn = self._get_fn(app)
+        rec = fn({})
         assert rec is None
 
-    def test_scprs_floor_protection(self):
+    def test_scprs_floor_protection(self, app):
         """SCPRS undercut shouldn't go below cost + 5%."""
-        from src.api.modules.routes_analytics import _compute_recommended_price
+        fn = self._get_fn(app)
         item = {"scprs_last_price": 10.00, "supplier_cost": 9.80}
-        rec = _compute_recommended_price(item)
+        rec = fn(item)
         assert rec["price"] >= 9.80 * 1.05  # Minimum 5% above cost
 
 
 class TestDuplicateDetection:
     """Duplicate/amendment detection."""
-    def test_diff_line_items(self):
-        from src.api.modules.routes_analytics import _diff_line_items
+    def test_diff_line_items(self, app):
+        import src.api.dashboard as dash
+        fn = dash._diff_line_items
         old = [{"description": "Widget A"}, {"description": "Widget B"}]
         new = [{"description": "Widget A"}, {"description": "Widget C"}]
-        diff = _diff_line_items(old, new)
+        diff = fn(old, new)
         assert diff["changed"] is True
         assert len(diff["added"]) == 1
         assert len(diff["removed"]) == 1
@@ -154,16 +160,28 @@ class TestDuplicateDetection:
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
 @pytest.fixture
-def app():
+def app(monkeypatch):
     """Create test Flask app."""
-    os.environ["DASH_USER"] = "test"
-    os.environ["DASH_PASS"] = "test"
-    os.environ["REYTECH_DATA_DIR"] = "/tmp/reytech_test"
+    monkeypatch.setenv("DASH_USER", "test")
+    monkeypatch.setenv("DASH_PASS", "test")
+    monkeypatch.setenv("REYTECH_DATA_DIR", "/tmp/reytech_test")
     os.makedirs("/tmp/reytech_test", exist_ok=True)
     
     from app import create_app
     app = create_app()
     app.config["TESTING"] = True
+    
+    # Patch dashboard module-level auth vars + rate limiter
+    try:
+        import src.api.dashboard as dash
+        monkeypatch.setattr(dash, "DASH_USER", "test")
+        monkeypatch.setattr(dash, "DASH_PASS", "test")
+        monkeypatch.setattr(dash, "_check_rate_limit", lambda *a, **kw: True)
+        monkeypatch.setattr(dash, "check_auth",
+                            lambda u, p: u == "test" and p == "test")
+    except Exception:
+        pass
+    
     yield app
 
 
@@ -179,3 +197,8 @@ def auth_client(app):
     creds = base64.b64encode(b"test:test").decode()
     c.environ_base["HTTP_AUTHORIZATION"] = f"Basic {creds}"
     return c
+
+
+@pytest.fixture
+def anon_client(app):
+    return app.test_client()

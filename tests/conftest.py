@@ -312,5 +312,8 @@ def disable_rate_limit(monkeypatch):
     try:
         import src.api.dashboard as dash
         monkeypatch.setattr(dash, "_check_rate_limit", lambda *a, **kw: True)
+        # Ensure auth works with test credentials
+        monkeypatch.setattr(dash, "check_auth",
+                            lambda u, p: u == "reytech" and p == "changeme")
     except Exception:
         pass
