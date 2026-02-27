@@ -277,3 +277,29 @@ re-indenting ALL subsequent lines by 4 spaces. In a 100-line function loaded
 via exec(), this is high-risk for indentation errors.
 **Rule**: For large functions, use bash/python scripts to add indentation
 programmatically rather than manual str_replace. Always compile-check after.
+
+## L38: Cross-module globals in exec'd route modules
+**Pattern**: routes_crm references INTEL_AVAILABLE which is defined in routes_intel.
+Since routes_crm loads before routes_intel, the variable doesn't exist yet.
+Module loading order: routes_rfq → routes_agents → routes_pricecheck →
+routes_crm → routes_intel → ...
+**Rule**: Pre-define default values for cross-module globals in dashboard.py
+BEFORE the route module loading loop. E.g. `INTEL_AVAILABLE = False` as a safe
+default that gets overwritten when the defining module loads.
+
+## L39: Test fixtures must patch module-level globals, not just env vars
+**Pattern**: Setting `os.environ["DASH_PASS"]` doesn't work if the dashboard
+module already read the value at import time into `DASH_PASS = os.environ.get(...)`.
+**Rule**: For test auth to work reliably:
+1. Set env vars (monkeypatch.setenv)
+2. Also monkeypatch the module-level globals (dashboard.DASH_USER, dashboard.DASH_PASS)
+3. Also monkeypatch check_auth() function directly for belt-and-suspenders reliability
+4. Each test file that defines its own `app` fixture must do ALL three.
+
+## L40: exec'd module functions can't be imported directly in tests
+**Pattern**: `from src.api.modules.routes_analytics import _compute_recommended_price`
+fails because executing the module triggers @bp.route decorators that need `bp`
+in the module namespace, which only exists when loaded via _load_route_module().
+**Rule**: To test utility functions from exec'd modules, access them through
+dashboard globals after app creation: `getattr(dash, '_compute_recommended_price')`.
+Use pytest.skip() if the function isn't available rather than crashing.

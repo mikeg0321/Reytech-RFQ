@@ -2863,15 +2863,17 @@ def email_classify_test():
     """Test email classification on provided text (for debugging)."""
     try:
         from src.agents.email_classifier import classify_email
+        from src.core.validators import sanitize_string
         data = request.get_json(silent=True) or {}
         result = classify_email(
-            subject=data.get("subject", ""),
-            body=data.get("body", ""),
-            sender=data.get("sender", ""),
-            attachment_names=data.get("attachments", []),
+            subject=sanitize_string(data.get("subject", ""), max_len=500),
+            body=sanitize_string(data.get("body", ""), max_len=10000),
+            sender=sanitize_string(data.get("sender", ""), max_len=200),
+            attachment_names=data.get("attachments", [])[:20],
         )
         return jsonify({"ok": True, **result})
     except Exception as e:
+        log.error("classify-test failed: %s", str(e)[:200])
         return jsonify({"ok": False, "error": str(e)})
 
 
@@ -2909,14 +2911,25 @@ def margins_item():
 def order_transition(order_id):
     """Move an order to a new status. POST JSON: {status, notes, tracking_number, ...}"""
     try:
-        from src.core.order_lifecycle import transition_order
+        from src.core.order_lifecycle import transition_order, ORDER_FLOW
+        from src.core.validators import validate_required, validate_enum, sanitize_string, ValidationError
         data = request.get_json(silent=True) or {}
-        new_status = data.pop("status", None)
-        if not new_status:
-            return jsonify({"ok": False, "error": "status required"})
-        result = transition_order(order_id, new_status, actor="user", **data)
+        try:
+            new_status = validate_enum(data, "status", list(ORDER_FLOW.keys()))
+        except ValidationError as ve:
+            return jsonify({"ok": False, "error": str(ve)}), 400
+        # Sanitize optional fields
+        notes = sanitize_string(data.get("notes", ""), max_len=1000)
+        tracking = sanitize_string(data.get("tracking_number", ""), max_len=200)
+        clean_data = {k: v for k, v in data.items() if k not in ("status",)}
+        if notes:
+            clean_data["notes"] = notes
+        if tracking:
+            clean_data["tracking_number"] = tracking
+        result = transition_order(order_id, new_status, actor="user", **clean_data)
         return jsonify(result)
     except Exception as e:
+        log.error("Order transition %s failed: %s", order_id, str(e)[:200])
         return jsonify({"ok": False, "error": str(e)})
 
 
