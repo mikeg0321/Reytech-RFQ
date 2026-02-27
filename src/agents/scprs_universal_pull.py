@@ -253,13 +253,16 @@ def check_quotes_against_scprs() -> dict:
               AND p.supplier NOT LIKE '%Rey Tech%'
               AND (
                   """ + " OR ".join([
-                      f"LOWER(l.description) LIKE '%{term.lower()}%'"
+                      "LOWER(l.description) LIKE ?"
                       for term in (items_text or "").split(" | ")[:3]
                       if len(term) > 4
                   ] or ["1=0"]) + """
               )
             ORDER BY p.start_date DESC LIMIT 5
-        """, (dept_code, q_dict.get("created_at", "")[:10])).fetchall()
+        """, [dept_code, q_dict.get("created_at", "")[:10]] + [
+            f"%{term.lower()}%" for term in (items_text or "").split(" | ")[:3]
+            if len(term) > 4
+        ]).fetchall()
 
         if matching_pos:
             winner = dict(matching_pos[0])
@@ -569,7 +572,8 @@ def get_universal_intelligence(agency_code: str = None) -> dict:
     conn = get_db()
     conn.row_factory = sqlite3.Row
 
-    where = f"AND p.agency_code='{agency_code}'" if agency_code else ""
+    where = "AND p.agency_code=?" if agency_code else ""
+    agency_params = [agency_code] if agency_code else []
 
     # Totals
     totals = conn.execute(f"""
@@ -578,7 +582,7 @@ def get_universal_intelligence(agency_code: str = None) -> dict:
                COUNT(DISTINCT p.supplier) as supplier_count,
                COUNT(DISTINCT p.dept_code) as agency_count
         FROM scprs_po_master p WHERE 1=1 {where}
-    """).fetchone()
+    """, agency_params).fetchone()
 
     # By agency
     by_agency = conn.execute(f"""
@@ -592,7 +596,7 @@ def get_universal_intelligence(agency_code: str = None) -> dict:
         WHERE 1=1 {where}
         GROUP BY p.dept_code
         ORDER BY total_spend DESC
-    """).fetchall()
+    """, agency_params).fetchall()
 
     # Gap items — products they buy we don't sell
     gaps = conn.execute(f"""
@@ -606,7 +610,7 @@ def get_universal_intelligence(agency_code: str = None) -> dict:
         WHERE l.opportunity_flag='GAP_ITEM' AND l.line_total > 0 {where}
         GROUP BY LOWER(l.description)
         ORDER BY total_spend DESC LIMIT 30
-    """).fetchall()
+    """, agency_params).fetchall()
 
     # Win-back — products they buy that we sell (from competitors)
     win_back = conn.execute(f"""
@@ -620,7 +624,7 @@ def get_universal_intelligence(agency_code: str = None) -> dict:
         WHERE l.opportunity_flag='WIN_BACK' AND l.line_total > 0 {where}
         GROUP BY LOWER(l.description), p.supplier
         ORDER BY total_spend DESC LIMIT 25
-    """).fetchall()
+    """, agency_params).fetchall()
 
     # Competitors by agency
     competitors = conn.execute("""

@@ -247,11 +247,13 @@ def check_pc_award(pc: dict) -> dict | None:
         if not dept_code:
             return None
         
-        # Search for matching POs
-        term_clauses = " OR ".join([
-            f"LOWER(l.description) LIKE '%{t.lower().replace(chr(39), '')}%'"
-            for t in search_terms
-        ] or ["1=0"])
+        # Search for matching POs (parameterized LIKE clauses)
+        if search_terms:
+            term_clauses = " OR ".join(["LOWER(l.description) LIKE ?" for _ in search_terms])
+            term_params = [f"%{t.lower()}%" for t in search_terms]
+        else:
+            term_clauses = "1=0"
+            term_params = []
         
         pc_created = pc.get("created_at", "")[:10] or "2026-01-01"
         
@@ -264,7 +266,7 @@ def check_pc_award(pc: dict) -> dict | None:
               AND p.start_date >= ?
               AND ({term_clauses})
             ORDER BY p.start_date DESC LIMIT 10
-        """, (dept_code, pc_created)).fetchall()
+        """, [dept_code, pc_created] + term_params).fetchall()
         
         if not rows:
             return None
@@ -371,14 +373,15 @@ def get_price_suggestions(items: list, institution: str = "") -> list:
             if not words:
                 continue
             
-            clauses = " AND ".join([f"LOWER(item_summary) LIKE '%{w}%'" for w in words])
+            clauses = " AND ".join(["LOWER(item_summary) LIKE ?" for _ in words])
+            like_params = [f"%{w}%" for w in words]
             rows = conn.execute(f"""
                 SELECT competitor_name, competitor_price, our_price, 
                        price_delta_pct, found_at, agency, po_number
                 FROM competitor_intel
                 WHERE {clauses} AND outcome='lost'
                 ORDER BY found_at DESC LIMIT 3
-            """).fetchall()
+            """, like_params).fetchall()
             
             for row in rows:
                 r = dict(row)
