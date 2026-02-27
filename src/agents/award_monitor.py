@@ -31,8 +31,16 @@ try:
 except ImportError:
     DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(
         os.path.dirname(os.path.abspath(__file__)))), "data")
+    from contextlib import contextmanager
+    @contextmanager
     def get_db():
-        return sqlite3.connect(os.path.join(DATA_DIR, "reytech.db"))
+        conn = sqlite3.connect(os.path.join(DATA_DIR, "reytech.db"), timeout=30)
+        conn.row_factory = sqlite3.Row
+        try:
+            yield conn
+            conn.commit()
+        finally:
+            conn.close()
 
 # ── Configuration ────────────────────────────────────────────────────────────
 CHECK_INTERVAL_HOURS = 1        # How often the monitor thread wakes up

@@ -24,20 +24,20 @@ class TestHealthCheck:
 
 class TestAuth:
     """All protected routes should require authentication."""
-    def test_home_requires_auth(self, client):
-        resp = client.get("/")
+    def test_home_requires_auth(self, anon_client):
+        resp = anon_client.get("/")
         assert resp.status_code == 401
 
     def test_home_with_auth(self, auth_client):
         resp = auth_client.get("/")
         assert resp.status_code == 200
 
-    def test_analytics_requires_auth(self, client):
-        resp = client.get("/analytics")
+    def test_analytics_requires_auth(self, anon_client):
+        resp = anon_client.get("/analytics")
         assert resp.status_code == 401
 
-    def test_settings_requires_auth(self, client):
-        resp = client.get("/settings")
+    def test_settings_requires_auth(self, anon_client):
+        resp = anon_client.get("/settings")
         assert resp.status_code == 401
 
 
@@ -57,8 +57,8 @@ class TestAPIv1:
         assert "rfqs" in data
         assert "pcs" in data
 
-    def test_api_without_auth(self, client):
-        resp = client.get("/api/v1/rfqs")
+    def test_api_without_auth(self, anon_client):
+        resp = anon_client.get("/api/v1/rfqs")
         assert resp.status_code == 401
 
 

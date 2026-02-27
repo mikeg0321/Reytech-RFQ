@@ -124,6 +124,9 @@ def app(temp_data_dir, monkeypatch):
                         os.path.join(temp_data_dir, "output"))
     monkeypatch.setattr(dashboard, "UPLOAD_DIR",
                         os.path.join(temp_data_dir, "uploads"))
+    # Ensure auth vars match test credentials
+    monkeypatch.setattr(dashboard, "DASH_USER", "reytech")
+    monkeypatch.setattr(dashboard, "DASH_PASS", "changeme")
     for d in ("output", "uploads"):
         os.makedirs(os.path.join(temp_data_dir, d), exist_ok=True)
 
@@ -144,6 +147,13 @@ def app(temp_data_dir, monkeypatch):
 @pytest.fixture
 def client(app):
     """Authenticated Flask test client (HTTP Basic Auth on every request)."""
+    with app.test_client() as c:
+        yield AuthenticatedClient(c, _basic_auth_header())
+
+
+@pytest.fixture
+def auth_client(app):
+    """Alias — authenticated Flask test client."""
     with app.test_client() as c:
         yield AuthenticatedClient(c, _basic_auth_header())
 

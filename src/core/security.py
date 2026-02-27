@@ -171,10 +171,11 @@ def csrf_protect(f):
 
 def _log_audit_internal(action: str, details: str = "", metadata: dict = None):
     """Log to audit trail (internal use — avoids circular imports)."""
+    conn = None
     try:
         import sqlite3
         from src.core.paths import DATA_DIR
-        conn = sqlite3.connect(os.path.join(DATA_DIR, "reytech.db"))
+        conn = sqlite3.connect(os.path.join(DATA_DIR, "reytech.db"), timeout=10)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS audit_trail (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -195,9 +196,11 @@ def _log_audit_internal(action: str, details: str = "", metadata: dict = None):
              json.dumps(metadata or {}, default=str)[:1000])
         )
         conn.commit()
-        conn.close()
     except Exception:
         pass
+    finally:
+        if conn:
+            conn.close()
 
 
 def audit_action(action_name: str):
