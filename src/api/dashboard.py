@@ -2902,6 +2902,89 @@ def margins_item():
         return jsonify({"ok": False, "error": str(e)})
 
 
+# ── Order Lifecycle API (F8) ─────────────────────────────────────────────────
+
+@bp.route("/api/orders/<order_id>/transition", methods=["POST"])
+@auth_required
+def order_transition(order_id):
+    """Move an order to a new status. POST JSON: {status, notes, tracking_number, ...}"""
+    try:
+        from src.core.order_lifecycle import transition_order
+        data = request.get_json(silent=True) or {}
+        new_status = data.pop("status", None)
+        if not new_status:
+            return jsonify({"ok": False, "error": "status required"})
+        result = transition_order(order_id, new_status, actor="user", **data)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/orders/<order_id>/detail")
+@auth_required
+def order_detail_api(order_id):
+    """Full order detail with lifecycle timeline."""
+    try:
+        from src.core.order_lifecycle import get_order_detail
+        return jsonify(get_order_detail(order_id))
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/revenue/ytd")
+@auth_required
+def revenue_ytd():
+    """YTD revenue from orders + revenue log. Includes overdue invoices."""
+    try:
+        from src.core.order_lifecycle import get_revenue_ytd
+        return jsonify(get_revenue_ytd())
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/growth/prospects")
+@auth_required
+def growth_prospects():
+    """Scored prospect list from SCPRS data for outreach prioritization."""
+    try:
+        from src.agents.prospect_scorer import score_prospects
+        limit = request.args.get("limit", 50, type=int)
+        return jsonify(score_prospects(limit=limit))
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/orders/unpaid")
+@auth_required
+def unpaid_invoices():
+    """Flag invoices older than N days without payment."""
+    try:
+        from src.core.order_lifecycle import get_revenue_ytd
+        # Unpaid invoice query
+        threshold = request.args.get("days", 30, type=int)
+        now = __import__("datetime").datetime.now()
+        cutoff = (now - __import__("datetime").timedelta(days=threshold)).isoformat()
+        from src.core.db import get_db
+        with get_db() as conn:
+            rows = conn.execute("""
+                SELECT id, quote_number, agency, institution, po_number,
+                       total, status, updated_at
+                FROM orders
+                WHERE status IN ('invoiced', 'delivered')
+                  AND updated_at < ? AND total > 0
+                ORDER BY updated_at ASC
+            """, (cutoff,)).fetchall()
+            unpaid = [dict(r) for r in rows]
+            total_outstanding = sum(r.get("total", 0) for r in unpaid)
+        return jsonify({
+            "ok": True, "count": len(unpaid),
+            "total_outstanding": round(total_outstanding, 2),
+            "threshold_days": threshold, "unpaid": unpaid
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
 # Route Modules — loaded at import time, register routes onto this Blueprint
 # Split from dashboard.py for maintainability (was 13,831 lines)
 # ══════════════════════════════════════════════════════════════════════════════
