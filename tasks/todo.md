@@ -322,4 +322,40 @@ to all 15 route modules. _load_route_module kept as safety net for dashboard-spe
 - [x] Pre-deploy check passes
 - [x] Push to production
 
+## SPRINT 14: CROSS-MODULE GLOBALS + TEST INFRA ✅ COMPLETE
+
+### S14.1 — Cross-Module Globals ✅
+- [x] Pre-defined 16 cross-module globals in dashboard.py (PREDICT_AVAILABLE,
+      QB_AVAILABLE, GROWTH_AVAILABLE, etc.) to prevent NameError in exec'd modules
+
+### S14.2 — Test Infrastructure ✅
+- [x] Fixed conftest AuthenticatedClient header merging (was overwriting custom headers)
+- [x] Added Origin header for CSRF bypass in test POST/PUT/DELETE requests
+- [x] 43/43 tests pass
+
+---
+
+## FINAL STATUS — ALL PRD-v31 ITEMS COMPLETE
+
+| PRD Item | Status | Sprint |
+|----------|--------|--------|
+| H1 Dual-Write (JSON+SQLite) | ✅ | S1.3 + S11 |
+| H2 Duplicate Code | ✅ | S1.1 |
+| H3 Connection Management | ✅ | S7.1 + S12 |
+| H4 Background Thread Coordination | ✅ | S2 |
+| H5 CSRF Protection | ✅ | S0 |
+| M1 Input Validation | ✅ | S6 + S9 |
+| M2 Error Handling | ✅ | S6 |
+| M3 Database Migrations | ✅ | S5 |
+| M4 Test Coverage | ✅ | S7 + S8 |
+| M5 Structured Logging | ✅ | S5 |
+| M6 PDF Template Versioning | ✅ | S10 |
+| M7 Email Idempotency | ✅ | S1 |
+
+**Totals: 102 files, 620 routes, 43 tests, 14 sprints**
+
+### Deferred (requires external setup)
+- S4.3 Google Drive Integration — needs OAuth2 service account on Google Cloud Console
+- CI GitHub Actions — needs PAT with `workflow` scope (ci.yml ready at .github/workflows/ci.yml)
+
 ## REVIEW LOG
