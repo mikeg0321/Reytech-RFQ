@@ -89,6 +89,22 @@ def create_app():
         with app.app_context():
             start_polling(app)
 
+    # ── Scheduler: backup + job health monitoring (F4 + F5) ──
+    try:
+        from src.core.scheduler import start_backup_scheduler, register_job
+        start_backup_scheduler(interval_hours=24)
+        # Register known background jobs for health tracking
+        for job_name, interval in [
+            ("email-poller", 300), ("award-monitor", 3600),
+            ("follow-up-engine", 3600), ("quote-lifecycle", 3600),
+            ("email-retry", 900), ("lead-nurture", 86400),
+            ("qa-monitor", 900), ("growth-agent", 86400),
+        ]:
+            register_job(job_name, interval_sec=interval)
+        logging.getLogger("reytech").info("Scheduler initialized: backup + 8 job monitors")
+    except Exception as e:
+        logging.getLogger("reytech").warning("Scheduler init skipped: %s", e)
+
     return app
 
 

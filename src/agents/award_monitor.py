@@ -655,8 +655,18 @@ def _monitor_loop():
     while _monitor_running:
         try:
             run_award_check()
+            try:
+                from src.core.scheduler import heartbeat
+                heartbeat("award-monitor", success=True)
+            except Exception:
+                pass
         except Exception as e:
             log.error("Award monitor error: %s", e, exc_info=True)
+            try:
+                from src.core.scheduler import heartbeat
+                heartbeat("award-monitor", success=False, error=str(e)[:200])
+            except Exception:
+                pass
         
         time.sleep(CHECK_INTERVAL_HOURS * 3600)
 

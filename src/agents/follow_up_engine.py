@@ -378,8 +378,18 @@ def start_follow_up_scheduler(interval_seconds=3600):
                 result = run_follow_up_scan()
                 if result["new_drafts"] > 0:
                     log.info("Follow-up scan: %d new drafts created", result["new_drafts"])
+                try:
+                    from src.core.scheduler import heartbeat
+                    heartbeat("follow-up-engine", success=True)
+                except Exception:
+                    pass
             except Exception as e:
                 log.error("Follow-up scan error: %s", e)
+                try:
+                    from src.core.scheduler import heartbeat
+                    heartbeat("follow-up-engine", success=False, error=str(e)[:200])
+                except Exception:
+                    pass
             time.sleep(interval_seconds)
 
     t = threading.Thread(target=_loop, daemon=True, name="follow-up-engine")

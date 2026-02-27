@@ -374,8 +374,18 @@ def _run_lifecycle_check():
         if result.get("expired", 0) > 0 or result.get("follow_ups_due", 0) > 0:
             log.info("Lifecycle check: expired=%d follow_ups_due=%d",
                      result.get("expired", 0), result.get("follow_ups_due", 0))
+        try:
+            from src.core.scheduler import heartbeat
+            heartbeat("quote-lifecycle", success=True)
+        except Exception:
+            pass
     except Exception as e:
         log.error("Lifecycle scheduler error: %s", e)
+        try:
+            from src.core.scheduler import heartbeat
+            heartbeat("quote-lifecycle", success=False, error=str(e)[:200])
+        except Exception:
+            pass
     finally:
         if _scheduler_running:
             threading.Timer(CHECK_INTERVAL, _run_lifecycle_check).start()

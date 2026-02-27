@@ -1909,7 +1909,19 @@ def email_poll_loop():
     
     while POLL_STATUS["running"]:
         if not POLL_STATUS.get("paused"):
-            do_poll_check()
+            try:
+                do_poll_check()
+                try:
+                    from src.core.scheduler import heartbeat
+                    heartbeat("email-poller", success=True)
+                except Exception:
+                    pass
+            except Exception as e:
+                try:
+                    from src.core.scheduler import heartbeat
+                    heartbeat("email-poller", success=False, error=str(e)[:200])
+                except Exception:
+                    pass
         else:
             log.debug("Email poller paused (system reset in progress)")
         time.sleep(interval)
@@ -2780,6 +2792,56 @@ def api_qa_trace_diagnostic():
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# ── Scheduler & Backup API (F4 + F5) ─────────────────────────────────────────
+
+@bp.route("/api/scheduler/status")
+@auth_required
+def scheduler_status():
+    """Returns health status of all background jobs."""
+    try:
+        from src.core.scheduler import get_all_jobs, backup_health
+        jobs = get_all_jobs()
+        bh = backup_health()
+        dead = [j for j in jobs if j["status"] == "dead"]
+        return jsonify({
+            "ok": True,
+            "jobs": jobs,
+            "total": len(jobs),
+            "dead_count": len(dead),
+            "dead_jobs": [j["name"] for j in dead],
+            "backup_health": bh,
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/admin/backups")
+@auth_required
+def admin_backups():
+    """List available database backups."""
+    try:
+        from src.core.scheduler import list_backups, backup_health
+        return jsonify({
+            "ok": True,
+            "backups": list_backups(),
+            "health": backup_health(),
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/admin/backup-now", methods=["POST"])
+@auth_required
+def admin_backup_now():
+    """Trigger an immediate database backup."""
+    try:
+        from src.core.scheduler import run_backup
+        result = run_backup()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
 # Route Modules — loaded at import time, register routes onto this Blueprint
 # Split from dashboard.py for maintainability (was 13,831 lines)
 # ══════════════════════════════════════════════════════════════════════════════

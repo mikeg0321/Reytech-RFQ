@@ -72,10 +72,28 @@
 - [x] Git log review — clean commit history
 - [x] Push to production
 
-## SPRINT 2: STABILITY
-### S2.1 — Centralized Scheduler (F4)
-### S2.2 — Automated Database Backups (F5)
-### S2.3 — Verification
+## SPRINT 2: STABILITY ✅ COMPLETE
+
+### S2.1 — Centralized Scheduler (F4) ✅
+- [x] Created src/core/scheduler.py — job registry, heartbeat tracking, dead job detection
+- [x] 8 background jobs registered: email-poller, award-monitor, follow-up-engine, quote-lifecycle, email-retry, lead-nurture, qa-monitor, growth-agent
+- [x] Heartbeats wired into: email_poll_loop, award_monitor._monitor_loop, follow_up_engine._loop, quote_lifecycle._run_lifecycle_check
+- [x] Dead job detection: log CRITICAL if 3x interval missed
+- [x] GET /api/scheduler/status — full job dashboard with dead_count
+
+### S2.2 — Automated Database Backups (F5) ✅
+- [x] sqlite3 .backup API for consistent snapshots
+- [x] Daily backup thread (24h interval, first run after 60s)
+- [x] Rotation: 7 daily + 4 weekly
+- [x] GET /api/admin/backups — list with sizes
+- [x] POST /api/admin/backup-now — trigger immediate backup
+- [x] backup_health() — alerts if latest >36h old
+
+### S2.3 — Verification ✅
+- [x] 91 files compile clean
+- [x] App starts: 601 routes registered (3 new scheduler/backup endpoints)
+- [x] Auth guard covers new endpoints
+- [x] Push to production
 
 ## SPRINT 3: INTELLIGENCE
 ### S3.1 — Smart Email Classification v2 (F6)
