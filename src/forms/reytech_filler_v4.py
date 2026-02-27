@@ -341,15 +341,18 @@ def fill_obs1600_fields(rfq_data, config, food_items=None):
     """
     Build field values dict for OBS 1600 (CA Agricultural Food Product Certification).
     
+    Reytech is a reseller/distributor — none of our food products are CA-grown
+    or produced, so Code and % columns are always "N/A" and CA Grown is always "No".
+    
     Args:
         rfq_data: RFQ data dict with 'line_items' or 'items'
         config: Config dict with company info
-        food_items: Pre-classified food items (optional; will auto-classify if None)
+        food_items: Pre-classified food items (optional; will auto-detect if None)
     
     Returns:
         dict of field_id -> value for all OBS 1600 fields
     """
-    from src.forms.food_classifier import classify_food_item, is_food_item
+    from src.forms.food_classifier import is_food_item
     
     company = config["company"]
     sign_date = rfq_data.get("sign_date", get_pst_date())
@@ -361,19 +364,15 @@ def fill_obs1600_fields(rfq_data, config, food_items=None):
         try: items = _json.loads(items)
         except: items = []
     
-    # Classify food items if not pre-classified
+    # Collect food items (just detect food vs non-food, no category classification needed)
     if food_items is None:
         food_items = []
         for item in items:
             desc = item.get("description", "")
-            code, cat = classify_food_item(desc)
-            if code is not None:
+            if is_food_item(desc):
                 food_items.append({
                     "line_number": item.get("line_number", len(food_items) + 1),
                     "description": desc,
-                    "code": code,
-                    "ca_grown": "No",
-                    "pct": "N/A",
                 })
     
     values = {}
@@ -386,14 +385,20 @@ def fill_obs1600_fields(rfq_data, config, food_items=None):
         values[f"OBS 1600 CA GROWN PG1 - ROW {row}"] = ""
         values[f"OBS 1600 % OF PRODUCT PG 1 - ROW {row}"] = ""
     
-    # Fill rows 1-18 with food items
+    # Fill rows with food items
+    # Code = "N/A", CA Grown = "No", % = "N/A" (Reytech is a reseller, not a grower)
+    # Description truncated to ~55 chars to fit the form field
     for i, item in enumerate(food_items[:18]):
         row = i + 1
+        desc = item.get("description", "")
+        # Truncate description to fit form field — keep enough to identify the item
+        if len(desc) > 55:
+            desc = desc[:52] + "..."
         values[f"OBS 1600 PG 1 LI # - ROW {row}"] = str(item.get("line_number", row))
-        values[f"OBS 1600 FOOD PROD PG 1 - ROW {row}"] = item.get("description", "")[:80]
-        values[f"OBS 1600 PG 1 CODE - ROW {row}"] = str(item.get("code", ""))
-        values[f"OBS 1600 CA GROWN PG1 - ROW {row}"] = item.get("ca_grown", "No")
-        values[f"OBS 1600 % OF PRODUCT PG 1 - ROW {row}"] = item.get("pct", "N/A")
+        values[f"OBS 1600 FOOD PROD PG 1 - ROW {row}"] = desc
+        values[f"OBS 1600 PG 1 CODE - ROW {row}"] = "N/A"
+        values[f"OBS 1600 CA GROWN PG1 - ROW {row}"] = "No"
+        values[f"OBS 1600 % OF PRODUCT PG 1 - ROW {row}"] = "N/A"
     
     # Signature block
     values["OBS 1600 Print Name"] = company["owner"]
@@ -403,16 +408,59 @@ def fill_obs1600_fields(rfq_data, config, food_items=None):
     return values
 
 
+def _overlay_obs1600_header(writer, solicitation_number, vendor_name="Reytech Inc.", page_index=3):
+    """Overlay Vendor Name and Solicitation # onto OBS 1600 page header.
+    
+    These are static labels on the form (not fillable fields), so we overlay text.
+    Coordinates measured from pdfplumber: Vendor Name label ends at x≈124, y≈201;
+    Solicitation # label ends at x≈120, y≈216 (from top). 
+    ReportLab uses y-from-bottom, so y_rl = 792 - y_top.
+    """
+    from reportlab.lib.pagesizes import letter
+    from reportlab.pdfgen import canvas as rl_canvas
+    import io
+    
+    W, H = letter  # 612 x 792
+    buf = io.BytesIO()
+    c = rl_canvas.Canvas(buf, pagesize=letter)
+    c.setFont("Helvetica", 10)
+    
+    # Vendor Name: after "Vendor Name :" label — x≈128, top≈201 → rl_y = 792-201-4 = 587
+    c.drawString(128, H - 205, vendor_name)
+    
+    # Solicitation #: after "Solicitation # :" label — x≈124, top≈216 → rl_y = 792-216-4 = 572
+    c.drawString(124, H - 220, str(solicitation_number))
+    
+    c.save()
+    buf.seek(0)
+    
+    overlay_reader = PdfReader(buf)
+    if overlay_reader.pages and page_index < len(writer.pages):
+        writer.pages[page_index].merge_page(overlay_reader.pages[0])
+
+
 def fill_obs1600(input_path, rfq_data, config, output_path, food_items=None):
     """
     Fill OBS 1600 form as standalone PDF.
     Uses fillable fields if present, otherwise overlays text.
     """
     sign_date = rfq_data.get("sign_date", get_pst_date())
+    sol = rfq_data.get("solicitation_number", "")
     values = fill_obs1600_fields(rfq_data, config, food_items)
     fill_and_sign_pdf(input_path, values, output_path, sign_date=sign_date)
+    
+    # Overlay Vendor Name and Solicitation # (not fillable fields in template)
+    try:
+        reader = PdfReader(output_path)
+        writer = PdfWriter()
+        writer.append(reader)
+        _overlay_obs1600_header(writer, sol, vendor_name="Reytech Inc.", page_index=0)
+        with open(output_path, "wb") as f:
+            writer.write(f)
+    except Exception as _e:
+        print(f"  ⚠ OBS 1600 header overlay failed: {_e}")
+    
     actual_food = len([k for k in values if 'FOOD PROD' in k and values[k]])
-    sol = rfq_data.get("solicitation_number", "")
     print(f"  ✓ OBS 1600 Food Certification filled ({sol}, {actual_food} food items)")
 
 
@@ -486,6 +534,18 @@ def fill_bid_package(input_path, rfq_data, config, output_path):
     values.update(obs1600_values)
 
     fill_and_sign_pdf(input_path, values, output_path, sign_date=sign_date)
+    
+    # ── OBS 1600 Header: Overlay Vendor Name + Solicitation # (not fillable fields) ──
+    try:
+        reader = PdfReader(output_path)
+        writer = PdfWriter()
+        writer.append(reader)
+        _overlay_obs1600_header(writer, sol, vendor_name="Reytech Inc.", page_index=3)
+        with open(output_path, "wb") as f:
+            writer.write(f)
+    except Exception as _e:
+        print(f"  ⚠ OBS 1600 header overlay failed: {_e}")
+    
     food_count = len([k for k in obs1600_values if 'FOOD PROD' in k and obs1600_values[k]])
     extra = f", {food_count} food items" if food_count else ""
     print(f"  ✓ Bid Package filled + signed ({sol}{extra})")
