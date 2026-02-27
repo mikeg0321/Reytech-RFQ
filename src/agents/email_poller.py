@@ -1129,21 +1129,55 @@ class EmailPoller:
         self._connected = False
 
     def _load_processed(self):
+        """Load processed UIDs from both JSON file and SQLite for durability."""
+        uids = set()
+        # Load from JSON (existing behavior)
         if os.path.exists(self.processed_file):
             try:
                 with open(self.processed_file) as f:
-                    return set(json.load(f))
+                    uids = set(json.load(f))
             except (json.JSONDecodeError, IOError):
-                log.warning("Corrupt processed_emails.json — starting fresh")
-                return set()
-        return set()
+                log.warning("Corrupt processed_emails.json — checking SQLite fallback")
+        # Also load from SQLite (survives volume resets)
+        try:
+            from src.core.db import get_db
+            with get_db() as conn:
+                conn.execute("""CREATE TABLE IF NOT EXISTS processed_emails (
+                    uid TEXT PRIMARY KEY, inbox TEXT DEFAULT 'sales', processed_at TEXT)""")
+                rows = conn.execute(
+                    "SELECT uid FROM processed_emails WHERE inbox=?",
+                    (self._inbox_name,)
+                ).fetchall()
+                db_uids = {r[0] for r in rows}
+                if db_uids - uids:
+                    log.info("Recovered %d UIDs from SQLite not in JSON", len(db_uids - uids))
+                uids |= db_uids
+        except Exception as e:
+            log.debug("SQLite processed_emails load: %s", e)
+        return uids
 
     def _save_processed(self):
+        """Save processed UIDs to both JSON file and SQLite."""
         d = os.path.dirname(self.processed_file)
         if d:
             os.makedirs(d, exist_ok=True)
         with open(self.processed_file, "w") as f:
             json.dump(list(self._processed), f)
+        # Also persist to SQLite
+        try:
+            from src.core.db import get_db
+            from datetime import datetime
+            now = datetime.now().isoformat()
+            with get_db() as conn:
+                conn.execute("""CREATE TABLE IF NOT EXISTS processed_emails (
+                    uid TEXT PRIMARY KEY, inbox TEXT DEFAULT 'sales', processed_at TEXT)""")
+                for uid in self._processed:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO processed_emails (uid, inbox, processed_at) VALUES (?,?,?)",
+                        (uid, self._inbox_name, now)
+                    )
+        except Exception as e:
+            log.debug("SQLite processed_emails save: %s", e)
 
     def connect(self):
         """Connect to IMAP server. Returns True on success."""
