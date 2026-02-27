@@ -352,7 +352,44 @@ def _sanitize_path(path_str: str) -> str:
 
 def rfq_db_path(): return os.path.join(DATA_DIR, "rfqs.json")
 def load_rfqs():
-    return _cached_json_load(rfq_db_path(), fallback={})
+    data = _cached_json_load(rfq_db_path(), fallback={})
+    # Restore from SQLite if JSON is empty (post-deploy recovery)
+    if not data:
+        try:
+            from src.core.db import get_db
+            with get_db() as conn:
+                rows = conn.execute(
+                    "SELECT * FROM rfqs WHERE status NOT IN ('dismissed','cancelled') ORDER BY received_at DESC"
+                ).fetchall()
+                if rows:
+                    for r in rows:
+                        rid = r["id"]
+                        items = []
+                        try:
+                            items = json.loads(r["items"] or "[]")
+                        except Exception:
+                            pass
+                        data[rid] = {
+                            "id": rid,
+                            "received_at": r.get("received_at") or "",
+                            "agency": r.get("agency") or "",
+                            "institution": r.get("institution") or "",
+                            "requestor_name": r.get("requestor_name") or "",
+                            "requestor_email": r.get("requestor_email") or "",
+                            "rfq_number": r.get("rfq_number") or "",
+                            "items": items,
+                            "status": r.get("status") or "new",
+                            "source": r.get("source") or "",
+                            "email_uid": r.get("email_uid") or "",
+                            "notes": r.get("notes") or "",
+                        }
+                    if data:
+                        save_rfqs(data)
+                        log.info("Restored %d RFQs from SQLite → JSON", len(data))
+        except Exception:
+            pass
+    return data
+
 def save_rfqs(rfqs):
     p = rfq_db_path()
     # Atomic write: temp file → fsync → rename (prevents partial reads by other workers)
@@ -363,6 +400,26 @@ def save_rfqs(rfqs):
         os.fsync(f.fileno())
     os.replace(tmp, p)  # atomic on POSIX
     _invalidate_cache(p)
+    # Dual-write to SQLite (survives redeploy)
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            for rid, r in rfqs.items():
+                conn.execute("""
+                    INSERT OR REPLACE INTO rfqs
+                    (id, received_at, agency, institution, requestor_name, requestor_email,
+                     rfq_number, items, status, source, email_uid, notes, updated_at)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))
+                """, (
+                    rid, r.get("received_at", ""), r.get("agency", ""),
+                    r.get("institution", ""), r.get("requestor_name", ""),
+                    r.get("requestor_email", ""), r.get("rfq_number", ""),
+                    json.dumps(r.get("items", []), default=str),
+                    r.get("status", "new"), r.get("source", ""),
+                    r.get("email_uid", ""), r.get("notes", ""),
+                ))
+    except Exception as e:
+        log.debug("RFQ dual-write to SQLite failed: %s", str(e)[:200])
 
 # ═══════════════════════════════════════════════════════════════════════
 # RFQ File Storage — PDFs stored as BLOBs in SQLite (survives redeploys)

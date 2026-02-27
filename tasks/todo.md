@@ -56,7 +56,8 @@
 - [x] Email poller: _save_processed writes to BOTH JSON + SQLite
 - [x] Auto-creates processed_emails table on first use
 - [x] Recovers UIDs from SQLite if JSON is lost/corrupt (Railway restart safe)
-- [ ] DEFERRED: Full JSON→SQLite migration for price_checks, rfqs (low risk, high effort)
+- [x] DONE: JSON→SQLite dual-write for rfqs (price_checks already had it)
+- [x] DONE: SQLite restore for load_rfqs when JSON is empty (post-deploy recovery)
 
 ### S1.4 — Consolidate DB Access (H3) ✅
 - [x] award_monitor.py: Converted 4 `conn = get_db()` to `with get_db() as conn:`
