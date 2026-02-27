@@ -279,119 +279,118 @@ def _get_price_alerts(threshold_pct=10.0, limit=20):
         init_catalog_db()
         
         db_path = os.path.join(DATA_DIR, "reytech.db")
-        conn = _sqlite3.connect(db_path)
-        conn.row_factory = _sqlite3.Row
+        from src.core.db import get_db
+        with get_db() as conn:
 
-        # Get items with price history
-        products = conn.execute("""
-            SELECT p.id, p.name, p.description, p.sku, p.mfg_number,
-                   p.sell_price, p.cost, p.scprs_last_price, p.scprs_last_date,
-                   p.web_lowest_price, p.web_lowest_source, p.best_cost, p.best_supplier,
-                   p.last_sold_price, p.times_quoted
-            FROM product_catalog p
-            WHERE p.sell_price > 0 OR p.cost > 0 OR p.scprs_last_price > 0
-            ORDER BY p.times_quoted DESC
-            LIMIT 200
-        """).fetchall()
+            # Get items with price history
+            products = conn.execute("""
+                SELECT p.id, p.name, p.description, p.sku, p.mfg_number,
+                       p.sell_price, p.cost, p.scprs_last_price, p.scprs_last_date,
+                       p.web_lowest_price, p.web_lowest_source, p.best_cost, p.best_supplier,
+                       p.last_sold_price, p.times_quoted
+                FROM product_catalog p
+                WHERE p.sell_price > 0 OR p.cost > 0 OR p.scprs_last_price > 0
+                ORDER BY p.times_quoted DESC
+                LIMIT 200
+            """).fetchall()
 
-        for prod in products:
-            pid = prod["id"]
-            name = prod["name"] or prod["description"] or ""
+            for prod in products:
+                pid = prod["id"]
+                name = prod["name"] or prod["description"] or ""
             
-            # Get price history for this item
-            history = conn.execute("""
-                SELECT price_type, price, source, agency, recorded_at
-                FROM catalog_price_history
-                WHERE product_id = ?
-                ORDER BY recorded_at DESC
-                LIMIT 20
-            """, (pid,)).fetchall()
+                # Get price history for this item
+                history = conn.execute("""
+                    SELECT price_type, price, source, agency, recorded_at
+                    FROM catalog_price_history
+                    WHERE product_id = ?
+                    ORDER BY recorded_at DESC
+                    LIMIT 20
+                """, (pid,)).fetchall()
 
-            if len(history) < 2:
-                continue
+                if len(history) < 2:
+                    continue
 
-            # Group by type
-            costs = [h for h in history if h["price_type"] == "cost"]
-            quoted = [h for h in history if h["price_type"] == "quoted"]
-            scprs = [h for h in history if h["price_type"] == "scprs"]
+                # Group by type
+                costs = [h for h in history if h["price_type"] == "cost"]
+                quoted = [h for h in history if h["price_type"] == "quoted"]
+                scprs = [h for h in history if h["price_type"] == "scprs"]
 
-            # Alert: Cost increased significantly
-            if len(costs) >= 2:
-                latest = costs[0]["price"]
-                prev = costs[1]["price"]
-                if prev > 0 and latest > 0:
-                    pct = ((latest - prev) / prev) * 100
-                    if abs(pct) >= threshold_pct:
-                        alerts.append({
-                            "type": "cost_increase" if pct > 0 else "cost_decrease",
-                            "severity": "high" if abs(pct) > 25 else "medium",
-                            "product_id": pid,
-                            "product_name": name[:60],
-                            "message": f"Cost {'↑' if pct > 0 else '↓'} {abs(pct):.0f}%: ${prev:.2f} → ${latest:.2f}",
-                            "old_price": prev,
-                            "new_price": latest,
-                            "pct_change": round(pct, 1),
-                            "source": costs[0]["source"],
-                            "date": costs[0]["recorded_at"],
-                        })
-
-            # Alert: Quoted price variance (same item quoted at very different prices)
-            if len(quoted) >= 2:
-                prices = [q["price"] for q in quoted if q["price"] > 0]
-                if prices:
-                    avg = sum(prices) / len(prices)
-                    latest = prices[0]
-                    if avg > 0:
-                        spread = ((max(prices) - min(prices)) / avg) * 100
-                        if spread > 20:
+                # Alert: Cost increased significantly
+                if len(costs) >= 2:
+                    latest = costs[0]["price"]
+                    prev = costs[1]["price"]
+                    if prev > 0 and latest > 0:
+                        pct = ((latest - prev) / prev) * 100
+                        if abs(pct) >= threshold_pct:
                             alerts.append({
-                                "type": "price_variance",
-                                "severity": "low",
+                                "type": "cost_increase" if pct > 0 else "cost_decrease",
+                                "severity": "high" if abs(pct) > 25 else "medium",
                                 "product_id": pid,
                                 "product_name": name[:60],
-                                "message": f"Quote spread {spread:.0f}%: ${min(prices):.2f}–${max(prices):.2f} (avg ${avg:.2f})",
-                                "avg_price": round(avg, 2),
-                                "min_price": min(prices),
-                                "max_price": max(prices),
-                                "pct_change": round(spread, 1),
-                                "date": quoted[0]["recorded_at"],
+                                "message": f"Cost {'↑' if pct > 0 else '↓'} {abs(pct):.0f}%: ${prev:.2f} → ${latest:.2f}",
+                                "old_price": prev,
+                                "new_price": latest,
+                                "pct_change": round(pct, 1),
+                                "source": costs[0]["source"],
+                                "date": costs[0]["recorded_at"],
                             })
 
-            # Alert: SCPRS undercut opportunity
-            sell = prod["sell_price"] or prod["last_sold_price"] or 0
-            scprs_price = prod["scprs_last_price"] or 0
-            if sell > 0 and scprs_price > 0:
-                if sell > scprs_price * 1.15:
-                    alerts.append({
-                        "type": "scprs_undercut",
-                        "severity": "high",
-                        "product_id": pid,
-                        "product_name": name[:60],
-                        "message": f"Your price ${sell:.2f} is {((sell/scprs_price - 1)*100):.0f}% above SCPRS ${scprs_price:.2f}",
-                        "your_price": sell,
-                        "scprs_price": scprs_price,
-                        "pct_change": round((sell/scprs_price - 1) * 100, 1),
-                        "date": prod["scprs_last_date"] or "",
-                    })
+                # Alert: Quoted price variance (same item quoted at very different prices)
+                if len(quoted) >= 2:
+                    prices = [q["price"] for q in quoted if q["price"] > 0]
+                    if prices:
+                        avg = sum(prices) / len(prices)
+                        latest = prices[0]
+                        if avg > 0:
+                            spread = ((max(prices) - min(prices)) / avg) * 100
+                            if spread > 20:
+                                alerts.append({
+                                    "type": "price_variance",
+                                    "severity": "low",
+                                    "product_id": pid,
+                                    "product_name": name[:60],
+                                    "message": f"Quote spread {spread:.0f}%: ${min(prices):.2f}–${max(prices):.2f} (avg ${avg:.2f})",
+                                    "avg_price": round(avg, 2),
+                                    "min_price": min(prices),
+                                    "max_price": max(prices),
+                                    "pct_change": round(spread, 1),
+                                    "date": quoted[0]["recorded_at"],
+                                })
 
-            # Alert: Margin erosion (cost > 80% of sell price)
-            cost = prod["cost"] or prod["best_cost"] or 0
-            if sell > 0 and cost > 0:
-                margin = (sell - cost) / sell * 100
-                if margin < 10 and margin > 0:
-                    alerts.append({
-                        "type": "margin_warning",
-                        "severity": "high",
-                        "product_id": pid,
-                        "product_name": name[:60],
-                        "message": f"Margin only {margin:.1f}%: sell ${sell:.2f}, cost ${cost:.2f}",
-                        "sell_price": sell,
-                        "cost": cost,
-                        "pct_change": round(margin, 1),
-                        "date": datetime.now().isoformat(),
-                    })
+                # Alert: SCPRS undercut opportunity
+                sell = prod["sell_price"] or prod["last_sold_price"] or 0
+                scprs_price = prod["scprs_last_price"] or 0
+                if sell > 0 and scprs_price > 0:
+                    if sell > scprs_price * 1.15:
+                        alerts.append({
+                            "type": "scprs_undercut",
+                            "severity": "high",
+                            "product_id": pid,
+                            "product_name": name[:60],
+                            "message": f"Your price ${sell:.2f} is {((sell/scprs_price - 1)*100):.0f}% above SCPRS ${scprs_price:.2f}",
+                            "your_price": sell,
+                            "scprs_price": scprs_price,
+                            "pct_change": round((sell/scprs_price - 1) * 100, 1),
+                            "date": prod["scprs_last_date"] or "",
+                        })
 
-        conn.close()
+                # Alert: Margin erosion (cost > 80% of sell price)
+                cost = prod["cost"] or prod["best_cost"] or 0
+                if sell > 0 and cost > 0:
+                    margin = (sell - cost) / sell * 100
+                    if margin < 10 and margin > 0:
+                        alerts.append({
+                            "type": "margin_warning",
+                            "severity": "high",
+                            "product_id": pid,
+                            "product_name": name[:60],
+                            "message": f"Margin only {margin:.1f}%: sell ${sell:.2f}, cost ${cost:.2f}",
+                            "sell_price": sell,
+                            "cost": cost,
+                            "pct_change": round(margin, 1),
+                            "date": datetime.now().isoformat(),
+                        })
+
     except Exception as e:
         log.error("Price alerts error: %s", e, exc_info=True)
 

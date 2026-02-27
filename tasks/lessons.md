@@ -261,3 +261,19 @@ Python tracebacks break log parsing and search.
 **Rule**: In production, format logs as single-line JSON with: ts, level, logger,
 msg, error.type, error.message. Keep traceback to last 3 frames. Use
 RAILWAY_ENVIRONMENT env var to auto-detect production.
+
+## L36: rfq.db vs reytech.db — legacy database split
+**Pattern**: Route modules (routes_features, routes_features2) use rfq.db while
+agents and core modules use reytech.db. These are DIFFERENT databases with
+different schemas. Cannot simply swap sqlite3.connect(rfq.db) with get_db().
+**Rule**: Before replacing a direct DB connect, verify which database file it
+connects to. rfq.db direct connects need a full data migration to reytech.db
+before they can use get_db(). Don't break things by assuming all SQLite paths
+point to the same file.
+
+## L37: with-block indentation cascade in exec'd modules
+**Pattern**: Adding `with get_db() as conn:` to an existing function requires
+re-indenting ALL subsequent lines by 4 spaces. In a 100-line function loaded
+via exec(), this is high-risk for indentation errors.
+**Rule**: For large functions, use bash/python scripts to add indentation
+programmatically rather than manual str_replace. Always compile-check after.

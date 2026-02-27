@@ -2316,11 +2316,10 @@ _EST_ANNUAL = {"CCHCS": 8000, "CalVet": 12000, "DSH": 6000}
 
 def _ensure_scprs_tables():
     """Create SCPRS tables if they don't exist (idempotent)."""
-    import sqlite3
-    db_path = os.path.join(DATA_DIR, "reytech.db")
-    conn = sqlite3.connect(db_path, timeout=10)
     try:
-        conn.executescript("""
+        from src.core.db import get_db
+        with get_db() as conn:
+            conn.executescript("""
         CREATE TABLE IF NOT EXISTS scprs_po_master (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             pulled_at TEXT, po_number TEXT UNIQUE,
@@ -2359,27 +2358,18 @@ def _ensure_scprs_tables():
         CREATE INDEX IF NOT EXISTS idx_po_buyer ON scprs_po_master(buyer_email);
         CREATE INDEX IF NOT EXISTS idx_po_supplier ON scprs_po_master(supplier);
         """)
-        conn.commit()
-        # Migrate: add enabled column to existing scprs_pull_schedule tables
-        try:
-            conn.execute("ALTER TABLE scprs_pull_schedule ADD COLUMN enabled INTEGER DEFAULT 1")
-            conn.commit()
-        except Exception:
-            pass  # Column already exists
+            # Migrate: add enabled column to existing scprs_pull_schedule tables
+            try:
+                conn.execute("ALTER TABLE scprs_pull_schedule ADD COLUMN enabled INTEGER DEFAULT 1")
+            except Exception:
+                pass  # Column already exists
     except Exception as e:
         log.debug("ensure_scprs_tables: %s", e)
-    finally:
-        conn.close()
 
 
 def _get_scprs_intel():
     """Query SCPRS tables for buyer contacts, spending, competitors per institution.
     Returns empty dicts if no SCPRS data yet — graceful degradation."""
-    import sqlite3
-    db_path = os.path.join(DATA_DIR, "reytech.db")
-    conn = sqlite3.connect(db_path, timeout=10)
-    conn.row_factory = sqlite3.Row
-
     result = {
         "buyers_by_institution": {},
         "spend_by_institution": {},
@@ -2390,89 +2380,88 @@ def _get_scprs_intel():
     }
 
     try:
-        count = conn.execute("SELECT count(*) FROM scprs_po_master").fetchone()[0]
-        if count == 0:
-            conn.close()
-            return result
-        result["has_data"] = True
-        result["total_pos"] = count
-        result["total_scprs_spend"] = conn.execute(
-            "SELECT coalesce(sum(grand_total),0) FROM scprs_po_master").fetchone()[0] or 0
-        result["last_pull"] = (conn.execute(
-            "SELECT max(pulled_at) FROM scprs_po_master").fetchone()[0] or None)
+        from src.core.db import get_db
+        with get_db() as conn:
+            count = conn.execute("SELECT count(*) FROM scprs_po_master").fetchone()[0]
+            if count == 0:
+                return result
+            result["has_data"] = True
+            result["total_pos"] = count
+            result["total_scprs_spend"] = conn.execute(
+                "SELECT coalesce(sum(grand_total),0) FROM scprs_po_master").fetchone()[0] or 0
+            result["last_pull"] = (conn.execute(
+                "SELECT max(pulled_at) FROM scprs_po_master").fetchone()[0] or None)
 
-        # Buyers per institution
-        for r in conn.execute("""
-            SELECT institution, buyer_name, buyer_email, buyer_phone,
-                   count(*) as po_count, max(start_date) as last_po,
-                   sum(grand_total) as total_spend
-            FROM scprs_po_master
-            WHERE buyer_email != '' AND buyer_email IS NOT NULL
-            GROUP BY institution, buyer_email ORDER BY total_spend DESC
-        """):
-            d = dict(r)
-            inst = d["institution"] or ""
-            if inst not in result["buyers_by_institution"]:
-                result["buyers_by_institution"][inst] = []
-            result["buyers_by_institution"][inst].append({
-                "name": d["buyer_name"] or "", "email": d["buyer_email"] or "",
-                "phone": d["buyer_phone"] or "", "po_count": d["po_count"],
-                "last_po": d["last_po"] or "", "total_spend": d["total_spend"] or 0,
-            })
-        result["total_buyers"] = sum(len(v) for v in result["buyers_by_institution"].values())
-
-        # Spend per institution
-        for r in conn.execute("""
-            SELECT institution, sum(grand_total) as total,
-                   count(*) as po_count, max(start_date) as last_date
-            FROM scprs_po_master GROUP BY institution ORDER BY total DESC
-        """):
-            d = dict(r)
-            result["spend_by_institution"][d["institution"] or ""] = {
-                "total": d["total"] or 0, "po_count": d["po_count"],
-                "last_date": d["last_date"] or "",
-            }
-
-        # Competitors per institution
-        for r in conn.execute("""
-            SELECT institution, supplier, sum(grand_total) as total, count(*) as po_count
-            FROM scprs_po_master WHERE supplier != '' AND supplier IS NOT NULL
-            GROUP BY institution, supplier ORDER BY total DESC
-        """):
-            d = dict(r)
-            inst = d["institution"] or ""
-            if inst not in result["competitors_by_institution"]:
-                result["competitors_by_institution"][inst] = []
-            result["competitors_by_institution"][inst].append({
-                "supplier": d["supplier"] or "", "total": d["total"] or 0,
-                "po_count": d["po_count"],
-            })
-
-        # Top items per institution
-        for r in conn.execute("""
-            SELECT p.institution, l.description, l.category,
-                   sum(l.quantity) as total_qty, avg(l.unit_price) as avg_price,
-                   sum(l.line_total) as total_spend, l.reytech_sells
-            FROM scprs_po_lines l JOIN scprs_po_master p ON l.po_id = p.id
-            WHERE l.description != ''
-            GROUP BY p.institution, l.description ORDER BY total_spend DESC
-        """):
-            d = dict(r)
-            inst = d["institution"] or ""
-            if inst not in result["items_by_institution"]:
-                result["items_by_institution"][inst] = []
-            if len(result["items_by_institution"][inst]) < 10:
-                result["items_by_institution"][inst].append({
-                    "description": d["description"][:60], "category": d["category"] or "",
-                    "total_qty": d["total_qty"] or 0,
-                    "avg_price": round(d["avg_price"] or 0, 2),
-                    "total_spend": d["total_spend"] or 0,
-                    "we_sell": bool(d["reytech_sells"]),
+            # Buyers per institution
+            for r in conn.execute("""
+                SELECT institution, buyer_name, buyer_email, buyer_phone,
+                       count(*) as po_count, max(start_date) as last_po,
+                       sum(grand_total) as total_spend
+                FROM scprs_po_master
+                WHERE buyer_email != '' AND buyer_email IS NOT NULL
+                GROUP BY institution, buyer_email ORDER BY total_spend DESC
+            """):
+                d = dict(r)
+                inst = d["institution"] or ""
+                if inst not in result["buyers_by_institution"]:
+                    result["buyers_by_institution"][inst] = []
+                result["buyers_by_institution"][inst].append({
+                    "name": d["buyer_name"] or "", "email": d["buyer_email"] or "",
+                    "phone": d["buyer_phone"] or "", "po_count": d["po_count"],
+                    "last_po": d["last_po"] or "", "total_spend": d["total_spend"] or 0,
                 })
+            result["total_buyers"] = sum(len(v) for v in result["buyers_by_institution"].values())
+
+            # Spend per institution
+            for r in conn.execute("""
+                SELECT institution, sum(grand_total) as total,
+                       count(*) as po_count, max(start_date) as last_date
+                FROM scprs_po_master GROUP BY institution ORDER BY total DESC
+            """):
+                d = dict(r)
+                result["spend_by_institution"][d["institution"] or ""] = {
+                    "total": d["total"] or 0, "po_count": d["po_count"],
+                    "last_date": d["last_date"] or "",
+                }
+
+            # Competitors per institution
+            for r in conn.execute("""
+                SELECT institution, supplier, sum(grand_total) as total, count(*) as po_count
+                FROM scprs_po_master WHERE supplier != '' AND supplier IS NOT NULL
+                GROUP BY institution, supplier ORDER BY total DESC
+            """):
+                d = dict(r)
+                inst = d["institution"] or ""
+                if inst not in result["competitors_by_institution"]:
+                    result["competitors_by_institution"][inst] = []
+                result["competitors_by_institution"][inst].append({
+                    "supplier": d["supplier"] or "", "total": d["total"] or 0,
+                    "po_count": d["po_count"],
+                })
+
+            # Top items per institution
+            for r in conn.execute("""
+                SELECT p.institution, l.description, l.category,
+                       sum(l.quantity) as total_qty, avg(l.unit_price) as avg_price,
+                       sum(l.line_total) as total_spend, l.reytech_sells
+                FROM scprs_po_lines l JOIN scprs_po_master p ON l.po_id = p.id
+                WHERE l.description != ''
+                GROUP BY p.institution, l.description ORDER BY total_spend DESC
+            """):
+                d = dict(r)
+                inst = d["institution"] or ""
+                if inst not in result["items_by_institution"]:
+                    result["items_by_institution"][inst] = []
+                if len(result["items_by_institution"][inst]) < 10:
+                    result["items_by_institution"][inst].append({
+                        "description": d["description"][:60], "category": d["category"] or "",
+                        "total_qty": d["total_qty"] or 0,
+                        "avg_price": round(d["avg_price"] or 0, 2),
+                        "total_spend": d["total_spend"] or 0,
+                        "we_sell": bool(d["reytech_sells"]),
+                    })
     except Exception as e:
         log.debug("SCPRS intel query error: %s", e)
-    finally:
-        conn.close()
     return result
 
 
@@ -2663,25 +2652,23 @@ def _build_expansion_intel_v4():
     # ── 8. Product recommendations ──
     product_recs = {"CCHCS": [], "CalVet": [], "DSH": []}
     try:
-        db_path = os.path.join(DATA_DIR, "reytech.db")
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        cat_map = {
-            "CCHCS": ["Medical/Clinical","Gloves","Cleaning/Sanitation","Personal Care","Safety/PPE"],
-            "CalVet": ["Medical/Clinical","Personal Care","Gloves","Cleaning/Sanitation"],
-            "DSH": ["Medical/Clinical","Safety/PPE","Gloves","Cleaning/Sanitation"],
-        }
-        for atype, cats in cat_map.items():
-            for cat in cats:
-                for r in conn.execute("""
-                    SELECT name, category, sell_price, cost, manufacturer, recommended_price
-                    FROM product_catalog WHERE category = ? AND cost > 0
-                    ORDER BY sell_price DESC LIMIT 2
-                """, (cat,)):
-                    item = dict(r)
-                    item["margin_pct"] = round((item["sell_price"] - item["cost"]) / item["sell_price"] * 100) if item["sell_price"] > 0 else 0
-                    product_recs[atype].append(item)
-        conn.close()
+        from src.core.db import get_db
+        with get_db() as conn:
+            cat_map = {
+                "CCHCS": ["Medical/Clinical","Gloves","Cleaning/Sanitation","Personal Care","Safety/PPE"],
+                "CalVet": ["Medical/Clinical","Personal Care","Gloves","Cleaning/Sanitation"],
+                "DSH": ["Medical/Clinical","Safety/PPE","Gloves","Cleaning/Sanitation"],
+            }
+            for atype, cats in cat_map.items():
+                for cat in cats:
+                    for r in conn.execute("""
+                        SELECT name, category, sell_price, cost, manufacturer, recommended_price
+                        FROM product_catalog WHERE category = ? AND cost > 0
+                        ORDER BY sell_price DESC LIMIT 2
+                    """, (cat,)):
+                        item = dict(r)
+                        item["margin_pct"] = round((item["sell_price"] - item["cost"]) / item["sell_price"] * 100) if item["sell_price"] > 0 else 0
+                        product_recs[atype].append(item)
     except Exception as e:
         log.debug("Product recs error: %s", e)
 

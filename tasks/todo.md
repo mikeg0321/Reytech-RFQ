@@ -184,4 +184,31 @@
 
 ---
 
+## SPRINT 6: HARDENING ✅ COMPLETE
+
+### S6.1 — DB Consolidation: Route Modules (S1.4 deferred) ✅
+- [x] routes_crm.py: Converted 3 direct sqlite3.connect(reytech.db) → get_db() context manager
+- [x] routes_growth_intel.py: Converted 1 direct connect → get_db()
+- [x] routes_rfq.py: Converted 1 health check connect → get_db()
+- [x] 0 remaining reytech.db direct connects in route modules
+- [x] 22 rfq.db direct connects deferred (legacy DB, needs data migration)
+
+### S6.2 — Input Validation Framework (M1) ✅
+- [x] Created src/core/validators.py
+- [x] validate_required, validate_optional, validate_email, validate_number
+- [x] validate_enum, validate_id, validate_date, sanitize_string
+- [x] ValidationError exception class for clean 400 responses
+
+### S6.3 — Error Handler Framework (M2) ✅
+- [x] Created src/core/error_handler.py
+- [x] safe_call(): replaces silent `except: pass` with logged failures
+- [x] safe_route: decorator for Flask routes — catches unhandled exceptions → JSON 500
+- [x] safe_background: decorator for background threads — logs CRITICAL on crash
+- [x] log_error(): standardized exception logging with context
+
+### S6.4 — Verification ✅
+- [x] 99 files compile clean
+- [x] App starts: 613 routes
+- [x] Push to production
+
 ## REVIEW LOG

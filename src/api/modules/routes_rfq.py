@@ -5,14 +5,12 @@
 @bp.route("/health")
 def health_check():
     """Health check endpoint for Railway/load balancers. No auth required."""
-    import sqlite3
     checks = {"status": "ok", "timestamp": datetime.now().isoformat()}
     # Check SQLite
     try:
-        db_path = os.path.join(DATA_DIR, "reytech.db")
-        conn = sqlite3.connect(db_path, timeout=5)
-        conn.execute("SELECT 1")
-        conn.close()
+        from src.core.db import get_db
+        with get_db() as conn:
+            conn.execute("SELECT 1")
         checks["db"] = "ok"
     except Exception as e:
         checks["db"] = f"error: {e}"
