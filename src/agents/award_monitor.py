@@ -215,9 +215,6 @@ def check_pc_award(pc: dict) -> dict | None:
     Returns dict with award info if found, None if no match.
     """
     try:
-        conn = get_db()
-        conn.row_factory = sqlite3.Row
-        
         institution = pc.get("institution", "")
         items = pc.get("items", [])
         if not institution or not items:
@@ -257,16 +254,18 @@ def check_pc_award(pc: dict) -> dict | None:
         
         pc_created = pc.get("created_at", "")[:10] or "2026-01-01"
         
-        rows = conn.execute(f"""
-            SELECT p.po_number, p.supplier, p.grand_total, p.start_date, p.buyer_email,
-                   l.description, l.unit_price, l.quantity
-            FROM scprs_po_master p
-            JOIN scprs_po_lines l ON l.po_id = p.id
-            WHERE p.dept_code = ?
-              AND p.start_date >= ?
-              AND ({term_clauses})
-            ORDER BY p.start_date DESC LIMIT 10
-        """, [dept_code, pc_created] + term_params).fetchall()
+        with get_db() as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(f"""
+                SELECT p.po_number, p.supplier, p.grand_total, p.start_date, p.buyer_email,
+                       l.description, l.unit_price, l.quantity
+                FROM scprs_po_master p
+                JOIN scprs_po_lines l ON l.po_id = p.id
+                WHERE p.dept_code = ?
+                  AND p.start_date >= ?
+                  AND ({term_clauses})
+                ORDER BY p.start_date DESC LIMIT 10
+            """, [dept_code, pc_created] + term_params).fetchall()
         
         if not rows:
             return None
@@ -306,7 +305,6 @@ def check_pc_award(pc: dict) -> dict | None:
 def log_competitor(pc: dict, award: dict, our_quote_total: float = 0):
     """Record a competitive loss in the competitor_intel table."""
     try:
-        conn = get_db()
         now = datetime.now().isoformat()
         
         their_price = award.get("total") or award.get("price") or 0
@@ -317,30 +315,30 @@ def log_competitor(pc: dict, award: dict, our_quote_total: float = 0):
             (it.get("description") or "")[:40] for it in pc.get("items", [])[:5]
         )
         
-        conn.execute("""
-            INSERT INTO competitor_intel
-            (found_at, pc_id, quote_number, our_price, competitor_name,
-             competitor_price, price_delta, price_delta_pct, po_number,
-             agency, institution, item_summary, solicitation, outcome, notes)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-        """, (
-            now,
-            pc.get("id", ""),
-            pc.get("reytech_quote_number", ""),
-            our_quote_total,
-            award.get("supplier", "Unknown"),
-            their_price,
-            delta,
-            round(delta_pct, 1),
-            award.get("po_number", ""),
-            pc.get("agency", ""),
-            pc.get("institution", ""),
-            items_summary,
-            pc.get("solicitation_number", pc.get("pc_number", "")),
-            "lost",
-            f"SCPRS PO {award.get('po_number','')} awarded to {award.get('supplier','')}",
-        ))
-        conn.commit()
+        with get_db() as conn:
+            conn.execute("""
+                INSERT INTO competitor_intel
+                (found_at, pc_id, quote_number, our_price, competitor_name,
+                 competitor_price, price_delta, price_delta_pct, po_number,
+                 agency, institution, item_summary, solicitation, outcome, notes)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """, (
+                now,
+                pc.get("id", ""),
+                pc.get("reytech_quote_number", ""),
+                our_quote_total,
+                award.get("supplier", "Unknown"),
+                their_price,
+                delta,
+                round(delta_pct, 1),
+                award.get("po_number", ""),
+                pc.get("agency", ""),
+                pc.get("institution", ""),
+                items_summary,
+                pc.get("solicitation_number", pc.get("pc_number", "")),
+                "lost",
+                f"SCPRS PO {award.get('po_number','')} awarded to {award.get('supplier','')}",
+            ))
         
         log.info("Competitor logged: %s won PO %s ($%.2f vs our $%.2f = %+.1f%%)",
                  award.get("supplier"), award.get("po_number"),
@@ -360,45 +358,45 @@ def get_price_suggestions(items: list, institution: str = "") -> list:
     """
     suggestions = []
     try:
-        conn = get_db()
-        conn.row_factory = sqlite3.Row
-        
-        for item in items:
-            desc = (item.get("description") or "").strip()
-            if len(desc) < 5:
-                continue
+        with get_db() as conn:
+            conn.row_factory = sqlite3.Row
             
-            # Search for previous losses on similar items
-            words = [w for w in desc.lower().split() if len(w) > 3][:3]
-            if not words:
-                continue
-            
-            clauses = " AND ".join(["LOWER(item_summary) LIKE ?" for _ in words])
-            like_params = [f"%{w}%" for w in words]
-            rows = conn.execute(f"""
-                SELECT competitor_name, competitor_price, our_price, 
-                       price_delta_pct, found_at, agency, po_number
-                FROM competitor_intel
-                WHERE {clauses} AND outcome='lost'
-                ORDER BY found_at DESC LIMIT 3
-            """, like_params).fetchall()
-            
-            for row in rows:
-                r = dict(row)
-                suggestions.append({
-                    "item_desc": desc[:60],
-                    "competitor": r["competitor_name"],
-                    "their_price": r["competitor_price"],
-                    "our_price": r["our_price"],
-                    "delta_pct": r["price_delta_pct"],
-                    "when": r["found_at"][:10],
-                    "agency": r["agency"],
-                    "suggestion": (
-                        f"Lost to {r['competitor_name']} at ${r['competitor_price']:,.2f} "
-                        f"(we quoted ${r['our_price']:,.2f}, {r['price_delta_pct']:+.1f}%). "
-                        f"Consider pricing ~${r['competitor_price'] * 0.98:,.2f} to be competitive."
-                    ),
-                })
+            for item in items:
+                desc = (item.get("description") or "").strip()
+                if len(desc) < 5:
+                    continue
+                
+                # Search for previous losses on similar items
+                words = [w for w in desc.lower().split() if len(w) > 3][:3]
+                if not words:
+                    continue
+                
+                clauses = " AND ".join(["LOWER(item_summary) LIKE ?" for _ in words])
+                like_params = [f"%{w}%" for w in words]
+                rows = conn.execute(f"""
+                    SELECT competitor_name, competitor_price, our_price, 
+                           price_delta_pct, found_at, agency, po_number
+                    FROM competitor_intel
+                    WHERE {clauses} AND outcome='lost'
+                    ORDER BY found_at DESC LIMIT 3
+                """, like_params).fetchall()
+                
+                for row in rows:
+                    r = dict(row)
+                    suggestions.append({
+                        "item_desc": desc[:60],
+                        "competitor": r["competitor_name"],
+                        "their_price": r["competitor_price"],
+                        "our_price": r["our_price"],
+                        "delta_pct": r["price_delta_pct"],
+                        "when": r["found_at"][:10],
+                        "agency": r["agency"],
+                        "suggestion": (
+                            f"Lost to {r['competitor_name']} at ${r['competitor_price']:,.2f} "
+                            f"(we quoted ${r['our_price']:,.2f}, {r['price_delta_pct']:+.1f}%). "
+                            f"Consider pricing ~${r['competitor_price'] * 0.98:,.2f} to be competitive."
+                        ),
+                    })
         
     except Exception as e:
         log.debug("Price suggestions error: %s", e)
@@ -427,43 +425,43 @@ def get_price_suggestions(items: list, institution: str = "") -> list:
 def get_competitor_dashboard() -> dict:
     """Aggregate competitor intel for the dashboard."""
     try:
-        conn = get_db()
-        conn.row_factory = sqlite3.Row
-        
-        # Top competitors by loss count
-        top_competitors = [dict(r) for r in conn.execute("""
-            SELECT competitor_name, COUNT(*) as losses,
-                   AVG(price_delta_pct) as avg_delta_pct,
-                   SUM(competitor_price) as total_won,
-                   GROUP_CONCAT(DISTINCT agency) as agencies
-            FROM competitor_intel WHERE outcome='lost'
-            GROUP BY competitor_name ORDER BY losses DESC LIMIT 15
-        """).fetchall()]
-        
-        # Losses by agency
-        by_agency = [dict(r) for r in conn.execute("""
-            SELECT agency, COUNT(*) as losses,
-                   AVG(price_delta_pct) as avg_delta_pct,
-                   GROUP_CONCAT(DISTINCT competitor_name) as competitors
-            FROM competitor_intel WHERE outcome='lost'
-            GROUP BY agency ORDER BY losses DESC LIMIT 10
-        """).fetchall()]
-        
-        # Recent losses
-        recent = [dict(r) for r in conn.execute("""
-            SELECT * FROM competitor_intel
-            WHERE outcome='lost'
-            ORDER BY found_at DESC LIMIT 10
-        """).fetchall()]
-        
-        # Overall stats
-        stats = dict(conn.execute("""
-            SELECT COUNT(*) as total_losses,
-                   AVG(price_delta_pct) as avg_delta_pct,
-                   COUNT(DISTINCT competitor_name) as unique_competitors,
-                   SUM(CASE WHEN price_delta_pct > 0 THEN 1 ELSE 0 END) as times_undercut
-            FROM competitor_intel WHERE outcome='lost'
-        """).fetchone() or {})
+        with get_db() as conn:
+            conn.row_factory = sqlite3.Row
+            
+            # Top competitors by loss count
+            top_competitors = [dict(r) for r in conn.execute("""
+                SELECT competitor_name, COUNT(*) as losses,
+                       AVG(price_delta_pct) as avg_delta_pct,
+                       SUM(competitor_price) as total_won,
+                       GROUP_CONCAT(DISTINCT agency) as agencies
+                FROM competitor_intel WHERE outcome='lost'
+                GROUP BY competitor_name ORDER BY losses DESC LIMIT 15
+            """).fetchall()]
+            
+            # Losses by agency
+            by_agency = [dict(r) for r in conn.execute("""
+                SELECT agency, COUNT(*) as losses,
+                       AVG(price_delta_pct) as avg_delta_pct,
+                       GROUP_CONCAT(DISTINCT competitor_name) as competitors
+                FROM competitor_intel WHERE outcome='lost'
+                GROUP BY agency ORDER BY losses DESC LIMIT 10
+            """).fetchall()]
+            
+            # Recent losses
+            recent = [dict(r) for r in conn.execute("""
+                SELECT * FROM competitor_intel
+                WHERE outcome='lost'
+                ORDER BY found_at DESC LIMIT 10
+            """).fetchall()]
+            
+            # Overall stats
+            stats = dict(conn.execute("""
+                SELECT COUNT(*) as total_losses,
+                       AVG(price_delta_pct) as avg_delta_pct,
+                       COUNT(DISTINCT competitor_name) as unique_competitors,
+                       SUM(CASE WHEN price_delta_pct > 0 THEN 1 ELSE 0 END) as times_undercut
+                FROM competitor_intel WHERE outcome='lost'
+            """).fetchone() or {})
         
         return {
             "top_competitors": top_competitors,

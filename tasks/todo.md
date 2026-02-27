@@ -35,11 +35,37 @@
 ---
 
 ## SPRINT 1: FOUNDATION
-### S1.1 — Delete Root-Level Duplicate Files (H2)
+### S1.1 — Delete Root-Level Duplicate Files (H2) ✅
+- [x] Deleted 13 root-level files (10,584 lines removed)
+- [x] Updated 7 src/ files to remove try/except root fallback imports
+- [x] dashboard.py: Removed 32 lines of fallback import chains
+- [x] Verified: all imports reference src.* paths, 89+ files compile clean
+
 ### S1.2 — Blueprint Refactor: Kill exec() (F2)
-### S1.3 — SQLite-Only Data Layer (F3)
-### S1.4 — Consolidate DB Access (H3)
+- [ ] Convert _load_route_module from importlib.exec_module to proper Blueprint registration
+- [ ] Each of 15 route modules gets its own Blueprint
+- [ ] Remove globals injection pattern (_shared dict)
+- [ ] Proper imports instead of exec'd namespace merging
+- [ ] Verify: all routes still respond, no 500s on navigation
+
+### S1.3 — SQLite-Only Data Layer (F3 + H1)
+- [ ] Audit all JSON file read/writes in agents and routes
+- [ ] Migrate remaining JSON-dependent reads to SQLite via db.py
+- [ ] Remove dual-write patterns (write to both JSON + SQLite)
+- [ ] Keep JSON files as read-only seed/export only
+- [ ] Verify: app runs with empty JSON files, all data served from SQLite
+
+### S1.4 — Consolidate DB Access (H3) — IN PROGRESS
+- [x] award_monitor.py: Converted 4 `conn = get_db()` to `with get_db() as conn:` (proper commit/close)
+- [ ] scprs_universal_pull.py: Has own local get_db() with WAL — 5 calls need with-block wrapping
+- [ ] Route modules (routes_features.py, routes_features2.py, routes_crm.py): 20+ direct connects
+- [ ] db.py internal functions: 40+ direct connects (these ARE the DAL, lower priority)
+- **Note:** 84+ total calls. Agent files (background threads) are highest priority.
+
 ### S1.5 — Verification
+- [ ] Full compile check
+- [ ] Startup test (app creates successfully)
+- [ ] Route smoke test
 
 ## SPRINT 2: STABILITY
 ### S2.1 — Centralized Scheduler (F4)
