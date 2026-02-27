@@ -33,13 +33,23 @@ except ImportError:
     DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(
         os.path.dirname(os.path.abspath(__file__)))), "data")
 
+from contextlib import contextmanager
+
+@contextmanager
 def get_db():
-    """Get a raw SQLite connection (not a context manager)."""
+    """Thread-safe SQLite connection with WAL mode and auto-close."""
     conn = sqlite3.connect(os.path.join(DATA_DIR, "reytech.db"), timeout=30, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
-    return conn
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 # ── ALL CA Agencies to Monitor ────────────────────────────────────────────────
 # dept_code: (friendly_name, priority, Reytech_active)
@@ -141,8 +151,7 @@ def _dept_name_to_agency(dept_name: str) -> Optional[str]:
     return None
 
 def _ensure_schema():
-    conn = get_db()
-    try:
+    with get_db() as conn:
         conn.executescript("""
     CREATE TABLE IF NOT EXISTS scprs_po_master (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -184,9 +193,6 @@ def _ensure_schema():
     CREATE INDEX IF NOT EXISTS idx_lines_desc ON scprs_po_lines(description);
     CREATE INDEX IF NOT EXISTS idx_lines_opp ON scprs_po_lines(opportunity_flag);
     """)
-        conn.commit()
-    finally:
-        conn.close()
 
 # ── Quote Auto-Close Logic ────────────────────────────────────────────────────
 
@@ -204,106 +210,103 @@ def check_quotes_against_scprs() -> dict:
     4. Record the winning vendor, their price, and the gap in price_history
     5. If no matching PO found, quote stays open (maybe we won, maybe still pending)
     """
-    conn = get_db()
-    conn.row_factory = sqlite3.Row
-    now = datetime.now(timezone.utc).isoformat()
+    with get_db() as conn:
+        conn.row_factory = sqlite3.Row
+        now = datetime.now(timezone.utc).isoformat()
 
-    open_quotes = conn.execute("""
-        SELECT id, quote_number, agency, institution, status,
-               total, created_at, items_text, items_detail
-        FROM quotes
-        WHERE status IN ('sent', 'pending', 'submitted')
-          AND is_test = 0
-          AND created_at > date('now', '-180 days')
-    """).fetchall()
+        open_quotes = conn.execute("""
+            SELECT id, quote_number, agency, institution, status,
+                   total, created_at, items_text, items_detail
+            FROM quotes
+            WHERE status IN ('sent', 'pending', 'submitted')
+              AND is_test = 0
+              AND created_at > date('now', '-180 days')
+        """).fetchall()
 
-    auto_closed = 0
-    checked = 0
-    results = []
+        auto_closed = 0
+        checked = 0
+        results = []
 
-    for q in open_quotes:
-        checked += 1
-        q_dict = dict(q)
-        agency = q_dict.get("agency", "")
-        items_text = q_dict.get("items_text", "")
+        for q in open_quotes:
+            checked += 1
+            q_dict = dict(q)
+            agency = q_dict.get("agency", "")
+            items_text = q_dict.get("items_text", "")
 
-        if not agency or not items_text:
-            continue
+            if not agency or not items_text:
+                continue
 
-        # Find the dept_code for this agency
-        dept_code = None
-        for code, (name, *_) in ALL_AGENCIES.items():
-            if agency.upper() in name.upper() or name.upper() in agency.upper():
-                dept_code = code
-                break
+            # Find the dept_code for this agency
+            dept_code = None
+            for code, (name, *_) in ALL_AGENCIES.items():
+                if agency.upper() in name.upper() or name.upper() in agency.upper():
+                    dept_code = code
+                    break
 
-        if not dept_code:
-            continue
+            if not dept_code:
+                continue
 
-        # Search SCPRS for matching POs from same agency, same items
-        # Check if SCPRS has a newer PO for similar items from a different vendor
-        matching_pos = conn.execute("""
-            SELECT p.po_number, p.supplier, p.grand_total, p.start_date, p.buyer_email,
-                   l.description, l.unit_price, l.quantity
-            FROM scprs_po_master p
-            JOIN scprs_po_lines l ON l.po_id = p.id
-            WHERE p.dept_code = ?
-              AND p.start_date >= ?
-              AND p.supplier NOT LIKE '%Reytech%'
-              AND p.supplier NOT LIKE '%Rey Tech%'
-              AND (
-                  """ + " OR ".join([
-                      "LOWER(l.description) LIKE ?"
-                      for term in (items_text or "").split(" | ")[:3]
-                      if len(term) > 4
-                  ] or ["1=0"]) + """
-              )
-            ORDER BY p.start_date DESC LIMIT 5
-        """, [dept_code, q_dict.get("created_at", "")[:10]] + [
-            f"%{term.lower()}%" for term in (items_text or "").split(" | ")[:3]
-            if len(term) > 4
-        ]).fetchall()
+            # Search SCPRS for matching POs from same agency, same items
+            # Check if SCPRS has a newer PO for similar items from a different vendor
+            matching_pos = conn.execute("""
+                SELECT p.po_number, p.supplier, p.grand_total, p.start_date, p.buyer_email,
+                       l.description, l.unit_price, l.quantity
+                FROM scprs_po_master p
+                JOIN scprs_po_lines l ON l.po_id = p.id
+                WHERE p.dept_code = ?
+                  AND p.start_date >= ?
+                  AND p.supplier NOT LIKE '%Reytech%'
+                  AND p.supplier NOT LIKE '%Rey Tech%'
+                  AND (
+                      """ + " OR ".join([
+                          "LOWER(l.description) LIKE ?"
+                          for term in (items_text or "").split(" | ")[:3]
+                          if len(term) > 4
+                      ] or ["1=0"]) + """
+                  )
+                ORDER BY p.start_date DESC LIMIT 5
+            """, [dept_code, q_dict.get("created_at", "")[:10]] + [
+                f"%{term.lower()}%" for term in (items_text or "").split(" | ")[:3]
+                if len(term) > 4
+            ]).fetchall()
 
-        if matching_pos:
-            winner = dict(matching_pos[0])
-            # Auto-close the quote
-            conn.execute("""
-                UPDATE quotes SET status='closed_lost',
-                    status_notes=?, updated_at=?
-                WHERE id=?
-            """, (
-                f"SCPRS: {winner['supplier']} awarded PO {winner['po_number']} "
-                f"on {winner['start_date']} — ${winner['grand_total']:,.0f}. "
-                f"Their price: ${winner['unit_price'] or 0:.2f}/{winner['description'][:40]}",
-                now, q_dict["id"]
-            ))
+            if matching_pos:
+                winner = dict(matching_pos[0])
+                # Auto-close the quote
+                conn.execute("""
+                    UPDATE quotes SET status='closed_lost',
+                        status_notes=?, updated_at=?
+                    WHERE id=?
+                """, (
+                    f"SCPRS: {winner['supplier']} awarded PO {winner['po_number']} "
+                    f"on {winner['start_date']} — ${winner['grand_total']:,.0f}. "
+                    f"Their price: ${winner['unit_price'] or 0:.2f}/{winner['description'][:40]}",
+                    now, q_dict["id"]
+                ))
 
-            # Record price intelligence
-            for po_row in matching_pos[:3]:
-                po = dict(po_row)
-                if po.get("unit_price") and po.get("description"):
-                    conn.execute("""
-                        INSERT OR IGNORE INTO price_history
-                        (found_at, description, unit_price, quantity, source,
-                         agency, quote_number, notes)
-                        VALUES (?,?,?,?,?,?,?,?)
-                    """, (now, po["description"], po["unit_price"],
-                          po.get("quantity"), "scprs_award",
-                          agency, q_dict["quote_number"],
-                          f"Won by {po['supplier']} — PO {po['po_number']}"))
+                # Record price intelligence
+                for po_row in matching_pos[:3]:
+                    po = dict(po_row)
+                    if po.get("unit_price") and po.get("description"):
+                        conn.execute("""
+                            INSERT OR IGNORE INTO price_history
+                            (found_at, description, unit_price, quantity, source,
+                             agency, quote_number, notes)
+                            VALUES (?,?,?,?,?,?,?,?)
+                        """, (now, po["description"], po["unit_price"],
+                              po.get("quantity"), "scprs_award",
+                              agency, q_dict["quote_number"],
+                              f"Won by {po['supplier']} — PO {po['po_number']}"))
 
-            auto_closed += 1
-            results.append({
-                "quote": q_dict["quote_number"],
-                "agency": agency,
-                "won_by": winner["supplier"],
-                "their_po": winner["po_number"],
-                "their_price": winner.get("unit_price"),
-                "status": "auto_closed_lost"
-            })
-
-    conn.commit()
-    conn.close()
+                auto_closed += 1
+                results.append({
+                    "quote": q_dict["quote_number"],
+                    "agency": agency,
+                    "won_by": winner["supplier"],
+                    "their_po": winner["po_number"],
+                    "their_price": winner.get("unit_price"),
+                    "status": "auto_closed_lost"
+                })
 
     return {
         "quotes_checked": checked,
@@ -330,7 +333,10 @@ def run_universal_pull(priority: str = "P0") -> dict:
     except ImportError:
         return {"ok": False, "error": "scprs_lookup unavailable"}
 
-    conn = get_db()
+    conn = sqlite3.connect(os.path.join(DATA_DIR, "reytech.db"), timeout=30, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
     t_start = time.time()
     total_new_pos = 0
     total_new_lines = 0
@@ -346,8 +352,10 @@ def run_universal_pull(priority: str = "P0") -> dict:
     try:
         session = FiscalSession()
         if not session.init_session():
+            conn.close()
             return {"ok": False, "error": "SCPRS session failed — check Railway connectivity to fiscal.ca.gov"}
     except Exception as e:
+        conn.close()
         return {"ok": False, "error": f"Session error: {e}"}
 
     from_date = (datetime.now() - timedelta(days=365)).strftime("%m/%d/%Y")
@@ -548,14 +556,13 @@ def pull_background(priority: str = "P0") -> dict:
 
 
 def get_pull_status() -> dict:
-    conn = get_db()
-    po_count  = conn.execute("SELECT COUNT(*) FROM scprs_po_master").fetchone()[0]
-    line_count = conn.execute("SELECT COUNT(*) FROM scprs_po_lines").fetchone()[0]
-    agency_count = conn.execute("SELECT COUNT(DISTINCT dept_code) FROM scprs_po_master").fetchone()[0]
-    last = conn.execute(
-        "SELECT pulled_at, search_term, new_pos FROM scprs_pull_log ORDER BY pulled_at DESC LIMIT 1"
-    ).fetchone()
-    conn.close()
+    with get_db() as conn:
+        po_count  = conn.execute("SELECT COUNT(*) FROM scprs_po_master").fetchone()[0]
+        line_count = conn.execute("SELECT COUNT(*) FROM scprs_po_lines").fetchone()[0]
+        agency_count = conn.execute("SELECT COUNT(DISTINCT dept_code) FROM scprs_po_master").fetchone()[0]
+        last = conn.execute(
+            "SELECT pulled_at, search_term, new_pos FROM scprs_pull_log ORDER BY pulled_at DESC LIMIT 1"
+        ).fetchone()
     return {
         "pos_stored": po_count, "lines_stored": line_count,
         "agencies_seen": agency_count,
@@ -569,81 +576,79 @@ def get_pull_status() -> dict:
 def get_universal_intelligence(agency_code: str = None) -> dict:
     """Full cross-agency intelligence summary."""
     _ensure_schema()
-    conn = get_db()
-    conn.row_factory = sqlite3.Row
+    with get_db() as conn:
+        conn.row_factory = sqlite3.Row
 
-    where = "AND p.agency_code=?" if agency_code else ""
-    agency_params = [agency_code] if agency_code else []
+        where = "AND p.agency_code=?" if agency_code else ""
+        agency_params = [agency_code] if agency_code else []
 
-    # Totals
-    totals = conn.execute(f"""
-        SELECT COUNT(DISTINCT p.po_number) as po_count,
-               SUM(p.grand_total) as total_spend,
-               COUNT(DISTINCT p.supplier) as supplier_count,
-               COUNT(DISTINCT p.dept_code) as agency_count
-        FROM scprs_po_master p WHERE 1=1 {where}
-    """, agency_params).fetchone()
+        # Totals
+        totals = conn.execute(f"""
+            SELECT COUNT(DISTINCT p.po_number) as po_count,
+                   SUM(p.grand_total) as total_spend,
+                   COUNT(DISTINCT p.supplier) as supplier_count,
+                   COUNT(DISTINCT p.dept_code) as agency_count
+            FROM scprs_po_master p WHERE 1=1 {where}
+        """, agency_params).fetchone()
 
-    # By agency
-    by_agency = conn.execute(f"""
-        SELECT p.dept_name, p.dept_code, p.agency_code,
-               COUNT(DISTINCT p.po_number) as po_count,
-               SUM(p.grand_total) as total_spend,
-               SUM(CASE WHEN l.reytech_sells=1 THEN l.line_total ELSE 0 END) as we_sell_spend,
-               SUM(CASE WHEN l.reytech_sells=0 THEN l.line_total ELSE 0 END) as gap_spend
-        FROM scprs_po_master p
-        JOIN scprs_po_lines l ON l.po_id=p.id
-        WHERE 1=1 {where}
-        GROUP BY p.dept_code
-        ORDER BY total_spend DESC
-    """, agency_params).fetchall()
+        # By agency
+        by_agency = conn.execute(f"""
+            SELECT p.dept_name, p.dept_code, p.agency_code,
+                   COUNT(DISTINCT p.po_number) as po_count,
+                   SUM(p.grand_total) as total_spend,
+                   SUM(CASE WHEN l.reytech_sells=1 THEN l.line_total ELSE 0 END) as we_sell_spend,
+                   SUM(CASE WHEN l.reytech_sells=0 THEN l.line_total ELSE 0 END) as gap_spend
+            FROM scprs_po_master p
+            JOIN scprs_po_lines l ON l.po_id=p.id
+            WHERE 1=1 {where}
+            GROUP BY p.dept_code
+            ORDER BY total_spend DESC
+        """, agency_params).fetchall()
 
-    # Gap items — products they buy we don't sell
-    gaps = conn.execute(f"""
-        SELECT l.description, l.category,
-               COUNT(*) as times_ordered,
-               COUNT(DISTINCT p.dept_code) as agencies_buying,
-               SUM(l.line_total) as total_spend,
-               AVG(l.unit_price) as avg_price
-        FROM scprs_po_lines l
-        JOIN scprs_po_master p ON l.po_id=p.id
-        WHERE l.opportunity_flag='GAP_ITEM' AND l.line_total > 0 {where}
-        GROUP BY LOWER(l.description)
-        ORDER BY total_spend DESC LIMIT 30
-    """, agency_params).fetchall()
+        # Gap items — products they buy we don't sell
+        gaps = conn.execute(f"""
+            SELECT l.description, l.category,
+                   COUNT(*) as times_ordered,
+                   COUNT(DISTINCT p.dept_code) as agencies_buying,
+                   SUM(l.line_total) as total_spend,
+                   AVG(l.unit_price) as avg_price
+            FROM scprs_po_lines l
+            JOIN scprs_po_master p ON l.po_id=p.id
+            WHERE l.opportunity_flag='GAP_ITEM' AND l.line_total > 0 {where}
+            GROUP BY LOWER(l.description)
+            ORDER BY total_spend DESC LIMIT 30
+        """, agency_params).fetchall()
 
-    # Win-back — products they buy that we sell (from competitors)
-    win_back = conn.execute(f"""
-        SELECT l.description, l.category,
-               p.supplier as incumbent_vendor,
-               COUNT(*) as times_ordered,
-               SUM(l.line_total) as total_spend,
-               AVG(l.unit_price) as their_price
-        FROM scprs_po_lines l
-        JOIN scprs_po_master p ON l.po_id=p.id
-        WHERE l.opportunity_flag='WIN_BACK' AND l.line_total > 0 {where}
-        GROUP BY LOWER(l.description), p.supplier
-        ORDER BY total_spend DESC LIMIT 25
-    """, agency_params).fetchall()
+        # Win-back — products they buy that we sell (from competitors)
+        win_back = conn.execute(f"""
+            SELECT l.description, l.category,
+                   p.supplier as incumbent_vendor,
+                   COUNT(*) as times_ordered,
+                   SUM(l.line_total) as total_spend,
+                   AVG(l.unit_price) as their_price
+            FROM scprs_po_lines l
+            JOIN scprs_po_master p ON l.po_id=p.id
+            WHERE l.opportunity_flag='WIN_BACK' AND l.line_total > 0 {where}
+            GROUP BY LOWER(l.description), p.supplier
+            ORDER BY total_spend DESC LIMIT 25
+        """, agency_params).fetchall()
 
-    # Competitors by agency
-    competitors = conn.execute("""
-        SELECT supplier_name, total_po_value, po_count,
-               categories, agency_codes, is_competitor
-        FROM cchcs_supplier_map
-        WHERE is_competitor=1
-        ORDER BY total_po_value DESC LIMIT 15
-    """).fetchall()
+        # Competitors by agency
+        competitors = conn.execute("""
+            SELECT supplier_name, total_po_value, po_count,
+                   categories, agency_codes, is_competitor
+            FROM cchcs_supplier_map
+            WHERE is_competitor=1
+            ORDER BY total_po_value DESC LIMIT 15
+        """).fetchall()
 
-    # Auto-closed quotes
-    auto_closed = conn.execute("""
-        SELECT quote_number, agency, status_notes, updated_at
-        FROM quotes WHERE status='closed_lost'
-          AND status_notes LIKE 'SCPRS:%'
-        ORDER BY updated_at DESC LIMIT 10
-    """).fetchall()
-
-    conn.close()
+        # Auto-closed quotes
+        auto_closed = conn.execute("""
+            SELECT quote_number, agency, status_notes, updated_at
+            FROM quotes WHERE status='closed_lost'
+              AND status_notes LIKE 'SCPRS:%'
+            ORDER BY updated_at DESC LIMIT 10
+        """).fetchall()
 
     return {
         "totals": dict(totals) if totals else {},
