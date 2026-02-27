@@ -95,11 +95,35 @@
 - [x] Auth guard covers new endpoints
 - [x] Push to production
 
-## SPRINT 3: INTELLIGENCE
-### S3.1 — Smart Email Classification v2 (F6)
-### S3.2 — Margin Optimizer Dashboard (F7)
-### S3.3 — Unified Full-Text Search (F10)
-### S3.4 — Verification
+## SPRINT 3: INTELLIGENCE ✅ COMPLETE
+
+### S3.1 — Unified Full-Text Search (F10) ✅
+- [x] Added price_checks search via SQLite (parameterized LIKE across id, requestor, agency, items)
+- [x] Added products/catalog search (name, mfg_number, category)
+- [x] Results include: quotes, contacts, intel_buyers, orders, rfqs, price_checks, products (7 entity types)
+- [x] Updated breakdown to include new entity types
+
+### S3.2 — Smart Email Classification v2 (F6) ✅
+- [x] Created src/agents/email_classifier.py — 5-dimension scoring system
+- [x] Dimensions: new_pc, new_rfq, reply_followup, po_award, cs_inquiry
+- [x] Confidence = margin between top two scores; needs_review if < 0.15
+- [x] email_classifications table for audit trail (auto-created)
+- [x] GET /api/email/review-queue — low-confidence classifications
+- [x] POST /api/email/classify-test — test classification on sample text
+
+### S3.3 — Margin Optimizer Dashboard (F7) ✅
+- [x] Created src/knowledge/margin_optimizer.py
+- [x] Overall stats: win rate, avg margin, won revenue
+- [x] Low-margin alert: items < 15% margin from recent quotes
+- [x] "Should have won" detector: lost quotes within 5% of competitor price (via SCPRS notes)
+- [x] Price source breakdown and category margins
+- [x] GET /api/margins/summary — full dashboard data
+- [x] GET /api/margins/item?description= — per-item pricing intelligence
+
+### S3.4 — Verification ✅
+- [x] 93 files compile clean
+- [x] App starts: 605 routes (4 new Sprint 3 endpoints)
+- [x] Push to production
 
 ## SPRINT 4: GROWTH
 ### S4.1 — Order Lifecycle + Revenue Tracking (F8)

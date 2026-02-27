@@ -381,6 +381,64 @@ def api_universal_search():
     except Exception as _e:
         log.debug("Suppressed: %s", _e)
 
+    # ── Price Checks (SQLite) ────────────────────────────────────────────────
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            pcs = conn.execute("""
+                SELECT id, created_at, requestor, agency, items, quote_number, total_items
+                FROM price_checks
+                WHERE LOWER(requestor) LIKE ? OR LOWER(agency) LIKE ?
+                   OR LOWER(items) LIKE ? OR LOWER(id) LIKE ?
+                   OR LOWER(quote_number) LIKE ?
+                ORDER BY created_at DESC LIMIT 20
+            """, (f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%")).fetchall()
+            for pc in pcs:
+                pc_id = pc[0]
+                results.append({
+                    "type": "price_check",
+                    "icon": "💰",
+                    "title": pc_id[:16] if pc_id else "PC",
+                    "subtitle": f"{pc[3] or ''} · {pc[2] or ''}",
+                    "meta": f"{pc[6] or 0} items · {pc[5] or 'no quote'}",
+                    "url": f"/pricechecks#{pc_id}",
+                    "score": 75,
+                })
+                if len(results) >= limit: break
+    except Exception as _e:
+        log.debug("Suppressed PC search: %s", _e)
+
+    # ── Products / Catalog ───────────────────────────────────────────────────
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            # Check if products table exists
+            has_products = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='products'"
+            ).fetchone()
+            if has_products:
+                prods = conn.execute("""
+                    SELECT id, name, mfg_number, category, sell_price, recommended_price
+                    FROM products
+                    WHERE LOWER(name) LIKE ? OR LOWER(mfg_number) LIKE ?
+                       OR LOWER(category) LIKE ?
+                    ORDER BY name LIMIT 15
+                """, (f"%{q}%", f"%{q}%", f"%{q}%")).fetchall()
+                for p in prods:
+                    price = p[5] or p[4] or 0
+                    results.append({
+                        "type": "product",
+                        "icon": "🏷️",
+                        "title": p[1] or p[2] or f"Product #{p[0]}",
+                        "subtitle": f"{p[3] or 'Uncategorized'} · {p[2] or ''}",
+                        "meta": f"${price:,.2f}" if price else "No price",
+                        "url": f"/catalog#{p[0]}",
+                        "score": 50,
+                    })
+                    if len(results) >= limit: break
+    except Exception as _e:
+        log.debug("Suppressed product search: %s", _e)
+
     # Sort by type priority, dedupe urls
     seen_urls = set()
     deduped = []
@@ -395,7 +453,7 @@ def api_universal_search():
         "count": len(deduped),
         "results": deduped[:limit],
         "breakdown": {t: sum(1 for r in deduped if r["type"]==t)
-                      for t in ("quote","contact","intel_buyer","order","rfq")},
+                      for t in ("quote","contact","intel_buyer","order","rfq","price_check","product")},
     })
 
 

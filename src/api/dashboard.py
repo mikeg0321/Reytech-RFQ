@@ -2842,6 +2842,66 @@ def admin_backup_now():
         return jsonify({"ok": False, "error": str(e)})
 
 
+# ── Email Classification API (F6) ────────────────────────────────────────────
+
+@bp.route("/api/email/review-queue")
+@auth_required
+def email_review_queue():
+    """Get emails needing manual classification review."""
+    try:
+        from src.agents.email_classifier import get_review_queue
+        limit = min(int(request.args.get("limit", 20)), 100)
+        queue = get_review_queue(limit=limit)
+        return jsonify({"ok": True, "count": len(queue), "queue": queue})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/email/classify-test", methods=["POST"])
+@auth_required
+def email_classify_test():
+    """Test email classification on provided text (for debugging)."""
+    try:
+        from src.agents.email_classifier import classify_email
+        data = request.get_json(silent=True) or {}
+        result = classify_email(
+            subject=data.get("subject", ""),
+            body=data.get("body", ""),
+            sender=data.get("sender", ""),
+            attachment_names=data.get("attachments", []),
+        )
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+# ── Margin Optimizer API (F7) ────────────────────────────────────────────────
+
+@bp.route("/api/margins/summary")
+@auth_required
+def margins_summary():
+    """Category-level margin stats, low-margin alerts, should-have-won detection."""
+    try:
+        from src.knowledge.margin_optimizer import get_margin_summary
+        return jsonify(get_margin_summary())
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/margins/item")
+@auth_required
+def margins_item():
+    """Per-item pricing intelligence. GET ?description=gauze"""
+    try:
+        from src.knowledge.margin_optimizer import get_item_pricing
+        desc = request.args.get("description", "")
+        if len(desc) < 2:
+            return jsonify({"ok": False, "error": "description required (min 2 chars)"})
+        return jsonify(get_item_pricing(desc))
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
 # Route Modules — loaded at import time, register routes onto this Blueprint
 # Split from dashboard.py for maintainability (was 13,831 lines)
 # ══════════════════════════════════════════════════════════════════════════════
