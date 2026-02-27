@@ -231,4 +231,25 @@
 - [x] 99 files compile clean
 - [x] Push to production
 
+## SPRINT 8: DATA QUALITY + OBSERVABILITY ✅ COMPLETE
+
+### S8.1 — Data Integrity Checker ✅
+- [x] Created src/core/data_integrity.py — 6 cross-table consistency checks
+- [x] Checks: orphaned order→quote refs, duplicate quote numbers, missing order items,
+      stale pending quotes (>90d), revenue log consistency, table health
+- [x] GET /api/system/integrity — run all checks, returns pass/fail with details
+
+### S8.2 — System Preflight + Route Map ✅
+- [x] GET /api/system/preflight — combined health + integrity + schema + route count
+- [x] GET /api/system/routes — auto-generated API documentation (all routes with methods)
+- [x] Fixed: backup_health import (was referencing nonexistent db_backup module)
+- [x] Fixed: INTEL_AVAILABLE NameError — pre-defined default in dashboard.py before route module loading
+
+### S8.3 — Verification ✅
+- [x] 100 files compile clean
+- [x] App starts: 616 routes (3 new Sprint 8 endpoints)
+- [x] 20/20 sprint smoke tests pass
+- [x] Pre-deploy check passes
+- [x] Push to production
+
 ## REVIEW LOG

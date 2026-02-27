@@ -139,6 +139,33 @@ class TestStartupIntegrity:
         routes = {rule.rule for rule in app.url_map.iter_rules()}
         critical = ["/health", "/", "/pricechecks", "/quotes",
                     "/api/search", "/api/system/health",
-                    "/api/revenue/ytd", "/api/growth/prospects"]
+                    "/api/revenue/ytd", "/api/growth/prospects",
+                    "/api/system/integrity", "/api/system/preflight",
+                    "/api/system/routes"]
         for r in critical:
             assert r in routes, f"Missing critical route: {r}"
+
+
+class TestDataIntegrity:
+    """Sprint 8: Data integrity checks."""
+
+    def test_integrity_endpoint(self, auth_client):
+        resp = auth_client.get("/api/system/integrity")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "checks" in data
+        assert "total_checks" in data
+
+    def test_preflight_endpoint(self, auth_client):
+        resp = auth_client.get("/api/system/preflight")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "status" in data
+        assert "checks" in data
+
+    def test_route_map(self, auth_client):
+        resp = auth_client.get("/api/system/routes")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "total" in data
+        assert data["total"] > 500

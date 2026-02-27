@@ -3025,7 +3025,7 @@ def system_health():
 
     try:
         # Backup health
-        from src.core.db_backup import backup_health
+        from src.core.scheduler import backup_health
         bh = backup_health()
         health["checks"]["backups"] = bh
         if not bh.get("ok"):
@@ -3071,9 +3071,103 @@ def run_migrations_api():
         return jsonify({"ok": False, "error": str(e)})
 
 
+@bp.route("/api/system/integrity")
+@auth_required
+def data_integrity():
+    """Run data integrity checks across all tables."""
+    try:
+        from src.core.data_integrity import run_integrity_checks
+        return jsonify(run_integrity_checks())
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/system/preflight")
+@auth_required
+def system_preflight():
+    """Combined pre-flight check: health + integrity + schema."""
+    result = {"status": "ok", "checks": {}}
+    
+    # Health
+    try:
+        from src.core.db import get_db, DB_PATH
+        import os as _os
+        with get_db() as conn:
+            tables = conn.execute(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table'"
+            ).fetchone()[0]
+            db_size = _os.path.getsize(DB_PATH) if _os.path.exists(DB_PATH) else 0
+        result["checks"]["database"] = {"ok": True, "tables": tables,
+                                         "size_mb": round(db_size / 1048576, 1)}
+    except Exception as e:
+        result["checks"]["database"] = {"ok": False, "error": str(e)}
+        result["status"] = "degraded"
+
+    # Schema
+    try:
+        from src.core.migrations import get_migration_status
+        ms = get_migration_status()
+        result["checks"]["schema"] = {
+            "ok": ms.get("up_to_date", False),
+            "version": ms.get("current_version"),
+            "pending": len(ms.get("pending", []))
+        }
+    except Exception as e:
+        result["checks"]["schema"] = {"ok": False, "error": str(e)}
+
+    # Integrity
+    try:
+        from src.core.data_integrity import run_integrity_checks
+        ic = run_integrity_checks()
+        result["checks"]["integrity"] = {
+            "ok": ic["ok"], "passed": ic["passed"],
+            "failed": ic["failed"]
+        }
+        if not ic["ok"]:
+            result["status"] = "degraded"
+    except Exception as e:
+        result["checks"]["integrity"] = {"ok": False, "error": str(e)}
+
+    # Route count
+    try:
+        from flask import current_app
+        rules = list(current_app.url_map.iter_rules())
+        result["checks"]["routes"] = {"ok": len(rules) > 500, "count": len(rules)}
+    except Exception as e:
+        result["checks"]["routes"] = {"ok": False, "error": str(e)}
+
+    return jsonify(result)
+
+
+@bp.route("/api/system/routes")
+@auth_required
+def api_route_map():
+    """Auto-generated API documentation — all routes with methods."""
+    from flask import current_app
+    routes = []
+    for rule in sorted(current_app.url_map.iter_rules(), key=lambda r: r.rule):
+        if rule.rule.startswith("/static"):
+            continue
+        methods = sorted(rule.methods - {"HEAD", "OPTIONS"})
+        routes.append({
+            "path": rule.rule,
+            "methods": methods,
+            "endpoint": rule.endpoint,
+        })
+    return jsonify({
+        "total": len(routes),
+        "api_routes": [r for r in routes if r["path"].startswith("/api/")],
+        "page_routes": [r for r in routes if not r["path"].startswith("/api/")],
+    })
+
+
 # Route Modules — loaded at import time, register routes onto this Blueprint
 # Split from dashboard.py for maintainability (was 13,831 lines)
 # ══════════════════════════════════════════════════════════════════════════════
+
+# Cross-module globals: defined in later modules, used by earlier ones.
+# Pre-define defaults so modules loaded first can reference them safely.
+INTEL_AVAILABLE = False  # Set True by routes_intel if sales_intel import succeeds
 
 def _load_route_module(module_name: str):
     """
