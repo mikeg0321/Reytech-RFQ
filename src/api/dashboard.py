@@ -83,66 +83,13 @@ def _push_notification(notif: dict):
 
 
 
-bp = Blueprint("dashboard", __name__)
+from src.api.shared import (bp, auth_required, check_auth, _check_rate_limit,
+                            DASH_USER, DASH_PASS, RATE_LIMIT_MAX, RATE_LIMIT_AUTH_MAX)
 # Secret key set in app.py
 
-# ── Request-level structured logging ────────────────────────────────────────
+# ── time alias for auto-pricing and other timing ─────────────────────────────
 import time as _time
-
-@bp.before_request
-def _global_auth_guard():
-    """Global auth guard — every request must authenticate except allowlisted paths."""
-    # ── Allowlist: paths that don't require auth ──
-    _path = request.path
-    if (_path.startswith("/static/") or
-        _path.startswith("/api/email/track/") or       # Email open/click tracking pixels
-        _path in ("/health", "/api/health", "/favicon.ico", "/login",
-                   "/api/qb/callback",                  # QuickBooks OAuth callback
-                   "/api/voice/webhook",                # Twilio webhook
-                   "/api/build")):                      # Build info (low risk)
-        pass  # skip auth
-    else:
-        # Rate limit auth attempts
-        auth_key = f"auth:{request.remote_addr}"
-        if not _check_rate_limit(auth_key, RATE_LIMIT_AUTH_MAX):
-            return Response("Rate limited — too many auth attempts", 429)
-        auth = request.authorization
-        if not auth or not check_auth(auth.username, auth.password):
-            log.warning("AUTH DENIED: %s %s from %s", request.method, _path, request.remote_addr)
-            try:
-                from src.core.security import _log_audit_internal
-                _log_audit_internal("auth_denied", f"{request.method} {_path} from {request.remote_addr}")
-            except Exception:
-                pass
-            return Response(
-                "🔒 Reytech RFQ Dashboard — Login Required",
-                401, {"WWW-Authenticate": 'Basic realm="Reytech RFQ Dashboard"'})
-    # ── CSRF: Origin check for state-changing requests ──
-    if request.method in ("POST", "PUT", "DELETE") and not _path.startswith("/api/voice/webhook"):
-        origin = request.headers.get("Origin", "")
-        referer = request.headers.get("Referer", "")
-        host = request.host_url.rstrip("/")
-        # Allow: same-origin requests, or JSON API with Basic Auth
-        is_same_origin = (origin == host) or (not origin and referer.startswith(host))
-        is_json_api = request.content_type and "json" in request.content_type
-        if not is_same_origin and not is_json_api:
-            log.warning("CSRF BLOCKED: %s %s origin=%s referer=%s", request.method, _path, origin, referer)
-            return Response(json.dumps({"ok": False, "error": "CSRF validation failed"}),
-                            403, {"Content-Type": "application/json"})
-    # ── Request timing ──
-    request._start_time = _time.time()
-
-@bp.after_request
-def _log_request_end(response):
-    if hasattr(request, '_start_time'):
-        duration_ms = round((_time.time() - request._start_time) * 1000, 1)
-        # Skip static/health spam
-        if request.path not in ('/api/health',) and not request.path.startswith('/static'):
-            log.info("%s %s → %d (%.0fms)",
-                     request.method, request.path, response.status_code, duration_ms,
-                     extra={"route": request.path, "method": request.method,
-                            "status": response.status_code, "duration_ms": duration_ms})
-    return response
+# Auth guard + request logging + CSRF now in src/api/shared.py
 
 try:
     from src.core.paths import PROJECT_ROOT as BASE_DIR, DATA_DIR, UPLOAD_DIR, OUTPUT_DIR
@@ -219,13 +166,7 @@ def _pst_now_iso():
 # ═══════════════════════════════════════════════════════════════════════
 # Password Protection
 # ═══════════════════════════════════════════════════════════════════════
-
-DASH_USER = os.environ.get("DASH_USER", "reytech")
-DASH_PASS = os.environ.get("DASH_PASS", "changeme")
-
-if DASH_PASS == "changeme":
-    log.warning("⚠️  SECURITY: DASH_PASS is set to default 'changeme'. Set DASH_PASS env var for production!")
-
+# Auth credentials now in src/api/shared.py
 
 # ── Security: Path validation utilities ──────────────────────────────────────
 import re as _re
@@ -275,53 +216,7 @@ def _validate_pdf_path(pdf_path: str) -> str:
     # Only allow paths within DATA_DIR  
     return _safe_path(pdf_path, DATA_DIR)
 
-
-def check_auth(username, password):
-    return username == DASH_USER and password == DASH_PASS
-
-def auth_required(f):
-    @functools.wraps(f)
-    def decorated(*args, **kwargs):
-        # Rate limit auth attempts
-        auth_key = f"auth:{request.remote_addr}"
-        if not _check_rate_limit(auth_key, RATE_LIMIT_AUTH_MAX):
-            return Response("Rate limited — too many auth attempts", 429)
-        auth = request.authorization
-        if not auth or not check_auth(auth.username, auth.password):
-            return Response(
-                "🔒 Reytech RFQ Dashboard — Login Required",
-                401, {"WWW-Authenticate": 'Basic realm="Reytech RFQ Dashboard"'})
-        # Rate limit all authenticated requests
-        if not _check_rate_limit():
-            return Response("Rate limited — slow down", 429)
-        return f(*args, **kwargs)
-    return decorated
-
-# ═══════════════════════════════════════════════════════════════════════
-# Security: Rate Limiting + Input Sanitization (Phase 22)
-# ═══════════════════════════════════════════════════════════════════════
-
-_rate_limiter = {}  # {ip: [timestamps]}
-RATE_LIMIT_WINDOW = 60  # seconds
-RATE_LIMIT_MAX = 300    # requests per window (generous for single-user dashboard with polling)
-RATE_LIMIT_AUTH_MAX = 60  # auth attempts per window (was 10 — too low for polling pages)
-
-def _check_rate_limit(key: str = None, max_requests: int = None) -> bool:
-    """Check if request is within rate limits. Returns True if OK. Thread-safe."""
-    key = key or (request.remote_addr if request else "unknown") or "unknown"
-    max_req = max_requests or RATE_LIMIT_MAX
-    now = time.time()
-    with _rate_limiter_lock:
-        window = _rate_limiter.get(key, [])
-        window = [t for t in window if now - t < RATE_LIMIT_WINDOW]
-        if len(window) >= max_req:
-            return False
-        window.append(now)
-        _rate_limiter[key] = window
-        # Cleanup old keys periodically (thread-safe, inside lock)
-        if len(_rate_limiter) > 1000:
-            _rate_limiter.clear()
-    return True
+# check_auth, auth_required, _check_rate_limit now imported from src.api.shared
 
 def _sanitize_input(value: str, max_length: int = 500, allow_html: bool = False) -> str:
     """Sanitize user input — strip dangerous characters."""

@@ -3,6 +3,14 @@
 
 # ─── Intelligence Dashboard Page ──────────────────────────────────────────
 
+# ── Explicit imports (S11 refactor: no longer relying solely on injection) ──
+from flask import request, jsonify, Response
+from src.api.shared import bp, auth_required
+import logging
+log = logging.getLogger("reytech")
+from flask import redirect, flash
+from src.api.render import render_page
+
 @bp.route("/intelligence")
 @auth_required
 def intelligence_page():

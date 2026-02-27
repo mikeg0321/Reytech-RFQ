@@ -187,6 +187,16 @@ def app(monkeypatch):
                             lambda u, p: u == "test" and p == "test")
     except Exception:
         pass
+    # Also patch shared.py (auth guard lives there now)
+    try:
+        import src.api.shared as shared
+        monkeypatch.setattr(shared, "DASH_USER", "test")
+        monkeypatch.setattr(shared, "DASH_PASS", "test")
+        monkeypatch.setattr(shared, "_check_rate_limit", lambda *a, **kw: True)
+        monkeypatch.setattr(shared, "check_auth",
+                            lambda u, p: u == "test" and p == "test")
+    except Exception:
+        pass
     
     yield app
 

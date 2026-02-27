@@ -1,6 +1,16 @@
 # routes_intel.py
 
 # ── Security middleware ──────────────────────────────────────────────────────
+# ── Explicit imports (S11 refactor: no longer relying solely on injection) ──
+from flask import request, jsonify, Response
+from src.api.shared import bp, auth_required
+import logging
+log = logging.getLogger("reytech")
+from flask import redirect, flash
+from src.core.paths import DATA_DIR
+from src.core.db import get_db
+from src.api.render import render_page
+
 try:
     from src.core.security import rate_limit, audit_action, _log_audit_internal
     _HAS_SECURITY = True

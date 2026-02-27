@@ -1,6 +1,14 @@
 # PRD-28 Routes — Quote Lifecycle, Email Overhaul, Lead Nurture, Revenue, Vendor Intel
 # Loaded by dashboard.py via load_module()
 
+# ── Explicit imports (S11 refactor: no longer relying solely on injection) ──
+from flask import request, jsonify, Response
+from src.api.shared import bp, auth_required
+import logging
+log = logging.getLogger("reytech")
+from flask import redirect
+from src.api.render import render_page
+
 import json as _json
 import os as _os
 from datetime import datetime as _dt, timezone as _tz

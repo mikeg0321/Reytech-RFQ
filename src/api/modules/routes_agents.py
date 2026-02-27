@@ -1,6 +1,13 @@
 # routes_agents.py
 
 # ── JSON→SQLite compatibility (Phase 32c migration) ──────────────────────────
+# ── Explicit imports (S11 refactor: no longer relying solely on injection) ──
+from flask import request, jsonify, Response
+from src.api.shared import bp, auth_required
+import logging
+log = logging.getLogger("reytech")
+from src.core.paths import DATA_DIR
+
 try:
     from src.core.db import (
         get_all_customers, get_all_vendors, get_all_price_checks, get_price_check,

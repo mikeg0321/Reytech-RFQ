@@ -2,6 +2,14 @@
 routes_features3.py — 15+ New Endpoints for Agents Page v3
 Focused on: actionable intelligence, combined dashboards, button reliability
 """
+# ── Explicit imports (S11 refactor: no longer relying solely on injection) ──
+from flask import request, jsonify, Response
+from src.api.shared import bp, auth_required
+import logging
+log = logging.getLogger("reytech")
+from src.core.paths import DATA_DIR
+from src.core.db import get_db
+
 import os, json, glob, time, logging, traceback
 from datetime import datetime, timedelta
 from collections import defaultdict

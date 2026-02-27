@@ -43,8 +43,9 @@
 - [x] dashboard.py: Removed 32 lines of fallback import chains
 - [x] Verified: all imports reference src.* paths, 89+ files compile clean
 
-### S1.2 — Blueprint Refactor: Incremental exec() Cleanup (F2) — DEFERRED
-**Rationale:** The exec/importlib pattern works reliably today. Security risk (C3) is fully mitigated by global auth guard. A 15-module Blueprint split carries high regression risk (~598 routes affected) with low immediate value. Route modules have 0 own imports — all depend on dashboard globals. Moving bp definition creates circular import cascade.
+### S1.2 — Blueprint Refactor: Shared Infrastructure Extraction (F2) — ✅ COMPLETE (Sprint 11)
+**Completed:** Extracted bp + auth + rate limiting into src/api/shared.py. Added explicit imports
+to all 15 route modules. _load_route_module kept as safety net for dashboard-specific functions.
 **When to tackle:** Sprint 5 (Operations) alongside M5 Structured Logging, when system is stable enough for deep refactor.
 **Prep done:**
 - [x] Mapped all 15 modules' dependency on dashboard globals (bp, auth_required)
@@ -252,6 +253,30 @@
 - [x] 20/20 sprint smoke tests pass
 - [x] Pre-deploy check passes
 - [x] Push to production
+
+## SPRINT 11: BLUEPRINT REFACTOR (S1.2) ✅ COMPLETE
+
+### S11.1 — Extract shared infrastructure ✅
+- [x] Created src/api/shared.py — Blueprint, auth_required, check_auth, rate limiting,
+      CSRF guard, request timing (all moved from dashboard.py)
+- [x] dashboard.py now imports from shared.py (removed ~100 lines of duplicate code)
+- [x] No circular imports — shared.py has no dashboard dependencies
+
+### S11.2 — Explicit imports in route modules ✅
+- [x] All 15 route modules now have explicit imports:
+      from flask import request, jsonify, Response, ...
+      from src.api.shared import bp, auth_required
+      from src.core.paths import DATA_DIR, ...
+      from src.core.db import get_db
+      from src.api.render import render_page
+- [x] _load_route_module injection still works as safety net for dashboard-specific
+      functions (load_rfqs, save_rfqs, POLL_STATUS, etc.)
+- [x] Modules are now self-documenting — core dependencies visible at top of file
+
+### S11.3 — Test infrastructure updates ✅
+- [x] conftest.py: patches both dashboard + shared module auth
+- [x] test_critical_paths.py: patches both modules
+- [x] 39/39 tests pass, pre-deploy check clean
 
 ## SPRINT 10: PDF VERSIONING + FINAL HARDENING ✅ COMPLETE
 

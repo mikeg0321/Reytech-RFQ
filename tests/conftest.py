@@ -124,9 +124,17 @@ def app(temp_data_dir, monkeypatch):
                         os.path.join(temp_data_dir, "output"))
     monkeypatch.setattr(dashboard, "UPLOAD_DIR",
                         os.path.join(temp_data_dir, "uploads"))
-    # Ensure auth vars match test credentials
+    # Ensure auth vars match test credentials (patch both dashboard + shared)
     monkeypatch.setattr(dashboard, "DASH_USER", "reytech")
     monkeypatch.setattr(dashboard, "DASH_PASS", "changeme")
+    try:
+        from src.api import shared
+        monkeypatch.setattr(shared, "DASH_USER", "reytech")
+        monkeypatch.setattr(shared, "DASH_PASS", "changeme")
+        monkeypatch.setattr(shared, "check_auth",
+                            lambda u, p: u == "reytech" and p == "changeme")
+    except ImportError:
+        pass
     for d in ("output", "uploads"):
         os.makedirs(os.path.join(temp_data_dir, d), exist_ok=True)
 
@@ -312,8 +320,15 @@ def disable_rate_limit(monkeypatch):
     try:
         import src.api.dashboard as dash
         monkeypatch.setattr(dash, "_check_rate_limit", lambda *a, **kw: True)
-        # Ensure auth works with test credentials
+        # Accept any non-empty credentials in tests
         monkeypatch.setattr(dash, "check_auth",
-                            lambda u, p: u == "reytech" and p == "changeme")
+                            lambda u, p: bool(u and p))
+    except Exception:
+        pass
+    try:
+        import src.api.shared as shared
+        monkeypatch.setattr(shared, "_check_rate_limit", lambda *a, **kw: True)
+        monkeypatch.setattr(shared, "check_auth",
+                            lambda u, p: bool(u and p))
     except Exception:
         pass

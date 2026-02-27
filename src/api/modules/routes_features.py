@@ -3,6 +3,14 @@ routes_features.py — 24 New Feature Endpoints for Agents Page
 Batch 2: QB Actions, Quote-to-Cash Pipeline, Catalog Intelligence,
          System Dashboard, Data Quality
 """
+# ── Explicit imports (S11 refactor: no longer relying solely on injection) ──
+from flask import request, jsonify, Response
+from src.api.shared import bp, auth_required
+import logging
+log = logging.getLogger("reytech")
+from src.core.paths import DATA_DIR
+from src.core.db import get_db
+
 import os, json, glob, time, logging, sqlite3
 from datetime import datetime, timedelta
 from collections import defaultdict

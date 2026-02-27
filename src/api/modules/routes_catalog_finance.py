@@ -5,6 +5,16 @@
 # Product Catalog & Dynamic Pricing
 # ═══════════════════════════════════════════════════════════════════════
 
+# ── Explicit imports (S11 refactor: no longer relying solely on injection) ──
+from flask import request, jsonify, Response
+from src.api.shared import bp, auth_required
+import logging
+log = logging.getLogger("reytech")
+from flask import redirect, flash
+from src.core.paths import DATA_DIR
+from src.core.db import get_db
+from src.api.render import render_page
+
 try:
     from src.agents.product_catalog import (
         import_qb_csv, search_products, get_product, predictive_lookup,

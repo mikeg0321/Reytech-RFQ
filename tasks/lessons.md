@@ -303,3 +303,11 @@ in the module namespace, which only exists when loaded via _load_route_module().
 **Rule**: To test utility functions from exec'd modules, access them through
 dashboard globals after app creation: `getattr(dash, '_compute_recommended_price')`.
 Use pytest.skip() if the function isn't available rather than crashing.
+
+## L41: Safe Blueprint refactor — extract, don't restructure
+**Pattern**: Moving bp+auth to shared.py and adding explicit imports to modules
+is safe and testable. Full Blueprint-per-module restructuring is high risk.
+**Rule**: For exec'd/injected modules, add explicit imports ALONGSIDE injection.
+The injection becomes a safety net, the imports become documentation. Test patch
+both the old location (dashboard) AND the new location (shared) since Python
+module references aren't magically updated.

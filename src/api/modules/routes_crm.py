@@ -1,4 +1,14 @@
 # routes_crm.py
+# ── Explicit imports (S11 refactor: no longer relying solely on injection) ──
+from flask import request, jsonify, Response
+from src.api.shared import bp, auth_required
+import logging
+log = logging.getLogger("reytech")
+from flask import redirect, flash, send_file
+from src.core.paths import DATA_DIR
+from src.core.db import get_db
+from src.api.render import render_page
+
 import re
 from datetime import datetime
 

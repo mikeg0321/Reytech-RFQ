@@ -5,6 +5,16 @@
 # NOTE: This module is exec'd in dashboard.py globals — bp, load_rfqs, save_rfqs,
 # _load_price_checks, _save_price_checks, render_page, auth_required, CONFIG,
 # DATA_DIR, jsonify, request, redirect, flash, datetime, os, json, log are all available.
+# ── Explicit imports (S11 refactor: no longer relying solely on injection) ──
+from flask import request, jsonify, Response
+from src.api.shared import bp, auth_required
+import logging
+log = logging.getLogger("reytech")
+from flask import redirect, flash
+from src.core.paths import DATA_DIR
+from src.core.db import get_db
+from src.api.render import render_page
+
 import time as _time
 import threading as _threading
 import sqlite3 as _sqlite3
