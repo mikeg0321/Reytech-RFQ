@@ -399,6 +399,24 @@ def _init_rfq_files_table():
                 )
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_rfq_files_rfq ON rfq_files(rfq_id)")
+            
+            # ── Dedup cleanup: remove older duplicates (keep latest per rfq_id+filename+category) ──
+            try:
+                dupes = conn.execute("""
+                    DELETE FROM rfq_files WHERE id NOT IN (
+                        SELECT id FROM (
+                            SELECT id, ROW_NUMBER() OVER (
+                                PARTITION BY rfq_id, filename, category 
+                                ORDER BY created_at DESC
+                            ) as rn FROM rfq_files
+                        ) WHERE rn = 1
+                    )
+                """)
+                if dupes.rowcount > 0:
+                    log.info("Dedup cleanup: removed %d duplicate rfq_files rows", dupes.rowcount)
+            except Exception:
+                # Fallback for older SQLite without window functions
+                pass
     except Exception as e:
         log.debug("rfq_files table init: %s", e)
 
@@ -408,19 +426,39 @@ _init_rfq_files_table()
 
 def save_rfq_file(rfq_id: str, filename: str, file_type: str, data: bytes,
                    category: str = "template", uploaded_by: str = "system") -> str:
-    """Save a PDF to the rfq_files table. Returns file_id."""
+    """Save a PDF to the rfq_files table. Returns file_id.
+    
+    DEDUP: If a file with the same rfq_id + filename + category already exists,
+    updates the existing row instead of creating a duplicate.
+    """
     import uuid
-    file_id = f"rf_{uuid.uuid4().hex[:10]}"
     try:
         from src.core.db import get_db
         with get_db() as conn:
-            conn.execute("""
-                INSERT OR REPLACE INTO rfq_files (id, rfq_id, filename, file_type, category, file_size, data, uploaded_by, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (file_id, rfq_id, filename, file_type, category, len(data), data, uploaded_by, datetime.now().isoformat()))
-        log.info("Saved file %s (%s, %d bytes) for RFQ %s", filename, file_type, len(data), rfq_id)
+            # Check for existing file with same rfq_id + filename + category
+            existing = conn.execute(
+                "SELECT id FROM rfq_files WHERE rfq_id=? AND filename=? AND category=? LIMIT 1",
+                (rfq_id, filename, category)).fetchone()
+            
+            if existing:
+                # Update existing row
+                file_id = existing["id"]
+                conn.execute("""
+                    UPDATE rfq_files SET file_type=?, file_size=?, data=?, uploaded_by=?, created_at=?
+                    WHERE id=?
+                """, (file_type, len(data), data, uploaded_by, datetime.now().isoformat(), file_id))
+                log.info("Updated file %s (%s, %d bytes) for RFQ %s", filename, file_type, len(data), rfq_id)
+            else:
+                # Insert new row
+                file_id = f"rf_{uuid.uuid4().hex[:10]}"
+                conn.execute("""
+                    INSERT INTO rfq_files (id, rfq_id, filename, file_type, category, file_size, data, uploaded_by, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (file_id, rfq_id, filename, file_type, category, len(data), data, uploaded_by, datetime.now().isoformat()))
+                log.info("Saved file %s (%s, %d bytes) for RFQ %s", filename, file_type, len(data), rfq_id)
     except Exception as e:
         log.error("Failed to save file %s for RFQ %s: %s", filename, rfq_id, e)
+        file_id = f"rf_{uuid.uuid4().hex[:10]}"
     return file_id
 
 
@@ -438,19 +476,33 @@ def get_rfq_file(file_id: str) -> dict:
 
 
 def list_rfq_files(rfq_id: str, category: str = None) -> list:
-    """List files for an RFQ. Returns list of dicts (without BLOB data)."""
+    """List files for an RFQ. Returns list of dicts (without BLOB data).
+    
+    DEDUP: If multiple rows exist for the same filename+category (legacy),
+    only returns the most recent one per filename+category.
+    """
     try:
         from src.core.db import get_db
         with get_db() as conn:
             if category:
                 rows = conn.execute(
-                    "SELECT id, rfq_id, filename, file_type, category, file_size, uploaded_by, created_at FROM rfq_files WHERE rfq_id = ? AND category = ? ORDER BY created_at",
+                    "SELECT id, rfq_id, filename, file_type, category, file_size, uploaded_by, created_at FROM rfq_files WHERE rfq_id = ? AND category = ? ORDER BY created_at DESC",
                     (rfq_id, category)).fetchall()
             else:
                 rows = conn.execute(
-                    "SELECT id, rfq_id, filename, file_type, category, file_size, uploaded_by, created_at FROM rfq_files WHERE rfq_id = ? ORDER BY created_at",
+                    "SELECT id, rfq_id, filename, file_type, category, file_size, uploaded_by, created_at FROM rfq_files WHERE rfq_id = ? ORDER BY created_at DESC",
                     (rfq_id,)).fetchall()
-            return [dict(r) for r in rows]
+            # Dedup: keep only the latest row per (filename, category)
+            seen = set()
+            deduped = []
+            for r in rows:
+                key = (r["filename"], r["category"])
+                if key not in seen:
+                    seen.add(key)
+                    deduped.append(dict(r))
+            # Return in chronological order (oldest first)
+            deduped.reverse()
+            return deduped
     except Exception as e:
         log.error("list_rfq_files error: %s", e)
     return []
