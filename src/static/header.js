@@ -52,20 +52,68 @@ function pollNow(btn){
 function resyncAll(btn){
  if(!confirm('RESYNC will:\n\n\u2022 Keep sent/won/lost/draft RFQs (your work is safe)\n\u2022 Clear only new/stale imports\n\u2022 Re-import missed emails from inbox\n\u2022 Price Checks are KEPT\n\nUse after a fix or when emails were missed.\nContinue?'))return;
  btn.disabled=true;btn.setAttribute('aria-busy','true');
+ // Build progress overlay
+ var bar=document.createElement('div');
+ bar.id='resync-progress';
+ bar.innerHTML='<div style="position:fixed;top:0;left:0;right:0;z-index:99999;background:#1e293b;padding:10px 20px;display:flex;align-items:center;gap:12px;border-bottom:2px solid #f59e0b;box-shadow:0 2px 12px rgba(0,0,0,.5)">'
+  +'<div style="flex:1"><div style="background:#334155;border-radius:4px;height:8px;overflow:hidden">'
+  +'<div id="resync-bar" style="height:100%;background:linear-gradient(90deg,#f59e0b,#fbbf24);border-radius:4px;width:5%;transition:width .3s"></div></div></div>'
+  +'<span id="resync-status" style="color:#fbbf24;font-size:13px;white-space:nowrap">\uD83D\uDD04 Connecting...</span>'
+  +'<span id="resync-timer" style="color:#94a3b8;font-size:12px;font-family:monospace">0s</span></div>';
+ document.body.appendChild(bar);
  btn.textContent='\uD83D\uDD04 Resyncing\u2026';
  btn.style.background='rgba(251,191,36,.2)';btn.style.borderColor='rgba(251,191,36,.4)';
+ var started=Date.now(),pct=5;
+ var steps=[
+  {at:500,pct:10,msg:'\uD83D\uDD04 Clearing stale imports...'},
+  {at:2000,pct:20,msg:'\uD83D\uDCE7 Connecting to inbox...'},
+  {at:5000,pct:35,msg:'\uD83D\uDCE7 Scanning emails...'},
+  {at:10000,pct:50,msg:'\uD83D\uDCE6 Importing RFQs...'},
+  {at:20000,pct:65,msg:'\uD83D\uDCCA Pricing lookups...'},
+  {at:35000,pct:75,msg:'\u23F3 Still working (large inbox)...'},
+  {at:60000,pct:82,msg:'\u23F3 Hang tight, almost done...'},
+  {at:90000,pct:88,msg:'\u23F3 This inbox has a lot of emails...'},
+ ];
+ var stepIdx=0;
+ var timer=setInterval(function(){
+  var el=Math.round((Date.now()-started)/1000);
+  var tEl=document.getElementById('resync-timer');
+  if(tEl)tEl.textContent=el+'s';
+  while(stepIdx<steps.length&&(Date.now()-started)>=steps[stepIdx].at){
+   pct=steps[stepIdx].pct;
+   var sEl=document.getElementById('resync-status');
+   if(sEl)sEl.textContent=steps[stepIdx].msg;
+   var bEl=document.getElementById('resync-bar');
+   if(bEl)bEl.style.width=pct+'%';
+   stepIdx++;
+  }
+ },500);
  fetch('/api/resync',{credentials:'same-origin'}).then(function(r){return r.json()}).then(function(d){
+  clearInterval(timer);
   _updatePollTime(d.last_check);
+  var bEl=document.getElementById('resync-bar');
+  if(bEl){bEl.style.width='100%';bEl.style.background='linear-gradient(90deg,#34d399,#10b981)';}
+  var sEl=document.getElementById('resync-status');
   var parts=[];
   if(d.found>0)parts.push(d.found+' new');
   if(d.preserved>0)parts.push(d.preserved+' kept');
   if(d.pcs_preserved)parts.push(d.pcs_preserved+' PCs');
-  btn.textContent='\u2705 '+(parts.join(', ')||'Done');
+  var msg='\u2705 '+(parts.join(', ')||'Done');
+  if(sEl)sEl.textContent=msg;
+  btn.textContent=msg;
   btn.style.background='rgba(52,211,153,.2)';btn.style.borderColor='rgba(52,211,153,.4)';
   setTimeout(function(){location.reload()},1500);
- }).catch(function(){
+ }).catch(function(e){
+  clearInterval(timer);
+  var sEl=document.getElementById('resync-status');
+  if(sEl){sEl.textContent='\u274C Failed: '+(e.message||'timeout');sEl.style.color='#f87171';}
+  var bEl=document.getElementById('resync-bar');
+  if(bEl){bEl.style.background='#ef4444';}
   btn.textContent='\u274C Failed';btn.style.background='rgba(248,81,73,.15)';
-  setTimeout(function(){_resetBtn(btn,'\uD83D\uDD04 Resync')},3000);
+  setTimeout(function(){
+   var p=document.getElementById('resync-progress');if(p)p.remove();
+   _resetBtn(btn,'\uD83D\uDD04 Resync');
+  },4000);
  });
 }
 
