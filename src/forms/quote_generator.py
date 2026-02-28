@@ -1092,7 +1092,7 @@ def generate_quote(
     # TOTALS SECTION
     # ══════════════════════════════════════════════════════════════════════════
     tax     = round(subtotal * rate, 2) if include_tax else 0.0
-    total   = round(subtotal + tax + shipping, 2)
+    total   = round(subtotal + tax, 2)  # No shipping line — baked into item cost/margin
 
     # Totals are right-aligned under UNIT PRICE + TOTAL PRICE columns
     # From extraction: labels at x=429→514 (w=85), values at x=514→594 (w=80)
@@ -1102,11 +1102,11 @@ def generate_quote(
     val_w  = 80
     tot_h  = 19
 
+    _tax_label = f"TAX ({rate*100:.2f}%)" if include_tax else "TAX"
     totals_data = [
         ("SUBTOTAL",  f"${subtotal:,.2f}",  False),
-        ("SALES TAX", f"${tax:,.2f}",       False),
-        ("SHIPPING",  f"${shipping:,.2f}" if shipping else "0.00", False),
-        ("TOTAL",     f"${total:,.2f}",     True),
+        (_tax_label,  f"${tax:,.2f}",        False),
+        ("TOTAL",     f"${total:,.2f}",      True),
     ]
 
     ty = cur_y + 4  # gap below last row (top-origin)
@@ -1168,7 +1168,7 @@ def generate_quote(
         "rfq_number": rfq_num,
         "subtotal": subtotal,
         "tax": tax,
-        "shipping": shipping,
+        "tax_rate": rate,
         "total": total,
         "items_count": len(items),
         "date": quote_date,
@@ -1285,6 +1285,35 @@ def generate_quote_from_pc(pc: dict, output_path: str, **kwargs) -> dict:
             "markup_pct":  item.get("markup_pct")  or pricing.get("markup_pct") or 25,
         })
 
+    # ── Tax: always include, look up rate from ship-to facility ───────────
+    if "include_tax" not in kwargs:
+        kwargs["include_tax"] = True
+    if "tax_rate" not in kwargs:
+        try:
+            from src.core.tax_rates import get_rate_for_facility, lookup_tax_rate
+            if facility:
+                tax_info = get_rate_for_facility(facility)
+            elif ship_addr:
+                _addr_str = " ".join(ship_addr) if isinstance(ship_addr, list) else str(ship_addr)
+                import re as _re
+                _zm = _re.search(r'\b(\d{5})\b', _addr_str)
+                tax_info = lookup_tax_rate(
+                    address=ship_addr[0] if ship_addr else "",
+                    city=ship_name,
+                    zip_code=_zm.group(1) if _zm else "",
+                )
+            else:
+                tax_info = lookup_tax_rate()
+            kwargs["tax_rate"] = tax_info["rate"]
+            log.info("Tax rate for PC %s: %.4f (%s, source=%s)",
+                     pc.get("pc_number", "?"), tax_info["rate"],
+                     tax_info.get("jurisdiction", "?"), tax_info.get("source", "?"))
+        except Exception as _te:
+            log.warning("Tax rate lookup failed for PC: %s — using CA base 7.25%%", _te)
+            kwargs["tax_rate"] = 0.0725
+
+    kwargs.setdefault("shipping", 0.0)
+
     return generate_quote(data, output_path, **kwargs)
 
 
@@ -1373,6 +1402,38 @@ def generate_quote_from_rfq(rfq: dict, output_path: str, **kwargs) -> dict:
     _rfq_agency = rfq.get("agency", "")
     if _rfq_agency in _agency_map and "agency" not in kwargs:
         kwargs["agency"] = _agency_map[_rfq_agency]
+
+    # ── Tax: always include, look up rate from ship-to facility ───────────
+    # Uses CDTFA API with fallback to hardcoded rates per zip code
+    if "include_tax" not in kwargs:
+        kwargs["include_tax"] = True
+    if "tax_rate" not in kwargs:
+        try:
+            from src.core.tax_rates import get_rate_for_facility, lookup_tax_rate
+            if facility:
+                tax_info = get_rate_for_facility(facility)
+            elif ship_addr:
+                # Parse zip from address lines
+                _addr_str = " ".join(ship_addr) if isinstance(ship_addr, list) else str(ship_addr)
+                import re as _re
+                _zm = _re.search(r'\b(\d{5})\b', _addr_str)
+                tax_info = lookup_tax_rate(
+                    address=ship_addr[0] if ship_addr else "",
+                    city=ship_name,
+                    zip_code=_zm.group(1) if _zm else "",
+                )
+            else:
+                tax_info = lookup_tax_rate()
+            kwargs["tax_rate"] = tax_info["rate"]
+            log.info("Tax rate for %s: %.4f (%s, source=%s)",
+                     ship_name or "unknown", tax_info["rate"],
+                     tax_info.get("jurisdiction", "?"), tax_info.get("source", "?"))
+        except Exception as _te:
+            log.warning("Tax rate lookup failed: %s — using CA base 7.25%%", _te)
+            kwargs["tax_rate"] = 0.0725
+
+    # No shipping line — shipping is baked into item cost/margin
+    kwargs.setdefault("shipping", 0.0)
 
     return generate_quote(data, output_path, **kwargs)
 

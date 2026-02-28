@@ -824,8 +824,7 @@ def generate_rfq_package(rid):
             
             result = generate_quote_from_rfq(
                 r, quote_path,
-                include_tax=r.get("tax_enabled", False),
-                tax_rate=r.get("tax_rate", 0.0725) if r.get("tax_enabled") else 0.0,
+                include_tax=True,
                 quote_number=locked_qn if locked_qn else None,
             )
             
@@ -1148,8 +1147,7 @@ def api_quote_regenerate(qn):
         
         result = generate_quote_from_rfq(
             quote_data, output_path,
-            include_tax=bool(qt.get("tax", 0) > 0),
-            tax_rate=qt.get("tax", 0) / max(qt.get("subtotal", 1), 0.01) if qt.get("tax", 0) > 0 else 0,
+            include_tax=True,
             quote_number=qn,
         )
         

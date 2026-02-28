@@ -1492,8 +1492,7 @@ def api_quote_from_price_check():
 
     result = generate_quote_from_pc(
         pc, output_path,
-        include_tax=pc.get("tax_enabled", False),
-        tax_rate=pc.get("tax_rate", 0.0725) if pc.get("tax_enabled") else 0.0,
+        include_tax=True,
         quote_number=locked_qn if locked_qn else None,
     )
 
