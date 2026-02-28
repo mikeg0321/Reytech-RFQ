@@ -89,6 +89,25 @@
   <div id="lookup-steps" style="font-size:11px;color:var(--tx2)"></div>
  </div>
 
+ {% if r.get('linked_pc_id') %}
+ <div style="padding:10px 14px;margin-bottom:12px;background:rgba(88,166,255,.08);border:1px solid rgba(88,166,255,.25);border-radius:8px;font-size:13px">
+  <span style="font-weight:700;color:#58a6ff">🔗 Linked to Price Check {{r.linked_pc_number or r.linked_pc_id}}</span>
+  {% if r.get('pc_diff') %}
+   <span style="color:#8b949e;margin-left:8px">·</span>
+   <span style="color:#3fb950;margin-left:4px">{{r.pc_diff.get('ported',0)}} prices ported</span>
+   {% if r.pc_diff.get('added') %}
+    <span style="color:#d29922;margin-left:8px">⚠ +{{r.pc_diff.added|length}} new item{{'' if r.pc_diff.added|length == 1 else 's'}}</span>
+   {% endif %}
+   {% if r.pc_diff.get('removed') %}
+    <span style="color:#f85149;margin-left:8px">-{{r.pc_diff.removed|length}} removed</span>
+   {% endif %}
+   {% if r.pc_diff.get('qty_changed') %}
+    <span style="color:#d29922;margin-left:8px">Δ{{r.pc_diff.qty_changed|length}} qty change{{'' if r.pc_diff.qty_changed|length == 1 else 's'}}</span>
+   {% endif %}
+  {% endif %}
+  <a href="/pricecheck/{{r.linked_pc_id}}" style="color:#58a6ff;margin-left:12px;font-size:12px">View PC →</a>
+ </div>
+ {% endif %}
  <form method="POST" action="/rfq/{{rid}}/update" id="pf">
  <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
  <table class="it" style="min-width:1400px">
@@ -103,7 +122,7 @@
    <td style="font-size:13px">{{i.line_number}}</td>
    <td><input type="number" name="qty_{{loop.index0}}" value="{{i.qty}}" min="1" class="num-in" style="width:55px;font-size:14px;font-weight:700;padding:6px 4px;text-align:center" oninput="recalc()"></td>
    <td><input type="text" name="uom_{{loop.index0}}" value="{{(i.uom or 'EA')|upper}}" class="text-in" style="width:55px;font-size:13px;font-weight:600;padding:6px 4px;text-align:center;text-transform:uppercase" maxlength="6"></td>
-   <td><input type="text" name="desc_{{loop.index0}}" value="{{i.description}}" class="text-in" style="width:100%;min-width:280px;font-size:13px;padding:6px 8px" title="{{i.description}}"></td>
+   <td style="position:relative"><input type="text" name="desc_{{loop.index0}}" value="{{i.description}}" class="text-in" style="width:100%;min-width:280px;font-size:13px;padding:6px 8px" title="{{i.description}}">{% if i.get('_from_pc') %}<span style="position:absolute;top:2px;right:4px;font-size:9px;background:#1f6feb;color:#fff;padding:1px 4px;border-radius:3px;pointer-events:none">PC</span>{% endif %}</td>
    <td><input type="text" name="part_{{loop.index0}}" value="{{i.item_number}}" class="text-in mono" style="width:90px;font-size:12px;padding:6px 8px"></td>
    <td style="min-width:220px">
     <div style="display:flex;align-items:center;gap:4px">
