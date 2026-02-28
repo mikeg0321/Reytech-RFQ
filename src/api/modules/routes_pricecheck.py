@@ -2130,6 +2130,89 @@ def api_poll_reset_processed():
         return jsonify({"ok": False, "cleared": old_count, "error": str(e)})
 
 
+@bp.route("/api/diag/inbox-peek")
+@auth_required
+def api_inbox_peek():
+    """Show all emails in inbox with filter decisions - NO processing."""
+    import imaplib, email as email_mod
+    from email.header import decode_header
+    try:
+        gmail_user = os.environ.get("GMAIL_ADDRESS", "")
+        gmail_pass = os.environ.get("GMAIL_PASSWORD", "")
+        if not gmail_user or not gmail_pass:
+            return jsonify({"error": "No email credentials"})
+        
+        mail = imaplib.IMAP4_SSL("imap.gmail.com")
+        mail.login(gmail_user, gmail_pass)
+        mail.select("INBOX", readonly=True)
+        
+        from datetime import datetime, timedelta
+        since = (datetime.now() - timedelta(days=7)).strftime("%d-%b-%Y")
+        _, data = mail.search(None, f'(SINCE "{since}")')
+        uids = data[0].split() if data[0] else []
+        
+        # Load processed UIDs
+        proc_file = os.path.join(DATA_DIR, "processed_emails.json")
+        processed = set()
+        try:
+            if os.path.exists(proc_file):
+                import json as _j
+                with open(proc_file) as f:
+                    processed = set(_j.load(f))
+        except Exception:
+            pass
+        
+        emails = []
+        for uid in uids[-10:]:  # Last 10
+            uid_str = uid.decode()
+            _, msg_data = mail.fetch(uid, "(RFC822.HEADER)")
+            if not msg_data or not msg_data[0]:
+                continue
+            raw = msg_data[0][1] if isinstance(msg_data[0], tuple) else b""
+            msg = email_mod.message_from_bytes(raw)
+            
+            subj = ""
+            for part, enc in decode_header(msg.get("Subject", "")):
+                if isinstance(part, bytes):
+                    subj += part.decode(enc or "utf-8", errors="replace")
+                else:
+                    subj += part
+            
+            sender = msg.get("From", "")
+            sender_email = ""
+            if "<" in sender:
+                sender_email = sender.split("<")[1].split(">")[0].lower()
+            else:
+                sender_email = sender.lower().strip()
+            
+            our_domains = ["reytechinc.com", "reytech.com"]
+            is_self = any(sender_email.endswith(f"@{d}") for d in our_domains)
+            is_fwd_subj = any(subj.lower().strip().startswith(p) for p in ["fwd:", "fw:"])
+            is_processed = uid_str in processed
+            
+            emails.append({
+                "uid": uid_str,
+                "subject": subj[:80],
+                "sender": sender_email,
+                "is_self": is_self,
+                "is_fwd": is_fwd_subj,
+                "is_processed": is_processed,
+                "date": msg.get("Date", "")[:30],
+            })
+        
+        mail.logout()
+        return jsonify({
+            "ok": True,
+            "total_in_window": len(uids),
+            "processed_count": len(processed),
+            "processed_uids": sorted(list(processed))[:20],
+            "emails": emails,
+        })
+    except Exception as e:
+        import traceback
+        return jsonify({"ok": False, "error": str(e), "tb": traceback.format_exc()})
+
+
 @bp.route("/api/diag")
 @auth_required
 def api_diag():
