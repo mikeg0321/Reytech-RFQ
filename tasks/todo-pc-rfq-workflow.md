@@ -1,42 +1,48 @@
-# PC → RFQ Pricing Continuity — Implementation Plan
-**Started:** 2026-02-28 · **Approach:** One feature at a time, verify before moving on
+# PC → RFQ Pricing Continuity — COMPLETE
+**Started:** 2026-02-28 · **All 11 features shipped**
 
-## F1: Auto-Link RFQ to PC on Import ✅ (Step 2: 3de901d)
-- [x] In dashboard.py, after RFQ creation: match to existing PCs by sol#, requestor, items
-- [x] Port pricing from matched PC (cost, bid, SCPRS, Amazon, item_link, supplier)
-- [x] Store `linked_pc_id`, `linked_pc_number`, `pc_diff` on RFQ
-- [x] Don't delete linked PCs — mark as converted_to_rfq instead
+## F1: Auto-Link RFQ to PC on Import ✅ (3de901d)
+- [x] Match PCs by sol#, requestor+items, agency+items
+- [x] Port pricing (cost, bid, SCPRS, Amazon, link, supplier, MFG#)
+- [x] Mark PC as converted_to_rfq (don't delete)
 
-## F2: Price Port with Diff Detection ✅ (Step 3: 25bc78f)
-- [x] When porting: detect added items, removed items, qty changes vs PC
-- [x] Store diff on RFQ: `pc_diff = {added: [], removed: [], qty_changed: []}`
-- [x] UI: blue banner on RFQ detail showing linked PC with diff counts
-- [x] Per-item "_from_pc" marker for ported items
+## F2: Price Port with Diff Detection ✅ (25bc78f)
+- [x] Detect added/removed/qty-changed items vs PC
+- [x] Blue banner on RFQ detail with diff counts + View PC link
 
-## F3: QA Gate Before Package Generation ✅ (Step 4: 0585675)
-- [x] POST /api/rfq/<id>/qa-check — validate all items before generate
-- [x] Checks: bid price > 0, cost > 0, margin >= 15%, bid vs SCPRS within 10%, cost age < 90d, qty > 0
-- [x] Return per-item pass/warn/fail with reasons
-- [x] JS intercept on Generate button → show QA popup → proceed or fix
-- [x] Shows PC diff warnings in popup
+## F3: QA Gate Before Package Generation ✅ (0585675)
+- [x] 6 checks: bid>0, cost>0, margin≥15%, SCPRS compare, freshness, qty>0
+- [x] Popup with per-item pass/warn/fail + PC diff warnings
 
-## F4: Freshness Re-Check on RFQ Load ✅ (Step 5: a2da2ba)
-- [x] price-intel endpoint returns freshness data (days_old, stale flag, drift)
-- [x] Compare current SCPRS vs ported price, show drift per item
-- [x] Drift indicators in 📊 column
-- [x] Stale warning when price data > 30 days old
+## F4: Freshness Re-Check ✅ (a2da2ba)
+- [x] Drift detection (↑↓%) when SCPRS moved since last check
+- [x] Stale warning (⏰) when price data >30 days old
 
-## F5: Pricing Recommendations in UI ✅ (Step 6)
-- [x] _recommend_price() computes recommended/aggressive/safe from SCPRS/Amazon/cost
-- [x] price-intel endpoint includes recommendation tiers
-- [x] Clickable tiers in price intel popup
-- [x] "Apply Recommended" button auto-fills all empty bid prices
+## F5: Pricing Recommendations ✅ (3341e9e)
+- [x] 3 tiers: aggressive (-7%), recommended (-2%), safe (+5%)
+- [x] Clickable in popup + "Apply Recommended" bulk button
 
-## F6: Price Audit Trail ✅ (Steps 1+5: ec07755, a2da2ba)
-- [x] price_audit table via migration v7
-- [x] record_price_audit() + get_price_audit() in db.py
-- [x] Audit log displayed in price intel popup
+## F6: Price Conflict Resolution ✅ (5c3646f)
+- [x] All sources shown per item (Cost, SCPRS, Amazon, Catalog)
+- [x] Click source → apply as cost + PC origin tracking
 
-## F7: Dashboard Alerts — DEFERRED (lower priority)
-- [ ] Stale pricing badge on dashboard
-- [ ] Price drift badge on dashboard
+## F7: Pricing Audit Trail ✅ (ec07755)
+- [x] price_audit table + record_audit() + get_audit_trail()
+- [x] Audit log in intel popup
+
+## F8: Stale Price Alerts ✅ (5c3646f)
+- [x] GET /api/pricing-alerts (stale, unpriced, drift)
+- [x] Red badge in header nav on every page
+
+## F9: Duplicate Item Detection ✅ (5c3646f)
+- [x] Recent quotes shown in intel popup (price, agency, quote#, date)
+
+## F10: Auto-Price New RFQs ✅ (5c3646f)
+- [x] Catalog match → fill typical_cost/list_price
+- [x] History match → fill avg price
+- [x] status="auto_priced" for human review gate
+
+## F11: Margin Guardrails ✅ (5c3646f)
+- [x] MARGIN_RULES config (15% min, 5% critical, SCPRS bands)
+- [x] Real-time warnings on autosave (floating bar)
+- [x] Price audits recorded on every manual edit
