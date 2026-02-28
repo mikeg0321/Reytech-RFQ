@@ -2447,6 +2447,8 @@ def api_rfq_price_intel(rid):
     for item in r.get("line_items", []):
         desc = item.get("description", "")
         pn = item.get("item_number", "") or ""
+        current_cost = item.get("supplier_cost") or 0
+        current_bid = item.get("price_per_unit") or 0
         result = {"description": desc[:60], "part_number": pn}
 
         # Price history
@@ -2471,6 +2473,39 @@ def api_rfq_price_intel(rid):
                         "agency": h.get("agency", ""),
                     } for h in history[:5]]
                 }
+
+                # Freshness: compare current cost vs most recent history
+                latest = history[0]
+                latest_price = latest.get("unit_price", 0)
+                latest_source = latest.get("source", "")
+                latest_date = latest.get("found_at", "")[:10]
+                try:
+                    from datetime import datetime as _dt
+                    days_old = (_dt.now() - _dt.fromisoformat(
+                        latest["found_at"][:19])).days
+                except Exception:
+                    days_old = 999
+
+                drift = None
+                if current_cost > 0 and latest_price > 0 and latest_source not in ("rfq_save", "rfq_save_bid"):
+                    diff = latest_price - current_cost
+                    pct = diff / current_cost * 100
+                    if abs(pct) > 3:  # Only flag >3% drift
+                        drift = {
+                            "direction": "up" if diff > 0 else "down",
+                            "amount": round(abs(diff), 2),
+                            "pct": round(pct, 1),
+                            "new_price": latest_price,
+                            "source": latest_source,
+                        }
+
+                result["freshness"] = {
+                    "days_old": days_old,
+                    "stale": days_old > 90,
+                    "last_source": latest_source,
+                    "last_date": latest_date,
+                    "drift": drift,
+                }
         except Exception:
             pass
 
@@ -2486,6 +2521,23 @@ def api_rfq_price_intel(rid):
                     "list_price": m.get("list_price", 0),
                     "category": m.get("category", ""),
                 }
+        except Exception:
+            pass
+
+        # Audit trail
+        try:
+            from src.core.db import get_audit_trail
+            audits = get_audit_trail(
+                description=desc[:40],
+                rfq_id=r.get("solicitation_number", ""), limit=5)
+            if audits:
+                result["audit"] = [{
+                    "field": a["field_changed"],
+                    "old": a.get("old_value"),
+                    "new": a.get("new_value"),
+                    "source": a.get("source", ""),
+                    "ts": a.get("ts", "")[:16],
+                } for a in audits]
         except Exception:
             pass
 
