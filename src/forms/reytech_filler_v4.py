@@ -53,6 +53,11 @@ for i in range(1, 16):
         TIGHT_FIELDS.add(f"{prefix}{i}")
 TIGHT_FIELDS.add("fill_154")
 
+# CalRecycle 74 description fields — narrow (246pt), need auto-size down to 7pt
+for i in range(1, 7):
+    TIGHT_FIELDS.add(f"Product or Services DescriptionRow{i}")
+    TIGHT_FIELDS.add(f"Item Row{i}")
+
 
 def load_config():
     with open(CONFIG_PATH, "r") as f:
@@ -473,26 +478,11 @@ def fill_obs1600(input_path, rfq_data, config, output_path, food_items=None):
 # ═══════════════════════════════════════════════════════════════════════
 
 def fill_std1000(input_path, rfq_data, config, output_path):
-    """Fill STD 1000 GenAI Reporting form with company info + line items."""
+    """Fill STD 1000 GenAI Reporting form with company info + line items.
+    Line items are overlaid via ReportLab because pypdf multiline rendering is unreliable."""
     company = config["company"]
     sol = rfq_data.get("solicitation_number", "")
     sign_date = rfq_data.get("sign_date", get_pst_date())
-
-    # Build line items description for "Contract / Description of Purchase"
-    items = rfq_data.get("line_items", [])
-    desc_lines = []
-    for i, item in enumerate(items, 1):
-        pn = item.get("item_number", item.get("part_number", ""))
-        desc = item.get("description", "")
-        qty = item.get("qty", 1)
-        uom = item.get("uom", "EA")
-        # Format: "1. PartNum — Description (Qty x UOM)"
-        entry = f"{i}. {pn} — {desc}"
-        if len(entry) > 90:
-            entry = entry[:87] + "..."
-        entry += f"  (Qty: {qty} {uom})"
-        desc_lines.append(entry)
-    desc_text = "\n".join(desc_lines) if desc_lines else "N/A"
 
     values = {
         "Solicitation  Contract Number": sol,
@@ -503,14 +493,84 @@ def fill_std1000(input_path, rfq_data, config, output_path):
         "City": "Trabuco Canyon",
         "State": "CA",
         "Zip Code": "92679",
-        "Contract / Description of Purchase": desc_text,
+        # NOTE: "Contract / Description of Purchase" is overlaid via ReportLab
         # GenAI = No
         "No If no skip to Signature section of this form": "/On",
         "Date": sign_date,
     }
 
     fill_and_sign_pdf(input_path, values, output_path, sign_date=sign_date)
+
+    # Overlay line items into the "Contract / Description of Purchase" field
+    # Field rect: x=15, y=312, w=582, h=203  (page 0)
+    items = rfq_data.get("line_items", [])
+    _overlay_std1000_description(output_path, items)
+
     print(f"  ✓ STD 1000 GenAI filled ({sol}, {len(items)} items)")
+
+
+def _overlay_std1000_description(pdf_path, items, page_index=0):
+    """Overlay line items into the STD 1000 'Contract / Description of Purchase' field."""
+    from reportlab.lib.pagesizes import letter
+
+    # Field rect from template: [16, 346, 598, 548]
+    x_start = 20
+    y_top = 540       # Just below top of field (548 - 8pt padding)
+    max_width = 570
+    box_height = 185  # 540 - 346 = ~194, minus padding
+
+    # Build lines
+    lines = []
+    for i, item in enumerate(items, 1):
+        pn = item.get("item_number", item.get("part_number", ""))
+        desc = item.get("description", "")
+        qty = item.get("qty", 1)
+        uom = item.get("uom", "EA")
+        lines.append(f"{i}. {pn}  {desc}  (Qty: {qty} {uom})")
+    if not lines:
+        lines = ["N/A"]
+
+    # Auto-size font to fit all lines in the box
+    # Try 10pt down to 6.5pt
+    font_name = "Helvetica"
+    chosen_size = 10
+    chosen_leading = 12
+    for try_sz in [10, 9, 8.5, 8, 7.5, 7, 6.5]:
+        leading = try_sz + 2
+        total_h = len(lines) * leading
+        if total_h <= box_height - 4:
+            chosen_size = try_sz
+            chosen_leading = leading
+            break
+        chosen_size = try_sz
+        chosen_leading = leading
+
+    buf = io.BytesIO()
+    c = rl_canvas.Canvas(buf, pagesize=letter)
+    text_obj = c.beginText(x_start, y_top)
+    text_obj.setFont(font_name, chosen_size)
+    text_obj.setLeading(chosen_leading)
+
+    for line in lines:
+        # Truncate if line is too wide
+        while c.stringWidth(line, font_name, chosen_size) > max_width and len(line) > 20:
+            line = line[:len(line) - 4] + "..."
+        text_obj.textLine(line)
+
+    c.drawText(text_obj)
+    c.save()
+    buf.seek(0)
+
+    reader = PdfReader(pdf_path)
+    writer = PdfWriter()
+    writer.append(reader)
+
+    overlay_reader = PdfReader(buf)
+    if overlay_reader.pages:
+        writer.pages[page_index].merge_page(overlay_reader.pages[0])
+
+    with open(pdf_path, "wb") as f:
+        writer.write(f)
 
 
 # ═══════════════════════════════════════════════════════════════════════

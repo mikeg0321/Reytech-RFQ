@@ -794,8 +794,10 @@ def generate_rfq_package(rid):
                     tmpl[ttype] = restore_path
                     t.step(f"Restored {ttype} from DB: {db_f['filename']}")
         
-        # ── Auto-fallback: Use saved CDCR bid package template if none uploaded ──
-        if "bidpkg" not in tmpl or not os.path.exists(tmpl.get("bidpkg", "")):
+        # ── Auto-fallback: Use saved CDCR bid package template ONLY for CDCR/CCHCS ──
+        _agency = (r.get("agency", "") or "").upper()
+        _is_cdcr = any(x in _agency for x in ["CDCR", "CCHCS", "CORRECTIONS"])
+        if _is_cdcr and ("bidpkg" not in tmpl or not os.path.exists(tmpl.get("bidpkg", ""))):
             default_bidpkg = os.path.join(DATA_DIR, "templates", "cdcr_bid_package_template.pdf")
             if os.path.exists(default_bidpkg):
                 tmpl["bidpkg"] = default_bidpkg
