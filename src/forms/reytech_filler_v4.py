@@ -30,6 +30,7 @@ SIGN_FIELDS = {
     "Signature1",          # 703B Bidder Signature + 704B Vendor Sig + CalRecycle 74
     # Standalone forms
     "Signature",           # CalRecycle 74 standalone + STD 1000 standalone
+    "Signature4",          # STD 204 Payee Data Record
     # Bid Package
     "Signature_CUF",       # CUF (MC-345)
     "Signature_darfur",    # Darfur Option #1 ONLY
@@ -503,12 +504,48 @@ def fill_std1000(input_path, rfq_data, config, output_path):
         "Zip Code": "92679",
         "Contract / Description of Purchase": desc_text,
         # GenAI = No
-        "No If no skip to Signature section of this form": "/Yes",
+        "No If no skip to Signature section of this form": "/On",
         "Date": sign_date,
     }
 
     fill_and_sign_pdf(input_path, values, output_path, sign_date=sign_date)
     print(f"  ✓ STD 1000 GenAI filled ({sol}, {len(items)} items)")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# STD 204 — Payee Data Record
+# ═══════════════════════════════════════════════════════════════════════
+
+def fill_std204(input_path, rfq_data, config, output_path):
+    """Fill STD 204 Payee Data Record with Reytech company info."""
+    company = config["company"]
+    sign_date = rfq_data.get("sign_date", get_pst_date())
+
+    values = {
+        # Section 1 — Payee Information
+        " Must match the payee\u2019s federal tax return)": "R. Michael Guadan",
+        "BUSINESS NAME, DBA NAME or DISREGARDED SINGLE MEMBER LLC NAME (If different from above)": company["name"],
+        ") (See instructions on Page 2)": "30 Carnoustie Way",
+        "CITY STATE ZIP CODE": "Trabuco Canyon CA 92679",
+        "EMAIL ADDRESS": "sales@reytechinc.com",
+        # Section 2 — Entity Type: ALL OTHERS
+        "corpOthers": "/On",
+        # Section 3 — FEIN
+        "Federal Employer Identification Number (FEIN)": company["fein"],
+        # Section 4 — CA Resident
+        "calRes": "/On",
+        # Section 5 — Certification
+        "NAME OF AUTHORIZED PAYEE REPRESENTATIVE": "R. Michael Guadan",
+        "TITLE": company["title"],
+        "EMAIL ADDRESS_2": "mike@reytechinc.com",
+        "DATE": sign_date,
+        "TELEPHONE include area code": company["phone"],
+        # Section 6 — Paying State Agency (left for agency to fill)
+        "UNITSECTION": "Procurement",
+    }
+
+    fill_and_sign_pdf(input_path, values, output_path, sign_date=sign_date)
+    print(f"  ✓ STD 204 Payee Data Record filled")
 
 
 # ═══════════════════════════════════════════════════════════════════════

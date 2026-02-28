@@ -849,6 +849,30 @@ def generate_rfq_package(rid):
             errors.append(f"STD 1000: {e}")
             t.warn("STD 1000 fill failed", error=str(e))
         
+        # ── STD 204 Payee Data Record ──
+        try:
+            from src.forms.reytech_filler_v4 import fill_std204
+            std204_tmpl = os.path.join(DATA_DIR, "templates", "std204_blank.pdf")
+            if os.path.exists(std204_tmpl):
+                fill_std204(std204_tmpl, r, CONFIG, f"{out_dir}/{sol}_STD204_Reytech.pdf")
+                output_files.append(f"{sol}_STD204_Reytech.pdf")
+                t.step("STD 204 filled")
+        except Exception as e:
+            errors.append(f"STD 204: {e}")
+            t.warn("STD 204 fill failed", error=str(e))
+        
+        # ── Seller's Permit (static copy) ──
+        try:
+            sellers_permit = os.path.join(DATA_DIR, "templates", "sellers_permit_reytech.pdf")
+            if os.path.exists(sellers_permit):
+                import shutil
+                sp_out = f"{out_dir}/{sol}_SellersPermit_Reytech.pdf"
+                shutil.copy2(sellers_permit, sp_out)
+                output_files.append(f"{sol}_SellersPermit_Reytech.pdf")
+                t.step("Seller's Permit included")
+        except Exception as e:
+            t.warn("Seller's Permit copy failed", error=str(e))
+        
         # ── CalRecycle 74 standalone (overflow pages for >6 items) ──
         try:
             from src.forms.reytech_filler_v4 import fill_calrecycle_standalone
