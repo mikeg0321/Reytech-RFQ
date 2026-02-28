@@ -193,6 +193,8 @@ def _lookup_facility(text: str) -> dict | None:
         "SUSANVILLE": "HDSP", "BLYTHE": "ISP", "REPRESA": "FSP", "SAN QUENTIN": "SQ",
         "CALIPATRIA": "CAL", "IMPERIAL": "CEN", "JAMESTOWN": "SCC",
         "SAN LUIS OBISPO": "CMC", "YOUNTVILLE": "CALVETHOME-YV", "BARSTOW": "CALVETHOME-BF",
+        "REDDING": "CALVETHOME-RD", "WEST LOS ANGELES": "CALVETHOME-LA",
+        "FRESNO": "CALVETHOME-FR", "CHULA VISTA": "CALVETHOME-CV",
     }
     for city, fac_key in _CITY_MAP.items():
         if city in upper:

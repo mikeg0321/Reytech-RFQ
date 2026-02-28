@@ -1081,6 +1081,90 @@ def _ensure_contact_from_email(rfq_email: dict):
         log.debug("Contact auto-create failed (non-critical): %s", e)
 
 
+def _extract_signature_contact(body: str) -> dict:
+    """Extract contact info from email body/signature.
+    Looks for patterns like: name, title, phone, address, institution."""
+    import re
+    if not body:
+        return {}
+    
+    result = {}
+    lines = body.strip().split("\n")
+    
+    # Look for phone numbers
+    phone_pat = re.compile(r'(?:Phone|Tel|Ph|Cell|Mobile|Office|Direct)[\s:]*([0-9().\-\s]{10,20})', re.IGNORECASE)
+    phone_match = phone_pat.search(body)
+    if phone_match:
+        result["phone"] = phone_match.group(1).strip()
+    elif not result.get("phone"):
+        # Bare phone number pattern
+        bare_phone = re.search(r'\b(\d{3}[.\-]\d{3}[.\-]\d{4})\b', body)
+        if bare_phone:
+            result["phone"] = bare_phone.group(1)
+    
+    # Look for .gov email addresses (prioritize over sender)
+    gov_email = re.search(r'[\w.+-]+@[\w.-]*\.gov\b', body, re.IGNORECASE)
+    if gov_email:
+        result["email"] = gov_email.group(0).lower()
+    
+    # Look for street address patterns (must start at beginning of line)
+    addr_pat = re.compile(r'(?:^|\n)\s*(\d{2,5}\s+[\w\s.]+(?:Road|Rd|Street|St|Avenue|Ave|Drive|Dr|Way|Blvd|Boulevard|Pkwy|Parkway|Lane|Ln|Court|Ct)\.?)', re.IGNORECASE)
+    addr_match = addr_pat.search(body)
+    if addr_match:
+        result["address"] = addr_match.group(1).strip()
+        # Try to get city/state/zip from next line or nearby
+        addr_pos = addr_match.end()
+        after = body[addr_pos:addr_pos+100]
+        csz = re.search(r'[\n,]\s*([A-Za-z\s.]+,?\s*(?:CA|California)\.?\s*\d{5})', after)
+        if csz:
+            result["address"] += "\n" + csz.group(1).strip()
+    
+    # Look for known California agency patterns
+    agency_patterns = [
+        (r'(?:Veterans?\s+Home\s+of\s+California|CalVet|CALVET)[\s,\-:]*(\w[\w\s]*?)(?:\n|$)', "calvet"),
+        (r'(?:CDCR|Corrections?\s+and\s+Rehabilitation)', "cdcr"),
+        (r'(?:Department\s+of\s+General\s+Services|DGS)', "dgs"),
+    ]
+    for pat, agency in agency_patterns:
+        m = re.search(pat, body, re.IGNORECASE)
+        if m:
+            result["agency"] = agency
+            if m.lastindex and m.group(1):
+                location = m.group(1).strip().rstrip(",.- ")
+                if location and len(location) > 2:
+                    result["institution"] = f"CalVet - {location}" if agency == "calvet" else location
+            break
+    
+    # Look for city names that map to known facilities
+    _calvet_cities = ["Redding", "Yountville", "Barstow", "Chula Vista", "Fresno", "West Los Angeles", "Ventura"]
+    for city in _calvet_cities:
+        if city.lower() in body.lower():
+            if not result.get("institution"):
+                result["institution"] = f"Veterans Home of California - {city}"
+            result["city"] = city
+            break
+    
+    # Look for name (first non-empty line that looks like a name, near end of email)
+    # Focus on lines after "---" or signature markers
+    sig_start = body
+    for marker in ["--", "___", "Best regards", "Regards", "Sincerely", "Thank you", "Thanks"]:
+        idx = body.rfind(marker)
+        if idx > 0:
+            sig_start = body[idx:]
+            break
+    
+    name_pat = re.compile(r'^([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2})\s*$', re.MULTILINE)
+    name_match = name_pat.search(sig_start)
+    if name_match:
+        candidate = name_match.group(1).strip()
+        # Filter common non-name lines
+        skip = ["United States", "Best Regards", "Thank You", "Please Note", "Office Technician"]
+        if not any(s.lower() == candidate.lower() for s in skip):
+            result["name"] = candidate
+    
+    return result
+
+
 def process_rfq_email(rfq_email):
     """Process a single RFQ email into the queue. Returns rfq_data or None.
     Deduplicates by checking email_uid against existing RFQs.
@@ -1490,6 +1574,27 @@ def process_rfq_email(rfq_email):
                            if _gen_items
                            else f"{_gen_agency_name} — No 704B, PDF text parse found 0 items — manual entry needed"),
         }
+        
+        # ── Supplement contact info from email body/signature ──────────
+        # For forwarded emails, the original sender's signature has the real contact
+        _body = rfq_email.get("body_text", rfq_email.get("body_preview", ""))
+        if _body:
+            sig_contact = _extract_signature_contact(_body)
+            if sig_contact:
+                if sig_contact.get("name") and not _generic_result.get("requestor_name"):
+                    rfq_data["requestor_name"] = sig_contact["name"]
+                if sig_contact.get("email") and not _generic_result.get("requestor_email"):
+                    rfq_data["requestor_email"] = sig_contact["email"]
+                if sig_contact.get("phone"):
+                    rfq_data["requestor_phone"] = sig_contact["phone"]
+                if sig_contact.get("address") and not rfq_data.get("delivery_location"):
+                    rfq_data["delivery_location"] = sig_contact["address"]
+                if sig_contact.get("institution"):
+                    if not rfq_data.get("delivery_location"):
+                        rfq_data["delivery_location"] = sig_contact["institution"]
+                    rfq_data["institution_name"] = sig_contact["institution"]
+                _trace.append(f"SIG CONTACT: {sig_contact}")
+        
         # Run price lookup if we got items
         if _gen_items:
             rfq_data["line_items"] = bulk_lookup(_gen_items)
