@@ -1165,6 +1165,165 @@ def _extract_signature_contact(body: str) -> dict:
     return result
 
 
+def _link_rfq_to_pc(rfq_data, _trace):
+    """F1: Auto-link new RFQ to matching Price Check, port pricing, detect diffs.
+    
+    Matching: sol# (exact) > requestor+50% items > agency+80% items.
+    Ports: cost, bid, SCPRS, Amazon, item_link, MFG#, supplier.
+    Records audit trail for every ported price.
+    Marks PC as converted (preserved, not deleted).
+    Returns True if linked."""
+    try:
+        pcs = _load_price_checks()
+    except Exception:
+        return False
+    if not pcs:
+        return False
+
+    sol = (rfq_data.get("solicitation_number") or "").strip()
+    sender = (rfq_data.get("requestor_email") or rfq_data.get("email_sender") or "").lower()
+    rfq_descs = {(it.get("description", "") or "").lower()[:40]
+                 for it in rfq_data.get("line_items", []) if it.get("description")}
+
+    matched_pid = None
+    match_reason = ""
+
+    for pid, pc in pcs.items():
+        if pc.get("status") in ("dismissed", "cancelled"):
+            continue
+        pc_sol = (pc.get("pc_number", "") or "").replace("AD-", "").strip()
+        pc_req = (pc.get("requestor", "") or "").lower()
+        pc_descs = {(it.get("description", "") or "").lower()[:40]
+                    for it in pc.get("items", []) if it.get("description")}
+
+        # Match 1: Same solicitation number
+        if sol and sol != "unknown" and pc_sol == sol:
+            matched_pid, match_reason = pid, f"sol#{sol}"
+            break
+
+        # Match 2: Same requestor + ≥50% item overlap
+        if sender and pc_req and sender in pc_req and rfq_descs and pc_descs:
+            overlap = len(rfq_descs & pc_descs)
+            if overlap >= max(1, len(pc_descs) * 0.5):
+                matched_pid, match_reason = pid, f"requestor+{overlap}/{len(pc_descs)}_items"
+                break
+
+        # Match 3: Same agency/institution + ≥80% item overlap
+        if pc_descs and rfq_descs:
+            pc_inst = (pc.get("institution", "") or "").lower()
+            rfq_inst = (rfq_data.get("delivery_location", "") or rfq_data.get("agency_name", "") or "").lower()
+            if pc_inst and rfq_inst and (pc_inst in rfq_inst or rfq_inst in pc_inst):
+                overlap = len(rfq_descs & pc_descs)
+                if overlap >= max(1, len(pc_descs) * 0.8):
+                    matched_pid, match_reason = pid, f"agency+{overlap}/{len(pc_descs)}_items"
+                    break
+
+    if not matched_pid:
+        return False
+
+    pc = pcs[matched_pid]
+    rfq_data["linked_pc_id"] = matched_pid
+    rfq_data["linked_pc_number"] = pc.get("pc_number", "")
+    rfq_data["linked_pc_match_reason"] = match_reason
+    _trace.append(f"PC LINKED: {matched_pid} ({match_reason})")
+    log.info("Auto-linked RFQ %s → PC %s (%s)", rfq_data["id"], matched_pid, match_reason)
+
+    # ── Port pricing from PC items to RFQ items ──
+    pc_items = pc.get("items", [])
+    ported = 0
+    diff_added, diff_removed, diff_qty = [], [], []
+
+    for rfq_item in rfq_data.get("line_items", []):
+        rd = (rfq_item.get("description", "") or "").lower()[:40]
+        match = None
+        for pci in pc_items:
+            pd = (pci.get("description", "") or "").lower()[:40]
+            if not pd:
+                continue
+            if rd == pd or (len(rd) > 10 and rd in pd) or (len(pd) > 10 and pd in rd):
+                match = pci
+                break
+
+        if not match:
+            diff_added.append(rfq_item.get("description", "")[:50])
+            continue
+
+        pricing = match.get("pricing", {})
+        desc = rfq_item.get("description", "")
+        pn = match.get("mfg_number") or match.get("item_number", "")
+        rfq_id = rfq_data.get("solicitation_number", "")
+
+        def _port(rfq_field, pc_value, audit_field):
+            """Port a value if RFQ field is empty and PC has it."""
+            if rfq_item.get(rfq_field):
+                return  # RFQ already has a value
+            if not pc_value:
+                return
+            old = rfq_item.get(rfq_field)
+            rfq_item[rfq_field] = pc_value
+            # Record audit
+            try:
+                from src.core.db import record_audit
+                record_audit(desc, audit_field, old, pc_value,
+                             source="pc_port", rfq_id=rfq_id, part_number=pn,
+                             notes=f"From PC {pc.get('pc_number','')}")
+            except Exception:
+                pass
+
+        _port("supplier_cost", pricing.get("your_cost") or pricing.get("unit_cost"), "supplier_cost")
+        _port("price_per_unit", pricing.get("recommended_price") or pricing.get("unit_price"), "bid_price")
+        _port("scprs_last_price", pricing.get("scprs_price"), "scprs_price")
+        _port("amazon_price", pricing.get("amazon_cost"), "amazon_price")
+        _port("item_link", match.get("item_link"), "item_link")
+        _port("item_supplier", match.get("item_supplier"), "item_supplier")
+
+        if not rfq_item.get("item_number") and pn:
+            rfq_item["item_number"] = pn
+
+        rfq_item["_from_pc"] = pc.get("pc_number", "")
+        ported += 1
+
+        # Detect qty changes
+        pc_qty = match.get("qty", 0) or 0
+        rfq_qty = rfq_item.get("qty", 0) or 0
+        if pc_qty and rfq_qty and pc_qty != rfq_qty:
+            diff_qty.append({"desc": desc[:50], "pc": pc_qty, "rfq": rfq_qty})
+
+    # Items in PC but not in RFQ
+    for pci in pc_items:
+        pd = (pci.get("description", "") or "").lower()[:40]
+        if not pd:
+            continue
+        found = any(
+            pd == (ri.get("description", "") or "").lower()[:40]
+            or (len(pd) > 10 and pd in (ri.get("description", "") or "").lower())
+            for ri in rfq_data.get("line_items", [])
+        )
+        if not found:
+            diff_removed.append(pci.get("description", "")[:50])
+
+    # Store diff
+    rfq_data["pc_diff"] = {
+        "ported": ported,
+        "added": diff_added,
+        "removed": diff_removed,
+        "qty_changed": diff_qty,
+    }
+
+    _trace.append(f"PORTED {ported} prices, diff: +{len(diff_added)} -{len(diff_removed)} Δ{len(diff_qty)}")
+    log.info("Ported %d item prices PC %s → RFQ %s (+%d/-%d/Δ%d)",
+             ported, pc.get("pc_number", ""), rfq_data["id"],
+             len(diff_added), len(diff_removed), len(diff_qty))
+
+    # Mark PC as converted (don't delete — pricing history is valuable)
+    pc["converted_to_rfq"] = True
+    pc["linked_rfq_id"] = rfq_data["id"]
+    pc["linked_rfq_at"] = datetime.now().isoformat()
+    _save_price_checks(pcs)
+
+    return True
+
+
 def process_rfq_email(rfq_email):
     """Process a single RFQ email into the queue. Returns rfq_data or None.
     Deduplicates by checking email_uid against existing RFQs.
@@ -1629,19 +1788,26 @@ def process_rfq_email(rfq_email):
     POLL_STATUS["emails_found"] += 1
     _trace.append(f"RFQ CREATED: sol={rfq_data.get('solicitation_number','?')}")
     
-    # ── Cross-queue cleanup: remove any PC with the same solicitation number ──
-    # RFQ takes precedence (has all forms: 703B + 704B + Bid Package)
+    # ── F1: Auto-link RFQ to matching PC, port pricing ──────────────
+    if _link_rfq_to_pc(rfq_data, _trace):
+        # Re-save with ported pricing
+        rfqs[rfq_data["id"]] = rfq_data
+        save_rfqs(rfqs)
+    
+    # ── Cross-queue cleanup: remove unlinked PCs with same sol# ──
+    # Converted PCs are preserved (they have pricing history).
     sol_num = rfq_data.get("solicitation_number", "")
     if sol_num and sol_num != "unknown":
         try:
             pcs = _load_price_checks()
             pc_dups = [pid for pid, pc in pcs.items()
-                       if pc.get("pc_number", "").replace("AD-", "").strip() == sol_num.strip()]
+                       if pc.get("pc_number", "").replace("AD-", "").strip() == sol_num.strip()
+                       and not pc.get("converted_to_rfq")]
             if pc_dups:
                 for pid in pc_dups:
                     del pcs[pid]
                 _save_price_checks(pcs)
-                _trace.append(f"Cross-queue cleanup: removed {len(pc_dups)} duplicate PC entries: {pc_dups}")
+                _trace.append(f"Cross-queue cleanup: removed {len(pc_dups)} unlinked PC entries: {pc_dups}")
                 log.info("Cross-queue cleanup: removed PCs %s (same sol# as RFQ %s)", pc_dups, sol_num)
         except Exception as _xqe:
             _trace.append(f"Cross-queue cleanup error: {_xqe}")
