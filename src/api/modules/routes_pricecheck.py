@@ -1607,7 +1607,18 @@ def api_resync():
         proc_file = os.path.join(DATA_DIR, "processed_emails.json")
         if os.path.exists(proc_file):
             os.remove(proc_file)
-        log.info("Resync: cleared processed_emails.json (dedup handles duplicates)")
+        # Also clear SQLite processed_emails + fingerprints tables
+        try:
+            from src.core.db import get_db
+            with get_db() as conn:
+                conn.execute("DELETE FROM processed_emails")
+                try:
+                    conn.execute("DELETE FROM email_fingerprints")
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        log.info("Resync: cleared processed_emails (JSON + SQLite + fingerprints)")
         
         # ── 4. Reset poller + re-poll ──
         global _shared_poller
