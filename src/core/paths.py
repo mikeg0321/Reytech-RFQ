@@ -58,17 +58,30 @@ _USING_VOLUME = (DATA_DIR != _GIT_DATA_DIR)
 
 # ── Seed persistent volume from git data on first deploy ─────────────────────
 def _seed_volume():
-    """Copy seed data from git to volume, only for files that DON'T exist yet."""
+    """Copy seed data from git to volume, only for files that DON'T exist yet.
+    Also syncs templates/ subdirectory so new templates land on existing volumes."""
     if not _USING_VOLUME:
         return
     os.makedirs(DATA_DIR, exist_ok=True)
     seeded = []
+    # Top-level files
     for fname in os.listdir(_GIT_DATA_DIR):
         src = os.path.join(_GIT_DATA_DIR, fname)
         dst = os.path.join(DATA_DIR, fname)
         if os.path.isfile(src) and not os.path.exists(dst):
             shutil.copy2(src, dst)
             seeded.append(fname)
+    # Sync templates/ subdirectory (new templates need to land on existing volumes)
+    git_templates = os.path.join(_GIT_DATA_DIR, "templates")
+    vol_templates = os.path.join(DATA_DIR, "templates")
+    if os.path.isdir(git_templates):
+        os.makedirs(vol_templates, exist_ok=True)
+        for fname in os.listdir(git_templates):
+            src = os.path.join(git_templates, fname)
+            dst = os.path.join(vol_templates, fname)
+            if os.path.isfile(src) and not os.path.exists(dst):
+                shutil.copy2(src, dst)
+                seeded.append(f"templates/{fname}")
     if seeded:
         log.info(f"Seeded {len(seeded)} files to volume: {', '.join(seeded)}")
     else:
