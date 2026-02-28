@@ -380,7 +380,8 @@
     <div style="display:flex;gap:6px;margin-top:6px;align-items:center;flex-wrap:wrap">
      <button type="button" class="btn btn-sm btn-go" onclick="saveSignature()" style="font-size:12px">💾 Save Signature</button>
      <button type="button" class="btn btn-sm" onclick="cancelSigEdit()" style="font-size:12px">Cancel</button>
-     <button type="button" class="btn btn-sm" onclick="insertSigImage()" style="font-size:11px;background:var(--sf2);color:var(--tx2);border:1px solid var(--bd)">🖼️ Insert Image URL</button>
+     <button type="button" class="btn btn-sm" onclick="uploadSigLogo()" style="font-size:11px;background:var(--sf2);color:var(--tx2);border:1px solid var(--bd)">🖼️ Upload Logo PNG</button>
+     <input type="file" id="sigLogoFile" accept="image/png,image/jpeg,image/gif" style="display:none" onchange="handleSigLogoUpload(this)">
      <span style="font-size:10px;color:var(--tx2)">Supports HTML: &lt;img&gt;, &lt;a&gt;, styles</span>
     </div>
    </div>
@@ -957,7 +958,7 @@ function fillBidPackage(){
 }
 
 function regeneratePackage(){
- if(!confirm('Regenerate the full RFQ package?\n\nThis will re-generate all forms (703B, 704B, Bid Package, Quote) with current data.'))return;
+ if(!confirm('⚠️ REGENERATE PACKAGE?\n\nThis will:\n• Delete all previously generated files\n• Re-fill all state forms with current data\n• Generate a new Reytech Quote\n• Replace all download links\n\nAre you sure?'))return;
  // Submit the generate form
  var form=document.createElement('form');
  form.method='POST';
@@ -974,7 +975,7 @@ function runQaCheck(){
  }).catch(function(){_doGenerate();});
 }
 function _doGenerate(){
- if(!confirm('Generate the full RFQ package?'))return;
+ if(!confirm('Generate the full RFQ package?\n\nThis will fill all state forms, generate a quote, and create a merged PDF package.'))return;
  var f=document.createElement('form');f.method='POST';
  f.action='/rfq/'+RID+'/generate-package';
  document.body.appendChild(f);f.submit();
@@ -1218,15 +1219,24 @@ function saveSignature(){
   }
  });
 }
-function insertSigImage(){
- var url=prompt('Enter image URL (logo, banner, etc):');
- if(!url) return;
- var w=prompt('Width in pixels (e.g. 180, or leave blank for auto):','180');
- var tag='<img src="'+url+'" alt="Logo"'+(w?' width="'+w+'"':'')+' style="display:block;margin:4px 0">';
- var ta=document.getElementById('sigHtml');
- var pos=ta.selectionStart||0;
- ta.value=ta.value.substring(0,pos)+tag+ta.value.substring(pos);
- ta.focus();
+function uploadSigLogo(){
+ document.getElementById('sigLogoFile').click();
+}
+function handleSigLogoUpload(input){
+ if(!input.files||!input.files[0])return;
+ var fd=new FormData();
+ fd.append('logo',input.files[0]);
+ fetch('/api/upload-sig-logo',{method:'POST',credentials:'same-origin',body:fd})
+ .then(function(r){return r.json()}).then(function(d){
+  if(!d.ok){alert('Upload failed: '+(d.error||'unknown'));return;}
+  var tag='<img src="'+d.data_uri+'" alt="ReyTech Inc." style="height:36px;width:auto;display:block;margin:4px 0">';
+  var ta=document.getElementById('sigHtml');
+  var pos=ta.selectionStart||0;
+  ta.value=ta.value.substring(0,pos)+tag+ta.value.substring(pos);
+  ta.focus();
+  typeof showMsg==='function'&&showMsg('\u2705 Logo uploaded ('+Math.round(d.size/1024)+'KB)','ok');
+ }).catch(function(e){alert('Upload error: '+e);});
+ input.value='';
 }
 
 // ── Email History ──

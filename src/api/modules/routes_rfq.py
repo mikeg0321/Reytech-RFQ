@@ -1954,9 +1954,16 @@ def rfq_preview_pdf(rid, file_id):
 def get_email_signature():
     """Get current email signature config."""
     email_cfg = CONFIG.get("email", {})
+    sig_html = email_cfg.get("signature_html", "")
+
+    # Auto-generate default signature on first load if empty
+    if not sig_html:
+        sig_html = _build_default_signature()
+        CONFIG.setdefault("email", {})["signature_html"] = sig_html
+
     return jsonify({
         "ok": True,
-        "signature_html": email_cfg.get("signature_html", ""),
+        "signature_html": sig_html,
         "signature_enabled": email_cfg.get("signature_enabled", True),
     })
 
@@ -1987,6 +1994,107 @@ def save_email_signature():
             log.debug("Suppressed: %s", _e)
     
     return jsonify({"ok": True})
+
+
+@bp.route("/api/upload-sig-logo", methods=["POST"])
+@auth_required
+def upload_sig_logo():
+    """Upload a PNG/JPG logo for the email signature. Returns base64 data URI."""
+    import base64 as _b64
+    if "logo" not in request.files:
+        return jsonify({"ok": False, "error": "No file uploaded"}), 400
+    f = request.files["logo"]
+    if not f.filename:
+        return jsonify({"ok": False, "error": "Empty filename"}), 400
+
+    data = f.read()
+    if len(data) > 5_000_000:
+        return jsonify({"ok": False, "error": "File too large (max 5MB)"}), 400
+
+    fname = f.filename.lower()
+    if fname.endswith(".png"):
+        mime = "image/png"
+    elif fname.endswith((".jpg", ".jpeg")):
+        mime = "image/jpeg"
+    elif fname.endswith(".gif"):
+        mime = "image/gif"
+    else:
+        return jsonify({"ok": False, "error": "PNG/JPG/GIF only"}), 400
+
+    # Resize for email if large
+    try:
+        from PIL import Image
+        import io as _io
+        img = Image.open(_io.BytesIO(data))
+        if img.width > 200:
+            ratio = 200 / img.width
+            img = img.resize((200, int(img.height * ratio)), Image.LANCZOS)
+            buf = _io.BytesIO()
+            img.save(buf, "PNG", optimize=True)
+            data = buf.getvalue()
+            mime = "image/png"
+    except Exception:
+        pass
+
+    b64 = _b64.b64encode(data).decode()
+    data_uri = f"data:{mime};base64,{b64}"
+
+    # Save to data/ for future use
+    try:
+        save_path = os.path.join(DATA_DIR, "email_logo.png")
+        with open(save_path, "wb") as _fw:
+            _fw.write(data)
+    except Exception:
+        pass
+
+    return jsonify({"ok": True, "data_uri": data_uri, "size": len(data)})
+
+
+def _build_default_signature():
+    """Build the default Reytech email signature HTML with logo."""
+    import base64 as _b64
+    logo_b64 = ""
+    for logo_name in ("email_logo.png", "reytech_logo_email.png", "reytech_logo.png", "logo.png"):
+        logo_path = os.path.join(DATA_DIR, logo_name)
+        if os.path.exists(logo_path):
+            try:
+                with open(logo_path, "rb") as _lf:
+                    raw = _lf.read()
+                try:
+                    from PIL import Image
+                    import io as _io
+                    img = Image.open(_io.BytesIO(raw))
+                    if img.width > 200:
+                        ratio = 200 / img.width
+                        img = img.resize((200, int(img.height * ratio)), Image.LANCZOS)
+                        buf = _io.BytesIO()
+                        img.save(buf, "PNG", optimize=True)
+                        raw = buf.getvalue()
+                except Exception:
+                    pass
+                logo_b64 = f"data:image/png;base64,{_b64.b64encode(raw).decode()}"
+                break
+            except Exception:
+                continue
+
+    logo_img = f'<img src="{logo_b64}" alt="ReyTech Inc." style="height:36px;width:auto">' if logo_b64 else ""
+
+    return f"""<div style="font-family:'Segoe UI',Arial,sans-serif;color:#222">
+{logo_img}
+<div style="font-weight:700;font-size:14px;margin-top:4px">Reytech Inc.</div>
+<div style="font-size:13px;color:#555">Sales Support</div>
+<div style="font-size:13px"><a href="https://www.reytechinc.com" style="color:#2563eb;text-decoration:none">www.reytechinc.com</a></div>
+<div style="font-size:13px;color:#555">Trabuco Canyon, CA</div>
+<div style="font-size:13px;color:#222">949-229-1575</div>
+<div style="font-size:12px;color:#555;margin-top:6px;line-height:1.5">
+CA MB/SB/SB-PW/DVBE #2002605<br>
+NY SDVOB - 221449<br>
+DOT - Disadvantaged Business Enterprise DBE #44511<br>
+MBE - SC6550<br>
+SBA-SDVOB (Unique Entity ID: FWWSKE9113T7)
+</div>
+</div>"""
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # Enhanced Email Send — DB attachments + email logging + CRM tracking

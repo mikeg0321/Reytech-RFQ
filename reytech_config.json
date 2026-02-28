@@ -30,7 +30,7 @@
     "reply_from": "sales@reytechinc.com",
     "poll_interval_seconds": 120,
     "signature_enabled": true,
-    "signature_html": "<b>Test Sig</b>"
+    "signature_html": ""
   },
   "supplier_sites": {
     "medical": [
