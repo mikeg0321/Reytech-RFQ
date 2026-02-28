@@ -117,6 +117,25 @@ MIGRATIONS = [
         CREATE INDEX IF NOT EXISTS idx_pdflog_doc ON pdf_generation_log(document_id);
         CREATE INDEX IF NOT EXISTS idx_pdflog_type ON pdf_generation_log(template_type);
     """),
+
+    (7, "add_price_audit", """
+        CREATE TABLE IF NOT EXISTS price_audit (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts TEXT NOT NULL,
+            rfq_id TEXT,
+            item_description TEXT NOT NULL,
+            part_number TEXT,
+            field_changed TEXT NOT NULL,
+            old_value REAL,
+            new_value REAL,
+            source TEXT NOT NULL,
+            actor TEXT DEFAULT 'system',
+            notes TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_paudit_rfq ON price_audit(rfq_id);
+        CREATE INDEX IF NOT EXISTS idx_paudit_desc ON price_audit(item_description);
+        CREATE INDEX IF NOT EXISTS idx_paudit_ts ON price_audit(ts);
+    """),
 ]
 
 

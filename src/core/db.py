@@ -900,6 +900,60 @@ def get_price_stats() -> dict:
     }
 
 
+# ── Price audit operations ────────────────────────────────────────────────────
+def record_audit(item_description: str, field_changed: str,
+                 old_value: float | None, new_value: float | None,
+                 source: str, rfq_id: str = "", part_number: str = "",
+                 actor: str = "system", notes: str = "") -> int | None:
+    """Record a price change event for audit trail."""
+    if not item_description or not field_changed:
+        return None
+    try:
+        with get_db() as conn:
+            cur = conn.execute("""
+                INSERT INTO price_audit
+                  (ts, rfq_id, item_description, part_number, field_changed,
+                   old_value, new_value, source, actor, notes)
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+            """, (
+                datetime.now().isoformat(),
+                rfq_id, item_description[:500], part_number[:100],
+                field_changed, old_value, new_value,
+                source, actor, notes[:500],
+            ))
+            return cur.lastrowid
+    except Exception as e:
+        log.debug("record_audit: %s", e)
+        return None
+
+
+def get_audit_trail(description: str = "", part_number: str = "",
+                    rfq_id: str = "", limit: int = 20) -> list:
+    """Get price change audit trail. Returns newest first."""
+    conditions = []
+    params = []
+    if description:
+        conditions.append("LOWER(item_description) LIKE ?")
+        params.append(f"%{description.lower()[:100]}%")
+    if part_number:
+        conditions.append("LOWER(part_number) LIKE ?")
+        params.append(f"%{part_number.lower()}%")
+    if rfq_id:
+        conditions.append("rfq_id=?")
+        params.append(rfq_id)
+    where = "WHERE " + " AND ".join(conditions) if conditions else ""
+    params.append(limit)
+    try:
+        with get_db() as conn:
+            rows = conn.execute(
+                f"SELECT * FROM price_audit {where} ORDER BY ts DESC LIMIT ?",
+                params).fetchall()
+        return [dict(r) for r in rows]
+    except Exception as e:
+        log.debug("get_audit_trail: %s", e)
+        return []
+
+
 # ── Contact operations ────────────────────────────────────────────────────────
 def upsert_contact(c: dict) -> bool:
     """Insert or update a CRM contact."""
