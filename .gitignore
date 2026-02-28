@@ -41,3 +41,7 @@ data/reytech.db
 data/reytech.db-wal
 data/reytech.db-shm
 .github/
+-e 
+data/backups/
+data/Quote_*.pdf
+data/tax_rate_cache.json
