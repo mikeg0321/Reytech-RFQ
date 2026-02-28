@@ -566,7 +566,7 @@ CUF_WRITTEN_STATEMENT = (
 
 def fill_cv012_cuf(input_path, rfq_data, config, output_path):
     """Fill CV 012 CUF Certification Form (both pages) with Reytech info + signature.
-    Written statement is overlaid via ReportLab because XFA fields don't reflow text."""
+    Checkboxes and written statement are overlaid via ReportLab (XFA radios only allow one)."""
     company = config["company"]
     sol = rfq_data.get("solicitation_number", "")
     sign_date = rfq_data.get("sign_date", get_pst_date())
@@ -577,15 +577,8 @@ def fill_cv012_cuf(input_path, rfq_data, config, output_path):
         "DoingBusinessAs[0]": company["name"],
         "OSDSRefNumber[0]": company["cert_number"],
         "ExpirationDate[0]": company.get("cert_expiration", "May 31, 2027"),
-        # Page 1 — Business type (radio): 1=DVBE, 2=SB, 3=MB
-        "RadioButtonList[0]": "/1",   # DVBE (primary cert — SB/MB also checked in bid pkg)
-        # Page 1 — Q1-3 Yes (/1), Q4-5 No (/2)
-        "RadioButtonList[1]": "/1",   # Q1 Yes
-        "RadioButtonList[2]": "/1",   # Q2 Yes
-        "RadioButtonList[3]": "/1",   # Q3 Yes
-        "RadioButtonList[4]": "/2",   # Q4 No
-        "RadioButtonList[5]": "/2",   # Q5 No
-        # NOTE: ProvideAWrittenStatement is overlaid via ReportLab (XFA doesn't wrap)
+        # NOTE: RadioButtonList[0-5] handled via ReportLab overlay (XFA radio = single select)
+        # NOTE: ProvideAWrittenStatement overlaid via ReportLab (XFA doesn't wrap)
         # Page 2 — Authorizing Signature
         "Title[0]": company["title"],
         "PrintedName[0]": "Michael Guadan",
@@ -595,34 +588,54 @@ def fill_cv012_cuf(input_path, rfq_data, config, output_path):
     # Step 1: fill form fields + signature overlay
     fill_and_sign_pdf(input_path, values, output_path, sign_date=sign_date)
 
-    # Step 2: overlay written statement text on page 0 via ReportLab
-    # Field rect: [20.835, 20.835, 591.165, 315.944]
-    _overlay_cuf_written_statement(output_path, CUF_WRITTEN_STATEMENT)
+    # Step 2: overlay checkmarks + written statement on page 0 via ReportLab
+    _overlay_cuf_page0(output_path, CUF_WRITTEN_STATEMENT)
 
     print(f"  ✓ CV 012 CUF filled (2 pages, sol={sol})")
 
 
-def _overlay_cuf_written_statement(pdf_path, text, page_index=0):
-    """Overlay word-wrapped written statement onto the CUF form's text area."""
+def _overlay_cuf_page0(pdf_path, statement_text, page_index=0):
+    """Overlay checkmarks (DVBE/SB/MB, Q1-5) and written statement on CUF page 0."""
     from reportlab.lib.pagesizes import letter
 
-    # Field rect from the XFA form
+    buf = io.BytesIO()
+    c = rl_canvas.Canvas(buf, pagesize=letter)
+
+    # ── Checkmarks ──
+    # Positions from XFA RadioButtonList kid rects (center of each 10x10 box)
+    # "Mark all that apply": DVBE, Small Business, Micro Business — check ALL three
+    checks_mark_all = [
+        (152.8, 531.0),   # DVBE
+        (267.0, 531.0),   # Small Business
+        (377.8, 531.0),   # Micro Business
+    ]
+    # Q1-3 = Yes (kid[0]), Q4-5 = No (kid[1])
+    checks_answers = [
+        (513.3, 508.0),   # Q1 Yes
+        (513.3, 481.0),   # Q2 Yes
+        (513.3, 454.0),   # Q3 Yes
+        (571.4, 427.0),   # Q4 No
+        (571.4, 400.0),   # Q5 No
+    ]
+
+    c.setFont("ZapfDingbats", 12)
+    checkmark = "\x34"  # ZapfDingbats ✔
+    for x, y in checks_mark_all + checks_answers:
+        c.drawCentredString(x, y, checkmark)
+
+    # ── Written Statement (word-wrapped) ──
     x_start = 28
     y_top = 308
     max_width = 555
     font_name = "Helvetica"
     font_size = 10
-    leading = 13  # line spacing
+    leading = 13
 
-    # Build overlay PDF
-    buf = io.BytesIO()
-    c = rl_canvas.Canvas(buf, pagesize=letter)
     text_obj = c.beginText(x_start, y_top)
     text_obj.setFont(font_name, font_size)
     text_obj.setLeading(leading)
 
-    # Word-wrap
-    words = text.split()
+    words = statement_text.split()
     line = ""
     for word in words:
         test = f"{line} {word}".strip()
