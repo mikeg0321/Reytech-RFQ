@@ -3465,6 +3465,17 @@ def _force_recapture():
                 if not old_count:
                     old_count = len(proc_data) if isinstance(proc_data, list) else 0
                 os.remove(proc_file)
+            # Clear SQLite processed_emails + fingerprints (layers 3+4)
+            try:
+                from src.core.db import get_db
+                with get_db() as conn:
+                    conn.execute("DELETE FROM processed_emails")
+                    try:
+                        conn.execute("DELETE FROM email_fingerprints")
+                    except:
+                        pass
+            except:
+                pass
             log.info("Force-recapture: cleared %d processed UIDs for '%s'", old_count, match_kw)
         except Exception as e:
             log.error("Force-recapture cleanup error: %s", e)
@@ -3530,10 +3541,33 @@ def api_email_trace():
         except:
             pass
         
-        # 4. Kill poller so next Check Now creates fresh one
+        # 4. Clear SQLite processed_emails table (layer 3)
+        db_cleared = 0
+        try:
+            from src.core.db import get_db
+            with get_db() as conn:
+                db_cleared = conn.execute("SELECT COUNT(*) FROM processed_emails").fetchone()[0]
+                conn.execute("DELETE FROM processed_emails")
+        except:
+            pass
+        
+        # 5. Clear email_fingerprints table (layer 4 — cross-inbox dedup)
+        fp_cleared = 0
+        try:
+            from src.core.db import get_db
+            with get_db() as conn:
+                try:
+                    fp_cleared = conn.execute("SELECT COUNT(*) FROM email_fingerprints").fetchone()[0]
+                    conn.execute("DELETE FROM email_fingerprints")
+                except:
+                    pass
+        except:
+            pass
+        
+        # 6. Kill poller so next Check Now creates fresh one
         _shared_poller = None
         
-        # 5. Unpause
+        # 7. Unpause
         POLL_STATUS["paused"] = False
         
         return jsonify({
@@ -3541,6 +3575,8 @@ def api_email_trace():
             "action": "NUKED",
             "cleared_memory": old_mem,
             "cleared_disk": old_disk,
+            "cleared_db": db_cleared,
+            "cleared_fingerprints": fp_cleared,
             "next": "Hit Check Now on dashboard to re-import all emails",
         })
     
