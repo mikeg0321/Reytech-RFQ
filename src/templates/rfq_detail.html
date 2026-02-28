@@ -555,9 +555,28 @@ function _doAutosave(){
  _showSaveStatus('saving');
  fetch('/api/rfq/'+RID+'/autosave',{method:'POST',headers:{'Content-Type':'application/json'},body:data,credentials:'same-origin'})
  .then(r=>r.json()).then(d=>{
-  if(d.ok){_lastSaveData=data;_showSaveStatus('saved')}
+  if(d.ok){_lastSaveData=data;_showSaveStatus('saved');_showGuardrails(d.guardrails);}
   else{_showSaveStatus('error')}
  }).catch(()=>_showSaveStatus('error'));
+}
+function _showGuardrails(warnings){
+ var old=document.getElementById('guardrail-bar');if(old)old.remove();
+ if(!warnings||!warnings.length)return;
+ var crits=warnings.filter(function(w){return w.level==='critical';});
+ var warns=warnings.filter(function(w){return w.level==='warn';});
+ var color=crits.length?'#f85149':'#d29922';
+ var bar=document.createElement('div');
+ bar.id='guardrail-bar';
+ bar.style.cssText='position:fixed;bottom:40px;right:16px;background:#161b22;border:1px solid '+color+';border-radius:8px;padding:8px 14px;z-index:9000;font-size:12px;max-width:350px;box-shadow:0 4px 16px rgba(0,0,0,.4)';
+ var h='<div style="font-weight:700;color:'+color+';margin-bottom:4px">'+(crits.length?'❌':'⚠️')+' Margin Guardrails</div>';
+ warnings.slice(0,4).forEach(function(w){
+  var wc=w.level==='critical'?'#f85149':w.level==='warn'?'#d29922':'#8b949e';
+  h+='<div style="color:'+wc+';font-size:11px">• '+w.desc+': '+w.msg+'</div>';
+ });
+ if(warnings.length>4) h+='<div style="color:#484f58;font-size:11px">+'+(warnings.length-4)+' more</div>';
+ bar.innerHTML=h;
+ document.body.appendChild(bar);
+ setTimeout(function(){var b=document.getElementById('guardrail-bar');if(b)b.remove();},8000);
 }
 
 function _showSaveStatus(state){
@@ -1341,6 +1360,30 @@ function showIntel(idx){
    var dr=f.drift;
    html+='<br><span style="font-weight:700">'+(dr.direction==='up'?'↑ Price UP':'↓ Price DOWN')+' $'+dr.amount+' ('+dr.pct+'%)</span> — newest '+dr.source+' price: $'+dr.new_price.toFixed(2);
   }
+  html+='</div>';
+ }
+ // F6: Price source comparison
+ if(info.sources){
+  var s=info.sources;var keys=Object.keys(s).filter(function(k){return k[0]!=='_';});
+  if(keys.length>1){
+   html+='<div style="margin-top:10px;font-size:11px;font-weight:600;color:#8b949e;margin-bottom:4px">Price Sources — click to apply as cost</div>';
+   html+='<div style="display:flex;flex-wrap:wrap;gap:6px">';
+   keys.forEach(function(k){
+    var v=s[k];
+    html+='<div style="padding:4px 10px;background:#21262d;border-radius:4px;cursor:pointer;font-size:12px" onclick="document.querySelector(\'[name=cost_'+idx+']\').value='+v+';recalc();triggerAutosave()" title="Use as supplier cost">';
+    html+='<span style="color:#8b949e">'+k+'</span> <span style="font-weight:700;color:#f0f6fc">$'+v.toFixed(2)+'</span></div>';
+   });
+   html+='</div>';
+   if(s._from_pc) html+='<div style="font-size:10px;color:#484f58;margin-top:4px">Ported from PC '+s._from_pc+'</div>';
+  }
+ }
+ // F9: Recent quotes for same item
+ if(info.recent_quotes&&info.recent_quotes.length){
+  html+='<div style="margin-top:10px;padding:8px 10px;background:rgba(210,153,34,.06);border:1px solid rgba(210,153,34,.15);border-radius:6px;font-size:12px">';
+  html+='<div style="font-weight:600;color:#d29922;margin-bottom:4px">📋 Previously Quoted</div>';
+  info.recent_quotes.forEach(function(q){
+   html+='<div style="color:#c9d1d9">$'+q.price.toFixed(2)+' → '+(q.agency||'—')+' · '+(q.quote||'—')+' · '+q.date+'</div>';
+  });
   html+='</div>';
  }
  // Recommendations

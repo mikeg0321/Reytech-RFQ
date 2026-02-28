@@ -220,3 +220,31 @@ function forceReprocess(btn){
   setTimeout(function(){_resetBtn(btn,'\uD83D\uDD27')},2000);
  });
 }
+
+// F8: Pricing Alerts Badge
+(function(){
+ try{
+  fetch('/api/pricing-alerts',{credentials:'same-origin'}).then(function(r){return r.json()}).then(function(d){
+   if(!d.ok||!d.total_alerts)return;
+   var nav=document.querySelector('.nav-row2')||document.querySelector('nav')||document.querySelector('header');
+   if(!nav)return;
+   var badge=document.createElement('span');
+   badge.id='pricing-alerts-badge';
+   badge.style.cssText='background:#f85149;color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;cursor:pointer;margin-left:8px;display:inline-block';
+   var parts=[];
+   if(d.stale_rfqs.length)parts.push(d.stale_rfqs.length+' stale');
+   if(d.unpriced_rfqs.length)parts.push(d.unpriced_rfqs.length+' unpriced');
+   if(d.drift_items)parts.push(d.drift_items+' drifted');
+   badge.textContent='\u26A0\uFE0F '+d.total_alerts;
+   badge.title='Pricing alerts: '+parts.join(', ');
+   badge.onclick=function(){
+    var msg='PRICING ALERTS\n\n';
+    if(d.stale_rfqs.length){msg+='Stale (>14 days):\n';d.stale_rfqs.forEach(function(s){msg+='  '+s.sol+' ('+s.age_days+'d)\n';});}
+    if(d.unpriced_rfqs.length){msg+='\nUnpriced:\n';d.unpriced_rfqs.forEach(function(u){msg+='  '+u.sol+' ('+u.items+' items)\n';});}
+    if(d.drift_items){msg+='\n'+d.drift_items+' items with >10% price drift in last 30 days';}
+    alert(msg);
+   };
+   nav.appendChild(badge);
+  }).catch(function(){});
+ }catch(e){}
+})();

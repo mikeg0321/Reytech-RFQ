@@ -17,6 +17,64 @@ from src.api.render import render_page
 # Pricing Intelligence — catalog + price history integration
 # ═══════════════════════════════════════════════════════════════════════
 
+# ═══════════════════════════════════════════════════════════════════════
+# F11: Margin Guardrails — configurable pricing rules
+# ═══════════════════════════════════════════════════════════════════════
+
+MARGIN_RULES = {
+    "min_margin_pct": 15,       # Warn if margin below this
+    "critical_margin_pct": 5,   # Fail if margin below this
+    "max_over_scprs_pct": 10,   # Warn if bid > SCPRS by this much
+    "max_under_scprs_pct": 15,  # Warn if bid < SCPRS by this much (leaving money)
+    "require_cost_source": True, # Warn if cost has no backing URL/SCPRS
+}
+
+
+def _check_guardrails(items):
+    """F11: Check margin guardrails on all items. Returns list of warnings."""
+    warnings = []
+    for i, item in enumerate(items):
+        bid = item.get("price_per_unit") or 0
+        cost = item.get("supplier_cost") or 0
+        scprs = item.get("scprs_last_price") or 0
+        desc = (item.get("description", "") or "")[:40]
+        if not bid or bid <= 0:
+            continue
+
+        # Margin check
+        if cost > 0:
+            margin = (bid - cost) / bid * 100
+            if margin < MARGIN_RULES["critical_margin_pct"]:
+                warnings.append({
+                    "idx": i, "desc": desc, "level": "critical",
+                    "msg": f"Margin {margin:.1f}% is below {MARGIN_RULES['critical_margin_pct']}% minimum"
+                })
+            elif margin < MARGIN_RULES["min_margin_pct"]:
+                warnings.append({
+                    "idx": i, "desc": desc, "level": "warn",
+                    "msg": f"Margin {margin:.1f}% is below {MARGIN_RULES['min_margin_pct']}% target"
+                })
+
+        # SCPRS comparison
+        if scprs > 0 and bid > 0:
+            diff_pct = (bid - scprs) / scprs * 100
+            if diff_pct > MARGIN_RULES["max_over_scprs_pct"]:
+                warnings.append({
+                    "idx": i, "desc": desc, "level": "warn",
+                    "msg": f"Bid is {diff_pct:.0f}% above SCPRS — may lose"
+                })
+
+        # Cost without source
+        if cost > 0 and MARGIN_RULES["require_cost_source"]:
+            if not item.get("item_link") and not scprs:
+                warnings.append({
+                    "idx": i, "desc": desc, "level": "info",
+                    "msg": "Cost has no backing source (no URL or SCPRS)"
+                })
+
+    return warnings
+
+
 def _recommend_price(item):
     """Lightweight price recommendation (mirrors routes_analytics logic).
     Returns {recommended, aggressive, safe} tiers or None."""
@@ -787,7 +845,41 @@ def api_rfq_autosave(rid):
                     pass
 
     save_rfqs(rfqs)
-    return jsonify({"ok": True, "saved": len(items_data)})
+
+    # F11: Check guardrails on saved data
+    guardrail_warnings = _check_guardrails(r.get("line_items", []))
+
+    # F6: Record price audits for changed items
+    try:
+        from src.core.db import record_audit
+        sol = r.get("solicitation_number", "")
+        for update in items_data:
+            idx = update.get("idx")
+            if idx is None or idx >= len(r["line_items"]):
+                continue
+            item = r["line_items"][idx]
+            desc = (item.get("description", "") or "")[:60]
+            # Record cost changes
+            if "supplier_cost" in update and update["supplier_cost"]:
+                record_audit(
+                    item_description=desc, field_changed="supplier_cost",
+                    old_value=0, new_value=float(update["supplier_cost"]),
+                    source="manual_edit", rfq_id=rid, actor="user"
+                )
+            # Record bid changes
+            if "price_per_unit" in update and update["price_per_unit"]:
+                record_audit(
+                    item_description=desc, field_changed="price_per_unit",
+                    old_value=0, new_value=float(update["price_per_unit"]),
+                    source="manual_edit", rfq_id=rid, actor="user"
+                )
+    except Exception:
+        pass
+
+    return jsonify({
+        "ok": True, "saved": len(items_data),
+        "guardrails": guardrail_warnings if guardrail_warnings else None,
+    })
 
 
 @bp.route("/rfq/<rid>/add-item", methods=["POST"])
@@ -2580,9 +2672,114 @@ def api_rfq_price_intel(rid):
         if rec:
             result["recommendation"] = rec
 
+        # F6: Price conflict resolution — all known sources
+        sources = {}
+        if item.get("supplier_cost") and item["supplier_cost"] > 0:
+            sources["Your Cost"] = round(item["supplier_cost"], 2)
+        if item.get("scprs_last_price") and item["scprs_last_price"] > 0:
+            sources["SCPRS"] = round(item["scprs_last_price"], 2)
+        if item.get("amazon_price") and item["amazon_price"] > 0:
+            sources["Amazon"] = round(item["amazon_price"], 2)
+        if item.get("price_per_unit") and item["price_per_unit"] > 0:
+            sources["Current Bid"] = round(item["price_per_unit"], 2)
+        if result.get("catalog") and result["catalog"].get("typical_cost"):
+            sources["Catalog"] = round(result["catalog"]["typical_cost"], 2)
+        if result.get("catalog") and result["catalog"].get("list_price"):
+            sources["Catalog List"] = round(result["catalog"]["list_price"], 2)
+        if item.get("_from_pc"):
+            sources["_from_pc"] = item["_from_pc"]
+        if len(sources) > 1:
+            result["sources"] = sources
+
+        # F9: Duplicate item detection — same item quoted recently?
+        try:
+            from src.core.db import get_price_history_db
+            pn = item.get("item_number", "") or ""
+            recent = get_price_history_db(
+                description=desc[:40] if not pn else "",
+                part_number=pn, source="rfq_save_bid", limit=3
+            )
+            if recent:
+                dupes = []
+                for rh in recent:
+                    dupes.append({
+                        "price": rh.get("unit_price", 0),
+                        "quote": rh.get("quote_number", ""),
+                        "agency": rh.get("agency", ""),
+                        "date": rh.get("found_at", "")[:10],
+                    })
+                if dupes:
+                    result["recent_quotes"] = dupes
+        except Exception:
+            pass
+
         intel.append(result)
 
     return jsonify({"ok": True, "intel": intel})
+
+
+@bp.route("/api/pricing-alerts")
+@auth_required
+def api_pricing_alerts():
+    """F8: Dashboard pricing alerts — stale prices, drift, unpriced items."""
+    from datetime import datetime as _dt, timedelta
+    rfqs = load_rfqs()
+    stale_rfqs = []
+    unpriced_rfqs = []
+    drift_items = 0
+    now = _dt.now()
+
+    for rid, r in rfqs.items():
+        if r.get("status") in ("dismissed", "sent", "won", "lost", "cancelled"):
+            continue
+        items = r.get("line_items", [])
+        if not items:
+            continue
+
+        # Check for unpriced items
+        unpriced = sum(1 for it in items if not (it.get("price_per_unit") or 0) > 0)
+        if unpriced == len(items):
+            unpriced_rfqs.append({"id": rid, "sol": r.get("solicitation_number", ""), "items": len(items)})
+            continue
+
+        # Check for stale pricing (created > 14 days ago, never regenerated)
+        try:
+            created = r.get("created_at", "")
+            if created:
+                age = (now - _dt.fromisoformat(created[:19])).days
+                if age > 14 and r.get("status") not in ("generated",):
+                    stale_rfqs.append({
+                        "id": rid, "sol": r.get("solicitation_number", ""),
+                        "age_days": age, "items": len(items),
+                    })
+        except Exception:
+            pass
+
+    # Check price_history for recent drift
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            # Items with multiple prices where latest differs >10% from previous
+            rows = conn.execute("""
+                SELECT description, COUNT(*) as cnt,
+                       MAX(unit_price) as max_p, MIN(unit_price) as min_p
+                FROM price_history
+                WHERE found_at > ?
+                GROUP BY LOWER(SUBSTR(description, 1, 40))
+                HAVING cnt > 1 AND (max_p - min_p) / min_p > 0.10
+            """, ((now - timedelta(days=30)).isoformat(),)).fetchall()
+            drift_items = len(rows)
+    except Exception:
+        pass
+
+    total_alerts = len(stale_rfqs) + len(unpriced_rfqs) + (1 if drift_items > 0 else 0)
+    return jsonify({
+        "ok": True,
+        "total_alerts": total_alerts,
+        "stale_rfqs": stale_rfqs,
+        "unpriced_rfqs": unpriced_rfqs,
+        "drift_items": drift_items,
+    })
 
 
 @bp.route("/api/rfq/<rid>/qa-check")

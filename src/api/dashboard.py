@@ -1826,9 +1826,64 @@ def process_rfq_email(rfq_email):
     # Ensure sender is in CRM
     _ensure_contact_from_email(rfq_email)
 
+    # ── F10: Auto-Price from catalog + price_history ──────────────────────
+    # For items that have no pricing (and weren't ported from PC), try catalog + history
+    try:
+        _auto_priced = 0
+        for _item in rfq_data.get("line_items", []):
+            if _item.get("price_per_unit") or _item.get("supplier_cost"):
+                continue  # already has pricing
+            _desc = (_item.get("description", "") or "")[:50]
+            _pn = _item.get("item_number", "") or ""
+            if not _desc and not _pn:
+                continue
+
+            # Try catalog first
+            try:
+                from src.core.catalog import search_catalog
+                _matches = search_catalog(_pn or _desc[:30], limit=1)
+                if _matches:
+                    _m = _matches[0]
+                    if _m.get("typical_cost") and _m["typical_cost"] > 0:
+                        _item["supplier_cost"] = _m["typical_cost"]
+                    if _m.get("list_price") and _m["list_price"] > 0:
+                        _item["price_per_unit"] = _m["list_price"]
+                    if _m.get("sku"):
+                        _item["_auto_source"] = f"catalog:{_m['sku']}"
+                    _auto_priced += 1
+                    continue
+            except Exception:
+                pass
+
+            # Try price_history
+            try:
+                from src.core.db import get_price_history_db
+                _hist = get_price_history_db(
+                    description=_desc[:40] if not _pn else "",
+                    part_number=_pn, limit=3
+                )
+                if _hist:
+                    _prices = [h["unit_price"] for h in _hist if h.get("unit_price")]
+                    if _prices:
+                        _avg = sum(_prices) / len(_prices)
+                        _item["supplier_cost"] = round(_avg * 0.75, 2)
+                        _item["price_per_unit"] = round(_avg, 2)
+                        _item["_auto_source"] = f"history:avg({len(_prices)})"
+                        _auto_priced += 1
+            except Exception:
+                pass
+
+        if _auto_priced:
+            rfq_data["auto_priced_count"] = _auto_priced
+            rfq_data["status"] = "auto_priced"
+            rfqs[rfq_data["id"]] = rfq_data
+            save_rfqs(rfqs)
+            log.info("F10: Auto-priced %d items for RFQ %s from catalog/history",
+                     _auto_priced, rfq_data.get("solicitation_number", ""))
+    except Exception as _ap_e:
+        log.debug("F10 auto-price: %s", _ap_e)
+
     # ── Auto Price Lookup (no quote generation) ─────────────────────────────
-    # Creates PC + runs price lookup, but STOPS there.
-    # User manually clicks "Generate Quote" when ready → that's when R26Qxx is assigned.
     _trigger_auto_price(rfq_data)
 
     return rfq_data
