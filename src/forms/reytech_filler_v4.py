@@ -565,7 +565,8 @@ CUF_WRITTEN_STATEMENT = (
 )
 
 def fill_cv012_cuf(input_path, rfq_data, config, output_path):
-    """Fill CV 012 CUF Certification Form (both pages) with Reytech info + signature."""
+    """Fill CV 012 CUF Certification Form (both pages) with Reytech info + signature.
+    Written statement is overlaid via ReportLab because XFA fields don't reflow text."""
     company = config["company"]
     sol = rfq_data.get("solicitation_number", "")
     sign_date = rfq_data.get("sign_date", get_pst_date())
@@ -584,16 +585,70 @@ def fill_cv012_cuf(input_path, rfq_data, config, output_path):
         "RadioButtonList[3]": "/1",   # Q3 Yes
         "RadioButtonList[4]": "/2",   # Q4 No
         "RadioButtonList[5]": "/2",   # Q5 No
-        # Page 1 — Written Statement
-        "ProvideAWrittenStatement[0]": CUF_WRITTEN_STATEMENT,
+        # NOTE: ProvideAWrittenStatement is overlaid via ReportLab (XFA doesn't wrap)
         # Page 2 — Authorizing Signature
         "Title[0]": company["title"],
         "PrintedName[0]": "Michael Guadan",
         "Date[0]": sign_date,
     }
 
+    # Step 1: fill form fields + signature overlay
     fill_and_sign_pdf(input_path, values, output_path, sign_date=sign_date)
+
+    # Step 2: overlay written statement text on page 0 via ReportLab
+    # Field rect: [20.835, 20.835, 591.165, 315.944]
+    _overlay_cuf_written_statement(output_path, CUF_WRITTEN_STATEMENT)
+
     print(f"  ✓ CV 012 CUF filled (2 pages, sol={sol})")
+
+
+def _overlay_cuf_written_statement(pdf_path, text, page_index=0):
+    """Overlay word-wrapped written statement onto the CUF form's text area."""
+    from reportlab.lib.pagesizes import letter
+
+    # Field rect from the XFA form
+    x_start = 28
+    y_top = 308
+    max_width = 555
+    font_name = "Helvetica"
+    font_size = 10
+    leading = 13  # line spacing
+
+    # Build overlay PDF
+    buf = io.BytesIO()
+    c = rl_canvas.Canvas(buf, pagesize=letter)
+    text_obj = c.beginText(x_start, y_top)
+    text_obj.setFont(font_name, font_size)
+    text_obj.setLeading(leading)
+
+    # Word-wrap
+    words = text.split()
+    line = ""
+    for word in words:
+        test = f"{line} {word}".strip()
+        if c.stringWidth(test, font_name, font_size) > max_width:
+            text_obj.textLine(line)
+            line = word
+        else:
+            line = test
+    if line:
+        text_obj.textLine(line)
+
+    c.drawText(text_obj)
+    c.save()
+    buf.seek(0)
+
+    # Merge overlay onto page
+    reader = PdfReader(pdf_path)
+    writer = PdfWriter()
+    writer.append(reader)
+
+    overlay_reader = PdfReader(buf)
+    if overlay_reader.pages:
+        writer.pages[page_index].merge_page(overlay_reader.pages[0])
+
+    with open(pdf_path, "wb") as f:
+        writer.write(f)
 
 
 # ═══════════════════════════════════════════════════════════════════════
