@@ -182,7 +182,7 @@
  <div class="bg">
   <button type="submit" class="btn btn-p" data-testid="rfq-save-pricing">💾 Save Pricing</button>
   <button type="button" class="btn" data-testid="rfq-preview-quote" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd)" onclick="showRfqPreview()">👁️ Preview Quote</button>
-  <button type="submit" formaction="/rfq/{{rid}}/generate-package" data-testid="rfq-generate-package" class="btn btn-g" style="font-size:14px;padding:10px 24px">📦 Generate RFP Package</button>
+  <button type="button" onclick="runQaCheck()" data-testid="rfq-generate-package" class="btn btn-g" style="font-size:14px;padding:10px 24px">📦 Generate RFP Package</button>
   <button type="button" class="btn" style="background:rgba(79,140,255,.15);color:var(--ac);border:1px solid rgba(79,140,255,.3)" onclick="sendQuoteEmail()">📧 Send Quote</button>
   <button type="button" class="btn" style="background:rgba(34,197,94,.12);color:#22c55e;border:1px solid rgba(34,197,94,.3)" onclick="generateOBS1600()" title="Generate CA Agricultural Food Product Certification (OBS 1600)">🌾 Food Cert</button>
   <button type="button" class="btn" style="background:rgba(168,85,247,.12);color:#a855f7;border:1px solid rgba(168,85,247,.3)" onclick="fillBidPackage()" title="Fill ALL forms in bid package (CUF, Darfur, DVBE, CalRecycle, OBS 1600, etc.)">📋 Fill All Forms</button>
@@ -944,6 +944,52 @@ function regeneratePackage(){
  form.action='/rfq/'+RID+'/generate-package';
  document.body.appendChild(form);
  form.submit();
+}
+
+// ── F3: QA Gate ──
+function runQaCheck(){
+ fetch('/api/rfq/'+RID+'/qa-check',{credentials:'same-origin'}).then(r=>r.json()).then(function(d){
+  if(!d.ok){_doGenerate();return;}
+  _showQaPopup(d);
+ }).catch(function(){_doGenerate();});
+}
+function _doGenerate(){
+ if(!confirm('Generate the full RFQ package?'))return;
+ var f=document.createElement('form');f.method='POST';
+ f.action='/rfq/'+RID+'/generate-package';
+ document.body.appendChild(f);f.submit();
+}
+function _showQaPopup(d){
+ var ex=document.getElementById('qa-popup');if(ex)ex.remove();
+ var ex2=document.getElementById('qa-backdrop');if(ex2)ex2.remove();
+ var oc=d.overall;
+ var color=oc==='pass'?'#3fb950':oc==='warn'?'#d29922':'#f85149';
+ var icon=oc==='pass'?'✅':oc==='warn'?'⚠️':'❌';
+ var h='<div id="qa-popup" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#161b22;border:1px solid #30363d;border-radius:12px;padding:24px;z-index:10001;min-width:420px;max-width:600px;max-height:80vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.6)">';
+ h+='<div style="font-size:18px;font-weight:700;margin-bottom:12px;color:'+color+'">'+icon+' QA Check: '+oc.toUpperCase()+'</div>';
+ h+='<div style="font-size:13px;color:#8b949e;margin-bottom:12px">'+d.total+' items · '+d.failures+' failures · '+d.warnings+' warnings</div>';
+ if(d.diff_notes&&d.diff_notes.length){
+  h+='<div style="padding:6px 10px;background:rgba(210,153,34,.08);border:1px solid rgba(210,153,34,.2);border-radius:6px;margin-bottom:10px;font-size:12px;color:#d29922">';
+  d.diff_notes.forEach(function(n){h+='<div>⚠ '+n+'</div>';});
+  h+='</div>';
+ }
+ d.items.forEach(function(it){
+  var sc=it.status==='pass'?'#3fb950':it.status==='warn'?'#d29922':'#f85149';
+  var si=it.status==='pass'?'✅':it.status==='warn'?'⚠️':'❌';
+  h+='<div style="padding:6px 8px;border-bottom:1px solid #21262d">';
+  h+='<div style="font-size:12px;font-weight:600;color:'+sc+'">'+si+' '+it.description+'</div>';
+  it.checks.forEach(function(c){
+   var cc=c.status==='pass'?'#3fb950':c.status==='warn'?'#d29922':'#f85149';
+   h+='<div style="font-size:11px;color:'+cc+';margin-left:16px">'+c.check+': '+c.msg+'</div>';
+  });
+  h+='</div>';
+ });
+ h+='<div style="display:flex;gap:10px;margin-top:16px;justify-content:flex-end">';
+ h+='<button onclick="document.getElementById(\'qa-popup\').remove();document.getElementById(\'qa-backdrop\').remove()" style="padding:8px 16px;background:#21262d;color:#c9d1d9;border:1px solid #30363d;border-radius:6px;cursor:pointer">Fix Issues</button>';
+ h+='<button onclick="document.getElementById(\'qa-popup\').remove();document.getElementById(\'qa-backdrop\').remove();_doGenerate()" style="padding:8px 16px;background:'+color+';color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700">'+(oc==='fail'?'Generate Anyway ⚠️':'Proceed →')+'</button>';
+ h+='</div></div>';
+ h+='<div id="qa-backdrop" onclick="document.getElementById(\'qa-popup\').remove();this.remove()" style="position:fixed;top:0;left:0;right:0;bottom:0;z-index:10000;background:rgba(0,0,0,.5)"></div>';
+ document.body.insertAdjacentHTML('beforeend',h);
 }
 
 recalc();

@@ -2494,6 +2494,136 @@ def api_rfq_price_intel(rid):
     return jsonify({"ok": True, "intel": intel})
 
 
+@bp.route("/api/rfq/<rid>/qa-check")
+@auth_required
+def api_rfq_qa_check(rid):
+    """QA gate: validate all items before package generation.
+    Returns per-item pass/warn/fail with reasons."""
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False}), 404
+
+    items = r.get("line_items", [])
+    results = []
+    overall = "pass"
+    warnings = 0
+    failures = 0
+
+    for i, item in enumerate(items):
+        checks = []
+        item_status = "pass"
+        desc = (item.get("description", "") or "")[:50]
+        bid = item.get("price_per_unit") or 0
+        cost = item.get("supplier_cost") or 0
+        scprs = item.get("scprs_last_price") or 0
+        qty = item.get("qty") or 0
+
+        # 1: Bid price > 0
+        if not bid or bid <= 0:
+            checks.append({"check": "bid_price", "status": "fail", "msg": "No bid price"})
+            item_status = "fail"
+        else:
+            checks.append({"check": "bid_price", "status": "pass", "msg": f"${bid:.2f}"})
+
+        # 2: Supplier cost > 0
+        if not cost or cost <= 0:
+            checks.append({"check": "cost", "status": "warn", "msg": "No supplier cost"})
+            if item_status != "fail":
+                item_status = "warn"
+        else:
+            checks.append({"check": "cost", "status": "pass", "msg": f"${cost:.2f}"})
+
+        # 3: Margin ≥ 15%
+        if bid > 0 and cost > 0:
+            margin = (bid - cost) / bid * 100
+            if margin < 5:
+                checks.append({"check": "margin", "status": "fail",
+                               "msg": f"{margin:.1f}% — dangerously low"})
+                item_status = "fail"
+            elif margin < 15:
+                checks.append({"check": "margin", "status": "warn",
+                               "msg": f"{margin:.1f}% — below 15%"})
+                if item_status != "fail":
+                    item_status = "warn"
+            else:
+                checks.append({"check": "margin", "status": "pass",
+                               "msg": f"{margin:.1f}%"})
+
+        # 4: Bid vs SCPRS
+        if bid > 0 and scprs > 0:
+            diff_pct = (bid - scprs) / scprs * 100
+            if diff_pct > 10:
+                checks.append({"check": "scprs", "status": "warn",
+                               "msg": f"{diff_pct:.0f}% above SCPRS ${scprs:.2f}"})
+                if item_status != "fail":
+                    item_status = "warn"
+            elif diff_pct < -15:
+                checks.append({"check": "scprs", "status": "warn",
+                               "msg": f"{abs(diff_pct):.0f}% below SCPRS — leaving margin?"})
+                if item_status != "fail":
+                    item_status = "warn"
+            else:
+                checks.append({"check": "scprs", "status": "pass",
+                               "msg": f"OK vs SCPRS ${scprs:.2f}"})
+
+        # 5: Price freshness
+        try:
+            from src.core.db import get_price_history_db
+            pn = item.get("item_number", "") or ""
+            history = get_price_history_db(
+                description=desc[:40] if not pn else "",
+                part_number=pn, limit=1)
+            if history:
+                from datetime import datetime as _dt
+                days = (_dt.now() - _dt.fromisoformat(
+                    history[0]["found_at"][:19])).days
+                if days > 90:
+                    checks.append({"check": "freshness", "status": "warn",
+                                   "msg": f"Price data {days}d old"})
+                    if item_status != "fail":
+                        item_status = "warn"
+                else:
+                    checks.append({"check": "freshness", "status": "pass",
+                                   "msg": f"{days}d ago"})
+        except Exception:
+            pass
+
+        # 6: Qty > 0
+        if not qty or qty <= 0:
+            checks.append({"check": "qty", "status": "warn", "msg": "Qty is 0"})
+            if item_status != "fail":
+                item_status = "warn"
+
+        if item_status == "fail":
+            failures += 1
+            if overall != "fail":
+                overall = "fail"
+        elif item_status == "warn":
+            warnings += 1
+            if overall == "pass":
+                overall = "warn"
+
+        results.append({"idx": i, "description": desc,
+                        "status": item_status, "checks": checks})
+
+    # PC diff warnings
+    diff_notes = []
+    pc_diff = r.get("pc_diff")
+    if pc_diff:
+        if pc_diff.get("added"):
+            diff_notes.append(f"{len(pc_diff['added'])} new items not in Price Check")
+        if pc_diff.get("removed"):
+            diff_notes.append(f"{len(pc_diff['removed'])} PC items not in RFQ")
+        if pc_diff.get("qty_changed"):
+            diff_notes.append(f"{len(pc_diff['qty_changed'])} qty changes from PC")
+
+    return jsonify({"ok": True, "overall": overall, "failures": failures,
+                    "warnings": warnings, "total": len(items), "items": results,
+                    "linked_pc": r.get("linked_pc_number", ""),
+                    "diff_notes": diff_notes})
+
+
 @bp.route("/form-filler")
 @auth_required
 def form_filler_page():
