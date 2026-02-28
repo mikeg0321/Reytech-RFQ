@@ -527,29 +527,39 @@ def _overlay_std1000_description(pdf_path, items, page_index=0):
 
     # Build lines
     lines = []
+    n = len(items)
     for i, item in enumerate(items, 1):
         pn = item.get("item_number", item.get("part_number", ""))
         desc = item.get("description", "")
         qty = item.get("qty", 1)
         uom = item.get("uom", "EA")
-        lines.append(f"{i}. {pn}  {desc}  (Qty: {qty} {uom})")
+        if n <= 15:
+            lines.append(f"{i}. {pn}  {desc}  (Qty: {qty} {uom})")
+        else:
+            # Condensed format for many items
+            lines.append(f"{i}. {pn} {desc} ({qty} {uom})")
     if not lines:
         lines = ["N/A"]
 
-    # Auto-size font to fit all lines in the box
-    # Try 10pt down to 6.5pt
+    # Auto-size: try font sizes from 10pt down to 5.5pt
+    # Leading tightens at smaller sizes for density
     font_name = "Helvetica"
-    chosen_size = 10
-    chosen_leading = 12
-    for try_sz in [10, 9, 8.5, 8, 7.5, 7, 6.5]:
-        leading = try_sz + 2
-        total_h = len(lines) * leading
-        if total_h <= box_height - 4:
-            chosen_size = try_sz
-            chosen_leading = leading
+    size_options = [
+        (10, 12), (9, 11), (8.5, 10.5), (8, 10), (7.5, 9.5),
+        (7, 8.5), (6.5, 8), (6, 7.5), (5.5, 7),
+    ]
+    chosen_size, chosen_leading = size_options[-1]  # fallback to smallest
+    for sz, ld in size_options:
+        if len(lines) * ld <= box_height - 4:
+            chosen_size, chosen_leading = sz, ld
             break
-        chosen_size = try_sz
-        chosen_leading = leading
+
+    # If still overflows at smallest font, truncate with "...and X more"
+    max_lines = int((box_height - 4) / chosen_leading)
+    if len(lines) > max_lines:
+        remaining = len(lines) - max_lines + 1
+        lines = lines[:max_lines - 1]
+        lines.append(f"...and {remaining} more items (see quote for full list)")
 
     buf = io.BytesIO()
     c = rl_canvas.Canvas(buf, pagesize=letter)
