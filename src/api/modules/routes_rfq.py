@@ -17,6 +17,40 @@ from src.api.render import render_page
 # Pricing Intelligence — catalog + price history integration
 # ═══════════════════════════════════════════════════════════════════════
 
+def _recommend_price(item):
+    """Lightweight price recommendation (mirrors routes_analytics logic).
+    Returns {recommended, aggressive, safe} tiers or None."""
+    scprs = item.get("scprs_last_price") or 0
+    amazon = item.get("amazon_price") or 0
+    cost = item.get("supplier_cost") or 0
+
+    base = 0
+    reason = ""
+
+    if scprs > 0:
+        base = scprs
+        reason = f"SCPRS ${scprs:.2f}"
+    elif amazon > 0:
+        base = amazon * 1.15
+        reason = f"Amazon ${amazon:.2f}+15%"
+    elif cost > 0:
+        base = cost * 1.25
+        reason = f"Cost ${cost:.2f}+25%"
+    else:
+        return None
+
+    # Ensure minimum margin over cost
+    if cost > 0 and base < cost * 1.10:
+        base = cost * 1.10
+
+    return {
+        "recommended": round(base * 0.98, 2),  # Undercut by 2%
+        "aggressive": round(base * 0.93, 2),    # Undercut by 7%
+        "safe": round(base * 1.05, 2),           # 5% above
+        "reason": reason,
+    }
+
+
 def _enrich_items_with_intel(items, rfq_number="", agency=""):
     """Enrich line items with catalog matches and price history.
     Called on RFQ detail load to surface pricing intelligence."""
@@ -2540,6 +2574,11 @@ def api_rfq_price_intel(rid):
                 } for a in audits]
         except Exception:
             pass
+
+        # Pricing recommendation
+        rec = _recommend_price(item)
+        if rec:
+            result["recommendation"] = rec
 
         intel.append(result)
 
