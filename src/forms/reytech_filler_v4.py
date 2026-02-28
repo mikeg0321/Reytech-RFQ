@@ -516,64 +516,88 @@ def fill_std1000(input_path, rfq_data, config, output_path):
 
 
 def _overlay_std1000_description(pdf_path, items, page_index=0):
-    """Overlay line items into the STD 1000 'Contract / Description of Purchase' field."""
+    """Overlay line items into the STD 1000 'Contract / Description of Purchase' field.
+    Uses two-column layout when items exceed single-column capacity."""
     from reportlab.lib.pagesizes import letter
 
     # Field rect from template: [16, 346, 598, 548]
     x_start = 20
-    y_top = 540       # Just below top of field (548 - 8pt padding)
-    max_width = 570
-    box_height = 185  # 540 - 346 = ~194, minus padding
+    y_top = 540
+    total_width = 570
+    box_height = 185
 
     # Build lines
     lines = []
-    n = len(items)
     for i, item in enumerate(items, 1):
         pn = item.get("item_number", item.get("part_number", ""))
         desc = item.get("description", "")
         qty = item.get("qty", 1)
         uom = item.get("uom", "EA")
-        if n <= 15:
-            lines.append(f"{i}. {pn}  {desc}  (Qty: {qty} {uom})")
-        else:
-            # Condensed format for many items
-            lines.append(f"{i}. {pn} {desc} ({qty} {uom})")
+        lines.append(f"{i}. {pn}  {desc}  ({qty} {uom})")
     if not lines:
         lines = ["N/A"]
 
-    # Auto-size: try font sizes from 10pt down to 5.5pt
-    # Leading tightens at smaller sizes for density
     font_name = "Helvetica"
-    size_options = [
-        (10, 12), (9, 11), (8.5, 10.5), (8, 10), (7.5, 9.5),
-        (7, 8.5), (6.5, 8), (6, 7.5), (5.5, 7),
-    ]
-    chosen_size, chosen_leading = size_options[-1]  # fallback to smallest
-    for sz, ld in size_options:
-        if len(lines) * ld <= box_height - 4:
-            chosen_size, chosen_leading = sz, ld
-            break
 
-    # If still overflows at smallest font, truncate with "...and X more"
-    max_lines = int((box_height - 4) / chosen_leading)
-    if len(lines) > max_lines:
-        remaining = len(lines) - max_lines + 1
-        lines = lines[:max_lines - 1]
-        lines.append(f"...and {remaining} more items (see quote for full list)")
+    # Single column: ≤15 items at 10pt
+    # Two columns: >15 items
+    if len(lines) <= 15:
+        font_size = 10
+        leading = 12
+        cols = 1
+    else:
+        # Two columns — pick font to fit half the lines per column
+        lines_per_col = (len(lines) + 1) // 2  # ceil division
+        font_size = 9
+        leading = 11
+        # Scale down if needed
+        for sz, ld in [(9, 11), (8, 10), (7.5, 9.5), (7, 9), (6.5, 8)]:
+            if lines_per_col * ld <= box_height - 4:
+                font_size, leading = sz, ld
+                break
+        cols = 2
 
     buf = io.BytesIO()
     c = rl_canvas.Canvas(buf, pagesize=letter)
-    text_obj = c.beginText(x_start, y_top)
-    text_obj.setFont(font_name, chosen_size)
-    text_obj.setLeading(chosen_leading)
 
-    for line in lines:
-        # Truncate if line is too wide
-        while c.stringWidth(line, font_name, chosen_size) > max_width and len(line) > 20:
-            line = line[:len(line) - 4] + "..."
-        text_obj.textLine(line)
+    if cols == 1:
+        col_width = total_width
+        text_obj = c.beginText(x_start, y_top)
+        text_obj.setFont(font_name, font_size)
+        text_obj.setLeading(leading)
+        for line in lines:
+            while c.stringWidth(line, font_name, font_size) > col_width and len(line) > 20:
+                line = line[:len(line) - 4] + "..."
+            text_obj.textLine(line)
+        c.drawText(text_obj)
+    else:
+        col_gap = 12
+        col_width = (total_width - col_gap) / 2
+        mid = (len(lines) + 1) // 2
+        col1_lines = lines[:mid]
+        col2_lines = lines[mid:]
 
-    c.drawText(text_obj)
+        # Left column
+        t1 = c.beginText(x_start, y_top)
+        t1.setFont(font_name, font_size)
+        t1.setLeading(leading)
+        for line in col1_lines:
+            while c.stringWidth(line, font_name, font_size) > col_width and len(line) > 20:
+                line = line[:len(line) - 4] + "..."
+            t1.textLine(line)
+        c.drawText(t1)
+
+        # Right column
+        x2 = x_start + col_width + col_gap
+        t2 = c.beginText(x2, y_top)
+        t2.setFont(font_name, font_size)
+        t2.setLeading(leading)
+        for line in col2_lines:
+            while c.stringWidth(line, font_name, font_size) > col_width and len(line) > 20:
+                line = line[:len(line) - 4] + "..."
+            t2.textLine(line)
+        c.drawText(t2)
+
     c.save()
     buf.seek(0)
 
