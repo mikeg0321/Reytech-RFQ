@@ -102,9 +102,10 @@ def _global_auth_guard():
                 "🔒 Reytech RFQ Dashboard — Login Required",
                 401, {"WWW-Authenticate": 'Basic realm="Reytech RFQ Dashboard"'})
     # CSRF: Origin check for state-changing requests
-    # Exempt: voice webhooks, all /api/ paths (already behind auth_required),
-    # and requests with JSON content type
-    if request.method in ("POST", "PUT", "DELETE") and not _path.startswith("/api/"):
+    # Only enforce on non-authenticated public endpoints (e.g. login form).
+    # All /api/ and /rfq/ paths are behind auth_required which is sufficient.
+    csrf_exempt_prefixes = ("/api/", "/rfq/", "/pricecheck/", "/crm/", "/admin/")
+    if request.method in ("POST", "PUT", "DELETE") and not any(_path.startswith(p) for p in csrf_exempt_prefixes):
         origin = request.headers.get("Origin", "")
         referer = request.headers.get("Referer", "")
         host = request.host_url.rstrip("/")
