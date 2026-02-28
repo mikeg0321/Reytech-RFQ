@@ -52,7 +52,7 @@ def _is_railway_volume() -> bool:
 DB_PATH = os.path.join(DATA_DIR, "reytech.db")
 os.makedirs(DATA_DIR, exist_ok=True)
 
-_db_lock = threading.Lock()
+_db_lock = threading.RLock()   # RLock: allows same-thread reentry (boot sync → upsert)
 
 # ── Connection factory ────────────────────────────────────────────────────────
 @contextmanager
