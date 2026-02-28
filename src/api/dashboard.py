@@ -137,8 +137,8 @@ def _cached_json_load(path: str, fallback=None):
         now = time.time()
         with _json_cache_lock:
             cached = _json_cache.get(path)
-            # Use cache only if mtime matches AND cache is <2s old
-            if cached and cached["mtime"] == mtime and (now - cached["ts"]) < 2.0:
+            # Use cache only if mtime matches AND cache is <10s old
+            if cached and cached["mtime"] == mtime and (now - cached["ts"]) < 10.0:
                 return cached["data"]
         with open(path) as f:
             data = json.load(f)

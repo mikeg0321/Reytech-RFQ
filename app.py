@@ -6,28 +6,32 @@ Creates Flask app and registers the dashboard Blueprint.
 
 # ── Clear stale bytecode BEFORE any imports ──
 # Railway's persistent volume caches .pyc across deploys, causing old code to run.
+# ONLY clean src/ — don't walk the 4GB data volume!
 import sys, pathlib
 sys.dont_write_bytecode = True
-for _pyc in pathlib.Path(__file__).parent.rglob("*.pyc"):
-    try:
-        _pyc.unlink()
-    except OSError:
-        pass
-for _cache in pathlib.Path(__file__).parent.rglob("__pycache__"):
-    try:
-        _cache.rmdir()
-    except OSError:
-        pass
+_src_dir = pathlib.Path(__file__).parent / "src"
+if _src_dir.exists():
+    for _pyc in _src_dir.rglob("*.pyc"):
+        try:
+            _pyc.unlink()
+        except OSError:
+            pass
+    for _cache in _src_dir.rglob("__pycache__"):
+        try:
+            _cache.rmdir()
+        except OSError:
+            pass
 
 import os
 import logging
 import time
-from flask import Flask
+from flask import Flask, request
 
 print(f"[BOOT] app.py loading at {time.time():.0f}", flush=True)
 
 def create_app():
-    """Application factory."""
+    """Application factory — optimized for fast startup."""
+    t0 = time.time()
     print("[BOOT] create_app() called", flush=True)
     _app_dir = os.path.dirname(os.path.abspath(__file__))
     app = Flask(
@@ -43,176 +47,179 @@ def create_app():
             "Set it in Railway: Settings → Variables → SECRET_KEY = <random 32+ char string>"
         )
     app.secret_key = _secret
-    print("[BOOT] Flask app created, SECRET_KEY set", flush=True)
 
     # ── FORCE_CLEAN_BOOT: nuke corrupted volume data ──────────────────────
     if os.environ.get("FORCE_CLEAN_BOOT"):
         print("[BOOT] FORCE_CLEAN_BOOT: clearing corrupted files...", flush=True)
         import glob
         data_dir = os.path.join(_app_dir, "data")
-        # Delete SQLite lock/journal/WAL files that cause hangs
         for pattern in ["*.db-journal", "*.db-wal", "*.db-shm"]:
             for f in glob.glob(os.path.join(data_dir, pattern)):
                 try:
                     os.remove(f)
-                    print(f"[BOOT] Removed lock: {f}", flush=True)
                 except Exception:
                     pass
-        # Delete main DB — it will rebuild from JSON on init
         db_file = os.path.join(data_dir, "reytech.db")
         if os.path.exists(db_file):
             db_size = os.path.getsize(db_file) / 1024 / 1024
             os.remove(db_file)
-            print(f"[BOOT] Removed reytech.db ({db_size:.0f} MB) — will rebuild", flush=True)
-        # Clear processed emails to unstick poller
+            print(f"[BOOT] Removed reytech.db ({db_size:.0f} MB)", flush=True)
         for f in ["processed_emails.json"]:
             p = os.path.join(data_dir, f)
             if os.path.exists(p):
                 try:
                     os.remove(p)
-                    print(f"[BOOT] Removed: {p}", flush=True)
                 except Exception:
                     pass
-        # Clear huge upload directories that bloat volume
-        uploads_dir = os.path.join(_app_dir, "uploads")
-        if os.path.isdir(uploads_dir):
-            total_size = sum(
-                os.path.getsize(os.path.join(dp, f))
-                for dp, _, fns in os.walk(uploads_dir)
-                for f in fns
-            )
-            print(f"[BOOT] uploads/ size: {total_size / 1024 / 1024:.0f} MB", flush=True)
-            if total_size > 500 * 1024 * 1024:  # > 500MB
-                import shutil
-                shutil.rmtree(uploads_dir, ignore_errors=True)
-                os.makedirs(uploads_dir, exist_ok=True)
-                print("[BOOT] Cleared oversized uploads/", flush=True)
 
-    # ── Persistent database init ──────────────────────────────────────────────
-    # ── Product catalog init ──────────────────────────────────────────────────
-    print("[BOOT] Initializing catalog...", flush=True)
-    try:
-        from src.core.catalog import init_catalog
-        init_catalog()
-    except Exception as e:
-        logging.getLogger("reytech").warning("Catalog init skipped: %s", e)
-    print("[BOOT] Catalog done", flush=True)
-
-    print("[BOOT] Initializing DB...", flush=True)
+    # ── CRITICAL PATH: DB schema + blueprint (minimum to serve requests) ──
+    print("[BOOT] DB schema init...", flush=True)
     try:
         if os.environ.get("FORCE_CLEAN_BOOT"):
-            # Minimal DB init — just create tables, skip all migration/sync
-            print("[BOOT] FORCE_CLEAN_BOOT: minimal DB init (schema only)", flush=True)
             from src.core.db import get_db, SCHEMA, DB_PATH, _is_railway_volume
             with get_db() as conn:
                 conn.executescript(SCHEMA)
-            print("[BOOT] Schema created", flush=True)
-            result = {"ok": True, "db_path": DB_PATH, "stats": {"quotes": 0, "contacts": 0, "price_history": 0}, "is_volume": _is_railway_volume()}
         else:
-            # Run startup with a hard timeout to prevent infinite hang
+            # Quick schema-only init (no reconcile/sync) — timeout at 15s
             import signal
             def _timeout_handler(signum, frame):
-                raise TimeoutError("DB startup took >45s — skipping heavy init")
+                raise TimeoutError("DB init >15s")
             old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
-            signal.alarm(45)
+            signal.alarm(15)
             try:
-                from src.core.db import startup as db_startup
-                print("[BOOT] Calling db_startup()...", flush=True)
-                result = db_startup()
-            except TimeoutError as te:
-                print(f"[BOOT] DB TIMEOUT: {te}", flush=True)
-                logging.getLogger("reytech").warning("DB startup timeout — using minimal init")
-                # Fall back to minimal init
+                from src.core.db import get_db, SCHEMA, DB_PATH, init_db, _is_railway_volume
+                init_db()  # Creates tables + DAL migration only
+            except TimeoutError:
+                print("[BOOT] DB TIMEOUT — minimal schema", flush=True)
                 from src.core.db import get_db, SCHEMA, DB_PATH, _is_railway_volume
                 with get_db() as conn:
                     conn.executescript(SCHEMA)
-                result = {"ok": True, "db_path": DB_PATH, "stats": {"quotes": 0, "contacts": 0, "price_history": 0}, "is_volume": _is_railway_volume()}
             finally:
                 signal.alarm(0)
                 signal.signal(signal.SIGALRM, old_handler)
-        logging.getLogger("reytech").info(
-            "DB: %s | volume=%s | quotes=%d contacts=%d prices=%d",
-            result["db_path"],
-            result.get("is_volume", False),
-            result["stats"].get("quotes", 0),
-            result["stats"].get("contacts", 0),
-            result["stats"].get("price_history", 0),
-        )
     except Exception as e:
-        logging.getLogger("reytech").warning("DB init skipped: %s", e)
-        print(f"[BOOT] DB init error: {e}", flush=True)
-    print("[BOOT] DB done", flush=True)
+        logging.getLogger("reytech").warning("DB init: %s", e)
+    print(f"[BOOT] DB ready ({time.time()-t0:.1f}s)", flush=True)
 
-    # ── Schema migrations (Sprint 5.2) ──────────────────────────────────────
-    print("[BOOT] Running migrations...", flush=True)
-    try:
-        from src.core.migrations import run_migrations
-        mig = run_migrations()
-        if mig.get("applied", 0) > 0:
-            logging.getLogger("reytech").info(
-                "Migrations: applied %d, now at v%d",
-                mig["applied"], mig["version"])
-    except Exception as e:
-        logging.getLogger("reytech").warning("Migrations skipped: %s", e)
-
-    # ── Structured logging (Sprint 5.3) ─────────────────────────────────────
-    try:
-        from src.core.structured_log import setup_structured_logging
-        setup_structured_logging()
-    except Exception as e:
-        logging.getLogger("reytech").debug("Structured logging skipped: %s", e)
-
-    # Register the dashboard blueprint (all routes)
-    print("[BOOT] Importing dashboard...", flush=True)
+    # Register blueprint (all routes)
     from src.api.dashboard import bp, start_polling
-    print("[BOOT] Registering blueprint...", flush=True)
     app.register_blueprint(bp)
-    print("[BOOT] Blueprint registered", flush=True)
+    print(f"[BOOT] Routes registered ({time.time()-t0:.1f}s)", flush=True)
 
-    # ── Security middleware (rate limiting, CSRF, headers) ──────────
-    print("[BOOT] Security init...", flush=True)
+    # ── Security middleware ──
     try:
         from src.core.security import init_security
         init_security(app)
     except Exception as e:
-        logging.getLogger("reytech").warning("Security init skipped: %s", e)
+        logging.getLogger("reytech").warning("Security init: %s", e)
 
-    # ── Runtime self-test — catches path/route/data bugs at boot ──────────
-    print("[BOOT] Startup checks...", flush=True)
-    try:
-        from src.core.startup_checks import run_startup_checks
-        with app.app_context():
-            checks = run_startup_checks(app)
-            if checks["failed"] > 0:
-                logging.getLogger("reytech").error(
-                    "STARTUP: %d checks FAILED — review logs", checks["failed"])
-    except Exception as e:
-        logging.getLogger("reytech").warning("Startup checks skipped: %s", e)
+    # ── Response compression + caching ──
+    @app.after_request
+    def _optimize_response(response):
+        # Cache static assets for 1 hour
+        if request.path.startswith("/static/"):
+            response.cache_control.max_age = 3600
+            response.cache_control.public = True
+        # Gzip HTML/JSON responses
+        if (response.content_type and 
+            any(ct in response.content_type for ct in ("text/html", "application/json")) and
+            response.content_length and response.content_length > 500):
+            try:
+                import gzip as _gz
+                accept = request.headers.get("Accept-Encoding", "")
+                if "gzip" in accept and response.status_code == 200:
+                    data = response.get_data()
+                    compressed = _gz.compress(data, compresslevel=4)
+                    if len(compressed) < len(data):
+                        response.set_data(compressed)
+                        response.headers["Content-Encoding"] = "gzip"
+                        response.headers["Content-Length"] = len(compressed)
+            except Exception:
+                pass
+        return response
 
-    print("[BOOT] Scheduler init...", flush=True)
+    # ── DEFERRED: heavy work in background thread ──────────────────────────
+    # App can serve requests while this runs
+    def _deferred_init():
+        """Run non-critical startup tasks in background."""
+        import threading
+        time.sleep(2)  # Let gunicorn finish binding
+        try:
+            # Catalog init
+            from src.core.catalog import init_catalog
+            init_catalog()
+        except Exception as e:
+            logging.getLogger("reytech").debug("Catalog: %s", e)
 
-    # Start email polling in background (production only)
+        try:
+            # DAL migration (leads, customers, vendors → DB)
+            from src.core.db import init_db_deferred
+            init_db_deferred()
+        except Exception as e:
+            logging.getLogger("reytech").debug("DAL: %s", e)
+
+        try:
+            # Migrations
+            from src.core.migrations import run_migrations
+            run_migrations()
+        except Exception as e:
+            logging.getLogger("reytech").debug("Migrations: %s", e)
+
+        if not os.environ.get("FORCE_CLEAN_BOOT"):
+            try:
+                # Heavy DB reconciliation (was blocking startup for 45s+)
+                from src.core.db import _reconcile_quotes_json, _dedup_price_checks_on_boot, _fix_data_on_boot
+                _reconcile_quotes_json()
+                _dedup_price_checks_on_boot()
+                _fix_data_on_boot()
+            except Exception as e:
+                logging.getLogger("reytech").debug("DB reconcile: %s", e)
+
+            try:
+                from src.core.db import get_db_stats, _boot_sync_quotes, _boot_sync_pcs
+                stats = get_db_stats()
+                if stats.get("quotes", 0) == 0 and stats.get("contacts", 0) == 0:
+                    from src.core.db import migrate_json_to_db
+                    migrate_json_to_db()
+                else:
+                    _boot_sync_quotes()
+                    _boot_sync_pcs()
+            except Exception as e:
+                logging.getLogger("reytech").debug("DB sync: %s", e)
+
+        # Structured logging
+        try:
+            from src.core.structured_log import setup_structured_logging
+            setup_structured_logging()
+        except Exception:
+            pass
+
+        # Scheduler
+        try:
+            from src.core.scheduler import start_backup_scheduler, register_job
+            start_backup_scheduler(interval_hours=24)
+            for job_name, interval in [
+                ("email-poller", 300), ("award-monitor", 3600),
+                ("follow-up-engine", 3600), ("quote-lifecycle", 3600),
+                ("email-retry", 900), ("lead-nurture", 86400),
+                ("qa-monitor", 900), ("growth-agent", 86400),
+            ]:
+                register_job(job_name, interval_sec=interval)
+        except Exception:
+            pass
+
+        logging.getLogger("reytech").info("Deferred init complete")
+
+    import threading
+    threading.Thread(target=_deferred_init, daemon=True, name="deferred-init").start()
+
+    # Start email polling (production only)
     if os.environ.get("ENABLE_EMAIL_POLLING", "").lower() == "true":
         with app.app_context():
             start_polling(app)
 
-    # ── Scheduler: backup + job health monitoring (F4 + F5) ──
-    try:
-        from src.core.scheduler import start_backup_scheduler, register_job
-        start_backup_scheduler(interval_hours=24)
-        # Register known background jobs for health tracking
-        for job_name, interval in [
-            ("email-poller", 300), ("award-monitor", 3600),
-            ("follow-up-engine", 3600), ("quote-lifecycle", 3600),
-            ("email-retry", 900), ("lead-nurture", 86400),
-            ("qa-monitor", 900), ("growth-agent", 86400),
-        ]:
-            register_job(job_name, interval_sec=interval)
-        logging.getLogger("reytech").info("Scheduler initialized: backup + 8 job monitors")
-    except Exception as e:
-        logging.getLogger("reytech").warning("Scheduler init skipped: %s", e)
-
-    print("[BOOT] create_app() complete ✅", flush=True)
+    elapsed = time.time() - t0
+    print(f"[BOOT] create_app() complete ✅ ({elapsed:.1f}s)", flush=True)
     return app
 
 

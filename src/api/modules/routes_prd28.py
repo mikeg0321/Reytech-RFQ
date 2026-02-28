@@ -613,3 +613,131 @@ async function reconcileRevenue() {
 loadRevenue();
 </script>
 """
+
+
+@bp.route("/api/dashboard/init")
+@auth_required
+def api_dashboard_init():
+    """Combined endpoint — returns ALL home page widget data in one call.
+    Replaces 6 separate fetch() calls that each loaded the same JSON files."""
+    import time as _time
+    t0 = _time.time()
+    result = {"ok": True}
+
+    # ── 1. Actions (urgent / action_needed / progress) ──
+    try:
+        # Inline the lightweight parts of api_dashboard_actions
+        urgent = []
+        action_needed = []
+        progress_items = []
+
+        try:
+            from src.agents.email_lifecycle import get_outbox_summary
+            ob = get_outbox_summary()
+            if ob.get("permanently_failed", 0) > 0:
+                urgent.append({"icon": "🔴", "label": f"{ob['permanently_failed']} emails permanently failed", "link": "/outbox", "type": "failed_emails"})
+            if ob.get("drafts", 0) > 0:
+                action_needed.append({"icon": "📧", "label": f"{ob['drafts']} email drafts to review", "link": "/outbox", "type": "draft_emails", "count": ob['drafts']})
+        except Exception:
+            pass
+
+        try:
+            from src.agents.revenue_engine import get_goal_progress
+            goal = get_goal_progress()
+            if goal.get("ok"):
+                progress_items.append({"icon": "💰", "label": f"${goal['ytd_revenue']:,.0f} revenue YTD ({goal['pct_of_goal']}% of $2M goal)", "link": "/revenue", "type": "revenue", "value": goal["pct_of_goal"]})
+                progress_items.append({"icon": "📊", "label": f"${goal['weighted_pipeline']:,.0f} weighted pipeline", "link": "/revenue", "type": "pipeline"})
+        except Exception:
+            pass
+
+        try:
+            from src.agents.quote_lifecycle import get_pipeline_summary
+            ps = get_pipeline_summary()
+            if ps.get("ok"):
+                conv = ps.get("conversion_rate", 0)
+                progress_items.append({"icon": "📈", "label": f"{conv}% quote conversion rate", "link": "/pipeline", "type": "conversion"})
+        except Exception:
+            pass
+
+        try:
+            from src.core.db import get_db
+            with get_db() as conn:
+                vendor_count = conn.execute("SELECT COUNT(DISTINCT company) FROM contacts WHERE tags LIKE '%vendor%'").fetchone()[0]
+                scored = conn.execute("SELECT COUNT(DISTINCT company) FROM contacts WHERE tags LIKE '%vendor%' AND score > 0").fetchone()[0]
+                progress_items.append({"icon": "🏭", "label": f"{vendor_count} vendors tracked ({scored/max(vendor_count,1)*100:.0f}% scored)", "link": "/crm", "type": "vendors"})
+        except Exception:
+            pass
+
+        result["actions"] = {"ok": True, "urgent": urgent, "action_needed": action_needed, "progress": progress_items}
+    except Exception as e:
+        result["actions"] = {"ok": False, "error": str(e), "urgent": [], "action_needed": [], "progress": []}
+
+    # ── 2. Funnel stats ──
+    try:
+        from src.api.modules.routes_intel import api_funnel_stats
+        # Call the existing function logic but avoid HTTP overhead
+        all_pcs = _load_price_checks()
+        from src.api.dashboard import _is_user_facing_pc
+        user_pcs = {pid: pc for pid, pc in all_pcs.items() if _is_user_facing_pc(pc)}
+        rfqs = load_rfqs()
+        rfqs_nt = {k: v for k, v in rfqs.items() if not v.get("is_test")}
+
+        inbox = sum(1 for pc in user_pcs.values() if pc.get("status") in ("parsed","new","parse_error")) + \
+                sum(1 for r in rfqs_nt.values() if r.get("status") in ("new","pending","parsed"))
+        priced = sum(1 for pc in user_pcs.values() if pc.get("status") in ("priced","ready","auto_drafted")) + \
+                 sum(1 for r in rfqs_nt.values() if r.get("status") in ("priced","ready"))
+        quoted = sum(1 for pc in user_pcs.values() if pc.get("status") in ("quoted","generated")) + \
+                 sum(1 for r in rfqs_nt.values() if r.get("status") in ("generated","quoted"))
+        sent = sum(1 for pc in user_pcs.values() if pc.get("status") in ("sent","completed")) + \
+               sum(1 for r in rfqs_nt.values() if r.get("status") == "sent")
+
+        # Quick quote stats from DB
+        won_count = 0; won_value = 0; orders_count = 0; pipeline_val = 0
+        try:
+            from src.core.db import get_db
+            with get_db() as conn:
+                for row in conn.execute("SELECT status, COUNT(*) as c, COALESCE(SUM(total),0) as t FROM quotes WHERE is_test=0 GROUP BY status").fetchall():
+                    s = row["status"]
+                    if s == "won": won_count = row["c"]; won_value = row["t"]
+                    elif s in ("pending","sent","draft"): pipeline_val += row["t"]
+                orders_count = conn.execute("SELECT COUNT(*) FROM orders WHERE status NOT IN ('cancelled','test')").fetchone()[0]
+        except Exception:
+            pass
+
+        result["funnel"] = {
+            "ok": True, "inbox": inbox, "priced": priced, "quoted": quoted,
+            "sent": sent, "won": won_count, "won_value": won_value,
+            "orders": orders_count, "pipeline_value": pipeline_val,
+        }
+    except Exception as e:
+        result["funnel"] = {"ok": False, "error": str(e)}
+
+    # ── 3. Revenue ──
+    try:
+        from src.agents.revenue_engine import update_revenue_tracker
+        result["revenue"] = update_revenue_tracker()
+    except Exception as e:
+        result["revenue"] = {"ok": False, "error": str(e)}
+
+    # ── 4. QA workflow (lightweight) ──
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            row = conn.execute("SELECT * FROM workflow_runs ORDER BY id DESC LIMIT 1").fetchone()
+            result["qa"] = dict(row) if row else {"status": "none"}
+    except Exception:
+        result["qa"] = {"status": "none"}
+
+    # ── 5. Manager metrics (skip the heavy agent calls, use cached data) ──
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            total_quotes = conn.execute("SELECT COUNT(*) FROM quotes WHERE is_test=0").fetchone()[0]
+            total_revenue = conn.execute("SELECT COALESCE(SUM(total),0) FROM quotes WHERE is_test=0 AND status='won'").fetchone()[0]
+            pipeline = conn.execute("SELECT COALESCE(SUM(total),0) FROM quotes WHERE is_test=0 AND status IN ('pending','sent')").fetchone()[0]
+        result["metrics"] = {"ok": True, "total_quotes": total_quotes, "total_revenue": total_revenue, "pipeline": pipeline}
+    except Exception as e:
+        result["metrics"] = {"ok": False, "error": str(e)}
+
+    result["_ms"] = round((_time.time() - t0) * 1000)
+    return jsonify(result)

@@ -562,23 +562,26 @@ CREATE INDEX IF NOT EXISTS idx_sentdoc_pcid ON sent_documents(pc_id, version);
 """
 
 def init_db():
-    """Create all tables if they don't exist. Safe to call multiple times."""
+    """Create all tables if they don't exist. Safe to call multiple times.
+    NOTE: DAL migration (JSON→DB for leads/customers/vendors) is deferred
+    to background thread for faster startup. See app.py _deferred_init()."""
     print("[BOOT:DB] init_db: creating schema...", flush=True)
     with get_db() as conn:
         conn.executescript(SCHEMA)
     print("[BOOT:DB] init_db: migrating columns...", flush=True)
-    # Migrate existing tables that may be missing new columns
     _migrate_columns()
-    print("[BOOT:DB] init_db: DAL migration...", flush=True)
-    # Migrate JSON files → DB (leads, customers, vendors, outbox)
+    print("[BOOT:DB] init_db: complete", flush=True)
+    log.info("DB initialized at %s", DB_PATH)
+    return True
+
+
+def init_db_deferred():
+    """Run deferred DB init tasks (DAL migration). Called from background thread."""
     try:
         from src.core.dal import migrate_json_to_db
         migrate_json_to_db()
     except Exception as e:
-        log.warning("DAL migration deferred: %s", e)
-    print("[BOOT:DB] init_db: complete", flush=True)
-    log.info("DB initialized at %s", DB_PATH)
-    return True
+        log.warning("DAL migration: %s", e)
 
 
 def _migrate_columns():

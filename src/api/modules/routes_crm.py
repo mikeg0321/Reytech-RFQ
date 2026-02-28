@@ -731,12 +731,18 @@ def api_pricecheck_process():
 def api_pricecheck_download(filename):
     """Download a completed Price Check PDF."""
     safe = os.path.basename(filename)
-    # Search filesystem first
-    for search_root in [DATA_DIR, os.path.join(DATA_DIR, "output"), os.path.join(DATA_DIR, "outputs")]:
-        if os.path.isdir(search_root):
-            for root, dirs, files in os.walk(search_root):
-                if safe in files:
-                    return send_file(os.path.join(root, safe), as_attachment=True, download_name=safe)
+    # Fast targeted search — one level deep in output dirs
+    search_dirs = [DATA_DIR, os.path.join(DATA_DIR, "output"), os.path.join(DATA_DIR, "outputs")]
+    for d in [os.path.join(DATA_DIR, "output"), os.path.join(DATA_DIR, "outputs")]:
+        if os.path.isdir(d):
+            try:
+                search_dirs.extend(os.path.join(d, sub) for sub in os.listdir(d) if os.path.isdir(os.path.join(d, sub)))
+            except OSError:
+                pass
+    for d in search_dirs:
+        candidate = os.path.join(d, safe)
+        if os.path.exists(candidate):
+            return send_file(candidate, as_attachment=True, download_name=safe)
     # Fallback: check DB
     try:
         from src.core.db import get_db
@@ -758,20 +764,39 @@ def api_pricecheck_download(filename):
 @auth_required
 def api_pricecheck_view_pdf(filename):
     """Serve a PDF inline for the browser PDF viewer (iframes, tabs)."""
-    import mimetypes
     safe = os.path.basename(filename)
-    # Search: data dir, outputs subfolders, uploads subfolders
-    search_paths = [os.path.join(DATA_DIR, safe)]
-    for search_root in [os.path.join(DATA_DIR, "outputs"), os.path.join(DATA_DIR, "uploads"),
-                        os.path.join(DATA_DIR, "output"), DATA_DIR]:
-        if os.path.isdir(search_root):
-            for root, dirs, files in os.walk(search_root):
-                for f in files:
-                    if f == safe:
-                        search_paths.append(os.path.join(root, f))
-    for path in search_paths:
-        if os.path.exists(path):
-            return send_file(path, mimetype="application/pdf", download_name=safe)
+    
+    # Fast targeted search — check specific directories, no os.walk
+    search_dirs = [
+        DATA_DIR,
+        os.path.join(DATA_DIR, "output"),
+        os.path.join(DATA_DIR, "outputs"),
+    ]
+    # Add output subdirectories (one level deep only)
+    for d in [os.path.join(DATA_DIR, "output"), os.path.join(DATA_DIR, "outputs")]:
+        if os.path.isdir(d):
+            try:
+                search_dirs.extend(
+                    os.path.join(d, sub) for sub in os.listdir(d) 
+                    if os.path.isdir(os.path.join(d, sub))
+                )
+            except OSError:
+                pass
+    # Also check uploads subdirectories (one level)
+    uploads_dir = os.path.join(DATA_DIR, "uploads")
+    if os.path.isdir(uploads_dir):
+        try:
+            search_dirs.extend(
+                os.path.join(uploads_dir, sub) for sub in os.listdir(uploads_dir) 
+                if os.path.isdir(os.path.join(uploads_dir, sub))
+            )
+        except OSError:
+            pass
+    
+    for d in search_dirs:
+        candidate = os.path.join(d, safe)
+        if os.path.exists(candidate):
+            return send_file(candidate, mimetype="application/pdf", download_name=safe)
     
     # Fallback: check DB (rfq_files) — survives redeploys
     try:
@@ -781,7 +806,6 @@ def api_pricecheck_view_pdf(filename):
                 "SELECT data, filename FROM rfq_files WHERE filename=? ORDER BY id DESC LIMIT 1",
                 (safe,)).fetchone()
             if row and row["data"]:
-                # Restore to disk for future requests
                 restore_dir = os.path.join(DATA_DIR, "output", "_restored")
                 os.makedirs(restore_dir, exist_ok=True)
                 restore_path = os.path.join(restore_dir, safe)

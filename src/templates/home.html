@@ -47,9 +47,12 @@
  </div>
 </div>
 <script>
-(function(){
-  fetch('/api/dashboard/actions').then(r=>r.json()).then(d=>{
-    if(!d.ok)return;
+// ═══ COMBINED DASHBOARD INIT — single fetch replaces 6 individual calls ═══
+var _dashData = null;
+fetch('/api/dashboard/init').then(r=>r.json()).then(d=>{
+  _dashData = d;
+  // ── Actions widget ──
+  if(d.actions && d.actions.ok){
     function renderItems(items,el){
       if(!items||!items.length){el.innerHTML='<span style="color:var(--tx2)">✅ All clear</span>';return;}
       el.innerHTML=items.map(i=>
@@ -57,11 +60,19 @@
         +i.icon+' '+i.label+'</a>'
       ).join('');
     }
-    renderItems(d.urgent, document.getElementById('ad-urgent-items'));
-    renderItems(d.action_needed, document.getElementById('ad-action-items'));
-    renderItems(d.progress, document.getElementById('ad-progress-items'));
-  }).catch(()=>{});
-})();
+    renderItems(d.actions.urgent, document.getElementById('ad-urgent-items'));
+    renderItems(d.actions.action_needed, document.getElementById('ad-action-items'));
+    renderItems(d.actions.progress, document.getElementById('ad-progress-items'));
+  }
+  // ── Funnel ──
+  if(d.funnel && d.funnel.ok) _renderFunnel(d.funnel);
+  // ── Revenue ──
+  if(d.revenue && d.revenue.ok) _renderRevenue(d.revenue);
+  // ── QA ──
+  if(d.qa) _renderQA(d.qa);
+  // ── Manager metrics ──
+  if(d.metrics && d.metrics.ok) _renderMetrics(d.metrics);
+}).catch(()=>{});
 </script>
 
 <!-- ═══ Work Queues — Primary Bento Row ═══ -->
@@ -239,15 +250,14 @@
  </div>
 </div>
 <script>
-fetch('/api/funnel/stats').then(r=>r.json()).then(d=>{
- if(!d.ok) return;
+function _renderFunnel(d){
  const items = [
   {icon:'📥', val:d.inbox||0, label:'Inbox', href:'/#queues', color:'var(--ac)', fmt:'n', tip:'New PCs + RFQs awaiting pricing (704s from email)'},
   {icon:'💰', val:d.priced||0, label:'Priced', href:'/pricechecks', color:'var(--yl)', fmt:'n', tip:'Items priced, ready for formal quote generation'},
   {icon:'📄', val:d.quoted||0, label:'Quoted', href:'/quotes?status=pending', color:'#a78bfa', fmt:'n', tip:'Formal quotes created, not yet sent to customer'},
   {icon:'📤', val:d.sent||0, label:'Sent', href:'/quotes?status=sent', color:'var(--or)', fmt:'n', tip:'Quotes emailed to customer, awaiting PO response'},
   {icon:'✅', val:d.won||0, label:'Won', href:'/quotes?status=won', color:'var(--gn)', fmt:'n', tip:'Quotes accepted — customer issued a purchase order'},
-  {icon:'📦', val:d.orders_active||0, label:'Orders', href:'/orders', color:'var(--or)', fmt:'n', tip:'Active purchase orders being sourced and fulfilled'},
+  {icon:'📦', val:d.orders||0, label:'Orders', href:'/orders', color:'var(--or)', fmt:'n', tip:'Active purchase orders being sourced and fulfilled'},
   {icon:'💵', val:d.pipeline_value||0, label:'Pipeline $', href:'/pipeline', color:'var(--gn)', fmt:'$', tip:'Total dollar value of quoted + sent quotes'},
  ];
  const cols = items.map((it,i)=>{
@@ -262,7 +272,7 @@ fetch('/api/funnel/stats').then(r=>r.json()).then(d=>{
  document.getElementById('funnel-row').style.gridTemplateColumns='repeat(7,1fr)';
  document.getElementById('funnel-row').innerHTML = cols.join('');
  if(d.next_quote){const nb=document.getElementById('next-quote-badge');if(nb){nb.innerHTML='';var b=document.createElement('b');b.className='kpi-small';b.style.color='var(--ac)';b.textContent=d.next_quote;nb.appendChild(document.createTextNode('🎯 Next: '));nb.appendChild(b);if(d.win_rate){nb.innerHTML+=' · Win Rate: <b style="color:var(--gn)">'+d.win_rate+'%</b>';};}}
-}).catch(()=>{const nb=document.getElementById('next-quote-badge');if(nb)nb.textContent='';});
+}
 </script>
 
 <!-- Annual Revenue Goal -->
@@ -287,8 +297,7 @@ fetch('/api/funnel/stats').then(r=>r.json()).then(d=>{
  </div>
 </div>
 <script>
-fetch('/api/intel/revenue',{credentials:'same-origin'}).then(r=>r.json()).then(d=>{
- if(!d.ok) return;
+function _renderRevenue(d){
  const pct = Math.min(100, d.pct_to_goal||0);
  const color = pct>=50?'#3fb950':pct>=25?'#d29922':'#f85149';
  const bar = document.getElementById('rev-bar');
@@ -303,7 +312,7 @@ fetch('/api/intel/revenue',{credentials:'same-origin'}).then(r=>r.json()).then(d
  document.getElementById('rev-track').textContent = d.on_track?'On Track ✅':'Behind 🔴';
  document.getElementById('rev-track').style.color = d.on_track?'#3fb950':'#f85149';
  document.getElementById('rev-gap').style.color = d.gap_to_goal>0?'#f85149':'#3fb950';
-}).catch(()=>{});
+}
 </script>
 
 <!-- KPI Detail Panels -->
@@ -477,15 +486,13 @@ document.querySelectorAll('details').forEach(d=>{
 
 
 // ── QA Status Banner (surfaces failures to main dashboard) ──
-(function loadQABanner(){
-  fetch('/api/qa/workflow/latest',{credentials:'same-origin'}).then(function(r){return r.json();}).then(function(d){
+function _renderQA(d){
     var report=d&&d.full_report?d.full_report:d;
     if(!report||!report.summary)return;
     var failed=report.summary.failed||0;
     var warned=report.summary.warned||0;
     var score=report.score||0;
     var banner=document.getElementById('qa-banner');
-    // Update nav QA button
     var navBtn=document.getElementById('qa-nav-btn');
     var navScore=document.getElementById('qa-nav-score');
     if(navBtn&&navScore){
@@ -507,26 +514,18 @@ document.querySelectorAll('details').forEach(d=>{
       banner.style.background='rgba(251,191,36,.04)';
       document.getElementById('qa-banner-title').style.color='#fbbf24';
       document.getElementById('qa-banner-title').textContent=warned+' warning'+(warned>1?'s':'')+' — score '+score+'/100';
-      var anchor=banner.querySelector('a');if(anchor){anchor.style.color='#fbbf24';anchor.style.borderColor='rgba(251,191,36,.3)';anchor.style.background='rgba(251,191,36,.1)';}
     } else {
-      banner.style.display='none';
+      if(banner) banner.style.display='none';
     }
-  }).catch(function(){});
-})();
-fetch('/api/manager/metrics',{credentials:'same-origin'}).then(function(r){
- if(!r.ok) throw new Error('HTTP '+r.status);
- return r.json();
-}).then(function(data){
- if(!data.ok) return;
+}
+function _renderMetrics(data){
  document.getElementById('kpi-section').style.display='block';
- var rev=data.revenue||{};var q=data.quotes||{};var fn=data.funnel||{};
-
- // Big KPI cards
+ var rev={total: data.total_revenue||0, pipeline_value: data.pipeline||0};
+ var q={won:0, lost:0, pending:0, sent:0, win_rate:0};
+ // Big KPI cards (simplified — using combined data)
  var cards=[
-  {label:'Total Revenue',value:'$'+(rev.total||0).toLocaleString(undefined,{maximumFractionDigits:0}),color:'var(--gn)',sub:q.won+' quotes won'},
-  {label:'Win Rate',value:(q.win_rate||0)+'%',color:q.win_rate>=50?'var(--gn)':q.win_rate>0?'var(--yl)':'var(--tx2)',sub:(q.won+q.lost)+' decided'},
-  {label:'Pipeline Value',value:'$'+(rev.pipeline_value||0).toLocaleString(undefined,{maximumFractionDigits:0}),color:'var(--ac)',sub:(q.pending||0)+' quoted, '+(q.sent||0)+' sent'},
-  {label:'Avg Response',value:(data.response_time_hours||0)+'h',color:data.response_time_hours<24?'var(--gn)':data.response_time_hours<48?'var(--yl)':'var(--rd)',sub:'PC upload → priced'},
+  {label:'Total Revenue',value:'$'+(rev.total||0).toLocaleString(undefined,{maximumFractionDigits:0}),color:'var(--gn)',sub:data.total_quotes+' total quotes'},
+  {label:'Pipeline Value',value:'$'+(rev.pipeline_value||0).toLocaleString(undefined,{maximumFractionDigits:0}),color:'var(--ac)',sub:'Active quotes'},
  ];
  document.getElementById('kpi-cards').innerHTML=cards.map(function(c){
   return '<div class="card kpi-card"><div class="kpi-card-label">'+c.label+'</div>'
