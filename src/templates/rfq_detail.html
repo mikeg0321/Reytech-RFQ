@@ -37,18 +37,20 @@
   <div class="meta-i"><div class="meta-l">Delivery</div><div class="meta-v" style="font-size:11px">{{r.get('delivery_location','N/A')[:55]}}</div></div>
  </div>
  {% set lookup = r.get('auto_lookup_results', {}) %}
- {% if lookup %}
+ {% set items = r.get('line_items', []) %}
+ {% set _total = items|length %}
+ {% set _scprs = items|selectattr('scprs_last_price')|list|length %}
+ {% set _amazon = items|selectattr('amazon_price')|list|length %}
+ {% set _catalog = items|selectattr('catalog_match')|list|length %}
+ {% set ns = namespace(priced=0) %}{% for i in items %}{% if i.get('price_per_unit') or i.get('supplier_cost') or i.get('amazon_price') or i.get('scprs_last_price') %}{% set ns.priced = ns.priced + 1 %}{% endif %}{% endfor %}
+ {% if _total > 0 %}
  <div style="margin-top:12px;padding:10px 14px;border-radius:8px;background:rgba(79,140,255,.05);border:1px solid rgba(79,140,255,.15);font-size:12px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
-  <span style="font-weight:600;color:var(--tx2)">🔍 Auto-Lookup Results:</span>
-  <span style="color:{% if lookup.scprs_found %}#3fb950{% else %}#8b949e{% endif %}">SCPRS: {{ lookup.scprs_found or 0 }}/{{ lookup.total or 0 }}</span>
-  <span style="color:{% if lookup.amazon_found %}#f0883e{% else %}#8b949e{% endif %}">Amazon: {{ lookup.amazon_found or 0 }}/{{ lookup.total or 0 }}</span>
-  <span style="color:{% if lookup.catalog_found %}#a78bfa{% else %}#8b949e{% endif %}">Catalog: {{ lookup.catalog_found or 0 }}/{{ lookup.total or 0 }}</span>
-  <span style="color:{% if lookup.priced %}#3fb950{% else %}#f85149{% endif %};font-weight:600">{{ lookup.priced or 0 }}/{{ lookup.total or 0 }} priced</span>
+  <span style="font-weight:600;color:var(--tx2)">🔍 Pricing Status:</span>
+  <span style="color:{% if _scprs %}#3fb950{% else %}#8b949e{% endif %}">SCPRS: {{ _scprs }}/{{ _total }}</span>
+  <span style="color:{% if _amazon %}#f0883e{% else %}#8b949e{% endif %}">Amazon: {{ _amazon }}/{{ _total }}</span>
+  <span style="color:{% if _catalog %}#a78bfa{% else %}#8b949e{% endif %}">Catalog: {{ _catalog }}/{{ _total }}</span>
+  <span style="color:{% if ns.priced %}#3fb950{% else %}#f85149{% endif %};font-weight:600">{{ ns.priced }}/{{ _total }} priced</span>
   {% if lookup.ran_at %}<span style="color:#484f58;font-size:10px">{{ lookup.ran_at[:16].replace('T',' ') }}</span>{% endif %}
- </div>
- {% elif r.get('auto_priced_at') %}
- <div style="margin-top:12px;padding:10px 14px;border-radius:8px;background:rgba(79,140,255,.05);border:1px solid rgba(79,140,255,.15);font-size:12px;color:var(--tx2)">
-  🔍 Auto-lookup ran at {{ r.auto_priced_at[:16].replace('T',' ') }} — no prices found for any items
  </div>
  {% endif %}
 </div>
@@ -152,7 +154,7 @@
  <div class="bg">
   <button type="submit" class="btn btn-p" data-testid="rfq-save-pricing">💾 Save Pricing</button>
   <button type="button" class="btn" data-testid="rfq-preview-quote" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd)" onclick="showRfqPreview()">👁️ Preview Quote</button>
-  <button type="submit" formaction="/rfq/{{rid}}/generate-package" data-testid="rfq-generate-package" class="btn btn-g" style="font-size:14px;padding:10px 24px">{% if r.get('form_type') == 'generic_rfq' %}📄 Generate Reytech Quote{% else %}📦 Generate RFQ Package{% endif %}</button>
+  <button type="submit" formaction="/rfq/{{rid}}/generate-package" data-testid="rfq-generate-package" class="btn btn-g" style="font-size:14px;padding:10px 24px">📦 Generate RFP Package</button>
   <button type="button" class="btn" style="background:rgba(79,140,255,.15);color:var(--ac);border:1px solid rgba(79,140,255,.3)" onclick="sendQuoteEmail()">📧 Send Quote</button>
   <button type="button" class="btn" style="background:rgba(34,197,94,.12);color:#22c55e;border:1px solid rgba(34,197,94,.3)" onclick="generateOBS1600()" title="Generate CA Agricultural Food Product Certification (OBS 1600)">🌾 Food Cert</button>
   <button type="button" class="btn" style="background:rgba(168,85,247,.12);color:#a855f7;border:1px solid rgba(168,85,247,.3)" onclick="fillBidPackage()" title="Fill ALL forms in bid package (CUF, Darfur, DVBE, CalRecycle, OBS 1600, etc.)">📋 Fill All Forms</button>
@@ -257,7 +259,7 @@
  <div style="display:flex;flex-direction:column;gap:6px;margin-top:12px">
   {% for f in r.output_files %}
   <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px">
-   <span style="font-size:16px">{% if '703B' in f %}📝{% elif '704B' in f %}📊{% elif 'BidPackage' in f %}📋{% elif 'Quote' in f %}💰{% elif 'OBS' in f or '1600' in f %}🌾{% else %}📄{% endif %}</span>
+   <span style="font-size:16px">{% if 'Quote' in f %}💰{% elif 'Package' in f %}📦{% elif '703B' in f %}📝{% elif '704B' in f %}📊{% elif 'BidPackage' in f %}📋{% else %}📄{% endif %}</span>
    <span style="flex:1;font-size:13px;color:var(--tx)">{{f}}</span>
    <a href="#" onclick="previewPdf('/api/pricecheck/view-pdf/{{f}}','{{f}}');return false" class="btn btn-sm btn-s" style="font-size:11px;padding:4px 8px">👁️ View</a>
    <a href="/dl/{{rid}}/{{f}}" class="btn btn-sm btn-s" style="font-size:11px;padding:4px 8px">⬇️ Download</a>

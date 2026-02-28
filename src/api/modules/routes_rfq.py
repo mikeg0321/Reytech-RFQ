@@ -870,61 +870,108 @@ def generate_rfq_package(rid):
     else:
         t.step("Quote generator not available — skipped")
     
-    if not output_files:
+    if not output_files and not r.get("form_type") == "generic_rfq":
         t.fail("No files generated", errors=errors)
         flash(f"No files generated — {'; '.join(errors) if errors else 'No templates found'}", "error")
         return redirect(f"/rfq/{rid}")
     
-    # ── Step 3.5: For generic agencies (Cal Vet, etc.), include original RFQ attachments ──
-    # These agencies don't have 704B forms — we send our Reytech quote PLUS their
-    # original RFQ package docs back to them.
-    if r.get("form_type") == "generic_rfq":
-        import shutil as _sh2
-        # Include any rfq_package or unknown-type attachments from the original email
-        db_attachments = list_rfq_files(rid, category="attachment") + list_rfq_files(rid, category="template")
-        for db_f in db_attachments:
-            fname = db_f.get("filename", "")
-            # Skip if we already generated a file with this name
-            if fname in output_files:
-                continue
-            # Skip non-PDF
-            if not fname.lower().endswith(".pdf"):
-                continue
-            try:
-                full_f = get_rfq_file(db_f["id"])
-                if full_f and full_f.get("data"):
-                    att_path = os.path.join(out_dir, fname)
-                    with open(att_path, "wb") as _fw:
-                        _fw.write(full_f["data"])
-                    output_files.append(fname)
-                    t.step(f"Included original: {fname}")
-            except Exception as _ae:
-                t.warn(f"Could not include {fname}", error=str(_ae))
+    # ── Step 3.5: Collect ALL package PDFs (state forms + original RFQ attachments) ──
+    # These will be merged into one single package PDF
+    package_pdfs = []  # (filepath, label) — order matters
+    quote_file = None   # The Reytech quote stays separate
     
-    # ── Step 4: Store generated PDFs in DB (survive redeploys) ──
+    # Separate quote from package files
     for f in output_files:
-        fpath = f"{out_dir}/{f}"
+        fpath = os.path.join(out_dir, f)
+        if "Quote" in f and os.path.exists(fpath):
+            quote_file = f
+        elif os.path.exists(fpath):
+            package_pdfs.append((fpath, f))
+    
+    # Include original RFQ attachments from email (generic agencies: CalVet, CalFire, DGS, etc.)
+    db_attachments = list_rfq_files(rid, category="attachment") + list_rfq_files(rid, category="template")
+    for db_f in db_attachments:
+        fname = db_f.get("filename", "")
+        if not fname.lower().endswith(".pdf"):
+            continue
+        # Skip if already in package_pdfs
+        if any(fname == os.path.basename(p) for p, _ in package_pdfs):
+            continue
+        try:
+            full_f = get_rfq_file(db_f["id"])
+            if full_f and full_f.get("data"):
+                att_path = os.path.join(out_dir, fname)
+                with open(att_path, "wb") as _fw:
+                    _fw.write(full_f["data"])
+                package_pdfs.append((att_path, fname))
+                t.step(f"Included: {fname}")
+        except Exception as _ae:
+            t.warn(f"Could not include {fname}", error=str(_ae))
+    
+    # ── Step 4: Merge all package PDFs into ONE file ──
+    final_output_files = []
+    package_filename = f"RFQ_Package_{safe_sol}_ReytechInc.pdf"
+    
+    if package_pdfs:
+        try:
+            from pypdf import PdfReader, PdfWriter
+            writer = PdfWriter()
+            merge_count = 0
+            for pdf_path, label in package_pdfs:
+                try:
+                    reader = PdfReader(pdf_path)
+                    for page in reader.pages:
+                        writer.add_page(page)
+                    merge_count += 1
+                    t.step(f"Merged: {label} ({len(reader.pages)} pages)")
+                except Exception as _me:
+                    t.warn(f"Could not merge {label}", error=str(_me))
+            
+            if merge_count > 0:
+                merged_path = os.path.join(out_dir, package_filename)
+                with open(merged_path, "wb") as _mf:
+                    writer.write(_mf)
+                final_output_files.append(package_filename)
+                t.step(f"Package merged: {merge_count} PDFs → {package_filename}")
+            else:
+                t.warn("No PDFs could be merged")
+        except ImportError:
+            t.warn("pypdf not available — including individual files")
+            final_output_files.extend([os.path.basename(p) for p, _ in package_pdfs])
+        except Exception as _merge_err:
+            t.warn("Merge failed — including individual files", error=str(_merge_err))
+            final_output_files.extend([os.path.basename(p) for p, _ in package_pdfs])
+    
+    # Add the quote as a separate file
+    if quote_file:
+        final_output_files.insert(0, quote_file)
+    
+    if not final_output_files:
+        t.fail("No files generated", errors=errors)
+        flash(f"No files generated — {'; '.join(errors) if errors else 'No templates found'}", "error")
+        return redirect(f"/rfq/{rid}")
+    
+    # ── Step 5: Store final files in DB (survive redeploys) ──
+    for f in final_output_files:
+        fpath = os.path.join(out_dir, f)
         try:
             if os.path.exists(fpath):
                 with open(fpath, "rb") as _fb:
-                    ftype = "generated_quote" if "Quote" in f else \
-                            "generated_703b" if "703B" in f else \
-                            "generated_704b" if "704B" in f else \
-                            "generated_bidpkg" if "BidPackage" in f else "generated_other"
+                    ftype = "generated_quote" if "Quote" in f else "generated_package"
                     save_rfq_file(rid, f, ftype, _fb.read(), category="generated", uploaded_by="user")
                     t.step(f"DB stored: {f}")
         except Exception as _de:
             t.warn(f"DB store failed: {f}", error=str(_de))
     
-    # ── Step 5: Save, transition, create draft email ──
-    _transition_status(r, "generated", actor="user", notes=f"Package: {len(output_files)} files")
-    r["output_files"] = output_files
+    # ── Step 6: Save, transition, create draft email ──
+    _transition_status(r, "generated", actor="user", notes=f"Package: {len(final_output_files)} files")
+    r["output_files"] = final_output_files
     r["generated_at"] = datetime.now().isoformat()
     
-    # Draft email with ALL files attached
+    # Draft email with final files attached (quote + merged package)
     try:
         sender = EmailSender(CONFIG.get("email", {}))
-        all_paths = [f"{out_dir}/{f}" for f in output_files]
+        all_paths = [os.path.join(out_dir, f) for f in final_output_files]
         r["draft_email"] = sender.create_draft_email(r, all_paths)
         t.step("Draft email created", attachments=len(all_paths))
     except Exception as e:
@@ -940,19 +987,12 @@ def generate_rfq_package(rid):
     
     # Build success message
     parts = []
-    is_generic = r.get("form_type") == "generic_rfq"
-    for f in output_files:
-        if "703B" in f: parts.append("703B")
-        elif "704B" in f: parts.append("704B")
-        elif "BidPackage" in f: parts.append("Bid Package")
-        elif "Quote" in f: parts.append(f"Quote #{r.get('reytech_quote_number', '?')}")
+    for f in final_output_files:
+        if "Quote" in f: parts.append(f"Quote #{r.get('reytech_quote_number', '?')}")
+        elif "Package" in f: parts.append(f"RFQ Package ({len(package_pdfs)} docs merged)")
         else: parts.append(os.path.basename(f))
     
-    if is_generic:
-        agency = r.get('agency_name', 'Agency')
-        msg = f"✅ {agency} quote package ready: {', '.join(parts)}"
-    else:
-        msg = f"✅ RFQ Package generated: {', '.join(parts)}"
+    msg = f"✅ RFP Package ready: {', '.join(parts)}"
     if errors:
         msg += f" | ⚠️ {'; '.join(errors)}"
     
