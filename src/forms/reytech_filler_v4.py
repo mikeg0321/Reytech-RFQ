@@ -28,6 +28,8 @@ SIGNATURE_PATH = os.path.join(SCRIPT_DIR, "signature_transparent.png")
 SIGN_FIELDS = {
     # 703B
     "Signature1",          # 703B Bidder Signature + 704B Vendor Sig + CalRecycle 74
+    # Standalone forms
+    "Signature",           # CalRecycle 74 standalone + STD 1000 standalone
     # Bid Package
     "Signature_CUF",       # CUF (MC-345)
     "Signature_darfur",    # Darfur Option #1 ONLY
@@ -462,6 +464,151 @@ def fill_obs1600(input_path, rfq_data, config, output_path, food_items=None):
     
     actual_food = len([k for k in values if 'FOOD PROD' in k and values[k]])
     print(f"  ✓ OBS 1600 Food Certification filled ({sol}, {actual_food} food items)")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# STD 1000 — GenAI Reporting and Factsheet
+# ═══════════════════════════════════════════════════════════════════════
+
+def fill_std1000(input_path, rfq_data, config, output_path):
+    """Fill STD 1000 GenAI Reporting form with company info + line items."""
+    company = config["company"]
+    sol = rfq_data.get("solicitation_number", "")
+    sign_date = rfq_data.get("sign_date", get_pst_date())
+
+    # Build line items description for "Contract / Description of Purchase"
+    items = rfq_data.get("line_items", [])
+    desc_lines = []
+    for i, item in enumerate(items, 1):
+        pn = item.get("item_number", item.get("part_number", ""))
+        desc = item.get("description", "")
+        qty = item.get("qty", 1)
+        uom = item.get("uom", "EA")
+        # Format: "1. PartNum — Description (Qty x UOM)"
+        entry = f"{i}. {pn} — {desc}"
+        if len(entry) > 90:
+            entry = entry[:87] + "..."
+        entry += f"  (Qty: {qty} {uom})"
+        desc_lines.append(entry)
+    desc_text = "\n".join(desc_lines) if desc_lines else "N/A"
+
+    values = {
+        "Solicitation  Contract Number": sol,
+        "Number Bidder ID  Vendor ID optional": company["phone"],
+        "Business Name": company["name"],
+        "Business Telephone Number": company["phone"],
+        "Business Address": "30 Carnoustie Way",
+        "City": "Trabuco Canyon",
+        "State": "CA",
+        "Zip Code": "92679",
+        "Contract / Description of Purchase": desc_text,
+        # GenAI = No
+        "No If no skip to Signature section of this form": "/Yes",
+        "Date": sign_date,
+    }
+
+    fill_and_sign_pdf(input_path, values, output_path, sign_date=sign_date)
+    print(f"  ✓ STD 1000 GenAI filled ({sol}, {len(items)} items)")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# CalRecycle 74 — Standalone with overflow pages
+# ═══════════════════════════════════════════════════════════════════════
+
+def fill_calrecycle_standalone(input_path, rfq_data, config, output_path):
+    """Fill CalRecycle 74 form with line items. Adds overflow pages for >6 items."""
+    company = config["company"]
+    sol = rfq_data.get("solicitation_number", "")
+    sign_date = rfq_data.get("sign_date", get_pst_date())
+    items = rfq_data.get("line_items", [])
+
+    # Common company fields
+    base_values = {
+        "ContractorCompany Name": company["name"],
+        "Address": company["address"],
+        "Phone_2": company["phone"],
+        "Print Name": company["owner"],
+        "Title": company["title"],
+        "Date": sign_date,
+    }
+
+    # Fill first page (up to 6 items)
+    values = dict(base_values)
+    for idx, item in enumerate(items[:6], start=1):
+        pn = item.get("item_number", item.get("part_number", ""))
+        desc = item.get("description", "")
+        if len(desc) > 60:
+            desc = desc[:57] + "..."
+        values[f"Item Row{idx}"] = pn
+        values[f"Product or Services DescriptionRow{idx}"] = desc
+        values[f"1Percent Postconsumer Recycled Content MaterialRow{idx}"] = "0%"
+        values[f"2SABRC Product Category CodeRow{idx}"] = "N/A"
+
+    if not items:
+        values["Product or Services DescriptionRow1"] = "All Items"
+        values["1Percent Postconsumer Recycled Content MaterialRow1"] = "0%"
+        values["2SABRC Product Category CodeRow1"] = "N/A"
+
+    fill_and_sign_pdf(input_path, values, output_path, sign_date=sign_date)
+
+    # Overflow: if >6 items, append additional CalRecycle pages
+    if len(items) > 6:
+        remaining = items[6:]
+        # Use blank CalRecycle template for overflow
+        tmpl_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "data", "templates")
+        blank_cr = os.path.join(tmpl_dir, "calrecycle_74_blank.pdf")
+        if not os.path.exists(blank_cr):
+            print(f"  ⚠ CalRecycle overflow: blank template not found at {blank_cr}")
+            return
+
+        # Process in batches of 6
+        overflow_pages = []
+        for batch_start in range(0, len(remaining), 6):
+            batch = remaining[batch_start:batch_start + 6]
+            ov_values = dict(base_values)
+            for idx, item in enumerate(batch, start=1):
+                pn = item.get("item_number", item.get("part_number", ""))
+                desc = item.get("description", "")
+                if len(desc) > 60:
+                    desc = desc[:57] + "..."
+                ov_values[f"Item Row{idx}"] = pn
+                ov_values[f"Product or Services DescriptionRow{idx}"] = desc
+                ov_values[f"1Percent Postconsumer Recycled Content MaterialRow{idx}"] = "0%"
+                ov_values[f"2SABRC Product Category CodeRow{idx}"] = "N/A"
+
+            ov_path = output_path.replace(".pdf", f"_overflow_{batch_start}.pdf")
+            fill_and_sign_pdf(blank_cr, ov_values, ov_path, sign_date=sign_date)
+            overflow_pages.append(ov_path)
+
+        # Merge: original + overflow pages (page 0 only from each overflow, skip ref table)
+        from pypdf import PdfReader as _PR, PdfWriter as _PW
+        writer = _PW()
+        main_reader = _PR(output_path)
+        # Add page 0 (filled CalRecycle) from main
+        writer.add_page(main_reader.pages[0])
+
+        # Add page 0 from each overflow (skip page 1 = reference table)
+        for ov_path in overflow_pages:
+            ov_reader = _PR(ov_path)
+            writer.add_page(ov_reader.pages[0])
+
+        # Add reference table (page 1) from main at the end
+        if len(main_reader.pages) > 1:
+            writer.add_page(main_reader.pages[1])
+
+        with open(output_path, "wb") as f:
+            writer.write(f)
+
+        # Cleanup temp files
+        for ov_path in overflow_pages:
+            try:
+                os.remove(ov_path)
+            except Exception:
+                pass
+
+        print(f"  ✓ CalRecycle 74 filled ({sol}, {len(items)} items, {len(overflow_pages)} overflow pages)")
+    else:
+        print(f"  ✓ CalRecycle 74 filled ({sol}, {len(items)} items)")
 
 
 def fill_bid_package(input_path, rfq_data, config, output_path):

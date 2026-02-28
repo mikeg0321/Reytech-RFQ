@@ -836,6 +836,30 @@ def generate_rfq_package(rid):
                 t.warn("Bid Package fill failed", error=str(e))
         else:
             t.step("Bid Package skipped — no template")
+        
+        # ── STD 1000 GenAI Reporting ──
+        try:
+            from src.forms.reytech_filler_v4 import fill_std1000
+            std1000_tmpl = os.path.join(DATA_DIR, "templates", "std1000_blank.pdf")
+            if os.path.exists(std1000_tmpl):
+                fill_std1000(std1000_tmpl, r, CONFIG, f"{out_dir}/{sol}_STD1000_Reytech.pdf")
+                output_files.append(f"{sol}_STD1000_Reytech.pdf")
+                t.step("STD 1000 GenAI filled")
+        except Exception as e:
+            errors.append(f"STD 1000: {e}")
+            t.warn("STD 1000 fill failed", error=str(e))
+        
+        # ── CalRecycle 74 standalone (overflow pages for >6 items) ──
+        try:
+            from src.forms.reytech_filler_v4 import fill_calrecycle_standalone
+            cr_tmpl = os.path.join(DATA_DIR, "templates", "calrecycle_74_blank.pdf")
+            if os.path.exists(cr_tmpl) and len(r.get("line_items", [])) > 6:
+                fill_calrecycle_standalone(cr_tmpl, r, CONFIG, f"{out_dir}/{sol}_CalRecycle74_Reytech.pdf")
+                output_files.append(f"{sol}_CalRecycle74_Reytech.pdf")
+                t.step(f"CalRecycle 74 overflow: {len(r['line_items'])} items")
+        except Exception as e:
+            errors.append(f"CalRecycle 74: {e}")
+            t.warn("CalRecycle 74 fill failed", error=str(e))
     except Exception as e:
         errors.append(f"State forms: {e}")
         t.warn("State forms exception", error=str(e))
