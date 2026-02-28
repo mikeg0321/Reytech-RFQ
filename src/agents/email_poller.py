@@ -2072,6 +2072,11 @@ class EmailPoller:
                             inner_body = self._get_body(inner_msg)
                             if inner_body:
                                 bodies.append(inner_body)
+                    elif hasattr(inner, 'walk'):
+                        # Single Message object (not wrapped in list)
+                        inner_body = self._get_body(inner)
+                        if inner_body:
+                            bodies.append(inner_body)
         else:
             payload = msg.get_payload(decode=True)
             if payload:

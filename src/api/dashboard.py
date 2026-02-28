@@ -1573,6 +1573,7 @@ def process_rfq_email(rfq_email):
             "parse_note": (f"{_gen_agency_name} — {len(_gen_items)} items parsed from PDFs"
                            if _gen_items
                            else f"{_gen_agency_name} — No 704B, PDF text parse found 0 items — manual entry needed"),
+            "body_text": rfq_email.get("body_text", rfq_email.get("body_preview", ""))[:3000],
         }
         
         # ── Supplement contact info from email body/signature ──────────

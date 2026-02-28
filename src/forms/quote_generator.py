@@ -1323,12 +1323,41 @@ def generate_quote_from_rfq(rfq: dict, output_path: str, **kwargs) -> dict:
     delivery = rfq.get("delivery_location", "") or ""
     ship_to_raw = rfq.get("ship_to", "") or ""
     ship_to_name_raw = rfq.get("ship_to_name", "") or ""
+    institution_name = rfq.get("institution_name", "") or ""
 
     # ── Facility lookup: try all available address sources ──
     facility = (_lookup_facility(delivery) or 
                 _lookup_facility(ship_to_raw) or 
                 _lookup_facility(ship_to_name_raw) or
+                _lookup_facility(institution_name) or
                 _lookup_facility(institution))
+
+    # Fallback: scan email body/subject for city names that map to facilities
+    if not facility:
+        _body = rfq.get("body_text", "")
+        _subj = rfq.get("email_subject", "")
+        _scan_text = f"{_body} {_subj} {delivery} {institution_name}".upper()
+        # Check for known facility city names
+        _CITY_MAP = {
+            "REDDING": "CALVETHOME-RD", "YOUNTVILLE": "CALVETHOME-YV",
+            "BARSTOW": "CALVETHOME-BF", "CHULA VISTA": "CALVETHOME-CV",
+            "FRESNO": "CALVETHOME-FR", "WEST LOS ANGELES": "CALVETHOME-LA",
+            "VENTURA": "CALVETHOME-VM",
+            "CHINO": "CIM", "CORONA": "CIW", "CORCORAN": "CSP-COR",
+            "LANCASTER": "CSP-LAC", "VACAVILLE": "CSP-SOL",
+            "STOCKTON": "CHCF", "COALINGA": "PVSP", "DELANO": "KVSP",
+            "IONE": "MCSP", "WASCO": "WSP", "CHOWCHILLA": "CCWF",
+            "SOLEDAD": "CTF", "CRESCENT CITY": "PBSP", "NORCO": "CRC",
+            "TEHACHAPI": "CCI", "AVENAL": "ASP", "SUSANVILLE": "HDSP",
+            "BLYTHE": "ISP", "SAN QUENTIN": "SQ", "CALIPATRIA": "CAL",
+            "JAMESTOWN": "SCC", "SAN LUIS OBISPO": "CMC",
+        }
+        for city, fac_key in _CITY_MAP.items():
+            if city in _scan_text:
+                facility = FACILITY_DB.get(fac_key)
+                if facility:
+                    log.info("Facility matched from email text: %s → %s", city, facility["name"])
+                    break
 
     if facility:
         # Use canonical facility data

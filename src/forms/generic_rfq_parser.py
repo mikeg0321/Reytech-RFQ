@@ -578,11 +578,16 @@ def _parse_price(s):
 
 def _clean_description(text):
     """Clean up a description string."""
+    # Remove unicode replacement characters and other garbage
+    text = text.replace('\ufffd', '').replace('■', '').replace('□', '').replace('●', '')
+    text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', text)  # Control chars
     # Remove price, qty, uom from description
     text = re.sub(r'\$[\d,.]+', '', text)
     text = re.sub(r'\b(?:qty|quantity)\s*:?\s*\d+', '', text, flags=re.IGNORECASE)
     text = re.sub(r'\b\d+\s*(?:EA|EACH|BX|BOX|PK|CS)\b', '', text, flags=re.IGNORECASE)
     text = re.sub(r'\s+', ' ', text).strip()
+    # Clean leading/trailing hyphens and slashes
+    text = text.strip(' -/')
     return text
 
 
@@ -827,6 +832,16 @@ def parse_generic_rfq(pdf_paths, subject="", sender_email="", body=""):
         item.setdefault("scprs_last_price", None)
         item.setdefault("source_type", "general")
         item.setdefault("price_per_unit", item.get("unit_price", 0))
+        
+        # Clean unicode garbage from descriptions (■, □, replacement chars)
+        _desc = item.get("description", "")
+        if _desc:
+            _desc = _desc.replace('\ufffd', '').replace('■', '').replace('□', '')
+            _desc = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', _desc)
+            _desc = re.sub(r'\s+', ' ', _desc).strip()
+            # Fix patterns like "-/Model" → "Model" or "- /Model" → "Model"
+            _desc = re.sub(r'\s*-\s*/\s*', ' ', _desc)
+            item["description"] = _desc
         
         # Auto-generate Amazon URL from ASIN or B0-prefixed item_number
         _pn = item.get("item_number", "")
