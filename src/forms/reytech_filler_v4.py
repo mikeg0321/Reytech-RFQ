@@ -625,7 +625,7 @@ def _overlay_cuf_page0(pdf_path, statement_text, page_index=0):
 
     # ── Written Statement (word-wrapped) ──
     x_start = 28
-    y_top = 308
+    y_top = 295
     max_width = 555
     font_name = "Helvetica"
     font_size = 10
