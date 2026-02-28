@@ -12,6 +12,136 @@ from src.core.paths import DATA_DIR, UPLOAD_DIR, OUTPUT_DIR
 from src.core.db import get_db
 from src.api.render import render_page
 
+
+# ═══════════════════════════════════════════════════════════════════════
+# Pricing Intelligence — catalog + price history integration
+# ═══════════════════════════════════════════════════════════════════════
+
+def _enrich_items_with_intel(items, rfq_number="", agency=""):
+    """Enrich line items with catalog matches and price history.
+    Called on RFQ detail load to surface pricing intelligence."""
+    for item in items:
+        desc = item.get("description", "")
+        pn = item.get("item_number", "") or ""
+        if not desc and not pn:
+            continue
+
+        # 1. Catalog match
+        if not item.get("catalog_match"):
+            try:
+                from src.core.catalog import search_catalog
+                matches = search_catalog(pn or desc[:40], limit=1)
+                if matches:
+                    m = matches[0]
+                    item["catalog_match"] = {
+                        "sku": m.get("sku", ""),
+                        "name": m.get("name", ""),
+                        "typical_cost": m.get("typical_cost", 0),
+                        "list_price": m.get("list_price", 0),
+                        "category": m.get("category", ""),
+                    }
+            except Exception:
+                pass
+
+        # 2. Price history (last 5 observations)
+        if not item.get("price_intel"):
+            try:
+                from src.core.db import get_price_history_db
+                history = get_price_history_db(
+                    description=desc[:60] if not pn else "",
+                    part_number=pn,
+                    limit=5
+                )
+                if history:
+                    prices = [h["unit_price"] for h in history if h.get("unit_price")]
+                    item["price_intel"] = {
+                        "history_count": len(history),
+                        "avg_price": round(sum(prices) / len(prices), 2) if prices else 0,
+                        "min_price": round(min(prices), 2) if prices else 0,
+                        "max_price": round(max(prices), 2) if prices else 0,
+                        "last_price": prices[0] if prices else 0,
+                        "last_source": history[0].get("source", "") if history else "",
+                        "last_date": history[0].get("found_at", "")[:10] if history else "",
+                        "last_quote": history[0].get("quote_number", "") if history else "",
+                    }
+            except Exception:
+                pass
+
+
+def _record_rfq_prices(rfq_data, source="rfq_save"):
+    """Record all priced items to price_history + auto-ingest to catalog."""
+    sol = rfq_data.get("solicitation_number", "")
+    agency = rfq_data.get("agency", "")
+    for item in rfq_data.get("line_items", []):
+        desc = item.get("description", "")
+        pn = item.get("item_number", "") or ""
+        if not desc:
+            continue
+
+        # Record supplier cost
+        cost = item.get("supplier_cost") or 0
+        if cost and cost > 0:
+            try:
+                from src.core.db import record_price
+                record_price(
+                    description=desc, unit_price=cost, source=source,
+                    part_number=pn, agency=agency, quote_number=sol,
+                    source_url=item.get("item_link", ""),
+                    notes=f"Supplier cost from RFQ {sol}"
+                )
+            except Exception:
+                pass
+
+        # Record bid price
+        bid = item.get("price_per_unit") or 0
+        if bid and bid > 0:
+            try:
+                from src.core.db import record_price
+                record_price(
+                    description=desc, unit_price=bid, source=f"{source}_bid",
+                    part_number=pn, agency=agency, quote_number=sol,
+                    notes=f"Bid price from RFQ {sol}"
+                )
+            except Exception:
+                pass
+
+        # Record SCPRS price
+        scprs = item.get("scprs_last_price") or 0
+        if scprs and scprs > 0:
+            try:
+                from src.core.db import record_price
+                record_price(
+                    description=desc, unit_price=scprs, source="scprs",
+                    part_number=pn, agency=agency, quote_number=sol,
+                )
+            except Exception:
+                pass
+
+        # Record Amazon price
+        amz = item.get("amazon_price") or 0
+        if amz and amz > 0:
+            try:
+                from src.core.db import record_price
+                record_price(
+                    description=desc, unit_price=amz, source="amazon",
+                    part_number=pn, source_url=item.get("item_link", ""),
+                )
+            except Exception:
+                pass
+
+        # Auto-ingest to catalog if not already there
+        if cost > 0 or bid > 0:
+            try:
+                from src.core.catalog import auto_ingest_item
+                auto_ingest_item(
+                    description=desc,
+                    unit_price=bid or cost,
+                    manufacturer=item.get("manufacturer", ""),
+                    source=f"rfq_{sol}"
+                )
+            except Exception:
+                pass
+
 @bp.route("/health")
 def health_check():
     """Health check endpoint for Railway/load balancers. No auth required."""
@@ -507,6 +637,16 @@ def detail(rid):
             rfqs[rid] = r
             save_rfqs(rfqs)
     
+    # ── Enrich items with pricing intelligence ──
+    try:
+        _enrich_items_with_intel(
+            r.get("line_items", []),
+            rfq_number=r.get("solicitation_number", ""),
+            agency=r.get("agency", "")
+        )
+    except Exception as _e:
+        log.debug("Price intel enrichment: %s", _e)
+
     return render_page("rfq_detail.html", active_page="Home", r=r, rid=rid)
 
 
@@ -556,6 +696,12 @@ def update(rid):
     
     # Save SCPRS prices for future lookups
     save_prices_from_rfq(r)
+    
+    # Record ALL prices to history + auto-ingest to catalog
+    try:
+        _record_rfq_prices(r, source="rfq_save")
+    except Exception as _e:
+        log.debug("Price recording: %s", _e)
     
     _log_rfq_activity(rid, "pricing_saved",
         f"Pricing updated for #{r.get('solicitation_number','?')} ({len(r.get('line_items',[]))} items)",
@@ -2286,6 +2432,66 @@ def api_fill_forms_standalone():
         import traceback
         t.fail(str(e))
         return jsonify({"ok": False, "error": str(e), "trace": traceback.format_exc()}), 500
+
+
+@bp.route("/api/rfq/<rid>/price-intel")
+@auth_required
+def api_rfq_price_intel(rid):
+    """Return pricing intelligence for all items in an RFQ."""
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False}), 404
+
+    intel = []
+    for item in r.get("line_items", []):
+        desc = item.get("description", "")
+        pn = item.get("item_number", "") or ""
+        result = {"description": desc[:60], "part_number": pn}
+
+        # Price history
+        try:
+            from src.core.db import get_price_history_db
+            history = get_price_history_db(
+                description=desc[:60] if not pn else "",
+                part_number=pn, limit=10
+            )
+            if history:
+                prices = [h["unit_price"] for h in history if h.get("unit_price")]
+                result["history"] = {
+                    "count": len(history),
+                    "avg": round(sum(prices) / len(prices), 2) if prices else 0,
+                    "min": round(min(prices), 2) if prices else 0,
+                    "max": round(max(prices), 2) if prices else 0,
+                    "entries": [{
+                        "price": h["unit_price"],
+                        "source": h.get("source", ""),
+                        "date": h.get("found_at", "")[:10],
+                        "quote": h.get("quote_number", ""),
+                        "agency": h.get("agency", ""),
+                    } for h in history[:5]]
+                }
+        except Exception:
+            pass
+
+        # Catalog match
+        try:
+            from src.core.catalog import search_catalog
+            matches = search_catalog(pn or desc[:40], limit=1)
+            if matches:
+                m = matches[0]
+                result["catalog"] = {
+                    "sku": m.get("sku", ""),
+                    "typical_cost": m.get("typical_cost", 0),
+                    "list_price": m.get("list_price", 0),
+                    "category": m.get("category", ""),
+                }
+        except Exception:
+            pass
+
+        intel.append(result)
+
+    return jsonify({"ok": True, "intel": intel})
 
 
 @bp.route("/form-filler")

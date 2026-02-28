@@ -95,7 +95,7 @@
   <thead><tr>
    <th>#</th><th style="width:55px">Qty</th><th style="width:55px">UOM</th><th>Description</th><th>Part #</th>
    <th style="min-width:220px">Item Link</th>
-   <th>Your Cost</th><th>SCPRS</th><th>Amazon</th><th>Bid Price</th><th>Subtotal</th><th>Margin</th><th>Profit</th><th style="width:30px"></th>
+   <th>Your Cost</th><th style="width:30px" title="Price Intelligence">📊</th><th>SCPRS</th><th>Amazon</th><th>Bid Price</th><th>Subtotal</th><th>Margin</th><th>Profit</th><th style="width:30px"></th>
   </tr></thead>
   <tbody>
   {% for i in r.line_items %}
@@ -114,6 +114,15 @@
     </div>
    </td>
    <td><input type="number" step="0.01" name="cost_{{loop.index0}}" value="{{i.supplier_cost or ''}}" placeholder="0.00" class="num-in" style="width:90px;font-size:15px;font-weight:700;padding:6px 8px" oninput="recalc()"></td>
+   <td id="intel_{{loop.index0}}" style="font-size:11px;text-align:center;cursor:pointer" title="Click for price history" onclick="showIntel({{loop.index0}})">
+    {% if i.get('price_intel') and i.price_intel.get('history_count', 0) > 0 %}
+     <span style="color:#58a6ff">📊{{i.price_intel.history_count}}</span>
+    {% elif i.get('catalog_match') %}
+     <span style="color:#3fb950">📦</span>
+    {% else %}
+     <span style="color:#484f58">—</span>
+    {% endif %}
+   </td>
    <td style="font-size:14px;font-weight:600">
     {% if i.scprs_last_price %}${{'{:.2f}'.format(i.scprs_last_price)}}{% else %}—{% endif %}
     {% if i.scprs_source %}<span class="scprs-tag scprs-{{'hi' if i.scprs_confidence=='high' else 'med'}}" title="{{i.scprs_vendor|default('')}}">{{i.scprs_source|replace('_',' ')}}</span>{% endif %}
@@ -1189,6 +1198,69 @@ function insertSigImage(){
   document.getElementById('rfq-activity').innerHTML='<div style="color:var(--tx2)">Could not load activity</div>';
  });
 })();
+// ── Price Intelligence ──
+var _intelData=null;
+function loadIntel(){
+ fetch('/api/rfq/'+RID+'/price-intel',{credentials:'same-origin'}).then(r=>r.json()).then(d=>{
+  if(!d.ok)return;
+  _intelData=d.intel;
+  // Update indicators
+  d.intel.forEach(function(info,i){
+   var el=document.getElementById('intel_'+i);
+   if(!el)return;
+   if(info.history&&info.history.count>0){
+    el.innerHTML='<span style="color:#58a6ff" title="'+info.history.count+' price records, avg $'+info.history.avg+'">📊'+info.history.count+'</span>';
+   }else if(info.catalog){
+    el.innerHTML='<span style="color:#3fb950" title="In catalog: '+info.catalog.sku+'">📦</span>';
+   }
+  });
+ }).catch(function(){});
+}
+setTimeout(loadIntel,500);
+
+function showIntel(idx){
+ var existing=document.getElementById('intel-popup');
+ if(existing)existing.remove();
+ if(!_intelData||!_intelData[idx])return;
+ var info=_intelData[idx];
+ var html='<div id="intel-popup" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#161b22;border:1px solid #30363d;border-radius:10px;padding:20px;z-index:10000;min-width:380px;max-width:500px;box-shadow:0 8px 32px rgba(0,0,0,.6)">';
+ html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><span style="font-size:15px;font-weight:700;color:#f0f6fc">📊 Price Intelligence</span><button onclick="this.closest(\'#intel-popup\').remove()" style="background:none;border:none;color:#8b949e;font-size:18px;cursor:pointer">✕</button></div>';
+ html+='<div style="font-size:12px;color:#8b949e;margin-bottom:10px">'+info.description+'</div>';
+ if(info.catalog){
+  html+='<div style="padding:8px 10px;background:rgba(63,185,80,.08);border:1px solid rgba(63,185,80,.2);border-radius:6px;margin-bottom:10px;font-size:12px">';
+  html+='📦 <b>Catalog:</b> '+info.catalog.sku+' · '+info.catalog.category;
+  if(info.catalog.typical_cost) html+=' · Cost: $'+info.catalog.typical_cost.toFixed(2);
+  if(info.catalog.list_price) html+=' · List: $'+info.catalog.list_price.toFixed(2);
+  html+='</div>';
+ }
+ if(info.history&&info.history.count>0){
+  var h=info.history;
+  html+='<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px">';
+  html+='<div style="text-align:center;padding:6px;background:#21262d;border-radius:6px"><div style="font-size:10px;color:#8b949e">Avg</div><div style="font-size:15px;font-weight:700;color:#f0f6fc">$'+h.avg.toFixed(2)+'</div></div>';
+  html+='<div style="text-align:center;padding:6px;background:#21262d;border-radius:6px"><div style="font-size:10px;color:#8b949e">Min</div><div style="font-size:15px;font-weight:700;color:#3fb950">$'+h.min.toFixed(2)+'</div></div>';
+  html+='<div style="text-align:center;padding:6px;background:#21262d;border-radius:6px"><div style="font-size:10px;color:#8b949e">Max</div><div style="font-size:15px;font-weight:700;color:#f85149">$'+h.max.toFixed(2)+'</div></div>';
+  html+='<div style="text-align:center;padding:6px;background:#21262d;border-radius:6px"><div style="font-size:10px;color:#8b949e">Records</div><div style="font-size:15px;font-weight:700;color:#58a6ff">'+h.count+'</div></div>';
+  html+='</div>';
+  if(h.entries&&h.entries.length){
+   html+='<div style="font-size:11px;font-weight:600;color:#8b949e;margin-bottom:4px">Recent Prices</div>';
+   html+='<table style="width:100%;font-size:12px;border-collapse:collapse">';
+   html+='<tr style="color:#8b949e"><td style="padding:3px 6px">Price</td><td>Source</td><td>Date</td><td>Quote/Agency</td></tr>';
+   h.entries.forEach(function(e){
+    html+='<tr style="border-top:1px solid #21262d">';
+    html+='<td style="padding:3px 6px;font-weight:700;color:#f0f6fc">$'+e.price.toFixed(2)+'</td>';
+    html+='<td style="color:#58a6ff">'+e.source+'</td>';
+    html+='<td style="color:#8b949e">'+e.date+'</td>';
+    html+='<td style="color:#8b949e">'+(e.quote||e.agency||'—')+'</td>';
+    html+='</tr>';
+   });
+   html+='</table>';
+  }
+ }else{
+  html+='<div style="text-align:center;padding:16px;color:#484f58;font-size:13px">No price history yet. Prices will be recorded as you quote this item.</div>';
+ }
+ html+='</div><div id="intel-backdrop" onclick="document.getElementById(\'intel-popup\').remove();this.remove()" style="position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:rgba(0,0,0,.4)"></div>';
+ document.body.insertAdjacentHTML('beforeend',html);
+}
 </script>
 
 {% endblock %}

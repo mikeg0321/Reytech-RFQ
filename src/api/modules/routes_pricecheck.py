@@ -1951,6 +1951,21 @@ def api_scprs(rid):
                     except Exception as e:
                         log.debug("Suppressed: %s", e)
                         pass  # Never let KB ingestion break the lookup flow
+                # Record to price_history
+                if result.get("price"):
+                    try:
+                        from src.core.db import record_price as _rp_scprs
+                        _rp_scprs(
+                            description=desc or "",
+                            unit_price=result["price"],
+                            source="scprs_live",
+                            part_number=item_num or "",
+                            source_id=result.get("po_number", ""),
+                            agency=result.get("department", ""),
+                            notes=f"SCPRS vendor: {result.get('vendor', '')}"
+                        )
+                    except Exception:
+                        pass
             else:
                 results.append({
                     "price": None,
