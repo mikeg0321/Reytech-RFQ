@@ -2099,6 +2099,18 @@ def api_poll_reset_processed():
     except Exception as _e:
         log.debug("Suppressed: %s", _e)
     
+    # Step 1b: Clear SQLite processed_emails + fingerprints (prevents recovery)
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            conn.execute("DELETE FROM processed_emails")
+            try:
+                conn.execute("DELETE FROM email_fingerprints")
+            except Exception:
+                pass
+    except Exception:
+        pass
+    
     # Step 2: Kill the shared poller so a fresh one gets created
     _shared_poller = None
     
