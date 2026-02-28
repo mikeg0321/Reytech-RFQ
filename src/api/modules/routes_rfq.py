@@ -565,6 +565,51 @@ def update(rid):
     return redirect(f"/rfq/{rid}")
 
 
+@bp.route("/api/rfq/<rid>/autosave", methods=["POST"])
+@auth_required
+def api_rfq_autosave(rid):
+    """AJAX auto-save: persist line item edits without page reload."""
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "not found"}), 404
+
+    data = request.get_json(silent=True) or {}
+    items_data = data.get("items", [])
+
+    for update in items_data:
+        idx = update.get("idx")
+        if idx is None or idx >= len(r["line_items"]):
+            continue
+        item = r["line_items"][idx]
+        if "supplier_cost" in update and update["supplier_cost"] is not None:
+            try: item["supplier_cost"] = float(update["supplier_cost"])
+            except Exception: pass
+        if "price_per_unit" in update and update["price_per_unit"] is not None:
+            try: item["price_per_unit"] = float(update["price_per_unit"])
+            except Exception: pass
+        if "qty" in update and update["qty"] is not None:
+            try: item["qty"] = int(float(update["qty"]))
+            except Exception: pass
+        if "uom" in update:
+            item["uom"] = str(update["uom"]).strip().upper()
+        if "description" in update:
+            item["description"] = str(update["description"])
+        if "item_number" in update:
+            item["item_number"] = str(update["item_number"]).strip()
+        if "item_link" in update:
+            item["item_link"] = str(update["item_link"]).strip()
+            if item["item_link"]:
+                try:
+                    from src.agents.item_link_lookup import detect_supplier
+                    item["item_supplier"] = detect_supplier(item["item_link"])
+                except Exception:
+                    pass
+
+    save_rfqs(rfqs)
+    return jsonify({"ok": True, "saved": len(items_data)})
+
+
 @bp.route("/rfq/<rid>/add-item", methods=["POST"])
 @auth_required
 def rfq_add_item(rid):
