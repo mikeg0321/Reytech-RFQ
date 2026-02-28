@@ -109,8 +109,27 @@ def create_app():
             print("[BOOT] Schema created", flush=True)
             result = {"ok": True, "db_path": DB_PATH, "stats": {"quotes": 0, "contacts": 0, "price_history": 0}, "is_volume": _is_railway_volume()}
         else:
-            from src.core.db import startup as db_startup
-            result = db_startup()
+            # Run startup with a hard timeout to prevent infinite hang
+            import signal
+            def _timeout_handler(signum, frame):
+                raise TimeoutError("DB startup took >45s — skipping heavy init")
+            old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
+            signal.alarm(45)
+            try:
+                from src.core.db import startup as db_startup
+                print("[BOOT] Calling db_startup()...", flush=True)
+                result = db_startup()
+            except TimeoutError as te:
+                print(f"[BOOT] DB TIMEOUT: {te}", flush=True)
+                logging.getLogger("reytech").warning("DB startup timeout — using minimal init")
+                # Fall back to minimal init
+                from src.core.db import get_db, SCHEMA, DB_PATH, _is_railway_volume
+                with get_db() as conn:
+                    conn.executescript(SCHEMA)
+                result = {"ok": True, "db_path": DB_PATH, "stats": {"quotes": 0, "contacts": 0, "price_history": 0}, "is_volume": _is_railway_volume()}
+            finally:
+                signal.alarm(0)
+                signal.signal(signal.SIGALRM, old_handler)
         logging.getLogger("reytech").info(
             "DB: %s | volume=%s | quotes=%d contacts=%d prices=%d",
             result["db_path"],

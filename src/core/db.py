@@ -563,16 +563,20 @@ CREATE INDEX IF NOT EXISTS idx_sentdoc_pcid ON sent_documents(pc_id, version);
 
 def init_db():
     """Create all tables if they don't exist. Safe to call multiple times."""
+    print("[BOOT:DB] init_db: creating schema...", flush=True)
     with get_db() as conn:
         conn.executescript(SCHEMA)
+    print("[BOOT:DB] init_db: migrating columns...", flush=True)
     # Migrate existing tables that may be missing new columns
     _migrate_columns()
+    print("[BOOT:DB] init_db: DAL migration...", flush=True)
     # Migrate JSON files → DB (leads, customers, vendors, outbox)
     try:
         from src.core.dal import migrate_json_to_db
         migrate_json_to_db()
     except Exception as e:
         log.warning("DAL migration deferred: %s", e)
+    print("[BOOT:DB] init_db: complete", flush=True)
     log.info("DB initialized at %s", DB_PATH)
     return True
 
@@ -1274,23 +1278,31 @@ def _boot_sync_pcs():
 
 def startup() -> dict:
     """Initialize DB and migrate existing data. Call once at app start."""
+    print("[BOOT:DB] startup() entered", flush=True)
     # Step 1: If volume is fresh, copy seed JSON into it so the app can read them
     if _is_railway_volume():
+        print("[BOOT:DB] Seeding volume JSON...", flush=True)
         seed_results = _seed_volume_json()
         copied = [k for k, v in seed_results.items() if v == "copied"]
         if copied:
             log.info("Volume first-boot seed: copied %d files", len(copied))
 
+    print("[BOOT:DB] init_db()...", flush=True)
     init_db()
+    print("[BOOT:DB] init_db() done", flush=True)
 
     # ── Auto-reconcile DB → JSON quote statuses on every boot ──
+    print("[BOOT:DB] reconcile quotes...", flush=True)
     _reconcile_quotes_json()
 
     # ── Auto-dedup price checks on every boot ──
+    print("[BOOT:DB] dedup PCs...", flush=True)
     _dedup_price_checks_on_boot()
 
     # ── Data integrity fixes on every boot ──
+    print("[BOOT:DB] fix data...", flush=True)
     _fix_data_on_boot()
+    print("[BOOT:DB] fix data done", flush=True)
 
     stats_before = get_db_stats()
     if stats_before.get("quotes", 0) == 0 and stats_before.get("contacts", 0) == 0:
