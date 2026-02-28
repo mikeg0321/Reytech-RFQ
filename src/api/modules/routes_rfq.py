@@ -733,7 +733,31 @@ def generate_rfq_package(rid):
     r["sign_date"] = get_pst_date()
     safe_sol = re.sub(r'[^a-zA-Z0-9_-]', '_', sol.strip())
     out_dir = os.path.join(OUTPUT_DIR, sol)
+    
+    # ── Step 1.5: Clean old generated files on regenerate ──────────────
+    if os.path.exists(out_dir):
+        import shutil as _sh_clean
+        try:
+            _old_files = os.listdir(out_dir)
+            _sh_clean.rmtree(out_dir)
+            t.step(f"Cleaned {len(_old_files)} old files from {sol}/")
+        except Exception as _ce:
+            t.warn("Cleanup failed", error=str(_ce))
     os.makedirs(out_dir, exist_ok=True)
+    
+    # Also clear old output_files list and DB-stored generated files
+    r["output_files"] = []
+    r.pop("draft_email", None)  # Clear stale draft tied to old files
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            conn.execute(
+                "DELETE FROM rfq_files WHERE rfq_id = ? AND category = 'generated'",
+                (rid,)
+            )
+            t.step("Cleared old generated files from DB")
+    except Exception as _dbe:
+        t.warn("DB cleanup skipped", error=str(_dbe))
     
     output_files = []
     errors = []
