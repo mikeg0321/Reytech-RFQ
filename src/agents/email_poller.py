@@ -1280,7 +1280,11 @@ class EmailPoller:
                         ])
                         has_pdfs = bool(pdf_names)  # pdf_names populated at line ~1242
                         
-                        if (is_forward or has_fwd_body) and has_pdfs:
+                        # Let through if: (forward indicators) AND (has PDFs OR is clearly a forward)
+                        # Nested PDFs inside message/rfc822 may not be detected by _get_pdf_names
+                        # but _extract_forwarded_attachments will find them during processing.
+                        is_clear_forward = is_forward and has_fwd_body
+                        if (is_forward or has_fwd_body) and (has_pdfs or is_clear_forward):
                             # This is a forwarded RFQ — let it through
                             log.info("Forwarded email from self with PDFs — processing as RFQ: %s — %s (%d PDFs)",
                                      sender_email_raw, subject[:60], len(pdf_names))
@@ -1977,12 +1981,16 @@ class EmailPoller:
                 names.append(self._decode_header(filename) if isinstance(filename, str) else filename)
             if part.get_content_type() == "message/rfc822":
                 payload = part.get_payload()
+                inner_msgs = []
                 if isinstance(payload, list):
-                    for inner_msg in payload:
-                        for inner_part in inner_msg.walk():
-                            fn = inner_part.get_filename()
-                            if fn and fn.lower().endswith(".pdf"):
-                                names.append(self._decode_header(fn) if isinstance(fn, str) else fn)
+                    inner_msgs = payload
+                elif hasattr(payload, 'walk'):
+                    inner_msgs = [payload]
+                for inner_msg in inner_msgs:
+                    for inner_part in inner_msg.walk():
+                        fn = inner_part.get_filename()
+                        if fn and fn.lower().endswith(".pdf"):
+                            names.append(self._decode_header(fn) if isinstance(fn, str) else fn)
         return names
 
     def _save_attachments(self, msg, save_dir):

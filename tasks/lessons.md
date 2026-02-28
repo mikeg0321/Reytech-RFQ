@@ -311,3 +311,18 @@ is safe and testable. Full Blueprint-per-module restructuring is high risk.
 The injection becomes a safety net, the imports become documentation. Test patch
 both the old location (dashboard) AND the new location (shared) since Python
 module references aren't magically updated.
+
+## L41: Forwarded emails — nested PDFs not detected by _get_pdf_names
+
+**Bug:** CalVet forwarded RFQ silently dropped. `_get_pdf_names()` only handled
+`isinstance(payload, list)` for `message/rfc822` parts, but Python's email lib
+sometimes returns a single Message object (not wrapped in a list). Result:
+`pdf_names = []` → self-email filter sees `has_pdfs=False` → drops the forward.
+
+Meanwhile `_extract_forwarded_attachments()` handled BOTH cases correctly with
+`elif hasattr(payload, 'walk')`. The two functions were inconsistent.
+
+**Fix:** (1) Unified `_get_pdf_names` to handle both list and single-message
+payloads. (2) Self-email filter now lets clear forwards through (Fwd: subject
++ forwarded body markers) even if no top-level PDFs detected, since
+`_extract_forwarded_attachments` will find nested PDFs during processing.
