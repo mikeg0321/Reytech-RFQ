@@ -18,6 +18,7 @@ Features:
 """
 
 import os
+import re
 import json
 import logging
 import glob
@@ -1295,7 +1296,7 @@ def generate_quote_from_pc(pc: dict, output_path: str, **kwargs) -> dict:
                 tax_info = get_rate_for_facility(facility)
             elif ship_addr:
                 _addr_str = " ".join(ship_addr) if isinstance(ship_addr, list) else str(ship_addr)
-                import re as _re
+                _re = re  # already imported at top
                 _zm = _re.search(r'\b(\d{5})\b', _addr_str)
                 tax_info = lookup_tax_rate(
                     address=ship_addr[0] if ship_addr else "",
@@ -1337,6 +1338,63 @@ def generate_quote_from_rfq(rfq: dict, output_path: str, **kwargs) -> dict:
         _body = rfq.get("body_text", "")
         _subj = rfq.get("email_subject", "")
         _scan_text = f"{_body} {_subj} {delivery} {institution_name}".upper()
+        
+        # If scan_text is thin, try to get more text from original PDF attachments
+        if len(_scan_text.strip()) < 50:
+            try:
+                from src.core.db import get_db
+                _rid = rfq.get("id", "")
+                if _rid:
+                    with get_db() as conn:
+                        # Get email body from email_log
+                        _email_row = conn.execute(
+                            "SELECT full_body FROM email_log WHERE rfq_id = ? ORDER BY id DESC LIMIT 1",
+                            (_rid,)
+                        ).fetchone()
+                        if _email_row and _email_row["full_body"]:
+                            _scan_text += " " + _email_row["full_body"].upper()
+                        
+                        # Also check rfq_files for PDF filenames that contain location hints
+                        _file_rows = conn.execute(
+                            "SELECT filename FROM rfq_files WHERE rfq_id = ?", (_rid,)
+                        ).fetchall()
+                        for _fr in _file_rows:
+                            _scan_text += " " + (_fr["filename"] or "").upper()
+            except Exception as _e:
+                log.debug("Facility email_log scan fallback: %s", _e)
+        
+        # Last resort: read actual PDF content from DB for delivery address
+        if len(_scan_text.strip()) < 100 or not any(c in _scan_text for c in [
+            "REDDING", "YOUNTVILLE", "BARSTOW", "CHULA VISTA", "FRESNO",
+            "WEST LOS ANGELES", "VENTURA", "CHINO", "CORONA", "CORCORAN",
+        ]):
+            try:
+                from src.core.db import get_db
+                _rid = rfq.get("id", "")
+                if _rid:
+                    with get_db() as conn:
+                        _pdf_rows = conn.execute(
+                            "SELECT data, filename FROM rfq_files WHERE rfq_id = ? AND category IN ('attachment','template') LIMIT 5",
+                            (_rid,)
+                        ).fetchall()
+                    for _pr in _pdf_rows:
+                        if _pr["data"] and _pr["filename"].lower().endswith(".pdf"):
+                            try:
+                                from pypdf import PdfReader
+                                import io
+                                _reader = PdfReader(io.BytesIO(_pr["data"]))
+                                for _pg in _reader.pages[:3]:  # First 3 pages only
+                                    _pt = (_pg.extract_text() or "").upper()
+                                    _scan_text += " " + _pt
+                                    if len(_scan_text) > 5000:
+                                        break
+                            except Exception:
+                                pass
+                        if len(_scan_text) > 5000:
+                            break
+            except Exception as _e:
+                log.debug("Facility PDF text scan fallback: %s", _e)
+        
         # Check for known facility city names
         _CITY_MAP = {
             "REDDING": "CALVETHOME-RD", "YOUNTVILLE": "CALVETHOME-YV",
@@ -1413,12 +1471,18 @@ def generate_quote_from_rfq(rfq: dict, output_path: str, **kwargs) -> dict:
         elif not supplier_url and pn and pn.startswith("B0"):
             supplier_url = f"https://www.amazon.com/dp/{pn}"
         
+        # Clean unicode garbage from descriptions (■, □, replacement chars)
+        _desc = item.get("description", "")
+        _desc = _desc.replace('\ufffd', '').replace('■', '').replace('□', '')
+        _desc = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', _desc)
+        _desc = re.sub(r'\s+', ' ', _desc).strip()
+        
         data["line_items"].append({
             "line_number": item.get("line_number", item.get("item_number", "")),
             "part_number": pn,
             "qty": item.get("qty", 1),
             "uom": item.get("uom", "EA"),
-            "description": item.get("description", ""),
+            "description": _desc,
             "unit_price": up,
             "asin": asin,
             "supplier_url": supplier_url,
@@ -1444,7 +1508,7 @@ def generate_quote_from_rfq(rfq: dict, output_path: str, **kwargs) -> dict:
             elif ship_addr:
                 # Parse zip from address lines
                 _addr_str = " ".join(ship_addr) if isinstance(ship_addr, list) else str(ship_addr)
-                import re as _re
+                _re = re  # already imported at top
                 _zm = _re.search(r'\b(\d{5})\b', _addr_str)
                 tax_info = lookup_tax_rate(
                     address=ship_addr[0] if ship_addr else "",
