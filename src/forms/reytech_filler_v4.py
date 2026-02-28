@@ -58,6 +58,9 @@ for i in range(1, 7):
     TIGHT_FIELDS.add(f"Product or Services DescriptionRow{i}")
     TIGHT_FIELDS.add(f"Item Row{i}")
 
+# STD 1000 — City field is only 67pt wide
+TIGHT_FIELDS.add("City")
+
 
 def load_config():
     with open(CONFIG_PATH, "r") as f:
@@ -485,8 +488,7 @@ def fill_std1000(input_path, rfq_data, config, output_path):
     sign_date = rfq_data.get("sign_date", get_pst_date())
 
     values = {
-        "Solicitation  Contract Number": sol,
-        "Number Bidder ID  Vendor ID optional": company["phone"],
+        "Number Bidder ID  Vendor ID optional": company["cert_number"],
         "Business Name": company["name"],
         "Business Telephone Number": company["phone"],
         "Business Address": "30 Carnoustie Way",
@@ -498,6 +500,10 @@ def fill_std1000(input_path, rfq_data, config, output_path):
         "No If no skip to Signature section of this form": "/On",
         "Date": sign_date,
     }
+
+    # Only fill solicitation line if we have one
+    if sol:
+        values["Solicitation  Contract Number"] = sol
 
     fill_and_sign_pdf(input_path, values, output_path, sign_date=sign_date)
 
