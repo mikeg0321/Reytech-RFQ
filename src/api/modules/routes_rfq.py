@@ -2248,3 +2248,91 @@ def api_fill_forms_standalone():
 def form_filler_page():
     """Standalone form filler page."""
     return render_template("form_filler.html", active_page="Forms")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Admin: Nuke & Re-poll RFQ
+# ═══════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/rfq/nuke/<rid>", methods=["POST"])
+@auth_required
+def api_nuke_rfq(rid):
+    """Nuclear delete: wipe RFQ from JSON + SQLite + processed UIDs, then re-poll.
+    Usage: POST /api/rfq/nuke/<rfq_id>  or  POST /api/rfq/nuke/<solicitation_number>
+    """
+    import json as _json
+    from src.api.dashboard import load_rfqs, save_rfqs
+
+    rfqs = load_rfqs()
+    nuked = []
+
+    # Find by ID or by solicitation number
+    targets = {}
+    for k, v in rfqs.items():
+        if k == rid or v.get("solicitation_number", "") == rid or v.get("rfq_number", "") == rid:
+            targets[k] = v
+
+    if not targets:
+        return jsonify({"ok": False, "error": f"No RFQ found matching '{rid}'"}), 404
+
+    for rfq_id, rfq in targets.items():
+        sol = rfq.get("solicitation_number", rfq.get("rfq_number", "?"))
+        email_uid = rfq.get("email_uid", "")
+
+        # 1. Remove from JSON
+        if rfq_id in rfqs:
+            del rfqs[rfq_id]
+
+        # 2. Remove from SQLite (rfqs, rfq_files, email_log, price_checks)
+        try:
+            with get_db() as conn:
+                conn.execute("DELETE FROM rfq_files WHERE rfq_id = ?", (rfq_id,))
+                conn.execute("DELETE FROM rfqs WHERE id = ?", (rfq_id,))
+                # email_log by rfq_id
+                conn.execute("DELETE FROM email_log WHERE rfq_id = ?", (rfq_id,))
+                # price_checks by rfq_id
+                conn.execute("DELETE FROM price_checks WHERE rfq_id = ?", (rfq_id,))
+                conn.commit()
+        except Exception as e:
+            log.warning("Nuke SQLite cleanup for %s: %s", rfq_id, e)
+
+        # 3. Remove email UID from processed list
+        if email_uid:
+            try:
+                from src.api.modules.routes_pricecheck import _remove_processed_uid
+                _remove_processed_uid(email_uid)
+            except Exception:
+                # Manual fallback
+                proc_file = os.path.join(DATA_DIR, "processed_emails.json")
+                try:
+                    if os.path.exists(proc_file):
+                        with open(proc_file) as f:
+                            processed = _json.load(f)
+                        if isinstance(processed, list) and email_uid in processed:
+                            processed.remove(email_uid)
+                        elif isinstance(processed, dict) and email_uid in processed:
+                            del processed[email_uid]
+                        with open(proc_file, "w") as f:
+                            _json.dump(processed, f)
+                except Exception:
+                    pass
+
+        nuked.append({"id": rfq_id, "sol": sol, "uid": email_uid})
+        log.info("NUKED RFQ %s (sol=%s, uid=%s)", rfq_id, sol, email_uid)
+
+    save_rfqs(rfqs)
+
+    # 4. Trigger re-poll
+    poll_result = None
+    try:
+        from src.api.modules.routes_pricecheck import do_poll_check
+        imported = do_poll_check()
+        poll_result = {"found": len(imported), "rfqs": [r.get("solicitation_number", "?") for r in imported]}
+    except Exception as e:
+        poll_result = {"error": str(e)}
+
+    return jsonify({
+        "ok": True,
+        "nuked": nuked,
+        "poll": poll_result,
+    })
