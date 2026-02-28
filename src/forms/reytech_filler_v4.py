@@ -533,7 +533,7 @@ def _overlay_std1000_description(pdf_path, items, page_index=0):
         desc = item.get("description", "")
         qty = item.get("qty", 1)
         uom = item.get("uom", "EA")
-        lines.append(f"{i}. {pn}  {desc}  ({qty} {uom})")
+        lines.append(f"{i}. {pn}, {qty} {uom} - {desc}")
     if not lines:
         lines = ["N/A"]
 
