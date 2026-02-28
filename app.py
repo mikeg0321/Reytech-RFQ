@@ -21,10 +21,14 @@ for _cache in pathlib.Path(__file__).parent.rglob("__pycache__"):
 
 import os
 import logging
+import time
 from flask import Flask
+
+print(f"[BOOT] app.py loading at {time.time():.0f}", flush=True)
 
 def create_app():
     """Application factory."""
+    print("[BOOT] create_app() called", flush=True)
     _app_dir = os.path.dirname(os.path.abspath(__file__))
     app = Flask(
         __name__,
@@ -39,15 +43,46 @@ def create_app():
             "Set it in Railway: Settings → Variables → SECRET_KEY = <random 32+ char string>"
         )
     app.secret_key = _secret
+    print("[BOOT] Flask app created, SECRET_KEY set", flush=True)
+
+    # ── FORCE_CLEAN_BOOT: nuke corrupted volume data ──────────────────────
+    if os.environ.get("FORCE_CLEAN_BOOT"):
+        print("[BOOT] FORCE_CLEAN_BOOT: clearing corrupted files...", flush=True)
+        import glob
+        data_dir = os.path.join(_app_dir, "data")
+        for db_file in glob.glob(os.path.join(data_dir, "*.db-journal")):
+            try:
+                os.remove(db_file)
+                print(f"[BOOT] Removed journal: {db_file}", flush=True)
+            except Exception:
+                pass
+        for lock_file in glob.glob(os.path.join(data_dir, "*.db-wal")):
+            try:
+                os.remove(lock_file)
+                print(f"[BOOT] Removed WAL: {lock_file}", flush=True)
+            except Exception:
+                pass
+        # Clear processed emails to unstick poller
+        for f in ["processed_emails.json"]:
+            p = os.path.join(data_dir, f)
+            if os.path.exists(p):
+                try:
+                    os.remove(p)
+                    print(f"[BOOT] Removed: {p}", flush=True)
+                except Exception:
+                    pass
 
     # ── Persistent database init ──────────────────────────────────────────────
     # ── Product catalog init ──────────────────────────────────────────────────
+    print("[BOOT] Initializing catalog...", flush=True)
     try:
         from src.core.catalog import init_catalog
         init_catalog()
     except Exception as e:
         logging.getLogger("reytech").warning("Catalog init skipped: %s", e)
+    print("[BOOT] Catalog done", flush=True)
 
+    print("[BOOT] Initializing DB...", flush=True)
     try:
         from src.core.db import startup as db_startup
         result = db_startup()
@@ -61,8 +96,10 @@ def create_app():
         )
     except Exception as e:
         logging.getLogger("reytech").warning("DB init skipped: %s", e)
+    print("[BOOT] DB done", flush=True)
 
     # ── Schema migrations (Sprint 5.2) ──────────────────────────────────────
+    print("[BOOT] Running migrations...", flush=True)
     try:
         from src.core.migrations import run_migrations
         mig = run_migrations()
@@ -81,10 +118,14 @@ def create_app():
         logging.getLogger("reytech").debug("Structured logging skipped: %s", e)
 
     # Register the dashboard blueprint (all routes)
+    print("[BOOT] Importing dashboard...", flush=True)
     from src.api.dashboard import bp, start_polling
+    print("[BOOT] Registering blueprint...", flush=True)
     app.register_blueprint(bp)
+    print("[BOOT] Blueprint registered", flush=True)
 
     # ── Security middleware (rate limiting, CSRF, headers) ──────────
+    print("[BOOT] Security init...", flush=True)
     try:
         from src.core.security import init_security
         init_security(app)
@@ -92,6 +133,7 @@ def create_app():
         logging.getLogger("reytech").warning("Security init skipped: %s", e)
 
     # ── Runtime self-test — catches path/route/data bugs at boot ──────────
+    print("[BOOT] Startup checks...", flush=True)
     try:
         from src.core.startup_checks import run_startup_checks
         with app.app_context():
@@ -101,6 +143,8 @@ def create_app():
                     "STARTUP: %d checks FAILED — review logs", checks["failed"])
     except Exception as e:
         logging.getLogger("reytech").warning("Startup checks skipped: %s", e)
+
+    print("[BOOT] Scheduler init...", flush=True)
 
     # Start email polling in background (production only)
     if os.environ.get("ENABLE_EMAIL_POLLING", "").lower() == "true":
@@ -123,11 +167,14 @@ def create_app():
     except Exception as e:
         logging.getLogger("reytech").warning("Scheduler init skipped: %s", e)
 
+    print("[BOOT] create_app() complete ✅", flush=True)
     return app
 
 
 # For gunicorn: gunicorn app:app
+print("[BOOT] Creating app at module level...", flush=True)
 app = create_app()
+print("[BOOT] Module ready ✅", flush=True)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
