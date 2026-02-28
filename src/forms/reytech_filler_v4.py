@@ -504,15 +504,39 @@ def fill_bid_package(input_path, rfq_data, config, output_path):
         "Text7_std21": company["title"], "Text8_std21": company["address"],
         "Text9_std21": company.get("drug_free_expiration", "7/1/2028"),
 
-        # CalRecycle 74
+        # CalRecycle 74 — company info + signature
         "ContractorCompany Name": company["name"],
         "Address": company["address"], "Phone_2": company["phone"],
         "Print Name": company["owner"], "Title": company["title"],
         "Date": sign_date,
-        "Product or Services DescriptionRow2": "All Items",
-        "1Percent Postconsumer Recycled Content MaterialRow2": "0",
-        "2SABRC Product Category CodeRow2": "0",
+    }
 
+    # ── CalRecycle 74: populate each line item row ──
+    line_items = rfq_data.get("line_items", [])
+    for idx, item in enumerate(line_items[:6], start=1):  # Template has 6 rows max
+        pn = item.get("item_number", item.get("part_number", ""))
+        desc = item.get("description", "")
+        # Truncate description to fit form field
+        if len(desc) > 60:
+            desc = desc[:57] + "..."
+        values[f"Item Row{idx}"] = pn
+        values[f"Product or Services DescriptionRow{idx}"] = desc
+        values[f"1Percent Postconsumer Recycled Content MaterialRow{idx}"] = "0%"
+        values[f"2SABRC Product Category CodeRow{idx}"] = "N/A"
+
+    if not line_items:
+        # Fallback if no line items
+        values["Product or Services DescriptionRow1"] = "All Items"
+        values["1Percent Postconsumer Recycled Content MaterialRow1"] = "0%"
+        values["2SABRC Product Category CodeRow1"] = "N/A"
+
+    if len(line_items) > 6:
+        import logging
+        logging.getLogger("reytech").warning(
+            "CalRecycle 74: %d items but only 6 rows on template. Items 7+ not listed.", len(line_items)
+        )
+
+    values.update({
         # GenAI (708)
         "708_Text1": sol, "708_Text3": company["name"],
         "708_Text4": company["phone"], "708_Text5": "30 Carnoustie Way",
@@ -527,7 +551,7 @@ def fill_bid_package(input_path, rfq_data, config, output_path):
         "708_Text16": sign_date,
 
         "Date_PD802": sign_date,
-    }
+    })
 
     # ── OBS 1600: Auto-fill food items if present in RFQ ──
     obs1600_values = fill_obs1600_fields(rfq_data, config)
