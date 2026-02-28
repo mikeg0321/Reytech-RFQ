@@ -1333,67 +1333,56 @@ def generate_quote_from_rfq(rfq: dict, output_path: str, **kwargs) -> dict:
                 _lookup_facility(institution_name) or
                 _lookup_facility(institution))
 
-    # Fallback: scan email body/subject for city names that map to facilities
+    # Fallback: aggressively scan ALL available data for facility clues
     if not facility:
         _body = rfq.get("body_text", "")
         _subj = rfq.get("email_subject", "")
-        _scan_text = f"{_body} {_subj} {delivery} {institution_name}".upper()
+        _scan_text = f"{_body} {_subj} {delivery} {institution_name} {ship_to_raw} {ship_to_name_raw}".upper()
+        _rid = rfq.get("id", "")
         
-        # If scan_text is thin, try to get more text from original PDF attachments
-        if len(_scan_text.strip()) < 50:
+        # ALWAYS check email_log for the original email body (signature has address)
+        if _rid:
             try:
                 from src.core.db import get_db
-                _rid = rfq.get("id", "")
-                if _rid:
-                    with get_db() as conn:
-                        # Get email body from email_log
-                        _email_row = conn.execute(
-                            "SELECT full_body FROM email_log WHERE rfq_id = ? ORDER BY id DESC LIMIT 1",
-                            (_rid,)
-                        ).fetchone()
-                        if _email_row and _email_row["full_body"]:
-                            _scan_text += " " + _email_row["full_body"].upper()
-                        
-                        # Also check rfq_files for PDF filenames that contain location hints
-                        _file_rows = conn.execute(
-                            "SELECT filename FROM rfq_files WHERE rfq_id = ?", (_rid,)
-                        ).fetchall()
-                        for _fr in _file_rows:
-                            _scan_text += " " + (_fr["filename"] or "").upper()
+                with get_db() as conn:
+                    _email_row = conn.execute(
+                        "SELECT full_body FROM email_log WHERE rfq_id = ? ORDER BY id DESC LIMIT 1",
+                        (_rid,)
+                    ).fetchone()
+                    if _email_row and _email_row["full_body"]:
+                        _scan_text += " " + _email_row["full_body"].upper()
+                        log.info("Facility scan: added %d chars from email_log", len(_email_row["full_body"]))
             except Exception as _e:
-                log.debug("Facility email_log scan fallback: %s", _e)
+                log.debug("email_log lookup: %s", _e)
         
-        # Last resort: read actual PDF content from DB for delivery address
-        if len(_scan_text.strip()) < 100 or not any(c in _scan_text for c in [
-            "REDDING", "YOUNTVILLE", "BARSTOW", "CHULA VISTA", "FRESNO",
-            "WEST LOS ANGELES", "VENTURA", "CHINO", "CORONA", "CORCORAN",
-        ]):
+        # ALWAYS try PDF text extraction from stored attachments
+        if _rid:
             try:
                 from src.core.db import get_db
-                _rid = rfq.get("id", "")
-                if _rid:
-                    with get_db() as conn:
-                        _pdf_rows = conn.execute(
-                            "SELECT data, filename FROM rfq_files WHERE rfq_id = ? AND category IN ('attachment','template') LIMIT 5",
-                            (_rid,)
-                        ).fetchall()
-                    for _pr in _pdf_rows:
-                        if _pr["data"] and _pr["filename"].lower().endswith(".pdf"):
-                            try:
-                                from pypdf import PdfReader
-                                import io
-                                _reader = PdfReader(io.BytesIO(_pr["data"]))
-                                for _pg in _reader.pages[:3]:  # First 3 pages only
-                                    _pt = (_pg.extract_text() or "").upper()
+                with get_db() as conn:
+                    _pdf_rows = conn.execute(
+                        "SELECT data, filename FROM rfq_files WHERE rfq_id = ? AND category IN ('attachment','template') LIMIT 5",
+                        (_rid,)
+                    ).fetchall()
+                for _pr in (_pdf_rows or []):
+                    if _pr["data"] and (_pr["filename"] or "").lower().endswith(".pdf"):
+                        try:
+                            from pypdf import PdfReader
+                            import io
+                            _reader = PdfReader(io.BytesIO(_pr["data"]))
+                            for _pg in _reader.pages[:3]:
+                                _pt = (_pg.extract_text() or "").upper()
+                                if _pt:
                                     _scan_text += " " + _pt
-                                    if len(_scan_text) > 5000:
-                                        break
-                            except Exception:
-                                pass
-                        if len(_scan_text) > 5000:
-                            break
+                            log.info("Facility scan: extracted text from %s", _pr["filename"])
+                        except Exception as _pe:
+                            log.debug("PDF text extract %s: %s", _pr["filename"], _pe)
+                    if len(_scan_text) > 10000:
+                        break
             except Exception as _e:
-                log.debug("Facility PDF text scan fallback: %s", _e)
+                log.debug("PDF scan: %s", _e)
+        
+        log.info("Facility scan text length: %d chars", len(_scan_text))
         
         # Check for known facility city names
         _CITY_MAP = {
@@ -1414,7 +1403,7 @@ def generate_quote_from_rfq(rfq: dict, output_path: str, **kwargs) -> dict:
             if city in _scan_text:
                 facility = FACILITY_DB.get(fac_key)
                 if facility:
-                    log.info("Facility matched from email text: %s → %s", city, facility["name"])
+                    log.info("Facility matched from scan: %s → %s", city, facility["name"])
                     break
 
     if facility:
@@ -1429,24 +1418,49 @@ def generate_quote_from_rfq(rfq: dict, output_path: str, **kwargs) -> dict:
             if facility["parent"] in _parent_agency_map:
                 kwargs["agency"] = _parent_agency_map[facility["parent"]]
     else:
-        # Manual parsing — separate name from address
-        # Try delivery_location first
-        if delivery:
-            ship_name, ship_addr = _parse_address_parts(delivery)
-        elif ship_to_raw:
-            ship_name, ship_addr = _parse_address_parts(ship_to_raw)
-        elif ship_to_name_raw:
-            ship_name, ship_addr = _parse_address_parts(ship_to_name_raw)
-        else:
-            ship_name = institution
+        # No facility match — use agency-level defaults for known agencies
+        _agency_lower = (rfq.get("agency", "") or institution or "").lower()
+        
+        if "calvet" in _agency_lower or "veteran" in _agency_lower:
+            # CalVet: use HQ for To, generic for Ship To
+            to_name = "California Department of Veterans Affairs"
+            to_addr = ["APinvoices@calvet.ca.gov", '1227 "O" Street, Room 403', "Sacramento, CA 95814"]
+            ship_name = institution_name or "CalVet"
             ship_addr = []
-        
-        # If we only got an address (no name), use institution as name
-        if not ship_name:
-            ship_name = institution
-        
-        to_name = institution
-        to_addr = list(ship_addr)  # Use same address for To:
+            if "agency" not in kwargs:
+                kwargs["agency"] = "CalVet"
+            log.info("Using CalVet agency defaults (no specific facility found)")
+        elif "cdcr" in _agency_lower or "correction" in _agency_lower:
+            to_name = "Dept. of Corrections and Rehabilitation"
+            to_addr = ["P.O. Box 942883", "Sacramento, CA 94283"]
+            ship_name = institution_name or "CDCR"
+            ship_addr = []
+            if "agency" not in kwargs:
+                kwargs["agency"] = "CDCR"
+        elif "cchcs" in _agency_lower or "health care" in _agency_lower:
+            to_name = "California Correctional Health Care Services"
+            to_addr = ["P.O. Box 588500", "Elk Grove, CA 95758"]
+            ship_name = institution_name or "CCHCS"
+            ship_addr = []
+            if "agency" not in kwargs:
+                kwargs["agency"] = "CCHCS"
+        else:
+            # Generic: manual parsing
+            if delivery:
+                ship_name, ship_addr = _parse_address_parts(delivery)
+            elif ship_to_raw:
+                ship_name, ship_addr = _parse_address_parts(ship_to_raw)
+            elif ship_to_name_raw:
+                ship_name, ship_addr = _parse_address_parts(ship_to_name_raw)
+            else:
+                ship_name = institution
+                ship_addr = []
+            
+            if not ship_name:
+                ship_name = institution
+            
+            to_name = institution
+            to_addr = list(ship_addr)
 
     data = {
         "institution": to_name,
