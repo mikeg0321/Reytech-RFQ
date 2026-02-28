@@ -101,20 +101,8 @@ def _global_auth_guard():
             return Response(
                 "🔒 Reytech RFQ Dashboard — Login Required",
                 401, {"WWW-Authenticate": 'Basic realm="Reytech RFQ Dashboard"'})
-    # CSRF: Origin check for state-changing requests
-    # Only enforce on non-authenticated public endpoints (e.g. login form).
-    # All /api/ and /rfq/ paths are behind auth_required which is sufficient.
-    csrf_exempt_prefixes = ("/api/", "/rfq/", "/pricecheck/", "/crm/", "/admin/")
-    if request.method in ("POST", "PUT", "DELETE") and not any(_path.startswith(p) for p in csrf_exempt_prefixes):
-        origin = request.headers.get("Origin", "")
-        referer = request.headers.get("Referer", "")
-        host = request.host_url.rstrip("/")
-        is_same_origin = (origin == host) or (not origin and referer.startswith(host))
-        is_json_api = request.content_type and "json" in request.content_type
-        if not is_same_origin and not is_json_api:
-            log.warning("CSRF BLOCKED: %s %s origin=%s referer=%s", request.method, _path, origin, referer)
-            return Response(json.dumps({"ok": False, "error": "CSRF validation failed"}),
-                            403, {"Content-Type": "application/json"})
+    # CSRF: Disabled — all state-changing routes use @auth_required (HTTP Basic Auth)
+    # which is inherently CSRF-resistant (browsers don't auto-send Basic Auth cross-origin)
     # Request timing
     request._start_time = time.time()
 

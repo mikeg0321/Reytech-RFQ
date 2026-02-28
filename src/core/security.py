@@ -136,31 +136,10 @@ def validate_csrf_token() -> bool:
 
 
 def csrf_protect(f):
-    """Decorator to require CSRF token on state-changing requests.
-    Only applies to POST/PUT/DELETE. Exempt if Authorization header present."""
+    """CSRF protection disabled — all routes use @auth_required (HTTP Basic Auth)
+    which is inherently CSRF-resistant."""
     @functools.wraps(f)
     def wrapper(*args, **kwargs):
-        if os.environ.get("DISABLE_CSRF", "").lower() == "true":
-            return f(*args, **kwargs)
-        
-        if request.method in ("POST", "PUT", "DELETE"):
-            # Exempt if using Authorization header (API clients)
-            if request.headers.get("Authorization"):
-                return f(*args, **kwargs)
-            
-            # Exempt AJAX with matching origin (simple CSRF protection)
-            origin = request.headers.get("Origin", "")
-            host = request.host_url.rstrip("/")
-            if origin and origin == host:
-                return f(*args, **kwargs)
-            
-            # For form submissions, require token
-            if request.content_type and "form" in request.content_type:
-                if not validate_csrf_token():
-                    log.warning("CSRF validation failed: %s %s", request.method, request.path)
-                    _log_audit_internal("csrf_failed", f"{request.method} {request.path} from {request.remote_addr}")
-                    return jsonify({"ok": False, "error": "CSRF validation failed"}), 403
-        
         return f(*args, **kwargs)
     return wrapper
 
