@@ -39,6 +39,7 @@ SIGN_FIELDS = {
     "708_Signature15",     # GenAI 708
     "Signature_std21",     # STD 21 Drug-Free
     "OBS 1600 Signature",  # OBS 1600 Food Cert — text field but needs signature image
+    "AuthorizedRepresentative[0]",  # CV 012 CUF page 2 authorizing signature
 }
 # NOTE: Signature1 appears in 703B, 704B, and CalRecycle 74 — all get signed.
 # NOT signed: Signature2_darfur (Option #2), Signature2/3/4_PD843 (blocks 2-4)
@@ -546,6 +547,220 @@ def fill_std204(input_path, rfq_data, config, output_path):
 
     fill_and_sign_pdf(input_path, values, output_path, sign_date=sign_date)
     print(f"  ✓ STD 204 Payee Data Record filled")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# CV 012 — Commercially Useful Function (CUF) Certification Form
+# ═══════════════════════════════════════════════════════════════════════
+
+CUF_WRITTEN_STATEMENT = (
+    "Reytech will fully manage all aspects of ordering, delivery, and customer service "
+    "for the products required under this contract. As the primary point of contact, "
+    "Reytech will directly handle product sourcing, order management, and delivery "
+    "coordination to ensure timely and accurate fulfillment. We also manage all customer "
+    "service inquiries to provide seamless support to the State. Reytech does not "
+    "subcontract any portion of this work, maintaining complete control and accountability "
+    "for every stage of the process to meet the commercially useful function (CUF) "
+    "requirements. Additional clarifying information can be provided upon request."
+)
+
+def fill_cv012_cuf(input_path, rfq_data, config, output_path):
+    """Fill CV 012 CUF Certification Form (both pages) with Reytech info + signature."""
+    company = config["company"]
+    sol = rfq_data.get("solicitation_number", "")
+    sign_date = rfq_data.get("sign_date", get_pst_date())
+
+    values = {
+        # Page 1 — Header
+        "SolicitationNumber[0]": sol,
+        "DoingBusinessAs[0]": company["name"],
+        "OSDSRefNumber[0]": company["cert_number"],
+        "ExpirationDate[0]": company.get("cert_expiration", "May 31, 2027"),
+        # Page 1 — Business type (radio): 1=DVBE, 2=SB, 3=MB
+        "RadioButtonList[0]": "/1",   # DVBE (primary cert — SB/MB also checked in bid pkg)
+        # Page 1 — Q1-3 Yes (/1), Q4-5 No (/2)
+        "RadioButtonList[1]": "/1",   # Q1 Yes
+        "RadioButtonList[2]": "/1",   # Q2 Yes
+        "RadioButtonList[3]": "/1",   # Q3 Yes
+        "RadioButtonList[4]": "/2",   # Q4 No
+        "RadioButtonList[5]": "/2",   # Q5 No
+        # Page 1 — Written Statement
+        "ProvideAWrittenStatement[0]": CUF_WRITTEN_STATEMENT,
+        # Page 2 — Authorizing Signature
+        "Title[0]": company["title"],
+        "PrintedName[0]": "Michael Guadan",
+        "Date[0]": sign_date,
+    }
+
+    fill_and_sign_pdf(input_path, values, output_path, sign_date=sign_date)
+    print(f"  ✓ CV 012 CUF filled (2 pages, sol={sol})")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Barstow CUF — Veterans Home of California - Barstow specific form
+# ═══════════════════════════════════════════════════════════════════════
+
+def generate_barstow_cuf(rfq_data, config, output_path):
+    """Generate the Barstow-specific CUF form (ReportLab) — simple Yes/No questionnaire."""
+    company = config["company"]
+
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.units import inch
+    from reportlab.lib import colors
+
+    c = rl_canvas.Canvas(output_path, pagesize=letter)
+    w, h = letter
+
+    # ── Title block ──
+    y = h - 1.0 * inch
+    c.setFont("Helvetica-Bold", 13)
+    c.drawCentredString(w / 2, y, "CALIFORNIA DEPARTMENT OF VETERANS AFFAIRS")
+    y -= 18
+    c.drawCentredString(w / 2, y, "VETERANS HOME OF CALIFORNIA - BARSTOW")
+    y -= 20
+    c.setFont("Helvetica-Bold", 12)
+    c.drawCentredString(w / 2, y, "COMMERCIALLY USEFUL FUNCTION DOCUMENTATION")
+
+    # ── Underline ──
+    y -= 6
+    c.setStrokeColor(colors.black)
+    c.setLineWidth(0.8)
+    c.line(1.0 * inch, y, w - 1.0 * inch, y)
+
+    # ── Company ──
+    y -= 36
+    c.setFont("Helvetica", 11)
+    c.drawString(1.2 * inch, y, "COMPANY:")
+    y -= 22
+    c.setFont("Helvetica-Bold", 13)
+    c.drawCentredString(w / 2, y, company["name"])
+    # Underline company name
+    name_w = c.stringWidth(company["name"], "Helvetica-Bold", 13)
+    c.setLineWidth(0.5)
+    c.line(w / 2 - name_w / 2 - 20, y - 3, w / 2 + name_w / 2 + 20, y - 3)
+
+    # ── Preamble ──
+    y -= 36
+    c.setFont("Helvetica", 9.5)
+    preamble = (
+        "All certified Small Business, Micro business, and/or DVBE contractors, subcontractors or "
+        "suppliers must meet or suppliers must meet the commercially useful function "
+        "requirements under Government Code, Section 14837 (d)(4) (for SB & MB) and Military "
+        "& Veterans Code, Section 999(b)(5)(B0)(for DVBE)."
+    )
+    text_obj = c.beginText(1.2 * inch, y)
+    text_obj.setFont("Helvetica", 9.5)
+    # Word-wrap
+    max_w = w - 2.4 * inch
+    words = preamble.split()
+    line = ""
+    for word in words:
+        test = f"{line} {word}".strip()
+        if c.stringWidth(test, "Helvetica", 9.5) > max_w:
+            text_obj.textLine(line)
+            line = word
+        else:
+            line = test
+    if line:
+        text_obj.textLine(line)
+    c.drawText(text_obj)
+    y = text_obj.getY()
+
+    y -= 18
+    c.setFont("Helvetica", 10)
+    c.drawString(1.2 * inch, y, "Please answer the following questions, as they apply to your company for the")
+    y -= 14
+    c.drawString(1.2 * inch, y, "goods/services that are being acquired in this procurement.")
+
+    # ── Questions table ──
+    questions = [
+        ("1", "Will your company be responsible for the execution of a distinct\nelement of the resulting purchase order?", True),
+        ("2", "Will your company be actually performing, managing, or\nsupervising an element of the resulting purchase order?", True),
+        ("3", "Will your company be performing work on the resulting purchase\norder that is normal for its business, services and/or functions?", True),
+        ("4", "Will there be any subcontracting that is greater than that expected to\nbe subcontracted by normal industry practices for the resulting\npurchase order?", False),
+    ]
+
+    y -= 30
+    left = 1.2 * inch
+    q_col = left + 0.3 * inch
+    yes_col = w - 2.4 * inch
+    no_col = w - 1.6 * inch
+    row_h = 42
+
+    for num, text, answer_yes in questions:
+        # Draw row box
+        c.setStrokeColor(colors.black)
+        c.setLineWidth(0.5)
+        lines = text.split("\n")
+        actual_h = max(row_h, 14 * len(lines) + 10)
+
+        c.rect(left, y - actual_h + 14, w - 2.4 * inch, actual_h)
+
+        # Number
+        c.setFont("Helvetica-Bold", 10)
+        c.drawCentredString(left + 0.15 * inch, y, num)
+
+        # Question text
+        c.setFont("Helvetica", 9.5)
+        ty = y
+        for line in lines:
+            c.drawString(q_col, ty, line)
+            ty -= 13
+
+        # Yes/No boxes
+        box_size = 13
+        yes_y = y - actual_h / 2 + 14
+        c.setFont("Helvetica-Bold", 10)
+        c.drawString(yes_col, yes_y + 16, "Yes")
+        c.drawString(no_col, yes_y + 16, "No")
+        c.rect(yes_col + 2, yes_y, box_size, box_size)
+        c.rect(no_col + 2, yes_y, box_size, box_size)
+
+        # Check the right box
+        if answer_yes:
+            # Fill Yes box
+            c.setFillColor(colors.black)
+            c.rect(yes_col + 2, yes_y, box_size, box_size, fill=1)
+            c.setFillColor(colors.white)
+            c.setFont("Helvetica-Bold", 10)
+            c.drawCentredString(yes_col + 2 + box_size / 2, yes_y + 2, "Yes")
+            c.setFillColor(colors.black)
+        else:
+            # Fill No box
+            c.setFillColor(colors.black)
+            c.rect(no_col + 2, yes_y, box_size, box_size, fill=1)
+            c.setFillColor(colors.white)
+            c.setFont("Helvetica-Bold", 10)
+            c.drawCentredString(no_col + 2 + box_size / 2, yes_y + 2, "No")
+            c.setFillColor(colors.black)
+
+        y -= actual_h + 4
+
+    # ── Disqualification note ──
+    y -= 20
+    c.setFont("Helvetica", 9.5)
+    note = (
+        "For a response of NO in questions 1-3, or a response of YES in question 4, may result in "
+        "your bid being eliminated from consideration at the State's option prior to award. Bidders "
+        "may be required to submit additional written clarifying information."
+    )
+    text_obj = c.beginText(1.2 * inch, y)
+    text_obj.setFont("Helvetica", 9.5)
+    words = note.split()
+    line = ""
+    for word in words:
+        test = f"{line} {word}".strip()
+        if c.stringWidth(test, "Helvetica", 9.5) > max_w:
+            text_obj.textLine(line)
+            line = word
+        else:
+            line = test
+    if line:
+        text_obj.textLine(line)
+    c.drawText(text_obj)
+
+    c.save()
+    print(f"  ✓ Barstow CUF generated (ReportLab)")
 
 
 # ═══════════════════════════════════════════════════════════════════════

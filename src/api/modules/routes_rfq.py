@@ -873,6 +873,35 @@ def generate_rfq_package(rid):
         except Exception as e:
             t.warn("Seller's Permit copy failed", error=str(e))
         
+        # ── CV 012 CUF Certification (standalone, both pages incl. authorizing sig) ──
+        try:
+            from src.forms.reytech_filler_v4 import fill_cv012_cuf
+            cuf_tmpl = os.path.join(DATA_DIR, "templates", "cv012_cuf_blank.pdf")
+            if os.path.exists(cuf_tmpl):
+                fill_cv012_cuf(cuf_tmpl, r, CONFIG, f"{out_dir}/{sol}_CV012_CUF_Reytech.pdf")
+                output_files.append(f"{sol}_CV012_CUF_Reytech.pdf")
+                t.step("CV 012 CUF filled (2 pages)")
+        except Exception as e:
+            errors.append(f"CV 012 CUF: {e}")
+            t.warn("CV 012 CUF fill failed", error=str(e))
+        
+        # ── Barstow CUF (facility-specific — only for VHC-Barstow) ──
+        try:
+            from src.forms.reytech_filler_v4 import generate_barstow_cuf
+            # Detect Barstow: check ship_to, delivery_location, full_body for "Barstow" or zip 92311
+            _rfq_text = " ".join([
+                str(r.get("ship_to", "")), str(r.get("delivery_location", "")),
+                str(r.get("ship_to_name", "")), str(r.get("institution", "")),
+                str(r.get("full_body", "")), str(r.get("agency", "")),
+            ]).lower()
+            is_barstow = "barstow" in _rfq_text or "92311" in _rfq_text
+            if is_barstow:
+                generate_barstow_cuf(r, CONFIG, f"{out_dir}/{sol}_BarstowCUF_Reytech.pdf")
+                output_files.append(f"{sol}_BarstowCUF_Reytech.pdf")
+                t.step("Barstow CUF generated (facility-specific)")
+        except Exception as e:
+            t.warn("Barstow CUF failed", error=str(e))
+        
         # ── CalRecycle 74 standalone (overflow pages for >6 items) ──
         try:
             from src.forms.reytech_filler_v4 import fill_calrecycle_standalone
