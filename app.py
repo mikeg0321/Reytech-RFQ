@@ -72,7 +72,7 @@ def create_app():
                 except Exception:
                     pass
 
-    # ── CRITICAL PATH: DB schema + blueprint (minimum to serve requests) ──
+    # ── CRITICAL PATH: DB schema + data sync + blueprint ──
     print("[BOOT] DB schema init...", flush=True)
     try:
         if os.environ.get("FORCE_CLEAN_BOOT"):
@@ -80,15 +80,27 @@ def create_app():
             with get_db() as conn:
                 conn.executescript(SCHEMA)
         else:
-            # Quick schema-only init (no reconcile/sync) — timeout at 15s
             import signal
             def _timeout_handler(signum, frame):
-                raise TimeoutError("DB init >15s")
+                raise TimeoutError("DB init >30s")
             old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
-            signal.alarm(15)
+            signal.alarm(30)
             try:
-                from src.core.db import get_db, SCHEMA, DB_PATH, init_db, _is_railway_volume
-                init_db()  # Creates tables + DAL migration only
+                from src.core.db import (get_db, SCHEMA, DB_PATH, init_db, _is_railway_volume,
+                                         _reconcile_quotes_json, _boot_sync_quotes, _boot_sync_pcs,
+                                         _fix_data_on_boot, get_db_stats, migrate_json_to_db,
+                                         init_db_deferred)
+                init_db()
+                # Data sync — must complete before serving requests
+                init_db_deferred()  # DAL migration
+                _reconcile_quotes_json()
+                _fix_data_on_boot()
+                stats = get_db_stats()
+                if stats.get("quotes", 0) == 0 and stats.get("contacts", 0) == 0:
+                    migrate_json_to_db()
+                else:
+                    _boot_sync_quotes()
+                    _boot_sync_pcs()
             except TimeoutError:
                 print("[BOOT] DB TIMEOUT — minimal schema", flush=True)
                 from src.core.db import get_db, SCHEMA, DB_PATH, _is_railway_volume
@@ -138,63 +150,30 @@ def create_app():
                 pass
         return response
 
-    # ── DEFERRED: heavy work in background thread ──────────────────────────
-    # App can serve requests while this runs
+    # ── DEFERRED: only non-critical tasks in background ──────────────────
     def _deferred_init():
-        """Run non-critical startup tasks in background."""
-        import threading
-        time.sleep(2)  # Let gunicorn finish binding
+        """Non-critical startup tasks — app already serves requests."""
+        time.sleep(2)
         try:
-            # Catalog init
             from src.core.catalog import init_catalog
             init_catalog()
-        except Exception as e:
-            logging.getLogger("reytech").debug("Catalog: %s", e)
-
+        except Exception:
+            pass
         try:
-            # DAL migration (leads, customers, vendors → DB)
-            from src.core.db import init_db_deferred
-            init_db_deferred()
-        except Exception as e:
-            logging.getLogger("reytech").debug("DAL: %s", e)
-
+            from src.core.db import _dedup_price_checks_on_boot
+            _dedup_price_checks_on_boot()
+        except Exception:
+            pass
         try:
-            # Migrations
             from src.core.migrations import run_migrations
             run_migrations()
-        except Exception as e:
-            logging.getLogger("reytech").debug("Migrations: %s", e)
-
-        if not os.environ.get("FORCE_CLEAN_BOOT"):
-            try:
-                # Heavy DB reconciliation (was blocking startup for 45s+)
-                from src.core.db import _reconcile_quotes_json, _dedup_price_checks_on_boot, _fix_data_on_boot
-                _reconcile_quotes_json()
-                _dedup_price_checks_on_boot()
-                _fix_data_on_boot()
-            except Exception as e:
-                logging.getLogger("reytech").debug("DB reconcile: %s", e)
-
-            try:
-                from src.core.db import get_db_stats, _boot_sync_quotes, _boot_sync_pcs
-                stats = get_db_stats()
-                if stats.get("quotes", 0) == 0 and stats.get("contacts", 0) == 0:
-                    from src.core.db import migrate_json_to_db
-                    migrate_json_to_db()
-                else:
-                    _boot_sync_quotes()
-                    _boot_sync_pcs()
-            except Exception as e:
-                logging.getLogger("reytech").debug("DB sync: %s", e)
-
-        # Structured logging
+        except Exception:
+            pass
         try:
             from src.core.structured_log import setup_structured_logging
             setup_structured_logging()
         except Exception:
             pass
-
-        # Scheduler
         try:
             from src.core.scheduler import start_backup_scheduler, register_job
             start_backup_scheduler(interval_hours=24)
@@ -207,7 +186,6 @@ def create_app():
                 register_job(job_name, interval_sec=interval)
         except Exception:
             pass
-
         logging.getLogger("reytech").info("Deferred init complete")
 
     import threading
