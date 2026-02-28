@@ -61,6 +61,15 @@ for i in range(1, 7):
 # STD 1000 — City field is only 67pt wide
 TIGHT_FIELDS.add("City")
 
+# STD 204 — tight fields
+TIGHT_FIELDS.add("Federal Employer Identification Number (FEIN)")
+TIGHT_FIELDS.add("EMAIL ADDRESS_2")
+TIGHT_FIELDS.add("EMAIL ADDRESS")
+TIGHT_FIELDS.add("CITY STATE ZIP CODE")
+
+# CalRecycle Date field — only 73pt wide
+TIGHT_FIELDS.add("Date")
+
 
 def load_config():
     with open(CONFIG_PATH, "r") as f:
@@ -78,7 +87,7 @@ def set_field_fonts(writer, field_values, default_size=11, tight_size=9):
     da_default = f"/Helv {default_size} Tf 0 g"
     
     # Approximate character widths at different font sizes (Helvetica)
-    CHAR_WIDTH = {7: 3.9, 8: 4.5, 9: 5.0, 10: 5.6}
+    CHAR_WIDTH = {5: 2.8, 6: 3.3, 7: 3.9, 8: 4.5, 9: 5.0, 10: 5.6}
     
     for page in writer.pages:
         if "/Annots" not in page:
@@ -99,9 +108,9 @@ def set_field_fonts(writer, field_values, default_size=11, tight_size=9):
                 rect = obj.get("/Rect")
                 field_w = float(rect[2]) - float(rect[0]) if rect else 60
                 
-                # Try 9pt first, drop to 8 or 7 if needed
+                # Try 9pt first, drop to smaller sizes if needed
                 font_sz = tight_size
-                for try_sz in [9, 8, 7]:
+                for try_sz in [9, 8, 7, 6, 5]:
                     est_width = len(content) * CHAR_WIDTH.get(try_sz, 5.0)
                     if est_width < field_w - 4:  # 4pt padding
                         font_sz = try_sz
@@ -533,6 +542,12 @@ def _overlay_std1000_description(pdf_path, items, page_index=0):
         desc = item.get("description", "")
         qty = item.get("qty", 1)
         uom = item.get("uom", "EA")
+        # Clean up description — strip refs, model#, UPC for brevity
+        if " - " in desc and len(desc) > 80:
+            desc = desc.split(" - ")[0].strip()
+        for m in ["(R)", "(TM)", "®", "™"]:
+            desc = desc.replace(m, "")
+        desc = desc.rstrip(" -")
         lines.append(f"{i}. {pn}, {qty} {uom} - {desc}")
     if not lines:
         lines = ["N/A"]
@@ -631,8 +646,7 @@ def fill_std204(input_path, rfq_data, config, output_path):
         "EMAIL ADDRESS": "sales@reytechinc.com",
         # Section 2 — Entity Type: ALL OTHERS
         "corpOthers": "/On",
-        # Section 3 — FEIN
-        "Federal Employer Identification Number (FEIN)": company["fein"],
+        # Section 3 — FEIN: leave blank, overlay digits instead
         # Section 4 — CA Resident
         "calRes": "/On",
         # Section 5 — Certification
@@ -646,7 +660,61 @@ def fill_std204(input_path, rfq_data, config, output_path):
     }
 
     fill_and_sign_pdf(input_path, values, output_path, sign_date=sign_date)
+
+    # Overlay FEIN digits at correct positions (field has individual underlines)
+    _overlay_std204_fein(output_path, company["fein"])
+
     print(f"  ✓ STD 204 Payee Data Record filled")
+
+
+def _overlay_std204_fein(pdf_path, fein, page_index=0):
+    """Overlay FEIN digits at spaced positions matching the underline marks on STD 204.
+    FEIN format: XX-XXXXXXX (9 digits with dash)
+    Field rect: [398.7, 366.8, 584.5, 383.2]
+    """
+    from reportlab.lib.pagesizes import letter
+
+    # Extract just digits
+    digits = [c for c in fein if c.isdigit()]
+    if len(digits) != 9:
+        return
+
+    # Field position on page
+    field_left = 398.7
+    field_bottom = 366.8
+    field_width = 185.8
+    field_height = 16.4
+
+    # 9 digit positions + dash = 10 slots across the field
+    # Format: [d1] [d2] [-] [d3] [d4] [d5] [d6] [d7] [d8] [d9]
+    slot_width = field_width / 10.0  # ~18.6pt per slot
+    y_pos = field_bottom + 3  # baseline offset from bottom
+
+    buf = io.BytesIO()
+    c = rl_canvas.Canvas(buf, pagesize=letter)
+    c.setFont("Helvetica", 12)
+
+    # Draw each digit centered in its slot
+    # Slots: 0=d1, 1=d2, 2=dash, 3..9=d3..d9
+    slot_map = [0, 1, 3, 4, 5, 6, 7, 8, 9]  # skip slot 2 (dash)
+    for i, digit in enumerate(digits):
+        slot = slot_map[i]
+        x = field_left + (slot + 0.5) * slot_width
+        c.drawCentredString(x, y_pos, digit)
+
+    c.save()
+    buf.seek(0)
+
+    reader = PdfReader(pdf_path)
+    writer = PdfWriter()
+    writer.append(reader)
+
+    overlay_reader = PdfReader(buf)
+    if overlay_reader.pages:
+        writer.pages[page_index].merge_page(overlay_reader.pages[0])
+
+    with open(pdf_path, "wb") as f:
+        writer.write(f)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -952,15 +1020,44 @@ def fill_calrecycle_standalone(input_path, rfq_data, config, output_path):
         "Date": sign_date,
     }
 
+    def _short_desc(item):
+        """Extract brand + main product name only (≤45 chars for CalRecycle)."""
+        desc = item.get("description", "")
+        # Strip everything after first " - " separator (removes ref numbers, UPCs, etc.)
+        if " - " in desc:
+            desc = desc.split(" - ")[0].strip()
+        # Strip trailing dash
+        desc = desc.rstrip(" -")
+        # Strip (R), (TM) markers
+        for m in ["(R)", "(TM)", "\\(R\\)", "®", "™"]:
+            desc = desc.replace(m, "")
+        # Strip everything in parentheses at end
+        import re as _re
+        desc = _re.sub(r'\s*\([^)]*\)\s*$', '', desc)
+        # Strip leading ASIN/qty patterns like "10 EA - "
+        desc = _re.sub(r'^\d+\s+EA\s*[-–]\s*', '', desc)
+        # Strip Model #, UPC #, Ref: patterns
+        desc = _re.sub(r'\s*Model\s*#.*', '', desc, flags=_re.IGNORECASE)
+        desc = _re.sub(r'\s*UPC\s*#.*', '', desc, flags=_re.IGNORECASE)
+        desc = _re.sub(r'\s*[-/]\s*\(\?\).*', '', desc)
+        desc = _re.sub(r'\s*#\s*\d{6,}.*', '', desc)
+        desc = desc.strip(" ,;-/")
+        if len(desc) > 45:
+            desc = desc[:42] + "..."
+        return desc
+
+    def _short_item(item):
+        """Truncate item number to fit 42pt field (max ~7 chars at 7pt)."""
+        pn = item.get("item_number", item.get("part_number", ""))
+        if len(pn) > 10:
+            pn = pn[:10]
+        return pn
+
     # Fill first page (up to 6 items)
     values = dict(base_values)
     for idx, item in enumerate(items[:6], start=1):
-        pn = item.get("item_number", item.get("part_number", ""))
-        desc = item.get("description", "")
-        if len(desc) > 60:
-            desc = desc[:57] + "..."
-        values[f"Item Row{idx}"] = pn
-        values[f"Product or Services DescriptionRow{idx}"] = desc
+        values[f"Item Row{idx}"] = _short_item(item)
+        values[f"Product or Services DescriptionRow{idx}"] = _short_desc(item)
         values[f"1Percent Postconsumer Recycled Content MaterialRow{idx}"] = "0%"
         values[f"2SABRC Product Category CodeRow{idx}"] = "N/A"
 
@@ -987,12 +1084,8 @@ def fill_calrecycle_standalone(input_path, rfq_data, config, output_path):
             batch = remaining[batch_start:batch_start + 6]
             ov_values = dict(base_values)
             for idx, item in enumerate(batch, start=1):
-                pn = item.get("item_number", item.get("part_number", ""))
-                desc = item.get("description", "")
-                if len(desc) > 60:
-                    desc = desc[:57] + "..."
-                ov_values[f"Item Row{idx}"] = pn
-                ov_values[f"Product or Services DescriptionRow{idx}"] = desc
+                ov_values[f"Item Row{idx}"] = _short_item(item)
+                ov_values[f"Product or Services DescriptionRow{idx}"] = _short_desc(item)
                 ov_values[f"1Percent Postconsumer Recycled Content MaterialRow{idx}"] = "0%"
                 ov_values[f"2SABRC Product Category CodeRow{idx}"] = "N/A"
 

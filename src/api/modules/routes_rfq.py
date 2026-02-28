@@ -1285,6 +1285,10 @@ def generate_rfq_package(rid):
             package_pdfs.append((fpath, f))
     
     # Include original RFQ attachments from email (generic agencies: CalVet, CalFire, DGS, etc.)
+    # Skip forms we've already filled (STD 1000, STD 204, CUF, CalRecycle, Seller's Permit)
+    _filled_form_patterns = {"std1000", "std_1000", "std 1000", "std204", "std_204", "std 204",
+                             "payee", "cv012", "cv_012", "cuf_", "cuf ", "calrecycle",
+                             "cal_recycle", "seller", "permit", "genai"}
     db_attachments = list_rfq_files(rid, category="attachment") + list_rfq_files(rid, category="template")
     for db_f in db_attachments:
         fname = db_f.get("filename", "")
@@ -1292,6 +1296,11 @@ def generate_rfq_package(rid):
             continue
         # Skip if already in package_pdfs
         if any(fname == os.path.basename(p) for p, _ in package_pdfs):
+            continue
+        # Skip if it's a form we've already filled
+        fname_lower = fname.lower().replace("-", "_").replace(" ", "_")
+        if any(pat in fname_lower for pat in _filled_form_patterns):
+            t.step(f"Skipped duplicate: {fname} (already filled)")
             continue
         try:
             full_f = get_rfq_file(db_f["id"])
@@ -1313,13 +1322,32 @@ def generate_rfq_package(rid):
             from pypdf import PdfReader, PdfWriter
             writer = PdfWriter()
             merge_count = 0
+            
+            # Skip patterns for original attachments we've already filled
+            _filled_forms = {"std1000", "std204", "std 204", "payee", "cv012", "cuf",
+                             "calrecycle", "cal_recycle", "seller", "permit"}
+            
             for pdf_path, label in package_pdfs:
                 try:
                     reader = PdfReader(pdf_path)
+                    pages_added = 0
                     for page in reader.pages:
+                        # Skip XFA "Please wait..." placeholder pages
+                        try:
+                            text = page.extract_text() or ""
+                            if ("Please wait" in text and len(text.strip()) < 300
+                                    and "Adobe Reader" in text):
+                                t.step(f"Skipped XFA placeholder page in {label}")
+                                continue
+                        except Exception:
+                            pass
                         writer.add_page(page)
-                    merge_count += 1
-                    t.step(f"Merged: {label} ({len(reader.pages)} pages)")
+                        pages_added += 1
+                    if pages_added > 0:
+                        merge_count += 1
+                        t.step(f"Merged: {label} ({pages_added} pages)")
+                    else:
+                        t.step(f"Skipped: {label} (all pages were XFA placeholders)")
                 except Exception as _me:
                     t.warn(f"Could not merge {label}", error=str(_me))
             
