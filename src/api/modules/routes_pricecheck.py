@@ -2148,24 +2148,37 @@ def api_inbox_peek():
         
         from datetime import datetime, timedelta
         since = (datetime.now() - timedelta(days=7)).strftime("%d-%b-%Y")
-        _, data = mail.search(None, f'(SINCE "{since}")')
+        # Use UID search to match what the poller uses
+        _, data = mail.uid("search", None, f'(SINCE "{since}")')
         uids = data[0].split() if data[0] else []
         
-        # Load processed UIDs
+        # Load processed UIDs from JSON
         proc_file = os.path.join(DATA_DIR, "processed_emails.json")
-        processed = set()
+        processed_json = set()
         try:
             if os.path.exists(proc_file):
                 import json as _j
                 with open(proc_file) as f:
-                    processed = set(_j.load(f))
+                    processed_json = set(str(x) for x in _j.load(f))
         except Exception:
             pass
+        
+        # Load processed UIDs from SQLite
+        processed_db = set()
+        try:
+            from src.core.db import get_db
+            with get_db() as conn:
+                rows = conn.execute("SELECT uid FROM processed_emails").fetchall()
+                processed_db = set(str(r[0]) for r in rows)
+        except Exception:
+            pass
+        
+        all_processed = processed_json | processed_db
         
         emails = []
         for uid in uids[-10:]:  # Last 10
             uid_str = uid.decode()
-            _, msg_data = mail.fetch(uid, "(RFC822.HEADER)")
+            _, msg_data = mail.uid("fetch", uid, "(RFC822.HEADER)")
             if not msg_data or not msg_data[0]:
                 continue
             raw = msg_data[0][1] if isinstance(msg_data[0], tuple) else b""
@@ -2188,7 +2201,8 @@ def api_inbox_peek():
             our_domains = ["reytechinc.com", "reytech.com"]
             is_self = any(sender_email.endswith(f"@{d}") for d in our_domains)
             is_fwd_subj = any(subj.lower().strip().startswith(p) for p in ["fwd:", "fw:"])
-            is_processed = uid_str in processed
+            in_json = uid_str in processed_json
+            in_db = uid_str in processed_db
             
             emails.append({
                 "uid": uid_str,
@@ -2196,7 +2210,9 @@ def api_inbox_peek():
                 "sender": sender_email,
                 "is_self": is_self,
                 "is_fwd": is_fwd_subj,
-                "is_processed": is_processed,
+                "in_json": in_json,
+                "in_db": in_db,
+                "blocked": in_json or in_db,
                 "date": msg.get("Date", "")[:30],
             })
         
@@ -2204,13 +2220,71 @@ def api_inbox_peek():
         return jsonify({
             "ok": True,
             "total_in_window": len(uids),
-            "processed_count": len(processed),
-            "processed_uids": sorted(list(processed))[:20],
+            "processed_json": sorted(list(processed_json))[:20],
+            "processed_db": sorted(list(processed_db))[:20],
             "emails": emails,
         })
     except Exception as e:
         import traceback
         return jsonify({"ok": False, "error": str(e), "tb": traceback.format_exc()})
+
+
+@bp.route("/api/diag/nuke-and-poll")
+@auth_required
+def api_nuke_and_poll():
+    """Nuclear option: clear ALL dedup layers and re-poll. GET to bypass CSRF."""
+    global _shared_poller
+    cleared = {}
+    
+    # 1. Clear JSON processed file
+    proc_file = os.path.join(DATA_DIR, "processed_emails.json")
+    try:
+        if os.path.exists(proc_file):
+            with open(proc_file) as f:
+                old = json.load(f)
+            cleared["json"] = len(old) if isinstance(old, list) else 0
+            os.remove(proc_file)
+        else:
+            cleared["json"] = "not found"
+    except Exception as e:
+        cleared["json_error"] = str(e)
+    
+    # 2. Clear SQLite processed_emails
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            n = conn.execute("SELECT COUNT(*) FROM processed_emails").fetchone()[0]
+            conn.execute("DELETE FROM processed_emails")
+            cleared["db_processed"] = n
+    except Exception as e:
+        cleared["db_error"] = str(e)
+    
+    # 3. Clear SQLite email_fingerprints
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            n = conn.execute("SELECT COUNT(*) FROM email_fingerprints").fetchone()[0]
+            conn.execute("DELETE FROM email_fingerprints")
+            cleared["db_fingerprints"] = n
+    except Exception as e:
+        cleared["fp_error"] = str(e)
+    
+    # 4. Kill shared poller
+    _shared_poller = None
+    cleared["poller"] = "reset"
+    
+    # 5. Re-poll
+    try:
+        imported = do_poll_check()
+        return jsonify({
+            "ok": True,
+            "cleared": cleared,
+            "found": len(imported),
+            "rfqs": [{"id": r.get("id","?"), "subject": r.get("subject","")[:60]} for r in imported],
+            "traces": POLL_STATUS.get("_email_traces", [])[-10:],
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "cleared": cleared, "error": str(e)})
 
 
 @bp.route("/api/diag")
