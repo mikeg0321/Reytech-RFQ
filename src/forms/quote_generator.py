@@ -1358,152 +1358,88 @@ def generate_quote_from_rfq(rfq: dict, output_path: str, **kwargs) -> dict:
                 _lookup_facility(institution_name) or
                 _lookup_facility(institution))
 
-    # ── Zip-code based facility lookup on RFQ fields ──
-    _ambiguous_facilities = []
+    # ── If still blank: find zip code → match facility ──
     if not facility:
-        _zip_text = f"{delivery} {ship_to_raw} {ship_to_name_raw} {institution_name}"
-        facility, _ambiguous_facilities = _lookup_facility_by_zip(_zip_text)
-        if facility:
-            if len(_ambiguous_facilities) > 1:
-                log.warning("Ambiguous zip match: %s — using %s", _ambiguous_facilities, _ambiguous_facilities[0])
-            else:
-                log.info("Facility matched by zip code → %s", facility["name"])
-
-    # Fallback: aggressively scan ALL available data for facility clues
-    if not facility:
-        _body = rfq.get("body_text", "")
-        _subj = rfq.get("email_subject", "")
-        _scan_text = f"{_body} {_subj} {delivery} {institution_name} {ship_to_raw} {ship_to_name_raw}".upper()
+        # Gather ALL text we have: RFQ fields + email body + email_log + PDF content
         _rid = rfq.get("id", "")
+        _all_text = f"{delivery} {ship_to_raw} {ship_to_name_raw} {institution_name}"
+        _all_text += " " + rfq.get("body_text", "")
+        _all_text += " " + rfq.get("email_subject", "")
         
-        # ALWAYS check email_log for the original email body (signature has address)
+        # Pull email body from DB
         if _rid:
             try:
                 from src.core.db import get_db
                 with get_db() as conn:
-                    _email_row = conn.execute(
+                    _row = conn.execute(
                         "SELECT full_body FROM email_log WHERE rfq_id = ? ORDER BY id DESC LIMIT 1",
                         (_rid,)
                     ).fetchone()
-                    if _email_row and _email_row["full_body"]:
-                        _scan_text += " " + _email_row["full_body"].upper()
-                        log.info("Facility scan: added %d chars from email_log", len(_email_row["full_body"]))
-            except Exception as _e:
-                log.debug("email_log lookup: %s", _e)
+                    if _row and _row["full_body"]:
+                        _all_text += " " + _row["full_body"]
+            except Exception:
+                pass
         
-        # ALWAYS try PDF text extraction from stored attachments
+        # Pull text from stored PDFs
         if _rid:
             try:
                 from src.core.db import get_db
                 with get_db() as conn:
-                    _pdf_rows = conn.execute(
+                    _pdfs = conn.execute(
                         "SELECT data, filename FROM rfq_files WHERE rfq_id = ? AND category IN ('attachment','template') LIMIT 5",
                         (_rid,)
                     ).fetchall()
-                for _pr in (_pdf_rows or []):
+                for _pr in (_pdfs or []):
                     if _pr["data"] and (_pr["filename"] or "").lower().endswith(".pdf"):
                         try:
                             from pypdf import PdfReader
                             import io
-                            _reader = PdfReader(io.BytesIO(_pr["data"]))
-                            for _pg in _reader.pages[:3]:
-                                _pt = (_pg.extract_text() or "").upper()
-                                if _pt:
-                                    _scan_text += " " + _pt
-                            log.info("Facility scan: extracted text from %s", _pr["filename"])
-                        except Exception as _pe:
-                            log.debug("PDF text extract %s: %s", _pr["filename"], _pe)
-                    if len(_scan_text) > 10000:
-                        break
-            except Exception as _e:
-                log.debug("PDF scan: %s", _e)
+                            for _pg in PdfReader(io.BytesIO(_pr["data"])).pages[:3]:
+                                _all_text += " " + (_pg.extract_text() or "")
+                        except Exception:
+                            pass
+            except Exception:
+                pass
         
-        log.info("Facility scan text length: %d chars", len(_scan_text))
-        
-        # Check for known facility city names
-        _CITY_MAP = {
-            "REDDING": "CALVETHOME-RD", "YOUNTVILLE": "CALVETHOME-YV",
-            "BARSTOW": "CALVETHOME-BF", "CHULA VISTA": "CALVETHOME-CV",
-            "FRESNO": "CALVETHOME-FR", "WEST LOS ANGELES": "CALVETHOME-LA",
-            "VENTURA": "CALVETHOME-VM",
-            "CHINO": "CIM", "CORONA": "CIW", "CORCORAN": "CSP-COR",
-            "LANCASTER": "CSP-LAC", "VACAVILLE": "CSP-SOL",
-            "STOCKTON": "CHCF", "COALINGA": "PVSP", "DELANO": "KVSP",
-            "IONE": "MCSP", "WASCO": "WSP", "CHOWCHILLA": "CCWF",
-            "SOLEDAD": "CTF", "CRESCENT CITY": "PBSP", "NORCO": "CRC",
-            "TEHACHAPI": "CCI", "AVENAL": "ASP", "SUSANVILLE": "HDSP",
-            "BLYTHE": "ISP", "SAN QUENTIN": "SQ", "CALIPATRIA": "CAL",
-            "JAMESTOWN": "SCC", "SAN LUIS OBISPO": "CMC",
-        }
-        for city, fac_key in _CITY_MAP.items():
-            if city in _scan_text:
-                facility = FACILITY_DB.get(fac_key)
-                if facility:
-                    log.info("Facility matched from city scan: %s → %s", city, facility["name"])
-                    break
-        
-        # Also try zip-code matching on the full scan text
-        if not facility:
-            facility, _amb = _lookup_facility_by_zip(_scan_text)
-            if facility:
-                log.info("Facility matched from zip scan → %s%s", 
-                         facility["name"], f" (ambiguous: {_amb})" if len(_amb) > 1 else "")
+        # Match zip → facility
+        facility, _amb = _lookup_facility_by_zip(_all_text)
+        if facility:
+            log.info("Facility matched by zip: %s", facility["name"])
 
+    # ── Set To / Ship To from facility ──
     if facility:
-        # Use canonical facility data
         ship_name = facility["name"]
         ship_addr = list(facility["address"])
-        to_name = institution or facility["parent_full"]
-        to_addr = list(facility["address"])  # Same address for To:
-        # Override agency detection
-        if "agency" not in kwargs:
-            _parent_agency_map = {"CDCR": "CDCR", "CCHCS": "CCHCS", "CalVet": "CalVet", "DGS": "DGS", "DSH": "DSH"}
-            if facility["parent"] in _parent_agency_map:
-                kwargs["agency"] = _parent_agency_map[facility["parent"]]
-    else:
-        # No facility match — use agency-level defaults for known agencies
-        _agency_lower = (rfq.get("agency", "") or institution or "").lower()
-        
-        if "calvet" in _agency_lower or "veteran" in _agency_lower:
-            # CalVet: use HQ for To, generic for Ship To
-            to_name = "California Department of Veterans Affairs"
-            to_addr = ["APinvoices@calvet.ca.gov", '1227 "O" Street, Room 403', "Sacramento, CA 95814"]
-            ship_name = institution_name or "CalVet"
-            ship_addr = []
+        # To: uses parent agency name; address comes from AGENCY_CONFIGS bill_to
+        to_name = facility["parent_full"]
+        _parent_agency_map = {"CDCR": "CDCR", "CCHCS": "CCHCS", "CalVet": "CalVet", "DGS": "DGS", "DSH": "DSH"}
+        _agency_key = _parent_agency_map.get(facility["parent"], "")
+        if _agency_key:
             if "agency" not in kwargs:
-                kwargs["agency"] = "CalVet"
-            log.info("Using CalVet agency defaults (no specific facility found)")
-        elif "cdcr" in _agency_lower or "correction" in _agency_lower:
-            to_name = "Dept. of Corrections and Rehabilitation"
-            to_addr = ["P.O. Box 942883", "Sacramento, CA 94283"]
-            ship_name = institution_name or "CDCR"
-            ship_addr = []
-            if "agency" not in kwargs:
-                kwargs["agency"] = "CDCR"
-        elif "cchcs" in _agency_lower or "health care" in _agency_lower:
-            to_name = "California Correctional Health Care Services"
-            to_addr = ["P.O. Box 588500", "Elk Grove, CA 95758"]
-            ship_name = institution_name or "CCHCS"
-            ship_addr = []
-            if "agency" not in kwargs:
-                kwargs["agency"] = "CCHCS"
-        else:
-            # Generic: manual parsing
-            if delivery:
-                ship_name, ship_addr = _parse_address_parts(delivery)
-            elif ship_to_raw:
-                ship_name, ship_addr = _parse_address_parts(ship_to_raw)
-            elif ship_to_name_raw:
-                ship_name, ship_addr = _parse_address_parts(ship_to_name_raw)
+                kwargs["agency"] = _agency_key
+            # Use agency bill-to as To: address (HQ/invoicing address)
+            _cfg = AGENCY_CONFIGS.get(_agency_key, {})
+            if _cfg.get("bill_to_lines"):
+                to_addr = list(_cfg["bill_to_lines"])
             else:
-                ship_name = institution
-                ship_addr = []
-            
-            if not ship_name:
-                ship_name = institution
-            
-            to_name = institution
+                to_addr = list(ship_addr)
+        else:
             to_addr = list(ship_addr)
+        log.info("Facility resolved: To=%s, Ship To=%s (%s)", to_name, ship_name, ship_addr)
+    else:
+        # No facility found — use whatever we have
+        if delivery:
+            ship_name, ship_addr = _parse_address_parts(delivery)
+        elif ship_to_raw:
+            ship_name, ship_addr = _parse_address_parts(ship_to_raw)
+        else:
+            ship_name = institution
+            ship_addr = []
+        if not ship_name:
+            ship_name = institution
+        to_name = institution
+        to_addr = list(ship_addr)
+        log.warning("No facility match for RFQ %s — To/ShipTo may be incomplete", rfq.get("id", "?"))
 
     data = {
         "institution": to_name,
