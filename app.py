@@ -50,18 +50,20 @@ def create_app():
         print("[BOOT] FORCE_CLEAN_BOOT: clearing corrupted files...", flush=True)
         import glob
         data_dir = os.path.join(_app_dir, "data")
-        for db_file in glob.glob(os.path.join(data_dir, "*.db-journal")):
-            try:
-                os.remove(db_file)
-                print(f"[BOOT] Removed journal: {db_file}", flush=True)
-            except Exception:
-                pass
-        for lock_file in glob.glob(os.path.join(data_dir, "*.db-wal")):
-            try:
-                os.remove(lock_file)
-                print(f"[BOOT] Removed WAL: {lock_file}", flush=True)
-            except Exception:
-                pass
+        # Delete SQLite lock/journal/WAL files that cause hangs
+        for pattern in ["*.db-journal", "*.db-wal", "*.db-shm"]:
+            for f in glob.glob(os.path.join(data_dir, pattern)):
+                try:
+                    os.remove(f)
+                    print(f"[BOOT] Removed lock: {f}", flush=True)
+                except Exception:
+                    pass
+        # Delete main DB — it will rebuild from JSON on init
+        db_file = os.path.join(data_dir, "reytech.db")
+        if os.path.exists(db_file):
+            db_size = os.path.getsize(db_file) / 1024 / 1024
+            os.remove(db_file)
+            print(f"[BOOT] Removed reytech.db ({db_size:.0f} MB) — will rebuild", flush=True)
         # Clear processed emails to unstick poller
         for f in ["processed_emails.json"]:
             p = os.path.join(data_dir, f)
@@ -71,6 +73,20 @@ def create_app():
                     print(f"[BOOT] Removed: {p}", flush=True)
                 except Exception:
                     pass
+        # Clear huge upload directories that bloat volume
+        uploads_dir = os.path.join(_app_dir, "uploads")
+        if os.path.isdir(uploads_dir):
+            total_size = sum(
+                os.path.getsize(os.path.join(dp, f))
+                for dp, _, fns in os.walk(uploads_dir)
+                for f in fns
+            )
+            print(f"[BOOT] uploads/ size: {total_size / 1024 / 1024:.0f} MB", flush=True)
+            if total_size > 500 * 1024 * 1024:  # > 500MB
+                import shutil
+                shutil.rmtree(uploads_dir, ignore_errors=True)
+                os.makedirs(uploads_dir, exist_ok=True)
+                print("[BOOT] Cleared oversized uploads/", flush=True)
 
     # ── Persistent database init ──────────────────────────────────────────────
     # ── Product catalog init ──────────────────────────────────────────────────
@@ -84,8 +100,17 @@ def create_app():
 
     print("[BOOT] Initializing DB...", flush=True)
     try:
-        from src.core.db import startup as db_startup
-        result = db_startup()
+        if os.environ.get("FORCE_CLEAN_BOOT"):
+            # Minimal DB init — just create tables, skip all migration/sync
+            print("[BOOT] FORCE_CLEAN_BOOT: minimal DB init (schema only)", flush=True)
+            from src.core.db import get_db, SCHEMA, DB_PATH, _is_railway_volume
+            with get_db() as conn:
+                conn.executescript(SCHEMA)
+            print("[BOOT] Schema created", flush=True)
+            result = {"ok": True, "db_path": DB_PATH, "stats": {"quotes": 0, "contacts": 0, "price_history": 0}, "is_volume": _is_railway_volume()}
+        else:
+            from src.core.db import startup as db_startup
+            result = db_startup()
         logging.getLogger("reytech").info(
             "DB: %s | volume=%s | quotes=%d contacts=%d prices=%d",
             result["db_path"],
@@ -96,6 +121,7 @@ def create_app():
         )
     except Exception as e:
         logging.getLogger("reytech").warning("DB init skipped: %s", e)
+        print(f"[BOOT] DB init error: {e}", flush=True)
     print("[BOOT] DB done", flush=True)
 
     # ── Schema migrations (Sprint 5.2) ──────────────────────────────────────
