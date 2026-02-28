@@ -166,6 +166,31 @@ FACILITY_DB = {
     "CALVETHOME-VM": {"name": "Veterans Home of California - Ventura", "parent": "CalVet", "parent_full": "California Department of Veterans Affairs", "address": ["10900 Telephone Rd", "Ventura, CA 93004"]},
 }
 
+# ── Build reverse zip→facility lookup ─────────────────────────────────────────
+# Each zip maps to a list of facility keys (most are unique, some CDCR share zips)
+ZIP_TO_FACILITY = {}
+for _fk, _fv in FACILITY_DB.items():
+    _addr_str = " ".join(_fv.get("address", []))
+    _zip_matches = re.findall(r'\b(\d{5})\b', _addr_str)
+    if _zip_matches:
+        _zip = _zip_matches[-1]  # Last 5-digit number is the zip
+        ZIP_TO_FACILITY.setdefault(_zip, []).append(_fk)
+
+
+def _lookup_facility_by_zip(text: str) -> tuple:
+    """Scan text for zip codes and match to facilities.
+    Returns (facility_dict, ambiguous_list) where ambiguous_list has >1 if zip is shared."""
+    if not text:
+        return None, []
+    found_zips = re.findall(r'\b(\d{5})\b', text)
+    for z in found_zips:
+        if z in ZIP_TO_FACILITY:
+            keys = ZIP_TO_FACILITY[z]
+            fac = FACILITY_DB.get(keys[0])
+            if fac:
+                return fac, keys
+    return None, []
+
 
 def _lookup_facility(text: str) -> dict | None:
     """Look up a CDCR/CalVet facility from free text (delivery location, ship_to, institution).
@@ -1333,6 +1358,17 @@ def generate_quote_from_rfq(rfq: dict, output_path: str, **kwargs) -> dict:
                 _lookup_facility(institution_name) or
                 _lookup_facility(institution))
 
+    # ── Zip-code based facility lookup on RFQ fields ──
+    _ambiguous_facilities = []
+    if not facility:
+        _zip_text = f"{delivery} {ship_to_raw} {ship_to_name_raw} {institution_name}"
+        facility, _ambiguous_facilities = _lookup_facility_by_zip(_zip_text)
+        if facility:
+            if len(_ambiguous_facilities) > 1:
+                log.warning("Ambiguous zip match: %s — using %s", _ambiguous_facilities, _ambiguous_facilities[0])
+            else:
+                log.info("Facility matched by zip code → %s", facility["name"])
+
     # Fallback: aggressively scan ALL available data for facility clues
     if not facility:
         _body = rfq.get("body_text", "")
@@ -1403,8 +1439,15 @@ def generate_quote_from_rfq(rfq: dict, output_path: str, **kwargs) -> dict:
             if city in _scan_text:
                 facility = FACILITY_DB.get(fac_key)
                 if facility:
-                    log.info("Facility matched from scan: %s → %s", city, facility["name"])
+                    log.info("Facility matched from city scan: %s → %s", city, facility["name"])
                     break
+        
+        # Also try zip-code matching on the full scan text
+        if not facility:
+            facility, _amb = _lookup_facility_by_zip(_scan_text)
+            if facility:
+                log.info("Facility matched from zip scan → %s%s", 
+                         facility["name"], f" (ambiguous: {_amb})" if len(_amb) > 1 else "")
 
     if facility:
         # Use canonical facility data
