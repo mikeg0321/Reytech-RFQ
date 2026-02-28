@@ -71,7 +71,7 @@ def _seed_volume():
         if os.path.isfile(src) and not os.path.exists(dst):
             shutil.copy2(src, dst)
             seeded.append(fname)
-    # Sync templates/ subdirectory (new templates need to land on existing volumes)
+    # Sync templates/ subdirectory (new or changed templates need to land on existing volumes)
     git_templates = os.path.join(_GIT_DATA_DIR, "templates")
     vol_templates = os.path.join(DATA_DIR, "templates")
     if os.path.isdir(git_templates):
@@ -79,7 +79,10 @@ def _seed_volume():
         for fname in os.listdir(git_templates):
             src = os.path.join(git_templates, fname)
             dst = os.path.join(vol_templates, fname)
-            if os.path.isfile(src) and not os.path.exists(dst):
+            if not os.path.isfile(src):
+                continue
+            # Copy if missing OR if size changed (e.g. template was re-saved/decrypted)
+            if not os.path.exists(dst) or os.path.getsize(src) != os.path.getsize(dst):
                 shutil.copy2(src, dst)
                 seeded.append(f"templates/{fname}")
     if seeded:
