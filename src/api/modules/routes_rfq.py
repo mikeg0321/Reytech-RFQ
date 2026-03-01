@@ -1221,17 +1221,67 @@ def generate_rfq_package(rid):
         except Exception as e:
             t.warn("Barstow CUF failed", error=str(e))
         
-        # ── CalRecycle 74 standalone (overflow pages for >6 items) ──
+        # ── CalRecycle 74 standalone (always generate — overflow pages for >6 items) ──
         try:
             from src.forms.reytech_filler_v4 import fill_calrecycle_standalone
             cr_tmpl = os.path.join(DATA_DIR, "templates", "calrecycle_74_blank.pdf")
-            if os.path.exists(cr_tmpl) and len(r.get("line_items", [])) > 6:
+            if os.path.exists(cr_tmpl):
                 fill_calrecycle_standalone(cr_tmpl, r, CONFIG, f"{out_dir}/{sol}_CalRecycle74_Reytech.pdf")
                 output_files.append(f"{sol}_CalRecycle74_Reytech.pdf")
-                t.step(f"CalRecycle 74 overflow: {len(r['line_items'])} items")
+                t.step(f"CalRecycle 74 filled: {len(r.get('line_items', []))} items")
         except Exception as e:
             errors.append(f"CalRecycle 74: {e}")
             t.warn("CalRecycle 74 fill failed", error=str(e))
+        
+        # ── STD 205 Payee Data Record Supplement ──
+        try:
+            from src.forms.reytech_filler_v4 import generate_std205
+            generate_std205(r, CONFIG, f"{out_dir}/{sol}_STD205_Reytech.pdf")
+            output_files.append(f"{sol}_STD205_Reytech.pdf")
+            t.step("STD 205 Payee Supplement generated")
+        except Exception as e:
+            errors.append(f"STD 205: {e}")
+            t.warn("STD 205 fill failed", error=str(e))
+        
+        # ── Bidder Declaration GSPD-05-106 ──
+        try:
+            from src.forms.reytech_filler_v4 import generate_bidder_declaration
+            generate_bidder_declaration(r, CONFIG, f"{out_dir}/{sol}_BidderDecl_Reytech.pdf")
+            output_files.append(f"{sol}_BidderDecl_Reytech.pdf")
+            t.step("Bidder Declaration GSPD-05-106 generated")
+        except Exception as e:
+            errors.append(f"Bidder Declaration: {e}")
+            t.warn("Bidder Declaration failed", error=str(e))
+        
+        # ── DVBE Declarations DGS PD 843 ──
+        try:
+            from src.forms.reytech_filler_v4 import generate_dvbe_843
+            generate_dvbe_843(r, CONFIG, f"{out_dir}/{sol}_DVBE843_Reytech.pdf")
+            output_files.append(f"{sol}_DVBE843_Reytech.pdf")
+            t.step("DVBE 843 Declarations generated")
+        except Exception as e:
+            errors.append(f"DVBE 843: {e}")
+            t.warn("DVBE 843 failed", error=str(e))
+        
+        # ── Darfur Contracting Act DGS PD 1 (2 pages) ──
+        try:
+            from src.forms.reytech_filler_v4 import generate_darfur_act
+            generate_darfur_act(r, CONFIG, f"{out_dir}/{sol}_DarfurAct_Reytech.pdf")
+            output_files.append(f"{sol}_DarfurAct_Reytech.pdf")
+            t.step("Darfur Act certification generated (2 pages)")
+        except Exception as e:
+            errors.append(f"Darfur Act: {e}")
+            t.warn("Darfur Act failed", error=str(e))
+        
+        # ── Drug-Free Workplace STD 21 ──
+        try:
+            from src.forms.reytech_filler_v4 import generate_drug_free
+            generate_drug_free(r, CONFIG, f"{out_dir}/{sol}_DrugFree_Reytech.pdf")
+            output_files.append(f"{sol}_DrugFree_Reytech.pdf")
+            t.step("Drug-Free Workplace STD 21 generated")
+        except Exception as e:
+            errors.append(f"Drug-Free: {e}")
+            t.warn("Drug-Free STD 21 failed", error=str(e))
     except Exception as e:
         errors.append(f"State forms: {e}")
         t.warn("State forms exception", error=str(e))
@@ -1276,6 +1326,31 @@ def generate_rfq_package(rid):
     package_pdfs = []  # (filepath, label) — order matters
     quote_file = None   # The Reytech quote stays separate
     
+    # ── Canonical form order for CalVet/generic RFQ packages ──
+    # Forms appear in this exact sequence in the merged PDF.
+    # Key substrings matched against filenames (case-insensitive).
+    _FORM_ORDER = [
+        "CalRecycle74",      # 1. CalRecycle 74
+        "STD204",            # 2. STD 204 Payee Data Record
+        "STD205",            # 3. STD 205 Payee Supplement
+        "BidderDecl",        # 4. Bidder Declaration GSPD-05-106
+        "DVBE843",           # 5. DVBE Declarations DGS PD 843
+        "DarfurAct",         # 6. Darfur Contracting Act DGS PD 1
+        "CV012_CUF",         # 7. CUF CV 012
+        "BarstowCUF",        # 8. Barstow CUF (conditional)
+        "STD1000",           # 9. STD 1000 GenAI Reporting
+        "SellersPermit",     # 10. Seller's Permit
+        "DrugFree",          # 11. Drug-Free Workplace STD 21
+    ]
+    
+    def _form_sort_key(filename):
+        """Return sort index for canonical form ordering. Unrecognised forms go last."""
+        fn_upper = filename.upper().replace("-", "").replace("_", "").replace(" ", "")
+        for idx, pattern in enumerate(_FORM_ORDER):
+            if pattern.upper().replace("_", "") in fn_upper:
+                return idx
+        return len(_FORM_ORDER)  # unknown forms go at the end
+    
     # Separate quote from package files
     for f in output_files:
         fpath = os.path.join(out_dir, f)
@@ -1285,10 +1360,14 @@ def generate_rfq_package(rid):
             package_pdfs.append((fpath, f))
     
     # Include original RFQ attachments from email (generic agencies: CalVet, CalFire, DGS, etc.)
-    # Skip forms we've already filled (STD 1000, STD 204, CUF, CalRecycle, Seller's Permit)
+    # Skip forms we've already filled + solicitation-only forms + statistical forms
     _filled_form_patterns = {"std1000", "std_1000", "std 1000", "std204", "std_204", "std 204",
-                             "payee", "cv012", "cv_012", "cuf_", "cuf ", "calrecycle",
-                             "cal_recycle", "seller", "permit", "genai"}
+                             "std205", "std_205", "payee", "cv012", "cv_012", "cuf_", "cuf ",
+                             "calrecycle", "cal_recycle", "seller", "permit", "genai",
+                             "bidder", "gspd", "dvbe", "843", "darfur", "drug_free", "std21", "std_21"}
+    # Patterns for forms that should NEVER be in our response package
+    _exclude_patterns = {"cv039", "cv_039", "fair_and_reasonable", "fair_reasonable",
+                         "voluntary_statistical", "voluntary_stat", "request_for_quote"}
     db_attachments = list_rfq_files(rid, category="attachment") + list_rfq_files(rid, category="template")
     for db_f in db_attachments:
         fname = db_f.get("filename", "")
@@ -1297,8 +1376,12 @@ def generate_rfq_package(rid):
         # Skip if already in package_pdfs
         if any(fname == os.path.basename(p) for p, _ in package_pdfs):
             continue
-        # Skip if it's a form we've already filled
         fname_lower = fname.lower().replace("-", "_").replace(" ", "_")
+        # Skip solicitation-only / statistical forms
+        if any(pat in fname_lower for pat in _exclude_patterns):
+            t.step(f"Excluded: {fname} (solicitation/statistical form)")
+            continue
+        # Skip if it's a form we've already filled
         if any(pat in fname_lower for pat in _filled_form_patterns):
             t.step(f"Skipped duplicate: {fname} (already filled)")
             continue
@@ -1313,6 +1396,9 @@ def generate_rfq_package(rid):
         except Exception as _ae:
             t.warn(f"Could not include {fname}", error=str(_ae))
     
+    # Sort package_pdfs into canonical order
+    package_pdfs.sort(key=lambda pair: _form_sort_key(pair[1]))
+    
     # ── Step 4: Merge all package PDFs into ONE file ──
     final_output_files = []
     package_filename = f"RFQ_Package_{safe_sol}_ReytechInc.pdf"
@@ -1323,31 +1409,53 @@ def generate_rfq_package(rid):
             writer = PdfWriter()
             merge_count = 0
             
-            # Skip patterns for original attachments we've already filled
-            _filled_forms = {"std1000", "std204", "std 204", "payee", "cv012", "cuf",
-                             "calrecycle", "cal_recycle", "seller", "permit"}
-            
             for pdf_path, label in package_pdfs:
                 try:
                     reader = PdfReader(pdf_path)
                     pages_added = 0
-                    for page in reader.pages:
-                        # Skip XFA "Please wait..." placeholder pages
+                    for page_idx, page in enumerate(reader.pages):
                         try:
                             text = page.extract_text() or ""
-                            if ("Please wait" in text and len(text.strip()) < 300
-                                    and "Adobe Reader" in text):
-                                t.step(f"Skipped XFA placeholder page in {label}")
-                                continue
                         except Exception:
-                            pass
+                            text = ""
+                        
+                        # Skip XFA "Please wait..." placeholder pages (broadened detection)
+                        text_stripped = text.strip()
+                        if (text_stripped.startswith("Please wait") or
+                                ("Please wait" in text and len(text_stripped) < 300)):
+                            t.step(f"Skipped XFA placeholder page in {label}")
+                            continue
+                        
+                        # Skip CalRecycle SABRC reference table page
+                        if ("CalRecycle" in label or "calrecycle" in label.lower()):
+                            if ("Code*" in text and "Product Categories" in text):
+                                t.step(f"Skipped SABRC reference page in {label}")
+                                continue
+                        
+                        # Skip STD 1000 instructions page (page 3+)
+                        if ("STD1000" in label or "std1000" in label.lower()):
+                            if ("GenAI Reporting and Factsheet Instructions" in text or
+                                    "Instructions" in text and "Factsheet" in text):
+                                t.step(f"Skipped instructions page in {label}")
+                                continue
+                        
+                        # Skip CV 039 / Fair & Reasonable pages that snuck in
+                        if "CV 039" in text or "FAIR AND REASONABLE/REQUEST FOR QUOTE" in text:
+                            t.step(f"Skipped solicitation page in {label}")
+                            continue
+                        
+                        # Skip Voluntary Statistical Data pages
+                        if "Voluntary" in text and "Statistical" in text and "Disabled" in text:
+                            t.step(f"Skipped voluntary stats page in {label}")
+                            continue
+                        
                         writer.add_page(page)
                         pages_added += 1
                     if pages_added > 0:
                         merge_count += 1
                         t.step(f"Merged: {label} ({pages_added} pages)")
                     else:
-                        t.step(f"Skipped: {label} (all pages were XFA placeholders)")
+                        t.step(f"Skipped: {label} (all pages filtered)")
                 except Exception as _me:
                     t.warn(f"Could not merge {label}", error=str(_me))
             

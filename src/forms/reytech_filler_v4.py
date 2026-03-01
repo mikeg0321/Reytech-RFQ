@@ -1000,6 +1000,754 @@ def generate_barstow_cuf(rfq_data, config, output_path):
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# STD 205 — Payee Data Record Supplement (ReportLab)
+# ═══════════════════════════════════════════════════════════════════════
+
+def generate_std205(rfq_data, config, output_path):
+    """Generate STD 205 Payee Data Record Supplement via ReportLab."""
+    company = config["company"]
+    sign_date = rfq_data.get("sign_date", get_pst_date())
+
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.units import inch
+    from reportlab.lib import colors
+
+    c = rl_canvas.Canvas(output_path, pagesize=letter)
+    w, h = letter
+    margin = 0.75 * inch
+
+    # Header
+    y = h - 0.6 * inch
+    c.setFont("Helvetica", 8)
+    c.drawString(margin, y, "STATE OF CALIFORNIA – STATE CONTROLLERS OFFICE")
+    y -= 11
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(margin, y, "PAYEE DATA RECORD SUPPLEMENT")
+    y -= 11
+    c.setFont("Helvetica", 7)
+    c.drawString(margin, y, "(This form is optional. Form is used to provide remittance address information if different than the mailing address on the STD 204.)")
+    y -= 9
+    c.drawString(margin, y, "STD 205 (New 03/2021)")
+
+    # Payee Information section
+    y -= 24
+    c.setStrokeColor(colors.black)
+    c.setLineWidth(0.8)
+    c.setFont("Helvetica-Bold", 10)
+    c.drawCentredString(w / 2, y, "Payee Information (must match the STD 204)")
+    y -= 4
+    c.line(margin, y, w - margin, y)
+
+    y -= 16
+    c.setFont("Helvetica", 8)
+    c.drawString(margin + 4, y, "NAME (Required. Do not leave blank.)")
+    y -= 14
+    c.setFont("Courier", 11)
+    c.drawString(margin + 4, y, company["name"])
+
+    y -= 20
+    c.setFont("Helvetica", 8)
+    c.drawString(margin + 4, y, "BUSINESS NAME, DBA NAME or DISREGARDED SINGLE MEMBER LLC NAME")
+    c.drawString(w / 2 + 40, y, "TAX ID NUMBER (Required)")
+    y -= 14
+    c.setFont("Courier", 11)
+    # Leave business name blank (same as name)
+    c.drawString(w / 2 + 40, y, company["fein"])
+    c.line(margin, y - 4, w - margin, y - 4)
+
+    # Remittance addresses — all N/A
+    y -= 26
+    c.setFont("Helvetica-Bold", 10)
+    c.drawCentredString(w / 2, y, "Additional Remittance Address Information")
+    y -= 4
+    c.line(margin, y, w - margin, y)
+    y -= 14
+    c.setFont("Helvetica", 8)
+    c.drawString(margin + 4, y, "Use the fields below to provide remittance addresses for payee if different from the mailing address on the STD 204.")
+    y -= 10
+    c.setFont("Helvetica-Oblique", 8)
+    c.drawString(margin + 4, y, "The addresses provided below are for remittance purposes only.")
+
+    # 5 address blocks — N/A
+    for i in range(1, 6):
+        y -= 20
+        c.setFont("Helvetica-Bold", 9)
+        c.drawString(margin + 4, y, str(i))
+        c.setFont("Helvetica", 8)
+        c.drawString(margin + 20, y, "REMITTANCE ADDRESS (number, street, apt or suite no.)")
+        y -= 14
+        c.setFont("Courier", 10)
+        c.drawString(margin + 20, y, "N/A" if i == 1 else "")
+        y -= 14
+        c.setFont("Helvetica", 8)
+        c.drawString(margin + 20, y, "CITY")
+        c.drawString(w / 2 - 20, y, "STATE")
+        c.drawString(w / 2 + 60, y, "ZIP CODE")
+        y -= 12
+        if i == 1:
+            c.setFont("Courier", 10)
+            c.drawString(margin + 20, y, "N/A")
+        c.line(margin + 20, y - 4, w - margin, y - 4)
+
+    # Contact info
+    y -= 24
+    c.setFont("Helvetica-Bold", 10)
+    c.drawCentredString(w / 2, y, "Additional Contact Information")
+    y -= 4
+    c.line(margin, y, w - margin, y)
+
+    y -= 18
+    c.setFont("Helvetica-Bold", 9)
+    c.drawString(margin + 4, y, "1")
+    c.setFont("Helvetica", 8)
+    c.drawString(margin + 20, y, "CONTACT NAME")
+    y -= 14
+    c.setFont("Courier", 10)
+    c.drawString(margin + 20, y, f"{company['owner']}   ({company['title']})")
+    y -= 14
+    c.setFont("Helvetica", 8)
+    c.drawString(margin + 20, y, "TELEPHONE (Include area code)")
+    c.drawString(w / 2, y, "EMAIL")
+    y -= 12
+    c.setFont("Courier", 10)
+    c.drawString(margin + 20, y, company["phone"])
+    c.drawString(w / 2, y, company["email"])
+
+    # Certification
+    y -= 30
+    c.setFont("Helvetica-Bold", 10)
+    c.drawCentredString(w / 2, y, "Certification")
+    y -= 4
+    c.line(margin, y, w - margin, y)
+    y -= 14
+    c.setFont("Helvetica-Oblique", 8)
+    c.drawString(margin + 4, y, "I hereby certify under penalty of perjury that the information provided on this supplemental document is true and correct.")
+
+    # Signature block
+    y -= 24
+    c.setFont("Helvetica", 8)
+    c.drawString(margin + 4, y, "NAME OF AUTHORIZED PAYEE REPRESENTATIVE")
+    c.drawString(w / 2 - 20, y, "TITLE")
+    c.drawString(w - 2.5 * inch, y, "E-MAIL ADDRESS")
+    y -= 14
+    c.setFont("Courier", 10)
+    c.drawString(margin + 4, y, company["owner"])
+    c.drawString(w / 2 - 20, y, company["title"])
+    c.drawString(w - 2.5 * inch, y, company["email"])
+
+    y -= 20
+    c.setFont("Helvetica", 8)
+    c.drawString(margin + 4, y, "SIGNATURE")
+    c.drawString(w / 2 - 20, y, "DATE")
+    c.drawString(w - 2.5 * inch, y, "TELEPHONE (Include area code)")
+    y -= 14
+    # Signature image
+    if os.path.exists(SIGNATURE_PATH):
+        c.drawImage(SIGNATURE_PATH, margin + 4, y - 10, width=1.2 * inch, height=0.4 * inch,
+                     preserveAspectRatio=True, mask='auto')
+    c.setFont("Courier", 10)
+    c.drawString(w / 2 - 20, y, sign_date)
+    c.drawString(w - 2.5 * inch, y, company["phone"])
+
+    c.save()
+    print(f"  ✓ STD 205 Payee Supplement generated (ReportLab)")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Bidder Declaration GSPD-05-106 (ReportLab)
+# ═══════════════════════════════════════════════════════════════════════
+
+def generate_bidder_declaration(rfq_data, config, output_path):
+    """Generate Bidder Declaration GSPD-05-106 via ReportLab."""
+    company = config["company"]
+    sign_date = rfq_data.get("sign_date", get_pst_date())
+
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.units import inch
+    from reportlab.lib import colors
+
+    c = rl_canvas.Canvas(output_path, pagesize=letter)
+    w, h = letter
+    margin = 0.6 * inch
+
+    # Header
+    y = h - 0.6 * inch
+    c.setFont("Helvetica", 7)
+    c.drawString(margin, y, "State of California—Department of General Services, Procurement Division")
+    y -= 10
+    c.drawString(margin, y, "GSPD-05-106 (REV 08/09) Verbal Version")
+    y -= 4
+    c.line(margin, y, w - margin, y)
+
+    y -= 22
+    c.setFont("Helvetica-Bold", 14)
+    c.drawCentredString(w / 2, y, "BIDDER DECLARATION")
+
+    # Section 1
+    y -= 24
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(margin, y, "1.")
+    c.drawString(margin + 18, y, "Prime bidder information (Review attached Bidder Declaration Instructions):")
+
+    y -= 18
+    c.setFont("Helvetica", 9)
+    c.drawString(margin + 22, y, "a. Identify current California certification(s) (MB, SB, NVSA, DVBE):")
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(margin + 340, y, "SB/MB/DVBE")
+    c.setFont("Helvetica", 9)
+    c.drawString(margin + 420, y, "or None ___")
+
+    y -= 18
+    c.drawString(margin + 22, y, "b. Will subcontractors be used for this contract? Yes ___ No")
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(margin + 340, y, "✓")
+
+    y -= 30
+    c.setFont("Helvetica", 9)
+    c.drawString(margin + 22, y, "c. If you are a California certified DVBE:")
+    y -= 14
+    c.drawString(margin + 36, y, "(1) Are you a broker or agent? Yes ___ No")
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(margin + 280, y, "✓")
+    y -= 14
+    c.setFont("Helvetica", 9)
+    c.drawString(margin + 36, y, "(2) If the contract includes equipment rental, does your company own at least 51%")
+    y -= 12
+    c.drawString(margin + 50, y, "of the equipment provided? Yes ___ No ___ N/A")
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(margin + 340, y, "✓")
+
+    # Section 2 — Subcontractors table
+    y -= 28
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(margin, y, "2.")
+    c.setFont("Helvetica", 9)
+    c.drawString(margin + 18, y, "If no subcontractors will be used, skip to certification below. Otherwise, list all subcontractors:")
+
+    # Table header
+    y -= 18
+    c.setFont("Helvetica-Bold", 7)
+    cols = [margin, margin + 130, margin + 260, margin + 340, margin + 420, margin + 475, margin + 510]
+    headers = ["Subcontractor Name, Contact\nPhone & Fax", "Subcontractor Address\n& Email",
+               "CA Certification", "Work performed or\ngoods provided", "% of\nbid price",
+               "Good\nStand?", "51%\nRental?"]
+    for i, hdr in enumerate(headers):
+        for j, line in enumerate(hdr.split("\n")):
+            c.drawString(cols[i] + 2, y - j * 8, line)
+
+    y -= 22
+    c.setStrokeColor(colors.black)
+    c.setLineWidth(0.5)
+    c.line(margin, y, w - margin, y)
+
+    # N/A row
+    y -= 14
+    c.setFont("Courier", 9)
+    c.drawString(cols[0] + 2, y, "N/A")
+    c.drawString(cols[1] + 2, y, "N/A")
+    c.drawString(cols[2] + 2, y, "N/A")
+    c.drawString(cols[3] + 2, y, "N/A")
+    c.drawString(cols[4] + 2, y, "N/A")
+
+    # Certification
+    y -= 80
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(margin, y, "3.")
+    c.setFont("Helvetica-Bold", 9)
+    c.drawString(margin + 18, y, "CERTIFICATION: By signing this form, I certify under penalty of perjury that the information")
+    y -= 12
+    c.drawString(margin + 18, y, "provided is true and correct.")
+
+    y -= 22
+    c.setFont("Helvetica", 9)
+    c.drawString(margin + 18, y, "Printed Name:")
+    c.setFont("Courier", 10)
+    c.drawString(margin + 90, y, f"R. {company['owner']}")
+
+    c.setFont("Helvetica", 9)
+    c.drawString(w / 2 + 20, y, "Date Signed:")
+    c.setFont("Courier", 10)
+    c.drawString(w / 2 + 90, y, sign_date)
+
+    # Signature
+    y -= 18
+    c.setFont("Helvetica", 9)
+    c.drawString(margin + 18, y, "Signature:")
+    if os.path.exists(SIGNATURE_PATH):
+        c.drawImage(SIGNATURE_PATH, margin + 75, y - 8, width=1.2 * inch, height=0.4 * inch,
+                     preserveAspectRatio=True, mask='auto')
+
+    y -= 20
+    c.setFont("Helvetica", 8)
+    c.drawString(w - 1.5 * inch, y, f"Page 1 of 1")
+
+    c.save()
+    print(f"  ✓ Bidder Declaration generated (ReportLab)")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# DVBE Declarations DGS PD 843 (ReportLab)
+# ═══════════════════════════════════════════════════════════════════════
+
+def generate_dvbe_843(rfq_data, config, output_path):
+    """Generate DVBE Declarations DGS PD 843 via ReportLab."""
+    company = config["company"]
+    sign_date = rfq_data.get("sign_date", get_pst_date())
+
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.units import inch
+    from reportlab.lib import colors
+
+    c = rl_canvas.Canvas(output_path, pagesize=letter)
+    w, h = letter
+    margin = 0.6 * inch
+
+    # Header
+    y = h - 0.5 * inch
+    c.setFont("Helvetica", 7)
+    c.drawString(margin, y, "STATE OF CALIFORNIA – DEPARTMENT OF GENERAL SERVICES PROCUREMENT DIVISION")
+    y -= 12
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(margin, y, "DISABLED VETERAN BUSINESS ENTERPRISE DECLARATIONS")
+    y -= 12
+    c.setFont("Helvetica", 7)
+    c.drawString(margin, y, "DGS PD 843 (Rev. 9/2019)")
+
+    # Section 1
+    y -= 24
+    c.setFont("Helvetica-Bold", 9)
+    c.drawCentredString(w / 2, y, "SECTION 1")
+    y -= 4
+    c.line(margin, y, w - margin, y)
+
+    y -= 16
+    c.setFont("Helvetica", 9)
+    c.drawString(margin + 4, y, "Name of certified DVBE:")
+    c.setFont("Courier", 10)
+    c.drawString(margin + 150, y, company["name"])
+    c.setFont("Helvetica", 9)
+    c.drawString(w / 2 + 40, y, "DVBE Ref. Number:")
+    c.setFont("Courier", 10)
+    c.drawString(w / 2 + 150, y, company["cert_number"])
+
+    y -= 16
+    c.setFont("Helvetica", 9)
+    c.drawString(margin + 4, y, "Description (materials/supplies/services/equipment proposed):")
+    c.setFont("Courier", 10)
+    c.drawString(margin + 4, y - 14, company.get("description_of_goods", "Medical/MRO Supplies"))
+
+    y -= 32
+    c.setFont("Helvetica", 9)
+    c.drawString(margin + 4, y, "Solicitation/Contract Number:")
+
+    # Section 2
+    y -= 24
+    c.setFont("Helvetica-Bold", 9)
+    c.drawCentredString(w / 2, y, "SECTION 2")
+    y -= 4
+    c.line(margin, y, w - margin, y)
+
+    y -= 16
+    c.setFont("Helvetica-Bold", 9)
+    c.drawString(margin + 4, y, "APPLIES TO ALL DVBEs. Check only one box in Section 2 and provide original signatures.")
+
+    # Not a broker checkbox (checked)
+    y -= 20
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(margin + 8, y, "[X]")
+    c.setFont("Helvetica", 9)
+    c.drawString(margin + 30, y, "I (we) declare that the DVBE is not a broker or agent, as defined in Military and")
+    y -= 12
+    c.drawString(margin + 30, y, "Veterans Code Section 999.2 (b), of materials, supplies, services or equipment listed above.")
+
+    # Broker checkbox (unchecked)
+    y -= 20
+    c.drawString(margin + 8, y, "[  ]")
+    c.drawString(margin + 30, y, "Pursuant to Military and Veterans Code Section 999.2 (f), I (we) declare that the DVBE is a")
+    y -= 12
+    c.drawString(margin + 30, y, "broker or agent for the principal(s) listed below.")
+
+    # DV owner/manager signature
+    y -= 28
+    c.setFont("Helvetica", 9)
+    c.drawString(margin + 4, y, "All DV owners and managers of the DVBE:")
+    y -= 18
+    c.setFont("Courier", 10)
+    c.drawString(margin + 4, y, f"R. {company['owner']} [100% Owner]")
+
+    # Signature
+    if os.path.exists(SIGNATURE_PATH):
+        c.drawImage(SIGNATURE_PATH, w / 2 - 20, y - 8, width=1.2 * inch, height=0.4 * inch,
+                     preserveAspectRatio=True, mask='auto')
+    c.setFont("Courier", 10)
+    c.drawString(w - 1.8 * inch, y, sign_date)
+
+    y -= 18
+    c.setFont("Courier", 9)
+    c.drawString(margin + 4, y, "N/A")
+    c.setFont("Helvetica", 7)
+    c.drawString(margin + 4, y - 10, "(Printed Name of DV Owner/Manager)")
+    c.drawString(w / 2 - 20, y - 10, "(Signature)")
+    c.drawString(w - 1.8 * inch, y - 10, "(Date Signed)")
+
+    # Firm/Principal
+    y -= 30
+    c.setFont("Helvetica", 9)
+    c.drawString(margin + 4, y, "Firm/Principal for whom the DVBE is acting as a broker or agent:")
+    c.setFont("Courier", 10)
+    c.drawString(margin + 350, y, "N/A")
+
+    y -= 16
+    c.setFont("Helvetica", 9)
+    c.drawString(margin + 4, y, "Firm/Principal Phone:")
+    c.setFont("Courier", 10)
+    c.drawString(margin + 130, y, company["phone"])
+    c.setFont("Helvetica", 9)
+    c.drawString(margin + 250, y, "Address:")
+    c.setFont("Courier", 10)
+    c.drawString(margin + 300, y, company["address"])
+
+    # Section 3
+    y -= 28
+    c.setFont("Helvetica-Bold", 9)
+    c.drawCentredString(w / 2, y, "SECTION 3")
+    y -= 4
+    c.line(margin, y, w - margin, y)
+    y -= 14
+    c.setFont("Helvetica-Bold", 8)
+    c.drawString(margin + 4, y, "APPLIES TO ALL DVBEs THAT RENT EQUIPMENT AND DECLARE THE DVBE IS NOT A BROKER.")
+    y -= 14
+    c.setFont("Helvetica", 8)
+    c.drawString(margin + 8, y, "[  ] Pursuant to Military and Veterans Code Section 999.2 (c), (d) and (g)...")
+    y -= 14
+    c.drawString(margin + 8, y, "[  ] The undersigned owner(s) own(s) at least 51% of the equipment...")
+
+    # N/A for section 3 fields
+    y -= 20
+    c.setFont("Courier", 9)
+    c.drawString(margin + 4, y, "N/A")
+    c.setFont("Helvetica", 7)
+    c.drawString(margin + 4, y - 10, "(Printed Name)")
+    y -= 26
+    c.setFont("Courier", 9)
+    c.drawString(margin + 4, y, "N/A")
+    c.setFont("Helvetica", 7)
+    c.drawString(margin + 4, y - 10, "(Address of Owner)")
+    y -= 26
+    c.setFont("Courier", 9)
+    c.drawString(margin + 4, y, "N/A")
+    c.setFont("Helvetica", 7)
+    c.drawString(margin + 4, y - 10, "(Printed Name of DV Manager)")
+
+    y -= 20
+    c.setFont("Helvetica", 8)
+    c.drawString(w - 1.5 * inch, y, "Page 1 of 1")
+
+    c.save()
+    print(f"  ✓ DVBE 843 Declarations generated (ReportLab)")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Darfur Contracting Act DGS PD 1 (ReportLab — 2 pages)
+# ═══════════════════════════════════════════════════════════════════════
+
+def generate_darfur_act(rfq_data, config, output_path):
+    """Generate Darfur Contracting Act certification DGS PD 1 (2 pages) via ReportLab."""
+    company = config["company"]
+    sign_date = rfq_data.get("sign_date", get_pst_date())
+
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.units import inch
+    from reportlab.lib import colors
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.platypus import Paragraph as RLParagraph
+    from reportlab.lib.enums import TA_LEFT
+
+    c = rl_canvas.Canvas(output_path, pagesize=letter)
+    w, h = letter
+    margin = 0.8 * inch
+
+    # ── Page 1 ──
+    y = h - 0.6 * inch
+    c.setFont("Helvetica", 7)
+    c.drawString(margin, y, "STATE OF CALIFORNIA")
+    c.drawString(w - 3 * inch, y, "DEPARTMENT OF GENERAL SERVICES")
+    y -= 10
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(margin, y, "DARFUR CONTRACTING ACT CERTIFICATION")
+    c.setFont("Helvetica", 7)
+    c.drawString(w - 3 * inch, y, "PROCUREMENT DIVISION")
+    y -= 10
+    c.drawString(margin, y, "DGS PD 1 (Rev. 12/19)")
+
+    # Preamble text
+    y -= 30
+    c.setFont("Helvetica", 9)
+    preamble_lines = [
+        "Public Contract Code Sections 10475 -10481 applies to any company that currently or",
+        "within the previous three years has had business activities or other operations outside",
+        "of the United States. For such a company to bid on or submit a proposal for a State of",
+        "California contract, the company must certify that it is either a) not a scrutinized",
+        "company; or b) a scrutinized company that has been granted permission by the",
+        "Department of General Services to submit a proposal.",
+        "",
+        "If your company has not, within the previous three years, had any business activities",
+        "or other operations outside of the United States, you do not need to complete this form.",
+    ]
+    for line in preamble_lines:
+        c.drawString(margin, y, line)
+        y -= 12
+
+    # Option 1 - Certification
+    y -= 16
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(margin, y, "OPTION #1 - CERTIFICATION")
+    y -= 16
+    c.setFont("Helvetica", 9)
+    option1_lines = [
+        "If your company, within the previous three years, has had business activities or other",
+        "operations outside of the United States, in order to be eligible to submit a bid or",
+        "proposal, please insert your company name and Federal ID Number and complete the",
+        "certification below.",
+    ]
+    for line in option1_lines:
+        c.drawString(margin, y, line)
+        y -= 12
+
+    # Certification statement (highlighted)
+    y -= 8
+    c.setFillColor(colors.Color(1, 1, 0.8))
+    c.rect(margin, y - 48, w - 2 * margin, 52, fill=1, stroke=0)
+    c.setFillColor(colors.black)
+    c.setFont("Helvetica", 9)
+    cert_lines = [
+        "I, the official named below, CERTIFY UNDER PENALTY OF PERJURY that a) the",
+        "prospective proposer/bidder named below is not a scrutinized company per Public",
+        "Contract Code 10476; and b) I am duly authorized to legally bind the prospective",
+        "proposer/bidder named below. This certification is made under the laws of the State of California.",
+    ]
+    for line in cert_lines:
+        c.drawString(margin + 4, y, line)
+        y -= 12
+
+    # Company info table
+    y -= 12
+    c.setStrokeColor(colors.black)
+    c.setLineWidth(0.5)
+    row_h = 22
+    col_mid = w / 2 + 40
+    c.rect(margin, y - row_h, col_mid - margin, row_h)
+    c.rect(col_mid, y - row_h, w - margin - col_mid, row_h)
+    c.setFont("Helvetica-Oblique", 8)
+    c.drawString(margin + 4, y - 4, "Company/Vendor Name (Printed)")
+    c.drawString(col_mid + 4, y - 4, "Federal ID Number")
+    c.setFont("Courier", 11)
+    c.drawString(margin + 4, y - 18, company["name"])
+    c.drawString(col_mid + 4, y - 18, company["fein"])
+
+    y -= row_h
+    c.rect(margin, y - row_h, col_mid - margin, row_h)
+    c.rect(col_mid, y - row_h, w - margin - col_mid, row_h)
+    c.setFont("Helvetica-Oblique", 8)
+    c.drawString(margin + 4, y - 4, "By (Authorized Signature)")
+    c.drawString(col_mid + 4, y - 4, "Date")
+    if os.path.exists(SIGNATURE_PATH):
+        c.drawImage(SIGNATURE_PATH, margin + 4, y - row_h + 2, width=1.2 * inch, height=0.35 * inch,
+                     preserveAspectRatio=True, mask='auto')
+    c.setFont("Courier", 11)
+    c.drawString(col_mid + 4, y - 18, sign_date)
+
+    y -= row_h
+    c.rect(margin, y - row_h, w - 2 * margin, row_h)
+    c.setFont("Helvetica-Oblique", 8)
+    c.drawString(margin + 4, y - 4, "Printed Name and Title of Person Signing")
+    c.setFont("Courier", 11)
+    c.drawString(margin + 4, y - 18, f"R. {company['owner']}, {company['title']}")
+
+    y -= row_h + 30
+    c.setFont("Helvetica", 8)
+    c.drawCentredString(w / 2, y, "Page 1 of 2")
+
+    c.showPage()
+
+    # ── Page 2 — Option 2 (N/A) ──
+    y = h - 0.8 * inch
+    c.setFont("Helvetica", 9)
+    page2_lines = [
+        "We are a scrutinized company as defined in Public Contract Code section 10476, but",
+        "we have received written permission from the Department of General Services to",
+        "submit a bid or proposal pursuant to Public Contract Code section 10477(b). A copy of",
+        "the written permission from DGS is included with our bid or proposal.",
+    ]
+    for line in page2_lines:
+        c.drawString(margin, y, line)
+        y -= 12
+
+    # N/A table
+    y -= 16
+    c.setStrokeColor(colors.black)
+    c.setLineWidth(0.5)
+    row_h = 22
+    c.rect(margin, y - row_h, col_mid - margin, row_h)
+    c.rect(col_mid, y - row_h, w - margin - col_mid, row_h)
+    c.setFont("Helvetica-Oblique", 8)
+    c.drawString(margin + 4, y - 4, "Company/Vendor Name (Printed)")
+    c.drawString(col_mid + 4, y - 4, "Federal ID Number")
+    c.setFont("Courier", 11)
+    c.drawString(margin + 4, y - 18, "N/A")
+    c.drawString(col_mid + 4, y - 18, "N/A")
+
+    y -= row_h
+    c.rect(margin, y - row_h, col_mid - margin, row_h)
+    c.rect(col_mid, y - row_h, w - margin - col_mid, row_h)
+    c.setFont("Helvetica-Oblique", 8)
+    c.drawString(margin + 4, y - 4, "By (Authorized Signature)")
+    c.drawString(col_mid + 4, y - 4, "Date")
+
+    y -= row_h
+    c.rect(margin, y - row_h, w - 2 * margin, row_h)
+    c.setFont("Helvetica-Oblique", 8)
+    c.drawString(margin + 4, y - 4, "Printed Name and Title of Person Signing")
+    c.setFont("Courier", 11)
+    c.drawString(margin + 4, y - 18, "N/A")
+
+    y -= row_h + 30
+    c.setFont("Helvetica", 8)
+    c.drawCentredString(w / 2, y, "Page 2 of 2")
+
+    c.save()
+    print(f"  ✓ Darfur Act certification generated (ReportLab, 2 pages)")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Drug-Free Workplace STD 21 (ReportLab)
+# ═══════════════════════════════════════════════════════════════════════
+
+def generate_drug_free(rfq_data, config, output_path):
+    """Generate Drug-Free Workplace Certification STD 21 via ReportLab."""
+    company = config["company"]
+    # Use the existing execution date and expiration
+    exec_date = "9/28/2023"
+    expire_date = company.get("drug_free_expiration", "9/1/2026")
+
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.units import inch
+    from reportlab.lib import colors
+
+    c = rl_canvas.Canvas(output_path, pagesize=letter)
+    w, h = letter
+    margin = 0.8 * inch
+
+    # Header
+    y = h - 0.6 * inch
+    c.setFont("Helvetica", 8)
+    c.drawString(margin, y, "STATE OF CALIFORNIA")
+    y -= 12
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(margin, y, "DRUG-FREE WORKPLACE CERTIFICATION")
+    y -= 12
+    c.setFont("Helvetica", 8)
+    c.drawString(margin, y, "STD. 21 (Rev. 10/2019)")
+    y -= 4
+    c.line(margin, y, w - margin, y)
+
+    # Certification header
+    y -= 20
+    c.setFont("Helvetica-Bold", 11)
+    c.drawCentredString(w / 2, y, "CERTIFICATION")
+    y -= 4
+    c.line(margin, y, w - margin, y)
+
+    # Oath
+    y -= 18
+    c.setFont("Helvetica-BoldOblique", 9)
+    oath_lines = [
+        "I, the official named below, hereby swear that I am duly authorized legally to bind the contractor or",
+        "grant recipient to the certification described below. I am fully aware that this certification, executed",
+        "on the date below, is made under penalty of perjury under the laws of the State of California.",
+    ]
+    for line in oath_lines:
+        c.drawString(margin, y, line)
+        y -= 12
+
+    # Company info box
+    y -= 10
+    c.setStrokeColor(colors.black)
+    c.setLineWidth(0.5)
+
+    box_y = y - 80
+    c.rect(margin, box_y, w - 2 * margin, 80)
+
+    c.setFont("Helvetica", 7)
+    c.drawString(margin + 4, y - 4, "CONTRACTOR/BIDDER FIRM NAME")
+    c.drawString(w - margin - 150, y - 4, "FEDERAL ID NUMBER")
+    c.setFont("Courier", 10)
+    c.drawString(margin + 4, y - 16, company["name"])
+    c.drawString(w - margin - 150, y - 16, company["fein"])
+
+    c.setFont("Helvetica", 7)
+    c.drawString(margin + 4, y - 28, "BY (Authorized Signature)")
+    c.drawString(w - margin - 150, y - 28, "DATE EXECUTED")
+    if os.path.exists(SIGNATURE_PATH):
+        c.drawImage(SIGNATURE_PATH, margin + 4, y - 50, width=1.2 * inch, height=0.35 * inch,
+                     preserveAspectRatio=True, mask='auto')
+    c.setFont("Courier", 10)
+    c.drawString(w - margin - 150, y - 42, exec_date)
+
+    c.setFont("Helvetica", 7)
+    c.drawString(margin + 4, y - 54, "PRINTED NAME AND TITLE OF PERSON SIGNING")
+    c.drawString(w - margin - 150, y - 54, "TELEPHONE NUMBER (Include Area Code)")
+    c.setFont("Courier", 10)
+    c.drawString(margin + 4, y - 66, company["owner"])
+    c.drawString(w - margin - 150, y - 66, f"({company['phone'][:3]}) {company['phone'][4:]}")
+
+    c.setFont("Helvetica", 7)
+    c.drawString(margin + 4, y - 76, "TITLE")
+    c.drawString(w / 2, y - 76, "CONTRACTOR/BIDDER FIRM'S MAILING ADDRESS")
+    c.setFont("Courier", 10)
+    c.drawString(margin + 4, y - 86 + 4, company["title"])
+    c.drawString(w / 2, y - 86 + 4, company["address"])
+
+    y = box_y - 8
+
+    # Certification body
+    c.setFont("Helvetica", 9)
+    c.drawString(margin, y, "The contractor or grant recipient named above hereby certifies compliance with Government Code Section 8355")
+    y -= 12
+    c.drawString(margin, y, "in matters relating to providing a drug-free workplace. The above named contractor or grant recipient will:")
+    y -= 18
+
+    items = [
+        "1. Publish a statement notifying employees that unlawful manufacture, distribution, dispensation,\n"
+        "   possession, or use of a controlled substance is prohibited and specifying actions to be taken against\n"
+        "   employees for violations, as required by Government Code Section 8355(a).",
+        "2. Establish a Drug-Free Awareness Program as required by Government Code Section 8355(b), to inform\n"
+        "   employees about all of the following:\n"
+        "   (a) The dangers of drug abuse in the workplace,\n"
+        "   (b) The person's or organization's policy of maintaining a drug-free workplace,\n"
+        "   (c) Any available counseling, rehabilitation and employee assistance programs, and\n"
+        "   (d) Penalties that may be imposed upon employees for drug abuse violations.",
+        "3. Provide as required by Government Code Section 8355(c), that every employee who works on the proposed\n"
+        "   contract or grant:\n"
+        "   (a) Will receive a copy of the company's drug-free workplace policy statement, and\n"
+        "   (b) Will agree to abide by the terms of the company's statement as a condition of employment.",
+        f"4. At the election of the contractor or grantee, from and after the \"Date Executed\" and until {expire_date}\n"
+        "   (NOT TO EXCEED 36 MONTHS), the state will regard this certificate as valid for all contracts or grants\n"
+        "   entered into between the contractor or grantee and this state agency.",
+    ]
+
+    c.setFont("Helvetica", 8)
+    for item in items:
+        for line in item.split("\n"):
+            c.drawString(margin, y, line.strip())
+            y -= 10
+        y -= 4
+
+    c.save()
+    print(f"  ✓ Drug-Free Workplace STD 21 generated (ReportLab)")
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # CalRecycle 74 — Standalone with overflow pages
 # ═══════════════════════════════════════════════════════════════════════
 
