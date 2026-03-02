@@ -100,6 +100,17 @@ def get_order_health() -> dict:
                         "order_id": oid, "link": f"/order/{oid}",
                     })
 
+        # Pending items in active orders (sourcing/shipped/partial — still have unordered items)
+        elif status not in ("closed", "delivered", "invoiced"):
+            pending_items = [it for it in items if it.get("sourcing_status") == "pending"]
+            if pending_items:
+                issues.append({
+                    "severity": "high" if days_stale >= 3 else "medium",
+                    "type": "not_ordered",
+                    "msg": f"PO #{po} ({inst}) — {len(pending_items)}/{len(items)} items still not ordered ({status})",
+                    "order_id": oid, "link": f"/order/{oid}",
+                })
+
         # Per-item analysis
         for it in items:
             ss = it.get("sourcing_status", "pending")
@@ -128,6 +139,26 @@ def get_order_health() -> dict:
                     "order_id": oid, "line_id": lid, "desc": desc,
                     "po": po, "institution": inst,
                 })
+
+        # Issues for items ordered but no tracking (across all active orders)
+        no_track_items = [it for it in items if it.get("sourcing_status") == "ordered" and not it.get("tracking_number")]
+        if no_track_items and days_stale >= 2:
+            issues.append({
+                "severity": "medium",
+                "type": "no_tracking",
+                "msg": f"PO #{po} ({inst}) — {len(no_track_items)} items ordered, no tracking yet",
+                "order_id": oid, "link": f"/order/{oid}",
+            })
+
+        # Issues for shipped but not delivered after 7+ days
+        shipped_items = [it for it in items if it.get("sourcing_status") == "shipped"]
+        if shipped_items and days_stale >= 7:
+            issues.append({
+                "severity": "medium",
+                "type": "shipping_delay",
+                "msg": f"PO #{po} ({inst}) — {len(shipped_items)} items shipped {days_stale}d ago, not delivered",
+                "order_id": oid, "link": f"/order/{oid}",
+            })
 
         # Delivered but no invoice
         if status == "delivered" and not order.get("draft_invoice"):
