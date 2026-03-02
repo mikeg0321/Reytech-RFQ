@@ -635,7 +635,7 @@ def run_award_check() -> dict:
                     pass
         else:
             # No match yet — keep checking
-            pc["status"] = "pending_award"
+            pass  # PC stays in "sent" status until won/lost/expired
     
     # Save updated PCs
     try:

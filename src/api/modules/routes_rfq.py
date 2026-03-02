@@ -318,7 +318,7 @@ def home():
             pass
 
     # Same for RFQs
-    active_rfqs = {k: v for k, v in load_rfqs().items() if v.get("status") != "dismissed"}
+    active_rfqs = {k: v for k, v in load_rfqs().items() if v.get("status") not in ("dismissed", "sent")}
     for rid, r in active_rfqs.items():
         due = r.get("due_date", "") or ""
         r["_days_left"] = None

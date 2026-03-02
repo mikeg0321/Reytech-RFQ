@@ -2793,7 +2793,7 @@ PC_STATUS_LABELS = {
     "auto_drafted": ("Auto-Drafted", "#d2a8ff"),
     "quoted": ("Quoted", "#58a6ff"), "generated": ("Generated", "#58a6ff"),
     "completed": ("704 Filled", "#34d399"), "converted": ("Converted", "#34d399"),
-    "sent": ("Sent", "#3fb950"), "pending_award": ("Pending Award", "#d29922"),
+    "sent": ("Sent", "#3fb950"),
     "won": ("Won", "#3fb950"), "lost": ("Lost", "#f85149"),
     "expired": ("Expired", "#8b90a0"),
     "dismissed": ("Dismissed", "#6e7681"), "archived": ("Archived", "#6e7681"),
@@ -2843,13 +2843,26 @@ def pricechecks_archive():
         qn = p.get("quote_number", "")
         comp = p.get("competitor_name", "")
         src_icon = "📧" if p.get("source") == "email_auto" else "📄" if p.get("source") == "manual_upload" else ""
+        sent_elapsed = ""
+        if p.get("sent_at"):
+            try:
+                from datetime import datetime as _dt
+                _sd = _dt.fromisoformat(p["sent_at"][:19])
+                _dd = (_dt.now() - _sd).days
+                if _dd == 0: sent_elapsed = "today"
+                elif _dd == 1: sent_elapsed = "1d ago"
+                elif _dd < 30: sent_elapsed = f"{_dd}d ago"
+                elif _dd < 60: sent_elapsed = "1mo ago"
+                else: sent_elapsed = f"{_dd // 30}mo ago"
+            except Exception:
+                pass
         rows += f'''<tr data-status="{st}" data-search="{p['pc_number'].lower()} {p['institution'].lower()} {p['requestor'].lower()} {qn.lower()}" style="cursor:pointer" onclick="location.href='/pricecheck/{p['id']}'">
          <td><a href="/pricecheck/{p['id']}" style="color:#58a6ff;font-family:'JetBrains Mono',monospace;font-weight:600">#{p['pc_number']}</a></td>
          <td>{p['institution']}</td><td>{p['requestor'][:25]}</td>
          <td>{due_str}</td><td>{date_str}</td><td style="text-align:center">{p['items_count']}</td>
          <td style="text-align:right">{total_str}</td>
          <td style="text-align:center">{f'<span style="color:#58a6ff;font-family:JetBrains Mono,monospace;font-weight:600">{qn}</span>' if qn else chr(8212)}</td>
-         <td style="text-align:center"><span style="background:{color};color:#0d1117;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">{label}</span> {src_icon}</td></tr>'''
+         <td style="text-align:center"><span style="background:{color};color:#0d1117;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">{label}</span> {src_icon}</td><td style="text-align:center;font-size:11px;color:#8b949e">{sent_elapsed}</td></tr>'''
 
     content = f'''
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
@@ -2884,7 +2897,7 @@ def pricechecks_archive():
           <th style="padding:10px;text-align:left">PC #</th><th style="padding:10px;text-align:left">Institution</th>
           <th style="padding:10px;text-align:left">Requestor</th><th style="padding:10px;text-align:left">Due</th><th style="padding:10px;text-align:left">Created</th>
           <th style="padding:10px;text-align:center">Items</th><th style="padding:10px;text-align:right">Total</th>
-          <th style="padding:10px;text-align:center">Quote</th><th style="padding:10px;text-align:center">Status</th>
+          <th style="padding:10px;text-align:center">Quote</th><th style="padding:10px;text-align:center">Status</th><th style="padding:10px;text-align:center">Sent</th>
         </tr></thead>
         <tbody id="pc-tbody">{rows}</tbody>
       </table>

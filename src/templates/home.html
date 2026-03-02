@@ -81,7 +81,7 @@ fetch('/api/dashboard/init').then(r=>r.json()).then(d=>{
 <div id="queues" class="bento bento-2" style="margin-bottom:14px">
 
  <!-- Price Checks — primary work queue (wider column) -->
- <div class="card" style="margin:0;overflow:hidden">
+ <div class="card" style="margin:0;overflow:visible">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
    <div class="card-t" style="margin:0">Price Checks <span style="font-size:11px;font-weight:400;color:var(--tx2)">(AMS 704 — price your response)</span> <span style="font-family:'JetBrains Mono',monospace;font-weight:700">{{price_checks|length}}</span></div>
   </div>
@@ -122,7 +122,7 @@ fetch('/api/dashboard/init').then(r=>r.json()).then(d=>{
       <button onclick="openQP('pc','{{id}}',event)" title="Quick Price" style="background:rgba(52,211,153,.08);border:1px solid rgba(52,211,153,.2);color:#3fb950;cursor:pointer;font-size:10px;padding:2px 6px;border-radius:4px;font-weight:600;margin-right:2px" onmouseover="this.style.background='rgba(52,211,153,.2)'" onmouseout="this.style.background='rgba(52,211,153,.08)'">⚡</button>
       <div style="position:relative;display:inline-block" class="dismiss-wrap">
        <button onclick="event.stopPropagation();this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'" title="Dismiss this Price Check" style="background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.2);color:#f85149;cursor:pointer;font-size:10px;padding:2px 6px;border-radius:4px;font-weight:600" onmouseover="this.style.background='rgba(248,81,73,.2)'" onmouseout="this.style.background='rgba(248,81,73,.08)'">✕</button>
-       <div style="display:none;position:absolute;right:0;top:22px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;padding:4px 0;min-width:180px;z-index:99;box-shadow:0 4px 12px rgba(0,0,0,.3)">
+       <div style="display:none;position:absolute;right:0;top:22px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;padding:4px 0;min-width:180px;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,.3)">
         <div style="padding:4px 10px;font-size:10px;color:var(--tx2);font-weight:600;text-transform:uppercase;letter-spacing:.5px">Dismiss reason</div>
         <button onclick="dismissItem('pc','{{id}}','cs_question',this)" class="dismiss-opt">CS / Admin Question</button>
         <button onclick="dismissItem('pc','{{id}}','no_response',this)" class="dismiss-opt">Reytech Did Not Respond</button>
@@ -145,7 +145,7 @@ fetch('/api/dashboard/init').then(r=>r.json()).then(d=>{
  </div>
 
  <!-- RFQ Queue (narrower column) -->
- <div class="card" style="margin:0;overflow:hidden">
+ <div class="card" style="margin:0;overflow:visible">
   <div class="card-t">RFQ Queue <span style="font-size:11px;font-weight:400;color:var(--tx2)">(704A/704B + formal quote package)</span> <span style="font-family:'JetBrains Mono',monospace;font-weight:700">{{rfqs|length}}</span></div>
   <!-- E11: Bulk Action Bar -->
   <div class="bulk-bar" id="rfq-bulk-bar">
@@ -188,7 +188,7 @@ fetch('/api/dashboard/init').then(r=>r.json()).then(d=>{
      <td style="text-align:center" onclick="event.stopPropagation()">
       <div style="position:relative;display:inline-block" class="dismiss-wrap">
        <button onclick="event.stopPropagation();this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'" title="Dismiss this RFQ" style="background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.2);color:#f85149;cursor:pointer;font-size:10px;padding:2px 6px;border-radius:4px;font-weight:600" onmouseover="this.style.background='rgba(248,81,73,.2)'" onmouseout="this.style.background='rgba(248,81,73,.08)'">✕</button>
-       <div style="display:none;position:absolute;right:0;top:22px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;padding:4px 0;min-width:180px;z-index:99;box-shadow:0 4px 12px rgba(0,0,0,.3)">
+       <div style="display:none;position:absolute;right:0;top:22px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;padding:4px 0;min-width:180px;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,.3)">
         <div style="padding:4px 10px;font-size:10px;color:var(--tx2);font-weight:600;text-transform:uppercase;letter-spacing:.5px">Dismiss reason</div>
         <button onclick="dismissItem('rfq','{{id}}','cs_question',this)" class="dismiss-opt">CS / Admin Question</button>
         <button onclick="dismissItem('rfq','{{id}}','no_response',this)" class="dismiss-opt">Reytech Did Not Respond</button>
