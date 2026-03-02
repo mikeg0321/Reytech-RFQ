@@ -78,6 +78,36 @@ fetch('/api/dashboard/init').then(r=>r.json()).then(d=>{
 </script>
 
 <!-- ═══ Work Queues — Primary Bento Row ═══ -->
+<style>
+/* Fix dismiss dropdowns getting clipped by overflow scroll containers */
+.dismiss-popup {
+  display:none;position:fixed;background:var(--sf2);border:1px solid var(--bd);
+  border-radius:6px;padding:4px 0;min-width:180px;z-index:9999;
+  box-shadow:0 4px 12px rgba(0,0,0,.3);
+}
+</style>
+<script>
+function toggleDismiss(btn, e) {
+  e.stopPropagation();
+  var popup = btn.nextElementSibling;
+  var isOpen = popup.style.display === 'block';
+  // Close all other open popups first
+  document.querySelectorAll('.dismiss-popup').forEach(function(p){ p.style.display='none'; });
+  if (isOpen) { popup.style.display='none'; return; }
+  // Position fixed relative to button
+  var rect = btn.getBoundingClientRect();
+  popup.style.display='block';
+  popup.style.right = (window.innerWidth - rect.right) + 'px';
+  popup.style.top = (rect.bottom + 2) + 'px';
+  popup.style.left = 'auto';
+}
+// Close popups on outside click
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('.dismiss-wrap')) {
+    document.querySelectorAll('.dismiss-popup').forEach(function(p){ p.style.display='none'; });
+  }
+});
+</script>
 <div id="queues" class="bento bento-2" style="margin-bottom:14px">
 
  <!-- Price Checks — primary work queue (wider column) -->
@@ -121,8 +151,8 @@ fetch('/api/dashboard/init').then(r=>r.json()).then(d=>{
      <td style="text-align:center" onclick="event.stopPropagation()">
       <button onclick="openQP('pc','{{id}}',event)" title="Quick Price" style="background:rgba(52,211,153,.08);border:1px solid rgba(52,211,153,.2);color:#3fb950;cursor:pointer;font-size:10px;padding:2px 6px;border-radius:4px;font-weight:600;margin-right:2px" onmouseover="this.style.background='rgba(52,211,153,.2)'" onmouseout="this.style.background='rgba(52,211,153,.08)'">⚡</button>
       <div style="position:relative;display:inline-block" class="dismiss-wrap">
-       <button onclick="event.stopPropagation();this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'" title="Dismiss this Price Check" style="background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.2);color:#f85149;cursor:pointer;font-size:10px;padding:2px 6px;border-radius:4px;font-weight:600" onmouseover="this.style.background='rgba(248,81,73,.2)'" onmouseout="this.style.background='rgba(248,81,73,.08)'">✕</button>
-       <div style="display:none;position:absolute;right:0;top:22px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;padding:4px 0;min-width:180px;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,.3)">
+       <button onclick="toggleDismiss(this,event)" title="Dismiss this Price Check" style="background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.2);color:#f85149;cursor:pointer;font-size:10px;padding:2px 6px;border-radius:4px;font-weight:600" onmouseover="this.style.background='rgba(248,81,73,.2)'" onmouseout="this.style.background='rgba(248,81,73,.08)'">✕</button>
+       <div class="dismiss-popup">
         <div style="padding:4px 10px;font-size:10px;color:var(--tx2);font-weight:600;text-transform:uppercase;letter-spacing:.5px">Dismiss reason</div>
         <button onclick="dismissItem('pc','{{id}}','cs_question',this)" class="dismiss-opt">CS / Admin Question</button>
         <button onclick="dismissItem('pc','{{id}}','no_response',this)" class="dismiss-opt">Reytech Did Not Respond</button>
@@ -187,8 +217,8 @@ fetch('/api/dashboard/init').then(r=>r.json()).then(d=>{
      <td style="text-align:center"><span class="badge b-{{r.status}}">{{r.status}}</span></td>
      <td style="text-align:center" onclick="event.stopPropagation()">
       <div style="position:relative;display:inline-block" class="dismiss-wrap">
-       <button onclick="event.stopPropagation();this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'" title="Dismiss this RFQ" style="background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.2);color:#f85149;cursor:pointer;font-size:10px;padding:2px 6px;border-radius:4px;font-weight:600" onmouseover="this.style.background='rgba(248,81,73,.2)'" onmouseout="this.style.background='rgba(248,81,73,.08)'">✕</button>
-       <div style="display:none;position:absolute;right:0;top:22px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;padding:4px 0;min-width:180px;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,.3)">
+       <button onclick="toggleDismiss(this,event)" title="Dismiss this RFQ" style="background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.2);color:#f85149;cursor:pointer;font-size:10px;padding:2px 6px;border-radius:4px;font-weight:600" onmouseover="this.style.background='rgba(248,81,73,.2)'" onmouseout="this.style.background='rgba(248,81,73,.08)'">✕</button>
+       <div class="dismiss-popup">
         <div style="padding:4px 10px;font-size:10px;color:var(--tx2);font-weight:600;text-transform:uppercase;letter-spacing:.5px">Dismiss reason</div>
         <button onclick="dismissItem('rfq','{{id}}','cs_question',this)" class="dismiss-opt">CS / Admin Question</button>
         <button onclick="dismissItem('rfq','{{id}}','no_response',this)" class="dismiss-opt">Reytech Did Not Respond</button>

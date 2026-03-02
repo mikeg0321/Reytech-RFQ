@@ -796,7 +796,7 @@ def _is_user_facing_pc(pc: dict) -> bool:
     if pc.get("status") in ("dismissed", "archived", "deleted", "duplicate", "no_response"):
         return False
     # Sent PCs -- visible in PC Archive but not home queue
-    if pc.get("status") in ("sent",):
+    if pc.get("status") in ("sent", "pending_award"):
         return False
     # Terminal statuses — done, move to archive
     if pc.get("status") in ("won", "lost", "expired"):

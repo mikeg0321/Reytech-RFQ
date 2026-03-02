@@ -37,7 +37,7 @@
       }
     ],
     "source_pdf": "/tmp/test.pdf",
-    "status": "pending_award",
+    "status": "sent",
     "created_at": "",
     "reytech_quote_number": "R26Q17",
     "email_uid": "",
@@ -65,7 +65,7 @@
       }
     ],
     "source_pdf": "",
-    "status": "pending_award",
+    "status": "sent",
     "created_at": "",
     "reytech_quote_number": "R26Q17",
     "email_uid": "",

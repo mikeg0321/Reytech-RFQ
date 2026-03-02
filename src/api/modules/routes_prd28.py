@@ -704,6 +704,21 @@ def api_dashboard_init():
         except Exception:
             pass
 
+        # Include orders.json in won_value if orders exist without won quotes
+        try:
+            orders_path = os.path.join(DATA_DIR, "orders.json")
+            if os.path.exists(orders_path):
+                with open(orders_path) as f:
+                    json_orders = json.load(f)
+                order_total = sum(o.get("total", 0) for o in json_orders.values()
+                                 if o.get("status") not in ("cancelled", "test", "deleted"))
+                orders_count = max(orders_count, len([o for o in json_orders.values()
+                                 if o.get("status") not in ("cancelled", "test", "deleted")]))
+                if order_total > won_value:
+                    won_value = order_total
+        except Exception:
+            pass
+
         result["funnel"] = {
             "ok": True, "inbox": inbox, "priced": priced, "quoted": quoted,
             "sent": sent, "won": won_count, "won_value": won_value,
@@ -735,6 +750,18 @@ def api_dashboard_init():
             total_quotes = conn.execute("SELECT COUNT(*) FROM quotes WHERE is_test=0").fetchone()[0]
             total_revenue = conn.execute("SELECT COALESCE(SUM(total),0) FROM quotes WHERE is_test=0 AND status='won'").fetchone()[0]
             pipeline = conn.execute("SELECT COALESCE(SUM(total),0) FROM quotes WHERE is_test=0 AND status IN ('pending','sent')").fetchone()[0]
+        # Also include orders.json revenue (POs may exist without won quotes)
+        try:
+            orders_path = os.path.join(DATA_DIR, "orders.json")
+            if os.path.exists(orders_path):
+                with open(orders_path) as f:
+                    json_orders = json.load(f)
+                order_revenue = sum(o.get("total", 0) for o in json_orders.values()
+                                   if o.get("status") not in ("cancelled", "test", "deleted"))
+                if order_revenue > total_revenue:
+                    total_revenue = order_revenue
+        except Exception:
+            pass
         result["metrics"] = {"ok": True, "total_quotes": total_quotes, "total_revenue": total_revenue, "pipeline": pipeline}
     except Exception as e:
         result["metrics"] = {"ok": False, "error": str(e)}
