@@ -2170,6 +2170,38 @@ def do_poll_check():
     if t.status == "running":
         pcs_routed = POLL_STATUS.get("_diag", {}).get("pcs_routed", 0)
         t.ok("Poll complete", rfqs_imported=len(imported), pcs_routed=pcs_routed)
+
+    # ── Second inbox: mike@ (orders, some PCs/quotes) ──────────────────────
+    mike_addr = os.environ.get("GMAIL_ADDRESS_2", "")
+    mike_pwd = os.environ.get("GMAIL_PASSWORD_2", "")
+    if mike_addr and mike_pwd:
+        try:
+            mike_cfg = dict(email_cfg)
+            mike_cfg["email"] = mike_addr
+            mike_cfg["email_password"] = mike_pwd
+            mike_cfg["processed_file"] = os.path.join(DATA_DIR, "processed_emails_mike.json")
+            mike_cfg["inbox_name"] = "mike"
+            mike_poller = EmailPoller(mike_cfg)
+            log.info("Polling second inbox: %s (%d processed UIDs)",
+                     mike_addr, len(mike_poller._processed))
+            if mike_poller.connect():
+                mike_emails = mike_poller.check_for_rfqs(save_dir=UPLOAD_DIR)
+                log.info("Second inbox: %d emails found", len(mike_emails))
+                for rfq_email in mike_emails:
+                    try:
+                        rfq_data = process_rfq_email(rfq_email)
+                        if rfq_data:
+                            imported.append(rfq_data)
+                    except Exception as pe:
+                        log.error("process_rfq_email (mike@) error: %s", pe, exc_info=True)
+                        failed_uid = rfq_email.get("email_uid", "")
+                        if failed_uid:
+                            mike_poller._processed.discard(failed_uid)
+            else:
+                log.warning("IMAP connect failed for %s", mike_addr)
+        except Exception as e:
+            log.error("Second inbox poll error: %s", e, exc_info=True)
+
     return imported
 
 
