@@ -2637,6 +2637,21 @@ def _create_order_from_po_email(po_data: dict) -> dict:
             log.debug("Suppressed: %s", _e)
     log.info("Order %s created from PO email (quote=%s, po=%s, items=%d, total=$%.2f, costs=%d)",
              oid, qn, po_num, len(line_items), total, sum(1 for it in line_items if it.get("cost")))
+    # ── Notify Mike: new PO arrived ──────────────────────────────
+    try:
+        from src.agents.notify_agent import send_alert
+        send_alert(
+            event_type="po_received",
+            title=f"🏆 New PO: {po_num or oid}",
+            body=f"PO #{po_num} from {order.get('institution', 'unknown')} — ${total:,.2f}" +
+                 (f"\nLinked to quote {qn}" if qn else "") +
+                 f"\n{len(line_items)} line items",
+            urgency="deal",
+            context={"order_id": oid, "po_number": po_num, "quote_number": qn},
+            cooldown_key=f"po_received:{po_num or oid}",
+        )
+    except Exception as _ne:
+        log.debug("Order notification: %s", _ne)
     # ── Pricing Intelligence: capture winning prices ──
     try:
         from src.knowledge.pricing_intel import record_winning_prices

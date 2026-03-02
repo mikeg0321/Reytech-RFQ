@@ -668,6 +668,22 @@ def api_dashboard_init():
         except Exception:
             pass
 
+        # ── Orders needing action ──
+        try:
+            orders_path = os.path.join(DATA_DIR, "orders.json")
+            if os.path.exists(orders_path):
+                with open(orders_path) as f:
+                    all_orders = json.load(f)
+                new_orders = [o for o in all_orders.values() if o.get("status") == "new"]
+                delivered_orders = [o for o in all_orders.values() if o.get("status") == "delivered"]
+                if new_orders:
+                    total_val = sum(o.get("total", 0) for o in new_orders)
+                    urgent.append({"icon": "🏆", "label": f"{len(new_orders)} new PO{'s' if len(new_orders) > 1 else ''} — ${total_val:,.0f} to source", "link": "/orders", "type": "new_orders", "count": len(new_orders)})
+                if delivered_orders:
+                    action_needed.append({"icon": "💰", "label": f"{len(delivered_orders)} order{'s' if len(delivered_orders) > 1 else ''} ready to invoice", "link": "/orders", "type": "invoice_ready", "count": len(delivered_orders)})
+        except Exception:
+            pass
+
         result["actions"] = {"ok": True, "urgent": urgent, "action_needed": action_needed, "progress": progress_items}
     except Exception as e:
         result["actions"] = {"ok": False, "error": str(e), "urgent": [], "action_needed": [], "progress": []}
