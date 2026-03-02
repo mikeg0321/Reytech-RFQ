@@ -2189,6 +2189,23 @@ def do_poll_check():
                 log.info("Second inbox: %d emails found", len(mike_emails))
                 for rfq_email in mike_emails:
                     try:
+                        # Check for shipping/tracking emails before RFQ processing
+                        try:
+                            from src.agents.order_digest import scan_email_for_tracking, apply_tracking_to_order
+                            track_result = scan_email_for_tracking(
+                                rfq_email.get("subject", ""),
+                                rfq_email.get("body", ""),
+                                rfq_email.get("sender", ""),
+                            )
+                            if track_result.get("has_tracking"):
+                                for oid in track_result.get("matched_orders", []):
+                                    for tn in track_result.get("tracking_numbers", []):
+                                        apply_tracking_to_order(oid, tn["number"], tn["carrier"])
+                                log.info("Tracking scan: %d tracking numbers, %d matched orders",
+                                         len(track_result.get("tracking_numbers", [])),
+                                         len(track_result.get("matched_orders", [])))
+                        except Exception as _te:
+                            log.debug("Tracking scan error: %s", _te)
                         rfq_data = process_rfq_email(rfq_email)
                         if rfq_data:
                             imported.append(rfq_data)
@@ -3724,6 +3741,14 @@ try:
     log.info("Email retry scheduler started (checks every 15m)")
 except Exception as _e:
     log.warning("Email retry scheduler failed to start: %s", _e)
+
+# ── Start Order Digest Scheduler (daily digest + tracking checks) ────────
+try:
+    from src.agents.order_digest import start_order_digest_scheduler
+    start_order_digest_scheduler()
+    log.info("Order digest scheduler started (every 4h, digest at 8am)")
+except Exception as _e:
+    log.warning("Order digest scheduler failed to start: %s", _e)
 
 # ── Start Lead Nurture Scheduler (drip sequences + rescoring) ────────────
 try:

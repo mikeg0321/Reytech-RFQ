@@ -70,6 +70,8 @@ fetch('/api/dashboard/init').then(r=>r.json()).then(d=>{
   if(d.funnel && d.funnel.ok) _renderFunnel(d.funnel);
   // ── Revenue ──
   if(d.revenue && d.revenue.ok) _renderRevenue(d.revenue);
+  // ── Order Health ──
+  if(d.order_health && d.order_health.ok && d.order_health.total > 0) _renderOrderHealth(d.order_health);
   // ── QA ──
   if(d.qa) _renderQA(d.qa);
   // ── Manager metrics ──
@@ -265,6 +267,53 @@ document.addEventListener('click', function(e) {
  </div>
  <div id="qp-items" style="padding:12px"></div>
 </div>
+
+<!-- ═══ Orders Progress Board ═══ -->
+<div id="order-health-section" style="display:none;margin-bottom:14px">
+ <div class="card" style="padding:18px 24px">
+  <div style="display:flex;align-items:center;gap:6px;margin-bottom:14px">
+   <span style="font-size:11px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:1px">📦 Orders Progress</span>
+   <span style="flex:1;height:1px;background:var(--bd)"></span>
+   <a href="/orders" style="font-size:11px;color:var(--ac);font-weight:600">Manage Orders →</a>
+  </div>
+  <div id="order-health-stats" style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px"></div>
+  <div id="order-health-issues"></div>
+ </div>
+</div>
+<script>
+function _renderOrderHealth(d){
+ var el=document.getElementById('order-health-section');
+ el.style.display='block';
+ var s=d.summary||{};
+ var stats=document.getElementById('order-health-stats');
+ var items=[
+  {v:s.items_not_ordered?s.items_not_ordered.length:0, l:'Not Ordered', c:'#f85149', bg:'rgba(248,81,73,.08)'},
+  {v:s.items_ordered_no_tracking?s.items_ordered_no_tracking.length:0, l:'No Tracking', c:'#d29922', bg:'rgba(210,153,34,.08)'},
+  {v:s.items_shipped?s.items_shipped.length:0, l:'In Transit', c:'#bc8cff', bg:'rgba(188,140,255,.08)'},
+  {v:s.items_delivered?s.items_delivered.length:0, l:'Delivered', c:'#3fb950', bg:'rgba(52,211,153,.08)'},
+  {v:s.orders_delivered_no_invoice?s.orders_delivered_no_invoice.length:0, l:'Need Invoice', c:'#f85149', bg:'rgba(248,81,73,.08)'},
+ ];
+ stats.innerHTML=items.map(function(i){
+  return '<div style="text-align:center;background:'+i.bg+';border-radius:8px;padding:10px">'
+   +'<div style="font-size:22px;font-weight:800;font-family:JetBrains Mono,monospace;color:'+i.c+'">'+i.v+'</div>'
+   +'<div style="font-size:10px;color:var(--tx2);margin-top:2px">'+i.l+'</div></div>';
+ }).join('');
+
+ var issues=d.issues||[];
+ var issEl=document.getElementById('order-health-issues');
+ if(!issues.length){ issEl.innerHTML='<div style="color:var(--tx2);font-size:12px;text-align:center;padding:8px">✅ All orders on track</div>'; return; }
+ var html='';
+ issues.slice(0,8).forEach(function(i){
+  var sev=i.severity==='high'?'🔴':i.severity==='medium'?'🟡':'🟢';
+  html+='<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--sf);font-size:12px">'
+   +'<span>'+sev+'</span>'
+   +'<span style="flex:1;color:var(--tx)">'+i.msg+'</span>'
+   +'<a href="'+i.link+'" style="color:var(--ac);font-size:11px;white-space:nowrap">View →</a></div>';
+ });
+ if(issues.length>8) html+='<div style="text-align:center;padding:6px;font-size:11px;color:var(--tx2)">+ '+(issues.length-8)+' more</div>';
+ issEl.innerHTML=html;
+}
+</script>
 
 <!-- ═══ KPI Dashboard — Bento analytics ═══ -->
 

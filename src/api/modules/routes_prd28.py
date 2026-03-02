@@ -782,5 +782,12 @@ def api_dashboard_init():
     except Exception as e:
         result["metrics"] = {"ok": False, "error": str(e)}
 
+    # ── 6. Order health (progress board data) ──
+    try:
+        from src.agents.order_digest import get_order_health
+        result["order_health"] = get_order_health()
+    except Exception as e:
+        result["order_health"] = {"ok": False, "error": str(e)}
+
     result["_ms"] = round((_time.time() - t0) * 1000)
     return jsonify(result)

@@ -549,6 +549,41 @@ def api_order_update_line(oid, lid):
     _save_orders(orders)
     _update_order_status(oid)
     
+    # ── Line-item level notifications ──
+    if "sourcing_status" in data:
+        new_ss = data["sourcing_status"]
+        desc_short = it.get("description", "")[:50]
+        inst = order.get("institution", "")
+        po = order.get("po_number", "")
+        try:
+            from src.agents.notify_agent import send_alert
+            if new_ss == "shipped":
+                tracking = it.get("tracking_number", "") or data.get("tracking_number", "")
+                send_alert(
+                    event_type="line_shipped",
+                    title=f"🚚 Shipped: {desc_short}",
+                    body=f"PO #{po} → {inst}\n{desc_short} x{it.get('qty',0)}"
+                         + (f"\nTracking: {tracking}" if tracking else ""),
+                    urgency="info",
+                    context={"order_id": oid, "line_id": lid, "po_number": po},
+                    cooldown_key=f"line_ship:{oid}:{lid}",
+                )
+            elif new_ss == "delivered":
+                # Check if ALL items now delivered
+                all_delivered = all(i.get("sourcing_status") == "delivered"
+                                   for i in order.get("line_items", []))
+                send_alert(
+                    event_type="line_delivered",
+                    title=f"✅ Delivered: {desc_short}" + (" — ALL ITEMS DONE" if all_delivered else ""),
+                    body=f"PO #{po} → {inst}\n{desc_short} x{it.get('qty',0)}"
+                         + (f"\n🏁 All {len(order.get('line_items',[]))} items delivered — create invoice!" if all_delivered else ""),
+                    urgency="deal" if all_delivered else "info",
+                    context={"order_id": oid, "line_id": lid, "po_number": po},
+                    cooldown_key=f"line_del:{oid}:{lid}",
+                )
+        except Exception as _ne:
+            log.debug("Line item notify: %s", _ne)
+    
     # ── Catalog Learning: when supplier info changes, teach the catalog ──
     if any(f in data for f in ("supplier", "supplier_url", "unit_price")):
         try:
@@ -1506,3 +1541,38 @@ def build_supplier_purchase_urls(order: dict) -> dict:
     return groups
 
 
+
+# ─── Order Health + Digest API Routes ──────────────────────────────────────
+
+@bp.route("/api/orders/health")
+@auth_required
+def api_orders_health():
+    """Return full order health report for dashboard."""
+    try:
+        from src.agents.order_digest import get_order_health
+        return jsonify(get_order_health())
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/orders/digest", methods=["POST"])
+@auth_required
+def api_orders_digest():
+    """Trigger daily digest manually."""
+    try:
+        from src.agents.order_digest import run_daily_digest
+        result = run_daily_digest()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/orders/context/<po_number>")
+@auth_required
+def api_order_context(po_number):
+    """Get rich order context (used by CS agent and order status pages)."""
+    try:
+        from src.agents.order_digest import get_order_context_for_cs
+        return jsonify(get_order_context_for_cs(po_number=po_number))
+    except Exception as e:
+        return jsonify({"found": False, "error": str(e)})

@@ -312,7 +312,57 @@ def build_cs_response_draft(
         po_nums = entities.get("po_numbers", [])
         order = _lookup_order_by_po(po_nums[0]) if po_nums else None
 
-        if order:
+        # Pull rich order context from order_digest
+        order_ctx = None
+        try:
+            from src.agents.order_digest import get_order_context_for_cs
+            order_ctx = get_order_context_for_cs(
+                po_number=po_nums[0] if po_nums else "",
+                sender_email=sender_email,
+            )
+        except Exception:
+            pass
+
+        if order_ctx and order_ctx.get("found"):
+            o = order_ctx["orders"][0]
+            entities_resolved["order"] = o
+            s = o["item_summary"]
+            status = o["status"]
+
+            # Build detailed per-item status
+            item_lines = []
+            for it in o.get("items", []):
+                icon = {"pending": "⏳", "ordered": "🛒", "shipped": "🚚", "delivered": "✅"}.get(it["status"], "•")
+                line = f"  {icon} {it['description']} (qty {it['qty']}) — {it['status']}"
+                if it.get("tracking"):
+                    line += f" — tracking: {it['tracking']}"
+                item_lines.append(line)
+
+            body_text = (
+                f"Hi {first_name},\n\n"
+                f"Thank you for reaching out. Here is the current status of your order"
+                + (f" (PO #{po_nums[0]})" if po_nums else "") + ":\n\n"
+                f"Order Status: {status.replace('_', ' ').title()}\n"
+                f"Items: {s['total']} total — {s['delivered']} delivered, "
+                f"{s['shipped']} shipped, {s['ordered']} ordered, {s['pending']} pending\n\n"
+                f"Item Details:\n"
+                + "\n".join(item_lines) + "\n"
+            )
+            if o.get("tracking_numbers"):
+                body_text += f"\nTracking Number(s): {', '.join(o['tracking_numbers'])}\n"
+
+            if status == "delivered":
+                body_text += "\nAll items have been delivered. Please let us know if anything was missing or damaged.\n"
+            elif s["shipped"] > 0:
+                body_text += "\nItems are on their way. We'll send tracking updates as more ship.\n"
+            elif s["ordered"] > 0:
+                body_text += "\nItems have been ordered from our suppliers and will ship soon.\n"
+            else:
+                body_text += "\nYour order is being processed and items will ship shortly.\n"
+
+            body_text += "\nIf you have any other questions, please don't hesitate to reach out." + CS_SIGNATURE
+
+        elif order:
             entities_resolved["order"] = order
             status = order.get("status", "processing")
             body_text = (
@@ -344,6 +394,22 @@ def build_cs_response_draft(
         po_nums = entities.get("po_numbers", [])
         tracking_ref = tracking[0] if tracking else None
         po_ref = f" for PO #{po_nums[0]}" if po_nums else ""
+
+        # Pull tracking from order data if not in the email
+        if not tracking_ref:
+            try:
+                from src.agents.order_digest import get_order_context_for_cs
+                order_ctx = get_order_context_for_cs(
+                    po_number=po_nums[0] if po_nums else "",
+                    sender_email=sender_email,
+                )
+                if order_ctx and order_ctx.get("found"):
+                    o = order_ctx["orders"][0]
+                    if o.get("tracking_numbers"):
+                        tracking_ref = o["tracking_numbers"][0]
+                        entities_resolved["tracking_from_order"] = True
+            except Exception:
+                pass
 
         if tracking_ref:
             entities_resolved["tracking_number"] = tracking_ref
