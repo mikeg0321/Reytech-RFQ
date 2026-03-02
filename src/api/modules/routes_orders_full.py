@@ -1555,7 +1555,7 @@ def api_orders_health():
         return jsonify({"ok": False, "error": str(e)})
 
 
-@bp.route("/api/orders/digest", methods=["POST"])
+@bp.route("/api/orders/digest", methods=["GET", "POST"])
 @auth_required
 def api_orders_digest():
     """Trigger daily digest manually."""
