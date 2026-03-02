@@ -243,14 +243,16 @@ def run_daily_digest(force: bool = False):
 
     body = "\n".join(lines)
 
+    alert_result = None
     try:
         from src.agents.notify_agent import send_alert
-        send_alert(
+        alert_result = send_alert(
             event_type="order_digest",
             title=f"📋 Order Digest: {len(issues)} action items",
             body=body,
             urgency="warning" if any(i["severity"] == "high" for i in issues) else "info",
-            cooldown_key=f"digest:{today}",
+            cooldown_key=f"digest:{today}:{datetime.now().strftime('%H%M')}",
+            run_async=False,
         )
     except Exception as e:
         log.error("Digest send failed: %s", e)
@@ -263,7 +265,7 @@ def run_daily_digest(force: bool = False):
         json.dump(state, f)
 
     log.info("Daily digest sent: %d issues, %d orders", len(issues), s["total_orders"])
-    return {"ok": True, "issues": len(issues), "sent": True}
+    return {"ok": True, "issues": len(issues), "sent": True, "alert_result": alert_result}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

@@ -1577,3 +1577,22 @@ def api_order_context(po_number):
         return jsonify(get_order_context_for_cs(po_number=po_number))
     except Exception as e:
         return jsonify({"found": False, "error": str(e)})
+
+
+@bp.route("/api/orders/test-sms")
+@auth_required
+def api_test_sms():
+    """Test SMS delivery directly — no async, returns full error."""
+    try:
+        from src.agents.notify_agent import _send_sms, TWILIO_SID, TWILIO_TOKEN, TWILIO_FROM, NOTIFY_PHONE
+        diag = {
+            "twilio_sid": TWILIO_SID[:8] + "..." if TWILIO_SID else "(not set)",
+            "twilio_token": TWILIO_TOKEN[:4] + "..." if TWILIO_TOKEN else "(not set)",
+            "twilio_from": TWILIO_FROM or "(not set)",
+            "notify_phone": NOTIFY_PHONE or "(not set)",
+        }
+        result = _send_sms("Test from Reytech", "If you see this, SMS is working!", {})
+        return jsonify({"diag": diag, "sms_result": result})
+    except Exception as e:
+        import traceback
+        return jsonify({"ok": False, "error": str(e), "traceback": traceback.format_exc()})
