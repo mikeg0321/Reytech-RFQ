@@ -163,7 +163,7 @@ def get_order_health() -> dict:
     return {"ok": True, "total": summary["total_orders"], "issues": issues, "summary": summary}
 
 
-def run_daily_digest():
+def run_daily_digest(force: bool = False):
     """Generate and send daily order digest via SMS + email."""
     # Check if we already sent today
     state = {}
@@ -174,7 +174,7 @@ def run_daily_digest():
         pass
 
     today = datetime.now().strftime("%Y-%m-%d")
-    if state.get("last_digest") == today:
+    if not force and state.get("last_digest") == today:
         return {"ok": True, "skipped": True, "reason": "already sent today"}
 
     health = get_order_health()

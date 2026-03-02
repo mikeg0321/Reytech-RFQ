@@ -1558,13 +1558,14 @@ def api_orders_health():
 @bp.route("/api/orders/digest", methods=["GET", "POST"])
 @auth_required
 def api_orders_digest():
-    """Trigger daily digest manually."""
+    """Trigger daily digest manually (always sends, bypasses daily limit)."""
     try:
         from src.agents.order_digest import run_daily_digest
-        result = run_daily_digest()
+        result = run_daily_digest(force=True)
         return jsonify(result)
     except Exception as e:
-        return jsonify({"ok": False, "error": str(e)})
+        import traceback
+        return jsonify({"ok": False, "error": str(e), "traceback": traceback.format_exc()})
 
 
 @bp.route("/api/orders/context/<po_number>")
