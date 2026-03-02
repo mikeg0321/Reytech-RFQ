@@ -118,6 +118,7 @@ def app(temp_data_dir, monkeypatch):
     """Create Flask app configured for testing."""
     monkeypatch.setenv("DASH_USER", "reytech")
     monkeypatch.setenv("DASH_PASS", "changeme")
+    monkeypatch.setenv("SECRET_KEY", "test-secret-key-for-pytest")
 
     try:
         from src.api import dashboard
@@ -246,7 +247,7 @@ def sample_pc(sample_pc_items):
         "id": "test-pc-001",
         "pc_number": "OS - Den - Feb",
         "institution": "CSP-Sacramento",
-        "ship_to": "CSP-Sacramento, 100 Prison Road, Represa, CA 95671",
+        "ship_to": "CSP-Sacramento, 300 Prison Road, Represa, CA 95671",
         "status": "priced",
         "tax_enabled": False,
         "tax_rate": 0.0,

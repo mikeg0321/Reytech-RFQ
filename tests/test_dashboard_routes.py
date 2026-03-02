@@ -280,6 +280,14 @@ class TestCustomerCRM:
         assert isinstance(data, dict)
 
     def test_add_new(self, client):
+        # Clean up any leftover from previous test runs (DB persists across sessions)
+        try:
+            from src.core.db import get_db
+            db = get_db()
+            db.execute("DELETE FROM customers WHERE display_name = 'Test Customer QA'")
+            db.commit()
+        except Exception:
+            pass
         r = client.post("/api/customers",
                         json={"display_name": "Test Customer QA",
                               "agency": "CDCR", "city": "Test City"},

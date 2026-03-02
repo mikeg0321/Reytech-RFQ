@@ -40,7 +40,7 @@ def create_app():
         static_folder=os.path.join(_app_dir, "src", "static"),
         static_url_path="/static",
     )
-    _secret = os.environ.get("SECRET_KEY")
+    _secret = os.environ.get("SECRET_KEY") or os.environ.get("APP_SECRET")
     if not _secret:
         raise RuntimeError(
             "SECRET_KEY environment variable is required. "

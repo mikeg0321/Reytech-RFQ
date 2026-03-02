@@ -1118,7 +1118,7 @@ def generate_quote(
     # TOTALS SECTION
     # ══════════════════════════════════════════════════════════════════════════
     tax     = round(subtotal * rate, 2) if include_tax else 0.0
-    total   = round(subtotal + tax, 2)  # No shipping line — baked into item cost/margin
+    total   = round(subtotal + tax + shipping, 2)
 
     # Totals are right-aligned under UNIT PRICE + TOTAL PRICE columns
     # From extraction: labels at x=429→514 (w=85), values at x=514→594 (w=80)
@@ -1195,6 +1195,7 @@ def generate_quote(
         "subtotal": subtotal,
         "tax": tax,
         "tax_rate": rate,
+        "shipping": shipping,
         "total": total,
         "items_count": len(items),
         "date": quote_date,

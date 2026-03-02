@@ -3799,9 +3799,9 @@ def _force_recapture():
                     conn.execute("DELETE FROM processed_emails")
                     try:
                         conn.execute("DELETE FROM email_fingerprints")
-                    except:
+                    except Exception:
                         pass
-            except:
+            except Exception:
                 pass
             log.info("Force-recapture: cleared %d processed UIDs for '%s'", old_count, match_kw)
         except Exception as e:
@@ -3841,7 +3841,7 @@ def api_email_trace():
     try:
         with open(proc_file) as f:
             processed_disk = json.load(f)
-    except:
+    except Exception:
         processed_disk = []
     
     # In-memory poller state
@@ -3865,7 +3865,7 @@ def api_email_trace():
         try:
             if os.path.exists(proc_file):
                 os.remove(proc_file)
-        except:
+        except Exception:
             pass
         
         # 4. Clear SQLite processed_emails table (layer 3)
@@ -3875,7 +3875,7 @@ def api_email_trace():
             with get_db() as conn:
                 db_cleared = conn.execute("SELECT COUNT(*) FROM processed_emails").fetchone()[0]
                 conn.execute("DELETE FROM processed_emails")
-        except:
+        except Exception:
             pass
         
         # 5. Clear email_fingerprints table (layer 4 — cross-inbox dedup)
@@ -3886,9 +3886,9 @@ def api_email_trace():
                 try:
                     fp_cleared = conn.execute("SELECT COUNT(*) FROM email_fingerprints").fetchone()[0]
                     conn.execute("DELETE FROM email_fingerprints")
-                except:
+                except Exception:
                     pass
-        except:
+        except Exception:
             pass
         
         # 6. Kill poller so next Check Now creates fresh one
@@ -3918,7 +3918,7 @@ def api_email_trace():
     
     try:
         poll_st = {k: str(v) for k, v in POLL_STATUS.items()}
-    except:
+    except Exception:
         poll_st = {}
     
     from flask import Response
@@ -3974,7 +3974,7 @@ def api_disk_cleanup():
                     for root, dirs, files in os.walk(entry.path):
                         for f in files:
                             dir_sz += os.path.getsize(os.path.join(root, f))
-                except:
+                except Exception:
                     pass
                 data_sizes[entry.name + "/"] = round(dir_sz / 1024 / 1024, 2)
                 total_data += dir_sz
@@ -3998,7 +3998,7 @@ def api_disk_cleanup():
                 d = r.get("rfq_dir", "")
                 if d:
                     active_dirs.add(os.path.basename(d))
-        except:
+        except Exception:
             pass
         try:
             pcs = _load_price_checks()
@@ -4006,7 +4006,7 @@ def api_disk_cleanup():
                 d = pc.get("rfq_dir", "")
                 if d:
                     active_dirs.add(os.path.basename(d))
-        except:
+        except Exception:
             pass
         
         removed = 0
@@ -4065,7 +4065,7 @@ def api_disk_cleanup():
                         new_size = os.path.getsize(fpath)
                         freed += old_size - new_size
                         trimmed.append(f"{fname}: {round(old_size/1024)}K → {round(new_size/1024)}K")
-                except:
+                except Exception:
                     pass
             
             # Delete .bak files and temp files

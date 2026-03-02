@@ -216,7 +216,7 @@ class TestQuoteFromPC:
         with pdfplumber.open(out) as pdf:
             text = pdf.pages[0].extract_text()
         # "100 Prison Road" should appear in both To and Ship To sections
-        assert text.count("100 Prison Road") >= 2
+        assert text.count("300 Prison Road") >= 2
 
     def test_no_bid_excluded(self, tmp_path, sample_pc):
         sample_pc["items"][1]["no_bid"] = True

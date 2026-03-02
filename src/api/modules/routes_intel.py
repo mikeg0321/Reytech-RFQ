@@ -1121,8 +1121,6 @@ def quotes_list():
     )
 
 
-@bp.route("/quote/<qn>")
-@auth_required
 def _get_package_files(qt, source_link):
     """Get all generated package files from the source RFQ/PC for display on quote detail."""
     package = []  # list of {filename, download_url, view_url, icon}
@@ -1161,6 +1159,8 @@ def _get_package_files(qt, source_link):
     return package
 
 
+@bp.route("/quote/<qn>")
+@auth_required
 def quote_detail(qn):
     """Dedicated quote detail page."""
     if not QUOTE_GEN_AVAILABLE:

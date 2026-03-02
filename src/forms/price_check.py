@@ -361,10 +361,18 @@ def parse_ams704(pdf_path: str) -> dict:
             "qty_per_uom": ["qty per"],
         }
         search_terms = key_words.get(pattern_key, [pattern_key])
+        # Exclusion patterns: prevent "QTY PER UOM" matching as "QTY" etc.
+        exclude_words = {
+            "qty": ["per uom", "qty per", "per unit"],
+            "uom": ["qty per uom", "qty per"],
+        }
+        excludes = exclude_words.get(pattern_key, [])
         row_str = str(row_n)
         for fname in fields:
             fl = fname.lower()
             if row_str in fname and any(t in fl for t in search_terms):
+                if any(ex in fl for ex in excludes):
+                    continue  # Skip: this field belongs to a different column
                 field_map_cache[cache_key] = fname
                 log.debug("Fuzzy field match: '%s' row %d → '%s'", pattern_key, row_n, fname)
                 return fname
@@ -391,6 +399,48 @@ def parse_ams704(pdf_path: str) -> dict:
                 qty = int(float(row_data.get("qty", "1") or "1"))
             except (ValueError, TypeError):
                 qty = 1
+
+            # Detect continuation rows: has description but NO qty AND NO item#
+            # These are multi-line descriptions that spilled into the next row's fields
+            # Also detect rows with auto-filled sequential item numbers but no qty
+            raw_qty = (row_data.get("qty") or "").strip()
+            raw_item_num = (row_data.get("item_number") or "").strip()
+            # Treat "0" as effectively empty — some forms auto-fill 0 for blank qty
+            qty_is_empty = (not raw_qty or raw_qty == "0")
+            is_continuation = (qty_is_empty and not raw_item_num and result["line_items"])
+            # Also treat as continuation: no real qty AND item# is just a sequential number
+            # (some forms auto-fill item# 2,3,4... even for empty rows)
+            if not is_continuation and result["line_items"] and qty_is_empty:
+                if not raw_item_num or _is_sequential_number(raw_item_num):
+                    is_continuation = True
+            # Also treat as continuation: parsed qty is 0 or 1 (default) while
+            # the previous item has a real qty > 1 — likely a wrapped description
+            if not is_continuation and result["line_items"] and qty <= 1:
+                prev_qty = result["line_items"][-1].get("qty", 1)
+                if prev_qty > 1 and (_is_sequential_number(raw_item_num) or not raw_item_num):
+                    if _is_supplementary_desc(row_data["description"]):
+                        is_continuation = True
+            # Final fallback: if description is clearly supplementary info (pack size,
+            # part number, etc.) it's NEVER a real line item — always merge regardless
+            # of qty/item# values (some forms auto-fill these from the previous row)
+            if not is_continuation and result["line_items"]:
+                if _is_supplementary_desc(row_data["description"]):
+                    is_continuation = True
+                    log.info("  row %d forced continuation: supplementary desc '%s' (qty=%s item#=%s)",
+                             row_num, row_data["description"][:40], raw_qty, raw_item_num)
+
+            if is_continuation:
+                prev = result["line_items"][-1]
+                prev["description"] = clean_description(
+                    prev.get("description_raw", prev["description"]) + " " + row_data["description"]
+                )
+                prev["description_raw"] = (prev.get("description_raw", "") + " " + row_data["description"]).strip()
+                real_pn = extract_item_numbers(prev)
+                if real_pn:
+                    prev["mfg_number"] = real_pn
+                log.info("  row %d merged as continuation into row %d: '%s'",
+                         row_num, prev["row_index"], row_data["description"][:40])
+                continue
 
             qty_per_uom = 1
             try:
@@ -429,7 +479,91 @@ def parse_ams704(pdf_path: str) -> dict:
                     pass
 
     log.info("parse_ams704: %d items found across rows 1-%d", len(result["line_items"]), max_row_check)
+    
+    # Post-processing: merge items that look like continuation rows the parser missed
+    result["line_items"] = _merge_continuation_items(result["line_items"])
+    
     return result
+
+
+def _is_supplementary_desc(desc: str) -> bool:
+    """Check if a description looks like pack/case info or a part number, not a real product."""
+    d = desc.strip().upper()
+    if not d:
+        return True
+    # Pack/case/quantity info: "100PCS PER PACK", "12/CASE", "50 PER BOX", "100 CT"
+    if re.match(r'^\d+\s*(PCS?|PIECES?|CT|COUNT)\s*(PER|/)\s*', d, re.I):
+        return True
+    # Ratio formats: "12/CASE", "50/BOX", "24/PKG", "6/PACK"
+    if re.match(r'^\d+\s*/\s*(CASE|BOX|PKG|PACK|BAG|CARTON|EACH|EA|BX|CS|PK)', d, re.I):
+        return True
+    # "PACK OF 100", "BOX OF 12", "CASE OF 24"
+    if re.match(r'^(PACK|BOX|CASE|BAG|CARTON|PKG)\s*(OF|:)\s*\d+', d, re.I):
+        return True
+    # "N PER CASE/BOX/PACK/etc" (no leading PCS)
+    if re.match(r'^\d+\s+PER\s+(PACK|CASE|BOX|BAG|CARTON|PKG|EACH|EA)', d, re.I):
+        return True
+    # Item/part number references: "ITEM#HT-126", "MFG#ABC123", "P/N: XYZ"
+    if re.match(r'^(ITEM\s*#|MFG\s*#|P/?N\s*[:# ]|PART\s*#|REF\s*#|CAT\s*#|SKU\s*#|NDC\s*#|UPC\s*#|NSN\s*#)', d, re.I):
+        return True
+    # Very short descriptions that are just codes: "HT-126/SONGFIR"
+    if len(d) < 25 and '/' in d and any(c.isdigit() for c in d) and ' ' not in d.strip():
+        return True
+    return False
+
+
+def _merge_continuation_items(items: list) -> list:
+    """
+    Post-processing pass to merge false line items that are really
+    continuation descriptions from the previous item.
+    
+    Heuristic: if an item has default qty (1), default UOM (EA),
+    and its description looks like supplementary info (pack size,
+    part number, etc.), merge into the previous real item.
+    """
+    if len(items) <= 1:
+        return items
+    
+    merged = [items[0]]
+    for item in items[1:]:
+        prev = merged[-1]
+        desc = (item.get("description") or "").strip()
+        raw_desc = (item.get("description_raw") or desc).strip()
+        
+        # Candidate for merging if:
+        # 1. Default qty (0 or 1) and default/missing UOM — no real data was parsed
+        # 2. OR description is clearly supplementary (pack info, part number)
+        is_default_qty = (item.get("qty", 1) in (0, 1))
+        is_default_uom = (item.get("uom", "EA").upper() in ("EA", ""))
+        is_supplement = _is_supplementary_desc(raw_desc)
+        
+        should_merge = False
+        if is_supplement:
+            should_merge = True
+        elif is_default_qty and is_default_uom and prev.get("qty", 1) > 1:
+            # Previous item has a real quantity but this one is default — likely continuation
+            should_merge = True
+        elif item.get("qty", 1) == 0:
+            # Zero-qty items are never real line items — always merge
+            should_merge = True
+        
+        if should_merge:
+            # Merge description into previous item
+            prev_raw = prev.get("description_raw", prev.get("description", ""))
+            prev["description_raw"] = (prev_raw + " " + raw_desc).strip()
+            prev["description"] = clean_description(prev["description_raw"])
+            # Re-extract part number with fuller description
+            real_pn = extract_item_numbers(prev)
+            if real_pn:
+                prev["mfg_number"] = real_pn
+            log.info("  post-merge: '%s' into item %s", desc[:40], prev.get("item_number", "?"))
+        else:
+            merged.append(item)
+    
+    if len(merged) != len(items):
+        log.info("  post-merge: %d items → %d items", len(items), len(merged))
+    
+    return merged
 
 
 def _parse_ams704_ocr(pdf_path: str, result: dict) -> dict:
@@ -460,6 +594,9 @@ def _parse_ams704_ocr(pdf_path: str, result: dict) -> dict:
     except Exception as e:
         result["error"] = f"OCR parse error: {e}"
         log.error(f"OCR parse error: {e}", exc_info=True)
+
+    # Post-processing: merge continuation items the table extractor missed
+    result["line_items"] = _merge_continuation_items(result["line_items"])
 
     return result
 
@@ -545,7 +682,38 @@ def _extract_items_from_table(table: list, result: dict, page_num: int):
         if not desc.strip():
             continue
 
-        qty_str = str(row[col_map.get("qty", 1)] or "1")
+        # Check if this row has an item number or qty — if not, it's a
+        # continuation of the previous item's multi-line description
+        item_num_val = str(row[col_map.get("item_number", 0)] or "").strip() if "item_number" in col_map else ""
+        qty_raw = str(row[col_map.get("qty", "")] or "").strip() if "qty" in col_map else ""
+        uom_raw = str(row[col_map.get("uom", "")] or "").strip() if "uom" in col_map else ""
+
+        has_item_number = bool(item_num_val) and item_num_val not in ("None", "0")
+        has_qty = bool(qty_raw)
+
+        # Treat sequential item numbers (1-50) as auto-filled, not real data
+        if has_item_number and _is_sequential_number(item_num_val):
+            has_item_number = False
+
+        # Continuation row: no real item# AND no qty — merge into previous item
+        is_continuation = (not has_item_number and not has_qty and result["line_items"])
+        # Also merge if description is clearly supplementary (pack info, part number)
+        # regardless of qty/item# (some forms auto-fill these from previous row)
+        if not is_continuation and result["line_items"] and _is_supplementary_desc(desc.strip()):
+            is_continuation = True
+        if is_continuation:
+            prev = result["line_items"][-1]
+            prev["description"] = (prev["description"] + " " + desc.strip()).strip()
+            prev["description_raw"] = prev.get("description_raw", prev["description"])
+            # Re-extract MFG/part number with the fuller description
+            real_pn = extract_item_numbers(prev)
+            if real_pn:
+                prev["mfg_number"] = real_pn
+            log.debug("  continuation row merged into item %s: '%s'",
+                       prev.get("item_number", "?"), desc.strip()[:40])
+            continue
+
+        qty_str = qty_raw or "1"
         try:
             qty = int(float(qty_str))
         except Exception:
@@ -559,9 +727,9 @@ def _extract_items_from_table(table: list, result: dict, page_num: int):
             sub_text = str(row[col_map["substituted"]] or "").strip()
 
         item = {
-            "item_number": str(row[col_map.get("item_number", 0)] or row_num),
+            "item_number": item_num_val or str(row_num),
             "qty": qty,
-            "uom": str(row[col_map.get("uom", "")] or "ea").upper(),
+            "uom": (uom_raw or "ea").upper(),
             "qty_per_uom": 1,
             "description": desc.strip(),
             "substituted": sub_text,
