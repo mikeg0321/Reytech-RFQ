@@ -673,7 +673,7 @@ def _load_price_checks():
             from src.core.db import get_db
             with get_db() as conn:
                 rows = conn.execute(
-                    "SELECT * FROM price_checks WHERE status NOT IN ('dismissed','cancelled')"
+                    "SELECT * FROM price_checks WHERE status NOT IN ('dismissed','cancelled','not_responding','archived','deleted','duplicate')"
                 ).fetchall()
                 if rows:
                     for r in rows:
@@ -783,8 +783,8 @@ def _is_user_facing_pc(pc: dict) -> bool:
     """Canonical filter: is this PC for the standalone PC queue?
     Auto-price PCs (created from RFQ imports) belong to the RFQ row, not the PC queue.
     Standalone email PCs (Valentina's 704s) DO belong in the PC queue.
-    Dismissed/archived/deleted PCs are hidden from active queue.
-    Terminal statuses (won/lost/expired) fall off the active queue → visible in Archive.
+    Simplified status model: new, draft, sent, not_responding.
+    Only new + draft show in active queue. Sent + not_responding → archive only.
     Used by: home page, manager brief, workflow tester, pipeline summary."""
     if pc.get("source") == "email_auto_draft":
         return False
@@ -792,17 +792,14 @@ def _is_user_facing_pc(pc: dict) -> bool:
         return False
     if pc.get("rfq_id"):
         return False
-    # Admin cleanup statuses — hide from active queue
-    if pc.get("status") in ("dismissed", "archived", "deleted", "duplicate", "no_response"):
+    # Terminal / inactive statuses — only in archive
+    status = pc.get("status", "new")
+    if status in ("dismissed", "archived", "deleted", "duplicate", "no_response", "not_responding"):
         return False
-    # Sent PCs -- visible in PC Archive but not home queue
-    if pc.get("status") in ("sent", "pending_award"):
+    if status in ("sent", "pending_award", "won", "lost", "expired"):
         return False
-    # Terminal statuses — done, move to archive
-    if pc.get("status") in ("won", "lost", "expired"):
-        return False
-    # Parse errors with 0 items — nothing actionable, hide from queue
-    if pc.get("status") == "parse_error" and not pc.get("items"):
+    # Parse errors with 0 items — nothing actionable
+    if status == "parse_error" and not pc.get("items"):
         return False
     return True
 

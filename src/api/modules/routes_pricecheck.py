@@ -300,19 +300,27 @@ def _pricecheck_detail_inner(pcid):
     next_quote_preview = peek_next_quote_number() if QUOTE_GEN_AVAILABLE else ""
     
     profit_summary_json = _json.dumps(pc.get("profit_summary"), default=str).replace("</", "<\\/") if pc.get("profit_summary") else "null"
-    # Build pipeline status tracker (moved from build_pc_detail_html)
-    _status = pc.get('status', 'parsed')
-    _steps = [('parsed', '📥', 'Parsed'), ('priced', '💰', 'Priced'), ('completed', '📄', '704 Filled')]
-    _reached = {'parsed': 0, 'priced': 1, 'completed': 2, 'converted': 2}.get(_status, 0)
+    # Build pipeline status tracker — simplified to 3 steps
+    _status = pc.get('status', 'new')
+    _display_map = {
+        'new': 0, 'parsed': 0, 'parse_error': 0,
+        'draft': 1, 'priced': 1, 'ready': 1, 'auto_drafted': 1,
+        'quoted': 1, 'generated': 1, 'completed': 1, 'converted': 1,
+        'sent': 2, 'pending_award': 2, 'won': 2,
+        'lost': 2, 'expired': 2, 'no_response': 2,
+        'dismissed': 2, 'archived': 2, 'duplicate': 2,
+    }
+    _steps = [('new', '🆕', 'New'), ('draft', '📝', 'Draft'), ('sent', '📨', 'Sent')]
+    _reached = _display_map.get(_status, 0)
     _pip_parts = []
     for i, (step, icon, label) in enumerate(_steps):
         if i <= _reached:
-            style = "padding:4px 10px;border-radius:6px;background:rgba(52,211,153,.12);color:#3fb950"
+            style = "padding:6px 14px;border-radius:8px;background:rgba(52,211,153,.12);color:#3fb950;font-size:15px;font-weight:600"
         else:
-            style = "padding:4px 10px;border-radius:6px;background:#21262d;color:#484f58"
+            style = "padding:6px 14px;border-radius:8px;background:#21262d;color:#484f58;font-size:15px"
         _pip_parts.append(f"<span style=\"{style}\">{icon} {label}</span>")
         if i < len(_steps) - 1:
-            _pip_parts.append("<span style=\"color:#484f58;margin:0 4px\">→</span>")
+            _pip_parts.append("<span style=\"color:#484f58;margin:0 6px;font-size:16px\">→</span>")
     pipeline_html = "".join(_pip_parts)
 
     from src.api.render import render_page
@@ -530,7 +538,7 @@ def pricecheck_lookup(pcid):
                     # Fallback: guess supplier from URL domain
                     if "amazon.com" in best_url:
                         item["item_supplier"] = "Amazon"
-        _transition_status(pc, "priced", actor="user", notes=f"Prices found via {source}")
+        _transition_status(pc, "draft", actor="user", notes=f"Prices found via {source}")
         _save_price_checks(pcs)
 
     return jsonify({"ok": True, "found": found, "total": len(pc.get("items", [])),
@@ -1019,7 +1027,7 @@ def _do_save_prices(pcid):
         bid_items = [i for i in items if not i.get("no_bid")]
         priced_items = [i for i in bid_items if (i.get("unit_price") or i.get("pricing", {}).get("recommended_price"))]
         if priced_items:
-            _transition_status(pc, "priced", actor="user", 
+            _transition_status(pc, "draft", actor="user", 
                              notes=f"Saved: {len(priced_items)}/{len(bid_items)} items priced")
             _save_price_checks(pcs)
 
@@ -1336,7 +1344,7 @@ def _do_generate(pcid):
 
     if result.get("ok"):
         pc["output_pdf"] = output_path
-        _transition_status(pc, "completed", actor="system", notes="704 PDF filled")
+        _transition_status(pc, "draft", actor="system", notes="704 PDF filled")
         pc["summary"] = result.get("summary", {})
         _save_price_checks(pcs)
 
@@ -1400,7 +1408,7 @@ def pricecheck_generate_quote(pcid):
     if result.get("ok"):
         pc["reytech_quote_pdf"] = output_path
         pc["reytech_quote_number"] = result.get("quote_number", "")
-        pc["status"] = "quoted"
+        pc["status"] = "draft"
         _save_price_checks(pcs)
         _enrich_catalog_from_pc(pc)
         _log_crm_activity(result.get("quote_number", ""), "quote_generated",
@@ -1530,7 +1538,7 @@ def pricecheck_convert_to_quote(pcid):
     save_rfqs(rfqs)
 
     # Update PC status
-    _transition_status(pc, "completed", actor="system", notes="Reytech quote generated")
+    _transition_status(pc, "draft", actor="system", notes="Reytech quote generated")
     pc["converted_rfq_id"] = rfq_id
     _save_price_checks(pcs)
 
@@ -1559,7 +1567,7 @@ def api_resync():
         pcs_before = _load_price_checks()
         pc_count = len(pcs_before)
         
-        TERMINAL_STATUSES = {"sent", "won", "lost", "generated", "draft", "archived"}
+        TERMINAL_STATUSES = {"sent", "not_responding", "draft", "dismissed", "archived"}
         
         # Keep RFQs with terminal status — keyed by BOTH id and email_uid
         kept_rfqs = {}           # id → full rfq data (preserved)
@@ -2675,8 +2683,8 @@ def api_pricecheck_dismiss(pcid):
     
     pc = pcs[pcid]
     # Use specific status for admin reasons, 'dismissed' as fallback
-    admin_statuses = {"archived", "duplicate", "no_response"}
-    new_status = reason if reason in admin_statuses else "dismissed"
+    admin_statuses = {"not_responding", "dismissed"}
+    new_status = reason if reason in admin_statuses else "not_responding"
     pc["status"] = new_status
     pc["dismiss_reason"] = reason
     pc["dismissed_at"] = datetime.now().isoformat()
@@ -2824,17 +2832,26 @@ def api_pricecheck_delete(pcid):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 PC_STATUS_LABELS = {
-    "new": ("New", "#4f8cff"), "parsed": ("Parsed", "#a78bfa"),
-    "parse_error": ("Parse Error", "#f85149"),
-    "priced": ("Priced", "#fbbf24"), "ready": ("Ready", "#fbbf24"),
-    "auto_drafted": ("Auto-Drafted", "#d2a8ff"),
-    "quoted": ("Quoted", "#58a6ff"), "generated": ("Generated", "#58a6ff"),
-    "completed": ("704 Filled", "#34d399"), "converted": ("Converted", "#34d399"),
-    "sent": ("Sent", "#3fb950"),
-    "won": ("Won", "#3fb950"), "lost": ("Lost", "#f85149"),
-    "expired": ("Expired", "#8b90a0"),
-    "dismissed": ("Dismissed", "#6e7681"), "archived": ("Archived", "#6e7681"),
-    "duplicate": ("Duplicate", "#8b949e"), "no_response": ("No Response", "#8b949e"),
+    "new":            ("New",             "#4f8cff"),
+    "parsed":         ("New",             "#4f8cff"),
+    "parse_error":    ("New",             "#4f8cff"),
+    "draft":          ("Draft",           "#fbbf24"),
+    "priced":         ("Draft",           "#fbbf24"),
+    "ready":          ("Draft",           "#fbbf24"),
+    "auto_drafted":   ("Draft",           "#fbbf24"),
+    "quoted":         ("Draft",           "#fbbf24"),
+    "generated":      ("Draft",           "#fbbf24"),
+    "completed":      ("Draft",           "#fbbf24"),
+    "converted":      ("Draft",           "#fbbf24"),
+    "pending_award":  ("Sent",            "#3fb950"),
+    "sent":           ("Sent",            "#3fb950"),
+    "won":            ("Sent",            "#3fb950"),
+    "lost":           ("Not Responding",  "#f85149"),
+    "expired":        ("Not Responding",  "#f85149"),
+    "no_response":    ("Not Responding",  "#f85149"),
+    "dismissed":      ("Not Responding",  "#f85149"),
+    "archived":       ("Not Responding",  "#f85149"),
+    "duplicate":      ("Not Responding",  "#f85149"),
 }
 
 
@@ -2867,38 +2884,57 @@ def pricechecks_archive():
         })
     pc_list.sort(key=lambda x: x["created_at"], reverse=True)
     total = len(pc_list)
-    by_status = {}
+
+    # Map internal statuses → 4 display statuses
+    DISPLAY_STATUS = {
+        "new": "new", "parsed": "new", "parse_error": "new",
+        "draft": "draft", "priced": "draft", "ready": "draft", "auto_drafted": "draft",
+        "quoted": "draft", "generated": "draft", "completed": "draft", "converted": "draft",
+        "sent": "sent", "pending_award": "sent", "won": "sent",
+        "lost": "not_responding", "expired": "not_responding", "no_response": "not_responding",
+        "dismissed": "not_responding", "archived": "not_responding", "duplicate": "not_responding",
+    }
+    # Add display_status to each PC for filtering
     for p in pc_list:
-        by_status[p["status"]] = by_status.get(p["status"], 0) + 1
-    total_won = by_status.get("won", 0)
-    total_lost = by_status.get("lost", 0)
-    win_rate = f"{total_won / max(total_won + total_lost, 1) * 100:.0f}%" if (total_won + total_lost) else "—"
+        p["display_status"] = DISPLAY_STATUS.get(p["status"], "new")
 
-    status_options = "".join(f'<option value="{s}">{PC_STATUS_LABELS.get(s,(s,))[0]} ({c})</option>'
-                             for s, c in sorted(by_status.items()))
+    by_display = {}
+    for p in pc_list:
+        ds = p["display_status"]
+        by_display[ds] = by_display.get(ds, 0) + 1
+    total_sent = by_display.get("sent", 0)
+    total_not_responding = by_display.get("not_responding", 0)
+    total_draft = by_display.get("draft", 0)
+    total_new = by_display.get("new", 0)
 
-    # Status badge styling — proper colored pills like the dashboard
+    status_options = ""
+    if total_new: status_options += f'<option value="new">🆕 New ({total_new})</option>'
+    if total_draft: status_options += f'<option value="draft">📝 Draft ({total_draft})</option>'
+    if total_sent: status_options += f'<option value="sent">📨 Sent ({total_sent})</option>'
+    if total_not_responding: status_options += f'<option value="not_responding">📭 Not Responding ({total_not_responding})</option>'
+
+    # Status badge styling — 4 clean statuses
     STATUS_BADGE = {
-        "new":          ("🆕 New",         "rgba(79,140,255,.15)", "#4f8cff"),
-        "parsed":       ("📄 Parsed",      "rgba(167,139,250,.15)", "#a78bfa"),
-        "parse_error":  ("⚠️ Parse Error", "rgba(248,81,73,.15)", "#f85149"),
-        "priced":       ("💰 Priced",      "rgba(251,191,36,.15)", "#fbbf24"),
-        "ready":        ("✅ Ready",        "rgba(251,191,36,.15)", "#fbbf24"),
-        "auto_drafted": ("📝 Auto-Draft",  "rgba(210,168,255,.15)", "#d2a8ff"),
-        "quoted":       ("📋 Quoted",       "rgba(88,166,255,.15)", "#58a6ff"),
-        "generated":    ("📋 Generated",    "rgba(88,166,255,.15)", "#58a6ff"),
-        "completed":    ("✅ 704 Filled",   "rgba(52,211,153,.15)", "#34d399"),
-        "converted":    ("🔄 Converted",    "rgba(52,211,153,.15)", "#34d399"),
-        "sent":         ("📨 Sent",         "rgba(63,185,80,.2)", "#3fb950"),
-        "pending_award":("⏳ Pending Award","rgba(251,191,36,.2)", "#fbbf24"),
-        "won":          ("🏆 Won",          "rgba(63,185,80,.2)", "#3fb950"),
-        "lost":         ("❌ Lost",          "rgba(248,81,73,.15)", "#f85149"),
-        "expired":      ("⏰ Expired",       "rgba(139,144,160,.15)", "#8b90a0"),
-        "dismissed":    ("🚫 Dismissed",     "rgba(110,118,129,.15)", "#6e7681"),
-        "archived":     ("📦 Archived",      "rgba(110,118,129,.15)", "#6e7681"),
-        "duplicate":    ("♻️ Duplicate",     "rgba(139,148,158,.15)", "#8b949e"),
-        "no_response":  ("📭 No Response",   "rgba(139,148,158,.15)", "#8b949e"),
-        "draft":        ("📝 Draft",         "rgba(251,191,36,.2)", "#fbbf24"),
+        "new":            ("🆕 New",            "rgba(79,140,255,.15)",  "#4f8cff"),
+        "parsed":         ("🆕 New",            "rgba(79,140,255,.15)",  "#4f8cff"),
+        "parse_error":    ("🆕 New",            "rgba(79,140,255,.15)",  "#4f8cff"),
+        "draft":          ("📝 Draft",          "rgba(251,191,36,.15)",  "#fbbf24"),
+        "priced":         ("📝 Draft",          "rgba(251,191,36,.15)",  "#fbbf24"),
+        "ready":          ("📝 Draft",          "rgba(251,191,36,.15)",  "#fbbf24"),
+        "auto_drafted":   ("📝 Draft",          "rgba(251,191,36,.15)",  "#fbbf24"),
+        "quoted":         ("📝 Draft",          "rgba(251,191,36,.15)",  "#fbbf24"),
+        "generated":      ("📝 Draft",          "rgba(251,191,36,.15)",  "#fbbf24"),
+        "completed":      ("📝 Draft",          "rgba(251,191,36,.15)",  "#fbbf24"),
+        "converted":      ("📝 Draft",          "rgba(251,191,36,.15)",  "#fbbf24"),
+        "pending_award":  ("📨 Sent",           "rgba(63,185,80,.2)",    "#3fb950"),
+        "sent":           ("📨 Sent",           "rgba(63,185,80,.2)",    "#3fb950"),
+        "won":            ("📨 Sent",           "rgba(63,185,80,.2)",    "#3fb950"),
+        "lost":           ("📭 Not Responding", "rgba(248,81,73,.15)",   "#f85149"),
+        "expired":        ("📭 Not Responding", "rgba(248,81,73,.15)",   "#f85149"),
+        "no_response":    ("📭 Not Responding", "rgba(248,81,73,.15)",   "#f85149"),
+        "dismissed":      ("📭 Not Responding", "rgba(248,81,73,.15)",   "#f85149"),
+        "archived":       ("📭 Not Responding", "rgba(248,81,73,.15)",   "#f85149"),
+        "duplicate":      ("📭 Not Responding", "rgba(248,81,73,.15)",   "#f85149"),
     }
 
     rows = ""
@@ -2924,8 +2960,8 @@ def pricechecks_archive():
             except Exception:
                 pass
         # Build rich search index with all visible fields
-        search_index = f"{p['pc_number'].lower()} {p['institution'].lower()} {p['requestor'].lower()} {qn.lower()} {st} {badge_label.lower()} {due_str} {date_str}"
-        rows += f'''<tr data-status="{st}" data-search="{search_index}" style="cursor:pointer" onclick="location.href='/pricecheck/{p['id']}'">
+        search_index = f"{p['pc_number'].lower()} {p['institution'].lower()} {p['requestor'].lower()} {qn.lower()} {p['display_status']} {badge_label.lower()} {due_str} {date_str}"
+        rows += f'''<tr data-status="{p['display_status']}" data-search="{search_index}" style="cursor:pointer" onclick="location.href='/pricecheck/{p['id']}'">
          <td style="padding:14px 16px"><a href="/pricecheck/{p['id']}" style="color:#58a6ff;font-family:'JetBrains Mono',monospace;font-weight:700;font-size:15px">#{p['pc_number']}</a></td>
          <td style="padding:14px 12px;font-size:15px;font-weight:500">{p['institution']}</td>
          <td style="padding:14px 12px;font-size:15px">{p['requestor'][:30]}</td>
@@ -2952,11 +2988,13 @@ def pricechecks_archive():
       <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px 28px;text-align:center;min-width:100px">
         <div style="font-size:32px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#4f8cff">{total}</div><div style="font-size:14px;color:var(--tx2);margin-top:4px;text-transform:uppercase;letter-spacing:.5px">Total</div></div>
       <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px 28px;text-align:center;min-width:100px">
-        <div style="font-size:32px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#3fb950">{total_won}</div><div style="font-size:14px;color:var(--tx2);margin-top:4px;text-transform:uppercase;letter-spacing:.5px">Won</div></div>
+        <div style="font-size:32px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#4f8cff">{total_new}</div><div style="font-size:14px;color:var(--tx2);margin-top:4px;text-transform:uppercase;letter-spacing:.5px">New</div></div>
       <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px 28px;text-align:center;min-width:100px">
-        <div style="font-size:32px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#f85149">{total_lost}</div><div style="font-size:14px;color:var(--tx2);margin-top:4px;text-transform:uppercase;letter-spacing:.5px">Lost</div></div>
+        <div style="font-size:32px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#fbbf24">{total_draft}</div><div style="font-size:14px;color:var(--tx2);margin-top:4px;text-transform:uppercase;letter-spacing:.5px">Draft</div></div>
       <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px 28px;text-align:center;min-width:100px">
-        <div style="font-size:32px;font-weight:800;font-family:'JetBrains Mono',monospace;color:var(--tx)">{win_rate}</div><div style="font-size:14px;color:var(--tx2);margin-top:4px;text-transform:uppercase;letter-spacing:.5px">Win Rate</div></div>
+        <div style="font-size:32px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#3fb950">{total_sent}</div><div style="font-size:14px;color:var(--tx2);margin-top:4px;text-transform:uppercase;letter-spacing:.5px">Sent</div></div>
+      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px 28px;text-align:center;min-width:100px">
+        <div style="font-size:32px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#f85149">{total_not_responding}</div><div style="font-size:14px;color:var(--tx2);margin-top:4px;text-transform:uppercase;letter-spacing:.5px">Not Responding</div></div>
     </div>
     <div style="display:flex;gap:10px;margin-bottom:14px;align-items:center">
       <input id="pc-search" placeholder="🔍 Search PC#, institution, requestor, status..." oninput="filterPCs()" style="flex:1;padding:10px 16px;background:var(--sf);border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:16px">
@@ -3384,7 +3422,7 @@ def api_pricecheck_mark_won(pcid):
     if pcid not in pcs: return jsonify({"ok": False, "error": "PC not found"})
     data = request.get_json(silent=True) or {}
     pc = pcs[pcid]
-    _transition_status(pc, "won", actor="user", notes=data.get("notes", "Won"))
+    _transition_status(pc, "sent", actor="user", notes=data.get("notes", "Won"))
     pc.update({"award_status": "won",
         "closed_at": datetime.now().isoformat(), "closed_reason": data.get("notes", "Won")})
     _save_price_checks(pcs)
@@ -3416,7 +3454,7 @@ def api_pricecheck_mark_lost(pcid):
     data = request.get_json(silent=True) or {}
     pc = pcs[pcid]
     comp_name = data.get("competitor_name", "Unknown")
-    _transition_status(pc, "lost", actor="user", 
+    _transition_status(pc, "not_responding", actor="user", 
                       notes=f"Lost to {comp_name}")
     pc.update({"award_status": "lost",
         "competitor_name": comp_name,
@@ -5147,7 +5185,7 @@ def api_admin_reset_and_poll():
         # Clean PCs — preserve any that have been worked on (priced, quoted, sent, completed)
         pcs = _load_price_checks()
         steps["pcs_before"] = len(pcs)
-        preserved_statuses = {"priced", "quoted", "sent", "completed", "ready", "auto_drafted", "generated"}
+        preserved_statuses = {"draft", "sent", "not_responding"}
         preserved_pcs = {}
         removed_pcs = []
         for pcid, pc in pcs.items():

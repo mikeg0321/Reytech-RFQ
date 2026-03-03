@@ -219,7 +219,12 @@ document.addEventListener('click', function(e) {
      </td>
      <td style="text-align:center" class="mono">{{pc.get('items',[])|length}}</td>
      <td style="text-align:center" onclick="event.stopPropagation()">{% if pc.reytech_quote_number %}<span style="color:var(--gn);font-weight:600;font-family:'JetBrains Mono',monospace;font-size:14px">{{pc.reytech_quote_number}}</span>{% else %}—{% endif %}</td>
-     <td style="text-align:center"><span class="badge b-{{pc.status}}">{{pc.status}}</span></td>
+     <td style="text-align:center">
+      {% set pc_display = {'new':'New','parsed':'New','parse_error':'New','draft':'Draft','priced':'Draft','ready':'Draft','auto_drafted':'Draft','quoted':'Draft','generated':'Draft','completed':'Draft','converted':'Draft','sent':'Sent','pending_award':'Sent','won':'Sent','lost':'Not Responding','expired':'Not Responding','no_response':'Not Responding','dismissed':'Not Responding','archived':'Not Responding','duplicate':'Not Responding'} %}
+      {% set pc_color = {'New':'#4f8cff','Draft':'#fbbf24','Sent':'#3fb950','Not Responding':'#f85149'} %}
+      {% set dname = pc_display.get(pc.status, 'New') %}
+      <span style="display:inline-block;padding:4px 12px;border-radius:14px;font-size:14px;font-weight:600;color:{{pc_color.get(dname,'#8b90a0')}};background:{{pc_color.get(dname,'#8b90a0')}}18;white-space:nowrap">{{dname}}</span>
+     </td>
      <td style="text-align:center" onclick="event.stopPropagation()">
       <button onclick="openQP('pc','{{id}}',event)" title="Quick Price" style="background:rgba(52,211,153,.08);border:1px solid rgba(52,211,153,.2);color:#3fb950;cursor:pointer;font-size:13px;padding:4px 10px;border-radius:4px;font-weight:600;margin-right:4px" onmouseover="this.style.background='rgba(52,211,153,.2)'" onmouseout="this.style.background='rgba(52,211,153,.08)'">⚡</button>
       <button class="dismiss-x-btn" onclick="showDismissMenu('pc','{{id}}',this,event)" title="Dismiss" style="background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.2);color:#f85149;cursor:pointer;font-size:13px;padding:4px 10px;border-radius:4px;font-weight:600" onmouseover="this.style.background='rgba(248,81,73,.2)'" onmouseout="this.style.background='rgba(248,81,73,.08)'">✕</button>
