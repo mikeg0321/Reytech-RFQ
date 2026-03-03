@@ -444,6 +444,8 @@ def get_reytech_credentials() -> dict:
                 qt = float(q.get("total", 0) or 0)
                 total_sales += qt
                 items_count = len(q.get("items", []))
+                if items_count == 0 and qt > 0:
+                    items_count = max(int(q.get("line_count", 0)), 1)  # At least 1 item per real quote
                 total_items += items_count
                 total_pos += 1
     except Exception:
