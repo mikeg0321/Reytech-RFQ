@@ -3732,6 +3732,24 @@ def growth_page():
     if not GROWTH_AVAILABLE:
         flash("Growth agent not available", "error")
         return redirect("/")
+
+    # Top-level try/except to catch ANY crash and show diagnostic
+    try:
+        return _growth_page_inner()
+    except Exception as e:
+        log.error("Growth page CRASH: %s", e, exc_info=True)
+        import traceback
+        tb = traceback.format_exc()
+        return f"""<html><body style="background:#1a1b26;color:#c0caf5;font-family:monospace;padding:40px">
+        <h1 style="color:#f85149">Growth Page Error</h1>
+        <p style="color:#fbbf24;font-size:16px">{type(e).__name__}: {str(e)[:500]}</p>
+        <pre style="background:#24283b;padding:20px;border-radius:8px;overflow-x:auto;font-size:13px;color:#a9b1d6">{tb}</pre>
+        <a href="/" style="color:#7aa2f7">← Back to Home</a>
+        </body></html>""", 500
+
+
+def _growth_page_inner():
+    """Actual growth page logic — separated for clean error handling."""
     from src.agents.growth_agent import (
         get_growth_status, get_reytech_credentials, get_follow_up_cohorts,
         score_prospect_weighted, EMAIL_TEMPLATES,
@@ -3757,54 +3775,98 @@ def growth_page():
     creds = get_reytech_credentials()
 
     # V2: Real-time KPIs
-    kpis = get_growth_kpis()
+    try:
+        kpis = get_growth_kpis()
+    except Exception as e:
+        log.error("Growth KPIs error: %s", e)
+        kpis = {}
+
+    # Ensure kpis has all required keys
+    _kpi_defaults = {
+        "total_prospects": 0, "emailed": 0, "responded": 0, "won": 0,
+        "bounced": 0, "dead": 0, "email_rate": 0, "response_rate": 0,
+        "win_rate": 0, "bounce_rate": 0, "won_value": 0, "pipeline_value": 0,
+        "unique_campaigns": 0, "fu_due": 0, "fu_second": 0, "fu_stale": 0,
+        "recent_sends": 0, "trend_pct": 0, "total_sales": 0, "total_pos": 0,
+        "agencies_served": 0,
+    }
+    for k, v in _kpi_defaults.items():
+        kpis.setdefault(k, v)
 
     # Follow-up cohorts
-    followups = get_follow_up_cohorts()
+    try:
+        followups = get_follow_up_cohorts()
+    except Exception as e:
+        log.error("Growth followups error: %s", e)
+        followups = {"no_response": [], "second_followup": [], "stale": [], "responded": []}
 
     # Load prospect details + weighted scoring + win probability
-    prospect_data = _load_json(PROSPECTS_FILE)
-    prospects = prospect_data.get("prospects", []) if isinstance(prospect_data, dict) else []
-    for pr_ in prospects:
-        pr_["weighted_score"] = score_prospect_weighted(pr_, creds)
-        wp = get_win_probability(pr_, creds)
-        pr_["win_prob"] = wp["probability"]
-        pr_["win_tier"] = wp["tier"]
-        pr_["win_color"] = wp["color"]
-    prospects.sort(key=lambda x: x.get("weighted_score", 0), reverse=True)
+    prospects = []
+    try:
+        prospect_data = _load_json(PROSPECTS_FILE)
+        raw = prospect_data.get("prospects", []) if isinstance(prospect_data, dict) else []
+        if isinstance(raw, list):
+            for pr_ in raw:
+                if not isinstance(pr_, dict):
+                    continue
+                try:
+                    pr_["weighted_score"] = score_prospect_weighted(pr_, creds)
+                    wp = get_win_probability(pr_, creds)
+                    pr_["win_prob"] = wp.get("probability", 50)
+                    pr_["win_tier"] = wp.get("tier", "Unknown")
+                    pr_["win_color"] = wp.get("color", "#888")
+                    prospects.append(pr_)
+                except Exception as pe:
+                    log.error("Prospect scoring error: %s", pe)
+                    pr_["weighted_score"] = 0
+                    pr_["win_prob"] = 50
+                    pr_["win_tier"] = "Unknown"
+                    pr_["win_color"] = "#888"
+                    prospects.append(pr_)
+        prospects.sort(key=lambda x: x.get("weighted_score", 0), reverse=True)
+    except Exception as e:
+        log.error("Prospect load error: %s", e)
 
     # Load outreach details + campaign metrics
-    outreach_data = _load_json(OUTREACH_FILE)
-    campaigns = outreach_data.get("campaigns", []) if isinstance(outreach_data, dict) else []
-    total_emailed = sum(1 for c_ in campaigns for o_ in c_.get("outreach", []) if o_.get("email_sent"))
-    total_bounced = sum(1 for c_ in campaigns for o_ in c_.get("outreach", []) if o_.get("bounced"))
-    total_responded = sum(1 for c_ in campaigns for o_ in c_.get("outreach", []) if o_.get("response_received"))
-    total_called = sum(1 for c_ in campaigns for o_ in c_.get("outreach", []) if o_.get("voice_called"))
-    total_no_response = total_emailed - total_bounced - total_responded - total_called
+    total_emailed = total_bounced = total_responded = total_called = total_no_response = 0
+    try:
+        outreach_data = _load_json(OUTREACH_FILE)
+        campaigns = outreach_data.get("campaigns", []) if isinstance(outreach_data, dict) else []
+        if isinstance(campaigns, list):
+            total_emailed = sum(1 for c_ in campaigns for o_ in (c_.get("outreach") or []) if o_.get("email_sent"))
+            total_bounced = sum(1 for c_ in campaigns for o_ in (c_.get("outreach") or []) if o_.get("bounced"))
+            total_responded = sum(1 for c_ in campaigns for o_ in (c_.get("outreach") or []) if o_.get("response_received"))
+            total_called = sum(1 for c_ in campaigns for o_ in (c_.get("outreach") or []) if o_.get("voice_called"))
+            total_no_response = total_emailed - total_bounced - total_responded - total_called
+    except Exception as e:
+        log.error("Outreach metrics error: %s", e)
 
     # Category summary
-    cat_data = _load_json(CATEGORIES_FILE)
     cat_items = []
-    if isinstance(cat_data, dict) and cat_data.get("categories"):
-        for cat_name, info in sorted(cat_data["categories"].items(), key=lambda x: x[1].get("total_value", 0), reverse=True):
-            cat_items.append({
-                "name": cat_name, "items": info.get("item_count", 0),
-                "pos": info.get("po_count", 0), "value": info.get("total_value", 0),
-                "sample": ", ".join(info.get("sample_items", [])[:2])[:80],
-            })
-    elif prospects:
-        cat_agg = {}
-        for pr_ in prospects:
-            for cat_ in (pr_.get("categories_matched") or []):
-                if cat_ not in cat_agg:
-                    cat_agg[cat_] = {"spend": 0, "buyers": 0}
-                cat_agg[cat_]["spend"] += (pr_.get("total_spend") or 0)
-                cat_agg[cat_]["buyers"] += 1
-        for cat_name, info_ in sorted(cat_agg.items(), key=lambda x: x[1]["spend"], reverse=True):
-            cat_items.append({
-                "name": cat_name, "items": info_["buyers"], "pos": "—",
-                "value": info_["spend"], "sample": "from prospect data",
-            })
+    try:
+        cat_data = _load_json(CATEGORIES_FILE)
+        if isinstance(cat_data, dict) and cat_data.get("categories"):
+            for cat_name, info in sorted(cat_data["categories"].items(), key=lambda x: x[1].get("total_value", 0), reverse=True):
+                cat_items.append({
+                    "name": cat_name, "items": info.get("item_count", 0),
+                    "pos": info.get("po_count", 0), "value": info.get("total_value", 0),
+                    "sample": ", ".join(info.get("sample_items", [])[:2])[:80],
+                })
+        elif prospects:
+            cat_agg = {}
+            for pr_ in prospects:
+                for cat_ in (pr_.get("categories_matched") or []):
+                    if cat_ not in cat_agg:
+                        cat_agg[cat_] = {"spend": 0, "buyers": 0}
+                    cat_agg[cat_]["spend"] += (pr_.get("total_spend") or 0)
+                    cat_agg[cat_]["buyers"] += 1
+            for cat_name, info_ in sorted(cat_agg.items(), key=lambda x: x[1]["spend"], reverse=True):
+                cat_items.append({
+                    "name": cat_name, "items": info_["buyers"], "pos": "—",
+                    "value": info_["spend"], "sample": "from prospect data",
+                })
+    except Exception as e:
+        log.error("Category summary error: %s", e)
 
     # Lost/missed opportunities from quotes
     lost_quotes = []
@@ -3814,7 +3876,11 @@ def growth_page():
             import json as _json
             with open(quotes_path) as f:
                 all_quotes = _json.load(f)
-            for q in all_quotes:
+            if isinstance(all_quotes, dict):
+                all_quotes = list(all_quotes.values())
+            for q in (all_quotes if isinstance(all_quotes, list) else []):
+                if not isinstance(q, dict):
+                    continue
                 if q.get("is_test"):
                     continue
                 status = (q.get("status", "") or "").lower()
@@ -3832,33 +3898,86 @@ def growth_page():
     template_keys = list(EMAIL_TEMPLATES.keys())
 
     # V2: Competitor intel + lost PO analysis
-    competitor_data = get_competitor_intel()
-    lost_analysis = get_lost_po_analysis()
-    ab_stats = get_ab_stats()
+    try:
+        competitor_data = get_competitor_intel()
+    except Exception as e:
+        log.error("Competitor intel error: %s", e)
+        competitor_data = {}
+    competitor_data.setdefault("competitors", [])
+
+    try:
+        lost_analysis = get_lost_po_analysis()
+    except Exception as e:
+        log.error("Lost PO analysis error: %s", e)
+        lost_analysis = {}
+    lost_analysis.setdefault("total_lost_value", 0)
+    lost_analysis.setdefault("total_lost_count", 0)
+    lost_analysis.setdefault("by_reason", {})
+    lost_analysis.setdefault("by_category", {})
+    lost_analysis.setdefault("top_losses", [])
+
+    try:
+        ab_stats = get_ab_stats()
+    except Exception as e:
+        log.error("A/B stats error: %s", e)
+        ab_stats = {}
 
     # V3: Workflows + notifications
-    workflows = get_workflows()
-    workflow_queue = get_workflow_queue()
-    notifications = get_notifications(limit=10)
-    unread_count = sum(1 for n in notifications if not n.get("read"))
-    sms_templates = list(SMS_TEMPLATES.keys())
+    try:
+        workflows = get_workflows()
+        if not isinstance(workflows, dict):
+            workflows = {}
+        workflow_queue = get_workflow_queue()
+        if not isinstance(workflow_queue, list):
+            workflow_queue = []
+        notifications = get_notifications(limit=10)
+        if not isinstance(notifications, list):
+            notifications = []
+        unread_count = sum(1 for n in notifications if not n.get("read"))
+        sms_templates = list(SMS_TEMPLATES.keys())
+    except Exception as e:
+        log.error("Growth V3 workflows error: %s", e)
+        workflows = {}
+        workflow_queue = []
+        notifications = []
+        unread_count = 0
+        sms_templates = []
 
     # V3: Calendar
-    from src.agents.growth_agent import get_calendar_events, get_todays_agenda
-    calendar_events = get_calendar_events(upcoming_only=True)[:10]
-    todays_agenda = get_todays_agenda()
+    try:
+        from src.agents.growth_agent import get_calendar_events, get_todays_agenda
+        calendar_events = get_calendar_events(upcoming_only=True)[:10]
+        todays_agenda = get_todays_agenda()
+    except Exception as e:
+        log.error("Growth calendar error: %s", e)
+        calendar_events = []
+        todays_agenda = []
 
     # V4: Funnel + Quick Wins + Daily Brief + Agency Intel
-    from src.agents.growth_agent import (
-        get_outreach_funnel, get_quick_wins, generate_daily_brief,
-        get_agency_intelligence, get_campaign_performance, get_kanban_board,
-    )
-    funnel = get_outreach_funnel()
-    quick_wins = get_quick_wins(10)
-    daily_brief = generate_daily_brief()
-    agency_intel = get_agency_intelligence()
-    campaign_perf = get_campaign_performance()
-    kanban = get_kanban_board()
+    try:
+        from src.agents.growth_agent import (
+            get_outreach_funnel, get_quick_wins, generate_daily_brief,
+            get_agency_intelligence, get_campaign_performance, get_kanban_board,
+        )
+        funnel = get_outreach_funnel()
+        funnel_stages = funnel.get("stages", []) if isinstance(funnel, dict) else funnel
+        quick_wins = get_quick_wins(10)
+        # Fix color key to match template's win_color
+        for qw in quick_wins:
+            if "color" in qw and "win_color" not in qw:
+                qw["win_color"] = qw["color"]
+        daily_brief = generate_daily_brief()
+        agency_intel = get_agency_intelligence()
+        campaign_perf = get_campaign_performance()
+        kanban = get_kanban_board()
+    except Exception as e:
+        log.error("Growth V4 error: %s", e)
+        funnel_stages = []
+        quick_wins = []
+        daily_brief = {}
+        agency_intel = {"agencies": [], "total_agencies": 0}
+        campaign_perf = []
+        kanban = {}
 
     from src.api.render import render_page
     return render_page("growth.html", active_page="Growth",
@@ -3891,7 +4010,7 @@ def growth_page():
         calendar_events=calendar_events,
         todays_agenda=todays_agenda,
         # V4
-        funnel=funnel,
+        funnel=funnel_stages,
         quick_wins=quick_wins,
         daily_brief=daily_brief,
         agency_intel=agency_intel,

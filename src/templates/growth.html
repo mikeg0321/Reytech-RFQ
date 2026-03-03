@@ -104,25 +104,25 @@
  </div>
  <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-top:18px">
   <div style="text-align:center">
-   <div style="font-size:32px;font-weight:800;color:var(--ac);font-family:'JetBrains Mono',monospace">${{ "{:,.0f}".format(creds.total_sales) }}</div>
-   <div style="font-size:13px;color:var(--tx2);text-transform:uppercase">Total Sales Since {{ creds.since_year }}</div>
+   <div style="font-size:32px;font-weight:800;color:var(--ac);font-family:'JetBrains Mono',monospace">${{ "{:,.0f}".format(creds.total_sales|default(0)) }}</div>
+   <div style="font-size:13px;color:var(--tx2);text-transform:uppercase">Total Sales Since {{ creds.since_year|default('2020') }}</div>
   </div>
   <div style="text-align:center">
-   <div style="font-size:32px;font-weight:800;color:#3fb950;font-family:'JetBrains Mono',monospace">{{ creds.total_pos }}+</div>
+   <div style="font-size:32px;font-weight:800;color:#3fb950;font-family:'JetBrains Mono',monospace">{{ creds.total_pos|default(0) }}+</div>
    <div style="font-size:13px;color:var(--tx2);text-transform:uppercase">Purchase Orders</div>
   </div>
   <div style="text-align:center">
-   <div style="font-size:32px;font-weight:800;color:#a78bfa;font-family:'JetBrains Mono',monospace">{{ creds.total_items }}+</div>
+   <div style="font-size:32px;font-weight:800;color:#a78bfa;font-family:'JetBrains Mono',monospace">{{ creds.total_items|default(0) }}+</div>
    <div style="font-size:13px;color:var(--tx2);text-transform:uppercase">Line Items Delivered</div>
   </div>
   <div style="text-align:center">
-   <div style="font-size:32px;font-weight:800;color:#fbbf24;font-family:'JetBrains Mono',monospace">{{ creds.agencies_served }}</div>
+   <div style="font-size:32px;font-weight:800;color:#fbbf24;font-family:'JetBrains Mono',monospace">{{ creds.agencies_served|default(0) }}</div>
    <div style="font-size:13px;color:var(--tx2);text-transform:uppercase">Agencies Served</div>
   </div>
   <div style="text-align:center">
-   {% if creds.calvet_amount > 0 %}
-   <div style="font-size:32px;font-weight:800;color:#34d399;font-family:'JetBrains Mono',monospace">${{ "{:,.0f}".format(creds.calvet_amount) }}</div>
-   <div style="font-size:13px;color:var(--tx2);text-transform:uppercase">CalVet ({{ creds.calvet_pos }} POs)</div>
+   {% if creds.calvet_amount|default(0) > 0 %}
+   <div style="font-size:32px;font-weight:800;color:#34d399;font-family:'JetBrains Mono',monospace">${{ "{:,.0f}".format(creds.calvet_amount|default(0)) }}</div>
+   <div style="font-size:13px;color:var(--tx2);text-transform:uppercase">CalVet ({{ creds.calvet_pos|default(0) }} POs)</div>
    {% else %}
    <div style="font-size:22px;font-weight:800;color:#34d399">🏅 DVBE + SB</div>
    <div style="font-size:13px;color:var(--tx2);text-transform:uppercase">Certified</div>
@@ -464,20 +464,21 @@
 <div class="tab-panel" id="tab-kanban">
  <div style="display:flex;gap:12px;overflow-x:auto;padding-bottom:10px">
   {% for col_name, col_data in kanban.items() %}
+  {% set col_items = col_data['items']|default([]) %}
   <div style="min-width:200px;flex:1;background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:12px">
    <div style="font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--tx2);margin-bottom:10px;display:flex;justify-content:space-between">
-    <span>{{ col_name.replace('_',' ').title() }}</span>
-    <span style="font-family:'JetBrains Mono',monospace;color:var(--ac)">{{ col_data|length }}</span>
+    <span>{{ col_data.label|default(col_name.replace('_',' ').title()) }}</span>
+    <span style="font-family:'JetBrains Mono',monospace;color:{{ col_data.color|default('var(--ac)') }}">{{ col_items|length }}</span>
    </div>
    <div style="max-height:400px;overflow-y:auto">
-    {% for p in col_data[:15] %}
+    {% for p in col_items[:15] %}
     <div style="background:var(--sf2);border:1px solid var(--bd);border-radius:8px;padding:10px;margin-bottom:8px;font-size:13px">
      <div style="font-weight:600;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ p.agency or p.institution or '—' }}</div>
-     <div style="color:var(--tx2);font-size:13px">{{ p.buyer_name or p.name or '' }}</div>
+     <div style="color:var(--tx2);font-size:13px">{{ p.buyer or p.buyer_name or p.name or '' }}</div>
      {% if p.win_prob is defined %}<span class="win-badge" style="font-size:13px;background:{{ p.win_color|default('#8b949e') }}18;color:{{ p.win_color|default('#8b949e') }}">{{ "%.0f"|format(p.win_prob) }}%</span>{% endif %}
     </div>
     {% endfor %}
-    {% if not col_data %}<div style="text-align:center;padding:16px;color:var(--tx2);font-size:13px">Empty</div>{% endif %}
+    {% if not col_items %}<div style="text-align:center;padding:16px;color:var(--tx2);font-size:13px">Empty</div>{% endif %}
    </div>
   </div>
   {% endfor %}
