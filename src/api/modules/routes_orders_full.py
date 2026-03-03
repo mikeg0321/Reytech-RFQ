@@ -243,20 +243,20 @@ def _render_order_detail(order, oid):
             supplier_name = supplier_name or "Amazon"
         
         if sup_url:
-            sup_link = f'<a href="{sup_url}" target="_blank" style="color:var(--ac);font-size:11px" title="{sup_url}">🛒 {supplier_name or "Buy"}</a>'
+            sup_link = f'<a href="{sup_url}" target="_blank" style="color:var(--ac);font-size:13px" title="{sup_url}">🛒 {supplier_name or "Buy"}</a>'
         elif pn:
             # Search link for items with part numbers but no supplier URL
             search_q = f"{pn} {desc[:30]}".strip()
             import urllib.parse
             amz_search = f"https://www.amazon.com/s?k={urllib.parse.quote_plus(search_q)}"
-            sup_link = f'<a href="{amz_search}" target="_blank" style="color:var(--tx2);font-size:10px" title="Search Amazon">🔍</a>'
+            sup_link = f'<a href="{amz_search}" target="_blank" style="color:var(--tx2);font-size:13px" title="Search Amazon">🔍</a>'
             if supplier_name:
-                sup_link = f'<span style="color:var(--tx2);font-size:11px">{supplier_name}</span> {sup_link}'
+                sup_link = f'<span style="color:var(--tx2);font-size:13px">{supplier_name}</span> {sup_link}'
         else:
-            sup_link = f'<span style="color:var(--tx2);font-size:11px">{supplier_name or "—"}</span>'
+            sup_link = f'<span style="color:var(--tx2);font-size:13px">{supplier_name or "—"}</span>'
         
         # Edit link button
-        sup_edit = f'<button onclick="editSupplier(\'{oid}\',\'{lid}\')" style="background:none;border:none;cursor:pointer;font-size:10px;color:var(--tx2);padding:0" title="Edit supplier/link">✏️</button>'
+        sup_edit = f'<button onclick="editSupplier(\'{oid}\',\'{lid}\')" style="background:none;border:none;cursor:pointer;font-size:12px;color:var(--tx2);padding:0" title="Edit supplier/link">✏️</button>'
 
         # Part number: make clickable if ASIN
         if is_asin:
@@ -282,32 +282,73 @@ def _render_order_detail(order, oid):
                 track_url = f"https://tools.usps.com/go/TrackConfirmAction?tLabels={tracking}"
             else:
                 track_url = f"https://track.aftership.com/{tracking}"
-            tracking_html = f'<a href="{track_url}" target="_blank" style="color:var(--ac);font-size:10px">{tracking[:20]}</a>'
+            tracking_html = f'<a href="{track_url}" target="_blank" style="color:var(--ac);font-size:13px">{tracking[:20]}</a>'
         else:
-            tracking_html = '<button onclick="addTracking(\'' + oid + '\',\'' + lid + '\')" style="background:none;border:none;cursor:pointer;font-size:10px;color:var(--tx2)">+ tracking</button>'
+            tracking_html = '<button onclick="addTracking(\'' + oid + '\',\'' + lid + '\')" style="background:none;border:none;cursor:pointer;font-size:13px;color:var(--tx2)">+ tracking</button>'
 
         is_lbl, is_clr = inv_cfg.get(it.get("invoice_status","pending"), inv_cfg["pending"])
 
+        # ETA countdown
+        eta_html = ""
+        ship_date = it.get("ship_date", "")
+        if ss == "delivered":
+            eta_html = '<span style="color:#3fb950;font-weight:600">✅</span>'
+        elif ss == "shipped" and ship_date:
+            try:
+                from datetime import datetime as _dt, timedelta as _td
+                shipped_dt = _dt.fromisoformat(ship_date) if ship_date else None
+                if shipped_dt:
+                    expected = shipped_dt + _td(days=5)
+                    days_left = (expected - _dt.now()).days
+                    if days_left < 0:
+                        eta_html = f'<span style="color:#f85149;font-weight:700">{abs(days_left)}d late</span>'
+                    elif days_left == 0:
+                        eta_html = '<span style="color:#f0883e;font-weight:700">Today</span>'
+                    elif days_left <= 2:
+                        eta_html = f'<span style="color:#d29922;font-weight:600">{days_left}d</span>'
+                    else:
+                        eta_html = f'<span style="color:var(--tx2)">{days_left}d</span>'
+            except Exception:
+                eta_html = '—'
+        elif ss == "ordered":
+            eta_html = '<span style="color:var(--tx2)">awaiting</span>'
+        else:
+            eta_html = '<span style="color:var(--tx2)">—</span>'
+
+        # Supplier as linked name
+        import urllib.parse as _uparse
+        sup_name_q = _uparse.quote_plus(supplier_name) if supplier_name else ""
+        if supplier_name and sup_url:
+            sup_cell = f'<a href="/supplier/{sup_name_q}" style="color:var(--ac);font-weight:600;text-decoration:none" title="Supplier record">{supplier_name}</a> <a href="{sup_url}" target="_blank" style="color:var(--tx2);font-size:12px" title="Product link">🔗</a>'
+        elif supplier_name:
+            sup_cell = f'<a href="/supplier/{sup_name_q}" style="color:var(--ac);font-weight:600;text-decoration:none" title="Supplier record">{supplier_name}</a>'
+        elif sup_url:
+            sup_cell = f'<a href="{sup_url}" target="_blank" style="color:var(--ac)">🛒 Buy</a>'
+        else:
+            sup_cell = '—'
+        sup_cell += f' <button onclick="editSupplier(\'{oid}\',\'{lid}\')" style="background:none;border:none;cursor:pointer;font-size:12px;color:var(--tx2);padding:0" title="Edit supplier">✏️</button>'
+
         items_rows += f"""<tr data-lid="{lid}">
-         <td style="color:var(--tx2);font-size:11px">{lid}</td>
-         <td style="max-width:300px;word-wrap:break-word;white-space:normal">{desc}</td>
-         <td class="mono" style="font-size:11px">{pn_html}</td>
-         <td>{sup_link} {sup_edit}</td>
-         <td class="mono" style="text-align:center">{it.get('qty',0)}</td>
-         <td class="mono" style="text-align:right">${it.get('unit_price',0):,.2f}</td>
-         <td class="mono" style="text-align:right"><input type="number" step="0.01" value="{it.get('cost',0):.2f}" onchange="updateCost('{oid}','{lid}',this.value)" style="width:58px;background:var(--sf);border:1px solid var(--bd);border-radius:4px;color:var(--tx);font-size:11px;padding:2px 4px;text-align:right;font-family:'JetBrains Mono',monospace" title="Edit cost"></td>
-         <td style="text-align:center;font-size:11px;font-weight:600;color:{'#3fb950' if (it.get('margin_pct',0) or 0) >= 20 else '#d29922' if (it.get('margin_pct',0) or 0) >= 10 else '#f85149' if it.get('cost',0) else 'var(--tx2)'}">{'{:.0f}%'.format(it.get('margin_pct',0) or 0) if it.get('cost',0) else '—'}</td>
+         <td style="text-align:center"><input type="checkbox" class="line-check" value="{lid}" data-status="{ss}" data-desc="{desc[:40]}" data-tracking="{tracking}"></td>
+         <td style="color:var(--tx2);font-size:13px">{lid}</td>
+         <td style="max-width:350px;word-wrap:break-word;white-space:normal;font-size:14px">{desc}</td>
+         <td class="mono" style="font-size:13px">{pn_html}</td>
+         <td style="font-size:13px">{sup_cell}</td>
+         <td class="mono" style="text-align:center;font-size:14px">{it.get('qty',0)}</td>
+         <td class="mono" style="text-align:right;font-size:14px">${it.get('unit_price',0):,.2f}</td>
          <td style="text-align:center">
-          <select onchange="updateLine('{oid}','{lid}','sourcing_status',this.value)" style="background:var(--sf);border:1px solid var(--bd);border-radius:4px;color:{s_clr};font-size:11px;padding:2px">
+          <select onchange="updateLine('{oid}','{lid}','sourcing_status',this.value)" style="background:var(--sf);border:1px solid var(--bd);border-radius:4px;color:{s_clr};font-size:13px;padding:3px 4px">
            <option value="pending" {"selected" if ss=="pending" else ""}>⏳ Pending</option>
            <option value="ordered" {"selected" if ss=="ordered" else ""}>🛒 Ordered</option>
            <option value="shipped" {"selected" if ss=="shipped" else ""}>🚚 Shipped</option>
            <option value="delivered" {"selected" if ss=="delivered" else ""}>✅ Delivered</option>
           </select>
          </td>
-         <td style="font-size:10px">{carrier} {tracking_html}</td>
-         <td style="text-align:center;font-size:12px;color:{is_clr}" title="{it.get('invoice_status','pending')}">{is_lbl}</td>
+         <td style="font-size:13px">{carrier} {tracking_html}</td>
+         <td style="text-align:center;font-size:13px">{eta_html}</td>
+         <td style="text-align:center;font-size:14px;color:{is_clr}" title="{it.get('invoice_status','pending')}">{is_lbl}</td>
         </tr>"""
+
 
     status_cfg = {
         "new": "🆕 New", "sourcing": "🛒 Sourcing", "shipped": "🚚 Shipped",

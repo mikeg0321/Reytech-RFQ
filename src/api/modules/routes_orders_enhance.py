@@ -48,6 +48,177 @@ def _save_orders(orders):
         json.dump(orders, f, indent=2, default=str)
 
 
+@bp.route("/api/order/<oid>/delivery-update", methods=["POST"])
+@auth_required
+def api_order_delivery_update(oid):
+    """Send delivery status update email for selected line items.
+    Reply-all to the original PO sender group."""
+    orders = _load_orders()
+    order = orders.get(oid)
+    if not order:
+        return jsonify({"ok": False, "error": "Order not found"})
+
+    data = request.get_json(silent=True) or {}
+    selected_items = data.get("items", [])
+    note = data.get("note", "")
+
+    if not selected_items:
+        return jsonify({"ok": False, "error": "No items selected"})
+
+    po = order.get("po_number", "")
+    institution = order.get("institution", "")
+    agency = order.get("agency", "")
+
+    # Build item status table for email
+    lines = []
+    for sel in selected_items:
+        lid = sel.get("line_id", "")
+        for it in order.get("line_items", []):
+            if it.get("line_id") == lid:
+                status_labels = {"pending": "Pending", "ordered": "Ordered",
+                                 "shipped": "Shipped", "delivered": "Delivered"}
+                s = status_labels.get(it.get("sourcing_status", "pending"), "Pending")
+                tracking = it.get("tracking_number", "")
+                carrier = it.get("carrier", "")
+                desc = it.get("description", "")[:60]
+                qty = it.get("qty", 0)
+                track_str = f" — {carrier} {tracking}" if tracking else ""
+                lines.append(f"• {desc} (Qty: {qty}) — {s}{track_str}")
+                break
+
+    subject = f"Delivery Update: PO {po} — {institution}"
+
+    lines_text = "\n".join(lines)
+    body = f"""Hello,
+
+Please see below for the latest delivery status update on PO {po} for {institution}:
+
+{lines_text}
+"""
+    if note:
+        body += f"\nNote: {note}\n"
+
+    body += f"""
+If you have any questions about this order, please don't hesitate to reach out.
+
+Best regards,
+Mike Gonzales
+Reytech Inc.
+(949) 229-1575
+mike@reytechinc.com
+"""
+
+    # Find original PO sender emails for reply-all
+    recipients = []
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            rows = conn.execute("""
+                SELECT DISTINCT sender FROM processed_emails
+                WHERE (subject LIKE ? OR body LIKE ?) AND sender != ''
+                LIMIT 10
+            """, (f"%{po}%", f"%{po}%")).fetchall()
+            recipients = [r["sender"] for r in rows if r["sender"]]
+    except Exception:
+        pass
+
+    # Also check order metadata for sender
+    order_sender = order.get("sender_email", "") or order.get("requestor_email", "")
+    if order_sender and order_sender not in recipients:
+        recipients.insert(0, order_sender)
+
+    if not recipients:
+        recipients = ["(no recipient found — add manually)"]
+
+    # Try to send via Gmail
+    draft_url = ""
+    try:
+        import urllib.parse
+        gmail_to = ",".join(recipients)
+        params = urllib.parse.urlencode({
+            "to": gmail_to,
+            "su": subject,
+            "body": body,
+        })
+        draft_url = f"https://mail.google.com/mail/?view=cm&{params}"
+    except Exception:
+        pass
+
+    log_order_event(oid, "delivery_update_sent", "email", "",
+                    f"{len(selected_items)} items",
+                    "user", f"Recipients: {', '.join(recipients[:3])}")
+
+    return jsonify({
+        "ok": True,
+        "recipients": recipients,
+        "items_count": len(selected_items),
+        "subject": subject,
+        "draft_url": draft_url,
+    })
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Supplier Record Page
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@bp.route("/supplier/<name>")
+@auth_required
+def supplier_record_page(n):
+    """Supplier record page — shows all orders, items, and activity for a supplier."""
+    import urllib.parse
+    supplier_name = urllib.parse.unquote_plus(n)
+    orders = _load_orders()
+
+    # Find all line items for this supplier across all orders
+    supplier_items = []
+    order_ids = set()
+    total_spend = 0
+    for oid, order in orders.items():
+        for it in order.get("line_items", []):
+            s = (it.get("supplier", "") or "").strip()
+            if s.lower() == supplier_name.lower():
+                supplier_items.append({
+                    "order_id": oid,
+                    "line_id": it.get("line_id", ""),
+                    "description": it.get("description", "")[:80],
+                    "part_number": it.get("part_number", ""),
+                    "qty": it.get("qty", 0),
+                    "unit_price": it.get("unit_price", 0),
+                    "sourcing_status": it.get("sourcing_status", "pending"),
+                    "tracking": it.get("tracking_number", ""),
+                    "carrier": it.get("carrier", ""),
+                    "supplier_url": it.get("supplier_url", ""),
+                    "po_number": order.get("po_number", ""),
+                    "institution": order.get("institution", ""),
+                })
+                order_ids.add(oid)
+                total_spend += (it.get("unit_price", 0) or 0) * (it.get("qty", 0) or 0)
+
+    # Build HTML rows
+    rows = ""
+    for si in supplier_items:
+        ss = si["sourcing_status"]
+        s_colors = {"pending": "var(--tx2)", "ordered": "#58a6ff", "shipped": "#bc8cff", "delivered": "#3fb950"}
+        clr = s_colors.get(ss, "var(--tx2)")
+        track = f'{si["carrier"]} {si["tracking"]}' if si["tracking"] else "—"
+        rows += f"""<tr>
+         <td><a href="/order/{si['order_id']}" style="color:var(--ac);font-size:13px">{si['order_id']}</a></td>
+         <td style="font-size:13px">{si['institution']}</td>
+         <td style="font-size:14px">{si['description']}</td>
+         <td class="mono" style="font-size:13px">{si['part_number']}</td>
+         <td class="mono" style="text-align:center;font-size:14px">{si['qty']}</td>
+         <td class="mono" style="text-align:right;font-size:14px">${si['unit_price']:,.2f}</td>
+         <td style="color:{clr};font-size:13px;font-weight:600">{ss.title()}</td>
+         <td style="font-size:13px">{track}</td>
+        </tr>"""
+
+    return render_page("supplier_record.html", active_page="Orders",
+        supplier_name=supplier_name, items=supplier_items,
+        rows=rows, order_count=len(order_ids),
+        item_count=len(supplier_items),
+        total_spend=total_spend)
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # F7: Structured Audit Log
 # ═══════════════════════════════════════════════════════════════════════════════
