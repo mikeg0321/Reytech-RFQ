@@ -175,7 +175,7 @@ def api_order_timeline(oid):
 
 @bp.route("/api/order/<oid>/margins")
 @auth_required
-def api_order_margins(oid):
+def api_order_line_margins(oid):
     """Calculate margins for all line items in an order."""
     orders = _load_orders()
     order = orders.get(oid)
