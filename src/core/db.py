@@ -708,6 +708,24 @@ def _migrate_columns():
     except Exception as e:
         log.debug("Test data cleanup: %s", e)
 
+    # ── Cleanup: remove test orders from orders.json ──
+    try:
+        import json as _jc
+        orders_json = os.path.join(os.path.dirname(DB_PATH), "orders.json")
+        if os.path.exists(orders_json):
+            with open(orders_json) as _f:
+                _orders = _jc.load(_f)
+            before = len(_orders)
+            _orders = {k: v for k, v in _orders.items()
+                       if "TEST" not in (v.get("po_number", "") or "").upper()
+                       and not v.get("is_test")}
+            if len(_orders) < before:
+                with open(orders_json, "w") as _f:
+                    _jc.dump(_orders, _f, indent=2)
+                log.info("Cleaned %d test orders from orders.json", before - len(_orders))
+    except Exception as e:
+        log.debug("orders.json cleanup: %s", e)
+
 
 def _reconcile_quotes_json():
     """Sync quotes_log.json statuses from DB (source of truth).

@@ -156,6 +156,13 @@ function doDismiss(reason) {
       } else {
         location.reload();
       }
+      // Update queue count in header
+      var countId = _dismissType === 'pc' ? 'pc-queue-count' : 'rfq-queue-count';
+      var countEl = document.getElementById(countId);
+      if (countEl) {
+        var cur = parseInt(countEl.textContent) || 0;
+        countEl.textContent = Math.max(0, cur - 1);
+      }
     } else {
       alert('Failed: ' + (d.error || 'unknown'));
     }
@@ -178,7 +185,7 @@ document.addEventListener('click', function(e) {
  <!-- Price Checks — primary work queue (wider column) -->
  <div class="card" style="margin:0;overflow:visible">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-   <div class="card-t" style="margin:0">Price Checks <span style="font-size:11px;font-weight:400;color:var(--tx2)">(AMS 704 — price your response)</span> <span style="font-family:'JetBrains Mono',monospace;font-weight:700">{{price_checks|length}}</span></div>
+   <div class="card-t" style="margin:0">Price Checks <span style="font-size:11px;font-weight:400;color:var(--tx2)">(AMS 704 — price your response)</span> <span id="pc-queue-count" style="font-family:'JetBrains Mono',monospace;font-weight:700">{{price_checks|length}}</span></div>
   </div>
   {% if price_checks %}
   <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
@@ -229,7 +236,7 @@ document.addEventListener('click', function(e) {
 
  <!-- RFQ Queue (narrower column) -->
  <div class="card" style="margin:0;overflow:visible">
-  <div class="card-t">RFQ Queue <span style="font-size:11px;font-weight:400;color:var(--tx2)">(704A/704B + formal quote package)</span> <span style="font-family:'JetBrains Mono',monospace;font-weight:700">{{rfqs|length}}</span></div>
+  <div class="card-t">RFQ Queue <span style="font-size:11px;font-weight:400;color:var(--tx2)">(704A/704B + formal quote package)</span> <span id="rfq-queue-count" style="font-family:'JetBrains Mono',monospace;font-weight:700">{{rfqs|length}}</span></div>
   <!-- E11: Bulk Action Bar -->
   <div class="bulk-bar" id="rfq-bulk-bar">
    <span class="bulk-count"><span id="rfq-bulk-count">0</span> selected</span>
@@ -309,13 +316,13 @@ document.addEventListener('click', function(e) {
 
 <!-- ═══ Orders Progress Board ═══ -->
 <div id="order-health-section" style="display:none;margin-bottom:14px">
- <div class="card" style="padding:18px 24px">
-  <div style="display:flex;align-items:center;gap:6px;margin-bottom:14px">
-   <span style="font-size:11px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:1px">📦 Orders Progress</span>
+ <div class="card" style="padding:22px 28px">
+  <div style="display:flex;align-items:center;gap:6px;margin-bottom:18px">
+   <span style="font-size:14px;font-weight:700;color:var(--tx);letter-spacing:.5px">📦 ORDERS PROGRESS</span>
    <span style="flex:1;height:1px;background:var(--bd)"></span>
-   <a href="/orders" style="font-size:11px;color:var(--ac);font-weight:600">Manage Orders →</a>
+   <a href="/orders" style="font-size:13px;color:var(--ac);font-weight:600">Manage Orders →</a>
   </div>
-  <div id="order-health-stats" style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px"></div>
+  <div id="order-health-stats" style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:18px"></div>
   <div id="order-health-issues"></div>
  </div>
 </div>
@@ -326,30 +333,30 @@ function _renderOrderHealth(d){
  var s=d.summary||{};
  var stats=document.getElementById('order-health-stats');
  var items=[
-  {v:s.items_not_ordered?s.items_not_ordered.length:0, l:'Not Ordered', c:'#f85149', bg:'rgba(248,81,73,.08)'},
-  {v:s.items_ordered_no_tracking?s.items_ordered_no_tracking.length:0, l:'No Tracking', c:'#d29922', bg:'rgba(210,153,34,.08)'},
-  {v:s.items_shipped?s.items_shipped.length:0, l:'In Transit', c:'#bc8cff', bg:'rgba(188,140,255,.08)'},
-  {v:s.items_delivered?s.items_delivered.length:0, l:'Delivered', c:'#3fb950', bg:'rgba(52,211,153,.08)'},
-  {v:s.orders_delivered_no_invoice?s.orders_delivered_no_invoice.length:0, l:'Need Invoice', c:'#f85149', bg:'rgba(248,81,73,.08)'},
+  {v:s.items_not_ordered?s.items_not_ordered.length:0, l:'Not Ordered', c:'#f85149', bg:'rgba(248,81,73,.12)'},
+  {v:s.items_ordered_no_tracking?s.items_ordered_no_tracking.length:0, l:'No Tracking', c:'#d29922', bg:'rgba(210,153,34,.12)'},
+  {v:s.items_shipped?s.items_shipped.length:0, l:'In Transit', c:'#bc8cff', bg:'rgba(188,140,255,.12)'},
+  {v:s.items_delivered?s.items_delivered.length:0, l:'Delivered', c:'#3fb950', bg:'rgba(52,211,153,.12)'},
+  {v:s.orders_delivered_no_invoice?s.orders_delivered_no_invoice.length:0, l:'Need Invoice', c:'#f85149', bg:'rgba(248,81,73,.12)'},
  ];
  stats.innerHTML=items.map(function(i){
-  return '<div style="text-align:center;background:'+i.bg+';border-radius:8px;padding:10px">'
-   +'<div style="font-size:22px;font-weight:800;font-family:JetBrains Mono,monospace;color:'+i.c+'">'+i.v+'</div>'
-   +'<div style="font-size:10px;color:var(--tx2);margin-top:2px">'+i.l+'</div></div>';
+  return '<div style="text-align:center;background:'+i.bg+';border:1px solid '+i.c+'22;border-radius:10px;padding:18px 10px">'
+   +'<div style="font-size:36px;font-weight:800;font-family:JetBrains Mono,monospace;color:'+i.c+';line-height:1">'+i.v+'</div>'
+   +'<div style="font-size:13px;font-weight:600;color:var(--tx2);margin-top:6px;text-transform:uppercase;letter-spacing:.5px">'+i.l+'</div></div>';
  }).join('');
 
  var issues=d.issues||[];
  var issEl=document.getElementById('order-health-issues');
- if(!issues.length){ issEl.innerHTML='<div style="color:var(--tx2);font-size:12px;text-align:center;padding:8px">✅ All orders on track</div>'; return; }
+ if(!issues.length){ issEl.innerHTML='<div style="color:var(--tx2);font-size:14px;text-align:center;padding:12px">✅ All orders on track</div>'; return; }
  var html='';
  issues.slice(0,8).forEach(function(i){
   var sev=i.severity==='high'?'🔴':i.severity==='medium'?'🟡':'🟢';
-  html+='<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--sf);font-size:12px">'
+  html+='<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--sf);font-size:14px">'
    +'<span>'+sev+'</span>'
    +'<span style="flex:1;color:var(--tx)">'+i.msg+'</span>'
-   +'<a href="'+i.link+'" style="color:var(--ac);font-size:11px;white-space:nowrap">View →</a></div>';
+   +'<a href="'+i.link+'" style="color:var(--ac);font-size:13px;font-weight:600;white-space:nowrap">View →</a></div>';
  });
- if(issues.length>8) html+='<div style="text-align:center;padding:6px;font-size:11px;color:var(--tx2)">+ '+(issues.length-8)+' more</div>';
+ if(issues.length>8) html+='<div style="text-align:center;padding:8px;font-size:13px;color:var(--tx2)">+ '+(issues.length-8)+' more</div>';
  issEl.innerHTML=html;
 }
 </script>

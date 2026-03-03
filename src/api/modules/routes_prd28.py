@@ -674,8 +674,13 @@ def api_dashboard_init():
             if os.path.exists(orders_path):
                 with open(orders_path) as f:
                     all_orders = json.load(f)
-                new_orders = [o for o in all_orders.values() if o.get("status") == "new"]
-                delivered_orders = [o for o in all_orders.values() if o.get("status") == "delivered"]
+                # Filter out test orders everywhere
+                real_orders = {k: o for k, o in all_orders.items()
+                               if "TEST" not in (o.get("po_number", "") or "").upper()
+                               and not o.get("is_test")
+                               and o.get("status") not in ("cancelled", "test", "deleted")}
+                new_orders = [o for o in real_orders.values() if o.get("status") == "new"]
+                delivered_orders = [o for o in real_orders.values() if o.get("status") == "delivered"]
                 if new_orders:
                     total_val = sum(o.get("total", 0) for o in new_orders)
                     urgent.append({"icon": "🏆", "label": f"{len(new_orders)} new PO{'s' if len(new_orders) > 1 else ''} — ${total_val:,.0f} to source", "link": "/orders", "type": "new_orders", "count": len(new_orders)})

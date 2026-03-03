@@ -66,6 +66,11 @@ def get_order_health() -> dict:
         status = order.get("status", "new")
         if status in ("cancelled", "test", "deleted"):
             continue
+        # Skip test orders
+        if "TEST" in (order.get("po_number", "") or "").upper():
+            continue
+        if order.get("is_test"):
+            continue
 
         summary["total_orders"] += 1
         total = order.get("total", 0)
