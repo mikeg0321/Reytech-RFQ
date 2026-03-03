@@ -3844,6 +3844,18 @@ def growth_page():
     calendar_events = get_calendar_events(upcoming_only=True)[:10]
     todays_agenda = get_todays_agenda()
 
+    # V4: Funnel + Quick Wins + Daily Brief + Agency Intel
+    from src.agents.growth_agent import (
+        get_outreach_funnel, get_quick_wins, generate_daily_brief,
+        get_agency_intelligence, get_campaign_performance, get_kanban_board,
+    )
+    funnel = get_outreach_funnel()
+    quick_wins = get_quick_wins(10)
+    daily_brief = generate_daily_brief()
+    agency_intel = get_agency_intelligence()
+    campaign_perf = get_campaign_performance()
+    kanban = get_kanban_board()
+
     from src.api.render import render_page
     return render_page("growth.html", active_page="Growth",
         h_total_pos=h.get("total_pos", 0), h_total_items=h.get("total_items", 0),
@@ -3874,6 +3886,13 @@ def growth_page():
         # Calendar
         calendar_events=calendar_events,
         todays_agenda=todays_agenda,
+        # V4
+        funnel=funnel,
+        quick_wins=quick_wins,
+        daily_brief=daily_brief,
+        agency_intel=agency_intel,
+        campaign_perf=campaign_perf,
+        kanban=kanban,
     )
 
 
@@ -5301,6 +5320,155 @@ def api_growth_startup_check():
         return jsonify({"ok": False, "error": "Growth agent not available"})
     from src.agents.growth_agent import growth_startup_check
     return jsonify(growth_startup_check())
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# V4 — 12 New Feature API Routes
+# ═══════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/growth/kanban")
+@auth_required
+def api_growth_kanban():
+    """Kanban board view of prospect pipeline."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    from src.agents.growth_agent import get_kanban_board
+    return jsonify(get_kanban_board())
+
+
+@bp.route("/api/growth/funnel")
+@auth_required
+def api_growth_funnel():
+    """Outreach conversion funnel analytics."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    from src.agents.growth_agent import get_outreach_funnel
+    return jsonify(get_outreach_funnel())
+
+
+@bp.route("/api/growth/agency-intel")
+@auth_required
+def api_growth_agency_intel():
+    """Agency intelligence ranking."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    from src.agents.growth_agent import get_agency_intelligence
+    return jsonify(get_agency_intelligence())
+
+
+@bp.route("/api/growth/batch-workflow", methods=["POST"])
+@auth_required
+def api_growth_batch_workflow():
+    """Assign workflow to multiple prospects."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    from src.agents.growth_agent import batch_assign_workflow
+    data = request.get_json(silent=True) or {}
+    return jsonify(batch_assign_workflow(data.get("prospect_ids", []), data.get("workflow_id", "standard_outreach")))
+
+
+@bp.route("/api/growth/prospect/<prospect_id>/timeline")
+@auth_required
+def api_growth_prospect_timeline(prospect_id):
+    """Unified activity timeline for a prospect."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    from src.agents.growth_agent import get_prospect_timeline
+    return jsonify({"events": get_prospect_timeline(prospect_id)})
+
+
+@bp.route("/api/growth/quick-wins")
+@auth_required
+def api_growth_quick_wins():
+    """Surface highest probability quick wins."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    from src.agents.growth_agent import get_quick_wins
+    return jsonify({"quick_wins": get_quick_wins(int(request.args.get("max", 10)))})
+
+
+@bp.route("/api/growth/campaign-performance")
+@auth_required
+def api_growth_campaign_perf():
+    """Per-campaign performance stats."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    from src.agents.growth_agent import get_campaign_performance
+    return jsonify({"campaigns": get_campaign_performance()})
+
+
+@bp.route("/api/growth/daily-brief")
+@auth_required
+def api_growth_daily_brief():
+    """Auto-generated daily growth brief."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    from src.agents.growth_agent import generate_daily_brief
+    return jsonify(generate_daily_brief())
+
+
+@bp.route("/api/growth/bulk-import", methods=["POST"])
+@auth_required
+def api_growth_bulk_import():
+    """Import prospects from CSV."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    from src.agents.growth_agent import bulk_import_prospects
+    csv_text = ""
+    if request.content_type and "multipart" in request.content_type:
+        f = request.files.get("file")
+        if f:
+            csv_text = f.read().decode("utf-8", errors="ignore")
+    else:
+        data = request.get_json(silent=True) or {}
+        csv_text = data.get("csv", "")
+    if not csv_text:
+        return jsonify({"ok": False, "error": "No CSV data provided"})
+    return jsonify(bulk_import_prospects(csv_text))
+
+
+@bp.route("/api/growth/auto-tag", methods=["POST"])
+@auth_required
+def api_growth_auto_tag():
+    """Auto-tag all prospects."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    from src.agents.growth_agent import auto_tag_prospects
+    return jsonify(auto_tag_prospects())
+
+
+@bp.route("/api/growth/price-compare")
+@auth_required
+def api_growth_price_compare():
+    """Compare pricing vs SCPRS market data."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    from src.agents.growth_agent import compare_pricing
+    item = request.args.get("item", "")
+    if not item:
+        return jsonify({"ok": False, "error": "Missing item parameter"})
+    return jsonify(compare_pricing(item))
+
+
+@bp.route("/api/growth/duplicates")
+@auth_required
+def api_growth_duplicates():
+    """Find duplicate prospects."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    from src.agents.growth_agent import find_duplicate_prospects
+    return jsonify(find_duplicate_prospects())
+
+
+@bp.route("/api/growth/merge", methods=["POST"])
+@auth_required
+def api_growth_merge():
+    """Merge duplicate prospects."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    from src.agents.growth_agent import merge_prospects
+    data = request.get_json(silent=True) or {}
+    return jsonify(merge_prospects(data.get("keep_id", ""), data.get("remove_ids", [])))
 
 
 @bp.route("/api/intel/push-prospects")

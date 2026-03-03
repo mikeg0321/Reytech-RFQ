@@ -66,6 +66,14 @@ def _save_json(path, data):
         json.dump(data, f, indent=2, default=str)
 
 
+def _load_prospects_list():
+    """Load prospects as a flat list, handling both dict and list formats."""
+    data = _load_json(PROSPECTS_FILE) or []
+    if isinstance(data, dict):
+        return data.get("prospects", [])
+    return data
+
+
 # ─── Item Category Mapping ───────────────────────────────────────────────
 
 CATEGORY_KEYWORDS = {
@@ -1257,13 +1265,6 @@ def get_growth_status():
     }
 
 
-# Legacy compatibility
-def generate_recommendations():
-    return get_growth_status()
-
-def full_report():
-    return get_growth_status()
-
 def lead_funnel():
     return get_growth_status()
 
@@ -1895,7 +1896,6 @@ def get_growth_kpis() -> dict:
     fu_stale = len(cohorts.get("stale", []))
 
     # Weekly trend (emails sent in last 7 days vs prior 7)
-    from datetime import datetime, timedelta
     now = datetime.now()
     week_ago = now - timedelta(days=7)
     two_weeks = now - timedelta(days=14)
@@ -1997,7 +1997,6 @@ def get_win_probability(prospect: dict, credentials: dict = None) -> dict:
     # Factor 7: Recent engagement (+5%)
     if prospect.get("last_contacted"):
         try:
-            from datetime import datetime
             lc = datetime.fromisoformat(prospect["last_contacted"][:19])
             days = (datetime.now() - lc).days
             if days < 14:
@@ -2153,7 +2152,7 @@ def get_lost_po_analysis() -> dict:
 
 def export_growth_report(fmt: str = "csv") -> dict:
     """Export growth data as CSV or structured report."""
-    prospects = _load_json(PROSPECTS_FILE) or []
+    prospects = _load_prospects_list()
     creds = get_reytech_credentials()
     kpis = get_growth_kpis()
     lost = get_lost_po_analysis()
@@ -2193,7 +2192,6 @@ _AUDIT_FILE = os.path.join(DATA_DIR, "growth_audit.json")
 
 def log_growth_action(action: str, detail: str = "", actor: str = "user", metadata: dict = None):
     """Append to tamper-evident audit log for all growth actions."""
-    from datetime import datetime
     audit = _load_json(_AUDIT_FILE) or []
     entry = {
         "id": f"ga_{datetime.now().strftime('%Y%m%d%H%M%S')}_{len(audit)}",
@@ -2224,7 +2222,6 @@ _AB_FILE = os.path.join(DATA_DIR, "growth_ab_tests.json")
 
 def track_template_send(template_key: str, variant: str = "A", prospect_id: str = ""):
     """Track which template variant was sent for A/B analysis."""
-    from datetime import datetime
     ab = _load_json(_AB_FILE) or {}
     if template_key not in ab:
         ab[template_key] = {"variants": {}}
@@ -2357,8 +2354,7 @@ def get_workflows() -> dict:
 
 def get_workflow_queue() -> list:
     """Get all prospects with pending workflow steps."""
-    from datetime import datetime, timedelta
-    prospects = _load_json(PROSPECTS_FILE) or []
+    prospects = _load_prospects_list()
     queue = []
 
     for p in prospects:
@@ -2406,8 +2402,8 @@ def get_workflow_queue() -> list:
 
 def assign_workflow(prospect_id: str, workflow_id: str = "standard_outreach") -> dict:
     """Assign a workflow sequence to a prospect."""
-    from datetime import datetime
-    prospects = _load_json(PROSPECTS_FILE) or []
+    _pdata = _load_json(PROSPECTS_FILE) or {}
+    prospects = _pdata.get("prospects", []) if isinstance(_pdata, dict) else _pdata
     for p in prospects:
         if p.get("id") == prospect_id:
             p["workflow"] = {
@@ -2417,7 +2413,9 @@ def assign_workflow(prospect_id: str, workflow_id: str = "standard_outreach") ->
                 "started_at": datetime.now().isoformat(),
                 "history": [],
             }
-            _save_json(PROSPECTS_FILE, prospects)
+            if isinstance(_pdata, dict):
+                _pdata["prospects"] = prospects
+            _save_json(PROSPECTS_FILE, _pdata if isinstance(_pdata, dict) else prospects)
             log_growth_action("workflow_assigned", f"Workflow '{workflow_id}' assigned to {prospect_id}")
             return {"ok": True, "prospect_id": prospect_id, "workflow_id": workflow_id}
     return {"ok": False, "error": "Prospect not found"}
@@ -2425,8 +2423,8 @@ def assign_workflow(prospect_id: str, workflow_id: str = "standard_outreach") ->
 
 def advance_workflow_step(prospect_id: str, result: str = "completed") -> dict:
     """Advance a prospect to the next workflow step."""
-    from datetime import datetime
-    prospects = _load_json(PROSPECTS_FILE) or []
+    _pdata = _load_json(PROSPECTS_FILE) or {}
+    prospects = _pdata.get("prospects", []) if isinstance(_pdata, dict) else _pdata
     for p in prospects:
         if p.get("id") == prospect_id:
             wf = p.get("workflow", {})
@@ -2446,7 +2444,9 @@ def advance_workflow_step(prospect_id: str, result: str = "completed") -> dict:
                 wf["active"] = False
                 wf["completed_at"] = datetime.now().isoformat()
 
-            _save_json(PROSPECTS_FILE, prospects)
+            if isinstance(_pdata, dict):
+                _pdata["prospects"] = prospects
+            _save_json(PROSPECTS_FILE, _pdata if isinstance(_pdata, dict) else prospects)
             log_growth_action("workflow_step_advanced", f"Step {step+1} completed for {prospect_id}")
             return {"ok": True, "new_step": wf["current_step"], "active": wf["active"]}
     return {"ok": False, "error": "Prospect not found"}
@@ -2469,7 +2469,6 @@ SMS_TEMPLATES = {
 def send_sms_outreach(phone: str, template_key: str = "sms_follow_up",
                        prospect: dict = None, dry_run: bool = True) -> dict:
     """Send SMS via Twilio to a prospect."""
-    from datetime import datetime
 
     tmpl = SMS_TEMPLATES.get(template_key, SMS_TEMPLATES["sms_follow_up"])
     buyer = (prospect or {}).get("buyer_name") or (prospect or {}).get("name", "there")
@@ -2504,7 +2503,6 @@ _NOTIFICATIONS_FILE = os.path.join(DATA_DIR, "growth_notifications.json")
 def add_notification(title: str, message: str, level: str = "info",
                     action_url: str = "", metadata: dict = None):
     """Add an in-app notification."""
-    from datetime import datetime
     notifs = _load_json(_NOTIFICATIONS_FILE) or []
     notifs.append({
         "id": f"n_{datetime.now().strftime('%Y%m%d%H%M%S')}_{len(notifs)}",
@@ -2931,7 +2929,6 @@ _CALENDAR_FILE = os.path.join(DATA_DIR, "growth_calendar.json")
 def schedule_follow_up(prospect_id: str, date: str, time: str = "09:00",
                         notes: str = "", reminder_type: str = "email") -> dict:
     """Schedule a follow-up action on the calendar."""
-    from datetime import datetime
     cal = _load_json(_CALENDAR_FILE) or {"events": []}
 
     prospect = get_prospect(prospect_id)
@@ -2961,7 +2958,6 @@ def schedule_follow_up(prospect_id: str, date: str, time: str = "09:00",
     dt_str = f"{date}T{time}:00"
     try:
         start = datetime.fromisoformat(dt_str)
-        from datetime import timedelta
         end = start + timedelta(minutes=30)
         gcal_start = start.strftime("%Y%m%dT%H%M%S")
         gcal_end = end.strftime("%Y%m%dT%H%M%S")
@@ -2981,7 +2977,6 @@ def schedule_follow_up(prospect_id: str, date: str, time: str = "09:00",
 
 def get_calendar_events(upcoming_only: bool = True) -> list:
     """Get scheduled follow-up events."""
-    from datetime import datetime
     cal = _load_json(_CALENDAR_FILE) or {"events": []}
     events = cal.get("events", [])
 
@@ -2995,7 +2990,6 @@ def get_calendar_events(upcoming_only: bool = True) -> list:
 
 def complete_calendar_event(event_id: str) -> dict:
     """Mark a calendar event as completed."""
-    from datetime import datetime
     cal = _load_json(_CALENDAR_FILE) or {"events": []}
     for e in cal.get("events", []):
         if e.get("id") == event_id:
@@ -3008,7 +3002,6 @@ def complete_calendar_event(event_id: str) -> dict:
 
 def get_todays_agenda() -> list:
     """Get today's scheduled follow-ups for the dashboard."""
-    from datetime import datetime
     today = datetime.now().strftime("%Y-%m-%d")
     events = get_calendar_events(upcoming_only=True)
     return [e for e in events if e.get("date") == today]
@@ -3077,7 +3070,6 @@ def decrypt_prospect_pii(prospect: dict) -> dict:
 # ── SCPRS Search Proxy ─────────────────────────────────────────────
 def scprs_search_proxy(query: str, search_type: str = "item") -> dict:
     """Proxy SCPRS searches with caching and error handling."""
-    from datetime import datetime
     cache_path = os.path.join(DATA_DIR, "scprs_search_cache.json")
     cache = _load_json(cache_path) or {}
 
@@ -3127,7 +3119,6 @@ def scprs_search_proxy(query: str, search_type: str = "item") -> dict:
 def add_loss_reason(quote_id: str, reason: str, competitor: str = "",
                     price_delta: float = 0, notes: str = "") -> dict:
     """Record reason for a lost PO/quote."""
-    from datetime import datetime
     quotes = _load_json(os.path.join(DATA_DIR, "quotes_log.json")) or {}
 
     if isinstance(quotes, list):
@@ -3210,3 +3201,379 @@ def growth_startup_check() -> dict:
             "workflows": len(get_workflows()),
         },
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# V4 — 12 NEW PRODUCTION FEATURES
+# ═══════════════════════════════════════════════════════════════════════
+
+# -- 1. Prospect Kanban Board --
+def get_kanban_board():
+    """Group prospects into Kanban columns for visual pipeline view."""
+    prospect_data = _load_json(PROSPECTS_FILE) or []
+    prospects = prospect_data.get("prospects", []) if isinstance(prospect_data, dict) else prospect_data
+    creds = get_reytech_credentials()
+    columns = {
+        "new": {"label": "New", "color": "#4f8cff", "items": []},
+        "emailed": {"label": "Emailed", "color": "#58a6ff", "items": []},
+        "follow_up": {"label": "Follow-Up", "color": "#fbbf24", "items": []},
+        "responded": {"label": "Responded", "color": "#3fb950", "items": []},
+        "won": {"label": "Won", "color": "#34d399", "items": []},
+        "bounced": {"label": "Bounced", "color": "#f85149", "items": []},
+        "dead": {"label": "Dead", "color": "#8b949e", "items": []},
+    }
+    for p in prospects:
+        st = p.get("status", "new")
+        if st == "second_follow_up":
+            st = "follow_up"
+        if st in columns:
+            columns[st]["items"].append({
+                "id": p.get("id", ""),
+                "agency": p.get("agency") or p.get("institution", ""),
+                "buyer": p.get("buyer_name") or p.get("name", ""),
+                "email": p.get("email", ""),
+                "spend": float(p.get("annual_spend", 0) or 0),
+                "score": round(score_prospect_weighted(p, creds), 1),
+            })
+    for col in columns.values():
+        col["items"].sort(key=lambda x: x["score"], reverse=True)
+        col["count"] = len(col["items"])
+    return columns
+
+
+# -- 2. Outreach Funnel Analytics --
+def get_outreach_funnel():
+    """Conversion funnel: prospects > emailed > responded > won."""
+    prospect_data = _load_json(PROSPECTS_FILE) or []
+    prospects = prospect_data.get("prospects", []) if isinstance(prospect_data, dict) else prospect_data
+    total = len(prospects)
+    emailed = sum(1 for p in prospects if p.get("status") in ("emailed", "follow_up", "second_follow_up", "responded", "won"))
+    responded = sum(1 for p in prospects if p.get("status") in ("responded", "won"))
+    won = sum(1 for p in prospects if p.get("status") == "won")
+    stages = [
+        {"name": "Prospects", "count": total, "pct": 100, "color": "#4f8cff"},
+        {"name": "Emailed", "count": emailed, "pct": round(emailed / max(total, 1) * 100, 1), "color": "#58a6ff"},
+        {"name": "Responded", "count": responded, "pct": round(responded / max(emailed, 1) * 100, 1), "color": "#3fb950"},
+        {"name": "Won", "count": won, "pct": round(won / max(responded, 1) * 100, 1), "color": "#34d399"},
+    ]
+    return {"stages": stages, "overall_conversion": round(won / max(total, 1) * 100, 1), "email_to_response": round(responded / max(emailed, 1) * 100, 1)}
+
+
+# -- 3. Agency Intelligence Map --
+def get_agency_intelligence():
+    """Rank agencies by opportunity value and engagement level."""
+    prospect_data = _load_json(PROSPECTS_FILE) or []
+    prospects = prospect_data.get("prospects", []) if isinstance(prospect_data, dict) else prospect_data
+    agencies = {}
+    for p in prospects:
+        agency = p.get("agency") or p.get("institution", "Unknown")
+        if agency not in agencies:
+            agencies[agency] = {"name": agency, "prospects": 0, "total_spend": 0, "statuses": {}, "top_buyer": ""}
+        a = agencies[agency]
+        a["prospects"] += 1
+        a["total_spend"] += float(p.get("annual_spend", 0) or 0)
+        st = p.get("status", "new")
+        a["statuses"][st] = a["statuses"].get(st, 0) + 1
+        if not a["top_buyer"]:
+            a["top_buyer"] = p.get("buyer_name") or p.get("name", "")
+    ranked = sorted(agencies.values(), key=lambda x: x["total_spend"], reverse=True)
+    for a in ranked:
+        a["engagement"] = "hot" if a["statuses"].get("responded") or a["statuses"].get("won") else \
+                           "warm" if a["statuses"].get("emailed") or a["statuses"].get("follow_up") else "cold"
+    return {"agencies": ranked[:30], "total_agencies": len(ranked)}
+
+
+# -- 4. Batch Workflow Assignment --
+def batch_assign_workflow(prospect_ids, workflow_id="standard_outreach"):
+    """Assign a workflow to multiple prospects at once."""
+    results = {"ok": True, "assigned": 0, "errors": []}
+    for pid in prospect_ids:
+        r = assign_workflow(pid, workflow_id)
+        if r.get("ok"):
+            results["assigned"] += 1
+        else:
+            results["errors"].append({"id": pid, "error": r.get("error", "")})
+    log_growth_action("batch_workflow", "Assigned %s to %d/%d prospects" % (workflow_id, results["assigned"], len(prospect_ids)))
+    return results
+
+
+# -- 5. Prospect Timeline --
+def get_prospect_timeline(prospect_id):
+    """Unified activity timeline for a prospect."""
+    timeline = _load_json(os.path.join(DATA_DIR, "growth_timeline.json")) or {}
+    events = list(timeline.get(prospect_id, []))
+    audit = _load_json(_AUDIT_FILE) or []
+    for entry in audit:
+        if prospect_id in entry.get("detail", ""):
+            events.append({"type": "audit", "event": entry.get("action", ""), "detail": entry.get("detail", ""), "timestamp": entry.get("timestamp", "")})
+    outreach_data = _load_json(OUTREACH_FILE) or {}
+    campaigns = outreach_data.get("campaigns", []) if isinstance(outreach_data, dict) else []
+    for c in campaigns:
+        for o in c.get("outreach", []):
+            if o.get("prospect_id") == prospect_id:
+                events.append({"type": "outreach", "event": "email_sent" if o.get("email_sent") else "queued", "detail": "Campaign: %s" % c.get("campaign_id", ""), "timestamp": o.get("sent_at", "")})
+    events.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+    return events[:50]
+
+
+# -- 6. Quick-Win Identifier --
+def get_quick_wins(max_results=10):
+    """Surface prospects with highest win probability + recent activity."""
+    prospect_data = _load_json(PROSPECTS_FILE) or []
+    prospects = prospect_data.get("prospects", []) if isinstance(prospect_data, dict) else prospect_data
+    creds = get_reytech_credentials()
+    scored = []
+    for p in prospects:
+        st = p.get("status", "new")
+        if st in ("won", "dead", "bounced"):
+            continue
+        wp = get_win_probability(p, creds)
+        score = wp["probability"]
+        if st == "responded":
+            score += 20
+        if p.get("last_contacted"):
+            try:
+                lc = datetime.fromisoformat(p["last_contacted"][:19])
+                days = (datetime.now() - lc).days
+                if days < 7:
+                    score += 10
+            except Exception:
+                pass
+        scored.append({
+            "id": p.get("id", ""), "agency": p.get("agency") or p.get("institution", ""),
+            "buyer": p.get("buyer_name") or p.get("name", ""), "email": p.get("email", ""),
+            "status": st, "spend": float(p.get("annual_spend", 0) or 0),
+            "win_prob": wp["probability"], "quick_score": round(min(score, 99), 1),
+            "tier": wp["tier"], "color": wp["color"],
+            "action": "Close the deal" if st == "responded" else "Send follow-up" if st in ("emailed", "follow_up") else "Initiate outreach",
+        })
+    scored.sort(key=lambda x: x["quick_score"], reverse=True)
+    return scored[:max_results]
+
+
+# -- 7. Campaign Performance Dashboard --
+def get_campaign_performance():
+    """Per-campaign stats: sent, responded, bounced, conversion rate."""
+    outreach_data = _load_json(OUTREACH_FILE) or {}
+    campaigns = outreach_data.get("campaigns", []) if isinstance(outreach_data, dict) else []
+    results = []
+    for c in campaigns:
+        ol = c.get("outreach", [])
+        sent = sum(1 for o in ol if o.get("email_sent"))
+        bounced = sum(1 for o in ol if o.get("bounced"))
+        responded = sum(1 for o in ol if o.get("response_received"))
+        delivered = sent - bounced
+        results.append({
+            "campaign_id": c.get("campaign_id", ""), "created_at": c.get("created_at", ""),
+            "template": c.get("template", ""), "total": len(ol), "sent": sent,
+            "delivered": delivered, "bounced": bounced, "responded": responded,
+            "delivery_rate": round(delivered / max(sent, 1) * 100, 1),
+            "response_rate": round(responded / max(delivered, 1) * 100, 1),
+        })
+    results.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    return results
+
+
+# -- 8. Daily Growth Brief --
+def generate_daily_brief():
+    """Auto-generated daily summary of priorities and actions needed."""
+    kpis = get_growth_kpis()
+    cohorts = get_follow_up_cohorts()
+    quick_wins = get_quick_wins(5)
+    agenda = get_todays_agenda()
+    queue = get_workflow_queue()
+    overdue = [w for w in queue if w.get("overdue")]
+    priorities = []
+    if overdue:
+        priorities.append({"urgency": "critical", "icon": "red_circle", "action": "%d overdue workflow steps" % len(overdue)})
+    if cohorts.get("no_response"):
+        priorities.append({"urgency": "high", "icon": "yellow_circle", "action": "%d need first follow-up" % len(cohorts["no_response"])})
+    if cohorts.get("second_followup"):
+        priorities.append({"urgency": "medium", "icon": "orange_circle", "action": "%d need second follow-up" % len(cohorts["second_followup"])})
+    if quick_wins:
+        qw = quick_wins[0]
+        priorities.append({"urgency": "opportunity", "icon": "target", "action": "Quick win: %s (%s) - %.0f%% win prob" % (qw["agency"], qw["buyer"], qw["win_prob"])})
+    if agenda:
+        priorities.append({"urgency": "scheduled", "icon": "calendar", "action": "%d follow-ups scheduled today" % len(agenda)})
+    return {
+        "summary": "Growth Brief: %d prospects, %d responded, %d won. Response rate: %.1f%%. Pipeline: $%s." % (
+            kpis["total_prospects"], kpis["responded"], kpis["won"], kpis["response_rate"], "{:,.0f}".format(kpis["pipeline_value"])),
+        "priorities": priorities, "kpis": kpis, "quick_wins": quick_wins[:3],
+        "overdue_count": len(overdue), "follow_ups_due": len(cohorts.get("no_response", [])),
+        "agenda_count": len(agenda), "generated_at": datetime.now().isoformat(),
+    }
+
+
+# -- 9. Prospect Bulk Import --
+def bulk_import_prospects(csv_text):
+    """Import prospects from CSV text. Expected: agency,buyer_name,email,phone,spend"""
+    import csv as _csv
+    import io as _io
+    reader = _csv.DictReader(_io.StringIO(csv_text))
+    prospect_data = _load_json(PROSPECTS_FILE) or {}
+    prospects = prospect_data.get("prospects", []) if isinstance(prospect_data, dict) else prospect_data
+    existing_emails = {p.get("email", "").lower() for p in prospects if p.get("email")}
+    imported = 0
+    skipped = 0
+    errors = []
+    for row in reader:
+        try:
+            email = (row.get("email") or "").strip().lower()
+            if email in existing_emails:
+                skipped += 1
+                continue
+            new_p = {
+                "id": "imp_%s_%d" % (datetime.now().strftime("%Y%m%d%H%M%S"), imported),
+                "agency": (row.get("agency") or row.get("institution") or "").strip(),
+                "buyer_name": (row.get("buyer_name") or row.get("name") or row.get("buyer") or "").strip(),
+                "email": email, "phone": (row.get("phone") or "").strip(),
+                "annual_spend": float(row.get("spend") or row.get("annual_spend") or 0),
+                "status": "new", "source": "csv_import",
+                "imported_at": datetime.now().isoformat(), "categories": [], "notes": row.get("notes", ""),
+            }
+            prospects.append(new_p)
+            existing_emails.add(email)
+            imported += 1
+        except Exception as e:
+            errors.append(str(e))
+    if isinstance(prospect_data, dict):
+        prospect_data["prospects"] = prospects
+    else:
+        prospect_data = {"prospects": prospects}
+    _save_json(PROSPECTS_FILE, prospect_data)
+    log_growth_action("bulk_import", "Imported %d prospects, skipped %d dupes" % (imported, skipped))
+    return {"ok": True, "imported": imported, "skipped": skipped, "errors": errors[:5]}
+
+
+# -- 10. Auto-Tagging Engine --
+def auto_tag_prospects():
+    """Automatically tag prospects by spend tier, engagement, and category."""
+    prospect_data = _load_json(PROSPECTS_FILE) or {}
+    prospects = prospect_data.get("prospects", []) if isinstance(prospect_data, dict) else prospect_data
+    tagged = 0
+    for p in prospects:
+        tags = set(p.get("tags", []))
+        spend = float(p.get("annual_spend", 0) or 0)
+        if spend >= 100000:
+            tags.add("tier:enterprise")
+        elif spend >= 25000:
+            tags.add("tier:mid-market")
+        elif spend >= 5000:
+            tags.add("tier:smb")
+        else:
+            tags.add("tier:micro")
+        st = p.get("status", "new")
+        if st in ("responded", "won"):
+            tags.add("engagement:active")
+        elif st in ("emailed", "follow_up", "second_follow_up"):
+            tags.add("engagement:nurturing")
+        elif st == "bounced":
+            tags.add("engagement:invalid")
+        else:
+            tags.add("engagement:cold")
+        source = p.get("source", "")
+        if source:
+            tags.add("source:%s" % source)
+        body = (p.get("notes", "") + " " + p.get("full_body", "")).lower()
+        if "dvbe" in body or "disabled veteran" in body:
+            tags.add("dvbe-preference")
+        for cat in (p.get("categories_matched") or p.get("categories") or [])[:3]:
+            tags.add("cat:%s" % cat.lower().replace(" ", "-"))
+        new_tags = list(tags)
+        if set(new_tags) != set(p.get("tags", [])):
+            p["tags"] = new_tags
+            tagged += 1
+    if isinstance(prospect_data, dict):
+        prospect_data["prospects"] = prospects
+    _save_json(PROSPECTS_FILE, prospect_data)
+    log_growth_action("auto_tag", "Tagged %d prospects" % tagged)
+    return {"ok": True, "tagged": tagged, "total": len(prospects)}
+
+
+# -- 11. SCPRS Price Comparison --
+def compare_pricing(item_description):
+    """Compare Reytech pricing vs SCPRS market data."""
+    quotes = _load_json(os.path.join(DATA_DIR, "quotes_log.json")) or {}
+    our_prices = []
+    items_list = quotes if isinstance(quotes, list) else quotes.values()
+    for q in items_list:
+        for item in q.get("items", []):
+            desc = (item.get("description") or "").lower()
+            if item_description.lower() in desc or desc in item_description.lower():
+                our_prices.append({"price": float(item.get("unit_price") or item.get("price") or 0), "quote": q.get("quote_number", ""), "date": q.get("created_at", "")[:10]})
+    scprs_result = scprs_search_proxy(item_description, "description")
+    market_prices = []
+    if scprs_result.get("ok"):
+        for r in scprs_result.get("results", []):
+            price = float(r.get("price") or r.get("unit_price") or 0)
+            if price > 0:
+                market_prices.append({"price": price, "vendor": r.get("vendor") or r.get("supplier", ""), "date": r.get("date", "")})
+    our_avg = sum(p["price"] for p in our_prices) / max(len(our_prices), 1) if our_prices else 0
+    market_avg = sum(p["price"] for p in market_prices) / max(len(market_prices), 1) if market_prices else 0
+    delta_pct = ((our_avg - market_avg) / max(market_avg, 0.01)) * 100 if market_avg else 0
+    return {
+        "item": item_description, "our_prices": our_prices[:10], "market_prices": market_prices[:10],
+        "our_avg": round(our_avg, 2), "market_avg": round(market_avg, 2), "delta_pct": round(delta_pct, 1),
+        "competitive": delta_pct <= 5,
+        "recommendation": "Competitive" if delta_pct <= 5 else "Slightly over market" if delta_pct <= 15 else "Significantly over market",
+    }
+
+
+# -- 12. Smart Prospect Deduplication --
+def find_duplicate_prospects():
+    """Find potential duplicate prospects by email or name+agency."""
+    prospect_data = _load_json(PROSPECTS_FILE) or {}
+    prospects = prospect_data.get("prospects", []) if isinstance(prospect_data, dict) else prospect_data
+    email_groups = {}
+    for p in prospects:
+        email = (p.get("email") or "").strip().lower()
+        if email:
+            email_groups.setdefault(email, []).append(p)
+    name_groups = {}
+    for p in prospects:
+        key = "%s|%s" % ((p.get("agency") or "").strip().lower(), (p.get("buyer_name") or p.get("name") or "").strip().lower())
+        if key != "|":
+            name_groups.setdefault(key, []).append(p)
+    duplicates = []
+    seen = set()
+    for email, group in email_groups.items():
+        if len(group) > 1 and email not in seen:
+            duplicates.append({"type": "email", "key": email, "count": len(group), "ids": [p.get("id", "") for p in group]})
+            seen.add(email)
+    for key, group in name_groups.items():
+        if len(group) > 1 and key not in seen:
+            duplicates.append({"type": "name", "key": key, "count": len(group), "ids": [p.get("id", "") for p in group]})
+            seen.add(key)
+    return {"duplicates": duplicates, "total_duplicates": len(duplicates), "total_affected": sum(d["count"] for d in duplicates)}
+
+
+def merge_prospects(keep_id, remove_ids):
+    """Merge duplicate prospects, keeping one and removing others."""
+    prospect_data = _load_json(PROSPECTS_FILE) or {}
+    prospects = prospect_data.get("prospects", []) if isinstance(prospect_data, dict) else prospect_data
+    keep = None
+    for p in prospects:
+        if p.get("id") == keep_id:
+            keep = p
+            break
+    if not keep:
+        return {"ok": False, "error": "Keep prospect not found"}
+    removed = 0
+    for rid in remove_ids:
+        for i, p in enumerate(prospects):
+            if p.get("id") == rid:
+                if p.get("notes"):
+                    keep["notes"] = (keep.get("notes", "") + "\n[Merged] " + p["notes"]).strip()
+                if float(p.get("annual_spend", 0) or 0) > float(keep.get("annual_spend", 0) or 0):
+                    keep["annual_spend"] = p["annual_spend"]
+                existing_tags = set(keep.get("tags", []))
+                existing_tags.update(p.get("tags", []))
+                keep["tags"] = list(existing_tags)
+                prospects.pop(i)
+                removed += 1
+                break
+    if isinstance(prospect_data, dict):
+        prospect_data["prospects"] = prospects
+    _save_json(PROSPECTS_FILE, prospect_data)
+    log_growth_action("merge_prospects", "Merged %d duplicates into %s" % (removed, keep_id))
+    return {"ok": True, "kept": keep_id, "removed": removed}

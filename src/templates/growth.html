@@ -146,12 +146,33 @@
  </div>
 </div>
 
+<!-- V3+: DAILY BRIEF -->
+{% if daily_brief is defined and daily_brief.priorities %}
+<div class="card" style="border-left:3px solid var(--ac)">
+ <h3>📋 Daily Growth Brief</h3>
+ <div style="font-size:15px;margin-bottom:10px;font-weight:600">{{ daily_brief.summary }}</div>
+ <div style="display:flex;flex-wrap:wrap;gap:8px">
+  {% for p in daily_brief.priorities %}
+  <div style="padding:8px 14px;border-radius:8px;font-size:14px;
+   {% if p.urgency == 'critical' %}background:rgba(248,81,73,.12);color:#f85149
+   {% elif p.urgency == 'high' %}background:rgba(251,191,36,.12);color:#fbbf24
+   {% elif p.urgency == 'opportunity' %}background:rgba(52,211,153,.12);color:#3fb950
+   {% else %}background:rgba(79,140,255,.08);color:#4f8cff{% endif %}">
+   {{ p.action }}
+  </div>
+  {% endfor %}
+ </div>
+</div>
+{% endif %}
+
 <!-- TABBED SECTIONS -->
 <div class="tab-bar" id="main-tabs">
  <button class="tab-btn active" onclick="switchTab(this,'outreach')">📧 Outreach</button>
  <button class="tab-btn" onclick="switchTab(this,'followups')">🔔 Follow-Ups ({{ followups.no_response|length + followups.second_followup|length }})</button>
  <button class="tab-btn" onclick="switchTab(this,'workflows')">⚡ Workflows ({{ workflow_queue|length }})</button>
  <button class="tab-btn" onclick="switchTab(this,'pipeline')">🎯 Pipeline ({{ prospect_count }})</button>
+ <button class="tab-btn" onclick="switchTab(this,'kanban')">📋 Kanban</button>
+ <button class="tab-btn" onclick="switchTab(this,'quickwins')">🏆 Quick Wins</button>
  <button class="tab-btn" onclick="switchTab(this,'competitors')">⚔️ Competitors</button>
  <button class="tab-btn" onclick="switchTab(this,'losses')">📉 Lost POs</button>
  <button class="tab-btn" onclick="switchTab(this,'calendar')">📅 Calendar ({{ todays_agenda|length }})</button>
@@ -208,8 +229,8 @@
       <div style="font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ f.agency }}</div>
       <div style="font-size:13px;color:var(--tx2)">{{ f.email }}</div>
      </div>
-     <button class="act-btn" onclick="draftEmail('{{ f.email }}','{{ f.agency }}','{{ f.name }}')" title="Draft follow-up">📧</button>
-     <button class="act-btn" onclick="markResponded('{{ f.prospect_id }}')" title="Mark responded">✅</button>
+     <button class="act-btn" onclick="draftEmail('{{ f.email|e }}','{{ f.agency|e }}','{{ f.name|e }}')" title="Draft follow-up">📧</button>
+     <button class="act-btn" onclick="markResponded('{{ f.prospect_id|e }}')" title="Mark responded">✅</button>
     </div>
     {% endfor %}
     {% if not followups.no_response %}<div style="text-align:center;padding:20px;color:var(--tx2);font-size:14px">No follow-ups due</div>{% endif %}
@@ -225,8 +246,8 @@
       <div style="font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ f.agency }}</div>
       <div style="font-size:13px;color:var(--tx2)">{{ f.email }}</div>
      </div>
-     <button class="act-btn" onclick="draftEmail('{{ f.email }}','{{ f.agency }}','{{ f.name }}')" title="Send 2nd follow-up">📧</button>
-     <button class="act-btn" onclick="markDead('{{ f.prospect_id }}')" title="Mark dead">💀</button>
+     <button class="act-btn" onclick="draftEmail('{{ f.email|e }}','{{ f.agency|e }}','{{ f.name|e }}')" title="Send 2nd follow-up">📧</button>
+     <button class="act-btn" onclick="markDead('{{ f.prospect_id|e }}')" title="Mark dead">💀</button>
     </div>
     {% endfor %}
     {% if not followups.second_followup %}<div style="text-align:center;padding:20px;color:var(--tx2);font-size:14px">None pending</div>{% endif %}
@@ -241,7 +262,7 @@
      <div style="flex:1;min-width:0">
       <div style="font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ f.agency }}</div>
      </div>
-     <button class="act-btn" onclick="draftEmail('{{ f.email }}','{{ f.agency }}','{{ f.name }}')" title="Reactivation">📧</button>
+     <button class="act-btn" onclick="draftEmail('{{ f.email|e }}','{{ f.agency|e }}','{{ f.name|e }}')" title="Reactivation">📧</button>
     </div>
     {% endfor %}
     {% if not followups.stale %}<div style="text-align:center;padding:20px;color:var(--tx2);font-size:14px">None stale</div>{% endif %}
@@ -289,7 +310,7 @@
      </div>
      {% if wq.overdue %}<span style="font-size:13px;color:#f85149;font-weight:700">OVERDUE</span>
      {% else %}<span style="font-size:13px;color:var(--tx2)">{{ wq.days_until }}d</span>{% endif %}
-     <button class="act-btn" onclick="advanceWorkflow('{{ wq.prospect_id }}')" title="Execute step">▶️</button>
+     <button class="act-btn" onclick="advanceWorkflow('{{ wq.prospect_id|e }}')" title="Execute step">▶️</button>
     </div>
     {% endfor %}
    </div>
@@ -362,6 +383,70 @@
     </tbody>
    </table>
   </div>
+ </div>
+</div>
+
+<!-- TAB: KANBAN BOARD -->
+<div class="tab-panel" id="tab-kanban">
+ <div style="display:flex;gap:12px;overflow-x:auto;padding-bottom:10px">
+  {% for col_name, col_data in kanban.items() %}
+  <div style="min-width:200px;flex:1;background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:12px">
+   <div style="font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--tx2);margin-bottom:10px;display:flex;justify-content:space-between">
+    <span>{{ col_name.replace('_',' ').title() }}</span>
+    <span style="font-family:'JetBrains Mono',monospace;color:var(--ac)">{{ col_data|length }}</span>
+   </div>
+   <div style="max-height:400px;overflow-y:auto">
+    {% for p in col_data[:15] %}
+    <div style="background:var(--sf2);border:1px solid var(--bd);border-radius:8px;padding:10px;margin-bottom:8px;font-size:13px">
+     <div style="font-weight:600;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ p.agency or p.institution or '—' }}</div>
+     <div style="color:var(--tx2);font-size:12px">{{ p.buyer_name or p.name or '' }}</div>
+     {% if p.win_prob is defined %}<span class="win-badge" style="font-size:11px;background:{{ p.win_color|default('#8b949e') }}18;color:{{ p.win_color|default('#8b949e') }}">{{ "%.0f"|format(p.win_prob) }}%</span>{% endif %}
+    </div>
+    {% endfor %}
+    {% if not col_data %}<div style="text-align:center;padding:16px;color:var(--tx2);font-size:13px">Empty</div>{% endif %}
+   </div>
+  </div>
+  {% endfor %}
+ </div>
+</div>
+
+<!-- TAB: QUICK WINS -->
+<div class="tab-panel" id="tab-quickwins">
+ <div class="card">
+  <h3>🏆 Quick Wins — Highest Win Probability + Ready to Act</h3>
+  {% if quick_wins %}
+  <div style="overflow-x:auto">
+   <table>
+    <thead><tr><th>Win %</th><th>Agency</th><th>Buyer</th><th>Email</th><th style="text-align:right">Spend</th><th>Status</th><th>Actions</th></tr></thead>
+    <tbody>
+     {% for qw in quick_wins %}
+     <tr>
+      <td><span class="win-badge" style="background:{{ qw.win_color|default('#3fb950') }}18;color:{{ qw.win_color|default('#3fb950') }}">{{ "%.0f"|format(qw.win_prob|default(0)) }}%</span></td>
+      <td style="font-weight:600">{{ qw.agency }}</td>
+      <td>{{ qw.buyer }}</td>
+      <td style="font-size:13px;color:var(--tx2)">{{ qw.email|default('—') }}</td>
+      <td style="text-align:right" class="mono">${{ "{:,.0f}".format(qw.spend|default(0)|float) }}</td>
+      <td>
+       {% set st = qw.status|default('new') %}
+       <span style="padding:3px 10px;border-radius:10px;font-size:13px;font-weight:600;
+        {% if st == 'new' %}background:rgba(79,140,255,.15);color:#4f8cff
+        {% elif st == 'emailed' %}background:rgba(88,166,255,.15);color:#58a6ff
+        {% elif st == 'responded' %}background:rgba(52,211,153,.15);color:#3fb950
+        {% else %}background:var(--sf2);color:var(--tx2){% endif %}">{{ st.replace('_',' ').title() }}</span>
+      </td>
+      <td>
+       <button class="act-btn" onclick="draftEmail('{{ qw.email|default('') }}','{{ qw.agency }}','{{ qw.buyer }}')" title="Email">📧</button>
+       <button class="act-btn" onclick="assignWf('{{ qw.id|default('') }}')" title="Assign workflow">⚡</button>
+       <a href="/growth/prospect/{{ qw.id|default('') }}" class="act-btn" title="CRM profile">👤</a>
+      </td>
+     </tr>
+     {% endfor %}
+    </tbody>
+   </table>
+  </div>
+  {% else %}
+  <div style="text-align:center;padding:30px;color:var(--tx2)">Run "Find Buyers" to populate prospects for quick win analysis.</div>
+  {% endif %}
  </div>
 </div>
 
@@ -440,7 +525,7 @@
      </div>
      <div style="display:flex;align-items:center;gap:6px">
       <span class="mono" style="color:#f85149">${{ "{:,.0f}".format(l.value) }}</span>
-      <button class="act-btn" onclick="addLossReason('{{ l.quote }}')" title="Add loss reason">📝</button>
+      <button class="act-btn" onclick="addLossReason('{{ l.quote|e }}')" title="Add loss reason">📝</button>
      </div>
     </div>
     {% endfor %}
@@ -466,7 +551,7 @@
      <div style="font-size:13px;color:var(--tx2)">{{ ev.notes }}</div>
     </div>
     {% if ev.gcal_url %}<a href="{{ ev.gcal_url }}" target="_blank" class="act-btn" title="Open in Google Calendar">📅</a>{% endif %}
-    <button class="act-btn" onclick="completeCal('{{ ev.id }}')" title="Complete">✅</button>
+    <button class="act-btn" onclick="completeCal('{{ ev.id|e }}')" title="Complete">✅</button>
    </div>
    {% endfor %}
    {% else %}
