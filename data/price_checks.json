@@ -44,8 +44,8 @@
     "email_subject": "",
     "due_date": "",
     "source": "email_auto",
-    "last_scprs_check": "2026-02-27T13:52:52.612005",
-    "scprs_check_count": 1
+    "last_scprs_check": "2026-03-03T15:37:12.410788",
+    "scprs_check_count": 2
   },
   "test-pc-002": {
     "id": "test-pc-002",
@@ -72,7 +72,7 @@
     "email_subject": "",
     "due_date": "",
     "source": "email_auto",
-    "last_scprs_check": "2026-02-27T13:52:52.612005",
-    "scprs_check_count": 1
+    "last_scprs_check": "2026-03-03T15:37:12.410788",
+    "scprs_check_count": 2
   }
 }

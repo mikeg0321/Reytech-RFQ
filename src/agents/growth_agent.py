@@ -390,6 +390,601 @@ def find_category_buyers(max_categories=10, from_date="01/01/2019"):
 # STEP 3: Email Outreach
 # ═══════════════════════════════════════════════════════════════════════
 
+# ── 3-Phase Buyer Intelligence Engine ─────────────────────────────────
+# Phase 1: Same-Agency New Buyers (buyers at agencies we serve, who don't buy from us)
+# Phase 2: Cross-Sell Intel (who else buys items we already sell?)
+# Phase 3: New Product Opportunities (medical advantage, untapped categories)
+
+INTEL_FILE = os.path.join(DATA_DIR, "growth_intel_results.json")
+
+INTEL_STATUS = {
+    "running": False, "phase": "", "phase_num": 0, "progress": "",
+    "started_at": None, "finished_at": None,
+    "p1_buyers": 0, "p2_crosssell": 0, "p3_opportunities": 0,
+    "errors": [],
+}
+
+# Medical / pharma keywords — Reytech advantage (med director w/ license)
+MEDICAL_SEARCH_TERMS = [
+    "pharmaceutical", "medication", "prescription", "OTC drug",
+    "medical device", "surgical instrument", "wound care",
+    "diagnostic", "lab supply", "specimen", "blood draw",
+    "orthopedic", "prosthetic", "dental supply",
+    "first aid kit", "AED", "stethoscope", "thermometer",
+    "IV supply", "infusion", "syringe pump", "nebulizer",
+    "wheelchair", "walker", "crutch", "hospital bed",
+    "restraint", "patient", "exam table", "stryker",
+]
+
+# High-volume commodity terms Reytech could source
+COMMODITY_SEARCH_TERMS = [
+    "nitrile gloves", "trash liner", "copy paper", "toner cartridge",
+    "hand sanitizer", "disinfectant wipe", "paper towel", "toilet tissue",
+    "safety glasses", "ear plugs", "N95 respirator",
+    "batteries AA", "LED bulb", "floor cleaner",
+]
+
+
+def run_buyer_intelligence(year_from=2024, year_to=None, max_per_phase=30):
+    """3-phase SCPRS intelligence scrape.
+
+    Phase 1: Find NEW buyers at agencies Reytech already sells to
+    Phase 2: Find OTHER agencies/buyers purchasing same items Reytech sells
+    Phase 3: Discover new product opportunities (medical advantage)
+
+    Args:
+        year_from: Start year for SCPRS date filter
+        year_to: End year (default: current year)
+        max_per_phase: Max SCPRS searches per phase
+    """
+    if not HAS_SCPRS:
+        return {"ok": False, "error": "SCPRS not available"}
+    if INTEL_STATUS["running"]:
+        return {"ok": False, "error": "Already running", "status": INTEL_STATUS}
+
+    if not year_to:
+        year_to = datetime.now().year
+
+    from_date = f"01/01/{year_from}"
+    to_date = f"12/31/{year_to}"
+
+    INTEL_STATUS.update({
+        "running": True, "phase": "init", "phase_num": 0,
+        "progress": "Initializing SCPRS session...",
+        "started_at": datetime.now().isoformat(), "finished_at": None,
+        "p1_buyers": 0, "p2_crosssell": 0, "p3_opportunities": 0,
+        "errors": [],
+    })
+
+    try:
+        session = _get_session()
+        if not session.initialized and not session.init_session():
+            INTEL_STATUS.update({"running": False, "phase": "error"})
+            return {"ok": False, "error": "SCPRS session init failed"}
+
+        # Load existing Reytech intel
+        served_agencies = _get_served_agencies()
+        history = _load_json(HISTORY_FILE) or {}
+        reytech_pos = history.get("purchase_orders", [])
+        reytech_items = _extract_reytech_items(reytech_pos)
+        reytech_buyer_emails = _extract_reytech_buyers(reytech_pos)
+
+        results = {
+            "generated_at": datetime.now().isoformat(),
+            "date_range": f"{from_date} - {to_date}",
+            "phase_1": {"title": "Same-Agency New Buyers", "buyers": []},
+            "phase_2": {"title": "Cross-Sell Intel", "buyers": [], "item_matches": []},
+            "phase_3": {"title": "New Product Opportunities", "opportunities": [], "medical": [], "commodity": []},
+        }
+
+        # ── PHASE 1: Same-Agency New Buyers ──────────────────────────
+        INTEL_STATUS.update({"phase": "phase_1", "phase_num": 1,
+                             "progress": f"Phase 1: Scanning {len(served_agencies)} agencies for new buyers..."})
+
+        p1_prospects = {}
+        searches_done = 0
+        for agency in served_agencies:
+            if searches_done >= max_per_phase:
+                break
+            INTEL_STATUS["progress"] = f"Phase 1: {agency} ({searches_done+1}/{min(len(served_agencies), max_per_phase)})"
+
+            # Search SCPRS for common items, then filter for this agency
+            for search_term in _agency_search_terms(agency):
+                if searches_done >= max_per_phase:
+                    break
+                try:
+                    results_list = session.search(
+                        description=search_term,
+                        from_date=from_date, to_date=to_date
+                    )
+                    searches_done += 1
+
+                    for r in results_list[:25]:
+                        supplier = (r.get("supplier_name") or "").lower()
+                        if "reytech" in supplier or "rey tech" in supplier:
+                            continue
+
+                        dept = (r.get("dept") or "").strip()
+                        email = (r.get("buyer_email") or "").strip().lower()
+
+                        # Only keep if it's at one of our served agencies
+                        if not _agency_match(dept, served_agencies):
+                            continue
+
+                        # Skip if this buyer already works with Reytech
+                        if email and email in reytech_buyer_emails:
+                            continue
+
+                        key = email or f"{dept}_{r.get('po_number', '')}"
+                        if key not in p1_prospects:
+                            p1_prospects[key] = {
+                                "id": f"P1-{uuid.uuid4().hex[:8]}",
+                                "buyer_email": email, "buyer_name": "",
+                                "buyer_phone": "",
+                                "agency": dept,
+                                "source": "phase_1_same_agency",
+                                "categories_matched": [],
+                                "purchase_orders": [],
+                                "total_spend": 0,
+                                "why": f"Buys at {dept} (agency you serve) but not from Reytech",
+                            }
+
+                        p = p1_prospects[key]
+                        item_cat = categorize_item(r.get("first_item", ""))
+                        if item_cat not in p["categories_matched"]:
+                            p["categories_matched"].append(item_cat)
+
+                        po_num = r.get("po_number", "")
+                        existing = [x["po_number"] for x in p["purchase_orders"]]
+                        if po_num and po_num not in existing:
+                            p["purchase_orders"].append({
+                                "po_number": po_num,
+                                "date": r.get("start_date", ""),
+                                "total_num": r.get("grand_total_num"),
+                                "items": (r.get("first_item") or "")[:100],
+                                "supplier": r.get("supplier_name", ""),
+                                "category": item_cat,
+                            })
+                            p["total_spend"] += (r.get("grand_total_num") or 0)
+
+                    time.sleep(0.8)
+                except Exception as e:
+                    INTEL_STATUS["errors"].append(f"P1 {agency}/{search_term}: {e}")
+
+        # Get contact details for top P1 prospects
+        p1_list = sorted(p1_prospects.values(), key=lambda x: x["total_spend"], reverse=True)
+        _enrich_contacts(session, p1_list[:15])
+        results["phase_1"]["buyers"] = p1_list
+        INTEL_STATUS["p1_buyers"] = len(p1_list)
+
+        # ── PHASE 2: Cross-Sell (Same Items, Other Buyers) ───────────
+        INTEL_STATUS.update({"phase": "phase_2", "phase_num": 2,
+                             "progress": f"Phase 2: Searching for buyers of {len(reytech_items)} item types..."})
+
+        p2_prospects = {}
+        p2_item_matches = []
+        searches_done = 0
+        for item_desc, item_info in list(reytech_items.items())[:max_per_phase]:
+            if searches_done >= max_per_phase:
+                break
+            search_q = item_desc[:40]
+            INTEL_STATUS["progress"] = f"Phase 2: '{search_q}' ({searches_done+1}/{min(len(reytech_items), max_per_phase)})"
+
+            try:
+                results_list = session.search(
+                    description=search_q,
+                    from_date=from_date, to_date=to_date
+                )
+                searches_done += 1
+
+                match_agencies = set()
+                match_total = 0
+                for r in results_list[:25]:
+                    supplier = (r.get("supplier_name") or "").lower()
+                    if "reytech" in supplier or "rey tech" in supplier:
+                        continue
+
+                    dept = (r.get("dept") or "").strip()
+                    email = (r.get("buyer_email") or "").strip().lower()
+
+                    if email and email in reytech_buyer_emails:
+                        continue
+
+                    key = email or f"{dept}_{r.get('po_number', '')}"
+                    if key not in p2_prospects:
+                        p2_prospects[key] = {
+                            "id": f"P2-{uuid.uuid4().hex[:8]}",
+                            "buyer_email": email, "buyer_name": "",
+                            "buyer_phone": "",
+                            "agency": dept,
+                            "source": "phase_2_cross_sell",
+                            "categories_matched": [],
+                            "items_matched": [],
+                            "purchase_orders": [],
+                            "total_spend": 0,
+                            "why": f"Buys '{search_q}' — an item Reytech already sells",
+                        }
+
+                    p = p2_prospects[key]
+                    if item_desc not in p["items_matched"]:
+                        p["items_matched"].append(item_desc)
+                    cat = categorize_item(r.get("first_item", ""))
+                    if cat not in p["categories_matched"]:
+                        p["categories_matched"].append(cat)
+
+                    po_num = r.get("po_number", "")
+                    existing = [x["po_number"] for x in p["purchase_orders"]]
+                    if po_num and po_num not in existing:
+                        p["purchase_orders"].append({
+                            "po_number": po_num,
+                            "date": r.get("start_date", ""),
+                            "total_num": r.get("grand_total_num"),
+                            "items": (r.get("first_item") or "")[:100],
+                            "supplier": r.get("supplier_name", ""),
+                        })
+                        p["total_spend"] += (r.get("grand_total_num") or 0)
+                        match_total += (r.get("grand_total_num") or 0)
+                        match_agencies.add(dept)
+
+                if match_agencies:
+                    p2_item_matches.append({
+                        "item": item_desc,
+                        "reytech_sold": item_info.get("count", 0),
+                        "reytech_value": item_info.get("value", 0),
+                        "other_agencies": len(match_agencies),
+                        "other_value": round(match_total, 2),
+                        "agencies": sorted(match_agencies)[:10],
+                    })
+
+                time.sleep(0.8)
+            except Exception as e:
+                INTEL_STATUS["errors"].append(f"P2 {search_q}: {e}")
+
+        p2_list = sorted(p2_prospects.values(), key=lambda x: x["total_spend"], reverse=True)
+        _enrich_contacts(session, p2_list[:15])
+        results["phase_2"]["buyers"] = p2_list
+        results["phase_2"]["item_matches"] = sorted(p2_item_matches, key=lambda x: x["other_value"], reverse=True)
+        INTEL_STATUS["p2_crosssell"] = len(p2_list)
+
+        # ── PHASE 3: New Product Opportunities ───────────────────────
+        INTEL_STATUS.update({"phase": "phase_3", "phase_num": 3,
+                             "progress": "Phase 3: Scanning medical & commodity opportunities..."})
+
+        p3_medical = []
+        p3_commodity = []
+        searches_done = 0
+
+        # 3A: Medical items (med director advantage)
+        for term in MEDICAL_SEARCH_TERMS:
+            if searches_done >= max_per_phase // 2:
+                break
+            INTEL_STATUS["progress"] = f"Phase 3 Medical: '{term}' ({searches_done+1})"
+
+            try:
+                results_list = session.search(
+                    description=term,
+                    from_date=from_date, to_date=to_date
+                )
+                searches_done += 1
+
+                agencies_buying = {}
+                total_value = 0
+                suppliers = set()
+                for r in results_list[:25]:
+                    dept = (r.get("dept") or "").strip()
+                    supplier = (r.get("supplier_name") or "").strip()
+                    val = r.get("grand_total_num") or 0
+                    if dept:
+                        if dept not in agencies_buying:
+                            agencies_buying[dept] = {"count": 0, "value": 0}
+                        agencies_buying[dept]["count"] += 1
+                        agencies_buying[dept]["value"] += val
+                    if supplier:
+                        suppliers.add(supplier)
+                    total_value += val
+
+                if agencies_buying:
+                    # Check if Reytech already sells this
+                    already_sells = any(term.lower() in it.lower() for it in reytech_items)
+                    p3_medical.append({
+                        "term": term,
+                        "total_pos": len(results_list),
+                        "total_value": round(total_value, 2),
+                        "agencies": len(agencies_buying),
+                        "top_agencies": sorted(agencies_buying.items(), key=lambda x: x[1]["value"], reverse=True)[:5],
+                        "current_suppliers": sorted(suppliers)[:10],
+                        "reytech_already_sells": already_sells,
+                        "med_license_required": _is_med_license_item(term),
+                        "advantage": "HIGH — Med director + license" if _is_med_license_item(term) else "MEDIUM — Competitive",
+                    })
+
+                time.sleep(0.8)
+            except Exception as e:
+                INTEL_STATUS["errors"].append(f"P3 med {term}: {e}")
+
+        # 3B: High-volume commodities
+        for term in COMMODITY_SEARCH_TERMS:
+            if searches_done >= max_per_phase:
+                break
+            INTEL_STATUS["progress"] = f"Phase 3 Commodity: '{term}' ({searches_done+1})"
+
+            try:
+                results_list = session.search(
+                    description=term,
+                    from_date=from_date, to_date=to_date
+                )
+                searches_done += 1
+
+                agencies_buying = {}
+                total_value = 0
+                suppliers = set()
+                for r in results_list[:25]:
+                    dept = (r.get("dept") or "").strip()
+                    supplier = (r.get("supplier_name") or "").strip()
+                    val = r.get("grand_total_num") or 0
+                    if dept:
+                        if dept not in agencies_buying:
+                            agencies_buying[dept] = {"count": 0, "value": 0}
+                        agencies_buying[dept]["count"] += 1
+                        agencies_buying[dept]["value"] += val
+                    if supplier:
+                        suppliers.add(supplier)
+                    total_value += val
+
+                if agencies_buying:
+                    already_sells = any(term.lower() in it.lower() for it in reytech_items)
+                    p3_commodity.append({
+                        "term": term,
+                        "total_pos": len(results_list),
+                        "total_value": round(total_value, 2),
+                        "agencies": len(agencies_buying),
+                        "top_agencies": sorted(agencies_buying.items(), key=lambda x: x[1]["value"], reverse=True)[:5],
+                        "current_suppliers": sorted(suppliers)[:10],
+                        "reytech_already_sells": already_sells,
+                    })
+
+                time.sleep(0.8)
+            except Exception as e:
+                INTEL_STATUS["errors"].append(f"P3 comm {term}: {e}")
+
+        results["phase_3"]["medical"] = sorted(p3_medical, key=lambda x: x["total_value"], reverse=True)
+        results["phase_3"]["commodity"] = sorted(p3_commodity, key=lambda x: x["total_value"], reverse=True)
+        INTEL_STATUS["p3_opportunities"] = len(p3_medical) + len(p3_commodity)
+
+        # ── Merge all prospects into main prospect file ──────────────
+        all_new = p1_list + p2_list
+        _merge_intel_prospects(all_new)
+
+        # Save full intel results
+        _save_json(INTEL_FILE, results)
+
+        INTEL_STATUS.update({
+            "running": False, "phase": "complete",
+            "progress": f"Done: {len(p1_list)} same-agency, {len(p2_list)} cross-sell, {len(p3_medical)+len(p3_commodity)} opportunities",
+            "finished_at": datetime.now().isoformat(),
+        })
+
+        return {
+            "ok": True,
+            "phase_1_buyers": len(p1_list),
+            "phase_2_crosssell": len(p2_list),
+            "phase_3_opportunities": len(p3_medical) + len(p3_commodity),
+            "total_new_prospects": len(all_new),
+        }
+
+    except Exception as e:
+        log.error("Buyer intelligence error: %s", e, exc_info=True)
+        INTEL_STATUS.update({"running": False, "phase": "error", "progress": str(e)})
+        return {"ok": False, "error": str(e)}
+
+
+def _extract_reytech_items(purchase_orders: list) -> dict:
+    """Extract unique items Reytech has sold, with counts and values."""
+    items = {}
+    # From SCPRS history
+    for po in purchase_orders:
+        for li in po.get("line_items", []):
+            desc = (li.get("description") or "")[:60].strip()
+            if not desc or len(desc) < 3:
+                continue
+            key = desc.lower()
+            if key not in items:
+                items[key] = {"description": desc, "count": 0, "value": 0}
+            items[key]["count"] += 1
+            items[key]["value"] += (li.get("unit_price_num") or 0) * (li.get("quantity_num") or 1)
+        # Also use first_item if no line items
+        if not po.get("line_items") and po.get("first_item"):
+            desc = po["first_item"][:60].strip()
+            key = desc.lower()
+            if key and len(key) >= 3 and key not in items:
+                items[key] = {"description": desc, "count": 1, "value": po.get("grand_total_num") or 0}
+
+    # Also from quotes
+    try:
+        quotes_path = os.path.join(DATA_DIR, "quotes_log.json")
+        if os.path.exists(quotes_path):
+            with open(quotes_path) as f:
+                for q in json.load(f):
+                    if q.get("is_test"):
+                        continue
+                    for li in q.get("items_detail", []):
+                        desc = (li.get("description") or "")[:60].strip()
+                        if not desc or len(desc) < 5:
+                            continue
+                        key = desc.lower()
+                        if key not in items:
+                            items[key] = {"description": desc, "count": 0, "value": 0}
+                        items[key]["count"] += 1
+                        items[key]["value"] += (li.get("unit_price") or 0) * (li.get("qty") or 1)
+    except Exception:
+        pass
+
+    # Sort by value descending, return top items
+    return dict(sorted(items.items(), key=lambda x: x[1]["value"], reverse=True)[:50])
+
+
+def _extract_reytech_buyers(purchase_orders: list) -> set:
+    """Get set of buyer emails Reytech already works with."""
+    emails = set()
+    for po in purchase_orders:
+        em = (po.get("buyer_email") or "").strip().lower()
+        if em:
+            emails.add(em)
+    # Also from quotes
+    try:
+        quotes_path = os.path.join(DATA_DIR, "quotes_log.json")
+        if os.path.exists(quotes_path):
+            with open(quotes_path) as f:
+                for q in json.load(f):
+                    em = (q.get("contact_email") or "").strip().lower()
+                    if em:
+                        emails.add(em)
+    except Exception:
+        pass
+    return emails
+
+
+def _agency_search_terms(agency: str) -> list:
+    """Generate SCPRS search terms for finding POs at an agency.
+    Since SCPRS can't filter by dept directly, we search item keywords
+    commonly purchased by that type of agency."""
+    a = agency.upper()
+    terms = []
+    if "CDCR" in a or "CORRECTIONS" in a or "CCHCS" in a:
+        terms = ["inmate supplies", "restraint", "commissary", "correctional"]
+    elif "CALVET" in a or "VETERAN" in a:
+        terms = ["medical supply", "patient care", "prosthetic"]
+    elif "DSH" in a or "STATE HOSPITAL" in a:
+        terms = ["pharmaceutical", "patient restraint", "medical device"]
+    elif "CALTRANS" in a or "TRANSPORTATION" in a:
+        terms = ["traffic cone", "safety vest", "road sign"]
+    elif "DGS" in a or "GENERAL SERVICE" in a:
+        terms = ["office supply", "janitorial", "maintenance"]
+    else:
+        # Generic search for the agency name itself as a keyword
+        terms = [agency[:30]]
+
+    # Add generic high-volume terms
+    terms.extend(["nitrile gloves", "copy paper"])
+    return terms[:5]
+
+
+def _agency_match(dept: str, served: list) -> bool:
+    """Check if a dept name matches any of our served agencies."""
+    if not dept:
+        return False
+    dept_up = dept.upper()
+    # Abbreviation expansion map
+    abbrevs = {
+        "CDCR": ["CORRECTIONS", "CORR AND REHAB", "CDCR"],
+        "CCHCS": ["CORRECTIONAL HEALTH", "CCHCS"],
+        "CALVET": ["VETERAN", "CALVET", "CAL VET"],
+        "DSH": ["STATE HOSPITAL", "DSH"],
+        "CALTRANS": ["TRANSPORTATION", "CALTRANS", "CAL TRANS"],
+        "DGS": ["GENERAL SERVICE", "DGS"],
+    }
+    for a in served:
+        a_up = a.upper().strip()
+        # Direct substring match
+        if a_up in dept_up or dept_up in a_up:
+            return True
+        # Abbreviation matching
+        expansions = abbrevs.get(a_up, [])
+        if any(exp in dept_up for exp in expansions):
+            return True
+        # Reverse: check if dept matches any expansion of our agencies
+        for key, exps in abbrevs.items():
+            if key in dept_up or any(exp in dept_up for exp in exps):
+                if key == a_up or a_up in exps:
+                    return True
+    return False
+
+
+def _is_med_license_item(term: str) -> bool:
+    """Check if a medical term likely requires a medical license to sell."""
+    license_keywords = [
+        "pharmaceutical", "medication", "prescription", "drug",
+        "controlled substance", "medical device", "surgical",
+        "diagnostic", "iv supply", "infusion", "syringe pump",
+    ]
+    t = term.lower()
+    return any(kw in t for kw in license_keywords)
+
+
+def _enrich_contacts(session, prospects: list, max_detail=10):
+    """Fetch PO details to get buyer names + phone for top prospects."""
+    enriched = 0
+    for p in prospects:
+        if enriched >= max_detail:
+            break
+        if p.get("buyer_name"):
+            continue
+        for po in p.get("purchase_orders", [])[:1]:
+            # We'd need the results HTML to click into detail
+            # For now, the email is the primary contact method
+            pass
+        enriched += 1
+
+
+def _merge_intel_prospects(new_prospects: list):
+    """Merge newly discovered prospects into the main prospects file."""
+    existing_data = _load_json(PROSPECTS_FILE) or {}
+    existing = existing_data.get("prospects", []) if isinstance(existing_data, dict) else []
+
+    existing_emails = set()
+    for p in existing:
+        em = (p.get("buyer_email") or "").strip().lower()
+        if em:
+            existing_emails.add(em)
+
+    added = 0
+    for np in new_prospects:
+        em = (np.get("buyer_email") or "").strip().lower()
+        if em and em in existing_emails:
+            continue
+        if not em:
+            continue
+        # Convert intel format to standard prospect format
+        prospect = {
+            "id": np.get("id", f"PRO-{uuid.uuid4().hex[:8]}"),
+            "buyer_email": np.get("buyer_email", ""),
+            "buyer_name": np.get("buyer_name", ""),
+            "buyer_phone": np.get("buyer_phone", ""),
+            "agency": np.get("agency", ""),
+            "institution": np.get("agency", ""),
+            "categories_matched": np.get("categories_matched", []),
+            "purchase_orders": np.get("purchase_orders", []),
+            "total_spend": np.get("total_spend", 0),
+            "annual_spend": np.get("total_spend", 0),
+            "status": "new",
+            "outreach_status": "new",
+            "source": np.get("source", "intel"),
+            "intel_note": np.get("why", ""),
+            "added_at": datetime.now().isoformat(),
+        }
+        existing.append(prospect)
+        existing_emails.add(em)
+        added += 1
+
+    if added > 0:
+        _save_json(PROSPECTS_FILE, {
+            "generated_at": datetime.now().isoformat(),
+            "total_prospects": len(existing),
+            "prospects": existing,
+        })
+        log.info(f"Intel: merged {added} new prospects (total: {len(existing)})")
+
+
+def get_intel_results() -> dict:
+    """Load latest intel results."""
+    data = _load_json(INTEL_FILE)
+    return data if isinstance(data, dict) else {}
+
+
+def get_intel_status() -> dict:
+    """Get current intel status."""
+    return dict(INTEL_STATUS)
+
 # ── Email Template Library (PRD Feature 4.3) ─────────────────────────────
 # Implements Anthropic Skills Guide Pattern 5: Domain-specific intelligence
 # Templates are personalized from CRM/intel DB context

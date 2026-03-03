@@ -14,7 +14,14 @@
       "total_spend": 142000,
       "outreach_status": "new",
       "source": "sales_intel",
-      "opportunity_score": 100
+      "opportunity_score": 100,
+      "tags": [
+        "source:sales_intel",
+        "tier:micro",
+        "cat:medical",
+        "cat:safety",
+        "engagement:cold"
+      ]
     },
     {
       "id": "PRO-87c8ab96",
@@ -30,7 +37,14 @@
       "total_spend": 89500,
       "outreach_status": "new",
       "source": "sales_intel",
-      "opportunity_score": 89
+      "opportunity_score": 89,
+      "tags": [
+        "source:sales_intel",
+        "cat:janitorial",
+        "tier:micro",
+        "cat:facility",
+        "engagement:cold"
+      ]
     },
     {
       "id": "PRO-929c1815",
@@ -46,7 +60,14 @@
       "total_spend": 215000,
       "outreach_status": "new",
       "source": "sales_intel",
-      "opportunity_score": 100
+      "opportunity_score": 100,
+      "tags": [
+        "source:sales_intel",
+        "cat:office",
+        "tier:micro",
+        "cat:safety",
+        "engagement:cold"
+      ]
     },
     {
       "id": "PRO-4bca6d1e",
@@ -62,7 +83,14 @@
       "total_spend": 78000,
       "outreach_status": "new",
       "source": "sales_intel",
-      "opportunity_score": 78
+      "opportunity_score": 78,
+      "tags": [
+        "source:sales_intel",
+        "cat:it",
+        "cat:office",
+        "tier:micro",
+        "engagement:cold"
+      ]
     },
     {
       "id": "PRO-bc9e2b31",
@@ -78,7 +106,14 @@
       "total_spend": 330000,
       "outreach_status": "new",
       "source": "sales_intel",
-      "opportunity_score": 100
+      "opportunity_score": 100,
+      "tags": [
+        "source:sales_intel",
+        "tier:micro",
+        "cat:medical",
+        "cat:safety",
+        "engagement:cold"
+      ]
     }
   ],
   "generated_at": "2026-02-18T03:35:39.801149",

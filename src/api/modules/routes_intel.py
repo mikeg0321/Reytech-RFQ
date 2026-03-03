@@ -4284,6 +4284,56 @@ def api_growth_find_buyers():
     return jsonify({"ok": True, "message": f"Searching SCPRS for buyers (top {max_cats} categories from {from_date}). Check /api/growth/buyer-status."})
 
 
+@bp.route("/api/growth/intel-scrape", methods=["POST"])
+@auth_required
+def api_growth_intel_scrape():
+    """3-Phase buyer intelligence scrape.
+    POST params: year_from, year_to, max_per_phase"""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+
+    from src.agents.growth_agent import run_buyer_intelligence, INTEL_STATUS
+    from datetime import datetime as _dt
+    if INTEL_STATUS.get("running"):
+        return jsonify({"ok": False, "error": "Already running", "status": INTEL_STATUS})
+
+    data = request.get_json(silent=True) or {}
+    year_from = int(data.get("year_from", request.args.get("year_from", 2024)))
+    year_to = int(data.get("year_to", request.args.get("year_to", _dt.now().year)))
+    max_per = int(data.get("max_per_phase", request.args.get("max_per_phase", 30)))
+
+    import threading
+    def _run():
+        run_buyer_intelligence(year_from=year_from, year_to=year_to, max_per_phase=max_per)
+    t = threading.Thread(target=_run, daemon=True, name="growth-intel")
+    t.start()
+
+    return jsonify({
+        "ok": True,
+        "message": f"3-Phase intelligence scrape started ({year_from}–{year_to}). Check /api/growth/intel-status.",
+    })
+
+
+@bp.route("/api/growth/intel-status")
+@auth_required
+def api_growth_intel_status():
+    """Check progress of buyer intelligence scrape."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    from src.agents.growth_agent import get_intel_status
+    return jsonify({"ok": True, **get_intel_status()})
+
+
+@bp.route("/api/growth/intel-results")
+@auth_required
+def api_growth_intel_results():
+    """Get full intelligence results."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    from src.agents.growth_agent import get_intel_results
+    return jsonify({"ok": True, "results": get_intel_results()})
+
+
 @bp.route("/api/growth/buyer-status")
 @auth_required
 def api_growth_buyer_status():

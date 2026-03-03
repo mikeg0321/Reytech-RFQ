@@ -94,7 +94,7 @@
   <div style="display:flex;gap:10px;flex-wrap:wrap">
    <button class="g-btn g-btn-go" style="font-size:15px;padding:12px 22px" onclick="createCampaign()">🚀 Create Campaign</button>
    <button class="g-btn" onclick="runStep('/api/growth/pull-history')">📥 Pull History</button>
-   <button class="g-btn" onclick="runStep('/api/growth/find-buyers')">🔍 Find Buyers</button>
+   <button class="g-btn g-btn-go" onclick="document.getElementById('intel-panel').style.display=document.getElementById('intel-panel').style.display==='none'?'block':'none'" style="background:rgba(52,211,153,.15);border-color:rgba(52,211,153,.4);color:#34d399">🔍 Find Buyers</button>
    <div style="display:flex;gap:6px">
     <a href="/api/growth/export?format=csv" class="g-btn g-btn-blue" style="font-size:13px;padding:8px 14px">📊 CSV</a>
     <a href="/api/growth/export/excel" class="g-btn g-btn-blue" style="font-size:13px;padding:8px 14px">📗 Excel</a>
@@ -129,6 +129,77 @@
    {% endif %}
   </div>
  </div>
+</div>
+
+<!-- 3-PHASE BUYER INTELLIGENCE PANEL -->
+<div id="intel-panel" class="card" style="display:none;border:1px solid rgba(52,211,153,.3);background:linear-gradient(135deg,rgba(52,211,153,.04),rgba(79,140,255,.04))">
+ <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px">
+  <div>
+   <h3 style="margin:0">🔍 Buyer Intelligence Engine</h3>
+   <div style="font-size:14px;color:var(--tx2);margin-top:4px">3-phase SCPRS scrape: same-agency buyers → cross-sell intel → new product opportunities</div>
+  </div>
+  <button onclick="document.getElementById('intel-panel').style.display='none'" style="background:none;border:none;color:var(--tx2);font-size:20px;cursor:pointer">✕</button>
+ </div>
+ <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:16px">
+  <div class="stat-box">
+   <div style="font-size:22px;margin-bottom:6px">🏢</div>
+   <div style="font-size:14px;font-weight:700;color:#34d399">Phase 1: Same-Agency</div>
+   <div style="font-size:13px;color:var(--tx2)">Find buyers at agencies you serve who don't buy from Reytech yet. Weighted by similar products.</div>
+  </div>
+  <div class="stat-box">
+   <div style="font-size:22px;margin-bottom:6px">🔄</div>
+   <div style="font-size:14px;font-weight:700;color:#4f8cff">Phase 2: Cross-Sell</div>
+   <div style="font-size:13px;color:var(--tx2)">Find other agencies buying items Reytech already sells. Import contact info for outreach.</div>
+  </div>
+  <div class="stat-box">
+   <div style="font-size:22px;margin-bottom:6px">🏥</div>
+   <div style="font-size:14px;font-weight:700;color:#a78bfa">Phase 3: New Products</div>
+   <div style="font-size:13px;color:var(--tx2)">Medical items (med director advantage), high-volume commodities you should source.</div>
+  </div>
+ </div>
+ <div style="display:flex;align-items:end;gap:14px;flex-wrap:wrap">
+  <div>
+   <label style="font-size:13px;color:var(--tx2);display:block;margin-bottom:4px">From Year</label>
+   <select id="intel-year-from" style="padding:8px 12px;background:var(--sf2);border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:14px">
+    <option value="2022">2022</option>
+    <option value="2023">2023</option>
+    <option value="2024" selected>2024</option>
+    <option value="2025">2025</option>
+    <option value="2026">2026</option>
+   </select>
+  </div>
+  <div>
+   <label style="font-size:13px;color:var(--tx2);display:block;margin-bottom:4px">To Year</label>
+   <select id="intel-year-to" style="padding:8px 12px;background:var(--sf2);border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:14px">
+    <option value="2024">2024</option>
+    <option value="2025">2025</option>
+    <option value="2026" selected>2026</option>
+   </select>
+  </div>
+  <div>
+   <label style="font-size:13px;color:var(--tx2);display:block;margin-bottom:4px">Depth</label>
+   <select id="intel-depth" style="padding:8px 12px;background:var(--sf2);border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:14px">
+    <option value="15">Quick (15 searches/phase)</option>
+    <option value="30" selected>Standard (30)</option>
+    <option value="50">Deep (50)</option>
+   </select>
+  </div>
+  <button class="g-btn g-btn-go" style="font-size:15px;padding:10px 24px" onclick="launchIntel()">🚀 Launch Intelligence Scrape</button>
+  <button class="g-btn" style="font-size:13px;padding:8px 14px" onclick="loadIntelResults()">📊 View Last Results</button>
+ </div>
+ <div id="intel-progress" style="display:none;margin-top:16px;padding:14px;background:var(--sf2);border-radius:10px">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+   <div id="intel-spinner" style="width:18px;height:18px;border:2px solid var(--bd);border-top:2px solid var(--ac);border-radius:50%;animation:spin 1s linear infinite"></div>
+   <div id="intel-phase" style="font-size:15px;font-weight:700;color:var(--ac)">Starting...</div>
+  </div>
+  <div id="intel-detail" style="font-size:14px;color:var(--tx2)"></div>
+  <div style="display:flex;gap:20px;margin-top:10px">
+   <span id="intel-p1" style="font-size:13px;color:#34d399">P1: 0 buyers</span>
+   <span id="intel-p2" style="font-size:13px;color:#4f8cff">P2: 0 cross-sell</span>
+   <span id="intel-p3" style="font-size:13px;color:#a78bfa">P3: 0 opportunities</span>
+  </div>
+ </div>
+ <div id="intel-results" style="display:none;margin-top:16px"></div>
 </div>
 
 <!-- V2: KPI DASHBOARD -->
@@ -819,6 +890,119 @@ function runStep(url){
  }).catch(function(e){
   document.getElementById('progress-bar').style.display='none';
   showResult({error:e.message});
+ });
+}
+
+/* ── 3-Phase Buyer Intelligence ─────────────────────────────── */
+var _intelPoll=null;
+function launchIntel(){
+ var yf=document.getElementById('intel-year-from').value;
+ var yt=document.getElementById('intel-year-to').value;
+ var depth=document.getElementById('intel-depth').value;
+ document.getElementById('intel-progress').style.display='block';
+ document.getElementById('intel-results').style.display='none';
+ document.getElementById('intel-phase').textContent='Connecting to SCPRS...';
+ fetch('/api/growth/intel-scrape',{method:'POST',headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({year_from:parseInt(yf),year_to:parseInt(yt),max_per_phase:parseInt(depth)})
+ }).then(function(r){return r.json()}).then(function(d){
+  if(!d.ok){document.getElementById('intel-phase').textContent='Error: '+(d.error||'Unknown');return;}
+  document.getElementById('intel-phase').textContent='Phase 1: Scanning agencies...';
+  _intelPoll=setInterval(pollIntel,3000);
+ }).catch(function(e){
+  document.getElementById('intel-phase').textContent='Error: '+e.message;
+ });
+}
+function pollIntel(){
+ fetch('/api/growth/intel-status').then(function(r){return r.json()}).then(function(d){
+  var phase=d.phase_num||0;
+  var phases=['','Phase 1: Same-Agency Buyers','Phase 2: Cross-Sell Intel','Phase 3: New Products'];
+  document.getElementById('intel-phase').textContent=phases[phase]||d.phase||'Working...';
+  document.getElementById('intel-detail').textContent=d.progress||'';
+  document.getElementById('intel-p1').textContent='P1: '+d.p1_buyers+' buyers';
+  document.getElementById('intel-p2').textContent='P2: '+d.p2_crosssell+' cross-sell';
+  document.getElementById('intel-p3').textContent='P3: '+d.p3_opportunities+' opportunities';
+  if(!d.running){
+   clearInterval(_intelPoll);_intelPoll=null;
+   document.getElementById('intel-spinner').style.display='none';
+   if(d.phase==='complete'){
+    document.getElementById('intel-phase').textContent='✅ Complete!';
+    document.getElementById('intel-phase').style.color='#3fb950';
+    loadIntelResults();
+   }else{
+    document.getElementById('intel-phase').textContent='⚠️ '+(d.progress||'Stopped');
+    document.getElementById('intel-phase').style.color='#fbbf24';
+   }
+  }
+ });
+}
+function loadIntelResults(){
+ fetch('/api/growth/intel-results').then(function(r){return r.json()}).then(function(d){
+  var r=d.results||{};
+  if(!r.phase_1&&!r.phase_2&&!r.phase_3){
+   document.getElementById('intel-results').style.display='block';
+   document.getElementById('intel-results').innerHTML='<div style="text-align:center;padding:20px;color:var(--tx2)">No intel results yet. Run a scrape first.</div>';
+   return;
+  }
+  var h='';
+  // Phase 1 results
+  var p1=r.phase_1||{};
+  var buyers1=p1.buyers||[];
+  h+='<div style="margin-bottom:20px"><h3 style="color:#34d399">🏢 Phase 1: Same-Agency Buyers ('+buyers1.length+')</h3>';
+  if(buyers1.length){
+   h+='<div style="max-height:300px;overflow-y:auto"><table class="g-table" style="width:100%"><thead><tr><th>Agency</th><th>Email</th><th>Categories</th><th style="text-align:right">Spend</th><th>Why</th></tr></thead><tbody>';
+   buyers1.slice(0,25).forEach(function(b){
+    h+='<tr><td style="font-weight:600">'+b.agency+'</td><td>'+b.buyer_email+'</td><td style="font-size:13px">'+((b.categories_matched||[]).join(', '))+'</td><td style="text-align:right" class="mono">$'+(b.total_spend||0).toLocaleString()+'</td><td style="font-size:13px;color:var(--tx2)">'+b.why+'</td></tr>';
+   });
+   h+='</tbody></table></div>';
+  }else{h+='<div style="color:var(--tx2);font-size:14px">No new buyers found at your agencies.</div>';}
+  h+='</div>';
+  // Phase 2 results
+  var p2=r.phase_2||{};
+  var buyers2=p2.buyers||[];
+  var items2=p2.item_matches||[];
+  h+='<div style="margin-bottom:20px"><h3 style="color:#4f8cff">🔄 Phase 2: Cross-Sell Intel ('+buyers2.length+' buyers, '+items2.length+' item matches)</h3>';
+  if(items2.length){
+   h+='<div style="max-height:200px;overflow-y:auto;margin-bottom:12px"><table class="g-table" style="width:100%"><thead><tr><th>Item You Sell</th><th style="text-align:center">Your Sales</th><th style="text-align:center">Other Agencies</th><th style="text-align:right">Their Value</th></tr></thead><tbody>';
+   items2.slice(0,15).forEach(function(m){
+    h+='<tr><td style="font-weight:600">'+m.item+'</td><td style="text-align:center" class="mono">'+m.reytech_sold+'</td><td style="text-align:center" class="mono">'+m.other_agencies+'</td><td style="text-align:right" class="mono">$'+(m.other_value||0).toLocaleString()+'</td></tr>';
+   });
+   h+='</tbody></table></div>';
+  }
+  if(buyers2.length){
+   h+='<div style="max-height:250px;overflow-y:auto"><table class="g-table" style="width:100%"><thead><tr><th>Agency</th><th>Email</th><th>Items Matched</th><th style="text-align:right">Spend</th></tr></thead><tbody>';
+   buyers2.slice(0,25).forEach(function(b){
+    h+='<tr><td style="font-weight:600">'+b.agency+'</td><td>'+b.buyer_email+'</td><td style="font-size:13px">'+((b.items_matched||[]).slice(0,3).join(', '))+'</td><td style="text-align:right" class="mono">$'+(b.total_spend||0).toLocaleString()+'</td></tr>';
+   });
+   h+='</tbody></table></div>';
+  }
+  h+='</div>';
+  // Phase 3 results
+  var p3=r.phase_3||{};
+  var med=p3.medical||[];
+  var comm=p3.commodity||[];
+  h+='<div><h3 style="color:#a78bfa">🏥 Phase 3: New Product Opportunities ('+med.length+' medical, '+comm.length+' commodity)</h3>';
+  if(med.length){
+   h+='<h4 style="color:#34d399;margin:10px 0 6px">Medical Items <span style="font-size:13px;font-weight:400;color:var(--tx2)">(Med Director + License = Competitive Advantage)</span></h4>';
+   h+='<div style="max-height:250px;overflow-y:auto"><table class="g-table" style="width:100%"><thead><tr><th>Product</th><th style="text-align:center">POs Found</th><th style="text-align:right">Total Value</th><th style="text-align:center">Agencies</th><th>Advantage</th><th>Already Sell?</th></tr></thead><tbody>';
+   med.forEach(function(m){
+    var adv=m.med_license_required?'<span style="color:#34d399;font-weight:700">HIGH ⚕️</span>':'<span style="color:#fbbf24">MED</span>';
+    var already=m.reytech_already_sells?'<span style="color:#3fb950">✓ Yes</span>':'<span style="color:var(--tx2)">No</span>';
+    h+='<tr><td style="font-weight:600">'+m.term+'</td><td style="text-align:center" class="mono">'+m.total_pos+'</td><td style="text-align:right" class="mono">$'+(m.total_value||0).toLocaleString()+'</td><td style="text-align:center" class="mono">'+m.agencies+'</td><td>'+adv+'</td><td>'+already+'</td></tr>';
+   });
+   h+='</tbody></table></div>';
+  }
+  if(comm.length){
+   h+='<h4 style="color:#4f8cff;margin:14px 0 6px">High-Volume Commodities</h4>';
+   h+='<div style="max-height:200px;overflow-y:auto"><table class="g-table" style="width:100%"><thead><tr><th>Product</th><th style="text-align:center">POs Found</th><th style="text-align:right">Total Value</th><th style="text-align:center">Agencies</th><th>Already Sell?</th></tr></thead><tbody>';
+   comm.forEach(function(m){
+    var already=m.reytech_already_sells?'<span style="color:#3fb950">✓ Yes</span>':'<span style="color:var(--tx2)">No</span>';
+    h+='<tr><td style="font-weight:600">'+m.term+'</td><td style="text-align:center" class="mono">'+m.total_pos+'</td><td style="text-align:right" class="mono">$'+(m.total_value||0).toLocaleString()+'</td><td style="text-align:center" class="mono">'+m.agencies+'</td><td>'+already+'</td></tr>';
+   });
+   h+='</tbody></table></div>';
+  }
+  h+='</div>';
+  document.getElementById('intel-results').style.display='block';
+  document.getElementById('intel-results').innerHTML=h;
  });
 }
 function crmPost(url,body){
