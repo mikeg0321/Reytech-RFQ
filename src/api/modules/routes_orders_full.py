@@ -82,36 +82,36 @@ def orders_page():
 
     macro_html = f"""
     <div class="bento bento-4" style="margin-bottom:16px">
-     <div class="card" style="text-align:center">
-      <div style="font-size:28px;font-weight:800;font-family:'JetBrains Mono',monospace;color:var(--ac)">{total_orders}</div>
-      <div style="font-size:11px;color:var(--tx2);margin-top:2px">Total Orders</div>
-      <div style="font-size:11px;color:var(--tx2);margin-top:4px">{active} active</div>
+     <div class="card" style="text-align:center;padding:18px">
+      <div style="font-size:34px;font-weight:800;font-family:'JetBrains Mono',monospace;color:var(--ac)">{total_orders}</div>
+      <div style="font-size:14px;color:var(--tx2);margin-top:4px">Total Orders</div>
+      <div style="font-size:13px;color:var(--tx2);margin-top:4px">{active} active</div>
      </div>
-     <div class="card" style="text-align:center">
-      <div style="font-size:28px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#3fb950">${total_value:,.0f}</div>
-      <div style="font-size:11px;color:var(--tx2);margin-top:2px">Total Value</div>
-      <div style="font-size:11px;color:var(--tx2);margin-top:4px">${invoiced_value:,.0f} invoiced</div>
+     <div class="card" style="text-align:center;padding:18px">
+      <div style="font-size:34px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#3fb950">${total_value:,.0f}</div>
+      <div style="font-size:14px;color:var(--tx2);margin-top:4px">Total Value</div>
+      <div style="font-size:13px;color:var(--tx2);margin-top:4px">${invoiced_value:,.0f} invoiced</div>
      </div>
-     <div class="card" style="text-align:center">
-      <div style="font-size:28px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#d29922">{total_line_items}</div>
-      <div style="font-size:11px;color:var(--tx2);margin-top:2px">Line Items</div>
-      <div style="font-size:11px;color:var(--tx2);margin-top:4px">{pct_complete}% delivered</div>
+     <div class="card" style="text-align:center;padding:18px">
+      <div style="font-size:34px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#d29922">{total_line_items}</div>
+      <div style="font-size:14px;color:var(--tx2);margin-top:4px">Line Items</div>
+      <div style="font-size:13px;color:var(--tx2);margin-top:4px">{pct_complete}% delivered</div>
      </div>
-     <div class="card" style="text-align:center">
-      <div style="font-size:28px;font-weight:800;font-family:'JetBrains Mono',monospace;color:{'#f85149' if orders_needing_action else '#3fb950'}">{orders_needing_action}</div>
-      <div style="font-size:11px;color:var(--tx2);margin-top:2px">Need Action</div>
-      <div style="font-size:11px;color:var(--tx2);margin-top:4px">{orders_ready_invoice} ready to invoice</div>
+     <div class="card" style="text-align:center;padding:18px">
+      <div style="font-size:34px;font-weight:800;font-family:'JetBrains Mono',monospace;color:{'#f85149' if orders_needing_action else '#3fb950'}">{orders_needing_action}</div>
+      <div style="font-size:14px;color:var(--tx2);margin-top:4px">Need Action</div>
+      <div style="font-size:13px;color:var(--tx2);margin-top:4px">{orders_ready_invoice} ready to invoice</div>
      </div>
     </div>
 
-    <div class="card" style="margin-bottom:16px;padding:12px 16px">
-     <div style="display:flex;gap:24px;flex-wrap:wrap;align-items:center;font-size:12px">
-      <div style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:50%;background:#d29922;display:inline-block"></span> <b>{pending_items}</b> pending</div>
-      <div style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:50%;background:#58a6ff;display:inline-block"></span> <b>{ordered_items}</b> ordered</div>
-      <div style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:50%;background:#bc8cff;display:inline-block"></span> <b>{shipped_items}</b> shipped</div>
-      <div style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:50%;background:#3fb950;display:inline-block"></span> <b>{delivered_items}</b> delivered</div>
+    <div class="card" style="margin-bottom:16px;padding:14px 18px">
+     <div style="display:flex;gap:24px;flex-wrap:wrap;align-items:center;font-size:15px">
+      <div style="display:flex;align-items:center;gap:6px"><span style="width:12px;height:12px;border-radius:50%;background:#d29922;display:inline-block"></span> <b>{pending_items}</b> pending</div>
+      <div style="display:flex;align-items:center;gap:6px"><span style="width:12px;height:12px;border-radius:50%;background:#58a6ff;display:inline-block"></span> <b>{ordered_items}</b> ordered</div>
+      <div style="display:flex;align-items:center;gap:6px"><span style="width:12px;height:12px;border-radius:50%;background:#bc8cff;display:inline-block"></span> <b>{shipped_items}</b> shipped</div>
+      <div style="display:flex;align-items:center;gap:6px"><span style="width:12px;height:12px;border-radius:50%;background:#3fb950;display:inline-block"></span> <b>{delivered_items}</b> delivered</div>
       <div style="flex:1;min-width:200px">
-       <div style="background:var(--sf);border-radius:8px;height:14px;overflow:hidden;display:flex">
+       <div style="background:var(--sf);border-radius:8px;height:16px;overflow:hidden;display:flex">
         <div style="width:{pct_complete}%;background:#3fb950;transition:width 0.3s" title="{delivered_items} delivered"></div>
         <div style="width:{round(shipped_items/total_line_items*100) if total_line_items else 0}%;background:#bc8cff" title="{shipped_items} shipped"></div>
         <div style="width:{round(ordered_items/total_line_items*100) if total_line_items else 0}%;background:#58a6ff" title="{ordered_items} ordered"></div>
@@ -150,31 +150,31 @@ def orders_page():
 
         # Progress bar for this order
         progress_bar = f"""<div style="display:flex;align-items:center;gap:4px;min-width:80px">
-         <div style="flex:1;background:var(--sf);border-radius:4px;height:6px;overflow:hidden">
+         <div style="flex:1;background:var(--sf);border-radius:4px;height:8px;overflow:hidden">
           <div style="width:{pct}%;background:#3fb950;height:100%"></div>
          </div>
-         <span style="font-size:10px;color:var(--tx2);white-space:nowrap">{delivered}/{n}</span>
+         <span style="font-size:13px;color:var(--tx2);white-space:nowrap">{delivered}/{n}</span>
         </div>"""
 
         # Indicators
         indicators = ""
         if has_suppliers:
-            indicators += f'<span title="{has_suppliers}/{n} items linked to suppliers" style="font-size:10px;margin-left:2px">🔗{has_suppliers}</span>'
+            indicators += f'<span title="{has_suppliers}/{n} items linked to suppliers" style="font-size:13px;margin-left:3px">🔗{has_suppliers}</span>'
         if has_tracking:
-            indicators += f'<span title="{has_tracking} tracking numbers" style="font-size:10px;margin-left:2px">📦{has_tracking}</span>'
+            indicators += f'<span title="{has_tracking} tracking numbers" style="font-size:13px;margin-left:3px">📦{has_tracking}</span>'
         if o.get("draft_invoice"):
-            indicators += '<span title="Draft invoice ready" style="font-size:10px;margin-left:2px">📄</span>'
+            indicators += '<span title="Draft invoice ready" style="font-size:13px;margin-left:3px">📄</span>'
 
         rows += f"""<tr style="{'opacity:0.5' if st == 'closed' else ''}">
-         <td><a href="/order/{oid}" style="color:var(--ac);text-decoration:none;font-family:'JetBrains Mono',monospace;font-weight:700">{oid}</a></td>
-         <td class="mono" style="white-space:nowrap">{o.get('created_at','')[:10]}</td>
-         <td>{o.get('agency','')}</td>
-         <td style="max-width:250px;word-wrap:break-word;white-space:normal;font-weight:500">{o.get('institution','')}</td>
-         <td class="mono">{o.get('po_number','') or o.get('quote_number','')}</td>
-         <td style="text-align:right;font-weight:600;font-family:'JetBrains Mono',monospace">${o.get('total',0):,.2f}</td>
+         <td><a href="/order/{oid}" style="color:var(--ac);text-decoration:none;font-family:'JetBrains Mono',monospace;font-weight:700;font-size:14px">{oid}</a></td>
+         <td class="mono" style="white-space:nowrap;font-size:14px">{o.get('created_at','')[:10]}</td>
+         <td style="font-size:14px">{o.get('agency','')}</td>
+         <td style="max-width:250px;word-wrap:break-word;white-space:normal;font-weight:500;font-size:15px">{o.get('institution','')}</td>
+         <td class="mono" style="font-size:14px">{o.get('po_number','') or o.get('quote_number','')}</td>
+         <td style="text-align:right;font-weight:600;font-family:'JetBrains Mono',monospace;font-size:16px">${o.get('total',0):,.2f}</td>
          <td>{progress_bar}</td>
-         <td style="text-align:center"><span title="{age_title}" style="margin-right:2px">{age_badge}</span><span style="display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;color:{clr};background:{bg}">{lbl}</span>{indicators}</td>
-         <td style="text-align:center"><button onclick="deleteOrder('{oid}')" style="background:none;border:none;cursor:pointer;font-size:12px;color:var(--tx2)" title="Delete order">🗑️</button></td>
+         <td style="text-align:center"><span title="{age_title}" style="margin-right:2px">{age_badge}</span><span style="display:inline-block;padding:3px 10px;border-radius:12px;font-size:13px;font-weight:600;color:{clr};background:{bg}">{lbl}</span>{indicators}</td>
+         <td style="text-align:center"><button onclick="deleteOrder('{oid}')" style="background:none;border:none;cursor:pointer;font-size:16px;color:var(--tx2)" title="Delete order">🗑️</button></td>
         </tr>"""
 
     return render_page("orders.html", active_page="Orders",
