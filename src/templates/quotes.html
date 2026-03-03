@@ -2,10 +2,30 @@
 {% block title %}Quotes Database — Reytech{% endblock %}
 
 {% block content %}
-     <!-- Header: Title + Stats — compact row -->
+     <!-- Header -->
      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px">
       <h2 style="margin:0;font-size:20px;font-weight:700">📋 Quotes Database</h2>
-      <div>{{ stats_html|safe }}</div>
+      <div style="display:flex;gap:8px">
+       <a href="/pipeline" class="btn btn-s" style="font-size:14px;font-weight:600">🔄 Pipeline</a>
+       <a href="/growth" class="btn btn-s" style="font-size:14px;font-weight:600">🚀 Growth</a>
+      </div>
+     </div>
+
+     <!-- KPI Cards -->
+     <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:14px">
+      {% for val, label, color in [
+        (stat_total, 'Total', 'var(--ac)'),
+        (stat_won, 'Won', '#3fb950'),
+        (stat_lost, 'Lost', '#f85149'),
+        (stat_pending, 'Pending', '#d29922'),
+        ("${:,.0f}".format(stat_won_total), 'Won $', '#3fb950'),
+        (stat_win_rate|string + '%%', 'Win Rate', '#3fb950' if stat_win_rate >= 50 else '#d29922' if stat_win_rate >= 30 else '#f85149'),
+      ] %}
+      <div class="card" style="text-align:center;padding:12px;margin:0">
+       <div style="font-size:22px;font-weight:700;font-family:'JetBrains Mono',monospace;color:{{color}};line-height:1">{{val}}</div>
+       <div style="font-size:13px;color:var(--tx2);margin-top:4px;text-transform:uppercase;letter-spacing:.4px">{{label}}</div>
+      </div>
+      {% endfor %}
      </div>
 
      <!-- Search + Filters — one compact bar -->

@@ -1117,7 +1117,11 @@ def quotes_list():
     return render_page("quotes.html", active_page="Quotes",
         stats_html=stats_html, q=q, agency_filter=agency_filter,
         status_filter=status_filter, logo_exists=logo_exists, rows_html=rows_html,
-        title="Quotes Database"
+        title="Quotes Database",
+        stat_total=stats['total'], stat_won=stats['won'], stat_lost=stats['lost'],
+        stat_pending=stats['pending'], stat_sent=stats.get('sent', 0),
+        stat_won_total=stats['won_total'], stat_pending_total=stats.get('pending_total', 0),
+        stat_win_rate=wr, stat_expired=expired_count,
     )
 
 
