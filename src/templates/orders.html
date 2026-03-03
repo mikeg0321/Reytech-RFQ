@@ -137,7 +137,7 @@ fetch('/api/orders/kpi').then(r=>r.json()).then(d=>{
   +'<div style="font-size:14px;color:var(--tx2);margin-top:4px">'+lbl+'</div>'
   +(sub?'<div style="font-size:13px;color:var(--tx2);margin-top:4px">'+sub+'</div>':'');};
  mk('kpi-revenue','$'+(d.total_revenue||0).toLocaleString(undefined,{maximumFractionDigits:0}),'Total Revenue',d.total_orders+' orders','#3fb950');
- mk('kpi-margin',(d.margin_pct||0)+'%','Avg Margin','$'+(d.total_margin||0).toLocaleString(undefined,{maximumFractionDigits:0})+' profit',d.margin_pct>=20?'#3fb950':d.margin_pct>=10?'#d29922':'#f85149');
+ mk('kpi-margin',d.margin_pct!==null?(d.margin_pct||0)+'%':'—','Avg Margin',d.margin_pct!==null?'$'+(d.total_margin||0).toLocaleString(undefined,{maximumFractionDigits:0})+' profit':'no cost data yet',d.margin_pct!==null?(d.margin_pct>=20?'#3fb950':d.margin_pct>=10?'#d29922':'#f85149'):'var(--tx2)');
  mk('kpi-fulfillment',d.avg_fulfillment_days!==null?d.avg_fulfillment_days+'d':'—','Avg Fulfillment','created → delivered','#58a6ff');
  var recent=d.monthly||[];var last=recent.length?recent[recent.length-1]:null;
  mk('kpi-monthly',last?'$'+last.value.toLocaleString(undefined,{maximumFractionDigits:0}):'—','This Month',last?last.orders+' orders':'no data','#bc8cff');

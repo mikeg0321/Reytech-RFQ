@@ -686,11 +686,15 @@ def api_orders_kpi():
     fulfillment_times = []
     total_revenue = 0
     total_cost = 0
+    has_cost_data = False
     status_counts = {}
 
     for oid, order in orders.items():
         status = order.get("status", "new")
         if status in ("cancelled", "test", "deleted"):
+            continue
+        # Skip test orders
+        if "TEST" in (order.get("po_number", "") or "").upper() or order.get("is_test"):
             continue
 
         status_counts[status] = status_counts.get(status, 0) + 1
@@ -722,10 +726,12 @@ def api_orders_kpi():
             except (ValueError, TypeError):
                 pass
 
-        # Line-item costs for margin
+        # Line-item costs for margin — only count if real cost data exists
         for it in order.get("line_items", []):
             cost = it.get("cost", 0) or 0
             qty = it.get("qty", 0) or 0
+            if cost > 0:
+                has_cost_data = True
             total_cost += cost * qty
 
     avg_fulfillment = round(sum(fulfillment_times) / len(fulfillment_times), 1) if fulfillment_times else None
@@ -736,16 +742,26 @@ def api_orders_kpi():
     # Top agencies
     top_agencies = sorted(agency_totals.values(), key=lambda a: a["value"], reverse=True)[:10]
 
-    total_margin = total_revenue - total_cost
-    margin_pct = round((total_margin / total_revenue * 100), 1) if total_revenue > 0 else 0
+    # Margin: only calculate if we have actual cost data from line items or QB
+    # If no cost data, return null so UI shows "—" instead of misleading 100%
+    if has_cost_data and total_cost > 0:
+        total_margin = total_revenue - total_cost
+        margin_pct = round((total_margin / total_revenue * 100), 1) if total_revenue > 0 else 0
+    else:
+        total_margin = None
+        margin_pct = None
 
     return jsonify({
         "ok": True,
-        "total_orders": len([o for o in orders.values() if o.get("status") not in ("cancelled", "test", "deleted")]),
+        "total_orders": len([o for o in orders.values()
+                            if o.get("status") not in ("cancelled", "test", "deleted")
+                            and "TEST" not in (o.get("po_number", "") or "").upper()
+                            and not o.get("is_test")]),
         "total_revenue": round(total_revenue, 2),
-        "total_cost": round(total_cost, 2),
-        "total_margin": round(total_margin, 2),
+        "total_cost": round(total_cost, 2) if has_cost_data else None,
+        "total_margin": round(total_margin, 2) if total_margin is not None else None,
         "margin_pct": margin_pct,
+        "has_cost_data": has_cost_data,
         "avg_fulfillment_days": avg_fulfillment,
         "status_counts": status_counts,
         "monthly": monthly_sorted,
