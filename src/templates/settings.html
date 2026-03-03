@@ -3,6 +3,28 @@
 {% block content %}
 <h2 style="font-size:20px;font-weight:700;margin-bottom:16px">⚙️ Settings</h2>
 
+<!-- ═══ System Health ═══ -->
+<div class="card" style="margin-bottom:12px">
+ <div class="card-t" style="display:flex;justify-content:space-between;align-items:center">
+  <span>🩺 System Health</span>
+  <button class="btn btn-s" onclick="loadHealth()" style="font-size:13px;padding:6px 14px">🔄 Refresh</button>
+ </div>
+ <div id="health-cards" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:12px">
+  <div style="text-align:center;padding:16px;background:var(--sf);border-radius:8px"><div style="font-size:14px;color:var(--tx2)">Loading...</div></div>
+ </div>
+ <div id="health-integrations" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px"></div>
+ <div id="health-errors" style="margin-top:12px;display:none"></div>
+</div>
+
+<!-- ═══ Data Storage ═══ -->
+<div class="card" style="margin-bottom:12px">
+ <div class="card-t" style="display:flex;justify-content:space-between;align-items:center">
+  <span>💾 Data Storage</span>
+  <button class="btn btn-s" onclick="loadDataSizes()" style="font-size:13px;padding:6px 14px">📊 Load</button>
+ </div>
+ <div id="data-sizes" style="margin-top:12px"><div style="color:var(--tx2);font-size:14px">Click load to view storage details...</div></div>
+</div>
+
 <!-- ═══ Nav Customization ═══ -->
 <div class="card" style="margin-bottom:12px" id="nav">
  <div class="card-t">🧭 Navigation Bar</div>
@@ -146,5 +168,39 @@ function saveSettings(){
   else alert('Error: '+(d.error||'unknown'));
  });
 }
+
+/* ── System Health ── */
+function loadHealth(){
+ fetch('/api/system/dashboard').then(function(r){return r.json()}).then(function(d){
+  var el=document.getElementById('health-cards');
+  if(!d||d.error){el.innerHTML='<div style="color:#f85149;padding:12px">Error loading</div>';return;}
+  var mk=function(v,l,c){return '<div style="text-align:center;padding:14px;background:var(--sf);border-radius:8px;border:1px solid var(--bd)"><div style="font-size:22px;font-weight:800;font-family:JetBrains Mono,monospace;color:'+(c||'var(--ac)')+'">'+v+'</div><div style="font-size:13px;color:var(--tx2);margin-top:4px">'+l+'</div></div>';};
+  var cards=[];
+  cards.push(mk(d.route_count||d.routes||'?','Routes','var(--ac)'));
+  cards.push(mk(d.template_count||d.templates||'?','Templates','#58a6ff'));
+  cards.push(mk(d.python_files||d.modules||'?','Python Files','#a78bfa'));
+  var db=d.db_size_mb||d.db_size||'?';
+  cards.push(mk(typeof db==='number'?db.toFixed(1)+'MB':db,'Database','#fbbf24'));
+  if(d.threads)cards.push(mk(d.threads,'Threads','#3fb950'));
+  if(d.memory_mb)cards.push(mk(d.memory_mb+'MB','Memory','#d29922'));
+  el.innerHTML=cards.join('');
+  var intEl=document.getElementById('health-integrations');
+  var ints=d.integrations||d.services||{};
+  if(Object.keys(ints).length){var h='';for(var k in ints){var v=ints[k];var ok=v===true||v==='ok'||(v&&v.ok);h+='<div style="display:flex;align-items:center;gap:8px;padding:10px;background:var(--sf);border-radius:8px;border:1px solid var(--bd)"><span style="font-size:16px">'+(ok?'\u2705':'\u274c')+'</span><span style="font-size:14px;font-weight:600">'+k.replace(/_/g,' ')+'</span><span style="margin-left:auto;font-size:13px;color:'+(ok?'#3fb950':'#f85149')+'">'+( ok?'Active':'Off')+'</span></div>';}intEl.innerHTML=h;}
+ }).catch(function(e){document.getElementById('health-cards').innerHTML='<div style="color:#f85149;padding:12px">'+e.message+'</div>';});
+}
+function loadDataSizes(){
+ fetch('/api/system/data-sizes').then(function(r){return r.json()}).then(function(d){
+  var el=document.getElementById('data-sizes');
+  var files=d.files||d;
+  if(Array.isArray(files)){
+   var h='<table style="width:100%;font-size:14px"><thead><tr><th style="text-align:left">File</th><th style="text-align:right">Size</th><th style="text-align:right">Records</th></tr></thead><tbody>';
+   files.forEach(function(f){var sz=f.size_mb||f.size||0;h+='<tr><td style="padding:4px 8px;font-family:JetBrains Mono,monospace;font-size:13px">'+(f.name||f.file||'?')+'</td><td style="text-align:right;padding:4px 8px;font-family:JetBrains Mono,monospace;font-size:13px">'+(typeof sz==='number'?sz.toFixed(2)+'MB':sz)+'</td><td style="text-align:right;padding:4px 8px;font-size:13px;color:var(--tx2)">'+(f.records||f.count||'\u2014')+'</td></tr>';});
+   h+='</tbody></table>';el.innerHTML=h;
+  }else{el.innerHTML='<pre style="font-size:13px;color:var(--tx2)">'+JSON.stringify(files,null,2)+'</pre>';}
+ }).catch(function(e){document.getElementById('data-sizes').innerHTML='<div style="color:#f85149">'+e.message+'</div>';});
+}
+loadHealth();
+
 </script>
 {% endblock %}

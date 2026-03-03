@@ -24,6 +24,30 @@ th{padding:8px 12px;font-size:14px;color:var(--tx2);text-transform:uppercase;let
   </div>
 </div>
 
+<!-- Vendor KPIs -->
+<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px">
+ <div class="card" style="text-align:center;margin:0;padding:14px">
+  <div style="font-size:26px;font-weight:800;font-family:'JetBrains Mono',monospace;color:var(--ac)">{{ vendors|length }}</div>
+  <div style="font-size:13px;color:var(--tx2);margin-top:4px">Total Vendors</div>
+ </div>
+ <div class="card" style="text-align:center;margin:0;padding:14px">
+  <div style="font-size:26px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#3fb950">{{ api_ready_count }}</div>
+  <div style="font-size:13px;color:var(--tx2);margin-top:4px">API-Ready</div>
+ </div>
+ <div class="card" style="text-align:center;margin:0;padding:14px">
+  <div style="font-size:26px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#fbbf24">{{ setup_needed|length }}</div>
+  <div style="font-size:13px;color:var(--tx2);margin-top:4px">Need Setup</div>
+ </div>
+ <div class="card" style="text-align:center;margin:0;padding:14px">
+  <div style="font-size:26px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#58a6ff" id="scored-count">—</div>
+  <div style="font-size:13px;color:var(--tx2);margin-top:4px">Scored</div>
+ </div>
+ <div class="card" style="text-align:center;margin:0;padding:14px">
+  <div style="font-size:26px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#a78bfa" id="avg-score">—</div>
+  <div style="font-size:13px;color:var(--tx2);margin-top:4px">Avg Score</div>
+ </div>
+</div>
+
 <!-- Setup guide cards -->
 <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:24px">
   <div class="card" style="border-color:{{ ('var(--gn)' if vs.get('grainger_can_order') else 'var(--yl)') }}">
@@ -148,6 +172,13 @@ function loadPreferred(){
   }).catch(()=>{document.getElementById('preferred-vendors').innerHTML='Failed to load';});
 }
 loadPreferred();
+// Vendor KPI enrichment
+fetch('/api/vendor/enrichment',{credentials:'same-origin'}).then(function(r){return r.json()}).then(function(d){
+ if(d.with_score!==undefined)document.getElementById('scored-count').textContent=d.with_score;
+ if(d.total_vendors>0&&d.with_score>0){
+  document.getElementById('avg-score').textContent=d.avg_score?d.avg_score.toFixed(0):'\u2014';
+ }
+}).catch(function(){});
 </script>
 
 {% endblock %}
