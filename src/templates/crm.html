@@ -16,37 +16,44 @@
 </div>
 
 <!-- CRM Summary Stats -->
-<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:20px" id="crm-stats">
- <div class="card" style="text-align:center;padding:16px;margin:0">
-  <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Total Buyers
-   <span class="info-tip"><span class="tip-icon">i</span><span class="tip-box">Total unique buyers discovered from SCPRS purchase data + email contacts. Includes anyone who buys products in Reytech's categories.</span></span>
-  </div>
-  <div id="stat-total" style="font-size:28px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--ac)">—</div>
+<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:10px;margin-bottom:16px" id="crm-stats">
+ <div class="card" style="text-align:center;padding:14px;margin:0">
+  <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Total Buyers</div>
+  <div id="stat-total" style="font-size:24px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--ac)">—</div>
  </div>
- <div class="card" style="text-align:center;padding:16px;margin:0">
-  <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Agencies
-   <span class="info-tip"><span class="tip-icon">i</span><span class="tip-box">Distinct CA state agencies with at least one buyer in the CRM. Each agency may have multiple individual buyers.</span></span>
-  </div>
-  <div id="stat-agencies" style="font-size:28px;font-weight:700;font-family:'JetBrains Mono',monospace;color:#a78bfa">—</div>
+ <div class="card" style="text-align:center;padding:14px;margin:0">
+  <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Agencies</div>
+  <div id="stat-agencies" style="font-size:24px;font-weight:700;font-family:'JetBrains Mono',monospace;color:#a78bfa">—</div>
  </div>
- <div class="card" style="text-align:center;padding:16px;margin:0">
-  <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Total SCPRS Spend
-   <span class="info-tip"><span class="tip-icon">i</span><span class="tip-box">Combined annual spend across all buyers in the CRM. Sourced from SCPRS purchase order data. Represents the total addressable market for Reytech.</span></span>
-  </div>
-  <div id="stat-spend" style="font-size:28px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--yl)">—</div>
+ <div class="card" style="text-align:center;padding:14px;margin:0">
+  <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Total Spend</div>
+  <div id="stat-spend" style="font-size:24px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--yl)">—</div>
  </div>
- <div class="card" style="text-align:center;padding:16px;margin:0">
-  <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">In Outreach
-   <span class="info-tip"><span class="tip-icon">i</span><span class="tip-box">Buyers who have been contacted via email, phone, or other channels. Includes emailed, called, and responded statuses.</span></span>
-  </div>
-  <div id="stat-outreach" style="font-size:28px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--or)">—</div>
+ <div class="card" style="text-align:center;padding:14px;margin:0">
+  <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">In Outreach</div>
+  <div id="stat-outreach" style="font-size:24px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--or)">—</div>
  </div>
- <div class="card" style="text-align:center;padding:16px;margin:0">
-  <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Won
-   <span class="info-tip"><span class="tip-icon">i</span><span class="tip-box">Buyers who have converted to active Reytech customers. They've submitted at least one RFQ or purchase order.</span></span>
-  </div>
-  <div id="stat-won" style="font-size:28px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--gn)">—</div>
+ <div class="card" style="text-align:center;padding:14px;margin:0">
+  <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Won</div>
+  <div id="stat-won" style="font-size:24px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--gn)">—</div>
  </div>
+ <div class="card" style="text-align:center;padding:14px;margin:0">
+  <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Avg Win Prob</div>
+  <div id="stat-winprob" style="font-size:24px;font-weight:700;font-family:'JetBrains Mono',monospace;color:#3fb950">—</div>
+ </div>
+ <div class="card" style="text-align:center;padding:14px;margin:0">
+  <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Response Rate</div>
+  <div id="stat-response" style="font-size:24px;font-weight:700;font-family:'JetBrains Mono',monospace;color:#a78bfa">—</div>
+ </div>
+</div>
+
+<!-- Bulk Action Bar -->
+<div id="bulk-bar" style="display:none;background:var(--ac);color:#fff;padding:10px 18px;border-radius:10px;margin-bottom:12px;align-items:center;gap:12px;font-size:14px;font-weight:600">
+ <span id="bulk-count">0 selected</span>
+ <button onclick="bulkEmail()" style="padding:6px 14px;background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.3);border-radius:6px;color:#fff;cursor:pointer;font-size:13px;font-weight:600">📧 Email Selected</button>
+ <button onclick="bulkStatus('emailed')" style="padding:6px 14px;background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.3);border-radius:6px;color:#fff;cursor:pointer;font-size:13px;font-weight:600">📨 Mark Emailed</button>
+ <button onclick="bulkTag()" style="padding:6px 14px;background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.3);border-radius:6px;color:#fff;cursor:pointer;font-size:13px;font-weight:600">🏷️ Tag</button>
+ <button onclick="clearSelection()" style="margin-left:auto;padding:6px 14px;background:none;border:1px solid rgba(255,255,255,.4);border-radius:6px;color:#fff;cursor:pointer;font-size:13px">✕ Clear</button>
 </div>
 
 <!-- Filters -->
@@ -85,7 +92,8 @@
   <table class="home-tbl" id="crm-table">
    <thead>
     <tr>
-     <th style="padding:12px 14px">Agency</th>
+     <th style="padding:12px 14px;width:36px"><input type="checkbox" id="select-all" onchange="toggleAll(this)" style="cursor:pointer"></th>
+     <th style="padding:12px 14px;cursor:pointer" onclick="sortTable('agency')">Agency ⇅</th>
      <th style="padding:12px 14px">Buyer</th>
      <th style="padding:12px 14px">Email</th>
      <th style="padding:12px 14px">Categories
@@ -94,7 +102,7 @@
      <th style="padding:12px 14px">Items Bought
       <span class="info-tip"><span class="tip-icon">i</span><span class="tip-box"><b>SCPRS Purchase History</b><br>Actual items this buyer has purchased through CA state procurement (SCPRS). Sourced from historical purchase orders. Shows top 3 items.</span></span>
      </th>
-     <th style="padding:12px 14px;text-align:right">Annual Spend
+     <th style="padding:12px 14px;text-align:right;cursor:pointer" onclick="sortTable('spend')">Annual Spend ⇅
       <span class="info-tip"><span class="tip-icon">i</span><span class="tip-box"><b>Annual SCPRS Spend</b><br>Total dollar amount this buyer spent through SCPRS in the last 12 months. Higher spend = higher-value prospect for Reytech.</span></span>
      </th>
      <th style="padding:12px 14px">Score
@@ -107,7 +115,7 @@
     </tr>
    </thead>
    <tbody id="crm-body">
-    <tr><td colspan="9" style="text-align:center;padding:40px;color:var(--tx2)">Loading buyer data...</td></tr>
+    <tr><td colspan="10" style="text-align:center;padding:40px;color:var(--tx2)">Loading buyer data...</td></tr>
    </tbody>
   </table>
  </div>
@@ -165,7 +173,7 @@ function renderTable(buyers) {
  var tbody = document.getElementById('crm-body');
  document.getElementById('crm-count').textContent = buyers.length + ' buyers';
  if (!buyers.length) {
-  tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:32px;color:var(--tx2)">No buyers match filter</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--tx2)">No buyers match filter</td></tr>';
   return;
  }
  tbody.innerHTML = buyers.map(function(b) {
@@ -175,7 +183,8 @@ function renderTable(buyers) {
   }).join(', ') + ((b.items||[]).length>3?' <span style="font-size:13px;color:var(--ac)">+'+((b.items||[]).length-3)+' more</span>':'');
   var pid = b.id || b.prospect_id || '';
   var detailLink = pid ? '/growth/prospect/'+pid : '#';
-  return '<tr class="home-row" onclick="location.href=\\\''+detailLink+'\'">'
+  return '<tr class="home-row" data-id="'+pid+'" onclick="location.href=\''+detailLink+'\'">'
+   + '<td style="padding:12px 14px" onclick="event.stopPropagation()"><input type="checkbox" class="row-chk" data-email="'+(b.buyer_email||'')+'" data-id="'+pid+'" onchange="updateBulk()" style="cursor:pointer"></td>'
    + '<td style="padding:12px 14px;font-weight:600;font-size:13px">'+b.agency+'</td>'
    + '<td style="padding:12px 14px;font-size:13px">'+(b.buyer_name||'—')+'</td>'
    + '<td style="padding:12px 14px"><a href="mailto:'+(b.buyer_email||'')
@@ -298,6 +307,14 @@ function loadCRMData() {
   document.getElementById('stat-outreach').textContent = inOutreach;
   document.getElementById('stat-won').textContent = won;
 
+  // V3+ stats
+  var _emailed = buyers.filter(function(b){return (b.outreach_status||'new')!=='new'}).length;
+  var _responded = buyers.filter(function(b){var s=b.outreach_status||'';return s==='responded'||s==='won'}).length;
+  var _rr = _emailed>0?Math.round(_responded/_emailed*100):0;
+  document.getElementById('stat-response').textContent = _rr+'%';
+  document.getElementById('stat-response').style.color = _rr>=30?'#3fb950':_rr>=15?'#fbbf24':'#8b949e';
+  document.getElementById('stat-winprob').textContent = '—';
+
   // Populate category filter with actual categories
   var cats = new Set();
   buyers.forEach(function(b){(b.categories||[]).forEach(function(c){cats.add(c)})});
@@ -325,6 +342,20 @@ function refreshCRM(btn) {
 }
 
 loadCRMData();
+
+// Sort
+var _sc='score',_sd=-1;
+function sortTable(col){if(_sc===col)_sd*=-1;else{_sc=col;_sd=-1;}ALL_BUYERS.sort(function(a,b){var va,vb;if(col==='agency'){va=(a.agency||'').toLowerCase();vb=(b.agency||'').toLowerCase();}else if(col==='spend'){va=a.annual_spend||a.spend||0;vb=b.annual_spend||b.spend||0;}else if(col==='score'){va=a.score||0;vb=b.score||0;}else{va=0;vb=0;}if(va<vb)return -1*_sd;if(va>vb)return 1*_sd;return 0;});filterTable();}
+
+// Bulk
+var _sel=new Set();
+function toggleAll(el){document.querySelectorAll('.row-chk').forEach(function(c){c.checked=el.checked});_sel.clear();if(el.checked)document.querySelectorAll('.row-chk').forEach(function(c){_sel.add(c.dataset.id)});updateBulkBar();}
+function updateBulk(){_sel.clear();document.querySelectorAll('.row-chk:checked').forEach(function(c){_sel.add(c.dataset.id)});updateBulkBar();}
+function updateBulkBar(){var b=document.getElementById('bulk-bar');if(_sel.size>0){b.style.display='flex';document.getElementById('bulk-count').textContent=_sel.size+' selected';}else{b.style.display='none';}}
+function clearSelection(){_sel.clear();document.querySelectorAll('.row-chk').forEach(function(c){c.checked=false});document.getElementById('select-all').checked=false;updateBulkBar();}
+function bulkEmail(){var e=[];document.querySelectorAll('.row-chk:checked').forEach(function(c){if(c.dataset.email)e.push(c.dataset.email)});if(!e.length){alert('No emails');return;}window.open('mailto:'+e.join(',')+'?subject=Reytech%20Inc%20-%20RFQ%20List%20Request','_blank');}
+function bulkStatus(s){if(!confirm('Set '+_sel.size+' contacts to "'+s+'"?'))return;var p=[];_sel.forEach(function(id){p.push(fetch('/api/crm/contact/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({outreach_status:s})}))});Promise.all(p).then(function(){clearSelection();loadCRMData()});}
+function bulkTag(){var t=prompt('Tag name:');if(!t)return;var p=[];_sel.forEach(function(id){p.push(fetch('/api/crm/contact/'+id+'/tags',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tag:t,action:'add'})}))});Promise.all(p).then(function(){alert('Tagged '+_sel.size);clearSelection()});}
 </script>
 
 {% endblock %}
