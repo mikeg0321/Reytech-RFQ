@@ -331,7 +331,7 @@ def page_cchcs_intel():
     for s in intel.get("suppliers", [])[:15]:
         cats_raw = s.get("categories", "[]")
         try: cats_str = ", ".join(_j.loads(cats_raw))[:50]
-        except: cats_str = str(cats_raw)[:50]
+        except Exception: cats_str = str(cats_raw)[:50]
         supplier_lower = (s.get("supplier_name") or "").lower()
         suppliers.append({**s,
             "categories_str": cats_str,

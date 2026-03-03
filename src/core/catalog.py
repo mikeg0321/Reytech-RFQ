@@ -119,7 +119,7 @@ def search_catalog(query: str, limit: int = 10) -> list:
         for row in rows:
             item = dict(zip(cols, row))
             try: item["tags"] = json.loads(item["tags"] or "[]")
-            except: item["tags"] = []
+            except Exception: item["tags"] = []
             results.append(item)
         return results
 
@@ -138,7 +138,7 @@ def get_catalog(category=None, limit=200):
         for row in rows:
             item = dict(zip(cols, row))
             try: item["tags"] = json.loads(item["tags"] or "[]")
-            except: item["tags"] = []
+            except Exception: item["tags"] = []
             results.append(item)
         return results
 

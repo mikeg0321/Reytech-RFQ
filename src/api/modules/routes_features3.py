@@ -64,7 +64,7 @@ def api_agents_batch_test():
                 data = resp.json()
                 ok = data.get("ok", True) != False and resp.status_code == 200
                 err = data.get("error", "") if not ok else ""
-            except:
+            except Exception:
                 err = f"HTTP {resp.status_code}" if not ok else ""
             
             if ok:
@@ -174,7 +174,7 @@ def api_daily_wins():
                 if o.get("created", "").startswith(today):
                     wins.append({"type": "🎉 New Order", "detail": f"PO {o.get('po_number', oid)}", 
                                 "value": o.get("total", 0), "time": o.get("created", "")})
-        except: pass
+        except Exception: pass
     
     # Check for won quotes
     wl_path = os.path.join(DATA_DIR, "win_loss_log.json")
@@ -186,7 +186,7 @@ def api_daily_wins():
                 if entry.get("outcome") == "won" and entry.get("date", "").startswith(today):
                     wins.append({"type": "🏆 Won Quote", "detail": entry.get("rfq_id", "?"),
                                 "value": entry.get("amount", 0), "time": entry.get("date", "")})
-        except: pass
+        except Exception: pass
     
     # Check for sent quotes
     rfqs_path = os.path.join(DATA_DIR, "rfqs.json")
@@ -198,7 +198,7 @@ def api_daily_wins():
                 if r.get("status") == "sent" and r.get("sent_date", "").startswith(today):
                     wins.append({"type": "📤 Sent Quote", "detail": f"Sol# {r.get('solicitation_number', rid)[:20]}",
                                 "value": r.get("total_price", 0), "time": r.get("sent_date", "")})
-        except: pass
+        except Exception: pass
     
     total_value = sum(w.get("value", 0) for w in wins if isinstance(w.get("value"), (int, float)))
     
@@ -227,7 +227,7 @@ def api_rfq_ready_to_quote():
     try:
         with open(rfqs_path) as f:
             rfqs = json.load(f)
-    except:
+    except Exception:
         return jsonify({"ok": True, "rfqs": [], "count": 0})
     
     today = datetime.now().strftime("%Y-%m-%d")
@@ -241,7 +241,7 @@ def api_rfq_ready_to_quote():
             items = r.get("line_items") or r.get("items_detail") or []
             if isinstance(items, str):
                 try: items = json.loads(items)
-                except: items = []
+                except Exception: items = []
             
             overdue = due and due < today
             days_left = None
@@ -249,7 +249,7 @@ def api_rfq_ready_to_quote():
                 try:
                     dd = datetime.strptime(due[:10], "%Y-%m-%d")
                     days_left = (dd - datetime.now()).days
-                except: pass
+                except Exception: pass
             
             ready.append({
                 "id": rid,
@@ -309,7 +309,7 @@ def api_quote_lookup():
                         "total": r.get("total_price", 0),
                         "created": r.get("created", r.get("received_date", "?")),
                     })
-        except: pass
+        except Exception: pass
     
     return jsonify({
         "ok": True,
@@ -339,7 +339,7 @@ def api_business_health_score():
         pts = min(20, len(active) * 4)
         score += pts
         factors.append({"name": "Active Pipeline", "score": pts, "max": 20, "detail": f"{len(active)} active RFQs"})
-    except:
+    except Exception:
         factors.append({"name": "Active Pipeline", "score": 0, "max": 20, "detail": "No data"})
     
     # Factor 2: Win rate (0-20 pts)
@@ -358,7 +358,7 @@ def api_business_health_score():
             pts = 10
             factors.append({"name": "Win Rate", "score": pts, "max": 20, "detail": "No outcomes tracked"})
         score += pts
-    except:
+    except Exception:
         score += 10
         factors.append({"name": "Win Rate", "score": 10, "max": 20, "detail": "No data"})
     
@@ -372,7 +372,7 @@ def api_business_health_score():
         pts = min(15, len(products) // 50)
         score += pts
         factors.append({"name": "Catalog", "score": pts, "max": 15, "detail": f"{len(products)} products, {with_pricing} priced"})
-    except:
+    except Exception:
         factors.append({"name": "Catalog", "score": 0, "max": 15, "detail": "No data"})
     
     # Factor 4: QuickBooks connected (0-15 pts)
@@ -386,7 +386,7 @@ def api_business_health_score():
             factors.append({"name": "QuickBooks", "score": 5, "max": 15, "detail": "Configured but token expired"})
         else:
             factors.append({"name": "QuickBooks", "score": 0, "max": 15, "detail": "Not connected"})
-    except:
+    except Exception:
         factors.append({"name": "QuickBooks", "score": 0, "max": 15, "detail": "Module not available"})
     
     # Factor 5: Follow-up discipline (0-15 pts)
@@ -399,7 +399,7 @@ def api_business_health_score():
         pts = max(0, 15 - overdue * 3)
         score += pts
         factors.append({"name": "Follow-Ups", "score": pts, "max": 15, "detail": f"{pending} pending, {overdue} overdue"})
-    except:
+    except Exception:
         score += 10
         factors.append({"name": "Follow-Ups", "score": 10, "max": 15, "detail": "No data"})
     
@@ -413,7 +413,7 @@ def api_business_health_score():
         pts = min(15, len(contacts) // 5)
         score += pts
         factors.append({"name": "CRM Contacts", "score": pts, "max": 15, "detail": f"{len(contacts)} contacts, {with_email} with email"})
-    except:
+    except Exception:
         factors.append({"name": "CRM Contacts", "score": 0, "max": 15, "detail": "No data"})
     
     grade = "A+" if score >= 90 else "A" if score >= 80 else "B" if score >= 65 else "C" if score >= 50 else "D" if score >= 35 else "F"
@@ -488,7 +488,7 @@ def api_competitor_price_intel():
             data["avg_price_diff_pct"] = round(sum(diffs) / len(diffs), 1) if diffs else None
             data["total_encounters"] = data["won_against"] + data["lost_to"]
             data["win_rate_vs"] = round(data["won_against"] / data["total_encounters"] * 100, 1) if data["total_encounters"] > 0 else None
-    except:
+    except Exception:
         pass
     
     return jsonify({"ok": True, **intel})
@@ -506,7 +506,7 @@ def api_email_queue_status():
     try:
         with open(outbox_path) as f:
             outbox = json.load(f)
-    except:
+    except Exception:
         outbox = []
     
     if isinstance(outbox, dict):
@@ -563,7 +563,7 @@ def api_vendor_performance():
                         domain = url.split("/")[2] if "/" in url and len(url.split("/")) > 2 else url
                         domain = domain.replace("www.", "")
                         vendors[domain]["avg_markup"].append(markup)
-    except:
+    except Exception:
         pass
     
     result = []
@@ -615,7 +615,7 @@ def api_smart_notifications():
                     "action_url": f"/rfq/{rid}",
                     "action_label": "Open RFQ"
                 })
-    except: pass
+    except Exception: pass
     
     # Check email drafts needing review
     outbox_path = os.path.join(DATA_DIR, "outbox.json")
@@ -632,7 +632,7 @@ def api_smart_notifications():
                 "action_url": "/outbox",
                 "action_label": "Review Drafts"
             })
-    except: pass
+    except Exception: pass
     
     # Check follow-ups due
     fu_path = os.path.join(DATA_DIR, "follow_up_state.json")
@@ -649,7 +649,7 @@ def api_smart_notifications():
                 "action_url": "/follow-up",
                 "action_label": "View Follow-Ups"
             })
-    except: pass
+    except Exception: pass
     
     # Sort by severity
     sev_order = {"high": 0, "medium": 1, "low": 2}
@@ -684,7 +684,7 @@ def api_agency_leaderboard():
             agencies[agency]["rfqs"] += 1
             if (r.get("status") or "").lower() in ("sent", "quoted"):
                 agencies[agency]["quotes"] += 1
-    except: pass
+    except Exception: pass
     
     try:
         with open(orders_path) as f:
@@ -693,7 +693,7 @@ def api_agency_leaderboard():
             agency = o.get("institution") or o.get("agency") or "Unknown"
             agencies[agency]["orders"] += 1
             agencies[agency]["revenue"] += o.get("total", 0)
-    except: pass
+    except Exception: pass
     
     result = [{"agency": k, **v} for k, v in agencies.items()]
     result.sort(key=lambda x: x["revenue"], reverse=True)
@@ -737,7 +737,7 @@ def api_product_search():
                     "times_quoted": p.get("times_quoted", 0),
                     "category": p.get("category", ""),
                 })
-    except: pass
+    except Exception: pass
     
     results.sort(key=lambda x: x.get("times_quoted", 0), reverse=True)
     
@@ -757,7 +757,7 @@ def api_pipeline_velocity():
     try:
         with open(rfqs_path) as f:
             rfqs = json.load(f)
-    except:
+    except Exception:
         return jsonify({"ok": True, "message": "No RFQ data", "avg_days_to_quote": None})
     
     quote_times = []
@@ -774,7 +774,7 @@ def api_pipeline_velocity():
                 days = (s - c).days
                 if 0 <= days <= 90:
                     quote_times.append(days)
-            except: pass
+            except Exception: pass
     
     avg_quote_days = round(sum(quote_times) / len(quote_times), 1) if quote_times else None
     
@@ -836,7 +836,7 @@ def api_pricing_suggestion():
                 })
         
         suggestions.sort(key=lambda x: x.get("current_margin", 50))
-    except: pass
+    except Exception: pass
     
     return jsonify({
         "ok": True,

@@ -864,7 +864,7 @@ def get_quote(quote_number: str) -> dict | None:
     for field in ("items_detail", "ship_to_address"):
         if d.get(field):
             try: d[field] = json.loads(d[field])
-            except: pass
+            except Exception: pass
     return d
 
 
@@ -885,7 +885,7 @@ def get_all_quotes_db(status: str = None, limit: int = 500) -> list:
         for field in ("items_detail", "ship_to_address"):
             if d.get(field):
                 try: d[field] = json.loads(d[field])
-                except: pass
+                except Exception: pass
         result.append(d)
     return result
 
@@ -1104,7 +1104,7 @@ def get_contact_activity(contact_id: str, limit: int = 100) -> list:
         d = dict(r)
         if d.get("metadata"):
             try: d["metadata"] = json.loads(d["metadata"])
-            except: pass
+            except Exception: pass
         result.append(d)
     return result
 

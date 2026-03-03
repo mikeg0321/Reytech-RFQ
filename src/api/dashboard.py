@@ -3903,6 +3903,7 @@ def _force_recapture():
 # Deep Email Diagnostic — trace every email through the pipeline
 # ═══════════════════════════════════════════════════════════════════════
 @bp.route("/api/email-trace")
+@auth_required
 def api_email_trace():
     """Show processed UIDs state and allow nuclear clear."""
     global _shared_poller
@@ -4010,6 +4011,7 @@ def api_email_trace():
 
 
 @bp.route("/api/disk-cleanup")
+@auth_required
 def api_disk_cleanup():
     """Show disk usage and clean old upload files."""
     import shutil

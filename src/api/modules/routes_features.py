@@ -41,7 +41,7 @@ def api_qb_sync_customers():
         try:
             with open(crm_path) as f:
                 crm = json.load(f)
-        except:
+        except Exception:
             crm = {"contacts": []}
 
         existing_emails = {c.get("email", "").lower() for c in crm.get("contacts", []) if c.get("email")}
@@ -94,7 +94,7 @@ def api_qb_collection_alerts():
             try:
                 due = datetime.strptime(due_str, "%Y-%m-%d")
                 days_late = (now - due).days
-            except:
+            except Exception:
                 days_late = 0
             amount = float(inv.get("Balance", inv.get("TotalAmt", 0)))
             cust = inv.get("CustomerRef", {}).get("name", "Unknown")
@@ -139,7 +139,7 @@ def api_qb_cash_flow():
             try:
                 due = datetime.strptime(due_str, "%Y-%m-%d")
                 days_until = (due - now).days
-            except:
+            except Exception:
                 days_until = 30
             if days_until <= 30:
                 inflows.append({"source": f"Invoice #{inv.get('DocNumber', '?')}", "amount": amount,
@@ -156,7 +156,7 @@ def api_qb_cash_flow():
                 row = cur.fetchone()
                 pipeline_value = float(row[0] or 0)
                 conn.close()
-            except:
+            except Exception:
                 pass
 
         total_expected = sum(i["amount"] for i in inflows)
@@ -270,7 +270,7 @@ def api_qb_revenue_by_month():
             try:
                 dt = datetime.strptime(date_str, "%Y-%m-%d")
                 key = dt.strftime("%Y-%m")
-            except:
+            except Exception:
                 continue
             monthly[key] += float(p.get("TotalAmt", 0))
         result = [{"month": k, "revenue": round(v, 2)} for k, v in sorted(monthly.items())]
@@ -459,7 +459,7 @@ def api_pipeline_stale_quotes():
             created = q["created_date"] or ""
             try:
                 days_old = (datetime.now() - datetime.strptime(created[:10], "%Y-%m-%d")).days
-            except:
+            except Exception:
                 days_old = 0
             stale.append({
                 "quote": q["quote_number"], "institution": q["institution"],
@@ -494,7 +494,7 @@ def api_pipeline_follow_up_queue():
             sent = q["sent_date"] or q["created_date"] or ""
             try:
                 days = (datetime.now() - datetime.strptime(sent[:10], "%Y-%m-%d")).days
-            except:
+            except Exception:
                 days = 0
             priority = "🔴 HIGH" if days > 7 and float(q["total"] or 0) > 1000 else "🟡 MEDIUM" if days > 3 else "🟢 LOW"
             queue.append({
@@ -539,10 +539,10 @@ def api_pipeline_revenue_goal():
                 try:
                     dt = datetime.strptime(row[0][:10], "%Y-%m-%d")
                     monthly_data[dt.strftime("%Y-%m")] += float(row[1])
-                except:
+                except Exception:
                     pass
             conn.close()
-        except:
+        except Exception:
             pass
 
     pct = (won_total / goal * 100) if goal else 0
@@ -754,7 +754,7 @@ def api_system_dashboard():
                 st = os.statvfs("/")
                 disk_info = {"total_gb": round(st.f_blocks * st.f_frsize / (1024**3), 1),
                              "free_gb": round(st.f_bavail * st.f_frsize / (1024**3), 1)}
-            except:
+            except Exception:
                 disk_info = {"note": "psutil not available"}
             mem_info = {"note": "psutil not available"}
 
@@ -799,7 +799,7 @@ def api_system_error_log():
                     lower = line.lower()
                     if "error" in lower or "exception" in lower or "traceback" in lower:
                         errors.append({"file": os.path.basename(path), "line": line.strip()[:200]})
-            except:
+            except Exception:
                 pass
 
     # Check QA history for failures
@@ -812,7 +812,7 @@ def api_system_error_log():
             for run in recent:
                 if isinstance(run, dict) and run.get("score", 100) < 70:
                     errors.append({"file": "qa_history", "line": f"QA score {run.get('score')}: {run.get('grade', '?')}"})
-        except:
+        except Exception:
             pass
 
     return jsonify({"ok": True, "errors": errors[-30:], "count": len(errors)})
@@ -977,7 +977,7 @@ def api_data_quality_missing_data():
             if no_total: issues.append({"type": "quotes", "issue": f"{no_total} quotes with $0 total"})
             if no_inst: issues.append({"type": "quotes", "issue": f"{no_inst} quotes missing institution"})
             if no_items: issues.append({"type": "quotes", "issue": f"{no_items} quotes with no line items"})
-        except:
+        except Exception:
             pass
 
     # Check CRM contacts
@@ -991,7 +991,7 @@ def api_data_quality_missing_data():
             no_phone = sum(1 for c in contacts if not c.get("phone"))
             if no_email: issues.append({"type": "crm", "issue": f"{no_email} contacts missing email"})
             if no_phone: issues.append({"type": "crm", "issue": f"{no_phone} contacts missing phone"})
-        except:
+        except Exception:
             pass
 
     return jsonify({"ok": True, "issues": issues, "count": len(issues)})
@@ -1125,13 +1125,13 @@ def api_dashboard_kpis():
         try:
             kpis["total_rfqs"] = conn.execute("SELECT COUNT(*) FROM rfqs").fetchone()[0]
             kpis["new_rfqs"] = conn.execute("SELECT COUNT(*) FROM rfqs WHERE status='new'").fetchone()[0]
-        except:
+        except Exception:
             kpis["total_rfqs"] = 0
             kpis["new_rfqs"] = 0
         # Contacts
         try:
             kpis["crm_contacts"] = conn.execute("SELECT COUNT(*) FROM contacts").fetchone()[0]
-        except:
+        except Exception:
             kpis["crm_contacts"] = 0
         # Win rate
         won_count = conn.execute("SELECT COUNT(*) FROM quotes WHERE status='won'").fetchone()[0]
@@ -1218,7 +1218,7 @@ def api_system_metrics():
             disk = psutil.disk_usage("/")
             metrics["disk_used_gb"] = round(disk.used / 1024 / 1024 / 1024, 1)
             metrics["disk_total_gb"] = round(disk.total / 1024 / 1024 / 1024, 1)
-        except:
+        except Exception:
             pass
     # Count data files
     data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
@@ -1227,7 +1227,7 @@ def api_system_metrics():
         metrics["data_files"] = len(files)
         total_size = sum(os.path.getsize(os.path.join(data_dir, f)) for f in files if os.path.isfile(os.path.join(data_dir, f)))
         metrics["data_size_mb"] = round(total_size / 1024 / 1024, 2)
-    except:
+    except Exception:
         pass
     return jsonify(metrics)
 
@@ -1249,7 +1249,7 @@ def api_system_recent_errors_trace():
                     errors = data[-20:]
                 elif isinstance(data, dict):
                     errors = data.get("errors", [])[-20:]
-    except:
+    except Exception:
         pass
     # Also check QA reports for failures
     qa_file = os.path.join(log_dir, "qa_reports.json")
@@ -1263,7 +1263,7 @@ def api_system_recent_errors_trace():
                     for r in latest.get("results", []):
                         if r.get("status") == "fail":
                             qa_errors.append({"source": "qa", "test": r.get("test"), "message": r.get("message"), "fix": r.get("fix")})
-    except:
+    except Exception:
         pass
     return jsonify({"ok": True, "errors": errors, "qa_failures": qa_errors,
                      "total": len(errors), "qa_total": len(qa_errors)})
@@ -1286,7 +1286,7 @@ def api_agents_health_sweep():
     try:
         from src.agents.quickbooks_agent import is_configured, get_access_token
         results["quickbooks"] = {"configured": is_configured(), "has_token": bool(get_access_token()) if is_configured() else False}
-    except:
+    except Exception:
         results["quickbooks"] = {"configured": False, "error": "module unavailable"}
     # Test each
     for name, check in endpoints.items():
@@ -1328,7 +1328,7 @@ def api_catalog_price_history():
             ph = json.loads(item.get("price_history", "[]"))
             if isinstance(ph, list):
                 history = ph
-        except:
+        except Exception:
             pass
         conn.close()
         return jsonify({"ok": True, "item": item.get("description", ""),
@@ -1405,7 +1405,7 @@ def api_workflow_history():
             with open(wf_file) as f:
                 runs = json.load(f)
                 history = runs[-20:] if isinstance(runs, list) else []
-    except:
+    except Exception:
         pass
     return jsonify({"ok": True, "runs": history, "count": len(history)})
 
@@ -1442,7 +1442,7 @@ def api_agent_favorites():
         try:
             with open(fav_file, "w") as f:
                 json.dump(_favorites, f)
-        except:
+        except Exception:
             pass
         return jsonify({"ok": True, "favorites": _favorites})
     # GET
@@ -1451,7 +1451,7 @@ def api_agent_favorites():
         try:
             with open(fav_file) as f:
                 _favorites = json.load(f)
-        except:
+        except Exception:
             pass
     return jsonify({"ok": True, "favorites": _favorites})
 
@@ -1473,7 +1473,7 @@ def api_diagnostic_sweep():
         for t in tables[:20]:
             try:
                 counts[t] = conn.execute(f"SELECT COUNT(*) FROM [{t}]").fetchone()[0]
-            except:
+            except Exception:
                 counts[t] = "error"
         results["checks"]["row_counts"] = counts
         conn.close()
@@ -1512,7 +1512,7 @@ def api_diagnostic_sweep():
             "has_realm_id": bool(tokens.get("realm_id")),
             "connected_at": tokens.get("connected_at", ""),
         }
-    except:
+    except Exception:
         results["checks"]["quickbooks"] = {"configured": False, "error": "module unavailable"}
     
     # Summary

@@ -2468,7 +2468,7 @@ def api_generate_obs1600(rid):
             if isinstance(items, str):
                 import json as _json
                 try: items = _json.loads(items)
-                except: items = []
+                except Exception: items = []
         
         # Classify food items
         food_items = get_food_items_for_obs1600(items)
@@ -2536,7 +2536,7 @@ def api_generate_obs1600(rid):
                                             bid_pkg = m
                                             break
                                 if bid_pkg: break
-                        except:
+                        except Exception:
                             pass
                         if bid_pkg: break
                     if bid_pkg: break
@@ -2724,7 +2724,7 @@ def api_fill_bid_package(rid):
             if isinstance(items, str):
                 import json as _json
                 try: items = _json.loads(items)
-                except: items = []
+                except Exception: items = []
         
         # Find template
         bid_pkg = None

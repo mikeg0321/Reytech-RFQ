@@ -726,10 +726,10 @@ def _load_settings():
                         settings[k] = v.lower() in ("true", "1", "yes")
                     elif isinstance(orig, int):
                         try: settings[k] = int(v)
-                        except: pass
+                        except Exception: pass
                     elif isinstance(orig, float):
                         try: settings[k] = float(v)
-                        except: pass
+                        except Exception: pass
                     else:
                         settings[k] = v
                 else:

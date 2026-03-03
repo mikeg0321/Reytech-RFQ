@@ -58,13 +58,13 @@ def api_qb_customer_health():
                         d2 = datetime.strptime(due, "%Y-%m-%d")
                         days = (d2 - d1).days
                         cust_stats[cid]["avg_days_to_pay"].append(max(days, 0))
-                    except:
+                    except Exception:
                         pass
             elif due:
                 try:
                     if datetime.strptime(due, "%Y-%m-%d") < datetime.now():
                         cust_stats[cid]["overdue"] += 1
-                except:
+                except Exception:
                     pass
 
         # Score each customer
@@ -144,7 +144,7 @@ def api_qb_customer_ltv():
                 span_months = max((last - first).days / 30, 1)
                 monthly_avg = d["revenue"] / span_months
                 annual_projected = monthly_avg * 12
-            except:
+            except Exception:
                 annual_projected = d["revenue"]
 
             results.append({
@@ -197,21 +197,21 @@ def api_pipeline_sales_velocity():
                     d1 = datetime.fromisoformat(created[:19])
                     d2 = datetime.fromisoformat(r["quoted_at"][:19])
                     metrics["days_to_quote"].append((d2 - d1).days)
-                except: pass
+                except Exception: pass
             if r["sent_at"]:
                 metrics["sent"] += 1
                 try:
                     d1 = datetime.fromisoformat(created[:19])
                     d2 = datetime.fromisoformat(r["sent_at"][:19])
                     metrics["days_to_send"].append((d2 - d1).days)
-                except: pass
+                except Exception: pass
             if r["won_at"]:
                 metrics["won"] += 1
                 try:
                     d1 = datetime.fromisoformat(created[:19])
                     d2 = datetime.fromisoformat(r["won_at"][:19])
                     metrics["days_to_close"].append((d2 - d1).days)
-                except: pass
+                except Exception: pass
             if r["lost_at"]:
                 metrics["lost"] += 1
 
@@ -485,7 +485,7 @@ def api_quotes_auto_follow_up():
             try:
                 sent = datetime.fromisoformat(r["sent_at"][:19])
                 days_since = (datetime.now() - sent).days
-            except: pass
+            except Exception: pass
 
             urgency = "high" if days_since > 7 else "medium" if days_since > 4 else "low"
             needs_follow_up.append({
@@ -539,7 +539,7 @@ def api_quotes_expiring():
                                 "days_left": days_left,
                                 "status": "expired" if days_left < 0 else "expiring_soon"
                             })
-                except:
+                except Exception:
                     pass
 
         expiring.sort(key=lambda x: x["days_left"])
@@ -651,7 +651,7 @@ def api_dashboard_morning_brief():
                 "collected_30d": ctx.get("total_collected", 0),
                 "open_invoices": ctx.get("open_invoices", 0)
             }
-    except:
+    except Exception:
         pass
 
     # Price alerts count
@@ -664,7 +664,7 @@ def api_dashboard_morning_brief():
                 "total_products": len(cat.get("products", [])),
                 "with_pricing": sum(1 for p in cat.get("products", []) if p.get("avg_sell_price"))
             }
-    except:
+    except Exception:
         pass
 
     # Outreach stats
@@ -678,7 +678,7 @@ def api_dashboard_morning_brief():
                              if e.get("status") == "sent" and
                              e.get("follow_up_date", "") <= datetime.now().strftime("%Y-%m-%d"))
             brief["sections"]["outreach"] = {"sent": sent, "follow_ups_due": follow_ups}
-    except:
+    except Exception:
         pass
 
     # Actions needed
@@ -730,7 +730,7 @@ def api_pipeline_po_match():
             from src.agents.quickbooks_agent import get_recent_purchase_orders, is_configured
             if is_configured():
                 po_list = get_recent_purchase_orders(days_back=90) or []
-        except:
+        except Exception:
             pass
 
         matches = []
@@ -899,7 +899,7 @@ def api_catalog_reorder_alerts():
             if last_seen:
                 try:
                     days_since = (datetime.now() - datetime.fromisoformat(last_seen[:19])).days
-                except: pass
+                except Exception: pass
 
             # Frequently quoted but not seen recently = may need re-quote
             if days_since > 30 and quoted >= 3:
@@ -976,7 +976,7 @@ def api_system_heartbeat():
                                                 "configured": True}
         else:
             results["systems"]["quickbooks"] = {"status": "not_configured"}
-    except:
+    except Exception:
         results["systems"]["quickbooks"] = {"status": "unavailable"}
 
     # Email
@@ -984,7 +984,7 @@ def api_system_heartbeat():
         results["systems"]["email"] = {
             "status": "configured" if os.environ.get("EMAIL_USER") else "not_configured"
         }
-    except:
+    except Exception:
         pass
 
     all_ok = all(s.get("status") in ("ok", "connected", "configured") for s in results["systems"].values())

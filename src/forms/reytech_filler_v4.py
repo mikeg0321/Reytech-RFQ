@@ -383,7 +383,7 @@ def fill_obs1600_fields(rfq_data, config, food_items=None):
     if isinstance(items, str):
         import json as _json
         try: items = _json.loads(items)
-        except: items = []
+        except Exception: items = []
     
     # Collect food items (just detect food vs non-food, no category classification needed)
     if food_items is None:

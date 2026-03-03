@@ -77,7 +77,7 @@ except ImportError:
     def _load_json(p):
         try:
             with open(p) as f: return json.load(f)
-        except: return []
+        except Exception: return []
     def _save_json(p, d):
         os.makedirs(os.path.dirname(p), exist_ok=True)
         with open(p, "w") as f: json.dump(d, f, indent=2, default=str)
@@ -400,7 +400,7 @@ def _score_buyers(buyers):
                 if days < 90: score += 5
                 elif days < 180: score += 3
                 elif days < 365: score += 1
-            except: pass
+            except Exception: pass
 
         b["opportunity_score"] = score
 
@@ -591,7 +591,7 @@ def update_revenue_tracker() -> dict:
             quotes_revenue = sum(q.get("total", 0) for q in won)
         else:
             quotes_revenue = 0
-    except:
+    except Exception:
         quotes_revenue = 0
 
     # Also check SQLite quotes for won totals
@@ -614,7 +614,7 @@ def update_revenue_tracker() -> dict:
             ctx = get_financial_context()
             if ctx.get("ok"):
                 qb_revenue = ctx.get("total_collected", 0)
-    except:
+    except Exception:
         pass
 
     # Manual entries
@@ -627,7 +627,7 @@ def update_revenue_tracker() -> dict:
                           if q.get("status") in ("pending", "sent") and not q.get("is_test"))
         else:
             pipeline = 0
-    except:
+    except Exception:
         pipeline = 0
 
     # SQLite pipeline (more accurate than stale JSON)
