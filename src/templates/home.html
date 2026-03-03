@@ -81,32 +81,95 @@ fetch('/api/dashboard/init').then(r=>r.json()).then(d=>{
 
 <!-- ═══ Work Queues — Primary Bento Row ═══ -->
 <style>
-/* Fix dismiss dropdowns getting clipped by overflow scroll containers */
-.dismiss-popup {
+/* Global dismiss popup — rendered on body, outside table */
+#global-dismiss-popup {
   display:none;position:fixed;background:var(--sf2);border:1px solid var(--bd);
-  border-radius:6px;padding:4px 0;min-width:180px;z-index:9999;
-  box-shadow:0 4px 12px rgba(0,0,0,.3);
+  border-radius:8px;padding:6px 0;min-width:200px;z-index:99999;
+  box-shadow:0 8px 24px rgba(0,0,0,.4);
 }
+#global-dismiss-popup button {
+  display:block;width:100%;text-align:left;padding:8px 14px;font-size:13px;
+  background:none;border:none;color:var(--tx1);cursor:pointer;white-space:nowrap;
+}
+#global-dismiss-popup button:hover { background:rgba(79,140,255,.15); }
 </style>
+<!-- Global dismiss popup (lives outside tables) -->
+<div id="global-dismiss-popup">
+ <div style="padding:6px 14px;font-size:11px;color:var(--tx2);font-weight:700;text-transform:uppercase;letter-spacing:.5px">Dismiss reason</div>
+ <button onclick="doDismiss('cs_question')">CS / Admin Question</button>
+ <button onclick="doDismiss('no_response')">Reytech Did Not Respond</button>
+ <button onclick="doDismiss('not_responding')">Customer Not Responding</button>
+ <button onclick="doDismiss('duplicate')">Duplicate</button>
+ <button onclick="doDismiss('other')">Other</button>
+ <div style="border-top:1px solid var(--bd);margin:4px 0"></div>
+ <button onclick="doDismiss('delete')" style="color:#f85149">🗑 Permanently Delete</button>
+</div>
 <script>
-function toggleDismiss(btn, e) {
+// Global dismiss state
+var _dismissType = '';
+var _dismissId = '';
+var _dismissRow = null;
+
+function showDismissMenu(type, id, btn, e) {
   e.stopPropagation();
-  var popup = btn.nextElementSibling;
-  var isOpen = popup.style.display === 'block';
-  // Close all other open popups first
-  document.querySelectorAll('.dismiss-popup').forEach(function(p){ p.style.display='none'; });
-  if (isOpen) { popup.style.display='none'; return; }
-  // Position fixed relative to button
+  e.preventDefault();
+  _dismissType = type;
+  _dismissId = id;
+  _dismissRow = (type === 'pc') ? document.getElementById('pc-row-' + id) : btn.closest('tr');
+  var popup = document.getElementById('global-dismiss-popup');
   var rect = btn.getBoundingClientRect();
-  popup.style.display='block';
+  popup.style.display = 'block';
+  popup.style.top = (rect.bottom + 4) + 'px';
+  // Position from right edge
   popup.style.right = (window.innerWidth - rect.right) + 'px';
-  popup.style.top = (rect.bottom + 2) + 'px';
   popup.style.left = 'auto';
 }
-// Close popups on outside click
+
+function doDismiss(reason) {
+  var popup = document.getElementById('global-dismiss-popup');
+  popup.style.display = 'none';
+  if (!_dismissType || !_dismissId) return;
+  if (reason === 'delete') {
+    if (!confirm('Permanently delete this ' + (_dismissType==='pc'?'Price Check':'RFQ') + '? This cannot be undone.')) return;
+  }
+  var endpoint = _dismissType === 'pc'
+    ? '/api/pricecheck/' + _dismissId + '/dismiss'
+    : '/api/rfq/' + _dismissId + '/dismiss';
+  console.log('Dismiss:', _dismissType, _dismissId, reason, endpoint);
+  fetch(endpoint, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({reason: reason})
+  })
+  .then(function(r) {
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  })
+  .then(function(d) {
+    console.log('Dismiss result:', d);
+    if (d.ok) {
+      if (_dismissRow) {
+        _dismissRow.style.transition = 'opacity .3s';
+        _dismissRow.style.opacity = '0';
+        setTimeout(function(){ _dismissRow.remove(); }, 300);
+      } else {
+        location.reload();
+      }
+    } else {
+      alert('Failed: ' + (d.error || 'unknown'));
+    }
+  })
+  .catch(function(err) {
+    console.error('Dismiss error:', err);
+    alert('Dismiss failed: ' + err.message);
+  });
+}
+
+// Close popup on outside click
 document.addEventListener('click', function(e) {
-  if (!e.target.closest('.dismiss-wrap')) {
-    document.querySelectorAll('.dismiss-popup').forEach(function(p){ p.style.display='none'; });
+  if (!e.target.closest('#global-dismiss-popup') && !e.target.closest('.dismiss-x-btn')) {
+    document.getElementById('global-dismiss-popup').style.display = 'none';
   }
 });
 </script>
@@ -152,19 +215,7 @@ document.addEventListener('click', function(e) {
      <td style="text-align:center"><span class="badge b-{{pc.status}}">{{pc.status}}</span></td>
      <td style="text-align:center" onclick="event.stopPropagation()">
       <button onclick="openQP('pc','{{id}}',event)" title="Quick Price" style="background:rgba(52,211,153,.08);border:1px solid rgba(52,211,153,.2);color:#3fb950;cursor:pointer;font-size:10px;padding:2px 6px;border-radius:4px;font-weight:600;margin-right:2px" onmouseover="this.style.background='rgba(52,211,153,.2)'" onmouseout="this.style.background='rgba(52,211,153,.08)'">⚡</button>
-      <div style="position:relative;display:inline-block" class="dismiss-wrap">
-       <button onclick="toggleDismiss(this,event)" title="Dismiss this Price Check" style="background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.2);color:#f85149;cursor:pointer;font-size:10px;padding:2px 6px;border-radius:4px;font-weight:600" onmouseover="this.style.background='rgba(248,81,73,.2)'" onmouseout="this.style.background='rgba(248,81,73,.08)'">✕</button>
-       <div class="dismiss-popup">
-        <div style="padding:4px 10px;font-size:10px;color:var(--tx2);font-weight:600;text-transform:uppercase;letter-spacing:.5px">Dismiss reason</div>
-        <button onclick="dismissItem(event,'pc','{{id}}','cs_question',this)" class="dismiss-opt">CS / Admin Question</button>
-        <button onclick="dismissItem(event,'pc','{{id}}','no_response',this)" class="dismiss-opt">Reytech Did Not Respond</button>
-        <button onclick="dismissItem(event,'pc','{{id}}','not_responding',this)" class="dismiss-opt">Customer Not Responding</button>
-        <button onclick="dismissItem(event,'pc','{{id}}','duplicate',this)" class="dismiss-opt">Duplicate</button>
-        <button onclick="dismissItem(event,'pc','{{id}}','other',this)" class="dismiss-opt">Other</button>
-        <div style="border-top:1px solid var(--bd);margin:4px 0"></div>
-        <button onclick="dismissItem(event,'pc','{{id}}','delete',this)" class="dismiss-opt" style="color:#f85149">🗑 Permanently Delete</button>
-       </div>
-      </div>
+      <button class="dismiss-x-btn" onclick="showDismissMenu('pc','{{id}}',this,event)" title="Dismiss this Price Check" style="background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.2);color:#f85149;cursor:pointer;font-size:10px;padding:2px 6px;border-radius:4px;font-weight:600" onmouseover="this.style.background='rgba(248,81,73,.2)'" onmouseout="this.style.background='rgba(248,81,73,.08)'">✕</button>
      </td>
     </tr>
     {% endfor %}
@@ -218,19 +269,7 @@ document.addEventListener('click', function(e) {
      <td style="text-align:center" class="mono">{{r.line_items|length}}</td>
      <td style="text-align:center"><span class="badge b-{{r.status}}">{{r.status}}</span></td>
      <td style="text-align:center" onclick="event.stopPropagation()">
-      <div style="position:relative;display:inline-block" class="dismiss-wrap">
-       <button onclick="toggleDismiss(this,event)" title="Dismiss this RFQ" style="background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.2);color:#f85149;cursor:pointer;font-size:10px;padding:2px 6px;border-radius:4px;font-weight:600" onmouseover="this.style.background='rgba(248,81,73,.2)'" onmouseout="this.style.background='rgba(248,81,73,.08)'">✕</button>
-       <div class="dismiss-popup">
-        <div style="padding:4px 10px;font-size:10px;color:var(--tx2);font-weight:600;text-transform:uppercase;letter-spacing:.5px">Dismiss reason</div>
-        <button onclick="dismissItem(event,'rfq','{{id}}','cs_question',this)" class="dismiss-opt">CS / Admin Question</button>
-        <button onclick="dismissItem(event,'rfq','{{id}}','no_response',this)" class="dismiss-opt">Reytech Did Not Respond</button>
-        <button onclick="dismissItem(event,'rfq','{{id}}','not_responding',this)" class="dismiss-opt">Customer Not Responding</button>
-        <button onclick="dismissItem(event,'rfq','{{id}}','duplicate',this)" class="dismiss-opt">Duplicate</button>
-        <button onclick="dismissItem(event,'rfq','{{id}}','other',this)" class="dismiss-opt">Other</button>
-        <div style="border-top:1px solid var(--bd);margin:4px 0"></div>
-        <button onclick="dismissItem(event,'rfq','{{id}}','delete',this)" class="dismiss-opt" style="color:#f85149">🗑 Permanently Delete</button>
-       </div>
-      </div>
+      <button class="dismiss-x-btn" onclick="showDismissMenu('rfq','{{id}}',this,event)" title="Dismiss this RFQ" style="background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.2);color:#f85149;cursor:pointer;font-size:10px;padding:2px 6px;border-radius:4px;font-weight:600" onmouseover="this.style.background='rgba(248,81,73,.2)'" onmouseout="this.style.background='rgba(248,81,73,.08)'">✕</button>
      </td>
     </tr>
     {% endfor %}
@@ -484,67 +523,8 @@ document.querySelectorAll('details').forEach(d=>{
     }
 
     // ── Delete Price Check ─────────────────────────────────────────────────
-    // Close dismiss dropdowns when clicking outside
-    document.addEventListener('click', function(e) {
-      if (!e.target.closest('.dismiss-wrap')) {
-        document.querySelectorAll('.dismiss-wrap > div:last-child').forEach(function(d){ d.style.display='none'; });
-      }
-    });
 
-    function dismissItem(e, type, id, reason, btn) {
-      if(e && e.stopPropagation) e.stopPropagation();
-      if(e && e.preventDefault) e.preventDefault();
-      if (reason === 'delete') {
-        if (!confirm('Permanently delete this ' + (type==='pc'?'Price Check':'RFQ') + '? This cannot be undone.')) return;
-      }
-      // Close popup immediately
-      document.querySelectorAll('.dismiss-popup').forEach(function(p){ p.style.display='none'; });
-      
-      // Disable all buttons in this dropdown
-      var wrap = btn ? btn.closest('.dismiss-wrap') : null;
-      if(wrap) wrap.querySelectorAll('button').forEach(function(b){ b.disabled=true; b.style.opacity='.5'; });
-      
-      var endpoint = type === 'pc' 
-        ? '/api/pricecheck/' + id + '/dismiss'
-        : '/api/rfq/' + id + '/dismiss';
-      
-      console.log('Dismiss:', type, id, reason, endpoint);
-      
-      fetch(endpoint, {
-        method: 'POST', 
-        credentials: 'same-origin',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({reason: reason})
-      })
-      .then(function(r){ 
-        if(!r.ok) throw new Error('HTTP ' + r.status);
-        return r.json(); 
-      })
-      .then(function(d) {
-        console.log('Dismiss result:', d);
-        if (d.ok) {
-          var row = type === 'pc' 
-            ? document.getElementById('pc-row-' + id)
-            : (btn ? btn.closest('tr') : null);
-          if (row) {
-            row.style.transition = 'opacity .3s';
-            row.style.opacity = '0';
-            setTimeout(function(){ row.remove(); }, 300);
-          } else {
-            // Fallback: reload page
-            setTimeout(function(){ location.reload(); }, 200);
-          }
-        } else {
-          alert('Failed: ' + (d.error || 'unknown'));
-          if(wrap) wrap.querySelectorAll('button').forEach(function(b){ b.disabled=false; b.style.opacity='1'; });
-        }
-      })
-      .catch(function(err){ 
-        console.error('Dismiss error:', err);
-        alert('Dismiss failed: ' + err.message);
-        if(wrap) wrap.querySelectorAll('button').forEach(function(b){ b.disabled=false; b.style.opacity='1'; }); 
-      });
-    }
+    // dismissItem replaced by global doDismiss()
 
     // E11: Bulk Action Functions
     function toggleAllChecks(type, master){
