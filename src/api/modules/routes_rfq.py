@@ -1795,21 +1795,33 @@ def api_quote_regenerate(qn):
 def api_rfq_dismiss(rid):
     """Dismiss an RFQ from the active queue with a reason.
     Keeps data for SCPRS intelligence. reason=delete does hard delete."""
+    from datetime import datetime
+    import os as _os
+    import json as _jl
+    
     data = request.get_json(force=True) if request.data else {}
     reason = data.get("reason", "other")
     
-    rfqs = load_rfqs()
+    # Load RFQs directly from JSON
+    rfqs_path = _os.path.join(DATA_DIR, "rfqs.json")
+    try:
+        with open(rfqs_path) as f:
+            rfqs = _jl.load(f)
+    except Exception:
+        rfqs = {}
+    
     if rid not in rfqs:
         return jsonify({"ok": False, "error": "RFQ not found"})
     
     # Hard delete path
     if reason == "delete":
         sol = rfqs[rid].get("solicitation_number", "?")
-        email_uid = rfqs[rid].get("email_uid")
-        if email_uid:
-            _remove_processed_uid(email_uid)
         del rfqs[rid]
-        save_rfqs(rfqs)
+        try:
+            with open(rfqs_path, "w") as f:
+                _jl.dump(rfqs, f, indent=2)
+        except Exception as e:
+            log.error("Failed to save rfqs.json: %s", e)
         log.info("Hard deleted RFQ #%s (id=%s)", sol, rid)
         return jsonify({"ok": True, "deleted": rid})
     
@@ -1818,11 +1830,14 @@ def api_rfq_dismiss(rid):
     r["dismiss_reason"] = reason
     r["dismissed_at"] = datetime.now().isoformat()
     rfqs[rid] = r
-    save_rfqs(rfqs)
+    try:
+        with open(rfqs_path, "w") as f:
+            _jl.dump(rfqs, f, indent=2)
+    except Exception as e:
+        log.error("Failed to save rfqs.json: %s", e)
     
     sol = r.get("solicitation_number", "?")
     log.info("RFQ #%s dismissed: reason=%s", sol, reason)
-    _log_rfq_activity(rid, "dismissed", f"RFQ #{sol} dismissed: {reason}", actor="user")
     
     # Queue SCPRS price intelligence on line items (async)
     scprs_queued = False
