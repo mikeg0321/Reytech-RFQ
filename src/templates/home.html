@@ -492,17 +492,23 @@ document.querySelectorAll('details').forEach(d=>{
     });
 
     function dismissItem(e, type, id, reason, btn) {
-      if(e) e.stopPropagation();
+      if(e && e.stopPropagation) e.stopPropagation();
+      if(e && e.preventDefault) e.preventDefault();
       if (reason === 'delete') {
         if (!confirm('Permanently delete this ' + (type==='pc'?'Price Check':'RFQ') + '? This cannot be undone.')) return;
       }
+      // Close popup immediately
+      document.querySelectorAll('.dismiss-popup').forEach(function(p){ p.style.display='none'; });
+      
       // Disable all buttons in this dropdown
-      var wrap = btn.closest('.dismiss-wrap');
-      wrap.querySelectorAll('button').forEach(function(b){ b.disabled=true; b.style.opacity='.5'; });
+      var wrap = btn ? btn.closest('.dismiss-wrap') : null;
+      if(wrap) wrap.querySelectorAll('button').forEach(function(b){ b.disabled=true; b.style.opacity='.5'; });
       
       var endpoint = type === 'pc' 
         ? '/api/pricecheck/' + id + '/dismiss'
         : '/api/rfq/' + id + '/dismiss';
+      
+      console.log('Dismiss:', type, id, reason, endpoint);
       
       fetch(endpoint, {
         method: 'POST', 
@@ -510,28 +516,33 @@ document.querySelectorAll('details').forEach(d=>{
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({reason: reason})
       })
-      .then(function(r){ return r.json(); })
+      .then(function(r){ 
+        if(!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json(); 
+      })
       .then(function(d) {
+        console.log('Dismiss result:', d);
         if (d.ok) {
-          // Fade and remove row
           var row = type === 'pc' 
             ? document.getElementById('pc-row-' + id)
-            : btn.closest('tr');
+            : (btn ? btn.closest('tr') : null);
           if (row) {
             row.style.transition = 'opacity .3s';
             row.style.opacity = '0';
             setTimeout(function(){ row.remove(); }, 300);
-          }
-          if (d.scprs_queued) {
-            console.log('SCPRS price intel queued for dismissed items');
+          } else {
+            // Fallback: reload page
+            setTimeout(function(){ location.reload(); }, 200);
           }
         } else {
           alert('Failed: ' + (d.error || 'unknown'));
-          wrap.querySelectorAll('button').forEach(function(b){ b.disabled=false; b.style.opacity='1'; });
+          if(wrap) wrap.querySelectorAll('button').forEach(function(b){ b.disabled=false; b.style.opacity='1'; });
         }
       })
-      .catch(function(){ 
-        wrap.querySelectorAll('button').forEach(function(b){ b.disabled=false; b.style.opacity='1'; }); 
+      .catch(function(err){ 
+        console.error('Dismiss error:', err);
+        alert('Dismiss failed: ' + err.message);
+        if(wrap) wrap.querySelectorAll('button').forEach(function(b){ b.disabled=false; b.style.opacity='1'; }); 
       });
     }
 

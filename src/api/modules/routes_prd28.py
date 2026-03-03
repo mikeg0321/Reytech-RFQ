@@ -690,10 +690,8 @@ def api_dashboard_init():
 
     # ── 2. Funnel stats ──
     try:
-        from src.api.modules.routes_intel import api_funnel_stats
-        # Call the existing function logic but avoid HTTP overhead
+        from src.api.dashboard import _load_price_checks, load_rfqs, _is_user_facing_pc
         all_pcs = _load_price_checks()
-        from src.api.dashboard import _is_user_facing_pc
         user_pcs = {pid: pc for pid, pc in all_pcs.items() if _is_user_facing_pc(pc)}
         rfqs = load_rfqs()
         rfqs_nt = {k: v for k, v in rfqs.items() if not v.get("is_test")}
@@ -745,7 +743,7 @@ def api_dashboard_init():
 
     # ── 3. Revenue ──
     try:
-        from src.agents.revenue_engine import update_revenue_tracker
+        from src.agents.sales_intel import update_revenue_tracker
         result["revenue"] = update_revenue_tracker()
     except Exception as e:
         result["revenue"] = {"ok": False, "error": str(e)}
