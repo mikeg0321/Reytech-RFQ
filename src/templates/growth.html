@@ -146,6 +146,25 @@
  </div>
 </div>
 
+<!-- V3+: CONVERSION FUNNEL -->
+{% if funnel is defined and funnel %}
+<div class="card">
+ <h3>Conversion Funnel</h3>
+ <div style="display:flex;align-items:flex-end;gap:4px;height:120px;padding:10px 0">
+  {% for stage in funnel %}
+  {% set max_val = funnel[0].count if funnel[0].count > 0 else 1 %}
+  <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px">
+   <div style="font-size:13px;font-weight:700;font-family:'JetBrains Mono',monospace;color:{{ stage.color|default('var(--ac)') }}">{{ stage.count }}</div>
+   <div style="width:100%;background:{{ stage.color|default('var(--ac)') }}22;border-radius:6px 6px 0 0;min-height:8px;height:{{ (stage.count / max_val * 100)|int }}%;transition:.3s">
+    <div style="width:100%;height:100%;background:{{ stage.color|default('var(--ac)') }}40;border-radius:6px 6px 0 0"></div>
+   </div>
+   <div style="font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.3px;text-align:center;line-height:1.2">{{ stage.label|default(stage.name|default('')) }}</div>
+  </div>
+  {% endfor %}
+ </div>
+</div>
+{% endif %}
+
 <!-- V3+: DAILY BRIEF -->
 {% if daily_brief is defined and daily_brief.priorities %}
 <div class="card" style="border-left:3px solid var(--ac)">
@@ -214,6 +233,30 @@
    <div id="template-preview" class="template-preview">Select a template and click Preview to see it with real data.</div>
   </div>
  </div>
+ <!-- Campaign Performance -->
+ {% if campaign_perf is defined and campaign_perf %}
+ <div class="card" style="margin-top:14px">
+  <h3>Campaign Performance</h3>
+  <div style="overflow-x:auto">
+   <table>
+    <thead><tr><th>Campaign</th><th>Template</th><th style="text-align:center">Sent</th><th style="text-align:center">Delivered</th><th style="text-align:center">Responded</th><th style="text-align:center">Delivery %</th><th style="text-align:center">Response %</th></tr></thead>
+    <tbody>
+     {% for cp in campaign_perf[:10] %}
+     <tr>
+      <td style="font-size:13px;color:var(--tx2)" class="mono">{{ cp.campaign_id[:12] }}</td>
+      <td style="font-weight:600">{{ cp.template.replace('_',' ').title() }}</td>
+      <td style="text-align:center" class="mono">{{ cp.sent }}</td>
+      <td style="text-align:center" class="mono">{{ cp.delivered }}</td>
+      <td style="text-align:center" class="mono">{{ cp.responded }}</td>
+      <td style="text-align:center"><span style="padding:2px 8px;border-radius:8px;font-size:13px;font-weight:600;background:{% if cp.delivery_rate >= 90 %}rgba(52,211,153,.15);color:#3fb950{% elif cp.delivery_rate >= 70 %}rgba(251,191,36,.15);color:#fbbf24{% else %}rgba(248,81,73,.15);color:#f85149{% endif %}">{{ cp.delivery_rate }}%</span></td>
+      <td style="text-align:center"><span style="padding:2px 8px;border-radius:8px;font-size:13px;font-weight:600;background:{% if cp.response_rate >= 20 %}rgba(52,211,153,.15);color:#3fb950{% elif cp.response_rate >= 10 %}rgba(251,191,36,.15);color:#fbbf24{% else %}rgba(139,148,158,.15);color:#8b949e{% endif %}">{{ cp.response_rate }}%</span></td>
+     </tr>
+     {% endfor %}
+    </tbody>
+   </table>
+  </div>
+ </div>
+ {% endif %}
 </div>
 
 <!-- TAB: FOLLOW-UPS -->
@@ -384,6 +427,36 @@
    </table>
   </div>
  </div>
+ <!-- Agency Intelligence -->
+ {% if agency_intel is defined and agency_intel.agencies %}
+ <div class="card" style="margin-top:14px">
+  <h3>Agency Intelligence <span style="font-size:14px;font-weight:500;color:var(--tx2);margin-left:8px">({{ agency_intel.agencies|length }} agencies tracked)</span></h3>
+  <div style="overflow-x:auto">
+   <table>
+    <thead><tr><th>Agency</th><th style="text-align:center">Prospects</th><th style="text-align:right">Total Spend</th><th style="text-align:center">Responded</th><th style="text-align:center">Won</th><th>Top Buyer</th><th style="text-align:center">Engagement</th></tr></thead>
+    <tbody>
+     {% for ag in agency_intel.agencies[:20] %}
+     <tr>
+      <td style="font-weight:600;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ ag.agency }}</td>
+      <td style="text-align:center" class="mono">{{ ag.prospect_count }}</td>
+      <td style="text-align:right" class="mono">${{ "{:,.0f}".format(ag.total_spend|default(0)|float) }}</td>
+      <td style="text-align:center" class="mono">{{ ag.responded }}</td>
+      <td style="text-align:center" class="mono">{{ ag.won }}</td>
+      <td style="font-size:13px;color:var(--tx2)">{{ ag.top_buyer|default('--') }}</td>
+      <td style="text-align:center">
+       <span style="padding:2px 8px;border-radius:8px;font-size:12px;font-weight:600;
+        {% if ag.engagement == 'hot' %}background:rgba(248,81,73,.15);color:#f85149
+        {% elif ag.engagement == 'warm' %}background:rgba(251,191,36,.15);color:#fbbf24
+        {% elif ag.engagement == 'active' %}background:rgba(52,211,153,.15);color:#3fb950
+        {% else %}background:rgba(139,148,158,.15);color:#8b949e{% endif %}">{{ ag.engagement|default('cold')|upper }}</span>
+      </td>
+     </tr>
+     {% endfor %}
+    </tbody>
+   </table>
+  </div>
+ </div>
+ {% endif %}
 </div>
 
 <!-- TAB: KANBAN BOARD -->

@@ -1,0 +1,89 @@
+{
+  "standard_outreach": {
+    "name": "Standard Outreach",
+    "description": "3-touch email sequence over 21 days",
+    "steps": [
+      {
+        "day": 0,
+        "action": "email",
+        "template": "initial_outreach",
+        "description": "Initial outreach email"
+      },
+      {
+        "day": 5,
+        "action": "email",
+        "template": "follow_up",
+        "description": "First follow-up (5 days)"
+      },
+      {
+        "day": 14,
+        "action": "email",
+        "template": "second_follow_up",
+        "description": "Second follow-up (14 days)"
+      },
+      {
+        "day": 21,
+        "action": "mark_stale",
+        "template": null,
+        "description": "Mark as stale if no response"
+      }
+    ],
+    "active": true
+  },
+  "reactivation": {
+    "name": "Dormant Customer Reactivation",
+    "description": "2-touch reactivation for past buyers",
+    "steps": [
+      {
+        "day": 0,
+        "action": "email",
+        "template": "past_customer_reactivation",
+        "description": "Reactivation email"
+      },
+      {
+        "day": 10,
+        "action": "email",
+        "template": "follow_up",
+        "description": "Follow-up if no response"
+      },
+      {
+        "day": 21,
+        "action": "mark_stale",
+        "template": null,
+        "description": "Close out"
+      }
+    ],
+    "active": true
+  },
+  "distro_list_push": {
+    "name": "RFQ Distribution List Push",
+    "description": "Focused campaign to get on RFQ lists",
+    "steps": [
+      {
+        "day": 0,
+        "action": "email",
+        "template": "distro_list",
+        "description": "Request RFQ list addition"
+      },
+      {
+        "day": 7,
+        "action": "email",
+        "template": "follow_up",
+        "description": "Follow-up with credentials"
+      },
+      {
+        "day": 14,
+        "action": "sms",
+        "template": "sms_follow_up",
+        "description": "SMS nudge"
+      },
+      {
+        "day": 21,
+        "action": "email",
+        "template": "second_follow_up",
+        "description": "Final email with referral ask"
+      }
+    ],
+    "active": true
+  }
+}

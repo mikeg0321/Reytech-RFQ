@@ -1,0 +1,50 @@
+[
+  {
+    "id": "ga_20260303102335_0",
+    "timestamp": "2026-03-03T10:23:35.636063",
+    "action": "export_pdf",
+    "detail": "PDF report exported: /home/claude/Reytech-RFQ/data/growth_report.pdf",
+    "actor": "user",
+    "metadata": {}
+  },
+  {
+    "id": "ga_20260303102336_1",
+    "timestamp": "2026-03-03T10:23:36.206670",
+    "action": "export_excel",
+    "detail": "Excel report exported: /home/claude/Reytech-RFQ/data/growth_report.xlsx",
+    "actor": "user",
+    "metadata": {}
+  },
+  {
+    "id": "ga_20260303161204_2",
+    "timestamp": "2026-03-03T16:12:04.608108",
+    "action": "auto_tag",
+    "detail": "Tagged 5 prospects",
+    "actor": "user",
+    "metadata": {}
+  },
+  {
+    "id": "ga_20260303162410_3",
+    "timestamp": "2026-03-03T16:24:10.674740",
+    "action": "auto_tag",
+    "detail": "Tagged 0 prospects",
+    "actor": "user",
+    "metadata": {}
+  },
+  {
+    "id": "ga_20260303162410_4",
+    "timestamp": "2026-03-03T16:24:10.965066",
+    "action": "export_pdf",
+    "detail": "PDF report exported: /home/claude/Reytech-RFQ/data/growth_report.pdf",
+    "actor": "user",
+    "metadata": {}
+  },
+  {
+    "id": "ga_20260303162411_5",
+    "timestamp": "2026-03-03T16:24:11.597337",
+    "action": "export_excel",
+    "detail": "Excel report exported: /home/claude/Reytech-RFQ/data/growth_report.xlsx",
+    "actor": "user",
+    "metadata": {}
+  }
+]
