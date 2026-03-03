@@ -2,31 +2,56 @@
 {% block title %}Margins — Reytech{% endblock %}
 
 {% block content %}
-<h2 style="margin-bottom:4px">📊 Margin Calculator</h2>
-<p style="font-size:13px;color:var(--tx2);margin-bottom:16px">Cost vs sell price per item — profitability across all orders</p>
-<div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
-  <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
-    <div style="font-size:28px;font-weight:800;color:var(--gn)">${{ "{:,.0f}".format(total_revenue) }}</div>
-    <div style="font-size:13px;color:var(--tx2)">REVENUE</div></div>
-  <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
-    <div style="font-size:28px;font-weight:800;color:var(--yl)">${{ "{:,.0f}".format(total_cost) }}</div>
-    <div style="font-size:13px;color:var(--tx2)">COSTS</div></div>
-  <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
-    <div style="font-size:28px;font-weight:800;color:var(--gn)">${{ "{:,.0f}".format(total_profit) }}</div>
-    <div style="font-size:13px;color:var(--tx2)">PROFIT</div></div>
-  <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
-    <div style="font-size:28px;font-weight:800;color:{{ 'var(--gn)' if overall_margin > 15 else 'var(--yl)' }}">{{ "%.1f"|format(overall_margin) }}%</div>
-    <div style="font-size:13px;color:var(--tx2)">OVERALL MARGIN</div></div>
-  <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
-    <div style="font-size:28px;font-weight:800;color:var(--ac)">{{ costed }}</div>
-    <div style="font-size:13px;color:var(--tx2)">COSTED ITEMS</div></div>
-  <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
-    <div style="font-size:28px;font-weight:800;color:{{ 'var(--rd)' if negative > 0 else 'var(--gn)' }}">{{ negative }}</div>
-    <div style="font-size:13px;color:var(--tx2)">NEGATIVE MARGIN</div></div>
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px">
+ <div>
+  <h2 style="margin:0;font-size:22px;font-weight:700">📊 Margin Calculator</h2>
+  <div style="font-size:14px;color:var(--tx2);margin-top:4px">Cost vs sell price per item — profitability across all orders</div>
+ </div>
+ <div style="display:flex;gap:8px;align-items:center">
+  <input id="margin-search" placeholder="🔍 Search items, orders..." onkeyup="filterMargins(this.value)" style="padding:8px 14px;background:var(--sf2);border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:14px;width:220px">
+  <a href="/orders" style="font-size:14px;color:var(--ac);text-decoration:none;background:var(--sf2);padding:8px 14px;border-radius:8px;border:1px solid var(--bd)">📦 Orders</a>
+ </div>
 </div>
-<div class="card" style="overflow-x:auto">
- <table class="home-tbl" style="min-width:800px">
-  <thead><tr><th>Order</th><th>Institution</th><th>Item</th><th>Qty</th><th>Sell</th><th>Cost</th><th>Margin</th><th>Profit</th></tr></thead>
+
+<!-- KPI Stats -->
+<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:16px">
+  <div class="card" style="text-align:center;padding:14px;margin:0">
+    <div style="font-size:26px;font-weight:800;color:#3fb950;font-family:'JetBrains Mono',monospace">${{ "{:,.0f}".format(total_revenue) }}</div>
+    <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Revenue</div></div>
+  <div class="card" style="text-align:center;padding:14px;margin:0">
+    <div style="font-size:26px;font-weight:800;color:var(--yl);font-family:'JetBrains Mono',monospace">${{ "{:,.0f}".format(total_cost) }}</div>
+    <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Cost</div></div>
+  <div class="card" style="text-align:center;padding:14px;margin:0">
+    <div style="font-size:26px;font-weight:800;color:#3fb950;font-family:'JetBrains Mono',monospace">${{ "{:,.0f}".format(total_profit) }}</div>
+    <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Profit</div></div>
+  <div class="card" style="text-align:center;padding:14px;margin:0">
+    <div style="font-size:26px;font-weight:800;color:{{ 'var(--gn)' if overall_margin > 15 else 'var(--yl)' }};font-family:'JetBrains Mono',monospace">{{ "%.1f"|format(overall_margin) }}%</div>
+    <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Avg Margin</div></div>
+  <div class="card" style="text-align:center;padding:14px;margin:0">
+    <div style="font-size:26px;font-weight:800;color:var(--ac);font-family:'JetBrains Mono',monospace">{{ costed }}</div>
+    <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Costed Items</div></div>
+  <div class="card" style="text-align:center;padding:14px;margin:0">
+    <div style="font-size:26px;font-weight:800;color:{{ 'var(--rd)' if negative > 0 else 'var(--gn)' }};font-family:'JetBrains Mono',monospace">{{ negative }}</div>
+    <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Negative Margin</div></div>
+</div>
+
+<!-- Margin Health Bar -->
+{% if total_revenue > 0 %}
+<div class="card" style="padding:14px 18px;margin-bottom:14px">
+ <div style="font-size:14px;font-weight:600;color:var(--tx2);margin-bottom:8px">Margin Health</div>
+ <div style="height:10px;background:var(--sf2);border-radius:5px;overflow:hidden">
+  <div style="height:100%;width:{{ [overall_margin * 3, 100] | min }}%;background:{{ 'linear-gradient(90deg, #f85149, #fbbf24)' if overall_margin < 10 else ('linear-gradient(90deg, #fbbf24, #3fb950)' if overall_margin < 20 else 'linear-gradient(90deg, #3fb950, #34d399)') }};border-radius:5px;transition:.3s"></div>
+ </div>
+ <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:13px;color:var(--tx2)">
+  <span>{{ uncosted }} items missing cost data</span>
+  <span>Target: 15-25%</span>
+ </div>
+</div>
+{% endif %}
+
+<div class="card" style="overflow-x:auto;padding:0">
+ <table class="home-tbl" id="margin-table" style="min-width:800px;font-size:15px">
+  <thead><tr><th>Order</th><th>Institution</th><th>Item</th><th style="text-align:right">Qty</th><th style="text-align:right">Sell</th><th style="text-align:right">Cost</th><th style="text-align:right">Margin</th><th style="text-align:right">Profit</th></tr></thead>
   <tbody>
   {% if margin_data %}
     {% for m in margin_data[:50] %}
@@ -35,18 +60,26 @@
      <td style="font-size:14px"><a href="/order/{{ m.order_id }}" style="color:var(--ac)">{{ m.po or m.order_id[:15] }}</a></td>
      <td style="font-size:14px">{{ m.institution[:25] }}</td>
      <td style="font-size:14px">{{ m.description }}</td>
-     <td style="text-align:right">{{ m.qty }}</td>
-     <td style="text-align:right">${{ "{:,.2f}".format(m.sell) }}</td>
-     <td style="text-align:right">{% if m.cost %}<span>${{ "{:,.2f}".format(m.cost) }}</span>{% else %}<span style="color:var(--tx2)">—</span>{% endif %}</td>
-     <td style="text-align:right;font-weight:600;color:{{ mc }}">{{ "%.1f"|format(m.margin) }}%</td>
-     <td style="text-align:right;font-weight:600">${{ "{:,.2f}".format(m.profit) }}</td>
+     <td style="text-align:right;font-family:'JetBrains Mono',monospace">{{ m.qty }}</td>
+     <td style="text-align:right;font-family:'JetBrains Mono',monospace">${{ "{:,.2f}".format(m.sell) }}</td>
+     <td style="text-align:right;font-family:'JetBrains Mono',monospace">{% if m.cost %}${{ "{:,.2f}".format(m.cost) }}{% else %}<span style="color:var(--tx2)">—</span>{% endif %}</td>
+     <td style="text-align:right;font-weight:700;color:{{ mc }};font-family:'JetBrains Mono',monospace">{{ "%.1f"|format(m.margin) }}%</td>
+     <td style="text-align:right;font-weight:600;font-family:'JetBrains Mono',monospace">${{ "{:,.2f}".format(m.profit) }}</td>
     </tr>
     {% endfor %}
   {% else %}
-    <tr><td colspan="8" style="text-align:center;color:var(--tx2);padding:20px">Margin data populates when orders have cost and sell prices</td></tr>
+    <tr><td colspan="8" style="text-align:center;color:var(--tx2);padding:30px;font-size:15px">Margin data populates when orders have cost and sell prices</td></tr>
   {% endif %}
   </tbody>
  </table>
 </div>
-<p style="font-size:14px;color:var(--tx2);margin-top:8px">{{ uncosted }} items missing cost data — use Supplier Lookup to auto-populate costs</p>
+
+<script>
+function filterMargins(q){
+ q=q.toLowerCase();
+ document.querySelectorAll('#margin-table tbody tr').forEach(function(r){
+  r.style.display=r.textContent.toLowerCase().includes(q)?'':'none';
+ });
+}
+</script>
 {% endblock %}

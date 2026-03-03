@@ -3,26 +3,52 @@
 
 {% block content %}
 
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:10px">
   <div>
-    <h2 style="font-size:22px;font-weight:700">📦 Product Catalog</h2>
-    <p style="color:var(--tx2);font-size:13px;margin-top:4px">{{ stats['total_skus'] }} SKUs · {{ stats['categories'] }} categories · {{ stats['p0_skus_loaded'] }} P0 gap items loaded</p>
+    <h2 style="font-size:22px;font-weight:700;margin-bottom:4px">📦 Product Catalog</h2>
+    <div style="font-size:14px;color:var(--tx2)">{{ stats['total_skus'] }} SKUs across {{ stats['categories'] }} categories — sourced from SCPRS, won quotes, and manual imports</div>
   </div>
-  <div style="display:flex;gap:8px">
-    <input id="cat-search" type="text" placeholder="Search catalog..." onkeyup="filterCatalog(this.value)"
-      style="padding:7px 12px;background:var(--bg2);border:1px solid var(--bd);border-radius:6px;color:var(--tx1);font-size:13px;width:220px">
-    <a href="/" style="padding:7px 12px;border:1px solid var(--bd);border-radius:6px;font-size:14px;text-decoration:none">🏠 Home</a>
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <input id="cat-search" type="text" placeholder="🔍 Search SKUs, items, vendors..." onkeyup="filterCatalog(this.value)"
+      style="padding:8px 14px;background:var(--sf2);border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:14px;width:260px">
+    <a href="/pricing" style="font-size:14px;color:var(--ac);text-decoration:none;background:var(--sf2);padding:8px 14px;border-radius:8px;border:1px solid var(--bd)">💰 Pricing Intel</a>
+    <a href="/vendors" style="font-size:14px;color:var(--ac);text-decoration:none;background:var(--sf2);padding:8px 14px;border-radius:8px;border:1px solid var(--bd)">🏭 Vendors</a>
   </div>
 </div>
 
-<div id="catalog-content">{{ cats_html | safe }}</div>
+<!-- KPI Stats -->
+<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
+ <div class="card" style="text-align:center;padding:14px;margin:0">
+  <div style="font-size:28px;font-weight:800;color:var(--ac);font-family:'JetBrains Mono',monospace">{{ stats['total_skus'] }}</div>
+  <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Total SKUs</div>
+ </div>
+ <div class="card" style="text-align:center;padding:14px;margin:0">
+  <div style="font-size:28px;font-weight:800;color:#a78bfa;font-family:'JetBrains Mono',monospace">{{ stats['categories'] }}</div>
+  <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Categories</div>
+ </div>
+ <div class="card" style="text-align:center;padding:14px;margin:0">
+  <div style="font-size:28px;font-weight:800;color:#3fb950;font-family:'JetBrains Mono',monospace">{{ stats['p0_skus_loaded'] }}</div>
+  <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Gap Items Loaded</div>
+ </div>
+ <div class="card" style="text-align:center;padding:14px;margin:0">
+  <div style="font-size:28px;font-weight:800;color:#fbbf24;font-family:'JetBrains Mono',monospace" id="visible-count">{{ stats['total_skus'] }}</div>
+  <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Showing</div>
+ </div>
+</div>
+
+<div id="catalog-content" class="card" style="overflow-x:auto">{{ cats_html | safe }}</div>
 
 <script>
 function filterCatalog(q) {
   q = q.toLowerCase();
-  document.querySelectorAll('#catalog-content tr[style*="border-bottom"]').forEach(row => {
-    row.style.display = row.textContent.toLowerCase().includes(q) ? '' : 'none';
+  var visible = 0;
+  document.querySelectorAll('#catalog-content tr[style*="border-bottom"], #catalog-content tr').forEach(function(row) {
+    var show = !q || row.textContent.toLowerCase().includes(q);
+    row.style.display = show ? '' : 'none';
+    if(show) visible++;
   });
+  var el = document.getElementById('visible-count');
+  if(el) el.textContent = visible;
 }
 </script>
 

@@ -815,3 +815,127 @@ def api_dashboard_init():
 
     result["_ms"] = round((_time.time() - t0) * 1000)
     return jsonify(result)
+
+
+# ── Activity Feed: unified recent events across the system ──────────
+@bp.route("/api/activity-feed")
+@auth_required
+def api_activity_feed():
+    """Aggregated activity stream: CRM logs, quote/PC changes, orders, outreach."""
+    import time as _time
+    t0 = _time.time()
+    limit = min(int(request.args.get("limit", 30)), 100)
+    events = []
+
+    # 1) CRM activity_log (emails, calls, notes)
+    try:
+        from src.core.db import get_db
+        db = get_db()
+        rows = db.execute(
+            "SELECT * FROM activity_log ORDER BY logged_at DESC LIMIT ?", (limit,)
+        ).fetchall()
+        for r in rows:
+            rdict = dict(r)
+            events.append({
+                "ts": rdict.get("logged_at", ""),
+                "type": rdict.get("event_type") or rdict.get("type", "note"),
+                "icon": {"email_sent": "📧", "email_received": "📬", "voice_called": "📞",
+                         "note": "📝", "chat": "💬", "lead_converted": "🎯",
+                         "status_change": "🔄"}.get(rdict.get("event_type", ""), "📋"),
+                "title": _fmt_activity(rdict),
+                "detail": (rdict.get("detail") or "")[:120],
+                "link": f"/growth/prospect/{rdict.get('contact_id', '')}" if rdict.get("contact_id") else None,
+                "source": "crm",
+            })
+    except Exception:
+        pass
+
+    # 2) Recent quote status changes
+    try:
+        from src.core.paths import data_path
+        import json
+        ql_path = data_path("quotes_log.json")
+        if ql_path.exists():
+            quotes = json.loads(ql_path.read_text())
+            if isinstance(quotes, dict):
+                quotes = list(quotes.values())
+            for q in sorted(quotes, key=lambda x: x.get("updated_at") or x.get("created_at", ""), reverse=True)[:limit]:
+                status = q.get("status", "")
+                if status in ("sent", "won", "lost"):
+                    events.append({
+                        "ts": q.get("updated_at") or q.get("created_at", ""),
+                        "type": f"quote_{status}",
+                        "icon": {"sent": "📤", "won": "🏆", "lost": "📉"}.get(status, "📋"),
+                        "title": f"Quote #{q.get('number', '?')} → {status.upper()}",
+                        "detail": q.get("institution", "")[:80],
+                        "link": f"/quote/{q.get('id', '')}",
+                        "source": "quotes",
+                    })
+    except Exception:
+        pass
+
+    # 3) Recent orders
+    try:
+        from src.core.paths import data_path
+        import json
+        op = data_path("orders.json")
+        if op.exists():
+            orders = json.loads(op.read_text())
+            if isinstance(orders, dict):
+                orders = list(orders.values())
+            for o in sorted(orders, key=lambda x: x.get("updated_at") or x.get("created_at", ""), reverse=True)[:limit]:
+                events.append({
+                    "ts": o.get("updated_at") or o.get("created_at", ""),
+                    "type": f"order_{o.get('status', 'new')}",
+                    "icon": {"new": "📦", "sourcing": "🛒", "shipped": "🚚",
+                             "delivered": "✅", "invoiced": "💰", "closed": "🏁"}.get(o.get("status", ""), "📦"),
+                    "title": f"Order {o.get('po_number', '?')} — {(o.get('status') or 'new').replace('_', ' ').title()}",
+                    "detail": o.get("institution", "")[:80],
+                    "link": f"/order/{o.get('id', '')}",
+                    "source": "orders",
+                })
+    except Exception:
+        pass
+
+    # 4) Growth outreach
+    try:
+        from src.core.paths import data_path
+        import json
+        gp = data_path("growth_outreach.json")
+        if gp.exists():
+            outreach = json.loads(gp.read_text())
+            if isinstance(outreach, list):
+                for out in sorted(outreach, key=lambda x: x.get("sent_at", ""), reverse=True)[:limit]:
+                    events.append({
+                        "ts": out.get("sent_at", ""),
+                        "type": "outreach",
+                        "icon": "🚀",
+                        "title": f"Outreach → {out.get('agency', '?')}",
+                        "detail": (out.get("buyer_name") or out.get("to", ""))[:80],
+                        "link": f"/growth/prospect/{out.get('prospect_id', '')}" if out.get("prospect_id") else None,
+                        "source": "growth",
+                    })
+    except Exception:
+        pass
+
+    # Sort all by timestamp descending, take top N
+    events.sort(key=lambda e: e.get("ts", ""), reverse=True)
+    events = events[:limit]
+
+    return jsonify({"ok": True, "events": events, "_ms": round((_time.time() - t0) * 1000)})
+
+
+def _fmt_activity(row):
+    """Format a CRM activity_log row into a readable title."""
+    etype = row.get("event_type") or row.get("type", "note")
+    contact = row.get("contact_name") or row.get("contact_id", "")[:12]
+    titles = {
+        "email_sent": f"Email sent to {contact}",
+        "email_received": f"Email from {contact}",
+        "voice_called": f"Called {contact}",
+        "note": f"Note on {contact}",
+        "chat": f"Chat with {contact}",
+        "lead_converted": f"Converted {contact} to customer",
+        "status_change": f"Status change: {contact}",
+    }
+    return titles.get(etype, f"{etype}: {contact}")

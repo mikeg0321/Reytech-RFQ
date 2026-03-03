@@ -1211,6 +1211,135 @@ Michael Guadan · 949-229-1575 · sales@reytechinc.com</p>
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+@bp.route("/api/stale-quotes/bulk-follow-up", methods=["POST"])
+@auth_required
+def bulk_follow_up():
+    """Send follow-up emails to all stale quotes that have email addresses."""
+    data = request.get_json(silent=True) or {}
+    days = int(data.get("days", 3))
+
+    # Re-use existing stale quotes logic
+    stale_list = _get_stale_list(days)
+    sent_count = 0
+    errors = []
+
+    for s in stale_list:
+        if not s.get("email"):
+            continue
+        try:
+            # Trigger individual follow-up via internal call
+            from flask import current_app
+            with current_app.test_request_context(
+                f"/api/stale-quotes/{s['type']}/{s['id']}/follow-up",
+                method="POST",
+                json={"to": s["email"]},
+            ):
+                # Just call the send function directly
+                email_cfg = CONFIG.get("email", {})
+                gmail_user = email_cfg.get("email") or os.environ.get("GMAIL_ADDRESS", "")
+                gmail_pass = email_cfg.get("email_password") or os.environ.get("GMAIL_PASSWORD", "")
+                if not gmail_user or not gmail_pass:
+                    return jsonify({"ok": False, "error": "Gmail not configured"}), 400
+
+                import smtplib
+                from email.mime.multipart import MIMEMultipart
+                from email.mime.text import MIMEText
+
+                name = s.get("requestor", "Procurement Officer")
+                sol = s.get("number", "?")
+                body = f"""<div style="font-family:Arial,sans-serif;color:#333">
+<p>Dear {name},</p>
+<p>I'm following up on our quote submitted for <strong>#{sol}</strong>.
+Please let us know if you have any questions or need revisions.</p>
+<p>We remain ready to support your procurement needs.</p>
+<br>
+<p>Best regards,<br><strong>Reytech Inc.</strong><br>
+Michael Guadan · 949-229-1575 · sales@reytechinc.com</p>
+</div>"""
+
+                msg = MIMEMultipart()
+                msg["From"] = gmail_user
+                msg["To"] = s["email"]
+                msg["Subject"] = f"Follow Up — Quote #{sol}"
+                msg.attach(MIMEText(body, "html"))
+
+                server = smtplib.SMTP_SSL("smtp.gmail.com", 465)
+                server.login(gmail_user, gmail_pass)
+                server.send_message(msg)
+                server.quit()
+                sent_count += 1
+                log.info("Bulk follow-up sent to %s for #%s", s["email"], sol)
+        except Exception as e:
+            errors.append(f"{s.get('number', '?')}: {str(e)[:60]}")
+            log.error("Bulk follow-up error for %s: %s", s.get("number"), e)
+
+    return jsonify({
+        "ok": True,
+        "sent": sent_count,
+        "errors": len(errors),
+        "error_detail": errors[:5] if errors else [],
+    })
+
+
+def _get_stale_list(days):
+    """Return stale quotes as a flat list for bulk operations."""
+    from datetime import datetime, timedelta
+    cutoff = datetime.now() - timedelta(days=days)
+    result = []
+
+    try:
+        pcs = _load_price_checks()
+        for pid, pc in pcs.items():
+            if pc.get("status") not in ("sent",):
+                continue
+            sent_at = pc.get("sent_at") or pc.get("updated_at") or ""
+            if not sent_at:
+                continue
+            try:
+                sent_dt = datetime.fromisoformat(sent_at.replace("Z", "+00:00").split("+")[0])
+            except Exception:
+                continue
+            if sent_dt > cutoff:
+                continue
+            result.append({
+                "type": "pc", "id": pid,
+                "number": pc.get("pc_number", ""),
+                "email": pc.get("requestor_email", ""),
+                "requestor": pc.get("requestor", ""),
+                "days_since": (datetime.now() - sent_dt).days,
+                "total": pc.get("total", 0),
+            })
+    except Exception:
+        pass
+
+    try:
+        rfqs = load_rfqs()
+        for rid, r in rfqs.items():
+            if r.get("status") not in ("sent",):
+                continue
+            sent_at = r.get("sent_at") or r.get("updated_at") or ""
+            if not sent_at:
+                continue
+            try:
+                sent_dt = datetime.fromisoformat(sent_at.replace("Z", "+00:00").split("+")[0])
+            except Exception:
+                continue
+            if sent_dt > cutoff:
+                continue
+            result.append({
+                "type": "rfq", "id": rid,
+                "number": r.get("solicitation_number", ""),
+                "email": r.get("requestor_email", ""),
+                "requestor": r.get("requestor_name", ""),
+                "days_since": (datetime.now() - sent_dt).days,
+                "total": r.get("total", 0),
+            })
+    except Exception:
+        pass
+
+    return result
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Enhancement 5: PC→RFQ Linkage — Track when a PC becomes a formal RFQ
 # ═══════════════════════════════════════════════════════════════════════════════

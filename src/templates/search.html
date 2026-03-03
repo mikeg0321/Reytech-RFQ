@@ -1,22 +1,47 @@
 {% extends "base.html" %}
 {% block title %}Search{% if q %} — {{ q }}{% endif %} — Reytech{% endblock %}
 
+{% block head_extra %}
+<style>
+ .search-result{display:block;padding:14px 18px;border-bottom:1px solid rgba(46,51,69,.3);text-decoration:none;color:var(--tx);transition:.15s}
+ .search-result:hover{background:rgba(79,140,255,.04)}
+ .search-result .sr-type{font-size:13px;font-weight:600;padding:2px 10px;border-radius:10px;text-transform:uppercase;letter-spacing:.5px}
+ .search-result .sr-title{font-size:15px;font-weight:600;margin-top:4px}
+ .search-result .sr-detail{font-size:14px;color:var(--tx2);margin-top:2px}
+</style>
+{% endblock %}
+
 {% block content %}
 <!-- Search header -->
 <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;flex-wrap:wrap">
- <h2 style="margin:0;font-size:20px;font-weight:700">🔍 Search</h2>
- {% if q %}<div style="font-size:13px;color:var(--tx2)">{{ results|length }} results for <b style="color:var(--tx)">"{{ q }}"</b></div>{% endif %}
+ <h2 style="margin:0;font-size:22px;font-weight:700">🔍 Search</h2>
+ {% if q %}<div style="font-size:14px;color:var(--tx2)">{{ results|length }} results for <b style="color:var(--tx)">"{{ q }}"</b></div>{% endif %}
+ <div style="flex:1"></div>
+ <span style="font-size:13px;color:var(--tx2);background:var(--sf2);padding:4px 10px;border-radius:6px">Tip: <kbd style="padding:2px 6px;background:var(--sf);border:1px solid var(--bd);border-radius:4px;font-size:12px">Ctrl+K</kbd> opens search from any page</span>
 </div>
 
 <!-- Search form -->
 <form method="get" action="/search" style="display:flex;gap:10px;margin-bottom:16px">
  <div style="flex:1;display:flex;background:var(--sf);border:1.5px solid var(--ac);border-radius:10px;overflow:hidden">
   <span style="padding:0 14px;font-size:18px;display:flex;align-items:center;color:var(--tx2)">🔍</span>
-  <input name="q" value="{{ q_escaped }}" placeholder="Search quotes, contacts, buyers, orders, RFQs..." autofocus
+  <input name="q" value="{{ q_escaped }}" placeholder="Search quotes, contacts, buyers, orders, RFQs, agencies..." autofocus
          style="flex:1;padding:14px 4px 14px 0;background:transparent;border:none;color:var(--tx);font-size:15px;outline:none" autocomplete="off">
   <button type="submit" style="padding:14px 22px;background:var(--ac);border:none;color:#fff;font-size:14px;font-weight:700;cursor:pointer">Search</button>
  </div>
 </form>
+
+<!-- Quick search tags -->
+{% if not q %}
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+ <span style="font-size:14px;color:var(--tx2);padding:6px 0">Quick:</span>
+ <a href="/search?q=CDCR" style="font-size:14px;padding:6px 14px;border-radius:8px;background:var(--sf2);border:1px solid var(--bd);color:var(--tx);text-decoration:none">CDCR</a>
+ <a href="/search?q=CCHCS" style="font-size:14px;padding:6px 14px;border-radius:8px;background:var(--sf2);border:1px solid var(--bd);color:var(--tx);text-decoration:none">CCHCS</a>
+ <a href="/search?q=CalVet" style="font-size:14px;padding:6px 14px;border-radius:8px;background:var(--sf2);border:1px solid var(--bd);color:var(--tx);text-decoration:none">CalVet</a>
+ <a href="/search?q=DSH" style="font-size:14px;padding:6px 14px;border-radius:8px;background:var(--sf2);border:1px solid var(--bd);color:var(--tx);text-decoration:none">DSH</a>
+ <a href="/search?q=won" style="font-size:14px;padding:6px 14px;border-radius:8px;background:rgba(52,211,153,.1);border:1px solid rgba(52,211,153,.3);color:#3fb950;text-decoration:none">🏆 Won</a>
+ <a href="/search?q=sent" style="font-size:14px;padding:6px 14px;border-radius:8px;background:rgba(79,140,255,.1);border:1px solid rgba(79,140,255,.3);color:var(--ac);text-decoration:none">📤 Sent</a>
+</div>
+{% endif %}
 
 <!-- Breakdown badges -->
 {% if breakdown_html %}
@@ -30,7 +55,11 @@
  {% elif q %}
    {{ empty_state|safe }}
  {% else %}
-   <div style="text-align:center;padding:48px;color:var(--tx2)"><div style="font-size:40px;margin-bottom:12px">🔍</div><div style="font-size:15px">Type a name, agency, quote number, or email above</div></div>
+   <div style="text-align:center;padding:48px;color:var(--tx2)">
+    <div style="font-size:48px;margin-bottom:12px">🔍</div>
+    <div style="font-size:16px;font-weight:600;margin-bottom:6px">Search across your entire system</div>
+    <div style="font-size:14px">Quotes, contacts, buyers, orders, agencies, items, emails</div>
+   </div>
  {% endif %}
 </div>
 

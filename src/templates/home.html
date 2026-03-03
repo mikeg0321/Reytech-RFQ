@@ -557,6 +557,29 @@ function _renderRevenue(d){
  </form>
 </details>
 
+<!-- ═══ Activity Feed — Real-time event stream ═══ -->
+<div class="card" style="margin-top:14px;margin-bottom:14px;padding:18px 24px">
+ <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+  <div class="card-t" style="margin:0;display:flex;align-items:center;gap:8px">
+   ⚡ Recent Activity
+   <span id="feed-count" style="font-size:13px;padding:2px 8px;border-radius:10px;background:var(--sf2);color:var(--tx2)"></span>
+  </div>
+  <div style="display:flex;gap:6px;align-items:center">
+   <select id="feed-filter" onchange="renderFeed()" style="font-size:13px;padding:4px 10px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;color:var(--tx)">
+    <option value="">All</option>
+    <option value="crm">CRM</option>
+    <option value="quotes">Quotes</option>
+    <option value="orders">Orders</option>
+    <option value="growth">Growth</option>
+   </select>
+   <button onclick="loadFeed()" style="font-size:13px;padding:4px 8px;background:rgba(79,140,255,.1);border:1px solid rgba(79,140,255,.3);color:var(--ac);border-radius:6px;cursor:pointer">🔄</button>
+  </div>
+ </div>
+ <div id="activity-feed" style="max-height:340px;overflow-y:auto">
+  <div style="text-align:center;padding:20px;color:var(--tx2);font-size:14px">Loading activity...</div>
+ </div>
+</div>
+
 <script>
 // ── Upload drag/drop ──
 const dz=document.getElementById('dz'),fi=document.getElementById('fi'),uf=document.getElementById('uf');
@@ -823,6 +846,51 @@ function saveQuickPrices(){
 }
 // Keyboard: Escape closes panel
 document.addEventListener('keydown',function(e){if(e.key==='Escape')closeQP();});
+
+// ── Activity Feed ──
+var _feedData=[];
+function loadFeed(){
+ fetch('/api/activity-feed?limit=30',{credentials:'same-origin'}).then(function(r){return r.json()}).then(function(d){
+  if(!d.ok)return;
+  _feedData=d.events||[];
+  document.getElementById('feed-count').textContent=_feedData.length+' events';
+  renderFeed();
+ }).catch(function(){
+  document.getElementById('activity-feed').innerHTML='<div style="text-align:center;padding:16px;color:var(--tx2);font-size:14px">Unable to load feed</div>';
+ });
+}
+function renderFeed(){
+ var filter=document.getElementById('feed-filter').value;
+ var items=filter?_feedData.filter(function(e){return e.source===filter}):_feedData;
+ var el=document.getElementById('activity-feed');
+ if(!items.length){
+  el.innerHTML='<div style="text-align:center;padding:24px;color:var(--tx2)">No recent activity</div>';
+  return;
+ }
+ el.innerHTML=items.slice(0,25).map(function(e){
+  var ago=timeAgo(e.ts);
+  var sc={'crm':'rgba(79,140,255,.12)','quotes':'rgba(167,139,250,.12)','orders':'rgba(52,211,153,.12)','growth':'rgba(251,191,36,.12)'}[e.source]||'var(--sf2)';
+  var bc={'crm':'rgba(79,140,255,.3)','quotes':'rgba(167,139,250,.3)','orders':'rgba(52,211,153,.3)','growth':'rgba(251,191,36,.3)'}[e.source]||'var(--bd)';
+  return '<div style="display:flex;align-items:flex-start;gap:12px;padding:10px 8px;border-bottom:1px solid rgba(46,51,69,.3);transition:.15s;cursor:'+(e.link?'pointer':'default')+'" '+(e.link?'onclick="location.href=\''+e.link+'\'"':'')+'>'
+   +'<span style="font-size:18px;flex-shrink:0;width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:8px;background:'+sc+';border:1px solid '+bc+'">'+e.icon+'</span>'
+   +'<div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:600;line-height:1.3">'+e.title+'</div>'
+   +(e.detail?'<div style="font-size:13px;color:var(--tx2);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+e.detail+'</div>':'')
+   +'</div>'
+   +'<span style="font-size:13px;color:var(--tx2);white-space:nowrap;flex-shrink:0">'+ago+'</span>'
+   +'</div>';
+ }).join('');
+}
+function timeAgo(ts){
+ if(!ts)return'';
+ var d=new Date(ts.includes('T')?ts:ts+'T00:00:00Z');
+ var now=new Date();var s=Math.floor((now-d)/1000);
+ if(s<60)return 'just now';
+ if(s<3600)return Math.floor(s/60)+'m ago';
+ if(s<86400)return Math.floor(s/3600)+'h ago';
+ if(s<604800)return Math.floor(s/86400)+'d ago';
+ return d.toLocaleDateString();
+}
+loadFeed();
 </script>
 
 {% endblock %}
