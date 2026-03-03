@@ -28,7 +28,7 @@
  .kpi-card{background:var(--sf2);border-radius:10px;padding:14px 12px;text-align:center;border:1px solid transparent;transition:.15s}
  .kpi-card:hover{border-color:var(--ac)}
  .kpi-num{font-size:26px;font-weight:800;font-family:'JetBrains Mono',monospace;line-height:1.2}
- .kpi-lbl{font-size:12px;color:var(--tx2);text-transform:uppercase;letter-spacing:.4px;margin-top:4px}
+ .kpi-lbl{font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.4px;margin-top:4px}
  .tab-bar{display:flex;gap:0;border-bottom:2px solid var(--bd);margin-bottom:16px;overflow-x:auto}
  .tab-btn{padding:10px 18px;font-size:14px;font-weight:600;color:var(--tx2);background:none;border:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;transition:.15s;white-space:nowrap}
  .tab-btn.active{color:var(--ac);border-bottom-color:var(--ac)}
@@ -158,7 +158,7 @@
    <div style="width:100%;background:{{ stage.color|default('var(--ac)') }}22;border-radius:6px 6px 0 0;min-height:8px;height:{{ (stage.count / max_val * 100)|int }}%;transition:.3s">
     <div style="width:100%;height:100%;background:{{ stage.color|default('var(--ac)') }}40;border-radius:6px 6px 0 0"></div>
    </div>
-   <div style="font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.3px;text-align:center;line-height:1.2">{{ stage.label|default(stage.name|default('')) }}</div>
+   <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.3px;text-align:center;line-height:1.2">{{ stage.label|default(stage.name|default('')) }}</div>
   </div>
   {% endfor %}
  </div>
@@ -444,7 +444,7 @@
       <td style="text-align:center" class="mono">{{ ag.won }}</td>
       <td style="font-size:13px;color:var(--tx2)">{{ ag.top_buyer|default('--') }}</td>
       <td style="text-align:center">
-       <span style="padding:2px 8px;border-radius:8px;font-size:12px;font-weight:600;
+       <span style="padding:2px 8px;border-radius:8px;font-size:13px;font-weight:600;
         {% if ag.engagement == 'hot' %}background:rgba(248,81,73,.15);color:#f85149
         {% elif ag.engagement == 'warm' %}background:rgba(251,191,36,.15);color:#fbbf24
         {% elif ag.engagement == 'active' %}background:rgba(52,211,153,.15);color:#3fb950
@@ -472,8 +472,8 @@
     {% for p in col_data[:15] %}
     <div style="background:var(--sf2);border:1px solid var(--bd);border-radius:8px;padding:10px;margin-bottom:8px;font-size:13px">
      <div style="font-weight:600;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ p.agency or p.institution or '—' }}</div>
-     <div style="color:var(--tx2);font-size:12px">{{ p.buyer_name or p.name or '' }}</div>
-     {% if p.win_prob is defined %}<span class="win-badge" style="font-size:11px;background:{{ p.win_color|default('#8b949e') }}18;color:{{ p.win_color|default('#8b949e') }}">{{ "%.0f"|format(p.win_prob) }}%</span>{% endif %}
+     <div style="color:var(--tx2);font-size:13px">{{ p.buyer_name or p.name or '' }}</div>
+     {% if p.win_prob is defined %}<span class="win-badge" style="font-size:13px;background:{{ p.win_color|default('#8b949e') }}18;color:{{ p.win_color|default('#8b949e') }}">{{ "%.0f"|format(p.win_prob) }}%</span>{% endif %}
     </div>
     {% endfor %}
     {% if not col_data %}<div style="text-align:center;padding:16px;color:var(--tx2);font-size:13px">Empty</div>{% endif %}
@@ -640,7 +640,7 @@
      <div style="min-width:70px;font-size:13px;font-weight:600;color:var(--ac);font-family:'JetBrains Mono',monospace">{{ ev.date }}</div>
      <div style="flex:1">
       <div style="font-weight:600;font-size:14px">{{ ev.agency }}</div>
-      <div style="font-size:12px;color:var(--tx2)">{{ ev.buyer }} — {{ ev.type }}</div>
+      <div style="font-size:13px;color:var(--tx2)">{{ ev.buyer }} — {{ ev.type }}</div>
      </div>
      {% if ev.gcal_url %}<a href="{{ ev.gcal_url }}" target="_blank" class="act-btn" title="Google Calendar">📅</a>{% endif %}
     </div>
@@ -765,7 +765,7 @@ function showResult(data){
   data.emails.forEach(function(e){
    html+='<div style="margin-bottom:12px;padding:10px;border:1px solid var(--bd);border-radius:6px">';
    html+='<strong>To:</strong> '+e.to+'<br><strong>Subject:</strong> '+e.subject;
-   html+='<br><a href="https://mail.google.com/mail/?view=cm&to='+encodeURIComponent(e.to)+'&su='+encodeURIComponent(e.subject)+'&body='+encodeURIComponent(e.body||'')+'" target="_blank" class="g-btn g-btn-go" style="margin-top:6px;font-size:12px;padding:4px 10px">Open in Gmail</a></div>';
+   html+='<br><a href="https://mail.google.com/mail/?view=cm&to='+encodeURIComponent(e.to)+'&su='+encodeURIComponent(e.subject)+'&body='+encodeURIComponent(e.body||'')+'" target="_blank" class="g-btn g-btn-go" style="margin-top:6px;font-size:13px;padding:4px 10px">Open in Gmail</a></div>';
   });
   c.innerHTML=html;
  }else{c.textContent=JSON.stringify(data,null,2);}

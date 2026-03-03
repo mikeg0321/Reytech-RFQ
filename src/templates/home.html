@@ -403,7 +403,7 @@ function _renderGrowth(g){
  document.getElementById('growth-kpis').innerHTML=kpis.map(function(i){
   return '<div style="text-align:center;background:var(--sf2);border-radius:10px;padding:14px 10px">'
    +'<div style="font-size:24px;font-weight:800;font-family:JetBrains Mono,monospace;color:'+i.c+';line-height:1">'+i.v+'</div>'
-   +'<div style="font-size:12px;color:var(--tx2);margin-top:4px;text-transform:uppercase;letter-spacing:.4px">'+i.l+'</div></div>';
+   +'<div style="font-size:13px;color:var(--tx2);margin-top:4px;text-transform:uppercase;letter-spacing:.4px">'+i.l+'</div></div>';
  }).join('');
  var brief=g.brief_summary||'';
  if(brief) document.getElementById('growth-brief').textContent=brief.slice(0,60);
