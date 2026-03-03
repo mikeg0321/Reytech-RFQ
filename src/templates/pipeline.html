@@ -4,15 +4,47 @@
 {% block content %}
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
  <h2 style="margin:0;font-size:20px;font-weight:700">🔄 Pipeline Dashboard</h2>
- <div style="font-size:14px;font-family:'JetBrains Mono',monospace;display:flex;gap:16px">
-  <span>📊 Leads: <b>{{ total_leads }}</b></span>
-  <span>📋 Quotes: <b>{{ total_quotes }}</b></span>
-  <span style="color:var(--gn)">💰 Pipeline: <b>${{ "{:,.0f}".format(total_pending) }}</b></span>
-  <span style="color:var(--gn)">🏆 Won: <b>${{ "{:,.0f}".format(total_won) }}</b></span>
+ <div style="display:flex;gap:8px">
+  <a href="/growth" class="btn btn-s" style="font-size:14px;font-weight:600">🚀 Growth Engine</a>
+  <a href="/analytics" class="btn btn-s" style="font-size:14px;font-weight:600">📊 Analytics</a>
+  <button onclick="location.reload()" class="btn btn-p" style="font-size:14px">🔄 Refresh</button>
  </div>
 </div>
 
-<div class="bento bento-2">
+<!-- KPI Strip -->
+<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:14px">
+ {% for val, label, color in [
+   (total_leads, 'Leads', 'var(--ac)'),
+   (total_quotes, 'Quotes', '#a78bfa'),
+   (pending, 'Pending', 'var(--yl)'),
+   (sent, 'Sent', 'var(--or)'),
+   ("${:,.0f}".format(total_pending), 'Pipeline $', '#4f8cff'),
+   ("${:,.0f}".format(total_won), 'Won $', 'var(--gn)'),
+ ] %}
+ <div class="card" style="text-align:center;padding:12px">
+  <div style="font-size:22px;font-weight:700;font-family:'JetBrains Mono',monospace;color:{{color}};line-height:1">{{val}}</div>
+  <div style="font-size:13px;color:var(--tx2);margin-top:4px;text-transform:uppercase;letter-spacing:.4px">{{label}}</div>
+ </div>
+ {% endfor %}
+</div>
+
+<!-- Revenue Goal Bar -->
+{% if rev %}
+<div class="card" style="margin-bottom:14px;padding:14px 18px">
+ <div style="display:flex;align-items:center;gap:12px">
+  <span style="font-size:14px;color:var(--tx2);font-weight:700;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap">📈 Annual Goal</span>
+  <div style="flex:1;background:var(--sf2);border-radius:8px;height:20px;overflow:hidden;position:relative">
+   <div style="background:{{ rev.color }};height:100%;width:{{ rev.pct }}%;border-radius:8px;transition:.3s"></div>
+   <span style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:13px;font-weight:600">${{ "{:,.0f}".format(rev.closed) }} / ${{ "{:.0f}".format(rev.goal / 1000000) }}M ({{ "{:.0f}".format(rev.pct) }}%)</span>
+  </div>
+  <span style="font-size:14px;color:var(--tx2);white-space:nowrap">Gap: <b style="color:#f85149">${{ "{:,.0f}".format(rev.gap) }}</b></span>
+  <span style="font-size:14px;color:var(--tx2);white-space:nowrap">Run rate: <b style="color:{{ '#3fb950' if rev.on_track else '#f85149' }}">${{ "{:,.0f}".format(rev.run_rate) }}/yr</b></span>
+ </div>
+</div>
+{% endif %}
+
+<!-- Main 2-column: Funnel + Win Prediction -->
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
  <div class="card" style="margin:0">
   <div class="card-t">📊 Sales Funnel</div>
   {{ funnel|safe }}
@@ -25,36 +57,106 @@
    {% endfor %}
   </div>
  </div>
-
  <div class="card" style="margin:0">
   <div class="card-t">🎯 Win Prediction — Active Quotes</div>
-  <div style="max-height:400px;overflow-y:auto">
+  <div style="max-height:350px;overflow-y:auto">
    {% if predictions_html %}{{ predictions_html|safe }}{% else %}<div style="color:var(--tx2);font-size:14px;padding:12px">No active quotes with predictions yet</div>{% endif %}
   </div>
  </div>
 </div>
 
-<div class="card" style="margin-top:14px">
- <div class="card-t">⚡ Quick Actions</div>
- <div style="display:flex;gap:8px;flex-wrap:wrap">
-  <a href="/quotes?status=pending" class="btn btn-s" style="font-size:14px">📋 Pending Quotes ({{ pending }})</a>
-  <a href="/quotes?status=sent" class="btn btn-s" style="font-size:14px">📤 Sent Quotes ({{ sent }})</a>
-  <a href="/orders" class="btn btn-s" style="font-size:14px">📦 Active Orders ({{ total_orders }})</a>
-  <button onclick="fetch('/api/poll-now').then(r=>r.json()).then(d=>alert(JSON.stringify(d,null,2)))" class="btn btn-p" style="font-size:14px">⚡ Check Inbox</button>
+<!-- Stale Quotes + Follow-Up Queue -->
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+ <div class="card" style="margin:0">
+  <div class="card-t">⏰ Stale Quotes <span id="stale-count" style="font-size:14px;font-weight:500;color:var(--tx2)"></span></div>
+  <div id="stale-list" style="max-height:300px;overflow-y:auto">
+   <div style="text-align:center;padding:16px;color:var(--tx2);font-size:14px">Loading...</div>
+  </div>
+ </div>
+ <div class="card" style="margin:0">
+  <div class="card-t">📬 Follow-Up Queue <span id="followup-count" style="font-size:14px;font-weight:500;color:var(--tx2)"></span></div>
+  <div id="followup-list" style="max-height:300px;overflow-y:auto">
+   <div style="text-align:center;padding:16px;color:var(--tx2);font-size:14px">Loading...</div>
+  </div>
  </div>
 </div>
 
-{% if rev %}
-<div style="margin-top:14px;padding:12px 16px;background:var(--sf);border:1px solid var(--bd);border-radius:10px">
- <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
-  <span style="font-size:14px;color:var(--tx2);font-weight:600">📈 ANNUAL GOAL</span>
-  <div style="flex:1;background:var(--sf2);border-radius:8px;height:18px;overflow:hidden;position:relative">
-   <div style="background:{{ rev.color }};height:100%;width:{{ rev.pct }}%;border-radius:8px"></div>
-   <span style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:13px;font-weight:600">${{ "{:,.0f}".format(rev.closed) }} / ${{ "{:.0f}".format(rev.goal / 1000000) }}M ({{ "{:.0f}".format(rev.pct) }}%)</span>
+<!-- Sales Velocity + Quick Actions -->
+<div style="display:grid;grid-template-columns:2fr 1fr;gap:14px">
+ <div class="card" style="margin:0">
+  <div class="card-t">⚡ Sales Velocity</div>
+  <div id="velocity-data" style="min-height:60px">
+   <div style="text-align:center;padding:16px;color:var(--tx2);font-size:14px">Loading...</div>
   </div>
-  <span style="font-size:14px;color:var(--tx2)">Gap: <b style="color:#f85149">${{ "{:,.0f}".format(rev.gap) }}</b></span>
-  <span style="font-size:14px;color:var(--tx2)">Run rate: <b style="color:{{ '#3fb950' if rev.on_track else '#f85149' }}">${{ "{:,.0f}".format(rev.run_rate) }}</b></span>
+ </div>
+ <div class="card" style="margin:0">
+  <div class="card-t">⚡ Quick Actions</div>
+  <div style="display:flex;flex-direction:column;gap:8px">
+   <a href="/quotes?status=pending" class="btn btn-s" style="font-size:14px;text-align:center">📋 Pending Quotes ({{ pending }})</a>
+   <a href="/quotes?status=sent" class="btn btn-s" style="font-size:14px;text-align:center">📤 Sent Quotes ({{ sent }})</a>
+   <a href="/orders" class="btn btn-s" style="font-size:14px;text-align:center">📦 Active Orders ({{ total_orders }})</a>
+   <button onclick="fetch('/api/poll-now').then(function(r){return r.json()}).then(function(d){alert(JSON.stringify(d,null,2))})" class="btn btn-p" style="font-size:14px">⚡ Check Inbox Now</button>
+  </div>
  </div>
 </div>
-{% endif %}
+
+<script>
+fetch('/api/pipeline/stale-quotes').then(function(r){return r.json()}).then(function(d){
+ var el=document.getElementById('stale-list');
+ var quotes=d.stale_quotes||d.quotes||[];
+ if(!Array.isArray(quotes))quotes=[];
+ if(quotes.length>0){
+  document.getElementById('stale-count').textContent='('+quotes.length+')';
+  var html='';
+  quotes.slice(0,15).forEach(function(q){
+   var days=q.days_stale||q.age_days||0;
+   var clr=days>60?'#f85149':days>30?'#d29922':'var(--tx2)';
+   html+='<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--bd);font-size:14px">';
+   html+='<span style="font-family:JetBrains Mono,monospace;font-weight:700;color:'+clr+';min-width:44px">'+days+'d</span>';
+   html+='<a href="/quote/'+(q.quote_number||q.id||'')+'" style="color:var(--ac);text-decoration:none;font-weight:600">'+(q.quote_number||q.id||'?')+'</a>';
+   html+='<span style="color:var(--tx2);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(q.institution||q.agency||'')+'</span>';
+   html+='<span style="font-family:JetBrains Mono,monospace">$'+(parseFloat(q.total||q.amount||0)).toLocaleString(undefined,{maximumFractionDigits:0})+'</span>';
+   html+='</div>';
+  });
+  el.innerHTML=html;
+ }else{el.innerHTML='<div style="text-align:center;padding:16px;color:#3fb950;font-weight:600">✅ No stale quotes</div>';}
+}).catch(function(){document.getElementById('stale-list').innerHTML='<div style="padding:12px;color:var(--tx2);font-size:14px">Could not load stale quotes</div>';});
+
+fetch('/api/pipeline/follow-up-queue').then(function(r){return r.json()}).then(function(d){
+ var el=document.getElementById('followup-list');
+ var items=d.follow_ups||d.queue||[];
+ if(!Array.isArray(items))items=[];
+ if(items.length>0){
+  document.getElementById('followup-count').textContent='('+items.length+')';
+  var html='';
+  items.slice(0,15).forEach(function(q){
+   html+='<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--bd);font-size:14px">';
+   html+='<span style="font-size:13px;color:var(--tx2);min-width:70px">'+(q.due||q.date||'')+'</span>';
+   html+='<a href="/quote/'+(q.quote_number||q.id||'')+'" style="color:var(--ac);text-decoration:none;font-weight:600">'+(q.quote_number||q.id||'?')+'</a>';
+   html+='<span style="color:var(--tx2);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(q.institution||q.agency||'')+'</span>';
+   html+='<span style="font-size:13px;padding:2px 8px;border-radius:8px;background:rgba(79,140,255,.15);color:#4f8cff;font-weight:600">'+(q.action||q.type||'follow up')+'</span>';
+   html+='</div>';
+  });
+  el.innerHTML=html;
+ }else{el.innerHTML='<div style="text-align:center;padding:16px;color:#3fb950;font-weight:600">✅ No pending follow-ups</div>';}
+}).catch(function(){document.getElementById('followup-list').innerHTML='<div style="padding:12px;color:var(--tx2);font-size:14px">Could not load follow-ups</div>';});
+
+fetch('/api/pipeline/sales-velocity').then(function(r){return r.json()}).then(function(d){
+ var el=document.getElementById('velocity-data');var v=d||{};
+ var metrics=[
+  {v:(v.avg_deal_size||v.avg_value||0),l:'Avg Deal Size',fmt:'$',c:'var(--ac)'},
+  {v:(v.avg_cycle_days||v.cycle_time||0),l:'Avg Cycle (days)',fmt:'',c:'#a78bfa'},
+  {v:(v.deals_per_month||v.monthly_deals||0),l:'Deals/Month',fmt:'',c:'#4f8cff'},
+  {v:(v.velocity||v.score||0),l:'Velocity Score',fmt:'',c:'var(--gn)'}
+ ];
+ var html='<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">';
+ metrics.forEach(function(m){
+  var val=typeof m.v==='number'?(m.fmt==='$'?'$'+m.v.toLocaleString(undefined,{maximumFractionDigits:0}):m.v.toLocaleString(undefined,{maximumFractionDigits:1})):m.v;
+  html+='<div style="text-align:center;background:var(--sf2);padding:12px;border-radius:8px">';
+  html+='<div style="font-size:20px;font-weight:700;font-family:JetBrains Mono,monospace;color:'+m.c+'">'+val+'</div>';
+  html+='<div style="font-size:13px;color:var(--tx2);text-transform:uppercase;margin-top:4px;letter-spacing:.3px">'+m.l+'</div></div>';
+ });
+ html+='</div>';el.innerHTML=html;
+}).catch(function(){document.getElementById('velocity-data').innerHTML='<div style="padding:12px;color:var(--tx2);font-size:14px">Velocity data unavailable</div>';});
+</script>
 {% endblock %}
