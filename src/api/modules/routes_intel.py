@@ -2976,6 +2976,7 @@ def _get_or_create_crm_contact(prospect_id: str, prospect: dict = None) -> dict:
         contacts[prospect_id] = {
             "id": prospect_id,
             "created_at": datetime.now().isoformat(),
+            "updated_at": datetime.now().isoformat(),
             "buyer_name": pr.get("buyer_name",""),
             "buyer_email": pr.get("buyer_email",""),
             "buyer_phone": pr.get("buyer_phone",""),
@@ -2984,6 +2985,11 @@ def _get_or_create_crm_contact(prospect_id: str, prospect: dict = None) -> dict:
             "linkedin": "",
             "notes": "",
             "tags": [],
+            "preferred_contact": "",  # email, phone, text, in_person
+            "follow_up_date": "",     # ISO date for next follow-up
+            "source": pr.get("source", "auto"),  # auto, manual, email, import
+            "hidden": False,
+            "ignored": False,
             # SCPRS intel snapshot (updated on each sync)
             "total_spend": pr.get("total_spend", 0),
             "po_count": pr.get("po_count", 0),
@@ -3124,7 +3130,9 @@ def api_crm_contact_update(contact_id):
     if contact_id not in contacts:
         return jsonify({"ok": False, "error": "Contact not found"})
 
-    allowed = {"buyer_name","buyer_phone","title","linkedin","notes","tags","outreach_status"}
+    allowed = {"buyer_name","buyer_phone","buyer_email","title","linkedin","notes","tags",
+               "outreach_status","agency","preferred_contact","follow_up_date","source",
+               "hidden","ignored"}
     for k, v in data.items():
         if k in allowed:
             contacts[contact_id][k] = v
@@ -3141,13 +3149,128 @@ def api_crm_contact_update(contact_id):
     return jsonify({"ok": True, "contact_id": contact_id})
 
 
+@bp.route("/api/crm/contact/<contact_id>/delete", methods=["POST"])
+@auth_required
+def api_crm_contact_delete(contact_id):
+    """Delete or hide a CRM contact. POST JSON: {mode: 'hide'|'delete'}"""
+    data = request.get_json(silent=True) or {}
+    mode = data.get("mode", "hide")
+    contacts = _load_crm_contacts()
+    if contact_id not in contacts:
+        return jsonify({"ok": False, "error": "Contact not found"})
+    if mode == "delete":
+        del contacts[contact_id]
+        _save_crm_contacts(contacts)
+        # Also remove from SQLite
+        try:
+            from src.core.db import get_db
+            with get_db() as conn:
+                conn.execute("DELETE FROM contacts WHERE id=?", (contact_id,))
+        except Exception as _e:
+            log.debug("Suppressed: %s", _e)
+        # Add to ignore list if email present
+        email = data.get("email", "")
+        if email and data.get("ignore", False):
+            _add_to_ignore_list(email, reason="deleted_contact")
+        log.info("CRM contact %s permanently deleted", contact_id)
+        return jsonify({"ok": True, "deleted": contact_id})
+    else:
+        contacts[contact_id]["hidden"] = True
+        contacts[contact_id]["hidden_at"] = datetime.now().isoformat()
+        _save_crm_contacts(contacts)
+        log.info("CRM contact %s hidden", contact_id)
+        return jsonify({"ok": True, "hidden": contact_id})
+
+
+@bp.route("/api/crm/contact/<contact_id>/tags", methods=["POST"])
+@auth_required
+def api_crm_contact_tags(contact_id):
+    """Add or remove tags. POST JSON: {action:'add'|'remove', tag:'Buyer'}"""
+    data = request.get_json(silent=True) or {}
+    action = data.get("action", "add")
+    tag = data.get("tag", "").strip()
+    if not tag:
+        return jsonify({"ok": False, "error": "Tag required"})
+    contacts = _load_crm_contacts()
+    if contact_id not in contacts:
+        return jsonify({"ok": False, "error": "Contact not found"})
+    tags = contacts[contact_id].get("tags", [])
+    if not isinstance(tags, list):
+        tags = []
+    if action == "add" and tag not in tags:
+        tags.append(tag)
+    elif action == "remove" and tag in tags:
+        tags.remove(tag)
+    contacts[contact_id]["tags"] = tags
+    contacts[contact_id]["updated_at"] = datetime.now().isoformat()
+    _save_crm_contacts(contacts)
+    return jsonify({"ok": True, "tags": tags})
+
+
+# ── Email ignore list ──
+IGNORE_LIST_FILE = os.path.join(DATA_DIR, "crm_ignore_list.json")
+
+def _load_ignore_list() -> list:
+    return _cached_json_load(IGNORE_LIST_FILE, fallback=[])
+
+def _save_ignore_list(entries: list):
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(IGNORE_LIST_FILE, "w") as f:
+        json.dump(entries, f, indent=2, default=str)
+    _invalidate_cache(IGNORE_LIST_FILE)
+
+def _add_to_ignore_list(email: str, reason: str = ""):
+    entries = _load_ignore_list()
+    if not any(e.get("email","").lower() == email.lower() for e in entries):
+        entries.append({
+            "email": email.lower().strip(),
+            "reason": reason,
+            "added_at": datetime.now().isoformat(),
+        })
+        _save_ignore_list(entries)
+
+def is_ignored_email(email: str) -> bool:
+    """Check if an email is on the ignore list. Used by email poller."""
+    entries = _load_ignore_list()
+    return any(e.get("email","").lower() == email.lower().strip() for e in entries)
+
+
+@bp.route("/api/crm/ignore-list")
+@auth_required
+def api_crm_ignore_list():
+    """Get the email ignore list."""
+    return jsonify({"ok": True, "entries": _load_ignore_list()})
+
+
+@bp.route("/api/crm/ignore-list", methods=["POST"])
+@auth_required
+def api_crm_ignore_list_add():
+    """Add/remove from ignore list. POST JSON: {email, action:'add'|'remove', reason?}"""
+    data = request.get_json(silent=True) or {}
+    email = data.get("email", "").strip().lower()
+    action = data.get("action", "add")
+    if not email:
+        return jsonify({"ok": False, "error": "Email required"})
+    entries = _load_ignore_list()
+    if action == "add":
+        _add_to_ignore_list(email, data.get("reason", "manual"))
+        entries = _load_ignore_list()
+    elif action == "remove":
+        entries = [e for e in entries if e.get("email","").lower() != email]
+        _save_ignore_list(entries)
+    return jsonify({"ok": True, "entries": _load_ignore_list()})
+
+
 @bp.route("/api/crm/contacts")
 @auth_required
 def api_crm_contacts_list():
     """List all CRM contacts with activity counts and last interaction."""
     contacts = _load_crm_contacts()
+    show_hidden = request.args.get("show_hidden", "0") == "1"
     result = []
     for cid, c in contacts.items():
+        if c.get("hidden") and not show_hidden:
+            continue
         activity = c.get("activity", [])
         last_act = activity[-1].get("timestamp","") if activity else ""
         result.append({
@@ -3161,6 +3284,9 @@ def api_crm_contacts_list():
             "activity_count": len(activity),
             "last_activity": last_act,
             "score": c.get("score",0),
+            "tags": c.get("tags",[]),
+            "follow_up_date": c.get("follow_up_date",""),
+            "hidden": c.get("hidden", False),
         })
     result.sort(key=lambda x: x.get("last_activity",""), reverse=True)
     return jsonify({"ok": True, "contacts": result, "total": len(result)})
@@ -3806,12 +3932,67 @@ def growth_prospect_detail(prospect_id):
     score_pct = round(score*100) if score<=1 else round(score)
     last_purchase = (pr.get("last_purchase","") or pr.get("last_po_date","") or "—")[:10]
 
+    # Merge CRM contact data for tags, follow-up, etc.
+    crm_contacts = _load_crm_contacts()
+    crm_c = crm_contacts.get(pid, {})
+    tags = crm_c.get("tags", []) or pr.get("tags", []) or []
+    follow_up_date = crm_c.get("follow_up_date", "") or ""
+    preferred_contact = crm_c.get("preferred_contact", "") or ""
+    source = crm_c.get("source", pr.get("source", "auto"))
+    created_at = crm_c.get("created_at", pr.get("created_at", ""))
+    contact_email = pr.get("buyer_email", "")
+
+    # Find linked quotes and PCs for this contact
+    linked_quotes = []
+    linked_pcs = []
+    try:
+        from src.forms.quote_generator import get_all_quotes
+        all_quotes = get_all_quotes()
+        for q in all_quotes:
+            q_agency = (q.get("agency","") or q.get("institution","")).lower()
+            q_email = (q.get("email","") or "").lower()
+            if (contact_email and q_email == contact_email.lower()) or \
+               (agency and agency.lower() != "unknown" and q_agency == agency.lower()):
+                linked_quotes.append(q)
+    except Exception:
+        pass
+    try:
+        pcs = _load_price_checks() if '_load_price_checks' in dir() else {}
+        if not pcs:
+            from src.api.dashboard import _load_price_checks as _lpc2
+            pcs = _lpc2()
+        for pcid, pc in pcs.items():
+            pc_inst = (pc.get("institution","") or "").lower()
+            pc_req = (pc.get("requestor","") or "").lower()
+            if (agency and agency.lower() != "unknown" and pc_inst == agency.lower()) or \
+               (contact_email and contact_email.lower() in pc_req):
+                linked_pcs.append({"id": pcid, **pc})
+    except Exception:
+        pass
+
+    # Calculate response rate from activity
+    activity_list = crm_c.get("activity", [])
+    emails_sent = sum(1 for a in activity_list if a.get("event_type") == "email_sent")
+    emails_received = sum(1 for a in activity_list if a.get("event_type") in ("email_received","response_received"))
+    response_rate = round(emails_received / max(emails_sent, 1) * 100) if emails_sent else None
+
+    # Last contacted
+    last_contacted = ""
+    for ev in sorted(activity_list, key=lambda x: x.get("timestamp",""), reverse=True):
+        if ev.get("event_type") in ("email_sent","voice_called","chat","sms_sent"):
+            last_contacted = ev.get("timestamp","")[:10]
+            break
+
     return render_page("prospect_detail.html", active_page="CRM",
         pr=pr, pid=pid, agency=agency, total_spend=total_spend,
         po_count=po_count, score=score, score_pct=score_pct,
         last_purchase=last_purchase, stat=stat, stat_color=stat_color,
         tl_html=tl_html, po_html=po_html, items_html=items_html,
-        cats_html=cats_html, or_html=or_html, all_events=all_events)
+        cats_html=cats_html, or_html=or_html, all_events=all_events,
+        tags=tags, follow_up_date=follow_up_date, preferred_contact=preferred_contact,
+        source=source, created_at=created_at, linked_quotes=linked_quotes,
+        linked_pcs=linked_pcs, response_rate=response_rate,
+        last_contacted=last_contacted, emails_sent=emails_sent)
 
 
 @bp.route("/api/growth/status")

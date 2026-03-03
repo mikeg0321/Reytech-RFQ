@@ -3,208 +3,260 @@
 
 {% block head_extra %}
 <style>
-
-     .card{background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:18px;margin-bottom:14px}
-     .card h3{font-size:14px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px}
-     .g-btn{padding:8px 14px;border-radius:7px;border:1px solid var(--bd);background:var(--sf2);color:var(--tx);cursor:pointer;font-size:13px;font-weight:600;transition:.15s;text-decoration:none;display:inline-flex;align-items:center;gap:5px}
-     .g-btn:hover{border-color:var(--ac);background:rgba(79,140,255,.1)}
-     .g-btn-go{background:rgba(52,211,153,.1);color:#3fb950;border-color:rgba(52,211,153,.3)}
-     .g-btn-warn{background:rgba(251,191,36,.1);color:#fbbf24;border-color:rgba(251,191,36,.3)}
-     .g-btn-red{background:rgba(248,113,113,.1);color:#f87171;border-color:rgba(248,113,113,.3)}
-     .g-btn-purple{background:rgba(167,139,250,.1);color:#a78bfa;border-color:rgba(167,139,250,.3)}
-     table{width:100%;border-collapse:collapse;font-size:14px}
-     th{text-align:left;padding:8px;font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--bd)}
-     td{padding:8px;border-bottom:1px solid rgba(46,51,69,.4);vertical-align:middle}
-     .mono{font-family:'JetBrains Mono',monospace}
-     .field-row{display:flex;align-items:flex-start;padding:9px 0;border-bottom:1px solid rgba(46,51,69,.4)}
-     .field-lbl{font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;width:80px;flex-shrink:0;padding-top:2px}
-     .field-val{font-size:13px;font-weight:500;flex:1}
-     .modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1000;align-items:center;justify-content:center}
-     .modal-box{background:var(--sf);border:1px solid var(--bd);border-radius:12px;padding:24px;width:480px;max-width:95vw;max-height:90vh;overflow-y:auto}
-     .form-lbl{font-size:14px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px}
-     .form-input{width:100%;padding:10px 12px;background:var(--sf2);border:1px solid var(--bd);border-radius:7px;color:var(--tx);font-size:13px;font-family:'DM Sans',sans-serif;box-sizing:border-box;margin-bottom:12px}
-     .form-input:focus{outline:none;border-color:var(--ac)}
-     textarea.form-input{resize:vertical;min-height:80px}
-    
+ .card{background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:20px;margin-bottom:14px}
+ .card h3{font-size:15px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:16px}
+ .g-btn{padding:10px 16px;border-radius:8px;border:1px solid var(--bd);background:var(--sf2);color:var(--tx);cursor:pointer;font-size:14px;font-weight:600;transition:.15s;text-decoration:none;display:inline-flex;align-items:center;gap:6px}
+ .g-btn:hover{border-color:var(--ac);background:rgba(79,140,255,.1)}
+ .g-btn-go{background:rgba(52,211,153,.1);color:#3fb950;border-color:rgba(52,211,153,.3)}
+ .g-btn-warn{background:rgba(251,191,36,.1);color:#fbbf24;border-color:rgba(251,191,36,.3)}
+ .g-btn-red{background:rgba(248,113,113,.1);color:#f87171;border-color:rgba(248,113,113,.3)}
+ .g-btn-purple{background:rgba(167,139,250,.1);color:#a78bfa;border-color:rgba(167,139,250,.3)}
+ table{width:100%;border-collapse:collapse;font-size:15px}
+ th{text-align:left;padding:10px;font-size:14px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--bd)}
+ td{padding:10px;border-bottom:1px solid rgba(46,51,69,.4);vertical-align:middle}
+ .mono{font-family:'JetBrains Mono',monospace}
+ .field-row{display:flex;align-items:center;padding:10px 0;border-bottom:1px solid rgba(46,51,69,.4)}
+ .field-lbl{font-size:14px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;width:110px;flex-shrink:0}
+ .edit-field{background:transparent;border:1px solid transparent;border-radius:6px;color:var(--tx);font-size:15px;font-weight:500;font-family:'DM Sans',sans-serif;padding:4px 8px;width:100%;transition:.2s;box-sizing:border-box}
+ .edit-field:hover{border-color:var(--bd);background:var(--sf2)}
+ .edit-field:focus{outline:none;border-color:var(--ac);background:var(--sf2)}
+ .edit-field.saving{border-color:#fbbf24;opacity:.7}
+ .edit-field.saved{border-color:#3fb950}
+ textarea.edit-field{resize:vertical;min-height:60px}
+ .tag{display:inline-flex;align-items:center;gap:4px;padding:4px 12px;border-radius:14px;font-size:13px;font-weight:600;cursor:default;transition:.15s;white-space:nowrap;margin:2px}
+ .tag .tag-x{font-size:14px;opacity:.5;cursor:pointer;margin-left:2px}
+ .tag .tag-x:hover{opacity:1;color:#f85149}
+ .tag-buyer{background:rgba(79,140,255,.15);color:#4f8cff;border:1px solid rgba(79,140,255,.25)}
+ .tag-decisionmaker{background:rgba(167,139,250,.15);color:#a78bfa;border:1px solid rgba(167,139,250,.25)}
+ .tag-nonresponsive{background:rgba(248,81,73,.15);color:#f85149;border:1px solid rgba(248,81,73,.25)}
+ .tag-difficultcaution{background:rgba(251,191,36,.15);color:#fbbf24;border:1px solid rgba(251,191,36,.25)}
+ .tag-vip{background:rgba(52,211,153,.15);color:#3fb950;border:1px solid rgba(52,211,153,.25)}
+ .tag-repeatcustomer{background:rgba(52,211,153,.15);color:#3fb950;border:1px solid rgba(52,211,153,.25)}
+ .tag-newlead{background:rgba(79,140,255,.15);color:#4f8cff;border:1px solid rgba(79,140,255,.25)}
+ .tag-influencer{background:rgba(251,191,36,.15);color:#fbbf24;border:1px solid rgba(251,191,36,.25)}
+ .tag-default{background:rgba(139,148,158,.15);color:#8b949e;border:1px solid rgba(139,148,158,.25)}
+ .tag-add{background:var(--sf2);color:var(--tx2);border:1px dashed var(--bd);font-size:13px;padding:4px 10px;cursor:pointer}
+ .tag-add:hover{border-color:var(--ac);color:var(--ac)}
+ .tag-menu{position:fixed;background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:8px;z-index:100;box-shadow:0 8px 24px rgba(0,0,0,.4);display:none;min-width:200px}
+ .tag-menu-item{display:block;width:100%;text-align:left;padding:8px 12px;background:none;border:none;color:var(--tx);cursor:pointer;font-size:14px;border-radius:6px;font-family:'DM Sans',sans-serif}
+ .tag-menu-item:hover{background:var(--sf2)}
+ .modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1000;align-items:center;justify-content:center}
+ .modal-box{background:var(--sf);border:1px solid var(--bd);border-radius:12px;padding:24px;width:500px;max-width:95vw;max-height:90vh;overflow-y:auto}
+ .form-lbl{font-size:14px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px}
+ .form-input{width:100%;padding:10px 14px;background:var(--sf2);border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:15px;font-family:'DM Sans',sans-serif;box-sizing:border-box;margin-bottom:14px}
+ .form-input:focus{outline:none;border-color:var(--ac)}
+ textarea.form-input{resize:vertical;min-height:80px}
+ .stat-box{background:var(--sf2);border-radius:8px;padding:12px;text-align:center}
+ .stat-label{font-size:13px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px;letter-spacing:.3px}
+ .stat-value{font-size:20px;font-weight:700;font-family:'JetBrains Mono',monospace}
+ .linked-item{display:flex;align-items:center;gap:10px;padding:10px;border-bottom:1px solid rgba(46,51,69,.4);border-radius:6px;transition:.15s;text-decoration:none;color:var(--tx)}
+ .linked-item:hover{background:var(--sf2)}
 </style>
 {% endblock %}
 
 {% block content %}
-<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;font-size:13px">
-     <a href="/contacts" style="color:var(--ac)">👥 CRM</a>
-     <span style="color:var(--tx2)">›</span>
-     <span style="color:var(--tx)">{{ agency }}</span>
-    </div>
+<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;font-size:14px">
+ <a href="/contacts" style="color:var(--ac)">👥 CRM</a>
+ <span style="color:var(--tx2)">›</span>
+ <span>{{ agency }}</span>
+</div>
 
-    <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:18px">
-     <div>
-      <h1 style="font-size:22px;font-weight:700;margin-bottom:6px">{{ pr.get('buyer_name') or agency }}</h1>
-      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-       <span style="font-size:13px;color:var(--tx2)">{{ agency }}</span>
-       <span style="padding:3px 12px;border-radius:12px;font-size:14px;font-weight:700;text-transform:uppercase;background:{{ stat_color }}22;color:{{ stat_color }};border:1px solid {{ stat_color }}44">{{ stat }}</span>
-       <span style="font-size:14px;color:var(--tx2)">Score <b style="color:var(--ac)">{{ score_pct }}%</b></span>
-       <span style="font-size:14px;color:var(--tx2)">Spend <b style="color:#3fb950">${{ "{:,.0f}".format(total_spend) }}</b></span>
-       <span style="font-size:14px;color:var(--tx2)">{{ po_count }} POs · Last {{ last_purchase }}</span>
-      </div>
-     </div>
-     <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <button class="g-btn g-btn-go" onclick="openLog('email')">📧 Log Email</button>
-      <button class="g-btn g-btn-go" onclick="openLog('call')">📞 Log Call</button>
-      <button class="g-btn g-btn-purple" onclick="openLog('chat')">💬 Log Chat</button>
-      <button class="g-btn" onclick="openLog('note')">📝 Note</button>
-      <button class="g-btn" onclick="openEdit()">✏️ Edit</button>
-     </div>
-    </div>
+<div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px">
+ <div>
+  <h1 style="font-size:26px;font-weight:700;margin-bottom:8px">{{ pr.get('buyer_name') or agency }}</h1>
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:15px">
+   <span style="padding:4px 14px;border-radius:14px;font-size:14px;font-weight:700;text-transform:uppercase;background:{{ stat_color }}22;color:{{ stat_color }};border:1px solid {{ stat_color }}44">{{ stat }}</span>
+   <span style="color:var(--tx2)">Score <b style="color:var(--ac)">{{ score_pct }}%</b></span>
+   <span style="color:var(--tx2)">Spend <b style="color:#3fb950">${{ "{:,.0f}".format(total_spend) }}</b></span>
+   <span style="color:var(--tx2)">{{ po_count }} POs · Last {{ last_purchase }}</span>
+   {% if response_rate is not none %}<span style="color:var(--tx2)">📧 Response <b style="color:{% if response_rate > 50 %}#3fb950{% elif response_rate > 20 %}#fbbf24{% else %}#f85149{% endif %}">{{ response_rate }}%</b></span>{% endif %}
+   {% if last_contacted %}<span style="color:var(--tx2)">Last contact: <b>{{ last_contacted }}</b></span>{% endif %}
+  </div>
+ </div>
+ <div style="display:flex;gap:8px;flex-wrap:wrap">
+  <button class="g-btn g-btn-go" onclick="openLog('email')">📧 Log Email</button>
+  <button class="g-btn g-btn-go" onclick="openLog('call')">📞 Log Call</button>
+  <button class="g-btn g-btn-purple" onclick="openLog('chat')">💬 Log Chat</button>
+  <button class="g-btn" onclick="openLog('note')">📝 Note</button>
+  <div style="position:relative;display:inline-block">
+   <button class="g-btn" onclick="toggleMore()" id="more-btn">⚙️ More ▾</button>
+   <div id="more-menu" style="display:none;position:absolute;right:0;top:44px;background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:6px;z-index:100;box-shadow:0 8px 24px rgba(0,0,0,.4);min-width:220px">
+    <button class="tag-menu-item" onclick="setStatus('responded')">✅ Mark Responded</button>
+    <button class="tag-menu-item" onclick="setStatus('follow_up_due')">⏰ Set Follow Up</button>
+    <button class="tag-menu-item" onclick="setStatus('won')">🏆 Mark Won</button>
+    <button class="tag-menu-item" onclick="setStatus('dead')">💀 Mark Dead</button>
+    <button class="tag-menu-item" onclick="convertToCustomer()">🔄 Convert → Customer</button>
+    <div style="border-top:1px solid var(--bd);margin:4px 0"></div>
+    <button class="tag-menu-item" onclick="hideContact()">👁️‍🗨️ Hide Contact</button>
+    <button class="tag-menu-item" onclick="ignoreEmail()" style="color:#fbbf24">🚫 Add to Ignore List</button>
+    <button class="tag-menu-item" onclick="deleteContact()" style="color:#f85149">🗑️ Permanently Delete</button>
+   </div>
+  </div>
+ </div>
+</div>
 
-    <div style="display:grid;grid-template-columns:1fr 1.5fr 0.9fr;gap:14px;margin-bottom:14px">
-     <div class="card">
-      <h3>👤 Contact Info</h3>
-      <div class="field-row"><span class="field-lbl">Name</span><span class="field-val">{{ pr.get('buyer_name') or '—' }}</span></div>
-      <div class="field-row"><span class="field-lbl">Email</span><span class="field-val"><a href="mailto:{{ pr.get('buyer_email','') }}" style="color:var(--ac);font-family:monospace;font-size:14px">{{ pr.get('buyer_email') or '—' }}</a></span></div>
-      <div class="field-row"><span class="field-lbl">Phone</span><span class="field-val">{{ pr.get('buyer_phone') or '—' }}</span></div>
-      <div class="field-row"><span class="field-lbl">Title</span><span class="field-val">{{ pr.get('title') or '—' }}</span></div>
-      <div class="field-row"><span class="field-lbl">Agency</span><span class="field-val">{{ agency }}</span></div>
-      <div class="field-row"><span class="field-lbl">LinkedIn</span><span class="field-val">{% if pr.get('linkedin') %}<a href="{{ pr.get('linkedin','') }}" target="_blank" style="color:var(--ac)">View Profile</a>{% else %}—{% endif %}</span></div>
-      <div class="field-row"><span class="field-lbl">Notes</span><span class="field-val" style="font-size:14px;color:var(--tx2);white-space:pre-wrap">{{ pr.get('notes') or pr.get('contact_notes') or '—' }}</span></div>
-      <div style="margin-top:14px;display:grid;grid-template-columns:1fr 1fr;gap:6px">
-       <button class="g-btn g-btn-go" onclick="setStatus('responded')" style="justify-content:center">✅ Responded</button>
-       <button class="g-btn g-btn-warn" onclick="setStatus('follow_up_due')" style="justify-content:center">⏰ Follow Up</button>
-       <button class="g-btn g-btn-go" onclick="setStatus('won')" style="justify-content:center">🏆 Won</button>
-       <button class="g-btn g-btn-red" onclick="setStatus('dead')" style="justify-content:center">💀 Dead</button>
-      </div>
-      <button class="g-btn g-btn-purple" onclick="convertToCustomer()" style="width:100%;justify-content:center;margin-top:8px;padding:10px">🔄 Convert Lead → Customer</button>
-     </div>
+<!-- TAGS -->
+<div class="card" style="padding:14px 20px;margin-bottom:14px">
+ <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+  <span style="font-size:14px;color:var(--tx2);font-weight:600;margin-right:4px">🏷️ TAGS:</span>
+  <div id="tags-container" style="display:flex;flex-wrap:wrap;gap:4px;align-items:center">
+   {% for t in tags %}{% set tclass = t.lower().replace(' ','').replace('/','') %}
+   <span class="tag tag-{{ tclass if tclass in ['buyer','decisionmaker','nonresponsive','difficultcaution','vip','repeatcustomer','newlead','influencer'] else 'default' }}" data-tag="{{ t }}">{{ t }}<span class="tag-x" onclick="removeTag('{{ t }}',event)">×</span></span>
+   {% endfor %}
+   <span class="tag tag-add" onclick="toggleTagMenu(event)" id="add-tag-btn">+ Add Tag</span>
+  </div>
+  <div class="tag-menu" id="tag-menu">
+   <button class="tag-menu-item" onclick="addTag('Buyer')">🛒 Buyer</button>
+   <button class="tag-menu-item" onclick="addTag('Decision Maker')">👑 Decision Maker</button>
+   <button class="tag-menu-item" onclick="addTag('VIP')">⭐ VIP</button>
+   <button class="tag-menu-item" onclick="addTag('Non Responsive')">📭 Non Responsive</button>
+   <button class="tag-menu-item" onclick="addTag('Difficult/Caution')">⚠️ Difficult/Caution</button>
+   <button class="tag-menu-item" onclick="addTag('Influencer')">💡 Influencer</button>
+   <button class="tag-menu-item" onclick="addTag('New Lead')">🆕 New Lead</button>
+   <button class="tag-menu-item" onclick="addTag('Repeat Customer')">🔄 Repeat Customer</button>
+   <div style="border-top:1px solid var(--bd);margin:4px 0"></div>
+   <div style="display:flex;gap:4px;padding:4px">
+    <input id="custom-tag-input" placeholder="Custom tag..." style="flex:1;padding:6px 10px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:14px">
+    <button onclick="addCustomTag()" class="g-btn" style="padding:6px 12px;font-size:13px">+</button>
+   </div>
+  </div>
+ </div>
+</div>
 
-     <div class="card">
-      <h3>📅 Activity Log <span style="font-weight:400;color:var(--tx2);font-size:13px;text-transform:none;letter-spacing:0">({{ all_events|length }} events)</span></h3>
-      <div style="max-height:420px;overflow-y:auto;padding-right:4px">{{ tl_html | safe }}</div>
-     </div>
+<!-- MAIN GRID -->
+<div style="display:grid;grid-template-columns:1fr 1.5fr 0.9fr;gap:14px;margin-bottom:14px">
+ <div class="card">
+  <h3>👤 Contact Info <span style="font-weight:400;font-size:13px;text-transform:none;letter-spacing:0;color:var(--tx2)">— edits auto-save</span></h3>
+  <div class="field-row"><span class="field-lbl">Name</span><input class="edit-field" data-field="buyer_name" value="{{ pr.get('buyer_name','') }}" placeholder="Full name"></div>
+  <div class="field-row"><span class="field-lbl">Email</span><input class="edit-field mono" data-field="buyer_email" value="{{ pr.get('buyer_email','') }}" placeholder="email@example.com" style="color:var(--ac)"></div>
+  <div class="field-row"><span class="field-lbl">Phone</span><input class="edit-field" data-field="buyer_phone" value="{{ pr.get('buyer_phone','') }}" placeholder="+1 (xxx) xxx-xxxx"></div>
+  <div class="field-row"><span class="field-lbl">Title</span><input class="edit-field" data-field="title" value="{{ pr.get('title','') }}" placeholder="e.g. Procurement Officer"></div>
+  <div class="field-row"><span class="field-lbl">Agency</span><input class="edit-field" data-field="agency" value="{{ agency }}" placeholder="Organization" style="font-weight:600"></div>
+  <div class="field-row"><span class="field-lbl">LinkedIn</span><input class="edit-field mono" data-field="linkedin" value="{{ pr.get('linkedin','') }}" placeholder="https://linkedin.com/in/..." style="font-size:13px"></div>
+  <div class="field-row"><span class="field-lbl">Pref Contact</span>
+   <select class="edit-field" data-field="preferred_contact" style="padding:6px 8px">
+    <option value="" {% if not preferred_contact %}selected{% endif %}>—</option>
+    <option value="email" {% if preferred_contact == 'email' %}selected{% endif %}>📧 Email</option>
+    <option value="phone" {% if preferred_contact == 'phone' %}selected{% endif %}>📞 Phone</option>
+    <option value="text" {% if preferred_contact == 'text' %}selected{% endif %}>💬 Text</option>
+    <option value="in_person" {% if preferred_contact == 'in_person' %}selected{% endif %}>🤝 In Person</option>
+   </select>
+  </div>
+  <div class="field-row"><span class="field-lbl">Follow Up</span><input class="edit-field" data-field="follow_up_date" type="date" value="{{ follow_up_date }}" style="font-family:'JetBrains Mono',monospace;font-size:14px"></div>
+  <div class="field-row" style="border-bottom:none;align-items:flex-start"><span class="field-lbl" style="padding-top:8px">Notes</span><textarea class="edit-field" data-field="notes" rows="3" placeholder="Add notes...">{{ pr.get('notes','') or pr.get('contact_notes','') }}</textarea></div>
+  <div style="margin-top:10px;display:flex;gap:12px;flex-wrap:wrap;font-size:13px;color:var(--tx2)">
+   {% if source %}<span>📍 {{ source }}</span>{% endif %}
+   {% if created_at %}<span>📅 Created {{ created_at[:10] }}</span>{% endif %}
+   {% if emails_sent %}<span>📧 {{ emails_sent }} sent</span>{% endif %}
+  </div>
+ </div>
 
-     <div class="card">
-      <h3>📊 SCPRS Intel</h3>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
-       <div style="background:var(--sf2);border-radius:8px;padding:10px;text-align:center">
-        <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">Annual Spend</div>
-        <div style="font-size:18px;font-weight:700;color:#3fb950;font-family:monospace">${{ "{:,.0f}".format(total_spend) }}</div>
-       </div>
-       <div style="background:var(--sf2);border-radius:8px;padding:10px;text-align:center">
-        <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">PO Count</div>
-        <div style="font-size:18px;font-weight:700;color:var(--ac);font-family:monospace">{{ po_count }}</div>
-       </div>
-       <div style="background:var(--sf2);border-radius:8px;padding:10px;text-align:center">
-        <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">Opp Score</div>
-        <div style="font-size:18px;font-weight:700;color:#a78bfa;font-family:monospace">{{ score_pct }}%</div>
-       </div>
-       <div style="background:var(--sf2);border-radius:8px;padding:10px;text-align:center">
-        <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">Last Buy</div>
-        <div style="font-size:14px;font-weight:600;font-family:monospace;color:var(--tx)">{{ last_purchase }}</div>
-       </div>
-      </div>
-      {% if cats_html %}<div style="font-size:13px;color:var(--tx2);font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Spend by Category</div>{{ cats_html | safe }}{% else %}<div style="color:var(--tx2);font-size:14px">Run Deep Pull for category data</div>{% endif %}
-     </div>
-    </div>
+ <div class="card">
+  <h3>📅 Activity Log <span style="font-weight:400;color:var(--tx2);font-size:14px;text-transform:none;letter-spacing:0">({{ all_events|length }} events)</span></h3>
+  <div style="max-height:480px;overflow-y:auto;padding-right:4px">{{ tl_html | safe }}</div>
+ </div>
 
-    <div style="display:grid;grid-template-columns:1fr 1.8fr;gap:14px">
-     <div class="card">
-      <h3>🛒 Items Purchased</h3>
-      {% if items_html %}<div>{{ items_html | safe }}</div>{% else %}<div style="color:var(--tx2);font-size:13px;padding:8px 0">No item data yet — run Deep Pull to mine line items</div>{% endif %}
-     </div>
-     <div class="card">
-      <h3>📋 PO History ({{ po_count }})</h3>
-      {% if po_html %}<div style="overflow-x:auto"><table><thead><tr><th>PO #</th><th>Date</th><th>Items</th><th>Category</th><th style="text-align:right">Total</th></tr></thead><tbody>{{ po_html | safe }}</tbody></table></div>{% else %}<div style="color:var(--tx2);font-size:13px;padding:8px 0">No PO history — run Deep Pull to fetch SCPRS purchase orders</div>{% endif %}
-     </div>
-    </div>
+ <div class="card">
+  <h3>📊 SCPRS Intel</h3>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
+   <div class="stat-box"><div class="stat-label">Annual Spend</div><div class="stat-value" style="color:#3fb950">${{ "{:,.0f}".format(total_spend) }}</div></div>
+   <div class="stat-box"><div class="stat-label">PO Count</div><div class="stat-value" style="color:var(--ac)">{{ po_count }}</div></div>
+   <div class="stat-box"><div class="stat-label">Opp Score</div><div class="stat-value" style="color:#a78bfa">{{ score_pct }}%</div></div>
+   <div class="stat-box"><div class="stat-label">Last Buy</div><div class="stat-value" style="font-size:14px">{{ last_purchase }}</div></div>
+   {% if response_rate is not none %}
+   <div class="stat-box"><div class="stat-label">Response Rate</div><div class="stat-value" style="color:{% if response_rate > 50 %}#3fb950{% elif response_rate > 20 %}#fbbf24{% else %}#f85149{% endif %}">{{ response_rate }}%</div></div>
+   {% endif %}
+   {% if last_contacted %}
+   <div class="stat-box"><div class="stat-label">Last Contact</div><div class="stat-value" style="font-size:14px">{{ last_contacted }}</div></div>
+   {% endif %}
+  </div>
+  {% if cats_html %}<div style="font-size:13px;color:var(--tx2);font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Spend by Category</div>{{ cats_html | safe }}{% else %}<div style="color:var(--tx2);font-size:14px">Run Deep Pull for category data</div>{% endif %}
+ </div>
+</div>
 
-    {% if or_html %}<div class="card"><h3>📧 Outreach Campaigns</h3>{{ or_html | safe }}</div>{% endif %}
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:14px">
+ <div class="card">
+  <h3>📋 Linked Quotes ({{ linked_quotes|length }})</h3>
+  {% if linked_quotes %}{% for q in linked_quotes[:10] %}
+  <a href="/quote/{{ q.get('quote_number','') }}" class="linked-item">
+   <span style="color:var(--ac);font-family:'JetBrains Mono',monospace;font-weight:700">{{ q.get('quote_number','—') }}</span>
+   <span style="flex:1;font-size:14px">{{ q.get('agency','') or q.get('institution','') }}</span>
+   <span class="mono" style="color:#3fb950">${{ "{:,.0f}".format(q.get('total',0) or 0) }}</span>
+  </a>{% endfor %}{% else %}<div style="color:var(--tx2);font-size:14px;padding:8px 0">No linked quotes</div>{% endif %}
+ </div>
+ <div class="card">
+  <h3>📄 Linked PCs ({{ linked_pcs|length }})</h3>
+  {% if linked_pcs %}{% for pc in linked_pcs[:10] %}
+  <a href="/pricecheck/{{ pc.get('id','') }}" class="linked-item">
+   <span style="color:var(--ac);font-family:'JetBrains Mono',monospace;font-weight:700">#{{ pc.get('pc_number','—') }}</span>
+   <span style="flex:1;font-size:14px">{{ pc.get('institution','') }}</span>
+   <span style="font-size:13px;color:var(--tx2)">{{ pc.get('status','') }}</span>
+  </a>{% endfor %}{% else %}<div style="color:var(--tx2);font-size:14px;padding:8px 0">No linked price checks</div>{% endif %}
+ </div>
+ <div class="card">
+  <h3>🛒 Items Purchased</h3>
+  {% if items_html %}<div>{{ items_html | safe }}</div>{% else %}<div style="color:var(--tx2);font-size:14px;padding:8px 0">No item data yet</div>{% endif %}
+ </div>
+</div>
 
-    <!-- Log Activity Modal -->
-    <div class="modal-bg" id="log-modal" onclick="if(event.target===this)closeModal()">
-     <div class="modal-box">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
-       <span id="modal-title" style="font-size:16px;font-weight:700">Log Activity</span>
-       <button onclick="closeModal()" style="background:none;border:none;color:var(--tx2);cursor:pointer;font-size:20px">✕</button>
-      </div>
-      <div id="modal-body"></div>
-     </div>
-    </div>
+<div class="card">
+ <h3>📋 PO History ({{ po_count }})</h3>
+ {% if po_html %}<div style="overflow-x:auto"><table><thead><tr><th>PO #</th><th>Date</th><th>Items</th><th>Category</th><th style="text-align:right">Total</th></tr></thead><tbody>{{ po_html | safe }}</tbody></table></div>{% else %}<div style="color:var(--tx2);font-size:14px;padding:8px 0">No PO history</div>{% endif %}
+</div>
 
-    <!-- Edit Contact Modal -->
-    <div class="modal-bg" id="edit-modal" onclick="if(event.target===this)closeEditModal()">
-     <div class="modal-box">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
-       <span style="font-size:16px;font-weight:700">✏️ Edit Contact</span>
-       <button onclick="closeEditModal()" style="background:none;border:none;color:var(--tx2);cursor:pointer;font-size:20px">✕</button>
-      </div>
-      <label class="form-lbl">Full Name</label>
-      <input id="edit-name" class="form-input" value="{{ pr.get('buyer_name','') }}" placeholder="Full name">
-      <label class="form-lbl">Phone</label>
-      <input id="edit-phone" class="form-input" value="{{ pr.get('buyer_phone','') }}" placeholder="+1 (xxx) xxx-xxxx">
-      <label class="form-lbl">Title / Role</label>
-      <input id="edit-title" class="form-input" value="{{ pr.get('title','') }}" placeholder="e.g. Procurement Officer">
-      <label class="form-lbl">LinkedIn URL</label>
-      <input id="edit-linkedin" class="form-input" value="{{ pr.get('linkedin','') }}" placeholder="https://linkedin.com/in/...">
-      <label class="form-lbl">Notes</label>
-      <textarea id="edit-notes" class="form-input">{{ pr.get('notes','') or pr.get('contact_notes','') }}</textarea>
-      <button onclick="saveContact()" class="g-btn g-btn-go" style="width:100%;justify-content:center;padding:12px;font-size:14px">💾 Save Contact</button>
-     </div>
-    </div>
+{% if or_html %}<div class="card"><h3>📧 Outreach Campaigns</h3>{{ or_html | safe }}</div>{% endif %}
 
-    <script>
-    const PID = '{{ pid }}';
-    const EMAIL = '{{ pr.get("buyer_email","") }}';
-    function crmPost(u,b){return fetch(u,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}).then(r=>r.json())}
-    function setStatus(s){crmPost('/api/growth/prospect/'+PID,{outreach_status:s}).then(r=>{if(r.ok)location.reload();else alert(r.error)})}
-    function setBounced(){if(!confirm('Mark as bounced?'))return;crmPost('/api/growth/bounceback',{email:EMAIL,reason:'Manual bounce'}).then(r=>{if(r.ok)location.reload();else alert(r.error)})}
+<div class="modal-bg" id="log-modal" onclick="if(event.target===this)closeModal()">
+ <div class="modal-box">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+   <span id="modal-title" style="font-size:18px;font-weight:700">Log Activity</span>
+   <button onclick="closeModal()" style="background:none;border:none;color:var(--tx2);cursor:pointer;font-size:22px">✕</button>
+  </div>
+  <div id="modal-body"></div>
+ </div>
+</div>
 
-    function convertToCustomer(){
-      if(!confirm('Convert this prospect to a customer contact?\n\nThis will:\n• Create a CRM customer record\n• Mark the lead as converted\n• Stop any active nurture sequences'))return;
-      // Try converting by prospect ID (which may also be the lead ID)
-      crmPost('/api/leads/convert',{lead_id:PID}).then(r=>{
-        if(r.ok){
-          alert('✅ Converted to customer: '+r.contact_id);
-          location.reload();
-        } else if(r.error==='lead not found'){
-          // Prospect isn't in leads table — create CRM contact directly from growth data
-          crmPost('/api/crm/contact/'+PID+'/log',{type:'note',detail:'Converted from prospect to customer',actor:'mike',event_type:'lead_converted'}).then(()=>{
-            setStatus('won');
-          });
-        } else {
-          alert('Error: '+(r.error||'Failed'));
-        }
-      });
-    }
+<script>
+const PID='{{ pid }}';const EMAIL='{{ pr.get("buyer_email","") }}';
+function crmPost(u,b){return fetch(u,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}).then(r=>r.json())}
+function crmPatch(u,b){return fetch(u,{method:'PATCH',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}).then(r=>r.json())}
 
-    var logType='';
-    function openLog(type){
-      logType=type;
-      var titles={email:'📧 Log Email',call:'📞 Log Call',note:'📝 Add Note',chat:'💬 Log Interaction'};
-      document.getElementById('modal-title').textContent=titles[type]||'Log Activity';
-      var bodies={
-        email:'<label class="form-lbl">Direction</label><select id="log-dir" class="form-input"><option value="sent">Sent (outbound)</option><option value="received">Received (inbound reply)</option></select><label class="form-lbl">Subject</label><input id="log-subject" class="form-input" placeholder="Email subject..."><label class="form-lbl">Notes / Summary</label><textarea id="log-detail" class="form-input" placeholder="What was the email about?"></textarea>',
-        call:'<label class="form-lbl">Outcome</label><select id="log-outcome" class="form-input"><option value="reached">Reached — had conversation</option><option value="voicemail">Left voicemail</option><option value="no_answer">No answer</option><option value="callback">Requested callback</option><option value="not_interested">Not interested</option></select><label class="form-lbl">Duration (minutes)</label><input id="log-duration" class="form-input" type="number" placeholder="e.g. 5"><label class="form-lbl">Notes</label><textarea id="log-detail" class="form-input" placeholder="What was discussed?"></textarea>',
-        note:'<label class="form-lbl">Note</label><textarea id="log-detail" class="form-input" rows="6" placeholder="Add a note about this contact..."></textarea>',
-        chat:'<label class="form-lbl">Channel</label><select id="log-channel" class="form-input"><option value="in_person">In-person meeting</option><option value="teams">Teams / Zoom</option><option value="linkedin">LinkedIn message</option><option value="text">Text / SMS</option><option value="other">Other</option></select><label class="form-lbl">Summary</label><textarea id="log-detail" class="form-input" placeholder="What was discussed?"></textarea>',
-      };
-      document.getElementById('modal-body').innerHTML=(bodies[type]||'')+'<div style="display:flex;gap:8px;margin-top:4px"><button onclick="submitLog()" class="g-btn g-btn-go" style="flex:1;justify-content:center;padding:12px">✅ Save</button><button onclick="closeModal()" class="g-btn" style="padding:12px 20px">Cancel</button></div>';
-      document.getElementById('log-modal').style.display='flex';
-      setTimeout(()=>{var d=document.getElementById('log-detail');if(d)d.focus();},100);
-    }
-    function closeModal(){document.getElementById('log-modal').style.display='none';}
-    function submitLog(){
-      var detail=document.getElementById('log-detail')?.value||'';
-      if(!detail.trim()){alert('Please add a note or summary');return;}
-      var payload={type:logType,detail:detail,actor:'mike'};
-      if(logType==='email'){payload.direction=document.getElementById('log-dir')?.value;payload.subject=document.getElementById('log-subject')?.value;payload.event_type=payload.direction==='sent'?'email_sent':'email_received';}
-      else if(logType==='call'){payload.outcome=document.getElementById('log-outcome')?.value;payload.duration=document.getElementById('log-duration')?.value;payload.event_type='voice_called';}
-      else if(logType==='chat'){payload.channel=document.getElementById('log-channel')?.value;payload.event_type='chat';}
-      else{payload.event_type='note';}
-      crmPost('/api/crm/contact/'+PID+'/log',payload).then(r=>{if(r.ok){closeModal();location.reload();}else alert('Error: '+(r.error||'Failed'));});
-    }
-    function openEdit(){document.getElementById('edit-modal').style.display='flex';}
-    function closeEditModal(){document.getElementById('edit-modal').style.display='none';}
-    function saveContact(){
-      var data={buyer_name:document.getElementById('edit-name').value,buyer_phone:document.getElementById('edit-phone').value,title:document.getElementById('edit-title').value,linkedin:document.getElementById('edit-linkedin').value,notes:document.getElementById('edit-notes').value};
-      crmPost('/api/growth/prospect/'+PID,data).then(r=>{if(r.ok){closeEditModal();location.reload();}else alert('Error: '+(r.error||'Failed'));});
-    }
-    </script>
+// ── INLINE AUTO-SAVE ──
+var saveTimers={};
+document.querySelectorAll('.edit-field').forEach(function(el){
+  function doSave(){
+    var field=el.dataset.field,val=el.value,payload={};payload[field]=val;
+    el.classList.add('saving');el.classList.remove('saved');
+    crmPatch('/api/crm/contact/'+PID,payload).then(function(r){
+      el.classList.remove('saving');
+      if(r.ok){el.classList.add('saved');setTimeout(function(){el.classList.remove('saved')},1500)}
+    }).catch(function(){el.classList.remove('saving')});
+    crmPost('/api/growth/prospect/'+PID,payload).catch(function(){});
+  }
+  el.addEventListener('change',function(){clearTimeout(saveTimers[el.dataset.field]);doSave()});
+  if(el.tagName!=='SELECT'){el.addEventListener('input',function(){clearTimeout(saveTimers[el.dataset.field]);saveTimers[el.dataset.field]=setTimeout(doSave,800)})}
+});
+
+// ── TAGS ──
+function toggleTagMenu(e){e.stopPropagation();var m=document.getElementById('tag-menu'),btn=document.getElementById('add-tag-btn'),r=btn.getBoundingClientRect();m.style.left=r.left+'px';m.style.top=(r.bottom+4)+'px';m.style.display=m.style.display==='block'?'none':'block'}
+function addTag(tag){document.getElementById('tag-menu').style.display='none';crmPost('/api/crm/contact/'+PID+'/tags',{action:'add',tag:tag}).then(function(r){if(r.ok)location.reload()})}
+function addCustomTag(){var inp=document.getElementById('custom-tag-input');if(inp.value.trim())addTag(inp.value.trim())}
+document.getElementById('custom-tag-input')?.addEventListener('keydown',function(e){if(e.key==='Enter')addCustomTag()});
+function removeTag(tag,e){e.stopPropagation();crmPost('/api/crm/contact/'+PID+'/tags',{action:'remove',tag:tag}).then(function(r){if(r.ok)location.reload()})}
+document.addEventListener('click',function(e){if(!e.target.closest('#tag-menu')&&!e.target.closest('#add-tag-btn'))document.getElementById('tag-menu').style.display='none';if(!e.target.closest('#more-menu')&&!e.target.closest('#more-btn'))document.getElementById('more-menu').style.display='none'});
+
+// ── MORE MENU ──
+function toggleMore(){var m=document.getElementById('more-menu');m.style.display=m.style.display==='block'?'none':'block'}
+function setStatus(s){document.getElementById('more-menu').style.display='none';crmPost('/api/growth/prospect/'+PID,{outreach_status:s}).then(r=>{if(r.ok)location.reload();else alert(r.error)})}
+function hideContact(){if(!confirm('Hide this contact from the CRM list? Data is preserved.'))return;document.getElementById('more-menu').style.display='none';crmPost('/api/crm/contact/'+PID+'/delete',{mode:'hide'}).then(r=>{if(r.ok){alert('Contact hidden');location.href='/contacts'}else alert(r.error)})}
+function ignoreEmail(){if(!EMAIL){alert('No email on this contact');return}if(!confirm('Add '+EMAIL+' to the ignore list?\n\nFuture emails from this address will be skipped.'))return;document.getElementById('more-menu').style.display='none';crmPost('/api/crm/ignore-list',{email:EMAIL,action:'add',reason:'manual_crm'}).then(r=>{if(r.ok)alert('✅ '+EMAIL+' added to ignore list');else alert(r.error)})}
+function deleteContact(){if(!confirm('⚠️ PERMANENTLY DELETE this contact?\n\nAll logs, notes, and data will be removed. Cannot be undone.'))return;var alsoIgnore=EMAIL?confirm('Also add '+EMAIL+' to ignore list?'):false;document.getElementById('more-menu').style.display='none';crmPost('/api/crm/contact/'+PID+'/delete',{mode:'delete',email:EMAIL,ignore:alsoIgnore}).then(r=>{if(r.ok){alert('Deleted');location.href='/contacts'}else alert(r.error)})}
+function convertToCustomer(){if(!confirm('Convert to customer?'))return;document.getElementById('more-menu').style.display='none';crmPost('/api/leads/convert',{lead_id:PID}).then(r=>{if(r.ok){alert('✅ Converted');location.reload()}else if(r.error==='lead not found'){crmPost('/api/crm/contact/'+PID+'/log',{type:'note',detail:'Converted to customer',actor:'mike',event_type:'lead_converted'}).then(()=>setStatus('won'))}else alert(r.error||'Failed')})}
+
+// ── LOG ACTIVITY ──
+var logType='';
+function openLog(type){logType=type;var titles={email:'📧 Log Email',call:'📞 Log Call',note:'📝 Add Note',chat:'💬 Log Interaction'};document.getElementById('modal-title').textContent=titles[type]||'Log Activity';var bodies={email:'<label class="form-lbl">Direction</label><select id="log-dir" class="form-input"><option value="sent">Sent</option><option value="received">Received</option></select><label class="form-lbl">Subject</label><input id="log-subject" class="form-input" placeholder="Subject..."><label class="form-lbl">Notes</label><textarea id="log-detail" class="form-input" placeholder="Summary..."></textarea>',call:'<label class="form-lbl">Outcome</label><select id="log-outcome" class="form-input"><option value="reached">Reached</option><option value="voicemail">Voicemail</option><option value="no_answer">No answer</option><option value="callback">Callback requested</option><option value="not_interested">Not interested</option></select><label class="form-lbl">Duration (min)</label><input id="log-duration" class="form-input" type="number" placeholder="5"><label class="form-lbl">Notes</label><textarea id="log-detail" class="form-input" placeholder="Discussion..."></textarea>',note:'<label class="form-lbl">Note</label><textarea id="log-detail" class="form-input" rows="6" placeholder="Note..."></textarea>',chat:'<label class="form-lbl">Channel</label><select id="log-channel" class="form-input"><option value="in_person">In-person</option><option value="teams">Teams/Zoom</option><option value="linkedin">LinkedIn</option><option value="text">Text/SMS</option><option value="other">Other</option></select><label class="form-lbl">Summary</label><textarea id="log-detail" class="form-input" placeholder="Discussion..."></textarea>'};document.getElementById('modal-body').innerHTML=(bodies[type]||'')+'<div style="display:flex;gap:8px;margin-top:4px"><button onclick="submitLog()" class="g-btn g-btn-go" style="flex:1;justify-content:center;padding:12px;font-size:15px">✅ Save</button><button onclick="closeModal()" class="g-btn" style="padding:12px 20px;font-size:15px">Cancel</button></div>';document.getElementById('log-modal').style.display='flex';setTimeout(function(){var d=document.getElementById('log-detail');if(d)d.focus()},100)}
+function closeModal(){document.getElementById('log-modal').style.display='none'}
+function submitLog(){var detail=document.getElementById('log-detail')?.value||'';if(!detail.trim()){alert('Add a note or summary');return}var payload={type:logType,detail:detail,actor:'mike'};if(logType==='email'){payload.direction=document.getElementById('log-dir')?.value;payload.subject=document.getElementById('log-subject')?.value;payload.event_type=payload.direction==='sent'?'email_sent':'email_received'}else if(logType==='call'){payload.outcome=document.getElementById('log-outcome')?.value;payload.duration=document.getElementById('log-duration')?.value;payload.event_type='voice_called'}else if(logType==='chat'){payload.channel=document.getElementById('log-channel')?.value;payload.event_type='chat'}else{payload.event_type='note'}crmPost('/api/crm/contact/'+PID+'/log',payload).then(r=>{if(r.ok){closeModal();location.reload()}else alert(r.error||'Failed')})}
+</script>
 {% endblock %}
