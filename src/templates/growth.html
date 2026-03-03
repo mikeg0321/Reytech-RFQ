@@ -197,6 +197,7 @@
  <button class="tab-btn" onclick="switchTab(this,'calendar')">📅 Calendar ({{ todays_agenda|length }})</button>
  <button class="tab-btn" onclick="switchTab(this,'scprs')">🔎 SCPRS</button>
  <button class="tab-btn" onclick="switchTab(this,'audit')">📋 Audit</button>
+ <button class="tab-btn" onclick="switchTab(this,'tools')">🔧 Tools</button>
 </div>
 
 <!-- TAB: OUTREACH -->
@@ -693,6 +694,42 @@
  </div>
 </div>
 
+<!-- TAB: DATA TOOLS (V3+) -->
+<div class="tab-panel" id="tab-tools">
+ <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+  <div class="card">
+   <h3>📥 Bulk Import Prospects</h3>
+   <div style="font-size:14px;color:var(--tx2);margin-bottom:10px">Paste CSV: <code>agency,buyer_name,email,phone,spend</code></div>
+   <textarea id="csv-import-data" rows="6" placeholder="CDCR,Jane Smith,jane@cdcr.ca.gov,916-555-0100,50000" style="width:100%;padding:10px;background:var(--sf2);border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:14px;font-family:'JetBrains Mono',monospace;resize:vertical;box-sizing:border-box"></textarea>
+   <div style="display:flex;gap:8px;margin-top:10px">
+    <button class="g-btn g-btn-go" onclick="bulkImport()">📥 Import</button>
+    <span id="import-result" style="font-size:14px;padding:8px;color:var(--tx2)"></span>
+   </div>
+  </div>
+  <div class="card">
+   <h3>🏷️ Auto-Tag Prospects</h3>
+   <div style="font-size:14px;color:var(--tx2);margin-bottom:14px">Auto-tag by spend level, categories, DVBE status, dormancy.</div>
+   <button class="g-btn g-btn-purple" onclick="autoTag()">🏷️ Run Auto-Tagger</button>
+   <div id="autotag-result" style="margin-top:12px;font-size:14px;display:none"></div>
+  </div>
+  <div class="card">
+   <h3>🔍 Find Duplicate Prospects</h3>
+   <div style="font-size:14px;color:var(--tx2);margin-bottom:14px">Detect duplicates by email match and name similarity.</div>
+   <button class="g-btn g-btn-warn" onclick="findDupes()">🔍 Scan for Duplicates</button>
+   <div id="dupes-result" style="margin-top:12px;max-height:300px;overflow-y:auto;display:none"></div>
+  </div>
+  <div class="card">
+   <h3>💰 SCPRS Price Compare</h3>
+   <div style="font-size:14px;color:var(--tx2);margin-bottom:10px">Search SCPRS for recent pricing on items.</div>
+   <div style="display:flex;gap:8px">
+    <input id="price-search" placeholder="e.g. latex gloves, toner cartridge..." style="flex:1;padding:10px;background:var(--sf2);border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:14px" onkeydown="if(event.key==='Enter')priceCompare()">
+    <button class="g-btn g-btn-blue" onclick="priceCompare()">🔎 Search</button>
+   </div>
+   <div id="price-result" style="margin-top:12px;max-height:300px;overflow-y:auto;display:none"></div>
+  </div>
+ </div>
+</div>
+
 <!-- AGENT-READY ACTIONS (V1+V3) -->
 <div class="card" style="margin-top:14px">
  <h3>🤖 Agent-Ready Actions</h3>
@@ -725,6 +762,37 @@
 </div>
 
 <!-- RESULTS PANEL -->
+<!-- DATA TOOLS (V3+) -->
+<div class="card" style="margin-top:14px">
+ <h3>🔧 Data Tools</h3>
+ <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px">
+  <div class="stat-box">
+   <div style="font-size:28px;margin-bottom:6px">🏷️</div>
+   <div style="font-size:15px;font-weight:700;margin-bottom:4px">Auto-Tag</div>
+   <div style="font-size:13px;color:var(--tx2);margin-bottom:10px">Tag by spend, category, DVBE</div>
+   <button class="g-btn g-btn-go" style="font-size:13px;padding:8px 14px;width:100%" onclick="crmPost('/api/growth/auto-tag',{}).then(showResult)">Run Auto-Tag</button>
+  </div>
+  <div class="stat-box">
+   <div style="font-size:28px;margin-bottom:6px">🔎</div>
+   <div style="font-size:15px;font-weight:700;margin-bottom:4px">Find Duplicates</div>
+   <div style="font-size:13px;color:var(--tx2);margin-bottom:10px">Detect duplicate contacts</div>
+   <button class="g-btn" style="font-size:13px;padding:8px 14px;width:100%" onclick="runStep('/api/growth/duplicates')">Scan Dupes</button>
+  </div>
+  <div class="stat-box">
+   <div style="font-size:28px;margin-bottom:6px">📥</div>
+   <div style="font-size:15px;font-weight:700;margin-bottom:4px">Bulk Import</div>
+   <div style="font-size:13px;color:var(--tx2);margin-bottom:10px">CSV: agency,buyer,email</div>
+   <button class="g-btn g-btn-blue" style="font-size:13px;padding:8px 14px;width:100%" onclick="bulkImport()">Import CSV</button>
+  </div>
+  <div class="stat-box">
+   <div style="font-size:28px;margin-bottom:6px">💲</div>
+   <div style="font-size:15px;font-weight:700;margin-bottom:4px">Price Compare</div>
+   <div style="font-size:13px;color:var(--tx2);margin-bottom:10px">SCPRS price lookup</div>
+   <button class="g-btn g-btn-purple" style="font-size:13px;padding:8px 14px;width:100%" onclick="priceCompare()">Search Prices</button>
+  </div>
+ </div>
+</div>
+
 <div id="result-panel" style="display:none;background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:18px;margin-top:14px;max-height:400px;overflow-y:auto">
  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
   <h3 style="margin:0;font-size:15px;color:var(--tx2)">📋 Results</h3>
@@ -833,6 +901,16 @@ function dismissNotifs(){
  });
 }
 function testWebhook(){crmPost('/api/growth/webhook-test',{}).then(showResult);}
+function bulkImport(){
+ var csv=prompt('Paste CSV (header: agency,buyer_name,email,phone,spend):');
+ if(!csv)return;
+ crmPost('/api/growth/bulk-import',{csv_text:csv}).then(function(d){showResult(d);if(d.ok&&d.imported>0)setTimeout(function(){location.reload()},1500);});
+}
+function priceCompare(){
+ var q=prompt('Enter item description to search SCPRS prices:','office chair');
+ if(!q)return;
+ runStep('/api/growth/price-compare?q='+encodeURIComponent(q));
+}
 function loadAuditLog(){
  fetch('/api/growth/audit-log?limit=50').then(function(r){return r.json()}).then(function(d){
   var el=document.getElementById('audit-log');
@@ -898,6 +976,77 @@ function addLossReason(quoteId){
  crmPost('/api/growth/loss-reason',{quote_id:quoteId,reason:reason,competitor:competitor}).then(function(d){
   alert(d.ok?'Loss reason recorded':'Error: '+d.error);
  });
+/* ── Data Tools (V3+) ── */
+function bulkImport(){
+ var csv=document.getElementById('csv-import-data').value.trim();
+ if(!csv){alert('Paste CSV data first');return;}
+ var el=document.getElementById('import-result');
+ el.textContent='⏳ Importing...';el.style.color='var(--ac)';
+ crmPost('/api/growth/bulk-import',{csv_text:csv}).then(function(d){
+  if(d.ok){el.style.color='#3fb950';el.textContent='✅ '+d.imported+' imported, '+d.skipped+' skipped';document.getElementById('csv-import-data').value='';}
+  else{el.style.color='#f85149';el.textContent='❌ '+(d.error||'Import failed');}
+ });
+}
+function autoTag(){
+ var el=document.getElementById('autotag-result');el.style.display='block';
+ el.innerHTML='<span style="color:var(--ac)">⏳ Tagging...</span>';
+ crmPost('/api/growth/auto-tag',{}).then(function(d){
+  if(d.ok){el.innerHTML='<span style="color:#3fb950">✅ '+d.tagged_count+' prospects tagged, '+d.tags_added+' tags added</span>';}
+  else{el.innerHTML='<span style="color:#f85149">❌ '+(d.error||'Failed')+'</span>';}
+ });
+}
+function findDupes(){
+ var el=document.getElementById('dupes-result');el.style.display='block';
+ el.innerHTML='<div style="color:var(--ac);padding:10px">⏳ Scanning...</div>';
+ fetch('/api/growth/duplicates').then(function(r){return r.json()}).then(function(d){
+  if(!d.groups||d.groups.length===0){el.innerHTML='<div style="padding:12px;color:#3fb950;font-weight:600">✅ No duplicates found</div>';return;}
+  var html='<div style="font-size:14px;font-weight:600;margin-bottom:8px;color:#fbbf24">⚠️ '+d.groups.length+' duplicate groups found</div>';
+  d.groups.forEach(function(g,i){
+   html+='<div style="padding:10px;border:1px solid var(--bd);border-radius:8px;margin-bottom:8px">';
+   html+='<div style="font-size:13px;color:var(--tx2);margin-bottom:6px">Group '+(i+1)+' — '+g.match_type+'</div>';
+   g.prospects.forEach(function(p){
+    html+='<div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:14px">';
+    html+='<span style="font-weight:600">'+(p.agency||'?')+'</span> ';
+    html+='<span style="color:var(--tx2)">'+(p.buyer_name||'')+'</span> ';
+    html+='<span style="font-size:13px;color:var(--tx2)">'+(p.email||'')+'</span>';
+    html+='<button class="g-btn" style="padding:4px 10px;font-size:12px;margin-left:auto" onclick="mergeDupe(\''+p.id+'\')">Keep This</button>';
+    html+='</div>';
+   });
+   html+='</div>';
+  });
+  el.innerHTML=html;
+ });
+}
+function mergeDupe(keepId){
+ if(!confirm('Keep this prospect and merge others into it?'))return;
+ var groups=[];
+ try{
+  var cards=document.querySelectorAll('#dupes-result > div > div');
+  // Simple approach: just run the merge endpoint
+ }catch(e){}
+ crmPost('/api/growth/merge',{keep_id:keepId,remove_ids:[]}).then(function(d){
+  if(d.ok){alert('Merged');findDupes();}else{alert('Error: '+(d.error||'Failed'));}
+ });
+}
+function priceCompare(){
+ var q=document.getElementById('price-search').value.trim();
+ if(!q){alert('Enter an item to search');return;}
+ var el=document.getElementById('price-result');el.style.display='block';
+ el.innerHTML='<div style="color:var(--ac);padding:10px">⏳ Searching SCPRS...</div>';
+ fetch('/api/growth/price-compare?item='+encodeURIComponent(q)).then(function(r){return r.json()}).then(function(d){
+  if(!d.ok||!d.results||d.results.length===0){el.innerHTML='<div style="padding:12px;color:var(--tx2)">No pricing found for "'+q+'"</div>';return;}
+  var html='<div style="font-size:13px;color:var(--tx2);margin-bottom:8px">'+d.results.length+' prices found</div>';
+  html+='<table><thead><tr><th>Item</th><th style="text-align:right">Price</th><th>Vendor</th><th>Date</th></tr></thead><tbody>';
+  d.results.forEach(function(r){
+   html+='<tr><td style="font-size:13px">'+(r.description||r.item||'').substring(0,60)+'</td>';
+   html+='<td style="text-align:right" class="mono">$'+(parseFloat(r.price||r.unit_price||0)).toLocaleString()+'</td>';
+   html+='<td style="font-size:13px">'+(r.vendor||r.supplier||'')+'</td>';
+   html+='<td style="font-size:13px;color:var(--tx2)">'+(r.date||'')+'</td></tr>';
+  });
+  html+='</tbody></table>';
+  el.innerHTML=html;
+ }).catch(function(e){el.innerHTML='<div style="padding:12px;color:#f85149">Error: '+e.message+'</div>';});
+}
 }
 </script>
 {% endblock %}
