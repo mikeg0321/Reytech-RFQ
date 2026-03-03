@@ -714,7 +714,7 @@ def api_dashboard_init():
                     s = row["status"]
                     if s == "won": won_count = row["c"]; won_value = row["t"]
                     elif s in ("pending","sent","draft"): pipeline_val += row["t"]
-                orders_count = conn.execute("SELECT COUNT(*) FROM orders WHERE status NOT IN ('cancelled','test')").fetchone()[0]
+                orders_count = conn.execute("SELECT COUNT(*) FROM orders WHERE status NOT IN ('cancelled','test','deleted') AND po_number NOT LIKE '%TEST%'").fetchone()[0]
         except Exception:
             pass
 
@@ -724,10 +724,12 @@ def api_dashboard_init():
             if os.path.exists(orders_path):
                 with open(orders_path) as f:
                     json_orders = json.load(f)
-                order_total = sum(o.get("total", 0) for o in json_orders.values()
-                                 if o.get("status") not in ("cancelled", "test", "deleted"))
-                orders_count = max(orders_count, len([o for o in json_orders.values()
-                                 if o.get("status") not in ("cancelled", "test", "deleted")]))
+                real_orders = {k: o for k, o in json_orders.items()
+                               if o.get("status") not in ("cancelled", "test", "deleted")
+                               and "TEST" not in (o.get("po_number", "") or "").upper()
+                               and not o.get("is_test")}
+                order_total = sum(o.get("total", 0) for o in real_orders.values())
+                orders_count = max(orders_count, len(real_orders))
                 if order_total > won_value:
                     won_value = order_total
         except Exception:
@@ -771,7 +773,9 @@ def api_dashboard_init():
                 with open(orders_path) as f:
                     json_orders = json.load(f)
                 order_revenue = sum(o.get("total", 0) for o in json_orders.values()
-                                   if o.get("status") not in ("cancelled", "test", "deleted"))
+                                   if o.get("status") not in ("cancelled", "test", "deleted")
+                                   and "TEST" not in (o.get("po_number", "") or "").upper()
+                                   and not o.get("is_test"))
                 if order_revenue > total_revenue:
                     total_revenue = order_revenue
         except Exception:

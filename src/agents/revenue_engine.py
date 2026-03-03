@@ -122,7 +122,7 @@ def reconcile_revenue() -> dict:
                 SELECT quote_number, total, agency, institution, po_number,
                        updated_at, total_cost, gross_profit, margin_pct
                 FROM quotes
-                WHERE status = 'won' AND total > 0
+                WHERE status = 'won' AND total > 0 AND is_test = 0
             """).fetchall()
 
             for q in won:

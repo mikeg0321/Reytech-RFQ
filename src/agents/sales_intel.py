@@ -546,6 +546,7 @@ def update_revenue_tracker() -> dict:
                 SELECT COALESCE(SUM(amount), 0) as total
                 FROM revenue_log
                 WHERE logged_at >= '2025-07-01' AND amount > 0
+                AND po_number NOT LIKE '%TEST%'
             """).fetchone()
             db_revenue = row["total"] if row else 0
     except Exception:
@@ -560,6 +561,8 @@ def update_revenue_tracker() -> dict:
             row = conn.execute("""
                 SELECT COALESCE(SUM(total), 0) as total
                 FROM orders WHERE total > 0
+                AND po_number NOT LIKE '%TEST%'
+                AND status NOT IN ('cancelled', 'test', 'deleted')
             """).fetchone()
             orders_revenue = row["total"] if row else 0
     except Exception:
@@ -572,6 +575,8 @@ def update_revenue_tracker() -> dict:
                 _json_orders = json.load(_f)
             json_orders_rev = sum(o.get("total", 0) for o in _json_orders.values()
                                   if o.get("status") not in ("cancelled", "test", "deleted")
+                                  and "TEST" not in (o.get("po_number", "") or "").upper()
+                                  and not o.get("is_test")
                                   and o.get("total", 0) > 0)
             orders_revenue = max(orders_revenue, json_orders_rev)
     except Exception:

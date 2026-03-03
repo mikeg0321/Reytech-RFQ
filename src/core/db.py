@@ -691,6 +691,23 @@ def _migrate_columns():
     except Exception as e:
         log.warning("Column migration failed: %s", e)
 
+    # ── Cleanup: remove test orders/revenue from all sources ──
+    try:
+        conn = sqlite3.connect(DB_PATH, timeout=10)
+        conn.row_factory = sqlite3.Row
+        r1 = conn.execute("DELETE FROM orders WHERE po_number LIKE '%TEST%'")
+        r2 = conn.execute("DELETE FROM revenue_log WHERE po_number LIKE '%TEST%'")
+        r3 = conn.execute("DELETE FROM revenue_log WHERE id LIKE 'rev-R26Q%' AND source = 'quote_won'")
+        r4 = conn.execute("UPDATE quotes SET is_test = 1 WHERE quote_number IN (SELECT quote_number FROM quotes WHERE quote_number LIKE 'R26Q%' AND status = 'won' AND is_test = 0 AND total < 700)")
+        total_cleaned = r1.rowcount + r2.rowcount + r3.rowcount + r4.rowcount
+        if total_cleaned > 0:
+            log.info("Test data cleanup: removed %d test orders, %d revenue entries, %d orphan entries, marked %d test quotes",
+                     r1.rowcount, r2.rowcount, r3.rowcount, r4.rowcount)
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        log.debug("Test data cleanup: %s", e)
+
 
 def _reconcile_quotes_json():
     """Sync quotes_log.json statuses from DB (source of truth).
