@@ -2676,7 +2676,8 @@ def api_pricecheck_dismiss(pcid):
     pc = pcs[pcid]
     # Use specific status for admin reasons, 'dismissed' as fallback
     admin_statuses = {"archived", "duplicate", "no_response"}
-    pc["status"] = reason if reason in admin_statuses else "dismissed"
+    new_status = reason if reason in admin_statuses else "dismissed"
+    pc["status"] = new_status
     pc["dismiss_reason"] = reason
     pc["dismissed_at"] = datetime.now().isoformat()
     pcs[pcid] = pc
@@ -2687,6 +2688,14 @@ def api_pricecheck_dismiss(pcid):
     except Exception as e:
         log.error("Failed to save price_checks.json: %s", e)
         return jsonify({"ok": False, "error": "Save failed"})
+    
+    # ALSO update SQLite so all data stores are in sync
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            conn.execute("UPDATE price_checks SET status=? WHERE id=?", (new_status, pcid))
+    except Exception as e:
+        log.debug("SQLite PC dismiss update: %s", e)
     
     log.info("PC %s dismissed: reason=%s pc_number=%s", pcid, reason, pc.get("pc_number","?"))
     
@@ -2827,6 +2836,12 @@ PC_STATUS_LABELS = {
     "dismissed": ("Dismissed", "#6e7681"), "archived": ("Archived", "#6e7681"),
     "duplicate": ("Duplicate", "#8b949e"), "no_response": ("No Response", "#8b949e"),
 }
+
+
+@bp.route("/pricecheck")
+def pricecheck_redirect():
+    """Redirect /pricecheck → /pricechecks (common typo/nav issue)"""
+    return redirect("/pricechecks")
 
 
 @bp.route("/pricechecks")
