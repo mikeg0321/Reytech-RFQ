@@ -2161,16 +2161,21 @@ def export_growth_report(fmt: str = "csv") -> dict:
         import csv, io
         buf = io.StringIO()
         writer = csv.writer(buf)
-        writer.writerow(["Agency", "Buyer", "Email", "Status", "Annual Spend", "Score", "Last Contacted", "Categories"])
+        writer.writerow(["Agency", "Buyer", "Email", "Phone", "Status", "Annual Spend", "Score", "Win Prob %", "Workflow", "Last Contacted", "Tags", "Categories"])
         for p in prospects:
+            wp = get_win_probability(p, creds)
             writer.writerow([
                 p.get("agency", ""),
                 p.get("buyer_name") or p.get("name", ""),
                 p.get("email", ""),
+                p.get("phone", ""),
                 p.get("status", "new"),
                 p.get("annual_spend", 0),
                 round(score_prospect_weighted(p, creds), 1),
+                round(wp.get("win_probability", 50)),
+                p.get("workflow", {}).get("workflow_id", ""),
                 p.get("last_contacted", ""),
+                "; ".join(p.get("tags", [])),
                 ", ".join(p.get("categories", [])),
             ])
         return {"ok": True, "format": "csv", "data": buf.getvalue(), "filename": "growth_prospects.csv"}
