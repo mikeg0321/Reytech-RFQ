@@ -250,3 +250,75 @@ def init_security(app):
         return {"csrf_token_value": generate_csrf_token()}
     
     log.info("Security middleware initialized: rate limiting, CSRF, security headers, access logging")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Feature #7: Role-Based Access Control (RBAC)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Role hierarchy: admin > manager > agent > viewer
+ROLE_HIERARCHY = {
+    "admin": 4,
+    "manager": 3,
+    "agent": 2,
+    "viewer": 1,
+}
+
+_RBAC_FILE = None  # Set during init
+
+def _get_rbac_file():
+    global _RBAC_FILE
+    if _RBAC_FILE is None:
+        data_dir = os.environ.get("DATA_DIR", "data")
+        _RBAC_FILE = os.path.join(data_dir, "rbac_roles.json")
+    return _RBAC_FILE
+
+def get_user_role(username: str = None) -> str:
+    """Get role for a user. Default: admin for single-user mode."""
+    if not username:
+        username = session.get("username", "admin")
+    try:
+        import json
+        rbac_path = _get_rbac_file()
+        if os.path.exists(rbac_path):
+            with open(rbac_path) as f:
+                roles = json.load(f)
+            return roles.get(username, "admin")
+    except Exception:
+        pass
+    return "admin"  # Single-user default
+
+def set_user_role(username: str, role: str) -> bool:
+    """Set role for a user."""
+    if role not in ROLE_HIERARCHY:
+        return False
+    try:
+        import json
+        rbac_path = _get_rbac_file()
+        roles = {}
+        if os.path.exists(rbac_path):
+            with open(rbac_path) as f:
+                roles = json.load(f)
+        roles[username] = role
+        with open(rbac_path, "w") as f:
+            json.dump(roles, f, indent=2)
+        return True
+    except Exception:
+        return False
+
+def require_role(min_role: str = "viewer"):
+    """Decorator: restrict access to users with at least min_role."""
+    def decorator(fn):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            user_role = get_user_role()
+            user_level = ROLE_HIERARCHY.get(user_role, 0)
+            required_level = ROLE_HIERARCHY.get(min_role, 0)
+            if user_level < required_level:
+                return jsonify({
+                    "ok": False,
+                    "error": f"Insufficient permissions. Required: {min_role}, Current: {user_role}",
+                }), 403
+            return fn(*args, **kwargs)
+        return wrapper
+    return decorator

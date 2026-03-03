@@ -3724,7 +3724,7 @@ def api_outbox_sent_log():
 @bp.route("/growth")
 @auth_required
 def growth_page():
-    """Growth Engine Dashboard — actionable outreach to get on RFQ lists."""
+    """Growth Engine Dashboard — V3: actionable outreach with analytics + automation."""
     if not GROWTH_AVAILABLE:
         flash("Growth agent not available", "error")
         return redirect("/")
@@ -3734,6 +3734,12 @@ def growth_page():
         PULL_STATUS, BUYER_STATUS,
         HISTORY_FILE, CATEGORIES_FILE, PROSPECTS_FILE, OUTREACH_FILE,
         _load_json,
+        # V2
+        get_growth_kpis, get_win_probability, get_competitor_intel,
+        get_lost_po_analysis, get_ab_stats, get_audit_log,
+        # V3
+        get_workflows, get_workflow_queue, get_notifications,
+        SMS_TEMPLATES,
     )
     st = get_growth_status()
     h = st.get("history", {})
@@ -3746,14 +3752,21 @@ def growth_page():
     # Reytech credentials for banner
     creds = get_reytech_credentials()
 
+    # V2: Real-time KPIs
+    kpis = get_growth_kpis()
+
     # Follow-up cohorts
     followups = get_follow_up_cohorts()
 
-    # Load prospect details + weighted scoring
+    # Load prospect details + weighted scoring + win probability
     prospect_data = _load_json(PROSPECTS_FILE)
     prospects = prospect_data.get("prospects", []) if isinstance(prospect_data, dict) else []
     for pr_ in prospects:
         pr_["weighted_score"] = score_prospect_weighted(pr_, creds)
+        wp = get_win_probability(pr_, creds)
+        pr_["win_prob"] = wp["probability"]
+        pr_["win_tier"] = wp["tier"]
+        pr_["win_color"] = wp["color"]
     prospects.sort(key=lambda x: x.get("weighted_score", 0), reverse=True)
 
     # Load outreach details + campaign metrics
@@ -3814,6 +3827,23 @@ def growth_page():
     # Available template keys for the UI
     template_keys = list(EMAIL_TEMPLATES.keys())
 
+    # V2: Competitor intel + lost PO analysis
+    competitor_data = get_competitor_intel()
+    lost_analysis = get_lost_po_analysis()
+    ab_stats = get_ab_stats()
+
+    # V3: Workflows + notifications
+    workflows = get_workflows()
+    workflow_queue = get_workflow_queue()
+    notifications = get_notifications(limit=10)
+    unread_count = sum(1 for n in notifications if not n.get("read"))
+    sms_templates = list(SMS_TEMPLATES.keys())
+
+    # V3: Calendar
+    from src.agents.growth_agent import get_calendar_events, get_todays_agenda
+    calendar_events = get_calendar_events(upcoming_only=True)[:10]
+    todays_agenda = get_todays_agenda()
+
     from src.api.render import render_page
     return render_page("growth.html", active_page="Growth",
         h_total_pos=h.get("total_pos", 0), h_total_items=h.get("total_items", 0),
@@ -3830,6 +3860,20 @@ def growth_page():
         followups=followups,
         lost_quotes=lost_quotes,
         template_keys=template_keys,
+        # V2
+        kpis=kpis,
+        competitor_data=competitor_data,
+        lost_analysis=lost_analysis,
+        ab_stats=ab_stats,
+        # V3
+        workflows=workflows,
+        workflow_queue=workflow_queue,
+        notifications=notifications,
+        unread_count=unread_count,
+        sms_templates=sms_templates,
+        # Calendar
+        calendar_events=calendar_events,
+        todays_agenda=todays_agenda,
     )
 
 
@@ -4885,6 +4929,378 @@ def api_intel_priority_queue():
                         "error": "No buyer data yet",
                         "hint": "Run 🔍 Deep Pull All Buyers first to mine SCPRS for buyer contacts, categories, and spend data."})
     return jsonify(result)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# V2 — Analytics & Intelligence API
+# ═══════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/growth/kpis")
+@auth_required
+def api_growth_kpis():
+    """Real-time KPI metrics for growth dashboard."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    from src.agents.growth_agent import get_growth_kpis
+    return jsonify(get_growth_kpis())
+
+
+@bp.route("/api/growth/competitor-intel")
+@auth_required
+def api_growth_competitor_intel():
+    """Competitor analysis from SCPRS + lost quotes."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    from src.agents.growth_agent import get_competitor_intel
+    return jsonify(get_competitor_intel())
+
+
+@bp.route("/api/growth/lost-analysis")
+@auth_required
+def api_growth_lost_analysis():
+    """Deep analysis of lost purchase orders."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    from src.agents.growth_agent import get_lost_po_analysis
+    return jsonify(get_lost_po_analysis())
+
+
+@bp.route("/api/growth/win-probability/<prospect_id>")
+@auth_required
+def api_growth_win_probability(prospect_id):
+    """Get win probability for a specific prospect."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    from src.agents.growth_agent import get_prospect, get_win_probability, get_reytech_credentials
+    p = get_prospect(prospect_id)
+    if not p:
+        return jsonify({"ok": False, "error": "Prospect not found"})
+    creds = get_reytech_credentials()
+    return jsonify(get_win_probability(p, creds))
+
+
+@bp.route("/api/growth/export")
+@auth_required
+def api_growth_export():
+    """Export growth data in various formats."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    from src.agents.growth_agent import export_growth_report
+    fmt = request.args.get("format", "csv")
+    result = export_growth_report(fmt)
+    if result.get("ok") and fmt == "csv":
+        from flask import Response
+        return Response(
+            result["data"],
+            mimetype="text/csv",
+            headers={"Content-Disposition": f"attachment; filename={result['filename']}"}
+        )
+    return jsonify(result)
+
+
+@bp.route("/api/growth/audit-log")
+@auth_required
+def api_growth_audit_log():
+    """Retrieve growth action audit log."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    from src.agents.growth_agent import get_audit_log
+    limit = int(request.args.get("limit", 50))
+    action_filter = request.args.get("action")
+    return jsonify({"entries": get_audit_log(limit, action_filter)})
+
+
+@bp.route("/api/growth/ab-stats")
+@auth_required
+def api_growth_ab_stats():
+    """Get A/B template test results."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    from src.agents.growth_agent import get_ab_stats
+    return jsonify(get_ab_stats())
+
+
+@bp.route("/api/growth/enrich/<prospect_id>")
+@auth_required
+def api_growth_enrich(prospect_id):
+    """Enrich a prospect with SCPRS data."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    from src.agents.growth_agent import get_prospect, enrich_prospect_scprs
+    p = get_prospect(prospect_id)
+    if not p:
+        return jsonify({"ok": False, "error": "Prospect not found"})
+    return jsonify(enrich_prospect_scprs(p))
+
+
+@bp.route("/api/growth/personalize/<prospect_id>")
+@auth_required
+def api_growth_personalize(prospect_id):
+    """Generate personalized content for a prospect."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    from src.agents.growth_agent import get_prospect, generate_personalized_content
+    p = get_prospect(prospect_id)
+    if not p:
+        return jsonify({"ok": False, "error": "Prospect not found"})
+    return jsonify(generate_personalized_content(p))
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# V3 — Automation & Outreach API
+# ═══════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/growth/workflows")
+@auth_required
+def api_growth_workflows():
+    """Get available workflow definitions."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    from src.agents.growth_agent import get_workflows, get_workflow_queue
+    return jsonify({"workflows": get_workflows(), "queue": get_workflow_queue()})
+
+
+@bp.route("/api/growth/workflow/assign", methods=["POST"])
+@auth_required
+def api_growth_workflow_assign():
+    """Assign a workflow to a prospect."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    from src.agents.growth_agent import assign_workflow
+    data = request.get_json(silent=True) or {}
+    pid = data.get("prospect_id", "")
+    wf_id = data.get("workflow_id", "standard_outreach")
+    return jsonify(assign_workflow(pid, wf_id))
+
+
+@bp.route("/api/growth/workflow/advance", methods=["POST"])
+@auth_required
+def api_growth_workflow_advance():
+    """Advance a prospect's workflow to next step."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    from src.agents.growth_agent import advance_workflow_step
+    data = request.get_json(silent=True) or {}
+    pid = data.get("prospect_id", "")
+    result = data.get("result", "completed")
+    return jsonify(advance_workflow_step(pid, result))
+
+
+@bp.route("/api/growth/sms", methods=["POST"])
+@auth_required
+def api_growth_sms():
+    """Send SMS outreach via Twilio."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    from src.agents.growth_agent import send_sms_outreach, get_prospect
+    data = request.get_json(silent=True) or {}
+    phone = data.get("phone", "")
+    template = data.get("template", "sms_follow_up")
+    dry_run = data.get("dry_run", True)
+    prospect = None
+    if data.get("prospect_id"):
+        prospect = get_prospect(data["prospect_id"])
+    return jsonify(send_sms_outreach(phone, template, prospect, dry_run))
+
+
+@bp.route("/api/growth/notifications")
+@auth_required
+def api_growth_notifications():
+    """Get notifications for notification center."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    from src.agents.growth_agent import get_notifications
+    unread = request.args.get("unread", "false").lower() == "true"
+    return jsonify({"notifications": get_notifications(unread_only=unread)})
+
+
+@bp.route("/api/growth/notifications/read", methods=["POST"])
+@auth_required
+def api_growth_notifications_read():
+    """Mark notification(s) as read."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    from src.agents.growth_agent import mark_notification_read, dismiss_all_notifications
+    data = request.get_json(silent=True) or {}
+    if data.get("all"):
+        dismiss_all_notifications()
+    elif data.get("id"):
+        mark_notification_read(data["id"])
+    return jsonify({"ok": True})
+
+
+@bp.route("/api/growth/webhook-test", methods=["POST"])
+@auth_required
+def api_growth_webhook_test():
+    """Test webhook integration."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    from src.agents.growth_agent import fire_webhook
+    return jsonify(fire_webhook("test", {"summary": "Growth Engine webhook test", "source": "manual"}))
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Feature #7 — RBAC
+# ═══════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/growth/roles")
+@auth_required
+def api_growth_roles():
+    """List roles and permissions."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    from src.agents.growth_agent import list_roles
+    return jsonify(list_roles())
+
+
+@bp.route("/api/growth/roles/set", methods=["POST"])
+@auth_required
+def api_growth_roles_set():
+    """Set a user's role."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    from src.agents.growth_agent import set_user_role
+    data = request.get_json(silent=True) or {}
+    return jsonify(set_user_role(data.get("user_id", "default"), data.get("role", "viewer")))
+
+
+@bp.route("/api/growth/roles/check")
+@auth_required
+def api_growth_roles_check():
+    """Check if user has a permission."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    from src.agents.growth_agent import check_permission, get_user_role
+    user_id = request.args.get("user_id", "default")
+    permission = request.args.get("permission", "view")
+    return jsonify({
+        "user_id": user_id,
+        "role": get_user_role(user_id),
+        "permission": permission,
+        "allowed": check_permission(user_id, permission),
+    })
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Feature #9 — Multi-Format Export (PDF + Excel)
+# ═══════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/growth/export/pdf")
+@auth_required
+def api_growth_export_pdf():
+    """Export growth report as PDF."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    from src.agents.growth_agent import export_growth_pdf
+    result = export_growth_pdf()
+    if result.get("ok"):
+        from flask import send_file
+        return send_file(result["filepath"], as_attachment=True, download_name=result["filename"])
+    return jsonify(result)
+
+
+@bp.route("/api/growth/export/excel")
+@auth_required
+def api_growth_export_excel():
+    """Export growth data as Excel workbook."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    from src.agents.growth_agent import export_growth_excel
+    result = export_growth_excel()
+    if result.get("ok"):
+        from flask import send_file
+        return send_file(result["filepath"], as_attachment=True, download_name=result["filename"])
+    return jsonify(result)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Feature #12 — Calendar Sync
+# ═══════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/growth/calendar")
+@auth_required
+def api_growth_calendar():
+    """Get scheduled follow-up events."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    from src.agents.growth_agent import get_calendar_events, get_todays_agenda
+    return jsonify({
+        "upcoming": get_calendar_events(upcoming_only=True),
+        "today": get_todays_agenda(),
+    })
+
+
+@bp.route("/api/growth/calendar/schedule", methods=["POST"])
+@auth_required
+def api_growth_calendar_schedule():
+    """Schedule a follow-up on the calendar."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    from src.agents.growth_agent import schedule_follow_up
+    data = request.get_json(silent=True) or {}
+    return jsonify(schedule_follow_up(
+        prospect_id=data.get("prospect_id", ""),
+        date=data.get("date", ""),
+        time=data.get("time", "09:00"),
+        notes=data.get("notes", ""),
+        reminder_type=data.get("type", "email"),
+    ))
+
+
+@bp.route("/api/growth/calendar/complete", methods=["POST"])
+@auth_required
+def api_growth_calendar_complete():
+    """Mark a calendar event as completed."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    from src.agents.growth_agent import complete_calendar_event
+    data = request.get_json(silent=True) or {}
+    return jsonify(complete_calendar_event(data.get("event_id", "")))
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# SCPRS Search Proxy + Loss Reasons + Startup
+# ═══════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/growth/scprs-search")
+@auth_required
+def api_growth_scprs_search():
+    """SCPRS search proxy with caching."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    from src.agents.growth_agent import scprs_search_proxy
+    query = request.args.get("query", request.args.get("q", ""))
+    search_type = request.args.get("type", "item")
+    if not query:
+        return jsonify({"ok": False, "error": "Missing query parameter"})
+    return jsonify(scprs_search_proxy(query, search_type))
+
+
+@bp.route("/api/growth/loss-reason", methods=["POST"])
+@auth_required
+def api_growth_loss_reason():
+    """Record reason for a lost PO/quote."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    from src.agents.growth_agent import add_loss_reason
+    data = request.get_json(silent=True) or {}
+    return jsonify(add_loss_reason(
+        quote_id=data.get("quote_id", ""),
+        reason=data.get("reason", ""),
+        competitor=data.get("competitor", ""),
+        price_delta=float(data.get("price_delta", 0)),
+        notes=data.get("notes", ""),
+    ))
+
+
+@bp.route("/api/growth/startup-check")
+@auth_required
+def api_growth_startup_check():
+    """Run growth module startup validation."""
+    if not GROWTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Growth agent not available"})
+    from src.agents.growth_agent import growth_startup_check
+    return jsonify(growth_startup_check())
 
 
 @bp.route("/api/intel/push-prospects")

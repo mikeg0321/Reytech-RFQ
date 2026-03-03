@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Growth Engine — Reytech{% endblock %}
+{% block title %}Growth Engine V3 — Reytech{% endblock %}
 
 {% block content %}
 <style>
@@ -11,6 +11,7 @@
  .g-btn-warn{background:rgba(210,153,34,.12);color:#d29922;border-color:rgba(210,153,34,.3)}
  .g-btn-red{background:rgba(248,113,113,.12);color:#f85149;border-color:rgba(248,113,113,.3)}
  .g-btn-purple{background:rgba(167,139,250,.12);color:#a78bfa;border-color:rgba(167,139,250,.3)}
+ .g-btn-blue{background:rgba(79,140,255,.12);color:#4f8cff;border-color:rgba(79,140,255,.3)}
  .act-btn{background:none;border:none;cursor:pointer;font-size:16px;padding:2px 6px;opacity:.7;transition:.15s}
  .act-btn:hover{opacity:1}
  table{width:100%;border-collapse:collapse;font-size:15px}
@@ -18,27 +19,87 @@
  td{padding:10px;border-bottom:1px solid var(--bd);font-size:15px}
  .mono{font-family:'JetBrains Mono',monospace}
  .stat-box{background:var(--sf2);border-radius:10px;padding:16px;text-align:center}
- .stat-label{font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
- .stat-value{font-size:28px;font-weight:800;font-family:'JetBrains Mono',monospace}
  .cred-banner{background:linear-gradient(135deg,rgba(79,140,255,.08),rgba(52,211,153,.08));border:1px solid rgba(79,140,255,.2);border-radius:12px;padding:24px;margin-bottom:18px}
  .fu-row{display:flex;align-items:center;gap:12px;padding:10px 12px;border-bottom:1px solid rgba(46,51,69,.4);border-radius:6px;transition:.15s}
  .fu-row:hover{background:var(--sf2)}
  .fu-days{display:inline-block;padding:3px 10px;border-radius:10px;font-size:13px;font-weight:700;font-family:'JetBrains Mono',monospace;min-width:40px;text-align:center}
  .template-preview{background:var(--sf2);border:1px solid var(--bd);border-radius:8px;padding:16px;font-size:14px;line-height:1.6;white-space:pre-wrap;max-height:280px;overflow-y:auto;font-family:'DM Sans',sans-serif}
+ .kpi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin:16px 0}
+ .kpi-card{background:var(--sf2);border-radius:10px;padding:14px 12px;text-align:center;border:1px solid transparent;transition:.15s}
+ .kpi-card:hover{border-color:var(--ac)}
+ .kpi-num{font-size:26px;font-weight:800;font-family:'JetBrains Mono',monospace;line-height:1.2}
+ .kpi-lbl{font-size:12px;color:var(--tx2);text-transform:uppercase;letter-spacing:.4px;margin-top:4px}
+ .tab-bar{display:flex;gap:0;border-bottom:2px solid var(--bd);margin-bottom:16px;overflow-x:auto}
+ .tab-btn{padding:10px 18px;font-size:14px;font-weight:600;color:var(--tx2);background:none;border:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;transition:.15s;white-space:nowrap}
+ .tab-btn.active{color:var(--ac);border-bottom-color:var(--ac)}
+ .tab-btn:hover{color:var(--tx)}
+ .tab-panel{display:none}
+ .tab-panel.active{display:block}
+ .wf-step{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:6px;font-size:13px;font-weight:600}
+ .wf-step.done{background:rgba(52,211,153,.12);color:#3fb950}
+ .wf-step.pending{background:rgba(139,148,158,.12);color:#8b949e}
+ .wf-step.due{background:rgba(251,191,36,.15);color:#fbbf24}
+ .wf-step.overdue{background:rgba(248,81,73,.12);color:#f85149}
+ .win-badge{display:inline-block;padding:3px 10px;border-radius:10px;font-size:13px;font-weight:700;font-family:'JetBrains Mono',monospace}
  #progress-bar{display:{{ 'block' if progress_visible else 'none' }};background:rgba(79,140,255,.1);border:1px solid rgba(79,140,255,.25);padding:12px 16px;border-radius:8px;margin-bottom:14px;font-size:15px;font-weight:600;color:var(--ac)}
+ @media(max-width:768px){
+  .kpi-grid{grid-template-columns:repeat(3,1fr)}
+  .cred-banner>div:first-child{flex-direction:column}
+  .tab-bar{-webkit-overflow-scrolling:touch}
+  #tab-followups>div{grid-template-columns:1fr!important}
+  #tab-workflows>div{grid-template-columns:1fr!important}
+  #tab-losses>div{grid-template-columns:1fr!important}
+  #tab-calendar>div{grid-template-columns:1fr!important}
+  #tab-outreach>div{grid-template-columns:1fr!important}
+  .cred-banner>div:last-child{grid-template-columns:repeat(3,1fr)!important;gap:8px!important}
+  .cred-banner>div:last-child>div>div:first-child{font-size:22px!important}
+  table{font-size:13px}
+  th,td{padding:6px 8px}
+  .stat-box{padding:12px 8px}
+  .g-btn{padding:8px 12px;font-size:13px}
+ }
+ @media(max-width:480px){
+  .kpi-grid{grid-template-columns:repeat(2,1fr)}
+  .cred-banner{padding:14px}
+  .cred-banner>div:last-child{grid-template-columns:repeat(2,1fr)!important}
+  .cred-banner>div:last-child>div>div:first-child{font-size:18px!important}
+  .card{padding:12px}
+ }
 </style>
+
+<!-- NOTIFICATION BAR (V3) -->
+{% if unread_count is defined and unread_count > 0 %}
+<div id="notif-bar" style="margin-bottom:12px">
+ <div style="background:rgba(79,140,255,.08);border:1px solid rgba(79,140,255,.2);border-radius:10px;padding:12px 16px;display:flex;align-items:center;justify-content:space-between">
+  <div style="display:flex;align-items:center;gap:10px">
+   <span style="font-size:20px">🔔</span>
+   <span style="font-size:15px;font-weight:600">{{ unread_count }} new notification{{ 's' if unread_count != 1 else '' }}</span>
+   {% for n in notifications[:3] %}{% if not n.read %}<span style="font-size:14px;color:var(--tx2);margin-left:8px">• {{ n.title }}</span>{% endif %}{% endfor %}
+  </div>
+  <button class="g-btn" style="padding:6px 14px;font-size:13px" onclick="dismissNotifs()">✓ Dismiss All</button>
+ </div>
+</div>
+{% endif %}
+
+<!-- PROGRESS BAR -->
+<div id="progress-bar">⏳ {{ progress_text }}</div>
 
 <!-- REYTECH CREDENTIALS BANNER -->
 <div class="cred-banner">
  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
   <div>
-   <h1 style="font-size:26px;font-weight:700;margin:0 0 6px 0">🚀 Growth Engine</h1>
+   <h1 style="font-size:26px;font-weight:700;margin:0 0 6px 0">🚀 Growth Engine <span style="font-size:14px;font-weight:500;color:var(--ac);background:rgba(79,140,255,.12);padding:3px 10px;border-radius:12px;vertical-align:middle">V3</span></h1>
    <div style="font-size:15px;color:var(--tx2)">Find buyers → Get on RFQ lists → Win more bids</div>
   </div>
   <div style="display:flex;gap:10px;flex-wrap:wrap">
    <button class="g-btn g-btn-go" style="font-size:15px;padding:12px 22px" onclick="createCampaign()">🚀 Create Campaign</button>
    <button class="g-btn" onclick="runStep('/api/growth/pull-history')">📥 Pull History</button>
    <button class="g-btn" onclick="runStep('/api/growth/find-buyers')">🔍 Find Buyers</button>
+   <div style="display:flex;gap:6px">
+    <a href="/api/growth/export?format=csv" class="g-btn g-btn-blue" style="font-size:13px;padding:8px 14px">📊 CSV</a>
+    <a href="/api/growth/export/excel" class="g-btn g-btn-blue" style="font-size:13px;padding:8px 14px">📗 Excel</a>
+    <a href="/api/growth/export/pdf" class="g-btn g-btn-blue" style="font-size:13px;padding:8px 14px">📄 PDF</a>
+   </div>
   </div>
  </div>
  <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-top:18px">
@@ -52,351 +113,633 @@
   </div>
   <div style="text-align:center">
    <div style="font-size:32px;font-weight:800;color:#a78bfa;font-family:'JetBrains Mono',monospace">{{ creds.total_items }}+</div>
-   <div style="font-size:13px;color:var(--tx2);text-transform:uppercase">Line Items</div>
+   <div style="font-size:13px;color:var(--tx2);text-transform:uppercase">Line Items Delivered</div>
   </div>
   <div style="text-align:center">
    <div style="font-size:32px;font-weight:800;color:#fbbf24;font-family:'JetBrains Mono',monospace">{{ creds.agencies_served }}</div>
-   <div style="font-size:13px;color:var(--tx2);text-transform:uppercase">CA Agencies Served</div>
+   <div style="font-size:13px;color:var(--tx2);text-transform:uppercase">Agencies Served</div>
   </div>
-  {% if creds.calvet_pos > 0 %}
   <div style="text-align:center">
-   <div style="font-size:32px;font-weight:800;color:#f87171;font-family:'JetBrains Mono',monospace">${{ "{:,.0f}".format(creds.calvet_amount) }}</div>
+   {% if creds.calvet_amount > 0 %}
+   <div style="font-size:32px;font-weight:800;color:#34d399;font-family:'JetBrains Mono',monospace">${{ "{:,.0f}".format(creds.calvet_amount) }}</div>
    <div style="font-size:13px;color:var(--tx2);text-transform:uppercase">CalVet ({{ creds.calvet_pos }} POs)</div>
+   {% else %}
+   <div style="font-size:22px;font-weight:800;color:#34d399">🏅 DVBE + SB</div>
+   <div style="font-size:13px;color:var(--tx2);text-transform:uppercase">Certified</div>
+   {% endif %}
+  </div>
+ </div>
+</div>
+
+<!-- V2: KPI DASHBOARD -->
+<div class="card">
+ <h3>📈 Real-Time KPIs</h3>
+ <div class="kpi-grid">
+  <div class="kpi-card"><div class="kpi-num" style="color:var(--ac)">{{ kpis.total_prospects }}</div><div class="kpi-lbl">Prospects</div></div>
+  <div class="kpi-card"><div class="kpi-num" style="color:#4f8cff">{{ kpis.emailed }}</div><div class="kpi-lbl">Emailed</div></div>
+  <div class="kpi-card"><div class="kpi-num" style="color:#3fb950">{{ kpis.responded }}</div><div class="kpi-lbl">Responded</div></div>
+  <div class="kpi-card"><div class="kpi-num" style="color:#fbbf24">{{ kpis.won }}</div><div class="kpi-lbl">Won</div></div>
+  <div class="kpi-card"><div class="kpi-num" style="color:#f85149">{{ kpis.bounced }}</div><div class="kpi-lbl">Bounced</div></div>
+  <div class="kpi-card"><div class="kpi-num" style="color:{% if kpis.response_rate >= 20 %}#3fb950{% elif kpis.response_rate >= 10 %}#fbbf24{% else %}#f85149{% endif %}">{{ kpis.response_rate }}%</div><div class="kpi-lbl">Response Rate</div></div>
+  <div class="kpi-card"><div class="kpi-num" style="color:#3fb950">${{ "{:,.0f}".format(kpis.pipeline_value) }}</div><div class="kpi-lbl">Pipeline $</div></div>
+  <div class="kpi-card"><div class="kpi-num" style="color:{% if kpis.trend_pct > 0 %}#3fb950{% else %}#f85149{% endif %}">{{ kpis.trend_pct }}%</div><div class="kpi-lbl">Weekly Trend</div></div>
+ </div>
+</div>
+
+<!-- TABBED SECTIONS -->
+<div class="tab-bar" id="main-tabs">
+ <button class="tab-btn active" onclick="switchTab(this,'outreach')">📧 Outreach</button>
+ <button class="tab-btn" onclick="switchTab(this,'followups')">🔔 Follow-Ups ({{ followups.no_response|length + followups.second_followup|length }})</button>
+ <button class="tab-btn" onclick="switchTab(this,'workflows')">⚡ Workflows ({{ workflow_queue|length }})</button>
+ <button class="tab-btn" onclick="switchTab(this,'pipeline')">🎯 Pipeline ({{ prospect_count }})</button>
+ <button class="tab-btn" onclick="switchTab(this,'competitors')">⚔️ Competitors</button>
+ <button class="tab-btn" onclick="switchTab(this,'losses')">📉 Lost POs</button>
+ <button class="tab-btn" onclick="switchTab(this,'calendar')">📅 Calendar ({{ todays_agenda|length }})</button>
+ <button class="tab-btn" onclick="switchTab(this,'scprs')">🔎 SCPRS</button>
+ <button class="tab-btn" onclick="switchTab(this,'audit')">📋 Audit</button>
+</div>
+
+<!-- TAB: OUTREACH -->
+<div class="tab-panel active" id="tab-outreach">
+ <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+  <div class="card">
+   <h3>🎯 Outreach Actions</h3>
+   <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px">
+    <button class="g-btn g-btn-go" onclick="runStep('/api/growth/outreach?dry_run=true')">👁 Preview Emails</button>
+    <button class="g-btn g-btn-warn" onclick="runStep('/api/growth/outreach?dry_run=false')">📤 Send Emails</button>
+    <button class="g-btn" onclick="runStep('/api/growth/follow-ups')">🔔 Check Follow-Ups</button>
+    <button class="g-btn g-btn-purple" onclick="runStep('/api/growth/voice-follow-up')">📞 Voice Follow-Up</button>
+    <button class="g-btn g-btn-red" onclick="runStep('/api/growth/scan-bounces')">⚠️ Scan Bounces</button>
+    <button class="g-btn g-btn-blue" onclick="testWebhook()">🔗 Test Webhook</button>
+   </div>
+   <div style="margin-bottom:10px">
+    <label style="font-size:14px;font-weight:600;color:var(--tx2);display:block;margin-bottom:6px">Email Template</label>
+    <select id="template-select" onchange="previewTemplate()" style="width:100%;padding:10px;background:var(--sf2);border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:15px">
+     {% for t in template_keys %}<option value="{{ t }}">{{ t.replace('_',' ').title() }}</option>{% endfor %}
+    </select>
+   </div>
+   {% if sms_templates is defined and sms_templates %}
+   <div style="margin-bottom:10px">
+    <label style="font-size:14px;font-weight:600;color:var(--tx2);display:block;margin-bottom:6px">📱 SMS Template (V3)</label>
+    <select id="sms-template-select" style="width:100%;padding:10px;background:var(--sf2);border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:15px">
+     {% for t in sms_templates %}<option value="{{ t }}">{{ t.replace('_',' ').title() }}</option>{% endfor %}
+    </select>
+   </div>
+   {% endif %}
+   <div style="font-size:13px;color:var(--tx2);margin-top:8px">📌 All emails ask: <em>"Add sales@reytechinc.com to RFQ list"</em></div>
+  </div>
+  <div class="card">
+   <h3>📝 Template Preview</h3>
+   <div id="template-preview" class="template-preview">Select a template and click Preview to see it with real data.</div>
+  </div>
+ </div>
+</div>
+
+<!-- TAB: FOLLOW-UPS -->
+<div class="tab-panel" id="tab-followups">
+ <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px">
+  <div class="card" style="border-left:3px solid #fbbf24">
+   <h3>⏰ 1st Follow-Up Due <span style="font-size:20px;margin-left:auto;font-family:'JetBrains Mono',monospace;color:#fbbf24">{{ followups.no_response|length }}</span></h3>
+   <div style="max-height:260px;overflow-y:auto">
+    {% for f in followups.no_response[:15] %}
+    <div class="fu-row">
+     <span class="fu-days" style="background:rgba(251,191,36,.15);color:#fbbf24">{{ f.days_since }}d</span>
+     <div style="flex:1;min-width:0">
+      <div style="font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ f.agency }}</div>
+      <div style="font-size:13px;color:var(--tx2)">{{ f.email }}</div>
+     </div>
+     <button class="act-btn" onclick="draftEmail('{{ f.email }}','{{ f.agency }}','{{ f.name }}')" title="Draft follow-up">📧</button>
+     <button class="act-btn" onclick="markResponded('{{ f.prospect_id }}')" title="Mark responded">✅</button>
+    </div>
+    {% endfor %}
+    {% if not followups.no_response %}<div style="text-align:center;padding:20px;color:var(--tx2);font-size:14px">No follow-ups due</div>{% endif %}
+   </div>
+  </div>
+  <div class="card" style="border-left:3px solid #f0883e">
+   <h3>🔄 2nd Follow-Up <span style="font-size:20px;margin-left:auto;font-family:'JetBrains Mono',monospace;color:#f0883e">{{ followups.second_followup|length }}</span></h3>
+   <div style="max-height:260px;overflow-y:auto">
+    {% for f in followups.second_followup[:15] %}
+    <div class="fu-row">
+     <span class="fu-days" style="background:rgba(240,136,62,.15);color:#f0883e">{{ f.days_since }}d</span>
+     <div style="flex:1;min-width:0">
+      <div style="font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ f.agency }}</div>
+      <div style="font-size:13px;color:var(--tx2)">{{ f.email }}</div>
+     </div>
+     <button class="act-btn" onclick="draftEmail('{{ f.email }}','{{ f.agency }}','{{ f.name }}')" title="Send 2nd follow-up">📧</button>
+     <button class="act-btn" onclick="markDead('{{ f.prospect_id }}')" title="Mark dead">💀</button>
+    </div>
+    {% endfor %}
+    {% if not followups.second_followup %}<div style="text-align:center;padding:20px;color:var(--tx2);font-size:14px">None pending</div>{% endif %}
+   </div>
+  </div>
+  <div class="card" style="border-left:3px solid #8b949e">
+   <h3>💤 Stale (21+ days) <span style="font-size:20px;margin-left:auto;font-family:'JetBrains Mono',monospace;color:#8b949e">{{ followups.stale|length }}</span></h3>
+   <div style="max-height:260px;overflow-y:auto">
+    {% for f in followups.stale[:15] %}
+    <div class="fu-row">
+     <span class="fu-days" style="background:rgba(139,148,158,.15);color:#8b949e">{{ f.days_since }}d</span>
+     <div style="flex:1;min-width:0">
+      <div style="font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ f.agency }}</div>
+     </div>
+     <button class="act-btn" onclick="draftEmail('{{ f.email }}','{{ f.agency }}','{{ f.name }}')" title="Reactivation">📧</button>
+    </div>
+    {% endfor %}
+    {% if not followups.stale %}<div style="text-align:center;padding:20px;color:var(--tx2);font-size:14px">None stale</div>{% endif %}
+   </div>
+  </div>
+ </div>
+</div>
+
+<!-- TAB: WORKFLOWS (V3) -->
+<div class="tab-panel" id="tab-workflows">
+ <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+  <div class="card">
+   <h3>⚡ Workflow Sequences</h3>
+   {% for wf_id, wf in workflows.items() %}
+   <div style="padding:12px;border:1px solid var(--bd);border-radius:8px;margin-bottom:10px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+     <div style="font-weight:700;font-size:15px">{{ wf.name }}</div>
+     <span style="font-size:13px;color:{% if wf.active %}#3fb950{% else %}#8b949e{% endif %}">{{ '● Active' if wf.active else '○ Inactive' }}</span>
+    </div>
+    <div style="font-size:13px;color:var(--tx2);margin-bottom:8px">{{ wf.description }}</div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px">
+     {% for step in wf.steps %}
+     <span class="wf-step pending">
+      {% if step.action == 'email' %}📧{% elif step.action == 'sms' %}📱{% elif step.action == 'mark_stale' %}💤{% else %}🎯{% endif %}
+      Day {{ step.day }}
+     </span>
+     {% endfor %}
+    </div>
+   </div>
+   {% endfor %}
+  </div>
+  <div class="card">
+   <h3>📋 Workflow Queue <span style="font-size:20px;margin-left:auto;font-family:'JetBrains Mono',monospace;color:#a78bfa">{{ workflow_queue|length }}</span></h3>
+   {% if workflow_queue %}
+   <div style="max-height:400px;overflow-y:auto">
+    {% for wq in workflow_queue %}
+    <div style="padding:10px 12px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:10px">
+     <span class="wf-step {% if wq.overdue %}overdue{% elif wq.days_until <= 0 %}due{% else %}pending{% endif %}">
+      {% if wq.step_action == 'email' %}📧{% elif wq.step_action == 'sms' %}📱{% else %}🎯{% endif %}
+      {{ wq.step_number }}/{{ wq.total_steps }}
+     </span>
+     <div style="flex:1;min-width:0">
+      <div style="font-weight:600;font-size:14px">{{ wq.agency }}</div>
+      <div style="font-size:13px;color:var(--tx2)">{{ wq.step_description }}</div>
+     </div>
+     {% if wq.overdue %}<span style="font-size:13px;color:#f85149;font-weight:700">OVERDUE</span>
+     {% else %}<span style="font-size:13px;color:var(--tx2)">{{ wq.days_until }}d</span>{% endif %}
+     <button class="act-btn" onclick="advanceWorkflow('{{ wq.prospect_id }}')" title="Execute step">▶️</button>
+    </div>
+    {% endfor %}
+   </div>
+   {% else %}
+   <div style="text-align:center;padding:30px;color:var(--tx2)">
+    <div style="font-size:32px;margin-bottom:8px">⚡</div>
+    <div>No active workflows. Assign workflows from the Pipeline tab.</div>
+   </div>
+   {% endif %}
+  </div>
+ </div>
+</div>
+
+<!-- TAB: PROSPECT PIPELINE -->
+<div class="tab-panel" id="tab-pipeline">
+ <div class="card">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+   <h3 style="margin:0">🎯 Prospect Pipeline — Sorted by Score</h3>
+   <div style="display:flex;gap:8px">
+    <input id="prospect-search" placeholder="🔍 Search..." oninput="filterProspects()" style="padding:8px 14px;background:var(--sf2);border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:14px;width:200px">
+    <select id="status-filter" onchange="filterProspects()" style="padding:8px;background:var(--sf2);border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:14px">
+     <option value="">All Status</option>
+     <option value="new">New</option><option value="emailed">Emailed</option>
+     <option value="follow_up">Follow Up</option><option value="responded">Responded</option>
+     <option value="won">Won</option><option value="bounced">Bounced</option>
+    </select>
+   </div>
+  </div>
+  <div style="overflow-x:auto;max-height:500px;overflow-y:auto">
+   <table>
+    <thead><tr>
+     <th style="width:60px">Score</th><th style="width:60px">Win %</th>
+     <th>Agency</th><th>Buyer</th><th>Email</th>
+     <th style="width:80px;text-align:right">Spend</th><th style="width:100px">Status</th><th style="width:140px">Actions</th>
+    </tr></thead>
+    <tbody id="prospect-tbody">
+     {% for p in prospects[:100] %}
+     <tr data-search="{{ p.agency|default('')|lower }} {{ p.buyer_name|default(p.name|default(''))|lower }} {{ p.email|default('')|lower }}" data-status="{{ p.status|default('new') }}">
+      <td>
+       {% set sc = p.weighted_score|default(0) %}
+       <span style="display:inline-block;padding:4px 10px;border-radius:10px;font-size:14px;font-weight:700;font-family:'JetBrains Mono',monospace;background:{% if sc >= 70 %}rgba(52,211,153,.15);color:#3fb950{% elif sc >= 40 %}rgba(251,191,36,.15);color:#fbbf24{% else %}rgba(139,148,158,.15);color:#8b949e{% endif %}">{{ "%.0f"|format(sc) }}</span>
+      </td>
+      <td>
+       <span class="win-badge" style="background:{{ p.win_color|default('#8b949e') }}18;color:{{ p.win_color|default('#8b949e') }}">{{ "%.0f"|format(p.win_prob|default(50)) }}%</span>
+      </td>
+      <td style="font-weight:600;max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="{{ p.agency|default(p.institution|default('')) }}">{{ p.agency|default(p.institution|default('—')) }}</td>
+      <td>{{ p.buyer_name|default(p.name|default('—')) }}</td>
+      <td style="font-size:13px;color:var(--tx2)">{{ p.email|default('—') }}</td>
+      <td style="text-align:right;font-family:'JetBrains Mono',monospace;font-size:14px">${{ "{:,.0f}".format(p.annual_spend|default(p.total_spend|default(0))|float) }}</td>
+      <td>
+       {% set st = p.status|default('new') %}
+       <span style="padding:3px 10px;border-radius:10px;font-size:13px;font-weight:600;
+        {% if st == 'new' %}background:rgba(79,140,255,.15);color:#4f8cff
+        {% elif st == 'emailed' %}background:rgba(88,166,255,.15);color:#58a6ff
+        {% elif st in ('follow_up','second_follow_up') %}background:rgba(251,191,36,.15);color:#fbbf24
+        {% elif st == 'responded' %}background:rgba(52,211,153,.15);color:#3fb950
+        {% elif st == 'won' %}background:rgba(52,211,153,.2);color:#3fb950
+        {% elif st == 'bounced' %}background:rgba(248,81,73,.15);color:#f85149
+        {% else %}background:var(--sf2);color:var(--tx2){% endif %}">{{ st.replace('_',' ').title() }}</span>
+      </td>
+      <td>
+       <button class="act-btn" onclick="draftEmail('{{ p.email|default('') }}','{{ p.agency|default('') }}','{{ p.buyer_name|default(p.name|default('')) }}')" title="Email">📧</button>
+       <button class="act-btn" onclick="markResponded('{{ p.id|default('') }}')" title="Responded">✅</button>
+       <button class="act-btn" onclick="markWon('{{ p.id|default('') }}')" title="Won">🏆</button>
+       <button class="act-btn" onclick="assignWf('{{ p.id|default('') }}')" title="Assign workflow">⚡</button>
+       <a href="/growth/prospect/{{ p.id|default('') }}" class="act-btn" title="CRM profile">👤</a>
+      </td>
+     </tr>
+     {% endfor %}
+    </tbody>
+   </table>
+  </div>
+ </div>
+</div>
+
+<!-- TAB: COMPETITORS (V2) -->
+<div class="tab-panel" id="tab-competitors">
+ <div class="card">
+  <h3>⚔️ Competitor Intelligence <span style="font-size:14px;font-weight:500;color:var(--tx2);margin-left:8px">(from SCPRS + lost quotes)</span></h3>
+  {% if competitor_data.competitors %}
+  <div style="overflow-x:auto">
+   <table>
+    <thead><tr><th>Competitor</th><th style="text-align:center">SCPRS Wins</th><th style="text-align:right">Total Value</th><th style="text-align:center">Agencies</th><th>Categories</th><th style="text-align:center">Threat</th></tr></thead>
+    <tbody>
+     {% for comp in competitor_data.competitors[:15] %}
+     <tr>
+      <td style="font-weight:600">{{ comp.name }}</td>
+      <td style="text-align:center" class="mono">{{ comp.wins }}</td>
+      <td style="text-align:right" class="mono">${{ "{:,.0f}".format(comp.total_value) }}</td>
+      <td style="text-align:center">{{ comp.agency_count }}</td>
+      <td style="font-size:13px;color:var(--tx2)">{{ comp.categories|join(', ') }}</td>
+      <td style="text-align:center">
+       <span style="padding:3px 10px;border-radius:10px;font-size:13px;font-weight:600;
+        {% if comp.threat_level == 'high' %}background:rgba(248,81,73,.15);color:#f85149
+        {% elif comp.threat_level == 'medium' %}background:rgba(251,191,36,.15);color:#fbbf24
+        {% else %}background:rgba(139,148,158,.15);color:#8b949e{% endif %}">{{ comp.threat_level|upper }}</span>
+      </td>
+     </tr>
+     {% endfor %}
+    </tbody>
+   </table>
   </div>
   {% else %}
-  <div style="text-align:center">
-   <div style="font-size:32px;font-weight:800;color:#f87171;font-family:'JetBrains Mono',monospace">SB/DVBE</div>
-   <div style="font-size:13px;color:var(--tx2);text-transform:uppercase">Certified Vendor</div>
-  </div>
+  <div style="text-align:center;padding:30px;color:var(--tx2)">Run "Pull History" to populate competitor intelligence from SCPRS data.</div>
   {% endif %}
  </div>
 </div>
 
-<div id="progress-bar">
- <span id="progress-text">{{ progress_text }}</span>
-</div>
-
-<!-- OUTREACH FUNNEL STATS -->
-<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:16px">
- <div class="stat-box"><div class="stat-label">Prospects</div><div class="stat-value" style="color:#fbbf24">{{ p_total }}</div></div>
- <div class="stat-box"><div class="stat-label">📧 Emailed</div><div class="stat-value" style="color:#58a6ff">{{ total_emailed }}</div></div>
- <div class="stat-box"><div class="stat-label">✅ Responded</div><div class="stat-value" style="color:#3fb950">{{ total_responded }}</div></div>
- <div class="stat-box"><div class="stat-label">⛔ Bounced</div><div class="stat-value" style="color:#f85149">{{ total_bounced }}</div></div>
- <div class="stat-box"><div class="stat-label">📞 Called</div><div class="stat-value" style="color:#a78bfa">{{ total_called }}</div></div>
-</div>
-
-<!-- FOLLOW-UP COMMAND CENTER -->
-<div class="card">
- <h3>📋 Follow-Up Center</h3>
- <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px">
-  <!-- No Response (3-7 days) -->
-  <div>
-   <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
-    <span style="font-size:15px;font-weight:700;color:#fbbf24">⏰ 1st Follow-Up Due</span>
-    <span style="background:rgba(251,191,36,.15);color:#fbbf24;padding:3px 10px;border-radius:10px;font-size:14px;font-weight:700">{{ followups.no_response|length }}</span>
+<!-- TAB: LOST PO ANALYSIS (V2) -->
+<div class="tab-panel" id="tab-losses">
+ <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+  <div class="card">
+   <h3>📉 Lost PO Summary</h3>
+   <div class="kpi-grid" style="grid-template-columns:1fr 1fr">
+    <div class="kpi-card"><div class="kpi-num" style="color:#f85149">${{ "{:,.0f}".format(lost_analysis.total_lost_value) }}</div><div class="kpi-lbl">Total Lost Value</div></div>
+    <div class="kpi-card"><div class="kpi-num" style="color:#f85149">{{ lost_analysis.total_lost_count }}</div><div class="kpi-lbl">Lost POs</div></div>
    </div>
-   <div style="max-height:250px;overflow-y:auto">
-   {% for o in followups.no_response[:15] %}
-   <div class="fu-row">
-    <span class="fu-days" style="background:rgba(251,191,36,.15);color:#fbbf24">{{ o.days_since }}d</span>
-    <div style="flex:1;min-width:0">
-     <div style="font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ o.agency or '—' }}</div>
-     <div style="font-size:13px;color:var(--tx2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ o.email }}</div>
-    </div>
-    <button class="act-btn" onclick="sendFollowUp('{{ o.email }}','{{ o.agency }}','{{ o.name }}','follow_up')" title="Send follow-up" style="color:#fbbf24">📧</button>
-    <button class="act-btn" onclick="markResponded('{{ o.get('prospect_id','') or o.get('buyer_id','') }}')" title="Mark responded" style="color:#3fb950">✅</button>
+   <h3 style="margin-top:16px">By Reason</h3>
+   {% for reason, data in lost_analysis.by_reason.items() %}
+   <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--bd);font-size:14px">
+    <span>{{ reason }}</span>
+    <span class="mono" style="color:#f85149">{{ data.count }}× — ${{ "{:,.0f}".format(data.value) }}</span>
    </div>
    {% endfor %}
-   {% if not followups.no_response %}<div style="color:var(--tx2);font-size:14px;padding:8px">No pending follow-ups</div>{% endif %}
-   </div>
-  </div>
-
-  <!-- 2nd Follow-Up (8-21 days) -->
-  <div>
-   <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
-    <span style="font-size:15px;font-weight:700;color:#f0883e">🔁 2nd Follow-Up</span>
-    <span style="background:rgba(240,136,62,.15);color:#f0883e;padding:3px 10px;border-radius:10px;font-size:14px;font-weight:700">{{ followups.second_followup|length }}</span>
-   </div>
-   <div style="max-height:250px;overflow-y:auto">
-   {% for o in followups.second_followup[:15] %}
-   <div class="fu-row">
-    <span class="fu-days" style="background:rgba(240,136,62,.15);color:#f0883e">{{ o.days_since }}d</span>
-    <div style="flex:1;min-width:0">
-     <div style="font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ o.agency or '—' }}</div>
-     <div style="font-size:13px;color:var(--tx2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ o.email }}</div>
-    </div>
-    <button class="act-btn" onclick="sendFollowUp('{{ o.email }}','{{ o.agency }}','{{ o.name }}','second_follow_up')" title="Send 2nd follow-up" style="color:#f0883e">📧</button>
-    <button class="act-btn" onclick="markDead('{{ o.get('prospect_id','') or o.get('buyer_id','') }}')" title="Mark dead" style="color:#f85149">💀</button>
-   </div>
-   {% endfor %}
-   {% if not followups.second_followup %}<div style="color:var(--tx2);font-size:14px;padding:8px">None due</div>{% endif %}
-   </div>
-  </div>
-
-  <!-- Stale (21+ days) -->
-  <div>
-   <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
-    <span style="font-size:15px;font-weight:700;color:#8b949e">📭 Stale (21+ days)</span>
-    <span style="background:rgba(139,148,158,.15);color:#8b949e;padding:3px 10px;border-radius:10px;font-size:14px;font-weight:700">{{ followups.stale|length }}</span>
-   </div>
-   <div style="max-height:250px;overflow-y:auto">
-   {% for o in followups.stale[:15] %}
-   <div class="fu-row">
-    <span class="fu-days" style="background:rgba(139,148,158,.15);color:#8b949e">{{ o.days_since }}d</span>
-    <div style="flex:1;min-width:0">
-     <div style="font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ o.agency or '—' }}</div>
-     <div style="font-size:13px;color:var(--tx2)">{{ o.email }}</div>
-    </div>
-    <button class="act-btn" onclick="sendFollowUp('{{ o.email }}','{{ o.agency }}','{{ o.name }}','past_customer_reactivation')" title="Reactivation email" style="color:#8b949e">📧</button>
-   </div>
-   {% endfor %}
-   {% if not followups.stale %}<div style="color:var(--tx2);font-size:14px;padding:8px">None stale</div>{% endif %}
-   </div>
-  </div>
- </div>
-</div>
-
-<!-- OUTREACH ACTIONS + TEMPLATE PREVIEW -->
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
- <div class="card">
-  <h3>📧 Outreach Actions</h3>
-  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
-   <button class="g-btn" onclick="runStep('/api/growth/outreach?dry_run=true')">👁️ Preview Emails</button>
-   <button class="g-btn g-btn-warn" onclick="if(confirm('Send real emails to prospects?')) runStep('/api/growth/outreach?dry_run=false')">📧 Send Emails</button>
-   <button class="g-btn" onclick="runStep('/api/growth/follow-ups')">📋 Check Follow-Ups</button>
-   <button class="g-btn" onclick="if(confirm('Auto-dial non-responders?')) runStep('/api/growth/voice-follow-up')">📞 Voice Follow-Up</button>
-   <button class="g-btn" onclick="runStep('/api/growth/scan-bounces')">🔍 Scan Bounces</button>
-  </div>
-  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
-   <button class="g-btn" onclick="autoStartNurture()">🌱 Auto-Nurture New Leads</button>
-   <button class="g-btn" onclick="rescoreLeads()">📊 Rescore Leads</button>
-   <button class="g-btn g-btn-purple" onclick="viewPipeline()">🔄 Lead Pipeline</button>
-  </div>
-  <div style="font-size:14px;color:var(--tx2)">
-   <div style="margin-bottom:6px"><strong>Template:</strong>
-    <select id="template-select" onchange="previewTemplate()" style="background:var(--sf2);border:1px solid var(--bd);border-radius:6px;padding:6px 10px;color:var(--tx);font-size:14px;margin-left:6px">
-     {% for tk in template_keys %}
-     <option value="{{ tk }}">{{ tk.replace('_',' ').title() }}</option>
-     {% endfor %}
-    </select>
-   </div>
-   <div style="margin-bottom:6px"><strong>Emails always ask:</strong> Add <span style="color:var(--ac)">sales@reytechinc.com</span> to RFQ list</div>
-   <div><strong>All sends:</strong> Logged to CRM contact + outbox</div>
-  </div>
- </div>
-
- <div class="card">
-  <h3>📝 Template Preview</h3>
-  <div id="template-preview" class="template-preview">Select a template to preview...</div>
- </div>
-</div>
-
-<!-- PROSPECT PIPELINE (weighted) -->
-{% if prospects %}
-{% set status_cfg = {
-  'new': ('⬜ New', '#d29922', 'rgba(210,153,34,.08)'),
-  'emailed': ('📧 Emailed', '#58a6ff', 'rgba(88,166,255,.08)'),
-  'follow_up_due': ('⏰ Follow-Up', '#f0883e', 'rgba(240,136,62,.08)'),
-  'called': ('📞 Called', '#bc8cff', 'rgba(188,140,255,.08)'),
-  'responded': ('✅ Responded', '#3fb950', 'rgba(52,211,153,.08)'),
-  'bounced': ('⛔ Bounced', '#f85149', 'rgba(248,113,113,.08)'),
-  'dead': ('💀 Dead', '#8b949e', 'rgba(139,148,160,.08)'),
-  'won': ('🏆 Won', '#3fb950', 'rgba(52,211,153,.15)'),
-} %}
-<div class="card">
- <h3>🎯 Prospect Pipeline <span style="font-weight:400;font-size:14px;text-transform:none;letter-spacing:0;color:var(--tx2)">({{ prospect_count }} — sorted by opportunity score)</span></h3>
- <div style="max-height:500px;overflow:auto"><table><thead><tr>
-  <th>Score</th><th>Agency</th><th>Buyer</th><th>Email</th><th>Spend</th><th>Categories</th><th>Status</th><th>Actions</th>
- </tr></thead><tbody>
- {% for pr in prospects[:100] %}
- {% set pid = pr.id|default('') %}
- {% set stat = pr.outreach_status|default('new') %}
- {% set cfg = status_cfg.get(stat, status_cfg['new']) %}
- {% set email = pr.buyer_email|default('') or '—' %}
- {% set ws = pr.weighted_score|default(0) %}
- <tr>
-  <td><span class="mono" style="font-weight:700;font-size:15px;color:{% if ws >= 50 %}#3fb950{% elif ws >= 30 %}#fbbf24{% else %}var(--tx2){% endif %}">{{ ws }}</span></td>
-  <td style="font-weight:600"><a href="/growth/prospect/{{ pid }}" style="color:var(--ac);text-decoration:none">{{ pr.agency|default('—') }}</a></td>
-  <td>{{ pr.buyer_name|default('—') }}</td>
-  <td style="font-size:14px;font-family:'JetBrains Mono',monospace"><a href="mailto:{{ email }}" style="color:var(--ac);text-decoration:none">{{ email }}</a></td>
-  <td class="mono" style="color:#3fb950">${{ "{:,.0f}".format(pr.total_spend|default(0)) }}</td>
-  <td style="font-size:14px">{{ (pr.categories_matched|default([]))[:2]|join(', ') }}</td>
-  <td><span style="display:inline-block;padding:3px 10px;border-radius:10px;font-size:13px;font-weight:600;color:{{ cfg[1] }};background:{{ cfg[2] }}">{{ cfg[0] }}</span></td>
-  <td style="white-space:nowrap">
-   {% if stat in ('new',) %}
-    <button onclick="sendFollowUp('{{ email }}','{{ pr.agency|default('') }}','{{ pr.buyer_name|default('') }}','distro_list')" class="act-btn" title="Draft email" style="color:#58a6ff">📧</button>
-   {% elif stat in ('emailed', 'follow_up_due') %}
-    <button onclick="markResponded('{{ pid }}')" class="act-btn" title="Mark responded" style="color:#3fb950">✅</button>
-    <button onclick="sendFollowUp('{{ email }}','{{ pr.agency|default('') }}','{{ pr.buyer_name|default('') }}','follow_up')" class="act-btn" title="Follow up" style="color:#fbbf24">📧</button>
-   {% elif stat == 'responded' %}
-    <button onclick="markWon('{{ pid }}')" class="act-btn" title="Mark won" style="color:#3fb950">🏆</button>
+   {% if not lost_analysis.by_reason %}
+   <div style="padding:16px;color:var(--tx2);font-size:14px;text-align:center">No lost PO data yet</div>
    {% endif %}
-   <a href="/growth/prospect/{{ pid }}" class="act-btn" title="View details" style="color:var(--ac);text-decoration:none">👤</a>
-  </td>
- </tr>
- {% endfor %}
- </tbody></table></div>
+  </div>
+  <div class="card">
+   <h3>📊 By Category</h3>
+   {% for cat, val in lost_analysis.by_category.items() %}
+   <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--bd)">
+    <span style="font-size:14px;font-weight:600">{{ cat }}</span>
+    <div style="display:flex;align-items:center;gap:10px">
+     <div style="background:rgba(248,81,73,.15);height:8px;border-radius:4px;width:{{ (val / (lost_analysis.total_lost_value or 1) * 200)|int }}px"></div>
+     <span class="mono" style="font-size:14px;color:#f85149">${{ "{:,.0f}".format(val) }}</span>
+    </div>
+   </div>
+   {% endfor %}
+   <h3 style="margin-top:16px">Top Losses</h3>
+   <div style="max-height:200px;overflow-y:auto">
+    {% for l in lost_analysis.top_losses[:10] %}
+    <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(46,51,69,.3);font-size:13px">
+     <div>
+      <span style="font-weight:600">{{ l.quote }}</span>
+      <span style="color:var(--tx2)">{{ l.agency }}</span>
+      {% if l.competitor %}<span style="color:#f85149"> → {{ l.competitor }}</span>{% endif %}
+     </div>
+     <div style="display:flex;align-items:center;gap:6px">
+      <span class="mono" style="color:#f85149">${{ "{:,.0f}".format(l.value) }}</span>
+      <button class="act-btn" onclick="addLossReason('{{ l.quote }}')" title="Add loss reason">📝</button>
+     </div>
+    </div>
+    {% endfor %}
+    {% if not lost_analysis.top_losses %}
+    <div style="padding:16px;color:var(--tx2);font-size:14px;text-align:center">No loss data</div>
+    {% endif %}
+   </div>
+  </div>
+ </div>
 </div>
-{% endif %}
 
-<!-- LOST/MISSED OPPORTUNITIES -->
-{% if lost_quotes %}
-<div class="card">
- <h3>📉 Lost / Missed Opportunities ({{ lost_quotes|length }})</h3>
- <div style="font-size:14px;color:var(--tx2);margin-bottom:12px">Quotes we sent that didn't convert — understand why and re-engage</div>
- <div style="max-height:300px;overflow:auto"><table><thead><tr>
-  <th>Quote #</th><th>Agency</th><th>Items</th><th>Total</th><th>Status</th><th>Action</th>
- </tr></thead><tbody>
- {% for q in lost_quotes[:20] %}
- <tr>
-  <td class="mono" style="color:var(--ac);font-weight:600">{{ q.get('quote_number','—') }}</td>
-  <td style="font-weight:500">{{ q.get('agency','') or q.get('institution','—') }}</td>
-  <td style="font-size:14px">{{ q.get('items',[])|length }} items</td>
-  <td class="mono" style="color:#f85149">${{ "{:,.0f}".format(q.get('total',0) or 0) }}</td>
-  <td><span style="padding:3px 10px;border-radius:10px;font-size:13px;font-weight:600;color:#f85149;background:rgba(248,81,73,.1)">{{ q.get('status','lost') }}</span></td>
-  <td>
-   <button onclick="sendFollowUp('{{ q.get('email','') }}','{{ q.get('agency','') or q.get('institution','') }}','','past_customer_reactivation')" class="act-btn" title="Re-engage" style="color:var(--ac)">📧</button>
-  </td>
- </tr>
- {% endfor %}
- </tbody></table></div>
+<!-- TAB: CALENDAR (Feature #12) -->
+<div class="tab-panel" id="tab-calendar">
+ <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+  <div class="card">
+   <h3>📅 Today's Agenda</h3>
+   {% if todays_agenda %}
+   {% for ev in todays_agenda %}
+   <div style="padding:10px 12px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:10px">
+    <span style="font-size:14px;font-weight:700;color:var(--ac);font-family:'JetBrains Mono',monospace">{{ ev.time }}</span>
+    <div style="flex:1">
+     <div style="font-weight:600;font-size:14px">{{ ev.agency }}</div>
+     <div style="font-size:13px;color:var(--tx2)">{{ ev.notes }}</div>
+    </div>
+    {% if ev.gcal_url %}<a href="{{ ev.gcal_url }}" target="_blank" class="act-btn" title="Open in Google Calendar">📅</a>{% endif %}
+    <button class="act-btn" onclick="completeCal('{{ ev.id }}')" title="Complete">✅</button>
+   </div>
+   {% endfor %}
+   {% else %}
+   <div style="text-align:center;padding:24px;color:var(--tx2)">No follow-ups scheduled for today</div>
+   {% endif %}
+  </div>
+  <div class="card">
+   <h3>📆 Upcoming Events</h3>
+   {% if calendar_events %}
+   <div style="max-height:300px;overflow-y:auto">
+    {% for ev in calendar_events %}
+    <div style="padding:8px 12px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:10px">
+     <div style="min-width:70px;font-size:13px;font-weight:600;color:var(--ac);font-family:'JetBrains Mono',monospace">{{ ev.date }}</div>
+     <div style="flex:1">
+      <div style="font-weight:600;font-size:14px">{{ ev.agency }}</div>
+      <div style="font-size:12px;color:var(--tx2)">{{ ev.buyer }} — {{ ev.type }}</div>
+     </div>
+     {% if ev.gcal_url %}<a href="{{ ev.gcal_url }}" target="_blank" class="act-btn" title="Google Calendar">📅</a>{% endif %}
+    </div>
+    {% endfor %}
+   </div>
+   {% else %}
+   <div style="text-align:center;padding:24px;color:var(--tx2)">No upcoming events</div>
+   {% endif %}
+   <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--bd)">
+    <div style="font-size:14px;font-weight:600;margin-bottom:8px">Schedule Follow-Up</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+     <input id="cal-prospect" placeholder="Prospect ID" style="flex:1;padding:8px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:14px">
+     <input id="cal-date" type="date" style="padding:8px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:14px">
+     <input id="cal-time" type="time" value="09:00" style="padding:8px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:14px">
+     <button class="g-btn g-btn-go" style="padding:8px 14px;font-size:13px" onclick="scheduleCal()">📅 Schedule</button>
+    </div>
+   </div>
+  </div>
+ </div>
 </div>
-{% endif %}
 
-<!-- CATEGORIES -->
-{% if cat_items %}
-<div class="card">
- <h3>📂 Item Categories</h3>
- <table><thead><tr><th>Category</th><th>Items</th><th>POs</th><th>Total Value</th><th>Sample</th></tr></thead><tbody>
- {% for cat in cat_items %}
- <tr>
-  <td style="font-weight:600">{{ cat.name }}</td>
-  <td class="mono">{{ cat.items }}</td>
-  <td class="mono">{{ cat.pos }}</td>
-  <td class="mono" style="color:#3fb950">${{ "{:,.0f}".format(cat.value) }}</td>
-  <td style="font-size:14px;color:var(--tx2)">{{ cat.sample }}</td>
- </tr>
- {% endfor %}
- </tbody></table>
+<!-- TAB: SCPRS SEARCH -->
+<div class="tab-panel" id="tab-scprs">
+ <div class="card">
+  <h3>🔎 SCPRS Search Proxy <span style="font-size:14px;font-weight:500;color:var(--tx2);margin-left:8px">(cached for 24h)</span></h3>
+  <div style="display:flex;gap:10px;margin-bottom:14px">
+   <select id="scprs-type" style="padding:10px;background:var(--sf2);border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:14px;width:140px">
+    <option value="item">Item Number</option>
+    <option value="description">Description</option>
+   </select>
+   <input id="scprs-query" placeholder="Search SCPRS... (e.g., stryker, medical supplies)" style="flex:1;padding:10px;background:var(--sf2);border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:15px" onkeydown="if(event.key==='Enter')searchSCPRS()">
+   <button class="g-btn g-btn-go" onclick="searchSCPRS()">🔎 Search</button>
+  </div>
+  <div id="scprs-results" style="max-height:400px;overflow-y:auto">
+   <div style="text-align:center;padding:30px;color:var(--tx2)">
+    <div style="font-size:32px;margin-bottom:8px">🔎</div>
+    <div>Search SCPRS for buyer-specific purchase history, pricing, and vendor data.</div>
+   </div>
+  </div>
+ </div>
 </div>
-{% endif %}
 
-<!-- AGENT ACTIONS (for voice + automation) -->
-<div class="card">
+<!-- TAB: AUDIT LOG (V2) -->
+<div class="tab-panel" id="tab-audit">
+ <div class="card">
+  <h3>📋 Audit Log <span style="font-size:14px;font-weight:500;color:var(--tx2);margin-left:8px">(last 50 actions)</span></h3>
+  <div id="audit-log" style="max-height:500px;overflow-y:auto">
+   <div style="text-align:center;padding:20px;color:var(--tx2)">Click to load audit log...</div>
+  </div>
+ </div>
+</div>
+
+<!-- AGENT-READY ACTIONS (V1+V3) -->
+<div class="card" style="margin-top:14px">
  <h3>🤖 Agent-Ready Actions</h3>
- <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
-  <div style="background:var(--sf2);border-radius:8px;padding:14px">
-   <div style="font-size:15px;font-weight:600;margin-bottom:8px">📞 Voice Queue</div>
-   <div style="font-size:14px;color:var(--tx2);margin-bottom:8px">{{ followups.no_response|length + followups.second_followup|length }} contacts need phone follow-up</div>
-   <button class="g-btn" onclick="if(confirm('Auto-dial non-responders?')) runStep('/api/growth/voice-follow-up')">📞 Start Voice Campaign</button>
+ <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px">
+  <div class="stat-box">
+   <div style="font-size:28px;margin-bottom:6px">📞</div>
+   <div style="font-size:15px;font-weight:700;margin-bottom:4px">Voice Queue</div>
+   <div style="font-size:13px;color:var(--tx2);margin-bottom:10px">{{ kpis.fu_due + kpis.fu_second }} need calls</div>
+   <button class="g-btn g-btn-go" style="font-size:13px;padding:8px 14px;width:100%" onclick="runStep('/api/growth/voice-follow-up')">Start Calls</button>
   </div>
-  <div style="background:var(--sf2);border-radius:8px;padding:14px">
-   <div style="font-size:15px;font-weight:600;margin-bottom:8px">🌱 Nurture Queue</div>
-   <div style="font-size:14px;color:var(--tx2);margin-bottom:8px">New leads awaiting drip sequences</div>
-   <button class="g-btn" onclick="autoStartNurture()">🌱 Auto-Start Nurture</button>
+  <div class="stat-box">
+   <div style="font-size:28px;margin-bottom:6px">📱</div>
+   <div style="font-size:15px;font-weight:700;margin-bottom:4px">SMS Queue (V3)</div>
+   <div style="font-size:13px;color:var(--tx2);margin-bottom:10px">Nudge non-responders</div>
+   <button class="g-btn g-btn-purple" style="font-size:13px;padding:8px 14px;width:100%" onclick="bulkSMS()">Send SMS</button>
   </div>
-  <div style="background:var(--sf2);border-radius:8px;padding:14px">
-   <div style="font-size:15px;font-weight:600;margin-bottom:8px">📊 Intelligence</div>
-   <div style="font-size:14px;color:var(--tx2);margin-bottom:8px">Pull fresh SCPRS data for scoring</div>
-   <button class="g-btn" onclick="runStep('/api/growth/campaigns')">📊 Campaign Stats</button>
+  <div class="stat-box">
+   <div style="font-size:28px;margin-bottom:6px">⚡</div>
+   <div style="font-size:15px;font-weight:700;margin-bottom:4px">Auto-Nurture (V3)</div>
+   <div style="font-size:13px;color:var(--tx2);margin-bottom:10px">{{ workflow_queue|length }} steps pending</div>
+   <button class="g-btn g-btn-warn" style="font-size:13px;padding:8px 14px;width:100%" onclick="fetch('/api/leads/nurture/auto-start',{method:'POST'}).then(r=>r.json()).then(showResult)">Auto Nurture</button>
+  </div>
+  <div class="stat-box">
+   <div style="font-size:28px;margin-bottom:6px">🔍</div>
+   <div style="font-size:15px;font-weight:700;margin-bottom:4px">Intelligence</div>
+   <div style="font-size:13px;color:var(--tx2);margin-bottom:10px">Pull SCPRS data</div>
+   <button class="g-btn g-btn-blue" style="font-size:13px;padding:8px 14px;width:100%" onclick="runStep('/api/growth/campaigns')">Campaign Stats</button>
   </div>
  </div>
 </div>
 
-<!-- RESULT / PREVIEW PANEL -->
-<div id="result" style="display:none;background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px;margin-top:14px;max-height:600px;overflow:auto">
+<!-- RESULTS PANEL -->
+<div id="result-panel" style="display:none;background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:18px;margin-top:14px;max-height:400px;overflow-y:auto">
  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-  <span style="font-weight:700;font-size:15px" id="result-title">Result</span>
-  <button onclick="document.getElementById('result').style.display='none'" style="background:none;border:none;color:var(--tx2);cursor:pointer;font-size:18px">✕</button>
+  <h3 style="margin:0;font-size:15px;color:var(--tx2)">📋 Results</h3>
+  <button onclick="document.getElementById('result-panel').style.display='none'" style="background:none;border:none;cursor:pointer;font-size:16px;color:var(--tx2)">✕</button>
  </div>
- <div id="result-emails" style="display:none"></div>
- <pre id="result-content" style="font-size:14px;white-space:pre-wrap;word-break:break-word;margin:0"></pre>
+ <pre id="result-content" style="font-size:14px;white-space:pre-wrap;font-family:'JetBrains Mono',monospace;color:var(--tx)"></pre>
 </div>
 
 <script>
-// Email templates for preview
-const TEMPLATES = {{ template_keys | tojson }};
-const CREDS = {{ creds | tojson }};
-
-function previewTemplate(){
-  var sel = document.getElementById('template-select').value;
-  var pre = document.getElementById('template-preview');
-  // Build a preview with placeholder data
-  fetch('/api/growth/outreach?dry_run=true&max=1',{credentials:'same-origin'}).then(r=>r.json()).then(d=>{
-    if(d.preview && d.preview.length > 0){
-      pre.innerHTML = '<div style="margin-bottom:8px"><strong>Subject:</strong> '+d.preview[0].subject+'</div><hr style="border-color:var(--bd);margin:8px 0">'+
-        (d.preview[0].body_html || '<pre style="white-space:pre-wrap;font-family:inherit;margin:0">'+d.preview[0].body+'</pre>');
-    } else {
-      var total_sales = CREDS.total_sales ? '$'+CREDS.total_sales.toLocaleString() : '$0';
-      pre.textContent = 'Template: '+sel+'\n\nReytech credentials auto-filled:\n• Sales since '+CREDS.since_year+': '+total_sales+'\n• '+CREDS.total_pos+'+ POs\n• '+CREDS.total_items+'+ items\n• '+CREDS.agencies_served+' agencies\n\nAll emails ask buyers to add sales@reytechinc.com to RFQ list.';
-    }
-  }).catch(()=>{
-    pre.textContent = 'Template: '+sel+'\n\nCredentials: $'+CREDS.total_sales.toLocaleString()+' in sales, '+CREDS.total_pos+'+ POs across '+CREDS.agencies_served+' agencies.';
-  });
+function switchTab(btn,name){
+ document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.remove('active')});
+ document.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('active')});
+ document.getElementById('tab-'+name).classList.add('active');
+ btn.classList.add('active');
+ if(name==='audit')loadAuditLog();
 }
-// Auto-preview first template
-setTimeout(previewTemplate, 500);
-
-function createCampaign(){
-  var mode = confirm('Send real emails to prospects?\n\nOK = Send emails (live)\nCancel = Preview only (dry run)');
-  fetch('/api/growth/create-campaign',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({dry_run:!mode,max_prospects:50})}).then(r=>r.json()).then(d=>{showResult(d);if(d.ok)pollProgress();}).catch(e=>showResultRaw('Error: '+e));
-}
-
 function runStep(url){
-  fetch(url,{credentials:'same-origin'}).then(r=>r.json()).then(d=>{showResult(d);if(d.message&&d.message.includes('Check'))pollProgress();}).catch(e=>showResultRaw('Error: '+e));
+ document.getElementById('progress-bar').style.display='block';
+ document.getElementById('progress-bar').textContent='⏳ Running...';
+ fetch(url).then(function(r){return r.json()}).then(function(d){
+  document.getElementById('progress-bar').style.display='none';
+  showResult(d);
+ }).catch(function(e){
+  document.getElementById('progress-bar').style.display='none';
+  showResult({error:e.message});
+ });
 }
-
-function sendFollowUp(email,agency,name,template){
-  if(!email||email==='—'){alert('No email address');return;}
-  var gmailUrl='https://mail.google.com/mail/?view=cm&to='+encodeURIComponent(email)+'&su='+encodeURIComponent('Reytech Inc. — Follow Up — '+agency);
-  if(confirm('Open Gmail compose to '+email+'?\n\nTemplate: '+template.replace(/_/g,' '))){
-    window.open(gmailUrl,'_blank');
-  }
+function crmPost(url,body){
+ return fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})}).then(function(r){return r.json()});
 }
-
 function showResult(data){
-  var el=document.getElementById('result'),emails=document.getElementById('result-emails'),pre=document.getElementById('result-content'),title=document.getElementById('result-title');
-  el.style.display='block';
-  if(data.preview&&data.preview.length>0){
-    title.textContent=(data.dry_run?'👁️ Preview':'📧 Sent')+': '+data.emails_built+' emails';
-    emails.style.display='block';pre.style.display='none';
-    emails.innerHTML=data.preview.map(function(e,i){
-      var gmailUrl='https://mail.google.com/mail/?view=cm&to='+encodeURIComponent(e.to)+'&su='+encodeURIComponent(e.subject)+'&body='+encodeURIComponent(e.body||'');
-      var bodyContent=e.body_html||e.body||'(no body)';var isHtml=!!e.body_html;
-      return '<div style="background:var(--sf2);border:1px solid var(--bd);border-radius:8px;padding:14px;margin-bottom:10px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><span style="font-size:14px;color:var(--tx2)">#'+(i+1)+'</span><div style="display:flex;gap:6px"><a href="'+gmailUrl+'" target="_blank" style="font-size:14px;padding:4px 12px;border-radius:6px;background:rgba(79,140,255,.12);color:var(--ac);text-decoration:none;font-weight:600;border:1px solid rgba(79,140,255,.3)">📧 Open in Gmail</a><span style="font-size:13px;padding:3px 10px;border-radius:10px;background:'+(data.dry_run?'rgba(210,153,34,.1)':'rgba(52,211,153,.1)')+';color:'+(data.dry_run?'#d29922':'#3fb950')+';font-weight:600">'+(data.dry_run?'DRAFT':'SENT')+'</span></div></div><div style="font-size:15px;margin-bottom:4px"><strong>To:</strong> <a href="mailto:'+e.to+'" style="color:var(--ac)">'+e.to+'</a> <span style="color:var(--tx2)">('+e.agency+')</span></div><div style="font-size:15px;margin-bottom:10px;color:var(--ac)"><strong>Subject:</strong> '+e.subject+'</div><div style="font-size:14px;line-height:1.6;background:var(--sf);padding:12px;border-radius:8px;border:1px solid var(--bd);max-height:200px;overflow:auto">'+(isHtml?bodyContent:'<pre style="white-space:pre-wrap;margin:0;font-family:inherit">'+bodyContent+'</pre>')+'</div></div>';
-    }).join('');
-  } else {
-    emails.style.display='none';pre.style.display='block';title.textContent='Result';pre.textContent=JSON.stringify(data,null,2);
-  }
+ var p=document.getElementById('result-panel');
+ p.style.display='block';
+ var c=document.getElementById('result-content');
+ if(data.preview_html){c.innerHTML=data.preview_html;}
+ else if(data.emails){
+  var html='<strong>'+data.emails.length+' emails ready:</strong><br><br>';
+  data.emails.forEach(function(e){
+   html+='<div style="margin-bottom:12px;padding:10px;border:1px solid var(--bd);border-radius:6px">';
+   html+='<strong>To:</strong> '+e.to+'<br><strong>Subject:</strong> '+e.subject;
+   html+='<br><a href="https://mail.google.com/mail/?view=cm&to='+encodeURIComponent(e.to)+'&su='+encodeURIComponent(e.subject)+'&body='+encodeURIComponent(e.body||'')+'" target="_blank" class="g-btn g-btn-go" style="margin-top:6px;font-size:12px;padding:4px 10px">Open in Gmail</a></div>';
+  });
+  c.innerHTML=html;
+ }else{c.textContent=JSON.stringify(data,null,2);}
 }
-function showResultRaw(text){var el=document.getElementById('result');el.style.display='block';document.getElementById('result-emails').style.display='none';document.getElementById('result-content').style.display='block';document.getElementById('result-content').textContent=text;}
-
-function crmPost(url,body){return fetch(url,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>r.json())}
-
-function markResponded(pid){
-  var detail=prompt('Response details:','Email reply received');
-  if(detail===null)return;
-  crmPost('/api/growth/prospect/'+pid+'/responded',{response_type:'email_reply',detail:detail}).then(d=>{if(d.ok){alert('✅ Marked responded');location.reload()}else alert(d.error||'Failed')});
+function previewTemplate(){
+ var t=document.getElementById('template-select').value;
+ fetch('/api/growth/outreach?dry_run=true&max=1&template='+t).then(function(r){return r.json()}).then(function(d){
+  var el=document.getElementById('template-preview');
+  if(d.emails&&d.emails.length>0){
+   el.innerHTML='<strong>Subject:</strong> '+d.emails[0].subject+'<br><br>'+(d.emails[0].body||'').replace(/\n/g,'<br>');
+  }else{el.textContent=JSON.stringify(d,null,2);}
+ });
 }
-function markWon(pid){crmPost('/api/growth/prospect/'+pid,{outreach_status:'won'}).then(d=>{if(d.ok){alert('🏆 Won!');location.reload()}else alert(d.error||'Failed')})}
-function markDead(pid){crmPost('/api/growth/prospect/'+pid,{outreach_status:'dead'}).then(d=>{if(d.ok){alert('Marked dead');location.reload()}else alert(d.error||'Failed')})}
-
-function autoStartNurture(){fetch('/api/leads/nurture/auto-start',{method:'POST',credentials:'same-origin'}).then(r=>r.json()).then(d=>{alert(d.ok?'Started nurture for '+d.started+' leads':'Failed: '+(d.error||'unknown'))})}
-function rescoreLeads(){fetch('/api/leads/rescore',{method:'POST',credentials:'same-origin'}).then(r=>r.json()).then(d=>{alert(d.ok?'Rescored: '+d.rescored+' leads':'Failed')})}
-function viewPipeline(){fetch('/api/leads/pipeline').then(r=>r.json()).then(d=>{if(!d.total){alert('No leads');return}var msg='Pipeline: '+d.total+' total\n';for(var s in (d.by_status||{}))msg+=s+': '+d.by_status[s]+'\n';msg+='\nAvg Score: '+d.avg_score;alert(msg)})}
-
-var pollTimer=null;
+function createCampaign(){
+ var mode=confirm('🚀 Create live campaign? OK=Live, Cancel=Dry Run');
+ fetch('/api/growth/create-campaign',{method:'POST',headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({dry_run:!mode})}).then(function(r){return r.json()}).then(function(d){
+  if(d.campaign_id)pollProgress();showResult(d);
+ });
+}
 function pollProgress(){
-  if(pollTimer)clearInterval(pollTimer);
-  var bar=document.getElementById('progress-bar'),txt=document.getElementById('progress-text');bar.style.display='block';
-  pollTimer=setInterval(function(){
-    Promise.all([fetch('/api/growth/pull-status',{credentials:'same-origin'}).then(r=>r.json()),fetch('/api/growth/buyer-status',{credentials:'same-origin'}).then(r=>r.json())]).then(function(r){
-      var running=r[0].running||r[1].running;
-      txt.textContent=r[0].running?r[0].progress:r[1].running?r[1].progress:'Complete — refresh to see results';
-      if(!running){clearInterval(pollTimer);setTimeout(function(){location.reload()},2000)}
-    });
-  },3000);
+ var iv=setInterval(function(){
+  fetch('/api/growth/pull-status').then(function(r){return r.json()}).then(function(d){
+   if(d.running){
+    document.getElementById('progress-bar').style.display='block';
+    document.getElementById('progress-bar').textContent='⏳ '+d.progress;
+   }else{document.getElementById('progress-bar').style.display='none';clearInterval(iv);}
+  });
+ },3000);
 }
-{% if progress_visible %}pollProgress();{% endif %}
+function draftEmail(email,agency,name){
+ var subject='Reytech Inc — DVBE/SB Supplier for '+agency;
+ var body='Hi '+(name||'there')+',\n\nFollowing up on our previous outreach regarding RFQ list inclusion for '+agency+'.\n\nAs a certified DVBE and Small Business, Reytech delivers office, medical, and janitorial supplies to California state agencies.\n\nPlease add sales@reytechinc.com to your RFQ distribution list.\n\nBest regards,\nMike Guadan\nReytech Inc\n(916) 671-2734';
+ window.open('https://mail.google.com/mail/?view=cm&to='+encodeURIComponent(email)+'&su='+encodeURIComponent(subject)+'&body='+encodeURIComponent(body));
+}
+function markResponded(pid){if(pid)crmPost('/api/growth/prospect/'+pid+'/responded',{response_type:'email_reply'}).then(function(){location.reload()});}
+function markWon(pid){if(pid)crmPost('/api/growth/prospect/'+pid,{status:'won'}).then(function(){location.reload()});}
+function markDead(pid){if(pid)crmPost('/api/growth/prospect/'+pid,{status:'dead'}).then(function(){location.reload()});}
+function filterProspects(){
+ var q=(document.getElementById('prospect-search').value||'').toLowerCase();
+ var sf=(document.getElementById('status-filter').value||'').toLowerCase();
+ document.querySelectorAll('#prospect-tbody tr').forEach(function(r){
+  var matchQ=!q||r.dataset.search.indexOf(q)>=0;
+  var matchS=!sf||r.dataset.status===sf;
+  r.style.display=(matchQ&&matchS)?'':'none';
+ });
+}
+function assignWf(pid){
+ if(!pid)return;
+ var wf=prompt('Workflow ID:\n• standard_outreach\n• reactivation\n• distro_list_push','standard_outreach');
+ if(wf)crmPost('/api/growth/workflow/assign',{prospect_id:pid,workflow_id:wf}).then(function(d){alert(d.ok?'Workflow assigned!':'Error: '+d.error);location.reload();});
+}
+function advanceWorkflow(pid){
+ crmPost('/api/growth/workflow/advance',{prospect_id:pid}).then(function(d){alert(d.ok?'Step completed!':'Error: '+d.error);location.reload();});
+}
+function bulkSMS(){
+ if(!confirm('Send SMS nudges to non-responders? (dry run first)'))return;
+ var tmpl=document.getElementById('sms-template-select')?document.getElementById('sms-template-select').value:'sms_follow_up';
+ fetch('/api/growth/sms',{method:'POST',headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({dry_run:true,template:tmpl})}).then(function(r){return r.json()}).then(showResult);
+}
+function dismissNotifs(){
+ crmPost('/api/growth/notifications/read',{all:true}).then(function(){
+  var nb=document.getElementById('notif-bar');if(nb)nb.style.display='none';
+ });
+}
+function testWebhook(){crmPost('/api/growth/webhook-test',{}).then(showResult);}
+function loadAuditLog(){
+ fetch('/api/growth/audit-log?limit=50').then(function(r){return r.json()}).then(function(d){
+  var el=document.getElementById('audit-log');
+  if(!d.entries||d.entries.length===0){
+   el.innerHTML='<div style="text-align:center;padding:20px;color:var(--tx2)">No audit entries yet. Actions will be logged as you use the Growth Engine.</div>';
+   return;
+  }
+  var html='<table><thead><tr><th>Time</th><th>Action</th><th>Detail</th><th>Actor</th></tr></thead><tbody>';
+  d.entries.forEach(function(e){
+   html+='<tr><td style="font-size:13px;color:var(--tx2);white-space:nowrap" class="mono">'+(e.timestamp||'').slice(0,19).replace('T',' ')+'</td>';
+   html+='<td style="font-weight:600">'+e.action+'</td>';
+   html+='<td style="font-size:13px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(e.detail||'')+'</td>';
+   html+='<td style="font-size:13px;color:var(--tx2)">'+e.actor+'</td></tr>';
+  });
+  html+='</tbody></table>';
+  el.innerHTML=html;
+ });
+}
+/* ── Calendar (#12) ── */
+function scheduleCal(){
+ var pid=document.getElementById('cal-prospect').value;
+ var date=document.getElementById('cal-date').value;
+ var time=document.getElementById('cal-time').value;
+ if(!pid||!date){alert('Enter prospect ID and date');return;}
+ crmPost('/api/growth/calendar/schedule',{prospect_id:pid,date:date,time:time}).then(function(d){
+  if(d.ok&&d.gcal_url){
+   if(confirm('Scheduled! Open in Google Calendar?'))window.open(d.gcal_url);
+   else location.reload();
+  }else{alert(d.error||'Scheduled');location.reload();}
+ });
+}
+function completeCal(eid){
+ crmPost('/api/growth/calendar/complete',{event_id:eid}).then(function(){location.reload()});
+}
+/* ── SCPRS Search ── */
+function searchSCPRS(){
+ var q=document.getElementById('scprs-query').value;
+ var t=document.getElementById('scprs-type').value;
+ if(!q){alert('Enter a search query');return;}
+ var el=document.getElementById('scprs-results');
+ el.innerHTML='<div style="text-align:center;padding:20px;color:var(--ac)">⏳ Searching SCPRS...</div>';
+ fetch('/api/growth/scprs-search?type='+t+'&query='+encodeURIComponent(q)).then(function(r){return r.json()}).then(function(d){
+  if(!d.ok){el.innerHTML='<div style="padding:16px;color:#f85149">Error: '+d.error+'</div>';return;}
+  if(!d.results||d.results.length===0){el.innerHTML='<div style="padding:16px;color:var(--tx2)">No results found for "'+q+'"</div>';return;}
+  var html='<div style="font-size:13px;color:var(--tx2);margin-bottom:8px">'+(d.cached?'📦 Cached':'🔍 Live')+' — '+d.results.length+' results</div>';
+  html+='<table><thead><tr><th>Item</th><th>Description</th><th style="text-align:right">Price</th><th>Vendor</th><th>Date</th></tr></thead><tbody>';
+  d.results.forEach(function(r){
+   html+='<tr><td class="mono" style="font-size:13px">'+(r.item_number||r.contract||'')+'</td>';
+   html+='<td style="font-size:13px">'+(r.description||'').substring(0,50)+'</td>';
+   html+='<td style="text-align:right" class="mono">$'+(parseFloat(r.price||r.unit_price||0)).toLocaleString()+'</td>';
+   html+='<td style="font-size:13px">'+(r.vendor||r.supplier||'')+'</td>';
+   html+='<td style="font-size:13px;color:var(--tx2)">'+(r.date||r.po_date||'')+'</td></tr>';
+  });
+  html+='</tbody></table>';
+  el.innerHTML=html;
+ }).catch(function(e){el.innerHTML='<div style="padding:16px;color:#f85149">Error: '+e.message+'</div>';});
+}
+/* ── Loss Reason ── */
+function addLossReason(quoteId){
+ var reason=prompt('Why was this quote lost?\n• price_too_high\n• competitor_underbid\n• no_response\n• specification_mismatch\n• timing\n• other','price_too_high');
+ if(!reason)return;
+ var competitor=prompt('Lost to which competitor? (blank if unknown)','');
+ crmPost('/api/growth/loss-reason',{quote_id:quoteId,reason:reason,competitor:competitor}).then(function(d){
+  alert(d.ok?'Loss reason recorded':'Error: '+d.error);
+ });
+}
 </script>
 {% endblock %}
