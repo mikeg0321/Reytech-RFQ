@@ -243,17 +243,17 @@ def _render_order_detail(order, oid):
             supplier_name = supplier_name or "Amazon"
         
         if sup_url:
-            sup_link = f'<a href="{sup_url}" target="_blank" style="color:var(--ac);font-size:13px" title="{sup_url}">🛒 {supplier_name or "Buy"}</a>'
+            sup_link = f'<a href="{sup_url}" target="_blank" style="color:var(--ac);font-size:15px" title="{sup_url}">🛒 {supplier_name or "Buy"}</a>'
         elif pn:
             # Search link for items with part numbers but no supplier URL
             search_q = f"{pn} {desc[:30]}".strip()
             import urllib.parse
             amz_search = f"https://www.amazon.com/s?k={urllib.parse.quote_plus(search_q)}"
-            sup_link = f'<a href="{amz_search}" target="_blank" style="color:var(--tx2);font-size:13px" title="Search Amazon">🔍</a>'
+            sup_link = f'<a href="{amz_search}" target="_blank" style="color:var(--tx2);font-size:15px" title="Search Amazon">🔍</a>'
             if supplier_name:
-                sup_link = f'<span style="color:var(--tx2);font-size:13px">{supplier_name}</span> {sup_link}'
+                sup_link = f'<span style="color:var(--tx2);font-size:15px">{supplier_name}</span> {sup_link}'
         else:
-            sup_link = f'<span style="color:var(--tx2);font-size:13px">{supplier_name or "—"}</span>'
+            sup_link = f'<span style="color:var(--tx2);font-size:15px">{supplier_name or "—"}</span>'
         
         # Edit link button
         sup_edit = f'<button onclick="editSupplier(\'{oid}\',\'{lid}\')" style="background:none;border:none;cursor:pointer;font-size:14px;color:var(--tx2);padding:0" title="Edit supplier/link">✏️</button>'
@@ -282,9 +282,9 @@ def _render_order_detail(order, oid):
                 track_url = f"https://tools.usps.com/go/TrackConfirmAction?tLabels={tracking}"
             else:
                 track_url = f"https://track.aftership.com/{tracking}"
-            tracking_html = f'<a href="{track_url}" target="_blank" style="color:var(--ac);font-size:13px">{tracking[:20]}</a>'
+            tracking_html = f'<a href="{track_url}" target="_blank" style="color:var(--ac);font-size:14px">{tracking[:20]}</a>'
         else:
-            tracking_html = '<button onclick="addTracking(\'' + oid + '\',\'' + lid + '\')" style="background:none;border:none;cursor:pointer;font-size:13px;color:var(--tx2)">+ tracking</button>'
+            tracking_html = '<button onclick="addTracking(\'' + oid + '\',\'' + lid + '\')" style="background:none;border:none;cursor:pointer;font-size:14px;color:var(--tx2)">+ tracking</button>'
 
         is_lbl, is_clr = inv_cfg.get(it.get("invoice_status","pending"), inv_cfg["pending"])
 
@@ -315,38 +315,61 @@ def _render_order_detail(order, oid):
         else:
             eta_html = '<span style="color:var(--tx2)">—</span>'
 
-        # Supplier as linked name
+        # Supplier tag — clickable pill with 2 sources:
+        # 1. supplier_url (from catalog/Amazon) → tag links to product page
+        # 2. supplier name (from email sender) → tag links to supplier record
         import urllib.parse as _uparse
         sup_name_q = _uparse.quote_plus(supplier_name) if supplier_name else ""
+        
         if supplier_name and sup_url:
-            sup_cell = f'<a href="/supplier/{sup_name_q}" style="color:var(--ac);font-weight:600;text-decoration:none" title="Supplier record">{supplier_name}</a> <a href="{sup_url}" target="_blank" style="color:var(--tx2);font-size:14px" title="Product link">🔗</a>'
+            # Both name + URL: tag links to supplier record, small external link icon
+            sup_cell = (f'<a href="/supplier/{sup_name_q}" style="display:inline-block;padding:3px 10px;'
+                       f'background:rgba(79,140,255,.12);border:1px solid rgba(79,140,255,.25);border-radius:14px;'
+                       f'color:var(--ac);font-weight:600;font-size:14px;text-decoration:none;white-space:nowrap" '
+                       f'title="View supplier record">{supplier_name}</a>'
+                       f' <a href="{sup_url}" target="_blank" style="color:var(--tx2);font-size:15px" title="Product page">🔗</a>')
         elif supplier_name:
-            sup_cell = f'<a href="/supplier/{sup_name_q}" style="color:var(--ac);font-weight:600;text-decoration:none" title="Supplier record">{supplier_name}</a>'
+            # Name only (from email): tag links to supplier record
+            sup_cell = (f'<a href="/supplier/{sup_name_q}" style="display:inline-block;padding:3px 10px;'
+                       f'background:rgba(52,211,153,.12);border:1px solid rgba(52,211,153,.25);border-radius:14px;'
+                       f'color:#3fb950;font-weight:600;font-size:14px;text-decoration:none;white-space:nowrap" '
+                       f'title="Supplier from email">{supplier_name}</a>')
         elif sup_url:
-            sup_cell = f'<a href="{sup_url}" target="_blank" style="color:var(--ac)">🛒 Buy</a>'
+            # URL only: tag shows domain
+            try:
+                from urllib.parse import urlparse
+                domain = urlparse(sup_url).netloc.replace("www.", "")[:20]
+            except Exception:
+                domain = "Buy"
+            sup_cell = (f'<a href="{sup_url}" target="_blank" style="display:inline-block;padding:3px 10px;'
+                       f'background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.25);border-radius:14px;'
+                       f'color:#fbbf24;font-weight:600;font-size:14px;text-decoration:none;white-space:nowrap" '
+                       f'title="{sup_url}">🛒 {domain}</a>')
         else:
-            sup_cell = '—'
-        sup_cell += f' <button onclick="editSupplier(\'{oid}\',\'{lid}\')" style="background:none;border:none;cursor:pointer;font-size:14px;color:var(--tx2);padding:0" title="Edit supplier">✏️</button>'
+            sup_cell = '<span style="color:var(--tx2)">—</span>'
+        sup_cell += (f' <button onclick="editSupplier(\'{oid}\',\'{lid}\')" '
+                    f'style="background:none;border:none;cursor:pointer;font-size:15px;color:var(--tx2);padding:0" '
+                    f'title="Edit supplier">✏️</button>')
 
         items_rows += f"""<tr data-lid="{lid}">
          <td style="text-align:center"><input type="checkbox" class="line-check" value="{lid}" data-status="{ss}" data-desc="{desc[:40]}" data-tracking="{tracking}"></td>
-         <td style="color:var(--tx2);font-size:13px">{lid}</td>
-         <td style="max-width:350px;word-wrap:break-word;white-space:normal;font-size:14px">{desc}</td>
-         <td class="mono" style="font-size:13px">{pn_html}</td>
-         <td style="font-size:13px">{sup_cell}</td>
-         <td class="mono" style="text-align:center;font-size:14px">{it.get('qty',0)}</td>
-         <td class="mono" style="text-align:right;font-size:14px">${it.get('unit_price',0):,.2f}</td>
+         <td style="color:var(--tx2);font-size:14px">{lid}</td>
+         <td style="max-width:350px;word-wrap:break-word;white-space:normal;font-size:16px;font-weight:500">{desc}</td>
+         <td class="mono" style="font-size:14px">{pn_html}</td>
+         <td style="font-size:14px">{sup_cell}</td>
+         <td class="mono" style="text-align:center;font-size:16px;font-weight:600">{it.get('qty',0)}</td>
+         <td class="mono" style="text-align:right;font-size:16px;font-weight:600">${it.get('unit_price',0):,.2f}</td>
          <td style="text-align:center">
-          <select onchange="updateLine('{oid}','{lid}','sourcing_status',this.value)" style="background:var(--sf);border:1px solid var(--bd);border-radius:4px;color:{s_clr};font-size:13px;padding:3px 4px">
+          <select onchange="updateLine('{oid}','{lid}','sourcing_status',this.value)" style="background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:{s_clr};font-size:14px;padding:5px 6px;font-weight:600">
            <option value="pending" {"selected" if ss=="pending" else ""}>⏳ Pending</option>
            <option value="ordered" {"selected" if ss=="ordered" else ""}>🛒 Ordered</option>
            <option value="shipped" {"selected" if ss=="shipped" else ""}>🚚 Shipped</option>
            <option value="delivered" {"selected" if ss=="delivered" else ""}>✅ Delivered</option>
           </select>
          </td>
-         <td style="font-size:13px">{carrier} {tracking_html}</td>
-         <td style="text-align:center;font-size:13px">{eta_html}</td>
-         <td style="text-align:center;font-size:14px;color:{is_clr}" title="{it.get('invoice_status','pending')}">{is_lbl}</td>
+         <td style="font-size:14px"><span style="font-weight:600">{carrier}</span> {tracking_html}</td>
+         <td style="text-align:center;font-size:15px">{eta_html}</td>
+         <td style="text-align:center;font-size:15px;color:{is_clr}" title="{it.get('invoice_status','pending')}">{is_lbl}</td>
         </tr>"""
 
 
@@ -361,7 +384,7 @@ def _render_order_detail(order, oid):
         upload_section = f"""
     <div class="card" style="margin-bottom:14px;border:2px dashed var(--ac);text-align:center;padding:32px">
      <div style="font-size:18px;font-weight:700;margin-bottom:8px">📄 Upload PO PDF to populate line items</div>
-     <div style="color:var(--tx2);font-size:13px;margin-bottom:16px">The PO document has everything — items, quantities, prices, ship-to. Upload it and we'll parse all fields automatically.</div>
+     <div style="color:var(--tx2);font-size:15px;margin-bottom:16px">The PO document has everything — items, quantities, prices, ship-to. Upload it and we'll parse all fields automatically.</div>
      <input type="file" id="po-pdf" accept=".pdf" style="display:none" onchange="uploadPO('{oid}',this)">
      <button onclick="document.getElementById('po-pdf').click()" class="btn btn-g" style="font-size:14px;padding:10px 24px">📄 Upload PO PDF</button>
      <div id="upload-status" style="margin-top:12px;font-size:14px;color:var(--tx2)"></div>
