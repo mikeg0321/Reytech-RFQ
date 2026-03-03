@@ -2290,6 +2290,32 @@ SB/DVBE Cert #2002605"""
             server.login(self.email_addr, self.password)
             server.send_message(msg, to_addrs=all_recipients)
         
+        # Save copy to Gmail "Sent Mail" folder via IMAP
+        try:
+            import imaplib
+            import time as _time
+            imap = imaplib.IMAP4_SSL("imap.gmail.com")
+            imap.login(self.email_addr, self.password)
+            # Try standard folder names (varies by locale)
+            saved = False
+            for folder in ['"[Gmail]/Sent Mail"', "[Gmail]/Sent Mail",
+                           '"[Gmail]/Sent"', "[Gmail]/Sent"]:
+                try:
+                    result = imap.append(folder, "\\Seen",
+                                         imaplib.Time2Internaldate(_time.time()),
+                                         msg.as_bytes())
+                    if result[0] == "OK":
+                        saved = True
+                        log.info("Email saved to Gmail Sent folder via IMAP (%s)", folder)
+                        break
+                except Exception:
+                    continue
+            if not saved:
+                log.warning("IMAP save-to-sent: could not find Sent folder")
+            imap.logout()
+        except Exception as _e:
+            log.warning("IMAP save-to-sent failed: %s", _e)
+        
         return True
 
 
