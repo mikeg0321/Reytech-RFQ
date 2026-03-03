@@ -1426,6 +1426,12 @@ def generate_rfq_package(rid):
                             t.step(f"Skipped XFA placeholder page in {label}")
                             continue
                         
+                        # Skip truly blank pages (no text, no form annotations)
+                        has_annots = "/Annots" in page and len(page.get("/Annots", [])) > 0
+                        if len(text_stripped) < 3 and not has_annots:
+                            t.step(f"Skipped blank page {page_idx+1} in {label}")
+                            continue
+                        
                         # Skip CalRecycle SABRC reference table page
                         if ("CalRecycle" in label or "calrecycle" in label.lower()):
                             if ("Code*" in text and "Product Categories" in text):
