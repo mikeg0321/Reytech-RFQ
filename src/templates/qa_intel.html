@@ -5,7 +5,7 @@
 
 <style>
 .card{background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:16px}
-th{padding:7px 10px;font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;text-align:left;border-bottom:1px solid var(--bd)}
+th{padding:7px 10px;font-size:14px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;text-align:left;border-bottom:1px solid var(--bd)}
 table{width:100%;border-collapse:collapse}
 </style>
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
@@ -14,31 +14,31 @@ table{width:100%;border-collapse:collapse}
     <p style="color:var(--tx2);font-size:13px;margin-top:4px">Regression detection · Persistent issues · Score trend · Full agent coverage</p>
   </div>
   <div style="display:flex;gap:8px">
-    <a href="/api/qa/health" style="padding:5px 12px;border:1px solid var(--bd);border-radius:6px;font-size:12px;text-decoration:none">Run Full Check</a>
-    <a href="/" style="padding:5px 12px;border:1px solid var(--bd);border-radius:6px;font-size:12px;text-decoration:none">🏠 Home</a>
+    <a href="/api/qa/health" style="padding:5px 12px;border:1px solid var(--bd);border-radius:6px;font-size:14px;text-decoration:none">Run Full Check</a>
+    <a href="/" style="padding:5px 12px;border:1px solid var(--bd);border-radius:6px;font-size:14px;text-decoration:none">🏠 Home</a>
   </div>
 </div>
 
 <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:14px;margin-bottom:24px">
   <div class="card">
-    <div style="font-size:11px;color:var(--tx2)">CURRENT SCORE</div>
+    <div style="font-size:14px;color:var(--tx2)">CURRENT SCORE</div>
     <div style="font-size:32px;font-weight:800;color:{{ score_color }}">{{ score }}/100</div>
-    <div style="font-size:12px;color:{{ trend_color }};margin-top:4px">{{ trend_str }}</div>
+    <div style="font-size:14px;color:{{ trend_color }};margin-top:4px">{{ trend_str }}</div>
   </div>
   <div class="card">
-    <div style="font-size:11px;color:var(--tx2)">OPEN ISSUES</div>
+    <div style="font-size:14px;color:var(--tx2)">OPEN ISSUES</div>
     <div style="font-size:32px;font-weight:800;color:{{ 'var(--rd)' if intel.get('open_issue_count',0)>3 else 'var(--yl)' }}">{{ intel.get('open_issue_count', 0) }}</div>
-    <div style="font-size:11px;color:var(--tx2);margin-top:4px">Persistent across runs</div>
+    <div style="font-size:14px;color:var(--tx2);margin-top:4px">Persistent across runs</div>
   </div>
   <div class="card">
-    <div style="font-size:11px;color:var(--tx2)">REGRESSIONS</div>
+    <div style="font-size:14px;color:var(--tx2)">REGRESSIONS</div>
     <div style="font-size:32px;font-weight:800;color:{{ 'var(--rd)' if regressions else 'var(--gn)' }}">{{ regressions|length }}</div>
-    <div style="font-size:11px;color:var(--tx2);margin-top:4px">Unacknowledged score drops</div>
+    <div style="font-size:14px;color:var(--tx2);margin-top:4px">Unacknowledged score drops</div>
   </div>
   <div class="card">
-    <div style="font-size:11px;color:var(--tx2)">TOTAL QA RUNS</div>
+    <div style="font-size:14px;color:var(--tx2)">TOTAL QA RUNS</div>
     <div style="font-size:32px;font-weight:800;color:var(--ac)">{{ intel.get('total_runs', 0) }}</div>
-    <div style="font-size:11px;color:var(--tx2);margin-top:4px">Every 5min background checks</div>
+    <div style="font-size:14px;color:var(--tx2);margin-top:4px">Every 5min background checks</div>
   </div>
 </div>
 
@@ -46,7 +46,7 @@ table{width:100%;border-collapse:collapse}
 
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
   <div>
-    <div style="font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Persistent Issues (most recurring)</div>
+    <div style="font-size:14px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Persistent Issues (most recurring)</div>
     <div class="card" style="padding:0">
       <table>
         <thead><tr><th>Check</th><th>Message</th><th style="text-align:center">Seen</th><th>Since</th></tr></thead>
@@ -55,13 +55,13 @@ table{width:100%;border-collapse:collapse}
     </div>
   </div>
   <div>
-    <div style="font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Score History</div>
+    <div style="font-size:14px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Score History</div>
     <div class="card">
       <canvas id="scoreChart" height="180"></canvas>
     </div>
-    <div style="margin-top:16px;font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">QA Check Coverage (38 checks, 23 agents)</div>
+    <div style="margin-top:16px;font-size:14px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">QA Check Coverage (38 checks, 23 agents)</div>
     <div class="card">
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:14px">
         <div style="color:var(--gn)">✅ Routes &amp; auth (257 routes)</div>
         <div style="color:var(--gn)">✅ All 23 agents covered</div>
         <div style="color:var(--gn)">✅ DB schema (10 tables)</div>

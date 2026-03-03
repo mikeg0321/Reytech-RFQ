@@ -23,9 +23,9 @@
  <span style="font-size:18px">⚠️</span>
  <div style="flex:1">
   <strong id="qa-banner-title" style="color:#f87171">Workflow tests failing</strong>
-  <span id="qa-banner-detail" style="color:var(--tx2);margin-left:8px;font-size:12px"></span>
+  <span id="qa-banner-detail" style="color:var(--tx2);margin-left:8px;font-size:14px"></span>
  </div>
- <a href="/qa/workflow" style="padding:4px 10px;background:rgba(248,113,113,.15);color:#f87171;border:1px solid rgba(248,113,113,.3);border-radius:6px;font-size:11px;font-weight:600;text-decoration:none;white-space:nowrap">View Tests →</a>
+ <a href="/qa/workflow" style="padding:4px 10px;background:rgba(248,113,113,.15);color:#f87171;border:1px solid rgba(248,113,113,.3);border-radius:6px;font-size:14px;font-weight:600;text-decoration:none;white-space:nowrap">View Tests →</a>
 </div>
 
 <!-- ═══ Action Dashboard — PRD-28 WI-6 ═══ -->
@@ -33,17 +33,17 @@
  <!-- Urgent -->
  <div id="ad-urgent" style="background:var(--crd);border:1px solid rgba(248,113,113,.3);border-radius:10px;padding:14px;min-height:80px">
   <div style="font-size:13px;font-weight:600;color:#f87171;margin-bottom:8px">🔴 Urgent</div>
-  <div id="ad-urgent-items" style="font-size:12px;color:var(--tx2)">Loading...</div>
+  <div id="ad-urgent-items" style="font-size:14px;color:var(--tx2)">Loading...</div>
  </div>
  <!-- Action Needed -->
  <div id="ad-action" style="background:var(--crd);border:1px solid rgba(251,191,36,.3);border-radius:10px;padding:14px;min-height:80px">
   <div style="font-size:13px;font-weight:600;color:#fbbf24;margin-bottom:8px">🟡 Action Needed</div>
-  <div id="ad-action-items" style="font-size:12px;color:var(--tx2)">Loading...</div>
+  <div id="ad-action-items" style="font-size:14px;color:var(--tx2)">Loading...</div>
  </div>
  <!-- Progress -->
  <div id="ad-progress" style="background:var(--crd);border:1px solid rgba(46,204,113,.3);border-radius:10px;padding:14px;min-height:80px">
   <div style="font-size:13px;font-weight:600;color:#2ecc71;margin-bottom:8px">🟢 Progress</div>
-  <div id="ad-progress-items" style="font-size:12px;color:var(--tx2)">Loading...</div>
+  <div id="ad-progress-items" style="font-size:14px;color:var(--tx2)">Loading...</div>
  </div>
 </div>
 <script>
@@ -58,7 +58,7 @@ fetch('/api/dashboard/init').then(r=>r.json()).then(d=>{
     function renderItems(items,el){
       if(!items||!items.length){el.innerHTML='<span style="color:var(--tx2)">✅ All clear</span>';return;}
       el.innerHTML=items.map(i=>
-        '<a href="'+(i.link||'#')+'" style="display:block;padding:4px 0;color:var(--tx);text-decoration:none;border-bottom:1px solid var(--bd);font-size:12px" onmouseover="this.style.color=\'var(--ac)\'" onmouseout="this.style.color=\'var(--tx)\'">'
+        '<a href="'+(i.link||'#')+'" style="display:block;padding:4px 0;color:var(--tx);text-decoration:none;border-bottom:1px solid var(--bd);font-size:14px" onmouseover="this.style.color=\'var(--ac)\'" onmouseout="this.style.color=\'var(--tx)\'">'
         +i.icon+' '+i.label+'</a>'
       ).join('');
     }
@@ -95,7 +95,7 @@ fetch('/api/dashboard/init').then(r=>r.json()).then(d=>{
 </style>
 <!-- Global dismiss popup (lives outside tables) -->
 <div id="global-dismiss-popup">
- <div style="padding:6px 14px;font-size:11px;color:var(--tx2);font-weight:700;text-transform:uppercase;letter-spacing:.5px">Dismiss reason</div>
+ <div style="padding:6px 14px;font-size:14px;color:var(--tx2);font-weight:700;text-transform:uppercase;letter-spacing:.5px">Dismiss reason</div>
  <button onclick="doDismiss('cs_question')">CS / Admin Question</button>
  <button onclick="doDismiss('no_response')">Reytech Did Not Respond</button>
  <button onclick="doDismiss('not_responding')">Customer Not Responding</button>
@@ -185,7 +185,7 @@ document.addEventListener('click', function(e) {
  <!-- Price Checks — primary work queue (wider column) -->
  <div class="card" style="margin:0;overflow:visible">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-   <div class="card-t" style="margin:0">Price Checks <span style="font-size:11px;font-weight:400;color:var(--tx2)">(AMS 704 — price your response)</span> <span id="pc-queue-count" style="font-family:'JetBrains Mono',monospace;font-weight:700">{{price_checks|length}}</span></div>
+   <div class="card-t" style="margin:0">Price Checks <span style="font-size:14px;font-weight:400;color:var(--tx2)">(AMS 704 — price your response)</span> <span id="pc-queue-count" style="font-family:'JetBrains Mono',monospace;font-weight:700">{{price_checks|length}}</span></div>
   </div>
   {% if price_checks %}
   <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
@@ -213,12 +213,12 @@ document.addEventListener('click', function(e) {
       {% elif pc._urgency == 'critical' %}<span style="color:#f0883e;font-weight:700">{{pc.due_date}} 🔥</span>
       {% elif pc._urgency == 'soon' %}<span style="color:#d29922;font-weight:600">{{pc.due_date}}</span>
       {% else %}{{pc.due_date or '—'}}{% endif %}
-      {% if pc._days_left is not none %}<div style="font-size:9px;color:{% if pc._days_left < 0 %}#f85149{% elif pc._days_left <= 1 %}#f0883e{% elif pc._days_left <= 3 %}#d29922{% else %}var(--tx2){% endif %}">
+      {% if pc._days_left is not none %}<div style="font-size:13px;color:{% if pc._days_left < 0 %}#f85149{% elif pc._days_left <= 1 %}#f0883e{% elif pc._days_left <= 3 %}#d29922{% else %}var(--tx2){% endif %}">
        {% if pc._days_left < 0 %}{{-pc._days_left}}d overdue{% elif pc._days_left == 0 %}Due today{% elif pc._days_left == 1 %}Tomorrow{% else %}{{pc._days_left}}d left{% endif %}
       </div>{% endif %}
      </td>
      <td style="text-align:center" class="mono">{{pc.get('items',[])|length}}</td>
-     <td style="text-align:center" onclick="event.stopPropagation()">{% if pc.reytech_quote_number %}<span style="color:var(--gn);font-weight:600;font-family:'JetBrains Mono',monospace;font-size:12px">{{pc.reytech_quote_number}}</span>{% else %}—{% endif %}</td>
+     <td style="text-align:center" onclick="event.stopPropagation()">{% if pc.reytech_quote_number %}<span style="color:var(--gn);font-weight:600;font-family:'JetBrains Mono',monospace;font-size:14px">{{pc.reytech_quote_number}}</span>{% else %}—{% endif %}</td>
      <td style="text-align:center"><span class="badge b-{{pc.status}}">{{pc.status}}</span></td>
      <td style="text-align:center" onclick="event.stopPropagation()">
       <button onclick="openQP('pc','{{id}}',event)" title="Quick Price" style="background:rgba(52,211,153,.08);border:1px solid rgba(52,211,153,.2);color:#3fb950;cursor:pointer;font-size:13px;padding:4px 10px;border-radius:4px;font-weight:600;margin-right:4px" onmouseover="this.style.background='rgba(52,211,153,.2)'" onmouseout="this.style.background='rgba(52,211,153,.08)'">⚡</button>
@@ -236,7 +236,7 @@ document.addEventListener('click', function(e) {
 
  <!-- RFQ Queue (narrower column) -->
  <div class="card" style="margin:0;overflow:visible">
-  <div class="card-t">RFQ Queue <span style="font-size:11px;font-weight:400;color:var(--tx2)">(704A/704B + formal quote package)</span> <span id="rfq-queue-count" style="font-family:'JetBrains Mono',monospace;font-weight:700">{{rfqs|length}}</span></div>
+  <div class="card-t">RFQ Queue <span style="font-size:14px;font-weight:400;color:var(--tx2)">(704A/704B + formal quote package)</span> <span id="rfq-queue-count" style="font-family:'JetBrains Mono',monospace;font-weight:700">{{rfqs|length}}</span></div>
   <!-- E11: Bulk Action Bar -->
   <div class="bulk-bar" id="rfq-bulk-bar">
    <span class="bulk-count"><span id="rfq-bulk-count">0</span> selected</span>
@@ -263,13 +263,13 @@ document.addEventListener('click', function(e) {
     <tr class="home-row" onclick="location.href='/rfq/{{id}}'" style="{% if r.status in ('sent','generated') %}opacity:0.55{% endif %}">
      <td onclick="event.stopPropagation()"><input type="checkbox" class="row-check rfq-check" value="{{id}}" onchange="updateBulkBar('rfq')"></td>
      <td><a href="/rfq/{{id}}" class="sol">#{{r.solicitation_number}}</a></td>
-     <td style="font-weight:600">{{r.requestor_name}}{% if r.get('agency_name') and r.get('form_type') == 'generic_rfq' %}<span style="display:block;font-size:9px;font-weight:500;color:#a78bfa">{{r.agency_name}}</span>{% endif %}</td>
+     <td style="font-weight:600">{{r.requestor_name}}{% if r.get('agency_name') and r.get('form_type') == 'generic_rfq' %}<span style="display:block;font-size:13px;font-weight:500;color:#a78bfa">{{r.agency_name}}</span>{% endif %}</td>
      <td class="mono">
       {% if r._urgency == 'overdue' %}<span style="color:#f85149;font-weight:700">{{r.due_date}} ⚠️</span>
       {% elif r._urgency == 'critical' %}<span style="color:#f0883e;font-weight:700">{{r.due_date}} 🔥</span>
       {% elif r._urgency == 'soon' %}<span style="color:#d29922;font-weight:600">{{r.due_date}}</span>
       {% else %}{{r.due_date}}{% endif %}
-      {% if r._days_left is not none %}<div style="font-size:9px;color:{% if r._days_left < 0 %}#f85149{% elif r._days_left <= 1 %}#f0883e{% elif r._days_left <= 3 %}#d29922{% else %}var(--tx2){% endif %}">
+      {% if r._days_left is not none %}<div style="font-size:13px;color:{% if r._days_left < 0 %}#f85149{% elif r._days_left <= 1 %}#f0883e{% elif r._days_left <= 3 %}#d29922{% else %}var(--tx2){% endif %}">
        {% if r._days_left < 0 %}{{-r._days_left}}d overdue{% elif r._days_left == 0 %}Due today{% elif r._days_left == 1 %}Tomorrow{% else %}{{r._days_left}}d left{% endif %}
       </div>{% endif %}
      </td>
@@ -294,9 +294,9 @@ document.addEventListener('click', function(e) {
 <div class="card" id="stale-widget" style="display:none;margin-bottom:12px;border:1px solid rgba(251,191,36,.3);background:rgba(251,191,36,.04)">
  <div style="display:flex;justify-content:space-between;align-items:center">
   <div class="card-t" style="margin:0;color:var(--yl)">📬 Awaiting Response <span id="stale-badge" style="font-family:'JetBrains Mono',monospace;font-weight:700"></span></div>
-  <a href="/follow-ups" class="btn btn-sm btn-s" style="font-size:11px">View All →</a>
+  <a href="/follow-ups" class="btn btn-sm btn-s" style="font-size:14px">View All →</a>
  </div>
- <div id="stale-items" style="margin-top:8px;font-size:12px"></div>
+ <div id="stale-items" style="margin-top:8px;font-size:14px"></div>
 </div>
 
 <!-- ═══ Quick-Price Slide Panel ═══ -->
@@ -304,7 +304,7 @@ document.addEventListener('click', function(e) {
  <div style="padding:16px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;background:var(--bg);z-index:1">
   <div>
    <div style="font-size:16px;font-weight:700" id="qp-title">Quick Price</div>
-   <div style="font-size:11px;color:var(--tx2)" id="qp-subtitle"></div>
+   <div style="font-size:14px;color:var(--tx2)" id="qp-subtitle"></div>
   </div>
   <div style="display:flex;gap:6px">
    <button class="btn btn-sm btn-p" onclick="saveQuickPrices()">💾 Save & Close</button>
@@ -366,14 +366,14 @@ function _renderOrderHealth(d){
 <!-- Pipeline Funnel — stat strip -->
 <div class="card" style="margin-bottom:12px;padding:18px 24px">
  <div style="display:flex;align-items:center;gap:6px;margin-bottom:14px">
-  <span style="font-size:11px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:1px">📊 Pipeline</span>
+  <span style="font-size:14px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:1px">📊 Pipeline</span>
   <span style="flex:1;height:1px;background:var(--bd)"></span>
-  <span id="next-quote-badge" style="font-size:11px;color:var(--tx2)">—</span>
+  <span id="next-quote-badge" style="font-size:14px;color:var(--tx2)">—</span>
   <span style="width:1px;height:14px;background:var(--bd);margin:0 8px"></span>
-  <a href="/pipeline" style="font-size:11px;color:var(--ac);font-weight:600">View Full Pipeline →</a>
+  <a href="/pipeline" style="font-size:14px;color:var(--ac);font-weight:600">View Full Pipeline →</a>
  </div>
  <div id="funnel-row" style="display:grid;grid-template-columns:repeat(7,1fr);gap:0">
-  <div style="text-align:center;padding:10px 0"><div style="font-size:28px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--tx2)">—</div><div style="font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Loading</div></div>
+  <div style="text-align:center;padding:10px 0"><div style="font-size:28px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--tx2)">—</div><div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Loading</div></div>
  </div>
 </div>
 <script>
@@ -393,7 +393,7 @@ function _renderFunnel(d){
   return '<a href="'+it.href+'" class="funnel-link" title="'+it.tip+'" style="text-align:center;padding:10px 4px;display:block;text-decoration:none;border-radius:8px;transition:background .15s;position:relative">'+
    '<div style="font-size:18px;margin-bottom:4px">'+it.icon+'</div>'+
    '<div class="kpi-big" style="color:'+it.color+'">'+fmtVal+'</div>'+
-   '<div style="font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:5px;font-weight:600">'+it.label+'</div>'+
+   '<div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:5px;font-weight:600">'+it.label+'</div>'+
    sep+'</a>';
  });
  document.getElementById('funnel-row').style.gridTemplateColumns='repeat(7,1fr)';
@@ -405,11 +405,11 @@ function _renderFunnel(d){
 <!-- Annual Revenue Goal -->
 <div id="rev-bi" class="card" style="margin-bottom:12px;padding:18px 24px;display:block">
  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
-  <span style="font-size:11px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:1px">📈 Annual Revenue Goal</span>
+  <span style="font-size:14px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:1px">📈 Annual Revenue Goal</span>
   <div style="display:flex;gap:20px;align-items:center" id="rev-meta">
-   <span style="font-size:12px;color:var(--tx2)">Gap: <b id="rev-gap" style="color:var(--rd);font-family:'JetBrains Mono',monospace">$2,000,000</b></span>
-   <span style="font-size:12px;color:var(--tx2)">Run Rate: <b id="rev-rate" style="font-family:'JetBrains Mono',monospace;color:var(--rd)">$0</b></span>
-   <span style="font-size:12px;color:var(--tx2)">Status: <b id="rev-track" style="color:var(--rd)">Behind</b></span>
+   <span style="font-size:14px;color:var(--tx2)">Gap: <b id="rev-gap" style="color:var(--rd);font-family:'JetBrains Mono',monospace">$2,000,000</b></span>
+   <span style="font-size:14px;color:var(--tx2)">Run Rate: <b id="rev-rate" style="font-family:'JetBrains Mono',monospace;color:var(--rd)">$0</b></span>
+   <span style="font-size:14px;color:var(--tx2)">Status: <b id="rev-track" style="color:var(--rd)">Behind</b></span>
   </div>
  </div>
  <div style="display:flex;align-items:center;gap:16px">
@@ -417,7 +417,7 @@ function _renderFunnel(d){
   <div style="flex:1">
    <div style="background:var(--sf2);border-radius:10px;height:28px;overflow:hidden;position:relative;border:1px solid var(--bd)">
     <div id="rev-bar" style="height:100%;border-radius:10px;transition:width .8s ease;background:var(--rd);min-width:2px"></div>
-    <span id="rev-label" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:12px;font-weight:700;color:#fff;white-space:nowrap;text-shadow:0 1px 3px rgba(0,0,0,.5)">$0 / $2M (0%)</span>
+    <span id="rev-label" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:14px;font-weight:700;color:#fff;white-space:nowrap;text-shadow:0 1px 3px rgba(0,0,0,.5)">$0 / $2M (0%)</span>
    </div>
   </div>
   <span style="font-size:14px;color:var(--tx2);white-space:nowrap">$2M Goal</span>
@@ -480,15 +480,15 @@ function _renderRevenue(d){
 
 <!-- Manual Upload — collapsed fallback -->
 <details class="card" style="cursor:default">
- <summary style="font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:1px;cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px">
-  <span style="font-size:10px;transition:transform .2s" class="upload-arrow">▶</span>
+ <summary style="font-size:14px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:1px;cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px">
+  <span style="font-size:13px;transition:transform .2s" class="upload-arrow">▶</span>
   Manual Upload
-  <span style="font-weight:400;font-size:11px;color:var(--tx2);margin-left:auto">Use if email automation doesn't catch it</span>
+  <span style="font-weight:400;font-size:14px;color:var(--tx2);margin-left:auto">Use if email automation doesn't catch it</span>
  </summary>
  <form method="POST" action="/upload" enctype="multipart/form-data" id="uf" style="margin-top:14px">
   <div class="upl" id="dz" onclick="document.getElementById('fi').click()" style="padding:24px;border-width:1px">
    <h3 style="font-size:14px;margin-bottom:2px">Drop PDF here</h3>
-   <p style="font-size:12px">AMS 704 Price Check or RFQ (703B, 704B, Bid Package)</p>
+   <p style="font-size:14px">AMS 704 Price Check or RFQ (703B, 704B, Bid Package)</p>
    <input type="file" id="fi" data-testid="upload-file-input" name="files" multiple accept=".pdf" style="display:none">
   </div>
  </form>
@@ -634,10 +634,10 @@ function _renderMetrics(data){
  document.getElementById('funnel-bars').innerHTML=funnelData.map(function(f){
   var pct=Math.max(f.value/fMax*100,4);
   return '<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">'
-   +'<div style="width:80px;font-size:11px;color:var(--tx2);text-align:right">'+f.label+'</div>'
+   +'<div style="width:80px;font-size:14px;color:var(--tx2);text-align:right">'+f.label+'</div>'
    +'<div style="flex:1;height:20px;background:var(--sf2);border-radius:4px;overflow:hidden">'
    +'<div style="height:100%;width:'+pct+'%;background:'+f.color+';border-radius:4px;transition:width .6s"></div></div>'
-   +'<div style="width:30px;font-size:12px;font-weight:600;font-family:JetBrains Mono,monospace">'+f.value+'</div></div>';
+   +'<div style="width:30px;font-size:14px;font-weight:600;font-family:JetBrains Mono,monospace">'+f.value+'</div></div>';
  }).join('');
 
  // Weekly chart (bar chart)
@@ -646,9 +646,9 @@ function _renderMetrics(data){
  document.getElementById('weekly-chart').innerHTML=wv.map(function(w){
   var h=Math.max(w.quotes/wMax*80,4);
   return '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px">'
-   +'<div style="font-size:10px;font-family:JetBrains Mono,monospace;color:var(--tx2)">'+w.quotes+'</div>'
+   +'<div style="font-size:13px;font-family:JetBrains Mono,monospace;color:var(--tx2)">'+w.quotes+'</div>'
    +'<div style="width:100%;height:'+h+'px;background:var(--ac);border-radius:4px 4px 0 0;transition:height .4s"></div>'
-   +'<div style="font-size:9px;color:var(--tx2)">'+w.label+'</div></div>';
+   +'<div style="font-size:13px;color:var(--tx2)">'+w.label+'</div></div>';
  }).join('');
 
  // Top institutions
@@ -658,10 +658,10 @@ function _renderMetrics(data){
   document.getElementById('top-inst').innerHTML=ti.map(function(t){
    var pct=Math.max(t.revenue/tiMax*100,4);
    return '<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">'
-    +'<div style="min-width:120px;max-width:160px;font-size:11px;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+t.name+'</div>'
+    +'<div style="min-width:120px;max-width:160px;font-size:14px;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+t.name+'</div>'
     +'<div style="flex:1;height:16px;background:var(--sf2);border-radius:4px;overflow:hidden">'
     +'<div style="height:100%;width:'+pct+'%;background:var(--gn);border-radius:4px;transition:width .6s"></div></div>'
-    +'<div style="width:70px;font-size:11px;font-weight:600;font-family:JetBrains Mono,monospace;text-align:right;color:var(--gn)">$'+t.revenue.toLocaleString(undefined,{maximumFractionDigits:0})+'</div></div>';
+    +'<div style="width:70px;font-size:14px;font-weight:600;font-family:JetBrains Mono,monospace;text-align:right;color:var(--gn)">$'+t.revenue.toLocaleString(undefined,{maximumFractionDigits:0})+'</div></div>';
   }).join('');
  } else {
   document.getElementById('top-inst').innerHTML='<div class="brief-empty">Win quotes to see top institutions here</div>';
@@ -687,11 +687,11 @@ function _renderMetrics(data){
    html+='<span style="color:var(--tx2)">'+s.institution+'</span>';
    html+='<span style="font-weight:700;color:'+c+';font-family:\x27JetBrains Mono\x27,monospace">'+s.days_since+'d</span>';
    if(s.email){
-    html+='<button class="btn btn-sm" style="font-size:10px;padding:2px 6px;background:rgba(79,140,255,.1);color:var(--ac);border:1px solid rgba(79,140,255,.3)" onclick="event.stopPropagation();sendQuickFollowUp(\''+s.type+'\',\''+s.id+'\',\''+s.email+'\',\''+s.number+'\')">📧</button>';
+    html+='<button class="btn btn-sm" style="font-size:13px;padding:2px 6px;background:rgba(79,140,255,.1);color:var(--ac);border:1px solid rgba(79,140,255,.3)" onclick="event.stopPropagation();sendQuickFollowUp(\''+s.type+'\',\''+s.id+'\',\''+s.email+'\',\''+s.number+'\')">📧</button>';
    }
    html+='</div>';
   });
-  if(d.count>5)html+='<div style="text-align:center;padding:6px;color:var(--tx2);font-size:11px">+'+(d.count-5)+' more — <a href="/follow-ups" style="color:var(--ac)">view all</a></div>';
+  if(d.count>5)html+='<div style="text-align:center;padding:6px;color:var(--tx2);font-size:14px">+'+(d.count-5)+' more — <a href="/follow-ups" style="color:var(--ac)">view all</a></div>';
   document.getElementById('stale-items').innerHTML=html;
  }).catch(function(){});
 })();
@@ -720,8 +720,8 @@ function openQP(entityType,eid,evt){
   d.items.forEach(function(item){
    var rec=item.recommended;
    html+='<div style="padding:10px;margin-bottom:8px;border:1px solid var(--bd);border-radius:8px;background:var(--sf)">';
-   html+='<div style="font-weight:600;font-size:12px;margin-bottom:4px">'+item.description+'</div>';
-   html+='<div style="display:flex;gap:12px;font-size:11px;color:var(--tx2);margin-bottom:6px">';
+   html+='<div style="font-weight:600;font-size:14px;margin-bottom:4px">'+item.description+'</div>';
+   html+='<div style="display:flex;gap:12px;font-size:14px;color:var(--tx2);margin-bottom:6px">';
    html+='<span>Qty: <b>'+item.qty+'</b></span>';
    if(item.scprs)html+='<span>SCPRS: <b style="color:#58a6ff">$'+item.scprs.toFixed(2)+'</b></span>';
    if(item.amazon)html+='<span>Amazon: <b style="color:#f0883e">$'+item.amazon.toFixed(2)+'</b></span>';
@@ -729,15 +729,15 @@ function openQP(entityType,eid,evt){
    html+='</div>';
    // Won history
    if(item.won_history&&item.won_history.length){
-    html+='<div style="font-size:10px;color:var(--gn);margin-bottom:4px">🏆 Won: ';
+    html+='<div style="font-size:13px;color:var(--gn);margin-bottom:4px">🏆 Won: ';
     item.won_history.slice(0,2).forEach(function(w){html+='$'+w.price.toFixed(2)+' ('+w.institution.substring(0,15)+') ';});
     html+='</div>';
    }
    // Price input
    html+='<div style="display:flex;gap:6px;align-items:center">';
-   html+='<span style="font-size:11px;font-weight:600">Your Price:</span>';
+   html+='<span style="font-size:14px;font-weight:600">Your Price:</span>';
    html+='<input type="number" step="0.01" class="qp-price" data-idx="'+item.idx+'" value="'+(item.current_price||rec&&rec.price||'')+'" style="width:100px;padding:6px 8px;border-radius:6px;background:var(--sf2);color:var(--tx);border:1px solid var(--bd);font-family:\x27JetBrains Mono\x27,monospace;font-size:13px">';
-   if(rec){html+='<button class="btn btn-sm" style="font-size:10px;padding:2px 6px;background:rgba(52,211,153,.1);color:var(--gn);border:1px solid rgba(52,211,153,.3)" onclick="this.previousElementSibling.value='+rec.price+'" title="'+rec.reason+'">⚡ $'+rec.price.toFixed(2)+'</button>';}
+   if(rec){html+='<button class="btn btn-sm" style="font-size:13px;padding:2px 6px;background:rgba(52,211,153,.1);color:var(--gn);border:1px solid rgba(52,211,153,.3)" onclick="this.previousElementSibling.value='+rec.price+'" title="'+rec.reason+'">⚡ $'+rec.price.toFixed(2)+'</button>';}
    html+='</div></div>';
   });
   document.getElementById('qp-items').innerHTML=html;

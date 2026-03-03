@@ -5,7 +5,7 @@
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
  <div>
   <h1 style="margin:0">{{ camp.name }}</h1>
-  <div style="color:var(--tx2);font-size:12px;margin-top:4px">{{ camp.contact_source|default(camp.target_type|default('')) }} • {{ camp.script_key|default('') }} • {{ contacts|length }} contacts</div>
+  <div style="color:var(--tx2);font-size:14px;margin-top:4px">{{ camp.contact_source|default(camp.target_type|default('')) }} • {{ camp.script_key|default('') }} • {{ contacts|length }} contacts</div>
  </div>
  <div style="display:flex;gap:8px">
   <a href="/campaigns" class="btn" style="padding:8px 16px">← Back</a>
@@ -17,7 +17,7 @@
 <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-bottom:16px">
  {% for label, key, color in [('Total','total',''), ('Called','called',''), ('Reached','reached','var(--gn)'), ('Voicemail','voicemail','var(--yl)'), ('Interested','interested','var(--ac)'), ('Callback','callback','var(--warn)')] %}
  <div class="card" style="text-align:center;padding:10px">
-  <div style="font-size:9px;color:var(--tx2);text-transform:uppercase">{{ label }}</div>
+  <div style="font-size:13px;color:var(--tx2);text-transform:uppercase">{{ label }}</div>
   <div style="font-size:20px;font-weight:700{% if color %};color:{{ color }}{% endif %}">{{ stats.get(key, 0) }}</div>
  </div>
  {% endfor %}

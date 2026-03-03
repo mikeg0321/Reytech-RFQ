@@ -249,7 +249,7 @@ def email_templates_page():
         tsubj = t.get("subject", "")[:80]
         tbody_prev = t.get("body", "")[:180].replace("\n", " ").replace('"', "'").replace("<", "&lt;")
         tags = " ".join(
-            f'<span style="background:#21262d;color:#8b949e;padding:2px 6px;border-radius:3px;font-size:11px">{g}</span>'
+            f'<span style="background:#21262d;color:#8b949e;padding:2px 6px;border-radius:3px;font-size:14px">{g}</span>'
             for g in t.get("tags", [])
         )
         vars_str = ", ".join("{{" + v + "}}" for v in t.get("variables", []))
@@ -259,17 +259,17 @@ def email_templates_page():
           <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
             <div style="flex:1;min-width:0">
               <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-                <span style="background:{cat_color}22;color:{cat_color};border:1px solid {cat_color}44;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;text-transform:uppercase">{tcat}</span>
+                <span style="background:{cat_color}22;color:{cat_color};border:1px solid {cat_color}44;padding:2px 8px;border-radius:4px;font-size:14px;font-weight:600;text-transform:uppercase">{tcat}</span>
                 <h3 style="margin:0;font-size:16px;color:#e6edf3">{tname}</h3>
               </div>
               <div style="font-size:13px;color:#8b949e;margin-bottom:4px">Subject: <b style="color:#c9d1d9">{tsubj}</b></div>
-              <div style="font-size:12px;color:#484f58;margin-bottom:6px">{tbody_prev}&#x2026;</div>
-              <div style="font-size:11px;color:#3fb950">Variables: {vars_str}</div>
+              <div style="font-size:14px;color:#484f58;margin-bottom:6px">{tbody_prev}&#x2026;</div>
+              <div style="font-size:14px;color:#3fb950">Variables: {vars_str}</div>
               <div style="margin-top:6px">{tags}</div>
             </div>
             <div style="display:flex;flex-direction:column;gap:6px;min-width:120px">
-              <button onclick="previewTmpl('{tid}')" class="btn" style="background:#21262d;color:#c9d1d9;border:1px solid #30363d;font-size:12px;padding:5px 10px">Preview</button>
-              <button onclick="composeTmpl('{tid}')" class="btn" style="background:#1f6feb;color:#fff;font-size:12px;padding:5px 10px">Use Template</button>
+              <button onclick="previewTmpl('{tid}')" class="btn" style="background:#21262d;color:#c9d1d9;border:1px solid #30363d;font-size:14px;padding:5px 10px">Preview</button>
+              <button onclick="composeTmpl('{tid}')" class="btn" style="background:#1f6feb;color:#fff;font-size:14px;padding:5px 10px">Use Template</button>
             </div>
           </div></div>"""
 
@@ -285,7 +285,7 @@ def email_templates_page():
     .modal{{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.75);z-index:100;padding:20px;overflow:auto;align-items:flex-start;justify-content:center}}
     .modal.open{{display:flex}}
     .modal-box{{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:24px;max-width:700px;width:100%;margin-top:20px}}
-    label{{display:block;font-size:11px;color:#8b949e;margin-bottom:3px;font-weight:700;text-transform:uppercase;letter-spacing:.3px}}
+    label{{display:block;font-size:14px;color:#8b949e;margin-bottom:3px;font-weight:700;text-transform:uppercase;letter-spacing:.3px}}
     .msg{{padding:8px 12px;border-radius:6px;font-size:13px;margin-top:8px}}
     .msg-ok{{background:#23863622;color:#3fb950;border:1px solid #23863655}}
     .msg-err{{background:#da363322;color:#f85149;border:1px solid #da363355}}

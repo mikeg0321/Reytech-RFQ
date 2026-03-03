@@ -15,7 +15,7 @@
   <div style="text-align:right">
    {% if stats.win_rate > 0 %}
    <div style="font-size:28px;font-weight:700;color:var(--gn);font-family:'JetBrains Mono',monospace">{{stats.win_rate}}%</div>
-   <div style="font-size:10px;color:var(--tx2);text-transform:uppercase">Win Rate</div>
+   <div style="font-size:13px;color:var(--tx2);text-transform:uppercase">Win Rate</div>
    {% endif %}
   </div>
  </div>
@@ -33,7 +33,7 @@
  {% for label, val, color in kpis %}
  <div class="card" style="text-align:center;padding:12px">
   <div style="font-size:20px;font-weight:700;color:{{color}};font-family:'JetBrains Mono',monospace">{{val}}</div>
-  <div style="font-size:10px;color:var(--tx2);text-transform:uppercase">{{label}}</div>
+  <div style="font-size:13px;color:var(--tx2);text-transform:uppercase">{{label}}</div>
  </div>
  {% endfor %}
 </div>
@@ -56,7 +56,7 @@
    <td>{{r.get('line_items',[])|length}}</td>
    <td style="font-family:'JetBrains Mono',monospace">${{'%,.2f'|format(total)}}</td>
    <td>{{r.due_date}}</td>
-   <td style="color:var(--tx2);font-size:12px">{{r.get('created_at','')[:10]}}</td>
+   <td style="color:var(--tx2);font-size:14px">{{r.get('created_at','')[:10]}}</td>
   </tr>
   {% endfor %}
   </tbody>
@@ -79,7 +79,7 @@
    <td><span class="badge b-{{pc.status}}">{{pc.status}}</span></td>
    <td>{{pc.get('items',[])|length}}</td>
    <td>{{pc.institution}}</td>
-   <td style="color:var(--tx2);font-size:12px">{{pc.get('created_at','')[:10]}}</td>
+   <td style="color:var(--tx2);font-size:14px">{{pc.get('created_at','')[:10]}}</td>
   </tr>
   {% endfor %}
   </tbody>
@@ -93,7 +93,7 @@
  <div class="card-t">Recent Activity</div>
  <div style="margin-top:10px">
   {% for a in activities %}
-  <div style="padding:8px 0;border-bottom:1px solid var(--bd);font-size:12px">
+  <div style="padding:8px 0;border-bottom:1px solid var(--bd);font-size:14px">
    <span style="color:var(--tx2)">{{a.created_at[:16].replace('T',' ')}}</span>
    <span style="margin-left:8px">{{a.details[:100]}}</span>
   </div>

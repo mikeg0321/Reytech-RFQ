@@ -201,7 +201,7 @@ def order_detail(oid):
         return _wrap_page(f"""
         <div class="card" style="padding:24px">
          <h2 style="color:var(--rd)">⚠️ Error rendering order {oid}</h2>
-         <pre style="color:var(--tx2);font-size:12px;overflow:auto;max-height:400px">{traceback.format_exc()}</pre>
+         <pre style="color:var(--tx2);font-size:14px;overflow:auto;max-height:400px">{traceback.format_exc()}</pre>
          <a href="/orders" class="btn btn-s" style="margin-top:12px">← Back to Orders</a>
         </div>""", f"Error: {oid}")
 
@@ -256,7 +256,7 @@ def _render_order_detail(order, oid):
             sup_link = f'<span style="color:var(--tx2);font-size:13px">{supplier_name or "—"}</span>'
         
         # Edit link button
-        sup_edit = f'<button onclick="editSupplier(\'{oid}\',\'{lid}\')" style="background:none;border:none;cursor:pointer;font-size:12px;color:var(--tx2);padding:0" title="Edit supplier/link">✏️</button>'
+        sup_edit = f'<button onclick="editSupplier(\'{oid}\',\'{lid}\')" style="background:none;border:none;cursor:pointer;font-size:14px;color:var(--tx2);padding:0" title="Edit supplier/link">✏️</button>'
 
         # Part number: make clickable if ASIN
         if is_asin:
@@ -319,14 +319,14 @@ def _render_order_detail(order, oid):
         import urllib.parse as _uparse
         sup_name_q = _uparse.quote_plus(supplier_name) if supplier_name else ""
         if supplier_name and sup_url:
-            sup_cell = f'<a href="/supplier/{sup_name_q}" style="color:var(--ac);font-weight:600;text-decoration:none" title="Supplier record">{supplier_name}</a> <a href="{sup_url}" target="_blank" style="color:var(--tx2);font-size:12px" title="Product link">🔗</a>'
+            sup_cell = f'<a href="/supplier/{sup_name_q}" style="color:var(--ac);font-weight:600;text-decoration:none" title="Supplier record">{supplier_name}</a> <a href="{sup_url}" target="_blank" style="color:var(--tx2);font-size:14px" title="Product link">🔗</a>'
         elif supplier_name:
             sup_cell = f'<a href="/supplier/{sup_name_q}" style="color:var(--ac);font-weight:600;text-decoration:none" title="Supplier record">{supplier_name}</a>'
         elif sup_url:
             sup_cell = f'<a href="{sup_url}" target="_blank" style="color:var(--ac)">🛒 Buy</a>'
         else:
             sup_cell = '—'
-        sup_cell += f' <button onclick="editSupplier(\'{oid}\',\'{lid}\')" style="background:none;border:none;cursor:pointer;font-size:12px;color:var(--tx2);padding:0" title="Edit supplier">✏️</button>'
+        sup_cell += f' <button onclick="editSupplier(\'{oid}\',\'{lid}\')" style="background:none;border:none;cursor:pointer;font-size:14px;color:var(--tx2);padding:0" title="Edit supplier">✏️</button>'
 
         items_rows += f"""<tr data-lid="{lid}">
          <td style="text-align:center"><input type="checkbox" class="line-check" value="{lid}" data-status="{ss}" data-desc="{desc[:40]}" data-tracking="{tracking}"></td>
@@ -364,14 +364,14 @@ def _render_order_detail(order, oid):
      <div style="color:var(--tx2);font-size:13px;margin-bottom:16px">The PO document has everything — items, quantities, prices, ship-to. Upload it and we'll parse all fields automatically.</div>
      <input type="file" id="po-pdf" accept=".pdf" style="display:none" onchange="uploadPO('{oid}',this)">
      <button onclick="document.getElementById('po-pdf').click()" class="btn btn-g" style="font-size:14px;padding:10px 24px">📄 Upload PO PDF</button>
-     <div id="upload-status" style="margin-top:12px;font-size:12px;color:var(--tx2)"></div>
+     <div id="upload-status" style="margin-top:12px;font-size:14px;color:var(--tx2)"></div>
     </div>"""
     else:
         upload_section = f"""
     <div style="margin-bottom:8px;display:flex;justify-content:flex-end">
      <input type="file" id="po-pdf" accept=".pdf" style="display:none" onchange="uploadPO('{oid}',this)">
-     <button onclick="document.getElementById('po-pdf').click()" class="btn btn-s" style="font-size:11px">📄 Re-import from PO PDF</button>
-     <div id="upload-status" style="margin-left:8px;font-size:11px;color:var(--tx2);line-height:28px"></div>
+     <button onclick="document.getElementById('po-pdf').click()" class="btn btn-s" style="font-size:14px">📄 Re-import from PO PDF</button>
+     <div id="upload-status" style="margin-left:8px;font-size:14px;color:var(--tx2);line-height:28px"></div>
     </div>"""
 
     # Invoice items rows (for draft invoice section)
@@ -1207,10 +1207,10 @@ SB/DVBE Cert #2002605"""
 <table style="border-collapse:collapse;width:100%;max-width:600px;margin:16px 0;font-family:'Segoe UI',Arial,sans-serif">
  <thead>
   <tr style="background:#f5f5f5">
-   <th style="padding:6px 8px;text-align:left;border-bottom:2px solid #ddd;font-size:12px">Description</th>
-   <th style="padding:6px 8px;text-align:center;border-bottom:2px solid #ddd;font-size:12px">Qty</th>
-   <th style="padding:6px 8px;text-align:right;border-bottom:2px solid #ddd;font-size:12px">Unit Price</th>
-   <th style="padding:6px 8px;text-align:right;border-bottom:2px solid #ddd;font-size:12px">Extended</th>
+   <th style="padding:6px 8px;text-align:left;border-bottom:2px solid #ddd;font-size:14px">Description</th>
+   <th style="padding:6px 8px;text-align:center;border-bottom:2px solid #ddd;font-size:14px">Qty</th>
+   <th style="padding:6px 8px;text-align:right;border-bottom:2px solid #ddd;font-size:14px">Unit Price</th>
+   <th style="padding:6px 8px;text-align:right;border-bottom:2px solid #ddd;font-size:14px">Extended</th>
   </tr>
  </thead>
  <tbody>
@@ -1238,13 +1238,13 @@ SB/DVBE Cert #2002605"""
    </td>
    <td style="vertical-align:top">
     <div style="font-weight:700;font-size:14px;color:#1a1a2e">Michael Guadan</div>
-    <div style="font-size:12px;color:#666">Reytech Inc.</div>
-    <div style="font-size:12px;color:#666">30 Carnoustie Way, Trabuco Canyon, CA 92679</div>
-    <div style="font-size:12px;margin-top:4px">
+    <div style="font-size:14px;color:#666">Reytech Inc.</div>
+    <div style="font-size:14px;color:#666">30 Carnoustie Way, Trabuco Canyon, CA 92679</div>
+    <div style="font-size:14px;margin-top:4px">
      <a href="tel:9492291575" style="color:#2563eb;text-decoration:none">949-229-1575</a> |
      <a href="mailto:sales@reytechinc.com" style="color:#2563eb;text-decoration:none">sales@reytechinc.com</a>
     </div>
-    <div style="font-size:11px;color:#888;margin-top:2px">SB/DVBE Cert #2002605 · <a href="https://reytechinc.com" style="color:#2563eb;text-decoration:none">reytechinc.com</a></div>
+    <div style="font-size:14px;color:#888;margin-top:2px">SB/DVBE Cert #2002605 · <a href="https://reytechinc.com" style="color:#2563eb;text-decoration:none">reytechinc.com</a></div>
    </td>
   </tr>
  </table>

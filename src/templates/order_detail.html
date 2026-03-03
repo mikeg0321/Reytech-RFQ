@@ -6,7 +6,7 @@
      <a href="/orders" class="btn btn-s" style="font-size:13px">← Orders</a>
      {% if qn %}<a href="/quote/{{ qn }}" class="btn btn-s" style="font-size:13px">📋 Quote {{ qn }}</a>{% endif %}
      <button onclick="cloneOrder('{{ oid }}')" class="btn btn-s" style="font-size:14px" title="Create new order with same items">🔄 Reorder</button>
-     <button onclick="if(confirm('Delete order {{ oid }}?'))fetch('/api/order/{{ oid }}/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reason:'manual delete'})}).then(r=>r.json()).then(d=>{if(d.ok)location.href='/orders'})" class="btn btn-s" style="font-size:12px;margin-left:auto;color:var(--rd)">🗑️ Delete</button>
+     <button onclick="if(confirm('Delete order {{ oid }}?'))fetch('/api/order/{{ oid }}/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reason:'manual delete'})}).then(r=>r.json()).then(d=>{if(d.ok)location.href='/orders'})" class="btn btn-s" style="font-size:14px;margin-left:auto;color:var(--rd)">🗑️ Delete</button>
     </div>
 
     <div class="bento bento-2" style="margin-bottom:14px">
@@ -27,21 +27,21 @@
      </div>
      <div class="card" style="margin:0">
       <div style="text-align:center;padding:12px 0">
-       <div style="font-size:12px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px">Order Total</div>
+       <div style="font-size:14px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px">Order Total</div>
        <div style="font-family:'JetBrains Mono',monospace;font-size:32px;font-weight:700;color:var(--gn);margin:8px 0">${{ "{:,.2f}".format(order.get('total',0)) }}</div>
        {% if order.get('tax') %}<div style="font-size:13px;color:var(--tx2)">Subtotal: ${{ "{:,.2f}".format(order.get("subtotal",0)) }} · Tax: ${{ "{:,.2f}".format(order.get("tax",0)) }}</div>{% endif %}
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:10px">
        <div style="background:var(--sf2);padding:8px;border-radius:8px;text-align:center">
-        <div style="font-size:12px;color:var(--tx2)">Sourced</div>
+        <div style="font-size:14px;color:var(--tx2)">Sourced</div>
         <div style="font-size:18px;font-weight:700;color:#58a6ff">{{ sourced_count }}/{{ total_count }}</div>
        </div>
        <div style="background:var(--sf2);padding:8px;border-radius:8px;text-align:center">
-        <div style="font-size:12px;color:var(--tx2)">Shipped</div>
+        <div style="font-size:14px;color:var(--tx2)">Shipped</div>
         <div style="font-size:18px;font-weight:700;color:#bc8cff">{{ shipped_count }}/{{ total_count }}</div>
        </div>
        <div style="background:var(--sf2);padding:8px;border-radius:8px;text-align:center">
-        <div style="font-size:12px;color:var(--tx2)">Delivered</div>
+        <div style="font-size:14px;color:var(--tx2)">Delivered</div>
         <div style="font-size:18px;font-weight:700;color:#3fb950">{{ delivered_count }}/{{ total_count }}</div>
        </div>
       </div>
@@ -75,7 +75,7 @@
     <div class="card" style="margin-top:14px">
      <div class="card-t">Quick Actions</div>
      <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <button onclick="openAmazonCart('{{ oid }}')" class="btn btn-s" style="font-size:12px;background:rgba(255,153,0,.15);color:#ff9900;border:1px solid rgba(255,153,0,.3)" id="amazon-cart-btn">🛒 Amazon Cart</button>
+      <button onclick="openAmazonCart('{{ oid }}')" class="btn btn-s" style="font-size:14px;background:rgba(255,153,0,.15);color:#ff9900;border:1px solid rgba(255,153,0,.3)" id="amazon-cart-btn">🛒 Amazon Cart</button>
       <button onclick="bulkAddTracking('{{ oid }}')" class="btn btn-s" style="font-size:14px">📋 Bulk Add Tracking</button>
       <button onclick="markAllOrdered('{{ oid }}')" class="btn btn-s" style="font-size:14px">🛒 Mark All Ordered</button>
       <button onclick="markAllDelivered('{{ oid }}')" class="btn btn-s" style="font-size:14px">✅ Mark All Delivered</button>
@@ -99,7 +99,7 @@
     <div class="card" style="margin-top:14px">
      <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="document.getElementById('timeline-body').style.display=document.getElementById('timeline-body').style.display==='none'?'block':'none'">
       <div class="card-t" style="margin:0">📋 Activity Timeline</div>
-      <span style="font-size:11px;color:var(--tx2)" id="timeline-count">loading...</span>
+      <span style="font-size:14px;color:var(--tx2)" id="timeline-count">loading...</span>
      </div>
      <div id="timeline-body" style="display:none;margin-top:12px;max-height:400px;overflow-y:auto"></div>
     </div>
@@ -108,7 +108,7 @@
     <div class="card" style="margin-top:14px">
      <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="document.getElementById('emails-body').style.display=document.getElementById('emails-body').style.display==='none'?'block':'none'">
       <div class="card-t" style="margin:0">📧 Related Emails</div>
-      <span style="font-size:11px;color:var(--tx2)" id="emails-count">loading...</span>
+      <span style="font-size:14px;color:var(--tx2)" id="emails-count">loading...</span>
      </div>
      <div id="emails-body" style="display:none;margin-top:12px;max-height:300px;overflow-y:auto"></div>
     </div>
@@ -120,7 +120,7 @@
      <div style="display:flex;gap:8px;align-items:center">
       <input type="file" id="proof-file" accept=".pdf,.png,.jpg,.jpeg" style="display:none" onchange="uploadProof('{{ oid }}',this)">
       <button onclick="document.getElementById('proof-file').click()" class="btn btn-s" style="font-size:14px">📤 Upload Proof</button>
-      <span id="proof-status" style="font-size:11px;color:var(--tx2)"></span>
+      <span id="proof-status" style="font-size:14px;color:var(--tx2)"></span>
      </div>
     </div>
     {# Draft Invoice section #}
@@ -128,7 +128,7 @@
     {% if draft_inv %}
     <div class="card" style="margin-top:14px;border:2px solid var(--gn)">
      <div class="card-t" style="color:var(--gn)">📄 Draft Invoice — {{ draft_inv.get('invoice_number','') }}</div>
-     <div style="margin-bottom:12px;font-size:12px;color:var(--tx2)">
+     <div style="margin-bottom:12px;font-size:14px;color:var(--tx2)">
       Auto-generated {{ draft_inv.get('created_at','')[:10] }} when all items marked delivered.
       {% if draft_inv.get('qb_invoice_id') %}<span style="color:var(--ac)">QB Synced: {{ draft_inv.get("qb_synced_at","")[:10] }}</span>{% else %}Review line items, then finalize → push to QuickBooks.{% endif %}
      </div>
@@ -149,8 +149,8 @@
       <tbody>
        {% for di in draft_inv.get('items', []) %}
        <tr>
-        <td style="max-width:300px;word-wrap:break-word;white-space:normal;font-size:12px">{{ di.get('description','')[:70] }}</td>
-        <td class="mono" style="font-size:11px">{{ di.get('part_number','') }}</td>
+        <td style="max-width:300px;word-wrap:break-word;white-space:normal;font-size:14px">{{ di.get('description','')[:70] }}</td>
+        <td class="mono" style="font-size:14px">{{ di.get('part_number','') }}</td>
         <td class="mono" style="text-align:center">{{ di.get('qty',0) }}</td>
         <td class="mono" style="text-align:right">${{ "{:,.2f}".format(di.get('unit_price',0)) }}</td>
         <td class="mono" style="text-align:right">${{ "{:,.2f}".format(di.get('extended',0)) }}</td>
@@ -173,9 +173,9 @@
      </div>
      <div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end;align-items:center">
       <button onclick="genInvoicePdf('{{ oid }}')" class="btn btn-s" style="font-size:14px" id="inv-pdf-btn">📄 Generate PDF</button>
-      {% if draft_inv.get('pdf_path') %}<a href="/api/order/{{ oid }}/invoice-pdf/download" class="btn btn-s" style="font-size:12px;color:var(--gn)" download>⬇️ Download PDF</a>{% endif %}
+      {% if draft_inv.get('pdf_path') %}<a href="/api/order/{{ oid }}/invoice-pdf/download" class="btn btn-s" style="font-size:14px;color:var(--gn)" download>⬇️ Download PDF</a>{% endif %}
       <button onclick="invoiceOrder('{{ oid }}','full')" class="btn btn-g" style="font-size:13px">💰 Finalize Invoice</button>
-      {% if draft_inv.get('qb_invoice_id') %}<span style="font-size:11px;color:var(--tx2);line-height:30px">QB #{{ draft_inv.get("qb_invoice_id") }}</span>{% else %}<span style="font-size:11px;color:var(--tx2);line-height:30px">QuickBooks API: not yet connected</span>{% endif %}
+      {% if draft_inv.get('qb_invoice_id') %}<span style="font-size:14px;color:var(--tx2);line-height:30px">QB #{{ draft_inv.get("qb_invoice_id") }}</span>{% else %}<span style="font-size:14px;color:var(--tx2);line-height:30px">QuickBooks API: not yet connected</span>{% endif %}
      </div>
     </div>
     {% endif %}
@@ -471,13 +471,13 @@
     function loadProofs() {
       fetch('/api/order/{{ oid }}/attachments').then(r=>r.json()).then(d=>{
         var el = document.getElementById('proofs-list');
-        if (!d.attachments || !d.attachments.length) { el.innerHTML = '<div style="color:var(--tx2);font-size:11px;padding:4px 0">No attachments yet</div>'; return; }
+        if (!d.attachments || !d.attachments.length) { el.innerHTML = '<div style="color:var(--tx2);font-size:14px;padding:4px 0">No attachments yet</div>'; return; }
         var html = '';
         d.attachments.forEach(function(a) {
-          html += '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px">'
+          html += '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:14px">'
             + '<span>📎</span><span style="font-weight:500">' + a.file_name + '</span>'
-            + '<span style="color:var(--tx2);font-size:10px">' + (a.file_type||'') + (a.line_id ? ' · Line ' + a.line_id : '') + '</span>'
-            + '<span style="color:var(--tx2);font-size:10px;margin-left:auto">' + (a.created_at||'').substring(0,16) + '</span></div>';
+            + '<span style="color:var(--tx2);font-size:13px">' + (a.file_type||'') + (a.line_id ? ' · Line ' + a.line_id : '') + '</span>'
+            + '<span style="color:var(--tx2);font-size:13px;margin-left:auto">' + (a.created_at||'').substring(0,16) + '</span></div>';
         });
         el.innerHTML = html;
       });
@@ -512,7 +512,7 @@
     fetch('/api/order/{{ oid }}/timeline').then(r=>r.json()).then(d=>{
       document.getElementById('timeline-count').textContent = d.count + ' events';
       var el = document.getElementById('timeline-body');
-      if (!d.events || !d.events.length) { el.innerHTML = '<div style="color:var(--tx2);font-size:12px;padding:8px">No activity recorded yet</div>'; return; }
+      if (!d.events || !d.events.length) { el.innerHTML = '<div style="color:var(--tx2);font-size:14px;padding:8px">No activity recorded yet</div>'; return; }
       var icons = {status_change:'🔄',line_sourcing_status_changed:'📦',line_tracking_number_changed:'🚚',cost_updated:'💰',proof_uploaded:'📸',order_created:'🆕',order_cloned:'🔄',email:'📧'};
       var html = '';
       d.events.forEach(function(e) {
@@ -522,11 +522,11 @@
         if (e.old && e['new']) detail = '<span style="color:var(--tx2)">' + e.old + '</span> → <span style="font-weight:600">' + e['new'] + '</span>';
         else if (e['new']) detail = e['new'];
         else if (e.details) detail = e.details;
-        html += '<div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--sf);font-size:12px">'
+        html += '<div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--sf);font-size:14px">'
           + '<span style="white-space:nowrap;color:var(--tx2);min-width:90px">' + ts + '</span>'
           + '<span>' + icon + '</span>'
           + '<span style="flex:1">' + (e.action||'').replace(/_/g,' ') + (detail ? ' — ' + detail : '') + '</span>'
-          + '<span style="color:var(--tx2);font-size:10px">' + (e.actor||'') + '</span></div>';
+          + '<span style="color:var(--tx2);font-size:13px">' + (e.actor||'') + '</span></div>';
       });
       el.innerHTML = html;
     }).catch(function(){document.getElementById('timeline-count').textContent='error';});
@@ -535,13 +535,13 @@
     fetch('/api/order/{{ oid }}/emails').then(r=>r.json()).then(d=>{
       document.getElementById('emails-count').textContent = d.count + ' emails';
       var el = document.getElementById('emails-body');
-      if (!d.emails || !d.emails.length) { el.innerHTML = '<div style="color:var(--tx2);font-size:12px;padding:8px">No related emails found</div>'; return; }
+      if (!d.emails || !d.emails.length) { el.innerHTML = '<div style="color:var(--tx2);font-size:14px;padding:8px">No related emails found</div>'; return; }
       var html = '';
       d.emails.forEach(function(e) {
         var ts = e.received_at ? new Date(e.received_at).toLocaleString('en-US', {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) : '';
-        html += '<div style="padding:8px 0;border-bottom:1px solid var(--sf);font-size:12px">'
-          + '<div style="display:flex;justify-content:space-between"><span style="font-weight:600">' + (e.subject||'(no subject)') + '</span><span style="color:var(--tx2);font-size:10px">' + ts + '</span></div>'
-          + '<div style="color:var(--tx2);font-size:11px;margin-top:2px">' + (e.sender||'') + (e.classification ? ' · ' + e.classification : '') + '</div>'
+        html += '<div style="padding:8px 0;border-bottom:1px solid var(--sf);font-size:14px">'
+          + '<div style="display:flex;justify-content:space-between"><span style="font-weight:600">' + (e.subject||'(no subject)') + '</span><span style="color:var(--tx2);font-size:13px">' + ts + '</span></div>'
+          + '<div style="color:var(--tx2);font-size:14px;margin-top:2px">' + (e.sender||'') + (e.classification ? ' · ' + e.classification : '') + '</div>'
           + '</div>';
       });
       el.innerHTML = html;

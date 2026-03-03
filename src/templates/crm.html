@@ -18,31 +18,31 @@
 <!-- CRM Summary Stats -->
 <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:20px" id="crm-stats">
  <div class="card" style="text-align:center;padding:16px;margin:0">
-  <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Total Buyers
+  <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Total Buyers
    <span class="info-tip"><span class="tip-icon">i</span><span class="tip-box">Total unique buyers discovered from SCPRS purchase data + email contacts. Includes anyone who buys products in Reytech's categories.</span></span>
   </div>
   <div id="stat-total" style="font-size:28px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--ac)">—</div>
  </div>
  <div class="card" style="text-align:center;padding:16px;margin:0">
-  <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Agencies
+  <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Agencies
    <span class="info-tip"><span class="tip-icon">i</span><span class="tip-box">Distinct CA state agencies with at least one buyer in the CRM. Each agency may have multiple individual buyers.</span></span>
   </div>
   <div id="stat-agencies" style="font-size:28px;font-weight:700;font-family:'JetBrains Mono',monospace;color:#a78bfa">—</div>
  </div>
  <div class="card" style="text-align:center;padding:16px;margin:0">
-  <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Total SCPRS Spend
+  <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Total SCPRS Spend
    <span class="info-tip"><span class="tip-icon">i</span><span class="tip-box">Combined annual spend across all buyers in the CRM. Sourced from SCPRS purchase order data. Represents the total addressable market for Reytech.</span></span>
   </div>
   <div id="stat-spend" style="font-size:28px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--yl)">—</div>
  </div>
  <div class="card" style="text-align:center;padding:16px;margin:0">
-  <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">In Outreach
+  <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">In Outreach
    <span class="info-tip"><span class="tip-icon">i</span><span class="tip-box">Buyers who have been contacted via email, phone, or other channels. Includes emailed, called, and responded statuses.</span></span>
   </div>
   <div id="stat-outreach" style="font-size:28px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--or)">—</div>
  </div>
  <div class="card" style="text-align:center;padding:16px;margin:0">
-  <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Won
+  <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Won
    <span class="info-tip"><span class="tip-icon">i</span><span class="tip-box">Buyers who have converted to active Reytech customers. They've submitted at least one RFQ or purchase order.</span></span>
   </div>
   <div id="stat-won" style="font-size:28px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--gn)">—</div>
@@ -71,15 +71,15 @@
    <option value="won">Won</option>
    <option value="lost">Lost</option>
   </select>
-  <span id="crm-count" style="font-size:12px;color:var(--tx2);white-space:nowrap;font-family:'JetBrains Mono',monospace"></span>
+  <span id="crm-count" style="font-size:14px;color:var(--tx2);white-space:nowrap;font-family:'JetBrains Mono',monospace"></span>
  </div>
 </div>
 
 <!-- Buyers Table -->
 <div class="card" style="padding:0;overflow:hidden">
  <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--bd)">
-  <span id="crm-freshness" style="font-size:11px;color:var(--tx2);font-family:'JetBrains Mono',monospace">Loading data...</span>
-  <button onclick="refreshCRM(this)" style="font-size:11px;padding:4px 12px;background:rgba(79,140,255,.1);border:1px solid rgba(79,140,255,.3);color:var(--ac);border-radius:6px;cursor:pointer;font-weight:600">🔄 Refresh Data</button>
+  <span id="crm-freshness" style="font-size:14px;color:var(--tx2);font-family:'JetBrains Mono',monospace">Loading data...</span>
+  <button onclick="refreshCRM(this)" style="font-size:14px;padding:4px 12px;background:rgba(79,140,255,.1);border:1px solid rgba(79,140,255,.3);color:var(--ac);border-radius:6px;cursor:pointer;font-weight:600">🔄 Refresh Data</button>
  </div>
  <div style="overflow-x:auto">
   <table class="home-tbl" id="crm-table">
@@ -139,19 +139,19 @@ var STATUS_COLORS = {
 
 function statusBadge(s) {
  var c = STATUS_COLORS[s] || {bg:'rgba(139,144,160,.15)',color:'#8b90a0'};
- return '<span style="padding:3px 10px;border-radius:12px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;background:'+c.bg+';color:'+c.color+'">'+(s||'new')+'</span>';
+ return '<span style="padding:3px 10px;border-radius:12px;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;background:'+c.bg+';color:'+c.color+'">'+(s||'new')+'</span>';
 }
 
 function catTag(cat) {
  var colors = {'Medical':'#f87171','Janitorial':'#3fb950','Office':'#4f8cff','IT':'#a78bfa','Facility':'#fb923c','Safety':'#fbbf24'};
  var c = colors[cat] || '#8b90a0';
- return '<span style="font-size:10px;padding:2px 8px;border-radius:10px;background:'+c+'22;color:'+c+';font-weight:600;border:1px solid '+c+'44;white-space:nowrap">'+cat+'</span>';
+ return '<span style="font-size:13px;padding:2px 8px;border-radius:10px;background:'+c+'22;color:'+c+';font-weight:600;border:1px solid '+c+'44;white-space:nowrap">'+cat+'</span>';
 }
 
 function scoreBar(score) {
  var pct = Math.round((score||0)*100);
  var color = pct>=70?'#3fb950':pct>=40?'#fbbf24':'#f87171';
- return '<div style="display:flex;align-items:center;gap:6px"><div style="width:52px;background:var(--sf2);border-radius:4px;height:6px;overflow:hidden"><div style="width:'+pct+'%;height:100%;background:'+color+';border-radius:4px"></div></div><span style="font-size:11px;font-family:JetBrains Mono,monospace;color:'+color+'">'+pct+'%</span></div>';
+ return '<div style="display:flex;align-items:center;gap:6px"><div style="width:52px;background:var(--sf2);border-radius:4px;height:6px;overflow:hidden"><div style="width:'+pct+'%;height:100%;background:'+color+';border-radius:4px"></div></div><span style="font-size:14px;font-family:JetBrains Mono,monospace;color:'+color+'">'+pct+'%</span></div>';
 }
 
 function fmtSpend(v) {
@@ -171,15 +171,15 @@ function renderTable(buyers) {
  tbody.innerHTML = buyers.map(function(b) {
   var cats = (b.categories||[]).map(catTag).join(' ');
   var items = (b.items||[]).slice(0,3).map(function(it){
-   return '<span style="font-size:11px;color:var(--tx2)">'+it+'</span>';
-  }).join(', ') + ((b.items||[]).length>3?' <span style="font-size:10px;color:var(--ac)">+'+((b.items||[]).length-3)+' more</span>':'');
+   return '<span style="font-size:14px;color:var(--tx2)">'+it+'</span>';
+  }).join(', ') + ((b.items||[]).length>3?' <span style="font-size:13px;color:var(--ac)">+'+((b.items||[]).length-3)+' more</span>':'');
   var pid = b.id || b.prospect_id || '';
   var detailLink = pid ? '/growth/prospect/'+pid : '#';
   return '<tr class="home-row" onclick="location.href=\\\''+detailLink+'\'">'
    + '<td style="padding:12px 14px;font-weight:600;font-size:13px">'+b.agency+'</td>'
    + '<td style="padding:12px 14px;font-size:13px">'+(b.buyer_name||'—')+'</td>'
    + '<td style="padding:12px 14px"><a href="mailto:'+(b.buyer_email||'')
-     +'" onclick="event.stopPropagation()" style="font-size:12px;font-family:JetBrains Mono,monospace;color:var(--ac)">'
+     +'" onclick="event.stopPropagation()" style="font-size:14px;font-family:JetBrains Mono,monospace;color:var(--ac)">'
      +(b.buyer_email||'—')+'</a></td>'
    + '<td style="padding:12px 14px"><div style="display:flex;gap:4px;flex-wrap:wrap">'+cats+'</div></td>'
    + '<td style="padding:12px 14px;max-width:220px;overflow:hidden"><div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+items+'</div></td>'

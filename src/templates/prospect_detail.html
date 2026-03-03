@@ -5,23 +5,23 @@
 <style>
 
      .card{background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:18px;margin-bottom:14px}
-     .card h3{font-size:11px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px}
+     .card h3{font-size:14px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px}
      .g-btn{padding:8px 14px;border-radius:7px;border:1px solid var(--bd);background:var(--sf2);color:var(--tx);cursor:pointer;font-size:13px;font-weight:600;transition:.15s;text-decoration:none;display:inline-flex;align-items:center;gap:5px}
      .g-btn:hover{border-color:var(--ac);background:rgba(79,140,255,.1)}
      .g-btn-go{background:rgba(52,211,153,.1);color:#3fb950;border-color:rgba(52,211,153,.3)}
      .g-btn-warn{background:rgba(251,191,36,.1);color:#fbbf24;border-color:rgba(251,191,36,.3)}
      .g-btn-red{background:rgba(248,113,113,.1);color:#f87171;border-color:rgba(248,113,113,.3)}
      .g-btn-purple{background:rgba(167,139,250,.1);color:#a78bfa;border-color:rgba(167,139,250,.3)}
-     table{width:100%;border-collapse:collapse;font-size:12px}
-     th{text-align:left;padding:8px;font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--bd)}
+     table{width:100%;border-collapse:collapse;font-size:14px}
+     th{text-align:left;padding:8px;font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--bd)}
      td{padding:8px;border-bottom:1px solid rgba(46,51,69,.4);vertical-align:middle}
      .mono{font-family:'JetBrains Mono',monospace}
      .field-row{display:flex;align-items:flex-start;padding:9px 0;border-bottom:1px solid rgba(46,51,69,.4)}
-     .field-lbl{font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;width:80px;flex-shrink:0;padding-top:2px}
+     .field-lbl{font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;width:80px;flex-shrink:0;padding-top:2px}
      .field-val{font-size:13px;font-weight:500;flex:1}
      .modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1000;align-items:center;justify-content:center}
      .modal-box{background:var(--sf);border:1px solid var(--bd);border-radius:12px;padding:24px;width:480px;max-width:95vw;max-height:90vh;overflow-y:auto}
-     .form-lbl{font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px}
+     .form-lbl{font-size:14px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px}
      .form-input{width:100%;padding:10px 12px;background:var(--sf2);border:1px solid var(--bd);border-radius:7px;color:var(--tx);font-size:13px;font-family:'DM Sans',sans-serif;box-sizing:border-box;margin-bottom:12px}
      .form-input:focus{outline:none;border-color:var(--ac)}
      textarea.form-input{resize:vertical;min-height:80px}
@@ -41,10 +41,10 @@
       <h1 style="font-size:22px;font-weight:700;margin-bottom:6px">{{ pr.get('buyer_name') or agency }}</h1>
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
        <span style="font-size:13px;color:var(--tx2)">{{ agency }}</span>
-       <span style="padding:3px 12px;border-radius:12px;font-size:11px;font-weight:700;text-transform:uppercase;background:{{ stat_color }}22;color:{{ stat_color }};border:1px solid {{ stat_color }}44">{{ stat }}</span>
-       <span style="font-size:12px;color:var(--tx2)">Score <b style="color:var(--ac)">{{ score_pct }}%</b></span>
-       <span style="font-size:12px;color:var(--tx2)">Spend <b style="color:#3fb950">${{ "{:,.0f}".format(total_spend) }}</b></span>
-       <span style="font-size:12px;color:var(--tx2)">{{ po_count }} POs · Last {{ last_purchase }}</span>
+       <span style="padding:3px 12px;border-radius:12px;font-size:14px;font-weight:700;text-transform:uppercase;background:{{ stat_color }}22;color:{{ stat_color }};border:1px solid {{ stat_color }}44">{{ stat }}</span>
+       <span style="font-size:14px;color:var(--tx2)">Score <b style="color:var(--ac)">{{ score_pct }}%</b></span>
+       <span style="font-size:14px;color:var(--tx2)">Spend <b style="color:#3fb950">${{ "{:,.0f}".format(total_spend) }}</b></span>
+       <span style="font-size:14px;color:var(--tx2)">{{ po_count }} POs · Last {{ last_purchase }}</span>
       </div>
      </div>
      <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -60,12 +60,12 @@
      <div class="card">
       <h3>👤 Contact Info</h3>
       <div class="field-row"><span class="field-lbl">Name</span><span class="field-val">{{ pr.get('buyer_name') or '—' }}</span></div>
-      <div class="field-row"><span class="field-lbl">Email</span><span class="field-val"><a href="mailto:{{ pr.get('buyer_email','') }}" style="color:var(--ac);font-family:monospace;font-size:12px">{{ pr.get('buyer_email') or '—' }}</a></span></div>
+      <div class="field-row"><span class="field-lbl">Email</span><span class="field-val"><a href="mailto:{{ pr.get('buyer_email','') }}" style="color:var(--ac);font-family:monospace;font-size:14px">{{ pr.get('buyer_email') or '—' }}</a></span></div>
       <div class="field-row"><span class="field-lbl">Phone</span><span class="field-val">{{ pr.get('buyer_phone') or '—' }}</span></div>
       <div class="field-row"><span class="field-lbl">Title</span><span class="field-val">{{ pr.get('title') or '—' }}</span></div>
       <div class="field-row"><span class="field-lbl">Agency</span><span class="field-val">{{ agency }}</span></div>
       <div class="field-row"><span class="field-lbl">LinkedIn</span><span class="field-val">{% if pr.get('linkedin') %}<a href="{{ pr.get('linkedin','') }}" target="_blank" style="color:var(--ac)">View Profile</a>{% else %}—{% endif %}</span></div>
-      <div class="field-row"><span class="field-lbl">Notes</span><span class="field-val" style="font-size:12px;color:var(--tx2);white-space:pre-wrap">{{ pr.get('notes') or pr.get('contact_notes') or '—' }}</span></div>
+      <div class="field-row"><span class="field-lbl">Notes</span><span class="field-val" style="font-size:14px;color:var(--tx2);white-space:pre-wrap">{{ pr.get('notes') or pr.get('contact_notes') or '—' }}</span></div>
       <div style="margin-top:14px;display:grid;grid-template-columns:1fr 1fr;gap:6px">
        <button class="g-btn g-btn-go" onclick="setStatus('responded')" style="justify-content:center">✅ Responded</button>
        <button class="g-btn g-btn-warn" onclick="setStatus('follow_up_due')" style="justify-content:center">⏰ Follow Up</button>
@@ -76,7 +76,7 @@
      </div>
 
      <div class="card">
-      <h3>📅 Activity Log <span style="font-weight:400;color:var(--tx2);font-size:10px;text-transform:none;letter-spacing:0">({{ all_events|length }} events)</span></h3>
+      <h3>📅 Activity Log <span style="font-weight:400;color:var(--tx2);font-size:13px;text-transform:none;letter-spacing:0">({{ all_events|length }} events)</span></h3>
       <div style="max-height:420px;overflow-y:auto;padding-right:4px">{{ tl_html | safe }}</div>
      </div>
 
@@ -84,23 +84,23 @@
       <h3>📊 SCPRS Intel</h3>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
        <div style="background:var(--sf2);border-radius:8px;padding:10px;text-align:center">
-        <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">Annual Spend</div>
+        <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">Annual Spend</div>
         <div style="font-size:18px;font-weight:700;color:#3fb950;font-family:monospace">${{ "{:,.0f}".format(total_spend) }}</div>
        </div>
        <div style="background:var(--sf2);border-radius:8px;padding:10px;text-align:center">
-        <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">PO Count</div>
+        <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">PO Count</div>
         <div style="font-size:18px;font-weight:700;color:var(--ac);font-family:monospace">{{ po_count }}</div>
        </div>
        <div style="background:var(--sf2);border-radius:8px;padding:10px;text-align:center">
-        <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">Opp Score</div>
+        <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">Opp Score</div>
         <div style="font-size:18px;font-weight:700;color:#a78bfa;font-family:monospace">{{ score_pct }}%</div>
        </div>
        <div style="background:var(--sf2);border-radius:8px;padding:10px;text-align:center">
-        <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">Last Buy</div>
-        <div style="font-size:12px;font-weight:600;font-family:monospace;color:var(--tx)">{{ last_purchase }}</div>
+        <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">Last Buy</div>
+        <div style="font-size:14px;font-weight:600;font-family:monospace;color:var(--tx)">{{ last_purchase }}</div>
        </div>
       </div>
-      {% if cats_html %}<div style="font-size:10px;color:var(--tx2);font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Spend by Category</div>{{ cats_html | safe }}{% else %}<div style="color:var(--tx2);font-size:12px">Run Deep Pull for category data</div>{% endif %}
+      {% if cats_html %}<div style="font-size:13px;color:var(--tx2);font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Spend by Category</div>{{ cats_html | safe }}{% else %}<div style="color:var(--tx2);font-size:14px">Run Deep Pull for category data</div>{% endif %}
      </div>
     </div>
 

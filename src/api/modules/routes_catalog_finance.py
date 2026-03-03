@@ -99,9 +99,9 @@ def catalog_page():
         desc_short = (p.get("description", "") or "")[:60].replace("\n", " ")
         rows += f"""<tr onclick="location.href='/catalog/{p['id']}'" style="cursor:pointer">
          <td class="mono" style="font-weight:600;color:var(--ac)">{p.get('name','')[:25]}</td>
-         <td style="font-size:11px;color:var(--tx2)">{desc_short}</td>
+         <td style="font-size:14px;color:var(--tx2)">{desc_short}</td>
          <td class="mono">{p.get('sku','')}</td>
-         <td style="font-size:11px">{p.get('category','')}</td>
+         <td style="font-size:14px">{p.get('category','')}</td>
          <td class="mono" style="text-align:right">${p.get('sell_price',0):,.2f}</td>
          <td class="mono" style="text-align:right">${p.get('cost',0):,.2f}</td>
          <td class="mono" style="text-align:right;color:{mc};font-weight:700">{margin:.1f}%</td>
@@ -120,45 +120,45 @@ def catalog_page():
     opp_rows = ""
     for o in stats.get("margin_opportunities", [])[:8]:
         opp_rows += f"""<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--bd)">
-         <span style="font-size:12px">{o['name'][:35]}</span>
-         <span class="mono" style="font-size:12px">${o['sell_price']:,.2f} @ {o['margin_pct']:.1f}%</span>
+         <span style="font-size:14px">{o['name'][:35]}</span>
+         <span class="mono" style="font-size:14px">${o['sell_price']:,.2f} @ {o['margin_pct']:.1f}%</span>
         </div>"""
 
     content = f"""
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
      <h2 style="margin:0;font-size:20px;font-weight:700">📦 Product Catalog</h2>
      <div style="display:flex;gap:8px;align-items:center">
-      <span class="mono" style="font-size:12px;color:var(--tx2)">{tp} products</span>
-      <button onclick="document.getElementById('import-csv').click()" class="btn btn-s" style="font-size:12px">📥 Import QB CSV</button>
+      <span class="mono" style="font-size:14px;color:var(--tx2)">{tp} products</span>
+      <button onclick="document.getElementById('import-csv').click()" class="btn btn-s" style="font-size:14px">📥 Import QB CSV</button>
       <input type="file" id="import-csv" accept=".csv" style="display:none" onchange="importCSV(this)">
-      <button onclick="runCatalogFixes(this)" class="btn btn-s" style="font-size:12px;background:#21262d;color:#d2a8ff;border:1px solid #d2a8ff44">🔧 Run Fixes</button>
+      <button onclick="runCatalogFixes(this)" class="btn btn-s" style="font-size:14px;background:#21262d;color:#d2a8ff;border:1px solid #d2a8ff44">🔧 Run Fixes</button>
      </div>
     </div>
 
     <div class="bento bento-4" style="margin-bottom:16px">
      <div class="card" style="text-align:center">
       <div style="font-size:28px;font-weight:800;font-family:'JetBrains Mono',monospace;color:var(--ac)">{tp}</div>
-      <div style="font-size:11px;color:var(--tx2)">Products</div>
+      <div style="font-size:14px;color:var(--tx2)">Products</div>
      </div>
      <div class="card" style="text-align:center">
       <div style="font-size:28px;font-weight:800;font-family:'JetBrains Mono',monospace;color:{'#f85149' if am < 10 else '#d29922' if am < 15 else '#3fb950'}">{am}%</div>
-      <div style="font-size:11px;color:var(--tx2)">Avg Margin</div>
+      <div style="font-size:14px;color:var(--tx2)">Avg Margin</div>
      </div>
      <div class="card" style="text-align:center">
       <a href="/catalog?margin=negative" style="text-decoration:none"><div style="font-size:28px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#f85149">{neg + low}</div></a>
-      <div style="font-size:11px;color:var(--tx2)">Need Pricing Review</div>
-      <div style="font-size:10px"><a href="/catalog?margin=negative" style="color:#f85149">{neg} losing money</a></div>
+      <div style="font-size:14px;color:var(--tx2)">Need Pricing Review</div>
+      <div style="font-size:13px"><a href="/catalog?margin=negative" style="color:#f85149">{neg} losing money</a></div>
      </div>
      <div class="card" style="text-align:center">
       <div style="font-size:28px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#3fb950">${stats['total_sell_value']:,.0f}</div>
-      <div style="font-size:11px;color:var(--tx2)">Catalog Value</div>
+      <div style="font-size:14px;color:var(--tx2)">Catalog Value</div>
      </div>
     </div>
 
     <!-- Margin distribution bar -->
     <div class="card" style="margin-bottom:16px;padding:12px 16px">
-     <div style="font-size:12px;font-weight:600;margin-bottom:8px">Margin Distribution</div>
-     <div style="display:flex;gap:16px;align-items:center;font-size:11px;margin-bottom:6px">
+     <div style="font-size:14px;font-weight:600;margin-bottom:8px">Margin Distribution</div>
+     <div style="display:flex;gap:16px;align-items:center;font-size:14px;margin-bottom:6px">
       <span><span style="color:#f85149">●</span> {neg} negative</span>
       <span><span style="color:#d29922">●</span> {low} low (&lt;10%)</span>
       <span><span style="color:#3fb950">●</span> {mid} mid (10-25%)</span>
@@ -175,11 +175,11 @@ def catalog_page():
     <div class="bento bento-2" style="margin-bottom:16px">
      <div class="card" style="padding:12px">
       <a href="/catalog?margin=negative" style="text-decoration:none;font-weight:600;font-size:13px;margin-bottom:8px;color:#f85149;display:block">⚠️ Losing Money ({neg} items)</a>
-      {neg_alerts if neg_alerts else '<div style="font-size:12px;color:var(--tx2)">No negative margin items ✅</div>'}
+      {neg_alerts if neg_alerts else '<div style="font-size:14px;color:var(--tx2)">No negative margin items ✅</div>'}
      </div>
      <div class="card" style="padding:12px">
       <div style="font-weight:600;font-size:13px;margin-bottom:8px;color:#d29922">💡 Margin Opportunities</div>
-      {opp_rows if opp_rows else '<div style="font-size:12px;color:var(--tx2)">Connect SCPRS pricing to find opportunities</div>'}
+      {opp_rows if opp_rows else '<div style="font-size:14px;color:var(--tx2)">Connect SCPRS pricing to find opportunities</div>'}
      </div>
     </div>
 
@@ -189,19 +189,19 @@ def catalog_page():
       <input type="text" name="q" value="{q}" placeholder="Search products, SKU, description..." 
              style="flex:1;min-width:200px;padding:6px 10px;border:1px solid var(--bd);border-radius:6px;background:var(--sf);color:var(--tx);font-size:13px"
              id="catalog-search" autocomplete="off">
-      <select name="category" style="padding:6px;border:1px solid var(--bd);border-radius:6px;background:var(--sf);color:var(--tx);font-size:12px">
+      <select name="category" style="padding:6px;border:1px solid var(--bd);border-radius:6px;background:var(--sf);color:var(--tx);font-size:14px">
        <option value="">All Categories</option>
        {cat_options}
       </select>
-      <select name="margin" style="padding:6px;border:1px solid var(--bd);border-radius:6px;background:var(--sf);color:var(--tx);font-size:12px">
+      <select name="margin" style="padding:6px;border:1px solid var(--bd);border-radius:6px;background:var(--sf);color:var(--tx);font-size:14px">
        <option value="">All Margins</option>
        <option value="negative" {"selected" if margin_filter=="negative" else ""}>🔴 Negative (&lt;0%)</option>
        <option value="low" {"selected" if margin_filter=="low" else ""}>🟡 Low (0-10%)</option>
        <option value="mid" {"selected" if margin_filter=="mid" else ""}>🟢 Mid (10-25%)</option>
        <option value="high" {"selected" if margin_filter=="high" else ""}>🔵 High (&gt;25%)</option>
       </select>
-      <button type="submit" class="btn btn-s" style="font-size:12px">🔍 Search</button>
-      {'<a href="/catalog" class="btn" style="font-size:12px">Clear</a>' if (q or cat_filter or margin_filter) else ''}
+      <button type="submit" class="btn btn-s" style="font-size:14px">🔍 Search</button>
+      {'<a href="/catalog" class="btn" style="font-size:14px">Clear</a>' if (q or cat_filter or margin_filter) else ''}
      </form>
     </div>
 
@@ -209,7 +209,7 @@ def catalog_page():
     <div id="search-results-dropdown" style="display:none;position:absolute;z-index:100;background:var(--bg2);border:1px solid var(--bd);border-radius:8px;max-height:300px;overflow-y:auto;width:400px;box-shadow:0 4px 12px rgba(0,0,0,0.3)"></div>
 
     {f'''<div class="card" style="padding:0;overflow-x:auto">
-     <div style="padding:8px 12px;font-size:11px;color:var(--tx2);border-bottom:1px solid var(--bd)">Showing {len(products)} product{"s" if len(products)!=1 else ""}{f" matching '{q}'" if q else ""}{f" in {cat_filter}" if cat_filter else ""}{f" — margin: {margin_filter}" if margin_filter else ""}</div>
+     <div style="padding:8px 12px;font-size:14px;color:var(--tx2);border-bottom:1px solid var(--bd)">Showing {len(products)} product{"s" if len(products)!=1 else ""}{f" matching '{q}'" if q else ""}{f" in {cat_filter}" if cat_filter else ""}{f" — margin: {margin_filter}" if margin_filter else ""}</div>
      <table class="home-tbl" style="min-width:700px">
       <thead><tr>
        <th style="width:150px">Name</th><th>Description</th><th style="width:80px">SKU</th>
@@ -267,7 +267,7 @@ def catalog_page():
               dropdown.style.top = (rect.bottom+2)+'px';
               dropdown.style.width = Math.max(rect.width, 400)+'px';
               dropdown.innerHTML = items.map(p=>
-                `<a href="/catalog/${{p.id}}" style="display:flex;justify-content:space-between;padding:8px 12px;text-decoration:none;color:var(--tx);border-bottom:1px solid var(--bd);font-size:12px">
+                `<a href="/catalog/${{p.id}}" style="display:flex;justify-content:space-between;padding:8px 12px;text-decoration:none;color:var(--tx);border-bottom:1px solid var(--bd);font-size:14px">
                   <span style="font-weight:600">${{p.name.substring(0,30)}}</span>
                   <span style="color:var(--tx2)">${{p.category}} · $${{(p.sell_price||0).toFixed(2)}} · ${{(p.margin_pct||0).toFixed(1)}}%</span>
                 </a>`
@@ -306,15 +306,15 @@ def catalog_product_detail(pid):
         inst_str = h.get('institution', '') or h.get('agency', '') or ''
         pc_str = h.get('quote_number', '') or h.get('pc_id', '') or ''
         url_str = h.get('supplier_url', '') or ''
-        url_link = f'<a href="{url_str}" target="_blank" style="color:var(--ac);font-size:10px">🔗 link</a>' if url_str else ''
+        url_link = f'<a href="{url_str}" target="_blank" style="color:var(--ac);font-size:13px">🔗 link</a>' if url_str else ''
         ph_rows += f"""<tr>
-         <td class="mono" style="font-size:11px">{h.get('recorded_at','')[:10]}</td>
-         <td style="font-size:12px"><span style="padding:1px 6px;border-radius:3px;font-size:10px;background:{'#238636' if h.get('price_type')=='quoted' else '#1a3a5c' if h.get('price_type')=='cost' else '#6e40c9'}20;color:{'#3fb950' if h.get('price_type')=='quoted' else '#58a6ff' if h.get('price_type')=='cost' else '#bc8cff'}">{h.get('price_type','')}</span></td>
+         <td class="mono" style="font-size:14px">{h.get('recorded_at','')[:10]}</td>
+         <td style="font-size:14px"><span style="padding:1px 6px;border-radius:3px;font-size:13px;background:{'#238636' if h.get('price_type')=='quoted' else '#1a3a5c' if h.get('price_type')=='cost' else '#6e40c9'}20;color:{'#3fb950' if h.get('price_type')=='quoted' else '#58a6ff' if h.get('price_type')=='cost' else '#bc8cff'}">{h.get('price_type','')}</span></td>
          <td class="mono" style="text-align:right">${h.get('price',0):,.2f}</td>
          <td class="mono" style="text-align:center">{qty_str}</td>
-         <td style="font-size:11px">{inst_str}</td>
-         <td style="font-size:11px;color:var(--tx2)">{pc_str}</td>
-         <td style="font-size:11px;color:var(--tx2)">{h.get('source','')}</td>
+         <td style="font-size:14px">{inst_str}</td>
+         <td style="font-size:14px;color:var(--tx2)">{pc_str}</td>
+         <td style="font-size:14px;color:var(--tx2)">{h.get('source','')}</td>
          <td>{url_link}</td>
         </tr>"""
 
@@ -323,14 +323,14 @@ def catalog_product_detail(pid):
     for s in p.get("suppliers", []):
         url = s.get('supplier_url', '') or ''
         url_display = url[:50] + '...' if len(url) > 50 else url
-        url_cell = f'<a href="{url}" target="_blank" style="color:var(--ac);word-break:break-all;font-size:11px">{url_display}</a>' if url else '<span style="color:var(--tx2)">—</span>'
+        url_cell = f'<a href="{url}" target="_blank" style="color:var(--ac);word-break:break-all;font-size:14px">{url_display}</a>' if url else '<span style="color:var(--tx2)">—</span>'
         rel_pct = int((s.get('reliability', 0.5) or 0.5) * 100)
         rel_color = '#3fb950' if rel_pct >= 80 else '#d29922' if rel_pct >= 50 else '#f85149'
         sup_rows += f"""<tr>
-         <td style="font-size:12px;font-weight:600">{s.get('supplier_name','')}</td>
+         <td style="font-size:14px;font-weight:600">{s.get('supplier_name','')}</td>
          <td class="mono" style="text-align:right">${s.get('last_price',0) or 0:,.2f}</td>
-         <td style="font-size:11px">{url_cell}</td>
-         <td class="mono" style="font-size:11px">{(s.get('last_checked','') or '')[:10]}</td>
+         <td style="font-size:14px">{url_cell}</td>
+         <td class="mono" style="font-size:14px">{(s.get('last_checked','') or '')[:10]}</td>
          <td style="text-align:center"><span style="color:{rel_color}">{rel_pct}%</span></td>
          <td style="text-align:center">{'✅' if s.get('in_stock') else '❌'}</td>
         </tr>"""
@@ -338,36 +338,36 @@ def catalog_product_detail(pid):
     content = f"""
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
      <div>
-      <a href="/catalog" style="color:var(--tx2);text-decoration:none;font-size:12px">← Catalog</a>
+      <a href="/catalog" style="color:var(--tx2);text-decoration:none;font-size:14px">← Catalog</a>
       <h2 style="margin:4px 0 0;font-size:18px;font-weight:700">{p['name']}</h2>
-      <div style="font-size:12px;color:var(--tx2);margin-top:2px">{(p.get('description','') or '')[:200]}</div>
+      <div style="font-size:14px;color:var(--tx2);margin-top:2px">{(p.get('description','') or '')[:200]}</div>
      </div>
-     <span style="padding:4px 12px;border-radius:12px;font-size:12px;font-weight:600;background:var(--sf)">{strat_map.get(p.get('price_strategy',''), p.get('price_strategy',''))}</span>
+     <span style="padding:4px 12px;border-radius:12px;font-size:14px;font-weight:600;background:var(--sf)">{strat_map.get(p.get('price_strategy',''), p.get('price_strategy',''))}</span>
     </div>
 
     <div class="bento bento-4" style="margin-bottom:16px">
      <div class="card" style="text-align:center">
       <div style="font-size:24px;font-weight:800;font-family:'JetBrains Mono',monospace;color:var(--ac)">${p['sell_price']:,.2f}</div>
-      <div style="font-size:11px;color:var(--tx2)">Sell Price</div>
+      <div style="font-size:14px;color:var(--tx2)">Sell Price</div>
      </div>
      <div class="card" style="text-align:center">
       <div style="font-size:24px;font-weight:800;font-family:'JetBrains Mono',monospace">${p['cost']:,.2f}</div>
-      <div style="font-size:11px;color:var(--tx2)">Cost</div>
+      <div style="font-size:14px;color:var(--tx2)">Cost</div>
      </div>
      <div class="card" style="text-align:center">
       <div style="font-size:24px;font-weight:800;font-family:'JetBrains Mono',monospace;color:{margin_color}">{p['margin_pct']:.1f}%</div>
-      <div style="font-size:11px;color:var(--tx2)">Margin</div>
+      <div style="font-size:14px;color:var(--tx2)">Margin</div>
      </div>
      <div class="card" style="text-align:center">
       <div style="font-size:24px;font-weight:800;font-family:'JetBrains Mono',monospace">${p['sell_price'] - p['cost']:,.2f}</div>
-      <div style="font-size:11px;color:var(--tx2)">Margin $</div>
+      <div style="font-size:14px;color:var(--tx2)">Margin $</div>
      </div>
     </div>
 
     <div class="bento bento-2" style="margin-bottom:16px">
      <div class="card" style="padding:12px">
       <div class="card-t">Product Details</div>
-      <div style="display:grid;grid-template-columns:110px 1fr;gap:4px;font-size:12px">
+      <div style="display:grid;grid-template-columns:110px 1fr;gap:4px;font-size:14px">
        <span style="color:var(--tx2)">MFG#</span><span class="mono" style="font-weight:600">{p.get('mfg_number','—') or '—'}</span>
        <span style="color:var(--tx2)">SKU</span><span class="mono">{p.get('sku','—')}</span>
        <span style="color:var(--tx2)">UOM</span><span class="mono" style="font-weight:600">{p.get('uom','EA')}</span>
@@ -378,22 +378,22 @@ def catalog_product_detail(pid):
        <span style="color:var(--tx2)">Times Quoted</span><span class="mono">{p.get('times_quoted',0)}</span>
        <span style="color:var(--tx2)">Times Won</span><span class="mono">{p.get('times_won',0)}</span>
        <span style="color:var(--tx2)">Last Sold</span><span class="mono">${p.get('last_sold_price',0) or 0:,.2f} ({(p.get('last_sold_date') or '—')[:10]})</span>
-       <span style="color:var(--tx2)">Best Cost</span><span class="mono">${p.get('best_cost',0) or 0:,.2f} <span style="font-size:10px">({p.get('best_supplier','') or '—'})</span></span>
+       <span style="color:var(--tx2)">Best Cost</span><span class="mono">${p.get('best_cost',0) or 0:,.2f} <span style="font-size:13px">({p.get('best_supplier','') or '—'})</span></span>
        <span style="color:var(--tx2)">Tags</span><span>{p.get('tags','')}</span>
       </div>
      </div>
 
      <div class="card" style="padding:12px">
       <div class="card-t">💰 Pricing Intelligence</div>
-      <div style="display:grid;grid-template-columns:120px 1fr;gap:4px;font-size:12px">
-       <span style="color:var(--tx2)">SCPRS Price</span><span class="mono">${p.get('scprs_last_price',0) or 0:,.2f} <span style="font-size:10px;color:var(--tx2)">{p.get('scprs_agency','')}</span></span>
-       <span style="color:var(--tx2)">Competitor Low</span><span class="mono">${p.get('competitor_low_price',0) or 0:,.2f} <span style="font-size:10px;color:var(--tx2)">{p.get('competitor_source','')}</span></span>
-       <span style="color:var(--tx2)">Web Lowest</span><span class="mono">${p.get('web_lowest_price',0) or 0:,.2f} <span style="font-size:10px;color:var(--tx2)">{p.get('web_lowest_source','')}</span></span>
+      <div style="display:grid;grid-template-columns:120px 1fr;gap:4px;font-size:14px">
+       <span style="color:var(--tx2)">SCPRS Price</span><span class="mono">${p.get('scprs_last_price',0) or 0:,.2f} <span style="font-size:13px;color:var(--tx2)">{p.get('scprs_agency','')}</span></span>
+       <span style="color:var(--tx2)">Competitor Low</span><span class="mono">${p.get('competitor_low_price',0) or 0:,.2f} <span style="font-size:13px;color:var(--tx2)">{p.get('competitor_source','')}</span></span>
+       <span style="color:var(--tx2)">Web Lowest</span><span class="mono">${p.get('web_lowest_price',0) or 0:,.2f} <span style="font-size:13px;color:var(--tx2)">{p.get('web_lowest_source','')}</span></span>
        <span style="color:var(--tx2)">Recommended</span><span class="mono" style="color:#3fb950;font-weight:700">${p.get('recommended_price',0) or 0:,.2f}</span>
       </div>
       <div style="margin-top:12px;display:flex;gap:6px;flex-wrap:wrap">
-       <button onclick="runPricingAnalysis({pid})" class="btn btn-s" style="font-size:11px">🧮 Run Pricing Analysis</button>
-       <button onclick="updatePrice({pid})" class="btn btn-s" style="font-size:11px">✏️ Update Pricing</button>
+       <button onclick="runPricingAnalysis({pid})" class="btn btn-s" style="font-size:14px">🧮 Run Pricing Analysis</button>
+       <button onclick="updatePrice({pid})" class="btn btn-s" style="font-size:14px">✏️ Update Pricing</button>
       </div>
      </div>
     </div>

@@ -5,26 +5,26 @@
   <div style="min-width:0;flex:1">
    <div class="card-t" style="margin:0;display:flex;align-items:center;gap:8px;cursor:pointer" onclick="toggleBriefBody()">
     &#x1F9E0; Manager Brief
-    <span id="brief-badge" style="font-size:10px;padding:2px 8px;border-radius:10px;background:var(--sf2);color:var(--tx2);font-weight:500"></span>
-    <span id="brief-toggle" style="font-size:10px;color:var(--tx2);margin-left:4px">&#x25BC;</span>
+    <span id="brief-badge" style="font-size:13px;padding:2px 8px;border-radius:10px;background:var(--sf2);color:var(--tx2);font-weight:500"></span>
+    <span id="brief-toggle" style="font-size:13px;color:var(--tx2);margin-left:4px">&#x25BC;</span>
    </div>
    <div id="brief-headline" style="font-size:15px;font-weight:600;margin-top:8px;line-height:1.4"></div>
   </div>
   <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
-   <a href="/agents" class="btn btn-sm btn-s" style="font-size:10px;padding:4px 10px;white-space:nowrap">&#x1F4CA; Full Report</a>
-   <button onclick="loadBrief(true)" id="brief-refresh-btn" style="font-size:10px;padding:4px 8px;background:rgba(79,140,255,.1);border:1px solid rgba(79,140,255,.3);color:var(--ac);border-radius:6px;cursor:pointer;white-space:nowrap">&#x1F504; Refresh</button>
+   <a href="/agents" class="btn btn-sm btn-s" style="font-size:13px;padding:4px 10px;white-space:nowrap">&#x1F4CA; Full Report</a>
+   <button onclick="loadBrief(true)" id="brief-refresh-btn" style="font-size:13px;padding:4px 8px;background:rgba(79,140,255,.1);border:1px solid rgba(79,140,255,.3);color:var(--ac);border-radius:6px;cursor:pointer;white-space:nowrap">&#x1F504; Refresh</button>
   </div>
  </div>
  <div id="brief-body">
   <div id="brief-grid">
-   <div style="font-size:11px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;display:flex;align-items:center;gap:6px">
+   <div style="font-size:14px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;display:flex;align-items:center;gap:6px">
     Needs Your Attention <span id="approval-count" class="brief-count"></span>
    </div>
    <div id="approvals-list"></div>
   </div>
   <div id="pipeline-bar" style="display:flex;gap:12px;flex-wrap:wrap;margin-top:16px;padding-top:14px;border-top:1px solid var(--bd)"></div>
   <div id="agents-row" style="display:none;margin-top:16px;padding-top:14px;border-top:1px solid var(--bd)">
-   <div style="font-size:10px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">Agent Status</div>
+   <div style="font-size:13px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">Agent Status</div>
    <div id="agents-list" style="display:flex;gap:10px;flex-wrap:wrap"></div>
   </div>
  </div>

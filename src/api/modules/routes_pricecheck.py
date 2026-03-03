@@ -100,20 +100,20 @@ def _pricecheck_detail_inner(pcid):
         if url and title:
             link_parts.append(f'<a href="{url}" target="_blank" title="{p.get("amazon_title","")}">{title}</a>')
         if asin:
-            link_parts.append(f'<span style="color:#58a6ff;font-size:10px;font-family:JetBrains Mono,monospace">ASIN: {asin}</span>')
+            link_parts.append(f'<span style="color:#58a6ff;font-size:13px;font-family:JetBrains Mono,monospace">ASIN: {asin}</span>')
         # Web search source
         web_src = p.get("web_source", "")
         web_title = p.get("web_title", "")
         web_url = p.get("web_url", "")
         if web_src and not link_parts:
             if web_url:
-                link_parts.append(f'<a href="{web_url}" target="_blank" style="font-size:11px;color:#f0883e">{web_src}: {web_title[:35]}</a>')
+                link_parts.append(f'<a href="{web_url}" target="_blank" style="font-size:14px;color:#f0883e">{web_src}: {web_title[:35]}</a>')
             else:
-                link_parts.append(f'<span style="color:#f0883e;font-size:11px">{web_src}</span>')
+                link_parts.append(f'<span style="color:#f0883e;font-size:14px">{web_src}</span>')
         # Catalog match
         cat_match = p.get("catalog_match", "")
         if cat_match and not link_parts:
-            link_parts.append(f'<span style="color:#3fb950;font-size:11px">📦 {cat_match[:40]}</span>')
+            link_parts.append(f'<span style="color:#3fb950;font-size:14px">📦 {cat_match[:40]}</span>')
         link = "<br>".join(link_parts) if link_parts else "—"
 
         # SCPRS confidence indicator
@@ -121,7 +121,7 @@ def _pricecheck_detail_inner(pcid):
         scprs_badge = ""
         if scprs_cost:
             color = "#3fb950" if scprs_conf > 0.7 else ("#d29922" if scprs_conf > 0.4 else "#8b949e")
-            scprs_badge = f' <span style="color:{color};font-size:10px" title="Confidence: {scprs_conf:.0%}">●</span>'
+            scprs_badge = f' <span style="color:{color};font-size:13px" title="Confidence: {scprs_conf:.0%}">●</span>'
 
         # Confidence grade if scored
         conf = item.get("confidence") or {}
@@ -138,8 +138,8 @@ def _pricecheck_detail_inner(pcid):
         # Item link
         item_link = item.get("item_link") or ""
         item_supplier = item.get("item_supplier") or ""
-        link_display = f'<a href="{item_link}" target="_blank" style="font-size:11px;color:#58a6ff;word-break:break-all">{item_supplier or item_link[:30]}</a>' if item_link else ""
-        supplier_badge = f'<span style="font-size:10px;color:#8b949e;display:block;margin-top:1px">{item_supplier}</span>' if item_supplier else ""
+        link_display = f'<a href="{item_link}" target="_blank" style="font-size:14px;color:#58a6ff;word-break:break-all">{item_supplier or item_link[:30]}</a>' if item_link else ""
+        supplier_badge = f'<span style="font-size:13px;color:#8b949e;display:block;margin-top:1px">{item_supplier}</span>' if item_supplier else ""
 
         # ── Unified Sources column: all price sources as compact chips ──
         sources = []  # list of (price, label, url, color, is_preferred)
@@ -186,14 +186,14 @@ def _pricecheck_detail_inner(pcid):
             pref_icon = "★ " if spref else ""
             price_fmt = f"${sprice:.2f}"
             if surl:
-                chip = f'<a href="{surl}" target="_blank" style="display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:4px;font-size:10px;background:{scolor}15;border:1px solid {scolor}40;color:{scolor};text-decoration:none;white-space:nowrap;cursor:pointer" title="{slabel} · {price_fmt}">{pref_icon}<b>{price_fmt}</b> {slabel}</a>'
+                chip = f'<a href="{surl}" target="_blank" style="display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:4px;font-size:13px;background:{scolor}15;border:1px solid {scolor}40;color:{scolor};text-decoration:none;white-space:nowrap;cursor:pointer" title="{slabel} · {price_fmt}">{pref_icon}<b>{price_fmt}</b> {slabel}</a>'
             else:
-                chip = f'<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:4px;font-size:10px;background:{scolor}15;border:1px solid {scolor}40;color:{scolor};white-space:nowrap" title="{slabel}">{pref_icon}<b>{price_fmt}</b> {slabel}</span>'
+                chip = f'<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:4px;font-size:13px;background:{scolor}15;border:1px solid {scolor}40;color:{scolor};white-space:nowrap" title="{slabel}">{pref_icon}<b>{price_fmt}</b> {slabel}</span>'
             # First source gets "Use" action
             if i_src == 0 and len(sources) > 1 and sprice != unit_cost:
-                chip += f' <a href="#" onclick="document.querySelector(\'[name=cost_{idx}]\').value=\'{sprice:.2f}\';recalcRow({idx});recalcPC();return false" style="color:{scolor};font-size:9px;text-decoration:none" title="Use this price">⬇</a>'
+                chip += f' <a href="#" onclick="document.querySelector(\'[name=cost_{idx}]\').value=\'{sprice:.2f}\';recalcRow({idx});recalcPC();return false" style="color:{scolor};font-size:13px;text-decoration:none" title="Use this price">⬇</a>'
             source_chips.append(chip)
-        source_html = '<div style="display:flex;flex-wrap:wrap;gap:3px">' + ''.join(source_chips) + '</div>' if source_chips else '<span style="color:#484f58;font-size:11px">No sources</span>'
+        source_html = '<div style="display:flex;flex-wrap:wrap;gap:3px">' + ''.join(source_chips) + '</div>' if source_chips else '<span style="color:#484f58;font-size:14px">No sources</span>'
 
         # Per-item notes
         item_notes = item.get("notes") or ""
@@ -233,7 +233,7 @@ def _pricecheck_detail_inner(pcid):
         items_html += f"""<tr style="{row_opacity}" data-row="{idx}">
          <td style="text-align:center"><input type="checkbox" name="bid_{idx}" {bid_checked} onchange="toggleBid({idx},this)" style="width:18px;height:18px;cursor:pointer"></td>
          <td style="text-align:center;font-weight:600;font-size:13px;color:#8b949e;font-family:'JetBrains Mono',monospace">{line_num}</td>
-         <td><input type="text" name="itemnum_{idx}" value="{mfg_display}" class="text-in" style="width:80px;text-align:center;font-weight:600;font-size:12px;font-family:'JetBrains Mono',monospace;padding:6px 4px" placeholder="MFG#" onblur="handleMfgInput({idx}, this)"></td>
+         <td><input type="text" name="itemnum_{idx}" value="{mfg_display}" class="text-in" style="width:80px;text-align:center;font-weight:600;font-size:14px;font-family:'JetBrains Mono',monospace;padding:6px 4px" placeholder="MFG#" onblur="handleMfgInput({idx}, this)"></td>
          <td><input type="number" name="qty_{idx}" value="{qty}" class="num-in sm" style="width:55px" onchange="recalcPC()"></td>
          <td><input type="text" name="uom_{idx}" value="{(item.get('uom') or 'EA').upper()}" class="text-in" style="width:45px;text-transform:uppercase;text-align:center;font-weight:600"></td>
          <td><textarea name="desc_{idx}" class="text-in" style="width:100%;min-height:38px;resize:vertical;font-family:inherit;font-size:13px;line-height:1.4;padding:6px 8px" title="{raw_desc.replace('"','&quot;').replace('<','&lt;')}" oninput="detectDescUrl({idx},this)" placeholder="Enter description or paste URL">{display_desc.replace('&','&amp;').replace('<','&lt;').replace('>','&gt;')}</textarea></td>
@@ -241,10 +241,10 @@ def _pricecheck_detail_inner(pcid):
          <td style="min-width:180px">
           <div style="display:flex;flex-direction:column;gap:3px">
            <div style="display:flex;gap:2px;align-items:center">
-            <input type="text" name="link_{idx}" value="{item_link.replace(chr(34), '&quot;')}" placeholder="Paste supplier URL…" class="text-in" style="flex:1;font-size:12px;color:#58a6ff;padding:5px 7px" oninput="handleLinkInput({idx}, this)" onpaste="setTimeout(()=>handleLinkInput({idx},this),50)">
+            <input type="text" name="link_{idx}" value="{item_link.replace(chr(34), '&quot;')}" placeholder="Paste supplier URL…" class="text-in" style="flex:1;font-size:14px;color:#58a6ff;padding:5px 7px" oninput="handleLinkInput({idx}, this)" onpaste="setTimeout(()=>handleLinkInput({idx},this),50)">
             <a href="{item_link}" target="_blank" id="linkopen_{idx}" onclick="return !!this.href && this.href!==''" style="display:{'flex' if item_link else 'none'};align-items:center;justify-content:center;width:28px;height:28px;border-radius:4px;background:#21262d;border:1px solid #30363d;color:#58a6ff;font-size:14px;text-decoration:none;flex-shrink:0" title="Open link">↗</a>
            </div>
-           <div id="link_meta_{idx}" style="font-size:10px;color:#8b949e">{supplier_badge}</div>
+           <div id="link_meta_{idx}" style="font-size:13px;color:#8b949e">{supplier_badge}</div>
           </div>
          </td>
          <td style="min-width:160px;max-width:220px;vertical-align:top;padding:6px 4px">{source_html}</td>
@@ -257,8 +257,8 @@ def _pricecheck_detail_inner(pcid):
         <tr class="notes-row" data-row="{idx}" style="display:{'table-row' if item_notes else 'none'}">
          <td colspan="14" style="padding:0 8px 6px 120px;border-top:none">
           <div style="display:flex;align-items:center;gap:6px">
-           <span style="font-size:10px;color:#8b949e">📝</span>
-           <input type="text" name="notes_{idx}" value="{notes_escaped}" placeholder="Add note (prints on quote)…" class="text-in" style="flex:1;font-size:11px;padding:3px 8px;color:#d2a8ff">
+           <span style="font-size:13px;color:#8b949e">📝</span>
+           <input type="text" name="notes_{idx}" value="{notes_escaped}" placeholder="Add note (prints on quote)…" class="text-in" style="flex:1;font-size:14px;padding:3px 8px;color:#d2a8ff">
           </div>
          </td>
         </tr>"""
@@ -273,7 +273,7 @@ def _pricecheck_detail_inner(pcid):
         download_html += f' <a href="/api/pricecheck/download/{qfname}" class="btn btn-sm" style="background:#1a3a5c;color:#fff;font-size:13px">📥 Quote {qnum}</a>'
 
     # Diagnostic link (small, unobtrusive)
-    download_html += f' <a href="/pricecheck/{pcid}/diagnose" target="_blank" style="font-size:10px;color:#484f58;margin-left:8px" title="Check data integrity">🔍 diagnose</a>'
+    download_html += f' <a href="/pricecheck/{pcid}/diagnose" target="_blank" style="font-size:13px;color:#484f58;margin-left:8px" title="Check data integrity">🔍 diagnose</a>'
 
     # 45-day expiry from TODAY (not upload date)
     try:
@@ -2890,7 +2890,7 @@ def pricechecks_archive():
          <td>{due_str}</td><td>{date_str}</td><td style="text-align:center">{p['items_count']}</td>
          <td style="text-align:right">{total_str}</td>
          <td style="text-align:center">{f'<span style="color:#58a6ff;font-family:JetBrains Mono,monospace;font-weight:600">{qn}</span>' if qn else chr(8212)}</td>
-         <td style="text-align:center"><span style="background:{color};color:#0d1117;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">{label}</span> {src_icon}</td><td style="text-align:center;font-size:11px;color:#8b949e">{sent_elapsed}</td></tr>'''
+         <td style="text-align:center"><span style="background:{color};color:#0d1117;padding:2px 8px;border-radius:4px;font-size:14px;font-weight:600">{label}</span> {src_icon}</td><td style="text-align:center;font-size:14px;color:#8b949e">{sent_elapsed}</td></tr>'''
 
     content = f'''
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
@@ -2905,23 +2905,23 @@ def pricechecks_archive():
     </div>
     <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
       <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px 20px;text-align:center;min-width:90px">
-        <div style="font-size:24px;font-weight:800;color:#4f8cff">{total}</div><div style="font-size:11px;color:var(--tx2)">TOTAL</div></div>
+        <div style="font-size:24px;font-weight:800;color:#4f8cff">{total}</div><div style="font-size:14px;color:var(--tx2)">TOTAL</div></div>
       <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px 20px;text-align:center;min-width:90px">
-        <div style="font-size:24px;font-weight:800;color:#3fb950">{total_won}</div><div style="font-size:11px;color:var(--tx2)">WON</div></div>
+        <div style="font-size:24px;font-weight:800;color:#3fb950">{total_won}</div><div style="font-size:14px;color:var(--tx2)">WON</div></div>
       <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px 20px;text-align:center;min-width:90px">
-        <div style="font-size:24px;font-weight:800;color:#f85149">{total_lost}</div><div style="font-size:11px;color:var(--tx2)">LOST</div></div>
+        <div style="font-size:24px;font-weight:800;color:#f85149">{total_lost}</div><div style="font-size:14px;color:var(--tx2)">LOST</div></div>
       <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px 20px;text-align:center;min-width:90px">
-        <div style="font-size:24px;font-weight:800;color:var(--tx)">{win_rate}</div><div style="font-size:11px;color:var(--tx2)">WIN RATE</div></div>
+        <div style="font-size:24px;font-weight:800;color:var(--tx)">{win_rate}</div><div style="font-size:14px;color:var(--tx2)">WIN RATE</div></div>
     </div>
     <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center">
       <input id="pc-search" placeholder="Search PCs..." oninput="filterPCs()" style="flex:1;padding:8px 12px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:13px">
       <select id="pc-status" onchange="filterPCs()" style="padding:8px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:13px">
         <option value="">All Statuses</option>{status_options}</select>
-      <span id="pc-count" style="font-size:12px;color:var(--tx2)">{total} PCs</span>
+      <span id="pc-count" style="font-size:14px;color:var(--tx2)">{total} PCs</span>
     </div>
     <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;overflow-x:auto">
       <table style="width:100%;border-collapse:collapse;font-size:13px">
-        <thead><tr style="border-bottom:1px solid var(--bd);text-transform:uppercase;font-size:11px;color:var(--tx2)">
+        <thead><tr style="border-bottom:1px solid var(--bd);text-transform:uppercase;font-size:14px;color:var(--tx2)">
           <th style="padding:10px;text-align:left">PC #</th><th style="padding:10px;text-align:left">Institution</th>
           <th style="padding:10px;text-align:left">Requestor</th><th style="padding:10px;text-align:left">Due</th><th style="padding:10px;text-align:left">Created</th>
           <th style="padding:10px;text-align:center">Items</th><th style="padding:10px;text-align:right">Total</th>
@@ -3046,7 +3046,7 @@ def pricecheck_documents(pcid):
          <td>{d['created_at'][:19].replace('T',' ')}</td>
          <td>{d.get('notes','')[:40]}</td>
          <td>{d.get('change_summary','')[:60]}</td>
-         <td><span style="background:{status_badge[1]};color:#0d1117;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">{status_badge[0]}</span></td>
+         <td><span style="background:{status_badge[1]};color:#0d1117;padding:2px 8px;border-radius:4px;font-size:14px;font-weight:600">{status_badge[0]}</span></td>
          <td style="text-align:right;font-family:monospace">{d.get('file_size',0)//1024}KB</td>
          <td><a href="/api/pricecheck/document/{d['id']}/pdf" style="color:#58a6ff">📥 Download</a></td>
         </tr>'''
@@ -3059,7 +3059,7 @@ def pricecheck_documents(pcid):
     <div style="font-size:13px;color:var(--tx2);margin-bottom:16px">{pc.get("institution","")} · {len(docs)} version(s)</div>
     <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;overflow:hidden">
      <table style="width:100%;border-collapse:collapse;font-size:13px">
-      <thead><tr style="border-bottom:1px solid var(--bd);font-size:11px;color:var(--tx2);text-transform:uppercase">
+      <thead><tr style="border-bottom:1px solid var(--bd);font-size:14px;color:var(--tx2);text-transform:uppercase">
        <th style="padding:10px;text-align:left">Ver</th><th style="padding:10px">Date</th>
        <th style="padding:10px">Notes</th><th style="padding:10px">Changes</th>
        <th style="padding:10px">Status</th><th style="padding:10px;text-align:right">Size</th>
@@ -3126,15 +3126,15 @@ def pricecheck_document_editor(pcid, doc_id):
          <td style="text-align:center;padding:8px;font-weight:600">{i+1}</td>
          <td style="padding:4px"><input name="ed_qty_{i}" value="{qty}" type="number" min="1" style="width:60px;background:var(--sf);border:1px solid var(--bd);border-radius:4px;padding:6px;color:var(--tx);font-size:13px;text-align:center" onchange="recalcDoc()"></td>
          <td style="padding:4px"><input name="ed_uom_{i}" value="{uom}" style="width:60px;background:var(--sf);border:1px solid var(--bd);border-radius:4px;padding:6px;color:var(--tx);font-size:13px;text-align:center"></td>
-         <td style="padding:4px"><textarea name="ed_desc_{i}" rows="2" style="width:100%;background:var(--sf);border:1px solid var(--bd);border-radius:4px;padding:6px;color:var(--tx);font-size:12px;resize:vertical">{desc}</textarea></td>
-         <td style="padding:4px"><input name="ed_mfg_{i}" value="{mfg}" style="width:120px;background:var(--sf);border:1px solid var(--bd);border-radius:4px;padding:6px;color:var(--tx);font-size:12px;font-family:monospace"></td>
+         <td style="padding:4px"><textarea name="ed_desc_{i}" rows="2" style="width:100%;background:var(--sf);border:1px solid var(--bd);border-radius:4px;padding:6px;color:var(--tx);font-size:14px;resize:vertical">{desc}</textarea></td>
+         <td style="padding:4px"><input name="ed_mfg_{i}" value="{mfg}" style="width:120px;background:var(--sf);border:1px solid var(--bd);border-radius:4px;padding:6px;color:var(--tx);font-size:14px;font-family:monospace"></td>
          <td style="padding:4px"><input name="ed_price_{i}" value="{float(price):.2f}" type="number" step="0.01" min="0" style="width:90px;background:var(--sf);border:1px solid var(--bd);border-radius:4px;padding:6px;color:var(--tx);font-size:13px;text-align:right" onchange="recalcDoc()"></td>
          <td style="padding:8px;text-align:right;font-weight:600;font-family:monospace" class="doc-ext">${ext:,.2f}</td>
         </tr>'''
     
     change_log = ""
     if doc.get("change_summary"):
-        change_log = f'<div style="font-size:11px;color:#d29922;margin-top:4px">Changes: {doc["change_summary"]}</div>'
+        change_log = f'<div style="font-size:14px;color:#d29922;margin-top:4px">Changes: {doc["change_summary"]}</div>'
     
     content = f'''
     <style>
@@ -3146,16 +3146,16 @@ def pricecheck_document_editor(pcid, doc_id):
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
      <div>
       <h2 style="margin:0;font-size:18px">📄 PC #{pc.get("pc_number","")} — {pc.get("institution","")}</h2>
-      <div style="font-size:12px;color:var(--tx2);margin-top:2px">
+      <div style="font-size:14px;color:var(--tx2);margin-top:2px">
        Version {doc.get("version",1)} · {doc.get("created_at","")[:19].replace("T"," ")}
        · <span style="color:{("#3fb950" if doc.get("status")=="current" else "#8b949e")}">{doc.get("status","").title()}</span>
        {change_log}
       </div>
      </div>
      <div style="display:flex;gap:8px;align-items:center">
-      <select id="verSelect" onchange="location.href='/pricecheck/{pcid}/document/'+this.value" style="background:var(--sf);border:1px solid var(--bd);border-radius:6px;padding:6px 10px;color:var(--tx);font-size:12px">{ver_options}</select>
-      <a href="/pricecheck/{pcid}/documents" style="color:#58a6ff;font-size:12px;text-decoration:none">📋 All Versions</a>
-      <a href="/pricecheck/{pcid}" style="color:#58a6ff;font-size:12px;text-decoration:none">← PC Detail</a>
+      <select id="verSelect" onchange="location.href='/pricecheck/{pcid}/document/'+this.value" style="background:var(--sf);border:1px solid var(--bd);border-radius:6px;padding:6px 10px;color:var(--tx);font-size:14px">{ver_options}</select>
+      <a href="/pricecheck/{pcid}/documents" style="color:#58a6ff;font-size:14px;text-decoration:none">📋 All Versions</a>
+      <a href="/pricecheck/{pcid}" style="color:#58a6ff;font-size:14px;text-decoration:none">← PC Detail</a>
      </div>
     </div>
     <div class="doc-split">
@@ -3167,14 +3167,14 @@ def pricecheck_document_editor(pcid, doc_id):
        <span style="font-size:14px;font-weight:700;color:var(--tx)">✏️ Edit Line Items</span>
        <div style="display:flex;gap:8px">
         <button onclick="saveDocument(this)" class="btn btn-sm" style="background:#238636;color:#fff;font-size:13px;padding:6px 16px;border-radius:6px;border:none;cursor:pointer;font-weight:600">💾 Save & Regenerate</button>
-        <a href="/api/pricecheck/document/{doc_id}/pdf" download class="btn btn-sm" style="background:#21262d;color:#58a6ff;font-size:12px;padding:6px 12px;border-radius:6px;border:1px solid #30363d;text-decoration:none">📥 Download</a>
+        <a href="/api/pricecheck/document/{doc_id}/pdf" download class="btn btn-sm" style="background:#21262d;color:#58a6ff;font-size:14px;padding:6px 12px;border-radius:6px;border:1px solid #30363d;text-decoration:none">📥 Download</a>
        </div>
       </div>
-      <div id="docMsg" style="display:none;padding:8px 12px;border-radius:6px;font-size:12px;margin-bottom:10px"></div>
-      <textarea id="ed_notes" placeholder="Revision notes (optional)" style="width:100%;background:var(--sf);border:1px solid var(--bd);border-radius:4px;padding:6px;color:var(--tx);font-size:12px;resize:none;margin-bottom:10px;height:32px">{doc.get("notes","")}</textarea>
+      <div id="docMsg" style="display:none;padding:8px 12px;border-radius:6px;font-size:14px;margin-bottom:10px"></div>
+      <textarea id="ed_notes" placeholder="Revision notes (optional)" style="width:100%;background:var(--sf);border:1px solid var(--bd);border-radius:4px;padding:6px;color:var(--tx);font-size:14px;resize:none;margin-bottom:10px;height:32px">{doc.get("notes","")}</textarea>
       <div style="overflow-x:auto">
        <table style="width:100%;border-collapse:collapse;font-size:13px">
-        <thead><tr style="border-bottom:1px solid var(--bd);font-size:10px;color:var(--tx2);text-transform:uppercase">
+        <thead><tr style="border-bottom:1px solid var(--bd);font-size:13px;color:var(--tx2);text-transform:uppercase">
          <th style="padding:8px;width:30px">#</th><th style="padding:8px;width:60px">Qty</th><th style="padding:8px;width:60px">UOM</th>
          <th style="padding:8px">Description</th><th style="padding:8px;width:120px">MFG#</th>
          <th style="padding:8px;width:90px;text-align:right">Price</th><th style="padding:8px;width:90px;text-align:right">Extension</th>
@@ -3885,12 +3885,12 @@ def competitors_page():
                 m = p.get("margin_pct", 0) or 0
                 clr = "#f85149" if m < 0 else "#d29922"
                 margin_risk_rows += f'''<tr>
-                  <td style="font-size:12px">{p.get("name","")[:50]}</td>
-                  <td class="mono" style="font-size:12px">{p.get("sku","")}</td>
+                  <td style="font-size:14px">{p.get("name","")[:50]}</td>
+                  <td class="mono" style="font-size:14px">{p.get("sku","")}</td>
                   <td class="mono" style="text-align:right">${p.get("sell_price",0):,.2f}</td>
                   <td class="mono" style="text-align:right">${p.get("cost",0):,.2f}</td>
                   <td class="mono" style="text-align:center;color:{clr};font-weight:700">{m:.1f}%</td>
-                  <td style="font-size:11px;color:var(--tx2)">{p.get("category","")}</td>
+                  <td style="font-size:14px;color:var(--tx2)">{p.get("category","")}</td>
                 </tr>'''
 
             # Opportunity items: high value, low margin (room to increase price)
@@ -3904,7 +3904,7 @@ def competitors_page():
                 target_price = (p.get("cost") or 0) / (1 - 0.15) if p.get("cost") else 0
                 gain = target_price - (p.get("sell_price") or 0)
                 margin_opp_rows += f'''<tr>
-                  <td style="font-size:12px">{p.get("name","")[:50]}</td>
+                  <td style="font-size:14px">{p.get("name","")[:50]}</td>
                   <td class="mono" style="text-align:right">${p.get("sell_price",0):,.2f}</td>
                   <td class="mono" style="text-align:center;color:#d29922">{m:.1f}%</td>
                   <td class="mono" style="text-align:right;color:var(--gn)">${target_price:,.2f}</td>
@@ -3923,13 +3923,13 @@ def competitors_page():
 
     <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
       <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px 20px;text-align:center;min-width:100px">
-        <div style="font-size:28px;font-weight:800;color:#f85149">{total_losses}</div><div style="font-size:10px;color:var(--tx2)">LOSSES TRACKED</div></div>
+        <div style="font-size:28px;font-weight:800;color:#f85149">{total_losses}</div><div style="font-size:13px;color:var(--tx2)">LOSSES TRACKED</div></div>
       <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px 20px;text-align:center;min-width:100px">
-        <div style="font-size:28px;font-weight:800;color:var(--tx)">{unique_comp}</div><div style="font-size:10px;color:var(--tx2)">COMPETITORS</div></div>
+        <div style="font-size:28px;font-weight:800;color:var(--tx)">{unique_comp}</div><div style="font-size:13px;color:var(--tx2)">COMPETITORS</div></div>
       <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px 20px;text-align:center;min-width:100px">
-        <div style="font-size:28px;font-weight:800;color:{'#f85149' if neg > 0 else '#d29922'}">{neg + low}</div><div style="font-size:10px;color:var(--tx2)">AT-RISK ITEMS</div></div>
+        <div style="font-size:28px;font-weight:800;color:{'#f85149' if neg > 0 else '#d29922'}">{neg + low}</div><div style="font-size:13px;color:var(--tx2)">AT-RISK ITEMS</div></div>
       <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px 20px;text-align:center;min-width:100px">
-        <div style="font-size:28px;font-weight:800;color:{'#3fb950' if catalog_stats['avg_margin'] > 15 else '#d29922'}">{catalog_stats['avg_margin']:.1f}%</div><div style="font-size:10px;color:var(--tx2)">AVG MARGIN</div></div>
+        <div style="font-size:28px;font-weight:800;color:{'#3fb950' if catalog_stats['avg_margin'] > 15 else '#d29922'}">{catalog_stats['avg_margin']:.1f}%</div><div style="font-size:13px;color:var(--tx2)">AVG MARGIN</div></div>
     </div>'''
 
     if has_award_data:
@@ -3937,14 +3937,14 @@ def competitors_page():
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
       <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:16px">
         <h3 style="margin:0 0 12px;font-size:14px;color:var(--tx2)">TOP COMPETITORS</h3>
-        <table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="border-bottom:1px solid var(--bd);font-size:11px;color:var(--tx2)">
+        <table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="border-bottom:1px solid var(--bd);font-size:14px;color:var(--tx2)">
           <th style="text-align:left;padding:6px">Vendor</th><th style="text-align:center;padding:6px">Losses</th>
           <th style="text-align:center;padding:6px">Avg Gap</th><th style="text-align:right;padding:6px">$ Won</th>
           <th style="text-align:left;padding:6px">Agencies</th>
         </tr></thead><tbody>{comp_rows or empty}</tbody></table></div>
       <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:16px">
         <h3 style="margin:0 0 12px;font-size:14px;color:var(--tx2)">RECENT LOSSES</h3>
-        <table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="border-bottom:1px solid var(--bd);font-size:11px;color:var(--tx2)">
+        <table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="border-bottom:1px solid var(--bd);font-size:14px;color:var(--tx2)">
           <th style="text-align:left;padding:6px">Date</th><th style="text-align:left;padding:6px">Institution</th>
           <th style="text-align:left;padding:6px">Winner</th><th style="text-align:right;padding:6px">Their $</th>
           <th style="text-align:right;padding:6px">Our $</th><th style="text-align:center;padding:6px">Gap</th>
@@ -3956,35 +3956,35 @@ def competitors_page():
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
       <div style="background:var(--sf);border:1px solid {'#f8514930' if neg > 0 else 'var(--bd)'};border-radius:8px;padding:16px">
         <h3 style="margin:0 0 4px;font-size:14px;color:#f85149">⚠️ Margin Risk — Vulnerable to Undercutting</h3>
-        <p style="font-size:11px;color:var(--tx2);margin:0 0 12px">Items below 5% margin — competitors can easily beat these prices</p>
-        <table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="border-bottom:1px solid var(--bd);font-size:10px;color:var(--tx2)">
+        <p style="font-size:14px;color:var(--tx2);margin:0 0 12px">Items below 5% margin — competitors can easily beat these prices</p>
+        <table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="border-bottom:1px solid var(--bd);font-size:13px;color:var(--tx2)">
           <th style="text-align:left;padding:5px">Product</th><th style="text-align:left;padding:5px">SKU</th>
           <th style="text-align:right;padding:5px">Sell</th><th style="text-align:right;padding:5px">Cost</th>
           <th style="text-align:center;padding:5px">Margin</th><th style="text-align:left;padding:5px">Category</th>
         </tr></thead><tbody>{margin_risk_rows or '<tr><td colspan="6" style="text-align:center;color:var(--tx2);padding:16px">No at-risk items 🎉</td></tr>'}</tbody></table>
-        <div style="text-align:right;margin-top:8px"><a href="/catalog" style="font-size:11px;color:var(--ac)">View full catalog →</a></div>
+        <div style="text-align:right;margin-top:8px"><a href="/catalog" style="font-size:14px;color:var(--ac)">View full catalog →</a></div>
       </div>
       <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:16px">
         <h3 style="margin:0 0 4px;font-size:14px;color:var(--gn)">💰 Repricing Opportunities</h3>
-        <p style="font-size:11px;color:var(--tx2);margin:0 0 12px">High-value items below 15% margin — room to increase price</p>
-        <table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="border-bottom:1px solid var(--bd);font-size:10px;color:var(--tx2)">
+        <p style="font-size:14px;color:var(--tx2);margin:0 0 12px">High-value items below 15% margin — room to increase price</p>
+        <table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="border-bottom:1px solid var(--bd);font-size:13px;color:var(--tx2)">
           <th style="text-align:left;padding:5px">Product</th><th style="text-align:right;padding:5px">Current</th>
           <th style="text-align:center;padding:5px">Margin</th><th style="text-align:right;padding:5px">Target (15%)</th>
           <th style="text-align:right;padding:5px">Gain/Unit</th>
         </tr></thead><tbody>{margin_opp_rows or '<tr><td colspan="5" style="text-align:center;color:var(--tx2);padding:16px">No repricing opportunities</td></tr>'}</tbody></table>
-        <div style="text-align:right;margin-top:8px"><a href="/catalog" style="font-size:11px;color:var(--ac)">Pricing engine →</a></div>
+        <div style="text-align:right;margin-top:8px"><a href="/catalog" style="font-size:14px;color:var(--ac)">Pricing engine →</a></div>
       </div>
     </div>
 
     <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:16px">
       <h3 style="margin:0 0 8px;font-size:14px;color:var(--tx2)">📊 Catalog Margin Distribution</h3>
       <div style="display:flex;height:24px;border-radius:6px;overflow:hidden;background:var(--sf2)">
-        {'<div style="width:' + str(round(catalog_stats["negative"]/max(catalog_stats["total"],1)*100,1)) + '%;background:#f85149;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700" title="Negative margin">' + str(catalog_stats["negative"]) + '</div>' if catalog_stats["negative"] else ''}
-        <div style="width:{round(catalog_stats['low']/max(catalog_stats['total'],1)*100,1)}%;background:#d29922;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700" title="Low margin (0-10%)">{catalog_stats['low']}</div>
-        <div style="width:{round(catalog_stats['mid']/max(catalog_stats['total'],1)*100,1)}%;background:#3fb950;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700" title="Mid margin (10-25%)">{catalog_stats['mid']}</div>
-        <div style="width:{round(catalog_stats['high']/max(catalog_stats['total'],1)*100,1)}%;background:#58a6ff;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700" title="High margin (25%+)">{catalog_stats['high']}</div>
+        {'<div style="width:' + str(round(catalog_stats["negative"]/max(catalog_stats["total"],1)*100,1)) + '%;background:#f85149;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700" title="Negative margin">' + str(catalog_stats["negative"]) + '</div>' if catalog_stats["negative"] else ''}
+        <div style="width:{round(catalog_stats['low']/max(catalog_stats['total'],1)*100,1)}%;background:#d29922;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700" title="Low margin (0-10%)">{catalog_stats['low']}</div>
+        <div style="width:{round(catalog_stats['mid']/max(catalog_stats['total'],1)*100,1)}%;background:#3fb950;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700" title="Mid margin (10-25%)">{catalog_stats['mid']}</div>
+        <div style="width:{round(catalog_stats['high']/max(catalog_stats['total'],1)*100,1)}%;background:#58a6ff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700" title="High margin (25%+)">{catalog_stats['high']}</div>
       </div>
-      <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:10px;color:var(--tx2)">
+      <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:13px;color:var(--tx2)">
         <span><span style="color:#f85149">●</span> Negative: {catalog_stats['negative']}</span>
         <span><span style="color:#d29922">●</span> Low (&lt;10%): {catalog_stats['low']}</span>
         <span><span style="color:#3fb950">●</span> Mid (10-25%): {catalog_stats['mid']}</span>
@@ -5344,16 +5344,16 @@ def qa_email_pipeline_page():
     <div style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap">
       <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px 20px;text-align:center;min-width:110px">
         <div style="font-size:28px;font-weight:800;color:var(--tx)">{trends.get('latest_score','—')}</div>
-        <div style="font-size:11px;color:var(--tx2)">LATEST SCORE</div></div>
+        <div style="font-size:14px;color:var(--tx2)">LATEST SCORE</div></div>
       <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px 20px;text-align:center;min-width:110px">
         <div style="font-size:28px;font-weight:800;color:var(--tx)">{trends.get('latest_grade','—')}</div>
-        <div style="font-size:11px;color:var(--tx2)">GRADE</div></div>
+        <div style="font-size:14px;color:var(--tx2)">GRADE</div></div>
       <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px 20px;text-align:center;min-width:110px">
         <div style="font-size:28px;font-weight:800;color:var(--tx)">{trends.get('runs',0)}</div>
-        <div style="font-size:11px;color:var(--tx2)">QA RUNS</div></div>
+        <div style="font-size:14px;color:var(--tx2)">QA RUNS</div></div>
       <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px 20px;text-align:center;min-width:110px">
         <div style="font-size:28px;font-weight:800;color:var(--tx)">{trends.get('trend','—')}</div>
-        <div style="font-size:11px;color:var(--tx2)">TREND</div></div>
+        <div style="font-size:14px;color:var(--tx2)">TREND</div></div>
     </div>
 
     <div style="display:flex;gap:12px;margin-bottom:20px">
@@ -5389,7 +5389,7 @@ def qa_email_pipeline_page():
             var ct = d.classification_tests;
             h += '<h4 style="margin-top:16px">Classification Tests: ' + ct.passed + '/' + ct.total_tests + ' (' + ct.score + '%)</h4>';
             if (ct.results) {{
-              h += '<table style="width:100%;font-size:12px;border-collapse:collapse">';
+              h += '<table style="width:100%;font-size:14px;border-collapse:collapse">';
               h += '<tr style="border-bottom:1px solid var(--bd)"><th style="text-align:left;padding:4px">Test</th><th>RFQ</th><th>Recall</th><th>CS</th><th>Pass</th></tr>';
               ct.results.forEach(function(t) {{
                 var color = t.passed ? '#3fb950' : '#f85149';
@@ -5418,7 +5418,7 @@ def qa_email_pipeline_page():
           (d.results||[]).forEach(function(t) {{
             var color = t.passed ? '#3fb950' : '#f85149';
             h += '<tr style="border-bottom:1px solid var(--bd)"><td style="padding:6px;color:' + color + ';font-weight:600">' + t.label + '</td>';
-            h += '<td style="font-size:12px">' + t.subject + '</td>';
+            h += '<td style="font-size:14px">' + t.subject + '</td>';
             h += '<td style="text-align:center;color:' + (t.rfq.ok ? '#3fb950' : '#f85149') + '">' + (t.rfq.ok ? 'OK' : t.rfq.expected + '!=' + t.rfq.actual) + '</td>';
             h += '<td style="text-align:center;color:' + (t.recall.ok ? '#3fb950' : '#f85149') + '">' + (t.recall.ok ? 'OK' : 'FAIL') + '</td>';
             h += '<td style="text-align:center;color:' + (t.cs.ok ? '#3fb950' : '#f85149') + '">' + (t.cs.ok ? 'OK' : 'FAIL') + '</td>';

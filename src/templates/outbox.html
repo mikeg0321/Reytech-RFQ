@@ -6,7 +6,7 @@
 <style>
 .btn{padding:5px 12px;border:1px solid var(--bd);border-radius:6px;cursor:pointer;font-family:'DM Sans',sans-serif;font-weight:500;transition:.15s;text-decoration:none}
 .btn:hover{opacity:.8}
-.btn-sm{font-size:12px;padding:4px 10px}
+.btn-sm{font-size:14px;padding:4px 10px}
 </style>
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
  <div>
@@ -20,21 +20,21 @@
 </div>
 
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:24px">
- <div class="card"><div style="font-size:11px;color:var(--tx2);margin-bottom:4px">PENDING DRAFTS</div><div style="font-size:28px;font-weight:700;color:var(--yl)">{{ sales_drafts|length }}</div><div style="font-size:11px;color:var(--tx2)">sales outreach</div></div>
- <div class="card"><div style="font-size:11px;color:var(--tx2);margin-bottom:4px">CS REPLY DRAFTS</div><div style="font-size:28px;font-weight:700;color:{{ 'var(--rd)' if cs_drafts else 'var(--gn)' }}">{{ cs_drafts|length }}</div><div style="font-size:11px;color:var(--tx2)">customer service</div></div>
+ <div class="card"><div style="font-size:14px;color:var(--tx2);margin-bottom:4px">PENDING DRAFTS</div><div style="font-size:28px;font-weight:700;color:var(--yl)">{{ sales_drafts|length }}</div><div style="font-size:14px;color:var(--tx2)">sales outreach</div></div>
+ <div class="card"><div style="font-size:14px;color:var(--tx2);margin-bottom:4px">CS REPLY DRAFTS</div><div style="font-size:28px;font-weight:700;color:{{ 'var(--rd)' if cs_drafts else 'var(--gn)' }}">{{ cs_drafts|length }}</div><div style="font-size:14px;color:var(--tx2)">customer service</div></div>
 </div>
 
 <!-- Bulk Actions Bar -->
 {% if sales_drafts or cs_drafts %}
 <div style="display:flex;gap:8px;margin-bottom:16px;padding:12px;background:var(--sf2);border-radius:8px;align-items:center;flex-wrap:wrap">
- <span style="font-size:12px;font-weight:600;color:var(--tx2);margin-right:8px">Bulk Actions:</span>
+ <span style="font-size:14px;font-weight:600;color:var(--tx2);margin-right:8px">Bulk Actions:</span>
  {% if sales_drafts %}
- <button class="btn btn-sm" onclick="bulkApproveAll()" style="background:rgba(52,211,153,.15);color:var(--gn);font-size:11px;padding:6px 14px">✅ Approve All Drafts ({{ sales_drafts|length }})</button>
- <button class="btn btn-sm" onclick="bulkDeleteDrafts()" style="background:rgba(248,113,113,.1);color:var(--rd);font-size:11px;padding:6px 14px">🗑 Delete All Drafts</button>
+ <button class="btn btn-sm" onclick="bulkApproveAll()" style="background:rgba(52,211,153,.15);color:var(--gn);font-size:14px;padding:6px 14px">✅ Approve All Drafts ({{ sales_drafts|length }})</button>
+ <button class="btn btn-sm" onclick="bulkDeleteDrafts()" style="background:rgba(248,113,113,.1);color:var(--rd);font-size:14px;padding:6px 14px">🗑 Delete All Drafts</button>
  {% endif %}
- <button class="btn btn-sm" onclick="retryFailed()" style="background:rgba(251,191,36,.1);color:var(--yl);font-size:11px;padding:6px 14px">🔄 Retry Failed</button>
+ <button class="btn btn-sm" onclick="retryFailed()" style="background:rgba(251,191,36,.1);color:var(--yl);font-size:14px;padding:6px 14px">🔄 Retry Failed</button>
  <div style="flex:1"></div>
- <span id="bulk-status" style="font-size:11px;color:var(--tx2)"></span>
+ <span id="bulk-status" style="font-size:14px;color:var(--tx2)"></span>
 </div>
 {% endif %}
 
@@ -48,16 +48,16 @@
   <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
    <div style="flex:1">
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-     <span style="font-size:11px;font-weight:600;color:var(--ac);text-transform:uppercase">{{ (d.intent or 'general')|replace('_',' ') }}</span>
-     <span style="font-size:10px;color:var(--tx2)">📬 CS auto-draft</span>
+     <span style="font-size:14px;font-weight:600;color:var(--ac);text-transform:uppercase">{{ (d.intent or 'general')|replace('_',' ') }}</span>
+     <span style="font-size:13px;color:var(--tx2)">📬 CS auto-draft</span>
     </div>
     <div style="font-size:13px;font-weight:600;color:var(--tx)">{{ d.subject or '' }}</div>
-    <div style="font-size:11px;color:var(--tx2);margin-top:3px">To: {{ d.to or '' }} &nbsp;·&nbsp; {{ (d.created_at or '')[:16]|replace('T',' ') }}</div>
-    <div style="font-size:12px;color:var(--tx);margin-top:8px;white-space:pre-wrap;padding:8px;background:var(--sf2);border-radius:6px">{{ (d.body or '')[:400] }}{{ '...' if (d.body or '')|length > 400 else '' }}</div>
+    <div style="font-size:14px;color:var(--tx2);margin-top:3px">To: {{ d.to or '' }} &nbsp;·&nbsp; {{ (d.created_at or '')[:16]|replace('T',' ') }}</div>
+    <div style="font-size:14px;color:var(--tx);margin-top:8px;white-space:pre-wrap;padding:8px;background:var(--sf2);border-radius:6px">{{ (d.body or '')[:400] }}{{ '...' if (d.body or '')|length > 400 else '' }}</div>
    </div>
    <div style="display:flex;flex-direction:column;gap:6px;min-width:120px">
-    <button class="btn btn-sm" onclick="approveCS('{{ d.id or '' }}',this)" style="background:var(--gn);color:#000;font-size:11px">✅ Send Reply</button>
-    <button class="btn btn-sm" onclick="deleteCS('{{ d.id or '' }}',this)" style="background:var(--sf2);color:var(--rd);font-size:11px">🗑 Discard</button>
+    <button class="btn btn-sm" onclick="approveCS('{{ d.id or '' }}',this)" style="background:var(--gn);color:#000;font-size:14px">✅ Send Reply</button>
+    <button class="btn btn-sm" onclick="deleteCS('{{ d.id or '' }}',this)" style="background:var(--sf2);color:var(--rd);font-size:14px">🗑 Discard</button>
    </div>
   </div>
 </div>
@@ -74,13 +74,13 @@
   <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
    <div style="flex:1">
     <div style="font-size:13px;font-weight:600;color:var(--tx)">{{ d.subject or '' }}</div>
-    <div style="font-size:11px;color:var(--tx2);margin-top:3px">To: {{ d.to or '' }} &nbsp;·&nbsp; Created: {{ (d.created_at or '')[:16]|replace('T',' ') }}</div>
-    <div style="font-size:12px;color:var(--tx2);margin-top:6px;white-space:pre-wrap">{{ (d.body or '')[:300] }}{{ '...' if (d.body or '')|length > 300 else '' }}</div>
+    <div style="font-size:14px;color:var(--tx2);margin-top:3px">To: {{ d.to or '' }} &nbsp;·&nbsp; Created: {{ (d.created_at or '')[:16]|replace('T',' ') }}</div>
+    <div style="font-size:14px;color:var(--tx2);margin-top:6px;white-space:pre-wrap">{{ (d.body or '')[:300] }}{{ '...' if (d.body or '')|length > 300 else '' }}</div>
    </div>
    <div style="display:flex;flex-direction:column;gap:6px;min-width:120px">
-    <button class="btn btn-sm" onclick="approveDraft('{{ d.id or '' }}',this)" style="background:var(--gn);color:#000;font-size:11px">✅ Approve</button>
-    <button class="btn btn-sm" onclick="deleteDraft('{{ d.id or '' }}',this)" style="background:var(--sf2);color:var(--rd);font-size:11px">🗑 Delete</button>
-    <span style="font-size:10px;color:var(--ac);padding:2px 6px;background:rgba(79,140,255,.1);border-radius:4px">📋 sales draft</span>
+    <button class="btn btn-sm" onclick="approveDraft('{{ d.id or '' }}',this)" style="background:var(--gn);color:#000;font-size:14px">✅ Approve</button>
+    <button class="btn btn-sm" onclick="deleteDraft('{{ d.id or '' }}',this)" style="background:var(--sf2);color:var(--rd);font-size:14px">🗑 Delete</button>
+    <span style="font-size:13px;color:var(--ac);padding:2px 6px;background:rgba(79,140,255,.1);border-radius:4px">📋 sales draft</span>
    </div>
   </div>
 </div>

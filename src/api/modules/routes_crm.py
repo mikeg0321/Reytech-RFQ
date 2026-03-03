@@ -1906,13 +1906,13 @@ def page_outbox():
   <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
    <div style="flex:1">
     <div style="font-size:13px;font-weight:600;color:var(--tx)">{d.get('subject','')}</div>
-    <div style="font-size:11px;color:var(--tx2);margin-top:3px">To: {d.get('to','')} &nbsp;·&nbsp; Created: {(d.get('created_at','') or '')[:16].replace('T',' ')}</div>
-    <div style="font-size:12px;color:var(--tx2);margin-top:6px;white-space:pre-wrap">{(d.get('body','') or '')[:300]}{'...' if len(d.get('body','') or '') > 300 else ''}</div>
+    <div style="font-size:14px;color:var(--tx2);margin-top:3px">To: {d.get('to','')} &nbsp;·&nbsp; Created: {(d.get('created_at','') or '')[:16].replace('T',' ')}</div>
+    <div style="font-size:14px;color:var(--tx2);margin-top:6px;white-space:pre-wrap">{(d.get('body','') or '')[:300]}{'...' if len(d.get('body','') or '') > 300 else ''}</div>
    </div>
    <div style="display:flex;flex-direction:column;gap:6px;min-width:120px">
-    <button class="btn btn-sm" onclick="approveDraft('{d.get('id','')}',this)" style="background:var(--gn);color:#000;font-size:11px">✅ Approve</button>
-    <button class="btn btn-sm" onclick="deleteDraft('{d.get('id','')}',this)" style="background:var(--sf2);color:var(--rd);font-size:11px">🗑 Delete</button>
-    {"<span style='font-size:10px;color:var(--ac);padding:2px 6px;background:rgba(79,140,255,.1);border-radius:4px'>📋 sales draft</span>" if d.get('type') != 'cs_response' else ''}
+    <button class="btn btn-sm" onclick="approveDraft('{d.get('id','')}',this)" style="background:var(--gn);color:#000;font-size:14px">✅ Approve</button>
+    <button class="btn btn-sm" onclick="deleteDraft('{d.get('id','')}',this)" style="background:var(--sf2);color:var(--rd);font-size:14px">🗑 Delete</button>
+    {"<span style='font-size:13px;color:var(--ac);padding:2px 6px;background:rgba(79,140,255,.1);border-radius:4px'>📋 sales draft</span>" if d.get('type') != 'cs_response' else ''}
    </div>
   </div>
 </div>"""
@@ -1925,16 +1925,16 @@ def page_outbox():
   <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
    <div style="flex:1">
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-     <span style="font-size:11px;font-weight:600;color:{intent_colors.get(intent,'var(--ac)')};text-transform:uppercase">{intent.replace('_',' ')}</span>
-     <span style="font-size:10px;color:var(--tx2)">📬 CS auto-draft</span>
+     <span style="font-size:14px;font-weight:600;color:{intent_colors.get(intent,'var(--ac)')};text-transform:uppercase">{intent.replace('_',' ')}</span>
+     <span style="font-size:13px;color:var(--tx2)">📬 CS auto-draft</span>
     </div>
     <div style="font-size:13px;font-weight:600;color:var(--tx)">{d.get('subject','')}</div>
-    <div style="font-size:11px;color:var(--tx2);margin-top:3px">To: {d.get('to','')} &nbsp;·&nbsp; {(d.get('created_at','') or '')[:16].replace('T',' ')}</div>
-    <div style="font-size:12px;color:var(--tx);margin-top:8px;white-space:pre-wrap;padding:8px;background:var(--sf2);border-radius:6px">{(d.get('body','') or '')[:400]}{'...' if len(d.get('body','') or '') > 400 else ''}</div>
+    <div style="font-size:14px;color:var(--tx2);margin-top:3px">To: {d.get('to','')} &nbsp;·&nbsp; {(d.get('created_at','') or '')[:16].replace('T',' ')}</div>
+    <div style="font-size:14px;color:var(--tx);margin-top:8px;white-space:pre-wrap;padding:8px;background:var(--sf2);border-radius:6px">{(d.get('body','') or '')[:400]}{'...' if len(d.get('body','') or '') > 400 else ''}</div>
    </div>
    <div style="display:flex;flex-direction:column;gap:6px;min-width:120px">
-    <button class="btn btn-sm" onclick="approveCS('{d.get('id','')}',this)" style="background:var(--gn);color:#000;font-size:11px">✅ Send Reply</button>
-    <button class="btn btn-sm" onclick="deleteCS('{d.get('id','')}',this)" style="background:var(--sf2);color:var(--rd);font-size:11px">🗑 Discard</button>
+    <button class="btn btn-sm" onclick="approveCS('{d.get('id','')}',this)" style="background:var(--gn);color:#000;font-size:14px">✅ Send Reply</button>
+    <button class="btn btn-sm" onclick="deleteCS('{d.get('id','')}',this)" style="background:var(--sf2);color:var(--rd);font-size:14px">🗑 Discard</button>
    </div>
   </div>
 </div>"""
@@ -2049,27 +2049,27 @@ def page_catalog_legacy():
             tags = ", ".join(it.get("tags",[])[:4]) if it.get("tags") else ""
             vendor = it.get("vendor_key","").replace("_"," ").title()
             rows += f"""<tr style="border-bottom:1px solid var(--bd)">
-  <td style="padding:7px 10px;font-size:12px;font-weight:600;color:var(--ac)">{it.get("sku","")}</td>
-  <td style="padding:7px 10px;font-size:12px">{it.get("name","")[:60]}</td>
-  <td style="padding:7px 10px;font-size:12px;color:var(--tx2)">{it.get("unit","each")}</td>
-  <td style="padding:7px 10px;font-size:12px;color:var(--yl)">${it.get("typical_cost",0):.2f}</td>
-  <td style="padding:7px 10px;font-size:12px;color:var(--gn)">${it.get("list_price",0):.2f}</td>
-  <td style="padding:7px 10px;font-size:11px;color:var(--tx2)">{vendor}</td>
-  <td style="padding:7px 10px;font-size:11px;color:var(--tx2)">{tags}</td>
+  <td style="padding:7px 10px;font-size:14px;font-weight:600;color:var(--ac)">{it.get("sku","")}</td>
+  <td style="padding:7px 10px;font-size:14px">{it.get("name","")[:60]}</td>
+  <td style="padding:7px 10px;font-size:14px;color:var(--tx2)">{it.get("unit","each")}</td>
+  <td style="padding:7px 10px;font-size:14px;color:var(--yl)">${it.get("typical_cost",0):.2f}</td>
+  <td style="padding:7px 10px;font-size:14px;color:var(--gn)">${it.get("list_price",0):.2f}</td>
+  <td style="padding:7px 10px;font-size:14px;color:var(--tx2)">{vendor}</td>
+  <td style="padding:7px 10px;font-size:14px;color:var(--tx2)">{tags}</td>
 </tr>"""
         cats_html += f"""<div style="margin-bottom:20px">
-  <div style="font-size:12px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;padding:6px 10px;background:var(--bg2);border-radius:6px">
+  <div style="font-size:14px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;padding:6px 10px;background:var(--bg2);border-radius:6px">
     {cat} <span style="color:var(--tx3);font-weight:400">({len(cat_items)} SKUs)</span>
   </div>
   <table style="width:100%;border-collapse:collapse">
     <thead><tr style="border-bottom:2px solid var(--bd)">
-      <th style="padding:5px 10px;font-size:11px;color:var(--tx2);text-align:left">SKU</th>
-      <th style="padding:5px 10px;font-size:11px;color:var(--tx2);text-align:left">Name</th>
-      <th style="padding:5px 10px;font-size:11px;color:var(--tx2);text-align:left">Unit</th>
-      <th style="padding:5px 10px;font-size:11px;color:var(--tx2);text-align:left">Cost</th>
-      <th style="padding:5px 10px;font-size:11px;color:var(--tx2);text-align:left">List</th>
-      <th style="padding:5px 10px;font-size:11px;color:var(--tx2);text-align:left">Vendor</th>
-      <th style="padding:5px 10px;font-size:11px;color:var(--tx2);text-align:left">Tags</th>
+      <th style="padding:5px 10px;font-size:14px;color:var(--tx2);text-align:left">SKU</th>
+      <th style="padding:5px 10px;font-size:14px;color:var(--tx2);text-align:left">Name</th>
+      <th style="padding:5px 10px;font-size:14px;color:var(--tx2);text-align:left">Unit</th>
+      <th style="padding:5px 10px;font-size:14px;color:var(--tx2);text-align:left">Cost</th>
+      <th style="padding:5px 10px;font-size:14px;color:var(--tx2);text-align:left">List</th>
+      <th style="padding:5px 10px;font-size:14px;color:var(--tx2);text-align:left">Vendor</th>
+      <th style="padding:5px 10px;font-size:14px;color:var(--tx2);text-align:left">Tags</th>
     </tr></thead>
     <tbody>{rows}</tbody>
   </table>
@@ -3121,11 +3121,11 @@ def page_market_intel():
         if ag.get("intel_buyer"):
             b = ag["intel_buyer"]
             if isinstance(b, dict):
-                buyer_html = f'<div style="font-size:11px;color:var(--ac);margin-top:4px">📞 {b["name"]} | {b["email"]} | {b["phone"]}</div>'
+                buyer_html = f'<div style="font-size:14px;color:var(--ac);margin-top:4px">📞 {b["name"]} | {b["email"]} | {b["phone"]}</div>'
         elif ag.get("intel_buyers"):
             for b in ag["intel_buyers"][:2]:
                 if isinstance(b, dict):
-                    buyer_html += f'<div style="font-size:11px;color:var(--ac);margin-top:2px">📞 {b["name"]} | {b["email"]}</div>'
+                    buyer_html += f'<div style="font-size:14px;color:var(--ac);margin-top:2px">📞 {b["name"]} | {b["email"]}</div>'
         # Competitive items (top 3)
         items_html = ""
         comp = ag.get("what_they_buy_from_competitors", {})
@@ -3136,21 +3136,21 @@ def page_market_intel():
         for it in all_items[:4]:
             vendor = it.get("vendor", "")
             annual = it.get("annual_est", 0)
-            items_html += f'<div style="font-size:11px;padding:3px 0;border-bottom:1px solid var(--bd)"><span style="color:var(--tx1)">{it["item"][:45]}</span> <span style="color:var(--tx2);float:right">${annual:,.0f}/yr → {vendor[:20]}</span></div>'
+            items_html += f'<div style="font-size:14px;padding:3px 0;border-bottom:1px solid var(--bd)"><span style="color:var(--tx1)">{it["item"][:45]}</span> <span style="color:var(--tx2);float:right">${annual:,.0f}/yr → {vendor[:20]}</span></div>'
 
         return f"""<div class="card" style="border-color:{color};margin-bottom:14px">
   <div style="display:flex;justify-content:space-between;align-items:flex-start">
     <div>
       <div style="font-size:13px;font-weight:700;color:{color}">{ag.get('full_name','')[:50]}</div>
-      <div style="font-size:11px;color:var(--tx2);margin-top:2px">{status}</div>
+      <div style="font-size:14px;color:var(--tx2);margin-top:2px">{status}</div>
       {buyer_html}
     </div>
     <div style="text-align:right">
       <div style="font-size:20px;font-weight:700;color:var(--gn)">${opp:,.0f}</div>
-      <div style="font-size:10px;color:var(--tx2)">12mo opportunity</div>
+      <div style="font-size:13px;color:var(--tx2)">12mo opportunity</div>
     </div>
   </div>
-  <div style="margin-top:10px;font-size:11px;color:var(--yl);background:rgba(210,167,78,.08);padding:6px 8px;border-radius:4px">
+  <div style="margin-top:10px;font-size:14px;color:var(--yl);background:rgba(210,167,78,.08);padding:6px 8px;border-radius:4px">
     💡 {ag.get('land_expand_strategy','')[:150]}
   </div>
   {f'<div style="margin-top:8px">{items_html}</div>' if items_html else ""}
@@ -3162,10 +3162,10 @@ def page_market_intel():
     def gap_row(g):
         pri_color = "var(--rd)" if g["priority"]=="P0" else "var(--yl)"
         return f"""<tr style="border-bottom:1px solid var(--bd)">
-  <td style="padding:8px 10px;font-weight:500;font-size:12px">{g["item"]}</td>
-  <td style="padding:8px 10px;font-size:11px;color:{pri_color}">{g["priority"]}</td>
-  <td style="padding:8px 10px;font-size:12px;color:var(--gn);font-weight:600">${g["annual_missed"]:,}</td>
-  <td style="padding:8px 10px;font-size:11px;color:var(--tx2)">{g["fix"][:80]}</td>
+  <td style="padding:8px 10px;font-weight:500;font-size:14px">{g["item"]}</td>
+  <td style="padding:8px 10px;font-size:14px;color:{pri_color}">{g["priority"]}</td>
+  <td style="padding:8px 10px;font-size:14px;color:var(--gn);font-weight:600">${g["annual_missed"]:,}</td>
+  <td style="padding:8px 10px;font-size:14px;color:var(--tx2)">{g["fix"][:80]}</td>
 </tr>"""
 
     gaps_html = "".join(gap_row(g) for g in sorted(gaps, key=lambda x: (x["priority"], -x["annual_missed"])))
@@ -3176,10 +3176,10 @@ def page_market_intel():
         return f"""<div style="padding:10px 12px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:flex-start">
   <div>
     <div style="font-size:13px;font-weight:600">{a["vendor"]}</div>
-    <div style="font-size:11px;color:var(--tx2);margin-top:2px">{a["why"][:90]}</div>
-    <div style="font-size:10px;color:var(--ac);margin-top:3px">{a["url"]}</div>
+    <div style="font-size:14px;color:var(--tx2);margin-top:2px">{a["why"][:90]}</div>
+    <div style="font-size:13px;color:var(--ac);margin-top:3px">{a["url"]}</div>
   </div>
-  <span style="font-size:11px;font-weight:700;color:{pri_color};white-space:nowrap;margin-left:12px">{a["priority"]}</span>
+  <span style="font-size:14px;font-weight:700;color:{pri_color};white-space:nowrap;margin-left:12px">{a["priority"]}</span>
 </div>"""
 
     accounts_html = "".join(account_card(a) for a in accounts)
@@ -3189,9 +3189,9 @@ def page_market_intel():
         return f"""<div class="card" style="margin-bottom:12px">
   <div style="font-size:13px;font-weight:700;margin-bottom:8px">
     {phase_key.replace('_',' ').title()} — <span style="color:var(--gn)">${phase.get('revenue_target',0):,}</span>
-    <span style="font-size:11px;font-weight:400;color:var(--tx2);margin-left:8px">{phase.get('title','')}</span>
+    <span style="font-size:14px;font-weight:400;color:var(--tx2);margin-left:8px">{phase.get('title','')}</span>
   </div>
-  {"".join(f'<div style="font-size:12px;padding:3px 0;color:var(--tx2)">▸ {a}</div>' for a in phase.get('actions',[]))}
+  {"".join(f'<div style="font-size:14px;padding:3px 0;color:var(--tx2)">▸ {a}</div>' for a in phase.get('actions',[]))}
 </div>"""
 
     playbook_html = "".join(phase_html(k, v) for k, v in playbook.items())
@@ -3351,14 +3351,14 @@ def page_scprs_gap_analysis():
     vendor_rows = "".join(
         f'<tr style="border-bottom:1px solid var(--bd)"><td style="padding:8px 12px;font-size:13px;font-weight:600">{v}</td>'
         f'<td style="padding:8px 12px;font-size:13px;color:var(--rd);font-weight:700">${s:,.0f}</td>'
-        f'<td style="padding:8px 12px;font-size:12px;color:var(--gn)">✅ We can compete</td></tr>'
+        f'<td style="padding:8px 12px;font-size:14px;color:var(--gn)">✅ We can compete</td></tr>'
         for v, s in top_vendors
     )
     opp_rows = "".join(
-        f'<tr style="border-bottom:1px solid var(--bd)"><td style="padding:7px 10px;font-size:12px">{o.get("description","")[:55]}</td>'
-        f'<td style="padding:7px 10px;font-size:12px;color:var(--tx2)">{o.get("vendor","")[:28]}</td>'
-        f'<td style="padding:7px 10px;font-size:12px;font-weight:700;color:var(--rd)">${o.get("amount",0):,.0f}</td>'
-        f'<td style="padding:7px 10px;font-size:11px;color:var(--ac)">{o.get("opportunity_match","")}</td></tr>'
+        f'<tr style="border-bottom:1px solid var(--bd)"><td style="padding:7px 10px;font-size:14px">{o.get("description","")[:55]}</td>'
+        f'<td style="padding:7px 10px;font-size:14px;color:var(--tx2)">{o.get("vendor","")[:28]}</td>'
+        f'<td style="padding:7px 10px;font-size:14px;font-weight:700;color:var(--rd)">${o.get("amount",0):,.0f}</td>'
+        f'<td style="padding:7px 10px;font-size:14px;color:var(--ac)">{o.get("opportunity_match","")}</td></tr>'
         for o in opportunities[:30]
     )
 
@@ -3380,39 +3380,39 @@ def page_scprs_gap_analysis():
         stats_html = (
             f'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:24px">'
             f'<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:16px">'
-            f'<div style="font-size:11px;color:var(--tx2)">PO RECORDS INGESTED</div>'
+            f'<div style="font-size:14px;color:var(--tx2)">PO RECORDS INGESTED</div>'
             f'<div style="font-size:32px;font-weight:800;color:var(--ac)">{len(ingested)}</div></div>'
             f'<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:16px">'
-            f'<div style="font-size:11px;color:var(--tx2)">ITEMS WE CAN COMPETE FOR</div>'
+            f'<div style="font-size:14px;color:var(--tx2)">ITEMS WE CAN COMPETE FOR</div>'
             f'<div style="font-size:32px;font-weight:800;color:var(--rd)">{len(opportunities)}</div></div>'
             f'<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:16px">'
-            f'<div style="font-size:11px;color:var(--tx2)">COMPETITOR SPEND TO CAPTURE</div>'
+            f'<div style="font-size:14px;color:var(--tx2)">COMPETITOR SPEND TO CAPTURE</div>'
             f'<div style="font-size:32px;font-weight:800;color:var(--yl)">${total_opp:,.0f}</div></div></div>'
         )
         stats_html += (
             f'<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px">'
-            f'<div><div style="font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Vendors to beat at CCHCS/CDCR</div>'
+            f'<div><div style="font-size:14px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Vendors to beat at CCHCS/CDCR</div>'
             f'<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:0;overflow:hidden">'
             f'<table style="width:100%;border-collapse:collapse"><thead><tr>'
-            f'<th style="padding:8px 12px;font-size:11px;color:var(--tx2);text-align:left;border-bottom:1px solid var(--bd)">Vendor</th>'
-            f'<th style="padding:8px 12px;font-size:11px;color:var(--tx2);text-align:left;border-bottom:1px solid var(--bd)">Their Spend</th>'
-            f'<th style="padding:8px 12px;font-size:11px;color:var(--tx2);text-align:left;border-bottom:1px solid var(--bd)">Status</th>'
+            f'<th style="padding:8px 12px;font-size:14px;color:var(--tx2);text-align:left;border-bottom:1px solid var(--bd)">Vendor</th>'
+            f'<th style="padding:8px 12px;font-size:14px;color:var(--tx2);text-align:left;border-bottom:1px solid var(--bd)">Their Spend</th>'
+            f'<th style="padding:8px 12px;font-size:14px;color:var(--tx2);text-align:left;border-bottom:1px solid var(--bd)">Status</th>'
             f'</tr></thead><tbody>{vendor_rows}</tbody></table></div></div>'
-            f'<div><div style="font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Items to quote (your products)</div>'
+            f'<div><div style="font-size:14px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Items to quote (your products)</div>'
             f'<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:0;overflow:hidden">'
             f'<table style="width:100%;border-collapse:collapse"><thead><tr>'
-            f'<th style="padding:7px 10px;font-size:11px;color:var(--tx2);text-align:left;border-bottom:1px solid var(--bd)">Description</th>'
-            f'<th style="padding:7px 10px;font-size:11px;color:var(--tx2);text-align:left;border-bottom:1px solid var(--bd)">Curr. Vendor</th>'
-            f'<th style="padding:7px 10px;font-size:11px;color:var(--tx2);text-align:left;border-bottom:1px solid var(--bd)">Amount</th>'
-            f'<th style="padding:7px 10px;font-size:11px;color:var(--tx2);text-align:left;border-bottom:1px solid var(--bd)">Match</th>'
+            f'<th style="padding:7px 10px;font-size:14px;color:var(--tx2);text-align:left;border-bottom:1px solid var(--bd)">Description</th>'
+            f'<th style="padding:7px 10px;font-size:14px;color:var(--tx2);text-align:left;border-bottom:1px solid var(--bd)">Curr. Vendor</th>'
+            f'<th style="padding:7px 10px;font-size:14px;color:var(--tx2);text-align:left;border-bottom:1px solid var(--bd)">Amount</th>'
+            f'<th style="padding:7px 10px;font-size:14px;color:var(--tx2);text-align:left;border-bottom:1px solid var(--bd)">Match</th>'
             f'</tr></thead><tbody>{opp_rows}</tbody></table></div></div></div>'
         )
 
     paste_box = """<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:16px;margin-top:16px">
   <div style="font-size:13px;font-weight:600;margin-bottom:8px">Paste SCPRS CSV here:</div>
-  <textarea id="csvPaste" style="width:100%;height:90px;background:var(--bg);border:1px solid var(--bd);border-radius:6px;padding:10px;font-size:12px;color:var(--tx);font-family:monospace;box-sizing:border-box" placeholder="Paste CSV content from SCPRS download..."></textarea>
+  <textarea id="csvPaste" style="width:100%;height:90px;background:var(--bg);border:1px solid var(--bd);border-radius:6px;padding:10px;font-size:14px;color:var(--tx);font-family:monospace;box-sizing:border-box" placeholder="Paste CSV content from SCPRS download..."></textarea>
   <button onclick="ingestCSV()" style="margin-top:8px;padding:8px 20px;background:var(--ac);color:#fff;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-weight:600">📊 Find Gaps</button>
-  <span id="ingestStatus" style="margin-left:12px;font-size:12px;color:var(--tx2)"></span>
+  <span id="ingestStatus" style="margin-left:12px;font-size:14px;color:var(--tx2)"></span>
 </div>"""
 
     return render_page("scprs_gap.html", active_page="Intel",
@@ -3534,10 +3534,10 @@ def page_qa_intelligence():
     for iss in issues:
         sev = "var(--rd)" if iss["occurrences"] >= 5 else ("var(--yl)" if iss["occurrences"] >= 2 else "var(--tx2)")
         issue_rows += f"""<tr style="border-bottom:1px solid var(--bd)">
-  <td style="padding:7px 10px;font-size:12px;color:{sev};font-weight:600">{iss["check_name"]}</td>
-  <td style="padding:7px 10px;font-size:11px">{iss["message"][:90]}</td>
-  <td style="padding:7px 10px;font-size:12px;text-align:center;color:{sev};font-weight:700">{iss["occurrences"]}</td>
-  <td style="padding:7px 10px;font-size:11px;color:var(--tx2)">{iss["first_seen"][:10] if iss["first_seen"] else "?"}</td>
+  <td style="padding:7px 10px;font-size:14px;color:{sev};font-weight:600">{iss["check_name"]}</td>
+  <td style="padding:7px 10px;font-size:14px">{iss["message"][:90]}</td>
+  <td style="padding:7px 10px;font-size:14px;text-align:center;color:{sev};font-weight:700">{iss["occurrences"]}</td>
+  <td style="padding:7px 10px;font-size:14px;color:var(--tx2)">{iss["first_seen"][:10] if iss["first_seen"] else "?"}</td>
 </tr>"""
 
     reg_html = ""
@@ -3545,9 +3545,9 @@ def page_qa_intelligence():
         reg_html += f"""<div style="background:rgba(220,38,38,.08);border:1px solid var(--rd);border-radius:6px;padding:10px 14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
   <div>
     <span style="font-size:13px;font-weight:700;color:var(--rd)">Score drop: {reg["prev_score"]} → {reg["new_score"]} (-{reg.get("score_drop", reg.get("drop",0))} pts)</span>
-    <div style="font-size:11px;color:var(--tx2);margin-top:2px">{reg["detected_at"][:16] if reg["detected_at"] else "?"}</div>
+    <div style="font-size:14px;color:var(--tx2);margin-top:2px">{reg["detected_at"][:16] if reg["detected_at"] else "?"}</div>
   </div>
-  <button onclick="fetch('/api/qa/regressions/{reg["id"]}/ack',{{method:'POST',credentials:'same-origin'}}).then(()=>location.reload())" style="padding:4px 12px;border:1px solid var(--rd);border-radius:4px;background:none;color:var(--rd);font-size:11px;cursor:pointer">Acknowledge</button>
+  <button onclick="fetch('/api/qa/regressions/{reg["id"]}/ack',{{method:'POST',credentials:'same-origin'}}).then(()=>location.reload())" style="padding:4px 12px;border:1px solid var(--rd);border-radius:4px;background:none;color:var(--rd);font-size:14px;cursor:pointer">Acknowledge</button>
 </div>"""
 
     scores_js = str([r["score"] for r in reversed(history)]) if history else "[]"
@@ -3750,13 +3750,13 @@ def daily_brief_page():
     # Pre-build HTML sections
     pc_html = ""
     for pid, p in new_pcs[:5]:
-        pc_html += f'<div style="padding:10px 14px;background:rgba(251,146,60,.08);border:1px solid rgba(251,146,60,.3);border-radius:8px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center"><div>New PC needs pricing</div><a href="/pricecheck/{pid}" class="btn btn-s" style="padding:6px 12px;font-size:12px">Price it</a></div>'
+        pc_html += f'<div style="padding:10px 14px;background:rgba(251,146,60,.08);border:1px solid rgba(251,146,60,.3);border-radius:8px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center"><div>New PC needs pricing</div><a href="/pricecheck/{pid}" class="btn btn-s" style="padding:6px 12px;font-size:14px">Price it</a></div>'
     if not new_pcs:
         pc_html = '<div style="padding:10px;color:var(--t2)">No PCs awaiting pricing</div>'
 
     aging_html = ""
     for qn, cust, age, total in aging[:5]:
-        aging_html += f'<div style="padding:10px 14px;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.3);border-radius:8px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center"><div><strong>{qn}</strong> {cust} (${total:,.0f}) {age}d old</div><a href="/quote/{qn}" class="btn btn-s" style="padding:6px 12px;font-size:12px">View</a></div>'
+        aging_html += f'<div style="padding:10px 14px;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.3);border-radius:8px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center"><div><strong>{qn}</strong> {cust} (${total:,.0f}) {age}d old</div><a href="/quote/{qn}" class="btn btn-s" style="padding:6px 12px;font-size:14px">View</a></div>'
     if not aging:
         aging_html = '<div style="padding:10px;color:var(--t2)">No aging quotes</div>'
 
@@ -3805,15 +3805,15 @@ def daily_brief_page():
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px">
       <div style="text-align:center;padding:12px;background:var(--bg);border-radius:8px">
         <div style="font-size:24px;font-weight:700">{fu.get('total_awaiting_response', 0)}</div>
-        <div style="font-size:12px;color:var(--t2)">Awaiting Reply</div>
+        <div style="font-size:14px;color:var(--t2)">Awaiting Reply</div>
       </div>
       <div style="text-align:center;padding:12px;background:var(--bg);border-radius:8px">
         <div style="font-size:24px;font-weight:700">{fu.get('follow_ups_sent', 0)}</div>
-        <div style="font-size:12px;color:var(--t2)">Follow-Ups Created</div>
+        <div style="font-size:14px;color:var(--t2)">Follow-Ups Created</div>
       </div>
       <div style="text-align:center;padding:12px;background:var(--bg);border-radius:8px">
         <div style="font-size:24px;font-weight:700;{'color:#ef4444' if fu.get('overdue',0) > 0 else ''}">{fu.get('overdue', 0)}</div>
-        <div style="font-size:12px;color:var(--t2)">Overdue (7d+)</div>
+        <div style="font-size:14px;color:var(--t2)">Overdue (7d+)</div>
       </div>
     </div>
     {overdue_html}
@@ -3823,7 +3823,7 @@ def daily_brief_page():
   <div style="background:var(--bg2);border:1px solid var(--bd);border-radius:12px;padding:20px;margin-bottom:16px">
     <h2 style="margin:0 0 12px;font-size:18px;color:var(--t2)">SMS Preview</h2>
     <pre style="background:#000;color:#0f0;padding:16px;border-radius:8px;font-size:13px;white-space:pre-wrap;font-family:monospace;line-height:1.5">{text_brief}</pre>
-    <p style="font-size:12px;color:var(--t2);margin:8px 0 0">{twilio_status}</p>
+    <p style="font-size:14px;color:var(--t2);margin:8px 0 0">{twilio_status}</p>
   </div>
 </div>
 

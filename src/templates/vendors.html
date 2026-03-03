@@ -4,10 +4,10 @@
 {% block content %}
 
 <style>
-.btn{padding:5px 12px;border:1px solid var(--bd);border-radius:6px;cursor:pointer;font-family:'DM Sans',sans-serif;transition:.15s;text-decoration:none;font-size:12px;font-weight:500}
+.btn{padding:5px 12px;border:1px solid var(--bd);border-radius:6px;cursor:pointer;font-family:'DM Sans',sans-serif;transition:.15s;text-decoration:none;font-size:14px;font-weight:500}
 .btn:hover{opacity:.8}
 table{width:100%;border-collapse:collapse}
-th{padding:8px 12px;font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;text-align:left;border-bottom:1px solid var(--bd)}
+th{padding:8px 12px;font-size:14px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;text-align:left;border-bottom:1px solid var(--bd)}
 </style>
 
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
@@ -27,43 +27,43 @@ th{padding:8px 12px;font-size:11px;color:var(--tx2);text-transform:uppercase;let
 <!-- Setup guide cards -->
 <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:24px">
   <div class="card" style="border-color:{{ ('var(--gn)' if vs.get('grainger_can_order') else 'var(--yl)') }}">
-    <div style="font-size:11px;color:var(--tx2);margin-bottom:8px">GRAINGER REST API</div>
+    <div style="font-size:14px;color:var(--tx2);margin-bottom:8px">GRAINGER REST API</div>
     <div style="font-size:20px;font-weight:700;color:{{ ('var(--gn)' if vs.get('grainger_can_order') else 'var(--yl)') }}">
       {{ '✅ Active' if vs.get('grainger_can_order') else '⚙ Setup Needed' }}
     </div>
-    <div style="font-size:11px;color:var(--tx2);margin-top:6px">Free public API · industrial + medical</div>
-    {{ '<div style="font-size:11px;color:var(--yl);margin-top:8px">→ Set GRAINGER_CLIENT_ID/SECRET/ACCOUNT_NUMBER in Railway</div>' if not vs.get('grainger_can_order') else '' }}
+    <div style="font-size:14px;color:var(--tx2);margin-top:6px">Free public API · industrial + medical</div>
+    {{ '<div style="font-size:14px;color:var(--yl);margin-top:8px">→ Set GRAINGER_CLIENT_ID/SECRET/ACCOUNT_NUMBER in Railway</div>' if not vs.get('grainger_can_order') else '' }}
   </div>
   <div class="card" style="border-color:{{ ('var(--gn)' if vs.get('amazon_configured') else 'var(--yl)') }}">
-    <div style="font-size:11px;color:var(--tx2);margin-bottom:8px">AMAZON BUSINESS SP-API</div>
+    <div style="font-size:14px;color:var(--tx2);margin-bottom:8px">AMAZON BUSINESS SP-API</div>
     <div style="font-size:20px;font-weight:700;color:{{ ('var(--gn)' if vs.get('amazon_configured') else 'var(--yl)') }}">
       {{ '✅ Active' if vs.get('amazon_configured') else '⚙ Setup Needed' }}
     </div>
-    <div style="font-size:11px;color:var(--tx2);margin-top:6px">Search via SerpApi ✅ · ordering via SP-API</div>
-    {{ '<div style="font-size:11px;color:var(--yl);margin-top:8px">→ Set AMZN_ACCESS_KEY/SECRET/REFRESH_TOKEN in Railway</div>' if not vs.get('amazon_configured') else '' }}
+    <div style="font-size:14px;color:var(--tx2);margin-top:6px">Search via SerpApi ✅ · ordering via SP-API</div>
+    {{ '<div style="font-size:14px;color:var(--yl);margin-top:8px">→ Set AMZN_ACCESS_KEY/SECRET/REFRESH_TOKEN in Railway</div>' if not vs.get('amazon_configured') else '' }}
   </div>
   <div class="card" style="border-color:{{ ('var(--gn)' if vs.get('email_po_active') else 'var(--bd)') }}">
-    <div style="font-size:11px;color:var(--tx2);margin-bottom:8px">EMAIL PO VENDORS</div>
+    <div style="font-size:14px;color:var(--tx2);margin-bottom:8px">EMAIL PO VENDORS</div>
     <div style="font-size:20px;font-weight:700;color:var(--gn)">
       {{ vs.get('email_po_vendors',[])|length }} Active
     </div>
-    <div style="font-size:11px;color:var(--tx2);margin-top:6px">Curbell · IMS · Echelon · TSI</div>
-    <div style="font-size:11px;color:var(--gn);margin-top:6px">POs sent automatically on quote won</div>
+    <div style="font-size:14px;color:var(--tx2);margin-top:6px">Curbell · IMS · Echelon · TSI</div>
+    <div style="font-size:14px;color:var(--gn);margin-top:6px">POs sent automatically on quote won</div>
   </div>
 </div>
 
 <!-- Preferred Vendors + Scorecard -->
 <div class="card" style="margin-bottom:20px">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-    <div style="font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px">⭐ Preferred Vendors by Category</div>
+    <div style="font-size:14px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px">⭐ Preferred Vendors by Category</div>
     <button class="btn" onclick="loadPreferred()" style="border-color:var(--ac);color:var(--ac)">Refresh</button>
   </div>
-  <div id="preferred-vendors" style="color:var(--tx2);font-size:12px">Loading...</div>
+  <div id="preferred-vendors" style="color:var(--tx2);font-size:14px">Loading...</div>
 </div>
 
 <!-- Vendor table -->
 <div class="card" style="margin-bottom:20px">
-  <div style="font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px">
+  <div style="font-size:14px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px">
     All Vendors ({{ vendors|length }})
   </div>
   <div style="overflow-x:auto">
@@ -79,7 +79,7 @@ th{padding:8px 12px;font-size:11px;color:var(--tx2);text-transform:uppercase;let
 
 <!-- Recent vendor orders -->
 <div class="card">
-  <div style="font-size:12px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px">
+  <div style="font-size:14px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px">
     Vendor Order History
   </div>
   <table>
@@ -123,7 +123,7 @@ function testGrainger(btn){
     var el=document.getElementById('grainger-results');
     if(!d.results||!d.results.length){el.innerHTML='<p style="color:var(--yl)">No results (configure GRAINGER_CLIENT_ID/SECRET for full access)</p>';return;}
     var rows=d.results.map(r=>'<tr><td style="padding:6px 10px">'+r.item_number+'</td><td style="padding:6px 10px">'+r.title.substring(0,60)+'</td><td style="padding:6px 10px;color:var(--gn)">$'+(r.price||0).toFixed(2)+'</td><td style="padding:6px 10px;color:var(--tx2)">'+r.availability+'</td></tr>').join('');
-    el.innerHTML='<div class="card"><div style="font-size:12px;font-weight:600;color:var(--tx2);margin-bottom:10px">Grainger Results: '+d.results.length+' found</div><table><thead><tr><th>Item#</th><th>Title</th><th>Price</th><th>Availability</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+    el.innerHTML='<div class="card"><div style="font-size:14px;font-weight:600;color:var(--tx2);margin-bottom:10px">Grainger Results: '+d.results.length+' found</div><table><thead><tr><th>Item#</th><th>Title</th><th>Price</th><th>Availability</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
   }).catch(()=>{btn.disabled=false;btn.textContent='🔍 Test Grainger Search';alert('Search failed')});
 }
 function loadPreferred(){
@@ -138,9 +138,9 @@ function loadPreferred(){
       const sc=v.score||0;
       const clr=sc>=70?'var(--gn)':sc>=40?'var(--yl)':'var(--rd)';
       html+='<div style="background:var(--sf2);border-radius:8px;padding:12px;border:1px solid var(--bd)">';
-      html+='<div style="font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">'+cat+'</div>';
+      html+='<div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">'+cat+'</div>';
       html+='<div style="font-weight:600;font-size:13px;color:'+clr+'">'+v.vendor+'</div>';
-      html+='<div style="display:flex;align-items:center;gap:5px;margin-top:6px"><div style="background:var(--bg);border-radius:3px;height:6px;flex:1;overflow:hidden"><div style="width:'+sc+'%;height:100%;background:'+clr+';border-radius:3px"></div></div><span style="font-size:10px;font-family:monospace">'+sc.toFixed(0)+'</span></div>';
+      html+='<div style="display:flex;align-items:center;gap:5px;margin-top:6px"><div style="background:var(--bg);border-radius:3px;height:6px;flex:1;overflow:hidden"><div style="width:'+sc+'%;height:100%;background:'+clr+';border-radius:3px"></div></div><span style="font-size:13px;font-family:monospace">'+sc.toFixed(0)+'</span></div>';
       html+='</div>';
     }
     html+='</div>';

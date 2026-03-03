@@ -58,8 +58,8 @@ def intelligence_page():
          <td class="mono" style="color:#3fb950">${ag.get('total_spend',0):,.0f}</td>
          <td class="mono">{ag.get('opportunity_score',0)}</td>
          <td class="mono">{buyer_count}</td>
-         <td style="font-size:11px">{cats}</td>
-         <td style="font-size:11px">{sb_cell}</td>
+         <td style="font-size:14px">{cats}</td>
+         <td style="font-size:14px">{sb_cell}</td>
         </tr>"""
         if len(opp_rows) > 20000:
             break
@@ -74,11 +74,11 @@ def intelligence_page():
         buyer_rows += f"""<tr>
          <td style="font-weight:500">{b.get('agency','—')}</td>
          <td>{b.get('name','—')}</td>
-         <td style="font-size:12px">{b.get('email','—')}</td>
+         <td style="font-size:14px">{b.get('email','—')}</td>
          <td class="mono" style="color:#3fb950">${b.get('total_spend',0):,.0f}</td>
          <td class="mono">{b.get('opportunity_score',0)}</td>
-         <td style="font-size:11px">{cats}</td>
-         <td style="font-size:10px;color:var(--tx2)">{items[:60]}</td>
+         <td style="font-size:14px">{cats}</td>
+         <td style="font-size:13px;color:var(--tx2)">{items[:60]}</td>
         </tr>"""
         if len(buyer_rows) > 25000:
             break
@@ -94,7 +94,7 @@ def intelligence_page():
          <td class="mono" style="color:#3fb950">${ag.get('reytech_spend',0):,.0f}</td>
          <td class="mono">${ag.get('total_spend',0):,.0f}</td>
          <td class="mono" style="color:#d29922">${upsell:,.0f}</td>
-         <td style="font-size:11px">{', '.join(list(ag.get('categories',{}).keys())[:3])}</td>
+         <td style="font-size:14px">{', '.join(list(ag.get('categories',{}).keys())[:3])}</td>
         </tr>"""
 
     pull_running = pull.get("running", False)
@@ -107,21 +107,21 @@ def intelligence_page():
     content = f"""
     <style>
      .card{{background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px;margin-bottom:14px}}
-     .card h3{{font-size:11px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px}}
+     .card h3{{font-size:14px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px}}
      .g-btn{{padding:8px 14px;border-radius:7px;border:1px solid var(--bd);background:var(--sf2);color:var(--tx);cursor:pointer;font-size:13px;font-weight:600;transition:.15s;display:inline-flex;align-items:center;gap:5px}}
      .g-btn:hover{{border-color:var(--ac);background:rgba(79,140,255,.1)}}
      .g-btn-go{{background:rgba(52,211,153,.1);color:#3fb950;border-color:rgba(52,211,153,.3)}}
      .g-btn-warn{{background:rgba(251,191,36,.1);color:#fbbf24;border-color:rgba(251,191,36,.3)}}
      .g-btn-red{{background:rgba(248,113,113,.1);color:#f87171;border-color:rgba(248,113,113,.3)}}
      .g-btn-purple{{background:rgba(167,139,250,.1);color:#a78bfa;border-color:rgba(167,139,250,.3)}}
-     table{{width:100%;border-collapse:collapse;font-size:12px}}
-     th{{text-align:left;padding:8px;font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--bd)}}
+     table{{width:100%;border-collapse:collapse;font-size:14px}}
+     th{{text-align:left;padding:8px;font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--bd)}}
      td{{padding:8px;border-bottom:1px solid rgba(46,51,69,.4);vertical-align:middle}}
      tr:hover td{{background:rgba(79,140,255,.04)}}
      .mono{{font-family:'JetBrains Mono',monospace}}
      .modal-bg{{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1000;align-items:center;justify-content:center}}
      .modal-box{{background:var(--sf);border:1px solid var(--bd);border-radius:12px;padding:24px;width:520px;max-width:95vw;max-height:90vh;overflow-y:auto}}
-     .form-lbl{{font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px}}
+     .form-lbl{{font-size:14px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px}}
      .form-input{{width:100%;padding:10px 12px;background:var(--sf2);border:1px solid var(--bd);border-radius:7px;color:var(--tx);font-size:13px;box-sizing:border-box;margin-bottom:12px;font-family:'DM Sans',sans-serif}}
      .form-input:focus{{outline:none;border-color:var(--ac)}}
      textarea.form-input{{resize:vertical;min-height:120px}}
@@ -134,7 +134,7 @@ def intelligence_page():
       <div style="font-size:13px;color:var(--tx2)">SCPRS buyer database — contacts, spend, categories, opportunities</div>
      </div>
      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-      <span id="scprs-dot" style="font-size:12px;padding:4px 10px;border-radius:12px;background:{'rgba(52,211,153,.15)' if scprs_ok else 'rgba(248,113,113,.15)'};color:{'#3fb950' if scprs_ok else '#f87171'};border:1px solid {'rgba(52,211,153,.3)' if scprs_ok else 'rgba(248,113,113,.3)'}">
+      <span id="scprs-dot" style="font-size:14px;padding:4px 10px;border-radius:12px;background:{'rgba(52,211,153,.15)' if scprs_ok else 'rgba(248,113,113,.15)'};color:{'#3fb950' if scprs_ok else '#f87171'};border:1px solid {'rgba(52,211,153,.3)' if scprs_ok else 'rgba(248,113,113,.3)'}">
        {'✅ SCPRS Connected' if scprs_ok else '⚠️ SCPRS Offline'}
       </span>
       <button class="g-btn" onclick="testSCPRS(this)">🔌 Test Connection</button>
@@ -142,28 +142,28 @@ def intelligence_page():
     </div>
 
     <!-- SCPRS offline banner -->
-    {'<div id="scprs-banner" style="background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.3);border-radius:8px;padding:12px 16px;margin-bottom:14px;font-size:13px"><b style=\'color:#f87171\'>⚠️ SCPRS Unreachable</b> — Deep Pull requires Railway static IP.<br><span style=\'color:var(--tx2);font-size:12px\'>Fix: railway.app → your project → Settings → Networking → Static IP → Enable. Then retry Deep Pull.</span><br><span style=\'color:var(--tx2);font-size:12px\'>In the meantime, use <b style=\'color:#fbbf24\'>Load Demo Data</b> to see the full UI, or <b style=\'color:#3fb950\'>Add Buyer Manually</b> to enter real contacts.</span></div>' if not scprs_ok else ''}
+    {'<div id="scprs-banner" style="background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.3);border-radius:8px;padding:12px 16px;margin-bottom:14px;font-size:13px"><b style=\'color:#f87171\'>⚠️ SCPRS Unreachable</b> — Deep Pull requires Railway static IP.<br><span style=\'color:var(--tx2);font-size:14px\'>Fix: railway.app → your project → Settings → Networking → Static IP → Enable. Then retry Deep Pull.</span><br><span style=\'color:var(--tx2);font-size:14px\'>In the meantime, use <b style=\'color:#fbbf24\'>Load Demo Data</b> to see the full UI, or <b style=\'color:#3fb950\'>Add Buyer Manually</b> to enter real contacts.</span></div>' if not scprs_ok else ''}
 
     <!-- Stats bar -->
     <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px">
      <div class="card" style="text-align:center;padding:12px">
-      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">Buyers</div>
+      <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">Buyers</div>
       <div style="font-size:26px;font-weight:700;color:var(--ac);font-family:monospace">{total_buyers}</div>
      </div>
      <div class="card" style="text-align:center;padding:12px">
-      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">Agencies</div>
+      <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">Agencies</div>
       <div style="font-size:26px;font-weight:700;color:#a78bfa;font-family:monospace">{total_agencies}</div>
      </div>
      <div class="card" style="text-align:center;padding:12px">
-      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">Addressable</div>
+      <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">Addressable</div>
       <div style="font-size:22px;font-weight:700;color:#fbbf24;font-family:monospace">${sum(b.get('total_spend',0) for b in buyers):,.0f}</div>
      </div>
      <div class="card" style="text-align:center;padding:12px">
-      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">Revenue Closed</div>
+      <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">Revenue Closed</div>
       <div style="font-size:22px;font-weight:700;color:#3fb950;font-family:monospace">${closed:,.0f}</div>
      </div>
      <div class="card" style="text-align:center;padding:12px">
-      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">Goal Progress</div>
+      <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px">Goal Progress</div>
       <div style="font-size:22px;font-weight:700;color:{'#3fb950' if pct>=50 else '#d29922'};font-family:monospace">{pct:.0f}%</div>
      </div>
     </div>
@@ -177,15 +177,15 @@ def intelligence_page():
        <h3>⚡ Data Collection</h3>
        <div id="pull-progress-wrap" style="display:{'block' if pull_running else 'none'};margin-bottom:12px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-         <span style="font-size:12px;font-weight:600;color:var(--tx2)" id="pull-phase-label">Deep Pull Running...</span>
-         <span style="font-size:11px;font-family:monospace;color:var(--ac)" id="pull-counts"></span>
+         <span style="font-size:14px;font-weight:600;color:var(--tx2)" id="pull-phase-label">Deep Pull Running...</span>
+         <span style="font-size:14px;font-family:monospace;color:var(--ac)" id="pull-counts"></span>
         </div>
         <div style="background:var(--sf2);border-radius:8px;height:22px;overflow:hidden;position:relative;border:1px solid var(--bd)">
          <div id="pull-bar-fill" style="height:100%;border-radius:8px;transition:width .5s;background:linear-gradient(90deg,#4f8cff,#34d399);width:0%"></div>
-         <span id="pull-bar-text" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:11px;font-weight:600;color:#fff;white-space:nowrap">Starting...</span>
+         <span id="pull-bar-text" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:14px;font-weight:600;color:#fff;white-space:nowrap">Starting...</span>
         </div>
-        <div style="margin-top:6px;font-size:11px;color:var(--tx2)" id="pull-detail-text"></div>
-        <div id="pull-errors" style="margin-top:6px;font-size:11px;color:#f87171;display:none"></div>
+        <div style="margin-top:6px;font-size:14px;color:var(--tx2)" id="pull-detail-text"></div>
+        <div id="pull-errors" style="margin-top:6px;font-size:14px;color:#f87171;display:none"></div>
        </div>
        <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="g-btn g-btn-go" id="deep-pull-btn" onclick="startDeepPull()">🔍 Deep Pull SCPRS</button>
@@ -202,18 +202,18 @@ def intelligence_page():
       <div class="card">
        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
         <h3 style="margin:0">🔥 Buyer Database ({total_buyers})</h3>
-        <input id="buyer-search" placeholder="Filter buyers..." style="padding:6px 10px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:12px;width:180px" oninput="filterBuyers()">
+        <input id="buyer-search" placeholder="Filter buyers..." style="padding:6px 10px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:14px;width:180px" oninput="filterBuyers()">
        </div>
        {'<div style="overflow-x:auto"><table id="buyer-table"><thead><tr><th>Agency</th><th>Name</th><th>Email</th><th>Categories</th><th>Spend</th><th>Score</th><th>Status</th><th></th></tr></thead><tbody id="buyer-tbody">' + ''.join(
            f'<tr data-search="{b.get("agency","").lower()} {b.get("name","").lower()} {b.get("email","").lower()}">'
            f'<td style="font-weight:600">{b.get("agency","—")}</td>'
            f'<td>{b.get("name") or b.get("buyer_name","—")}</td>'
-           f'<td style="font-family:monospace;font-size:11px"><a href="mailto:{b.get("email","")}" style="color:var(--ac)">{b.get("email","—")}</a></td>'
-           f'<td style="font-size:11px">{", ".join(list(b.get("categories",{}).keys())[:2])}</td>'
+           f'<td style="font-family:monospace;font-size:14px"><a href="mailto:{b.get("email","")}" style="color:var(--ac)">{b.get("email","—")}</a></td>'
+           f'<td style="font-size:14px">{", ".join(list(b.get("categories",{}).keys())[:2])}</td>'
            f'<td class="mono" style="color:#3fb950">${b.get("total_spend",0):,.0f}</td>'
            f'<td class="mono" style="color:#a78bfa">{b.get("opportunity_score",0) or int((b.get("score",0) or 0)*100)}</td>'
-           f'<td><span style="font-size:10px;padding:2px 8px;border-radius:8px;background:rgba(79,140,255,.15);color:var(--ac)">{b.get("outreach_status","new")}</span></td>'
-           f'<td><a href="/growth/prospect/{b.get("id","")}" style="color:var(--ac);font-size:11px">View →</a></td>'
+           f'<td><span style="font-size:13px;padding:2px 8px;border-radius:8px;background:rgba(79,140,255,.15);color:var(--ac)">{b.get("outreach_status","new")}</span></td>'
+           f'<td><a href="/growth/prospect/{b.get("id","")}" style="color:var(--ac);font-size:14px">View →</a></td>'
            f'</tr>'
            for b in buyers
        ) + '</tbody></table></div>' if has_buyers else '<div style="text-align:center;padding:32px;color:var(--tx2)"><div style="font-size:32px;margin-bottom:10px">📭</div><div style="font-size:14px;font-weight:600;margin-bottom:6px">No buyers yet</div><div style="font-size:13px;margin-bottom:16px">Use the buttons above to pull from SCPRS, import CSV, or add manually</div><button class="g-btn g-btn-warn" onclick="seedDemo(this)" style="margin:0 auto">🌱 Load Demo Data (15 CA agencies)</button></div>'}
@@ -235,13 +235,13 @@ def intelligence_page():
        <h3>📈 Revenue Goal — 2026</h3>
        <div style="background:var(--sf2);border-radius:8px;height:22px;overflow:hidden;position:relative;margin-bottom:10px">
         <div style="background:{bar_color};height:100%;width:{pct}%;border-radius:8px;transition:width .5s"></div>
-        <span style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:11px;font-weight:700;color:#fff">${closed:,.0f} / $2M</span>
+        <span style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:14px;font-weight:700;color:#fff">${closed:,.0f} / $2M</span>
        </div>
-       <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px;margin-bottom:12px">
-        <div style="background:var(--sf2);border-radius:6px;padding:8px;text-align:center"><div style="color:var(--tx2);font-size:9px;text-transform:uppercase">Gap</div><div style="font-weight:700;color:#f85149;font-family:monospace">${gap:,.0f}</div></div>
-        <div style="background:var(--sf2);border-radius:6px;padding:8px;text-align:center"><div style="color:var(--tx2);font-size:9px;text-transform:uppercase">Mo. Needed</div><div style="font-weight:700;color:#fbbf24;font-family:monospace">${monthly:,.0f}</div></div>
-        <div style="background:var(--sf2);border-radius:6px;padding:8px;text-align:center"><div style="color:var(--tx2);font-size:9px;text-transform:uppercase">Run Rate</div><div style="font-weight:700;color:{'#3fb950' if on_track else '#f87171'};font-family:monospace">${run_rate:,.0f}</div></div>
-        <div style="background:var(--sf2);border-radius:6px;padding:8px;text-align:center"><div style="color:var(--tx2);font-size:9px;text-transform:uppercase">Pipeline</div><div style="font-weight:700;color:#58a6ff;font-family:monospace">${pipeline:,.0f}</div></div>
+       <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:14px;margin-bottom:12px">
+        <div style="background:var(--sf2);border-radius:6px;padding:8px;text-align:center"><div style="color:var(--tx2);font-size:13px;text-transform:uppercase">Gap</div><div style="font-weight:700;color:#f85149;font-family:monospace">${gap:,.0f}</div></div>
+        <div style="background:var(--sf2);border-radius:6px;padding:8px;text-align:center"><div style="color:var(--tx2);font-size:13px;text-transform:uppercase">Mo. Needed</div><div style="font-weight:700;color:#fbbf24;font-family:monospace">${monthly:,.0f}</div></div>
+        <div style="background:var(--sf2);border-radius:6px;padding:8px;text-align:center"><div style="color:var(--tx2);font-size:13px;text-transform:uppercase">Run Rate</div><div style="font-weight:700;color:{'#3fb950' if on_track else '#f87171'};font-family:monospace">${run_rate:,.0f}</div></div>
+        <div style="background:var(--sf2);border-radius:6px;padding:8px;text-align:center"><div style="color:var(--tx2);font-size:13px;text-transform:uppercase">Pipeline</div><div style="font-weight:700;color:#58a6ff;font-family:monospace">${pipeline:,.0f}</div></div>
        </div>
        <div style="display:flex;gap:6px">
         <button class="g-btn g-btn-go" onclick="openLogRevenue()" style="flex:1;justify-content:center">💰 Log Revenue</button>
@@ -252,10 +252,10 @@ def intelligence_page():
       <!-- Pull status -->
       <div class="card">
        <h3>📡 Pull Status</h3>
-       <div id="pull-status-card" style="font-size:12px">
+       <div id="pull-status-card" style="font-size:14px">
         {'<div style="color:#f87171">⚠️ Last pull failed: ' + pull.get("progress","")[:80] + '</div>' if pull.get("phase") == "error" else '<div style="color:var(--tx2)">No pull run yet</div>' if not pull.get("phase") else '<div style="color:#3fb950">✅ ' + str(pull.get("progress",""))[:80] + '</div>'}
-        {f'<div style="font-size:11px;color:var(--tx2);margin-top:6px">{pull.get("total_buyers",0)} buyers · {pull.get("total_agencies",0)} agencies · {pull.get("total_pos",0)} POs scanned</div>' if pull.get("total_buyers") else ''}
-        {f'<div style="font-size:11px;color:var(--tx2);margin-top:4px">Finished: {str(pull.get("finished_at",""))[:16].replace("T"," ")}</div>' if pull.get("finished_at") else ''}
+        {f'<div style="font-size:14px;color:var(--tx2);margin-top:6px">{pull.get("total_buyers",0)} buyers · {pull.get("total_agencies",0)} agencies · {pull.get("total_pos",0)} POs scanned</div>' if pull.get("total_buyers") else ''}
+        {f'<div style="font-size:14px;color:var(--tx2);margin-top:4px">Finished: {str(pull.get("finished_at",""))[:16].replace("T"," ")}</div>' if pull.get("finished_at") else ''}
        </div>
       </div>
 
@@ -265,17 +265,17 @@ def intelligence_page():
         <h3 style="margin:0" id="result-title">Result</h3>
         <button onclick="document.getElementById('result-wrap').style.display='none'" style="background:none;border:none;color:var(--tx2);cursor:pointer;font-size:16px">✕</button>
        </div>
-       <div id="result-content" style="font-size:12px;line-height:1.6"></div>
+       <div id="result-content" style="font-size:14px;line-height:1.6"></div>
       </div>
 
       <!-- CSV template -->
       <div class="card">
        <h3>📋 CSV Import Format</h3>
-       <div style="font-size:11px;color:var(--tx2);margin-bottom:8px">Copy this template, fill it out, and click Import CSV:</div>
-       <pre style="font-size:10px;background:var(--sf2);padding:10px;border-radius:6px;overflow-x:auto;color:var(--tx);line-height:1.4">agency,email,name,phone,categories,annual_spend,notes
+       <div style="font-size:14px;color:var(--tx2);margin-bottom:8px">Copy this template, fill it out, and click Import CSV:</div>
+       <pre style="font-size:13px;background:var(--sf2);padding:10px;border-radius:6px;overflow-x:auto;color:var(--tx);line-height:1.4">agency,email,name,phone,categories,annual_spend,notes
 CDCR,j.smith@cdcr.ca.gov,John Smith,916-445-1000,"Medical,Safety",125000,High priority
 CalTrans,m.jones@dot.ca.gov,Mary Jones,916-654-2000,Office,45000,</pre>
-       <button class="g-btn" onclick="copyTemplate(this)" style="margin-top:6px;font-size:11px;padding:5px 10px">📋 Copy Template</button>
+       <button class="g-btn" onclick="copyTemplate(this)" style="margin-top:6px;font-size:14px;padding:5px 10px">📋 Copy Template</button>
       </div>
 
      </div>
@@ -311,7 +311,7 @@ CalTrans,m.jones@dot.ca.gov,Mary Jones,916-654-2000,Office,45000,</pre>
        <span style="font-size:16px;font-weight:700">📥 Import Buyers CSV</span>
        <button onclick="closeModal('csv-modal')" style="background:none;border:none;color:var(--tx2);cursor:pointer;font-size:20px">✕</button>
       </div>
-      <div style="font-size:12px;color:var(--tx2);margin-bottom:10px">Paste CSV with headers: agency, email, name, phone, categories, annual_spend, notes</div>
+      <div style="font-size:14px;color:var(--tx2);margin-bottom:10px">Paste CSV with headers: agency, email, name, phone, categories, annual_spend, notes</div>
       <textarea id="csv-input" class="form-input" rows="10" placeholder="agency,email,name,phone,categories,annual_spend,notes&#10;CDCR,j.smith@cdcr.ca.gov,John Smith,916-445-1000,&quot;Medical,Safety&quot;,125000,"></textarea>
       <div style="display:flex;gap:8px;margin-top:4px">
        <button onclick="submitCSV()" class="g-btn g-btn-go" style="flex:1;justify-content:center;padding:12px">📥 Import</button>
@@ -851,7 +851,7 @@ def campaigns_page():
          <td style="text-align:center">{total}</td>
          <td style="text-align:center">{called}/{total} ({pct}%)</td>
          <td style="text-align:center">{reached}</td>
-         <td class="mono" style="font-size:11px">{c.get('created_at','')[:10]}</td>
+         <td class="mono" style="font-size:14px">{c.get('created_at','')[:10]}</td>
         </tr>"""
 
     return render_page("voice_campaigns.html", active_page="CRM",
@@ -882,15 +882,15 @@ def campaign_detail(cid):
         outcome_color = {"reached": "var(--gn)", "voicemail": "var(--yl)", "interested": "var(--ac)",
                          "no_answer": "var(--tx2)", "callback": "var(--warn)", "not_interested": "var(--rd)"}.get(outcome, "var(--tx2)")
         phone = c.get("phone", "")
-        dial_btn = f'<button class="btn btn-sm" onclick="dialContact({i})" style="background:rgba(52,211,153,.15);color:var(--gn);border:1px solid rgba(52,211,153,.3);padding:2px 8px;font-size:10px">📞 Dial</button>' if c["status"] == "pending" and phone else ""
-        outcome_btn = f'<select onchange="logOutcome(\'{phone}\',this.value)" style="font-size:10px;padding:2px;background:var(--sf);border:1px solid var(--bd);border-radius:4px;color:var(--tx)"><option value="">Log outcome...</option><option value="reached">✅ Reached</option><option value="voicemail">📱 Voicemail</option><option value="no_answer">❌ No Answer</option><option value="callback">📞 Callback</option><option value="interested">🎯 Interested</option><option value="not_interested">👎 Not Interested</option><option value="gatekeeper">🚪 Gatekeeper</option></select>' if c["status"] == "pending" or (c["status"] == "called" and not outcome) else ""
+        dial_btn = f'<button class="btn btn-sm" onclick="dialContact({i})" style="background:rgba(52,211,153,.15);color:var(--gn);border:1px solid rgba(52,211,153,.3);padding:2px 8px;font-size:13px">📞 Dial</button>' if c["status"] == "pending" and phone else ""
+        outcome_btn = f'<select onchange="logOutcome(\'{phone}\',this.value)" style="font-size:13px;padding:2px;background:var(--sf);border:1px solid var(--bd);border-radius:4px;color:var(--tx)"><option value="">Log outcome...</option><option value="reached">✅ Reached</option><option value="voicemail">📱 Voicemail</option><option value="no_answer">❌ No Answer</option><option value="callback">📞 Callback</option><option value="interested">🎯 Interested</option><option value="not_interested">👎 Not Interested</option><option value="gatekeeper">🚪 Gatekeeper</option></select>' if c["status"] == "pending" or (c["status"] == "called" and not outcome) else ""
 
         contact_rows += f"""<tr>
          <td style="font-weight:500">{c.get('name','?')}</td>
-         <td class="mono" style="font-size:11px">{phone or '<span style=\"color:var(--rd)\">no phone</span>'}</td>
-         <td style="font-size:11px">{c.get('institution','')}</td>
-         <td style="font-size:11px">{c.get('script', camp.get('script_key',''))}</td>
-         <td style="text-align:center"><span style="color:{outcome_color};font-weight:600;font-size:11px">{outcome or c.get('status','')}</span></td>
+         <td class="mono" style="font-size:14px">{phone or '<span style=\"color:var(--rd)\">no phone</span>'}</td>
+         <td style="font-size:14px">{c.get('institution','')}</td>
+         <td style="font-size:14px">{c.get('script', camp.get('script_key',''))}</td>
+         <td style="text-align:center"><span style="color:{outcome_color};font-weight:600;font-size:14px">{outcome or c.get('status','')}</span></td>
          <td style="text-align:center;white-space:nowrap">{dial_btn} {outcome_btn}</td>
         </tr>"""
 

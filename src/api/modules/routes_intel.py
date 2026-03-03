@@ -379,11 +379,11 @@ def page_vendors():
     manual = [v for v in vendors if v.get("integration_status") == "manual_only"]
 
     STATUS_BADGE = {
-        "active": ("<span style='color:var(--gn);font-size:11px;font-weight:600'>● ACTIVE</span>", "var(--gn)"),
-        "email_po": ("<span style='color:var(--ac);font-size:11px;font-weight:600'>✉ EMAIL PO</span>", "var(--ac)"),
-        "setup_needed": ("<span style='color:var(--yl);font-size:11px;font-weight:600'>⚙ SETUP</span>", "var(--yl)"),
-        "ready": ("<span style='color:var(--or);font-size:11px;font-weight:600'>◑ PARTIAL</span>", "var(--or)"),
-        "manual_only": ("<span style='color:var(--tx2);font-size:11px'>— MANUAL</span>", "var(--tx2)"),
+        "active": ("<span style='color:var(--gn);font-size:14px;font-weight:600'>● ACTIVE</span>", "var(--gn)"),
+        "email_po": ("<span style='color:var(--ac);font-size:14px;font-weight:600'>✉ EMAIL PO</span>", "var(--ac)"),
+        "setup_needed": ("<span style='color:var(--yl);font-size:14px;font-weight:600'>⚙ SETUP</span>", "var(--yl)"),
+        "ready": ("<span style='color:var(--or);font-size:14px;font-weight:600'>◑ PARTIAL</span>", "var(--or)"),
+        "manual_only": ("<span style='color:var(--tx2);font-size:14px'>— MANUAL</span>", "var(--tx2)"),
     }
     
     def vendor_row(v):
@@ -398,16 +398,16 @@ def page_vendors():
         # Vendor intelligence score
         oscore = v.get("overall_score", 0) or 0
         score_color = "var(--gn)" if oscore >= 70 else "var(--yl)" if oscore >= 40 else "var(--rd)" if oscore > 0 else "var(--tx2)"
-        score_html = f'<div style="display:flex;align-items:center;gap:5px"><div style="background:var(--sf2);border-radius:3px;height:6px;width:40px;overflow:hidden"><div style="width:{oscore}%;height:100%;background:{score_color};border-radius:3px"></div></div><span style="font-size:11px;font-family:monospace">{oscore:.0f}</span></div>' if oscore > 0 else '<span style="font-size:10px;color:var(--tx2)">—</span>'
+        score_html = f'<div style="display:flex;align-items:center;gap:5px"><div style="background:var(--sf2);border-radius:3px;height:6px;width:40px;overflow:hidden"><div style="width:{oscore}%;height:100%;background:{score_color};border-radius:3px"></div></div><span style="font-size:14px;font-family:monospace">{oscore:.0f}</span></div>' if oscore > 0 else '<span style="font-size:13px;color:var(--tx2)">—</span>'
         return f"""<tr style="border-bottom:1px solid var(--bd)">
   <td style="padding:10px 12px;font-weight:500;color:{color}">{name}</td>
-  <td style="padding:10px 12px;font-size:12px">{badge_html}</td>
-  <td style="padding:10px 12px;font-size:12px">{score_html}</td>
-  <td style="padding:10px 12px;font-size:11px;color:var(--tx2)">{cats}</td>
-  <td style="padding:10px 12px;font-size:11px;color:var(--ac)">{email}</td>
-  <td style="padding:10px 12px;font-size:11px;color:var(--tx2)">{phone}</td>
-  <td style="padding:10px 12px;font-size:11px;color:var(--yl)">{f"${float(balance):,.2f}" if balance else ""}</td>
-  <td style="padding:10px 12px;font-size:11px;color:var(--tx2);max-width:200px">{note[:80] if note else ""}</td>
+  <td style="padding:10px 12px;font-size:14px">{badge_html}</td>
+  <td style="padding:10px 12px;font-size:14px">{score_html}</td>
+  <td style="padding:10px 12px;font-size:14px;color:var(--tx2)">{cats}</td>
+  <td style="padding:10px 12px;font-size:14px;color:var(--ac)">{email}</td>
+  <td style="padding:10px 12px;font-size:14px;color:var(--tx2)">{phone}</td>
+  <td style="padding:10px 12px;font-size:14px;color:var(--yl)">{f"${float(balance):,.2f}" if balance else ""}</td>
+  <td style="padding:10px 12px;font-size:14px;color:var(--tx2);max-width:200px">{note[:80] if note else ""}</td>
 </tr>"""
     
     # Priority vendors first
@@ -422,12 +422,12 @@ def page_vendors():
             ts = (o.get("submitted_at","")[:16] or "").replace("T"," ")
             status_color = {"submitted":"var(--ac)","confirmed":"var(--gn)","shipped":"var(--yl)","failed":"var(--rd)"}.get(o.get("status",""),("var(--tx2)"))
             orders_html += f"""<tr>
-  <td style="padding:8px 12px;font-size:12px">{ts}</td>
-  <td style="padding:8px 12px;font-size:12px;font-weight:500">{o.get("vendor_name","")}</td>
-  <td style="padding:8px 12px;font-size:12px;font-family:'JetBrains Mono',monospace">{o.get("po_number","")}</td>
-  <td style="padding:8px 12px;font-size:12px">{o.get("quote_number","")}</td>
-  <td style="padding:8px 12px;font-size:12px">${o.get("total",0):,.2f}</td>
-  <td style="padding:8px 12px;font-size:12px;color:{status_color}">{o.get("status","").upper()}</td>
+  <td style="padding:8px 12px;font-size:14px">{ts}</td>
+  <td style="padding:8px 12px;font-size:14px;font-weight:500">{o.get("vendor_name","")}</td>
+  <td style="padding:8px 12px;font-size:14px;font-family:'JetBrains Mono',monospace">{o.get("po_number","")}</td>
+  <td style="padding:8px 12px;font-size:14px">{o.get("quote_number","")}</td>
+  <td style="padding:8px 12px;font-size:14px">${o.get("total",0):,.2f}</td>
+  <td style="padding:8px 12px;font-size:14px;color:{status_color}">{o.get("status","").upper()}</td>
 </tr>"""
     else:
         orders_html = '<tr><td colspan="6" style="padding:20px;text-align:center;color:var(--tx2)">No vendor orders yet — orders appear here when quotes are won</td></tr>'
@@ -958,12 +958,12 @@ def universal_search_page():
         rows_html += f"""
         <a href="{r['url']}" style="display:block;text-decoration:none;padding:14px 16px;border-bottom:1px solid var(--bd);transition:background .1s" onmouseover="this.style.background='rgba(79,140,255,.06)'" onmouseout="this.style.background=''">
          <div style="display:flex;align-items:center;gap:12px">
-          <span style="font-size:11px;padding:3px 8px;border-radius:10px;color:{color};background:{bg};white-space:nowrap;font-weight:600">{lbl}</span>
+          <span style="font-size:14px;padding:3px 8px;border-radius:10px;color:{color};background:{bg};white-space:nowrap;font-weight:600">{lbl}</span>
           <div style="flex:1;min-width:0">
            <div style="font-weight:600;font-size:14px;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{r['title']}</div>
-           <div style="font-size:12px;color:var(--tx2);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{r['subtitle']}</div>
+           <div style="font-size:14px;color:var(--tx2);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{r['subtitle']}</div>
           </div>
-          <div style="font-size:11px;color:var(--tx2);white-space:nowrap;text-align:right">{r['meta']}</div>
+          <div style="font-size:14px;color:var(--tx2);white-space:nowrap;text-align:right">{r['meta']}</div>
           <span style="color:var(--ac);font-size:16px">→</span>
          </div>
         </a>"""
@@ -973,7 +973,7 @@ def universal_search_page():
         for t, count in breakdown.items():
             if count:
                 color, bg, lbl = type_styles.get(t, ("#8b949e","rgba(139,148,160,.12)",t))
-                breakdown_html += f'<span style="font-size:12px;padding:3px 10px;border-radius:10px;color:{color};background:{bg}">{lbl}: {count}</span>'
+                breakdown_html += f'<span style="font-size:14px;padding:3px 10px;border-radius:10px;color:{color};background:{bg}">{lbl}: {count}</span>'
 
     empty_state = ""
     if q and len(q) >= 2 and not results:
@@ -990,7 +990,7 @@ def universal_search_page():
         </div>"""
 
     q_escaped = q.replace('"','&quot;')
-    type_badges = ''.join(f'<span style="font-size:11px;padding:2px 8px;border-radius:8px;color:{c};background:{bg}">{lbl}</span>' for t,(c,bg,lbl) in type_styles.items())
+    type_badges = ''.join(f'<span style="font-size:14px;padding:2px 8px;border-radius:8px;color:{c};background:{bg}">{lbl}</span>' for t,(c,bg,lbl) in type_styles.items())
     return render_page("search.html", active_page="Search",
         q=q, q_escaped=q_escaped, results=results,
         rows_html=rows_html, breakdown_html=breakdown_html,
@@ -1054,7 +1054,7 @@ def quotes_list():
 
         lbl, color, bg = status_cfg.get(st, status_cfg["pending"])
         po = qt.get("po_number", "")
-        po_html = f'<br><span style="font-size:10px;color:#8b949e">PO: {po}</span>' if po else ""
+        po_html = f'<br><span style="font-size:13px;color:#8b949e">PO: {po}</span>' if po else ""
         qn = qt.get("quote_number", "")
         items_detail = qt.get("items_detail", [])
         items_text = qt.get("items_text", "")
@@ -1065,16 +1065,16 @@ def quotes_list():
             for it in items_detail[:10]:
                 desc = str(it.get("description", ""))[:80]
                 pn = it.get("part_number", "")
-                pn_link = f'<a href="https://amazon.com/dp/{pn}" target="_blank" style="color:#58a6ff;font-size:10px">{pn}</a>' if pn and pn.startswith("B0") else (f'<span style="color:#8b949e;font-size:10px">{pn}</span>' if pn else "")
-                detail_rows += f'<div style="display:flex;gap:8px;align-items:baseline;padding:2px 0"><span style="color:var(--tx2);font-size:11px;flex:1">{desc}</span>{pn_link}<span style="font-family:monospace;font-size:11px;color:#d29922">${it.get("unit_price",0):.2f} × {it.get("qty",0)}</span></div>'
+                pn_link = f'<a href="https://amazon.com/dp/{pn}" target="_blank" style="color:#58a6ff;font-size:13px">{pn}</a>' if pn and pn.startswith("B0") else (f'<span style="color:#8b949e;font-size:13px">{pn}</span>' if pn else "")
+                detail_rows += f'<div style="display:flex;gap:8px;align-items:baseline;padding:2px 0"><span style="color:var(--tx2);font-size:14px;flex:1">{desc}</span>{pn_link}<span style="font-family:monospace;font-size:14px;color:#d29922">${it.get("unit_price",0):.2f} × {it.get("qty",0)}</span></div>'
         elif items_text:
-            detail_rows = f'<div style="color:var(--tx2);font-size:11px;padding:2px 0">{items_text[:200]}</div>'
+            detail_rows = f'<div style="color:var(--tx2);font-size:14px;padding:2px 0">{items_text[:200]}</div>'
 
         detail_id = f"detail-{qn.replace(' ','')}"
-        toggle = f"""<button onclick="document.getElementById('{detail_id}').style.display=document.getElementById('{detail_id}').style.display==='none'?'table-row':'none'" style="background:none;border:none;cursor:pointer;font-size:10px;color:var(--tx2);padding:0" title="Show items">▶ {qt.get('items_count',0)}</button>""" if (items_detail or items_text) else str(qt.get('items_count', 0))
+        toggle = f"""<button onclick="document.getElementById('{detail_id}').style.display=document.getElementById('{detail_id}').style.display==='none'?'table-row':'none'" style="background:none;border:none;cursor:pointer;font-size:13px;color:var(--tx2);padding:0" title="Show items">▶ {qt.get('items_count',0)}</button>""" if (items_detail or items_text) else str(qt.get('items_count', 0))
 
         # Quote number links to dedicated detail page
-        test_badge = ' <span style="background:#d29922;color:#000;font-size:9px;padding:1px 5px;border-radius:4px;font-weight:700">TEST</span>' if qt.get("is_test") or qt.get("source_pc_id", "").startswith("test_") else ""
+        test_badge = ' <span style="background:#d29922;color:#000;font-size:13px;padding:1px 5px;border-radius:4px;font-weight:700">TEST</span>' if qt.get("is_test") or qt.get("source_pc_id", "").startswith("test_") else ""
         qn_cell = f'<a href="/quote/{qn}" style="color:var(--ac);text-decoration:none;font-family:\'JetBrains Mono\',monospace;font-weight:700" title="View quote details">{qn}</a>{test_badge}'
 
         # Decided rows get subtle opacity
@@ -1089,14 +1089,14 @@ def quotes_list():
          <td style="text-align:right;font-weight:600;font-family:'JetBrains Mono',monospace">${qt.get('total',0):,.2f}</td>
          <td style="text-align:center">{toggle}</td>
          <td style="text-align:center">
-          <span style="display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;color:{color};background:{bg}">{lbl}</span>{po_html}
+          <span style="display:inline-block;padding:2px 8px;border-radius:12px;font-size:14px;font-weight:600;color:{color};background:{bg}">{lbl}</span>{po_html}
          </td>
          <td style="text-align:center;white-space:nowrap">
-          {"<a href=\"/order/ORD-" + qn + "\" style=\"font-size:11px;color:#3fb950;text-decoration:none;padding:2px 6px\" title=\"View order\">📦 Order</a>" if st == "won" else "<span style=\"font-size:11px;color:#8b949e;padding:2px 6px\">lost</span>" if st == "lost" else f"<button onclick=\"markQuote('{qn}','won')\" class=\"btn btn-sm\" style=\"background:rgba(52,211,153,.15);color:#3fb950;border:1px solid rgba(52,211,153,.3);padding:2px 6px;font-size:11px;cursor:pointer\" title=\"Mark Won\">✅</button><button onclick=\"markQuote('{qn}','lost')\" class=\"btn btn-sm\" style=\"background:rgba(248,113,113,.15);color:#f85149;border:1px solid rgba(248,113,113,.3);padding:2px 6px;font-size:11px;cursor:pointer\" title=\"Mark Lost\">❌</button>" if st not in ("expired",) else "<span style=\"font-size:11px;color:#8b949e\">expired</span>"}
+          {"<a href=\"/order/ORD-" + qn + "\" style=\"font-size:14px;color:#3fb950;text-decoration:none;padding:2px 6px\" title=\"View order\">📦 Order</a>" if st == "won" else "<span style=\"font-size:14px;color:#8b949e;padding:2px 6px\">lost</span>" if st == "lost" else f"<button onclick=\"markQuote('{qn}','won')\" class=\"btn btn-sm\" style=\"background:rgba(52,211,153,.15);color:#3fb950;border:1px solid rgba(52,211,153,.3);padding:2px 6px;font-size:14px;cursor:pointer\" title=\"Mark Won\">✅</button><button onclick=\"markQuote('{qn}','lost')\" class=\"btn btn-sm\" style=\"background:rgba(248,113,113,.15);color:#f85149;border:1px solid rgba(248,113,113,.3);padding:2px 6px;font-size:14px;cursor:pointer\" title=\"Mark Lost\">❌</button>" if st not in ("expired",) else "<span style=\"font-size:14px;color:#8b949e\">expired</span>"}
           {dl}
          </td>
         </tr>
-        <tr id="{detail_id}" style="display:none"><td colspan="9" style="background:var(--sf2);padding:8px 16px;border-left:3px solid var(--ac)">{detail_rows if detail_rows else '<span style="color:var(--tx2);font-size:11px">No item details available</span>'}</td></tr>"""
+        <tr id="{detail_id}" style="display:none"><td colspan="9" style="background:var(--sf2);padding:8px 16px;border-left:3px solid var(--ac)">{detail_rows if detail_rows else '<span style="color:var(--tx2);font-size:14px">No item details available</span>'}</td></tr>"""
 
     # Win rate stats bar
     wr = stats.get("win_rate", 0)
@@ -1320,7 +1320,7 @@ def quote_detail(qn):
     history = qt.get("status_history", [])
     history_html = ""
     for h in reversed(history[-10:]):
-        history_html += f'<div style="font-size:11px;color:var(--tx2);padding:3px 0"><span class="mono">{h.get("timestamp","")[:16]}</span> → <b>{h.get("status","")}</b>{" by " + h.get("actor","") if h.get("actor") else ""}{" (PO: " + h["po_number"] + ")" if h.get("po_number") else ""}</div>'
+        history_html += f'<div style="font-size:14px;color:var(--tx2);padding:3px 0"><span class="mono">{h.get("timestamp","")[:16]}</span> → <b>{h.get("status","")}</b>{" by " + h.get("actor","") if h.get("actor") else ""}{" (PO: " + h["po_number"] + ")" if h.get("po_number") else ""}</div>'
 
     # Build action buttons separately to avoid f-string escaping
     if st in ('pending', 'sent'):
@@ -1390,12 +1390,12 @@ def pipeline_page():
         pct = max(5, round(count / max_count * 100))
         return f"""<div style="margin-bottom:8px">
          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-          <span style="font-size:12px;font-weight:600">{label}</span>
+          <span style="font-size:14px;font-weight:600">{label}</span>
           <span style="font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:700;color:{color}">{count}</span>
          </div>
          <div style="background:var(--sf2);border-radius:6px;height:24px;overflow:hidden">
           <div style="width:{pct}%;height:100%;background:{color};border-radius:6px;display:flex;align-items:center;padding-left:8px">
-           <span style="font-size:10px;color:#fff;font-weight:600">{sublabel}</span>
+           <span style="font-size:13px;color:#fff;font-weight:600">{sublabel}</span>
           </div>
          </div>
         </div>"""
@@ -1420,9 +1420,9 @@ def pipeline_page():
     for e in recent:
         icon = evt_icons.get(e.get("event_type", ""), "●")
         ts = e.get("timestamp", "")[:16].replace("T", " ")
-        events_html += f"""<div style="padding:6px 0;border-bottom:1px solid var(--bd);font-size:12px;display:flex;gap:8px;align-items:flex-start">
+        events_html += f"""<div style="padding:6px 0;border-bottom:1px solid var(--bd);font-size:14px;display:flex;gap:8px;align-items:flex-start">
          <span style="flex-shrink:0">{icon}</span>
-         <div style="flex:1"><div>{e.get('description','')[:100]}</div><div style="color:var(--tx2);font-size:10px;margin-top:2px">{ts}</div></div>
+         <div style="flex:1"><div>{e.get('description','')[:100]}</div><div style="color:var(--tx2);font-size:13px;margin-top:2px">{ts}</div></div>
         </div>"""
 
     # ── Prediction leaderboard for pending quotes ──
@@ -1441,7 +1441,7 @@ def pipeline_page():
         for q in preds[:10]:
             prob = round(q["win_prob"] * 100)
             clr = "#3fb950" if prob >= 60 else ("#d29922" if prob >= 40 else "#f85149")
-            predictions_html += f"""<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--bd);font-size:12px">
+            predictions_html += f"""<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--bd);font-size:14px">
              <span style="font-family:'JetBrains Mono',monospace;font-weight:700;color:{clr};min-width:36px">{prob}%</span>
              <a href="/quote/{q.get('quote_number','')}" style="color:var(--ac);text-decoration:none;font-weight:600">{q.get('quote_number','')}</a>
              <span style="color:var(--tx2);flex:1">{q.get('institution','')[:30]}</span>
@@ -2095,9 +2095,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .card{background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px;margin-bottom:14px}
 .row{display:flex;align-items:flex-start;gap:12px;padding:10px 0;border-bottom:1px solid var(--bd)}
 .row:last-child{border-bottom:none}
-.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.5px}
 .pass{background:rgba(52,211,153,.15);color:var(--gn)}.warn{background:rgba(251,191,36,.15);color:var(--yl)}.fail{background:rgba(248,113,113,.15);color:var(--rd)}
-.fix{font-size:11px;color:var(--yl);margin-top:4px;font-style:italic}
+.fix{font-size:14px;color:var(--yl);margin-top:4px;font-style:italic}
 h1{font-size:22px;margin-bottom:4px}.sub{color:var(--tx2);font-size:13px;margin-bottom:20px}
 .run-btn{padding:10px 24px;background:var(--ac);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;margin-bottom:16px}
 </style></head><body>
@@ -2124,15 +2124,15 @@ function renderReport(d){
   document.getElementById('score-card').innerHTML=
     '<div style="font-size:52px;font-weight:700;color:'+col+';font-family:monospace">'+sc+'/100</div>'+
     '<div style="font-size:18px;margin:4px 0;color:'+col+'">Grade '+d.grade+'</div>'+
-    '<div style="font-size:12px;color:var(--tx2)">'+d.summary.passed+' pass · '+d.summary.warned+' warn · '+d.summary.failed+' fail · '+d.duration_s+'s</div>'+
-    '<div style="font-size:11px;color:var(--tx2);margin-top:4px">Last run: '+new Date(d.run_at).toLocaleString()+'</div>';
+    '<div style="font-size:14px;color:var(--tx2)">'+d.summary.passed+' pass · '+d.summary.warned+' warn · '+d.summary.failed+' fail · '+d.duration_s+'s</div>'+
+    '<div style="font-size:14px;color:var(--tx2);margin-top:4px">Last run: '+new Date(d.run_at).toLocaleString()+'</div>';
   var html='<div class="card"><div style="font-weight:600;margin-bottom:8px">Test Results</div>';
   (d.results||[]).forEach(function(r){
     var icon=r.status==='pass'?'✅':r.status==='warn'?'⚠️':'❌';
     html+='<div class="row"><span style="font-size:18px">'+icon+'</span>'+
       '<div style="flex:1"><div style="font-size:13px;font-weight:600">'+r.test+'<span class="badge '+r.status+'" style="margin-left:8px">'+r.status+'</span></div>'+
-      '<div style="font-size:12px;color:var(--tx2);margin-top:2px">'+r.message+'</div>'+
-      (r.detail?'<div style="font-size:11px;color:var(--tx2);margin-top:2px;font-family:monospace">'+r.detail+'</div>':'')+
+      '<div style="font-size:14px;color:var(--tx2);margin-top:2px">'+r.message+'</div>'+
+      (r.detail?'<div style="font-size:14px;color:var(--tx2);margin-top:2px;font-family:monospace">'+r.detail+'</div>':'')+
       (r.fix&&r.status!=='pass'?'<div class="fix">💡 '+r.fix+'</div>':'')+
       '</div></div>';
   });
@@ -2148,9 +2148,9 @@ function loadHistory(){
       var fails=[];try{fails=JSON.parse(r.critical_failures||'[]');}catch(e){}
       html+='<div style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--bd)">'+
         '<div style="font-family:monospace;font-size:18px;font-weight:700;color:'+col+';width:60px">'+r.score+'</div>'+
-        '<div style="flex:1"><div style="font-size:12px;color:var(--tx2)">'+new Date(r.run_at).toLocaleString()+'</div>'+
-        (fails.length?'<div style="font-size:11px;color:var(--rd);margin-top:2px">'+fails[0]+'</div>':'<div style="font-size:11px;color:var(--gn)">All clear</div>')+'</div>'+
-        '<div style="font-size:11px;color:var(--tx2)">'+r.passed+'P '+r.warned+'W '+r.failed+'F</div>'+
+        '<div style="flex:1"><div style="font-size:14px;color:var(--tx2)">'+new Date(r.run_at).toLocaleString()+'</div>'+
+        (fails.length?'<div style="font-size:14px;color:var(--rd);margin-top:2px">'+fails[0]+'</div>':'<div style="font-size:14px;color:var(--gn)">All clear</div>')+'</div>'+
+        '<div style="font-size:14px;color:var(--tx2)">'+r.passed+'P '+r.warned+'W '+r.failed+'F</div>'+
         '</div>';
     });
     html+='</div>';
@@ -3746,27 +3746,27 @@ def growth_prospect_detail(prospect_id):
         etype = ev.get("type","").replace("_"," ").title()
         detail = ev.get("detail","")
         actor = ev.get("actor","")
-        actor_badge = f'<span style="font-size:9px;padding:1px 6px;border-radius:8px;background:rgba(79,140,255,.15);color:var(--ac);margin-left:4px">{actor}</span>' if actor and actor != "system" else ""
+        actor_badge = f'<span style="font-size:13px;padding:1px 6px;border-radius:8px;background:rgba(79,140,255,.15);color:var(--ac);margin-left:4px">{actor}</span>' if actor and actor != "system" else ""
         meta = ev.get("metadata",{})
         meta_html = ""
         if meta.get("amount"): meta_html += f' · <span style="color:#3fb950">${float(meta["amount"]):,.0f}</span>'
         if meta.get("subject"): meta_html += f' · <i style="color:var(--tx2)">{str(meta["subject"])[:50]}</i>'
-        tl_html += f'<div style="display:flex;gap:10px;padding:10px 0;border-bottom:1px solid rgba(46,51,69,.5)"><span style="font-size:18px;flex-shrink:0;width:24px;text-align:center">{icon}</span><div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:600;display:flex;align-items:center;gap:4px">{etype}{actor_badge}</div><div style="font-size:12px;color:var(--tx2);margin-top:2px;word-break:break-word">{detail}{meta_html}</div></div><span style="font-size:10px;color:var(--tx2);font-family:monospace;white-space:nowrap;flex-shrink:0">{ts}</span></div>'
+        tl_html += f'<div style="display:flex;gap:10px;padding:10px 0;border-bottom:1px solid rgba(46,51,69,.5)"><span style="font-size:18px;flex-shrink:0;width:24px;text-align:center">{icon}</span><div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:600;display:flex;align-items:center;gap:4px">{etype}{actor_badge}</div><div style="font-size:14px;color:var(--tx2);margin-top:2px;word-break:break-word">{detail}{meta_html}</div></div><span style="font-size:13px;color:var(--tx2);font-family:monospace;white-space:nowrap;flex-shrink:0">{ts}</span></div>'
     if not tl_html:
         tl_html = '<div style="color:var(--tx2);font-size:13px;padding:16px;text-align:center">No activity yet — log a call, email, or note above</div>'
 
     # PO history
     po_html = ""
     for po in pr.get("purchase_orders",[]):
-        po_html += f'<tr><td class="mono" style="color:var(--ac)">{po.get("po_number","—")}</td><td class="mono">{po.get("date","—")}</td><td style="font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{str(po.get("items","—"))[:80]}</td><td style="font-size:11px">{po.get("category","—")}</td><td class="mono" style="color:#3fb950;text-align:right">${po.get("total_num",0) or po.get("total",0) or 0:,.0f}</td></tr>'
+        po_html += f'<tr><td class="mono" style="color:var(--ac)">{po.get("po_number","—")}</td><td class="mono">{po.get("date","—")}</td><td style="font-size:14px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{str(po.get("items","—"))[:80]}</td><td style="font-size:14px">{po.get("category","—")}</td><td class="mono" style="color:#3fb950;text-align:right">${po.get("total_num",0) or po.get("total",0) or 0:,.0f}</td></tr>'
 
     # Items purchased
     items_html = ""
     cat_colors = {"Medical":"#f87171","Janitorial":"#3fb950","Office":"#4f8cff","IT":"#a78bfa","Facility":"#fb923c","Safety":"#fbbf24"}
     for it in pr.get("items_purchased",[])[:20]:
         cc = cat_colors.get(it.get("category",""),"#8b90a0")
-        up = f'<span style="font-size:11px;font-family:monospace;color:#3fb950">${float(it["unit_price"]):,.2f}</span>' if it.get("unit_price") else ""
-        items_html += f'<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid rgba(46,51,69,.4)"><span style="font-size:10px;padding:2px 7px;border-radius:8px;background:{cc}22;color:{cc};border:1px solid {cc}44;white-space:nowrap">{it.get("category","General")}</span><span style="font-size:12px;flex:1">{it.get("description","")}</span>{up}</div>'
+        up = f'<span style="font-size:14px;font-family:monospace;color:#3fb950">${float(it["unit_price"]):,.2f}</span>' if it.get("unit_price") else ""
+        items_html += f'<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid rgba(46,51,69,.4)"><span style="font-size:13px;padding:2px 7px;border-radius:8px;background:{cc}22;color:{cc};border:1px solid {cc}44;white-space:nowrap">{it.get("category","General")}</span><span style="font-size:14px;flex:1">{it.get("description","")}</span>{up}</div>'
 
     # Categories breakdown
     cats_dict = pr.get("categories",{})
@@ -3782,7 +3782,7 @@ def growth_prospect_detail(prospect_id):
     for cat, spend in sorted(cats_dict.items(), key=lambda x: x[1], reverse=True):
         pct = round(spend/total_cat*100)
         cc = cat_colors.get(cat,"#8b90a0")
-        cats_html += f'<div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px"><span style="color:{cc};font-weight:600">{cat}</span><span class="mono">${spend:,.0f} ({pct}%)</span></div><div style="background:var(--sf2);border-radius:4px;height:6px;overflow:hidden"><div style="width:{pct}%;height:100%;background:{cc};border-radius:4px"></div></div></div>'
+        cats_html += f'<div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:3px"><span style="color:{cc};font-weight:600">{cat}</span><span class="mono">${spend:,.0f} ({pct}%)</span></div><div style="background:var(--sf2);border-radius:4px;height:6px;overflow:hidden"><div style="width:{pct}%;height:100%;background:{cc};border-radius:4px"></div></div></div>'
 
     # Outreach records
     or_html = ""
@@ -3793,7 +3793,7 @@ def growth_prospect_detail(prospect_id):
             '<span style="color:#3fb950">✅ Replied</span> ' if o.get("response_received") else '',
             '<span style="color:#fb923c">📞 Called</span>' if o.get("voice_called") else '',
         ]))
-        or_html += f'<div style="padding:10px;background:var(--sf2);border-radius:8px;margin-bottom:8px;font-size:12px"><div style="font-weight:600;margin-bottom:4px">{o.get("email_subject","—")}</div><div style="color:var(--tx2);display:flex;gap:12px;flex-wrap:wrap"><span>To: {o.get("email","—")}</span>{flags}</div></div>'
+        or_html += f'<div style="padding:10px;background:var(--sf2);border-radius:8px;margin-bottom:8px;font-size:14px"><div style="font-weight:600;margin-bottom:4px">{o.get("email_subject","—")}</div><div style="color:var(--tx2);display:flex;gap:12px;flex-wrap:wrap"><span>To: {o.get("email","—")}</span>{flags}</div></div>'
 
     stat = pr.get("outreach_status","new")
     sc = {"new":"#4f8cff","emailed":"#fbbf24","called":"#fb923c","responded":"#a78bfa","won":"#3fb950","lost":"#f87171","dead":"#8b90a0","bounced":"#f85149","follow_up_due":"#d29922"}

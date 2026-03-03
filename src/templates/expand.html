@@ -6,19 +6,19 @@
 .t4{grid-template-columns:repeat(4,1fr)}.t3{grid-template-columns:repeat(3,1fr)}.t2{grid-template-columns:1fr 1fr}
 .kp{background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px;transition:border-color .2s}
 .kp:hover{border-color:var(--ac)}
-.kl{font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;font-weight:600}
+.kl{font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;font-weight:600}
 .kv{font-size:26px;font-weight:800;margin-top:2px;font-family:'JetBrains Mono',monospace}
-.ks{font-size:11px;color:var(--tx2);margin-top:2px}
+.ks{font-size:14px;color:var(--tx2);margin-top:2px}
 .cd{background:var(--sf);border:1px solid var(--bd);border-radius:10px;overflow:hidden}
 .ch{padding:12px 16px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center}
 .ct{font-size:14px;font-weight:700}
 .tb{display:flex;gap:0;background:var(--sf2);border-radius:6px;padding:2px}
-.ta{padding:5px 12px;font-size:11px;font-weight:600;border-radius:4px;cursor:pointer;color:var(--tx2);border:none;background:none;transition:.15s}
+.ta{padding:5px 12px;font-size:14px;font-weight:600;border-radius:4px;cursor:pointer;color:var(--tx2);border:none;background:none;transition:.15s}
 .ta.on{background:var(--ac);color:#fff}.ta:hover:not(.on){color:var(--tx)}
 .fr{border-bottom:1px solid var(--bd);transition:background .1s;cursor:pointer}
 .fr:hover{background:rgba(79,140,255,.04)}
 .fr td{padding:10px 12px;font-size:13px;vertical-align:middle}
-.bg{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;letter-spacing:.3px}
+.bg{display:inline-block;padding:2px 8px;border-radius:10px;font-size:13px;font-weight:700;letter-spacing:.3px}
 .bg-g{background:rgba(52,211,153,.12);color:#3fb950}
 .bg-b{background:rgba(88,166,255,.12);color:#58a6ff}
 .bg-x{background:rgba(110,118,129,.12);color:#8b949e}
@@ -26,7 +26,7 @@
 .bg-y{background:rgba(210,153,34,.12);color:#d2a822}
 .sb{height:6px;border-radius:3px;background:var(--sf2);overflow:hidden;width:56px;display:inline-block;vertical-align:middle}
 .sf{height:100%;border-radius:3px;transition:width .4s}
-.ab{padding:5px 12px;font-size:11px;border-radius:5px;cursor:pointer;font-weight:600;border:1px solid;transition:.15s;background:transparent}
+.ab{padding:5px 12px;font-size:14px;border-radius:5px;cursor:pointer;font-weight:600;border:1px solid;transition:.15s;background:transparent}
 .ab:hover{filter:brightness(1.2)}
 .pr{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(48,54,61,.4)}
 .pr:last-child{border:none}
@@ -37,8 +37,8 @@
 .dh{padding:16px 20px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;background:var(--bg);z-index:1}
 .db{padding:20px}
 .ds{margin-bottom:18px}
-.dt{font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;font-weight:700;margin-bottom:8px}
-.cc{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;font-size:12px;margin:3px;cursor:pointer;transition:.15s}
+.dt{font-size:14px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;font-weight:700;margin-bottom:8px}
+.cc{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;font-size:14px;margin:3px;cursor:pointer;transition:.15s}
 .cc:hover{border-color:var(--ac)}
 .tier-scprs{border-left:3px solid var(--gn)}.tier-pc{border-left:3px solid var(--ac)}.tier-crm{border-left:3px solid var(--yl)}.tier-qb{border-left:3px solid var(--tx2)}.tier-central{border-left:3px solid var(--or);opacity:.7}
 @media(max-width:900px){.t4{grid-template-columns:repeat(2,1fr)}.t3,.t2{grid-template-columns:1fr}.dw{width:100%}}
@@ -51,8 +51,8 @@
   {% if scprs_has_data %}<span style="color:var(--gn);margin-left:8px">● SCPRS Live</span>{% endif %}</p>
  </div>
  <div style="display:flex;gap:8px">
-  <button onclick="bulkOutreach()" class="hdr-btn" style="font-size:11px;padding:6px 14px;border-color:var(--gn);color:var(--gn)">🚀 Campaign</button>
-  <button onclick="triggerScprs()" class="hdr-btn" style="font-size:11px;padding:6px 14px;border-color:var(--yl);color:var(--yl)" title="Pull latest buyer data from SCPRS">⚡ SCPRS Pull</button>
+  <button onclick="bulkOutreach()" class="hdr-btn" style="font-size:14px;padding:6px 14px;border-color:var(--gn);color:var(--gn)">🚀 Campaign</button>
+  <button onclick="triggerScprs()" class="hdr-btn" style="font-size:14px;padding:6px 14px;border-color:var(--yl);color:var(--yl)" title="Pull latest buyer data from SCPRS">⚡ SCPRS Pull</button>
  </div>
 </div>
 
@@ -77,15 +77,15 @@
 {% for atype, color, icon in [("CCHCS","var(--ac)","🏛"),("CalVet","var(--gn)","🎖"),("DSH","var(--yl)","🏥")] %}
  <div style="background:var(--sf);border:1px solid var(--bd);border-left:3px solid {{ color }};border-radius:8px;padding:14px">
   <div style="display:flex;justify-content:space-between;align-items:center">
-   <span style="font-size:12px;font-weight:700;color:{{ color }}">{{ icon }} {{ atype }}</span>
-   <span style="font-size:10px;color:var(--tx2)">score {{ type_stats.get(atype,{}).get("avg_score",0) }}</span>
+   <span style="font-size:14px;font-weight:700;color:{{ color }}">{{ icon }} {{ atype }}</span>
+   <span style="font-size:13px;color:var(--tx2)">score {{ type_stats.get(atype,{}).get("avg_score",0) }}</span>
   </div>
   <div style="display:flex;gap:14px;margin-top:8px">
-   <div><span style="font-size:16px;font-weight:800;color:{{ color }}">{{ type_stats.get(atype,{}).get("active",0) }}</span><span style="font-size:10px;color:var(--tx2)"> active</span></div>
-   <div><span style="font-size:16px;font-weight:800">{{ type_stats.get(atype,{}).get("untouched",0) }}</span><span style="font-size:10px;color:var(--tx2)"> untouched</span></div>
-   <div><span style="font-size:16px;font-weight:800">{{ type_stats.get(atype,{}).get("contacts",0) }}</span><span style="font-size:10px;color:var(--tx2)"> contacts</span></div>
+   <div><span style="font-size:16px;font-weight:800;color:{{ color }}">{{ type_stats.get(atype,{}).get("active",0) }}</span><span style="font-size:13px;color:var(--tx2)"> active</span></div>
+   <div><span style="font-size:16px;font-weight:800">{{ type_stats.get(atype,{}).get("untouched",0) }}</span><span style="font-size:13px;color:var(--tx2)"> untouched</span></div>
+   <div><span style="font-size:16px;font-weight:800">{{ type_stats.get(atype,{}).get("contacts",0) }}</span><span style="font-size:13px;color:var(--tx2)"> contacts</span></div>
   </div>
-  <div style="display:flex;gap:12px;margin-top:6px;font-size:10px;color:var(--tx2)">
+  <div style="display:flex;gap:12px;margin-top:6px;font-size:13px;color:var(--tx2)">
    <span>${{ "{:,.0f}".format(type_stats.get(atype,{}).get("ar",0)) }} AR</span>
    {% if type_stats.get(atype,{}).get("scprs_spend",0) > 0 %}
    <span style="color:var(--yl)">${{ "{:,.0f}".format(type_stats.get(atype,{}).get("gap",0)) }} gap</span>
@@ -101,10 +101,10 @@
 <div class="cd">
  <div class="ch">
   <div style="display:flex;align-items:center;gap:12px">
-   <span class="ct">All Facilities</span><span style="font-size:12px;color:var(--tx2)" id="fc"></span>
+   <span class="ct">All Facilities</span><span style="font-size:14px;color:var(--tx2)" id="fc"></span>
   </div>
   <div style="display:flex;gap:8px;align-items:center">
-   <input type="text" id="fs" placeholder="Search..." oninput="rt()" style="background:var(--sf2);border:1px solid var(--bd);border-radius:5px;padding:5px 10px;font-size:11px;color:var(--tx);width:140px">
+   <input type="text" id="fs" placeholder="Search..." oninput="rt()" style="background:var(--sf2);border:1px solid var(--bd);border-radius:5px;padding:5px 10px;font-size:14px;color:var(--tx);width:140px">
    <div class="tb">
     <button class="ta on" onclick="ff('all',this)">All</button>
     <button class="ta" onclick="ff('won',this)">Active</button>
@@ -116,14 +116,14 @@
  <div style="overflow-x:auto">
   <table style="width:100%;border-collapse:collapse;min-width:850px">
    <thead><tr style="border-bottom:2px solid var(--bd)">
-    <th style="padding:10px 12px;font-size:10px;color:var(--tx2);text-align:left;text-transform:uppercase;cursor:pointer" onclick="ss('name')">Facility ↕</th>
-    <th style="padding:10px 8px;font-size:10px;color:var(--tx2);text-align:left;text-transform:uppercase">Type</th>
-    <th style="padding:10px 8px;font-size:10px;color:var(--tx2);text-align:center;text-transform:uppercase">Buyers</th>
-    <th style="padding:10px 8px;font-size:10px;color:var(--tx2);text-align:right;text-transform:uppercase;cursor:pointer" onclick="ss('ar')">AR ↕</th>
-    {% if scprs_has_data %}<th style="padding:10px 8px;font-size:10px;color:var(--tx2);text-align:right;text-transform:uppercase;cursor:pointer" onclick="ss('gap')">Gap ↕</th>{% endif %}
-    <th style="padding:10px 8px;font-size:10px;color:var(--tx2);text-align:center;text-transform:uppercase;cursor:pointer" onclick="ss('score')">Score ↕</th>
-    <th style="padding:10px 8px;font-size:10px;color:var(--tx2);text-align:left;text-transform:uppercase">Status</th>
-    <th style="padding:10px 8px;font-size:10px;color:var(--tx2);text-align:center;text-transform:uppercase">Action</th>
+    <th style="padding:10px 12px;font-size:13px;color:var(--tx2);text-align:left;text-transform:uppercase;cursor:pointer" onclick="ss('name')">Facility ↕</th>
+    <th style="padding:10px 8px;font-size:13px;color:var(--tx2);text-align:left;text-transform:uppercase">Type</th>
+    <th style="padding:10px 8px;font-size:13px;color:var(--tx2);text-align:center;text-transform:uppercase">Buyers</th>
+    <th style="padding:10px 8px;font-size:13px;color:var(--tx2);text-align:right;text-transform:uppercase;cursor:pointer" onclick="ss('ar')">AR ↕</th>
+    {% if scprs_has_data %}<th style="padding:10px 8px;font-size:13px;color:var(--tx2);text-align:right;text-transform:uppercase;cursor:pointer" onclick="ss('gap')">Gap ↕</th>{% endif %}
+    <th style="padding:10px 8px;font-size:13px;color:var(--tx2);text-align:center;text-transform:uppercase;cursor:pointer" onclick="ss('score')">Score ↕</th>
+    <th style="padding:10px 8px;font-size:13px;color:var(--tx2);text-align:left;text-transform:uppercase">Status</th>
+    <th style="padding:10px 8px;font-size:13px;color:var(--tx2);text-align:center;text-transform:uppercase">Action</th>
    </tr></thead>
    <tbody id="fb"></tbody>
   </table>
@@ -134,7 +134,7 @@
 <div class="cd" style="margin-top:16px;border-color:var(--or)">
  <div class="ch" style="background:rgba(210,153,34,.04)">
   <span class="ct" style="color:var(--or)">🏢 Central Agency Contacts</span>
-  <span style="font-size:11px;color:var(--tx2)">Shared across multiple facilities — not facility-specific buyers</span>
+  <span style="font-size:14px;color:var(--tx2)">Shared across multiple facilities — not facility-specific buyers</span>
  </div>
  <div style="padding:12px 16px" id="centralBody"></div>
 </div>
@@ -143,7 +143,7 @@
 <div class="cd" style="margin-top:16px">
  <div class="ch">
   <span class="ct">👥 Facility Buyer Registry</span>
-  <span style="font-size:12px;color:var(--tx2)" id="ccount"></span>
+  <span style="font-size:14px;color:var(--tx2)" id="ccount"></span>
  </div>
  <div style="padding:12px 16px" id="cb"></div>
 </div>
@@ -151,7 +151,7 @@
 <!-- Competitive Gaps (from market_intelligence.json) -->
 {% if n_gaps > 0 %}
 <div class="cd" style="margin-top:16px">
- <div class="ch"><span class="ct">⚔️ Competitive Product Gaps</span><span style="font-size:12px;color:var(--tx2)">{{ n_gaps }} items they buy that we should sell</span></div>
+ <div class="ch"><span class="ct">⚔️ Competitive Product Gaps</span><span style="font-size:14px;color:var(--tx2)">{{ n_gaps }} items they buy that we should sell</span></div>
  <div style="padding:12px 16px" id="gapBody"></div>
 </div>
 {% endif %}
@@ -159,7 +159,7 @@
 <!-- Product Recs -->
 <details class="cd" style="margin-top:16px">
  <summary style="padding:12px 16px;cursor:pointer;font-size:14px;font-weight:700;list-style:none;display:flex;justify-content:space-between;align-items:center">
-  <span>📦 Catalog Recommendations by Agency</span><span style="font-size:11px;color:var(--tx2);font-weight:400">from 827-product catalog</span>
+  <span>📦 Catalog Recommendations by Agency</span><span style="font-size:14px;color:var(--tx2);font-weight:400">from 827-product catalog</span>
  </summary>
  <div style="padding:0 16px 16px" id="prb"></div>
 </details>
@@ -168,7 +168,7 @@
 <div class="cd" style="margin-top:16px;border-color:var(--yl)">
  <div class="ch" style="background:rgba(210,153,34,.06)">
   <span class="ct" style="color:var(--yl)">⚠️ Re-engagement Needed</span>
-  <span style="font-size:12px;color:var(--yl)">{{ n_stale }} active accounts, no tracked orders</span>
+  <span style="font-size:14px;color:var(--yl)">{{ n_stale }} active accounts, no tracked orders</span>
  </div>
  <div style="padding:12px 16px" id="stale"></div>
 </div>
@@ -176,14 +176,14 @@
 
 <!-- SCPRS Status -->
 <div style="margin-top:16px;padding:10px 16px;background:var(--sf);border:1px solid var(--bd);border-radius:8px;display:flex;justify-content:space-between;align-items:center">
- <div style="font-size:11px;color:var(--tx2)">
+ <div style="font-size:14px;color:var(--tx2)">
   {% if scprs_has_data %}
   <span style="color:var(--gn)">● SCPRS Data Active</span> · Last pull: {{ scprs_last_pull[:10] if scprs_last_pull else 'unknown' }} · {{ scprs_total_buyers }} unique buyers discovered
   {% else %}
   <span style="color:var(--tx2)">○ SCPRS Not Yet Pulled</span> · Click ⚡ SCPRS Pull to discover real buyer contacts at each facility
   {% endif %}
  </div>
- <div style="font-size:10px;color:var(--tx2)">
+ <div style="font-size:13px;color:var(--tx2)">
   Contact tiers: <span style="color:var(--gn)">■</span> SCPRS Buyer
   <span style="color:var(--ac)">■</span> PC Requestor
   <span style="color:var(--yl)">■</span> CRM
@@ -195,7 +195,7 @@
 <!-- Drawer -->
 <div class="do" id="dov" onclick="cd()"></div>
 <div class="dw" id="dwr">
- <div class="dh"><div><div style="font-size:16px;font-weight:700" id="dn"></div><div style="font-size:11px;color:var(--tx2)" id="dty"></div></div>
+ <div class="dh"><div><div style="font-size:16px;font-weight:700" id="dn"></div><div style="font-size:14px;color:var(--tx2)" id="dty"></div></div>
   <button onclick="cd()" style="background:none;border:none;color:var(--tx2);font-size:20px;cursor:pointer">✕</button>
  </div>
  <div class="db" id="dbd"></div>
@@ -229,8 +229,8 @@ function rt(){
   // Buyer column: count + tier indicators
   var nc=f.contacts.length,ns=f.scprs_buyers?f.scprs_buyers.length:0;
   var bh=nc>0?'<span style="font-weight:600;color:var(--ac)">'+nc+'</span>':'<span style="color:var(--tx2)">0</span>';
-  if(ns>0)bh+=' <span style="font-size:9px;color:var(--gn);font-weight:700" title="'+ns+' SCPRS buyers">S'+ns+'</span>';
-  else if(f.contacts.some(function(c){return c.email}))bh+=' <span style="font-size:9px">📧</span>';
+  if(ns>0)bh+=' <span style="font-size:13px;color:var(--gn);font-weight:700" title="'+ns+' SCPRS buyers">S'+ns+'</span>';
+  else if(f.contacts.some(function(c){return c.email}))bh+=' <span style="font-size:13px">📧</span>';
   // AR
   var ah=f.ar>0?'<span style="color:var(--gn);font-weight:600;font-family:JetBrains Mono,monospace">$'+f.ar.toLocaleString(undefined,{maximumFractionDigits:0})+'</span>':'<span style="color:var(--tx2)">—</span>';
   // Gap
@@ -238,19 +238,19 @@ function rt(){
   if(HAS_SCPRS)gh='<td style="text-align:right">'+(f.gap>0?'<span style="color:var(--yl);font-weight:600;font-family:JetBrains Mono,monospace">$'+f.gap.toLocaleString(undefined,{maximumFractionDigits:0})+'</span>':'<span style="color:var(--tx2)">—</span>')+'</td>';
   // Score
   var sc=f.score>=60?'var(--gn)':f.score>=30?'var(--yl)':'var(--tx2)';
-  var sh='<div style="display:flex;align-items:center;gap:5px;justify-content:center"><div class="sb"><div class="sf" style="width:'+f.score+'%;background:'+sc+'"></div></div><span style="font-size:11px;font-family:JetBrains Mono,monospace;color:'+sc+'">'+f.score+'</span></div>';
+  var sh='<div style="display:flex;align-items:center;gap:5px;justify-content:center"><div class="sb"><div class="sf" style="width:'+f.score+'%;background:'+sc+'"></div></div><span style="font-size:14px;font-family:JetBrains Mono,monospace;color:'+sc+'">'+f.score+'</span></div>';
   // Status
   var sm={won:['Active','bg-g'],untouched:['Untouched','bg-x'],contacted:['Contacted','bg-b'],responded:['Responded','bg-p']};
   var st=sm[f.outreach_status]||['—','bg-x'];
   // Action
   var ax;
-  if(f.ar>0)ax='<button class="ab" style="border-color:var(--gn);color:var(--gn);font-size:10px;padding:4px 10px" onclick="event.stopPropagation();od(\''+f.id+'\')">📊</button>';
-  else if(f.contacts.length===0)ax='<button class="ab" style="border-color:var(--yl);color:var(--yl);font-size:10px;padding:4px 10px" onclick="event.stopPropagation();od(\''+f.id+'\')">🔍 Research</button>';
-  else ax='<button class="ab" style="border-color:var(--ac);color:var(--ac);font-size:10px;padding:4px 10px" onclick="event.stopPropagation();od(\''+f.id+'\')">🎯 Reach Out</button>';
-  var ab=f.abbr?' <span style="background:var(--sf2);padding:1px 5px;border-radius:3px;font-size:9px;font-family:JetBrains Mono,monospace;color:var(--ac)">'+f.abbr+'</span>':'';
+  if(f.ar>0)ax='<button class="ab" style="border-color:var(--gn);color:var(--gn);font-size:13px;padding:4px 10px" onclick="event.stopPropagation();od(\''+f.id+'\')">📊</button>';
+  else if(f.contacts.length===0)ax='<button class="ab" style="border-color:var(--yl);color:var(--yl);font-size:13px;padding:4px 10px" onclick="event.stopPropagation();od(\''+f.id+'\')">🔍 Research</button>';
+  else ax='<button class="ab" style="border-color:var(--ac);color:var(--ac);font-size:13px;padding:4px 10px" onclick="event.stopPropagation();od(\''+f.id+'\')">🎯 Reach Out</button>';
+  var ab=f.abbr?' <span style="background:var(--sf2);padding:1px 5px;border-radius:3px;font-size:13px;font-family:JetBrains Mono,monospace;color:var(--ac)">'+f.abbr+'</span>':'';
   h+='<tr class="fr" onclick="od(\''+f.id+'\')">'
    +'<td style="font-weight:500;max-width:240px">'+f.name+ab+'</td>'
-   +'<td style="font-size:11px;font-weight:600;color:'+tc+'">'+f.type+'</td>'
+   +'<td style="font-size:14px;font-weight:600;color:'+tc+'">'+f.type+'</td>'
    +'<td style="text-align:center">'+bh+'</td>'
    +'<td style="text-align:right">'+ah+'</td>'+gh
    +'<td style="text-align:center">'+sh+'</td>'
@@ -265,12 +265,12 @@ function ss(f){if(cs.f===f)cs.d*=-1;else{cs.f=f;cs.d=-1;}rt();}
 // Central contacts
 function renderCentral(){
  var b=document.getElementById('centralBody');
- if(!CC.length){b.innerHTML='<div style="font-size:12px;color:var(--tx2);padding:8px">No shared contacts detected</div>';return;}
+ if(!CC.length){b.innerHTML='<div style="font-size:14px;color:var(--tx2);padding:8px">No shared contacts detected</div>';return;}
  var h='';
  CC.forEach(function(c){
   h+='<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid rgba(48,54,61,.4)">'
    +'<div><a href="mailto:'+c.email+'" style="color:var(--or);text-decoration:none;font-size:13px;font-weight:600">'+c.email+'</a>'
-   +'<div style="font-size:10px;color:var(--tx2)">'+c.note+'</div></div>'
+   +'<div style="font-size:13px;color:var(--tx2)">'+c.note+'</div></div>'
    +'<span class="bg bg-y">CENTRAL</span></div>';
  });
  b.innerHTML=h;
@@ -279,14 +279,14 @@ function renderCentral(){
 // Facility buyer contacts
 function renderContacts(){
  var b=document.getElementById('cb');
- if(!C.length){b.innerHTML='<div style="text-align:center;padding:20px;color:var(--tx2);font-size:12px">No facility-specific buyer contacts yet. Run SCPRS Pull to discover real buyers.</div>';document.getElementById('ccount').textContent='0';return;}
+ if(!C.length){b.innerHTML='<div style="text-align:center;padding:20px;color:var(--tx2);font-size:14px">No facility-specific buyer contacts yet. Run SCPRS Pull to discover real buyers.</div>';document.getElementById('ccount').textContent='0';return;}
  document.getElementById('ccount').textContent=C.length+' contacts';
- var h='<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="border-bottom:1px solid var(--bd)">'
-  +'<th style="padding:6px 8px;text-align:left;font-size:10px;color:var(--tx2);text-transform:uppercase">Name</th>'
-  +'<th style="padding:6px 8px;text-align:left;font-size:10px;color:var(--tx2);text-transform:uppercase">Email</th>'
-  +'<th style="padding:6px 8px;text-align:left;font-size:10px;color:var(--tx2);text-transform:uppercase">Facility</th>'
-  +'<th style="padding:6px 8px;text-align:left;font-size:10px;color:var(--tx2);text-transform:uppercase">Role</th>'
-  +'<th style="padding:6px 8px;text-align:center;font-size:10px;color:var(--tx2);text-transform:uppercase">Tier</th>'
+ var h='<table style="width:100%;border-collapse:collapse;font-size:14px"><thead><tr style="border-bottom:1px solid var(--bd)">'
+  +'<th style="padding:6px 8px;text-align:left;font-size:13px;color:var(--tx2);text-transform:uppercase">Name</th>'
+  +'<th style="padding:6px 8px;text-align:left;font-size:13px;color:var(--tx2);text-transform:uppercase">Email</th>'
+  +'<th style="padding:6px 8px;text-align:left;font-size:13px;color:var(--tx2);text-transform:uppercase">Facility</th>'
+  +'<th style="padding:6px 8px;text-align:left;font-size:13px;color:var(--tx2);text-transform:uppercase">Role</th>'
+  +'<th style="padding:6px 8px;text-align:center;font-size:13px;color:var(--tx2);text-transform:uppercase">Tier</th>'
   +'</tr></thead><tbody>';
  C.forEach(function(c){
   var tier={scprs:['SCPRS','bg-g'],price_check:['PC','bg-b'],crm:['CRM','bg-y'],quickbooks:['QB','bg-x']}[c.source]||['?','bg-x'];
@@ -304,11 +304,11 @@ function renderContacts(){
 function renderGaps(){
  var b=document.getElementById('gapBody');
  if(!b||!GAPS.length)return;
- var h='<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="border-bottom:1px solid var(--bd)">'
-  +'<th style="padding:6px 8px;text-align:left;font-size:10px;color:var(--tx2);text-transform:uppercase">Product</th>'
-  +'<th style="padding:6px 8px;text-align:center;font-size:10px;color:var(--tx2);text-transform:uppercase">Priority</th>'
-  +'<th style="padding:6px 8px;text-align:right;font-size:10px;color:var(--tx2);text-transform:uppercase">Annual Missed</th>'
-  +'<th style="padding:6px 8px;text-align:left;font-size:10px;color:var(--tx2);text-transform:uppercase">Fix</th>'
+ var h='<table style="width:100%;border-collapse:collapse;font-size:14px"><thead><tr style="border-bottom:1px solid var(--bd)">'
+  +'<th style="padding:6px 8px;text-align:left;font-size:13px;color:var(--tx2);text-transform:uppercase">Product</th>'
+  +'<th style="padding:6px 8px;text-align:center;font-size:13px;color:var(--tx2);text-transform:uppercase">Priority</th>'
+  +'<th style="padding:6px 8px;text-align:right;font-size:13px;color:var(--tx2);text-transform:uppercase">Annual Missed</th>'
+  +'<th style="padding:6px 8px;text-align:left;font-size:13px;color:var(--tx2);text-transform:uppercase">Fix</th>'
   +'</tr></thead><tbody>';
  GAPS.forEach(function(g){
   var pc=g.priority==='P0'?'var(--rd)':'var(--yl)';
@@ -316,7 +316,7 @@ function renderGaps(){
    +'<td style="padding:6px 8px;font-weight:500">'+(g.item||'')+'</td>'
    +'<td style="padding:6px 8px;text-align:center;color:'+pc+';font-weight:700">'+(g.priority||'')+'</td>'
    +'<td style="padding:6px 8px;text-align:right;color:var(--gn);font-weight:600;font-family:JetBrains Mono,monospace">$'+((g.annual_missed||0).toLocaleString())+'</td>'
-   +'<td style="padding:6px 8px;color:var(--tx2);font-size:11px">'+(g.fix||'').substring(0,60)+'</td></tr>';
+   +'<td style="padding:6px 8px;color:var(--tx2);font-size:14px">'+(g.fix||'').substring(0,60)+'</td></tr>';
  });
  b.innerHTML=h+'</tbody></table>';
 }
@@ -327,12 +327,12 @@ function renderRecs(){
  var h='<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:8px">';
  ['CCHCS','CalVet','DSH'].forEach(function(t){
   var p=PR[t]||[];var tc=TC[t]||'var(--tx2)';
-  h+='<div><div style="font-size:12px;font-weight:700;color:'+tc+';margin-bottom:8px">'+t+'</div>';
-  if(!p.length)h+='<div style="font-size:11px;color:var(--tx2)">No products</div>';
+  h+='<div><div style="font-size:14px;font-weight:700;color:'+tc+';margin-bottom:8px">'+t+'</div>';
+  if(!p.length)h+='<div style="font-size:14px;color:var(--tx2)">No products</div>';
   else p.slice(0,6).forEach(function(i){
    var pr=i.recommended_price||i.sell_price||0;
-   h+='<div class="pr"><div style="font-size:11px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+(i.name||'')+'">'+(i.name||'').substring(0,35)+'</div>'
-    +'<div style="font-size:11px;font-family:JetBrains Mono,monospace;color:var(--gn)">$'+pr.toFixed(2)+'</div></div>';
+   h+='<div class="pr"><div style="font-size:14px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+(i.name||'')+'">'+(i.name||'').substring(0,35)+'</div>'
+    +'<div style="font-size:14px;font-family:JetBrains Mono,monospace;color:var(--gn)">$'+pr.toFixed(2)+'</div></div>';
   });
   h+='</div>';
  });
@@ -345,7 +345,7 @@ function renderRecs(){
  var st=F.filter(function(f){return f.ar>0&&f.orders.length===0;});
  if(!st.length)return;
  var h='';st.forEach(function(f){
-  h+='<span class="cc" onclick="od(\''+f.id+'\')"><span style="font-weight:600">'+f.name+'</span><span style="color:var(--yl);font-size:10px;margin-left:4px">$'+f.ar.toLocaleString(undefined,{maximumFractionDigits:0})+'</span></span>';
+  h+='<span class="cc" onclick="od(\''+f.id+'\')"><span style="font-weight:600">'+f.name+'</span><span style="color:var(--yl);font-size:13px;margin-left:4px">$'+f.ar.toLocaleString(undefined,{maximumFractionDigits:0})+'</span></span>';
  });
  el.innerHTML=h;
 })();
@@ -361,15 +361,15 @@ function od(id){
  var sc=f.score>=60?'var(--gn)':f.score>=30?'var(--yl)':'var(--tx2)';
  // KPIs
  h+='<div style="display:flex;gap:8px;margin-bottom:16px">';
- h+='<div style="flex:1;background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:10px;text-align:center"><div style="font-size:9px;color:var(--tx2);text-transform:uppercase">Score</div><div style="font-size:22px;font-weight:800;color:'+sc+'">'+f.score+'</div></div>';
- h+='<div style="flex:1;background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:10px;text-align:center"><div style="font-size:9px;color:var(--tx2);text-transform:uppercase">AR</div><div style="font-size:22px;font-weight:800;color:var(--gn)">$'+f.ar.toLocaleString(undefined,{maximumFractionDigits:0})+'</div></div>';
- if(f.scprs_spend>0)h+='<div style="flex:1;background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:10px;text-align:center"><div style="font-size:9px;color:var(--tx2);text-transform:uppercase">SCPRS Spend</div><div style="font-size:22px;font-weight:800;color:var(--or)">$'+f.scprs_spend.toLocaleString(undefined,{maximumFractionDigits:0})+'</div></div>';
- if(f.gap>0)h+='<div style="flex:1;background:var(--sf);border:1px solid var(--yl);border-radius:8px;padding:10px;text-align:center"><div style="font-size:9px;color:var(--yl);text-transform:uppercase">Gap</div><div style="font-size:22px;font-weight:800;color:var(--yl)">$'+f.gap.toLocaleString(undefined,{maximumFractionDigits:0})+'</div></div>';
+ h+='<div style="flex:1;background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:10px;text-align:center"><div style="font-size:13px;color:var(--tx2);text-transform:uppercase">Score</div><div style="font-size:22px;font-weight:800;color:'+sc+'">'+f.score+'</div></div>';
+ h+='<div style="flex:1;background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:10px;text-align:center"><div style="font-size:13px;color:var(--tx2);text-transform:uppercase">AR</div><div style="font-size:22px;font-weight:800;color:var(--gn)">$'+f.ar.toLocaleString(undefined,{maximumFractionDigits:0})+'</div></div>';
+ if(f.scprs_spend>0)h+='<div style="flex:1;background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:10px;text-align:center"><div style="font-size:13px;color:var(--tx2);text-transform:uppercase">SCPRS Spend</div><div style="font-size:22px;font-weight:800;color:var(--or)">$'+f.scprs_spend.toLocaleString(undefined,{maximumFractionDigits:0})+'</div></div>';
+ if(f.gap>0)h+='<div style="flex:1;background:var(--sf);border:1px solid var(--yl);border-radius:8px;padding:10px;text-align:center"><div style="font-size:13px;color:var(--yl);text-transform:uppercase">Gap</div><div style="font-size:22px;font-weight:800;color:var(--yl)">$'+f.gap.toLocaleString(undefined,{maximumFractionDigits:0})+'</div></div>';
  h+='</div>';
  // Contacts (tiered)
  h+='<div class="ds"><div class="dt">👥 Buyer Contacts ('+f.contacts.length+')</div>';
  if(!f.contacts.length){
-  h+='<div style="font-size:12px;color:var(--yl);padding:10px;background:rgba(210,153,34,.06);border:1px solid var(--yl);border-radius:6px">⚠️ No facility-specific contacts. Run SCPRS Pull to discover the actual buyer here, or check incoming Price Checks.</div>';
+  h+='<div style="font-size:14px;color:var(--yl);padding:10px;background:rgba(210,153,34,.06);border:1px solid var(--yl);border-radius:6px">⚠️ No facility-specific contacts. Run SCPRS Pull to discover the actual buyer here, or check incoming Price Checks.</div>';
  }else{
   var tiers=[{s:'scprs',l:'SCPRS Buyer',c:'tier-scprs'},{s:'price_check',l:'PC Requestor',c:'tier-pc'},{s:'crm',l:'CRM',c:'tier-crm'},{s:'quickbooks',l:'QB Billing',c:'tier-qb'}];
   tiers.forEach(function(t){
@@ -379,10 +379,10 @@ function od(id){
     h+='<div class="'+t.c+'" style="padding:8px 10px;background:var(--sf);border-radius:6px;margin-bottom:4px;border:1px solid var(--bd)">'
      +'<div style="display:flex;justify-content:space-between;align-items:center">'
      +'<div><div style="font-size:13px;font-weight:600">'+(c.name||c.email)+'</div>'
-     +'<div style="font-size:10px;color:var(--tx2)">'+(c.role||'')+' · '+t.l
+     +'<div style="font-size:13px;color:var(--tx2)">'+(c.role||'')+' · '+t.l
      +(c.po_count?' · '+c.po_count+' POs':'')
      +(c.phone?' · '+c.phone:'')+'</div></div>'
-     +(c.email?'<a href="mailto:'+c.email+'" style="font-size:11px;color:var(--ac);text-decoration:none">📧</a>':'')+'</div></div>';
+     +(c.email?'<a href="mailto:'+c.email+'" style="font-size:14px;color:var(--ac);text-decoration:none">📧</a>':'')+'</div></div>';
    });
   });
  }
@@ -391,9 +391,9 @@ function od(id){
  if(f.top_items&&f.top_items.length){
   h+='<div class="ds"><div class="dt">🛒 What They Buy (SCPRS)</div>';
   f.top_items.slice(0,6).forEach(function(it){
-   h+='<div class="pr"><div style="font-size:11px;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'+(it.we_sell?';color:var(--gn)':'')+'" title="'+(it.description||'')+'">'+
+   h+='<div class="pr"><div style="font-size:14px;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'+(it.we_sell?';color:var(--gn)':'')+'" title="'+(it.description||'')+'">'+
     (it.we_sell?'✅ ':'')+it.description+'</div>'
-    +'<div style="font-size:11px;font-family:JetBrains Mono,monospace;color:var(--or)">$'+(it.total_spend||0).toLocaleString()+'</div></div>';
+    +'<div style="font-size:14px;font-family:JetBrains Mono,monospace;color:var(--or)">$'+(it.total_spend||0).toLocaleString()+'</div></div>';
   });
   h+='</div>';
  }
@@ -401,8 +401,8 @@ function od(id){
  if(f.competitors&&f.competitors.length){
   h+='<div class="ds"><div class="dt">⚔️ Competitors</div>';
   f.competitors.slice(0,5).forEach(function(c){
-   h+='<div class="pr"><div style="font-size:12px;font-weight:500">'+c.supplier+'</div>'
-    +'<div style="font-size:11px;font-family:JetBrains Mono,monospace;color:var(--tx2)">$'+(c.total||0).toLocaleString()+' ('+c.po_count+' POs)</div></div>';
+   h+='<div class="pr"><div style="font-size:14px;font-weight:500">'+c.supplier+'</div>'
+    +'<div style="font-size:14px;font-family:JetBrains Mono,monospace;color:var(--tx2)">$'+(c.total||0).toLocaleString()+' ('+c.po_count+' POs)</div></div>';
   });
   h+='</div>';
  }
@@ -410,7 +410,7 @@ function od(id){
  if(f.orders.length){
   h+='<div class="ds"><div class="dt">📦 Orders ('+f.orders.length+')</div>';
   f.orders.forEach(function(o){
-   h+='<div style="padding:6px;background:var(--sf);border-radius:6px;margin-bottom:4px"><div style="display:flex;justify-content:space-between"><span style="font-size:12px;font-weight:600">$'+(o.total||0).toLocaleString()+'</span><span style="font-size:10px;color:var(--tx2)">'+(o.status||'')+'</span></div></div>';
+   h+='<div style="padding:6px;background:var(--sf);border-radius:6px;margin-bottom:4px"><div style="display:flex;justify-content:space-between"><span style="font-size:14px;font-weight:600">$'+(o.total||0).toLocaleString()+'</span><span style="font-size:13px;color:var(--tx2)">'+(o.status||'')+'</span></div></div>';
   });
   h+='</div>';
  }
@@ -418,7 +418,7 @@ function od(id){
  if(f.pcs.length){
   h+='<div class="ds"><div class="dt">📋 Price Checks ('+f.pcs.length+')</div>';
   f.pcs.forEach(function(p){
-   h+='<div style="padding:6px;background:var(--sf);border-radius:6px;margin-bottom:4px;display:flex;justify-content:space-between"><span style="font-size:12px;font-weight:600">'+(p.number||p.id.substring(0,8))+'</span><a href="/price-check/'+p.id+'" style="font-size:10px;color:var(--ac)">View →</a></div>';
+   h+='<div style="padding:6px;background:var(--sf);border-radius:6px;margin-bottom:4px;display:flex;justify-content:space-between"><span style="font-size:14px;font-weight:600">'+(p.number||p.id.substring(0,8))+'</span><a href="/price-check/'+p.id+'" style="font-size:13px;color:var(--ac)">View →</a></div>';
   });
   h+='</div>';
  }
@@ -428,7 +428,7 @@ function od(id){
   h+='<div class="ds"><div class="dt">🎯 Recommended Products</div>';
   recs.slice(0,4).forEach(function(p){
    var pr=p.recommended_price||p.sell_price||0;
-   h+='<div class="pr"><div style="font-size:11px;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(p.name||'').substring(0,40)+'</div><div style="font-size:11px;font-family:JetBrains Mono,monospace;color:var(--gn)">$'+pr.toFixed(2)+'</div></div>';
+   h+='<div class="pr"><div style="font-size:14px;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(p.name||'').substring(0,40)+'</div><div style="font-size:14px;font-family:JetBrains Mono,monospace;color:var(--gn)">$'+pr.toFixed(2)+'</div></div>';
   });
   h+='</div>';
  }

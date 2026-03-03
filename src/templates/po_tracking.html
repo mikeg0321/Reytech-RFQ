@@ -4,7 +4,7 @@
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
  <h2 style="margin:0;font-size:20px;font-weight:700">📦 Purchase Order Tracking</h2>
  <div style="display:flex;gap:8px;align-items:center">
-  <span style="font-size:11px;color:var(--tx2)">
+  <span style="font-size:14px;color:var(--tx2)">
    {% if poll_status.get('last_poll') %}Last poll: {{poll_status.last_poll[:16].replace('T',' ')}}{% else %}Not polled yet{% endif %}
   </span>
   <button class="btn btn-sm btn-s" onclick="pollPOInbox()">⚡ Check PO Inbox</button>
@@ -25,9 +25,9 @@
  ] %}
  {% for label, count, color, icon in kpis %}
  <div class="card" style="text-align:center;padding:10px 8px">
-  <div style="font-size:11px">{{icon}}</div>
+  <div style="font-size:14px">{{icon}}</div>
   <div style="font-size:22px;font-weight:700;color:{{color}};font-family:'JetBrains Mono',monospace">{{count}}</div>
-  <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px">{{label}}</div>
+  <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px">{{label}}</div>
  </div>
  {% endfor %}
 </div>
@@ -51,12 +51,12 @@
    <td>
     {% set sc = {'received':'#58a6ff','processing':'var(--yl)','shipped':'#f0883e','partial_shipped':'#f0883e',
                  'delivered':'var(--gn)','invoiced':'#a78bfa','backordered':'var(--rd)'} %}
-    <span style="padding:3px 8px;border-radius:10px;font-size:11px;font-weight:600;
+    <span style="padding:3px 8px;border-radius:10px;font-size:14px;font-weight:600;
      background:{{sc.get(po.status,'var(--sf2)')}}22;color:{{sc.get(po.status,'var(--tx2)')}}">
      {{po.status|replace('_',' ')|title}}
     </span>
    </td>
-   <td style="color:var(--tx2);font-size:12px">{{po.created_at[:10]}}</td>
+   <td style="color:var(--tx2);font-size:14px">{{po.created_at[:10]}}</td>
   </tr>
   {% endfor %}
   </tbody>
@@ -74,10 +74,10 @@
  <div style="background:var(--bg);border:1px solid var(--bd);border-radius:12px;padding:24px;max-width:500px;width:90%">
   <h3 style="margin:0 0 16px">Create Purchase Order</h3>
   <div style="display:grid;gap:10px">
-   <div><label style="font-size:11px;color:var(--tx2)">PO Number</label><input type="text" id="new-po-number" class="text-in" style="width:100%" placeholder="e.g. 4500012345"></div>
-   <div><label style="font-size:11px;color:var(--tx2)">Vendor Name</label><input type="text" id="new-po-vendor" class="text-in" style="width:100%"></div>
-   <div><label style="font-size:11px;color:var(--tx2)">Buyer Name</label><input type="text" id="new-po-buyer" class="text-in" style="width:100%"></div>
-   <div><label style="font-size:11px;color:var(--tx2)">Link to RFQ ID (optional)</label><input type="text" id="new-po-rfq" class="text-in" style="width:100%" placeholder="Leave blank for standalone PO"></div>
+   <div><label style="font-size:14px;color:var(--tx2)">PO Number</label><input type="text" id="new-po-number" class="text-in" style="width:100%" placeholder="e.g. 4500012345"></div>
+   <div><label style="font-size:14px;color:var(--tx2)">Vendor Name</label><input type="text" id="new-po-vendor" class="text-in" style="width:100%"></div>
+   <div><label style="font-size:14px;color:var(--tx2)">Buyer Name</label><input type="text" id="new-po-buyer" class="text-in" style="width:100%"></div>
+   <div><label style="font-size:14px;color:var(--tx2)">Link to RFQ ID (optional)</label><input type="text" id="new-po-rfq" class="text-in" style="width:100%" placeholder="Leave blank for standalone PO"></div>
   </div>
   <div style="display:flex;gap:8px;margin-top:16px">
    <button class="btn btn-p" onclick="createPO()">Create</button>

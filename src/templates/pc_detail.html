@@ -7,7 +7,7 @@
      .card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:20px;margin:12px 0}
      table{width:100%;border-collapse:collapse}
      th,td{padding:8px 10px;border:1px solid #30363d;text-align:left;font-size:14px}
-     th{background:#21262d;font-size:12px;text-transform:uppercase;color:#8b949e;white-space:nowrap;letter-spacing:0.3px}
+     th{background:#21262d;font-size:14px;text-transform:uppercase;color:#8b949e;white-space:nowrap;letter-spacing:0.3px}
      .btn{padding:9px 18px;border-radius:6px;border:none;cursor:pointer;font-weight:600;text-decoration:none;display:inline-block;margin:4px;font-size:14px}
      .btn-p{background:#1f6feb;color:#fff} .btn-g{background:#238636;color:#fff} .btn-o{background:#da3633;color:#fff}
      .btn-y{background:#9e6a03;color:#fff} .btn-v{background:#8957e5;color:#fff} .btn-sm{padding:6px 14px;font-size:13px}
@@ -43,7 +43,7 @@
      .tier-btn{background:#21262d;border:2px solid #30363d;color:#8b949e;padding:10px 18px;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;line-height:1.3;text-align:center;transition:all .15s;min-width:70px}
      .tier-btn:hover{border-color:#58a6ff;color:#c9d1d9;background:#1a2744}
      .tier-active{background:#1f6feb22;border-color:#1f6feb;color:#58a6ff;box-shadow:0 0 0 1px #1f6feb55}
-     .desc-raw{font-size:11px;color:#6e7681;display:block;margin-top:2px;font-style:italic}
+     .desc-raw{font-size:14px;color:#6e7681;display:block;margin-top:2px;font-style:italic}
      /* Preview Modal */
      .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1000;overflow-y:auto;padding:20px}
      .modal-overlay.active{display:flex;justify-content:center;align-items:flex-start}
@@ -55,14 +55,14 @@
      /* Quote Preview Styles (print-like) */
      .q-preview{font-family:'Times New Roman',Times,serif;font-size:13px;color:#000;line-height:1.4}
      .q-preview table{width:100%;border-collapse:collapse}
-     .q-preview th,.q-preview td{border:1px solid #000;padding:4px 6px;text-align:left;font-size:12px}
-     .q-preview th{background:#e8e8e0;font-size:10px;text-transform:uppercase;font-weight:700}
+     .q-preview th,.q-preview td{border:1px solid #000;padding:4px 6px;text-align:left;font-size:14px}
+     .q-preview th{background:#e8e8e0;font-size:13px;text-transform:uppercase;font-weight:700}
      .q-header{text-align:center;padding:10px;border-bottom:2px solid #000}
      .q-header h3{margin:0;font-size:14px;text-transform:uppercase;letter-spacing:1px}
-     .q-header small{color:#444;font-size:11px}
+     .q-header small{color:#444;font-size:14px}
      .q-supplier{display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid #000;margin:0}
-     .q-supplier div{padding:4px 8px;border:1px solid #000;font-size:12px}
-     .q-supplier .q-lbl{font-size:9px;color:#555;text-transform:uppercase;display:block}
+     .q-supplier div{padding:4px 8px;border:1px solid #000;font-size:14px}
+     .q-supplier .q-lbl{font-size:13px;color:#555;text-transform:uppercase;display:block}
      .q-total{text-align:right;font-size:14px;font-weight:700;padding:8px 12px}
      @media print{
       body>*{display:none!important}
@@ -84,7 +84,7 @@
       <div class="modal-header">
        <h2>📋 Preview — <span id="previewFormType">AMS 704 Price Check</span></h2>
        <div>
-        <button class="btn btn-sm btn-g" onclick="window.print()" style="margin-right:8px;font-size:12px">🖨️ Print</button>
+        <button class="btn btn-sm btn-g" onclick="window.print()" style="margin-right:8px;font-size:14px">🖨️ Print</button>
         <button class="modal-close" onclick="closePreview()">×</button>
        </div>
       </div>
@@ -98,24 +98,24 @@
       <span id="pcNumDisplay" style="cursor:pointer" title="Click to rename" onclick="document.getElementById('pcNumEdit').style.display='inline-flex';this.style.display='none'">{{ pc.get('pc_number','unknown') }}</span>
       <span id="pcNumEdit" style="display:none;align-items:center;gap:4px">
        <input type="text" id="pcNumInput" value="{{ pc.get('pc_number','') }}" style="background:#0d1117;border:1px solid #58a6ff;color:#c9d1d9;padding:4px 8px;border-radius:4px;font-size:16px;font-weight:700;width:200px;font-family:inherit">
-       <button onclick="renamePc()" style="background:#238636;color:#fff;border:none;padding:4px 10px;border-radius:4px;font-size:12px;cursor:pointer">Save</button>
-       <button onclick="document.getElementById('pcNumEdit').style.display='none';document.getElementById('pcNumDisplay').style.display='inline'" style="background:none;border:1px solid #30363d;color:#8b949e;padding:4px 8px;border-radius:4px;font-size:12px;cursor:pointer">✕</button>
+       <button onclick="renamePc()" style="background:#238636;color:#fff;border:none;padding:4px 10px;border-radius:4px;font-size:14px;cursor:pointer">Save</button>
+       <button onclick="document.getElementById('pcNumEdit').style.display='none';document.getElementById('pcNumDisplay').style.display='inline'" style="background:none;border:1px solid #30363d;color:#8b949e;padding:4px 8px;border-radius:4px;font-size:14px;cursor:pointer">✕</button>
       </span>
       <span class="status status-{{ pc.get('status','parsed') }}">{{ pc.get('status','parsed').upper() }}</span>
       {% if pc.get('reytech_quote_number') %}<span style='margin-left:12px;font-family:JetBrains Mono,monospace;font-size:16px;color:#58a6ff;font-weight:700'>{{ pc.get('reytech_quote_number','') }}</span>{% endif %}</h1>
 
      <!-- Pipeline Status Tracker -->
-     <div style="margin:12px 0;display:flex;align-items:center;gap:0;font-size:12px;font-weight:600">
+     <div style="margin:12px 0;display:flex;align-items:center;gap:0;font-size:14px;font-weight:600">
       {{ pipeline_html | safe }}
      </div>
 
      {% if pc.get('status') == 'sent' %}
      <div style="padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;justify-content:space-between;background:rgba(63,185,80,.08);border:1px solid rgba(63,185,80,.25);color:#3fb950;margin-bottom:10px">
       <div style="display:flex;align-items:center;gap:10px"><span style="font-size:18px">📨</span><div><b>Sent</b> — Awaiting award decision{% if pc.get('sent_at') %} · Sent {{ pc.get('sent_at','')[:10] }}{% endif %}
-       {% if pc.get('current_doc_id') %}<br><a href="/pricecheck/{{ pcid }}/document/{{ pc.get('current_doc_id','') }}" style="color:#58a6ff;font-size:12px">📄 View/Edit Sent Document</a> · <a href="/pricecheck/{{ pcid }}/documents" style="color:#8b949e;font-size:11px">All Versions</a>{% endif %}</div></div>
+       {% if pc.get('current_doc_id') %}<br><a href="/pricecheck/{{ pcid }}/document/{{ pc.get('current_doc_id','') }}" style="color:#58a6ff;font-size:14px">📄 View/Edit Sent Document</a> · <a href="/pricecheck/{{ pcid }}/documents" style="color:#8b949e;font-size:14px">All Versions</a>{% endif %}</div></div>
       <div style="display:flex;gap:6px">
-       <button class="btn btn-sm" onclick="adminAction('won')" style="background:#238636;color:#fff;font-size:12px;padding:4px 12px;border-radius:6px;border:none;cursor:pointer">🏆 Mark Won</button>
-       <button class="btn btn-sm" onclick="adminAction('lost')" style="background:#da3633;color:#fff;font-size:12px;padding:4px 12px;border-radius:6px;border:none;cursor:pointer">❌ Mark Lost</button>
+       <button class="btn btn-sm" onclick="adminAction('won')" style="background:#238636;color:#fff;font-size:14px;padding:4px 12px;border-radius:6px;border:none;cursor:pointer">🏆 Mark Won</button>
+       <button class="btn btn-sm" onclick="adminAction('lost')" style="background:#da3633;color:#fff;font-size:14px;padding:4px 12px;border-radius:6px;border:none;cursor:pointer">❌ Mark Lost</button>
       </div>
      </div>
      {% elif pc.get('status') == 'won' %}
@@ -146,16 +146,16 @@
      <!-- CRM Customer Card + Quote History -->
      <!-- PC→RFQ Linkage Banner -->
      {% if pc.get('linked_rfq_id') %}
-     <div style="padding:8px 14px;border-radius:8px;font-size:12px;display:flex;align-items:center;gap:8px;background:rgba(167,139,250,.08);border:1px solid rgba(167,139,250,.25);color:#a78bfa;margin-top:10px;margin-bottom:4px">
+     <div style="padding:8px 14px;border-radius:8px;font-size:14px;display:flex;align-items:center;gap:8px;background:rgba(167,139,250,.08);border:1px solid rgba(167,139,250,.25);color:#a78bfa;margin-top:10px;margin-bottom:4px">
       <span>🔗</span>
       <span>Linked to <a href="/rfq/{{pc.linked_rfq_id}}" style="color:#a78bfa;font-weight:700">RFQ {{pc.linked_rfq_id}}</a>
       {% if pc.get('converted_to_rfq') %} (converted){% endif %}</span>
      </div>
      {% else %}
      <div style="display:flex;gap:6px;margin-top:10px;margin-bottom:4px">
-      <button class="btn btn-sm" style="font-size:11px;padding:4px 10px;background:rgba(167,139,250,.08);color:#a78bfa;border:1px solid rgba(167,139,250,.25)" 
+      <button class="btn btn-sm" style="font-size:14px;padding:4px 10px;background:rgba(167,139,250,.08);color:#a78bfa;border:1px solid rgba(167,139,250,.25)" 
         onclick="linkToRFQ()">🔗 Link to Existing RFQ</button>
-      <button class="btn btn-sm" style="font-size:11px;padding:4px 10px;background:rgba(52,211,153,.08);color:#3fb950;border:1px solid rgba(52,211,153,.25)" 
+      <button class="btn btn-sm" style="font-size:14px;padding:4px 10px;background:rgba(52,211,153,.08);color:#3fb950;border:1px solid rgba(52,211,153,.25)" 
         onclick="convertPCToRFQ()">🔄 Convert to New RFQ</button>
      </div>
      {% endif %}
@@ -163,15 +163,15 @@
      <div id="crmPanel" style="margin-top:10px;display:flex;gap:12px;flex-wrap:wrap">
       <div id="crmCard" style="flex:1;min-width:260px;background:var(--sf2);border:1px solid var(--bd);border-radius:8px;padding:12px;font-size:13px">
        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-        <span style="font-size:11px;color:#8b949e;text-transform:uppercase;font-weight:600;letter-spacing:.5px">📇 Customer</span>
-        <span id="crmBadge" style="font-size:10px;padding:2px 8px;border-radius:10px;font-weight:600"></span>
+        <span style="font-size:14px;color:#8b949e;text-transform:uppercase;font-weight:600;letter-spacing:.5px">📇 Customer</span>
+        <span id="crmBadge" style="font-size:13px;padding:2px 8px;border-radius:10px;font-weight:600"></span>
        </div>
        <div id="crmBody" style="color:var(--tx2)">Loading...</div>
       </div>
       <div id="historyCard" style="flex:1;min-width:320px;background:var(--sf2);border:1px solid var(--bd);border-radius:8px;padding:16px;font-size:13px">
        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-        <span style="font-size:12px;color:#8b949e;text-transform:uppercase;font-weight:600;letter-spacing:.5px">📊 Quote History</span>
-        <span id="historyBadge" style="font-size:11px;padding:2px 10px;border-radius:10px;font-weight:600;background:#1a3a5c;color:#58a6ff;display:none"></span>
+        <span style="font-size:14px;color:#8b949e;text-transform:uppercase;font-weight:600;letter-spacing:.5px">📊 Quote History</span>
+        <span id="historyBadge" style="font-size:14px;padding:2px 10px;border-radius:10px;font-weight:600;background:#1a3a5c;color:#58a6ff;display:none"></span>
        </div>
        <div id="historyBody" style="color:var(--tx2);font-size:13px">Loading...</div>
       </div>
@@ -183,10 +183,10 @@
      <div id="quote-gen-banner" style="background:linear-gradient(135deg,#1a3a5c,#0d2137);border:1px solid #1f6feb;border-radius:10px;padding:14px 20px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;gap:16px">
       <div>
        <div style="font-size:13px;font-weight:700;color:#58a6ff;margin-bottom:3px">🎯 Generate Reytech Quote</div>
-       <div style="font-size:12px;color:#8b949e" id="quote-gen-meta">Prices saved → 1 click to PDF + logged to CRM + DB</div>
+       <div style="font-size:14px;color:#8b949e" id="quote-gen-meta">Prices saved → 1 click to PDF + logged to CRM + DB</div>
       </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-       <span style="font-size:11px;color:#3fb950;font-family:monospace" id="next-qn-badge">Next: {{ next_quote_preview or '—' }}</span>
+       <span style="font-size:14px;color:#3fb950;font-family:monospace" id="next-qn-badge">Next: {{ next_quote_preview or '—' }}</span>
        <button class="btn" id="genQuoteBtn" data-testid="pc-generate-quote-1click" onclick="generateQuote1Click(this)" style="background:#1f6feb;color:#fff;font-weight:700;font-size:14px;padding:10px 24px;border-radius:8px;transition:all .2s;white-space:nowrap">📋 Generate Quote →</button>
       </div>
      </div>
@@ -214,27 +214,27 @@
       <button class="btn btn-sm" onclick="runPriceSweep(this)" data-testid="pc-price-sweep" style="background:#21262d;color:#f778ba;border:1px solid #30363d;font-size:13px;padding:6px 14px">🛒 Sweep</button>
       <button class="btn btn-sm" onclick="toggleAllNotes()" style="background:#21262d;color:#d2a8ff;border:1px solid #30363d;font-size:13px;padding:6px 14px" title="Show/hide notes row for each item">📝 Notes</button>
       <details style="position:relative;display:inline-block">
-       <summary class="btn btn-sm" style="background:#21262d;color:#8b949e;border:1px solid #30363d;font-size:12px;padding:4px 10px;cursor:pointer;list-style:none">⋯ More</summary>
+       <summary class="btn btn-sm" style="background:#21262d;color:#8b949e;border:1px solid #30363d;font-size:14px;padding:4px 10px;cursor:pointer;list-style:none">⋯ More</summary>
        <div style="position:absolute;top:100%;left:0;z-index:50;margin-top:4px;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:6px;min-width:220px;box-shadow:0 8px 24px rgba(0,0,0,.4)">
         {% if pc.get('status') in ('completed','converted') %}
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#c9d1d9;border:none;padding:8px 10px;font-size:12px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="saveAndGenerate(this)">♻️ Re-fill 704</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#c9d1d9;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="saveAndGenerate(this)">♻️ Re-fill 704</button>
         {% endif %}
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#c9d1d9;border:none;padding:8px 10px;font-size:12px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="window.print()">🖨️ Print Page</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#58a6ff;border:none;padding:8px 10px;font-size:12px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="generateQuote1Click(this)">📋 Generate Quote (formal 704b/703b only)</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#c9d1d9;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="window.print()">🖨️ Print Page</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#58a6ff;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="generateQuote1Click(this)">📋 Generate Quote (formal 704b/703b only)</button>
         <hr style="border-color:#30363d;margin:4px 0">
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#d2a8ff;border:none;padding:8px 10px;font-size:12px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runPortfolioPrice(this)">📊 Portfolio Optimizer</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#f0883e;border:none;padding:8px 10px;font-size:12px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runCompetitorIntel(this)">🏢 Competitor Intel</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#58a6ff;border:none;padding:8px 10px;font-size:12px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runReparse(this)">🔄 Re-parse from PDF</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#58a6ff;border:none;padding:8px 10px;font-size:12px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="rescanMfgNumbers(this)">🔍 Rescan MFG#s</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#d2a8ff;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runPortfolioPrice(this)">📊 Portfolio Optimizer</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#f0883e;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runCompetitorIntel(this)">🏢 Competitor Intel</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#58a6ff;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runReparse(this)">🔄 Re-parse from PDF</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#58a6ff;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="rescanMfgNumbers(this)">🔍 Rescan MFG#s</button>
         <hr style="border-color:#30363d;margin:4px 0">
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#3fb950;border:none;padding:8px 10px;font-size:12px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('won')">🏆 Mark Won</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#d29922;border:none;padding:8px 10px;font-size:12px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('lost')">❌ Mark Lost</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#3fb950;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('won')">🏆 Mark Won</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#d29922;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('lost')">❌ Mark Lost</button>
         <hr style="border-color:#30363d;margin:4px 0">
-        <div style="font-size:10px;color:#484f58;padding:2px 10px;text-transform:uppercase;letter-spacing:.5px">Admin</div>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:8px 10px;font-size:12px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('no_response')">💤 No Response</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:8px 10px;font-size:12px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('duplicate')">📋 Duplicate</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:8px 10px;font-size:12px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('archived')">🗄️ Archive</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#f85149;border:none;padding:8px 10px;font-size:12px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('delete')">🗑️ Delete</button>
+        <div style="font-size:13px;color:#484f58;padding:2px 10px;text-transform:uppercase;letter-spacing:.5px">Admin</div>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('no_response')">💤 No Response</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('duplicate')">📋 Duplicate</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('archived')">🗄️ Archive</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#f85149;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('delete')">🗑️ Delete</button>
        </div>
       </details>
      </div>
@@ -245,7 +245,7 @@
     <div class="card" style="padding:16px 20px">
      <div style="display:flex;gap:28px;align-items:flex-start;flex-wrap:wrap">
       <div>
-       <label style="font-size:12px;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Delivery Time</label><br>
+       <label style="font-size:14px;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Delivery Time</label><br>
        <select id="deliverySelect" class="text-in" style="padding:8px 12px;font-size:15px;min-width:210px;margin-top:4px;cursor:pointer">
         <option value="3-5 business days" {{ del_sel["3-5 business days"] }}>3-5 business days</option>
         <option value="5-7 business days" {{ del_sel["5-7 business days"] }}>5-7 business days</option>
@@ -255,26 +255,26 @@
        <input type="text" id="deliveryCustom" placeholder="e.g. 2-3 weeks" value="{{ custom_val }}" class="text-in" style="display:{{ custom_display }};padding:8px 12px;font-size:15px;width:160px;margin-left:6px;margin-top:4px">
       </div>
       <div>
-       <label style="font-size:12px;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Price Protection
-        <span style="font-size:11px;text-transform:none;cursor:help" title="Amazon prices fluctuate. Buffer pads your cost basis so a temporary discount doesn't eat your margin when prices revert.">ⓘ</span>
+       <label style="font-size:14px;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Price Protection
+        <span style="font-size:14px;text-transform:none;cursor:help" title="Amazon prices fluctuate. Buffer pads your cost basis so a temporary discount doesn't eat your margin when prices revert.">ⓘ</span>
        </label>
        <div style="display:flex;gap:6px;margin-top:6px" id="pricingTiers">
-        <button class="tier-btn tier-active" onclick="applyTier(0,this)" data-buffer="0">Current<br><span style="font-size:11px;opacity:0.7">No buffer</span></button>
-        <button class="tier-btn" onclick="applyTier(10,this)" data-buffer="10">Light<br><span style="font-size:11px;opacity:0.7">+10%</span></button>
-        <button class="tier-btn" onclick="applyTier(15,this)" data-buffer="15">Standard<br><span style="font-size:11px;opacity:0.7">+15%</span></button>
-        <button class="tier-btn" onclick="applyTier(20,this)" data-buffer="20">Safe<br><span style="font-size:11px;opacity:0.7">+20%</span></button>
+        <button class="tier-btn tier-active" onclick="applyTier(0,this)" data-buffer="0">Current<br><span style="font-size:14px;opacity:0.7">No buffer</span></button>
+        <button class="tier-btn" onclick="applyTier(10,this)" data-buffer="10">Light<br><span style="font-size:14px;opacity:0.7">+10%</span></button>
+        <button class="tier-btn" onclick="applyTier(15,this)" data-buffer="15">Standard<br><span style="font-size:14px;opacity:0.7">+15%</span></button>
+        <button class="tier-btn" onclick="applyTier(20,this)" data-buffer="20">Safe<br><span style="font-size:14px;opacity:0.7">+20%</span></button>
        </div>
        <div id="tierComparison" style="margin-top:10px;font-size:14px;background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:10px 12px;display:none"></div>
       </div>
       <div>
-       <label style="font-size:12px;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Default Markup</label>
+       <label style="font-size:14px;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Default Markup</label>
        <div style="display:flex;align-items:center;gap:6px;margin-top:6px">
         <input type="number" id="markupDefault" value="{{ pc.get('default_markup', 25) }}" min="0" max="200" class="num-in" style="width:60px;text-align:center;font-size:16px;font-weight:700;padding:8px" onchange="applyDefaultMarkup()">
         <span style="font-size:15px;color:#8b949e;font-weight:600">%</span>
        </div>
       </div>
       <div style="flex:1;min-width:250px">
-       <label style="font-size:12px;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Supplier Notes <span style="font-size:11px;text-transform:none;font-weight:400">(prints on 704)</span></label><br>
+       <label style="font-size:14px;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Supplier Notes <span style="font-size:14px;text-transform:none;font-weight:400">(prints on 704)</span></label><br>
        <input type="text" id="supplierNotes" value="{{ pc.get('custom_notes','').replace('"','&quot;') }}" placeholder="Optional — leave blank for no notes" class="text-in" style="width:100%;padding:8px 12px;font-size:15px;margin-top:4px">
       </div>
      </div>
@@ -296,8 +296,8 @@
      <div id="price-history-panel" style="margin-top:16px">
        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
          <span style="font-size:13px;font-weight:700;color:#8b949e;text-transform:uppercase;letter-spacing:.5px">📊 Price History Intelligence</span>
-         <span style="font-size:11px;color:#484f58">Historical prices from all prior quotes & lookups</span>
-         <button onclick="loadPriceHistory()" id="phLoadBtn" class="btn btn-sm" style="background:#21262d;color:#8b949e;border:1px solid #30363d;margin-left:auto;font-size:11px">Load History</button>
+         <span style="font-size:14px;color:#484f58">Historical prices from all prior quotes & lookups</span>
+         <button onclick="loadPriceHistory()" id="phLoadBtn" class="btn btn-sm" style="background:#21262d;color:#8b949e;border:1px solid #30363d;margin-left:auto;font-size:14px">Load History</button>
        </div>
        <div id="ph-content" style="display:none">
          <div id="ph-rows"></div>
@@ -323,7 +323,7 @@
     <script type="application/json" id="server-profit-data">{{ profit_summary_json | safe }}</script>
 
     <!-- Error catcher: shows JS errors visually instead of silent death -->
-    <div id="jsErrorLog" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999;background:#1a0000;border-top:2px solid #f85149;padding:8px 16px;font-size:12px;color:#f85149;font-family:monospace;max-height:120px;overflow-y:auto"></div>
+    <div id="jsErrorLog" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999;background:#1a0000;border-top:2px solid #f85149;padding:8px 16px;font-size:14px;color:#f85149;font-family:monospace;max-height:120px;overflow-y:auto"></div>
     <script>
     window._pcErrors=[];
     window._pcLog=[];
@@ -478,11 +478,11 @@
      ];
      const activeBuf=getCurrentBuffer();
      let html='<table style="width:100%;border:none;font-size:14px"><tr>';
-     html+='<th style="border:none;color:#8b949e;font-size:12px;padding:3px 8px;text-align:left">Tier</th>';
-     html+='<th style="border:none;color:#8b949e;font-size:12px;padding:3px 8px;text-align:right">Cost Basis</th>';
-     html+='<th style="border:none;color:#8b949e;font-size:12px;padding:3px 8px;text-align:right">Revenue</th>';
-     html+='<th style="border:none;color:#8b949e;font-size:12px;padding:3px 8px;text-align:right">Profit</th>';
-     html+='<th style="border:none;color:#8b949e;font-size:12px;padding:3px 8px;text-align:right">Margin</th></tr>';
+     html+='<th style="border:none;color:#8b949e;font-size:14px;padding:3px 8px;text-align:left">Tier</th>';
+     html+='<th style="border:none;color:#8b949e;font-size:14px;padding:3px 8px;text-align:right">Cost Basis</th>';
+     html+='<th style="border:none;color:#8b949e;font-size:14px;padding:3px 8px;text-align:right">Revenue</th>';
+     html+='<th style="border:none;color:#8b949e;font-size:14px;padding:3px 8px;text-align:right">Profit</th>';
+     html+='<th style="border:none;color:#8b949e;font-size:14px;padding:3px 8px;text-align:right">Margin</th></tr>';
      tiers.forEach(t=>{
       let totalCost=0,totalRev=0;
       amazonItems.forEach(item=>{
@@ -569,13 +569,13 @@
      tr.setAttribute('data-row',idx);
      tr.innerHTML='<td style="text-align:center"><input type="checkbox" name="bid_'+idx+'" checked onchange="toggleBid('+idx+',this)" style="width:18px;height:18px;cursor:pointer"></td>'
       +'<td style="text-align:center;font-weight:600;font-size:13px;color:#8b949e;font-family:JetBrains Mono,monospace">'+(idx+1)+'</td>'
-      +'<td><input type="text" name="itemnum_'+idx+'" value="" class="text-in" style="width:80px;text-align:center;font-weight:600;font-size:12px;font-family:JetBrains Mono,monospace;padding:6px 4px" placeholder="MFG#" onblur="handleMfgInput('+idx+',this)"></td>'
+      +'<td><input type="text" name="itemnum_'+idx+'" value="" class="text-in" style="width:80px;text-align:center;font-weight:600;font-size:14px;font-family:JetBrains Mono,monospace;padding:6px 4px" placeholder="MFG#" onblur="handleMfgInput('+idx+',this)"></td>'
       +'<td><input type="number" name="qty_'+idx+'" value="1" class="num-in sm" style="width:55px" onchange="recalcPC()"></td>'
       +'<td><input type="text" name="uom_'+idx+'" value="EA" class="text-in" style="width:45px;text-transform:uppercase;text-align:center;font-weight:600"></td>'
       +'<td><textarea name="desc_'+idx+'" class="text-in" style="width:100%;min-height:38px;resize:vertical;font-size:13px;line-height:1.4;padding:6px 8px" placeholder="Enter description or paste URL" oninput="detectDescUrl('+idx+',this)"></textarea></td>'
       +'<td style="text-align:center"><input type="checkbox" name="substitute_'+idx+'" style="width:16px;height:16px;cursor:pointer;accent-color:#d29922" title="Check if quoting a replacement/substitute item"></td>'
-      +'<td style="min-width:160px"><div style="display:flex;flex-direction:column;gap:3px"><div style="display:flex;gap:2px;align-items:center"><input type="text" name="link_'+idx+'" value="" placeholder="Paste supplier URL\u2026" class="text-in" style="flex:1;font-size:12px;color:#58a6ff;padding:5px 7px" oninput="handleLinkInput('+idx+',this)" onpaste="setTimeout(()=>handleLinkInput('+idx+',this),50)"><a href="" target="_blank" id="linkopen_'+idx+'" style="display:none;align-items:center;justify-content:center;width:28px;height:28px;border-radius:4px;background:#21262d;border:1px solid #30363d;color:#58a6ff;font-size:14px;text-decoration:none;flex-shrink:0" title="Open link">\u2197</a></div><div id="link_meta_'+idx+'" style="font-size:10px;color:#8b949e"></div></div></td>'
-      +'<td style="min-width:160px"><span style="color:#484f58;font-size:11px">No sources</span></td>'
+      +'<td style="min-width:160px"><div style="display:flex;flex-direction:column;gap:3px"><div style="display:flex;gap:2px;align-items:center"><input type="text" name="link_'+idx+'" value="" placeholder="Paste supplier URL\u2026" class="text-in" style="flex:1;font-size:14px;color:#58a6ff;padding:5px 7px" oninput="handleLinkInput('+idx+',this)" onpaste="setTimeout(()=>handleLinkInput('+idx+',this),50)"><a href="" target="_blank" id="linkopen_'+idx+'" style="display:none;align-items:center;justify-content:center;width:28px;height:28px;border-radius:4px;background:#21262d;border:1px solid #30363d;color:#58a6ff;font-size:14px;text-decoration:none;flex-shrink:0" title="Open link">\u2197</a></div><div id="link_meta_'+idx+'" style="font-size:13px;color:#8b949e"></div></div></td>'
+      +'<td style="min-width:160px"><span style="color:#484f58;font-size:14px">No sources</span></td>'
       +'<td><div class="currency-wrap"><input type="text" inputmode="decimal" name="cost_'+idx+'" value="" class="num-in" placeholder="0.00" oninput="sanitizePrice(this)" onchange="recalcRow('+idx+')" onblur="fmtCurrency(this)"></div></td>'
       +'<td><input type="text" inputmode="numeric" name="markup_'+idx+'" value="25" class="num-in sm" style="width:48px" oninput="sanitizeInt(this)" onchange="recalcRow('+idx+')"><span style="color:#8b949e;font-size:13px">%</span></td>'
       +'<td><div class="currency-wrap"><input type="text" inputmode="decimal" name="price_'+idx+'" value="" class="num-in price-out" placeholder="0.00" oninput="sanitizePrice(this)" onchange="recalcPC()" onblur="fmtCurrency(this)"></div></td>'
@@ -586,7 +586,7 @@
      ntr.className='notes-row';
      ntr.setAttribute('data-row',idx);
      ntr.style.display='none';
-     ntr.innerHTML='<td colspan="14" style="padding:0 8px 6px 120px;border-top:none"><div style="display:flex;align-items:center;gap:6px"><span style="font-size:10px;color:#8b949e">\uD83D\uDCDD</span><input type="text" name="notes_'+idx+'" value="" placeholder="Add note (prints on quote)\u2026" class="text-in" style="flex:1;font-size:11px;padding:3px 8px;color:#d2a8ff"></div></td>';
+     ntr.innerHTML='<td colspan="14" style="padding:0 8px 6px 120px;border-top:none"><div style="display:flex;align-items:center;gap:6px"><span style="font-size:13px;color:#8b949e">\uD83D\uDCDD</span><input type="text" name="notes_'+idx+'" value="" placeholder="Add note (prints on quote)\u2026" class="text-in" style="flex:1;font-size:14px;padding:3px 8px;color:#d2a8ff"></div></td>';
      table.appendChild(ntr);
      recalcPC();
     }
@@ -827,7 +827,7 @@
 
      // Right: profit summary
      html+='<div style="text-align:right;min-width:240px;background:#21262d;padding:12px 16px;border-radius:8px;border:1px solid #30363d">';
-     html+='<div style="font-size:12px;text-transform:uppercase;color:#8b949e;margin-bottom:6px;letter-spacing:0.5px;font-weight:600">Profit Summary</div>';
+     html+='<div style="font-size:14px;text-transform:uppercase;color:#8b949e;margin-bottom:6px;letter-spacing:0.5px;font-weight:600">Profit Summary</div>';
      html+='<div style="font-size:15px"><span style="color:#8b949e">Total Cost:</span> <b>$'+totalCost.toFixed(2)+'</b></div>';
      html+='<div style="font-size:15px"><span style="color:#8b949e">Total Revenue:</span> <b>$'+sub.toFixed(2)+'</b></div>';
      let profitColor=totalProfit>0?'#3fb950':(totalProfit<0?'#f85149':'#8b949e');
@@ -862,13 +862,13 @@
      const diffDays=Math.ceil(diffMs/(1000*60*60*24));
      const el=document.getElementById('dueUrgency');
      if(diffDays<0) {
-      el.innerHTML='<span style="background:#da363344;color:#f85149;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">OVERDUE ('+Math.abs(diffDays)+'d ago)</span>';
+      el.innerHTML='<span style="background:#da363344;color:#f85149;padding:2px 8px;border-radius:4px;font-size:14px;font-weight:600">OVERDUE ('+Math.abs(diffDays)+'d ago)</span>';
      } else if(diffDays<=2) {
-      el.innerHTML='<span style="background:#da363344;color:#f85149;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">🔥 '+diffDays+'d left</span>';
+      el.innerHTML='<span style="background:#da363344;color:#f85149;padding:2px 8px;border-radius:4px;font-size:14px;font-weight:600">🔥 '+diffDays+'d left</span>';
      } else if(diffDays<=5) {
-      el.innerHTML='<span style="background:#9e6a0333;color:#d29922;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">'+diffDays+'d left</span>';
+      el.innerHTML='<span style="background:#9e6a0333;color:#d29922;padding:2px 8px;border-radius:4px;font-size:14px;font-weight:600">'+diffDays+'d left</span>';
      } else {
-      el.innerHTML='<span style="background:#23863633;color:#3fb950;padding:2px 8px;border-radius:4px;font-size:11px">'+diffDays+'d left</span>';
+      el.innerHTML='<span style="background:#23863633;color:#3fb950;padding:2px 8px;border-radius:4px;font-size:14px">'+diffDays+'d left</span>';
      }
     })();} catch(e) { console.warn('calcUrgency:', e); }
     _log('functions-defined: showMsg,savePrices,recalcPC,recalcRow,addRow,runScprs,etc');
@@ -1045,7 +1045,7 @@
         if(oldBadge)oldBadge.remove();
         const badge=document.createElement('div');
         badge.className='cat-badge';
-        badge.style.cssText='font-size:10px;margin-bottom:2px;display:flex;gap:6px;align-items:center;flex-wrap:wrap';
+        badge.style.cssText='font-size:13px;margin-bottom:2px;display:flex;gap:6px;align-items:center;flex-wrap:wrap';
         // Freshness indicator
         const freshIcon=r.freshness_icon||'⚪';
         const freshTip=(r.freshness||'unknown')+' ('+Math.round(r.days_old||0)+'d ago)';
@@ -1057,10 +1057,10 @@
         const mfgBadge=r.manufacturer?'<span style="color:#8b949e;font-style:italic" title="Manufacturer">🏭 '+escHtml(r.manufacturer)+'</span>':'';
         badge.innerHTML='<span style="background:'+color+'22;color:'+color+';border:1px solid '+color+'44;border-radius:4px;padding:1px 6px;font-weight:600;font-family:JetBrains Mono,monospace">'+conf+'% match</span>'
          +'<span title="'+escHtml(freshTip)+'">'+freshIcon+'</span>'
-         +'<span style="color:#8b949e;font-size:10px" title="'+escHtml(r.reason||'')+'">'+escHtml((r.canonical_name||'').substring(0,50))+'</span>'
+         +'<span style="color:#8b949e;font-size:13px" title="'+escHtml(r.reason||'')+'">'+escHtml((r.canonical_name||'').substring(0,50))+'</span>'
          +(r.last_cost?'<span style="color:#58a6ff;font-weight:600;font-family:JetBrains Mono,monospace">QB $'+Number(r.last_cost).toFixed(2)+'→$'+Number(r.last_sell||0).toFixed(2)+'</span>':'')
          +recBadge+winBadge+mfgBadge
-         +'<a href="#" onclick="applyCatalogMatch('+idx+','+JSON.stringify(r).replace(/"/g,'&quot;')+');return false" style="color:#3fb950;font-size:10px;font-weight:700;text-decoration:none" title="Fill cost + price from catalog">✅ Use</a>';
+         +'<a href="#" onclick="applyCatalogMatch('+idx+','+JSON.stringify(r).replace(/"/g,'&quot;')+');return false" style="color:#3fb950;font-size:13px;font-weight:700;text-decoration:none" title="Fill cost + price from catalog">✅ Use</a>';
         descEl.parentElement.insertBefore(badge,descEl);
        }
        applied++;
@@ -1289,12 +1289,12 @@
         const winColor=r.win_probability>=70?'#3fb950':r.win_probability>=50?'#d29922':'#f85149';
         const badge=document.createElement('div');
         badge.className='price-badge';
-        badge.style.cssText='font-size:10px;margin-bottom:2px;display:flex;gap:6px;align-items:center;flex-wrap:wrap';
+        badge.style.cssText='font-size:13px;margin-bottom:2px;display:flex;gap:6px;align-items:center;flex-wrap:wrap';
         let html='<span style="background:#d2a8ff22;color:#d2a8ff;border:1px solid #d2a8ff44;border-radius:4px;padding:1px 6px;font-weight:600;font-family:JetBrains Mono,monospace">🧠 $'+Number(r.recommended).toFixed(2)+'</span>';
-        html+='<span style="color:'+winColor+';font-weight:600;font-size:10px">'+Math.round(r.win_probability)+'% win</span>';
-        html+='<span style="color:#8b949e;font-size:9px" title="'+(r.reasoning||[]).join(' | ')+'">'+(r.reasoning||[])[0]||''+'</span>';
-        if(r.aggressive) html+=' <a href="#" onclick="document.querySelector(\'[name=price_'+idx+']\').value='+r.aggressive.toFixed(2)+';recalcRow('+idx+');recalcPC();return false" style="color:#f0883e;font-size:9px;text-decoration:none">⚡$'+r.aggressive.toFixed(2)+'</a>';
-        if(r.safe) html+=' <a href="#" onclick="document.querySelector(\'[name=price_'+idx+']\').value='+r.safe.toFixed(2)+';recalcRow('+idx+');recalcPC();return false" style="color:#3fb950;font-size:9px;text-decoration:none">🛡️$'+r.safe.toFixed(2)+'</a>';
+        html+='<span style="color:'+winColor+';font-weight:600;font-size:13px">'+Math.round(r.win_probability)+'% win</span>';
+        html+='<span style="color:#8b949e;font-size:13px" title="'+(r.reasoning||[]).join(' | ')+'">'+(r.reasoning||[])[0]||''+'</span>';
+        if(r.aggressive) html+=' <a href="#" onclick="document.querySelector(\'[name=price_'+idx+']\').value='+r.aggressive.toFixed(2)+';recalcRow('+idx+');recalcPC();return false" style="color:#f0883e;font-size:13px;text-decoration:none">⚡$'+r.aggressive.toFixed(2)+'</a>';
+        if(r.safe) html+=' <a href="#" onclick="document.querySelector(\'[name=price_'+idx+']\').value='+r.safe.toFixed(2)+';recalcRow('+idx+');recalcPC();return false" style="color:#3fb950;font-size:13px;text-decoration:none">🛡️$'+r.safe.toFixed(2)+'</a>';
         badge.innerHTML=html;
         descEl.parentElement.insertBefore(badge,descEl);
        }
@@ -1338,11 +1338,11 @@
         if(oldSweep)oldSweep.remove();
         const badge=document.createElement('div');
         badge.className='sweep-badge';
-        badge.style.cssText='font-size:10px;margin-bottom:2px;display:flex;gap:4px;align-items:center;flex-wrap:wrap';
+        badge.style.cssText='font-size:13px;margin-bottom:2px;display:flex;gap:4px;align-items:center;flex-wrap:wrap';
         let html='<span style="background:#f778ba22;color:#f778ba;border:1px solid #f778ba44;border-radius:4px;padding:1px 6px;font-weight:600;font-family:JetBrains Mono,monospace">🛒 '+r.options.length+' sources</span>';
         r.options.slice(0,4).forEach((opt,oi)=>{
          const isFirst=oi===0;
-         html+=' <a href="#" onclick="applySweepResult('+idx+','+JSON.stringify(opt).replace(/"/g,'&quot;')+');return false" style="color:'+(isFirst?'#3fb950':'#58a6ff')+';font-size:10px;text-decoration:none;font-family:JetBrains Mono,monospace" title="'+escHtml(opt.title)+'">'+(isFirst?'★ ':'')+escHtml(opt.source)+' $'+Number(opt.price).toFixed(2)+'</a>';
+         html+=' <a href="#" onclick="applySweepResult('+idx+','+JSON.stringify(opt).replace(/"/g,'&quot;')+');return false" style="color:'+(isFirst?'#3fb950':'#58a6ff')+';font-size:13px;text-decoration:none;font-family:JetBrains Mono,monospace" title="'+escHtml(opt.title)+'">'+(isFirst?'★ ':'')+escHtml(opt.source)+' $'+Number(opt.price).toFixed(2)+'</a>';
         });
         badge.innerHTML=html;
         descEl.parentElement.insertBefore(badge,descEl);
@@ -1427,29 +1427,29 @@
        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:12px">
         <div style="text-align:center;padding:10px;background:#161b22;border-radius:8px">
          <div style="font-size:20px;font-weight:700;color:#3fb950;font-family:JetBrains Mono,monospace">$${Number(d.total_profit).toLocaleString('en',{minimumFractionDigits:2})}</div>
-         <div style="font-size:11px;color:#8b949e">Total Profit</div>
+         <div style="font-size:14px;color:#8b949e">Total Profit</div>
         </div>
         <div style="text-align:center;padding:10px;background:#161b22;border-radius:8px">
          <div style="font-size:20px;font-weight:700;color:#58a6ff;font-family:JetBrains Mono,monospace">${d.blended_margin}%</div>
-         <div style="font-size:11px;color:#8b949e">Blended Margin</div>
+         <div style="font-size:14px;color:#8b949e">Blended Margin</div>
         </div>
         <div style="text-align:center;padding:10px;background:#161b22;border-radius:8px">
          <div style="font-size:20px;font-weight:700;color:#d29922;font-family:JetBrains Mono,monospace">~${Math.round(d.estimated_win_pct)}%</div>
-         <div style="font-size:11px;color:#8b949e">Est. Win Prob</div>
+         <div style="font-size:14px;color:#8b949e">Est. Win Prob</div>
         </div>
         <div style="text-align:center;padding:10px;background:#161b22;border-radius:8px">
          <div style="font-size:20px;font-weight:700;color:${deltaColor};font-family:JetBrains Mono,monospace">${deltaSign}$${Math.abs(vs.profit_delta).toFixed(2)}</div>
-         <div style="font-size:11px;color:#8b949e">vs Flat 25%</div>
+         <div style="font-size:14px;color:#8b949e">vs Flat 25%</div>
         </div>
        </div>
-       <div style="display:flex;gap:16px;font-size:11px;color:#8b949e;margin-bottom:10px">
+       <div style="display:flex;gap:16px;font-size:14px;color:#8b949e;margin-bottom:10px">
         <span>⚡ ${ss.loss_leaders||0} loss leaders (10%)</span>
         <span>🎯 ${ss.balanced||0} balanced (25%)</span>
         <span>💰 ${ss.profit_centers||0} profit centers (45%)</span>
        </div>
        <div style="display:flex;gap:8px">
-        <button onclick="applyPortfolioPrices()" style="background:#d2a8ff22;color:#d2a8ff;border:1px solid #d2a8ff44;border-radius:6px;padding:6px 16px;cursor:pointer;font-weight:600;font-size:12px">✅ Apply Portfolio Prices</button>
-        <button onclick="this.parentElement.parentElement.remove()" style="background:#21262d;color:#8b949e;border:1px solid #30363d;border-radius:6px;padding:6px 16px;cursor:pointer;font-size:12px">Cancel</button>
+        <button onclick="applyPortfolioPrices()" style="background:#d2a8ff22;color:#d2a8ff;border:1px solid #d2a8ff44;border-radius:6px;padding:6px 16px;cursor:pointer;font-weight:600;font-size:14px">✅ Apply Portfolio Prices</button>
+        <button onclick="this.parentElement.parentElement.remove()" style="background:#21262d;color:#8b949e;border:1px solid #30363d;border-radius:6px;padding:6px 16px;cursor:pointer;font-size:14px">Cancel</button>
        </div>`;
 
       // Store portfolio data for apply
@@ -1484,7 +1484,7 @@
        const color=p.strategy==='loss_leader'?'#f85149':p.strategy==='profit_center'?'#3fb950':'#58a6ff';
        const badge=document.createElement('div');
        badge.className='port-badge';
-       badge.style.cssText='font-size:10px;margin-bottom:1px';
+       badge.style.cssText='font-size:13px;margin-bottom:1px';
        badge.innerHTML='<span style="color:'+color+'">'+icon+' '+p.strategy.replace('_',' ')+' ('+p.markup_pct+'% markup)</span>';
        descEl.parentElement.insertBefore(badge,descEl);
       }
@@ -1518,9 +1518,9 @@
 
       // Previous losses (suggestions)
       if(d.suggestions && d.suggestions.length>0){
-       html+='<div style="margin-bottom:12px"><div style="font-weight:600;color:#f85149;font-size:12px;margin-bottom:6px">⚠️ Previous Losses on Similar Items</div>';
+       html+='<div style="margin-bottom:12px"><div style="font-weight:600;color:#f85149;font-size:14px;margin-bottom:6px">⚠️ Previous Losses on Similar Items</div>';
        d.suggestions.slice(0,5).forEach(s=>{
-        html+='<div style="background:#161b22;border-radius:6px;padding:8px 10px;margin-bottom:4px;font-size:11px">';
+        html+='<div style="background:#161b22;border-radius:6px;padding:8px 10px;margin-bottom:4px;font-size:14px">';
         html+='<span style="color:#c9d1d9;font-weight:600">'+escHtml(s.item_desc)+'</span> ';
         html+='<span style="color:#f85149">Lost to '+escHtml(s.competitor)+' at $'+Number(s.their_price).toFixed(2)+'</span> ';
         html+='<span style="color:#8b949e">(we quoted $'+Number(s.our_price).toFixed(2)+', '+s.delta_pct+'%)</span>';
@@ -1531,9 +1531,9 @@
 
       // Catalog intel (SCPRS/competitor data)
       if(d.catalog_intel && d.catalog_intel.length>0){
-       html+='<div><div style="font-weight:600;color:#58a6ff;font-size:12px;margin-bottom:6px">📈 Known Price Ceilings</div>';
+       html+='<div><div style="font-weight:600;color:#58a6ff;font-size:14px;margin-bottom:6px">📈 Known Price Ceilings</div>';
        d.catalog_intel.forEach(ci=>{
-        html+='<div style="background:#161b22;border-radius:6px;padding:8px 10px;margin-bottom:4px;font-size:11px;display:flex;gap:12px;flex-wrap:wrap">';
+        html+='<div style="background:#161b22;border-radius:6px;padding:8px 10px;margin-bottom:4px;font-size:14px;display:flex;gap:12px;flex-wrap:wrap">';
         html+='<span style="color:#c9d1d9;font-weight:600;min-width:150px">Item '+ci.idx+': '+escHtml(ci.description)+'</span>';
         if(ci.scprs_price) html+='<span style="color:#58a6ff">SCPRS: $'+Number(ci.scprs_price).toFixed(2)+'</span>';
         if(ci.competitor_price) html+='<span style="color:#f85149">Competitor: $'+Number(ci.competitor_price).toFixed(2)+' ('+escHtml(ci.competitor_source)+')</span>';
@@ -1545,7 +1545,7 @@
       }
 
       if(!d.suggestions?.length && !d.catalog_intel?.length){
-       html+='<div style="color:#8b949e;font-size:12px;padding:12px;text-align:center">No competitor data available yet. Win/loss tracking will build intelligence over time.</div>';
+       html+='<div style="color:#8b949e;font-size:14px;padding:12px;text-align:center">No competitor data available yet. Win/loss tracking will build intelligence over time.</div>';
       }
 
       panelEl.innerHTML=html;
@@ -1603,9 +1603,9 @@
            const badge=document.createElement('div');
            badge.className='cat-badge';
            badge.id='cat-badge-'+idx;
-           badge.style.cssText='font-size:10px;margin-bottom:2px;display:flex;gap:6px;align-items:center';
+           badge.style.cssText='font-size:13px;margin-bottom:2px;display:flex;gap:6px;align-items:center';
            badge.innerHTML='<span style="color:#8b949e">📋 Not in catalog</span>'
-            +'<a href="#" onclick="addToCatalog('+idx+');return false" style="color:#d29922;font-size:10px;font-weight:700;text-decoration:none" title="Save this item to catalog for future matching">📋 Add</a>';
+            +'<a href="#" onclick="addToCatalog('+idx+');return false" style="color:#d29922;font-size:13px;font-weight:700;text-decoration:none" title="Save this item to catalog for future matching">📋 Add</a>';
            descEl.parentElement.insertBefore(badge,descEl);
           }
           return;
@@ -1616,7 +1616,7 @@
          const badge=document.createElement('div');
          badge.className='cat-badge';
          badge.id='cat-badge-'+idx;
-         badge.style.cssText='font-size:10px;margin-bottom:2px;display:flex;gap:6px;align-items:center;flex-wrap:wrap';
+         badge.style.cssText='font-size:13px;margin-bottom:2px;display:flex;gap:6px;align-items:center;flex-wrap:wrap';
          let freshness='';
          if(r.last_checked){
           const days=Math.floor((Date.now()-new Date(r.last_checked).getTime())/(86400000));
@@ -1631,10 +1631,10 @@
           winInfo='<span style="color:'+wColor+'" title="Won '+r.times_won+'x, Lost '+r.times_lost+'x">'+Math.round(wr)+'% win</span>';
          }
          badge.innerHTML='<span style="background:'+color+'22;color:'+color+';border:1px solid '+color+'44;border-radius:4px;padding:1px 6px;font-weight:600;font-family:JetBrains Mono,monospace">'+conf+'% match</span>'
-          +'<span style="color:#8b949e;font-size:10px" title="'+escHtml(r.reason||'')+'">'+escHtml((r.canonical_name||'').substring(0,50))+'</span>'
+          +'<span style="color:#8b949e;font-size:13px" title="'+escHtml(r.reason||'')+'">'+escHtml((r.canonical_name||'').substring(0,50))+'</span>'
           +(r.last_cost?'<span style="color:#58a6ff;font-weight:600;font-family:JetBrains Mono,monospace">$'+Number(r.last_cost).toFixed(2)+'→$'+Number(r.last_sell||0).toFixed(2)+'</span>':'')
           +freshness+winInfo
-          +'<a href="#" onclick="applyCatalogMatch('+idx+','+JSON.stringify(r).replace(/"/g,'&quot;')+');return false" style="color:#3fb950;font-size:10px;font-weight:700;text-decoration:none" title="Fill cost + price from catalog">✅ Use</a>';
+          +'<a href="#" onclick="applyCatalogMatch('+idx+','+JSON.stringify(r).replace(/"/g,'&quot;')+');return false" style="color:#3fb950;font-size:13px;font-weight:700;text-decoration:none" title="Fill cost + price from catalog">✅ Use</a>';
          descEl.parentElement.insertBefore(badge,descEl);
         });
         let msg='';
@@ -1778,16 +1778,16 @@
       const ext=Math.round(price*qty*100)/100;
       // Build description with MFG# appended
       let fullDesc=desc;
-      if(mfg && !desc.toLowerCase().includes(mfg.toLowerCase())) fullDesc+=`<br><span style="font-size:10px;color:#555">MFG#: ${mfg}</span>`;
+      if(mfg && !desc.toLowerCase().includes(mfg.toLowerCase())) fullDesc+=`<br><span style="font-size:13px;color:#555">MFG#: ${mfg}</span>`;
       subtotal+=ext;
       itemCount++;
       itemsHtml+=`<tr>
-       <td style="text-align:center;border:1px solid #999;padding:6px;font-size:12px">${itemCount}</td>
-       <td style="text-align:center;border:1px solid #999;padding:6px;font-size:12px">${qty}</td>
-       <td style="text-align:center;border:1px solid #999;padding:6px;font-size:12px">${uom.toUpperCase()}</td>
-       <td style="border:1px solid #999;padding:6px;font-size:11px;max-width:300px">${fullDesc}</td>
-       <td style="text-align:right;border:1px solid #999;padding:6px;font-size:12px">${price?'$'+price.toFixed(2):''}</td>
-       <td style="text-align:right;border:1px solid #999;padding:6px;font-size:12px;font-weight:600">${ext?'$'+ext.toFixed(2):''}</td>
+       <td style="text-align:center;border:1px solid #999;padding:6px;font-size:14px">${itemCount}</td>
+       <td style="text-align:center;border:1px solid #999;padding:6px;font-size:14px">${qty}</td>
+       <td style="text-align:center;border:1px solid #999;padding:6px;font-size:14px">${uom.toUpperCase()}</td>
+       <td style="border:1px solid #999;padding:6px;font-size:14px;max-width:300px">${fullDesc}</td>
+       <td style="text-align:right;border:1px solid #999;padding:6px;font-size:14px">${price?'$'+price.toFixed(2):''}</td>
+       <td style="text-align:right;border:1px solid #999;padding:6px;font-size:14px;font-weight:600">${ext?'$'+ext.toFixed(2):''}</td>
       </tr>`;
      });
      const taxOn=document.getElementById('taxToggle')?.checked;
@@ -1804,40 +1804,40 @@
 
      const html=`<div style="padding:24px 28px;font-family:Arial,Helvetica,sans-serif;color:#000;background:#fff;font-size:13px">
       <div style="text-align:center;border-bottom:2px solid #000;padding-bottom:10px;margin-bottom:16px">
-       <div style="font-size:11px;color:#444;margin-bottom:2px">STATE OF CALIFORNIA — DEPARTMENT OF GENERAL SERVICES</div>
+       <div style="font-size:14px;color:#444;margin-bottom:2px">STATE OF CALIFORNIA — DEPARTMENT OF GENERAL SERVICES</div>
        <div style="font-size:18px;font-weight:700;letter-spacing:1px">AMS 704 — PRICE CHECK WORKSHEET</div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;margin-bottom:14px;border:1px solid #999">
-       <div style="padding:6px 10px;border:1px solid #999"><span style="font-size:10px;color:#666;text-transform:uppercase">Price Check #</span><br><b>${PC_META.pcNum}</b></div>
-       <div style="padding:6px 10px;border:1px solid #999"><span style="font-size:10px;color:#666;text-transform:uppercase">Date</span><br><b>${dateStr}</b></div>
-       <div style="padding:6px 10px;border:1px solid #999"><span style="font-size:10px;color:#666;text-transform:uppercase">Institution</span><br><b>${PC_META.institution}</b></div>
-       <div style="padding:6px 10px;border:1px solid #999"><span style="font-size:10px;color:#666;text-transform:uppercase">Ship To</span><br>${PC_META.shipTo}</div>
-       <div style="padding:6px 10px;border:1px solid #999"><span style="font-size:10px;color:#666;text-transform:uppercase">Company Name</span><br><b>Reytech Inc.</b></div>
-       <div style="padding:6px 10px;border:1px solid #999"><span style="font-size:10px;color:#666;text-transform:uppercase">Delivery</span><br>${delivery}</div>
+       <div style="padding:6px 10px;border:1px solid #999"><span style="font-size:13px;color:#666;text-transform:uppercase">Price Check #</span><br><b>${PC_META.pcNum}</b></div>
+       <div style="padding:6px 10px;border:1px solid #999"><span style="font-size:13px;color:#666;text-transform:uppercase">Date</span><br><b>${dateStr}</b></div>
+       <div style="padding:6px 10px;border:1px solid #999"><span style="font-size:13px;color:#666;text-transform:uppercase">Institution</span><br><b>${PC_META.institution}</b></div>
+       <div style="padding:6px 10px;border:1px solid #999"><span style="font-size:13px;color:#666;text-transform:uppercase">Ship To</span><br>${PC_META.shipTo}</div>
+       <div style="padding:6px 10px;border:1px solid #999"><span style="font-size:13px;color:#666;text-transform:uppercase">Company Name</span><br><b>Reytech Inc.</b></div>
+       <div style="padding:6px 10px;border:1px solid #999"><span style="font-size:13px;color:#666;text-transform:uppercase">Delivery</span><br>${delivery}</div>
       </div>
       <table style="width:100%;border-collapse:collapse;margin-bottom:12px">
        <thead><tr style="background:#e8e8e0">
-        <th style="padding:6px;font-size:10px;text-transform:uppercase;border:1px solid #999;width:50px">Item #</th>
-        <th style="padding:6px;font-size:10px;text-transform:uppercase;border:1px solid #999;width:50px">Qty</th>
-        <th style="padding:6px;font-size:10px;text-transform:uppercase;border:1px solid #999;width:50px">UOM</th>
-        <th style="padding:6px;font-size:10px;text-transform:uppercase;border:1px solid #999">Description</th>
-        <th style="padding:6px;font-size:10px;text-transform:uppercase;border:1px solid #999;text-align:right;width:90px">Price/Unit</th>
-        <th style="padding:6px;font-size:10px;text-transform:uppercase;border:1px solid #999;text-align:right;width:90px">Extension</th>
+        <th style="padding:6px;font-size:13px;text-transform:uppercase;border:1px solid #999;width:50px">Item #</th>
+        <th style="padding:6px;font-size:13px;text-transform:uppercase;border:1px solid #999;width:50px">Qty</th>
+        <th style="padding:6px;font-size:13px;text-transform:uppercase;border:1px solid #999;width:50px">UOM</th>
+        <th style="padding:6px;font-size:13px;text-transform:uppercase;border:1px solid #999">Description</th>
+        <th style="padding:6px;font-size:13px;text-transform:uppercase;border:1px solid #999;text-align:right;width:90px">Price/Unit</th>
+        <th style="padding:6px;font-size:13px;text-transform:uppercase;border:1px solid #999;text-align:right;width:90px">Extension</th>
        </tr></thead>
        <tbody>${itemsHtml}</tbody>
       </table>
       <div style="display:flex;justify-content:flex-end">
        <table style="border-collapse:collapse;min-width:220px">
-        <tr><td style="text-align:right;padding:4px 10px;font-size:12px;border:1px solid #999">Subtotal</td>
+        <tr><td style="text-align:right;padding:4px 10px;font-size:14px;border:1px solid #999">Subtotal</td>
             <td style="text-align:right;padding:4px 10px;font-size:13px;border:1px solid #999;font-weight:600">$${subtotal.toFixed(2)}</td></tr>
-        ${taxOn?`<tr><td style="text-align:right;padding:4px 10px;font-size:12px;border:1px solid #999">Tax (${(taxRate*100).toFixed(2)}%)</td>
+        ${taxOn?`<tr><td style="text-align:right;padding:4px 10px;font-size:14px;border:1px solid #999">Tax (${(taxRate*100).toFixed(2)}%)</td>
             <td style="text-align:right;padding:4px 10px;font-size:13px;border:1px solid #999">$${tax.toFixed(2)}</td></tr>`:''}
         <tr style="background:#1a2744;color:#fff"><td style="text-align:right;padding:6px 10px;font-size:13px;font-weight:700">TOTAL</td>
             <td style="text-align:right;padding:6px 10px;font-size:15px;font-weight:700">$${total.toFixed(2)}</td></tr>
        </table>
       </div>
-      ${notes?`<div style="margin-top:12px;padding:8px 10px;border:1px solid #ccc;border-radius:4px;font-size:11px;color:#444"><b>Notes:</b> ${notes}</div>`:''}
-      <div style="margin-top:14px;padding-top:8px;border-top:1px solid #ccc;font-size:10px;color:#666;text-align:center">
+      ${notes?`<div style="margin-top:12px;padding:8px 10px;border:1px solid #ccc;border-radius:4px;font-size:14px;color:#444"><b>Notes:</b> ${notes}</div>`:''}
+      <div style="margin-top:14px;padding-top:8px;border-top:1px solid #ccc;font-size:13px;color:#666;text-align:center">
        Reytech Inc. — 30 Carnoustie Way, Trabuco Canyon, CA 92679 — sales@reytechinc.com — (714) 501-3530<br>
        ${itemCount} item(s) · Valid until ${expiry}
       </div>
@@ -1953,7 +1953,7 @@
          const total = d.total ? ' — $' + parseFloat(d.total).toLocaleString('en-US', {minimumFractionDigits:2}) : '';
          const profitStr = d.gross_profit != null
            ? ' · <span style="color:#3fb950">Profit: $' + parseFloat(d.gross_profit).toFixed(2) + ' (' + parseFloat(d.margin_pct||0).toFixed(1) + '% margin)</span>'
-           + (d.fully_costed === false ? ' <span style="color:#d29922;font-size:12px">(partial — enter costs for remaining items)</span>' : '')
+           + (d.fully_costed === false ? ' <span style="color:#d29922;font-size:14px">(partial — enter costs for remaining items)</span>' : '')
            : ' · <span style="color:#8b949e;font-size:13px">Profit unknown — enter vendor costs to track margin</span>';
          if(banner) { banner.style.borderColor = '#3fb950'; banner.style.background = 'linear-gradient(135deg,#0d2a0d,#0d1117)'; }
          if(meta) meta.innerHTML = '✅ Quote <b style="color:#3fb950">'+qn+'</b>'+total+' generated · <a href="'+(d.download||'')+'" style="color:#58a6ff" download>Download PDF</a> · <a href="/quotes" style="color:#58a6ff">View in Quotes →</a>' + profitStr;
@@ -1988,14 +1988,14 @@
      const total = ps.total_items || 0;
      const uncostd = total - costed;
      const warn = uncostd > 0
-       ? '<div style="color:#d29922;font-size:12px;margin-top:4px">⚠️ ' + uncostd + ' item(s) missing vendor cost</div>'
-       : '<div style="color:#3fb950;font-size:12px;margin-top:4px">✅ All items costed</div>';
+       ? '<div style="color:#d29922;font-size:14px;margin-top:4px">⚠️ ' + uncostd + ' item(s) missing vendor cost</div>'
+       : '<div style="color:#3fb950;font-size:14px;margin-top:4px">✅ All items costed</div>';
      const profitColor = ps.gross_profit > 0 ? '#3fb950' : (ps.gross_profit < 0 ? '#f85149' : '#8b949e');
      const marginColor = ps.margin_pct >= 20 ? '#3fb950' : (ps.margin_pct >= 10 ? '#d29922' : '#f85149');
      const panel = document.getElementById('server-profit-panel');
      if (panel) {
       panel.innerHTML =
-       '<div style="font-size:12px;text-transform:uppercase;color:#8b949e;margin-bottom:6px;letter-spacing:0.5px;font-weight:600">Saved Profit Summary</div>' +
+       '<div style="font-size:14px;text-transform:uppercase;color:#8b949e;margin-bottom:6px;letter-spacing:0.5px;font-weight:600">Saved Profit Summary</div>' +
        '<div style="font-size:14px"><span style="color:#8b949e">Revenue:</span> <b>$' + ps.total_revenue.toFixed(2) + '</b></div>' +
        '<div style="font-size:14px"><span style="color:#8b949e">Cost:</span> <b>$' + ps.total_cost.toFixed(2) + '</b></div>' +
        '<div style="font-size:15px;margin-top:4px"><span style="color:#8b949e">Gross Profit:</span> ' +
@@ -2073,10 +2073,10 @@
        // Show confidence bar
        let bar=document.getElementById('confidenceBar');
        let pct=((c.overall_score||0)*100).toFixed(0);
-       bar.innerHTML='<div style="margin-top:8px;background:#21262d;border-radius:4px;overflow:hidden;height:24px;position:relative"><div style="width:'+pct+'%;background:'+gradeColor+';height:100%;transition:width 1s"></div><span style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:12px;font-weight:bold">Confidence: '+grade+' ('+pct+'%)</span></div>';
+       bar.innerHTML='<div style="margin-top:8px;background:#21262d;border-radius:4px;overflow:hidden;height:24px;position:relative"><div style="width:'+pct+'%;background:'+gradeColor+';height:100%;transition:width 1s"></div><span style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:14px;font-weight:bold">Confidence: '+grade+' ('+pct+'%)</span></div>';
        // Show timing breakdown
        let steps=(d.steps||[]).map(s=>s.step+': '+(s.found!==undefined?s.found+' found':'ok')).join(' → ');
-       bar.innerHTML+='<div style="font-size:11px;color:#8b949e;margin-top:4px">Pipeline: '+steps+' | Total: '+t.total+'s</div>';
+       bar.innerHTML+='<div style="font-size:14px;color:#8b949e;margin-top:4px">Pipeline: '+steps+' | Total: '+t.total+'s</div>';
        setTimeout(()=>location.reload(),3000);
       } else {
        showMsg('❌ Auto-process failed: '+(d.error||'unknown'),'err');
@@ -2119,12 +2119,12 @@
        badge.style.background = (agColors[ag]||'#8b949e') + '22';
        badge.style.color = agColors[ag]||'#8b949e';
        let html = '<div style="font-weight:600;font-size:14px;color:var(--tx)">' + (c.display_name||'') + '</div>';
-       if (c.parent) html += '<div style="font-size:11px;color:#8b949e;margin-top:2px">↳ ' + c.parent + '</div>';
+       if (c.parent) html += '<div style="font-size:14px;color:#8b949e;margin-top:2px">↳ ' + c.parent + '</div>';
        if (c.email) html += '<div style="margin-top:4px">📧 <a href="mailto:' + c.email + '" style="color:#58a6ff">' + c.email + '</a></div>';
        if (c.phone) html += '<div>📞 ' + c.phone + '</div>';
-       if (c.address) html += '<div style="margin-top:4px;font-size:11px;color:var(--tx2)">' + c.address.replace(/\\n/g,'<br>') + '</div>';
-       if (c.city) html += '<div style="font-size:11px;color:var(--tx2)">' + c.city + ', ' + (c.state||'CA') + ' ' + (c.zip||'') + '</div>';
-       html += '<div style="margin-top:4px;font-size:10px;color:#8b949e">Source: ' + (c.source||'manual') + '</div>';
+       if (c.address) html += '<div style="margin-top:4px;font-size:14px;color:var(--tx2)">' + c.address.replace(/\\n/g,'<br>') + '</div>';
+       if (c.city) html += '<div style="font-size:14px;color:var(--tx2)">' + c.city + ', ' + (c.state||'CA') + ' ' + (c.zip||'') + '</div>';
+       html += '<div style="margin-top:4px;font-size:13px;color:#8b949e">Source: ' + (c.source||'manual') + '</div>';
        card.innerHTML = html;
       } else {
        badge.textContent = '⚠️ NEW';
@@ -2132,14 +2132,14 @@
        badge.style.color = '#d29922';
        let html = '<div style="color:#d29922;font-weight:600">"' + inst + '" not in CRM</div>';
        const suggested = d.suggested_agency || 'DEFAULT';
-       html += '<div style="font-size:11px;margin-top:4px;color:var(--tx2)">Suggested agency: <b>' + suggested + '</b></div>';
+       html += '<div style="font-size:14px;margin-top:4px;color:var(--tx2)">Suggested agency: <b>' + suggested + '</b></div>';
        if (d.candidates && d.candidates.length > 0) {
-        html += '<div style="margin-top:6px;font-size:11px;color:var(--tx2)">Did you mean:</div>';
+        html += '<div style="margin-top:6px;font-size:14px;color:var(--tx2)">Did you mean:</div>';
         d.candidates.forEach(c => {
-         html += '<div style="margin-left:8px;font-size:11px">• ' + c.display_name + ' <span style="color:#8b949e">(' + (c.agency||'') + ')</span></div>';
+         html += '<div style="margin-left:8px;font-size:14px">• ' + c.display_name + ' <span style="color:#8b949e">(' + (c.agency||'') + ')</span></div>';
         });
        }
-       html += '<button onclick="addNewCustomer()" class="btn btn-sm" data-testid="crm-add-customer" style="margin-top:8px;background:rgba(210,153,34,.15);color:#d29922;border:1px solid rgba(210,153,34,.3);font-size:11px;padding:3px 10px;cursor:pointer">+ Add to CRM</button>';
+       html += '<button onclick="addNewCustomer()" class="btn btn-sm" data-testid="crm-add-customer" style="margin-top:8px;background:rgba(210,153,34,.15);color:#d29922;border:1px solid rgba(210,153,34,.3);font-size:14px;padding:3px 10px;cursor:pointer">+ Add to CRM</button>';
        card.innerHTML = html;
       }
      })();
@@ -2185,13 +2185,13 @@
        html += '<div style="padding:8px 0;border-bottom:1px solid rgba(48,54,61,0.5)">';
        html += '<div style="display:flex;gap:10px;align-items:center">';
        html += '<a href="' + (h.quote_url||'/quotes') + '" style="font-family:JetBrains Mono,monospace;font-weight:700;font-size:13px;color:#58a6ff;text-decoration:none">' + h.quote_number + '</a>';
-       html += '<span style="color:' + color + ';font-size:12px;padding:1px 8px;border-radius:10px;background:' + color + '18;font-weight:600">' + icon + ' ' + h.status + '</span>';
-       html += '<span style="font-size:12px;color:#8b949e;flex:1">' + (h.date||'') + (h.days_ago ? ' · '+h.days_ago : '') + '</span>';
+       html += '<span style="color:' + color + ';font-size:14px;padding:1px 8px;border-radius:10px;background:' + color + '18;font-weight:600">' + icon + ' ' + h.status + '</span>';
+       html += '<span style="font-size:14px;color:#8b949e;flex:1">' + (h.date||'') + (h.days_ago ? ' · '+h.days_ago : '') + '</span>';
        html += '<span style="font-family:JetBrains Mono,monospace;font-weight:600;font-size:13px;color:var(--tx)">$' + (h.total||0).toLocaleString('en',{minimumFractionDigits:2}) + '</span>';
        html += '</div>';
        html += '<div style="display:flex;gap:8px;margin-top:4px;align-items:center">';
-       if (items) html += '<span style="font-size:11px;color:#8b949e;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (h.items_count||0) + ' items: ' + items + '</span>';
-       if (h.po_number) html += '<span style="font-size:11px;padding:1px 6px;background:#238636;color:#fff;border-radius:4px;font-weight:600">PO: ' + h.po_number + '</span>';
+       if (items) html += '<span style="font-size:14px;color:#8b949e;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (h.items_count||0) + ' items: ' + items + '</span>';
+       if (h.po_number) html += '<span style="font-size:14px;padding:1px 6px;background:#238636;color:#fff;border-radius:4px;font-weight:600">PO: ' + h.po_number + '</span>';
        html += '</div>';
        html += '</div>';
       });
@@ -2249,9 +2249,9 @@
             if (d.ok && d.found) {
               rows.innerHTML += `<div style="display:flex;align-items:center;gap:12px;padding:8px 12px;background:#161b22;border:1px solid #30363d;border-radius:6px;margin-bottom:6px;flex-wrap:wrap">
                 <div style="flex:1;min-width:0"><div style="font-size:13px;color:#c9d1d9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${desc}">${desc.substring(0,70)}</div>
-                <div style="font-size:11px;color:#484f58">via ${d.best_source||'?'} · ${(d.best_found_at||'').substring(0,10)} · ${d.observations} observation${d.observations!==1?'s':''}</div></div>
+                <div style="font-size:14px;color:#484f58">via ${d.best_source||'?'} · ${(d.best_found_at||'').substring(0,10)} · ${d.observations} observation${d.observations!==1?'s':''}</div></div>
                 <div style="text-align:right;white-space:nowrap"><div style="color:#3fb950;font-weight:700;font-size:15px">Best: $${d.best_price.toFixed(2)}</div>
-                <div style="color:#8b949e;font-size:12px">Avg: $${d.avg_price.toFixed(2)}</div></div></div>`;
+                <div style="color:#8b949e;font-size:14px">Avg: $${d.avg_price.toFixed(2)}</div></div></div>`;
             }
             if (loaded >= seen.size) {
               if (!rows.innerHTML) rows.innerHTML='<div style="color:#484f58;font-size:13px;padding:8px">No price history yet — builds as quotes are generated.</div>';

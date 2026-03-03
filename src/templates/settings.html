@@ -6,7 +6,7 @@
 <!-- ═══ Nav Customization ═══ -->
 <div class="card" style="margin-bottom:12px" id="nav">
  <div class="card-t">🧭 Navigation Bar</div>
- <div style="font-size:12px;color:var(--tx2);margin-bottom:12px">
+ <div style="font-size:14px;color:var(--tx2);margin-bottom:12px">
   Check items to show in the top nav bar. Unchecked items go to "⋯ More" dropdown. Home is always first.
  </div>
  <div id="nav-items" style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
@@ -62,7 +62,7 @@ function renderNavEditor(){
    +'" ondragover="event.preventDefault()" draggable="false">'
    +'<input type="checkbox" data-name="'+item.name+'" '+(checked?'checked':'')+' onchange="toggleNavItem(this)" style="width:16px;height:16px;accent-color:var(--ac)">'
    +'<span style="font-size:13px">'+item.label+'</span>'
-   +(checked?'<span style="margin-left:auto;font-size:10px;color:#3fb950">TOP</span>':'')
+   +(checked?'<span style="margin-left:auto;font-size:13px;color:#3fb950">TOP</span>':'')
    +'</label>';
  }).join('');
 }
@@ -105,7 +105,7 @@ loadNavConfig();
  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px">
   {% for key, value in items.items()|sort %}
   <div>
-   <label style="font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px">
+   <label style="font-size:14px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px">
     {{key.split('.')[-1]|replace('_',' ')|title}}
    </label>
    {% if value is sameas true or value is sameas false %}

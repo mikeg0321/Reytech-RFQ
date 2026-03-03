@@ -8,18 +8,18 @@
 <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
   <div class="card" style="text-align:center;padding:12px 20px;min-width:100px;margin:0">
     <div style="font-size:28px;font-weight:800;color:var(--ac)">{{ total }}</div>
-    <div style="font-size:10px;color:var(--tx2)">SHIPMENTS</div></div>
+    <div style="font-size:13px;color:var(--tx2)">SHIPMENTS</div></div>
   <div class="card" style="text-align:center;padding:12px 20px;min-width:100px;margin:0">
     <div style="font-size:28px;font-weight:800;color:var(--yl)">{{ in_transit }}</div>
-    <div style="font-size:10px;color:var(--tx2)">IN TRANSIT</div></div>
+    <div style="font-size:13px;color:var(--tx2)">IN TRANSIT</div></div>
   <div class="card" style="text-align:center;padding:12px 20px;min-width:100px;margin:0">
     <div style="font-size:28px;font-weight:800;color:var(--gn)">{{ delivered }}</div>
-    <div style="font-size:10px;color:var(--tx2)">DELIVERED</div></div>
+    <div style="font-size:13px;color:var(--tx2)">DELIVERED</div></div>
 </div>
 
 <div style="margin-bottom:12px">
   {% for carrier, count in carriers|dictsort(by='value', reverse=true) %}
-  <span style="background:var(--sf2);border:1px solid var(--bd);border-radius:6px;padding:4px 10px;font-size:11px">{{ carrier }}: <b>{{ count }}</b></span>
+  <span style="background:var(--sf2);border:1px solid var(--bd);border-radius:6px;padding:4px 10px;font-size:14px">{{ carrier }}: <b>{{ count }}</b></span>
   {% endfor %}
 </div>
 
@@ -34,17 +34,17 @@
     {% for s in shipments %}
     {% set st_color = {'delivered': 'var(--gn)', 'shipped': 'var(--ac)', 'ordered': 'var(--yl)'}.get(s.status, 'var(--tx2)') %}
     <tr onclick="location.href='/order/{{ s.order_id }}'" style="cursor:pointer">
-     <td><a href="/order/{{ s.order_id }}" style="color:var(--ac);font-size:12px">{{ s.order_id[:20] }}</a></td>
-     <td style="font-size:12px">{{ s.po_number }}</td>
-     <td style="font-size:12px">{{ s.institution[:30] }}</td>
-     <td style="font-size:12px">{{ s.description }}</td>
-     <td style="font-family:'JetBrains Mono',monospace;font-size:11px">
+     <td><a href="/order/{{ s.order_id }}" style="color:var(--ac);font-size:14px">{{ s.order_id[:20] }}</a></td>
+     <td style="font-size:14px">{{ s.po_number }}</td>
+     <td style="font-size:14px">{{ s.institution[:30] }}</td>
+     <td style="font-size:14px">{{ s.description }}</td>
+     <td style="font-family:'JetBrains Mono',monospace;font-size:14px">
        {% if s.track_url %}<a href="{{ s.track_url }}" target="_blank" style="color:var(--ac)">{{ s.tracking }}</a>{% else %}{{ s.tracking }}{% endif %}
      </td>
-     <td style="font-size:12px">{{ s.carrier }}</td>
-     <td style="font-size:12px">{{ s.ship_date }}</td>
-     <td style="font-size:12px">{{ s.delivery_date }}</td>
-     <td style="color:{{ st_color }};font-weight:600;font-size:12px">{{ s.status }}</td>
+     <td style="font-size:14px">{{ s.carrier }}</td>
+     <td style="font-size:14px">{{ s.ship_date }}</td>
+     <td style="font-size:14px">{{ s.delivery_date }}</td>
+     <td style="color:{{ st_color }};font-weight:600;font-size:14px">{{ s.status }}</td>
     </tr>
     {% endfor %}
   {% else %}

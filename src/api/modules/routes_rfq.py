@@ -2209,7 +2209,7 @@ def _build_default_signature():
 <div style="font-size:13px"><a href="https://www.reytechinc.com" style="color:#2563eb;text-decoration:none">www.reytechinc.com</a></div>
 <div style="font-size:13px;color:#555">Trabuco Canyon, CA</div>
 <div style="font-size:13px;color:#222">949-229-1575</div>
-<div style="font-size:12px;color:#555;margin-top:6px;line-height:1.5">
+<div style="font-size:14px;color:#555;margin-top:6px;line-height:1.5">
 CA MB/SB/SB-PW/DVBE #2002605<br>
 NY SDVOB - 221449<br>
 DOT - Disadvantaged Business Enterprise DBE #44511<br>

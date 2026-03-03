@@ -15,8 +15,8 @@ h1 { font-size:22px; margin-bottom:4px; }
 .sub { color:var(--tx2); font-size:13px; margin-bottom:20px; }
 .section { background:var(--sf); border:1px solid var(--bd); border-radius:10px; padding:16px; margin-bottom:16px; }
 .section h2 { font-size:16px; margin-bottom:12px; display:flex; align-items:center; gap:8px; cursor:pointer; user-select:none; }
-.section h2 .tag { font-size:11px; padding:2px 8px; border-radius:10px; font-weight:normal; }
-.section h2 .caret { margin-left:auto; font-size:12px; color:var(--tx2); transition:transform .2s; }
+.section h2 .tag { font-size:14px; padding:2px 8px; border-radius:10px; font-weight:normal; }
+.section h2 .caret { margin-left:auto; font-size:14px; color:var(--tx2); transition:transform .2s; }
 .tag-ok { background:#238636; color:#fff; }
 .tag-warn { background:#d29922; color:#000; }
 .tag-off { background:var(--sf2); color:var(--tx2); border:1px solid var(--bd); }
@@ -27,7 +27,7 @@ h1 { font-size:22px; margin-bottom:4px; }
 .btn:active { transform:scale(0.97); }
 .btn:disabled { opacity:0.5; cursor:wait; }
 .btn .label { font-weight:600; font-size:14px; }
-.btn .desc { font-size:11px; color:var(--tx2); }
+.btn .desc { font-size:14px; color:var(--tx2); }
 .btn-go { background:#1a3a5c; border-color:#2563eb; }
 .btn-go:hover { background:#1e4a7c; }
 .btn-danger { border-color:var(--err); }
@@ -38,7 +38,7 @@ h1 { font-size:22px; margin-bottom:4px; }
 #result-backdrop { display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:8999;backdrop-filter:blur(2px); }
 #result-backdrop.show { display:block; }
 #result { background:#0a0e14; border:1px solid var(--blue); border-radius:12px; padding:16px; margin-top:16px;
-  font-family:'SF Mono',Consolas,monospace; font-size:12px; line-height:1.6; white-space:pre-wrap;
+  font-family:'SF Mono',Consolas,monospace; font-size:14px; line-height:1.6; white-space:pre-wrap;
   max-height:70vh; overflow-y:auto; display:none; position:fixed; top:50%;left:50%;transform:translate(-50%,-50%);
   width:calc(100% - 40px); max-width:960px;
   z-index:9000; box-shadow:0 0 60px rgba(79,140,255,.2),0 0 0 1px rgba(88,166,255,.3); animation:fadeIn .2s ease; }
@@ -46,10 +46,10 @@ h1 { font-size:22px; margin-bottom:4px; }
 #result .close { position:absolute; top:8px; right:12px; cursor:pointer; color:var(--tx2); font-size:18px; background:var(--sf2); border-radius:50%; width:24px; height:24px; display:flex; align-items:center; justify-content:center; }
 #result .close:hover { color:var(--tx); background:var(--err); }
 #result .rh { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; padding-bottom:8px; border-bottom:1px solid var(--bd); }
-#result .rh .rt { font-size:11px; color:var(--tx2); font-weight:600; text-transform:uppercase; letter-spacing:.5px; }
-#result .rh .rd { font-size:10px; color:var(--tx2); }
+#result .rh .rt { font-size:14px; color:var(--tx2); font-weight:600; text-transform:uppercase; letter-spacing:.5px; }
+#result .rh .rd { font-size:13px; color:var(--tx2); }
 .fleet { display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:8px; margin-bottom:16px; }
-.agent-card { padding:10px; border:1px solid var(--bd); border-radius:8px; background:var(--sf2); font-size:12px; }
+.agent-card { padding:10px; border:1px solid var(--bd); border-radius:8px; background:var(--sf2); font-size:14px; }
 .agent-card .name { font-weight:600; font-size:13px; margin-bottom:4px; }
 .agent-card .mode { color:var(--tx2); }
 .loading { color:var(--warn); }
@@ -60,16 +60,16 @@ h1 { font-size:22px; margin-bottom:4px; }
 .t-info { background:#1a2a3a; border:1px solid #2563eb; color:#79c0ff; }
 @keyframes si { from { transform:translateX(100%); opacity:0; } to { transform:translateX(0); opacity:1; } }
 .qa-bar { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px; padding:12px; background:var(--sf); border:1px solid var(--bd); border-radius:10px; }
-.qa-btn { padding:8px 14px; background:var(--sf2); border:1px solid var(--bd); border-radius:8px; color:var(--tx); cursor:pointer; font-size:12px; font-weight:600; transition:all .15s; white-space:nowrap; }
+.qa-btn { padding:8px 14px; background:var(--sf2); border:1px solid var(--bd); border-radius:8px; color:var(--tx); cursor:pointer; font-size:14px; font-weight:600; transition:all .15s; white-space:nowrap; }
 .qa-btn:hover { border-color:var(--blue); background:#1a2332; }
 .fin-cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(130px,1fr)); gap:8px; margin-bottom:12px; }
 .fin-c { background:var(--sf2); padding:10px; border-radius:8px; text-align:center; }
-.fin-c .fl { font-size:9px; color:var(--tx2); text-transform:uppercase; letter-spacing:.5px; }
+.fin-c .fl { font-size:13px; color:var(--tx2); text-transform:uppercase; letter-spacing:.5px; }
 .fin-c .fv { font-size:16px; font-weight:700; margin-top:2px; }
 .scol { transition:max-height .3s ease; overflow:hidden; }
 .scol.hid { max-height:0 !important; }
-.step-label { margin-bottom:8px;font-size:11px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:1px }
-.env-box { margin-top:10px;padding:10px;background:#0a0e14;border-radius:8px;font-size:11px;font-family:monospace;color:#8b949e }
+.step-label { margin-bottom:8px;font-size:14px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:1px }
+.env-box { margin-top:10px;padding:10px;background:#0a0e14;border-radius:8px;font-size:14px;font-family:monospace;color:#8b949e }
 {{ brief_css|safe }}
 </style>
 </head><body>
@@ -79,19 +79,19 @@ h1 { font-size:22px; margin-bottom:4px; }
  <a href="/growth-intel">📊 Growth Intel</a> <a href="/catalog">📦 Catalog</a>
 </div>
 <h1>🤖 Agent Control Panel</h1>
-<div class="sub">Click any button to run it. Results + toasts appear inline. <span id="uptime" style="float:right;font-size:11px;color:var(--tx2)"></span></div>
+<div class="sub">Click any button to run it. Results + toasts appear inline. <span id="uptime" style="float:right;font-size:14px;color:var(--tx2)"></span></div>
 <div class="toast-c" id="toasts"></div>
 
 <!-- Search + Recent Actions -->
 <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center;flex-wrap:wrap">
  <input id="section-search" type="text" placeholder="🔍 Filter sections... (Ctrl+K)" oninput="filterSections(this.value)" style="flex:1;min-width:200px;padding:8px 12px;background:var(--sf);border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:13px;outline:none">
- <span style="font-size:11px;color:var(--tx2)">Recent:</span>
+ <span style="font-size:14px;color:var(--tx2)">Recent:</span>
  <div id="recent-bar" style="display:flex;gap:4px;flex-wrap:wrap;overflow:hidden;max-height:24px"></div>
 </div>
 
 <!-- Quick Actions -->
 <div class="qa-bar">
- <span style="color:var(--tx2);font-size:12px;padding:8px 0">⚡ Quick:</span>
+ <span style="color:var(--tx2);font-size:14px;padding:8px 0">⚡ Quick:</span>
  <button class="qa-btn" onclick="apiGet('/api/manager/brief')">📋 Daily Brief</button>
  <button class="qa-btn" onclick="apiGet('/api/qa/health')">🏥 Health</button>
  <button class="qa-btn" onclick="apiGet('/api/qb/financial-context')">💰 QB Snapshot</button>
@@ -114,7 +114,7 @@ h1 { font-size:22px; margin-bottom:4px; }
 <div class="section">
  <h2 onclick="tog('wf')">🔀 Workflow Orchestrator <span class="tag tag-ok">LangGraph</span><span class="caret">▼</span></h2>
  <div class="scol" id="wf-sc">
- <p style="color:#8b949e;font-size:12px;margin-bottom:10px">LangGraph-powered pipelines — chains agents into executable workflows.</p>
+ <p style="color:#8b949e;font-size:14px;margin-bottom:10px">LangGraph-powered pipelines — chains agents into executable workflows.</p>
  <div class="grid">
   <button class="btn btn-go" onclick="ac(this,'/api/workflow/status')"><span class="label">📊 Orchestrator Status</span><span class="desc">Run history</span><span class="spin"></span></button>
   <button class="btn btn-go" onclick="runWorkflow('pc_pipeline')"><span class="label">⚡ PC Pipeline</span><span class="desc">SCPRS → Amazon → Price → 704</span><span class="spin"></span></button>
@@ -137,7 +137,7 @@ h1 { font-size:22px; margin-bottom:4px; }
 <div class="section">
  <h2 onclick="tog('growth')">🚀 Growth Engine <span class="tag tag-ok" id="growth-tag">v2.0</span><span class="caret">▼</span></h2>
  <div class="scol" id="growth-sc">
- <p style="color:#8b949e;font-size:12px;margin-bottom:8px">Proactive SCPRS-driven outreach — pull history → categorize → find buyers → email → voice follow-up.</p>
+ <p style="color:#8b949e;font-size:14px;margin-bottom:8px">Proactive SCPRS-driven outreach — pull history → categorize → find buyers → email → voice follow-up.</p>
  <div class="step-label">Step 1 — Pull Reytech History</div>
  <div class="grid" style="margin-bottom:12px">
   <button class="btn btn-go" onclick="ac(this,'/api/growth/pull-history')"><span class="label">📥 Pull SCPRS History</span><span class="desc">All Reytech POs from 2022</span><span class="spin"></span></button>
@@ -165,7 +165,7 @@ h1 { font-size:22px; margin-bottom:4px; }
 <div class="section">
  <h2 onclick="tog('intel')">🕵️ Sales Intel <span class="tag tag-ok">SCPRS</span><span class="caret">▼</span></h2>
  <div class="scol" id="intel-sc">
- <p style="color:#8b949e;font-size:12px;margin-bottom:10px">Territory intelligence — SCPRS procurement data, prospects, CRM push.</p>
+ <p style="color:#8b949e;font-size:14px;margin-bottom:10px">Territory intelligence — SCPRS procurement data, prospects, CRM push.</p>
  <div class="grid">
   <button class="btn btn-go" onclick="ac(this,'/api/intel/deep-pull')"><span class="label">🔍 Deep Pull</span><span class="desc">Full SCPRS scan</span><span class="spin"></span></button>
   <button class="btn" onclick="ac(this,'/api/intel/pull-status')"><span class="label">⏳ Pull Status</span><span class="desc">Deep pull progress</span><span class="spin"></span></button>
@@ -271,30 +271,30 @@ h1 { font-size:22px; margin-bottom:4px; }
 <div class="section" id="qb-section">
  <h2 onclick="tog('qb')">🧾 QuickBooks Online <span class="tag tag-off" id="qb-tag">not connected</span><span class="caret">▼</span></h2>
  <div class="scol" id="qb-sc">
- <p style="color:#8b949e;font-size:12px;margin-bottom:10px">Full financial context — invoices, customers, vendors, AR. All agents use this data.</p>
+ <p style="color:#8b949e;font-size:14px;margin-bottom:10px">Full financial context — invoices, customers, vendors, AR. All agents use this data.</p>
  <div id="qb-finance" class="fin-cards" style="display:none"></div>
  <!-- Inline QB Status Cards -->
  <div id="qb-inline-data" style="display:none;margin-bottom:12px">
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px">
    <div id="qb-overdue-card" class="qb-data-card" style="background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.25);border-radius:8px;padding:10px;cursor:pointer" onclick="ac(this,'/api/qb/invoices?status=overdue','Overdue Invoices')">
-    <div style="font-size:11px;color:#f87171;font-weight:600">⚠️ OVERDUE</div>
+    <div style="font-size:14px;color:#f87171;font-weight:600">⚠️ OVERDUE</div>
     <div id="qb-overdue-val" style="font-size:20px;font-weight:700;color:#f87171;margin:4px 0">—</div>
-    <div id="qb-overdue-ct" style="font-size:11px;color:#8b949e">Click to view</div>
+    <div id="qb-overdue-ct" style="font-size:14px;color:#8b949e">Click to view</div>
    </div>
    <div id="qb-open-card" class="qb-data-card" style="background:rgba(79,140,255,.08);border:1px solid rgba(79,140,255,.25);border-radius:8px;padding:10px;cursor:pointer" onclick="ac(this,'/api/qb/invoices?status=open','Open Invoices')">
-    <div style="font-size:11px;color:#58a6ff;font-weight:600">💰 OPEN INVOICES</div>
+    <div style="font-size:14px;color:#58a6ff;font-weight:600">💰 OPEN INVOICES</div>
     <div id="qb-open-val" style="font-size:20px;font-weight:700;color:#58a6ff;margin:4px 0">—</div>
-    <div id="qb-open-ct" style="font-size:11px;color:#8b949e">Click to view</div>
+    <div id="qb-open-ct" style="font-size:14px;color:#8b949e">Click to view</div>
    </div>
    <div id="qb-collected-card" class="qb-data-card" style="background:rgba(52,211,153,.08);border:1px solid rgba(52,211,153,.25);border-radius:8px;padding:10px;cursor:pointer" onclick="ac(this,'/api/qb/payments','Recent Payments')">
-    <div style="font-size:11px;color:#34d399;font-weight:600">✅ COLLECTED (30d)</div>
+    <div style="font-size:14px;color:#34d399;font-weight:600">✅ COLLECTED (30d)</div>
     <div id="qb-collected-val" style="font-size:20px;font-weight:700;color:#34d399;margin:4px 0">—</div>
-    <div id="qb-collected-ct" style="font-size:11px;color:#8b949e">Click to view</div>
+    <div id="qb-collected-ct" style="font-size:14px;color:#8b949e">Click to view</div>
    </div>
    <div id="qb-customers-card" class="qb-data-card" style="background:rgba(188,140,255,.08);border:1px solid rgba(188,140,255,.25);border-radius:8px;padding:10px;cursor:pointer" onclick="ac(this,'/api/qb/customers','Customers')">
-    <div style="font-size:11px;color:#bc8cff;font-weight:600">👤 CUSTOMERS</div>
+    <div style="font-size:14px;color:#bc8cff;font-weight:600">👤 CUSTOMERS</div>
     <div id="qb-cust-val" style="font-size:20px;font-weight:700;color:#bc8cff;margin:4px 0">—</div>
-    <div id="qb-cust-ct" style="font-size:11px;color:#8b949e">Click to view</div>
+    <div id="qb-cust-ct" style="font-size:14px;color:#8b949e">Click to view</div>
    </div>
   </div>
  </div>
@@ -391,7 +391,7 @@ h1 { font-size:22px; margin-bottom:4px; }
 <div class="section">
  <h2 onclick="tog('q2c')">💰 Quote-to-Cash Pipeline <span class="tag tag-ok">Live</span><span class="caret">▼</span></h2>
  <div class="scol" id="q2c-sc">
- <p style="color:#8b949e;font-size:12px;margin-bottom:10px">End-to-end: RFQ → Quote → Won → PO → Invoice → Payment tracking.</p>
+ <p style="color:#8b949e;font-size:14px;margin-bottom:10px">End-to-end: RFQ → Quote → Won → PO → Invoice → Payment tracking.</p>
  <div class="grid">
   <button class="btn btn-go" onclick="ac(this,'/api/pipeline/quote-to-cash')"><span class="label">🔄 Full Pipeline</span><span class="desc">Every quote with status</span><span class="spin"></span></button>
   <button class="btn" onclick="ac(this,'/api/pipeline/stale-quotes')"><span class="label">⏰ Stale Quotes</span><span class="desc">No response 7+ days</span><span class="spin"></span></button>
@@ -413,7 +413,7 @@ h1 { font-size:22px; margin-bottom:4px; }
 <div class="section">
  <h2 onclick="tog('catint')">📦 Catalog Intelligence <span class="tag tag-ok">840+ items</span><span class="caret">▼</span></h2>
  <div class="scol" id="catint-sc">
- <p style="color:#8b949e;font-size:12px;margin-bottom:10px">Product catalog with pricing, margins, competitive analysis.</p>
+ <p style="color:#8b949e;font-size:14px;margin-bottom:10px">Product catalog with pricing, margins, competitive analysis.</p>
  <div class="grid">
   <button class="btn btn-go" onclick="ap(this,'/api/catalog/rebuild-from-history',{})"><span class="label">🔄 Rebuild Catalog</span><span class="desc">Reprocess all history</span><span class="spin"></span></button>
   <button class="btn" onclick="ac(this,'/api/catalog/stats')"><span class="label">📊 Catalog Stats</span><span class="desc">Growth metrics</span><span class="spin"></span></button>
@@ -469,7 +469,7 @@ h1 { font-size:22px; margin-bottom:4px; }
 <div class="section">
  <h2 onclick="tog('rev')">💵 Revenue Intelligence <span class="tag tag-ok">Live</span><span class="caret">▼</span></h2>
  <div class="scol" id="rev-sc">
- <p style="color:#8b949e;font-size:12px;margin-bottom:10px">Revenue tracking, $2M goal progress, margin analysis.</p>
+ <p style="color:#8b949e;font-size:14px;margin-bottom:10px">Revenue tracking, $2M goal progress, margin analysis.</p>
  <div class="grid">
   <button class="btn btn-go" onclick="ac(this,'/api/revenue/dashboard')"><span class="label">📊 Revenue Dashboard</span><span class="desc">Full revenue overview</span><span class="spin"></span></button>
   <button class="btn" onclick="ac(this,'/api/revenue/goal')"><span class="label">🎯 $2M Goal</span><span class="desc">Track annual target</span><span class="spin"></span></button>
@@ -484,7 +484,7 @@ h1 { font-size:22px; margin-bottom:4px; }
 <div class="section">
  <h2 onclick="tog('smart')">🧠 Smart Actions <span class="tag tag-ok">AI</span><span class="caret">▼</span></h2>
  <div class="scol" id="smart-sc">
- <p style="color:#8b949e;font-size:12px;margin-bottom:10px">AI-recommended next actions based on pipeline state.</p>
+ <p style="color:#8b949e;font-size:14px;margin-bottom:10px">AI-recommended next actions based on pipeline state.</p>
  <div class="grid">
   <button class="btn btn-go" onclick="ac(this,'/api/manager/recommendations')"><span class="label">🎯 Recommendations</span><span class="desc">AI-suggested actions</span><span class="spin"></span></button>
   <button class="btn" onclick="ac(this,'/api/follow-ups/summary')"><span class="label">📧 Follow-Up Summary</span><span class="desc">Who needs contact</span><span class="spin"></span></button>
@@ -502,9 +502,9 @@ h1 { font-size:22px; margin-bottom:4px; }
  <div style="display:flex;gap:8px;margin-bottom:8px">
   <button class="qa-btn" onclick="clearTraceLog()">🗑️ Clear</button>
   <button class="qa-btn" onclick="exportTraceLog()">📥 Export</button>
-  <span style="font-size:11px;color:var(--tx2);padding:8px">All API calls logged here</span>
+  <span style="font-size:14px;color:var(--tx2);padding:8px">All API calls logged here</span>
  </div>
- <div id="trace-log" style="max-height:300px;overflow-y:auto;font-size:11px;font-family:monospace;background:#0a0e14;border-radius:8px;padding:8px">
+ <div id="trace-log" style="max-height:300px;overflow-y:auto;font-size:14px;font-family:monospace;background:#0a0e14;border-radius:8px;padding:8px">
   <div style="color:#8b949e">Trace log will appear as you click buttons...</div>
  </div>
  </div>
@@ -528,7 +528,7 @@ function showResult(d,title){
   // Re-enable button — ALWAYS runs
   if(_ab){try{_ab.classList.remove('ld');_ab.disabled=false;
     var st=_ab.querySelector('.status');
-    if(!st){st=document.createElement('span');st.className='status';st.style.cssText='font-size:10px;display:block;margin-top:2px';_ab.appendChild(st);}
+    if(!st){st=document.createElement('span');st.className='status';st.style.cssText='font-size:13px;display:block;margin-top:2px';_ab.appendChild(st);}
     var isErr=(d&&(d.ok===false||d.error));
     st.textContent=isErr?('❌ '+(d.error||'Error').substring(0,40)):('✅ '+dur);
     st.style.color=isErr?'var(--rd)':'var(--gn)';
@@ -681,7 +681,7 @@ function updateRecentBar(){
   var bar=document.getElementById('recent-bar');if(!bar)return;
   var last5=_actionLog.slice(-5).reverse();
   bar.innerHTML=last5.map(function(a){
-    return '<span style="font-size:11px;padding:3px 8px;border-radius:4px;background:'+(a.ok?'rgba(52,211,153,.1)':'rgba(248,113,113,.1)')+';color:'+(a.ok?'#34d399':'#f87171')+'">'+a.title+' ('+a.dur+')</span>';
+    return '<span style="font-size:14px;padding:3px 8px;border-radius:4px;background:'+(a.ok?'rgba(52,211,153,.1)':'rgba(248,113,113,.1)')+';color:'+(a.ok?'#34d399':'#f87171')+'">'+a.title+' ('+a.dur+')</span>';
   }).join(' ');
 }
 
@@ -713,7 +713,7 @@ try{
 fetch('/api/cs/drafts',{credentials:'same-origin'}).then(_hr).then(function(d){
   var b=document.getElementById('cs-badge'),p=document.getElementById('cs-drafts-preview'),dr=Array.isArray(d.drafts)?d.drafts:(d.cs_drafts||[]);
   if(b){if(dr.length>0){b.textContent=dr.length+' draft'+(dr.length>1?'s':'');b.className='tag tag-warn';}else{b.textContent='inbox clear';b.className='tag tag-ok';}}
-  if(p&&dr.length>0){p.innerHTML=dr.slice(0,3).map(function(x){var m={};try{m=JSON.parse(x.metadata||'{}')}catch(e){}var f=m.original_sender||x.to||'?',s=m.original_subject||x.subject||'Email';return '<div style="background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.25);border-radius:8px;padding:10px 12px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:10px"><div><div style="font-size:12px;font-weight:600;color:#fbbf24">📬 '+s+'</div><div style="font-size:11px;color:#8b949e;margin-top:2px">From: '+f+'</div></div><a href="/outbox" style="font-size:12px;font-weight:600;color:#fbbf24;white-space:nowrap;border:1px solid rgba(251,191,36,.4);padding:4px 10px;border-radius:6px;background:rgba(251,191,36,.1)">Review →</a></div>';}).join('');}
+  if(p&&dr.length>0){p.innerHTML=dr.slice(0,3).map(function(x){var m={};try{m=JSON.parse(x.metadata||'{}')}catch(e){}var f=m.original_sender||x.to||'?',s=m.original_subject||x.subject||'Email';return '<div style="background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.25);border-radius:8px;padding:10px 12px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:10px"><div><div style="font-size:14px;font-weight:600;color:#fbbf24">📬 '+s+'</div><div style="font-size:14px;color:#8b949e;margin-top:2px">From: '+f+'</div></div><a href="/outbox" style="font-size:14px;font-weight:600;color:#fbbf24;white-space:nowrap;border:1px solid rgba(251,191,36,.4);padding:4px 10px;border-radius:6px;background:rgba(251,191,36,.1)">Review →</a></div>';}).join('');}
 }).catch(function(){var b=document.getElementById('cs-badge');if(b){b.textContent='unavailable';b.className='tag tag-off';}});
 }catch(e){console.error('[INIT] CS drafts load failed:',e);}
 
@@ -725,8 +725,8 @@ fetch('/api/qa/workflow/latest',{credentials:'same-origin'}).then(_hr).then(func
   var sc=d.score||0,col=sc>=90?'#34d399':sc>=70?'#fbbf24':'#f87171',bg=sc>=90?'rgba(52,211,153,.15)':sc>=70?'rgba(251,191,36,.15)':'rgba(248,113,113,.15)';
   if(b){b.textContent=sc+'/100 '+d.grade;b.style.background=bg;b.style.color=col;}
   if(p&&d.full_report){var fr=d.full_report,fails=(fr.critical_failures||[]),warns=(fr.results||[]).filter(function(r){return r.status==='warn';});
-    if(fails.length+warns.length>0){p.innerHTML=(fails.concat(warns)).slice(0,3).map(function(r){var ic=r.status==='fail'?'❌':'⚠️';return '<div style="background:rgba('+(r.status==='fail'?'248,113,113':'251,191,36')+', .08);border:1px solid rgba('+(r.status==='fail'?'248,113,113':'251,191,36')+', .25);border-radius:8px;padding:8px 12px;margin-bottom:6px;font-size:12px">'+ic+' <b>'+r.test+'</b>: '+r.message+(r.fix?'<div style="color:#fbbf24;font-size:11px;margin-top:3px">💡 '+r.fix+'</div>':'')+'</div>';}).join('');}
-    else{p.innerHTML='<div style="color:#34d399;font-size:12px;padding:8px">✅ All tests passing</div>';}}
+    if(fails.length+warns.length>0){p.innerHTML=(fails.concat(warns)).slice(0,3).map(function(r){var ic=r.status==='fail'?'❌':'⚠️';return '<div style="background:rgba('+(r.status==='fail'?'248,113,113':'251,191,36')+', .08);border:1px solid rgba('+(r.status==='fail'?'248,113,113':'251,191,36')+', .25);border-radius:8px;padding:8px 12px;margin-bottom:6px;font-size:14px">'+ic+' <b>'+r.test+'</b>: '+r.message+(r.fix?'<div style="color:#fbbf24;font-size:14px;margin-top:3px">💡 '+r.fix+'</div>':'')+'</div>';}).join('');}
+    else{p.innerHTML='<div style="color:#34d399;font-size:14px;padding:8px">✅ All tests passing</div>';}}
 }).catch(function(){var b=document.getElementById('wf-badge');if(b){b.textContent='unavailable';b.style.color='var(--tx2)';}});
 }catch(e){console.error('[INIT] Workflow tester load failed:',e);}
 

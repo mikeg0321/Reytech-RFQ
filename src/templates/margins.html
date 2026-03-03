@@ -7,22 +7,22 @@
 <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
   <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
     <div style="font-size:28px;font-weight:800;color:var(--gn)">${{ "{:,.0f}".format(total_revenue) }}</div>
-    <div style="font-size:10px;color:var(--tx2)">REVENUE</div></div>
+    <div style="font-size:13px;color:var(--tx2)">REVENUE</div></div>
   <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
     <div style="font-size:28px;font-weight:800;color:var(--yl)">${{ "{:,.0f}".format(total_cost) }}</div>
-    <div style="font-size:10px;color:var(--tx2)">COSTS</div></div>
+    <div style="font-size:13px;color:var(--tx2)">COSTS</div></div>
   <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
     <div style="font-size:28px;font-weight:800;color:var(--gn)">${{ "{:,.0f}".format(total_profit) }}</div>
-    <div style="font-size:10px;color:var(--tx2)">PROFIT</div></div>
+    <div style="font-size:13px;color:var(--tx2)">PROFIT</div></div>
   <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
     <div style="font-size:28px;font-weight:800;color:{{ 'var(--gn)' if overall_margin > 15 else 'var(--yl)' }}">{{ "%.1f"|format(overall_margin) }}%</div>
-    <div style="font-size:10px;color:var(--tx2)">OVERALL MARGIN</div></div>
+    <div style="font-size:13px;color:var(--tx2)">OVERALL MARGIN</div></div>
   <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
     <div style="font-size:28px;font-weight:800;color:var(--ac)">{{ costed }}</div>
-    <div style="font-size:10px;color:var(--tx2)">COSTED ITEMS</div></div>
+    <div style="font-size:13px;color:var(--tx2)">COSTED ITEMS</div></div>
   <div class="card" style="text-align:center;padding:12px 20px;min-width:110px;margin:0">
     <div style="font-size:28px;font-weight:800;color:{{ 'var(--rd)' if negative > 0 else 'var(--gn)' }}">{{ negative }}</div>
-    <div style="font-size:10px;color:var(--tx2)">NEGATIVE MARGIN</div></div>
+    <div style="font-size:13px;color:var(--tx2)">NEGATIVE MARGIN</div></div>
 </div>
 <div class="card" style="overflow-x:auto">
  <table class="home-tbl" style="min-width:800px">
@@ -32,9 +32,9 @@
     {% for m in margin_data[:50] %}
     {% set mc = 'var(--rd)' if m.margin < 0 else ('var(--yl)' if m.margin < 10 else 'var(--gn)') %}
     <tr onclick="location.href='/order/{{ m.order_id }}'" style="cursor:pointer">
-     <td style="font-size:11px"><a href="/order/{{ m.order_id }}" style="color:var(--ac)">{{ m.po or m.order_id[:15] }}</a></td>
-     <td style="font-size:11px">{{ m.institution[:25] }}</td>
-     <td style="font-size:11px">{{ m.description }}</td>
+     <td style="font-size:14px"><a href="/order/{{ m.order_id }}" style="color:var(--ac)">{{ m.po or m.order_id[:15] }}</a></td>
+     <td style="font-size:14px">{{ m.institution[:25] }}</td>
+     <td style="font-size:14px">{{ m.description }}</td>
      <td style="text-align:right">{{ m.qty }}</td>
      <td style="text-align:right">${{ "{:,.2f}".format(m.sell) }}</td>
      <td style="text-align:right">{% if m.cost %}<span>${{ "{:,.2f}".format(m.cost) }}</span>{% else %}<span style="color:var(--tx2)">—</span>{% endif %}</td>
@@ -48,5 +48,5 @@
   </tbody>
  </table>
 </div>
-<p style="font-size:11px;color:var(--tx2);margin-top:8px">{{ uncosted }} items missing cost data — use Supplier Lookup to auto-populate costs</p>
+<p style="font-size:14px;color:var(--tx2);margin-top:8px">{{ uncosted }} items missing cost data — use Supplier Lookup to auto-populate costs</p>
 {% endblock %}

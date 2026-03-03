@@ -8,7 +8,7 @@
  <div style="display:flex;justify-content:space-between;align-items:flex-start">
   <div>
    <div style="font-family:'JetBrains Mono',monospace;font-size:24px;font-weight:700">PO #{{po.po_number}}</div>
-   <div style="color:var(--tx2);font-size:12px;margin-top:2px">
+   <div style="color:var(--tx2);font-size:14px;margin-top:2px">
     {% if po.rfq_id %}<a href="/rfq/{{po.rfq_id}}" style="color:#58a6ff">Linked RFQ</a> · {% endif %}
     Created {{po.created_at[:10]}}
    </div>
@@ -36,7 +36,7 @@
   {% set current_idx = stages.index(po.status) if po.status in stages else 0 %}
   {% for stage in stages %}
   {% set idx = loop.index0 %}
-  <div style="flex:1;text-align:center;padding:8px 4px;border-radius:6px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;cursor:pointer;
+  <div style="flex:1;text-align:center;padding:8px 4px;border-radius:6px;font-size:14px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;cursor:pointer;
    {% if idx < current_idx %}background:rgba(52,211,153,.1);color:var(--gn);border:1px solid rgba(52,211,153,.3)
    {% elif idx == current_idx %}background:rgba(79,140,255,.15);color:var(--ac);border:2px solid var(--ac)
    {% else %}background:var(--sf2);color:var(--tx2);border:1px solid var(--bd){% endif %}"
@@ -61,22 +61,22 @@
   <tr>
    <td>{{li.line_number}}</td>
    <td style="max-width:200px;font-weight:600">{{li.description}}</td>
-   <td class="mono" style="font-size:11px">{{li.item_number or '—'}}</td>
+   <td class="mono" style="font-size:14px">{{li.item_number or '—'}}</td>
    <td style="text-align:center;font-weight:700">{{li.qty_ordered}}</td>
    <td style="text-align:center;color:{% if li.qty_shipped >= li.qty_ordered %}var(--gn){% elif li.qty_shipped > 0 %}var(--yl){% else %}var(--tx2){% endif %}">{{li.qty_shipped}}</td>
    <td style="text-align:center;color:{% if li.qty_received >= li.qty_ordered %}var(--gn){% elif li.qty_received > 0 %}var(--yl){% else %}var(--tx2){% endif %}">{{li.qty_received}}</td>
    <td class="mono">${{'%,.2f'|format(li.unit_price or 0)}}</td>
    <td class="mono" style="font-weight:600">${{'%,.2f'|format(li.extended_price or 0)}}</td>
    <td>
-    <select onchange="updateLineItem({{li.id}},'status',this.value)" style="font-size:11px;padding:4px;border-radius:4px;background:var(--sf2);color:var(--tx);border:1px solid var(--bd)">
+    <select onchange="updateLineItem({{li.id}},'status',this.value)" style="font-size:14px;padding:4px;border-radius:4px;background:var(--sf2);color:var(--tx);border:1px solid var(--bd)">
      {% for s in ['pending','confirmed','backordered','shipped','delivered','invoiced'] %}
      <option value="{{s}}" {% if li.status == s %}selected{% endif %}>{{s|title}}</option>
      {% endfor %}
     </select>
    </td>
-   <td style="font-size:10px">{% if li.tracking_number %}{{li.tracking_number[:15]}}{% else %}—{% endif %}</td>
+   <td style="font-size:13px">{% if li.tracking_number %}{{li.tracking_number[:15]}}{% else %}—{% endif %}</td>
    <td>
-    <button class="btn btn-sm btn-s" style="font-size:10px;padding:2px 6px" onclick="promptTracking({{li.id}})">📋</button>
+    <button class="btn btn-sm btn-s" style="font-size:13px;padding:2px 6px" onclick="promptTracking({{li.id}})">📋</button>
    </td>
   </tr>
   {% endfor %}
@@ -93,13 +93,13 @@
  <div class="card-t">📧 Email History ({{emails|length}})</div>
  <div style="margin-top:10px">
   {% for em in emails %}
-  <div style="padding:8px 12px;border-bottom:1px solid var(--bd);font-size:12px">
+  <div style="padding:8px 12px;border-bottom:1px solid var(--bd);font-size:14px">
    <div style="display:flex;justify-content:space-between">
     <span style="font-weight:600">{{em.sender[:40]}}</span>
     <span style="color:var(--tx2)">{{em.received_at[:16].replace('T',' ') if em.received_at else '—'}}</span>
    </div>
    <div style="color:var(--tx2);margin-top:2px">{{em.subject}}</div>
-   {% if em.body_preview %}<div style="color:var(--tx2);font-size:11px;margin-top:2px;max-height:40px;overflow:hidden">{{em.body_preview[:150]}}</div>{% endif %}
+   {% if em.body_preview %}<div style="color:var(--tx2);font-size:14px;margin-top:2px;max-height:40px;overflow:hidden">{{em.body_preview[:150]}}</div>{% endif %}
   </div>
   {% endfor %}
  </div>
@@ -112,7 +112,7 @@
  <div class="card-t">📋 Status History</div>
  <div style="margin-top:10px">
   {% for h in history %}
-  <div style="padding:6px 0;border-bottom:1px solid var(--bd);font-size:12px;display:flex;gap:12px">
+  <div style="padding:6px 0;border-bottom:1px solid var(--bd);font-size:14px;display:flex;gap:12px">
    <span style="color:var(--tx2);min-width:130px">{{h.created_at[:16].replace('T',' ')}}</span>
    <span>{% if h.old_status %}<span style="color:var(--rd)">{{h.old_status}}</span> → {% endif %}<span style="color:var(--gn);font-weight:600">{{h.new_status}}</span></span>
    <span style="color:var(--tx2)">{{h.change_reason or h.changed_by}}</span>

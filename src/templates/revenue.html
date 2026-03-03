@@ -5,8 +5,8 @@
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">
  <h2 style="margin:0;font-size:22px">💰 Revenue Dashboard</h2>
  <div style="display:flex;gap:8px">
-  <button onclick="reconcileRevenue()" class="hdr-btn" style="padding:6px 14px;font-size:12px">🔄 Reconcile</button>
-  <a href="/pipeline" class="hdr-btn" style="padding:6px 14px;font-size:12px;text-decoration:none">🔄 Pipeline</a>
+  <button onclick="reconcileRevenue()" class="hdr-btn" style="padding:6px 14px;font-size:14px">🔄 Reconcile</button>
+  <a href="/pipeline" class="hdr-btn" style="padding:6px 14px;font-size:14px;text-decoration:none">🔄 Pipeline</a>
  </div>
 </div>
 
@@ -20,10 +20,10 @@
   <div id="goal-bar" style="height:100%;background:linear-gradient(90deg,#2ecc71,#27ae60);border-radius:8px;transition:width 0.8s;width:0%"></div>
  </div>
  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;text-align:center">
-  <div><div style="font-size:11px;color:var(--tx2)">YTD Revenue</div><div id="goal-ytd" style="font-size:18px;font-weight:600">$--</div></div>
-  <div><div style="font-size:11px;color:var(--tx2)">Weighted Pipeline</div><div id="goal-pipe" style="font-size:18px;font-weight:600;color:var(--yl)">$--</div></div>
-  <div><div style="font-size:11px;color:var(--tx2)">Projected Annual</div><div id="goal-proj" style="font-size:18px;font-weight:600">$--</div></div>
-  <div><div style="font-size:11px;color:var(--tx2)">Daily Run Rate</div><div id="goal-daily" style="font-size:18px;font-weight:600">$--</div></div>
+  <div><div style="font-size:14px;color:var(--tx2)">YTD Revenue</div><div id="goal-ytd" style="font-size:18px;font-weight:600">$--</div></div>
+  <div><div style="font-size:14px;color:var(--tx2)">Weighted Pipeline</div><div id="goal-pipe" style="font-size:18px;font-weight:600;color:var(--yl)">$--</div></div>
+  <div><div style="font-size:14px;color:var(--tx2)">Projected Annual</div><div id="goal-proj" style="font-size:18px;font-weight:600">$--</div></div>
+  <div><div style="font-size:14px;color:var(--tx2)">Daily Run Rate</div><div id="goal-daily" style="font-size:18px;font-weight:600">$--</div></div>
  </div>
 </div>
 
@@ -106,15 +106,15 @@ async function loadRevenue() {
     const pEl = document.getElementById('pipeline-list');
     if (pEl) {
       pEl.innerHTML = pipe.length ? pipe.slice(0,10).map(p =>
-        `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd);font-size:12px">
+        `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd);font-size:14px">
           <div><a href="/quote/${p.quote_number}" style="color:var(--ac)">${p.quote_number}</a>
            <span style="color:var(--tx2);margin-left:4px">${p.agency||''}</span></div>
           <div style="text-align:right">
             <div style="font-weight:600">$${(p.weighted_value||0).toLocaleString()}</div>
-            <div style="font-size:10px;color:var(--tx2)">${(p.win_probability*100).toFixed(0)}% × $${(p.total||0).toLocaleString()}</div>
+            <div style="font-size:13px;color:var(--tx2)">${(p.win_probability*100).toFixed(0)}% × $${(p.total||0).toLocaleString()}</div>
           </div>
         </div>`
-      ).join('') : '<div style="color:var(--tx2);font-size:12px">No open quotes in pipeline</div>';
+      ).join('') : '<div style="color:var(--tx2);font-size:14px">No open quotes in pipeline</div>';
     }
 
     // Margins
@@ -126,12 +126,12 @@ async function loadRevenue() {
           <span>Avg margin: <b style="color:${m.avg_margin>=15?'#2ecc71':'#e74c3c'}">${(m.avg_margin||0).toFixed(1)}%</b></span>
           <span>Low margin: <b style="color:#e67e22">${m.low_margin_count||0}</b></span>
           <span>Critical: <b style="color:#e74c3c">${m.critical_margin_count||0}</b></span>
-        </div>` : '<span style="font-size:12px;color:var(--tx2)">No cost data yet</span>';
+        </div>` : '<span style="font-size:14px;color:var(--tx2)">No cost data yet</span>';
     }
     const mList = document.getElementById('margin-list');
     if (mList && m.items) {
       mList.innerHTML = m.items.slice(0,10).map(i =>
-        `<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--bd);font-size:12px">
+        `<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--bd);font-size:14px">
           <span>${i.quote_number} — ${i.agency||''}</span>
           <span style="color:${i.margin_pct>=15?'#2ecc71':i.margin_pct>=10?'#e67e22':'#e74c3c'};font-weight:600">${i.margin_pct?.toFixed(1)}%</span>
         </div>`
@@ -143,11 +143,11 @@ async function loadRevenue() {
     const tcEl = document.getElementById('top-customers');
     if (tcEl) {
       tcEl.innerHTML = tc.length ? tc.map((c,i) =>
-        `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd);font-size:12px">
+        `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd);font-size:14px">
           <span>${i+1}. ${c.agency||'Unknown'} <span style="color:var(--tx2)">(${c.deal_count} deals)</span></span>
           <span style="font-weight:600">$${(c.total_revenue||0).toLocaleString(undefined,{maximumFractionDigits:0})}</span>
         </div>`
-      ).join('') : '<div style="color:var(--tx2);font-size:12px">No revenue data yet</div>';
+      ).join('') : '<div style="color:var(--tx2);font-size:14px">No revenue data yet</div>';
     }
   } catch(e) { console.error('Revenue load:', e); }
 }

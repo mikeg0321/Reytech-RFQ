@@ -81,13 +81,13 @@ def get_html_signature(closing: str = "Respectfully,") -> str:
    {logo_cell}
    <td style="vertical-align:top">
     <div style="font-weight:700;font-size:14px;color:#1a1a2e">{NAME}</div>
-    <div style="font-size:12px;color:#666">{COMPANY}</div>
-    <div style="font-size:12px;color:#666">{ADDRESS}</div>
-    <div style="font-size:12px;margin-top:4px">
+    <div style="font-size:14px;color:#666">{COMPANY}</div>
+    <div style="font-size:14px;color:#666">{ADDRESS}</div>
+    <div style="font-size:14px;margin-top:4px">
      <a href="tel:{PHONE.replace('-','')}" style="color:#2563eb;text-decoration:none">{PHONE}</a> |
      <a href="mailto:{EMAIL}" style="color:#2563eb;text-decoration:none">{EMAIL}</a>
     </div>
-    <div style="font-size:11px;color:#888;margin-top:2px">{CERT} · <a href="{WEBSITE}" style="color:#2563eb;text-decoration:none">{WEBSITE.replace('https://','')}</a></div>
+    <div style="font-size:13px;color:#888;margin-top:2px">{CERT} · <a href="{WEBSITE}" style="color:#2563eb;text-decoration:none">{WEBSITE.replace('https://','')}</a></div>
    </td>
   </tr>
  </table>

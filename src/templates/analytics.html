@@ -3,7 +3,7 @@
 {% block content %}
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
  <h2 style="margin:0;font-size:20px;font-weight:700">📊 Pipeline Analytics</h2>
- <div style="color:var(--tx2);font-size:12px">{{total_rfqs}} RFQs · {{total_pcs}} PCs</div>
+ <div style="color:var(--tx2);font-size:14px">{{total_rfqs}} RFQs · {{total_pcs}} PCs</div>
 </div>
 
 <!-- Conversion Funnel -->
@@ -24,9 +24,9 @@
   <div style="flex:1;text-align:center">
    <div style="font-size:20px;font-weight:700;font-family:'JetBrains Mono',monospace;color:{{color}}">{{count}}</div>
    <div style="background:{{color}};height:{{[pct * 1.5, 4]|max}}px;border-radius:4px;margin:6px 2px;transition:height .3s"></div>
-   <div style="font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px">{{label}}</div>
+   <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px">{{label}}</div>
    {% if funnel.imported > 0 and label != 'Imported' %}
-   <div style="font-size:10px;color:{{color}};font-weight:600">{{(count / funnel.imported * 100)|round(1)}}%</div>
+   <div style="font-size:13px;color:{{color}};font-weight:600">{{(count / funnel.imported * 100)|round(1)}}%</div>
    {% endif %}
   </div>
   {% endfor %}
@@ -39,19 +39,19 @@
   <div style="font-size:24px;font-weight:700;color:var(--gn);font-family:'JetBrains Mono',monospace">
    {% if funnel.won + funnel.lost > 0 %}{{((funnel.won / (funnel.won + funnel.lost)) * 100)|round(1)}}%{% else %}—{% endif %}
   </div>
-  <div style="font-size:11px;color:var(--tx2)">Win Rate</div>
+  <div style="font-size:14px;color:var(--tx2)">Win Rate</div>
  </div>
  <div class="card" style="text-align:center;padding:16px">
   <div style="font-size:24px;font-weight:700;color:var(--ac);font-family:'JetBrains Mono',monospace">{{avg_quote_time}}h</div>
-  <div style="font-size:11px;color:var(--tx2)">Avg Time to Quote</div>
+  <div style="font-size:14px;color:var(--tx2)">Avg Time to Quote</div>
  </div>
  <div class="card" style="text-align:center;padding:16px">
   <div style="font-size:24px;font-weight:700;color:var(--yl);font-family:'JetBrains Mono',monospace">{{funnel.priced}}</div>
-  <div style="font-size:11px;color:var(--tx2)">Pending Pricing</div>
+  <div style="font-size:14px;color:var(--tx2)">Pending Pricing</div>
  </div>
  <div class="card" style="text-align:center;padding:16px">
   <div style="font-size:24px;font-weight:700;color:var(--or);font-family:'JetBrains Mono',monospace">{{funnel.sent}}</div>
-  <div style="font-size:11px;color:var(--tx2)">Awaiting Decision</div>
+  <div style="font-size:14px;color:var(--tx2)">Awaiting Decision</div>
  </div>
 </div>
 
@@ -83,9 +83,9 @@
   {% set max_rev = monthly_revenue.values()|max if monthly_revenue.values()|list else 1 %}
   {% for month, rev in monthly_revenue.items() %}
   <div style="flex:1;text-align:center;display:flex;flex-direction:column;justify-content:flex-end;height:100%">
-   <div style="font-size:10px;font-weight:600;color:var(--gn)">${{'%,.0f'|format(rev)}}</div>
+   <div style="font-size:13px;font-weight:600;color:var(--gn)">${{'%,.0f'|format(rev)}}</div>
    <div style="background:var(--gn);height:{{(rev / max_rev * 100) if max_rev > 0 else 4}}px;min-height:4px;border-radius:3px;margin:4px 1px"></div>
-   <div style="font-size:9px;color:var(--tx2)">{{month[5:]}}</div>
+   <div style="font-size:13px;color:var(--tx2)">{{month[5:]}}</div>
   </div>
   {% endfor %}
  </div>
@@ -97,7 +97,7 @@
  <div class="card-t">Status Breakdown</div>
  <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px">
   {% for status, count in statuses|dictsort(by='value', reverse=true) %}
-  <div style="padding:6px 12px;border-radius:6px;background:var(--sf2);font-size:12px">
+  <div style="padding:6px 12px;border-radius:6px;background:var(--sf2);font-size:14px">
    <span style="font-weight:700">{{count}}</span>
    <span style="color:var(--tx2);margin-left:4px">{{status|replace('_',' ')|title}}</span>
   </div>

@@ -5,7 +5,7 @@
 
 <a href="/" class="btn btn-s" style="margin-bottom:16px">← Queue</a>
 <form method="POST" action="/rfq/{{rid}}/delete" style="display:inline;margin-left:8px;margin-bottom:16px">
- <button type="submit" class="btn btn-sm" style="background:var(--rd);color:#fff;padding:4px 10px;font-size:11px" onclick="return confirm('Delete this RFQ?')">Delete</button>
+ <button type="submit" class="btn btn-sm" style="background:var(--rd);color:#fff;padding:4px 10px;font-size:14px" onclick="return confirm('Delete this RFQ?')">Delete</button>
 </form>
 
 <!-- Preview Modal -->
@@ -14,7 +14,7 @@
   <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 20px;border-bottom:2px solid #1a1a1a;background:#f5f5f0;border-radius:10px 10px 0 0">
    <h2 style="margin:0;font-size:16px;color:#1a1a1a">📋 Quote Preview — <span id="rfqPreviewType">704B Quote Worksheet</span></h2>
    <div>
-    <button class="btn btn-sm" style="background:var(--gn);color:#fff;margin-right:8px;font-size:12px" onclick="printPreview()">🖨️ Print</button>
+    <button class="btn btn-sm" style="background:var(--gn);color:#fff;margin-right:8px;font-size:14px" onclick="printPreview()">🖨️ Print</button>
     <button style="background:none;border:none;font-size:24px;cursor:pointer;color:#666" onclick="document.getElementById('previewModal').style.display='none'">×</button>
    </div>
   </div>
@@ -26,7 +26,7 @@
  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px">
   <div>
    <div style="font-family:'JetBrains Mono',monospace;font-size:24px;font-weight:700">#{{r.solicitation_number}}</div>
-   <div style="color:var(--tx2);font-size:12px;margin-top:2px">{{r.get('award_method','all_or_none')|replace('_',' ')|title}}{% if r.source=='email' %} · 📧 Auto-imported{% endif %}{% if r.get('agency_name') %} · <span style="padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;{% if r.get('form_type')=='generic_rfq' %}background:rgba(167,139,250,.15);color:#a78bfa;border:1px solid rgba(167,139,250,.3){% else %}background:rgba(52,211,153,.1);color:#3fb950;border:1px solid rgba(52,211,153,.2){% endif %}">{{ r.agency_name }}</span>{% endif %}</div>
+   <div style="color:var(--tx2);font-size:14px;margin-top:2px">{{r.get('award_method','all_or_none')|replace('_',' ')|title}}{% if r.source=='email' %} · 📧 Auto-imported{% endif %}{% if r.get('agency_name') %} · <span style="padding:2px 8px;border-radius:4px;font-size:13px;font-weight:600;{% if r.get('form_type')=='generic_rfq' %}background:rgba(167,139,250,.15);color:#a78bfa;border:1px solid rgba(167,139,250,.3){% else %}background:rgba(52,211,153,.1);color:#3fb950;border:1px solid rgba(52,211,153,.2){% endif %}">{{ r.agency_name }}</span>{% endif %}</div>
   </div>
   <span class="badge b-{{r.status}}">{{r.status}}</span>
  </div>
@@ -34,7 +34,7 @@
   <div class="meta-i"><div class="meta-l">Requestor</div><div class="meta-v">{% if r.requestor_name %}<a href="/contacts?q={{ r.requestor_name|urlencode }}" style="color:#58a6ff;text-decoration:none" title="View buyer profile">{{r.requestor_name}}</a>{% else %}—{% endif %}</div></div>
   <div class="meta-i"><div class="meta-l">Email</div><div class="meta-v">{% if r.requestor_email %}<a href="mailto:{{r.requestor_email}}" style="color:#58a6ff;text-decoration:none" title="Send email">{{r.requestor_email}}</a>{% else %}—{% endif %}</div></div>
   <div class="meta-i"><div class="meta-l">Due Date</div><div class="meta-v">{{r.due_date}}</div></div>
-  <div class="meta-i"><div class="meta-l">Delivery</div><div class="meta-v" style="font-size:11px">{{r.get('delivery_location','N/A')[:55]}}</div></div>
+  <div class="meta-i"><div class="meta-l">Delivery</div><div class="meta-v" style="font-size:14px">{{r.get('delivery_location','N/A')[:55]}}</div></div>
  </div>
  {% set lookup = r.get('auto_lookup_results', {}) %}
  {% set items = r.get('line_items', []) %}
@@ -44,13 +44,13 @@
  {% set _catalog = items|selectattr('catalog_match')|list|length %}
  {% set ns = namespace(priced=0) %}{% for i in items %}{% if i.get('price_per_unit') or i.get('supplier_cost') or i.get('amazon_price') or i.get('scprs_last_price') %}{% set ns.priced = ns.priced + 1 %}{% endif %}{% endfor %}
  {% if _total > 0 %}
- <div style="margin-top:12px;padding:10px 14px;border-radius:8px;background:rgba(79,140,255,.05);border:1px solid rgba(79,140,255,.15);font-size:12px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+ <div style="margin-top:12px;padding:10px 14px;border-radius:8px;background:rgba(79,140,255,.05);border:1px solid rgba(79,140,255,.15);font-size:14px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
   <span style="font-weight:600;color:var(--tx2)">🔍 Pricing Status:</span>
   <span style="color:{% if _scprs %}#3fb950{% else %}#8b949e{% endif %}">SCPRS: {{ _scprs }}/{{ _total }}</span>
   <span style="color:{% if _amazon %}#f0883e{% else %}#8b949e{% endif %}">Amazon: {{ _amazon }}/{{ _total }}</span>
   <span style="color:{% if _catalog %}#a78bfa{% else %}#8b949e{% endif %}">Catalog: {{ _catalog }}/{{ _total }}</span>
   <span style="color:{% if ns.priced %}#3fb950{% else %}#f85149{% endif %};font-weight:600">{{ ns.priced }}/{{ _total }} priced</span>
-  {% if lookup.ran_at %}<span style="color:#484f58;font-size:10px">{{ lookup.ran_at[:16].replace('T',' ') }}</span>{% endif %}
+  {% if lookup.ran_at %}<span style="color:#484f58;font-size:13px">{{ lookup.ran_at[:16].replace('T',' ') }}</span>{% endif %}
  </div>
  {% endif %}
 </div>
@@ -58,10 +58,10 @@
 <div class="card">
  <div class="card-t">Line Items & Pricing</div>
  {% if r.get('parse_note') %}
- <div style="margin-bottom:12px;padding:10px 14px;border-radius:8px;font-size:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;{% if r.get('line_items') %}background:rgba(52,211,153,.06);border:1px solid rgba(52,211,153,.15);color:#3fb950{% else %}background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.2);color:#f0883e{% endif %}">
+ <div style="margin-bottom:12px;padding:10px 14px;border-radius:8px;font-size:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;{% if r.get('line_items') %}background:rgba(52,211,153,.06);border:1px solid rgba(52,211,153,.15);color:#3fb950{% else %}background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.2);color:#f0883e{% endif %}">
   <span>{% if r.get('line_items') %}✅{% else %}⚠️{% endif %} {{ r.parse_note }}</span>
   {% if r.get('form_type') == 'generic_rfq' and not r.get('line_items') %}
-  <span style="color:var(--tx2);font-size:11px">— Add items manually below or upload a cleaner PDF</span>
+  <span style="color:var(--tx2);font-size:14px">— Add items manually below or upload a cleaner PDF</span>
   {% endif %}
  </div>
  {% endif %}
@@ -85,8 +85,8 @@
  </div>
  <!-- E3: Auto-lookup progress bar -->
  <div id="lookup-progress" style="display:none;margin:10px 0;padding:10px 14px;border-radius:8px;background:var(--sf2);border:1px solid var(--bd)">
-  <div style="font-size:12px;font-weight:600;margin-bottom:6px">🔄 Running auto-lookup...</div>
-  <div id="lookup-steps" style="font-size:11px;color:var(--tx2)"></div>
+  <div style="font-size:14px;font-weight:600;margin-bottom:6px">🔄 Running auto-lookup...</div>
+  <div id="lookup-steps" style="font-size:14px;color:var(--tx2)"></div>
  </div>
 
  {% if r.get('linked_pc_id') %}
@@ -105,7 +105,7 @@
     <span style="color:#d29922;margin-left:8px">Δ{{r.pc_diff.qty_changed|length}} qty change{{'' if r.pc_diff.qty_changed|length == 1 else 's'}}</span>
    {% endif %}
   {% endif %}
-  <a href="/pricecheck/{{r.linked_pc_id}}" style="color:#58a6ff;margin-left:12px;font-size:12px">View PC →</a>
+  <a href="/pricecheck/{{r.linked_pc_id}}" style="color:#58a6ff;margin-left:12px;font-size:14px">View PC →</a>
  </div>
  {% endif %}
  <form method="POST" action="/rfq/{{rid}}/update" id="pf">
@@ -122,18 +122,18 @@
    <td style="font-size:13px">{{i.line_number}}</td>
    <td><input type="number" name="qty_{{loop.index0}}" value="{{i.qty}}" min="1" class="num-in" style="width:55px;font-size:14px;font-weight:700;padding:6px 4px;text-align:center" oninput="recalc()"></td>
    <td><input type="text" name="uom_{{loop.index0}}" value="{{(i.uom or 'EA')|upper}}" class="text-in" style="width:55px;font-size:13px;font-weight:600;padding:6px 4px;text-align:center;text-transform:uppercase" maxlength="6"></td>
-   <td style="position:relative"><input type="text" name="desc_{{loop.index0}}" value="{{i.description}}" class="text-in" style="width:100%;min-width:280px;font-size:13px;padding:6px 8px" title="{{i.description}}">{% if i.get('_from_pc') %}<span style="position:absolute;top:2px;right:4px;font-size:9px;background:#1f6feb;color:#fff;padding:1px 4px;border-radius:3px;pointer-events:none">PC</span>{% endif %}</td>
-   <td><input type="text" name="part_{{loop.index0}}" value="{{i.item_number}}" class="text-in mono" style="width:90px;font-size:12px;padding:6px 8px"></td>
+   <td style="position:relative"><input type="text" name="desc_{{loop.index0}}" value="{{i.description}}" class="text-in" style="width:100%;min-width:280px;font-size:13px;padding:6px 8px" title="{{i.description}}">{% if i.get('_from_pc') %}<span style="position:absolute;top:2px;right:4px;font-size:13px;background:#1f6feb;color:#fff;padding:1px 4px;border-radius:3px;pointer-events:none">PC</span>{% endif %}</td>
+   <td><input type="text" name="part_{{loop.index0}}" value="{{i.item_number}}" class="text-in mono" style="width:90px;font-size:14px;padding:6px 8px"></td>
    <td style="min-width:220px">
     <div style="display:flex;align-items:center;gap:4px">
      <input type="text" name="link_{{loop.index0}}" value="{{i.get('item_link','')}}" placeholder="Paste supplier URL..." class="text-in" style="width:100%;font-size:13px;padding:6px 8px;color:#58a6ff" oninput="handleRfqLinkInput({{loop.index0}}, this)">
     </div>
-    <div id="rfq_link_meta_{{loop.index0}}" style="font-size:11px;margin-top:2px;min-height:14px">
+    <div id="rfq_link_meta_{{loop.index0}}" style="font-size:14px;margin-top:2px;min-height:14px">
      {% if i.get('item_supplier') %}<span style="color:#8b949e">{{i.item_supplier}}</span>{% endif %}
     </div>
    </td>
    <td><input type="number" step="0.01" name="cost_{{loop.index0}}" value="{{i.supplier_cost or ''}}" placeholder="0.00" class="num-in" style="width:90px;font-size:15px;font-weight:700;padding:6px 8px" oninput="recalc()"></td>
-   <td id="intel_{{loop.index0}}" style="font-size:11px;text-align:center;cursor:pointer" title="Click for price history" onclick="showIntel({{loop.index0}})">
+   <td id="intel_{{loop.index0}}" style="font-size:14px;text-align:center;cursor:pointer" title="Click for price history" onclick="showIntel({{loop.index0}})">
     {% if i.get('price_intel') and i.price_intel.get('history_count', 0) > 0 %}
      <span style="color:#58a6ff">📊{{i.price_intel.history_count}}</span>
     {% elif i.get('catalog_match') %}
@@ -162,13 +162,13 @@
 
  <!-- Add Item (inline form) -->
  <details style="margin-top:10px" id="add-item-section">
-  <summary style="cursor:pointer;font-size:12px;color:var(--ac);font-weight:600;padding:6px 0">➕ Add Line Item</summary>
+  <summary style="cursor:pointer;font-size:14px;color:var(--ac);font-weight:600;padding:6px 0">➕ Add Line Item</summary>
   <form method="POST" action="/rfq/{{rid}}/add-item" style="display:flex;gap:8px;align-items:flex-end;margin-top:8px;padding:10px 14px;background:var(--sf2);border-radius:8px;border:1px solid var(--bd);flex-wrap:wrap">
-   <div><label style="font-size:10px;color:var(--tx2);display:block">Qty</label><input type="number" name="qty" value="1" min="1" class="num-in" style="width:60px;font-size:13px;padding:6px" required></div>
-   <div><label style="font-size:10px;color:var(--tx2);display:block">UOM</label><input type="text" name="uom" value="EA" class="text-in" style="width:55px;font-size:13px;padding:6px;text-transform:uppercase" maxlength="6"></div>
-   <div style="flex:1;min-width:200px"><label style="font-size:10px;color:var(--tx2);display:block">Description</label><input type="text" name="description" placeholder="Item description..." class="text-in" style="width:100%;font-size:13px;padding:6px" required></div>
-   <div><label style="font-size:10px;color:var(--tx2);display:block">Part #</label><input type="text" name="item_number" placeholder="Optional" class="text-in" style="width:100px;font-size:13px;padding:6px"></div>
-   <button type="submit" class="btn btn-sm btn-p" style="padding:6px 14px;font-size:12px">Add</button>
+   <div><label style="font-size:13px;color:var(--tx2);display:block">Qty</label><input type="number" name="qty" value="1" min="1" class="num-in" style="width:60px;font-size:13px;padding:6px" required></div>
+   <div><label style="font-size:13px;color:var(--tx2);display:block">UOM</label><input type="text" name="uom" value="EA" class="text-in" style="width:55px;font-size:13px;padding:6px;text-transform:uppercase" maxlength="6"></div>
+   <div style="flex:1;min-width:200px"><label style="font-size:13px;color:var(--tx2);display:block">Description</label><input type="text" name="description" placeholder="Item description..." class="text-in" style="width:100%;font-size:13px;padding:6px" required></div>
+   <div><label style="font-size:13px;color:var(--tx2);display:block">Part #</label><input type="text" name="item_number" placeholder="Optional" class="text-in" style="width:100px;font-size:13px;padding:6px"></div>
+   <button type="submit" class="btn btn-sm btn-p" style="padding:6px 14px;font-size:14px">Add</button>
   </form>
  </details>
 
@@ -205,28 +205,28 @@
  {% if is_generic %}
  {# ── Generic Agency (Cal Vet, CalFire, DGS, etc.) — No 704 forms ── #}
  <div class="card-t">📋 {{ r.get('agency_name', 'Agency') }} RFQ Package</div>
- <div style="padding:10px 14px;border-radius:8px;font-size:12px;margin-bottom:12px;background:rgba(167,139,250,.06);border:1px solid rgba(167,139,250,.15);color:#a78bfa">
+ <div style="padding:10px 14px;border-radius:8px;font-size:14px;margin-bottom:12px;background:rgba(167,139,250,.06);border:1px solid rgba(167,139,250,.15);color:#a78bfa">
   ℹ️ <b>{{ r.get('agency_name', 'This agency') }}</b> uses a formal Reytech quote — no 704B form filling needed.
   The response package will include your Reytech quote{% if r.get('attachments_raw') %} plus the original RFQ attachments{% endif %}.
  </div>
  <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">
   {# Show what we have #}
   {% for att_name in r.get('attachments_raw', []) %}
-  <div style="padding:6px 12px;border-radius:6px;font-size:12px;border:1px solid rgba(52,211,153,.3);background:rgba(52,211,153,.06);color:#3fb950">
+  <div style="padding:6px 12px;border-radius:6px;font-size:14px;border:1px solid rgba(52,211,153,.3);background:rgba(52,211,153,.06);color:#3fb950">
    📎 {{ att_name }}
   </div>
   {% endfor %}
-  <div style="padding:6px 12px;border-radius:6px;font-size:12px;border:1px solid rgba(79,140,255,.3);background:rgba(79,140,255,.06);color:var(--ac)">
+  <div style="padding:6px 12px;border-radius:6px;font-size:14px;border:1px solid rgba(79,140,255,.3);background:rgba(79,140,255,.06);color:var(--ac)">
    📄 Reytech Quote {{ '✅' if r.get('reytech_quote_number') else '(pending)' }}
   </div>
  </div>
  {# Upload additional docs if needed #}
  <form method="POST" action="/rfq/{{rid}}/upload-templates" enctype="multipart/form-data">
   <div style="display:flex;gap:8px;align-items:center">
-   <input type="file" name="templates" multiple accept=".pdf" style="font-size:12px">
+   <input type="file" name="templates" multiple accept=".pdf" style="font-size:14px">
    <button type="submit" class="btn btn-sm btn-p">📎 Add Documents</button>
   </div>
-  <div style="font-size:11px;color:var(--tx2);margin-top:4px">Upload additional PDFs to include in the response package (e.g. Cal Vet RFQ form)</div>
+  <div style="font-size:14px;color:var(--tx2);margin-top:4px">Upload additional PDFs to include in the response package (e.g. Cal Vet RFQ form)</div>
  </form>
 
  {% else %}
@@ -247,14 +247,14 @@
  <div style="background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.2);border-radius:6px;padding:12px 16px;margin-bottom:12px;font-size:13px">
   ⚠️ <b>704B template not uploaded</b> — Upload the blank 704B form from the RFQ package for a filled 704B bid sheet.
   {% if r.get('source') == 'price_check' %}This RFQ was converted from a Price Check and needs the original RFQ forms.{% endif %}
-  <div style="font-size:11px;color:var(--tx2);margin-top:4px">✅ The CDCR Bid Package (CUF, Darfur, DVBE, OBS 1600, etc.) and Reytech Formal Quote will still be auto-generated.</div>
+  <div style="font-size:14px;color:var(--tx2);margin-top:4px">✅ The CDCR Bid Package (CUF, Darfur, DVBE, OBS 1600, etc.) and Reytech Formal Quote will still be auto-generated.</div>
  </div>
  <form method="POST" action="/rfq/{{rid}}/upload-templates" enctype="multipart/form-data">
   <div style="display:flex;gap:8px;align-items:center">
    <input type="file" name="templates" data-testid="rfq-upload-templates" multiple accept=".pdf" style="font-size:13px">
    <button type="submit" class="btn btn-sm btn-p" data-testid="rfq-upload-templates-btn">📎 Upload Templates</button>
   </div>
-  <div style="font-size:11px;color:var(--tx2);margin-top:4px">Upload the 703B, 704B, and/or Bid Package PDFs from the RFQ email</div>
+  <div style="font-size:14px;color:var(--tx2);margin-top:4px">Upload the 703B, 704B, and/or Bid Package PDFs from the RFQ email</div>
  </form>
  {% endif %}
  {% endif %}
@@ -265,8 +265,8 @@
  <div style="display:flex;justify-content:space-between;align-items:center">
   <div class="card-t" style="margin-bottom:0">🔍 SCPRS Search Results</div>
   <div style="display:flex;gap:8px;align-items:center">
-   <span id="scprs-ts" style="font-size:10px;color:var(--tx2);font-family:'JetBrains Mono',monospace"></span>
-   <button class="btn btn-sm btn-s" onclick="document.getElementById('scprs-panel').style.display='none'" style="padding:2px 8px;font-size:10px">✕ Hide</button>
+   <span id="scprs-ts" style="font-size:13px;color:var(--tx2);font-family:'JetBrains Mono',monospace"></span>
+   <button class="btn btn-sm btn-s" onclick="document.getElementById('scprs-panel').style.display='none'" style="padding:2px 8px;font-size:13px">✕ Hide</button>
   </div>
  </div>
  <div id="scprs-body" style="margin-top:12px"></div>
@@ -279,10 +279,10 @@
   <div style="display:flex;gap:6px">
    {% if r.status in ('sent','generated') %}
    <form method="POST" action="/rfq/{{rid}}/reopen" style="display:inline">
-    <button type="submit" class="btn btn-sm" style="background:var(--wn);color:#000;font-size:12px" onclick="return confirm('Reopen this RFQ for editing? You can re-generate the package after making changes.')">✏️ Reopen for Editing</button>
+    <button type="submit" class="btn btn-sm" style="background:var(--wn);color:#000;font-size:14px" onclick="return confirm('Reopen this RFQ for editing? You can re-generate the package after making changes.')">✏️ Reopen for Editing</button>
    </form>
    {% endif %}
-   <button class="btn btn-sm btn-s" style="font-size:12px" onclick="regeneratePackage()">🔄 Regenerate</button>
+   <button class="btn btn-sm btn-s" style="font-size:14px" onclick="regeneratePackage()">🔄 Regenerate</button>
   </div>
  </div>
  <div style="display:flex;flex-direction:column;gap:6px;margin-top:12px">
@@ -290,8 +290,8 @@
   <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px">
    <span style="font-size:16px">{% if 'Quote' in f %}💰{% elif 'Package' in f %}📦{% elif '703B' in f %}📝{% elif '704B' in f %}📊{% elif 'BidPackage' in f %}📋{% else %}📄{% endif %}</span>
    <span style="flex:1;font-size:13px;color:var(--tx)">{{f}}</span>
-   <a href="#" onclick="previewPdf('/api/pricecheck/view-pdf/{{f}}','{{f}}');return false" class="btn btn-sm btn-s" style="font-size:11px;padding:4px 8px">👁️ View</a>
-   <a href="/dl/{{rid}}/{{f}}" class="btn btn-sm btn-s" style="font-size:11px;padding:4px 8px">⬇️ Download</a>
+   <a href="#" onclick="previewPdf('/api/pricecheck/view-pdf/{{f}}','{{f}}');return false" class="btn btn-sm btn-s" style="font-size:14px;padding:4px 8px">👁️ View</a>
+   <a href="/dl/{{rid}}/{{f}}" class="btn btn-sm btn-s" style="font-size:14px;padding:4px 8px">⬇️ Download</a>
   </div>
   {% endfor %}
  </div>
@@ -301,13 +301,13 @@
 <div class="card">
  <div class="card-t">📦 Generated Package</div>
  <div style="color:var(--tx2);font-size:13px;padding:8px 0">
-  Loading files from database... <span style="font-size:11px">(Files are preserved across deployments)</span>
+  Loading files from database... <span style="font-size:14px">(Files are preserved across deployments)</span>
  </div>
  <div style="margin-top:8px">
   <form method="POST" action="/rfq/{{rid}}/reopen" style="display:inline">
-   <button type="submit" class="btn btn-sm" style="background:var(--wn);color:#000;font-size:12px" onclick="return confirm('Reopen this RFQ for editing?')">✏️ Reopen for Editing</button>
+   <button type="submit" class="btn btn-sm" style="background:var(--wn);color:#000;font-size:14px" onclick="return confirm('Reopen this RFQ for editing?')">✏️ Reopen for Editing</button>
   </form>
-  <button class="btn btn-sm btn-s" style="font-size:12px" onclick="regeneratePackage()">🔄 Regenerate</button>
+  <button class="btn btn-sm btn-s" style="font-size:14px" onclick="regeneratePackage()">🔄 Regenerate</button>
  </div>
 </div>
 {% endif %}
@@ -338,7 +338,7 @@
   <select id="emailTemplateSelect" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd);border-radius:6px;padding:6px 10px;font-size:13px;min-width:200px" onchange="loadEmailTemplate()">
    <option value="">— Select Template —</option>
   </select>
-  <button type="button" class="btn btn-sm btn-s" onclick="saveCurrentAsTemplate()" style="font-size:12px">💾 Save as Template</button>
+  <button type="button" class="btn btn-sm btn-s" onclick="saveCurrentAsTemplate()" style="font-size:14px">💾 Save as Template</button>
  </div>
  
  <form method="POST" action="/rfq/{{rid}}/send-email" id="emailForm">
@@ -346,7 +346,7 @@
    <label style="font-size:13px;color:var(--tx2);font-weight:600">To:</label>
    <div style="display:flex;gap:6px;align-items:center">
     <input type="email" name="to" id="emailTo" value="{{r.requestor_email or (r.draft_email.to if r.draft_email else '')}}" class="text-in" style="font-size:14px;padding:8px 12px;flex:1">
-    <button type="button" class="btn btn-sm" onclick="document.getElementById('ccBccFields').style.display=document.getElementById('ccBccFields').style.display==='none'?'contents':'none'" style="font-size:11px;padding:4px 8px;background:var(--sf2);color:var(--tx2);border:1px solid var(--bd)">CC/BCC ▾</button>
+    <button type="button" class="btn btn-sm" onclick="document.getElementById('ccBccFields').style.display=document.getElementById('ccBccFields').style.display==='none'?'contents':'none'" style="font-size:14px;padding:4px 8px;background:var(--sf2);color:var(--tx2);border:1px solid var(--bd)">CC/BCC ▾</button>
    </div>
    <div id="ccBccFields" style="display:none;grid-column:1/-1">
     <div style="display:grid;grid-template-columns:60px 1fr;gap:8px;align-items:center">
@@ -372,17 +372,17 @@
      <input type="checkbox" id="sigToggle" name="include_signature" value="1" checked onchange="toggleSigPreview()" style="accent-color:var(--ac)">
      <span style="font-weight:600">Include Signature</span>
     </label>
-    <button type="button" class="btn btn-sm" onclick="editSignature()" style="font-size:11px;padding:3px 8px">✏️ Edit</button>
+    <button type="button" class="btn btn-sm" onclick="editSignature()" style="font-size:14px;padding:3px 8px">✏️ Edit</button>
    </div>
-   <div id="sigPreview" style="padding:8px 10px;background:var(--bg);border-radius:6px;border:1px solid var(--bd);font-size:12px;max-height:160px;overflow-y:auto"></div>
+   <div id="sigPreview" style="padding:8px 10px;background:var(--bg);border-radius:6px;border:1px solid var(--bd);font-size:14px;max-height:160px;overflow-y:auto"></div>
    <div id="sigEditor" style="display:none;margin-top:6px">
-    <textarea id="sigHtml" class="text-in" style="width:100%;min-height:120px;font-size:12px;font-family:'JetBrains Mono',monospace;padding:8px;resize:vertical"></textarea>
+    <textarea id="sigHtml" class="text-in" style="width:100%;min-height:120px;font-size:14px;font-family:'JetBrains Mono',monospace;padding:8px;resize:vertical"></textarea>
     <div style="display:flex;gap:6px;margin-top:6px;align-items:center;flex-wrap:wrap">
-     <button type="button" class="btn btn-sm btn-go" onclick="saveSignature()" style="font-size:12px">💾 Save Signature</button>
-     <button type="button" class="btn btn-sm" onclick="cancelSigEdit()" style="font-size:12px">Cancel</button>
-     <button type="button" class="btn btn-sm" onclick="uploadSigLogo()" style="font-size:11px;background:var(--sf2);color:var(--tx2);border:1px solid var(--bd)">🖼️ Upload Logo PNG</button>
+     <button type="button" class="btn btn-sm btn-go" onclick="saveSignature()" style="font-size:14px">💾 Save Signature</button>
+     <button type="button" class="btn btn-sm" onclick="cancelSigEdit()" style="font-size:14px">Cancel</button>
+     <button type="button" class="btn btn-sm" onclick="uploadSigLogo()" style="font-size:14px;background:var(--sf2);color:var(--tx2);border:1px solid var(--bd)">🖼️ Upload Logo PNG</button>
      <input type="file" id="sigLogoFile" accept="image/png,image/jpeg,image/gif" style="display:none" onchange="handleSigLogoUpload(this)">
-     <span style="font-size:10px;color:var(--tx2)">Supports HTML: &lt;img&gt;, &lt;a&gt;, styles</span>
+     <span style="font-size:13px;color:var(--tx2)">Supports HTML: &lt;img&gt;, &lt;a&gt;, styles</span>
     </div>
    </div>
   </div>
@@ -391,7 +391,7 @@
   <div style="margin-top:12px;padding:12px;background:var(--sf2);border-radius:8px;border:1px solid var(--bd)">
    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
     <span style="font-size:13px;font-weight:600;color:var(--tx)">📎 Attachments</span>
-    <button type="button" class="btn btn-sm btn-p" onclick="toggleAllAttachments(true)" style="font-size:12px">Attach All Generated</button>
+    <button type="button" class="btn btn-sm btn-p" onclick="toggleAllAttachments(true)" style="font-size:14px">Attach All Generated</button>
    </div>
    <div id="attachmentList" style="display:flex;flex-wrap:wrap;gap:6px"></div>
   </div>
@@ -400,7 +400,7 @@
   <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;align-items:center">
    <button type="submit" class="btn btn-o" style="font-size:14px;padding:10px 24px">📤 Send Email</button>
    <a id="mailAppLink" href="#" class="btn btn-s" style="font-size:13px;padding:8px 16px">📋 Open in Mail App</a>
-   <span id="emailStatus" style="font-size:12px;color:var(--tx2)"></span>
+   <span id="emailStatus" style="font-size:14px;color:var(--tx2)"></span>
   </div>
  </form>
 </div>
@@ -424,21 +424,21 @@
     <option value="cancelled">Cancelled</option>
    </select>
    <input name="notes" placeholder="Notes (optional)" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd);border-radius:6px;padding:6px 10px;font-size:13px;width:200px">
-   <button type="submit" class="btn btn-sm btn-s" style="font-size:12px">Update</button>
+   <button type="submit" class="btn btn-sm btn-s" style="font-size:14px">Update</button>
   </form>
  </div>
  {% if r.status in ('sent','generated','ready') %}
  <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--bd)">
-  <div style="font-size:11px;font-weight:600;color:var(--tx2);margin-bottom:6px">Record Outcome</div>
+  <div style="font-size:14px;font-weight:600;color:var(--tx2);margin-bottom:6px">Record Outcome</div>
   <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-   <button onclick="recordOutcome('won')" class="btn btn-s" style="font-size:11px;background:rgba(46,160,67,.15);color:var(--gn);border:1px solid rgba(46,160,67,.3)">🏆 Won</button>
-   <button onclick="recordOutcome('lost')" class="btn btn-s" style="font-size:11px;background:rgba(248,81,73,.15);color:var(--rd);border:1px solid rgba(248,81,73,.3)">❌ Lost</button>
-   <button onclick="recordOutcome('no_response')" class="btn btn-s" style="font-size:11px;background:rgba(255,193,7,.15);color:var(--yl);border:1px solid rgba(255,193,7,.3)">⏰ No Response</button>
-   <span id="outcome-status" style="font-size:11px;color:var(--tx2)"></span>
+   <button onclick="recordOutcome('won')" class="btn btn-s" style="font-size:14px;background:rgba(46,160,67,.15);color:var(--gn);border:1px solid rgba(46,160,67,.3)">🏆 Won</button>
+   <button onclick="recordOutcome('lost')" class="btn btn-s" style="font-size:14px;background:rgba(248,81,73,.15);color:var(--rd);border:1px solid rgba(248,81,73,.3)">❌ Lost</button>
+   <button onclick="recordOutcome('no_response')" class="btn btn-s" style="font-size:14px;background:rgba(255,193,7,.15);color:var(--yl);border:1px solid rgba(255,193,7,.3)">⏰ No Response</button>
+   <span id="outcome-status" style="font-size:14px;color:var(--tx2)"></span>
   </div>
  </div>
  {% elif r.get('outcome') %}
- <div style="margin-top:8px;font-size:11px;color:var(--tx2)">
+ <div style="margin-top:8px;font-size:14px;color:var(--tx2)">
   Outcome: <b style="color:{% if r.outcome == 'won' %}var(--gn){% elif r.outcome == 'lost' %}var(--rd){% else %}var(--yl){% endif %}">{{r.outcome|upper}}</b>
   {% if r.get('outcome_reason') %} — {{r.outcome_reason}}{% endif %}
   {% if r.get('outcome_date') %} ({{r.outcome_date[:10]}}){% endif %}
@@ -568,13 +568,13 @@ function _showGuardrails(warnings){
  var color=crits.length?'#f85149':'#d29922';
  var bar=document.createElement('div');
  bar.id='guardrail-bar';
- bar.style.cssText='position:fixed;bottom:40px;right:16px;background:#161b22;border:1px solid '+color+';border-radius:8px;padding:8px 14px;z-index:9000;font-size:12px;max-width:350px;box-shadow:0 4px 16px rgba(0,0,0,.4)';
+ bar.style.cssText='position:fixed;bottom:40px;right:16px;background:#161b22;border:1px solid '+color+';border-radius:8px;padding:8px 14px;z-index:9000;font-size:14px;max-width:350px;box-shadow:0 4px 16px rgba(0,0,0,.4)';
  var h='<div style="font-weight:700;color:'+color+';margin-bottom:4px">'+(crits.length?'❌':'⚠️')+' Margin Guardrails</div>';
  warnings.slice(0,4).forEach(function(w){
   var wc=w.level==='critical'?'#f85149':w.level==='warn'?'#d29922':'#8b949e';
-  h+='<div style="color:'+wc+';font-size:11px">• '+w.desc+': '+w.msg+'</div>';
+  h+='<div style="color:'+wc+';font-size:14px">• '+w.desc+': '+w.msg+'</div>';
  });
- if(warnings.length>4) h+='<div style="color:#484f58;font-size:11px">+'+(warnings.length-4)+' more</div>';
+ if(warnings.length>4) h+='<div style="color:#484f58;font-size:14px">+'+(warnings.length-4)+' more</div>';
  bar.innerHTML=h;
  document.body.appendChild(bar);
  setTimeout(function(){var b=document.getElementById('guardrail-bar');if(b)b.remove();},8000);
@@ -584,7 +584,7 @@ function _showSaveStatus(state){
  if(!_autosaveIndicator){
   _autosaveIndicator=document.createElement('div');
   _autosaveIndicator.id='autosave-status';
-  _autosaveIndicator.style.cssText='position:fixed;bottom:16px;right:16px;padding:6px 14px;border-radius:6px;font-size:12px;font-weight:600;z-index:9999;transition:opacity .3s';
+  _autosaveIndicator.style.cssText='position:fixed;bottom:16px;right:16px;padding:6px 14px;border-radius:6px;font-size:14px;font-weight:600;z-index:9999;transition:opacity .3s';
   document.body.appendChild(_autosaveIndicator);
  }
  const el=_autosaveIndicator;
@@ -709,11 +709,11 @@ function showScprsResults(d){
   const po=r.po_number||'—';
   const dt=r.date||'—';
   const searched=(r.searched||[]).join(', ')||'—';
-  html+=`<tr><td>${i+1}</td><td>${status}</td><td style="font-family:'JetBrains Mono',monospace;font-weight:600">${price}</td><td><span class="scprs-tag scprs-${r.confidence=='high'?'hi':'med'}">${src.replace(/_/g,' ')}</span></td><td style="font-size:11px">${vendor}</td><td class="mono">${po}</td><td class="mono">${dt}</td><td style="font-size:10px;color:var(--tx2);max-width:200px">${searched}</td></tr>`;
+  html+=`<tr><td>${i+1}</td><td>${status}</td><td style="font-family:'JetBrains Mono',monospace;font-weight:600">${price}</td><td><span class="scprs-tag scprs-${r.confidence=='high'?'hi':'med'}">${src.replace(/_/g,' ')}</span></td><td style="font-size:14px">${vendor}</td><td class="mono">${po}</td><td class="mono">${dt}</td><td style="font-size:13px;color:var(--tx2);max-width:200px">${searched}</td></tr>`;
  });
  html+='</tbody></table>';
  if(d.errors&&d.errors.length){
-  html+='<div style="margin-top:8px;font-size:11px;color:var(--rd)">Errors: '+d.errors.join(', ')+'</div>';
+  html+='<div style="margin-top:8px;font-size:14px;color:var(--rd)">Errors: '+d.errors.join(', ')+'</div>';
  }
  body.innerHTML=html;
 }
@@ -732,7 +732,7 @@ function showRfqPreview(){
   rowsHtml+=`<tr>
    <td style="text-align:center;border:1px solid #000;padding:4px">${itemNo}</td>
    <td style="text-align:center;border:1px solid #000;padding:4px">${q} ${uom}</td>
-   <td style="font-size:12px;border:1px solid #000;padding:4px">${desc}</td>
+   <td style="font-size:14px;border:1px solid #000;padding:4px">${desc}</td>
    <td style="text-align:right;border:1px solid #000;padding:4px">$${c.toFixed(2)}</td>
    <td style="text-align:right;font-weight:600;border:1px solid #000;padding:4px">$${p.toFixed(2)}</td>
    <td style="text-align:right;border:1px solid #000;padding:4px">$${ext.toFixed(2)}</td>
@@ -745,42 +745,42 @@ function showRfqPreview(){
  const delivery={{r.get("delivery_location","")|tojson}};
  const shipTo={{r.get("ship_to","")|tojson}};
  const html=`<div style="font-family:'Times New Roman',Times,serif;font-size:13px;color:#000;line-height:1.4;padding:20px">
-  <div style="display:flex;justify-content:space-between;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#444">
+  <div style="display:flex;justify-content:space-between;font-size:13px;text-transform:uppercase;letter-spacing:1px;color:#444">
    <span>STATE OF CALIFORNIA</span><span>${dept||'CALIFORNIA CORRECTIONAL HEALTH CARE SERVICES'}</span>
   </div>
   <div style="text-align:center;padding:8px;border-bottom:2px solid #000">
    <h3 style="margin:4px 0;font-size:14px;text-transform:uppercase;letter-spacing:1px">ACQUISITION QUOTE WORKSHEET — 704B</h3>
-   <div style="font-size:12px">Solicitation #${sol}</div>
+   <div style="font-size:14px">Solicitation #${sol}</div>
   </div>
 
   <table style="width:100%;border-collapse:collapse;margin-top:10px">
    <tr>
-    <td style="border:1px solid #000;padding:4px 8px;width:50%"><span style="font-size:9px;color:#555;text-transform:uppercase;display:block">Requestor</span>${reqName}</td>
-    <td style="border:1px solid #000;padding:4px 8px"><span style="font-size:9px;color:#555;text-transform:uppercase;display:block">Due Date</span><b>${due}</b></td>
+    <td style="border:1px solid #000;padding:4px 8px;width:50%"><span style="font-size:13px;color:#555;text-transform:uppercase;display:block">Requestor</span>${reqName}</td>
+    <td style="border:1px solid #000;padding:4px 8px"><span style="font-size:13px;color:#555;text-transform:uppercase;display:block">Due Date</span><b>${due}</b></td>
    </tr>
    <tr>
-    <td style="border:1px solid #000;padding:4px 8px" colspan="2"><span style="font-size:9px;color:#555;text-transform:uppercase;display:block">Delivery Location</span>${delivery||shipTo||'—'}</td>
+    <td style="border:1px solid #000;padding:4px 8px" colspan="2"><span style="font-size:13px;color:#555;text-transform:uppercase;display:block">Delivery Location</span>${delivery||shipTo||'—'}</td>
    </tr>
   </table>
 
-  <div style="background:#e8e8e0;text-align:center;font-weight:700;font-size:12px;padding:4px;margin-top:10px;border:1px solid #000;letter-spacing:2px">SUPPLIER: REYTECH INC.</div>
+  <div style="background:#e8e8e0;text-align:center;font-weight:700;font-size:14px;padding:4px;margin-top:10px;border:1px solid #000;letter-spacing:2px">SUPPLIER: REYTECH INC.</div>
   <table style="width:100%;border-collapse:collapse;margin-top:0">
    <tr>
-    <td style="border:1px solid #000;padding:3px 8px;font-size:11px"><b>30 Carnoustie Way, Trabuco Canyon, CA 92679</b></td>
-    <td style="border:1px solid #000;padding:3px 8px;font-size:11px">949-229-1575</td>
-    <td style="border:1px solid #000;padding:3px 8px;font-size:11px">sales@reytechinc.com</td>
-    <td style="border:1px solid #000;padding:3px 8px;font-size:11px">SB/MB: 2002605</td>
+    <td style="border:1px solid #000;padding:3px 8px;font-size:14px"><b>30 Carnoustie Way, Trabuco Canyon, CA 92679</b></td>
+    <td style="border:1px solid #000;padding:3px 8px;font-size:14px">949-229-1575</td>
+    <td style="border:1px solid #000;padding:3px 8px;font-size:14px">sales@reytechinc.com</td>
+    <td style="border:1px solid #000;padding:3px 8px;font-size:14px">SB/MB: 2002605</td>
    </tr>
   </table>
 
   <table style="width:100%;border-collapse:collapse;margin-top:12px">
    <thead><tr style="background:#e8e8e0">
-    <th style="border:1px solid #000;padding:4px 6px;font-size:10px;text-transform:uppercase;width:50px">#</th>
-    <th style="border:1px solid #000;padding:4px 6px;font-size:10px;text-transform:uppercase;width:60px">Qty</th>
-    <th style="border:1px solid #000;padding:4px 6px;font-size:10px;text-transform:uppercase">Description</th>
-    <th style="border:1px solid #000;padding:4px 6px;font-size:10px;text-transform:uppercase;width:80px;text-align:right">Your Cost</th>
-    <th style="border:1px solid #000;padding:4px 6px;font-size:10px;text-transform:uppercase;width:80px;text-align:right">Bid Price</th>
-    <th style="border:1px solid #000;padding:4px 6px;font-size:10px;text-transform:uppercase;width:90px;text-align:right">Extension</th>
+    <th style="border:1px solid #000;padding:4px 6px;font-size:13px;text-transform:uppercase;width:50px">#</th>
+    <th style="border:1px solid #000;padding:4px 6px;font-size:13px;text-transform:uppercase;width:60px">Qty</th>
+    <th style="border:1px solid #000;padding:4px 6px;font-size:13px;text-transform:uppercase">Description</th>
+    <th style="border:1px solid #000;padding:4px 6px;font-size:13px;text-transform:uppercase;width:80px;text-align:right">Your Cost</th>
+    <th style="border:1px solid #000;padding:4px 6px;font-size:13px;text-transform:uppercase;width:80px;text-align:right">Bid Price</th>
+    <th style="border:1px solid #000;padding:4px 6px;font-size:13px;text-transform:uppercase;width:90px;text-align:right">Extension</th>
    </tr></thead>
    <tbody>${rowsHtml}</tbody>
   </table>
@@ -790,7 +790,7 @@ function showRfqPreview(){
   </div>
   <div style="clear:both"></div>
 
-  <div style="margin-top:12px;font-size:10px;text-align:center;color:#555;border-top:1px solid #999;padding-top:6px">
+  <div style="margin-top:12px;font-size:13px;text-align:center;color:#555;border-top:1px solid #999;padding-top:6px">
    Reytech Inc. · Michael Guadan · SB/MB #2002605 · DVBE #2002605
   </div>
  </div>`;
@@ -990,7 +990,7 @@ function _showQaPopup(d){
  h+='<div style="font-size:18px;font-weight:700;margin-bottom:12px;color:'+color+'">'+icon+' QA Check: '+oc.toUpperCase()+'</div>';
  h+='<div style="font-size:13px;color:#8b949e;margin-bottom:12px">'+d.total+' items · '+d.failures+' failures · '+d.warnings+' warnings</div>';
  if(d.diff_notes&&d.diff_notes.length){
-  h+='<div style="padding:6px 10px;background:rgba(210,153,34,.08);border:1px solid rgba(210,153,34,.2);border-radius:6px;margin-bottom:10px;font-size:12px;color:#d29922">';
+  h+='<div style="padding:6px 10px;background:rgba(210,153,34,.08);border:1px solid rgba(210,153,34,.2);border-radius:6px;margin-bottom:10px;font-size:14px;color:#d29922">';
   d.diff_notes.forEach(function(n){h+='<div>⚠ '+n+'</div>';});
   h+='</div>';
  }
@@ -998,10 +998,10 @@ function _showQaPopup(d){
   var sc=it.status==='pass'?'#3fb950':it.status==='warn'?'#d29922':'#f85149';
   var si=it.status==='pass'?'✅':it.status==='warn'?'⚠️':'❌';
   h+='<div style="padding:6px 8px;border-bottom:1px solid #21262d">';
-  h+='<div style="font-size:12px;font-weight:600;color:'+sc+'">'+si+' '+it.description+'</div>';
+  h+='<div style="font-size:14px;font-weight:600;color:'+sc+'">'+si+' '+it.description+'</div>';
   it.checks.forEach(function(c){
    var cc=c.status==='pass'?'#3fb950':c.status==='warn'?'#d29922':'#f85149';
-   h+='<div style="font-size:11px;color:'+cc+';margin-left:16px">'+c.check+': '+c.msg+'</div>';
+   h+='<div style="font-size:14px;color:'+cc+';margin-left:16px">'+c.check+': '+c.msg+'</div>';
   });
   h+='</div>';
  });
@@ -1064,14 +1064,14 @@ document.addEventListener('keydown',function(e){
   });
   function renderSection(label,icon,files){
    if(!files||files.length===0) return '';
-   var s='<div style="margin-bottom:10px"><div style="font-size:12px;font-weight:700;color:var(--tx2);margin-bottom:6px">'+icon+' '+label+'</div><div style="display:flex;flex-wrap:wrap;gap:6px">';
+   var s='<div style="margin-bottom:10px"><div style="font-size:14px;font-weight:700;color:var(--tx2);margin-bottom:6px">'+icon+' '+label+'</div><div style="display:flex;flex-wrap:wrap;gap:6px">';
    files.forEach(function(f){
     var kb=Math.round((f.file_size||0)/1024);
     var previewUrl='/rfq/'+RID+'/preview/'+f.id;
     s+='<span style="display:inline-flex;align-items:center;gap:4px;padding:6px 12px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;font-size:13px;color:var(--tx)">';
     s+='<a href="#" class="rfq-file-preview" data-url="'+previewUrl.replace(/"/g,'&quot;')+'" data-title="'+f.filename.replace(/"/g,'&quot;')+'" style="color:var(--ac);text-decoration:none;cursor:pointer" title="Preview">👁️</a> ';
     s+='<a href="/rfq/'+RID+'/file/'+f.id+'" target="_blank" style="color:var(--tx);text-decoration:none">'+f.filename+'</a>';
-    s+=' <span style="color:var(--tx2);font-size:11px">('+kb+'KB)</span></span>';
+    s+=' <span style="color:var(--tx2);font-size:14px">('+kb+'KB)</span></span>';
    });
    return s+'</div></div>';
   }
@@ -1093,13 +1093,13 @@ document.addEventListener('keydown',function(e){
 // ── Attachment Selector for Email ──
 function buildAttachmentList(generated){
  var el=document.getElementById('attachmentList');
- if(!el||!generated||generated.length===0){if(el) el.innerHTML='<span style="font-size:12px;color:var(--tx2)">Generate package first to attach files</span>';return;}
+ if(!el||!generated||generated.length===0){if(el) el.innerHTML='<span style="font-size:14px;color:var(--tx2)">Generate package first to attach files</span>';return;}
  var html='';
  generated.forEach(function(f){
   var kb=Math.round((f.file_size||0)/1024);
   html+='<label style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;cursor:pointer;font-size:13px">';
   html+='<input type="checkbox" class="attach-cb" value="'+f.id+'" checked onchange="updateAttachInput()"> ';
-  html+='📄 '+f.filename+' <span style="color:var(--tx2);font-size:11px">('+kb+'KB)</span></label>';
+  html+='📄 '+f.filename+' <span style="color:var(--tx2);font-size:14px">('+kb+'KB)</span></label>';
  });
  el.innerHTML=html;
  updateAttachInput();
@@ -1253,7 +1253,7 @@ function handleSigLogoUpload(input){
    var dir=e.direction==='outbound'?'📤':'📥';
    html+='<div style="padding:8px 0;border-bottom:1px solid var(--bd);font-size:13px">';
    html+=dir+' <b>'+e.recipient+'</b> — '+e.subject;
-   html+='<div style="font-size:11px;color:var(--tx2);margin-top:2px">'+dt;
+   html+='<div style="font-size:14px;color:var(--tx2);margin-top:2px">'+dt;
    if(e.attachments_json){try{var a=JSON.parse(e.attachments_json);if(a.length) html+=' · '+a.length+' attachments';}catch(x){}}
    html+='</div></div>';
   });
@@ -1286,7 +1286,7 @@ function handleSigLogoUpload(input){
    html+='<div style="display:flex;gap:8px;padding:8px 0;border-bottom:1px solid var(--bd)">';
    html+='<span style="font-size:16px">'+icon+'</span>';
    html+='<div style="flex:1"><div style="font-size:13px">'+a.description+'</div>';
-   html+='<div style="font-size:11px;color:var(--tx2);margin-top:3px">'+dt+' · '+a.actor+'</div></div></div>';
+   html+='<div style="font-size:14px;color:var(--tx2);margin-top:3px">'+dt+' · '+a.actor+'</div></div></div>';
   });
   document.getElementById('rfq-activity').innerHTML=html;
  }).catch(function(){
@@ -1327,9 +1327,9 @@ function showIntel(idx){
  var info=_intelData[idx];
  var html='<div id="intel-popup" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#161b22;border:1px solid #30363d;border-radius:10px;padding:20px;z-index:10000;min-width:380px;max-width:500px;box-shadow:0 8px 32px rgba(0,0,0,.6)">';
  html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><span style="font-size:15px;font-weight:700;color:#f0f6fc">📊 Price Intelligence</span><button onclick="this.closest(\'#intel-popup\').remove()" style="background:none;border:none;color:#8b949e;font-size:18px;cursor:pointer">✕</button></div>';
- html+='<div style="font-size:12px;color:#8b949e;margin-bottom:10px">'+info.description+'</div>';
+ html+='<div style="font-size:14px;color:#8b949e;margin-bottom:10px">'+info.description+'</div>';
  if(info.catalog){
-  html+='<div style="padding:8px 10px;background:rgba(63,185,80,.08);border:1px solid rgba(63,185,80,.2);border-radius:6px;margin-bottom:10px;font-size:12px">';
+  html+='<div style="padding:8px 10px;background:rgba(63,185,80,.08);border:1px solid rgba(63,185,80,.2);border-radius:6px;margin-bottom:10px;font-size:14px">';
   html+='📦 <b>Catalog:</b> '+info.catalog.sku+' · '+info.catalog.category;
   if(info.catalog.typical_cost) html+=' · Cost: $'+info.catalog.typical_cost.toFixed(2);
   if(info.catalog.list_price) html+=' · List: $'+info.catalog.list_price.toFixed(2);
@@ -1338,14 +1338,14 @@ function showIntel(idx){
  if(info.history&&info.history.count>0){
   var h=info.history;
   html+='<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px">';
-  html+='<div style="text-align:center;padding:6px;background:#21262d;border-radius:6px"><div style="font-size:10px;color:#8b949e">Avg</div><div style="font-size:15px;font-weight:700;color:#f0f6fc">$'+h.avg.toFixed(2)+'</div></div>';
-  html+='<div style="text-align:center;padding:6px;background:#21262d;border-radius:6px"><div style="font-size:10px;color:#8b949e">Min</div><div style="font-size:15px;font-weight:700;color:#3fb950">$'+h.min.toFixed(2)+'</div></div>';
-  html+='<div style="text-align:center;padding:6px;background:#21262d;border-radius:6px"><div style="font-size:10px;color:#8b949e">Max</div><div style="font-size:15px;font-weight:700;color:#f85149">$'+h.max.toFixed(2)+'</div></div>';
-  html+='<div style="text-align:center;padding:6px;background:#21262d;border-radius:6px"><div style="font-size:10px;color:#8b949e">Records</div><div style="font-size:15px;font-weight:700;color:#58a6ff">'+h.count+'</div></div>';
+  html+='<div style="text-align:center;padding:6px;background:#21262d;border-radius:6px"><div style="font-size:13px;color:#8b949e">Avg</div><div style="font-size:15px;font-weight:700;color:#f0f6fc">$'+h.avg.toFixed(2)+'</div></div>';
+  html+='<div style="text-align:center;padding:6px;background:#21262d;border-radius:6px"><div style="font-size:13px;color:#8b949e">Min</div><div style="font-size:15px;font-weight:700;color:#3fb950">$'+h.min.toFixed(2)+'</div></div>';
+  html+='<div style="text-align:center;padding:6px;background:#21262d;border-radius:6px"><div style="font-size:13px;color:#8b949e">Max</div><div style="font-size:15px;font-weight:700;color:#f85149">$'+h.max.toFixed(2)+'</div></div>';
+  html+='<div style="text-align:center;padding:6px;background:#21262d;border-radius:6px"><div style="font-size:13px;color:#8b949e">Records</div><div style="font-size:15px;font-weight:700;color:#58a6ff">'+h.count+'</div></div>';
   html+='</div>';
   if(h.entries&&h.entries.length){
-   html+='<div style="font-size:11px;font-weight:600;color:#8b949e;margin-bottom:4px">Recent Prices</div>';
-   html+='<table style="width:100%;font-size:12px;border-collapse:collapse">';
+   html+='<div style="font-size:14px;font-weight:600;color:#8b949e;margin-bottom:4px">Recent Prices</div>';
+   html+='<table style="width:100%;font-size:14px;border-collapse:collapse">';
    html+='<tr style="color:#8b949e"><td style="padding:3px 6px">Price</td><td>Source</td><td>Date</td><td>Quote/Agency</td></tr>';
    h.entries.forEach(function(e){
     html+='<tr style="border-top:1px solid #21262d">';
@@ -1364,7 +1364,7 @@ function showIntel(idx){
  if(info.freshness){
   var f=info.freshness;
   var fc=f.stale?'#d29922':'#3fb950';
-  html+='<div style="margin-top:10px;padding:6px 10px;background:rgba('+( f.stale?'210,153,34':'63,185,80')+',.06);border:1px solid rgba('+( f.stale?'210,153,34':'63,185,80')+',.15);border-radius:6px;font-size:12px;color:'+fc+'">';
+  html+='<div style="margin-top:10px;padding:6px 10px;background:rgba('+( f.stale?'210,153,34':'63,185,80')+',.06);border:1px solid rgba('+( f.stale?'210,153,34':'63,185,80')+',.15);border-radius:6px;font-size:14px;color:'+fc+'">';
   html+=(f.stale?'⏰':'✅')+' Last price: '+f.last_date+' ('+f.days_old+'d ago) via '+f.last_source;
   if(f.drift){
    var dr=f.drift;
@@ -1376,20 +1376,20 @@ function showIntel(idx){
  if(info.sources){
   var s=info.sources;var keys=Object.keys(s).filter(function(k){return k[0]!=='_';});
   if(keys.length>1){
-   html+='<div style="margin-top:10px;font-size:11px;font-weight:600;color:#8b949e;margin-bottom:4px">Price Sources — click to apply as cost</div>';
+   html+='<div style="margin-top:10px;font-size:14px;font-weight:600;color:#8b949e;margin-bottom:4px">Price Sources — click to apply as cost</div>';
    html+='<div style="display:flex;flex-wrap:wrap;gap:6px">';
    keys.forEach(function(k){
     var v=s[k];
-    html+='<div style="padding:4px 10px;background:#21262d;border-radius:4px;cursor:pointer;font-size:12px" onclick="document.querySelector(\'[name=cost_'+idx+']\').value='+v+';recalc();triggerAutosave()" title="Use as supplier cost">';
+    html+='<div style="padding:4px 10px;background:#21262d;border-radius:4px;cursor:pointer;font-size:14px" onclick="document.querySelector(\'[name=cost_'+idx+']\').value='+v+';recalc();triggerAutosave()" title="Use as supplier cost">';
     html+='<span style="color:#8b949e">'+k+'</span> <span style="font-weight:700;color:#f0f6fc">$'+v.toFixed(2)+'</span></div>';
    });
    html+='</div>';
-   if(s._from_pc) html+='<div style="font-size:10px;color:#484f58;margin-top:4px">Ported from PC '+s._from_pc+'</div>';
+   if(s._from_pc) html+='<div style="font-size:13px;color:#484f58;margin-top:4px">Ported from PC '+s._from_pc+'</div>';
   }
  }
  // F9: Recent quotes for same item
  if(info.recent_quotes&&info.recent_quotes.length){
-  html+='<div style="margin-top:10px;padding:8px 10px;background:rgba(210,153,34,.06);border:1px solid rgba(210,153,34,.15);border-radius:6px;font-size:12px">';
+  html+='<div style="margin-top:10px;padding:8px 10px;background:rgba(210,153,34,.06);border:1px solid rgba(210,153,34,.15);border-radius:6px;font-size:14px">';
   html+='<div style="font-weight:600;color:#d29922;margin-bottom:4px">📋 Previously Quoted</div>';
   info.recent_quotes.forEach(function(q){
    html+='<div style="color:#c9d1d9">$'+q.price.toFixed(2)+' → '+(q.agency||'—')+' · '+(q.quote||'—')+' · '+q.date+'</div>';
@@ -1399,19 +1399,19 @@ function showIntel(idx){
  // Recommendations
  if(info.recommendation){
   var r=info.recommendation;
-  html+='<div style="margin-top:10px;padding:8px 10px;background:rgba(88,166,255,.06);border:1px solid rgba(88,166,255,.15);border-radius:6px;font-size:12px">';
+  html+='<div style="margin-top:10px;padding:8px 10px;background:rgba(88,166,255,.06);border:1px solid rgba(88,166,255,.15);border-radius:6px;font-size:14px">';
   html+='<div style="font-weight:600;color:#58a6ff;margin-bottom:6px">💡 Pricing Tiers <span style="color:#484f58;font-weight:400">('+r.reason+')</span></div>';
   html+='<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px">';
-  html+='<div style="text-align:center;padding:4px;background:#21262d;border-radius:4px;cursor:pointer" onclick="document.querySelector(\'[name=price_'+idx+']\').value='+r.aggressive+';recalc();triggerAutosave()"><div style="font-size:10px;color:#f85149">Aggressive</div><div style="font-weight:700;color:#f0f6fc">$'+r.aggressive.toFixed(2)+'</div></div>';
-  html+='<div style="text-align:center;padding:4px;background:#1f6feb22;border:1px solid #1f6feb;border-radius:4px;cursor:pointer" onclick="document.querySelector(\'[name=price_'+idx+']\').value='+r.recommended+';recalc();triggerAutosave()"><div style="font-size:10px;color:#58a6ff">Recommended</div><div style="font-weight:700;color:#f0f6fc">$'+r.recommended.toFixed(2)+'</div></div>';
-  html+='<div style="text-align:center;padding:4px;background:#21262d;border-radius:4px;cursor:pointer" onclick="document.querySelector(\'[name=price_'+idx+']\').value='+r.safe+';recalc();triggerAutosave()"><div style="font-size:10px;color:#3fb950">Safe</div><div style="font-weight:700;color:#f0f6fc">$'+r.safe.toFixed(2)+'</div></div>';
+  html+='<div style="text-align:center;padding:4px;background:#21262d;border-radius:4px;cursor:pointer" onclick="document.querySelector(\'[name=price_'+idx+']\').value='+r.aggressive+';recalc();triggerAutosave()"><div style="font-size:13px;color:#f85149">Aggressive</div><div style="font-weight:700;color:#f0f6fc">$'+r.aggressive.toFixed(2)+'</div></div>';
+  html+='<div style="text-align:center;padding:4px;background:#1f6feb22;border:1px solid #1f6feb;border-radius:4px;cursor:pointer" onclick="document.querySelector(\'[name=price_'+idx+']\').value='+r.recommended+';recalc();triggerAutosave()"><div style="font-size:13px;color:#58a6ff">Recommended</div><div style="font-weight:700;color:#f0f6fc">$'+r.recommended.toFixed(2)+'</div></div>';
+  html+='<div style="text-align:center;padding:4px;background:#21262d;border-radius:4px;cursor:pointer" onclick="document.querySelector(\'[name=price_'+idx+']\').value='+r.safe+';recalc();triggerAutosave()"><div style="font-size:13px;color:#3fb950">Safe</div><div style="font-weight:700;color:#f0f6fc">$'+r.safe.toFixed(2)+'</div></div>';
   html+='</div></div>';
  }
  // Audit trail
  if(info.audit&&info.audit.length){
-  html+='<div style="margin-top:10px;font-size:11px;font-weight:600;color:#8b949e">Price Change History</div>';
+  html+='<div style="margin-top:10px;font-size:14px;font-weight:600;color:#8b949e">Price Change History</div>';
   info.audit.forEach(function(a){
-   html+='<div style="font-size:11px;color:#8b949e;margin-left:8px;border-left:2px solid #21262d;padding-left:8px;margin-top:4px">';
+   html+='<div style="font-size:14px;color:#8b949e;margin-left:8px;border-left:2px solid #21262d;padding-left:8px;margin-top:4px">';
    html+=a.field+': '+(a.old!=null?'$'+a.old.toFixed(2):'—')+' → '+(a.new!=null?'$'+a.new.toFixed(2):'—');
    html+=' <span style="color:#484f58">· '+a.source+' · '+a.ts+'</span></div>';
   });

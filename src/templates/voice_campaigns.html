@@ -9,11 +9,11 @@
 
 <!-- Stats bar -->
 <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:16px">
- <div class="card" style="text-align:center;padding:12px"><div style="font-size:10px;color:var(--tx2);text-transform:uppercase">Campaigns</div><div style="font-size:24px;font-weight:700">{{ stats.total_campaigns|default(0) }}</div></div>
- <div class="card" style="text-align:center;padding:12px"><div style="font-size:10px;color:var(--tx2);text-transform:uppercase">Total Calls</div><div style="font-size:24px;font-weight:700">{{ stats.total_called|default(0) }}</div></div>
- <div class="card" style="text-align:center;padding:12px"><div style="font-size:10px;color:var(--tx2);text-transform:uppercase">Connect Rate</div><div style="font-size:24px;font-weight:700;color:var(--gn)">{{ stats.connect_rate|default(0) }}%</div></div>
- <div class="card" style="text-align:center;padding:12px"><div style="font-size:10px;color:var(--tx2);text-transform:uppercase">Interested</div><div style="font-size:24px;font-weight:700;color:var(--ac)">{{ stats.total_interested|default(0) }}</div></div>
- <div class="card" style="text-align:center;padding:12px"><div style="font-size:10px;color:var(--tx2);text-transform:uppercase">Est. Cost</div><div style="font-size:24px;font-weight:700">${{ "%.2f"|format(stats.estimated_cost|default(0)) }}</div></div>
+ <div class="card" style="text-align:center;padding:12px"><div style="font-size:13px;color:var(--tx2);text-transform:uppercase">Campaigns</div><div style="font-size:24px;font-weight:700">{{ stats.total_campaigns|default(0) }}</div></div>
+ <div class="card" style="text-align:center;padding:12px"><div style="font-size:13px;color:var(--tx2);text-transform:uppercase">Total Calls</div><div style="font-size:24px;font-weight:700">{{ stats.total_called|default(0) }}</div></div>
+ <div class="card" style="text-align:center;padding:12px"><div style="font-size:13px;color:var(--tx2);text-transform:uppercase">Connect Rate</div><div style="font-size:24px;font-weight:700;color:var(--gn)">{{ stats.connect_rate|default(0) }}%</div></div>
+ <div class="card" style="text-align:center;padding:12px"><div style="font-size:13px;color:var(--tx2);text-transform:uppercase">Interested</div><div style="font-size:24px;font-weight:700;color:var(--ac)">{{ stats.total_interested|default(0) }}</div></div>
+ <div class="card" style="text-align:center;padding:12px"><div style="font-size:13px;color:var(--tx2);text-transform:uppercase">Est. Cost</div><div style="font-size:24px;font-weight:700">${{ "%.2f"|format(stats.estimated_cost|default(0)) }}</div></div>
 </div>
 
 <!-- New Campaign Form (hidden) -->
@@ -21,19 +21,19 @@
  <div class="card-t" style="margin-bottom:12px">New Campaign</div>
  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
   <div>
-   <label style="font-size:11px;color:var(--tx2)">Campaign Name</label>
+   <label style="font-size:14px;color:var(--tx2)">Campaign Name</label>
    <input id="camp-name" placeholder="Feb CDCR Outreach" style="width:100%;padding:8px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);margin-top:4px">
   </div>
   <div>
-   <label style="font-size:11px;color:var(--tx2)">Contact Source</label>
+   <label style="font-size:14px;color:var(--tx2)">Contact Source</label>
    <select id="camp-source" style="width:100%;padding:8px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);margin-top:4px">{{ source_options|safe }}</select>
   </div>
   <div>
-   <label style="font-size:11px;color:var(--tx2)">Default Script</label>
+   <label style="font-size:14px;color:var(--tx2)">Default Script</label>
    <select id="camp-script" style="width:100%;padding:8px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);margin-top:4px">{{ script_options|safe }}</select>
   </div>
   <div>
-   <label style="font-size:11px;color:var(--tx2)">Filter (agency)</label>
+   <label style="font-size:14px;color:var(--tx2)">Filter (agency)</label>
    <input id="camp-filter" placeholder="CDCR, CCHCS, etc." style="width:100%;padding:8px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);margin-top:4px">
   </div>
  </div>
@@ -48,7 +48,7 @@
  <div class="card-t" style="margin-bottom:10px">📜 {{ scripts|length }} Call Scripts Available</div>
  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:8px">
   {% for key, sc in scripts %}
-  <div style="padding:8px;background:var(--sf2);border-radius:8px;font-size:12px"><span style="color:var(--ac);font-weight:600">{{ sc.name }}</span><br><span style="color:var(--tx2);font-size:10px">[{{ sc.category|default('?') }}] {{ key }}</span></div>
+  <div style="padding:8px;background:var(--sf2);border-radius:8px;font-size:14px"><span style="color:var(--ac);font-weight:600">{{ sc.name }}</span><br><span style="color:var(--tx2);font-size:13px">[{{ sc.category|default('?') }}] {{ key }}</span></div>
   {% endfor %}
  </div>
 </div>

@@ -278,11 +278,11 @@ def _send_alert_email(event_type: str, title: str, body: str, context: dict) -> 
 <div style="max-width:520px;margin:0 auto">
   <div style="background:#1a1d27;border:1px solid #2e3345;border-radius:10px;padding:24px">
     <h2 style="color:#4f8cff;margin:0 0 8px">{title}</h2>
-    <p style="color:#8b90a0;font-size:12px;margin:0 0 16px">{datetime.now().strftime('%b %d, %Y at %I:%M %p PST')}</p>
+    <p style="color:#8b90a0;font-size:14px;margin:0 0 16px">{datetime.now().strftime('%b %d, %Y at %I:%M %p PST')}</p>
     <p style="color:#e4e6ed;margin:0 0 20px">{body}</p>
     {f'<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:20px">{ctx_lines}</table>' if ctx_lines else ''}
     <a href="{action_url}" style="display:inline-block;background:#4f8cff;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:600">{action_label}</a>
-    <p style="color:#3b6fd4;font-size:11px;margin:20px 0 0">Reytech RFQ Dashboard — Automated Alert</p>
+    <p style="color:#3b6fd4;font-size:14px;margin:20px 0 0">Reytech RFQ Dashboard — Automated Alert</p>
   </div>
 </div></body></html>"""
 

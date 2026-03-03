@@ -16,15 +16,15 @@
 .item-row{display:grid;grid-template-columns:60px 1fr 80px 40px;gap:8px;align-items:center;margin-bottom:6px}
 .item-row input{padding:6px 10px;background:var(--sf2);border:1px solid var(--bd);border-radius:5px;color:var(--tx);font-size:13px}
 .item-row .remove-btn{cursor:pointer;color:#ef4444;font-size:18px;text-align:center;border:none;background:none}
-.food-badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600}
+.food-badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:14px;font-weight:600}
 .food-badge.yes{background:rgba(34,197,94,.15);color:#22c55e}
 .food-badge.no{background:rgba(156,163,175,.15);color:#9ca3af}
 .result-area{margin-top:16px;padding:16px;background:var(--sf2);border-radius:8px;display:none}
 .forms-list{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
-.form-chip{padding:4px 10px;background:rgba(59,130,246,.12);color:#3b82f6;border-radius:5px;font-size:12px}
-.category-ref{font-size:12px;color:var(--tx2);line-height:1.6}
+.form-chip{padding:4px 10px;background:rgba(59,130,246,.12);color:#3b82f6;border-radius:5px;font-size:14px}
+.category-ref{font-size:14px;color:var(--tx2);line-height:1.6}
 .category-ref td{padding:2px 8px;border-bottom:1px solid var(--bd)}
-.category-ref th{padding:4px 8px;text-align:left;border-bottom:2px solid var(--bd);font-size:11px;text-transform:uppercase;color:var(--tx2)}
+.category-ref th{padding:4px 8px;text-align:left;border-bottom:2px solid var(--bd);font-size:14px;text-transform:uppercase;color:var(--tx2)}
 </style>
 
 <h2 style="margin-bottom:4px">📋 Bid Package Form Filler</h2>
@@ -53,7 +53,7 @@
     <button class="ff-btn ff-btn-green" onclick="addItem()" style="padding:6px 14px;font-size:13px">+ Add Item</button>
    </div>
    
-   <div class="item-row" style="font-size:11px;color:var(--tx2);font-weight:600">
+   <div class="item-row" style="font-size:14px;color:var(--tx2);font-weight:600">
     <div>LINE #</div><div>DESCRIPTION</div><div>FOOD?</div><div></div>
    </div>
    <div id="itemsList"></div>
@@ -74,7 +74,7 @@
  <div>
   <div class="ff-card">
    <h3 style="margin-bottom:8px">🌾 Agricultural Food Category Codes</h3>
-   <p style="font-size:12px;color:var(--tx2);margin-bottom:8px">OBS 1600 (Rev. 1/26) — CDCR/CCHCS</p>
+   <p style="font-size:14px;color:var(--tx2);margin-bottom:8px">OBS 1600 (Rev. 1/26) — CDCR/CCHCS</p>
    <table class="category-ref" style="width:100%">
     <tr><th>Code</th><th>Category</th><th>Examples</th></tr>
     <tr><td>1</td><td>Coffee, Tea</td><td>Beans, Decaf, Ground, Instant</td></tr>
@@ -105,7 +105,7 @@
     <span class="form-chip">✅ CalRecycle 74</span>
     <span class="form-chip">🌾 OBS 1600 Food Cert</span>
    </div>
-   <p style="font-size:12px;color:var(--tx2);margin-top:8px">
+   <p style="font-size:14px;color:var(--tx2);margin-top:8px">
     All forms pre-filled with Reytech Inc. info, signature, FEIN, cert #2002605.<br>
     Food items auto-classified into CDCR category codes.<br>
     CA-Grown: <strong>No</strong> | Percentage: <strong>N/A</strong> (processed food default).

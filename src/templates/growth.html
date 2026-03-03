@@ -13,11 +13,11 @@
      .g-btn-red {background:rgba(248,113,113,.12);color:#f85149;border-color:rgba(248,113,113,.3)}
      .act-btn {background:none;border:none;cursor:pointer;font-size:14px;padding:2px 4px;opacity:.7;transition:opacity .15s}
      .act-btn:hover {opacity:1}
-     table {width:100%;border-collapse:collapse;font-size:12px}
-     th {text-align:left;padding:6px 8px;border-bottom:2px solid var(--bd);font-size:11px;color:var(--tx2);text-transform:uppercase}
+     table {width:100%;border-collapse:collapse;font-size:14px}
+     th {text-align:left;padding:6px 8px;border-bottom:2px solid var(--bd);font-size:14px;color:var(--tx2);text-transform:uppercase}
      td {padding:6px 8px;border-bottom:1px solid var(--bd)}
      .mono {font-family:'JetBrains Mono',monospace}
-     #progress-bar {display:{{ 'block' if progress_visible else 'none' }};background:var(--sf2);padding:10px;border-radius:8px;margin-bottom:12px;font-size:12px}
+     #progress-bar {display:{{ 'block' if progress_visible else 'none' }};background:var(--sf2);padding:10px;border-radius:8px;margin-bottom:12px;font-size:14px}
     </style>
 
     <h1>🚀 Growth Engine</h1>
@@ -28,7 +28,7 @@
     {% macro step_tag(done, label) %}
     {% set c = '#3fb950' if done else '#8b949e' %}
     {% set bg = 'rgba(52,211,153,.1)' if done else 'rgba(139,148,160,.05)' %}
-    <span style="display:inline-block;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;color:{{ c }};background:{{ bg }}">{{ '✅' if done else '⬜' }} {{ label }}</span>
+    <span style="display:inline-block;padding:3px 10px;border-radius:12px;font-size:14px;font-weight:600;color:{{ c }};background:{{ bg }}">{{ '✅' if done else '⬜' }} {{ label }}</span>
     {% endmacro %}
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">{{ step_tag(h_total_pos > 0, 'History: ' ~ h_total_pos ~ ' POs') }} → {{ step_tag(c_total > 0, 'Categories: ' ~ c_total) }} → {{ step_tag(p_total > 0, 'Prospects: ' ~ p_total) }} → {{ step_tag(o_total_sent > 0, 'Emailed: ' ~ o_total_sent) }}</div>
 
@@ -44,7 +44,7 @@
       <button class="g-btn" onclick="rescoreLeads()" title="Recalculate lead scores with latest activity">📊 Rescore Leads</button>
       <button class="g-btn g-btn-warn" onclick="viewPipeline()" title="View unified lead pipeline">🔄 Lead Pipeline</button>
      </div>
-     <div style="font-size:11px;color:var(--tx2);margin-bottom:12px">
+     <div style="font-size:14px;color:var(--tx2);margin-bottom:12px">
       Mines SCPRS for all buyers → scores by opportunity → emails top prospects → auto-schedules voice follow-up in 3-5 days
      </div>
      <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -61,42 +61,42 @@
 
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
      <div class="card" style="text-align:center">
-      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;letter-spacing:1px">Reytech POs</div>
+      <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:1px">Reytech POs</div>
       <div style="font-size:28px;font-weight:700;color:var(--ac)">{{ h_total_pos }}</div>
-      <div style="font-size:10px;color:var(--tx2)">{{ h_total_items }} items</div>
+      <div style="font-size:13px;color:var(--tx2)">{{ h_total_items }} items</div>
      </div>
      <div class="card" style="text-align:center">
-      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;letter-spacing:1px">Categories</div>
+      <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:1px">Categories</div>
       <div style="font-size:28px;font-weight:700;color:#bc8cff">{{ c_total }}</div>
-      <div style="font-size:10px;color:var(--tx2)">product groups</div>
+      <div style="font-size:13px;color:var(--tx2)">product groups</div>
      </div>
      <div class="card" style="text-align:center">
-      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;letter-spacing:1px">Prospects</div>
+      <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:1px">Prospects</div>
       <div style="font-size:28px;font-weight:700;color:#d29922">{{ p_total }}</div>
-      <div style="font-size:10px;color:var(--tx2)">buyers found</div>
+      <div style="font-size:13px;color:var(--tx2)">buyers found</div>
      </div>
      <div class="card" style="text-align:center">
-      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase;letter-spacing:1px">Outreach</div>
+      <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:1px">Outreach</div>
       <div style="font-size:28px;font-weight:700;color:#3fb950">{{ o_total_sent }}</div>
-      <div style="font-size:10px;color:var(--tx2)">{{ total_no_response }} pending follow-up</div>
+      <div style="font-size:13px;color:var(--tx2)">{{ total_no_response }} pending follow-up</div>
      </div>
     </div>
 
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
      <div class="card" style="text-align:center">
-      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase">📧 Emailed</div>
+      <div style="font-size:13px;color:var(--tx2);text-transform:uppercase">📧 Emailed</div>
       <div style="font-size:22px;font-weight:700;color:#58a6ff">{{ total_emailed }}</div>
      </div>
      <div class="card" style="text-align:center">
-      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase">✅ Responded</div>
+      <div style="font-size:13px;color:var(--tx2);text-transform:uppercase">✅ Responded</div>
       <div style="font-size:22px;font-weight:700;color:#3fb950">{{ total_responded }}</div>
      </div>
      <div class="card" style="text-align:center">
-      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase">⛔ Bounced</div>
+      <div style="font-size:13px;color:var(--tx2);text-transform:uppercase">⛔ Bounced</div>
       <div style="font-size:22px;font-weight:700;color:#f85149">{{ total_bounced }}</div>
      </div>
      <div class="card" style="text-align:center">
-      <div style="font-size:9px;color:var(--tx2);text-transform:uppercase">📞 Called</div>
+      <div style="font-size:13px;color:var(--tx2);text-transform:uppercase">📞 Called</div>
       <div style="font-size:22px;font-weight:700;color:#bc8cff">{{ total_called }}</div>
      </div>
     </div>
@@ -109,7 +109,7 @@
  <td class="mono">{{ cat.items }}</td>
  <td class="mono">{{ cat.pos }}</td>
  <td class="mono" style="color:#3fb950">${{ "{:,.0f}".format(cat.value) }}</td>
- <td style="font-size:11px;color:var(--tx2)">{{ cat.sample }}</td>
+ <td style="font-size:14px;color:var(--tx2)">{{ cat.sample }}</td>
 </tr>
 {% endfor %}
 </tbody></table></div>
@@ -136,18 +136,18 @@
 <tr data-pid="{{ pid }}">
  <td style="font-weight:500"><a href="/growth/prospect/{{ pid }}" style="color:var(--ac);text-decoration:none">{{ pr.agency|default('—') }}</a></td>
  <td>{{ name }}</td>
- <td style="font-size:12px"><a href="mailto:{{ email }}" style="color:var(--ac);text-decoration:none" title="Open email to {{ name }}">{{ email }}</a></td>
- <td style="font-size:12px">{{ pr.buyer_phone|default('') or '—' }}</td>
+ <td style="font-size:14px"><a href="mailto:{{ email }}" style="color:var(--ac);text-decoration:none" title="Open email to {{ name }}">{{ email }}</a></td>
+ <td style="font-size:14px">{{ pr.buyer_phone|default('') or '—' }}</td>
  <td class="mono">{{ pr.purchase_orders|default([])|length }}</td>
  <td class="mono" style="color:#3fb950">${{ "{:,.0f}".format(pr.total_spend|default(0)) }}</td>
- <td style="font-size:11px">{{ (pr.categories_matched|default([]))[:2]|join(', ') }}</td>
- <td><span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;color:{{ cfg[1] }};background:{{ cfg[2] }}">{{ cfg[0] }}</span>{% if pr.nurture_active %}<span title="Nurture active: step {{ pr.nurture_steps|default(0) }}" style="margin-left:4px;font-size:12px;cursor:help">🌱</span>{% endif %}</td>
+ <td style="font-size:14px">{{ (pr.categories_matched|default([]))[:2]|join(', ') }}</td>
+ <td><span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:13px;font-weight:600;color:{{ cfg[1] }};background:{{ cfg[2] }}">{{ cfg[0] }}</span>{% if pr.nurture_active %}<span title="Nurture active: step {{ pr.nurture_steps|default(0) }}" style="margin-left:4px;font-size:14px;cursor:help">🌱</span>{% endif %}</td>
  <td style="white-space:nowrap">
   {% if stat in ('emailed', 'follow_up_due') %}
    <button onclick="markResponded('{{ pid }}')" class="act-btn" title="Mark responded" style="color:#3fb950">✅</button>
    <button onclick="markBounced('{{ pid }}','{{ email }}')" class="act-btn" title="Mark bounced" style="color:#f85149">⛔</button>
   {% elif stat == 'new' %}
-   <span style="color:var(--tx2);font-size:10px">awaiting email</span>
+   <span style="color:var(--tx2);font-size:13px">awaiting email</span>
   {% elif stat == 'responded' %}
    <button onclick="markWon('{{ pid }}')" class="act-btn" title="Mark won" style="color:#3fb950">🏆</button>
   {% endif %}
@@ -163,14 +163,14 @@
       <button onclick="document.getElementById('result').style.display='none'" style="background:none;border:none;color:var(--tx2);cursor:pointer">✕</button>
      </div>
      <div id="result-emails" style="display:none"></div>
-     <pre id="result-content" style="font-size:11px;white-space:pre-wrap;word-break:break-word;margin:0"></pre>
+     <pre id="result-content" style="font-size:14px;white-space:pre-wrap;word-break:break-word;margin:0"></pre>
     </div>
 
     <!-- Existing Email Drafts -->
     <div class="card" id="drafts-section">
      <h3>📨 Email Drafts from Campaigns</h3>
      <div id="drafts-container">
-      <div style="color:var(--tx2);font-size:12px">Loading drafts...</div>
+      <div style="color:var(--tx2);font-size:14px">Loading drafts...</div>
      </div>
     </div>
 
@@ -214,16 +214,16 @@
           return `
           <div style="background:var(--sf2);border:1px solid var(--bd);border-radius:8px;padding:12px;margin-bottom:10px">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-              <span style="font-size:11px;color:var(--tx2)">#${i+1}</span>
+              <span style="font-size:14px;color:var(--tx2)">#${i+1}</span>
               <div style="display:flex;gap:6px;align-items:center">
-                <a href="${gmailUrl}" target="_blank" style="font-size:10px;padding:3px 8px;border-radius:6px;background:rgba(79,140,255,.12);color:var(--ac);text-decoration:none;font-weight:600;border:1px solid rgba(79,140,255,.3)">📧 Open in Gmail</a>
-                <a href="mailto:${e.to}?subject=${encodeURIComponent(e.subject)}&body=${encodeURIComponent(e.body || '')}" style="font-size:10px;padding:3px 8px;border-radius:6px;background:rgba(139,148,160,.1);color:var(--tx2);text-decoration:none;border:1px solid var(--bd)">✉️ mailto</a>
-                <span style="font-size:10px;padding:2px 8px;border-radius:10px;background:${data.dry_run?'rgba(210,153,34,.1)':'rgba(52,211,153,.1)'};color:${data.dry_run?'#d29922':'#3fb950'};font-weight:600">${data.dry_run?'DRAFT':'SENT'}</span>
+                <a href="${gmailUrl}" target="_blank" style="font-size:13px;padding:3px 8px;border-radius:6px;background:rgba(79,140,255,.12);color:var(--ac);text-decoration:none;font-weight:600;border:1px solid rgba(79,140,255,.3)">📧 Open in Gmail</a>
+                <a href="mailto:${e.to}?subject=${encodeURIComponent(e.subject)}&body=${encodeURIComponent(e.body || '')}" style="font-size:13px;padding:3px 8px;border-radius:6px;background:rgba(139,148,160,.1);color:var(--tx2);text-decoration:none;border:1px solid var(--bd)">✉️ mailto</a>
+                <span style="font-size:13px;padding:2px 8px;border-radius:10px;background:${data.dry_run?'rgba(210,153,34,.1)':'rgba(52,211,153,.1)'};color:${data.dry_run?'#d29922':'#3fb950'};font-weight:600">${data.dry_run?'DRAFT':'SENT'}</span>
               </div>
             </div>
-            <div style="font-size:12px;margin-bottom:4px"><strong>To:</strong> <a href="mailto:${e.to}" style="color:var(--ac)">${e.to}</a> <span style="color:var(--tx2)">(${e.agency})</span></div>
-            <div style="font-size:12px;margin-bottom:8px;color:var(--ac)"><strong>Subject:</strong> ${e.subject}</div>
-            <div style="font-size:12px;line-height:1.5;color:var(--tx);background:var(--sf);padding:10px;border-radius:6px;border:1px solid var(--bd);max-height:200px;overflow:auto">${isHtml ? bodyContent : '<pre style="white-space:pre-wrap;margin:0;font-family:inherit">' + bodyContent + '</pre>'}</div>
+            <div style="font-size:14px;margin-bottom:4px"><strong>To:</strong> <a href="mailto:${e.to}" style="color:var(--ac)">${e.to}</a> <span style="color:var(--tx2)">(${e.agency})</span></div>
+            <div style="font-size:14px;margin-bottom:8px;color:var(--ac)"><strong>Subject:</strong> ${e.subject}</div>
+            <div style="font-size:14px;line-height:1.5;color:var(--tx);background:var(--sf);padding:10px;border-radius:6px;border:1px solid var(--bd);max-height:200px;overflow:auto">${isHtml ? bodyContent : '<pre style="white-space:pre-wrap;margin:0;font-family:inherit">' + bodyContent + '</pre>'}</div>
           </div>
         `}).join('');
         // Also reload drafts section
@@ -279,7 +279,7 @@
       fetch('/api/growth/campaigns', {credentials:'same-origin'}).then(r=>r.json()).then(data => {
         const container = document.getElementById('drafts-container');
         if (!data.ok || !data.campaigns || data.campaigns.length === 0) {
-          container.innerHTML = '<div style="color:var(--tx2);font-size:12px;padding:8px">No campaigns yet. Click 👁️ Preview Emails or 🚀 Create Campaign.</div>';
+          container.innerHTML = '<div style="color:var(--tx2);font-size:14px;padding:8px">No campaigns yet. Click 👁️ Preview Emails or 🚀 Create Campaign.</div>';
           return;
         }
         let html = '';
@@ -290,9 +290,9 @@
           const isDry = camp.dry_run;
           html += `<div style="margin-bottom:12px">
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-              <span style="font-weight:600;font-size:12px">${camp.id || 'Campaign '+(ci+1)}</span>
-              <span style="font-size:10px;padding:2px 6px;border-radius:8px;background:${isDry?'rgba(210,153,34,.1)':'rgba(52,211,153,.1)'};color:${isDry?'#d29922':'#3fb950'}">${isDry?'DRY RUN':'LIVE'}</span>
-              <span style="font-size:10px;color:var(--tx2)">${entries.length} emails (${sentCount} sent, ${draftCount} draft)</span>
+              <span style="font-weight:600;font-size:14px">${camp.id || 'Campaign '+(ci+1)}</span>
+              <span style="font-size:13px;padding:2px 6px;border-radius:8px;background:${isDry?'rgba(210,153,34,.1)':'rgba(52,211,153,.1)'};color:${isDry?'#d29922':'#3fb950'}">${isDry?'DRY RUN':'LIVE'}</span>
+              <span style="font-size:13px;color:var(--tx2)">${entries.length} emails (${sentCount} sent, ${draftCount} draft)</span>
             </div>`;
           entries.slice(0, 5).forEach((e, ei) => {
             const subj = e.subject || e.email_subject || '(no subject)';
@@ -300,21 +300,21 @@
             const bodyPlain = e.body || e.email_body || '';
             const isHtml = !!e.body_html;
             const gmailUrl = 'https://mail.google.com/mail/?view=cm&to=' + encodeURIComponent(e.email || '') + '&su=' + encodeURIComponent(subj) + '&body=' + encodeURIComponent(bodyPlain);
-            html += `<details style="margin-bottom:4px;font-size:12px">
+            html += `<details style="margin-bottom:4px;font-size:14px">
               <summary style="cursor:pointer;padding:4px 8px;border-radius:4px;background:var(--sf2);display:flex;align-items:center;gap:6px;flex-wrap:wrap">
                 <span style="color:var(--tx2)">${e.email || ''}</span> — <span style="color:var(--ac)">${subj.substring(0,60)}</span>
-                ${e.email_sent ? '<span style="color:#3fb950;font-size:10px">✅ SENT</span>' : '<span style="color:#d29922;font-size:10px">📝 DRAFT</span>'}
-                <a href="${gmailUrl}" target="_blank" onclick="event.stopPropagation()" style="font-size:9px;padding:2px 6px;border-radius:4px;background:rgba(79,140,255,.12);color:var(--ac);text-decoration:none;border:1px solid rgba(79,140,255,.3);margin-left:auto">📧 Gmail</a>
+                ${e.email_sent ? '<span style="color:#3fb950;font-size:13px">✅ SENT</span>' : '<span style="color:#d29922;font-size:13px">📝 DRAFT</span>'}
+                <a href="${gmailUrl}" target="_blank" onclick="event.stopPropagation()" style="font-size:13px;padding:2px 6px;border-radius:4px;background:rgba(79,140,255,.12);color:var(--ac);text-decoration:none;border:1px solid rgba(79,140,255,.3);margin-left:auto">📧 Gmail</a>
               </summary>
-              <div style="padding:8px;margin:4px 0 4px 16px;font-size:12px;line-height:1.4;background:var(--sf);border-radius:4px;border:1px solid var(--bd);max-height:180px;overflow:auto">${isHtml ? body : '<pre style="white-space:pre-wrap;margin:0;font-family:inherit">' + body + '</pre>'}</div>
+              <div style="padding:8px;margin:4px 0 4px 16px;font-size:14px;line-height:1.4;background:var(--sf);border-radius:4px;border:1px solid var(--bd);max-height:180px;overflow:auto">${isHtml ? body : '<pre style="white-space:pre-wrap;margin:0;font-family:inherit">' + body + '</pre>'}</div>
             </details>`;
           });
-          if (entries.length > 5) html += `<div style="font-size:10px;color:var(--tx2);padding-left:8px">...and ${entries.length-5} more</div>`;
+          if (entries.length > 5) html += `<div style="font-size:13px;color:var(--tx2);padding-left:8px">...and ${entries.length-5} more</div>`;
           html += '</div>';
         });
         container.innerHTML = html;
       }).catch(() => {
-        document.getElementById('drafts-container').innerHTML = '<div style="color:#f85149;font-size:12px">Failed to load drafts</div>';
+        document.getElementById('drafts-container').innerHTML = '<div style="color:#f85149;font-size:14px">Failed to load drafts</div>';
       });
     }
 
