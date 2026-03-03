@@ -2876,15 +2876,39 @@ def pricechecks_archive():
 
     status_options = "".join(f'<option value="{s}">{PC_STATUS_LABELS.get(s,(s,))[0]} ({c})</option>'
                              for s, c in sorted(by_status.items()))
+
+    # Status badge styling — proper colored pills like the dashboard
+    STATUS_BADGE = {
+        "new":          ("🆕 New",         "rgba(79,140,255,.15)", "#4f8cff"),
+        "parsed":       ("📄 Parsed",      "rgba(167,139,250,.15)", "#a78bfa"),
+        "parse_error":  ("⚠️ Parse Error", "rgba(248,81,73,.15)", "#f85149"),
+        "priced":       ("💰 Priced",      "rgba(251,191,36,.15)", "#fbbf24"),
+        "ready":        ("✅ Ready",        "rgba(251,191,36,.15)", "#fbbf24"),
+        "auto_drafted": ("📝 Auto-Draft",  "rgba(210,168,255,.15)", "#d2a8ff"),
+        "quoted":       ("📋 Quoted",       "rgba(88,166,255,.15)", "#58a6ff"),
+        "generated":    ("📋 Generated",    "rgba(88,166,255,.15)", "#58a6ff"),
+        "completed":    ("✅ 704 Filled",   "rgba(52,211,153,.15)", "#34d399"),
+        "converted":    ("🔄 Converted",    "rgba(52,211,153,.15)", "#34d399"),
+        "sent":         ("📨 Sent",         "rgba(63,185,80,.2)", "#3fb950"),
+        "pending_award":("⏳ Pending Award","rgba(251,191,36,.2)", "#fbbf24"),
+        "won":          ("🏆 Won",          "rgba(63,185,80,.2)", "#3fb950"),
+        "lost":         ("❌ Lost",          "rgba(248,81,73,.15)", "#f85149"),
+        "expired":      ("⏰ Expired",       "rgba(139,144,160,.15)", "#8b90a0"),
+        "dismissed":    ("🚫 Dismissed",     "rgba(110,118,129,.15)", "#6e7681"),
+        "archived":     ("📦 Archived",      "rgba(110,118,129,.15)", "#6e7681"),
+        "duplicate":    ("♻️ Duplicate",     "rgba(139,148,158,.15)", "#8b949e"),
+        "no_response":  ("📭 No Response",   "rgba(139,148,158,.15)", "#8b949e"),
+        "draft":        ("📝 Draft",         "rgba(251,191,36,.2)", "#fbbf24"),
+    }
+
     rows = ""
     for p in pc_list:
         st = p["status"]
-        label, color = PC_STATUS_LABELS.get(st, (st, "#8b90a0"))
+        badge_label, badge_bg, badge_color = STATUS_BADGE.get(st, (st, "rgba(139,144,160,.15)", "#8b90a0"))
         date_str = p["created_at"][:10] if p["created_at"] else "—"
         due_str = p.get("due_date", "")[:10] if p.get("due_date") else "—"
         total_str = f"${p['total']:,.2f}" if p["total"] else "—"
         qn = p.get("quote_number", "")
-        comp = p.get("competitor_name", "")
         src_icon = "📧" if p.get("source") == "email_auto" else "📄" if p.get("source") == "manual_upload" else ""
         sent_elapsed = ""
         if p.get("sent_at"):
@@ -2899,48 +2923,54 @@ def pricechecks_archive():
                 else: sent_elapsed = f"{_dd // 30}mo ago"
             except Exception:
                 pass
-        rows += f'''<tr data-status="{st}" data-search="{p['pc_number'].lower()} {p['institution'].lower()} {p['requestor'].lower()} {qn.lower()}" style="cursor:pointer" onclick="location.href='/pricecheck/{p['id']}'">
-         <td><a href="/pricecheck/{p['id']}" style="color:#58a6ff;font-family:'JetBrains Mono',monospace;font-weight:600">#{p['pc_number']}</a></td>
-         <td>{p['institution']}</td><td>{p['requestor'][:25]}</td>
-         <td>{due_str}</td><td>{date_str}</td><td style="text-align:center">{p['items_count']}</td>
-         <td style="text-align:right">{total_str}</td>
-         <td style="text-align:center">{f'<span style="color:#58a6ff;font-family:JetBrains Mono,monospace;font-weight:600">{qn}</span>' if qn else chr(8212)}</td>
-         <td style="text-align:center"><span style="background:{color};color:#0d1117;padding:2px 8px;border-radius:4px;font-size:14px;font-weight:600">{label}</span> {src_icon}</td><td style="text-align:center;font-size:14px;color:#8b949e">{sent_elapsed}</td></tr>'''
+        # Build rich search index with all visible fields
+        search_index = f"{p['pc_number'].lower()} {p['institution'].lower()} {p['requestor'].lower()} {qn.lower()} {st} {badge_label.lower()} {due_str} {date_str}"
+        rows += f'''<tr data-status="{st}" data-search="{search_index}" style="cursor:pointer" onclick="location.href='/pricecheck/{p['id']}'">
+         <td style="padding:14px 16px"><a href="/pricecheck/{p['id']}" style="color:#58a6ff;font-family:'JetBrains Mono',monospace;font-weight:700;font-size:15px">#{p['pc_number']}</a></td>
+         <td style="padding:14px 12px;font-size:15px;font-weight:500">{p['institution']}</td>
+         <td style="padding:14px 12px;font-size:15px">{p['requestor'][:30]}</td>
+         <td style="padding:14px 12px;font-size:15px;font-family:'JetBrains Mono',monospace;color:var(--tx2)">{due_str}</td>
+         <td style="padding:14px 12px;font-size:15px;font-family:'JetBrains Mono',monospace;color:var(--tx2)">{date_str}</td>
+         <td style="padding:14px 12px;text-align:center;font-size:16px;font-weight:700">{p['items_count']}</td>
+         <td style="padding:14px 12px;text-align:right;font-size:16px;font-weight:700;font-family:'JetBrains Mono',monospace">{total_str}</td>
+         <td style="padding:14px 12px;text-align:center">{f'<span style="color:#58a6ff;font-family:JetBrains Mono,monospace;font-weight:700;font-size:14px">{qn}</span>' if qn else chr(8212)}</td>
+         <td style="padding:14px 12px;text-align:center"><span style="display:inline-block;padding:4px 12px;border-radius:14px;font-size:14px;font-weight:600;background:{badge_bg};color:{badge_color};white-space:nowrap">{badge_label}</span> {src_icon}</td>
+         <td style="padding:14px 12px;text-align:center;font-size:14px;color:#8b949e">{sent_elapsed}</td></tr>'''
 
     content = f'''
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-      <h2 style="margin:0">Price Check Archive</h2>
-      <div style="display:flex;gap:8px;align-items:center">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <h2 style="margin:0;font-size:26px;font-weight:700">📋 Price Check Archive</h2>
+      <div style="display:flex;gap:10px;align-items:center">
         <form method="POST" action="/upload" enctype="multipart/form-data" style="display:inline-flex;gap:6px;align-items:center">
           <input type="file" name="files" accept=".pdf" id="pc-upload-file" style="display:none" onchange="this.form.submit()">
-          <button type="button" onclick="document.getElementById('pc-upload-file').click()" class="btn btn-sm" style="background:#238636;color:#fff;font-size:13px;font-weight:600;padding:6px 14px;border-radius:6px;border:none;cursor:pointer">📄 Upload 704 PDF</button>
+          <button type="button" onclick="document.getElementById('pc-upload-file').click()" class="btn btn-g" style="font-size:15px;font-weight:600;padding:10px 20px">📄 Upload 704 PDF</button>
         </form>
-        <a href="/competitors" style="background:#1f6feb;color:white;padding:6px 14px;border-radius:6px;text-decoration:none;font-size:13px;font-weight:600">Competitors</a>
+        <a href="/competitors" class="btn btn-p" style="font-size:15px;font-weight:600;padding:10px 20px;text-decoration:none">📊 Competitors</a>
       </div>
     </div>
-    <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
-      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px 20px;text-align:center;min-width:90px">
-        <div style="font-size:24px;font-weight:800;color:#4f8cff">{total}</div><div style="font-size:14px;color:var(--tx2)">TOTAL</div></div>
-      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px 20px;text-align:center;min-width:90px">
-        <div style="font-size:24px;font-weight:800;color:#3fb950">{total_won}</div><div style="font-size:14px;color:var(--tx2)">WON</div></div>
-      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px 20px;text-align:center;min-width:90px">
-        <div style="font-size:24px;font-weight:800;color:#f85149">{total_lost}</div><div style="font-size:14px;color:var(--tx2)">LOST</div></div>
-      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px 20px;text-align:center;min-width:90px">
-        <div style="font-size:24px;font-weight:800;color:var(--tx)">{win_rate}</div><div style="font-size:14px;color:var(--tx2)">WIN RATE</div></div>
+    <div style="display:flex;gap:14px;margin-bottom:20px;flex-wrap:wrap">
+      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px 28px;text-align:center;min-width:100px">
+        <div style="font-size:32px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#4f8cff">{total}</div><div style="font-size:14px;color:var(--tx2);margin-top:4px;text-transform:uppercase;letter-spacing:.5px">Total</div></div>
+      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px 28px;text-align:center;min-width:100px">
+        <div style="font-size:32px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#3fb950">{total_won}</div><div style="font-size:14px;color:var(--tx2);margin-top:4px;text-transform:uppercase;letter-spacing:.5px">Won</div></div>
+      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px 28px;text-align:center;min-width:100px">
+        <div style="font-size:32px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#f85149">{total_lost}</div><div style="font-size:14px;color:var(--tx2);margin-top:4px;text-transform:uppercase;letter-spacing:.5px">Lost</div></div>
+      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px 28px;text-align:center;min-width:100px">
+        <div style="font-size:32px;font-weight:800;font-family:'JetBrains Mono',monospace;color:var(--tx)">{win_rate}</div><div style="font-size:14px;color:var(--tx2);margin-top:4px;text-transform:uppercase;letter-spacing:.5px">Win Rate</div></div>
     </div>
-    <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center">
-      <input id="pc-search" placeholder="Search PCs..." oninput="filterPCs()" style="flex:1;padding:8px 12px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:13px">
-      <select id="pc-status" onchange="filterPCs()" style="padding:8px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:13px">
+    <div style="display:flex;gap:10px;margin-bottom:14px;align-items:center">
+      <input id="pc-search" placeholder="🔍 Search PC#, institution, requestor, status..." oninput="filterPCs()" style="flex:1;padding:10px 16px;background:var(--sf);border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:16px">
+      <select id="pc-status" onchange="filterPCs()" style="padding:10px 14px;background:var(--sf);border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:15px">
         <option value="">All Statuses</option>{status_options}</select>
-      <span id="pc-count" style="font-size:14px;color:var(--tx2)">{total} PCs</span>
+      <span id="pc-count" style="font-size:15px;color:var(--tx2);white-space:nowrap">{total} PCs</span>
     </div>
-    <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;overflow-x:auto">
-      <table style="width:100%;border-collapse:collapse;font-size:13px">
-        <thead><tr style="border-bottom:1px solid var(--bd);text-transform:uppercase;font-size:14px;color:var(--tx2)">
-          <th style="padding:10px;text-align:left">PC #</th><th style="padding:10px;text-align:left">Institution</th>
-          <th style="padding:10px;text-align:left">Requestor</th><th style="padding:10px;text-align:left">Due</th><th style="padding:10px;text-align:left">Created</th>
-          <th style="padding:10px;text-align:center">Items</th><th style="padding:10px;text-align:right">Total</th>
-          <th style="padding:10px;text-align:center">Quote</th><th style="padding:10px;text-align:center">Status</th><th style="padding:10px;text-align:center">Sent</th>
+    <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:15px">
+        <thead><tr style="border-bottom:2px solid var(--bd);text-transform:uppercase;font-size:14px;color:var(--tx2);letter-spacing:.5px">
+          <th style="padding:14px 16px;text-align:left;font-weight:600">PC #</th><th style="padding:14px 12px;text-align:left;font-weight:600">Institution</th>
+          <th style="padding:14px 12px;text-align:left;font-weight:600">Requestor</th><th style="padding:14px 12px;text-align:left;font-weight:600">Due</th><th style="padding:14px 12px;text-align:left;font-weight:600">Created</th>
+          <th style="padding:14px 12px;text-align:center;font-weight:600">Items</th><th style="padding:14px 12px;text-align:right;font-weight:600">Total</th>
+          <th style="padding:14px 12px;text-align:center;font-weight:600">Quote</th><th style="padding:14px 12px;text-align:center;font-weight:600">Status</th><th style="padding:14px 12px;text-align:center;font-weight:600">Sent</th>
         </tr></thead>
         <tbody id="pc-tbody">{rows}</tbody>
       </table>
