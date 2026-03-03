@@ -175,6 +175,58 @@ document.addEventListener('click',function(e){
  };
 })();
 </script>
+<!-- Command Palette: Ctrl+K -->
+<div id="cmd-palette" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;align-items:flex-start;justify-content:center;padding-top:15vh">
+ <div style="background:var(--sf);border:1px solid var(--bd);border-radius:14px;width:540px;max-width:92vw;box-shadow:0 20px 60px rgba(0,0,0,.5);overflow:hidden">
+  <input id="cmd-input" placeholder="Search pages, actions, quotes..." autocomplete="off" style="width:100%;padding:16px 20px;border:none;border-bottom:1px solid var(--bd);background:transparent;color:var(--tx);font-size:17px;font-family:'DM Sans',sans-serif;outline:none;box-sizing:border-box" oninput="filterCmd(this.value)" onkeydown="cmdKey(event)">
+  <div id="cmd-list" style="max-height:320px;overflow-y:auto;padding:6px"></div>
+  <div style="padding:8px 16px;font-size:12px;color:var(--tx2);border-top:1px solid var(--bd);display:flex;gap:12px"><span>\u2191\u2193 navigate</span><span>\u21b5 open</span><span>esc close</span><span style="margin-left:auto">Ctrl+K</span></div>
+ </div>
+</div>
+<script>
+var CMD_ITEMS=[
+ {n:'\ud83c\udfe0 Home',u:'/',k:'home dashboard'},
+ {n:'\ud83d\udccb Price Checks',u:'/queue?filter=pc',k:'price check pc'},
+ {n:'\ud83d\udccb Quotes',u:'/quotes',k:'quotes database'},
+ {n:'\ud83d\udce6 Orders',u:'/orders',k:'orders fulfillment'},
+ {n:'\ud83d\udccd PO Tracking',u:'/po-tracking',k:'po tracking'},
+ {n:'\ud83d\udcec Follow-Up',u:'/follow-ups',k:'follow up stale'},
+ {n:'\ud83d\udc65 CRM',u:'/contacts',k:'crm contacts buyers'},
+ {n:'\ud83d\udce6 Catalog',u:'/catalog',k:'catalog products'},
+ {n:'\ud83d\udcca Analytics',u:'/analytics',k:'analytics reports'},
+ {n:'\ud83d\udd04 Pipeline',u:'/pipeline',k:'pipeline funnel'},
+ {n:'\ud83d\udd0d Search',u:'/search',k:'search'},
+ {n:'\ud83c\udfed Vendors',u:'/vendors',k:'vendors suppliers'},
+ {n:'\ud83d\ude80 Growth',u:'/growth',k:'growth engine outreach'},
+ {n:'\ud83d\udcb0 Revenue',u:'/revenue',k:'revenue goal'},
+ {n:'\ud83e\udd16 Agents',u:'/agents',k:'agents status'},
+ {n:'\u2699\ufe0f Settings',u:'/settings',k:'settings config'},
+ {n:'\ud83d\ude9a Shipping',u:'/shipping',k:'shipping tracking'},
+];
+var cmdIdx=0;
+function openCmd(){var p=document.getElementById('cmd-palette');p.style.display='flex';var inp=document.getElementById('cmd-input');inp.value='';inp.focus();filterCmd('');cmdIdx=0;}
+function closeCmd(){document.getElementById('cmd-palette').style.display='none';}
+function filterCmd(q){
+ var el=document.getElementById('cmd-list');q=q.toLowerCase();
+ var m=CMD_ITEMS.filter(function(c){return !q||c.n.toLowerCase().indexOf(q)>=0||c.k.indexOf(q)>=0;});
+ if(cmdIdx>=m.length)cmdIdx=0;
+ el.innerHTML=m.map(function(c,i){
+  return '<div onclick="location.href=\''+c.u+'\'" onmouseenter="cmdIdx='+i+';filterCmd(document.getElementById(\'cmd-input\').value)" style="padding:10px 16px;cursor:pointer;border-radius:8px;font-size:15px;display:flex;align-items:center;gap:8px;'+(i===cmdIdx?'background:rgba(79,140,255,.12);color:var(--ac)':'')+'" class="cmd-i">'+c.n+'<span style="margin-left:auto;font-size:12px;color:var(--tx2)">'+c.u+'</span></div>';
+ }).join('');
+}
+function cmdKey(e){
+ var items=document.querySelectorAll('.cmd-i');
+ if(e.key==='Escape'){closeCmd();e.preventDefault();}
+ else if(e.key==='ArrowDown'){cmdIdx=Math.min(cmdIdx+1,items.length-1);filterCmd(e.target.value);e.preventDefault();}
+ else if(e.key==='ArrowUp'){cmdIdx=Math.max(cmdIdx-1,0);filterCmd(e.target.value);e.preventDefault();}
+ else if(e.key==='Enter'&&items[cmdIdx]){items[cmdIdx].click();e.preventDefault();}
+}
+document.addEventListener('keydown',function(e){
+ if((e.ctrlKey||e.metaKey)&&e.key==='k'){e.preventDefault();openCmd();}
+ if(e.key==='Escape'&&document.getElementById('cmd-palette').style.display==='flex')closeCmd();
+});
+document.getElementById('cmd-palette').addEventListener('click',function(e){if(e.target===this)closeCmd();});
+</script>
 {% block scripts %}{% endblock %}
 </body>
 </html>
