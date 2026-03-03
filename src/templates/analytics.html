@@ -34,26 +34,108 @@
 </div>
 
 <!-- KPI Row -->
-<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
- <div class="card" style="text-align:center;padding:16px">
-  <div style="font-size:24px;font-weight:700;color:var(--gn);font-family:'JetBrains Mono',monospace">
+<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:16px">
+ <div class="card" style="text-align:center;padding:14px">
+  <div style="font-size:22px;font-weight:700;color:var(--gn);font-family:'JetBrains Mono',monospace">
    {% if funnel.won + funnel.lost > 0 %}{{((funnel.won / (funnel.won + funnel.lost)) * 100)|round(1)}}%{% else %}—{% endif %}
   </div>
-  <div style="font-size:14px;color:var(--tx2)">Win Rate</div>
+  <div style="font-size:13px;color:var(--tx2)">Win Rate</div>
  </div>
- <div class="card" style="text-align:center;padding:16px">
-  <div style="font-size:24px;font-weight:700;color:var(--ac);font-family:'JetBrains Mono',monospace">{{avg_quote_time}}h</div>
-  <div style="font-size:14px;color:var(--tx2)">Avg Time to Quote</div>
+ <div class="card" style="text-align:center;padding:14px">
+  <div style="font-size:22px;font-weight:700;color:var(--ac);font-family:'JetBrains Mono',monospace">{{avg_quote_time}}h</div>
+  <div style="font-size:13px;color:var(--tx2)">Avg Time to Quote</div>
  </div>
- <div class="card" style="text-align:center;padding:16px">
-  <div style="font-size:24px;font-weight:700;color:var(--yl);font-family:'JetBrains Mono',monospace">{{funnel.priced}}</div>
-  <div style="font-size:14px;color:var(--tx2)">Pending Pricing</div>
+ <div class="card" style="text-align:center;padding:14px">
+  <div style="font-size:22px;font-weight:700;color:var(--yl);font-family:'JetBrains Mono',monospace">{{funnel.priced}}</div>
+  <div style="font-size:13px;color:var(--tx2)">Pending Pricing</div>
  </div>
- <div class="card" style="text-align:center;padding:16px">
-  <div style="font-size:24px;font-weight:700;color:var(--or);font-family:'JetBrains Mono',monospace">{{funnel.sent}}</div>
-  <div style="font-size:14px;color:var(--tx2)">Awaiting Decision</div>
+ <div class="card" style="text-align:center;padding:14px">
+  <div style="font-size:22px;font-weight:700;color:var(--or);font-family:'JetBrains Mono',monospace">{{funnel.sent}}</div>
+  <div style="font-size:13px;color:var(--tx2)">Awaiting Decision</div>
+ </div>
+ <div class="card" style="text-align:center;padding:14px">
+  <div style="font-size:22px;font-weight:700;color:#a78bfa;font-family:'JetBrains Mono',monospace">{{growth_kpis.total_prospects or 0}}</div>
+  <div style="font-size:13px;color:var(--tx2)">Growth Prospects</div>
+ </div>
+ <div class="card" style="text-align:center;padding:14px">
+  <div style="font-size:22px;font-weight:700;color:#3fb950;font-family:'JetBrains Mono',monospace">{{growth_kpis.response_rate or 0}}%</div>
+  <div style="font-size:13px;color:var(--tx2)">Outreach Response</div>
  </div>
 </div>
+
+<!-- Growth Outreach Funnel + Top Agencies -->
+{% if growth_kpis %}
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px">
+ <div class="card">
+  <div class="card-t">🚀 Growth Outreach Funnel</div>
+  <div style="display:flex;gap:4px;align-items:end;margin-top:12px">
+   {% set g_stages = [
+     ('Prospects', growth_kpis.total_prospects or 0, '#a78bfa'),
+     ('Emailed', growth_kpis.emailed or 0, '#4f8cff'),
+     ('Responded', growth_kpis.responded or 0, '#3fb950'),
+     ('Won', growth_kpis.won or 0, '#fbbf24'),
+   ] %}
+   {% set g_max = growth_kpis.total_prospects if growth_kpis.total_prospects else 1 %}
+   {% for label, count, color in g_stages %}
+   {% set pct = (count / g_max * 100) if g_max > 0 else 0 %}
+   <div style="flex:1;text-align:center">
+    <div style="font-size:18px;font-weight:700;font-family:'JetBrains Mono',monospace;color:{{color}}">{{count}}</div>
+    <div style="background:{{color}};height:{{[pct * 1.2, 4]|max}}px;border-radius:4px;margin:6px 2px"></div>
+    <div style="font-size:13px;color:var(--tx2)">{{label}}</div>
+   </div>
+   {% endfor %}
+  </div>
+  {% if growth_kpis.pipeline_value %}
+  <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--bd);text-align:center">
+   <span style="font-size:14px;color:var(--tx2)">Pipeline Value:</span>
+   <span style="font-size:18px;font-weight:700;color:#3fb950;font-family:'JetBrains Mono',monospace;margin-left:6px">${{"${:,.0f}".format(growth_kpis.pipeline_value)}}</span>
+  </div>
+  {% endif %}
+ </div>
+ <div class="card">
+  <div class="card-t">🏆 Top Engaged Agencies</div>
+  {% if growth_top %}
+  <table class="it" style="margin-top:10px">
+   <thead><tr><th>Agency</th><th style="text-align:right">Spend</th><th>Responded</th><th>Won</th></tr></thead>
+   <tbody>
+   {% for a in growth_top %}
+   <tr>
+    <td style="font-weight:600;font-size:13px">{{a.agency or '—'}}</td>
+    <td style="text-align:right;font-family:'JetBrains Mono',monospace;font-size:13px">${{"${:,.0f}".format(a.total_spend or 0)}}</td>
+    <td style="text-align:center"><span style="color:#3fb950;font-weight:700">{{a.responded or 0}}</span></td>
+    <td style="text-align:center"><span style="color:#fbbf24;font-weight:700">{{a.won or 0}}</span></td>
+   </tr>
+   {% endfor %}
+   </tbody>
+  </table>
+  {% else %}
+  <div style="color:var(--tx2);font-size:14px;padding:20px;text-align:center">No agency data yet — run outreach from <a href="/growth" style="color:var(--ac)">Growth Engine</a></div>
+  {% endif %}
+ </div>
+</div>
+{% endif %}
+
+<!-- Campaign Performance -->
+{% if campaign_perf and campaign_perf.templates %}
+<div class="card" style="margin-bottom:16px">
+ <div class="card-t">📧 Campaign Performance</div>
+ <table class="it" style="margin-top:10px">
+  <thead><tr><th>Template</th><th style="text-align:right">Sent</th><th style="text-align:right">Delivered</th><th style="text-align:right">Responded</th><th style="text-align:right">Delivery %</th><th style="text-align:right">Response %</th></tr></thead>
+  <tbody>
+  {% for t in campaign_perf.templates %}
+  <tr>
+   <td style="font-weight:600;font-size:13px">{{t.template}}</td>
+   <td style="text-align:right;font-family:'JetBrains Mono',monospace">{{t.sent}}</td>
+   <td style="text-align:right;font-family:'JetBrains Mono',monospace">{{t.delivered}}</td>
+   <td style="text-align:right;font-family:'JetBrains Mono',monospace;color:#3fb950;font-weight:700">{{t.responded}}</td>
+   <td style="text-align:right;font-family:'JetBrains Mono',monospace">{{t.delivery_rate|round(1)}}%</td>
+   <td style="text-align:right;font-family:'JetBrains Mono',monospace;color:{% if t.response_rate >= 20 %}#3fb950{% elif t.response_rate >= 10 %}#fbbf24{% else %}#f85149{% endif %};font-weight:700">{{t.response_rate|round(1)}}%</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+ </table>
+</div>
+{% endif %}
 
 <!-- Win Rate by Institution -->
 <div class="card">

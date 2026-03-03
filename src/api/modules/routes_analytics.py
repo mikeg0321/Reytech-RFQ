@@ -398,6 +398,19 @@ def analytics_dashboard():
                 pass
     avg_quote_time = round(sum(quote_times) / len(quote_times), 1) if quote_times else 0
 
+    # Growth metrics integration
+    growth_kpis = {}
+    growth_top = []
+    try:
+        from src.agents.growth_agent import get_growth_kpis, get_campaign_performance, get_agency_intelligence
+        growth_kpis = get_growth_kpis()
+        campaign_perf = get_campaign_performance()
+        agency_intel = get_agency_intelligence()
+        # Top 5 agencies by engagement
+        growth_top = sorted(agency_intel, key=lambda a: a.get("responded", 0), reverse=True)[:5]
+    except Exception:
+        campaign_perf = {}
+
     return render_page("analytics.html",
         active_page="Pipeline",
         funnel=funnel,
@@ -408,6 +421,9 @@ def analytics_dashboard():
         avg_quote_time=avg_quote_time,
         total_rfqs=len(rfqs),
         total_pcs=len(pcs),
+        growth_kpis=growth_kpis,
+        campaign_perf=campaign_perf,
+        growth_top=growth_top,
     )
 
 
