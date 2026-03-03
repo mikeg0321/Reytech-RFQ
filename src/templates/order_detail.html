@@ -5,6 +5,7 @@
     <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px">
      <a href="/orders" class="btn btn-s" style="font-size:13px">← Orders</a>
      {% if qn %}<a href="/quote/{{ qn }}" class="btn btn-s" style="font-size:13px">📋 Quote {{ qn }}</a>{% endif %}
+     <button onclick="cloneOrder('{{ oid }}')" class="btn btn-s" style="font-size:12px" title="Create new order with same items">🔄 Reorder</button>
      <button onclick="if(confirm('Delete order {{ oid }}?'))fetch('/api/order/{{ oid }}/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reason:'manual delete'})}).then(r=>r.json()).then(d=>{if(d.ok)location.href='/orders'})" class="btn btn-s" style="font-size:12px;margin-left:auto;color:var(--rd)">🗑️ Delete</button>
     </div>
 
@@ -61,7 +62,7 @@
       <thead><tr>
        <th style="width:40px">#</th><th>Description</th><th style="width:80px">Part #</th>
        <th style="width:80px">Supplier</th><th style="width:40px;text-align:center">Qty</th>
-       <th style="width:80px;text-align:right">Price</th><th style="width:100px;text-align:center">Status</th>
+       <th style="width:80px;text-align:right">Price</th><th style="width:65px;text-align:right">Cost</th><th style="width:50px;text-align:center">Margin</th><th style="width:100px;text-align:center">Status</th>
        <th style="width:140px">Tracking</th><th style="width:30px;text-align:center">Inv</th>
       </tr></thead>
       <tbody>{{ items_rows | safe }}</tbody>
@@ -81,6 +82,42 @@
       <button onclick="lookupSuppliers('{{ oid }}')" class="btn btn-s" style="font-size:12px" id="lookup-btn">🔍 Lookup Suppliers</button>
       <button onclick="linkQuote('{{ oid }}')" class="btn btn-s" style="font-size:12px" id="link-quote-btn">{% if qn %}🔗 Linked: {{ qn }}{% else %}🔗 Link Quote{% endif %}</button>
       <a href="/api/order/{{ oid }}/reply-all" class="btn btn-s" style="font-size:12px">📧 Draft PO Confirmation</a>
+     </div>
+    </div>
+
+    <!-- F2: Order Margin Summary -->
+    <div id="margin-panel" class="card" style="margin-top:14px;display:none">
+     <div class="card-t">📊 Margin Analysis</div>
+     <div id="margin-stats" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:8px"></div>
+     <div id="margin-alerts" style="font-size:12px"></div>
+    </div>
+
+    <!-- F1: Timeline -->
+    <div class="card" style="margin-top:14px">
+     <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="document.getElementById('timeline-body').style.display=document.getElementById('timeline-body').style.display==='none'?'block':'none'">
+      <div class="card-t" style="margin:0">📋 Activity Timeline</div>
+      <span style="font-size:11px;color:var(--tx2)" id="timeline-count">loading...</span>
+     </div>
+     <div id="timeline-body" style="display:none;margin-top:12px;max-height:400px;overflow-y:auto"></div>
+    </div>
+
+    <!-- F6: Email Thread -->
+    <div class="card" style="margin-top:14px">
+     <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="document.getElementById('emails-body').style.display=document.getElementById('emails-body').style.display==='none'?'block':'none'">
+      <div class="card-t" style="margin:0">📧 Related Emails</div>
+      <span style="font-size:11px;color:var(--tx2)" id="emails-count">loading...</span>
+     </div>
+     <div id="emails-body" style="display:none;margin-top:12px;max-height:300px;overflow-y:auto"></div>
+    </div>
+
+    <!-- F9: Delivery Proof -->
+    <div class="card" style="margin-top:14px">
+     <div class="card-t">📸 Delivery Proofs & Attachments</div>
+     <div id="proofs-list" style="margin-bottom:10px"></div>
+     <div style="display:flex;gap:8px;align-items:center">
+      <input type="file" id="proof-file" accept=".pdf,.png,.jpg,.jpeg" style="display:none" onchange="uploadProof('{{ oid }}',this)">
+      <button onclick="document.getElementById('proof-file').click()" class="btn btn-s" style="font-size:12px">📤 Upload Proof</button>
+      <span id="proof-status" style="font-size:11px;color:var(--tx2)"></span>
      </div>
     </div>
     {# Draft Invoice section #}
@@ -352,6 +389,64 @@
         if (btn) { btn.disabled=false; btn.textContent='🔍 Lookup Suppliers'; }
       });
     }
+    // F2: Update line item cost
+    function updateCost(oid, lid, val) {
+      fetch('/api/order/' + oid + '/line/' + lid + '/cost', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({cost: parseFloat(val) || 0})
+      }).then(r => r.json()).then(d => {
+        if (d.ok) location.reload();
+      });
+    }
+
+    // F8: Clone/Reorder
+    function cloneOrder(oid) {
+      var po = prompt('Enter new PO number for the reorder:');
+      if (!po) return;
+      fetch('/api/order/' + oid + '/clone', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({po_number: po})
+      }).then(r => r.json()).then(d => {
+        if (d.ok) location.href = '/order/' + d.order_id;
+        else alert('Error: ' + (d.error || 'unknown'));
+      });
+    }
+
+    // F9: Upload delivery proof
+    function uploadProof(oid, input) {
+      var file = input.files[0];
+      if (!file) return;
+      var status = document.getElementById('proof-status');
+      status.textContent = 'Uploading...';
+      var fd = new FormData();
+      fd.append('file', file);
+      fd.append('type', 'delivery_proof');
+      fetch('/api/order/' + oid + '/upload-proof', {method: 'POST', body: fd})
+        .then(r => r.json()).then(d => {
+          if (d.ok) { status.textContent = 'Done: ' + d.filename; loadProofs(); }
+          else status.textContent = 'Error: ' + (d.error || 'Failed');
+        });
+    }
+
+    // F9: Load proof attachments
+    function loadProofs() {
+      fetch('/api/order/{{ oid }}/attachments').then(r=>r.json()).then(d=>{
+        var el = document.getElementById('proofs-list');
+        if (!d.attachments || !d.attachments.length) { el.innerHTML = '<div style="color:var(--tx2);font-size:11px;padding:4px 0">No attachments yet</div>'; return; }
+        var html = '';
+        d.attachments.forEach(function(a) {
+          html += '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px">'
+            + '<span>📎</span><span style="font-weight:500">' + a.file_name + '</span>'
+            + '<span style="color:var(--tx2);font-size:10px">' + (a.file_type||'') + (a.line_id ? ' · Line ' + a.line_id : '') + '</span>'
+            + '<span style="color:var(--tx2);font-size:10px;margin-left:auto">' + (a.created_at||'').substring(0,16) + '</span></div>';
+        });
+        el.innerHTML = html;
+      });
+    }
+    loadProofs();
+
     function linkQuote(oid) {
       var qn = prompt('Enter quote number to link (e.g., Q-2024-001)\\nLeave blank to auto-detect:');
       if (qn === null) return;
@@ -374,6 +469,66 @@
         if (btn) { btn.disabled=false; btn.textContent='🔗 Link Quote'; }
       });
     }
+
+    // ── Async data loading ──
+    // F1: Load timeline
+    fetch('/api/order/{{ oid }}/timeline').then(r=>r.json()).then(d=>{
+      document.getElementById('timeline-count').textContent = d.count + ' events';
+      var el = document.getElementById('timeline-body');
+      if (!d.events || !d.events.length) { el.innerHTML = '<div style="color:var(--tx2);font-size:12px;padding:8px">No activity recorded yet</div>'; return; }
+      var icons = {status_change:'🔄',line_sourcing_status_changed:'📦',line_tracking_number_changed:'🚚',cost_updated:'💰',proof_uploaded:'📸',order_created:'🆕',order_cloned:'🔄',email:'📧'};
+      var html = '';
+      d.events.forEach(function(e) {
+        var icon = icons[e.action] || icons[e.type] || '📝';
+        var ts = e.ts ? new Date(e.ts).toLocaleString('en-US', {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) : '';
+        var detail = '';
+        if (e.old && e['new']) detail = '<span style="color:var(--tx2)">' + e.old + '</span> → <span style="font-weight:600">' + e['new'] + '</span>';
+        else if (e['new']) detail = e['new'];
+        else if (e.details) detail = e.details;
+        html += '<div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--sf);font-size:12px">'
+          + '<span style="white-space:nowrap;color:var(--tx2);min-width:90px">' + ts + '</span>'
+          + '<span>' + icon + '</span>'
+          + '<span style="flex:1">' + (e.action||'').replace(/_/g,' ') + (detail ? ' — ' + detail : '') + '</span>'
+          + '<span style="color:var(--tx2);font-size:10px">' + (e.actor||'') + '</span></div>';
+      });
+      el.innerHTML = html;
+    }).catch(function(){document.getElementById('timeline-count').textContent='error';});
+
+    // F6: Load emails
+    fetch('/api/order/{{ oid }}/emails').then(r=>r.json()).then(d=>{
+      document.getElementById('emails-count').textContent = d.count + ' emails';
+      var el = document.getElementById('emails-body');
+      if (!d.emails || !d.emails.length) { el.innerHTML = '<div style="color:var(--tx2);font-size:12px;padding:8px">No related emails found</div>'; return; }
+      var html = '';
+      d.emails.forEach(function(e) {
+        var ts = e.received_at ? new Date(e.received_at).toLocaleString('en-US', {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) : '';
+        html += '<div style="padding:8px 0;border-bottom:1px solid var(--sf);font-size:12px">'
+          + '<div style="display:flex;justify-content:space-between"><span style="font-weight:600">' + (e.subject||'(no subject)') + '</span><span style="color:var(--tx2);font-size:10px">' + ts + '</span></div>'
+          + '<div style="color:var(--tx2);font-size:11px;margin-top:2px">' + (e.sender||'') + (e.classification ? ' · ' + e.classification : '') + '</div>'
+          + '</div>';
+      });
+      el.innerHTML = html;
+    }).catch(function(){document.getElementById('emails-count').textContent='error';});
+
+    // F2: Load margin summary
+    fetch('/api/order/{{ oid }}/margins').then(r=>r.json()).then(d=>{
+      if(!d.ok || !d.items_total) return;
+      document.getElementById('margin-panel').style.display='block';
+      var s = document.getElementById('margin-stats');
+      var mc = d.margin_pct >= 20 ? '#3fb950' : d.margin_pct >= 10 ? '#d29922' : '#f85149';
+      s.innerHTML = '<div style="background:var(--sf2);padding:8px;border-radius:8px;text-align:center">'
+        + '<div style="font-size:10px;color:var(--tx2)">Revenue</div><div style="font-size:16px;font-weight:700;color:#3fb950">$' + d.total_revenue.toLocaleString() + '</div></div>'
+        + '<div style="background:var(--sf2);padding:8px;border-radius:8px;text-align:center">'
+        + '<div style="font-size:10px;color:var(--tx2)">Cost</div><div style="font-size:16px;font-weight:700;color:#d29922">$' + d.total_cost.toLocaleString() + '</div></div>'
+        + '<div style="background:var(--sf2);padding:8px;border-radius:8px;text-align:center">'
+        + '<div style="font-size:10px;color:var(--tx2)">Profit</div><div style="font-size:16px;font-weight:700;color:' + mc + '">$' + d.total_margin.toLocaleString() + '</div></div>'
+        + '<div style="background:var(--sf2);padding:8px;border-radius:8px;text-align:center">'
+        + '<div style="font-size:10px;color:var(--tx2)">Margin</div><div style="font-size:16px;font-weight:700;color:' + mc + '">' + d.margin_pct + '%</div>'
+        + '<div style="font-size:9px;color:var(--tx2)">' + d.items_with_cost + '/' + d.items_total + ' costed</div></div>';
+      if (d.low_margin_alerts > 0) {
+        document.getElementById('margin-alerts').innerHTML = '<div style="color:#f85149;margin-top:4px">⚠️ ' + d.low_margin_alerts + ' item(s) below 15% margin</div>';
+      }
+    }).catch(function(){});
     </script>
     
 {% endblock %}

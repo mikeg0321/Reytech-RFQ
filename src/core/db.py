@@ -193,6 +193,32 @@ CREATE TABLE IF NOT EXISTS orders (
     updated_at      TEXT
 );
 
+CREATE TABLE IF NOT EXISTS order_audit_log (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id    TEXT NOT NULL,
+    action      TEXT NOT NULL,
+    field       TEXT,
+    old_value   TEXT,
+    new_value   TEXT,
+    actor       TEXT DEFAULT 'system',
+    details     TEXT,
+    created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_oal_order ON order_audit_log(order_id);
+CREATE INDEX IF NOT EXISTS idx_oal_action ON order_audit_log(action);
+
+CREATE TABLE IF NOT EXISTS order_attachments (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id    TEXT NOT NULL,
+    line_id     TEXT,
+    file_type   TEXT NOT NULL,
+    file_name   TEXT NOT NULL,
+    file_path   TEXT NOT NULL,
+    uploaded_by TEXT DEFAULT 'user',
+    created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_oa_order ON order_attachments(order_id);
+
 CREATE TABLE IF NOT EXISTS rfqs (
     id              TEXT PRIMARY KEY,
     received_at     TEXT NOT NULL,

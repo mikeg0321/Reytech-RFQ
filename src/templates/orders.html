@@ -18,6 +18,38 @@
  </div>
 </div>
 {{ macro_html|safe }}
+
+<!-- F3: Filters + Search -->
+<div class="card" style="margin-bottom:12px;padding:12px 16px">
+ <form method="get" action="/orders" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+  <input name="q" value="{{ search_q }}" placeholder="🔍 Search PO, institution, agency..." style="flex:1;min-width:200px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;padding:6px 12px;color:var(--tx);font-size:12px">
+  <select name="status" style="background:var(--sf);border:1px solid var(--bd);border-radius:6px;padding:6px 8px;color:var(--tx);font-size:12px">
+   <option value="">All Statuses</option>
+   <option value="new" {{ 'selected' if filter_status=='new' }}>🆕 New</option>
+   <option value="sourcing" {{ 'selected' if filter_status=='sourcing' }}>🛒 Sourcing</option>
+   <option value="shipped" {{ 'selected' if filter_status=='shipped' }}>🚚 Shipped</option>
+   <option value="delivered" {{ 'selected' if filter_status=='delivered' }}>✅ Delivered</option>
+   <option value="invoiced" {{ 'selected' if filter_status=='invoiced' }}>💰 Invoiced</option>
+   <option value="closed" {{ 'selected' if filter_status=='closed' }}>🏁 Closed</option>
+  </select>
+  <select name="agency" style="background:var(--sf);border:1px solid var(--bd);border-radius:6px;padding:6px 8px;color:var(--tx);font-size:12px">
+   <option value="">All Agencies</option>
+   {% for a in all_agencies %}<option value="{{ a }}" {{ 'selected' if filter_agency==a }}>{{ a }}</option>{% endfor %}
+  </select>
+  <button type="submit" class="btn btn-s" style="font-size:12px">Filter</button>
+  {% if search_q or filter_status or filter_agency %}<a href="/orders" style="font-size:11px;color:var(--tx2)">✕ Clear</a>{% endif %}
+ </form>
+</div>
+
+<!-- F10: KPI Dashboard (loaded async) -->
+<div id="order-kpi" style="display:none;margin-bottom:12px">
+ <div class="bento bento-4" style="margin-bottom:0">
+  <div class="card" style="text-align:center;margin:0" id="kpi-revenue"></div>
+  <div class="card" style="text-align:center;margin:0" id="kpi-margin"></div>
+  <div class="card" style="text-align:center;margin:0" id="kpi-fulfillment"></div>
+  <div class="card" style="text-align:center;margin:0" id="kpi-monthly"></div>
+ </div>
+</div>
 <div class="card" style="padding:0;overflow-x:auto">
  <table class="home-tbl" style="min-width:800px">
   <thead><tr>
@@ -96,6 +128,21 @@ function deleteOrder(oid) {
     else alert('Error: ' + (d.error || 'unknown'));
   });
 }
+// F10: KPI Dashboard
+fetch('/api/orders/kpi').then(r=>r.json()).then(d=>{
+ if(!d.ok) return;
+ document.getElementById('order-kpi').style.display='block';
+ var mk=function(id,val,lbl,sub,c){document.getElementById(id).innerHTML=
+  '<div style="font-size:24px;font-weight:800;font-family:JetBrains Mono,monospace;color:'+(c||'var(--ac)')+'">'+val+'</div>'
+  +'<div style="font-size:10px;color:var(--tx2);margin-top:2px">'+lbl+'</div>'
+  +(sub?'<div style="font-size:10px;color:var(--tx2);margin-top:4px">'+sub+'</div>':'');};
+ mk('kpi-revenue','$'+(d.total_revenue||0).toLocaleString(undefined,{maximumFractionDigits:0}),'Total Revenue',d.total_orders+' orders','#3fb950');
+ mk('kpi-margin',(d.margin_pct||0)+'%','Avg Margin','$'+(d.total_margin||0).toLocaleString(undefined,{maximumFractionDigits:0})+' profit',d.margin_pct>=20?'#3fb950':d.margin_pct>=10?'#d29922':'#f85149');
+ mk('kpi-fulfillment',d.avg_fulfillment_days!==null?d.avg_fulfillment_days+'d':'—','Avg Fulfillment','created → delivered','#58a6ff');
+ var recent=d.monthly||[];var last=recent.length?recent[recent.length-1]:null;
+ mk('kpi-monthly',last?'$'+last.value.toLocaleString(undefined,{maximumFractionDigits:0}):'—','This Month',last?last.orders+' orders':'no data','#bc8cff');
+}).catch(function(){});
+
 // QuickBooks invoices
 fetch('/api/qb/financial-context').then(r=>r.json()).then(d=>{
  if(!d.ok) return;

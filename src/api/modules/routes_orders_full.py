@@ -20,7 +20,25 @@ from src.api.render import render_page
 def orders_page():
     """Orders dashboard — track sourcing, shipping, delivery, invoicing."""
     orders = _load_orders()
+
+    # ── F3: Filtering ──
+    filter_status = request.args.get("status", "")
+    filter_agency = request.args.get("agency", "")
+    search_q = request.args.get("q", "").lower()
+
     order_list = sorted(orders.values(), key=lambda o: o.get("created_at", ""), reverse=True)
+
+    if filter_status:
+        order_list = [o for o in order_list if o.get("status") == filter_status]
+    if filter_agency:
+        order_list = [o for o in order_list if filter_agency.lower() in (o.get("agency", "") or "").lower()]
+    if search_q:
+        order_list = [o for o in order_list if
+                      search_q in (o.get("po_number", "") or "").lower() or
+                      search_q in (o.get("institution", "") or "").lower() or
+                      search_q in (o.get("order_id", "") or "").lower() or
+                      search_q in (o.get("quote_number", "") or "").lower() or
+                      search_q in (o.get("agency", "") or "").lower()]
 
     status_cfg = {
         "new":              ("🆕 New",              "#58a6ff", "rgba(88,166,255,.1)"),
@@ -103,6 +121,9 @@ def orders_page():
     </div>
     """
 
+    # Collect agencies for filter dropdown
+    all_agencies = sorted(set(o.get("agency", "") for o in orders.values() if o.get("agency")))
+
     rows = ""
     for o in order_list:
         oid = o.get("order_id", "")
@@ -116,6 +137,16 @@ def orders_page():
         has_suppliers = sum(1 for it in items if it.get("supplier_url"))
         n = len(items)
         pct = round(delivered / n * 100) if n else 0
+
+        # F5: Aging badge
+        try:
+            from src.api.modules.routes_orders_enhance import calc_order_aging
+            aging = calc_order_aging(o)
+            age_badge = aging["badge"]
+            age_title = f"{aging['age_days']}d old, {aging['stale_days']}d since update"
+        except Exception:
+            age_badge = ""
+            age_title = ""
 
         # Progress bar for this order
         progress_bar = f"""<div style="display:flex;align-items:center;gap:4px;min-width:80px">
@@ -142,12 +173,14 @@ def orders_page():
          <td class="mono">{o.get('po_number','') or o.get('quote_number','')}</td>
          <td style="text-align:right;font-weight:600;font-family:'JetBrains Mono',monospace">${o.get('total',0):,.2f}</td>
          <td>{progress_bar}</td>
-         <td style="text-align:center"><span style="display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;color:{clr};background:{bg}">{lbl}</span>{indicators}</td>
+         <td style="text-align:center"><span title="{age_title}" style="margin-right:2px">{age_badge}</span><span style="display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;color:{clr};background:{bg}">{lbl}</span>{indicators}</td>
          <td style="text-align:center"><button onclick="deleteOrder('{oid}')" style="background:none;border:none;cursor:pointer;font-size:12px;color:var(--tx2)" title="Delete order">🗑️</button></td>
         </tr>"""
 
     return render_page("orders.html", active_page="Orders",
-        rows=rows, macro_html=macro_html)
+        rows=rows, macro_html=macro_html,
+        all_agencies=all_agencies, filter_status=filter_status,
+        filter_agency=filter_agency, search_q=request.args.get("q", ""))
 
 
 @bp.route("/order/<oid>")
@@ -262,6 +295,8 @@ def _render_order_detail(order, oid):
          <td>{sup_link} {sup_edit}</td>
          <td class="mono" style="text-align:center">{it.get('qty',0)}</td>
          <td class="mono" style="text-align:right">${it.get('unit_price',0):,.2f}</td>
+         <td class="mono" style="text-align:right"><input type="number" step="0.01" value="{it.get('cost',0):.2f}" onchange="updateCost('{oid}','{lid}',this.value)" style="width:58px;background:var(--sf);border:1px solid var(--bd);border-radius:4px;color:var(--tx);font-size:11px;padding:2px 4px;text-align:right;font-family:'JetBrains Mono',monospace" title="Edit cost"></td>
+         <td style="text-align:center;font-size:11px;font-weight:600;color:{'#3fb950' if (it.get('margin_pct',0) or 0) >= 20 else '#d29922' if (it.get('margin_pct',0) or 0) >= 10 else '#f85149' if it.get('cost',0) else 'var(--tx2)'}">{'{:.0f}%'.format(it.get('margin_pct',0) or 0) if it.get('cost',0) else '—'}</td>
          <td style="text-align:center">
           <select onchange="updateLine('{oid}','{lid}','sourcing_status',this.value)" style="background:var(--sf);border:1px solid var(--bd);border-radius:4px;color:{s_clr};font-size:11px;padding:2px">
            <option value="pending" {"selected" if ss=="pending" else ""}>⏳ Pending</option>
@@ -540,6 +575,14 @@ def api_order_update_line(oid, lid):
                         _log_crm_activity(order.get("quote_number",""), f"line_{data[field]}",
                                           f"Order {oid} line {lid}: {old_val} → {data[field]} — {it.get('description','')[:60]}",
                                           actor="user", metadata={"order_id": oid})
+                    # Audit log every field change
+                    try:
+                        from src.api.modules.routes_orders_enhance import log_order_event
+                        log_order_event(oid, f"line_{field}_changed", field,
+                                        str(old_val), str(data[field]),
+                                        "user", f"Line {lid}: {it.get('description','')[:40]}")
+                    except Exception:
+                        pass
             updated = True
             break
     if not updated:
