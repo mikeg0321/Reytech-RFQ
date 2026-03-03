@@ -72,6 +72,8 @@ fetch('/api/dashboard/init').then(r=>r.json()).then(d=>{
   if(d.revenue && d.revenue.ok) _renderRevenue(d.revenue);
   // ── Order Health ──
   if(d.order_health && d.order_health.ok && d.order_health.total > 0) _renderOrderHealth(d.order_health);
+  // ── Growth Engine ──
+  if(d.growth && d.growth.ok) _renderGrowth(d.growth);
   // ── QA ──
   if(d.qa) _renderQA(d.qa);
   // ── Manager metrics ──
@@ -369,6 +371,58 @@ function _renderOrderHealth(d){
 <!-- ═══ KPI Dashboard — Bento analytics ═══ -->
 
 <!-- Pipeline Funnel — stat strip -->
+<!-- Growth Engine Summary -->
+<div id="growth-summary" style="display:none;margin-bottom:12px">
+ <div class="card" style="padding:18px 24px;border-left:3px solid #3fb950">
+  <div style="display:flex;align-items:center;gap:6px;margin-bottom:14px">
+   <span style="font-size:14px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:1px">🚀 Growth Engine</span>
+   <span style="flex:1;height:1px;background:var(--bd)"></span>
+   <span id="growth-brief" style="font-size:14px;color:var(--tx2)"></span>
+   <span style="width:1px;height:14px;background:var(--bd);margin:0 8px"></span>
+   <a href="/growth" style="font-size:14px;color:var(--ac);font-weight:600">Open Growth Dashboard →</a>
+  </div>
+  <div id="growth-kpis" style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px"></div>
+  <div id="growth-wins" style="display:none">
+   <div style="font-size:13px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">🏆 Quick Wins</div>
+   <div id="growth-wins-list"></div>
+  </div>
+ </div>
+</div>
+<script>
+function _renderGrowth(g){
+ var el=document.getElementById('growth-summary');
+ el.style.display='block';
+ var k=g.kpis||{};
+ var kpis=[
+  {v:k.total_prospects||0,l:'Prospects',c:'var(--ac)'},
+  {v:k.emailed||0,l:'Emailed',c:'#4f8cff'},
+  {v:k.responded||0,l:'Responded',c:'#3fb950'},
+  {v:(k.response_rate||0)+'%',l:'Response Rate',c:k.response_rate>=20?'#3fb950':k.response_rate>=10?'#fbbf24':'#f85149'},
+  {v:'$'+(k.pipeline_value||0).toLocaleString(undefined,{maximumFractionDigits:0}),l:'Pipeline',c:'#3fb950'},
+ ];
+ document.getElementById('growth-kpis').innerHTML=kpis.map(function(i){
+  return '<div style="text-align:center;background:var(--sf2);border-radius:10px;padding:14px 10px">'
+   +'<div style="font-size:24px;font-weight:800;font-family:JetBrains Mono,monospace;color:'+i.c+';line-height:1">'+i.v+'</div>'
+   +'<div style="font-size:12px;color:var(--tx2);margin-top:4px;text-transform:uppercase;letter-spacing:.4px">'+i.l+'</div></div>';
+ }).join('');
+ var brief=g.brief_summary||'';
+ if(brief) document.getElementById('growth-brief').textContent=brief.slice(0,60);
+ if(g.critical_count>0) document.getElementById('growth-brief').innerHTML='<span style="color:#f85149;font-weight:700">'+g.critical_count+' critical</span>';
+ var wins=g.quick_wins||[];
+ if(wins.length){
+  document.getElementById('growth-wins').style.display='block';
+  document.getElementById('growth-wins-list').innerHTML=wins.map(function(w){
+   return '<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--bd);font-size:14px">'
+    +'<span style="padding:2px 8px;border-radius:8px;font-size:13px;font-weight:700;font-family:JetBrains Mono,monospace;background:rgba(52,211,153,.15);color:#3fb950">'+(w.win_prob||0).toFixed(0)+'%</span>'
+    +'<span style="flex:1;font-weight:600">'+(w.agency||'Unknown')+'</span>'
+    +'<span style="font-size:13px;color:var(--tx2)">'+(w.buyer_name||'')+'</span>'
+    +'<a href="/growth" style="font-size:13px;color:var(--ac)">View</a></div>';
+  }).join('');
+ }
+}
+</script>
+
+<!-- Pipeline Funnel — stat strip (actual) -->
 <div class="card" style="margin-bottom:12px;padding:18px 24px">
  <div style="display:flex;align-items:center;gap:6px;margin-bottom:14px">
   <span style="font-size:14px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:1px">📊 Pipeline</span>

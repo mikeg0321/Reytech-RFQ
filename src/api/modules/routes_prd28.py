@@ -796,5 +796,22 @@ def api_dashboard_init():
     except Exception as e:
         result["order_health"] = {"ok": False, "error": str(e)}
 
+    # ── 7. Growth Engine summary ──
+    try:
+        from src.agents.growth_agent import get_growth_kpis, get_quick_wins, generate_daily_brief
+        growth_kpis = get_growth_kpis()
+        quick_wins = get_quick_wins(max_results=3)
+        brief = generate_daily_brief()
+        result["growth"] = {
+            "ok": True,
+            "kpis": growth_kpis,
+            "quick_wins": quick_wins,
+            "brief_summary": brief.get("summary", ""),
+            "priority_count": len(brief.get("priorities", [])),
+            "critical_count": sum(1 for p in brief.get("priorities", []) if p.get("level") == "critical"),
+        }
+    except Exception as e:
+        result["growth"] = {"ok": False, "error": str(e)}
+
     result["_ms"] = round((_time.time() - t0) * 1000)
     return jsonify(result)
