@@ -66,6 +66,7 @@
   <h1 style="font-size:26px;font-weight:700;margin-bottom:8px">{{ pr.get('buyer_name') or agency }}</h1>
   <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:15px">
    <span style="padding:4px 14px;border-radius:14px;font-size:14px;font-weight:700;text-transform:uppercase;background:{{ stat_color }}22;color:{{ stat_color }};border:1px solid {{ stat_color }}44">{{ stat }}</span>
+   {% if win_data is defined and win_data.win_probability is defined %}<span style="padding:4px 12px;border-radius:14px;font-size:14px;font-weight:700;background:{% if win_data.win_probability >= 70 %}rgba(52,211,153,.15);color:#3fb950{% elif win_data.win_probability >= 40 %}rgba(251,191,36,.15);color:#fbbf24{% else %}rgba(139,148,158,.15);color:#8b949e{% endif %};font-family:'JetBrains Mono',monospace">{{ "%.0f"|format(win_data.win_probability) }}% win</span>{% endif %}
    <span style="color:var(--tx2)">Score <b style="color:var(--ac)">{{ score_pct }}%</b></span>
    <span style="color:var(--tx2)">Spend <b style="color:#3fb950">${{ "{:,.0f}".format(total_spend) }}</b></span>
    <span style="color:var(--tx2)">{{ po_count }} POs · Last {{ last_purchase }}</span>
@@ -205,6 +206,62 @@
 </div>
 
 {% if or_html %}<div class="card"><h3>📧 Outreach Campaigns</h3>{{ or_html | safe }}</div>{% endif %}
+
+<!-- V3+: WIN PROBABILITY FACTORS + WORKFLOW + CALENDAR -->
+{% if win_data is defined and win_data.factors is defined %}
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:14px">
+ <div class="card">
+  <h3>🎯 Win Probability Factors</h3>
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
+   <div style="font-size:36px;font-weight:800;font-family:'JetBrains Mono',monospace;color:{% if win_data.win_probability >= 70 %}#3fb950{% elif win_data.win_probability >= 40 %}#fbbf24{% else %}#8b949e{% endif %}">{{ "%.0f"|format(win_data.win_probability) }}%</div>
+   <div style="font-size:14px;color:var(--tx2)">Predicted win<br>probability</div>
+  </div>
+  {% for factor in win_data.factors %}
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(46,51,69,.4);font-size:14px">
+   <span>{{ factor.name }}</span>
+   <span style="font-family:'JetBrains Mono',monospace;font-weight:700;color:{% if factor.value > 0 %}#3fb950{% elif factor.value < 0 %}#f85149{% else %}var(--tx2){% endif %}">{{ "+%d"|format(factor.value) if factor.value > 0 else factor.value }}%</span>
+  </div>
+  {% endfor %}
+ </div>
+ <div class="card">
+  <h3>⚡ Workflow Status</h3>
+  {% if wf_state is defined and wf_state.workflow_id is defined %}
+  <div style="margin-bottom:12px">
+   <div style="font-weight:700;font-size:15px;margin-bottom:4px">{{ wf_state.workflow_id.replace('_',' ').title() }}</div>
+   <div style="font-size:14px;color:var(--tx2)">Step {{ wf_state.get('current_step', 0) + 1 }} · Started {{ wf_state.get('assigned_at', '')[:10] }}</div>
+  </div>
+  <div style="display:flex;gap:4px;flex-wrap:wrap">
+   {% for i in range(wf_state.get('current_step', 0) + 1) %}<span style="padding:4px 10px;border-radius:6px;font-size:13px;font-weight:600;background:rgba(52,211,153,.12);color:#3fb950">✓ Step {{ i + 1 }}</span>{% endfor %}
+   <span style="padding:4px 10px;border-radius:6px;font-size:13px;font-weight:600;background:rgba(251,191,36,.15);color:#fbbf24">▶ Next</span>
+  </div>
+  <div style="margin-top:14px"><button class="g-btn g-btn-go" onclick="crmPost('/api/growth/workflow/advance',{prospect_id:PID}).then(r=>{if(r.ok)location.reload();else alert(r.error||'Error')})">▶ Advance Step</button></div>
+  {% else %}
+  <div style="text-align:center;padding:20px;color:var(--tx2)">
+   <div style="font-size:24px;margin-bottom:6px">⚡</div>
+   <div style="font-size:14px;margin-bottom:12px">No workflow assigned</div>
+   <button class="g-btn" onclick="var w=prompt('Workflow ID:','standard_outreach');if(w)crmPost('/api/growth/workflow/assign',{prospect_id:PID,workflow_id:w}).then(r=>{if(r.ok)location.reload();else alert(r.error||'Error')})">Assign Workflow</button>
+  </div>
+  {% endif %}
+ </div>
+ <div class="card">
+  <h3>📅 Scheduled Events</h3>
+  {% if prospect_cal is defined and prospect_cal %}
+  {% for ev in prospect_cal %}
+  <div style="padding:8px 0;border-bottom:1px solid rgba(46,51,69,.4)">
+   <div style="font-weight:600;font-size:14px">{{ ev.title }}</div>
+   <div style="font-size:13px;color:var(--tx2)">{{ ev.date }} · {{ ev.get('type','follow_up').replace('_',' ').title() }}</div>
+  </div>
+  {% endfor %}
+  {% else %}
+  <div style="text-align:center;padding:20px;color:var(--tx2)">
+   <div style="font-size:24px;margin-bottom:6px">📅</div>
+   <div style="font-size:14px;margin-bottom:12px">No scheduled events</div>
+   <button class="g-btn" onclick="crmPost('/api/growth/calendar/schedule',{prospect_id:PID,type:'follow_up',days_from_now:3}).then(r=>{if(r.ok)location.reload();else alert(r.error||'Error')})">📅 Schedule Follow-Up</button>
+  </div>
+  {% endif %}
+ </div>
+</div>
+{% endif %}
 
 <div class="modal-bg" id="log-modal" onclick="if(event.target===this)closeModal()">
  <div class="modal-box">

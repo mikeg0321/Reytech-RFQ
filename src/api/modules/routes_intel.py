@@ -4081,6 +4081,20 @@ def growth_prospect_detail(prospect_id):
             last_contacted = ev.get("timestamp","")[:10]
             break
 
+    # V3+: Win probability + workflow + calendar
+    win_data = {}
+    wf_state = {}
+    prospect_cal = []
+    try:
+        from src.agents.growth_agent import get_win_probability, get_reytech_credentials, get_calendar_events
+        _creds = get_reytech_credentials()
+        win_data = get_win_probability(pr, _creds)
+        wf_state = pr.get("workflow", {})
+        _all_cal = get_calendar_events(upcoming_only=True)
+        prospect_cal = [e for e in _all_cal if e.get("prospect_id") == pid][:5]
+    except Exception:
+        pass
+
     return render_page("prospect_detail.html", active_page="CRM",
         pr=pr, pid=pid, agency=agency, total_spend=total_spend,
         po_count=po_count, score=score, score_pct=score_pct,
@@ -4090,9 +4104,8 @@ def growth_prospect_detail(prospect_id):
         tags=tags, follow_up_date=follow_up_date, preferred_contact=preferred_contact,
         source=source, created_at=created_at, linked_quotes=linked_quotes,
         linked_pcs=linked_pcs, response_rate=response_rate,
-        last_contacted=last_contacted, emails_sent=emails_sent)
-
-
+        last_contacted=last_contacted, emails_sent=emails_sent,
+        win_data=win_data, wf_state=wf_state, prospect_cal=prospect_cal)
 @bp.route("/api/growth/status")
 @auth_required
 def api_growth_status():
