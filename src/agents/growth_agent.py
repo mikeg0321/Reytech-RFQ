@@ -393,6 +393,197 @@ SCPRS_SEARCH_URL = "https://caleprocure.ca.gov/pages/SCPRSSearch/scprs-search.as
 _DEFAULT_SERVED_AGENCIES = ["CCHCS", "CDCR"]
 
 
+def get_reytech_credentials() -> dict:
+    """Compute quantified Reytech credentials from SCPRS history + quotes log.
+    Used in email templates and the Growth page banner.
+    Returns: {total_sales, total_items, total_pos, agencies_served, calvet_amount,
+              calvet_pos, since_year, agency_list, top_categories}
+    """
+    total_sales = 0
+    total_items = 0
+    total_pos = 0
+    agencies = set()
+    calvet_amount = 0
+    calvet_pos = 0
+    category_spend = defaultdict(float)
+    since_year = 2022
+
+    # Source 1: SCPRS history
+    hist = _load_json(HISTORY_FILE)
+    if isinstance(hist, dict):
+        total_pos = hist.get("total_pos", 0)
+        total_items = hist.get("total_items", 0)
+        for po in hist.get("purchase_orders", []):
+            dept = po.get("dept", "")
+            amount = float(po.get("total", 0) or po.get("amount", 0) or 0)
+            total_sales += amount
+            if dept:
+                agencies.add(dept)
+            # CalVet detection
+            if dept and any(kw in dept.lower() for kw in ["calvet", "cal vet", "veterans", "cdva"]):
+                calvet_amount += amount
+                calvet_pos += 1
+            # Category tracking
+            for item in po.get("items", []) if isinstance(po.get("items"), list) else []:
+                cat = categorize_item(str(item)) if callable(categorize_item) else ""
+                if cat:
+                    category_spend[cat] += amount / max(len(po.get("items", [1])), 1)
+
+    # Source 2: Quotes log
+    try:
+        quotes_path = os.path.join(DATA_DIR, "quotes_log.json")
+        if os.path.exists(quotes_path):
+            with open(quotes_path) as f:
+                quotes = json.load(f)
+            for q in quotes:
+                if q.get("is_test"):
+                    continue
+                a = q.get("agency", "") or q.get("institution", "")
+                if a:
+                    agencies.add(a)
+                qt = float(q.get("total", 0) or 0)
+                total_sales += qt
+                items_count = len(q.get("items", []))
+                total_items += items_count
+                total_pos += 1
+    except Exception:
+        pass
+
+    # Source 3: Categories file
+    cat_data = _load_json(CATEGORIES_FILE)
+    if isinstance(cat_data, dict) and cat_data.get("categories"):
+        for cat_name, info in cat_data["categories"].items():
+            if cat_name not in category_spend or category_spend[cat_name] == 0:
+                category_spend[cat_name] = info.get("total_value", 0)
+
+    top_cats = sorted(category_spend.items(), key=lambda x: x[1], reverse=True)[:6]
+
+    return {
+        "total_sales": total_sales,
+        "total_items": max(total_items, 1),
+        "total_pos": max(total_pos, 1),
+        "agencies_served": len(agencies),
+        "agency_list": sorted(agencies),
+        "calvet_amount": calvet_amount,
+        "calvet_pos": calvet_pos,
+        "since_year": since_year,
+        "top_categories": [{"name": c, "spend": s} for c, s in top_cats],
+    }
+
+
+def get_follow_up_cohorts() -> dict:
+    """Compute follow-up cohorts from outreach campaigns.
+    Returns: {no_response: [...], second_followup: [...], stale: [...], responded: [...]}
+    """
+    outreach = _load_json(OUTREACH_FILE)
+    if not isinstance(outreach, dict):
+        return {"no_response": [], "second_followup": [], "stale": [], "responded": []}
+
+    now = datetime.now()
+    no_response = []      # 3-7 days, no reply
+    second_followup = []  # 8-21 days, no reply
+    stale = []            # 21+ days, no reply
+    responded = []
+
+    for camp in outreach.get("campaigns", []):
+        for o in camp.get("outreach", []):
+            if not o.get("email_sent"):
+                continue
+            if o.get("response_received"):
+                responded.append(o)
+                continue
+            if o.get("bounced"):
+                continue
+
+            sent_at = o.get("email_sent_at", o.get("staged_at", ""))
+            if not sent_at:
+                continue
+            try:
+                sent_dt = datetime.fromisoformat(sent_at.replace("Z", ""))
+                days = (now - sent_dt).days
+            except (ValueError, TypeError):
+                continue
+
+            entry = {**o, "days_since": days, "campaign_id": camp.get("id", "")}
+            if days <= 7:
+                no_response.append(entry)
+            elif days <= 21:
+                second_followup.append(entry)
+            else:
+                stale.append(entry)
+
+    # Sort by days since sent (longest first for urgency)
+    no_response.sort(key=lambda x: x.get("days_since", 0), reverse=True)
+    second_followup.sort(key=lambda x: x.get("days_since", 0), reverse=True)
+    stale.sort(key=lambda x: x.get("days_since", 0), reverse=True)
+
+    return {
+        "no_response": no_response,
+        "second_followup": second_followup,
+        "stale": stale,
+        "responded": responded,
+    }
+
+
+def score_prospect_weighted(prospect: dict, credentials: dict = None) -> float:
+    """Score a prospect with weighted factors for prioritization.
+    Higher = more actionable target.
+    Weights: past_performance (we've sold to them) > spend_level > recency > response_history
+    """
+    score = 0.0
+    creds = credentials or get_reytech_credentials()
+    served = set(a.lower() for a in creds.get("agency_list", []))
+
+    agency = (prospect.get("agency", "") or "").lower()
+    spend = float(prospect.get("total_spend", 0) or prospect.get("estimated_spend", 0) or 0)
+
+    # Past performance bonus (we've worked with this agency before)
+    if agency and agency in served:
+        score += 40  # Big bonus for existing relationship
+
+    # Spend level (higher spend = bigger opportunity)
+    if spend >= 100000:
+        score += 30
+    elif spend >= 50000:
+        score += 25
+    elif spend >= 10000:
+        score += 15
+    elif spend >= 1000:
+        score += 5
+
+    # Recency of last purchase (longer ago = they may need us)
+    last_purchase = prospect.get("last_purchase", "") or prospect.get("last_po_date", "")
+    if last_purchase:
+        try:
+            lp_dt = datetime.fromisoformat(last_purchase.replace("Z", ""))
+            months_ago = (datetime.now() - lp_dt).days / 30
+            if months_ago >= 12:
+                score += 20  # Haven't bought in a year+
+            elif months_ago >= 6:
+                score += 10
+        except (ValueError, TypeError):
+            pass
+
+    # Number of matching categories
+    cats = prospect.get("categories_matched", [])
+    score += min(len(cats) * 3, 15)
+
+    # Has email (actionable)
+    if prospect.get("buyer_email"):
+        score += 5
+
+    # Status penalties
+    status = prospect.get("outreach_status", "new")
+    if status == "bounced":
+        score -= 50
+    elif status == "dead":
+        score -= 40
+    elif status == "responded" or status == "won":
+        score -= 10  # Already engaging
+
+    return round(score, 1)
+
+
 def _get_served_agencies() -> list:
     """Pull agencies Reytech has served from quotes + SCPRS history."""
     agencies = set()
@@ -442,8 +633,8 @@ def _build_po_link(prospect: dict) -> str:
     return f'<a href="{SCPRS_SEARCH_URL}" style="color:#1a73e8;text-decoration:underline">recent purchases in your categories</a>'
 
 
-def build_outreach_email(prospect: dict, served_agencies: list = None) -> dict:
-    """Build personalized HTML email for a prospect.
+def build_outreach_email(prospect: dict, served_agencies: list = None, template_key: str = "initial_outreach") -> dict:
+    """Build personalized HTML email for a prospect with quantified Reytech credentials.
     Returns {subject, body_html, body_plain}."""
     name = prospect.get("buyer_name", "")
     first_name = name.split()[0] if name else ""
@@ -457,14 +648,23 @@ def build_outreach_email(prospect: dict, served_agencies: list = None) -> dict:
     po_link = _build_po_link(prospect)
     reytech_link = f'<a href="{SCPRS_SEARCH_URL}" style="color:#1a73e8;text-decoration:underline" title="Search \'Reytech\' as Supplier on SCPRS to see our past performance">Reytech Inc.</a>'
 
+    # Get quantified credentials
+    creds = get_reytech_credentials()
+    total_sales_short = f"{creds['total_sales']:,.0f}" if creds['total_sales'] >= 1000 else f"{creds['total_sales']:.0f}"
+    calvet_line = ""
+    if creds["calvet_pos"] > 0:
+        calvet_line = f" We have a strong track record with CalVet, having fulfilled {creds['calvet_pos']} POs totaling ${creds['calvet_amount']:,.0f}."
+
     subject = f"Reytech Inc. — Competitive Pricing for {agency}" if agency != "your agency" else "Reytech Inc. — CA State Vendor Introduction"
 
     body_html = f"""<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#222">
 <p>Hi {name_greeting},</p>
 
-<p>I'm the owner of {reytech_link}. We've been supporting {agencies_mention} as a responsive and reliable supplier. We are able to source many of the supplies you are purchasing, an example being {po_link}.</p>
+<p>I'm the owner of {reytech_link}. Since {creds['since_year']}, we've fulfilled <strong>{creds['total_pos']}+</strong> purchase orders totaling <strong>${total_sales_short}</strong> across <strong>{creds['agencies_served']}</strong> California state agencies.{' ' + calvet_line if calvet_line else ''}</p>
 
-<p>Are you able to add us to the RFQ distribution list for future opportunities? Thank you kindly and I look forward to supporting {agency}.</p>
+<p>I noticed {agency} recently purchased {po_link}. We carry these items and can provide competitive pricing.</p>
+
+<p>Could you add <a href="mailto:sales@reytechinc.com" style="color:#1a73e8">sales@reytechinc.com</a> to the RFQ distribution list for future opportunities? We are SB/DVBE certified and ready to quote on your next procurement.</p>
 
 <p style="margin-top:24px">Respectfully,</p>
 <p style="margin:0"><strong>Mike</strong><br>
@@ -473,7 +673,7 @@ Reytech Inc. | SB/DVBE Certified<br>
 <a href="https://www.reytechinc.com" style="color:#1a73e8">www.reytechinc.com</a></p>
 </div>"""
 
-    # Plain text fallback
+    # Plain text version from template
     po_ref = ""
     pos = prospect.get("purchase_orders", [])
     if pos and pos[0].get("po_number"):
@@ -483,20 +683,18 @@ Reytech Inc. | SB/DVBE Certified<br>
     else:
         po_ref = "recent purchases in your categories"
 
-    body_plain = f"""Hi {name_greeting},
-
-I'm the owner of Reytech Inc. We've been supporting {agencies_mention} as a responsive and reliable supplier. We are able to source many of the supplies you are purchasing, an example being {po_ref}.
-
-You can verify our past performance on SCPRS: {SCPRS_SEARCH_URL} (search "Reytech" as Supplier)
-
-Are you able to add us to the RFQ distribution list for future opportunities? Thank you kindly and I look forward to supporting {agency}.
-
-Respectfully,
-
-Mike
-Reytech Inc. | SB/DVBE Certified
-sales@reytechinc.com | 949-229-1575
-www.reytechinc.com"""
+    template = EMAIL_TEMPLATES.get(template_key, EMAIL_TEMPLATES["initial_outreach"])
+    body_plain = template.format(
+        name_greeting=f" {name_greeting}" if name_greeting != "there" else "",
+        agency=agency,
+        items_mention=po_ref,
+        since_year=creds["since_year"],
+        total_pos=creds["total_pos"],
+        total_items=creds["total_items"],
+        total_sales_short=total_sales_short,
+        agencies_served=creds["agencies_served"],
+        calvet_line=calvet_line,
+    )
 
     return {"subject": subject, "body_html": body_html, "body_plain": body_plain}
 
@@ -505,9 +703,11 @@ www.reytechinc.com"""
 EMAIL_TEMPLATES = {
     "distro_list": """Hi{name_greeting},
 
-I'm the owner of Reytech Inc. We've been supporting {agency} and other CA state agencies as a responsive and reliable supplier. We are able to source many of the supplies you are purchasing, an example being {items_mention}.
+I'm the owner of Reytech Inc. Since {since_year}, we've fulfilled {total_pos}+ purchase orders across {agencies_served} California state agencies, delivering {total_items}+ line items.{calvet_line}
 
-Are you able to add us to the RFQ distribution list for future opportunities? Thank you kindly and I look forward to supporting {agency}.
+We are able to competitively source many of the supplies {agency} purchases, including {items_mention}.
+
+Could you add sales@reytechinc.com to the RFQ distribution list for future opportunities? We are SB/DVBE certified and ready to quote on your next procurement.
 
 Respectfully,
 
@@ -518,11 +718,13 @@ www.reytechinc.com""",
 
     "initial_outreach": """Hi{name_greeting},
 
-I'm the owner of Reytech Inc. We've been supporting {agency} and other CA state agencies as a responsive and reliable supplier. We are able to source many of the supplies you are purchasing, an example being {items_mention}.
+I'm the owner of Reytech Inc. Since {since_year}, we've fulfilled {total_pos}+ purchase orders totaling ${total_sales_short} across {agencies_served} California state agencies.{calvet_line}
+
+I noticed {agency} recently purchased {items_mention}. We carry these items and can provide competitive pricing.
 
 You can verify our past performance on SCPRS: https://caleprocure.ca.gov/pages/SCPRSSearch/scprs-search.aspx (search "Reytech" as Supplier)
 
-Are you able to add us to the RFQ distribution list for future opportunities? Thank you kindly and I look forward to supporting {agency}.
+Could you add sales@reytechinc.com to the RFQ distribution list? We'd love the opportunity to quote on your next procurement.
 
 Respectfully,
 
@@ -533,11 +735,43 @@ www.reytechinc.com""",
 
     "follow_up": """Hi{name_greeting},
 
-Following up on my recent email — I'm the owner of Reytech Inc. and we'd love the chance to support {agency}. We specialize in {items_mention} for California state agencies and are a certified SB/DVBE vendor.
+Following up on my recent email — I'm the owner of Reytech Inc. We've been serving California state agencies since {since_year} with {total_pos}+ POs fulfilled.
 
-Are you able to add us to the RFQ distribution list? We're ready to quote on your next procurement.
+We specialize in {items_mention} and would love to support {agency}. We're a certified SB/DVBE vendor ready to quote competitively.
+
+Could you add sales@reytechinc.com to your RFQ distribution list? We're ready for your next procurement.
 
 Feel free to reply or call/text 949-229-1575.
+
+Respectfully,
+
+Mike
+Reytech Inc. | SB/DVBE Certified
+sales@reytechinc.com | 949-229-1575""",
+
+    "second_follow_up": """Hi{name_greeting},
+
+I wanted to reach out one more time — Reytech Inc. has been supporting CA state agencies since {since_year} and we'd appreciate the chance to earn {agency}'s business.
+
+We have a strong track record with {total_pos}+ purchase orders fulfilled{calvet_line} and we can competitively price items like {items_mention}.
+
+If there's a better contact for procurement, I'd be grateful for the referral. Otherwise, please add sales@reytechinc.com to your RFQ distribution list.
+
+Thank you for your time.
+
+Respectfully,
+
+Mike
+Reytech Inc. | SB/DVBE Certified
+sales@reytechinc.com | 949-229-1575""",
+
+    "past_customer_reactivation": """Hi{name_greeting},
+
+I hope you're doing well. It's been a while since {agency} last ordered from Reytech Inc. and I wanted to reach out to see if there are any upcoming procurements we can support.
+
+Since our last order together, we've expanded our catalog and now carry {total_items}+ items across {agencies_served} agencies. We remain SB/DVBE certified and competitively priced.
+
+If your RFQ list needs updating, please add sales@reytechinc.com. We'd love to earn your business again.
 
 Respectfully,
 
@@ -549,7 +783,7 @@ sales@reytechinc.com | 949-229-1575""",
 
 Thank you for the award on {items_mention}. Your order is being processed and you'll receive tracking information once shipped.
 
-We look forward to continuing to support {agency}. For your next procurement, please keep us on your distribution list.
+We look forward to continuing to support {agency}. For your next procurement, please keep sales@reytechinc.com on your distribution list.
 
 Respectfully,
 
@@ -684,6 +918,12 @@ def launch_distro_campaign(
     # ── Build campaign ─────────────────────────────────────────────────────
     campaign_id = f"DISTRO-{datetime.now().strftime('%Y%m%d-%H%M')}"
     email_template = EMAIL_TEMPLATES.get(template, EMAIL_TEMPLATES["distro_list"])
+    creds = get_reytech_credentials()
+    total_sales_short = f"{creds['total_sales']:,.0f}" if creds['total_sales'] >= 1000 else f"{creds['total_sales']:.0f}"
+    calvet_line = ""
+    if creds["calvet_pos"] > 0:
+        calvet_line = f" We have a strong track record with CalVet, having fulfilled {creds['calvet_pos']} POs totaling ${creds['calvet_amount']:,.0f}."
+
     campaign = {
         "id": campaign_id,
         "type": "distro_list_phase1",
@@ -691,6 +931,7 @@ def launch_distro_campaign(
         "dry_run": dry_run,
         "template": template,
         "context_summary": ctx_summary[:500],
+        "credentials": creds,
         "outreach": [],
     }
     staged = 0
@@ -716,12 +957,27 @@ def launch_distro_campaign(
         else:
             subject = f"Reytech Inc. — CA State Vendor Introduction — SB/DVBE Certified"
 
-        body = email_template.format(
-            name_greeting=name_greeting,
-            agency=agency,
-            items_mention=items_mention,
-            purchase_date=purchase_date,
-        )
+        try:
+            body = email_template.format(
+                name_greeting=name_greeting,
+                agency=agency,
+                items_mention=items_mention,
+                purchase_date=purchase_date,
+                since_year=creds["since_year"],
+                total_pos=creds["total_pos"],
+                total_items=creds["total_items"],
+                total_sales_short=total_sales_short,
+                agencies_served=creds["agencies_served"],
+                calvet_line=calvet_line,
+            )
+        except KeyError:
+            # Fallback for templates without credential placeholders
+            body = email_template.format(
+                name_greeting=name_greeting,
+                agency=agency,
+                items_mention=items_mention,
+                purchase_date=purchase_date,
+            )
 
         entry = {
             "buyer_id": b["id"],
@@ -751,6 +1007,7 @@ def launch_distro_campaign(
                     sent += 1
                     log.info("Distro email SENT → %s (%s)", b["email"], agency)
                     _add_event(b["id"], "distro_email_sent", f"Phase 1 distro campaign: {subject}")
+                    _log_email_to_crm(b["id"], b["email"], subject, body, agency)
                     time.sleep(1.2)  # rate limit
                 else:
                     entry["error"] = "GMAIL_ADDRESS / GMAIL_PASSWORD not set in Railway env"
@@ -875,6 +1132,7 @@ def launch_outreach(max_prospects=50, dry_run=True):
                     entry["email_sent_at"] = datetime.now().isoformat()
                     _update_prospect_status(p["id"], "emailed")
                     _add_event(p["id"], "email_sent", f"Sent: {subject}")
+                    _log_email_to_crm(p["id"], p["buyer_email"], subject, body_plain, agency)
                     sent += 1
                     log.info(f"Growth email → {p['buyer_email']} ({agency})")
                     time.sleep(1)
@@ -1036,6 +1294,54 @@ def _add_event(prospect_id: str, event_type: str, detail: str = "", metadata: di
         "metadata": metadata or {},
     })
     _save_timeline(timeline)
+
+
+def _log_email_to_crm(prospect_id: str, email: str, subject: str, body: str, agency: str = ""):
+    """Log an outreach email send to CRM contacts for unified activity tracking."""
+    try:
+        crm_path = os.path.join(DATA_DIR, "crm_contacts.json")
+        contacts = {}
+        if os.path.exists(crm_path):
+            with open(crm_path) as f:
+                contacts = json.load(f)
+        if prospect_id in contacts:
+            contacts[prospect_id].setdefault("activity", []).append({
+                "event_type": "email_sent",
+                "detail": f"Growth outreach: {subject}",
+                "actor": "growth_agent",
+                "timestamp": datetime.now().isoformat(),
+                "metadata": {"subject": subject, "to": email, "source": "growth_campaign"},
+            })
+            contacts[prospect_id]["updated_at"] = datetime.now().isoformat()
+            with open(crm_path, "w") as f:
+                json.dump(contacts, f, indent=2, default=str)
+    except Exception as e:
+        log.debug("CRM log suppressed: %s", e)
+
+    # Also add to outbox for unified tracking
+    try:
+        outbox_path = os.path.join(DATA_DIR, "email_outbox.json")
+        outbox = []
+        if os.path.exists(outbox_path):
+            with open(outbox_path) as f:
+                outbox = json.load(f)
+        outbox.append({
+            "id": f"growth-{prospect_id}-{datetime.now().strftime('%Y%m%d%H%M')}",
+            "to": email,
+            "subject": subject,
+            "body": body,
+            "status": "sent",
+            "created_at": datetime.now().isoformat(),
+            "sent_at": datetime.now().isoformat(),
+            "source": "growth_campaign",
+            "prospect_id": prospect_id,
+            "agency": agency,
+            "metadata": {"type": "growth_outreach"},
+        })
+        with open(outbox_path, "w") as f:
+            json.dump(outbox, f, indent=2, default=str)
+    except Exception as e:
+        log.debug("Outbox log suppressed: %s", e)
 
 
 def _update_prospect_status(prospect_id: str, new_status: str):

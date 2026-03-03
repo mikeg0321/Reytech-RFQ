@@ -2,369 +2,401 @@
 {% block title %}Growth Engine — Reytech{% endblock %}
 
 {% block content %}
+<style>
+ .card{background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:18px;margin-bottom:14px}
+ .card h3{font-size:15px;margin-bottom:14px;display:flex;align-items:center;gap:8px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--tx2)}
+ .g-btn{padding:10px 18px;border-radius:8px;border:1px solid var(--bd);background:var(--sf2);color:var(--tx);cursor:pointer;font-size:14px;font-weight:600;transition:.15s;text-decoration:none;display:inline-flex;align-items:center;gap:6px}
+ .g-btn:hover{background:var(--ac);color:#000;border-color:var(--ac)}
+ .g-btn-go{background:rgba(52,211,153,.12);color:#3fb950;border-color:rgba(52,211,153,.3)}
+ .g-btn-warn{background:rgba(210,153,34,.12);color:#d29922;border-color:rgba(210,153,34,.3)}
+ .g-btn-red{background:rgba(248,113,113,.12);color:#f85149;border-color:rgba(248,113,113,.3)}
+ .g-btn-purple{background:rgba(167,139,250,.12);color:#a78bfa;border-color:rgba(167,139,250,.3)}
+ .act-btn{background:none;border:none;cursor:pointer;font-size:16px;padding:2px 6px;opacity:.7;transition:.15s}
+ .act-btn:hover{opacity:1}
+ table{width:100%;border-collapse:collapse;font-size:15px}
+ th{text-align:left;padding:10px;border-bottom:2px solid var(--bd);font-size:14px;color:var(--tx2);text-transform:uppercase;letter-spacing:.3px}
+ td{padding:10px;border-bottom:1px solid var(--bd);font-size:15px}
+ .mono{font-family:'JetBrains Mono',monospace}
+ .stat-box{background:var(--sf2);border-radius:10px;padding:16px;text-align:center}
+ .stat-label{font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
+ .stat-value{font-size:28px;font-weight:800;font-family:'JetBrains Mono',monospace}
+ .cred-banner{background:linear-gradient(135deg,rgba(79,140,255,.08),rgba(52,211,153,.08));border:1px solid rgba(79,140,255,.2);border-radius:12px;padding:24px;margin-bottom:18px}
+ .fu-row{display:flex;align-items:center;gap:12px;padding:10px 12px;border-bottom:1px solid rgba(46,51,69,.4);border-radius:6px;transition:.15s}
+ .fu-row:hover{background:var(--sf2)}
+ .fu-days{display:inline-block;padding:3px 10px;border-radius:10px;font-size:13px;font-weight:700;font-family:'JetBrains Mono',monospace;min-width:40px;text-align:center}
+ .template-preview{background:var(--sf2);border:1px solid var(--bd);border-radius:8px;padding:16px;font-size:14px;line-height:1.6;white-space:pre-wrap;max-height:280px;overflow-y:auto;font-family:'DM Sans',sans-serif}
+ #progress-bar{display:{{ 'block' if progress_visible else 'none' }};background:rgba(79,140,255,.1);border:1px solid rgba(79,140,255,.25);padding:12px 16px;border-radius:8px;margin-bottom:14px;font-size:15px;font-weight:600;color:var(--ac)}
+</style>
 
-    <style>
-     .card {background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px;margin-bottom:16px}
-     .card h3 {font-size:15px;margin-bottom:12px;display:flex;align-items:center;gap:8px}
-     .g-btn {padding:8px 16px;border-radius:8px;border:1px solid var(--bd);background:var(--sf2);color:var(--tx);cursor:pointer;font-size:13px;font-weight:600;transition:all .15s}
-     .g-btn:hover {background:var(--ac);color:#000;border-color:var(--ac)}
-     .g-btn-go {background:rgba(52,211,153,.12);color:#3fb950;border-color:rgba(52,211,153,.3)}
-     .g-btn-warn {background:rgba(210,153,34,.12);color:#d29922;border-color:rgba(210,153,34,.3)}
-     .g-btn-red {background:rgba(248,113,113,.12);color:#f85149;border-color:rgba(248,113,113,.3)}
-     .act-btn {background:none;border:none;cursor:pointer;font-size:14px;padding:2px 4px;opacity:.7;transition:opacity .15s}
-     .act-btn:hover {opacity:1}
-     table {width:100%;border-collapse:collapse;font-size:14px}
-     th {text-align:left;padding:6px 8px;border-bottom:2px solid var(--bd);font-size:14px;color:var(--tx2);text-transform:uppercase}
-     td {padding:6px 8px;border-bottom:1px solid var(--bd)}
-     .mono {font-family:'JetBrains Mono',monospace}
-     #progress-bar {display:{{ 'block' if progress_visible else 'none' }};background:var(--sf2);padding:10px;border-radius:8px;margin-bottom:12px;font-size:14px}
-    </style>
+<!-- REYTECH CREDENTIALS BANNER -->
+<div class="cred-banner">
+ <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+  <div>
+   <h1 style="font-size:26px;font-weight:700;margin:0 0 6px 0">🚀 Growth Engine</h1>
+   <div style="font-size:15px;color:var(--tx2)">Find buyers → Get on RFQ lists → Win more bids</div>
+  </div>
+  <div style="display:flex;gap:10px;flex-wrap:wrap">
+   <button class="g-btn g-btn-go" style="font-size:15px;padding:12px 22px" onclick="createCampaign()">🚀 Create Campaign</button>
+   <button class="g-btn" onclick="runStep('/api/growth/pull-history')">📥 Pull History</button>
+   <button class="g-btn" onclick="runStep('/api/growth/find-buyers')">🔍 Find Buyers</button>
+  </div>
+ </div>
+ <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-top:18px">
+  <div style="text-align:center">
+   <div style="font-size:32px;font-weight:800;color:var(--ac);font-family:'JetBrains Mono',monospace">${{ "{:,.0f}".format(creds.total_sales) }}</div>
+   <div style="font-size:13px;color:var(--tx2);text-transform:uppercase">Total Sales Since {{ creds.since_year }}</div>
+  </div>
+  <div style="text-align:center">
+   <div style="font-size:32px;font-weight:800;color:#3fb950;font-family:'JetBrains Mono',monospace">{{ creds.total_pos }}+</div>
+   <div style="font-size:13px;color:var(--tx2);text-transform:uppercase">Purchase Orders</div>
+  </div>
+  <div style="text-align:center">
+   <div style="font-size:32px;font-weight:800;color:#a78bfa;font-family:'JetBrains Mono',monospace">{{ creds.total_items }}+</div>
+   <div style="font-size:13px;color:var(--tx2);text-transform:uppercase">Line Items</div>
+  </div>
+  <div style="text-align:center">
+   <div style="font-size:32px;font-weight:800;color:#fbbf24;font-family:'JetBrains Mono',monospace">{{ creds.agencies_served }}</div>
+   <div style="font-size:13px;color:var(--tx2);text-transform:uppercase">CA Agencies Served</div>
+  </div>
+  {% if creds.calvet_pos > 0 %}
+  <div style="text-align:center">
+   <div style="font-size:32px;font-weight:800;color:#f87171;font-family:'JetBrains Mono',monospace">${{ "{:,.0f}".format(creds.calvet_amount) }}</div>
+   <div style="font-size:13px;color:var(--tx2);text-transform:uppercase">CalVet ({{ creds.calvet_pos }} POs)</div>
+  </div>
+  {% else %}
+  <div style="text-align:center">
+   <div style="font-size:32px;font-weight:800;color:#f87171;font-family:'JetBrains Mono',monospace">SB/DVBE</div>
+   <div style="font-size:13px;color:var(--tx2);text-transform:uppercase">Certified Vendor</div>
+  </div>
+  {% endif %}
+ </div>
+</div>
 
-    <h1>🚀 Growth Engine</h1>
-    <div style="color:var(--tx2);font-size:13px;margin-bottom:16px">
-     SCPRS-driven proactive outreach — mine Reytech history → find all buyers → email → voice follow-up
+<div id="progress-bar">
+ <span id="progress-text">{{ progress_text }}</span>
+</div>
+
+<!-- OUTREACH FUNNEL STATS -->
+<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:16px">
+ <div class="stat-box"><div class="stat-label">Prospects</div><div class="stat-value" style="color:#fbbf24">{{ p_total }}</div></div>
+ <div class="stat-box"><div class="stat-label">📧 Emailed</div><div class="stat-value" style="color:#58a6ff">{{ total_emailed }}</div></div>
+ <div class="stat-box"><div class="stat-label">✅ Responded</div><div class="stat-value" style="color:#3fb950">{{ total_responded }}</div></div>
+ <div class="stat-box"><div class="stat-label">⛔ Bounced</div><div class="stat-value" style="color:#f85149">{{ total_bounced }}</div></div>
+ <div class="stat-box"><div class="stat-label">📞 Called</div><div class="stat-value" style="color:#a78bfa">{{ total_called }}</div></div>
+</div>
+
+<!-- FOLLOW-UP COMMAND CENTER -->
+<div class="card">
+ <h3>📋 Follow-Up Center</h3>
+ <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px">
+  <!-- No Response (3-7 days) -->
+  <div>
+   <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+    <span style="font-size:15px;font-weight:700;color:#fbbf24">⏰ 1st Follow-Up Due</span>
+    <span style="background:rgba(251,191,36,.15);color:#fbbf24;padding:3px 10px;border-radius:10px;font-size:14px;font-weight:700">{{ followups.no_response|length }}</span>
+   </div>
+   <div style="max-height:250px;overflow-y:auto">
+   {% for o in followups.no_response[:15] %}
+   <div class="fu-row">
+    <span class="fu-days" style="background:rgba(251,191,36,.15);color:#fbbf24">{{ o.days_since }}d</span>
+    <div style="flex:1;min-width:0">
+     <div style="font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ o.agency or '—' }}</div>
+     <div style="font-size:13px;color:var(--tx2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ o.email }}</div>
     </div>
+    <button class="act-btn" onclick="sendFollowUp('{{ o.email }}','{{ o.agency }}','{{ o.name }}','follow_up')" title="Send follow-up" style="color:#fbbf24">📧</button>
+    <button class="act-btn" onclick="markResponded('{{ o.get('prospect_id','') or o.get('buyer_id','') }}')" title="Mark responded" style="color:#3fb950">✅</button>
+   </div>
+   {% endfor %}
+   {% if not followups.no_response %}<div style="color:var(--tx2);font-size:14px;padding:8px">No pending follow-ups</div>{% endif %}
+   </div>
+  </div>
 
-    {% macro step_tag(done, label) %}
-    {% set c = '#3fb950' if done else '#8b949e' %}
-    {% set bg = 'rgba(52,211,153,.1)' if done else 'rgba(139,148,160,.05)' %}
-    <span style="display:inline-block;padding:3px 10px;border-radius:12px;font-size:14px;font-weight:600;color:{{ c }};background:{{ bg }}">{{ '✅' if done else '⬜' }} {{ label }}</span>
-    {% endmacro %}
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">{{ step_tag(h_total_pos > 0, 'History: ' ~ h_total_pos ~ ' POs') }} → {{ step_tag(c_total > 0, 'Categories: ' ~ c_total) }} → {{ step_tag(p_total > 0, 'Prospects: ' ~ p_total) }} → {{ step_tag(o_total_sent > 0, 'Emailed: ' ~ o_total_sent) }}</div>
-
-    <div id="progress-bar">
-     <span id="progress-text">{{ progress_text }}</span>
+  <!-- 2nd Follow-Up (8-21 days) -->
+  <div>
+   <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+    <span style="font-size:15px;font-weight:700;color:#f0883e">🔁 2nd Follow-Up</span>
+    <span style="background:rgba(240,136,62,.15);color:#f0883e;padding:3px 10px;border-radius:10px;font-size:14px;font-weight:700">{{ followups.second_followup|length }}</span>
+   </div>
+   <div style="max-height:250px;overflow-y:auto">
+   {% for o in followups.second_followup[:15] %}
+   <div class="fu-row">
+    <span class="fu-days" style="background:rgba(240,136,62,.15);color:#f0883e">{{ o.days_since }}d</span>
+    <div style="flex:1;min-width:0">
+     <div style="font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ o.agency or '—' }}</div>
+     <div style="font-size:13px;color:var(--tx2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ o.email }}</div>
     </div>
+    <button class="act-btn" onclick="sendFollowUp('{{ o.email }}','{{ o.agency }}','{{ o.name }}','second_follow_up')" title="Send 2nd follow-up" style="color:#f0883e">📧</button>
+    <button class="act-btn" onclick="markDead('{{ o.get('prospect_id','') or o.get('buyer_id','') }}')" title="Mark dead" style="color:#f85149">💀</button>
+   </div>
+   {% endfor %}
+   {% if not followups.second_followup %}<div style="color:var(--tx2);font-size:14px;padding:8px">None due</div>{% endif %}
+   </div>
+  </div>
 
-    <div class="card">
-     <h3>⚡ Actions</h3>
-     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
-      <button class="g-btn g-btn-go" style="font-size:14px;padding:10px 20px" onclick="createCampaign()">🚀 Create Campaign</button>
-      <button class="g-btn" onclick="autoStartNurture()" title="Start drip sequences for all new leads with email">🌱 Auto-Nurture New Leads</button>
-      <button class="g-btn" onclick="rescoreLeads()" title="Recalculate lead scores with latest activity">📊 Rescore Leads</button>
-      <button class="g-btn g-btn-warn" onclick="viewPipeline()" title="View unified lead pipeline">🔄 Lead Pipeline</button>
-     </div>
-     <div style="font-size:14px;color:var(--tx2);margin-bottom:12px">
-      Mines SCPRS for all buyers → scores by opportunity → emails top prospects → auto-schedules voice follow-up in 3-5 days
-     </div>
-     <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <button class="g-btn" onclick="runStep('/api/growth/pull-history')">📥 Pull Reytech History</button>
-      <button class="g-btn" onclick="runStep('/api/growth/find-buyers')">🔍 Find Buyers</button>
-      <button class="g-btn" onclick="runStep('/api/growth/outreach?dry_run=true')">👁️ Preview Emails</button>
-      <button class="g-btn g-btn-warn" onclick="if(confirm('Send real emails to prospects?')) runStep('/api/growth/outreach?dry_run=false')">📧 Send Emails</button>
-      <button class="g-btn" onclick="runStep('/api/growth/follow-ups')">📋 Follow-Ups</button>
-      <button class="g-btn" onclick="if(confirm('Auto-dial non-responders?')) runStep('/api/growth/voice-follow-up')">📞 Voice Follow-Up</button>
-      <button class="g-btn" onclick="runStep('/api/growth/scan-bounces')">🔍 Scan Bounces</button>
-      <button class="g-btn" onclick="runStep('/api/growth/campaigns')">📊 Stats</button>
-     </div>
+  <!-- Stale (21+ days) -->
+  <div>
+   <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+    <span style="font-size:15px;font-weight:700;color:#8b949e">📭 Stale (21+ days)</span>
+    <span style="background:rgba(139,148,158,.15);color:#8b949e;padding:3px 10px;border-radius:10px;font-size:14px;font-weight:700">{{ followups.stale|length }}</span>
+   </div>
+   <div style="max-height:250px;overflow-y:auto">
+   {% for o in followups.stale[:15] %}
+   <div class="fu-row">
+    <span class="fu-days" style="background:rgba(139,148,158,.15);color:#8b949e">{{ o.days_since }}d</span>
+    <div style="flex:1;min-width:0">
+     <div style="font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ o.agency or '—' }}</div>
+     <div style="font-size:13px;color:var(--tx2)">{{ o.email }}</div>
     </div>
+    <button class="act-btn" onclick="sendFollowUp('{{ o.email }}','{{ o.agency }}','{{ o.name }}','past_customer_reactivation')" title="Reactivation email" style="color:#8b949e">📧</button>
+   </div>
+   {% endfor %}
+   {% if not followups.stale %}<div style="color:var(--tx2);font-size:14px;padding:8px">None stale</div>{% endif %}
+   </div>
+  </div>
+ </div>
+</div>
 
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
-     <div class="card" style="text-align:center">
-      <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:1px">Reytech POs</div>
-      <div style="font-size:28px;font-weight:700;color:var(--ac)">{{ h_total_pos }}</div>
-      <div style="font-size:13px;color:var(--tx2)">{{ h_total_items }} items</div>
-     </div>
-     <div class="card" style="text-align:center">
-      <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:1px">Categories</div>
-      <div style="font-size:28px;font-weight:700;color:#bc8cff">{{ c_total }}</div>
-      <div style="font-size:13px;color:var(--tx2)">product groups</div>
-     </div>
-     <div class="card" style="text-align:center">
-      <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:1px">Prospects</div>
-      <div style="font-size:28px;font-weight:700;color:#d29922">{{ p_total }}</div>
-      <div style="font-size:13px;color:var(--tx2)">buyers found</div>
-     </div>
-     <div class="card" style="text-align:center">
-      <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:1px">Outreach</div>
-      <div style="font-size:28px;font-weight:700;color:#3fb950">{{ o_total_sent }}</div>
-      <div style="font-size:13px;color:var(--tx2)">{{ total_no_response }} pending follow-up</div>
-     </div>
-    </div>
+<!-- OUTREACH ACTIONS + TEMPLATE PREVIEW -->
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+ <div class="card">
+  <h3>📧 Outreach Actions</h3>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+   <button class="g-btn" onclick="runStep('/api/growth/outreach?dry_run=true')">👁️ Preview Emails</button>
+   <button class="g-btn g-btn-warn" onclick="if(confirm('Send real emails to prospects?')) runStep('/api/growth/outreach?dry_run=false')">📧 Send Emails</button>
+   <button class="g-btn" onclick="runStep('/api/growth/follow-ups')">📋 Check Follow-Ups</button>
+   <button class="g-btn" onclick="if(confirm('Auto-dial non-responders?')) runStep('/api/growth/voice-follow-up')">📞 Voice Follow-Up</button>
+   <button class="g-btn" onclick="runStep('/api/growth/scan-bounces')">🔍 Scan Bounces</button>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+   <button class="g-btn" onclick="autoStartNurture()">🌱 Auto-Nurture New Leads</button>
+   <button class="g-btn" onclick="rescoreLeads()">📊 Rescore Leads</button>
+   <button class="g-btn g-btn-purple" onclick="viewPipeline()">🔄 Lead Pipeline</button>
+  </div>
+  <div style="font-size:14px;color:var(--tx2)">
+   <div style="margin-bottom:6px"><strong>Template:</strong>
+    <select id="template-select" onchange="previewTemplate()" style="background:var(--sf2);border:1px solid var(--bd);border-radius:6px;padding:6px 10px;color:var(--tx);font-size:14px;margin-left:6px">
+     {% for tk in template_keys %}
+     <option value="{{ tk }}">{{ tk.replace('_',' ').title() }}</option>
+     {% endfor %}
+    </select>
+   </div>
+   <div style="margin-bottom:6px"><strong>Emails always ask:</strong> Add <span style="color:var(--ac)">sales@reytechinc.com</span> to RFQ list</div>
+   <div><strong>All sends:</strong> Logged to CRM contact + outbox</div>
+  </div>
+ </div>
 
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
-     <div class="card" style="text-align:center">
-      <div style="font-size:13px;color:var(--tx2);text-transform:uppercase">📧 Emailed</div>
-      <div style="font-size:22px;font-weight:700;color:#58a6ff">{{ total_emailed }}</div>
-     </div>
-     <div class="card" style="text-align:center">
-      <div style="font-size:13px;color:var(--tx2);text-transform:uppercase">✅ Responded</div>
-      <div style="font-size:22px;font-weight:700;color:#3fb950">{{ total_responded }}</div>
-     </div>
-     <div class="card" style="text-align:center">
-      <div style="font-size:13px;color:var(--tx2);text-transform:uppercase">⛔ Bounced</div>
-      <div style="font-size:22px;font-weight:700;color:#f85149">{{ total_bounced }}</div>
-     </div>
-     <div class="card" style="text-align:center">
-      <div style="font-size:13px;color:var(--tx2);text-transform:uppercase">📞 Called</div>
-      <div style="font-size:22px;font-weight:700;color:#bc8cff">{{ total_called }}</div>
-     </div>
-    </div>
+ <div class="card">
+  <h3>📝 Template Preview</h3>
+  <div id="template-preview" class="template-preview">Select a template to preview...</div>
+ </div>
+</div>
 
-    {% if cat_items %}
-<div class="card"><h3>📂 Item Categories</h3><table><thead><tr><th>Category</th><th>Items</th><th>POs</th><th>Total Value</th><th>Sample Items</th></tr></thead><tbody>
-{% for cat in cat_items %}
-<tr>
- <td style="font-weight:600">{{ cat.name }}</td>
- <td class="mono">{{ cat.items }}</td>
- <td class="mono">{{ cat.pos }}</td>
- <td class="mono" style="color:#3fb950">${{ "{:,.0f}".format(cat.value) }}</td>
- <td style="font-size:14px;color:var(--tx2)">{{ cat.sample }}</td>
-</tr>
-{% endfor %}
-</tbody></table></div>
-{% endif %}
-
-    {% if prospects %}
+<!-- PROSPECT PIPELINE (weighted) -->
+{% if prospects %}
 {% set status_cfg = {
   'new': ('⬜ New', '#d29922', 'rgba(210,153,34,.08)'),
   'emailed': ('📧 Emailed', '#58a6ff', 'rgba(88,166,255,.08)'),
-  'follow_up_due': ('⏰ Follow-Up Due', '#f0883e', 'rgba(240,136,62,.08)'),
+  'follow_up_due': ('⏰ Follow-Up', '#f0883e', 'rgba(240,136,62,.08)'),
   'called': ('📞 Called', '#bc8cff', 'rgba(188,140,255,.08)'),
   'responded': ('✅ Responded', '#3fb950', 'rgba(52,211,153,.08)'),
   'bounced': ('⛔ Bounced', '#f85149', 'rgba(248,113,113,.08)'),
   'dead': ('💀 Dead', '#8b949e', 'rgba(139,148,160,.08)'),
   'won': ('🏆 Won', '#3fb950', 'rgba(52,211,153,.15)'),
 } %}
-<div class="card"><h3>🎯 Prospect Pipeline ({{ prospect_count }})</h3><div style="max-height:500px;overflow:auto"><table><thead><tr><th>Agency</th><th>Buyer</th><th>Email</th><th>Phone</th><th>POs</th><th>Spend</th><th>Categories</th><th>Status</th><th>Actions</th></tr></thead><tbody>
-{% for pr in prospects[:100] %}
-{% set pid = pr.id|default('') %}
-{% set stat = pr.outreach_status|default('new') %}
-{% set cfg = status_cfg.get(stat, status_cfg['new']) %}
-{% set email = pr.buyer_email|default('') or '—' %}
-{% set name = pr.buyer_name|default('') or '—' %}
-<tr data-pid="{{ pid }}">
- <td style="font-weight:500"><a href="/growth/prospect/{{ pid }}" style="color:var(--ac);text-decoration:none">{{ pr.agency|default('—') }}</a></td>
- <td>{{ name }}</td>
- <td style="font-size:14px"><a href="mailto:{{ email }}" style="color:var(--ac);text-decoration:none" title="Open email to {{ name }}">{{ email }}</a></td>
- <td style="font-size:14px">{{ pr.buyer_phone|default('') or '—' }}</td>
- <td class="mono">{{ pr.purchase_orders|default([])|length }}</td>
- <td class="mono" style="color:#3fb950">${{ "{:,.0f}".format(pr.total_spend|default(0)) }}</td>
- <td style="font-size:14px">{{ (pr.categories_matched|default([]))[:2]|join(', ') }}</td>
- <td><span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:13px;font-weight:600;color:{{ cfg[1] }};background:{{ cfg[2] }}">{{ cfg[0] }}</span>{% if pr.nurture_active %}<span title="Nurture active: step {{ pr.nurture_steps|default(0) }}" style="margin-left:4px;font-size:14px;cursor:help">🌱</span>{% endif %}</td>
- <td style="white-space:nowrap">
-  {% if stat in ('emailed', 'follow_up_due') %}
-   <button onclick="markResponded('{{ pid }}')" class="act-btn" title="Mark responded" style="color:#3fb950">✅</button>
-   <button onclick="markBounced('{{ pid }}','{{ email }}')" class="act-btn" title="Mark bounced" style="color:#f85149">⛔</button>
-  {% elif stat == 'new' %}
-   <span style="color:var(--tx2);font-size:13px">awaiting email</span>
-  {% elif stat == 'responded' %}
-   <button onclick="markWon('{{ pid }}')" class="act-btn" title="Mark won" style="color:#3fb950">🏆</button>
-  {% endif %}
- </td>
-</tr>
-{% endfor %}
-</tbody></table></div></div>
+<div class="card">
+ <h3>🎯 Prospect Pipeline <span style="font-weight:400;font-size:14px;text-transform:none;letter-spacing:0;color:var(--tx2)">({{ prospect_count }} — sorted by opportunity score)</span></h3>
+ <div style="max-height:500px;overflow:auto"><table><thead><tr>
+  <th>Score</th><th>Agency</th><th>Buyer</th><th>Email</th><th>Spend</th><th>Categories</th><th>Status</th><th>Actions</th>
+ </tr></thead><tbody>
+ {% for pr in prospects[:100] %}
+ {% set pid = pr.id|default('') %}
+ {% set stat = pr.outreach_status|default('new') %}
+ {% set cfg = status_cfg.get(stat, status_cfg['new']) %}
+ {% set email = pr.buyer_email|default('') or '—' %}
+ {% set ws = pr.weighted_score|default(0) %}
+ <tr>
+  <td><span class="mono" style="font-weight:700;font-size:15px;color:{% if ws >= 50 %}#3fb950{% elif ws >= 30 %}#fbbf24{% else %}var(--tx2){% endif %}">{{ ws }}</span></td>
+  <td style="font-weight:600"><a href="/growth/prospect/{{ pid }}" style="color:var(--ac);text-decoration:none">{{ pr.agency|default('—') }}</a></td>
+  <td>{{ pr.buyer_name|default('—') }}</td>
+  <td style="font-size:14px;font-family:'JetBrains Mono',monospace"><a href="mailto:{{ email }}" style="color:var(--ac);text-decoration:none">{{ email }}</a></td>
+  <td class="mono" style="color:#3fb950">${{ "{:,.0f}".format(pr.total_spend|default(0)) }}</td>
+  <td style="font-size:14px">{{ (pr.categories_matched|default([]))[:2]|join(', ') }}</td>
+  <td><span style="display:inline-block;padding:3px 10px;border-radius:10px;font-size:13px;font-weight:600;color:{{ cfg[1] }};background:{{ cfg[2] }}">{{ cfg[0] }}</span></td>
+  <td style="white-space:nowrap">
+   {% if stat in ('new',) %}
+    <button onclick="sendFollowUp('{{ email }}','{{ pr.agency|default('') }}','{{ pr.buyer_name|default('') }}','distro_list')" class="act-btn" title="Draft email" style="color:#58a6ff">📧</button>
+   {% elif stat in ('emailed', 'follow_up_due') %}
+    <button onclick="markResponded('{{ pid }}')" class="act-btn" title="Mark responded" style="color:#3fb950">✅</button>
+    <button onclick="sendFollowUp('{{ email }}','{{ pr.agency|default('') }}','{{ pr.buyer_name|default('') }}','follow_up')" class="act-btn" title="Follow up" style="color:#fbbf24">📧</button>
+   {% elif stat == 'responded' %}
+    <button onclick="markWon('{{ pid }}')" class="act-btn" title="Mark won" style="color:#3fb950">🏆</button>
+   {% endif %}
+   <a href="/growth/prospect/{{ pid }}" class="act-btn" title="View details" style="color:var(--ac);text-decoration:none">👤</a>
+  </td>
+ </tr>
+ {% endfor %}
+ </tbody></table></div>
+</div>
 {% endif %}
 
-    <div id="result" style="display:none;background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px;margin-top:12px;max-height:600px;overflow:auto">
-     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-      <span style="font-weight:600;font-size:13px" id="result-title">Result</span>
-      <button onclick="document.getElementById('result').style.display='none'" style="background:none;border:none;color:var(--tx2);cursor:pointer">✕</button>
-     </div>
-     <div id="result-emails" style="display:none"></div>
-     <pre id="result-content" style="font-size:14px;white-space:pre-wrap;word-break:break-word;margin:0"></pre>
-    </div>
+<!-- LOST/MISSED OPPORTUNITIES -->
+{% if lost_quotes %}
+<div class="card">
+ <h3>📉 Lost / Missed Opportunities ({{ lost_quotes|length }})</h3>
+ <div style="font-size:14px;color:var(--tx2);margin-bottom:12px">Quotes we sent that didn't convert — understand why and re-engage</div>
+ <div style="max-height:300px;overflow:auto"><table><thead><tr>
+  <th>Quote #</th><th>Agency</th><th>Items</th><th>Total</th><th>Status</th><th>Action</th>
+ </tr></thead><tbody>
+ {% for q in lost_quotes[:20] %}
+ <tr>
+  <td class="mono" style="color:var(--ac);font-weight:600">{{ q.get('quote_number','—') }}</td>
+  <td style="font-weight:500">{{ q.get('agency','') or q.get('institution','—') }}</td>
+  <td style="font-size:14px">{{ q.get('items',[])|length }} items</td>
+  <td class="mono" style="color:#f85149">${{ "{:,.0f}".format(q.get('total',0) or 0) }}</td>
+  <td><span style="padding:3px 10px;border-radius:10px;font-size:13px;font-weight:600;color:#f85149;background:rgba(248,81,73,.1)">{{ q.get('status','lost') }}</span></td>
+  <td>
+   <button onclick="sendFollowUp('{{ q.get('email','') }}','{{ q.get('agency','') or q.get('institution','') }}','','past_customer_reactivation')" class="act-btn" title="Re-engage" style="color:var(--ac)">📧</button>
+  </td>
+ </tr>
+ {% endfor %}
+ </tbody></table></div>
+</div>
+{% endif %}
 
-    <!-- Existing Email Drafts -->
-    <div class="card" id="drafts-section">
-     <h3>📨 Email Drafts from Campaigns</h3>
-     <div id="drafts-container">
-      <div style="color:var(--tx2);font-size:14px">Loading drafts...</div>
-     </div>
-    </div>
+<!-- CATEGORIES -->
+{% if cat_items %}
+<div class="card">
+ <h3>📂 Item Categories</h3>
+ <table><thead><tr><th>Category</th><th>Items</th><th>POs</th><th>Total Value</th><th>Sample</th></tr></thead><tbody>
+ {% for cat in cat_items %}
+ <tr>
+  <td style="font-weight:600">{{ cat.name }}</td>
+  <td class="mono">{{ cat.items }}</td>
+  <td class="mono">{{ cat.pos }}</td>
+  <td class="mono" style="color:#3fb950">${{ "{:,.0f}".format(cat.value) }}</td>
+  <td style="font-size:14px;color:var(--tx2)">{{ cat.sample }}</td>
+ </tr>
+ {% endfor %}
+ </tbody></table>
+</div>
+{% endif %}
 
-    <script>
-    function createCampaign() {
-      const mode = confirm('Send real emails to prospects?\\n\\nOK = Send emails (live)\\nCancel = Preview only (dry run)');
-      const body = { dry_run: !mode, max_prospects: 50 };
-      fetch('/api/growth/create-campaign', {
-        method: 'POST', credentials: 'same-origin',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(body)
-      }).then(r => r.json()).then(data => {
-        showResult(data);
-        if (data.ok) pollProgress();
-      }).catch(e => showResultRaw('Error: ' + e));
-    }
+<!-- AGENT ACTIONS (for voice + automation) -->
+<div class="card">
+ <h3>🤖 Agent-Ready Actions</h3>
+ <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+  <div style="background:var(--sf2);border-radius:8px;padding:14px">
+   <div style="font-size:15px;font-weight:600;margin-bottom:8px">📞 Voice Queue</div>
+   <div style="font-size:14px;color:var(--tx2);margin-bottom:8px">{{ followups.no_response|length + followups.second_followup|length }} contacts need phone follow-up</div>
+   <button class="g-btn" onclick="if(confirm('Auto-dial non-responders?')) runStep('/api/growth/voice-follow-up')">📞 Start Voice Campaign</button>
+  </div>
+  <div style="background:var(--sf2);border-radius:8px;padding:14px">
+   <div style="font-size:15px;font-weight:600;margin-bottom:8px">🌱 Nurture Queue</div>
+   <div style="font-size:14px;color:var(--tx2);margin-bottom:8px">New leads awaiting drip sequences</div>
+   <button class="g-btn" onclick="autoStartNurture()">🌱 Auto-Start Nurture</button>
+  </div>
+  <div style="background:var(--sf2);border-radius:8px;padding:14px">
+   <div style="font-size:15px;font-weight:600;margin-bottom:8px">📊 Intelligence</div>
+   <div style="font-size:14px;color:var(--tx2);margin-bottom:8px">Pull fresh SCPRS data for scoring</div>
+   <button class="g-btn" onclick="runStep('/api/growth/campaigns')">📊 Campaign Stats</button>
+  </div>
+ </div>
+</div>
 
-    function runStep(url) {
-      fetch(url, {credentials:'same-origin'}).then(r=>r.json()).then(data => {
-        showResult(data);
-        if (data.message && data.message.includes('Check')) pollProgress();
-      }).catch(e => showResultRaw('Error: ' + e));
-    }
+<!-- RESULT / PREVIEW PANEL -->
+<div id="result" style="display:none;background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px;margin-top:14px;max-height:600px;overflow:auto">
+ <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+  <span style="font-weight:700;font-size:15px" id="result-title">Result</span>
+  <button onclick="document.getElementById('result').style.display='none'" style="background:none;border:none;color:var(--tx2);cursor:pointer;font-size:18px">✕</button>
+ </div>
+ <div id="result-emails" style="display:none"></div>
+ <pre id="result-content" style="font-size:14px;white-space:pre-wrap;word-break:break-word;margin:0"></pre>
+</div>
 
-    function showResult(data) {
-      const el = document.getElementById('result');
-      const emails = document.getElementById('result-emails');
-      const pre = document.getElementById('result-content');
-      const title = document.getElementById('result-title');
-      el.style.display = 'block';
-
-      // If response has preview emails, render them as cards
-      if (data.preview && data.preview.length > 0) {
-        title.textContent = (data.dry_run ? '👁️ Preview' : '📧 Sent') + ': ' + data.emails_built + ' emails';
-        emails.style.display = 'block';
-        pre.style.display = 'none';
-        emails.innerHTML = data.preview.map((e, i) => {
-          const gmailUrl = 'https://mail.google.com/mail/?view=cm&to=' + encodeURIComponent(e.to) + '&su=' + encodeURIComponent(e.subject) + '&body=' + encodeURIComponent(e.body || '');
-          const bodyContent = e.body_html || e.body || '(no body)';
-          const isHtml = !!e.body_html;
-          return `
-          <div style="background:var(--sf2);border:1px solid var(--bd);border-radius:8px;padding:12px;margin-bottom:10px">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-              <span style="font-size:14px;color:var(--tx2)">#${i+1}</span>
-              <div style="display:flex;gap:6px;align-items:center">
-                <a href="${gmailUrl}" target="_blank" style="font-size:13px;padding:3px 8px;border-radius:6px;background:rgba(79,140,255,.12);color:var(--ac);text-decoration:none;font-weight:600;border:1px solid rgba(79,140,255,.3)">📧 Open in Gmail</a>
-                <a href="mailto:${e.to}?subject=${encodeURIComponent(e.subject)}&body=${encodeURIComponent(e.body || '')}" style="font-size:13px;padding:3px 8px;border-radius:6px;background:rgba(139,148,160,.1);color:var(--tx2);text-decoration:none;border:1px solid var(--bd)">✉️ mailto</a>
-                <span style="font-size:13px;padding:2px 8px;border-radius:10px;background:${data.dry_run?'rgba(210,153,34,.1)':'rgba(52,211,153,.1)'};color:${data.dry_run?'#d29922':'#3fb950'};font-weight:600">${data.dry_run?'DRAFT':'SENT'}</span>
-              </div>
-            </div>
-            <div style="font-size:14px;margin-bottom:4px"><strong>To:</strong> <a href="mailto:${e.to}" style="color:var(--ac)">${e.to}</a> <span style="color:var(--tx2)">(${e.agency})</span></div>
-            <div style="font-size:14px;margin-bottom:8px;color:var(--ac)"><strong>Subject:</strong> ${e.subject}</div>
-            <div style="font-size:14px;line-height:1.5;color:var(--tx);background:var(--sf);padding:10px;border-radius:6px;border:1px solid var(--bd);max-height:200px;overflow:auto">${isHtml ? bodyContent : '<pre style="white-space:pre-wrap;margin:0;font-family:inherit">' + bodyContent + '</pre>'}</div>
-          </div>
-        `}).join('');
-        // Also reload drafts section
-        loadDrafts();
-      } else {
-        emails.style.display = 'none';
-        pre.style.display = 'block';
-        title.textContent = 'Result';
-        pre.textContent = JSON.stringify(data, null, 2);
-      }
-    }
-
-    function showResultRaw(text) {
-      const el = document.getElementById('result');
-      el.style.display = 'block';
-      document.getElementById('result-emails').style.display = 'none';
-      document.getElementById('result-content').style.display = 'block';
-      document.getElementById('result-content').textContent = text;
-    }
-
-    function crmPost(url, body) {
-      return fetch(url, {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)}).then(r=>r.json());
-    }
-
-    function markResponded(pid) {
-      const detail = prompt('Response details (optional):','Email reply received');
-      if (detail === null) return;
-      crmPost('/api/growth/prospect/'+pid+'/responded', {response_type:'email_reply', detail:detail}).then(d => {
-        if (d.ok) { alert('Marked as responded'); location.reload(); }
-        else alert(d.error || 'Failed');
-      });
-    }
-
-    function markBounced(pid, email) {
-      if (!confirm('Mark ' + email + ' as bounced?')) return;
-      const reason = prompt('Bounce reason:', 'Mailbox not found');
-      if (reason === null) return;
-      crmPost('/api/growth/bounceback', {email:email, reason:reason}).then(d => {
-        if (d.ok) { alert('Marked as bounced'); location.reload(); }
-        else alert(d.error || 'Failed');
-      });
-    }
-
-    function markWon(pid) {
-      crmPost('/api/growth/prospect/'+pid, {outreach_status:'won'}).then(d => {
-        if (d.ok) { alert('Marked as won!'); location.reload(); }
-        else alert(d.error || 'Failed');
-      });
-    }
-
-    // Load existing email drafts from all campaigns
-    function loadDrafts() {
-      fetch('/api/growth/campaigns', {credentials:'same-origin'}).then(r=>r.json()).then(data => {
-        const container = document.getElementById('drafts-container');
-        if (!data.ok || !data.campaigns || data.campaigns.length === 0) {
-          container.innerHTML = '<div style="color:var(--tx2);font-size:14px;padding:8px">No campaigns yet. Click 👁️ Preview Emails or 🚀 Create Campaign.</div>';
-          return;
-        }
-        let html = '';
-        data.campaigns.forEach((camp, ci) => {
-          const entries = camp.outreach || [];
-          const sentCount = entries.filter(e => e.email_sent).length;
-          const draftCount = entries.length - sentCount;
-          const isDry = camp.dry_run;
-          html += `<div style="margin-bottom:12px">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-              <span style="font-weight:600;font-size:14px">${camp.id || 'Campaign '+(ci+1)}</span>
-              <span style="font-size:13px;padding:2px 6px;border-radius:8px;background:${isDry?'rgba(210,153,34,.1)':'rgba(52,211,153,.1)'};color:${isDry?'#d29922':'#3fb950'}">${isDry?'DRY RUN':'LIVE'}</span>
-              <span style="font-size:13px;color:var(--tx2)">${entries.length} emails (${sentCount} sent, ${draftCount} draft)</span>
-            </div>`;
-          entries.slice(0, 5).forEach((e, ei) => {
-            const subj = e.subject || e.email_subject || '(no subject)';
-            const body = e.body_html || e.body || e.email_body || '';
-            const bodyPlain = e.body || e.email_body || '';
-            const isHtml = !!e.body_html;
-            const gmailUrl = 'https://mail.google.com/mail/?view=cm&to=' + encodeURIComponent(e.email || '') + '&su=' + encodeURIComponent(subj) + '&body=' + encodeURIComponent(bodyPlain);
-            html += `<details style="margin-bottom:4px;font-size:14px">
-              <summary style="cursor:pointer;padding:4px 8px;border-radius:4px;background:var(--sf2);display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-                <span style="color:var(--tx2)">${e.email || ''}</span> — <span style="color:var(--ac)">${subj.substring(0,60)}</span>
-                ${e.email_sent ? '<span style="color:#3fb950;font-size:13px">✅ SENT</span>' : '<span style="color:#d29922;font-size:13px">📝 DRAFT</span>'}
-                <a href="${gmailUrl}" target="_blank" onclick="event.stopPropagation()" style="font-size:13px;padding:2px 6px;border-radius:4px;background:rgba(79,140,255,.12);color:var(--ac);text-decoration:none;border:1px solid rgba(79,140,255,.3);margin-left:auto">📧 Gmail</a>
-              </summary>
-              <div style="padding:8px;margin:4px 0 4px 16px;font-size:14px;line-height:1.4;background:var(--sf);border-radius:4px;border:1px solid var(--bd);max-height:180px;overflow:auto">${isHtml ? body : '<pre style="white-space:pre-wrap;margin:0;font-family:inherit">' + body + '</pre>'}</div>
-            </details>`;
-          });
-          if (entries.length > 5) html += `<div style="font-size:13px;color:var(--tx2);padding-left:8px">...and ${entries.length-5} more</div>`;
-          html += '</div>';
-        });
-        container.innerHTML = html;
-      }).catch(() => {
-        document.getElementById('drafts-container').innerHTML = '<div style="color:#f85149;font-size:14px">Failed to load drafts</div>';
-      });
-    }
-
-    let pollTimer = null;
-    function pollProgress() {
-      if (pollTimer) clearInterval(pollTimer);
-      const bar = document.getElementById('progress-bar');
-      const txt = document.getElementById('progress-text');
-      bar.style.display = 'block';
-      pollTimer = setInterval(() => {
-        Promise.all([
-          fetch('/api/growth/pull-status',{credentials:'same-origin'}).then(r=>r.json()),
-          fetch('/api/growth/buyer-status',{credentials:'same-origin'}).then(r=>r.json())
-        ]).then(([pull, buyer]) => {
-          const running = pull.running || buyer.running;
-          txt.textContent = pull.running ? pull.progress : buyer.running ? buyer.progress : 'Complete — refresh page to see results';
-          if (!running) {
-            clearInterval(pollTimer);
-            setTimeout(() => location.reload(), 2000);
-          }
-        });
-      }, 3000);
-    }
-    // Load drafts on page load
-    loadDrafts();
-    {% if progress_visible %}pollProgress();{% endif %}
-    </script>
-    
 <script>
-function autoStartNurture(){
-  fetch('/api/leads/nurture/auto-start',{method:'POST',credentials:'same-origin'})
-  .then(r=>r.json()).then(d=>{
-    alert(d.ok?'Started nurture for '+d.started+' leads':'Failed: '+(d.error||'unknown'));
-  });
-}
-function rescoreLeads(){
-  fetch('/api/leads/rescore',{method:'POST',credentials:'same-origin'})
-  .then(r=>r.json()).then(d=>{
-    alert(d.ok?'Rescored: '+d.rescored+' leads updated':'Failed');
-  });
-}
-function viewPipeline(){
-  fetch('/api/leads/pipeline').then(r=>r.json()).then(d=>{
-    if(!d.total){alert('No leads in pipeline');return;}
-    let msg = 'Lead Pipeline: '+d.total+' total\n';
-    for(const[s,c_] of Object.entries(d.by_status||{})){msg += s+': '+c_+'\n';}
-    msg += '\nAvg Score: '+d.avg_score;
-    alert(msg);
-  });
-}
-</script>
+// Email templates for preview
+const TEMPLATES = {{ template_keys | tojson }};
+const CREDS = {{ creds | tojson }};
 
+function previewTemplate(){
+  var sel = document.getElementById('template-select').value;
+  var pre = document.getElementById('template-preview');
+  // Build a preview with placeholder data
+  fetch('/api/growth/outreach?dry_run=true&max=1',{credentials:'same-origin'}).then(r=>r.json()).then(d=>{
+    if(d.preview && d.preview.length > 0){
+      pre.innerHTML = '<div style="margin-bottom:8px"><strong>Subject:</strong> '+d.preview[0].subject+'</div><hr style="border-color:var(--bd);margin:8px 0">'+
+        (d.preview[0].body_html || '<pre style="white-space:pre-wrap;font-family:inherit;margin:0">'+d.preview[0].body+'</pre>');
+    } else {
+      var total_sales = CREDS.total_sales ? '$'+CREDS.total_sales.toLocaleString() : '$0';
+      pre.textContent = 'Template: '+sel+'\n\nReytech credentials auto-filled:\n• Sales since '+CREDS.since_year+': '+total_sales+'\n• '+CREDS.total_pos+'+ POs\n• '+CREDS.total_items+'+ items\n• '+CREDS.agencies_served+' agencies\n\nAll emails ask buyers to add sales@reytechinc.com to RFQ list.';
+    }
+  }).catch(()=>{
+    pre.textContent = 'Template: '+sel+'\n\nCredentials: $'+CREDS.total_sales.toLocaleString()+' in sales, '+CREDS.total_pos+'+ POs across '+CREDS.agencies_served+' agencies.';
+  });
+}
+// Auto-preview first template
+setTimeout(previewTemplate, 500);
+
+function createCampaign(){
+  var mode = confirm('Send real emails to prospects?\n\nOK = Send emails (live)\nCancel = Preview only (dry run)');
+  fetch('/api/growth/create-campaign',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({dry_run:!mode,max_prospects:50})}).then(r=>r.json()).then(d=>{showResult(d);if(d.ok)pollProgress();}).catch(e=>showResultRaw('Error: '+e));
+}
+
+function runStep(url){
+  fetch(url,{credentials:'same-origin'}).then(r=>r.json()).then(d=>{showResult(d);if(d.message&&d.message.includes('Check'))pollProgress();}).catch(e=>showResultRaw('Error: '+e));
+}
+
+function sendFollowUp(email,agency,name,template){
+  if(!email||email==='—'){alert('No email address');return;}
+  var gmailUrl='https://mail.google.com/mail/?view=cm&to='+encodeURIComponent(email)+'&su='+encodeURIComponent('Reytech Inc. — Follow Up — '+agency);
+  if(confirm('Open Gmail compose to '+email+'?\n\nTemplate: '+template.replace(/_/g,' '))){
+    window.open(gmailUrl,'_blank');
+  }
+}
+
+function showResult(data){
+  var el=document.getElementById('result'),emails=document.getElementById('result-emails'),pre=document.getElementById('result-content'),title=document.getElementById('result-title');
+  el.style.display='block';
+  if(data.preview&&data.preview.length>0){
+    title.textContent=(data.dry_run?'👁️ Preview':'📧 Sent')+': '+data.emails_built+' emails';
+    emails.style.display='block';pre.style.display='none';
+    emails.innerHTML=data.preview.map(function(e,i){
+      var gmailUrl='https://mail.google.com/mail/?view=cm&to='+encodeURIComponent(e.to)+'&su='+encodeURIComponent(e.subject)+'&body='+encodeURIComponent(e.body||'');
+      var bodyContent=e.body_html||e.body||'(no body)';var isHtml=!!e.body_html;
+      return '<div style="background:var(--sf2);border:1px solid var(--bd);border-radius:8px;padding:14px;margin-bottom:10px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><span style="font-size:14px;color:var(--tx2)">#'+(i+1)+'</span><div style="display:flex;gap:6px"><a href="'+gmailUrl+'" target="_blank" style="font-size:14px;padding:4px 12px;border-radius:6px;background:rgba(79,140,255,.12);color:var(--ac);text-decoration:none;font-weight:600;border:1px solid rgba(79,140,255,.3)">📧 Open in Gmail</a><span style="font-size:13px;padding:3px 10px;border-radius:10px;background:'+(data.dry_run?'rgba(210,153,34,.1)':'rgba(52,211,153,.1)')+';color:'+(data.dry_run?'#d29922':'#3fb950')+';font-weight:600">'+(data.dry_run?'DRAFT':'SENT')+'</span></div></div><div style="font-size:15px;margin-bottom:4px"><strong>To:</strong> <a href="mailto:'+e.to+'" style="color:var(--ac)">'+e.to+'</a> <span style="color:var(--tx2)">('+e.agency+')</span></div><div style="font-size:15px;margin-bottom:10px;color:var(--ac)"><strong>Subject:</strong> '+e.subject+'</div><div style="font-size:14px;line-height:1.6;background:var(--sf);padding:12px;border-radius:8px;border:1px solid var(--bd);max-height:200px;overflow:auto">'+(isHtml?bodyContent:'<pre style="white-space:pre-wrap;margin:0;font-family:inherit">'+bodyContent+'</pre>')+'</div></div>';
+    }).join('');
+  } else {
+    emails.style.display='none';pre.style.display='block';title.textContent='Result';pre.textContent=JSON.stringify(data,null,2);
+  }
+}
+function showResultRaw(text){var el=document.getElementById('result');el.style.display='block';document.getElementById('result-emails').style.display='none';document.getElementById('result-content').style.display='block';document.getElementById('result-content').textContent=text;}
+
+function crmPost(url,body){return fetch(url,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>r.json())}
+
+function markResponded(pid){
+  var detail=prompt('Response details:','Email reply received');
+  if(detail===null)return;
+  crmPost('/api/growth/prospect/'+pid+'/responded',{response_type:'email_reply',detail:detail}).then(d=>{if(d.ok){alert('✅ Marked responded');location.reload()}else alert(d.error||'Failed')});
+}
+function markWon(pid){crmPost('/api/growth/prospect/'+pid,{outreach_status:'won'}).then(d=>{if(d.ok){alert('🏆 Won!');location.reload()}else alert(d.error||'Failed')})}
+function markDead(pid){crmPost('/api/growth/prospect/'+pid,{outreach_status:'dead'}).then(d=>{if(d.ok){alert('Marked dead');location.reload()}else alert(d.error||'Failed')})}
+
+function autoStartNurture(){fetch('/api/leads/nurture/auto-start',{method:'POST',credentials:'same-origin'}).then(r=>r.json()).then(d=>{alert(d.ok?'Started nurture for '+d.started+' leads':'Failed: '+(d.error||'unknown'))})}
+function rescoreLeads(){fetch('/api/leads/rescore',{method:'POST',credentials:'same-origin'}).then(r=>r.json()).then(d=>{alert(d.ok?'Rescored: '+d.rescored+' leads':'Failed')})}
+function viewPipeline(){fetch('/api/leads/pipeline').then(r=>r.json()).then(d=>{if(!d.total){alert('No leads');return}var msg='Pipeline: '+d.total+' total\n';for(var s in (d.by_status||{}))msg+=s+': '+d.by_status[s]+'\n';msg+='\nAvg Score: '+d.avg_score;alert(msg)})}
+
+var pollTimer=null;
+function pollProgress(){
+  if(pollTimer)clearInterval(pollTimer);
+  var bar=document.getElementById('progress-bar'),txt=document.getElementById('progress-text');bar.style.display='block';
+  pollTimer=setInterval(function(){
+    Promise.all([fetch('/api/growth/pull-status',{credentials:'same-origin'}).then(r=>r.json()),fetch('/api/growth/buyer-status',{credentials:'same-origin'}).then(r=>r.json())]).then(function(r){
+      var running=r[0].running||r[1].running;
+      txt.textContent=r[0].running?r[0].progress:r[1].running?r[1].progress:'Complete — refresh to see results';
+      if(!running){clearInterval(pollTimer);setTimeout(function(){location.reload()},2000)}
+    });
+  },3000);
+}
+{% if progress_visible %}pollProgress();{% endif %}
+</script>
 {% endblock %}

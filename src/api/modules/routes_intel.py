@@ -3724,12 +3724,14 @@ def api_outbox_sent_log():
 @bp.route("/growth")
 @auth_required
 def growth_page():
-    """Growth Engine Dashboard — full funnel view."""
+    """Growth Engine Dashboard — actionable outreach to get on RFQ lists."""
     if not GROWTH_AVAILABLE:
         flash("Growth agent not available", "error")
         return redirect("/")
     from src.agents.growth_agent import (
-        get_growth_status, PULL_STATUS, BUYER_STATUS,
+        get_growth_status, get_reytech_credentials, get_follow_up_cohorts,
+        score_prospect_weighted, EMAIL_TEMPLATES,
+        PULL_STATUS, BUYER_STATUS,
         HISTORY_FILE, CATEGORIES_FILE, PROSPECTS_FILE, OUTREACH_FILE,
         _load_json,
     )
@@ -3741,9 +3743,18 @@ def growth_page():
     pull = st.get("pull_status", {})
     buyer = st.get("buyer_status", {})
 
-    # Load prospect details for table
+    # Reytech credentials for banner
+    creds = get_reytech_credentials()
+
+    # Follow-up cohorts
+    followups = get_follow_up_cohorts()
+
+    # Load prospect details + weighted scoring
     prospect_data = _load_json(PROSPECTS_FILE)
     prospects = prospect_data.get("prospects", []) if isinstance(prospect_data, dict) else []
+    for pr_ in prospects:
+        pr_["weighted_score"] = score_prospect_weighted(pr_, creds)
+    prospects.sort(key=lambda x: x.get("weighted_score", 0), reverse=True)
 
     # Load outreach details + campaign metrics
     outreach_data = _load_json(OUTREACH_FILE)
@@ -3778,10 +3789,30 @@ def growth_page():
                 "value": info_["spend"], "sample": "from prospect data",
             })
 
+    # Lost/missed opportunities from quotes
+    lost_quotes = []
+    try:
+        quotes_path = os.path.join(DATA_DIR, "quotes_log.json")
+        if os.path.exists(quotes_path):
+            import json as _json
+            with open(quotes_path) as f:
+                all_quotes = _json.load(f)
+            for q in all_quotes:
+                if q.get("is_test"):
+                    continue
+                status = (q.get("status", "") or "").lower()
+                if status in ("lost", "expired", "no_response", "not_responding"):
+                    lost_quotes.append(q)
+    except Exception:
+        pass
+
     pull_running = pull.get("running", False)
     buyer_running = buyer.get("running", False)
     pull_progress = pull.get("progress", "") if pull_running else ""
     buyer_progress = buyer.get("progress", "") if buyer_running else ""
+
+    # Available template keys for the UI
+    template_keys = list(EMAIL_TEMPLATES.keys())
 
     from src.api.render import render_page
     return render_page("growth.html", active_page="Growth",
@@ -3795,6 +3826,10 @@ def growth_page():
         progress_text=(pull_progress or buyer_progress or "Idle"),
         cat_items=cat_items, prospects=prospects,
         prospect_count=len(prospects),
+        creds=creds,
+        followups=followups,
+        lost_quotes=lost_quotes,
+        template_keys=template_keys,
     )
 
 
