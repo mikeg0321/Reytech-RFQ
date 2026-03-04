@@ -449,6 +449,8 @@ def api_order_create():
         "subject": f"Manual order — PO {po_number}",
         "po_pdf_path": "",
     })
+    if order.get("skipped"):
+        return jsonify({"ok": False, "error": "Order rejected: no items or value. Add items or a total."})
     return jsonify({"ok": True, "order_id": order.get("order_id"), "items": len(order.get("line_items", []))})
 
 
@@ -1703,3 +1705,91 @@ def api_test_sms():
     except Exception as e:
         import traceback
         return jsonify({"ok": False, "error": str(e), "traceback": traceback.format_exc()})
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Orders Diagnostic — Debug phantom order issues
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/orders/diagnostic")
+@auth_required
+def api_orders_diagnostic():
+    """Full diagnostic of all order data sources.
+    Shows: orders.json, DB orders, what shows as urgent, and why.
+    """
+    import json
+    results = {"ok": True, "orders_json": [], "db_orders": [], "urgent_analysis": []}
+
+    # 1. orders.json
+    try:
+        orders_path = os.path.join(DATA_DIR, "orders.json")
+        if os.path.exists(orders_path):
+            with open(orders_path) as f:
+                all_orders = json.load(f)
+            for oid, o in all_orders.items():
+                items = o.get("line_items", [])
+                has_real_items = any(
+                    (li.get("description", "") or "").strip() or (li.get("part_number", "") or "").strip()
+                    for li in items
+                )
+                entry = {
+                    "order_id": oid,
+                    "status": o.get("status"),
+                    "total": o.get("total", 0),
+                    "po_number": o.get("po_number"),
+                    "quote_number": o.get("quote_number"),
+                    "institution": o.get("institution"),
+                    "source": o.get("source", ""),
+                    "line_items_count": len(items),
+                    "has_real_items": has_real_items,
+                    "is_test": o.get("is_test"),
+                    "created_at": o.get("created_at"),
+                }
+                results["orders_json"].append(entry)
+
+                # Urgent analysis
+                if o.get("status") == "new":
+                    is_test = ("TEST" in (o.get("po_number", "") or "").upper() or o.get("is_test"))
+                    is_phantom = not has_real_items and (o.get("total", 0) or 0) == 0
+                    shows_urgent = not is_test and not is_phantom and \
+                                   o.get("status") not in ("cancelled", "test", "deleted")
+                    results["urgent_analysis"].append({
+                        "order_id": oid,
+                        "total": o.get("total", 0),
+                        "has_real_items": has_real_items,
+                        "is_test": is_test,
+                        "is_phantom": is_phantom,
+                        "would_show_urgent": shows_urgent,
+                        "reason": "SHOWS" if shows_urgent else
+                                  ("filtered: test" if is_test else
+                                   "filtered: phantom ($0 + no items)" if is_phantom else
+                                   "filtered: status"),
+                    })
+    except Exception as e:
+        results["orders_json_error"] = str(e)
+
+    # 2. DB orders
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            rows = conn.execute("SELECT * FROM orders ORDER BY created_at DESC LIMIT 20").fetchall()
+            for r in rows:
+                d = dict(r)
+                results["db_orders"].append({
+                    "id": d.get("id"),
+                    "status": d.get("status"),
+                    "total": d.get("total"),
+                    "po_number": d.get("po_number"),
+                    "created_at": d.get("created_at"),
+                })
+    except Exception as e:
+        results["db_orders_error"] = str(e)
+
+    results["summary"] = {
+        "total_orders_json": len(results["orders_json"]),
+        "total_db_orders": len(results["db_orders"]),
+        "showing_urgent": sum(1 for a in results["urgent_analysis"] if a["would_show_urgent"]),
+        "filtered_phantom": sum(1 for a in results["urgent_analysis"] if a.get("is_phantom")),
+        "filtered_test": sum(1 for a in results["urgent_analysis"] if a.get("is_test")),
+    }
+    return jsonify(results)

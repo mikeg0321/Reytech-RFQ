@@ -679,11 +679,44 @@ def api_dashboard_init():
                                if "TEST" not in (o.get("po_number", "") or "").upper()
                                and not o.get("is_test")
                                and o.get("status") not in ("cancelled", "test", "deleted")}
-                new_orders = [o for o in real_orders.values() if o.get("status") == "new"]
-                delivered_orders = [o for o in real_orders.values() if o.get("status") == "delivered"]
+
+                # New orders: must have either total > 0 OR at least one line item
+                # Skip phantom $0 orders with no items (auto-created from bad PO emails)
+                new_orders = []
+                stale_orders = []
+                for o in real_orders.values():
+                    if o.get("status") != "new":
+                        continue
+                    has_value = (o.get("total", 0) or 0) > 0
+                    has_items = len(o.get("line_items", [])) > 0 and any(
+                        (li.get("description", "") or "").strip() for li in o.get("line_items", [])
+                    )
+                    if not has_value and not has_items:
+                        continue  # Skip phantom orders with no value AND no real items
+
+                    # Check age — orders older than 30 days in "new" are stale
+                    age_days = 0
+                    try:
+                        created = o.get("created_at", "")
+                        if created:
+                            from datetime import datetime as _dt
+                            created_dt = _dt.fromisoformat(created[:19])
+                            age_days = (_dt.now() - created_dt).days
+                    except Exception:
+                        pass
+
+                    if age_days > 30:
+                        stale_orders.append(o)
+                    else:
+                        new_orders.append(o)
+
                 if new_orders:
-                    total_val = sum(o.get("total", 0) for o in new_orders)
+                    total_val = sum(o.get("total", 0) or 0 for o in new_orders)
                     urgent.append({"icon": "🏆", "label": f"{len(new_orders)} new PO{'s' if len(new_orders) > 1 else ''} — ${total_val:,.0f} to source", "link": "/orders", "type": "new_orders", "count": len(new_orders)})
+                if stale_orders:
+                    action_needed.append({"icon": "⏰", "label": f"{len(stale_orders)} stale order{'s' if len(stale_orders) > 1 else ''} (30d+ in New)", "link": "/orders", "type": "stale_orders", "count": len(stale_orders)})
+
+                delivered_orders = [o for o in real_orders.values() if o.get("status") == "delivered"]
                 if delivered_orders:
                     action_needed.append({"icon": "💰", "label": f"{len(delivered_orders)} order{'s' if len(delivered_orders) > 1 else ''} ready to invoice", "link": "/orders", "type": "invoice_ready", "count": len(delivered_orders)})
         except Exception:

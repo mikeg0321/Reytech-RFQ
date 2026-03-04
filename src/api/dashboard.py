@@ -2603,6 +2603,17 @@ def _create_order_from_po_email(po_data: dict) -> dict:
 
     total = po_data.get("total", 0) or sum(it.get("extended", 0) for it in line_items)
 
+    # ── VALIDATION GATE: reject phantom orders from bad PO email parses ──
+    has_real_items = any(
+        (li.get("description", "") or "").strip() or (li.get("part_number", "") or "").strip()
+        for li in line_items
+    )
+    if not has_real_items and total == 0 and not qn:
+        # No items, no value, no linked quote → garbage parse, skip
+        log.warning("Skipping phantom order creation: PO=%s has no items, $0 total, no linked quote",
+                    po_num)
+        return {"order_id": "", "skipped": True, "reason": "no_items_no_value"}
+
     order = {
         "order_id": oid,
         "quote_number": qn,
