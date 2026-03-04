@@ -3109,6 +3109,153 @@ def api_pricecheck_mark_sent(pcid):
                     "doc_url": f"/pricecheck/{pcid}/document/{doc_id}" if doc_id else ""})
 
 
+# ═══════════════════════════════════════════════════════════════════════
+# PC Follow-Up Scanner (PRD-v32 F3)
+# ═══════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/pricecheck/follow-up-scan")
+@auth_required
+def api_pc_follow_up_scan():
+    """Scan PCs in 'sent' status that need follow-up.
+    Returns PCs where sent_at is 3+ days ago with no response.
+    ?days=3 (default) — minimum days since sent
+    ?days=5 — 5 day threshold
+    """
+    from datetime import datetime as _dt, timedelta
+    days_threshold = int(request.args.get("days", 3))
+    cutoff = _dt.now() - timedelta(days=days_threshold)
+
+    pcs = _load_price_checks()
+    follow_ups = []
+    for pcid, pc in pcs.items():
+        status = pc.get("status", "")
+        # Only look at "sent" or "pending_award" PCs
+        if status not in ("sent", "pending_award"):
+            continue
+
+        sent_at = pc.get("sent_at", "")
+        if not sent_at:
+            continue
+
+        try:
+            sent_dt = _dt.fromisoformat(sent_at[:19])
+        except (ValueError, TypeError):
+            continue
+
+        if sent_dt > cutoff:
+            continue  # Not old enough
+
+        days_since = (_dt.now() - sent_dt).days
+        institution = pc.get("institution", "") or "Unknown"
+        requestor = pc.get("requestor", "") or ""
+        requestor_email = ""
+        # Try to extract email from requestor field or contact info
+        if "@" in requestor:
+            requestor_email = requestor
+        elif pc.get("contact_email"):
+            requestor_email = pc["contact_email"]
+        elif pc.get("parsed", {}).get("header", {}).get("buyer_email"):
+            requestor_email = pc["parsed"]["header"]["buyer_email"]
+
+        total = sum(
+            (it.get("unit_price") or it.get("pricing", {}).get("recommended_price", 0) or 0)
+            * it.get("qty", 1)
+            for it in pc.get("items", [])
+        )
+
+        urgency = "normal"
+        if days_since >= 10:
+            urgency = "stale"
+        elif days_since >= 7:
+            urgency = "overdue"
+        elif days_since >= 5:
+            urgency = "due"
+
+        follow_ups.append({
+            "pc_id": pcid,
+            "pc_number": pc.get("pc_number", ""),
+            "institution": institution,
+            "requestor": requestor,
+            "requestor_email": requestor_email,
+            "sent_at": sent_at,
+            "days_since_sent": days_since,
+            "total": round(total, 2),
+            "items_count": len(pc.get("items", [])),
+            "due_date": pc.get("due_date", ""),
+            "urgency": urgency,
+            "follow_up_count": pc.get("follow_up_count", 0),
+            "last_follow_up": pc.get("last_follow_up_at", ""),
+        })
+
+    follow_ups.sort(key=lambda x: x["days_since_sent"], reverse=True)
+
+    return jsonify({
+        "ok": True,
+        "total": len(follow_ups),
+        "threshold_days": days_threshold,
+        "follow_ups": follow_ups,
+        "summary": {
+            "stale": sum(1 for f in follow_ups if f["urgency"] == "stale"),
+            "overdue": sum(1 for f in follow_ups if f["urgency"] == "overdue"),
+            "due": sum(1 for f in follow_ups if f["urgency"] == "due"),
+            "normal": sum(1 for f in follow_ups if f["urgency"] == "normal"),
+            "total_value": round(sum(f["total"] for f in follow_ups), 2),
+        },
+    })
+
+
+@bp.route("/api/pricecheck/<pcid>/log-follow-up", methods=["POST"])
+@auth_required
+def api_pc_log_follow_up(pcid):
+    """Log that a follow-up was done on a sent PC."""
+    from datetime import datetime as _dt
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"})
+
+    data = request.get_json(silent=True) or {}
+    method = data.get("method", "email")  # email, phone, in_person
+    notes = data.get("notes", "")
+    now = _dt.now().isoformat()
+
+    pc["follow_up_count"] = pc.get("follow_up_count", 0) + 1
+    pc["last_follow_up_at"] = now
+
+    # Add to history
+    if "follow_up_history" not in pc:
+        pc["follow_up_history"] = []
+    pc["follow_up_history"].append({
+        "timestamp": now,
+        "method": method,
+        "notes": notes,
+        "follow_up_number": pc["follow_up_count"],
+    })
+
+    _save_price_checks(pcs)
+
+    _log_crm_activity(pc.get("reytech_quote_number", pcid), "pc_follow_up",
+        f"Follow-up #{pc['follow_up_count']} ({method}) on PC #{pc.get('pc_number','')} — {pc.get('institution','')}",
+        actor="user")
+
+    return jsonify({"ok": True, "follow_up_count": pc["follow_up_count"]})
+
+
+@bp.route("/api/pricecheck/<pcid>/mark-no-response", methods=["POST"])
+@auth_required
+def api_pc_mark_no_response(pcid):
+    """Mark a PC as not responding after follow-up attempts."""
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"})
+
+    _transition_status(pc, "not_responding", actor="user",
+                       notes=f"No response after {pc.get('follow_up_count', 0)} follow-ups")
+    _save_price_checks(pcs)
+    return jsonify({"ok": True, "status": "not_responding"})
+
+
 @bp.route("/pricecheck/<pcid>/documents")
 @auth_required
 def pricecheck_documents(pcid):

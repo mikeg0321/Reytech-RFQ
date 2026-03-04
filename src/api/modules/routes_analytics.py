@@ -1095,7 +1095,7 @@ def stale_quotes():
     # Check PCs
     pcs = _load_price_checks()
     for pid, pc in pcs.items():
-        if pc.get("status") != "sent":
+        if pc.get("status") not in ("sent", "pending_award"):
             continue
         sent_at = pc.get("sent_at", pc.get("completed_at", ""))
         if sent_at and sent_at < cutoff:
@@ -1105,16 +1105,36 @@ def stale_quotes():
                 )).days
             except Exception:
                 days_since = days_threshold
+
+            # Extract email from requestor or parsed header
+            requestor = pc.get("requestor", "")
+            email = ""
+            if "@" in requestor:
+                email = requestor
+            elif pc.get("contact_email"):
+                email = pc["contact_email"]
+            elif pc.get("parsed", {}).get("header", {}).get("buyer_email"):
+                email = pc["parsed"]["header"]["buyer_email"]
+
+            # Calculate PC total value
+            pc_total = sum(
+                (it.get("unit_price") or it.get("pricing", {}).get("recommended_price", 0) or 0)
+                * it.get("qty", 1)
+                for it in pc.get("items", [])
+            )
+
             stale.append({
                 "type": "pc", "id": pid,
                 "number": pc.get("pc_number", ""),
                 "institution": pc.get("institution", ""),
-                "requestor": pc.get("requestor", ""),
-                "email": "",
+                "requestor": requestor,
+                "email": email,
                 "sent_at": sent_at,
                 "days_since": days_since,
-                "total": 0,
+                "total": round(pc_total, 2),
                 "link": f"/pricecheck/{pid}",
+                "follow_up_count": pc.get("follow_up_count", 0),
+                "last_follow_up": pc.get("last_follow_up_at", ""),
             })
 
     stale.sort(key=lambda x: x.get("days_since", 0), reverse=True)

@@ -1327,10 +1327,26 @@ def quote_detail(qn):
         history_html += f'<div style="font-size:14px;color:var(--tx2);padding:3px 0"><span class="mono">{h.get("timestamp","")[:16]}</span> → <b>{h.get("status","")}</b>{" by " + h.get("actor","") if h.get("actor") else ""}{" (PO: " + h["po_number"] + ")" if h.get("po_number") else ""}</div>'
 
     # Build action buttons separately to avoid f-string escaping
+    has_order = False
+    try:
+        _orders = _load_orders()
+        has_order = f"ORD-{qn}" in _orders
+    except Exception:
+        pass
+
     if st in ('pending', 'sent'):
-        action_btns = '<div style="border-top:1px solid var(--bd);margin-top:14px;padding-top:14px;display:flex;gap:8px;justify-content:center">'
+        action_btns = '<div style="border-top:1px solid var(--bd);margin-top:14px;padding-top:14px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">'
         action_btns += f'<button onclick="markQuote(&quot;{qn}&quot;,&quot;won&quot;)" class="btn btn-g" style="font-size:13px">✅ Mark Won</button>'
         action_btns += f'<button onclick="markQuote(&quot;{qn}&quot;,&quot;lost&quot;)" class="btn" style="background:rgba(248,113,113,.15);color:var(--rd);border:1px solid rgba(248,113,113,.3);font-size:13px">❌ Mark Lost</button>'
+        action_btns += f'<button onclick="convertToOrder(&quot;{qn}&quot;)" class="btn" style="background:rgba(52,211,153,.15);color:#34d399;border:1px solid rgba(52,211,153,.3);font-size:13px">📦 Convert to Order</button>'
+        action_btns += '</div>'
+    elif st == 'won' and not has_order:
+        action_btns = '<div style="border-top:1px solid var(--bd);margin-top:14px;padding-top:14px;display:flex;gap:8px;justify-content:center">'
+        action_btns += f'<button onclick="convertToOrder(&quot;{qn}&quot;)" class="btn btn-g" style="font-size:14px;padding:10px 24px">📦 Convert to Order</button>'
+        action_btns += '</div>'
+    elif st == 'won' and has_order:
+        action_btns = '<div style="border-top:1px solid var(--bd);margin-top:14px;padding-top:14px;display:flex;gap:8px;justify-content:center">'
+        action_btns += f'<a href="/order/ORD-{qn}" class="btn btn-g" style="font-size:14px;padding:10px 24px;text-decoration:none">📦 View Order</a>'
         action_btns += '</div>'
     else:
         action_btns = ""
@@ -1344,6 +1360,52 @@ def quote_detail(qn):
         history_html=history_html, action_btns=action_btns,
         package_files=_get_package_files(qt, source_link),
     )
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Quote-to-Order Conversion (PRD-v32 F2)
+# ═══════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/quote/<qn>/convert-to-order", methods=["POST"])
+@auth_required
+def api_quote_convert_to_order(qn):
+    """One-click conversion of a quote to an order. Pre-fills from quote data."""
+    if not QUOTE_GEN_AVAILABLE:
+        return jsonify({"ok": False, "error": "Quote generator not available"})
+
+    qt = None
+    for q in get_all_quotes():
+        if q.get("quote_number") == qn:
+            qt = q
+            break
+    if not qt:
+        return jsonify({"ok": False, "error": f"Quote {qn} not found"})
+
+    # Check if order already exists
+    orders = _load_orders()
+    oid = f"ORD-{qn}"
+    if oid in orders:
+        return jsonify({"ok": False, "error": f"Order {oid} already exists", "order_id": oid})
+
+    data = request.get_json(silent=True) or {}
+    po_number = data.get("po_number", "") or qt.get("po_number", "")
+
+    # Mark quote as won if not already
+    st = qt.get("status", "pending")
+    if st not in ("won",):
+        try:
+            update_quote_status(qn, "won", po_number)
+        except Exception as e:
+            log.debug("Quote status update during conversion: %s", e)
+
+    order = _create_order_from_quote(qt, po_number=po_number)
+    return jsonify({
+        "ok": True,
+        "order_id": order["order_id"],
+        "total": order["total"],
+        "items": len(order["line_items"]),
+        "message": f"Order {order['order_id']} created from quote {qn}",
+    })
 
 
 # ═══════════════════════════════════════════════════════════════════════

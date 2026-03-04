@@ -83,7 +83,7 @@ function loadStale(){
    el.innerHTML='<div style="color:#3fb950;padding:40px;text-align:center"><div style="font-size:36px;margin-bottom:10px">✅</div><div style="font-size:16px;font-weight:600">All clear!</div><div style="font-size:14px;color:var(--tx2);margin-top:4px">No stale quotes. All responses are current.</div></div>';
    return;
   }
-  var html='<table class="home-tbl" style="min-width:800px;font-size:15px"><thead><tr><th>Type</th><th>#</th><th>Institution</th><th>Requestor</th><th>Sent</th><th>Days</th><th style="text-align:right">Total</th><th>Urgency</th><th style="width:120px">Action</th></tr></thead><tbody>';
+  var html='<table class="home-tbl" style="min-width:800px;font-size:15px"><thead><tr><th>Type</th><th>#</th><th>Institution</th><th>Requestor</th><th>Sent</th><th>Days</th><th style="text-align:right">Total</th><th>Urgency</th><th>F/U</th><th style="width:160px">Action</th></tr></thead><tbody>';
   stale.forEach(function(s){
    var uc=s.days_since>=7?'#f85149':s.days_since>=5?'#f0883e':'var(--yl)';
    var ul=s.days_since>=7?'CRITICAL':s.days_since>=5?'WARNING':'STALE';
@@ -97,10 +97,17 @@ function loadStale(){
    html+='<td style="font-weight:700;color:'+uc+';font-family:\'JetBrains Mono\',monospace">'+s.days_since+'d</td>';
    html+='<td style="text-align:right;font-family:\'JetBrains Mono\',monospace">$'+(s.total?s.total.toLocaleString('en',{minimumFractionDigits:2}):'—')+'</td>';
    html+='<td><span style="padding:3px 10px;border-radius:10px;font-size:13px;font-weight:600;background:'+ubg+';color:'+uc+'">'+ul+'</span></td>';
-   html+='<td onclick="event.stopPropagation()" style="text-align:center">';
+   html+='<td style="text-align:center;font-family:\'JetBrains Mono\',monospace;color:var(--tx2)">'+(s.follow_up_count||0)+'</td>';
+   html+='<td onclick="event.stopPropagation()" style="text-align:center;white-space:nowrap">';
    if(s.email){
-    html+='<button style="padding:6px 12px;border-radius:8px;font-size:13px;font-weight:600;background:rgba(79,140,255,.1);color:var(--ac);border:1px solid rgba(79,140,255,.3);cursor:pointer" onclick="sendFollowUp(\''+s.type+'\',\''+s.id+'\',\''+s.email+'\',\''+s.number+'\')">📧 Follow Up</button>';
-   } else {
+    html+='<button style="padding:5px 10px;border-radius:8px;font-size:13px;font-weight:600;background:rgba(79,140,255,.1);color:var(--ac);border:1px solid rgba(79,140,255,.3);cursor:pointer" onclick="sendFollowUp(\''+s.type+'\',\''+s.id+'\',\''+s.email+'\',\''+s.number+'\')">📧</button>';
+   }
+   if(s.type==='pc' && s.days_since>=7 && (s.follow_up_count||0)>=2){
+    html+=' <button style="padding:5px 10px;border-radius:8px;font-size:13px;font-weight:600;background:rgba(248,113,113,.1);color:#f85149;border:1px solid rgba(248,113,113,.3);cursor:pointer" onclick="markNoResponse(\''+s.id+'\')">✖ NR</button>';
+   } else if(s.type==='pc'){
+    html+=' <button style="padding:5px 10px;border-radius:8px;font-size:13px;font-weight:600;background:rgba(52,211,153,.1);color:#34d399;border:1px solid rgba(52,211,153,.3);cursor:pointer" onclick="logFollowUp(\''+s.id+'\',\''+s.number+'\')">📝 Log</button>';
+   }
+   if(!s.email && s.type!=='pc'){
     html+='<a href="'+s.link+'" style="font-size:14px;color:var(--ac)">View →</a>';
    }
    html+='</td></tr>';
@@ -126,6 +133,24 @@ function bulkFollowUp(){
   el.textContent=d.ok?'✅ Sent '+d.sent+' follow-ups':'❌ '+(d.error||'Failed');
   if(d.ok)setTimeout(function(){loadStale()},1500);
  }).catch(function(e){el.textContent='Error: '+e.message});
+}
+function logFollowUp(pcid,num){
+ var method=prompt('Follow-up method (email/phone/in_person):','phone');
+ if(!method)return;
+ var notes=prompt('Notes (optional):','') || '';
+ fetch('/api/pricecheck/'+pcid+'/log-follow-up',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method:method,notes:notes})})
+ .then(function(r){return r.json()}).then(function(d){
+  if(d.ok){alert('Follow-up #'+d.follow_up_count+' logged for PC #'+num);loadStale();}
+  else{alert('Error: '+(d.error||'unknown'));}
+ });
+}
+function markNoResponse(pcid){
+ if(!confirm('Mark this PC as Not Responding? It will be removed from the follow-up queue.'))return;
+ fetch('/api/pricecheck/'+pcid+'/mark-no-response',{method:'POST',headers:{'Content-Type':'application/json'}})
+ .then(function(r){return r.json()}).then(function(d){
+  if(d.ok){loadStale();}
+  else{alert('Error: '+(d.error||'unknown'));}
+ });
 }
 loadStale();
 </script>

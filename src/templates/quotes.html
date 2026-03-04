@@ -78,7 +78,18 @@
        })
        .then(r => r.json())
        .then(d => {
-         if (d.ok) { location.reload(); }
+         if (d.ok) {
+           if (status === 'won' && confirm('Quote marked Won! Create an order?')) {
+             fetch('/api/quote/' + qn + '/convert-to-order', {
+               method: 'POST',
+               headers: {'Content-Type': 'application/json'},
+               body: JSON.stringify({po_number: po})
+             }).then(r => r.json()).then(od => {
+               if (od.ok) { alert('Order ' + od.order_id + ' created!'); }
+               location.reload();
+             });
+           } else { location.reload(); }
+         }
          else { alert('Error: ' + (d.error || 'unknown')); }
        });
      }

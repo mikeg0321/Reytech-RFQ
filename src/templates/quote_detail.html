@@ -147,8 +147,36 @@
       })
       .then(r => r.json())
       .then(d => {
-        if (d.ok) { location.reload(); }
+        if (d.ok) {
+          if (status === 'won' && confirm('Quote marked Won! Create an order from this quote?')) {
+            convertToOrder(qn, po);
+          } else {
+            location.reload();
+          }
+        }
         else { alert('Error: ' + (d.error || 'unknown')); }
+      });
+    }
+
+    function convertToOrder(qn, poNum) {
+      var po = poNum || prompt('PO number (optional):', '') || '';
+      fetch('/api/quote/' + qn + '/convert-to-order', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({po_number: po})
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.ok) {
+          alert('Order ' + d.order_id + ' created! (' + d.items + ' items, $' + (d.total||0).toLocaleString() + ')');
+          location.href = '/order/' + d.order_id;
+        } else if (d.order_id) {
+          if (confirm('Order already exists. View it?')) {
+            location.href = '/order/' + d.order_id;
+          }
+        } else {
+          alert('Error: ' + (d.error || 'unknown'));
+        }
       });
     }
 
