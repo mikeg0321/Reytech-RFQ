@@ -868,16 +868,17 @@ def get_quote(quote_number: str) -> dict | None:
     return d
 
 
-def get_all_quotes_db(status: str = None, limit: int = 500) -> list:
-    """Get all quotes from SQLite, newest first."""
+def get_all_quotes_db(status: str = None, limit: int = 500, include_test: bool = False) -> list:
+    """Get all quotes from SQLite, newest first. Excludes test quotes by default."""
     with get_db() as conn:
+        test_filter = "" if include_test else "AND is_test=0"
         if status:
             rows = conn.execute(
-                "SELECT * FROM quotes WHERE status=? ORDER BY created_at DESC LIMIT ?",
+                f"SELECT * FROM quotes WHERE status=? {test_filter} ORDER BY created_at DESC LIMIT ?",
                 (status, limit)).fetchall()
         else:
             rows = conn.execute(
-                "SELECT * FROM quotes ORDER BY created_at DESC LIMIT ?",
+                f"SELECT * FROM quotes WHERE 1=1 {test_filter} ORDER BY created_at DESC LIMIT ?",
                 (limit,)).fetchall()
     result = []
     for row in rows:

@@ -68,7 +68,7 @@ def check_expirations() -> dict:
                 SELECT quote_number, agency, institution, total, contact_email,
                        created_at, expires_at, follow_up_count
                 FROM quotes
-                WHERE status IN ('pending', 'sent')
+                WHERE is_test = 0 AND status IN ('pending', 'sent')
                   AND expires_at IS NOT NULL
                   AND expires_at < ?
             """, (now,)).fetchall()
@@ -93,7 +93,7 @@ def check_expirations() -> dict:
                 SELECT quote_number, agency, institution, total, contact_email,
                        sent_at, last_follow_up, follow_up_count
                 FROM quotes
-                WHERE status = 'sent'
+                WHERE is_test = 0 AND status = 'sent'
                   AND (last_follow_up IS NULL OR last_follow_up < ?)
                   AND COALESCE(follow_up_count, 0) < ?
                   AND sent_at IS NOT NULL AND sent_at != ''
@@ -129,7 +129,7 @@ def get_expiring_soon(days: int = 7) -> list:
                 SELECT quote_number, agency, institution, total, contact_email,
                        created_at, expires_at, status, follow_up_count
                 FROM quotes
-                WHERE status IN ('pending', 'sent')
+                WHERE is_test = 0 AND status IN ('pending', 'sent')
                   AND expires_at IS NOT NULL
                   AND expires_at BETWEEN ? AND ?
                 ORDER BY expires_at ASC
@@ -339,7 +339,7 @@ def get_pipeline_summary() -> dict:
             now = datetime.now(timezone.utc).isoformat()
             expiring = conn.execute("""
                 SELECT COUNT(*) FROM quotes
-                WHERE status IN ('pending', 'sent')
+                WHERE is_test = 0 AND status IN ('pending', 'sent')
                   AND expires_at BETWEEN ? AND ?
             """, (now, cutoff)).fetchone()[0]
 

@@ -245,7 +245,7 @@ def _backfill_margins() -> int:
             quotes = conn.execute("""
                 SELECT quote_number, line_items, total
                 FROM quotes
-                WHERE line_items IS NOT NULL AND line_items != ''
+                WHERE is_test = 0 AND line_items IS NOT NULL AND line_items != ''
                   AND (total_cost IS NULL OR total_cost = 0)
                   AND total > 0
             """).fetchall()

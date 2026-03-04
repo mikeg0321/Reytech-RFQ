@@ -1009,7 +1009,7 @@ def get_intelligent_recommendations() -> dict:
         lost_to_scprs = conn.execute("""
             SELECT quote_number, agency, status_notes, total
             FROM quotes
-            WHERE status='closed_lost'
+            WHERE is_test=0 AND status='closed_lost'
               AND status_notes LIKE 'SCPRS:%'
             ORDER BY updated_at DESC LIMIT 5
         """).fetchall()

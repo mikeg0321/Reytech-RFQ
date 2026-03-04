@@ -152,7 +152,7 @@ def api_qb_cash_flow():
         if True:  # migrated to reytech.db
             try:
                 from src.core.db import DB_PATH as _DB_PATH; conn = sqlite3.connect(_DB_PATH, timeout=10); conn.row_factory = sqlite3.Row
-                cur = conn.execute("SELECT SUM(total) FROM quotes WHERE status IN ('sent','quoted') AND total > 0")
+                cur = conn.execute("SELECT SUM(total) FROM quotes WHERE is_test=0 AND status IN ('sent','quoted') AND total > 0")
                 row = cur.fetchone()
                 pipeline_value = float(row[0] or 0)
                 conn.close()
@@ -217,7 +217,7 @@ def api_qb_invoice_from_quote():
         # rfq.db migrated to reytech.db via get_db()
         from src.core.db import DB_PATH as _DB_PATH; conn = sqlite3.connect(_DB_PATH, timeout=10); conn.row_factory = sqlite3.Row
         conn.row_factory = sqlite3.Row
-        quote = conn.execute("SELECT * FROM quotes WHERE quote_number=?", (qnum,)).fetchone()
+        quote = conn.execute("SELECT * FROM quotes WHERE is_test=0 AND quote_number=?", (qnum,)).fetchone()
         if not quote:
             conn.close()
             return jsonify({"ok": False, "error": f"Quote {qnum} not found"})
@@ -412,7 +412,7 @@ def api_pipeline_quote_to_cash():
         conn.row_factory = sqlite3.Row
         quotes = conn.execute("""
             SELECT quote_number, institution, total, status, created_date, sent_date
-            FROM quotes ORDER BY created_date DESC LIMIT 100
+            FROM quotes WHERE is_test=0 ORDER BY created_date DESC LIMIT 100
         """).fetchall()
         pipeline = []
         for q in quotes:
@@ -451,7 +451,7 @@ def api_pipeline_stale_quotes():
         cutoff = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
         quotes = conn.execute("""
             SELECT quote_number, institution, total, status, created_date, sent_date
-            FROM quotes WHERE status IN ('sent','quoted','draft')
+            FROM quotes WHERE is_test=0 AND status IN ('sent','quoted','draft')
             AND created_date < ? ORDER BY created_date ASC
         """, (cutoff,)).fetchall()
         stale = []
@@ -486,7 +486,7 @@ def api_pipeline_follow_up_queue():
         conn.row_factory = sqlite3.Row
         quotes = conn.execute("""
             SELECT quote_number, institution, total, status, created_date, sent_date
-            FROM quotes WHERE status IN ('sent','quoted','priced')
+            FROM quotes WHERE is_test=0 AND status IN ('sent','quoted','priced')
             ORDER BY total DESC
         """).fetchall()
         queue = []
@@ -527,15 +527,15 @@ def api_pipeline_revenue_goal():
     if True:  # migrated to reytech.db
         try:
             from src.core.db import DB_PATH as _DB_PATH; conn = sqlite3.connect(_DB_PATH, timeout=10); conn.row_factory = sqlite3.Row
-            cur = conn.execute("SELECT SUM(total) FROM quotes WHERE status='won' AND total > 0")
+            cur = conn.execute("SELECT SUM(total) FROM quotes WHERE is_test=0 AND status='won' AND total > 0")
             row = cur.fetchone()
             won_total = float(row[0] or 0)
 
-            cur = conn.execute("SELECT SUM(total) FROM quotes WHERE status IN ('sent','quoted') AND total > 0")
+            cur = conn.execute("SELECT SUM(total) FROM quotes WHERE is_test=0 AND status IN ('sent','quoted') AND total > 0")
             row = cur.fetchone()
             pipeline_value = float(row[0] or 0)
 
-            for row in conn.execute("SELECT created_date, total, status FROM quotes WHERE status='won' AND total > 0"):
+            for row in conn.execute("SELECT created_date, total, status FROM quotes WHERE is_test=0 AND status='won' AND total > 0"):
                 try:
                     dt = datetime.strptime(row[0][:10], "%Y-%m-%d")
                     monthly_data[dt.strftime("%Y-%m")] += float(row[1])
@@ -575,7 +575,7 @@ def api_pipeline_conversion_funnel():
     try:
         from src.core.db import DB_PATH as _DB_PATH; conn = sqlite3.connect(_DB_PATH, timeout=10); conn.row_factory = sqlite3.Row
         stages = {}
-        for row in conn.execute("SELECT status, COUNT(*), SUM(total) FROM quotes GROUP BY status"):
+        for row in conn.execute("SELECT status, COUNT(*), SUM(total) FROM quotes WHERE is_test=0 GROUP BY status"):
             stages[row[0] or "unknown"] = {"count": row[1], "value": round(float(row[2] or 0), 2)}
 
         # PC pipeline
@@ -607,11 +607,11 @@ def api_pipeline_avg_deal_size():
         return jsonify({"ok": True, "overall": 0, "by_agency": {}})
     try:
         from src.core.db import DB_PATH as _DB_PATH; conn = sqlite3.connect(_DB_PATH, timeout=10); conn.row_factory = sqlite3.Row
-        overall = conn.execute("SELECT AVG(total), COUNT(*) FROM quotes WHERE total > 0").fetchone()
+        overall = conn.execute("SELECT AVG(total), COUNT(*) FROM quotes WHERE is_test=0 AND total > 0").fetchone()
         by_agency = {}
         for row in conn.execute("""
             SELECT institution, AVG(total), COUNT(*), SUM(total)
-            FROM quotes WHERE total > 0 GROUP BY institution ORDER BY SUM(total) DESC LIMIT 20
+            FROM quotes WHERE is_test=0 AND total > 0 GROUP BY institution ORDER BY SUM(total) DESC LIMIT 20
         """):
             by_agency[row[0] or "Unknown"] = {
                 "avg_deal": round(float(row[1] or 0), 2),
@@ -967,11 +967,11 @@ def api_data_quality_missing_data():
     if True:  # migrated to reytech.db
         try:
             from src.core.db import DB_PATH as _DB_PATH; conn = sqlite3.connect(_DB_PATH, timeout=10); conn.row_factory = sqlite3.Row
-            no_total = conn.execute("SELECT COUNT(*) FROM quotes WHERE total IS NULL OR total = 0").fetchone()[0]
-            no_inst = conn.execute("SELECT COUNT(*) FROM quotes WHERE institution IS NULL OR institution = ''").fetchone()[0]
+            no_total = conn.execute("SELECT COUNT(*) FROM quotes WHERE is_test=0 AND (total IS NULL OR total = 0)").fetchone()[0]
+            no_inst = conn.execute("SELECT COUNT(*) FROM quotes WHERE is_test=0 AND (institution IS NULL OR institution = '')").fetchone()[0]
             no_items = conn.execute("""
                 SELECT COUNT(*) FROM quotes q
-                WHERE NOT EXISTS (SELECT 1 FROM quote_items qi WHERE qi.quote_number = q.quote_number)
+                WHERE q.is_test=0 AND NOT EXISTS (SELECT 1 FROM quote_items qi WHERE qi.quote_number = q.quote_number)
             """).fetchone()[0]
             conn.close()
             if no_total: issues.append({"type": "quotes", "issue": f"{no_total} quotes with $0 total"})
@@ -1018,7 +1018,7 @@ def api_data_quality_orphaned_quotes():
 
         from src.core.db import DB_PATH as _DB_PATH; conn = sqlite3.connect(_DB_PATH, timeout=10); conn.row_factory = sqlite3.Row
         conn.row_factory = sqlite3.Row
-        quotes = conn.execute("SELECT quote_number, institution, total, status FROM quotes").fetchall()
+        quotes = conn.execute("SELECT quote_number, institution, total, status FROM quotes WHERE is_test=0").fetchall()
         conn.close()
 
         orphaned = []
@@ -1108,13 +1108,13 @@ def api_dashboard_kpis():
         conn = _get_db()
         kpis = {}
         # Quotes
-        kpis["total_quotes"] = conn.execute("SELECT COUNT(*) FROM quotes").fetchone()[0]
+        kpis["total_quotes"] = conn.execute("SELECT COUNT(*) FROM quotes WHERE is_test=0").fetchone()[0]
         kpis["quotes_this_month"] = conn.execute(
-            "SELECT COUNT(*) FROM quotes WHERE created_date >= date('now','start of month')").fetchone()[0]
+            "SELECT COUNT(*) FROM quotes WHERE is_test=0 AND created_date >= date('now','start of month')").fetchone()[0]
         # Revenue
-        won = conn.execute("SELECT SUM(total) FROM quotes WHERE status='won'").fetchone()[0]
+        won = conn.execute("SELECT SUM(total) FROM quotes WHERE is_test=0 AND status='won'").fetchone()[0]
         kpis["revenue_won"] = float(won or 0)
-        pipeline = conn.execute("SELECT SUM(total) FROM quotes WHERE status IN ('sent','draft','priced','quoted')").fetchone()[0]
+        pipeline = conn.execute("SELECT SUM(total) FROM quotes WHERE is_test=0 AND status IN ('sent','draft','priced','quoted')").fetchone()[0]
         kpis["pipeline_value"] = float(pipeline or 0)
         # Orders
         kpis["total_orders"] = conn.execute("SELECT COUNT(*) FROM orders").fetchone()[0]
@@ -1134,8 +1134,8 @@ def api_dashboard_kpis():
         except Exception:
             kpis["crm_contacts"] = 0
         # Win rate
-        won_count = conn.execute("SELECT COUNT(*) FROM quotes WHERE status='won'").fetchone()[0]
-        lost_count = conn.execute("SELECT COUNT(*) FROM quotes WHERE status='lost'").fetchone()[0]
+        won_count = conn.execute("SELECT COUNT(*) FROM quotes WHERE is_test=0 AND status='won'").fetchone()[0]
+        lost_count = conn.execute("SELECT COUNT(*) FROM quotes WHERE is_test=0 AND status='lost'").fetchone()[0]
         total_decided = (won_count or 0) + (lost_count or 0)
         kpis["win_rate"] = round((won_count or 0) / total_decided * 100, 1) if total_decided > 0 else 0
         kpis["$2m_goal_pct"] = round(kpis["revenue_won"] / 2000000 * 100, 2)
@@ -1156,13 +1156,13 @@ def api_pipeline_daily_summary():
         summary = {
             "date": today,
             "new_quotes_today": conn.execute(
-                "SELECT COUNT(*) FROM quotes WHERE created_date >= ?", (today,)).fetchone()[0],
+                "SELECT COUNT(*) FROM quotes WHERE is_test=0 AND created_date >= ?", (today,)).fetchone()[0],
             "new_pcs_today": conn.execute(
                 "SELECT COUNT(*) FROM price_checks WHERE created_date >= ?", (today,)).fetchone()[0],
         }
         # Recent quotes
         recent = conn.execute(
-            "SELECT quote_number, institution, total, status FROM quotes ORDER BY created_date DESC LIMIT 5"
+            "SELECT quote_number, institution, total, status FROM quotes WHERE is_test=0 ORDER BY created_date DESC LIMIT 5"
         ).fetchall()
         summary["recent_quotes"] = [dict(r) for r in recent]
         # Overdue items
@@ -1278,7 +1278,7 @@ def api_agents_health_sweep():
     endpoints = {
         "database": lambda: bool(_get_db().execute("SELECT 1").fetchone()),
         "catalog": lambda: bool(_get_db().execute("SELECT COUNT(*) FROM catalog").fetchone()),
-        "quotes": lambda: bool(_get_db().execute("SELECT COUNT(*) FROM quotes").fetchone()),
+        "quotes": lambda: bool(_get_db().execute("SELECT COUNT(*) FROM quotes WHERE is_test=0").fetchone()),
         "orders": lambda: bool(_get_db().execute("SELECT COUNT(*) FROM orders").fetchone()),
         "price_checks": lambda: bool(_get_db().execute("SELECT COUNT(*) FROM price_checks").fetchone()),
     }

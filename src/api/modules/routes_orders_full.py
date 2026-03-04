@@ -1125,7 +1125,7 @@ def _auto_find_quote_for_order(order: dict) -> str:
             if inst and total > 0:
                 rows = conn.execute("""
                     SELECT quote_number, total, institution FROM quotes 
-                    WHERE status IN ('sent','pending','won') 
+                    WHERE is_test=0 AND status IN ('sent','pending','won') 
                     ORDER BY created_at DESC LIMIT 50
                 """).fetchall()
                 for r in rows:
