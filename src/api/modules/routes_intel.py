@@ -78,6 +78,61 @@ def api_intel_po_monitor():
         return jsonify({"ok": False, "error": str(e)})
 
 
+# ── Award Tracker (automated SCPRS polling) ──────────────────────────────────
+
+@bp.route("/api/intel/award-tracker/status")
+@auth_required
+def api_award_tracker_status():
+    """Get award tracker status — eligible quotes, last run, loss history."""
+    try:
+        from src.agents.award_tracker import get_status
+        return jsonify(get_status())
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/intel/award-tracker/run", methods=["POST"])
+@auth_required
+def api_award_tracker_run():
+    """Manually trigger award tracker scan now."""
+    try:
+        from src.agents.award_tracker import run_award_check
+        force = request.get_json(silent=True) or {}
+        result = run_award_check(force=force.get("force", False))
+        return jsonify(result)
+    except Exception as e:
+        import traceback
+        return jsonify({"ok": False, "error": str(e), "traceback": traceback.format_exc()})
+
+
+@bp.route("/api/intel/award-tracker/history")
+@auth_required
+def api_award_tracker_history():
+    """Get full award check history and loss reports."""
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            # Recent checks
+            checks = conn.execute("""
+                SELECT * FROM award_tracker_log
+                ORDER BY checked_at DESC LIMIT 50
+            """).fetchall()
+
+            # All matches (wins + losses)
+            matches = conn.execute("""
+                SELECT * FROM quote_po_matches
+                ORDER BY matched_at DESC LIMIT 30
+            """).fetchall()
+
+        return jsonify({
+            "ok": True,
+            "checks": [dict(r) for r in checks],
+            "matches": [dict(r) for r in matches],
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
 @bp.route("/api/intel/growth")
 @auth_required
 def api_intel_growth():

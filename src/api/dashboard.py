@@ -3748,6 +3748,14 @@ try:
 except Exception as _e:
     log.warning("Follow-up engine failed to start: %s", _e)
 
+# ── Start Award Tracker (polls SCPRS 3x/day for PO awards) ──────────────
+try:
+    from src.agents.award_tracker import start_award_tracker
+    start_award_tracker()
+    log.info("Award tracker started (polls SCPRS every 8h)")
+except Exception as _e:
+    log.warning("Award tracker failed to start: %s", _e)
+
 # ── Start Quote Lifecycle (auto-expire, follow-up triggers) ──────────────
 try:
     from src.agents.quote_lifecycle import start_lifecycle_scheduler
