@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block title %}Supplier Performance — Reytech{% endblock %}
+{% block content %}
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px">
+ <div>
+  <h2 style="margin:0;font-size:22px;font-weight:700">🏭 Supplier Performance</h2>
+  <div style="font-size:14px;color:var(--tx2);margin-top:4px">Compare suppliers by price, reliability, speed, and catalog coverage</div>
+ </div>
+ <div style="display:flex;gap:8px">
+  <a href="/vendors" class="btn btn-s" style="font-size:13px">← Vendors</a>
+  <a href="/catalog" class="btn btn-s" style="font-size:13px">📦 Catalog</a>
+  <input id="search-input" type="text" placeholder="Filter suppliers..." oninput="filterTable()" style="padding:8px 14px;border-radius:8px;background:var(--sf2);color:var(--tx);border:1px solid var(--bd);font-size:14px;width:180px">
+ </div>
+</div>
+
+<!-- KPI Cards -->
+<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
+ <div class="card" style="text-align:center;padding:14px">
+  <div style="font-size:28px;font-weight:800;font-family:'JetBrains Mono',monospace" id="kpi-total">—</div>
+  <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Total Suppliers</div>
+ </div>
+ <div class="card" style="text-align:center;padding:14px">
+  <div style="font-size:28px;font-weight:800;color:#3fb950;font-family:'JetBrains Mono',monospace" id="kpi-active">—</div>
+  <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Active (orders)</div>
+ </div>
+ <div class="card" style="text-align:center;padding:14px">
+  <div style="font-size:28px;font-weight:800;color:var(--ac);font-family:'JetBrains Mono',monospace" id="kpi-avg">—</div>
+  <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Avg Score</div>
+ </div>
+ <div class="card" style="text-align:center;padding:14px">
+  <div style="font-size:28px;font-weight:800;color:var(--yl);font-family:'JetBrains Mono',monospace" id="kpi-catalog">—</div>
+  <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">In Catalog</div>
+ </div>
+</div>
+
+<!-- Supplier Table -->
+<div class="card" style="padding:20px;overflow-x:auto">
+ <div id="supplier-table"><div style="color:var(--tx2);padding:30px;text-align:center">Loading supplier data...</div></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+var allData=[];
+function $(id){return document.getElementById(id);}
+function fmt(n){return n?'$'+n.toLocaleString('en',{minimumFractionDigits:0,maximumFractionDigits:0}):'$0';}
+
+function scoreColor(score){
+ if(score>=70)return '#3fb950';
+ if(score>=50)return 'var(--yl)';
+ return '#f85149';
+}
+function scoreBar(score,label){
+ return '<div title="'+label+': '+score+'" style="display:inline-block;width:40px;height:10px;background:var(--sf2);border-radius:4px;overflow:hidden;vertical-align:middle;margin-right:2px"><div style="width:'+Math.min(score,100)+'%;height:100%;background:'+scoreColor(score)+';border-radius:4px"></div></div>';
+}
+
+function renderTable(data){
+ if(!data||!data.length){
+  $('supplier-table').innerHTML='<div style="color:var(--tx2);padding:30px;text-align:center">No supplier data available</div>';
+  return;
+ }
+ var h='<table class="home-tbl" style="font-size:14px;min-width:900px"><thead><tr>';
+ h+='<th>Supplier</th><th style="text-align:center">Score</th><th style="text-align:center">Price</th>';
+ h+='<th style="text-align:center">Reliability</th><th style="text-align:center">Speed</th>';
+ h+='<th style="text-align:center">Products</th><th style="text-align:center">Orders</th>';
+ h+='<th style="text-align:right">Revenue</th><th style="text-align:right">Margin</th>';
+ h+='</tr></thead><tbody>';
+ data.forEach(function(s,i){
+  h+='<tr style="cursor:pointer" onclick="location.href=\'/supplier/'+encodeURIComponent(s.name)+'\'">';
+  h+='<td><span style="font-weight:700;font-size:15px">'+s.name+'</span>';
+  if(s.categories&&s.categories.length){
+   h+='<div style="font-size:12px;color:var(--tx2);margin-top:2px">'+s.categories.join(', ')+'</div>';
+  }
+  h+='</td>';
+  h+='<td style="text-align:center"><span style="font-family:\'JetBrains Mono\',monospace;font-weight:700;color:'+scoreColor(s.composite_score)+';font-size:16px">'+s.composite_score+'</span></td>';
+  h+='<td style="text-align:center">'+scoreBar(s.price_score,'Price')+' <span style="font-size:12px;color:var(--tx2)">'+s.price_score+'</span></td>';
+  h+='<td style="text-align:center">'+scoreBar(s.reliability_score,'Reliability')+' <span style="font-size:12px;color:var(--tx2)">'+s.reliability_score+'</span></td>';
+  h+='<td style="text-align:center">'+scoreBar(s.speed_score,'Speed')+' <span style="font-size:12px;color:var(--tx2)">'+s.speed_score+'</span></td>';
+  h+='<td style="text-align:center;font-family:\'JetBrains Mono\',monospace">'+(s.catalog_products||0)+'</td>';
+  h+='<td style="text-align:center;font-family:\'JetBrains Mono\',monospace">'+(s.line_items||0)+'</td>';
+  h+='<td style="text-align:right;font-family:\'JetBrains Mono\',monospace">'+fmt(s.total_revenue)+'</td>';
+  var mc=s.margin>0?'#3fb950':s.margin<0?'#f85149':'var(--tx2)';
+  h+='<td style="text-align:right;font-family:\'JetBrains Mono\',monospace;color:'+mc+'">'+fmt(s.margin)+'</td>';
+  h+='</tr>';
+ });
+ h+='</tbody></table>';
+ $('supplier-table').innerHTML=h;
+}
+
+function filterTable(){
+ var q=($('search-input').value||'').toLowerCase();
+ if(!q){renderTable(allData);return;}
+ renderTable(allData.filter(function(s){return s.name.toLowerCase().indexOf(q)>=0;}));
+}
+
+fetch('/api/suppliers/performance',{credentials:'same-origin'})
+.then(function(r){return r.json();})
+.then(function(d){
+ if(!d.ok)return;
+ allData=d.suppliers||[];
+ var s=d.summary||{};
+ $('kpi-total').textContent=s.total||0;
+ $('kpi-active').textContent=s.active||0;
+ $('kpi-avg').textContent=s.avg_score||0;
+ $('kpi-catalog').textContent=allData.filter(function(x){return x.catalog_products>0;}).length;
+ renderTable(allData);
+});
+</script>
+{% endblock %}

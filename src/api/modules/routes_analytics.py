@@ -1493,3 +1493,374 @@ def convert_pc_to_rfq(pcid):
 def follow_ups_page():
     """Dashboard showing all stale quotes needing follow-up."""
     return render_page("follow_ups.html", active_page="Pipeline")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Win/Loss Analysis Dashboard (PRD-v32 F9)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@bp.route("/analytics/win-loss")
+@auth_required
+def win_loss_page():
+    """Win/loss analysis page with charts and trends."""
+    return render_page("win_loss.html", active_page="Analytics")
+
+
+@bp.route("/api/analytics/win-loss")
+@auth_required
+def api_win_loss_analysis():
+    """Comprehensive win/loss data for charts and tables."""
+    from collections import defaultdict
+
+    quotes = [q for q in get_all_quotes() if not q.get("is_test")]
+    pcs = _load_price_checks()
+
+    # Aggregate by status
+    by_status = defaultdict(lambda: {"count": 0, "total_value": 0})
+    by_agency = defaultdict(lambda: {"won": 0, "lost": 0, "pending": 0, "won_value": 0, "lost_value": 0})
+    by_month = defaultdict(lambda: {"won": 0, "lost": 0, "pending": 0, "sent": 0})
+    by_category = defaultdict(lambda: {"won": 0, "lost": 0, "value": 0})
+    recent_won = []
+    recent_lost = []
+
+    for q in quotes:
+        status = q.get("status", "pending")
+        total = q.get("total", 0) or 0
+        agency = q.get("agency", "") or "Unknown"
+        if agency == "DEFAULT":
+            agency = "Unknown"
+        created = q.get("created_at", "") or ""
+        month_key = created[:7] if created else "unknown"
+
+        by_status[status]["count"] += 1
+        by_status[status]["total_value"] += total
+
+        by_agency[agency][status if status in ("won", "lost") else "pending"] += 1
+        if status == "won":
+            by_agency[agency]["won_value"] += total
+        elif status == "lost":
+            by_agency[agency]["lost_value"] += total
+
+        by_month[month_key][status if status in ("won", "lost", "sent") else "pending"] += 1
+
+        # Categorize by items
+        for item in (q.get("items_detail") or []):
+            desc = (item.get("description", "") or "").lower()
+            cat = "Other"
+            if any(k in desc for k in ["medical", "surgical", "pharma", "rx", "iv "]):
+                cat = "Medical"
+            elif any(k in desc for k in ["office", "paper", "toner", "pen"]):
+                cat = "Office"
+            elif any(k in desc for k in ["janitorial", "clean", "trash", "sanitiz"]):
+                cat = "Janitorial"
+            elif any(k in desc for k in ["food", "beverage", "kitchen", "meal"]):
+                cat = "Food Service"
+            elif any(k in desc for k in ["cloth", "uniform", "garment", "boot"]):
+                cat = "Clothing"
+            by_category[cat][status if status in ("won", "lost") else "pending"] = \
+                by_category[cat].get(status if status in ("won", "lost") else "pending", 0) + 1
+            by_category[cat]["value"] += item.get("qty", 1) * (item.get("unit_price", 0) or 0)
+
+        if status == "won":
+            recent_won.append({
+                "quote_number": q.get("quote_number", ""),
+                "agency": agency,
+                "institution": q.get("institution", "") or q.get("ship_to_name", ""),
+                "total": total,
+                "created_at": created,
+                "po_number": q.get("po_number", ""),
+            })
+        elif status == "lost":
+            recent_lost.append({
+                "quote_number": q.get("quote_number", ""),
+                "agency": agency,
+                "institution": q.get("institution", "") or q.get("ship_to_name", ""),
+                "total": total,
+                "created_at": created,
+                "close_reason": q.get("close_reason", ""),
+            })
+
+    # PC conversion rate
+    total_pcs = len(pcs)
+    pcs_with_quotes = sum(1 for p in pcs.values() if p.get("reytech_quote_number"))
+    pcs_sent = sum(1 for p in pcs.values() if p.get("status") in ("sent", "won", "pending_award"))
+    pcs_no_response = sum(1 for p in pcs.values()
+                          if p.get("status") in ("not_responding", "no_response", "expired", "lost"))
+
+    total_quotes = len(quotes)
+    total_won = by_status.get("won", {}).get("count", 0)
+    total_lost = by_status.get("lost", {}).get("count", 0)
+    total_pending = total_quotes - total_won - total_lost
+    win_rate = round(total_won / max(total_won + total_lost, 1) * 100, 1)
+    won_revenue = by_status.get("won", {}).get("total_value", 0)
+    lost_revenue = by_status.get("lost", {}).get("total_value", 0)
+    avg_deal = round(won_revenue / max(total_won, 1), 2)
+
+    # Conversion funnel
+    funnel = [
+        {"stage": "Price Checks Received", "count": total_pcs},
+        {"stage": "Quotes Generated", "count": pcs_with_quotes},
+        {"stage": "Quotes Sent", "count": pcs_sent + sum(1 for q in quotes if q.get("status") in ("sent",))},
+        {"stage": "Won", "count": total_won},
+    ]
+
+    return jsonify({
+        "ok": True,
+        "summary": {
+            "total_quotes": total_quotes,
+            "won": total_won,
+            "lost": total_lost,
+            "pending": total_pending,
+            "win_rate": win_rate,
+            "won_revenue": round(won_revenue, 2),
+            "lost_revenue": round(lost_revenue, 2),
+            "avg_deal_size": avg_deal,
+        },
+        "by_agency": [
+            {"agency": k, **v, "win_rate": round(v["won"] / max(v["won"] + v["lost"], 1) * 100, 1)}
+            for k, v in sorted(by_agency.items(), key=lambda x: x[1]["won_value"], reverse=True)
+        ],
+        "by_month": [
+            {"month": k, **v}
+            for k, v in sorted(by_month.items())
+        ],
+        "by_category": [
+            {"category": k, **v}
+            for k, v in sorted(by_category.items(), key=lambda x: x[1]["value"], reverse=True)
+        ],
+        "funnel": funnel,
+        "pc_stats": {
+            "total": total_pcs,
+            "quoted": pcs_with_quotes,
+            "sent": pcs_sent,
+            "no_response": pcs_no_response,
+            "conversion_rate": round(pcs_with_quotes / max(total_pcs, 1) * 100, 1),
+        },
+        "recent_won": sorted(recent_won, key=lambda x: x.get("created_at", ""), reverse=True)[:10],
+        "recent_lost": sorted(recent_lost, key=lambda x: x.get("created_at", ""), reverse=True)[:10],
+    })
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Supplier Performance Dashboard (PRD-v32 F4)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@bp.route("/suppliers/performance")
+@auth_required
+def supplier_performance_page():
+    """Supplier performance rankings and analytics."""
+    return render_page("supplier_performance.html", active_page="Vendors")
+
+
+@bp.route("/api/suppliers/performance")
+@auth_required
+def api_supplier_performance():
+    """Aggregate supplier performance data from orders, catalog, and vendor records."""
+    from collections import defaultdict
+
+    suppliers = defaultdict(lambda: {
+        "name": "",
+        "order_count": 0,
+        "line_items": 0,
+        "total_cost": 0,
+        "total_revenue": 0,
+        "on_time": 0,
+        "late": 0,
+        "pending": 0,
+        "avg_lead_days": 0,
+        "lead_days_list": [],
+        "categories": set(),
+        "price_score": 50,
+        "reliability_score": 50,
+        "speed_score": 50,
+        "overall_score": 40,
+    })
+
+    # From orders
+    orders = _load_orders()
+    for oid, order in orders.items():
+        if order.get("is_test"):
+            continue
+        for li in order.get("line_items", []):
+            supplier = li.get("supplier", "").strip()
+            if not supplier:
+                continue
+            s = suppliers[supplier]
+            s["name"] = supplier
+            s["line_items"] += 1
+            s["total_cost"] += (li.get("cost") or 0) * (li.get("qty") or 1)
+            s["total_revenue"] += (li.get("unit_price") or 0) * (li.get("qty") or 1)
+
+            status = li.get("sourcing_status", "pending")
+            if status in ("delivered",):
+                s["on_time"] += 1
+                # Calculate lead time if dates exist
+                if li.get("ship_date") and li.get("delivery_date"):
+                    try:
+                        ship = datetime.fromisoformat(li["ship_date"][:19])
+                        deliv = datetime.fromisoformat(li["delivery_date"][:19])
+                        s["lead_days_list"].append((deliv - ship).days)
+                    except Exception:
+                        pass
+            elif status in ("shipped",):
+                s["pending"] += 1
+            elif status == "pending":
+                s["pending"] += 1
+
+    # From vendor records
+    vendors_path = os.path.join(DATA_DIR, "vendors.json")
+    try:
+        with open(vendors_path) as f:
+            vendors = json.load(f)
+        for v in vendors:
+            name = v.get("name") or v.get("company", "")
+            if not name:
+                continue
+            s = suppliers[name]
+            s["name"] = name
+            s["price_score"] = v.get("price_score", 50)
+            s["reliability_score"] = v.get("reliability_score", 50)
+            s["speed_score"] = v.get("speed_score", 50)
+            s["overall_score"] = v.get("overall_score", 40)
+            for cat in (v.get("categories_served") or []):
+                s["categories"].add(cat)
+    except Exception:
+        pass
+
+    # From catalog supplier pricing
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            rows = conn.execute("""
+                SELECT supplier, COUNT(*) as products, AVG(cost) as avg_cost
+                FROM product_catalog WHERE supplier IS NOT NULL AND supplier != ''
+                GROUP BY supplier ORDER BY products DESC LIMIT 50
+            """).fetchall()
+            for r in rows:
+                sup = r["supplier"]
+                s = suppliers[sup]
+                s["name"] = sup
+                s["catalog_products"] = r["products"]
+                s["avg_catalog_cost"] = round(r["avg_cost"] or 0, 2)
+    except Exception:
+        pass
+
+    # Build results
+    results = []
+    for name, s in suppliers.items():
+        if not s["name"]:
+            continue
+        avg_lead = round(sum(s["lead_days_list"]) / len(s["lead_days_list"]), 1) if s["lead_days_list"] else 0
+        total_fulfilled = s["on_time"] + s["late"]
+        fulfillment_rate = round(s["on_time"] / max(total_fulfilled, 1) * 100, 1)
+
+        # Calculate composite score
+        composite = round((s["price_score"] * 0.3 + s["reliability_score"] * 0.3 +
+                          s["speed_score"] * 0.2 + min(s["line_items"] * 5, 100) * 0.2), 1)
+
+        results.append({
+            "name": s["name"],
+            "order_count": s["order_count"],
+            "line_items": s["line_items"],
+            "total_cost": round(s["total_cost"], 2),
+            "total_revenue": round(s["total_revenue"], 2),
+            "margin": round(s["total_revenue"] - s["total_cost"], 2) if s["total_revenue"] else 0,
+            "on_time": s["on_time"],
+            "late": s["late"],
+            "pending": s["pending"],
+            "avg_lead_days": avg_lead,
+            "fulfillment_rate": fulfillment_rate,
+            "categories": sorted(list(s["categories"]))[:5],
+            "price_score": s["price_score"],
+            "reliability_score": s["reliability_score"],
+            "speed_score": s["speed_score"],
+            "overall_score": s["overall_score"],
+            "composite_score": composite,
+            "catalog_products": s.get("catalog_products", 0),
+        })
+
+    # Sort by composite score (highest first)
+    results.sort(key=lambda x: x["composite_score"], reverse=True)
+
+    # Summary stats
+    total_suppliers = len(results)
+    active_suppliers = sum(1 for r in results if r["line_items"] > 0)
+    avg_score = round(sum(r["composite_score"] for r in results) / max(total_suppliers, 1), 1)
+
+    return jsonify({
+        "ok": True,
+        "suppliers": results[:100],
+        "summary": {
+            "total": total_suppliers,
+            "active": active_suppliers,
+            "avg_score": avg_score,
+            "top_by_revenue": sorted(results, key=lambda x: x["total_revenue"], reverse=True)[:5],
+        },
+    })
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Webhook Integration Hub (PRD-v32 F10)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/webhooks/config")
+@auth_required
+def api_webhooks_config():
+    """Get webhook configuration."""
+    try:
+        from src.core.webhooks import get_config
+        return jsonify({"ok": True, **get_config()})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/webhooks/save", methods=["POST"])
+@auth_required
+def api_webhooks_save():
+    """Save or update a webhook endpoint."""
+    try:
+        from src.core.webhooks import save_webhook
+        data = request.get_json(silent=True) or {}
+        name = data.get("name", "").strip()
+        url = data.get("url", "").strip()
+        events = data.get("events", [])
+        fmt = data.get("format", "json")
+        if not name or not url:
+            return jsonify({"ok": False, "error": "Name and URL required"})
+        result = save_webhook(name, url, events, fmt)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/webhooks/delete", methods=["POST"])
+@auth_required
+def api_webhooks_delete():
+    """Delete a webhook endpoint."""
+    try:
+        from src.core.webhooks import delete_webhook
+        data = request.get_json(silent=True) or {}
+        name = data.get("name", "")
+        if not name:
+            return jsonify({"ok": False, "error": "Name required"})
+        return jsonify(delete_webhook(name))
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/webhooks/test", methods=["POST"])
+@auth_required
+def api_webhooks_test():
+    """Send a test webhook to verify connectivity."""
+    try:
+        from src.core.webhooks import fire_event
+        data = request.get_json(silent=True) or {}
+        fire_event("new_rfq", {
+            "rfq_id": "TEST-001",
+            "agency": "Test Agency",
+            "items": 3,
+            "message": "This is a test webhook from Reytech RFQ",
+        })
+        return jsonify({"ok": True, "message": "Test webhook fired"})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})

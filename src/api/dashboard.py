@@ -2486,6 +2486,19 @@ def _create_order_from_quote(qt: dict, po_number: str = "") -> dict:
                 _learn_supplier_from_order_line(it, order)
     except Exception as _le:
         log.debug("Catalog learning from new order: %s", _le)
+    # ── Fire webhook for order_created event ──
+    try:
+        from src.core.webhooks import fire_event
+        fire_event("order_created", {
+            "order_id": order["order_id"],
+            "quote_number": qn,
+            "agency": order.get("agency", ""),
+            "institution": order.get("institution", ""),
+            "total": f"${order.get('total', 0):,.2f}",
+            "items": len(line_items),
+        })
+    except Exception as _we:
+        log.debug("Webhook fire: %s", _we)
     return order
 
 

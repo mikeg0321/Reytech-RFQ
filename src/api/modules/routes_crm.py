@@ -1360,6 +1360,20 @@ def quote_update_status(quote_number):
                           f"Quote {quote_number} marked WON" + (f" — PO: {po_number}" if po_number else ""),
                           actor="user")
 
+        # ── Fire webhook for quote_won event ──
+        try:
+            from src.core.webhooks import fire_event
+            qt_wh = _find_quote(quote_number) or {}
+            fire_event("quote_won", {
+                "quote_number": quote_number,
+                "po_number": po_number,
+                "agency": qt_wh.get("agency", ""),
+                "institution": qt_wh.get("institution", "") or qt_wh.get("ship_to_name", ""),
+                "total": f"${qt_wh.get('total', 0):,.2f}",
+            })
+        except Exception:
+            pass
+
         # Attempt QB PO creation if configured
         if QB_AVAILABLE and qb_configured():
             try:
