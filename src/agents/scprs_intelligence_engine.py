@@ -309,8 +309,9 @@ def pull_agency(agency_key: str, search_terms: list = None,
         try:
             results = session.search(description=term, from_date=from_date, to_date=to_date)
             agency_results = [r for r in results
-                              if _is_target_agency(r.get("dept_code",""),
-                                                   r.get("dept_name",""), agency_key)]
+                              if _is_target_agency(r.get("dept_code", ""),
+                                                   r.get("dept", r.get("dept_name", "")),
+                                                   agency_key)]
 
             for po in agency_results:
                 # Get line-item detail
@@ -399,14 +400,24 @@ def _store_po(conn, po: dict, agency_key: str, search_term: str, category: str) 
              acq_method, merch_amount, grand_total, buyer_name, buyer_email,
              buyer_phone, search_term)
             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-        """, (now, po_num, po.get("dept_code",""), po.get("dept_name",""),
-              po.get("institution", po.get("dept_name","")), agency_key,
-              po.get("supplier",""), po.get("supplier_id",""),
-              po.get("status",""), po.get("start_date",""), po.get("end_date",""),
-              po.get("acq_type",""), po.get("acq_method",""),
-              po.get("merch_amount"), po.get("grand_total"),
-              po.get("buyer_name",""), po.get("buyer_email",""),
-              po.get("buyer_phone",""), search_term))
+        """, (now, po_num,
+              po.get("dept_code", ""),
+              po.get("dept", po.get("dept_name", "")),
+              po.get("institution", po.get("dept", po.get("dept_name", ""))),
+              agency_key,
+              po.get("supplier_name", po.get("supplier", "")),
+              po.get("supplier_id", ""),
+              po.get("status", ""),
+              po.get("start_date", po.get("start_date_parsed", "")),
+              po.get("end_date", ""),
+              po.get("acq_type", ""),
+              po.get("acq_method", ""),
+              po.get("merch_amount"),
+              po.get("grand_total_num", po.get("grand_total")),
+              po.get("buyer_name", ""),
+              po.get("buyer_email", ""),
+              po.get("buyer_phone", ""),
+              search_term))
         po_id = cur.lastrowid
         is_new = True
 
@@ -448,7 +459,7 @@ def _update_price_history(conn, line: dict, po: dict, agency_key: str) -> int:
          source, source_url, agency, quote_number, price_check_id, notes)
         VALUES (?,?,?,?,?,?,'scprs_live','',?,?,?,'SCPRS live PO price')
     """, (datetime.now(timezone.utc).isoformat(), desc,
-          line.get("item_id",""), po.get("supplier",""),
+          line.get("item_id",""), po.get("supplier_name", po.get("supplier","")),
           line.get("quantity"), unit_price, agency_key,
           po.get("po_number",""), ""))
     return 1
