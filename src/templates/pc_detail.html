@@ -844,7 +844,7 @@
 
     // Due date urgency
     try {(function calcUrgency() {
-     const dueStr='{{ pc.get("due_date","").replace("'", "\\'") }}'.trim();
+     const dueStr={{ pc.get("due_date","")|tojson }}.trim();
      if(!dueStr) return;
      // Try parsing common formats: M/D/YY, M/D/YYYY, YYYY-MM-DD
      let due=new Date(dueStr);
@@ -1247,7 +1247,7 @@
     }
 
     function escHtml(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
-    var _catalogCount='{{ catalog_count|default(0) }}';
+    var _catalogCount={{ catalog_count|default(0)|tojson }};
 
     /* ═══ 🧠 AUTO-PRICE: Smart per-item pricing from catalog intelligence ═══ */
     function runAutoPrice(btn) {
@@ -1685,7 +1685,7 @@
      fetch('/api/catalog/ai-find',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({description:desc, quantity:qty, agency:'{{ agency }}'})
+      body:JSON.stringify({description:desc, quantity:qty, agency:{{ agency|tojson }}})
      }).then(r=>r.json()).then(d=>{
       if(!d.ok){
        if(badge) badge.innerHTML='<span style="color:#f85149">❌ AI: '+(d.error||'failed')+'</span>'
@@ -1762,7 +1762,7 @@
      fetch('/api/catalog/ai-find-batch',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({items:items, agency:'{{ agency }}'})
+      body:JSON.stringify({items:items, agency:{{ agency|tojson }}})
      }).then(r=>r.json()).then(d=>{
       btn.disabled=false;btn.textContent=orig;
       if(!d.ok){showMsg('❌ AI: '+(d.error||'failed'),'err');return;}
@@ -1848,13 +1848,13 @@
      dvbe:'2002605'
     };
     window.PC_META={
-     pcNum:'{{ pc.get("pc_number","").replace("'","\\'") }}',
-     institution:'{{ header.get("institution",pc.get("institution","")).replace("'","\\'") }}',
-     requestor:'{{ header.get("requestor",pc.get("requestor","")).replace("'","\\'") }}',
-     dueDate:'{{ pc.get("due_date","").replace("'","\\'") }}',
-     shipTo:'{{ pc.get("ship_to","").replace("'","\\'") }}',
-     phone:'{{ header.get("phone","").replace("'","\\'") }}',
-     quoteNum:'{{ pc.get("reytech_quote_number","").replace("'","\\'") }}',
+     pcNum:{{ pc.get('pc_number','')|tojson }},
+     institution:{{ header.get("institution",pc.get("institution",""))|tojson }},
+     requestor:{{ header.get('requestor',pc.get('requestor',''))|tojson }},
+     dueDate:{{ pc.get('due_date','')|tojson }},
+     shipTo:{{ pc.get('ship_to','')|tojson }},
+     phone:{{ header.get('phone','')|tojson }},
+     quoteNum:{{ pc.get('reytech_quote_number','')|tojson }},
      expiry:document.getElementById('expiryDate')?.textContent||''
     };
     const peek_next='{{ (next_quote_preview or "")|replace("'", "\\'") }}';
@@ -2066,7 +2066,7 @@
        return fetch('/api/quote/from-price-check', {
          method: 'POST',
          headers: {'Content-Type': 'application/json'},
-         body: JSON.stringify({pc_id: '{{ pcid }}'})
+         body: JSON.stringify({pc_id: {{ pcid|tojson }}})
        });
      })
      .then(r => r.json())

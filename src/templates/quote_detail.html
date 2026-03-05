@@ -204,8 +204,8 @@
       fetch('/api/crm/activity', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ref_id: '{{ qn }}', event_type: 'note', description: note,
-                              metadata: {institution: '{{ institution }}', agency: '{{ agency }}'} })
+        body: JSON.stringify({ref_id: {{ qn|tojson }}, event_type: 'note', description: note,
+                              metadata: {institution: {{ institution|tojson }}, agency: {{ agency|tojson }}} })
       }).then(r => r.json()).then(d => {
         if (d.ok) {
           document.getElementById('crm-note').value = '';
@@ -243,7 +243,7 @@
     }
 
     function loadAgencyIntel() {
-      const agency = '{{ agency }}' || '{{ institution }}'.split('-')[0].split(' ')[0];
+      const agency = {{ agency|tojson }} || '{{ institution }}'.split('-')[0].split(' ')[0];
       if (!agency) {
         document.getElementById('agency-intel').innerHTML = '<div style="color:var(--tx2)">No agency detected</div>';
         return;
@@ -304,7 +304,7 @@
     {% endif %}
 
     // Win prediction
-    fetch('/api/predict/win?institution={{ institution }}&agency={{ agency }}&value={{ qt.get("total",0) }}')
+    fetch('/api/predict/win?institution={{ institution|urlencode }}&agency={{ agency|urlencode }}&value={{ qt.get("total",0) }}')
       .then(r => r.json()).then(d => {
         if (!d.ok) return;
         const pct = Math.round(d.probability * 100);

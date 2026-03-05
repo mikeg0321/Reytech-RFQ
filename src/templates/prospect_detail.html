@@ -274,7 +274,7 @@
 </div>
 
 <script>
-const PID='{{ pid }}';const EMAIL='{{ pr.get("buyer_email","") }}';
+const PID={{ pid|tojson }};const EMAIL={{ pr.get('buyer_email','')|tojson }};
 function crmPost(u,b){return fetch(u,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}).then(r=>r.json())}
 function crmPatch(u,b){return fetch(u,{method:'PATCH',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}).then(r=>r.json())}
 

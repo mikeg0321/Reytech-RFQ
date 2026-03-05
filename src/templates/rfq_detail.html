@@ -460,7 +460,7 @@
 </div>
 
 <script>
-const RID = '{{rid}}';
+const RID = {{rid|tojson}};
 const items={{r.line_items|tojson}};
 const n=items.length;
 
@@ -895,7 +895,7 @@ function applyRecommendations(){
 
 // E8: Send Quote Email
 function sendQuoteEmail(){
- var to=prompt('Send quote to:','{{r.requestor_email}}');
+ var to=prompt('Send quote to:',{{r.requestor_email|tojson}});
  if(!to)return;
  var subject=prompt('Subject:','Quote — Solicitation #{{r.solicitation_number}}');
  if(subject===null)return;
