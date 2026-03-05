@@ -487,10 +487,14 @@ def update_quote_status(quote_number: str, status: str, po_number: str = "",
         if qt.get("quote_number") == quote_number:
             qt["status"] = status
             qt["status_updated"] = now
+            qt["updated_at"] = now
             if po_number:
                 qt["po_number"] = po_number
             if notes:
                 qt["status_notes"] = notes
+            # Auto-set sent_at when marking as sent
+            if status == "sent" and not qt.get("sent_at"):
+                qt["sent_at"] = now
             # Append to status_history (create if missing for legacy records)
             history = qt.get("status_history", [])
             entry = {"status": status, "timestamp": now, "actor": actor}
@@ -504,6 +508,24 @@ def update_quote_status(quote_number: str, status: str, po_number: str = "",
             break
     if found:
         _save_all_quotes(quotes)
+        # Sync to DB
+        try:
+            from src.core.db import get_db
+            with get_db() as conn:
+                updates = {"status": status, "updated_at": now}
+                if po_number:
+                    updates["po_number"] = po_number
+                if notes:
+                    updates["status_notes"] = notes
+                if status == "sent":
+                    updates["sent_at"] = now
+                set_clause = ", ".join(f"{k}=?" for k in updates.keys())
+                conn.execute(
+                    f"UPDATE quotes SET {set_clause} WHERE quote_number=?",
+                    (*updates.values(), quote_number)
+                )
+        except Exception as _e:
+            log.debug("DB sync for quote status: %s", _e)
         log.info("Quote %s marked as %s%s", quote_number, status.upper(),
                  f" (PO: {po_number})" if po_number else "")
     return found

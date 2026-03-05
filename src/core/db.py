@@ -585,6 +585,77 @@ CREATE TABLE IF NOT EXISTS sent_documents (
     change_summary  TEXT                      -- what changed from previous version
 );
 CREATE INDEX IF NOT EXISTS idx_sentdoc_pcid ON sent_documents(pc_id, version);
+
+-- ── Tables added by ghost-data audit (were used in db.py but never created) ──
+
+CREATE TABLE IF NOT EXISTS qa_reports (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp       TEXT NOT NULL,
+    health_score    REAL DEFAULT 0,
+    grade           TEXT DEFAULT '?',
+    summary         TEXT,
+    critical_count  INTEGER DEFAULT 0,
+    checks          TEXT
+);
+
+CREATE TABLE IF NOT EXISTS vendor_registration (
+    vendor_key      TEXT PRIMARY KEY,
+    vendor_name     TEXT,
+    status          TEXT DEFAULT 'pending',
+    account_number  TEXT DEFAULT '',
+    rep_name        TEXT DEFAULT '',
+    rep_email       TEXT DEFAULT '',
+    rep_phone       TEXT DEFAULT '',
+    notes           TEXT DEFAULT '',
+    metadata        TEXT,
+    updated_at      TEXT
+);
+
+CREATE TABLE IF NOT EXISTS market_intelligence (
+    section         TEXT PRIMARY KEY,
+    data            TEXT,
+    updated_at      TEXT
+);
+
+CREATE TABLE IF NOT EXISTS intel_agencies (
+    dept_code       TEXT PRIMARY KEY,
+    dept_name       TEXT,
+    total_spend     REAL DEFAULT 0,
+    buyers          TEXT,
+    categories      TEXT,
+    is_customer     INTEGER DEFAULT 0,
+    opportunity_score REAL DEFAULT 0,
+    updated_at      TEXT
+);
+
+CREATE TABLE IF NOT EXISTS rfq_store (
+    id              TEXT PRIMARY KEY,
+    created_at      TEXT,
+    rfq_number      TEXT DEFAULT '',
+    institution     TEXT DEFAULT '',
+    agency          TEXT DEFAULT '',
+    requestor       TEXT DEFAULT '',
+    email           TEXT DEFAULT '',
+    phone           TEXT DEFAULT '',
+    status          TEXT DEFAULT 'pending',
+    pdf_path        TEXT DEFAULT '',
+    items           TEXT,
+    notes           TEXT DEFAULT '',
+    source          TEXT DEFAULT '',
+    updated_at      TEXT
+);
+
+CREATE TABLE IF NOT EXISTS email_sent_log (
+    id              TEXT PRIMARY KEY,
+    sent_at         TEXT NOT NULL,
+    to_address      TEXT DEFAULT '',
+    subject         TEXT DEFAULT '',
+    body            TEXT DEFAULT '',
+    type            TEXT DEFAULT '',
+    ref_id          TEXT DEFAULT '',
+    success         INTEGER DEFAULT 1,
+    error           TEXT DEFAULT ''
+);
 """
 
 def init_db():

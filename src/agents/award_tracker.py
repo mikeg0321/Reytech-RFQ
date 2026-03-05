@@ -906,7 +906,7 @@ def _send_loss_reports(reports: list):
             for r in reports:
                 nconn.execute("""
                     INSERT INTO notifications
-                    (event_type, title, body, urgency, context, is_read, created_at)
+                    (event_type, title, body, urgency, context_json, is_read, created_at)
                     VALUES (?,?,?,?,?,0,?)
                 """, (
                     "award_loss",
