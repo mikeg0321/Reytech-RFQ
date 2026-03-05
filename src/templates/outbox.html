@@ -90,7 +90,7 @@
 <script>
 function approveDraft(id,btn){
   btn.disabled=true;btn.textContent='Sending...';
-  fetch('/api/email/approve',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({email_id:id})})
+  fetch('/api/outbox/'+id+'/approve',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({})})
   .then(r=>r.json()).then(d=>{
     if(d.ok){btn.textContent='✅ Sent!';btn.style.background='var(--gn)';setTimeout(()=>location.reload(),1200)}
     else{btn.disabled=false;btn.textContent='❌ Failed: '+d.error}
@@ -132,7 +132,7 @@ function retryFailed(){
 }
 function deleteDraft(id,btn){
   if(!confirm('Delete this draft?'))return;
-  fetch('/api/email/delete',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({email_id:id})})
+  fetch('/api/outbox/'+id,{method:'DELETE',credentials:'same-origin'})
   .then(()=>btn.closest('.card').remove());
 }
 function deleteCS(id,btn){
@@ -142,7 +142,7 @@ function deleteCS(id,btn){
 }
 function sendAllApproved(btn){
   btn.disabled=true;btn.textContent='⏳ Sending...';
-  fetch('/api/email/send-approved',{method:'POST',credentials:'same-origin'})
+  fetch('/api/outbox/send-approved',{method:'POST',credentials:'same-origin'})
   .then(r=>r.json()).then(d=>{
     btn.textContent=(d.sent||0)+' sent';setTimeout(()=>location.reload(),1500);
   }).catch(()=>{btn.disabled=false;btn.textContent='Error'});

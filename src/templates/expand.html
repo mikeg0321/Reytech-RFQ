@@ -418,7 +418,7 @@ function od(id){
  if(f.pcs.length){
   h+='<div class="ds"><div class="dt">📋 Price Checks ('+f.pcs.length+')</div>';
   f.pcs.forEach(function(p){
-   h+='<div style="padding:6px;background:var(--sf);border-radius:6px;margin-bottom:4px;display:flex;justify-content:space-between"><span style="font-size:14px;font-weight:600">'+(p.number||p.id.substring(0,8))+'</span><a href="/price-check/'+p.id+'" style="font-size:13px;color:var(--ac)">View →</a></div>';
+   h+='<div style="padding:6px;background:var(--sf);border-radius:6px;margin-bottom:4px;display:flex;justify-content:space-between"><span style="font-size:14px;font-weight:600">'+(p.number||p.id.substring(0,8))+'</span><a href="/pricecheck/'+p.id+'" style="font-size:13px;color:var(--ac)">View →</a></div>';
   });
   h+='</div>';
  }

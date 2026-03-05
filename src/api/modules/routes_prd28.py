@@ -64,21 +64,27 @@ def api_quote_revisions(qn):
 @bp.route("/api/quote-lifecycle/save-revision", methods=["POST"])
 @auth_required
 def api_save_revision():
-    data = request.get_json(force=True, silent=True) or {}
-    from src.agents.quote_lifecycle import save_revision
-    return jsonify(save_revision(data.get("quote_number", ""), data.get("reason", "manual edit")))
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        from src.agents.quote_lifecycle import save_revision
+        return jsonify(save_revision(data.get("quote_number", ""), data.get("reason", "manual edit")))
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
 
 @bp.route("/api/quote-lifecycle/close-competitor", methods=["POST"])
 @auth_required
 def api_close_competitor():
-    data = request.get_json(force=True, silent=True) or {}
-    from src.agents.quote_lifecycle import close_lost_to_competitor
-    return jsonify(close_lost_to_competitor(
-        data.get("quote_number", ""),
-        data.get("competitor", ""),
-        data.get("competitor_price", 0),
-        data.get("po_number", ""),
-    ))
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        from src.agents.quote_lifecycle import close_lost_to_competitor
+        return jsonify(close_lost_to_competitor(
+            data.get("quote_number", ""),
+            data.get("competitor", ""),
+            data.get("competitor_price", 0),
+            data.get("po_number", ""),
+        ))
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -88,22 +94,31 @@ def api_close_competitor():
 @bp.route("/api/outbox/bulk-approve", methods=["POST"])
 @auth_required
 def api_outbox_bulk_approve():
-    data = request.get_json(force=True, silent=True) or {}
-    from src.agents.email_lifecycle import bulk_approve
-    return jsonify(bulk_approve(data.get("email_ids")))
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        from src.agents.email_lifecycle import bulk_approve
+        return jsonify(bulk_approve(data.get("email_ids")))
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
 
 @bp.route("/api/outbox/bulk-delete", methods=["POST"])
 @auth_required
 def api_outbox_bulk_delete():
-    data = request.get_json(force=True, silent=True) or {}
-    from src.agents.email_lifecycle import bulk_delete
-    return jsonify(bulk_delete(data.get("email_ids"), data.get("status_filter", "draft")))
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        from src.agents.email_lifecycle import bulk_delete
+        return jsonify(bulk_delete(data.get("email_ids"), data.get("status_filter", "draft")))
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
 
 @bp.route("/api/outbox/retry-failed", methods=["POST"])
 @auth_required
 def api_outbox_retry_failed():
-    from src.agents.email_lifecycle import retry_failed_emails
-    return jsonify(retry_failed_emails())
+    try:
+        from src.agents.email_lifecycle import retry_failed_emails
+        return jsonify(retry_failed_emails())
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
 
 @bp.route("/api/outbox/engagement-stats")
 @auth_required
