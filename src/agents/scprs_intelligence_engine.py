@@ -381,10 +381,24 @@ def pull_agency(agency_key: str, search_terms: list = None,
 def _store_po(conn, po: dict, agency_key: str, search_term: str, category: str) -> dict:
     """Upsert PO + lines to DB. Returns {is_new, lines_added}."""
     from src.agents.cchcs_intel_puller import _classify_line
+    import hashlib
     now = datetime.now(timezone.utc).isoformat()
     po_num = po.get("po_number", "")
+
+    # Generate synthetic ID if no PO number (common in SCPRS list view)
     if not po_num:
-        return {"is_new": False, "lines_added": 0}
+        key_str = f"{po.get('dept','')}-{po.get('supplier_name','')}-{po.get('grand_total','')}-{po.get('start_date','')}"
+        po_num = "SCPRS-" + hashlib.md5(key_str.encode()).hexdigest()[:12].upper()
+        po["po_number"] = po_num
+
+    # Parse grand_total to number if string
+    def _safe_float(val):
+        if val is None: return None
+        if isinstance(val, (int, float)): return float(val)
+        try: return float(str(val).replace("$","").replace(",","").strip())
+        except: return None
+
+    grand_total = _safe_float(po.get("grand_total_num")) or _safe_float(po.get("grand_total"))
 
     existing = conn.execute(
         "SELECT id FROM scprs_po_master WHERE po_number=?", (po_num,)
@@ -414,7 +428,7 @@ def _store_po(conn, po: dict, agency_key: str, search_term: str, category: str) 
               po.get("acq_type", ""),
               po.get("acq_method", ""),
               po.get("merch_amount"),
-              po.get("grand_total_num", po.get("grand_total")),
+              grand_total,
               po.get("buyer_name", ""),
               po.get("buyer_email", ""),
               po.get("buyer_phone", ""),
@@ -423,7 +437,18 @@ def _store_po(conn, po: dict, agency_key: str, search_term: str, category: str) 
         is_new = True
 
     lines_added = 0
-    for i, line in enumerate(po.get("line_items", [])):
+    line_items = po.get("line_items", [])
+
+    # If no detail items, create one from the list-view first_item field
+    if not line_items and po.get("first_item"):
+        line_items = [{
+            "description": po["first_item"],
+            "unit_price": grand_total,
+            "quantity": 1,
+            "line_total": grand_total,
+        }]
+
+    for i, line in enumerate(line_items):
         existing_line = conn.execute(
             "SELECT id FROM scprs_po_lines WHERE po_id=? AND line_num=?",
             (po_id, i)
