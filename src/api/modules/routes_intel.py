@@ -2757,14 +2757,6 @@ def api_qa_health():
     return jsonify({"ok": True, **report})
 
 
-@bp.route("/api/qa/history")
-@auth_required
-def api_qa_history():
-    """Get QA report history."""
-    if not QA_AVAILABLE:
-        return jsonify({"ok": False, "error": "QA agent not available"})
-    limit = int(request.args.get("limit", 20))
-    return jsonify({"ok": True, "reports": get_qa_history(limit)})
 
 
 @bp.route("/api/qa/trend")
@@ -5008,12 +5000,6 @@ def api_notifications():
     return jsonify({"ok": True, "notifications": list(_notifications),
                     "unread_count": len(unread)})
 
-@bp.route("/api/notifications/mark-read", methods=["POST"])
-@auth_required
-def api_notifications_mark_read():
-    for n in _notifications:
-        n["read"] = True
-    return jsonify({"ok": True})
 
 
 # ── _create_quote_from_pc helper (used by email auto-draft) ──────────────────
@@ -6779,104 +6765,3 @@ def api_delete_quotes():
         "pcs_cleaned": pcs_cleaned,
         "message": f"{'DRY RUN: Would delete' if dry_run else 'Deleted'} {len(deleted)} quotes: {[d['quote_number'] for d in deleted]}",
     })
-
-
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# PRD-28 WI-1: Quote Lifecycle API Routes
-# ═══════════════════════════════════════════════════════════════════════════════
-
-@bp.route("/api/quote-lifecycle/pipeline")
-@auth_required
-def api_quote_lifecycle_pipeline():
-    """Full pipeline summary with expiration and conversion data."""
-    try:
-        from src.agents.quote_lifecycle import get_pipeline_summary
-        return jsonify(get_pipeline_summary())
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)})
-
-
-@bp.route("/api/quote-lifecycle/expiring")
-@auth_required
-def api_quote_lifecycle_expiring():
-    """Quotes expiring within N days."""
-    days = request.args.get("days", 7, type=int)
-    try:
-        from src.agents.quote_lifecycle import get_expiring_soon
-        return jsonify({"ok": True, "expiring": get_expiring_soon(days)})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)})
-
-
-@bp.route("/api/quote-lifecycle/check", methods=["POST", "GET"])
-@auth_required
-def api_quote_lifecycle_check():
-    """Manually trigger expiration + follow-up check."""
-    try:
-        from src.agents.quote_lifecycle import check_expirations
-        return jsonify(check_expirations())
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)})
-
-
-@bp.route("/api/quote-lifecycle/process-reply", methods=["POST"])
-@auth_required
-def api_quote_lifecycle_reply():
-    """Process a reply signal for a quote (win/loss/question)."""
-    data = request.get_json(force=True, silent=True) or {}
-    try:
-        from src.agents.quote_lifecycle import process_reply_signal
-        return jsonify(process_reply_signal(
-            quote_number=data.get("quote_number", ""),
-            signal=data.get("signal", ""),
-            confidence=float(data.get("confidence", 0.7)),
-            po_number=data.get("po_number", ""),
-            reason=data.get("reason", ""),
-        ))
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)})
-
-
-@bp.route("/api/quote-lifecycle/revisions/<qn>")
-@auth_required
-def api_quote_lifecycle_revisions(qn):
-    """Get revision history for a quote."""
-    try:
-        from src.agents.quote_lifecycle import get_revisions
-        return jsonify({"ok": True, "revisions": get_revisions(qn)})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)})
-
-
-@bp.route("/api/quote-lifecycle/save-revision", methods=["POST"])
-@auth_required
-def api_quote_lifecycle_save_revision():
-    """Save a revision snapshot before editing."""
-    data = request.get_json(force=True, silent=True) or {}
-    try:
-        from src.agents.quote_lifecycle import save_revision
-        return jsonify(save_revision(
-            quote_number=data.get("quote_number", ""),
-            reason=data.get("reason", "manual edit"),
-        ))
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)})
-
-
-@bp.route("/api/quote-lifecycle/close-competitor", methods=["POST"])
-@auth_required
-def api_quote_lifecycle_close_competitor():
-    """Close a quote as lost to a competitor."""
-    data = request.get_json(force=True, silent=True) or {}
-    try:
-        from src.agents.quote_lifecycle import close_lost_to_competitor
-        return jsonify(close_lost_to_competitor(
-            quote_number=data.get("quote_number", ""),
-            competitor=data.get("competitor", ""),
-            competitor_price=float(data.get("competitor_price", 0)),
-            po_number=data.get("po_number", ""),
-        ))
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)})
