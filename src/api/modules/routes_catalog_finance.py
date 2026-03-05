@@ -705,16 +705,16 @@ def api_catalog_rebuild_tokens():
 
 # ── Catalog Match Audit ──────────────────────────────────────────────────────
 
-@bp.route("/api/catalog/audit", methods=["POST"])
+@bp.route("/api/catalog/audit", methods=["GET", "POST"])
 @auth_required
 def api_catalog_audit():
     """Run DB-wide catalog match quality audit.
-    POST {fix: true} to auto-clear bad matches."""
+    GET: dry run (report only). POST {fix: true} to auto-clear bad matches."""
     if not CATALOG_AVAILABLE:
         return jsonify({"ok": False, "error": "Catalog not available"})
     try:
         data = request.get_json(silent=True) or {}
-        fix = data.get("fix", False)
+        fix = data.get("fix", False) if request.method == "POST" else False
         result = audit_catalog_matches(fix=fix)
         return jsonify(result)
     except Exception as e:
