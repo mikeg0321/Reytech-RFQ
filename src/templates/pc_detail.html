@@ -1685,7 +1685,7 @@
      fetch('/api/catalog/ai-find',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({description:desc, quantity:qty, agency:{{ agency|tojson }}})
+      body:JSON.stringify({description:desc, quantity:qty, agency:{{ (agency or pc.get("agency","") or header.get("agency",""))|default("")|tojson }}})
      }).then(r=>r.json()).then(d=>{
       if(!d.ok){
        if(badge) badge.innerHTML='<span style="color:#f85149">❌ AI: '+(d.error||'failed')+'</span>'
@@ -1762,7 +1762,7 @@
      fetch('/api/catalog/ai-find-batch',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({items:items, agency:{{ agency|tojson }}})
+      body:JSON.stringify({items:items, agency:{{ (agency or pc.get("agency","") or header.get("agency",""))|default("")|tojson }}})
      }).then(r=>r.json()).then(d=>{
       btn.disabled=false;btn.textContent=orig;
       if(!d.ok){showMsg('❌ AI: '+(d.error||'failed'),'err');return;}
