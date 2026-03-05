@@ -338,17 +338,44 @@ def api_scprs_health():
 @auth_required
 def api_scprs_backfill():
     """Backfill historical SCPRS data for a full year.
-    POST {year: 2025} — runs in background."""
+    POST {year: 2025, force: true} — runs in background."""
     try:
-        from src.agents.scprs_intelligence_engine import backfill_historical
+        from src.agents.scprs_intelligence_engine import backfill_historical, _engine_status
         data = request.get_json(silent=True) or {}
         year = int(data.get("year", 2025))
+        force = data.get("force", False)
         if year < 2020 or year > 2026:
             return jsonify({"ok": False, "error": "Year must be 2020-2026"})
-        result = backfill_historical(year=year, notify_fn=_push_notification)
+        # Reset stuck running state if force
+        if force:
+            _engine_status["running"] = False
+        result = backfill_historical(year=year, notify_fn=_push_notification, force=force)
         return jsonify(result)
     except Exception as e:
-        return jsonify({"ok": False, "error": str(e)})
+        import traceback
+        return jsonify({"ok": False, "error": str(e), "traceback": traceback.format_exc()})
+
+
+@bp.route("/api/intel/scprs/test-pull", methods=["POST"])
+@auth_required
+def api_scprs_test_pull():
+    """Pull a single agency SYNCHRONOUSLY for testing. Returns immediately with results.
+    POST {agency: "CCHCS"} or defaults to CCHCS. Pulls last 30 days only."""
+    try:
+        from src.agents.scprs_intelligence_engine import pull_agency
+        data = request.get_json(silent=True) or {}
+        agency = data.get("agency", "CCHCS")
+        days = int(data.get("days", 30))
+        # Use a small search plan for speed
+        mini_plan = [
+            ("glove", "gloves", True, "P0"),
+            ("medical", "medical", None, "P0"),
+        ]
+        result = pull_agency(agency, search_terms=mini_plan, days_back=days)
+        return jsonify(result)
+    except Exception as e:
+        import traceback
+        return jsonify({"ok": False, "error": str(e), "traceback": traceback.format_exc()})
 
 
 @bp.route("/api/intel/competitors")
@@ -5185,7 +5212,7 @@ def _scprs_autostart():
                 log.info("SCPRS tables empty — starting 2025 backfill automatically")
                 try:
                     from src.agents.scprs_intelligence_engine import backfill_historical
-                    result = backfill_historical(year=2025, notify_fn=_push_notification)
+                    result = backfill_historical(year=2025, notify_fn=_push_notification, force=True)
                     log.info("Auto-backfill result: %s", result)
                 except Exception as e:
                     log.error("Auto-backfill FAILED: %s", e)

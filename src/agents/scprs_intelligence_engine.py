@@ -1028,7 +1028,7 @@ def get_engine_status() -> dict:
 # SYSTEM 4: Historical Backfill + Monthly Full Pull
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def backfill_historical(year: int = 2025, notify_fn=None) -> dict:
+def backfill_historical(year: int = 2025, notify_fn=None, force: bool = False) -> dict:
     """
     Pull ALL SCPRS data for an entire year across all agencies.
     This is permanent baseline data — never deleted, used across the app.
@@ -1037,7 +1037,7 @@ def backfill_historical(year: int = 2025, notify_fn=None) -> dict:
     Runs in background thread. Each agency × each search term.
     """
     global _engine_thread, _engine_status
-    if _engine_status["running"]:
+    if _engine_status["running"] and not force:
         return {"ok": False, "message": "Pull already running", "current": _engine_status["current_agency"]}
 
     from_date = f"01/01/{year}"
@@ -1049,33 +1049,53 @@ def backfill_historical(year: int = 2025, notify_fn=None) -> dict:
         total_lines = 0
         results = {}
 
-        for agency_key in AGENCY_REGISTRY:
-            _engine_status["current_agency"] = f"BACKFILL-{year}: {agency_key}"
-            log.info(f"Historical backfill {year}: {agency_key}")
-            if notify_fn:
-                notify_fn("bell", f"📥 Backfill {year}: pulling {agency_key}...", "info")
+        try:
+            for agency_key in AGENCY_REGISTRY:
+                _engine_status["current_agency"] = f"BACKFILL-{year}: {agency_key}"
+                log.info(f"Historical backfill {year}: {agency_key}")
+                if notify_fn:
+                    try:
+                        notify_fn("bell", f"📥 Backfill {year}: pulling {agency_key}...", "info")
+                    except Exception:
+                        pass
 
-            result = pull_agency(
-                agency_key,
-                from_date_override=from_date,
-                to_date_override=to_date,
-                notify_fn=notify_fn,
-            )
-            results[agency_key] = result
-            total_pos += result.get("new_pos", 0)
-            total_lines += result.get("new_lines", 0)
+                try:
+                    result = pull_agency(
+                        agency_key,
+                        from_date_override=from_date,
+                        to_date_override=to_date,
+                        notify_fn=notify_fn,
+                    )
+                    results[agency_key] = result
+                    total_pos += result.get("new_pos", 0)
+                    total_lines += result.get("new_lines", 0)
+                    log.info(f"Backfill {year} {agency_key}: {result.get('new_pos',0)} POs, {result.get('new_lines',0)} lines")
+                except Exception as e:
+                    log.error(f"Backfill {year} {agency_key} FAILED: {e}")
+                    import traceback
+                    log.error(traceback.format_exc())
+                    results[agency_key] = {"ok": False, "error": str(e)}
 
-        _engine_status["running"] = False
-        _engine_status["current_agency"] = None
+        except Exception as e:
+            log.error(f"Backfill {year} outer loop FAILED: {e}")
+            import traceback
+            log.error(traceback.format_exc())
+        finally:
+            _engine_status["running"] = False
+            _engine_status["current_agency"] = None
+
         _engine_status["last_results"]["backfill"] = {
             "year": year, "total_pos": total_pos,
             "total_lines": total_lines, "agencies": results,
         }
 
         if notify_fn:
-            notify_fn("bell",
-                       f"✅ Historical backfill {year} complete: {total_pos} POs, {total_lines} line items",
-                       "deal")
+            try:
+                notify_fn("bell",
+                           f"✅ Historical backfill {year} complete: {total_pos} POs, {total_lines} line items",
+                           "deal")
+            except Exception:
+                pass
 
     _engine_thread = threading.Thread(target=_run, daemon=True,
                                        name=f"backfill-{year}")
