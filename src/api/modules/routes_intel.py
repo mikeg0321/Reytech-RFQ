@@ -366,23 +366,91 @@ def api_scprs_backfill():
         return jsonify({"ok": False, "error": str(e), "traceback": traceback.format_exc()})
 
 
-@bp.route("/api/intel/scprs/test-pull", methods=["POST"])
+@bp.route("/api/intel/scprs/test-pull", methods=["POST", "GET"])
 @auth_required
 def api_scprs_test_pull():
-    """Pull a single agency SYNCHRONOUSLY for testing. Returns immediately with results.
-    POST {agency: "CCHCS"} or defaults to CCHCS. Pulls last 30 days only."""
+    """Diagnostic SCPRS pull — shows raw results, filtering, and storage.
+    GET or POST {agency: "CCHCS", term: "glove", days: 365}"""
     try:
-        from src.agents.scprs_intelligence_engine import pull_agency
+        from src.agents.scprs_lookup import FiscalSession
+        from src.agents.scprs_intelligence_engine import (
+            _is_target_agency, _store_po, _db, AGENCY_REGISTRY
+        )
+        import time
+
         data = request.get_json(silent=True) or {}
-        agency = data.get("agency", "CCHCS")
-        days = int(data.get("days", 30))
-        # Use a small search plan for speed
-        mini_plan = [
-            ("glove", "gloves", True, "P0"),
-            ("medical", "medical", None, "P0"),
-        ]
-        result = pull_agency(agency, search_terms=mini_plan, days_back=days)
-        return jsonify(result)
+        agency = data.get("agency", request.args.get("agency", "CCHCS"))
+        term = data.get("term", request.args.get("term", "glove"))
+        days = int(data.get("days", request.args.get("days", 365)))
+
+        from datetime import datetime, timedelta
+        from_date = (datetime.now() - timedelta(days=days)).strftime("%m/%d/%Y")
+
+        # Init session
+        session = FiscalSession()
+        if not session.init_session():
+            return jsonify({"ok": False, "error": "SCPRS session init failed"})
+
+        # Search
+        results = session.search(description=term, from_date=from_date)
+
+        # Analyze results
+        raw_count = len(results)
+        depts_seen = {}
+        for r in results:
+            dept = r.get("dept", r.get("dept_name", "(none)"))
+            depts_seen[dept] = depts_seen.get(dept, 0) + 1
+
+        # Filter for target agency
+        matched = []
+        for r in results:
+            dept_val = r.get("dept", r.get("dept_name", ""))
+            if _is_target_agency("", dept_val, agency):
+                matched.append(r)
+
+        # Store matched POs
+        stored_pos = 0
+        stored_lines = 0
+        if matched:
+            conn = _db()
+            for po in matched:
+                try:
+                    result = _store_po(conn, po, agency, term, "diagnostic")
+                    if result["is_new"]:
+                        stored_pos += 1
+                    stored_lines += result["lines_added"]
+                except Exception as e:
+                    return jsonify({"ok": False, "error": f"_store_po failed: {e}",
+                                   "sample_po": {k: str(v)[:100] for k, v in po.items() if not k.startswith("_")}})
+            conn.commit()
+            conn.close()
+
+        # Registry info
+        reg = AGENCY_REGISTRY.get(agency, {})
+
+        return jsonify({
+            "ok": True,
+            "search": {"term": term, "from_date": from_date, "agency": agency},
+            "raw_results": raw_count,
+            "departments_found": depts_seen,
+            "agency_filter": {
+                "dept_name_patterns": reg.get("dept_name_patterns", []),
+                "dept_codes": reg.get("dept_codes", []),
+            },
+            "matched_after_filter": len(matched),
+            "stored_pos": stored_pos,
+            "stored_lines": stored_lines,
+            "sample_matched": [{
+                "po": m.get("po_number", ""),
+                "dept": m.get("dept", ""),
+                "supplier": m.get("supplier_name", ""),
+                "total": m.get("grand_total", ""),
+            } for m in matched[:5]],
+            "sample_rejected": [{
+                "dept": r.get("dept", ""),
+                "supplier": r.get("supplier_name", ""),
+            } for r in results[:5] if r not in matched],
+        })
     except Exception as e:
         import traceback
         return jsonify({"ok": False, "error": str(e), "traceback": traceback.format_exc()})
