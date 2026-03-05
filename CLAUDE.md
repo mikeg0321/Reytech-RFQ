@@ -2,7 +2,7 @@
 
 ## System Context
 
-**What this is:** End-to-end RFQ automation + business intelligence for Reytech Inc., a California SB/DVBE government reseller. 101K lines, 695 routes, 46 templates, deployed on Railway.
+**What this is:** End-to-end RFQ automation + business intelligence for Reytech Inc., a California SB/DVBE government reseller. 90K lines, 714 routes, 48 templates, deployed on Railway.
 
 **Stack:** Python 3.12 / Flask / SQLite (WAL mode) / Jinja2 / Gunicorn. No frontend framework — all server-rendered HTML with inline JS.
 

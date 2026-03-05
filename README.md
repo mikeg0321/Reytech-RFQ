@@ -1,6 +1,6 @@
 # Reytech RFQ Automation System
 
-**Version:** 8.0 | **Owner:** Michael Guadan, Reytech Inc.
+**Version:** 9.0 | **Owner:** Michael Guadan, Reytech Inc.
 **Deployment:** Railway → `web-production-dcee9.up.railway.app`
 **Stack:** Python 3.12 / Flask / SQLite (WAL) / Jinja2 / Gunicorn
 **Codebase:** 101,613 lines across 105 Python files, 46 templates, 695 routes
@@ -11,6 +11,8 @@ End-to-end RFQ automation and business intelligence platform for a California SB
 
 **Core Pipeline:**
 Email → Parse → Price Lookup (SCPRS + Web) → Competitive Pricing → Bid Package / Quote PDF → Email Draft → Follow-Up → Order Tracking → Revenue
+
+**v9.0 (Mar 2026):** Production hardened — 714 routes (99.4% auth coverage), 42 background agents, automated SCPRS award tracking with loss analysis, ghost data cleanup, 6 broken data paths repaired, Flask error handlers, SQLite timeout enforcement across all connects.
 
 ## Quick Start
 
