@@ -168,41 +168,59 @@ def api_email_track_click(tracking_id):
 @bp.route("/api/leads/nurture/start", methods=["POST"])
 @auth_required
 def api_start_nurture():
-    data = request.get_json(force=True, silent=True) or {}
-    from src.agents.lead_nurture_agent import start_nurture
-    return jsonify(start_nurture(data.get("lead_id", ""), data.get("sequence", "")))
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        from src.agents.lead_nurture_agent import start_nurture
+        return jsonify(start_nurture(data.get("lead_id", ""), data.get("sequence", "")))
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
 
 @bp.route("/api/leads/nurture/pause", methods=["POST"])
 @auth_required
 def api_pause_nurture():
-    data = request.get_json(force=True, silent=True) or {}
-    from src.agents.lead_nurture_agent import pause_nurture
-    return jsonify(pause_nurture(data.get("lead_id", ""), data.get("reason", "")))
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        from src.agents.lead_nurture_agent import pause_nurture
+        return jsonify(pause_nurture(data.get("lead_id", ""), data.get("reason", "")))
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
 
 @bp.route("/api/leads/nurture/process", methods=["POST"])
 @auth_required
 def api_process_nurture():
-    from src.agents.lead_nurture_agent import process_nurture_queue
-    return jsonify(process_nurture_queue())
+    try:
+        from src.agents.lead_nurture_agent import process_nurture_queue
+        return jsonify(process_nurture_queue())
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
 
 @bp.route("/api/leads/nurture/auto-start", methods=["POST"])
 @auth_required
 def api_auto_start_nurture():
-    from src.agents.lead_nurture_agent import auto_start_nurture_new_leads
-    return jsonify(auto_start_nurture_new_leads())
+    try:
+        from src.agents.lead_nurture_agent import auto_start_nurture_new_leads
+        return jsonify(auto_start_nurture_new_leads())
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
 
 @bp.route("/api/leads/rescore", methods=["POST"])
 @auth_required
 def api_rescore_leads():
-    from src.agents.lead_nurture_agent import rescore_all_leads
-    return jsonify(rescore_all_leads())
+    try:
+        from src.agents.lead_nurture_agent import rescore_all_leads
+        return jsonify(rescore_all_leads())
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
 
 @bp.route("/api/leads/convert", methods=["POST"])
 @auth_required
 def api_convert_lead():
-    data = request.get_json(force=True, silent=True) or {}
-    from src.agents.lead_nurture_agent import convert_lead_to_customer
-    return jsonify(convert_lead_to_customer(data.get("lead_id", "")))
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        from src.agents.lead_nurture_agent import convert_lead_to_customer
+        return jsonify(convert_lead_to_customer(data.get("lead_id", "")))
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
 
 @bp.route("/api/leads/pipeline")
 @auth_required
@@ -267,13 +285,16 @@ def api_revenue_top_customers():
 @bp.route("/api/revenue/reconcile", methods=["POST"])
 @auth_required
 def api_revenue_reconcile():
-    from src.agents.revenue_engine import reconcile_revenue
-    return jsonify(reconcile_revenue())
+    try:
+        from src.agents.revenue_engine import reconcile_revenue
+        return jsonify(reconcile_revenue())
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# Work Item 5: Vendor Intelligence APIs
-# ══════════════════════════════════════════════════════════════════════════════
+    # ══════════════════════════════════════════════════════════════════════════════
+    # Work Item 5: Vendor Intelligence APIs
+    # ══════════════════════════════════════════════════════════════════════════════
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
 
 @bp.route("/api/vendor/intelligence")
 @auth_required

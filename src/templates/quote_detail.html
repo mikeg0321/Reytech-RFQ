@@ -29,6 +29,7 @@
        {% if revision_count %}<div class="meta-i"><div class="meta-l">Revisions</div><div class="meta-v">{{ revision_count }}</div></div>{% endif %}
        {% if follow_up_count %}<div class="meta-i"><div class="meta-l">Follow-ups</div><div class="meta-v">{{ follow_up_count }}</div></div>{% endif %}
        {% if qt.get("po_number") %}<div class="meta-i"><div class="meta-l">PO Number</div><div class="meta-v" style="color:var(--gn);font-weight:600">{{ qt.get("po_number","") }}</div></div>{% endif %}
+       <div class="meta-i"><div class="meta-l">Contact</div><div class="meta-v">{% if qt.get("contact_email") %}{{ qt.get("contact_name","") }} &lt;{{ qt.get("contact_email") }}&gt;{% else %}<span style="color:#f85149;font-weight:600">⚠ No email — <a href="#" onclick="promptEmail();return false" style="color:#58a6ff">add now</a></span>{% endif %}</div></div>
       </div>
      </div>
      <div class="card" style="margin:0">
@@ -135,6 +136,18 @@
 
 {% block scripts %}
     <script>
+    function promptEmail() {
+      const email = prompt('Enter buyer email for this quote:');
+      if (!email || !email.includes('@')) return;
+      fetch('/api/quote/{{ qn }}/update-email', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({email: email})
+      }).then(r => r.json()).then(d => {
+        if (d.ok) location.reload();
+        else alert('Error: ' + (d.error || 'unknown'));
+      });
+    }
+
     function markQuote(qn, status) {
       let po = '';
       if (status === 'won') {

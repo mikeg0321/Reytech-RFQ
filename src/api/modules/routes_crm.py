@@ -922,74 +922,76 @@ def api_reclassify_to_pc():
     """Move stuck #unknown RFQs to the Price Check queue.
     POST {"rfq_ids": ["id1", "id2"]} or {"rfq_ids": "all_unknown"}
     """
-    data = request.get_json(force=True)
-    rfq_ids = data.get("rfq_ids", [])
+    try:
+        data = request.get_json(force=True)
+        rfq_ids = data.get("rfq_ids", [])
     
-    from src.api.dashboard import load_rfqs, save_rfqs, _load_price_checks, _save_price_checks
+        from src.api.dashboard import load_rfqs, save_rfqs, _load_price_checks, _save_price_checks
     
-    rfqs = load_rfqs()
-    pcs = _load_price_checks()
-    moved = []
+        rfqs = load_rfqs()
+        pcs = _load_price_checks()
+        moved = []
     
-    # "all_unknown" = move all #unknown solicitation RFQs with 0 items
-    if rfq_ids == "all_unknown":
-        rfq_ids = [rid for rid, r in rfqs.items()
-                   if r.get("solicitation_number") in ("unknown", "#unknown", "")
-                   and len(r.get("line_items", [])) == 0]
+        # "all_unknown" = move all #unknown solicitation RFQs with 0 items
+        if rfq_ids == "all_unknown":
+            rfq_ids = [rid for rid, r in rfqs.items()
+                       if r.get("solicitation_number") in ("unknown", "#unknown", "")
+                       and len(r.get("line_items", [])) == 0]
     
-    for rid in rfq_ids:
-        r = rfqs.get(rid)
-        if not r:
-            continue
+        for rid in rfq_ids:
+            r = rfqs.get(rid)
+            if not r:
+                continue
         
-        import uuid as _uuid
-        pc_id = f"pc_{str(_uuid.uuid4())[:8]}"
+            import uuid as _uuid
+            pc_id = f"pc_{str(_uuid.uuid4())[:8]}"
         
-        # Try to find the source PDF for parsing
-        source_pdf = ""
-        try:
-            from src.core.db import get_db
-            with get_db() as conn:
-                files = conn.execute(
-                    "SELECT id, filename FROM rfq_files WHERE rfq_id=? AND filename LIKE '%.pdf'",
-                    (rid,)
-                ).fetchall()
-                if files:
-                    source_pdf = files[0]["filename"]
-        except Exception as _e:
-            log.debug("Suppressed: %s", _e)
+            # Try to find the source PDF for parsing
+            source_pdf = ""
+            try:
+                from src.core.db import get_db
+                with get_db() as conn:
+                    files = conn.execute(
+                        "SELECT id, filename FROM rfq_files WHERE rfq_id=? AND filename LIKE '%.pdf'",
+                        (rid,)
+                    ).fetchall()
+                    if files:
+                        source_pdf = files[0]["filename"]
+            except Exception as _e:
+                log.debug("Suppressed: %s", _e)
         
-        pcs[pc_id] = {
-            "id": pc_id,
-            "pc_number": r.get("solicitation_number", "unknown"),
-            "institution": r.get("institution", ""),
-            "due_date": r.get("due_date", ""),
-            "requestor": r.get("requestor_email", r.get("requestor_name", "")),
-            "ship_to": r.get("delivery_location", ""),
-            "items": r.get("line_items", []),
-            "source_pdf": source_pdf,
-            "status": "parse_error" if not r.get("line_items") else "parsed",
-            "parse_error": "Reclassified from RFQ queue",
-            "created_at": r.get("created_at", datetime.now().isoformat()),
-            "email_uid": r.get("email_uid", ""),
-            "email_subject": r.get("email_subject", ""),
-            "source": "reclassified",
-            "reytech_quote_number": "",
-            "linked_quote_number": "",
-        }
-        del rfqs[rid]
-        moved.append({"rfq_id": rid, "pc_id": pc_id, "subject": r.get("email_subject", "")})
+            pcs[pc_id] = {
+                "id": pc_id,
+                "pc_number": r.get("solicitation_number", "unknown"),
+                "institution": r.get("institution", ""),
+                "due_date": r.get("due_date", ""),
+                "requestor": r.get("requestor_email", r.get("requestor_name", "")),
+                "ship_to": r.get("delivery_location", ""),
+                "items": r.get("line_items", []),
+                "source_pdf": source_pdf,
+                "status": "parse_error" if not r.get("line_items") else "parsed",
+                "parse_error": "Reclassified from RFQ queue",
+                "created_at": r.get("created_at", datetime.now().isoformat()),
+                "email_uid": r.get("email_uid", ""),
+                "email_subject": r.get("email_subject", ""),
+                "source": "reclassified",
+                "reytech_quote_number": "",
+                "linked_quote_number": "",
+            }
+            del rfqs[rid]
+            moved.append({"rfq_id": rid, "pc_id": pc_id, "subject": r.get("email_subject", "")})
     
-    if moved:
-        save_rfqs(rfqs)
-        _save_price_checks(pcs)
+        if moved:
+            save_rfqs(rfqs)
+            _save_price_checks(pcs)
     
-    return jsonify({
-        "ok": True,
-        "moved": len(moved),
-        "details": moved,
-    })
-
+        return jsonify({
+            "ok": True,
+            "moved": len(moved),
+            "details": moved,
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
 
 @bp.route("/api/metrics")
 @auth_required

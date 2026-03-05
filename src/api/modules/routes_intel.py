@@ -1421,6 +1421,35 @@ def quote_detail(qn):
 # Quote-to-Order Conversion (PRD-v32 F2)
 # ═══════════════════════════════════════════════════════════════════════
 
+@bp.route("/api/quote/<qn>/update-email", methods=["POST"])
+@auth_required
+def api_quote_update_email(qn):
+    """Update contact email on a quote (for quotes missing buyer email)."""
+    try:
+        data = request.get_json(silent=True) or {}
+        email = (data.get("email") or "").strip().lower()
+        if not email or "@" not in email:
+            return jsonify({"ok": False, "error": "Valid email required"})
+        from src.core.db import get_db
+        with get_db() as conn:
+            conn.execute("UPDATE quotes SET contact_email=?, updated_at=? WHERE quote_number=?",
+                         (email, __import__('datetime').datetime.now().isoformat(), qn))
+        # Also update JSON
+        import json as _json
+        ql_path = os.path.join(DATA_DIR, "quotes_log.json")
+        if os.path.exists(ql_path):
+            ql = _json.load(open(ql_path))
+            for q in ql:
+                if q.get("quote_number") == qn:
+                    q["contact_email"] = email
+                    break
+            with open(ql_path, "w") as f:
+                _json.dump(ql, f, indent=2, default=str)
+        return jsonify({"ok": True, "email": email})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
 @bp.route("/api/quote/<qn>/convert-to-order", methods=["POST"])
 @auth_required
 def api_quote_convert_to_order(qn):
@@ -4816,53 +4845,57 @@ def api_intel_pull_schedule():
     POST { cron: "sunday 2am", run_now: false }: Set schedule
          cron examples: "sunday 2am", "daily", "0 2 * * 0" (standard cron)
     """
-    global _scprs_scheduler_thread
+    try:
+        global _scprs_scheduler_thread
 
-    if request.method == "GET":
+        if request.method == "GET":
+            return jsonify({
+                "ok": True,
+                "scheduler": _scprs_scheduler_state,
+                "hint": "POST {cron: 'sunday 2am'} to enable. Also set SCPRS_PULL_SCHEDULE env var for persistence.",
+            })
+
+        body = request.get_json(silent=True) or {}
+        cron = body.get("cron", os.environ.get("SCPRS_PULL_SCHEDULE", ""))
+        run_now = body.get("run_now", False)
+        # Support custom schedule list or use the default dual schedule
+        custom_schedules = body.get("schedules")
+
+        # Stop existing thread
+        _scprs_scheduler_state["running"] = False
+        if _scprs_scheduler_thread and _scprs_scheduler_thread.is_alive():
+            _scprs_scheduler_thread = None
+
+        # Start new thread with dual schedule by default
+        _scprs_scheduler_thread = _threading.Thread(
+            target=_scprs_scheduler_loop,
+            args=(cron,),
+            kwargs={"run_now": run_now, "schedules": custom_schedules},
+            daemon=True, name="scprs-scheduler"
+        )
+        _scprs_scheduler_thread.start()
+
+        labels = custom_schedules or (_SCPRS_DEFAULT_SCHEDULES if not cron else [_parse_simple_cron(cron)])
+        label_str = " + ".join(s if isinstance(s, str) else s["label"] for s in labels)
+        _scprs_scheduler_state["schedule_label"] = label_str
+        _scprs_scheduler_state["next_run"] = label_str
+
+        log.info("SCPRS Scheduler: enabled (%s, run_now=%s)", label_str, run_now)
         return jsonify({
             "ok": True,
-            "scheduler": _scprs_scheduler_state,
-            "hint": "POST {cron: 'sunday 2am'} to enable. Also set SCPRS_PULL_SCHEDULE env var for persistence.",
+            "message": f"SCPRS scheduler enabled: {label_str}",
+            "schedules": [s if isinstance(s, str) else s["label"] for s in labels],
+            "run_now": run_now,
+            "hint": "Default: Monday 7am + Wednesday 10am PST. Set SCPRS_PULL_SCHEDULE to override.",
         })
 
-    body = request.get_json(silent=True) or {}
-    cron = body.get("cron", os.environ.get("SCPRS_PULL_SCHEDULE", ""))
-    run_now = body.get("run_now", False)
-    # Support custom schedule list or use the default dual schedule
-    custom_schedules = body.get("schedules")
 
-    # Stop existing thread
-    _scprs_scheduler_state["running"] = False
-    if _scprs_scheduler_thread and _scprs_scheduler_thread.is_alive():
-        _scprs_scheduler_thread = None
+    # ════════════════════════════════════════════════════════════════════════════════
+    # DEAL FORECASTING + WIN PROBABILITY  (PRD Feature 4.4 — P1)
+    # ════════════════════════════════════════════════════════════════════════════════
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
 
-    # Start new thread with dual schedule by default
-    _scprs_scheduler_thread = _threading.Thread(
-        target=_scprs_scheduler_loop,
-        args=(cron,),
-        kwargs={"run_now": run_now, "schedules": custom_schedules},
-        daemon=True, name="scprs-scheduler"
-    )
-    _scprs_scheduler_thread.start()
-
-    labels = custom_schedules or (_SCPRS_DEFAULT_SCHEDULES if not cron else [_parse_simple_cron(cron)])
-    label_str = " + ".join(s if isinstance(s, str) else s["label"] for s in labels)
-    _scprs_scheduler_state["schedule_label"] = label_str
-    _scprs_scheduler_state["next_run"] = label_str
-
-    log.info("SCPRS Scheduler: enabled (%s, run_now=%s)", label_str, run_now)
-    return jsonify({
-        "ok": True,
-        "message": f"SCPRS scheduler enabled: {label_str}",
-        "schedules": [s if isinstance(s, str) else s["label"] for s in labels],
-        "run_now": run_now,
-        "hint": "Default: Monday 7am + Wednesday 10am PST. Set SCPRS_PULL_SCHEDULE to override.",
-    })
-
-
-# ════════════════════════════════════════════════════════════════════════════════
-# DEAL FORECASTING + WIN PROBABILITY  (PRD Feature 4.4 — P1)
-# ════════════════════════════════════════════════════════════════════════════════
 @bp.route("/api/quotes/win-probability")
 @auth_required
 def api_win_probability():

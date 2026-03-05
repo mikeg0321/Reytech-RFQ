@@ -4350,81 +4350,83 @@ def api_admin_rescan_item_numbers():
     POST body: { "reparse_pdfs": true } to also re-read source PDFs
     Returns: { ok, scanned, updated, details: [{pcid, pc_number, items_updated}] }
     """
-    data = request.get_json(silent=True) or {}
-    reparse_pdfs = data.get("reparse_pdfs", True)
+    try:
+        data = request.get_json(silent=True) or {}
+        reparse_pdfs = data.get("reparse_pdfs", True)
     
-    pcs = _load_price_checks()
-    total_scanned = 0
-    total_updated = 0
-    details = []
+        pcs = _load_price_checks()
+        total_scanned = 0
+        total_updated = 0
+        details = []
     
-    for pcid, pc in pcs.items():
-        items = pc.get("items", [])
-        if not items:
-            items = pc.get("parsed", {}).get("line_items", [])
-        if not items:
-            continue
-        
-        total_scanned += 1
-        items_updated = 0
-        
-        # Option 1: Re-parse the source PDF to get substituted column
-        if reparse_pdfs:
-            source_pdf = pc.get("source_pdf", "")
-            if source_pdf and os.path.exists(source_pdf):
-                try:
-                    from src.forms.price_check import parse_ams704
-                    fresh = parse_ams704(source_pdf)
-                    fresh_items = fresh.get("line_items", [])
-                    # Merge substituted field + mfg_number from fresh parse
-                    for fi in fresh_items:
-                        row_idx = fi.get("row_index", 0)
-                        # Find matching item by row_index
-                        for item in items:
-                            if item.get("row_index") == row_idx:
-                                # Copy substituted field if not already set
-                                if fi.get("substituted") and not item.get("substituted"):
-                                    item["substituted"] = fi["substituted"]
-                                # Copy mfg_number if fresh parse found one
-                                if fi.get("mfg_number") and not item.get("mfg_number"):
-                                    item["mfg_number"] = fi["mfg_number"]
-                                    items_updated += 1
-                                break
-                except Exception as e:
-                    log.debug("Rescan PDF %s: %s", pcid, e)
-        
-        # Option 2: Run extraction on existing item data
-        from src.forms.price_check import extract_item_numbers, _is_sequential_number
-        for item in items:
-            current_mfg = (item.get("mfg_number") or "").strip()
-            # Skip if already has a real MFG number
-            if current_mfg:
+        for pcid, pc in pcs.items():
+            items = pc.get("items", [])
+            if not items:
+                items = pc.get("parsed", {}).get("line_items", [])
+            if not items:
                 continue
-            
-            pn = extract_item_numbers(item)
-            if pn:
-                item["mfg_number"] = pn
-                items_updated += 1
         
-        if items_updated > 0:
-            total_updated += items_updated
-            _sync_pc_items(pc, items)
-            details.append({
-                "pcid": pcid,
-                "pc_number": pc.get("pc_number", ""),
-                "items_updated": items_updated,
-            })
+            total_scanned += 1
+            items_updated = 0
+        
+            # Option 1: Re-parse the source PDF to get substituted column
+            if reparse_pdfs:
+                source_pdf = pc.get("source_pdf", "")
+                if source_pdf and os.path.exists(source_pdf):
+                    try:
+                        from src.forms.price_check import parse_ams704
+                        fresh = parse_ams704(source_pdf)
+                        fresh_items = fresh.get("line_items", [])
+                        # Merge substituted field + mfg_number from fresh parse
+                        for fi in fresh_items:
+                            row_idx = fi.get("row_index", 0)
+                            # Find matching item by row_index
+                            for item in items:
+                                if item.get("row_index") == row_idx:
+                                    # Copy substituted field if not already set
+                                    if fi.get("substituted") and not item.get("substituted"):
+                                        item["substituted"] = fi["substituted"]
+                                    # Copy mfg_number if fresh parse found one
+                                    if fi.get("mfg_number") and not item.get("mfg_number"):
+                                        item["mfg_number"] = fi["mfg_number"]
+                                        items_updated += 1
+                                    break
+                    except Exception as e:
+                        log.debug("Rescan PDF %s: %s", pcid, e)
+        
+            # Option 2: Run extraction on existing item data
+            from src.forms.price_check import extract_item_numbers, _is_sequential_number
+            for item in items:
+                current_mfg = (item.get("mfg_number") or "").strip()
+                # Skip if already has a real MFG number
+                if current_mfg:
+                    continue
+            
+                pn = extract_item_numbers(item)
+                if pn:
+                    item["mfg_number"] = pn
+                    items_updated += 1
+        
+            if items_updated > 0:
+                total_updated += items_updated
+                _sync_pc_items(pc, items)
+                details.append({
+                    "pcid": pcid,
+                    "pc_number": pc.get("pc_number", ""),
+                    "items_updated": items_updated,
+                })
     
-    if total_updated > 0:
-        _save_price_checks(pcs)
+        if total_updated > 0:
+            _save_price_checks(pcs)
     
-    return jsonify({
-        "ok": True,
-        "scanned": total_scanned,
-        "updated": total_updated,
-        "details": details,
-    })
-
+        return jsonify({
+            "ok": True,
+            "scanned": total_scanned,
+            "updated": total_updated,
+            "details": details,
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
 
 def _is_sequential(val):
     """Helper: check if value is just a row number."""
@@ -4669,59 +4671,61 @@ def api_admin_purge_rfqs():
       {"all": true}                     — nuclear: delete ALL RFQs
     Returns before/after counts.
     """
-    data = request.get_json(silent=True) or {}
-    rfqs = load_rfqs()
-    before_count = len(rfqs)
-    before_list = {k: {"sol": v.get("solicitation","?"), "req": v.get("requestor","?"),
-                       "items": len(v.get("items",[])), "status": v.get("status","?")}
-                   for k, v in rfqs.items()}
-    
-    to_delete = set()
-    
-    if data.get("rfq_ids"):
-        to_delete = {rid for rid in data["rfq_ids"] if rid in rfqs}
-    elif data.get("empty"):
-        to_delete = {rid for rid, r in rfqs.items() if len(r.get("items", [])) == 0}
-    elif data.get("pattern"):
-        pat = data["pattern"].lower()
-        for rid, r in rfqs.items():
-            searchable = f"{r.get('requestor','')} {r.get('email_subject','')} {r.get('solicitation','')}".lower()
-            if pat in searchable:
-                to_delete.add(rid)
-    elif data.get("all"):
-        to_delete = set(rfqs.keys())
-    else:
-        return jsonify({"ok": False, "error": "Provide rfq_ids, empty:true, pattern, or all:true",
-                        "rfqs": before_list})
-    
-    deleted = []
-    for rid in to_delete:
-        r = rfqs.pop(rid, None)
-        if r:
-            deleted.append({"id": rid, "sol": r.get("solicitation","?"),
-                           "req": r.get("requestor","?"), "items": len(r.get("items",[]))})
-    
-    save_rfqs(rfqs)
-    
-    # Also clean SQLite
     try:
-        from src.core.db import get_db
-        with get_db() as conn:
-            for d in deleted:
-                conn.execute("DELETE FROM rfqs WHERE id=?", (d["id"],))
-    except Exception as _e:
-        log.debug("Suppressed: %s", _e)
+        data = request.get_json(silent=True) or {}
+        rfqs = load_rfqs()
+        before_count = len(rfqs)
+        before_list = {k: {"sol": v.get("solicitation","?"), "req": v.get("requestor","?"),
+                           "items": len(v.get("items",[])), "status": v.get("status","?")}
+                       for k, v in rfqs.items()}
     
-    log.info("ADMIN PURGE-RFQS: deleted %d of %d RFQs", len(deleted), before_count)
+        to_delete = set()
     
-    return jsonify({
-        "ok": True,
-        "deleted": deleted,
-        "deleted_count": len(deleted),
-        "before": before_count,
-        "after": len(rfqs),
-    })
-
+        if data.get("rfq_ids"):
+            to_delete = {rid for rid in data["rfq_ids"] if rid in rfqs}
+        elif data.get("empty"):
+            to_delete = {rid for rid, r in rfqs.items() if len(r.get("items", [])) == 0}
+        elif data.get("pattern"):
+            pat = data["pattern"].lower()
+            for rid, r in rfqs.items():
+                searchable = f"{r.get('requestor','')} {r.get('email_subject','')} {r.get('solicitation','')}".lower()
+                if pat in searchable:
+                    to_delete.add(rid)
+        elif data.get("all"):
+            to_delete = set(rfqs.keys())
+        else:
+            return jsonify({"ok": False, "error": "Provide rfq_ids, empty:true, pattern, or all:true",
+                            "rfqs": before_list})
+    
+        deleted = []
+        for rid in to_delete:
+            r = rfqs.pop(rid, None)
+            if r:
+                deleted.append({"id": rid, "sol": r.get("solicitation","?"),
+                               "req": r.get("requestor","?"), "items": len(r.get("items",[]))})
+    
+        save_rfqs(rfqs)
+    
+        # Also clean SQLite
+        try:
+            from src.core.db import get_db
+            with get_db() as conn:
+                for d in deleted:
+                    conn.execute("DELETE FROM rfqs WHERE id=?", (d["id"],))
+        except Exception as _e:
+            log.debug("Suppressed: %s", _e)
+    
+        log.info("ADMIN PURGE-RFQS: deleted %d of %d RFQs", len(deleted), before_count)
+    
+        return jsonify({
+            "ok": True,
+            "deleted": deleted,
+            "deleted_count": len(deleted),
+            "before": before_count,
+            "after": len(rfqs),
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
 
 @bp.route("/api/admin/clean-activity", methods=["POST"])
 @auth_required
@@ -4964,60 +4968,63 @@ def api_admin_rfq_cleanup():
     These appear when the same 704 email was processed before the routing fix.
     Moves them to PC queue if not already there, then removes from rfq queue.
     """
-    from src.api.dashboard import load_rfqs, save_rfqs
-    import uuid as _uuid
+    try:
+        from src.api.dashboard import load_rfqs, save_rfqs
+        import uuid as _uuid
 
-    rfqs = load_rfqs()
-    removed = []
-    kept = []
+        rfqs = load_rfqs()
+        removed = []
+        kept = []
 
-    for rid, r in list(rfqs.items()):
-        # Detect if this RFQ entry is actually a 704 price check:
-        # 1. Attachments include a 704 form type
-        atts = r.get("attachments_raw", []) or []
-        templates = r.get("templates", {}) or {}
-        is_704 = (
-            "704" in " ".join(str(a) for a in atts).lower() or
-            "704a" in templates or
-            "704" in str(r.get("email_subject", "")).lower() or
-            # Has no 704B (full RFQ requires 704B)
-            ("704b" not in templates and r.get("source") == "email" and 
-             any("704" in str(a).lower() for a in atts))
-        )
+        for rid, r in list(rfqs.items()):
+            # Detect if this RFQ entry is actually a 704 price check:
+            # 1. Attachments include a 704 form type
+            atts = r.get("attachments_raw", []) or []
+            templates = r.get("templates", {}) or {}
+            is_704 = (
+                "704" in " ".join(str(a) for a in atts).lower() or
+                "704a" in templates or
+                "704" in str(r.get("email_subject", "")).lower() or
+                # Has no 704B (full RFQ requires 704B)
+                ("704b" not in templates and r.get("source") == "email" and 
+                 any("704" in str(a).lower() for a in atts))
+            )
         
-        # Also flag if it exactly matches a PC we have
-        pcs = _load_price_checks()
-        sol = r.get("solicitation_number", "")
-        matching_pc = any(
-            str(pc.get("pc_number","")).replace("-","").replace(" ","").replace("#","") ==
-            str(sol).replace("-","").replace(" ","").replace("#","")
-            for pc in pcs.values()
-        )
+            # Also flag if it exactly matches a PC we have
+            pcs = _load_price_checks()
+            sol = r.get("solicitation_number", "")
+            matching_pc = any(
+                str(pc.get("pc_number","")).replace("-","").replace(" ","").replace("#","") ==
+                str(sol).replace("-","").replace(" ","").replace("#","")
+                for pc in pcs.values()
+            )
         
-        if is_704 or matching_pc:
-            removed.append({
-                "rfq_id": rid,
-                "solicitation": sol,
-                "requestor": r.get("requestor_name", r.get("requestor_email", "")),
-                "reason": "matching_pc" if matching_pc else "detected_704_form",
-            })
-            del rfqs[rid]
-        else:
-            kept.append(rid)
+            if is_704 or matching_pc:
+                removed.append({
+                    "rfq_id": rid,
+                    "solicitation": sol,
+                    "requestor": r.get("requestor_name", r.get("requestor_email", "")),
+                    "reason": "matching_pc" if matching_pc else "detected_704_form",
+                })
+                del rfqs[rid]
+            else:
+                kept.append(rid)
 
-    save_rfqs(rfqs)
-    log.info("RFQ cleanup: removed %d entries (%s), kept %d",
-             len(removed), [r["solicitation"] for r in removed], len(kept))
-    return jsonify({
-        "ok": True,
-        "removed": len(removed),
-        "kept": len(kept),
-        "removed_entries": removed,
-    })
+        save_rfqs(rfqs)
+        log.info("RFQ cleanup: removed %d entries (%s), kept %d",
+                 len(removed), [r["solicitation"] for r in removed], len(kept))
+        return jsonify({
+            "ok": True,
+            "removed": len(removed),
+            "kept": len(kept),
+            "removed_entries": removed,
+        })
 
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+    # ═══════════════════════════════════════════════════════════════════════════════
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
 
 @bp.route("/api/item-link/lookup", methods=["POST"])
 @auth_required

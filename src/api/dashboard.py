@@ -2987,10 +2987,12 @@ def api_admin_trace_detail(trace_id):
 @auth_required
 def api_admin_traces_clear():
     """Clear all traces."""
-    from src.api.trace import clear_traces
-    clear_traces()
-    return jsonify({"ok": True, "cleared": True})
-
+    try:
+        from src.api.trace import clear_traces
+        clear_traces()
+        return jsonify({"ok": True, "cleared": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
 
 @bp.route("/api/qa/trace-diagnostic")
 @auth_required

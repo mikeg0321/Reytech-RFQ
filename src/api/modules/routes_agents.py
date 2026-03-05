@@ -425,23 +425,25 @@ def api_email_template_get(tid):
 @auth_required
 def api_email_template_save(tid):
     """Create or update a template."""
-    body = request.get_json(silent=True) or {}
-    data = _load_email_templates()
-    templates = data.setdefault("templates", {})
-    templates[tid] = {
-        "id": tid,
-        "name": body.get("name", tid),
-        "category": body.get("category", "outreach"),
-        "subject": body.get("subject", ""),
-        "body": body.get("body", ""),
-        "variables": body.get("variables", []),
-        "tags": body.get("tags", []),
-        "updated_at": datetime.now().isoformat(),
-    }
-    data["updated_at"] = datetime.now().isoformat()
-    _save_email_templates(data)
-    return jsonify({"ok": True, "template": templates[tid]})
-
+    try:
+        body = request.get_json(silent=True) or {}
+        data = _load_email_templates()
+        templates = data.setdefault("templates", {})
+        templates[tid] = {
+            "id": tid,
+            "name": body.get("name", tid),
+            "category": body.get("category", "outreach"),
+            "subject": body.get("subject", ""),
+            "body": body.get("body", ""),
+            "variables": body.get("variables", []),
+            "tags": body.get("tags", []),
+            "updated_at": datetime.now().isoformat(),
+        }
+        data["updated_at"] = datetime.now().isoformat()
+        _save_email_templates(data)
+        return jsonify({"ok": True, "template": templates[tid]})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
 
 @bp.route("/api/email/draft", methods=["POST"])
 @auth_required
