@@ -60,10 +60,42 @@ def api_intel_pull_all():
 def api_intel_engine_status():
     """Full SCPRS engine status — pull progress, record counts, schedule."""
     try:
-        from src.agents.scprs_intelligence_engine import get_engine_status
-        return jsonify({"ok": True, **get_engine_status()})
+        from src.agents.scprs_intelligence_engine import get_engine_status, _engine_status
+        status = get_engine_status()
+        # Add raw engine state for debugging
+        status["_raw"] = {
+            "running": _engine_status.get("running"),
+            "current_agency": _engine_status.get("current_agency"),
+            "last_results_keys": list(_engine_status.get("last_results", {}).keys()),
+        }
+        return jsonify({"ok": True, **status})
     except Exception as e:
-        return jsonify({"ok": False, "error": str(e)})
+        import traceback
+        return jsonify({"ok": False, "error": str(e), "traceback": traceback.format_exc()})
+
+
+@bp.route("/api/intel/scprs/test-connection")
+@auth_required
+def api_scprs_test_connection():
+    """Test if SCPRS/FI$Cal session can be established. Returns session status."""
+    try:
+        from src.agents.scprs_lookup import FiscalSession
+        session = FiscalSession()
+        init_ok = session.init_session()
+        if not init_ok:
+            return jsonify({"ok": False, "error": "SCPRS session init failed — FI$Cal may be down or blocking",
+                           "hint": "Try again in a few minutes. FI$Cal sometimes rate-limits or has maintenance windows."})
+        # Try a simple search
+        results = session.search(description="glove", from_date="01/01/2025")
+        return jsonify({
+            "ok": True,
+            "session": "established",
+            "test_search": f"'glove' returned {len(results)} results",
+            "results_sample": [{"po": r.get("po_number",""), "dept": r.get("dept",""), "total": r.get("grand_total","")} for r in results[:3]],
+        })
+    except Exception as e:
+        import traceback
+        return jsonify({"ok": False, "error": str(e), "traceback": traceback.format_exc()})
 
 
 @bp.route("/api/intel/scprs/po-monitor", methods=["POST"])
@@ -5151,10 +5183,20 @@ def _scprs_autostart():
                 po_count = _conn.execute("SELECT COUNT(*) FROM scprs_po_master").fetchone()[0]
             if po_count == 0:
                 log.info("SCPRS tables empty — starting 2025 backfill automatically")
-                from src.agents.scprs_intelligence_engine import backfill_historical
-                backfill_historical(year=2025, notify_fn=_push_notification)
+                try:
+                    from src.agents.scprs_intelligence_engine import backfill_historical
+                    result = backfill_historical(year=2025, notify_fn=_push_notification)
+                    log.info("Auto-backfill result: %s", result)
+                except Exception as e:
+                    log.error("Auto-backfill FAILED: %s", e)
+                    import traceback
+                    log.error("Auto-backfill traceback: %s", traceback.format_exc())
+            else:
+                log.info("SCPRS has %d POs — skipping auto-backfill", po_count)
         except Exception as e:
-            log.debug("Auto-backfill check: %s", e)
+            log.error("Auto-backfill check error: %s", e)
+            import traceback
+            log.error("Auto-backfill traceback: %s", traceback.format_exc())
 
     threading.Thread(target=_auto_backfill, daemon=True, name="scprs-auto-backfill").start()
 
