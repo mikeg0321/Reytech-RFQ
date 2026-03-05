@@ -595,7 +595,7 @@ def _get_auto_closed_count() -> int:
         from src.core.paths import DATA_DIR
         import os
         db = os.path.join(DATA_DIR, "reytech.db")
-        conn = sqlite3.connect(db)
+        conn = sqlite3.connect(db, timeout=15)
         today = __import__('datetime').date.today().isoformat()
         n = conn.execute(
             "SELECT COUNT(*) FROM quote_po_matches WHERE auto_closed=1 AND matched_at LIKE ?",
@@ -836,7 +836,7 @@ def get_intelligent_recommendations() -> dict:
         from src.core.paths import DATA_DIR
         import os
         db_path = os.path.join(DATA_DIR, "reytech.db")
-        conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect(db_path, timeout=15)
         conn.row_factory = sqlite3.Row
     except Exception as e:
         return {"ok": False, "error": str(e)}

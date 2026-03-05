@@ -28,7 +28,7 @@ except ImportError:
 
 def _get_conn():
     import sqlite3
-    conn = sqlite3.connect(os.path.join(DATA_DIR, "reytech.db"))
+    conn = sqlite3.connect(os.path.join(DATA_DIR, "reytech.db"), timeout=15)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     return conn

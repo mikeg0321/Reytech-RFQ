@@ -34,7 +34,7 @@ except ImportError:
     DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(
         os.path.dirname(os.path.abspath(__file__)))), "data")
     def get_db():
-        return sqlite3.connect(os.path.join(DATA_DIR, "reytech.db"))
+        return sqlite3.connect(os.path.join(DATA_DIR, "reytech.db"), timeout=15)
 
 # ── CCHCS Department Codes in FI$Cal ─────────────────────────────────────────
 # These are the official SCPRS business unit codes for CDCR/CCHCS departments

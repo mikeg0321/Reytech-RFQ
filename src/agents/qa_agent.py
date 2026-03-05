@@ -2003,7 +2003,7 @@ QA_DB_PATH = os.path.join(DATA_DIR, "qa_intelligence.db")
 
 def _qa_db():
     """Get QA intelligence SQLite connection (separate from main app DB)."""
-    conn = _sqlite3.connect(QA_DB_PATH)
+    conn = _sqlite3.connect(QA_DB_PATH, timeout=15)
     conn.row_factory = _sqlite3.Row
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS qa_runs (

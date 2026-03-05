@@ -2856,6 +2856,7 @@ PC_STATUS_LABELS = {
 
 
 @bp.route("/pricecheck")
+@auth_required
 def pricecheck_redirect():
     """Redirect /pricecheck → /pricechecks (common typo/nav issue)"""
     return redirect("/pricechecks")

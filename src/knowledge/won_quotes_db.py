@@ -63,7 +63,7 @@ CATEGORY_KEYWORDS = {
 def _get_db_conn():
     """Get a direct SQLite connection (not context manager)."""
     import sqlite3
-    conn = sqlite3.connect(os.path.join(DATA_DIR, "reytech.db"))
+    conn = sqlite3.connect(os.path.join(DATA_DIR, "reytech.db"), timeout=15)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     return conn

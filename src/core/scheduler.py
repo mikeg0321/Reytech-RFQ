@@ -159,7 +159,7 @@ def run_backup(data_dir: str = None) -> dict:
     try:
         # Use sqlite3 backup API (safe, consistent snapshot)
         src_conn = sqlite3.connect(db_path, timeout=30)
-        dst_conn = sqlite3.connect(backup_path)
+        dst_conn = sqlite3.connect(backup_path, timeout=15)
         src_conn.backup(dst_conn)
         dst_conn.close()
         src_conn.close()

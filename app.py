@@ -125,6 +125,22 @@ def create_app():
     except Exception as e:
         logging.getLogger("reytech").warning("Security init: %s", e)
 
+    # ── Error handlers ──
+    @app.errorhandler(404)
+    def _not_found(e):
+        if request.path.startswith("/api/"):
+            return {"ok": False, "error": "Not found"}, 404
+        return app.send_static_file("404.html") if os.path.exists(
+            os.path.join(app.static_folder or "", "404.html")
+        ) else ("<h1>404 — Page Not Found</h1><p><a href='/'>Go home</a></p>", 404)
+
+    @app.errorhandler(500)
+    def _server_error(e):
+        logging.getLogger("reytech").error("500 error: %s | %s %s", e, request.method, request.path)
+        if request.path.startswith("/api/"):
+            return {"ok": False, "error": "Internal server error"}, 500
+        return "<h1>500 — Server Error</h1><p>Something went wrong. <a href='/'>Go home</a></p>", 500
+
     # ── Response compression + caching ──
     @app.after_request
     def _optimize_response(response):
