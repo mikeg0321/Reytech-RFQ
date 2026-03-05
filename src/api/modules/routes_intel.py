@@ -133,6 +133,173 @@ def api_award_tracker_history():
         return jsonify({"ok": False, "error": str(e)})
 
 
+# ── SCPRS Data Health Validator ──────────────────────────────────────────────
+
+@bp.route("/api/intel/scprs-health")
+@auth_required
+def api_scprs_health():
+    """Validate SCPRS data is being pulled and flowing into CRM/catalog/growth.
+    Returns health status with specific issues and recommended actions."""
+    try:
+        from src.core.db import get_db
+        from datetime import datetime, timedelta, timezone
+        now = datetime.now(timezone.utc)
+        health = {"ok": True, "checks": [], "score": 100, "timestamp": now.isoformat()}
+
+        with get_db() as conn:
+            # ── 1. Pull Schedule Health ──
+            try:
+                schedule = conn.execute("""
+                    SELECT agency_key, last_pull, next_pull, pull_interval_hours, enabled
+                    FROM scprs_pull_schedule ORDER BY priority ASC
+                """).fetchall()
+                overdue = []
+                never_pulled = []
+                for s in schedule:
+                    d = dict(s)
+                    if not d.get("last_pull"):
+                        never_pulled.append(d["agency_key"])
+                    elif d.get("next_pull"):
+                        try:
+                            next_dt = datetime.fromisoformat(d["next_pull"].replace("Z","+00:00"))
+                            if now > next_dt + timedelta(hours=6):
+                                hours_late = (now - next_dt).total_seconds() / 3600
+                                overdue.append({"agency": d["agency_key"], "hours_late": round(hours_late)})
+                        except: pass
+
+                if not schedule:
+                    health["checks"].append({"check": "pull_schedule", "status": "critical",
+                        "message": "No SCPRS pull schedule configured — agencies never pulled",
+                        "action": "Run /api/intel/scprs/pull to initialize"})
+                    health["score"] -= 30
+                elif never_pulled:
+                    health["checks"].append({"check": "never_pulled", "status": "warning",
+                        "message": f"{len(never_pulled)} agencies never pulled: {never_pulled}",
+                        "action": "Trigger manual pull for these agencies"})
+                    health["score"] -= 15
+                elif overdue:
+                    health["checks"].append({"check": "overdue_pulls", "status": "warning",
+                        "message": f"{len(overdue)} agencies overdue for pull",
+                        "details": overdue,
+                        "action": "Check SCPRS session — may be blocked or rate-limited"})
+                    health["score"] -= 10
+                else:
+                    health["checks"].append({"check": "pull_schedule", "status": "ok",
+                        "message": f"{len(schedule)} agencies scheduled, all current"})
+            except Exception as e:
+                health["checks"].append({"check": "pull_schedule", "status": "error", "message": str(e)})
+                health["score"] -= 20
+
+            # ── 2. PO Data Volume ──
+            try:
+                po_count = conn.execute("SELECT COUNT(*) FROM scprs_po_master").fetchone()[0]
+                line_count = conn.execute("SELECT COUNT(*) FROM scprs_po_lines").fetchone()[0]
+                if po_count == 0:
+                    health["checks"].append({"check": "po_data", "status": "critical",
+                        "message": "No SCPRS PO data — catalog/CRM/growth intelligence has no input",
+                        "action": "Run full SCPRS pull: POST /api/intel/scprs/pull"})
+                    health["score"] -= 25
+                else:
+                    latest = conn.execute("SELECT MAX(pulled_at) FROM scprs_po_master").fetchone()[0]
+                    days_old = 999
+                    if latest:
+                        try:
+                            days_old = (now - datetime.fromisoformat(latest.replace("Z","+00:00"))).days
+                        except: pass
+                    health["checks"].append({"check": "po_data", "status": "ok" if days_old < 7 else "warning",
+                        "message": f"{po_count} POs, {line_count} line items, last pull {days_old}d ago"})
+                    if days_old > 7: health["score"] -= 10
+            except Exception as e:
+                health["checks"].append({"check": "po_data", "status": "error", "message": str(e)})
+                health["score"] -= 20
+
+            # ── 3. Buyer Data Flow → CRM ──
+            try:
+                scprs_buyers = conn.execute("""
+                    SELECT COUNT(DISTINCT buyer_email) FROM scprs_po_master
+                    WHERE buyer_email IS NOT NULL AND buyer_email != ''
+                """).fetchone()[0]
+                crm_contacts = conn.execute("SELECT COUNT(*) FROM contacts").fetchone()[0]
+                health["checks"].append({"check": "buyer_flow", "status": "ok" if crm_contacts > 0 else "warning",
+                    "message": f"SCPRS buyers: {scprs_buyers}, CRM contacts: {crm_contacts}",
+                    "action": "Run /api/crm/sync-intel to sync SCPRS buyers into CRM" if scprs_buyers > crm_contacts * 2 else None})
+            except Exception as e:
+                health["checks"].append({"check": "buyer_flow", "status": "error", "message": str(e)})
+
+            # ── 4. Item Data Flow → Catalog ──
+            try:
+                scprs_items = conn.execute("SELECT COUNT(DISTINCT description) FROM scprs_po_lines").fetchone()[0]
+                catalog_items = conn.execute("SELECT COUNT(*) FROM product_catalog").fetchone()[0]
+                catalog_with_scprs = conn.execute("""
+                    SELECT COUNT(*) FROM product_catalog
+                    WHERE scprs_last_price IS NOT NULL AND scprs_last_price > 0
+                """).fetchone()[0]
+                health["checks"].append({"check": "item_flow", "status": "ok" if catalog_with_scprs > 0 else "warning",
+                    "message": f"SCPRS items: {scprs_items}, Catalog: {catalog_items}, With SCPRS pricing: {catalog_with_scprs}",
+                    "action": "SCPRS price data not flowing to catalog — check post-pull enrichment" if scprs_items > 0 and catalog_with_scprs == 0 else None})
+            except Exception as e:
+                health["checks"].append({"check": "item_flow", "status": "error", "message": str(e)})
+
+            # ── 5. Price Intelligence ──
+            try:
+                ph_count = conn.execute("SELECT COUNT(*) FROM price_history").fetchone()[0]
+                wq_count = conn.execute("SELECT COUNT(*) FROM won_quotes").fetchone()[0]
+                health["checks"].append({"check": "price_intel", "status": "ok" if ph_count > 0 or wq_count > 0 else "warning",
+                    "message": f"Price history: {ph_count}, Won quotes KB: {wq_count}",
+                    "action": "No pricing intelligence — SCPRS data not being recorded" if ph_count == 0 and wq_count == 0 else None})
+            except Exception as e:
+                health["checks"].append({"check": "price_intel", "status": "error", "message": str(e)})
+
+            # ── 6. Growth Intelligence ──
+            try:
+                gap_items = conn.execute("""
+                    SELECT COUNT(*) FROM scprs_po_lines WHERE opportunity_flag='GAP_ITEM'
+                """).fetchone()[0]
+                win_back = conn.execute("""
+                    SELECT COUNT(*) FROM scprs_po_lines WHERE reytech_sells=1
+                """).fetchone()[0]
+                health["checks"].append({"check": "growth_intel", "status": "ok" if gap_items > 0 or win_back > 0 else "info",
+                    "message": f"Gap items: {gap_items}, Win-back: {win_back}"})
+            except Exception as e:
+                health["checks"].append({"check": "growth_intel", "status": "error", "message": str(e)})
+
+            # ── 7. Pull Log (recent activity) ──
+            try:
+                recent = conn.execute("""
+                    SELECT pulled_at, search_term, results_found, new_pos, error
+                    FROM scprs_pull_log ORDER BY pulled_at DESC LIMIT 5
+                """).fetchall()
+                errors = [dict(r) for r in recent if r["error"]]
+                if not recent:
+                    health["checks"].append({"check": "pull_log", "status": "info",
+                        "message": "No pull history yet"})
+                elif errors:
+                    health["checks"].append({"check": "pull_log", "status": "warning",
+                        "message": f"Last {len(recent)} pulls: {len(errors)} had errors",
+                        "details": errors[:3]})
+                    health["score"] -= 5
+                else:
+                    total_pos = sum(r["new_pos"] or 0 for r in recent)
+                    health["checks"].append({"check": "pull_log", "status": "ok",
+                        "message": f"Last {len(recent)} pulls: {total_pos} new POs found"})
+            except Exception as e:
+                health["checks"].append({"check": "pull_log", "status": "error", "message": str(e)})
+
+        # Score interpretation
+        health["score"] = max(health["score"], 0)
+        health["grade"] = "A" if health["score"] >= 90 else "B" if health["score"] >= 75 else "C" if health["score"] >= 60 else "D" if health["score"] >= 40 else "F"
+        health["ok"] = health["score"] >= 40
+
+        # Remove None actions
+        for c in health["checks"]:
+            if c.get("action") is None:
+                c.pop("action", None)
+
+        return jsonify(health)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
 @bp.route("/api/intel/growth")
 @auth_required
 def api_intel_growth():
@@ -984,6 +1151,68 @@ def universal_search_page():
             except Exception as _e:
                 log.debug("Suppressed: %s", _e)
 
+            # ── Price Checks ──
+            try:
+                pcs = _load_price_checks()
+                for pid, pc in pcs.items():
+                    fields = " ".join([
+                        pc.get("institution",""), pc.get("requestor",""),
+                        pc.get("pc_number",""), pid,
+                        " ".join(str(i.get("description","")) for i in pc.get("items",[])[:10]),
+                    ]).lower()
+                    if ql in fields:
+                        results.append({
+                            "type": "pricecheck", "icon": "💲",
+                            "title": pc.get("pc_number","") or pid[:12],
+                            "subtitle": f"{pc.get('institution','')} · {pc.get('requestor','')}",
+                            "meta": f"{len(pc.get('items',[]))} items · {pc.get('status','')}",
+                            "url": f"/pricecheck/{pid}",
+                        })
+            except Exception as _e:
+                log.debug("Suppressed: %s", _e)
+
+            # ── Product Catalog ──
+            try:
+                from src.core.db import get_db as _sdb
+                with _sdb() as _sconn:
+                    cat_rows = _sconn.execute("""
+                        SELECT id, name, description, sku, mfg_number, category, cost, sell_price
+                        FROM product_catalog
+                        WHERE LOWER(name) LIKE ? OR LOWER(description) LIKE ?
+                           OR LOWER(sku) LIKE ? OR LOWER(mfg_number) LIKE ?
+                        LIMIT 15
+                    """, (f"%{ql}%", f"%{ql}%", f"%{ql}%", f"%{ql}%")).fetchall()
+                    for cr in cat_rows:
+                        name = cr["name"] or cr["description"] or "?"
+                        results.append({
+                            "type": "product", "icon": "📦",
+                            "title": name[:60],
+                            "subtitle": f"{cr['category'] or '—'} · SKU: {cr['sku'] or cr['mfg_number'] or '—'}",
+                            "meta": f"Cost ${cr['cost'] or 0:,.2f} → ${cr['sell_price'] or 0:,.2f}",
+                            "url": f"/catalog?q={_sanitize_input(q[:30])}",
+                        })
+            except Exception as _e:
+                log.debug("Suppressed: %s", _e)
+
+            # ── Vendors ──
+            try:
+                import json as _vjson
+                vendors = _vjson.load(open(os.path.join(DATA_DIR, "vendors.json")))
+                for v in vendors:
+                    vname = v.get("name","")
+                    fields = " ".join([vname, v.get("contact",""), v.get("email",""),
+                                       " ".join(v.get("categories_served",[]))]).lower()
+                    if ql in fields:
+                        results.append({
+                            "type": "vendor", "icon": "🏭",
+                            "title": vname,
+                            "subtitle": f"{v.get('contact','')} · {v.get('email','')}",
+                            "meta": f"Score: {v.get('overall_score',0)}",
+                            "url": f"/supplier/{vname}",
+                        })
+            except Exception as _e:
+                log.debug("Suppressed: %s", _e)
+
             # Dedupe by URL
             seen = set()
             deduped = []
@@ -994,7 +1223,7 @@ def universal_search_page():
             results = deduped[:limit]
 
             breakdown = {t: sum(1 for r in results if r["type"]==t)
-                         for t in ("quote","contact","intel_buyer","order","rfq")}
+                         for t in ("quote","contact","intel_buyer","order","rfq","pricecheck","product","vendor")}
         except Exception as e:
             error = str(e)
 
@@ -1005,6 +1234,9 @@ def universal_search_page():
         "intel_buyer": ("#3fb950", "rgba(52,211,153,.12)",  "🧠 Intel Buyer"),
         "order":       ("#fbbf24", "rgba(251,191,36,.12)",  "📦 Order"),
         "rfq":         ("#f87171", "rgba(248,113,113,.12)", "📄 RFQ"),
+        "pricecheck":  ("#d29922", "rgba(210,153,34,.12)",  "💲 Price Check"),
+        "product":     ("#58a6ff", "rgba(88,166,255,.12)",  "🏷 Product"),
+        "vendor":      ("#3fb950", "rgba(63,185,80,.12)",   "🏭 Vendor"),
     }
 
     rows_html = ""

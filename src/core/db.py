@@ -656,6 +656,115 @@ CREATE TABLE IF NOT EXISTS email_sent_log (
     success         INTEGER DEFAULT 1,
     error           TEXT DEFAULT ''
 );
+
+-- ── SCPRS Intelligence Tables (core to CRM, catalog, growth) ──
+
+CREATE TABLE IF NOT EXISTS scprs_po_master (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    pulled_at       TEXT,
+    po_number       TEXT UNIQUE,
+    dept_code       TEXT,
+    dept_name       TEXT,
+    institution     TEXT,
+    supplier        TEXT,
+    supplier_id     TEXT,
+    status          TEXT,
+    start_date      TEXT,
+    end_date        TEXT,
+    acq_type        TEXT,
+    acq_method      TEXT,
+    merch_amount    REAL,
+    grand_total     REAL,
+    buyer_name      TEXT,
+    buyer_email     TEXT,
+    buyer_phone     TEXT,
+    search_term     TEXT,
+    agency_key      TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_po_institution ON scprs_po_master(institution);
+CREATE INDEX IF NOT EXISTS idx_po_buyer ON scprs_po_master(buyer_email);
+CREATE INDEX IF NOT EXISTS idx_po_supplier ON scprs_po_master(supplier);
+
+CREATE TABLE IF NOT EXISTS scprs_po_lines (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    po_id           INTEGER REFERENCES scprs_po_master(id),
+    po_number       TEXT,
+    line_num        INTEGER,
+    item_id         TEXT,
+    description     TEXT,
+    unspsc          TEXT,
+    uom             TEXT,
+    quantity        REAL,
+    unit_price      REAL,
+    line_total      REAL,
+    line_status     TEXT,
+    category        TEXT,
+    reytech_sells   INTEGER DEFAULT 0,
+    reytech_sku     TEXT,
+    opportunity_flag TEXT
+);
+
+CREATE TABLE IF NOT EXISTS scprs_pull_schedule (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    agency_key      TEXT UNIQUE,
+    priority        TEXT,
+    pull_interval_hours INTEGER DEFAULT 24,
+    last_pull       TEXT,
+    next_pull       TEXT,
+    enabled         INTEGER DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS scprs_pull_log (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    pulled_at       TEXT,
+    search_term     TEXT,
+    dept_filter     TEXT,
+    results_found   INTEGER DEFAULT 0,
+    lines_parsed    INTEGER DEFAULT 0,
+    new_pos         INTEGER DEFAULT 0,
+    error           TEXT,
+    duration_sec    REAL
+);
+
+CREATE TABLE IF NOT EXISTS won_quotes (
+    id              TEXT PRIMARY KEY,
+    po_number       TEXT,
+    item_number     TEXT,
+    description     TEXT,
+    normalized_description TEXT,
+    tokens          TEXT,
+    category        TEXT,
+    supplier        TEXT,
+    department      TEXT,
+    unit_price      REAL,
+    quantity        REAL,
+    total           REAL,
+    award_date      TEXT,
+    source          TEXT,
+    confidence      REAL DEFAULT 1.0,
+    ingested_at     TEXT,
+    updated_at      TEXT
+);
+
+CREATE TABLE IF NOT EXISTS buyer_intelligence (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    buyer_email     TEXT,
+    buyer_name      TEXT,
+    agency          TEXT,
+    institution     TEXT,
+    total_spend     REAL DEFAULT 0,
+    po_count        INTEGER DEFAULT 0,
+    categories      TEXT,
+    items_purchased TEXT,
+    last_po_date    TEXT,
+    opportunity_score REAL DEFAULT 0,
+    is_reytech_customer INTEGER DEFAULT 0,
+    source          TEXT DEFAULT 'scprs',
+    created_at      TEXT,
+    updated_at      TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_bi_email ON buyer_intelligence(buyer_email);
+CREATE INDEX IF NOT EXISTS idx_bi_agency ON buyer_intelligence(agency);
 """
 
 def init_db():
