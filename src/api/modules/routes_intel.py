@@ -10,6 +10,16 @@ from flask import redirect, flash
 from src.core.paths import DATA_DIR
 from src.core.db import get_db
 from src.api.render import render_page
+import os
+
+
+def _notify_wrapper(type_or_dict, title="", urgency="info"):
+    """Adapter: scprs engine calls notify_fn("bell", "msg", "info")
+    but _push_notification expects a dict. Handles both conventions."""
+    if isinstance(type_or_dict, dict):
+        _push_notification(type_or_dict)
+    else:
+        _push_notification({"type": type_or_dict, "title": title, "urgency": urgency})
 
 try:
     from src.core.security import rate_limit, audit_action, _log_audit_internal
@@ -49,7 +59,7 @@ def api_intel_pull_all():
     try:
         from src.agents.scprs_intelligence_engine import pull_all_agencies_background
         priority = (request.json or {}).get("priority", "P0")
-        result = pull_all_agencies_background(notify_fn=_push_notification, priority_filter=priority)
+        result = pull_all_agencies_background(notify_fn=_notify_wrapper, priority_filter=priority)
         return jsonify({"ok": True, **result})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
@@ -104,7 +114,7 @@ def api_intel_po_monitor():
     """Run PO award monitor — check open quotes against SCPRS, auto close-lost."""
     try:
         from src.agents.scprs_intelligence_engine import run_po_award_monitor
-        result = run_po_award_monitor(notify_fn=_push_notification)
+        result = run_po_award_monitor(notify_fn=_notify_wrapper)
         return jsonify({"ok": True, **result})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
@@ -349,7 +359,7 @@ def api_scprs_backfill():
         # Reset stuck running state if force
         if force:
             _engine_status["running"] = False
-        result = backfill_historical(year=year, notify_fn=_push_notification, force=force)
+        result = backfill_historical(year=year, notify_fn=_notify_wrapper, force=force)
         return jsonify(result)
     except Exception as e:
         import traceback
@@ -562,7 +572,7 @@ def api_scprs_universal_pull():
         from src.agents.scprs_universal_pull import pull_background
         priority = (request.json or {}).get("priority", "P0")
         result = pull_background(priority=priority)
-        _push_notification("bell", f"SCPRS universal pull started ({priority})", "info")
+        _notify_wrapper("bell", f"SCPRS universal pull started ({priority})", "info")
         return jsonify({"ok": True, **result})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
@@ -597,7 +607,7 @@ def api_scprs_check_close_lost():
         from src.agents.scprs_universal_pull import check_quotes_against_scprs
         result = check_quotes_against_scprs()
         if result["auto_closed"] > 0:
-            _push_notification("bell", f"SCPRS: {result['auto_closed']} quotes auto-closed lost", "warn")
+            _notify_wrapper("bell", f"SCPRS: {result['auto_closed']} quotes auto-closed lost", "warn")
         return jsonify({"ok": True, **result})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
@@ -674,7 +684,7 @@ def api_cchcs_intel_pull():
         from src.agents.cchcs_intel_puller import pull_in_background
         priority = request.json.get("priority", "P0") if request.is_json else "P0"
         result = pull_in_background(priority=priority)
-        _push_notification("bell", f"CCHCS intel pull started (priority={priority})", "info")
+        _notify_wrapper("bell", f"CCHCS intel pull started (priority={priority})", "info")
         return jsonify({"ok": True, **result})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
@@ -5198,7 +5208,7 @@ def _scprs_autostart():
                 log.info("SCPRS tables empty — starting 2025 backfill automatically")
                 try:
                     from src.agents.scprs_intelligence_engine import backfill_historical
-                    result = backfill_historical(year=2025, notify_fn=_push_notification, force=True)
+                    result = backfill_historical(year=2025, notify_fn=_notify_wrapper, force=True)
                     log.info("Auto-backfill result: %s", result)
                 except Exception as e:
                     log.error("Auto-backfill FAILED: %s", e)
@@ -5241,7 +5251,7 @@ def _full_scprs_scheduler_loop():
             # Run scheduled agency pulls
             try:
                 from src.agents.scprs_intelligence_engine import run_scheduled_pulls
-                run_scheduled_pulls(notify_fn=_push_notification)
+                run_scheduled_pulls(notify_fn=_notify_wrapper)
             except Exception as e:
                 log.error(f"Scheduled pull error: {e}")
 
@@ -5249,7 +5259,7 @@ def _full_scprs_scheduler_loop():
             if hour == 8 and now.minute < 30:
                 try:
                     from src.agents.scprs_intelligence_engine import run_po_award_monitor
-                    result = run_po_award_monitor(notify_fn=_push_notification)
+                    result = run_po_award_monitor(notify_fn=_notify_wrapper)
                     if result.get("auto_closed_lost", 0) > 0:
                         log.info(f"PO Monitor: {result['auto_closed_lost']} quotes auto-closed")
                 except Exception as e:
@@ -5260,7 +5270,7 @@ def _full_scprs_scheduler_loop():
                 try:
                     from src.agents.scprs_intelligence_engine import run_monthly_full_pull
                     log.info("Monthly full SCPRS pull starting...")
-                    run_monthly_full_pull(notify_fn=_push_notification)
+                    run_monthly_full_pull(notify_fn=_notify_wrapper)
                 except Exception as e:
                     log.error(f"Monthly full pull: {e}")
 

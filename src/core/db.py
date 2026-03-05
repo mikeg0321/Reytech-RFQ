@@ -854,6 +854,7 @@ def _migrate_columns():
         ("contacts", "last_contacted", "TEXT"),
         # ── SCPRS Intelligence ──
         ("scprs_po_master", "agency_key", "TEXT"),
+        ("scprs_pull_schedule", "enabled", "INTEGER DEFAULT 1"),
     ]
     try:
         conn = sqlite3.connect(DB_PATH, timeout=30)
