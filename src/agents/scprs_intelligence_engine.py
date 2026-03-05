@@ -247,11 +247,14 @@ PRODUCT_SEARCH_PLAN = [
 
 
 def pull_agency(agency_key: str, search_terms: list = None,
-                days_back: int = 365, notify_fn=None) -> dict:
+                days_back: int = 365, notify_fn=None,
+                from_date_override: str = "", to_date_override: str = "") -> dict:
     """
     Pull SCPRS purchase data for one agency.
     Stores all matching POs + line items to DB.
     Updates price_history with real market prices.
+
+    from_date_override/to_date_override: MM/DD/YYYY format, bypasses days_back.
     """
     try:
         from src.agents.scprs_lookup import FiscalSession
@@ -266,8 +269,8 @@ def pull_agency(agency_key: str, search_terms: list = None,
 
     conn = _db()
     t_start = time.time()
-    from_date = (datetime.now() - timedelta(days=days_back)).strftime("%m/%d/%Y")
-    to_date = datetime.now().strftime("%m/%d/%Y")
+    from_date = from_date_override or (datetime.now() - timedelta(days=days_back)).strftime("%m/%d/%Y")
+    to_date = to_date_override or datetime.now().strftime("%m/%d/%Y")
     now = datetime.now(timezone.utc).isoformat()
 
     total_pos = 0
@@ -1019,3 +1022,325 @@ def get_engine_status() -> dict:
             "quotes_auto_closed": 0,
             "last_results": _engine_status.get("last_results", {}),
         }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SYSTEM 4: Historical Backfill + Monthly Full Pull
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def backfill_historical(year: int = 2025, notify_fn=None) -> dict:
+    """
+    Pull ALL SCPRS data for an entire year across all agencies.
+    This is permanent baseline data — never deleted, used across the app.
+
+    For 2025: pulls Jan 1, 2025 → Dec 31, 2025
+    Runs in background thread. Each agency × each search term.
+    """
+    global _engine_thread, _engine_status
+    if _engine_status["running"]:
+        return {"ok": False, "message": "Pull already running", "current": _engine_status["current_agency"]}
+
+    from_date = f"01/01/{year}"
+    to_date = f"12/31/{year}"
+
+    def _run():
+        _engine_status["running"] = True
+        total_pos = 0
+        total_lines = 0
+        results = {}
+
+        for agency_key in AGENCY_REGISTRY:
+            _engine_status["current_agency"] = f"BACKFILL-{year}: {agency_key}"
+            log.info(f"Historical backfill {year}: {agency_key}")
+            if notify_fn:
+                notify_fn("bell", f"📥 Backfill {year}: pulling {agency_key}...", "info")
+
+            result = pull_agency(
+                agency_key,
+                from_date_override=from_date,
+                to_date_override=to_date,
+                notify_fn=notify_fn,
+            )
+            results[agency_key] = result
+            total_pos += result.get("new_pos", 0)
+            total_lines += result.get("new_lines", 0)
+
+        _engine_status["running"] = False
+        _engine_status["current_agency"] = None
+        _engine_status["last_results"]["backfill"] = {
+            "year": year, "total_pos": total_pos,
+            "total_lines": total_lines, "agencies": results,
+        }
+
+        if notify_fn:
+            notify_fn("bell",
+                       f"✅ Historical backfill {year} complete: {total_pos} POs, {total_lines} line items",
+                       "deal")
+
+    _engine_thread = threading.Thread(target=_run, daemon=True,
+                                       name=f"backfill-{year}")
+    _engine_thread.start()
+    return {"ok": True, "message": f"Backfill {year} started for all {len(AGENCY_REGISTRY)} agencies",
+            "from": from_date, "to": to_date}
+
+
+def run_monthly_full_pull(notify_fn=None) -> dict:
+    """
+    Full pull for current month across all agencies.
+    Called monthly (1st of month) to permanently capture that month's data.
+    """
+    now = datetime.now()
+    # Pull last 45 days to ensure overlap (catches late-posted POs)
+    return pull_all_agencies_background(
+        notify_fn=notify_fn,
+        priority_filter="all",
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SYSTEM 5: Competitor Intelligence
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def get_competitor_intelligence(agency_filter: str = "", limit: int = 50) -> dict:
+    """
+    Who are your competitors? What are they selling? To whom? For how much?
+    What contract vehicles do they use?
+
+    Returns structured competitor analysis from SCPRS PO data.
+    """
+    conn = _db()
+
+    # ── Top competitors by total spend ──
+    agency_clause = "AND p.agency_key = ?" if agency_filter else ""
+    params = (agency_filter,) if agency_filter else ()
+
+    competitors = conn.execute(f"""
+        SELECT p.supplier,
+               COUNT(DISTINCT p.po_number) as po_count,
+               SUM(p.grand_total) as total_spend,
+               COUNT(DISTINCT p.institution) as institutions_served,
+               COUNT(DISTINCT p.agency_key) as agencies_served,
+               GROUP_CONCAT(DISTINCT p.agency_key) as agencies,
+               GROUP_CONCAT(DISTINCT p.acq_type) as contract_vehicles,
+               MIN(p.start_date) as first_po,
+               MAX(p.start_date) as last_po,
+               AVG(p.grand_total) as avg_po_value
+        FROM scprs_po_master p
+        WHERE p.supplier IS NOT NULL AND p.supplier != ''
+        {agency_clause}
+        GROUP BY LOWER(p.supplier)
+        ORDER BY total_spend DESC
+        LIMIT ?
+    """, (*params, limit)).fetchall()
+
+    competitor_list = []
+    for c in competitors:
+        d = dict(c)
+        name = (d["supplier"] or "").lower()
+        d["is_dvbe"] = not any(inc in name for inc in KNOWN_NON_DVBE_INCUMBENTS)
+        d["dvbe_displace_target"] = any(inc in name for inc in KNOWN_NON_DVBE_INCUMBENTS)
+        d["partner_candidate"] = any(p in name for p in DVBE_PARTNER_TARGETS)
+
+        # Get their top product categories
+        cats = conn.execute(f"""
+            SELECT l.category, COUNT(*) as cnt, SUM(l.line_total) as cat_spend
+            FROM scprs_po_lines l
+            JOIN scprs_po_master p ON l.po_id = p.id
+            WHERE LOWER(p.supplier) = ?
+            {agency_clause}
+            GROUP BY l.category ORDER BY cat_spend DESC LIMIT 5
+        """, (name, *params)).fetchall()
+        d["top_categories"] = [dict(r) for r in cats]
+
+        # Items where Reytech could compete
+        reytech_items = conn.execute(f"""
+            SELECT l.description, l.unit_price, l.quantity, l.line_total
+            FROM scprs_po_lines l
+            JOIN scprs_po_master p ON l.po_id = p.id
+            WHERE LOWER(p.supplier) = ? AND l.reytech_sells = 1
+            {agency_clause}
+            ORDER BY l.line_total DESC LIMIT 10
+        """, (name, *params)).fetchall()
+        d["reytech_overlap_items"] = [dict(r) for r in reytech_items]
+        d["reytech_overlap_value"] = sum(r["line_total"] or 0 for r in reytech_items)
+
+        competitor_list.append(d)
+
+    # ── Contract vehicle breakdown ──
+    vehicles = conn.execute(f"""
+        SELECT p.acq_type as vehicle,
+               p.acq_method as method,
+               COUNT(DISTINCT p.po_number) as po_count,
+               SUM(p.grand_total) as total_spend,
+               COUNT(DISTINCT p.supplier) as supplier_count,
+               COUNT(DISTINCT p.agency_key) as agency_count,
+               GROUP_CONCAT(DISTINCT p.supplier) as top_suppliers
+        FROM scprs_po_master p
+        WHERE p.acq_type IS NOT NULL AND p.acq_type != ''
+        {agency_clause}
+        GROUP BY p.acq_type, p.acq_method
+        ORDER BY total_spend DESC
+    """, params).fetchall()
+
+    # ── Institution-level spending ──
+    institutions = conn.execute(f"""
+        SELECT p.institution, p.agency_key,
+               COUNT(DISTINCT p.po_number) as po_count,
+               SUM(p.grand_total) as total_spend,
+               COUNT(DISTINCT p.supplier) as supplier_count,
+               GROUP_CONCAT(DISTINCT p.supplier) as top_suppliers,
+               MAX(p.start_date) as last_po
+        FROM scprs_po_master p
+        WHERE p.institution IS NOT NULL AND p.institution != ''
+        {agency_clause}
+        GROUP BY p.institution
+        ORDER BY total_spend DESC
+        LIMIT 30
+    """, params).fetchall()
+
+    # ── Growth opportunities: where competitors win and Reytech can displace ──
+    dvbe_opportunities = conn.execute(f"""
+        SELECT p.supplier, p.institution, p.agency_key,
+               SUM(p.grand_total) as total_spend,
+               COUNT(DISTINCT p.po_number) as po_count,
+               p.acq_type as vehicle
+        FROM scprs_po_master p
+        WHERE LOWER(p.supplier) IN ({','.join('?' for _ in KNOWN_NON_DVBE_INCUMBENTS)})
+        {agency_clause}
+        GROUP BY LOWER(p.supplier), p.institution
+        ORDER BY total_spend DESC
+        LIMIT 30
+    """, (*[s.lower() for s in KNOWN_NON_DVBE_INCUMBENTS], *params)).fetchall()
+
+    # ── Summary stats ──
+    stats = conn.execute(f"""
+        SELECT COUNT(DISTINCT po_number) as total_pos,
+               COUNT(DISTINCT supplier) as total_suppliers,
+               SUM(grand_total) as total_spend,
+               COUNT(DISTINCT institution) as total_institutions,
+               COUNT(DISTINCT agency_key) as total_agencies,
+               MIN(start_date) as earliest_po,
+               MAX(start_date) as latest_po
+        FROM scprs_po_master
+        {"WHERE agency_key = ?" if agency_filter else ""}
+    """, params).fetchone()
+
+    conn.close()
+
+    return {
+        "ok": True,
+        "stats": dict(stats) if stats else {},
+        "competitors": competitor_list,
+        "contract_vehicles": [dict(v) for v in vehicles],
+        "institutions": [dict(i) for i in institutions],
+        "dvbe_opportunities": [dict(d) for d in dvbe_opportunities],
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def search_scprs_data(query: str, search_type: str = "all",
+                       agency: str = "", limit: int = 50) -> dict:
+    """
+    Dedicated SCPRS search. Search POs, suppliers, items, buyers.
+
+    search_type: all | supplier | item | buyer | po | institution
+    """
+    conn = _db()
+    q = f"%{query.lower()}%"
+    results = {"ok": True, "query": query, "results": []}
+
+    if search_type in ("all", "supplier"):
+        rows = conn.execute("""
+            SELECT LOWER(supplier) as supplier, COUNT(DISTINCT po_number) as pos,
+                   SUM(grand_total) as spend, COUNT(DISTINCT institution) as insts,
+                   GROUP_CONCAT(DISTINCT agency_key) as agencies,
+                   GROUP_CONCAT(DISTINCT acq_type) as vehicles
+            FROM scprs_po_master
+            WHERE LOWER(supplier) LIKE ?
+            GROUP BY LOWER(supplier)
+            ORDER BY spend DESC LIMIT ?
+        """, (q, limit)).fetchall()
+        for r in rows:
+            results["results"].append({
+                "type": "supplier", "icon": "🏢",
+                "name": r["supplier"],
+                "detail": f"{r['pos']} POs · ${r['spend'] or 0:,.0f} · {r['insts']} institutions",
+                "agencies": r["agencies"],
+                "vehicles": r["vehicles"],
+            })
+
+    if search_type in ("all", "item"):
+        rows = conn.execute("""
+            SELECT l.description, AVG(l.unit_price) as avg_price,
+                   SUM(l.quantity) as total_qty, SUM(l.line_total) as total_spend,
+                   COUNT(DISTINCT p.supplier) as supplier_count,
+                   COUNT(DISTINCT p.po_number) as po_count,
+                   l.category
+            FROM scprs_po_lines l
+            JOIN scprs_po_master p ON l.po_id = p.id
+            WHERE LOWER(l.description) LIKE ?
+            GROUP BY LOWER(SUBSTR(l.description, 1, 50))
+            ORDER BY total_spend DESC LIMIT ?
+        """, (q, limit)).fetchall()
+        for r in rows:
+            results["results"].append({
+                "type": "item", "icon": "📦",
+                "name": r["description"],
+                "detail": f"Avg ${r['avg_price'] or 0:,.2f} · {r['po_count']} POs · {r['supplier_count']} suppliers · ${r['total_spend'] or 0:,.0f} total",
+                "category": r["category"],
+            })
+
+    if search_type in ("all", "buyer"):
+        rows = conn.execute("""
+            SELECT buyer_name, buyer_email, institution, agency_key,
+                   COUNT(DISTINCT po_number) as pos,
+                   SUM(grand_total) as spend
+            FROM scprs_po_master
+            WHERE (LOWER(buyer_name) LIKE ? OR LOWER(buyer_email) LIKE ?)
+              AND buyer_email IS NOT NULL AND buyer_email != ''
+            GROUP BY LOWER(buyer_email)
+            ORDER BY spend DESC LIMIT ?
+        """, (q, q, limit)).fetchall()
+        for r in rows:
+            results["results"].append({
+                "type": "buyer", "icon": "👤",
+                "name": f"{r['buyer_name']} <{r['buyer_email']}>",
+                "detail": f"{r['institution']} · {r['agency_key']} · {r['pos']} POs · ${r['spend'] or 0:,.0f}",
+            })
+
+    if search_type in ("all", "institution"):
+        rows = conn.execute("""
+            SELECT institution, agency_key,
+                   COUNT(DISTINCT po_number) as pos,
+                   SUM(grand_total) as spend,
+                   COUNT(DISTINCT supplier) as suppliers
+            FROM scprs_po_master
+            WHERE LOWER(institution) LIKE ? OR LOWER(dept_name) LIKE ?
+            GROUP BY institution
+            ORDER BY spend DESC LIMIT ?
+        """, (q, q, limit)).fetchall()
+        for r in rows:
+            results["results"].append({
+                "type": "institution", "icon": "🏛",
+                "name": r["institution"],
+                "detail": f"{r['agency_key']} · {r['pos']} POs · {r['suppliers']} suppliers · ${r['spend'] or 0:,.0f}",
+            })
+
+    if search_type in ("all", "po"):
+        rows = conn.execute("""
+            SELECT po_number, supplier, institution, agency_key,
+                   grand_total, start_date, acq_type, status
+            FROM scprs_po_master
+            WHERE po_number LIKE ?
+            ORDER BY start_date DESC LIMIT ?
+        """, (q, limit)).fetchall()
+        for r in rows:
+            results["results"].append({
+                "type": "po", "icon": "📋",
+                "name": r["po_number"],
+                "detail": f"{r['supplier']} → {r['institution']} · ${r['grand_total'] or 0:,.0f} · {r['acq_type']} · {r['start_date']}",
+            })
+
+    results["total"] = len(results["results"])
+    conn.close()
+    return results

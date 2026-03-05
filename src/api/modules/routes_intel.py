@@ -300,6 +300,57 @@ def api_scprs_health():
         return jsonify({"ok": False, "error": str(e)})
 
 
+# ── SCPRS Backfill + Competitor Intelligence + Search ────────────────────────
+
+@bp.route("/api/intel/scprs/backfill", methods=["POST"])
+@auth_required
+def api_scprs_backfill():
+    """Backfill historical SCPRS data for a full year.
+    POST {year: 2025} — runs in background."""
+    try:
+        from src.agents.scprs_intelligence_engine import backfill_historical
+        data = request.get_json(silent=True) or {}
+        year = int(data.get("year", 2025))
+        if year < 2020 or year > 2026:
+            return jsonify({"ok": False, "error": "Year must be 2020-2026"})
+        result = backfill_historical(year=year, notify_fn=_push_notification)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/intel/competitors")
+@auth_required
+def api_intel_competitors():
+    """Competitor intelligence: who sells what, to whom, for how much,
+    what contract vehicles they use, and where Reytech can displace."""
+    try:
+        from src.agents.scprs_intelligence_engine import get_competitor_intelligence
+        agency = request.args.get("agency", "")
+        limit = int(request.args.get("limit", 50))
+        return jsonify(get_competitor_intelligence(agency_filter=agency, limit=limit))
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/intel/scprs-search")
+@auth_required
+def api_scprs_search():
+    """Search SCPRS data — suppliers, items, buyers, institutions, POs.
+    GET ?q=gloves&type=item&agency=CCHCS"""
+    try:
+        from src.agents.scprs_intelligence_engine import search_scprs_data
+        q = request.args.get("q", "").strip()
+        if not q or len(q) < 2:
+            return jsonify({"ok": False, "error": "Query must be at least 2 characters"})
+        search_type = request.args.get("type", "all")
+        agency = request.args.get("agency", "")
+        limit = int(request.args.get("limit", 50))
+        return jsonify(search_scprs_data(q, search_type=search_type, agency=agency, limit=limit))
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
 @bp.route("/api/intel/growth")
 @auth_required
 def api_intel_growth():
@@ -309,6 +360,13 @@ def api_intel_growth():
         return jsonify(get_scprs_growth_intelligence())
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/intel/competitors")
+@auth_required
+def page_intel_competitors():
+    """Competitor Intelligence Dashboard — who sells what, contract vehicles, DVBE opportunities."""
+    return render_page("competitor_intel.html", active_page="Intelligence")
 
 
 @bp.route("/intel/growth")
@@ -1968,10 +2026,10 @@ def api_predict_batch():
     return jsonify({"ok": True, "predictions": results})
 
 
-@bp.route("/api/intel/competitors")
+@bp.route("/api/intel/competitors/predict")
 @auth_required
 def api_competitor_insights():
-    """Competitor intelligence summary.
+    """Competitor intelligence from prediction module (supplementary).
     GET ?institution=...&agency=...&limit=20"""
     if not PREDICT_AVAILABLE:
         return jsonify({"ok": False, "error": "Predictive module not available"})
@@ -5058,6 +5116,15 @@ def _full_scprs_scheduler_loop():
                         log.info(f"PO Monitor: {result['auto_closed_lost']} quotes auto-closed")
                 except Exception as e:
                     log.error(f"PO monitor scheduled: {e}")
+
+            # Monthly full pull — 1st of each month at 2am
+            if now.day == 1 and hour == 2 and now.minute < 30:
+                try:
+                    from src.agents.scprs_intelligence_engine import run_monthly_full_pull
+                    log.info("Monthly full SCPRS pull starting...")
+                    run_monthly_full_pull(notify_fn=_push_notification)
+                except Exception as e:
+                    log.error(f"Monthly full pull: {e}")
 
         except Exception as e:
             log.error(f"SCPRS scheduler: {e}")
