@@ -709,12 +709,15 @@ def api_catalog_rebuild_tokens():
 @auth_required
 def api_catalog_audit():
     """Run DB-wide catalog match quality audit.
-    GET: dry run (report only). POST {fix: true} to auto-clear bad matches."""
+    GET: dry run (report only). GET ?fix=true or POST {fix: true} to auto-clear bad matches."""
     if not CATALOG_AVAILABLE:
         return jsonify({"ok": False, "error": "Catalog not available"})
     try:
-        data = request.get_json(silent=True) or {}
-        fix = data.get("fix", False) if request.method == "POST" else False
+        if request.method == "POST":
+            data = request.get_json(silent=True) or {}
+            fix = data.get("fix", False)
+        else:
+            fix = request.args.get("fix", "").lower() in ("true", "1", "yes")
         result = audit_catalog_matches(fix=fix)
         return jsonify(result)
     except Exception as e:
