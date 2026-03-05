@@ -14,10 +14,9 @@ from src.api.render import render_page
 @bp.route("/intelligence")
 @auth_required
 def intelligence_page():
-    """Sales Intelligence Dashboard — $2M revenue command center."""
+    """Sales Intelligence Dashboard — redirects to Growth Discovery."""
     if not INTEL_AVAILABLE:
-        flash("Sales Intelligence not available", "error")
-        return redirect("/")
+        return redirect("/intel/growth-discovery")
 
     from src.agents.sales_intel import _load_json as il, BUYERS_FILE as BF, AGENCIES_FILE as AF
 

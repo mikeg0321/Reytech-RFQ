@@ -5140,6 +5140,24 @@ def _scprs_autostart():
     threading.Thread(target=_full_scprs_scheduler_loop, daemon=True, name="scprs-intel").start()
     threading.Thread(target=_scprs_scheduler_loop, args=(_cron,), daemon=True, name="scprs-sched").start()
     log.info("SCPRS schedulers started: %s", _label)
+
+    # Auto-backfill: if SCPRS tables are empty, start 2025 backfill
+    def _auto_backfill():
+        import time as _t2
+        _t2.sleep(300)  # Wait 5 min for app to stabilize
+        try:
+            from src.core.db import get_db
+            with get_db() as _conn:
+                po_count = _conn.execute("SELECT COUNT(*) FROM scprs_po_master").fetchone()[0]
+            if po_count == 0:
+                log.info("SCPRS tables empty — starting 2025 backfill automatically")
+                from src.agents.scprs_intelligence_engine import backfill_historical
+                backfill_historical(year=2025, notify_fn=_push_notification)
+        except Exception as e:
+            log.debug("Auto-backfill check: %s", e)
+
+    threading.Thread(target=_auto_backfill, daemon=True, name="scprs-auto-backfill").start()
+
     try:
         from src.agents.notify_agent import start_stale_watcher
         start_stale_watcher()
