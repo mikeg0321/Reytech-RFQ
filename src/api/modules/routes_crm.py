@@ -2383,7 +2383,7 @@ def _ensure_scprs_tables():
             acq_type TEXT, acq_method TEXT,
             merch_amount REAL, grand_total REAL,
             buyer_name TEXT, buyer_email TEXT, buyer_phone TEXT,
-            search_term TEXT, agency_code TEXT
+            search_term TEXT, agency_key TEXT
         );
         CREATE TABLE IF NOT EXISTS scprs_po_lines (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

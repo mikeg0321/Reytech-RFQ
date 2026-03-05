@@ -852,6 +852,8 @@ def _migrate_columns():
         # ── PRD-28 Work Item 5: Vendor Intelligence ──
         ("contacts", "converted_from_lead", "TEXT"),
         ("contacts", "last_contacted", "TEXT"),
+        # ── SCPRS Intelligence ──
+        ("scprs_po_master", "agency_key", "TEXT"),
     ]
     try:
         conn = sqlite3.connect(DB_PATH, timeout=30)
@@ -866,6 +868,14 @@ def _migrate_columns():
                     pass  # Table doesn't exist yet — CREATE TABLE will handle it
                 else:
                     log.warning("Migration %s.%s failed: %s", table, col, e)
+        # Copy agency_code → agency_key for existing SCPRS data
+        try:
+            conn.execute("""
+                UPDATE scprs_po_master SET agency_key = agency_code
+                WHERE (agency_key IS NULL OR agency_key = '') AND agency_code IS NOT NULL
+            """)
+        except Exception:
+            pass  # agency_code column may not exist on fresh installs
         conn.commit()
         conn.close()
     except Exception as e:
