@@ -69,7 +69,9 @@
      function markQuote(qn, status) {
        let po = '';
        if (status === 'won') {
-         po = prompt('PO number (optional):', '') || '';
+         po = prompt('Enter PO number (required — only formal POs count as wins):', '');
+         if (!po || !po.trim()) { alert('PO number is required to mark as won.'); return; }
+         po = po.trim();
        }
        fetch('/quotes/' + qn + '/status', {
          method: 'POST',

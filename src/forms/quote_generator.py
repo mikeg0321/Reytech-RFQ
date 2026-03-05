@@ -477,8 +477,13 @@ def search_quotes(query: str = "", agency: str = "", status: str = "",
 
 def update_quote_status(quote_number: str, status: str, po_number: str = "",
                          notes: str = "", actor: str = "user") -> bool:
-    """Mark a quote as won, lost, or pending. Records status_history. Returns True if found."""
+    """Mark a quote as won, lost, or pending. Records status_history. Returns True if found.
+    Business rule: 'won' requires a PO number (from formal PO email)."""
     if status not in VALID_STATUSES:
+        return False
+    # Enforce: won requires PO (only formal PO email = won)
+    if status == "won" and not (po_number or "").strip() and actor == "user":
+        log.warning("Blocked won status for %s — no PO number (actor=%s)", quote_number, actor)
         return False
     quotes = get_all_quotes()
     found = False

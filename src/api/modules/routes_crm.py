@@ -1349,6 +1349,11 @@ def quote_update_status(quote_number):
     notes = data.get("notes", "")
     if new_status not in ("won", "lost", "pending"):
         return jsonify({"ok": False, "error": f"Invalid status: {new_status}"})
+
+    # Business rule: quotes can only be marked "won" with a formal PO number
+    if new_status == "won" and not (po_number or "").strip():
+        return jsonify({"ok": False, "error": "PO number required to mark as won — only formal POs count as wins"})
+
     found = update_quote_status(quote_number, new_status, po_number, notes)
     if not found:
         return jsonify({"ok": False, "error": f"Quote {quote_number} not found"})

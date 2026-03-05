@@ -221,7 +221,7 @@
   },
   {
     "quote_number": "R26Q17",
-    "status": "won",
+    "status": "sent",
     "total": 562.68,
     "subtotal": 524.64,
     "tax": 38.04,
@@ -231,10 +231,10 @@
     "contact_name": "",
     "contact_email": "",
     "created_at": "2026-02-20T10:10:22.563999",
-    "updated_at": "2026-02-20T10:10:22.564534",
+    "updated_at": "2026-03-05T04:12:36.755893",
     "is_test": false,
     "source": "",
-    "sent_at": "",
+    "sent_at": "2026-02-20T10:10:22.563999",
     "items_detail": [
       {
         "description": "Assistina Universal Adapter Ea 2380066 | W&H Impex Inc - 02685000",
