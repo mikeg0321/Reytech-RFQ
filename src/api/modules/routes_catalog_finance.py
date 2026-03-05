@@ -22,6 +22,8 @@ try:
         record_won_price, bulk_margin_analysis, init_catalog_db,
         match_item, match_items_batch, add_supplier_price, get_product_suppliers,
         rebuild_search_tokens,
+        audit_catalog_matches, audit_catalog_db,
+        ai_find_product, ai_find_products_batch,
         # Sprint 1 additions
         reimport_qb_csv, run_sprint1_fixes, fix_catalog_names,
         extract_manufacturers_bulk, bulk_calculate_recommended,
@@ -699,6 +701,74 @@ def api_catalog_rebuild_tokens():
         return jsonify({"ok": False, "error": "Catalog not available"})
     count = rebuild_search_tokens()
     return jsonify({"ok": True, "updated": count})
+
+
+# ── Catalog Match Audit ──────────────────────────────────────────────────────
+
+@bp.route("/api/catalog/audit", methods=["POST"])
+@auth_required
+def api_catalog_audit():
+    """Run DB-wide catalog match quality audit.
+    POST {fix: true} to auto-clear bad matches."""
+    if not CATALOG_AVAILABLE:
+        return jsonify({"ok": False, "error": "Catalog not available"})
+    try:
+        data = request.get_json(silent=True) or {}
+        fix = data.get("fix", False)
+        result = audit_catalog_matches(fix=fix)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/catalog/audit/db")
+@auth_required
+def api_catalog_audit_db():
+    """Audit the product catalog table itself for quality issues."""
+    if not CATALOG_AVAILABLE:
+        return jsonify({"ok": False, "error": "Catalog not available"})
+    try:
+        return jsonify(audit_catalog_db())
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+# ── AI Product Finder ────────────────────────────────────────────────────────
+
+@bp.route("/api/catalog/ai-find", methods=["POST"])
+@auth_required
+def api_catalog_ai_find():
+    """Use Claude API to identify & source a single product.
+    POST {description: "...", quantity: 1, agency: "CDCR"}"""
+    try:
+        data = request.get_json(silent=True) or {}
+        desc = (data.get("description") or "").strip()
+        if not desc:
+            return jsonify({"ok": False, "error": "description required"})
+        result = ai_find_product(
+            desc,
+            quantity=data.get("quantity", 1),
+            agency=data.get("agency", ""),
+        )
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/catalog/ai-find-batch", methods=["POST"])
+@auth_required
+def api_catalog_ai_find_batch():
+    """Use Claude API to identify & source multiple unmatched products.
+    POST {items: [{idx, description, quantity}], agency: "CDCR"}"""
+    try:
+        data = request.get_json(silent=True) or {}
+        items = data.get("items", [])
+        if not items:
+            return jsonify({"ok": False, "error": "items required"})
+        results = ai_find_products_batch(items, agency=data.get("agency", ""))
+        return jsonify({"ok": True, "results": results})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
 
 
 # Auto-import product catalog on startup if DB empty

@@ -209,6 +209,7 @@
       <button class="btn btn-sm" onclick="runScprs(this)" data-testid="pc-scprs-lookup" style="background:#21262d;color:#58a6ff;border:1px solid #30363d;font-size:13px;padding:6px 14px">🔍 SCPRS</button>
       <button class="btn btn-sm" onclick="runLookup(this)" data-testid="pc-amazon-lookup" style="background:#21262d;color:#f0883e;border:1px solid #30363d;font-size:13px;padding:6px 14px">🔬 Amazon</button>
       <button class="btn btn-sm" onclick="runCatalogMatch(this)" data-testid="pc-catalog-match" style="background:#21262d;color:#3fb950;border:1px solid #30363d;font-size:13px;padding:6px 14px">🎯 Catalog</button>
+      <button class="btn btn-sm" onclick="runAIFindAll(this)" style="background:#21262d;color:#d2a8ff;border:1px solid #30363d;font-size:13px;padding:6px 14px" title="Use AI to find all unmatched items">🤖 AI Find</button>
       <button class="btn btn-sm" onclick="runWebSearch(this)" data-testid="pc-web-search" style="background:#21262d;color:#d2a8ff;border:1px solid #30363d;font-size:13px;padding:6px 14px">🌐 Web Search</button>
       <button class="btn btn-sm" onclick="runAutoPrice(this)" data-testid="pc-auto-price" style="background:#21262d;color:#bc8cff;border:1px solid #30363d;font-size:13px;padding:6px 14px">🧠 Auto-Price</button>
       <button class="btn btn-sm" onclick="runPriceSweep(this)" data-testid="pc-price-sweep" style="background:#21262d;color:#f778ba;border:1px solid #30363d;font-size:13px;padding:6px 14px">🛒 Sweep</button>
@@ -1596,7 +1597,7 @@
          if(oldBadge) oldBadge.remove();
 
          if(!r.matched) {
-          // Show "Add to Catalog" badge for unmatched items with descriptions
+          // Show "Add to Catalog" + "AI Find" badges for unmatched items
           const desc=(descEl.value||'').trim();
           if(desc.length>3){
            unmatched++;
@@ -1605,7 +1606,8 @@
            badge.id='cat-badge-'+idx;
            badge.style.cssText='font-size:13px;margin-bottom:2px;display:flex;gap:6px;align-items:center';
            badge.innerHTML='<span style="color:#8b949e">📋 Not in catalog</span>'
-            +'<a href="#" onclick="addToCatalog('+idx+');return false" style="color:#d29922;font-size:13px;font-weight:700;text-decoration:none" title="Save this item to catalog for future matching">📋 Add</a>';
+            +'<a href="#" onclick="addToCatalog('+idx+');return false" style="color:#d29922;font-size:13px;font-weight:700;text-decoration:none" title="Save this item to catalog for future matching">📋 Add</a>'
+            +'<a href="#" onclick="aiFindProduct('+idx+');return false" style="color:#d2a8ff;font-size:13px;font-weight:700;text-decoration:none" title="Use AI to identify product and find suppliers">🤖 AI Find</a>';
            descEl.parentElement.insertBefore(badge,descEl);
           }
           return;
@@ -1613,6 +1615,10 @@
 
          const conf=Math.round((r.confidence||0)*100);
          const color=conf>=80?'#3fb950':conf>=60?'#d29922':'#8b949e';
+         // Show verification warning for low-confidence matches
+         const verifyWarn=(r.verification_penalty && r.verification_penalty > 0.2)
+           ?'<span style="color:#f85149;font-weight:600" title="Match may be incorrect: '
+            +escHtml((r.verification_reasons||[]).join(', '))+'">⚠️ verify</span>':'';
          const badge=document.createElement('div');
          badge.className='cat-badge';
          badge.id='cat-badge-'+idx;
@@ -1633,7 +1639,7 @@
          badge.innerHTML='<span style="background:'+color+'22;color:'+color+';border:1px solid '+color+'44;border-radius:4px;padding:1px 6px;font-weight:600;font-family:JetBrains Mono,monospace">'+conf+'% match</span>'
           +'<span style="color:#8b949e;font-size:13px" title="'+escHtml(r.reason||'')+'">'+escHtml((r.canonical_name||'').substring(0,50))+'</span>'
           +(r.last_cost?'<span style="color:#58a6ff;font-weight:600;font-family:JetBrains Mono,monospace">$'+Number(r.last_cost).toFixed(2)+'→$'+Number(r.last_sell||0).toFixed(2)+'</span>':'')
-          +freshness+winInfo
+          +freshness+winInfo+verifyWarn
           +'<a href="#" onclick="applyCatalogMatch('+idx+','+JSON.stringify(r).replace(/"/g,'&quot;')+');return false" style="color:#3fb950;font-size:13px;font-weight:700;text-decoration:none" title="Fill cost + price from catalog">✅ Use</a>';
          descEl.parentElement.insertBefore(badge,descEl);
         });
@@ -1667,6 +1673,124 @@
        showMsg('ℹ️ '+(d.error||'Already in catalog'),'warn');
       }
      }).catch(e=>showMsg('❌ '+e.message,'err'));
+    }
+
+    function aiFindProduct(idx) {
+     const desc=(document.querySelector('[name=desc_'+idx+']')||{}).value||'';
+     const qty=parseInt((document.querySelector('[name=qty_'+idx+']')||{}).value)||1;
+     if(!desc||desc.length<3){showMsg('⚠️ Enter item description first','warn');return;}
+     const badge=document.getElementById('cat-badge-'+idx);
+     if(badge) badge.innerHTML='<span style="color:#d2a8ff">🤖 Searching with AI...</span>';
+     showMsg('🤖 AI is identifying "'+desc.substring(0,40)+'..." — this takes ~10s','warn');
+     fetch('/api/catalog/ai-find',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({description:desc, quantity:qty, agency:'{{ agency }}'})
+     }).then(r=>r.json()).then(d=>{
+      if(!d.ok){
+       if(badge) badge.innerHTML='<span style="color:#f85149">❌ AI: '+(d.error||'failed')+'</span>'
+        +' <a href="#" onclick="addToCatalog('+idx+');return false" style="color:#d29922;font-size:13px;font-weight:700;text-decoration:none">📋 Add manually</a>';
+       return;
+      }
+      const p=d.product||{};
+      const suppliers=d.suppliers||[];
+      const conf=Math.round((d.confidence||0)*100);
+      const confColor=conf>=80?'#3fb950':conf>=50?'#d29922':'#f85149';
+      let html='<div style="background:#d2a8ff11;border:1px solid #d2a8ff33;border-radius:6px;padding:8px 12px;margin-bottom:4px">';
+      html+='<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">';
+      html+='<span style="background:'+confColor+'22;color:'+confColor+';border:1px solid '+confColor+'44;border-radius:4px;padding:1px 6px;font-weight:600;font-family:JetBrains Mono,monospace;font-size:13px">🤖 '+conf+'%</span>';
+      html+='<span style="color:var(--tx);font-weight:600;font-size:14px">'+escHtml(p.name||'Unknown')+'</span></div>';
+      if(p.manufacturer) html+='<div style="font-size:13px;color:#8b949e;margin-bottom:4px">🏭 '+escHtml(p.manufacturer)+(p.mfg_number?' · #'+escHtml(p.mfg_number):'')+'</div>';
+      if(suppliers.length){
+       html+='<div style="font-size:13px;margin-bottom:4px">';
+       suppliers.forEach(function(s,i){
+        html+='<span style="color:#58a6ff;margin-right:10px">'+(s.url?'<a href="'+escHtml(s.url)+'" target="_blank" style="color:#58a6ff;text-decoration:underline">'+escHtml(s.name)+'</a>':escHtml(s.name))+' $'+Number(s.estimated_price||0).toFixed(2)+'</span>';
+       });
+       html+='</div>';
+      }
+      if(d.reasoning) html+='<div style="font-size:12px;color:#8b949e;margin-bottom:6px;font-style:italic">'+escHtml(d.reasoning.substring(0,120))+'</div>';
+      // Action buttons
+      html+='<div style="display:flex;gap:8px">';
+      if(d.recommended_cost){
+       html+='<a href="#" onclick="applyAIResult('+idx+','+JSON.stringify({cost:d.recommended_cost,sell:d.recommended_sell,name:p.name,mfg:p.mfg_number,url:(suppliers[0]||{}).url||''}).replace(/"/g,'&quot;')+');return false" style="color:#3fb950;font-weight:700;font-size:13px;text-decoration:none">✅ Use $'+Number(d.recommended_cost).toFixed(2)+' → $'+Number(d.recommended_sell).toFixed(2)+'</a>';
+      }
+      html+='<a href="#" onclick="addToCatalog('+idx+');return false" style="color:#d29922;font-size:13px;font-weight:700;text-decoration:none">📋 Add to catalog</a>';
+      html+='</div></div>';
+      if(badge) badge.innerHTML=html;
+      else{
+       const descEl=document.querySelector('[name=desc_'+idx+']');
+       if(descEl){const div=document.createElement('div');div.className='cat-badge';div.id='cat-badge-'+idx;div.innerHTML=html;descEl.parentElement.insertBefore(div,descEl);}
+      }
+      showMsg('🤖 AI identified: '+p.name+(suppliers.length?' — '+suppliers.length+' supplier options':''),'ok');
+     }).catch(e=>{
+      if(badge) badge.innerHTML='<span style="color:#f85149">❌ AI error: '+e.message+'</span>';
+      showMsg('❌ AI search failed: '+e.message,'err');
+     });
+    }
+
+    function applyAIResult(idx, data) {
+     const costEl=document.querySelector('[name=cost_'+idx+']');
+     const priceEl=document.querySelector('[name=price_'+idx+']');
+     const itemEl=document.querySelector('[name=itemnum_'+idx+']');
+     const linkEl=document.querySelector('[name=link_'+idx+']');
+     if(costEl && data.cost) costEl.value=Number(data.cost).toFixed(2);
+     if(priceEl && data.sell) priceEl.value=Number(data.sell).toFixed(2);
+     if(itemEl && data.mfg) itemEl.value=data.mfg;
+     if(linkEl && data.url) linkEl.value=data.url;
+     recalcRow(idx);
+     showMsg('✅ Applied AI pricing for "'+data.name+'"','ok');
+    }
+
+    function runAIFindAll(btn) {
+     btn.disabled=true;const orig=btn.textContent;btn.textContent='⏳ AI searching...';
+     // Collect unmatched items (those with 📋 Not in catalog badge or no badge)
+     const items=[];
+     document.querySelectorAll('textarea[name^=desc_]').forEach(function(ta){
+      const idx=parseInt(ta.name.replace('desc_',''));
+      const desc=(ta.value||'').trim();
+      if(!desc||desc.length<3) return;
+      const costEl=document.querySelector('[name=cost_'+idx+']');
+      const cost=parseFloat((costEl||{}).value)||0;
+      if(cost>0) return; // Already has cost, skip
+      const badge=document.getElementById('cat-badge-'+idx);
+      if(badge && badge.querySelector('[style*="3fb950"]')) return; // Has good catalog match
+      const qty=parseInt((document.querySelector('[name=qty_'+idx+']')||{}).value)||1;
+      items.push({idx:idx, description:desc, quantity:qty});
+     });
+     if(!items.length){btn.disabled=false;btn.textContent=orig;showMsg('ℹ️ All items already priced or matched','warn');return;}
+     showMsg('🤖 AI searching for '+items.length+' unmatched items... (10-30s)','warn');
+     fetch('/api/catalog/ai-find-batch',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({items:items, agency:'{{ agency }}'})
+     }).then(r=>r.json()).then(d=>{
+      btn.disabled=false;btn.textContent=orig;
+      if(!d.ok){showMsg('❌ AI: '+(d.error||'failed'),'err');return;}
+      let found=0;
+      (d.results||[]).forEach(function(r){
+       if(!r.ok) return;
+       found++;
+       const idx=r.idx;
+       const p=r.product||{};
+       const suppliers=r.suppliers||[];
+       const badge=document.getElementById('cat-badge-'+idx);
+       const conf=Math.round((r.confidence||0)*100);
+       const confColor=conf>=80?'#3fb950':conf>=50?'#d29922':'#f85149';
+       let html='<div style="background:#d2a8ff11;border:1px solid #d2a8ff33;border-radius:6px;padding:6px 10px">';
+       html+='<span style="background:'+confColor+'22;color:'+confColor+';border:1px solid '+confColor+'44;border-radius:4px;padding:1px 6px;font-weight:600;font-family:JetBrains Mono,monospace;font-size:12px">🤖 '+conf+'%</span> ';
+       html+='<span style="color:var(--tx);font-weight:600;font-size:13px">'+escHtml(p.name||'')+'</span>';
+       if(r.recommended_cost){
+        html+=' <a href="#" onclick="applyAIResult('+idx+','+JSON.stringify({cost:r.recommended_cost,sell:r.recommended_sell,name:p.name,mfg:p.mfg_number||'',url:(suppliers[0]||{}).url||''}).replace(/"/g,'&quot;')+');return false" style="color:#3fb950;font-weight:700;font-size:13px;text-decoration:none">✅ $'+Number(r.recommended_cost).toFixed(2)+' → $'+Number(r.recommended_sell).toFixed(2)+'</a>';
+       }
+       html+='</div>';
+       if(badge) badge.innerHTML=html;
+       else{
+        const descEl=document.querySelector('[name=desc_'+idx+']');
+        if(descEl){const div=document.createElement('div');div.className='cat-badge';div.id='cat-badge-'+idx;div.innerHTML=html;descEl.parentElement.insertBefore(div,descEl);}
+       }
+      });
+      showMsg('🤖 AI found '+found+'/'+items.length+' products. Click ✅ to apply pricing.','ok');
+     }).catch(e=>{btn.disabled=false;btn.textContent=orig;showMsg('❌ '+e.message,'err');});
     }
 
     function collectPrices() {

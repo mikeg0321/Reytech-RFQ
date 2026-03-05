@@ -167,6 +167,120 @@ def _tokenize(text: str) -> str:
     return " ".join(sorted(set(tokens)))
 
 
+# ── Match Quality Verification ────────────────────────────────────────────────
+
+# Key product-type terms — if one has it and the other doesn't, it's a mismatch
+_PRODUCT_TYPE_GROUPS = [
+    {"set", "combo", "kit", "bundle", "system", "package"},
+    {"top", "shirt", "blouse", "jersey", "tunic"},
+    {"pants", "pant", "trousers", "bottoms", "drawstring"},
+    {"glove", "gloves", "nitrile", "latex", "vinyl"},
+    {"mask", "masks", "n95", "kn95", "respirator"},
+    {"gown", "gowns", "isolation"},
+    {"brief", "briefs", "diaper", "incontinence", "pullup"},
+    {"catheter", "foley", "drainage"},
+    {"syringe", "needle", "insulin"},
+    {"bandage", "gauze", "dressing", "wound"},
+    {"tape", "adhesive", "medical tape"},
+    {"wipe", "wipes", "sanitizer", "disinfectant"},
+    {"scrub", "scrubs"},  # clothing vs cleaning
+    {"brush", "scrubber", "sponge"},
+]
+
+_SIZE_TERMS = {"small", "medium", "large", "xl", "xxl", "xs", "2xl", "3xl",
+               "sm", "md", "lg", "s", "m", "l", "pediatric", "adult", "youth"}
+
+_UOM_TERMS = {"each", "ea", "box", "bx", "case", "cs", "pack", "pk",
+              "pair", "pr", "dozen", "dz", "set"}
+
+
+def _verify_match_quality(query_desc: str, catalog_desc: str,
+                          catalog_name: str = "", query_price: float = 0,
+                          catalog_price: float = 0) -> tuple:
+    """
+    Post-match semantic verification. Returns (penalty: float 0-1, reasons: list).
+    penalty=0 means match is good, penalty=1 means completely wrong.
+    Applied AFTER initial matching to catch false positives.
+    """
+    penalty = 0.0
+    reasons = []
+
+    q = (query_desc or "").lower()
+    c = ((catalog_desc or "") + " " + (catalog_name or "")).lower()
+    q_words = set(q.split())
+    c_words = set(c.split())
+
+    # ── 1. Product type mismatch (SET vs TOP, gloves vs gowns) ──
+    for group in _PRODUCT_TYPE_GROUPS:
+        q_has = q_words & group
+        c_has = c_words & group
+        if q_has and c_has and q_has != c_has:
+            # Both mention this category but different specific terms
+            penalty += 0.4
+            reasons.append(f"product_type_mismatch: query={q_has}, catalog={c_has}")
+            break
+        if q_has and not c_has and len(q_has) > 0:
+            # Query specifies a type the catalog doesn't mention
+            for other_group in _PRODUCT_TYPE_GROUPS:
+                if other_group != group and c_words & other_group:
+                    penalty += 0.5
+                    reasons.append(f"category_mismatch: query={q_has}, catalog has {c_words & other_group}")
+                    break
+
+    # ── 2. Size mismatch ──
+    q_sizes = q_words & _SIZE_TERMS
+    c_sizes = c_words & _SIZE_TERMS
+    if q_sizes and c_sizes and q_sizes != c_sizes:
+        penalty += 0.3
+        reasons.append(f"size_mismatch: query={q_sizes}, catalog={c_sizes}")
+
+    # ── 3. SET/COMBO vs individual item ──
+    q_is_set = bool(q_words & {"set", "combo", "kit", "bundle", "package", "system"})
+    c_is_set = bool(c_words & {"set", "combo", "kit", "bundle", "package", "system"})
+    if q_is_set != c_is_set:
+        penalty += 0.3
+        reasons.append(f"set_vs_single: query_set={q_is_set}, catalog_set={c_is_set}")
+
+    # ── 4. Brand/manufacturer mismatch ──
+    # If both mention a brand name but different ones
+    q_brand_candidates = {w for w in q_words if len(w) > 4 and w[0].isalpha()
+                          and w not in STOP_WORDS and w not in _SIZE_TERMS
+                          and w not in _UOM_TERMS}
+    c_brand_candidates = {w for w in c_words if len(w) > 4 and w[0].isalpha()
+                          and w not in STOP_WORDS and w not in _SIZE_TERMS
+                          and w not in _UOM_TERMS}
+    # Check if first significant word (likely brand) differs
+    q_first = q.split()[:1]
+    c_first = c.split()[:1]
+    if q_first and c_first and q_first[0] != c_first[0] and len(q_first[0]) > 3 and len(c_first[0]) > 3:
+        # Different brand — moderate penalty
+        if q_first[0] not in c and c_first[0] not in q:
+            penalty += 0.2
+            reasons.append(f"brand_mismatch: query_brand='{q_first[0]}', catalog_brand='{c_first[0]}'")
+
+    # ── 5. Price magnitude check ──
+    if query_price > 0 and catalog_price > 0:
+        ratio = max(query_price, catalog_price) / min(query_price, catalog_price)
+        if ratio > 5:
+            penalty += 0.3
+            reasons.append(f"price_5x_diff: query=${query_price:.2f}, catalog=${catalog_price:.2f}")
+        elif ratio > 3:
+            penalty += 0.15
+            reasons.append(f"price_3x_diff: query=${query_price:.2f}, catalog=${catalog_price:.2f}")
+
+    # ── 6. Part number present but doesn't match ──
+    # Extract potential part numbers from both
+    q_parts = set(re.findall(r'\b[A-Z0-9][\w\-]{4,19}\b', query_desc or "", re.IGNORECASE))
+    c_parts = set(re.findall(r'\b[A-Z0-9][\w\-]{4,19}\b',
+                              (catalog_desc or "") + " " + (catalog_name or ""), re.IGNORECASE))
+    if q_parts and c_parts and not (q_parts & c_parts):
+        # Both have part numbers but none match
+        penalty += 0.2
+        reasons.append(f"part_numbers_differ: query={list(q_parts)[:2]}, catalog={list(c_parts)[:2]}")
+
+    return (min(penalty, 1.0), reasons)
+
+
 def _parse_uom(sku_field: str) -> str:
     """QB SKU field is often the UOM (EA, BX, PK), not a real SKU."""
     val = (sku_field or "").strip().upper()
@@ -710,6 +824,24 @@ def match_item(description: str, part_number: str = "", top_n: int = 3) -> list:
                 seen_ids.add(r["id"])
 
     conn.close()
+    # ── Post-match verification: penalize false positives ──
+    for m in matches:
+        if m.get("match_confidence", 0) < 0.90:  # Skip exact part# matches
+            penalty, reasons = _verify_match_quality(
+                query_desc=description,
+                catalog_desc=m.get("description", ""),
+                catalog_name=m.get("name", ""),
+                catalog_price=m.get("sell_price") or m.get("cost") or 0,
+            )
+            if penalty > 0:
+                original = m["match_confidence"]
+                m["match_confidence"] = round(max(original - penalty, 0.05), 2)
+                m["match_reason"] += f" | VERIFIED: penalty={penalty:.2f} ({', '.join(reasons)})"
+                m["verification_penalty"] = penalty
+                m["verification_reasons"] = reasons
+                if m["match_confidence"] < 0.40:
+                    m["match_confidence"] = 0.0  # Below threshold, mark as non-match
+
     # Sort by confidence descending
     matches.sort(key=lambda x: x.get("match_confidence", 0), reverse=True)
     return matches[:top_n]
@@ -787,9 +919,285 @@ def match_items_batch(items: list) -> list:
                 "competitor_low_price": best.get("competitor_low_price"),
                 "web_lowest_price": best.get("web_lowest_price"),
                 "photo_url": best.get("photo_url", ""),
+                "verification_penalty": best.get("verification_penalty", 0),
+                "verification_reasons": best.get("verification_reasons", []),
             })
         else:
             results.append({"idx": item.get("idx", 0), "matched": False})
+    return results
+
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Catalog Match Audit — DB-wide verification of match quality
+# ═══════════════════════════════════════════════════════════════════════
+
+def audit_catalog_matches(fix: bool = False) -> dict:
+    """
+    Scan all price check items that have catalog matches.
+    Re-verify each match with semantic checks.
+    Returns report of bad matches found (and optionally clears them).
+    """
+    import json as _json
+
+    pcs_path = os.path.join(DATA_DIR, "price_checks.json")
+    if not os.path.exists(pcs_path):
+        return {"ok": True, "message": "No price checks to audit", "bad_matches": 0}
+
+    with open(pcs_path) as f:
+        pcs = _json.load(f)
+
+    bad_matches = []
+    good_matches = 0
+    total_checked = 0
+
+    for pcid, pc in pcs.items():
+        for i, item in enumerate(pc.get("items", [])):
+            pricing = item.get("pricing", {})
+            cat_match = pricing.get("catalog_match", "")
+            cat_confidence = pricing.get("catalog_confidence", 0)
+
+            if not cat_match or cat_confidence <= 0:
+                continue
+
+            total_checked += 1
+            item_desc = item.get("description", "") or item.get("name", "")
+            item_price = item.get("pricing", {}).get("our_price", 0) or 0
+
+            # Re-verify the match
+            penalty, reasons = _verify_match_quality(
+                query_desc=item_desc,
+                catalog_desc=cat_match,
+                query_price=item_price,
+            )
+
+            new_confidence = round(max(cat_confidence - penalty, 0), 2)
+
+            if penalty >= 0.3:
+                bad_matches.append({
+                    "pc_id": pcid,
+                    "item_index": i,
+                    "item_description": item_desc[:60],
+                    "catalog_match": cat_match[:60],
+                    "original_confidence": cat_confidence,
+                    "new_confidence": new_confidence,
+                    "penalty": penalty,
+                    "reasons": reasons,
+                })
+
+                if fix and new_confidence < 0.40:
+                    # Clear the bad match
+                    pricing.pop("catalog_match", None)
+                    pricing.pop("catalog_confidence", None)
+                    pricing.pop("catalog_price", None)
+            else:
+                good_matches += 1
+
+    if fix and bad_matches:
+        with open(pcs_path, "w") as f:
+            _json.dump(pcs, f, indent=2, default=str)
+
+    return {
+        "ok": True,
+        "total_checked": total_checked,
+        "good_matches": good_matches,
+        "bad_matches": len(bad_matches),
+        "fixed": fix,
+        "details": bad_matches[:50],
+    }
+
+
+def audit_catalog_db() -> dict:
+    """
+    Audit the product_catalog table itself for data quality issues.
+    Returns structured report of problems found.
+    """
+    init_catalog_db()
+    conn = _get_conn()
+    issues = []
+
+    # Duplicate names
+    dupes = conn.execute("""
+        SELECT LOWER(TRIM(name)) as n, COUNT(*) as c, GROUP_CONCAT(id) as ids
+        FROM product_catalog WHERE name IS NOT NULL AND TRIM(name) != ''
+        GROUP BY LOWER(TRIM(name)) HAVING c > 1
+        ORDER BY c DESC LIMIT 20
+    """).fetchall()
+    for d in dupes:
+        issues.append({
+            "type": "duplicate_name",
+            "name": d["n"][:60],
+            "count": d["c"],
+            "ids": d["ids"],
+        })
+
+    # Products with no cost AND no sell price
+    no_price = conn.execute("""
+        SELECT COUNT(*) FROM product_catalog
+        WHERE (cost IS NULL OR cost = 0) AND (sell_price IS NULL OR sell_price = 0)
+    """).fetchone()[0]
+
+    # Products with no description or very short
+    no_desc = conn.execute("""
+        SELECT COUNT(*) FROM product_catalog
+        WHERE description IS NULL OR LENGTH(TRIM(description)) < 10
+    """).fetchone()[0]
+
+    # Products with no search tokens (can't be matched)
+    no_tokens = conn.execute("""
+        SELECT COUNT(*) FROM product_catalog
+        WHERE search_tokens IS NULL OR TRIM(search_tokens) = ''
+    """).fetchone()[0]
+
+    # Stale products (not updated in 90+ days)
+    stale = conn.execute("""
+        SELECT COUNT(*) FROM product_catalog
+        WHERE updated_at IS NOT NULL AND updated_at < date('now', '-90 days')
+    """).fetchone()[0]
+
+    total = conn.execute("SELECT COUNT(*) FROM product_catalog").fetchone()[0]
+    conn.close()
+
+    return {
+        "ok": True,
+        "total_products": total,
+        "duplicates": len(dupes),
+        "no_pricing": no_price,
+        "no_description": no_desc,
+        "no_search_tokens": no_tokens,
+        "stale_90d": stale,
+        "issues": issues,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# AI Product Finder — Use Claude API to identify & source products
+# ═══════════════════════════════════════════════════════════════════════
+
+def ai_find_product(description: str, quantity: int = 1, agency: str = "") -> dict:
+    """
+    Use Claude API to identify the exact product, find supplier options,
+    and recommend pricing. Called when no catalog match is found.
+
+    Returns:
+        {
+            ok: bool,
+            product: {name, manufacturer, mfg_number, description, category, uom},
+            suppliers: [{name, price, url, notes}],
+            recommended_cost: float,
+            recommended_sell: float,
+            reasoning: str,
+        }
+    """
+    import requests as _req
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        return {"ok": False, "error": "ANTHROPIC_API_KEY not set"}
+
+    prompt = f"""You are a procurement research assistant for a government medical supply reseller.
+
+Identify this product and find the best sourcing options:
+
+ITEM DESCRIPTION: {description}
+QUANTITY NEEDED: {quantity}
+AGENCY: {agency or 'California state agency'}
+
+Respond ONLY with a JSON object (no markdown, no backticks, no extra text):
+{{
+  "product": {{
+    "name": "Full canonical product name",
+    "manufacturer": "Manufacturer/brand name",
+    "mfg_number": "Manufacturer part number if identifiable",
+    "description": "Clear 1-line product description",
+    "category": "medical|office|janitorial|food_service|clothing|safety|other",
+    "uom": "EA|BX|PK|CS|SET|PR"
+  }},
+  "suppliers": [
+    {{
+      "name": "Supplier name (e.g., Amazon, McKesson, Medline, Henry Schein)",
+      "estimated_price": 0.00,
+      "url": "Product URL if known, otherwise empty string",
+      "notes": "Why this supplier (e.g., best price, fastest shipping, GSA schedule)"
+    }}
+  ],
+  "recommended_cost": 0.00,
+  "recommended_sell": 0.00,
+  "margin_pct": 25,
+  "reasoning": "Brief explanation of product identification and pricing rationale",
+  "confidence": 0.85
+}}
+
+IMPORTANT:
+- Identify the EXACT product, not a similar one
+- For scrubs/clothing: note if it's a SET vs individual pieces
+- Include at least 2 supplier options with realistic prices
+- recommended_sell should have ~25% margin over cost for government contracts
+- If you can't identify the product with confidence, set confidence < 0.5"""
+
+    try:
+        resp = _req.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": "claude-sonnet-4-20250514",
+                "max_tokens": 1000,
+                "messages": [{"role": "user", "content": prompt}],
+            },
+            timeout=30,
+        )
+
+        if resp.status_code != 200:
+            return {"ok": False, "error": f"API returned {resp.status_code}"}
+
+        data = resp.json()
+        text = ""
+        for block in data.get("content", []):
+            if block.get("type") == "text":
+                text += block["text"]
+
+        # Parse JSON response
+        import json as _json
+        text = text.strip()
+        # Strip markdown fences if present
+        if text.startswith("```"):
+            text = re.sub(r'^```\w*\n?', '', text)
+            text = re.sub(r'\n?```$', '', text)
+        result = _json.loads(text)
+        result["ok"] = True
+        result["source"] = "claude_api"
+        return result
+
+    except _req.exceptions.Timeout:
+        return {"ok": False, "error": "Claude API timeout (30s)"}
+    except _json.JSONDecodeError as e:
+        return {"ok": False, "error": f"Failed to parse AI response: {e}", "raw": text[:500]}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def ai_find_products_batch(items: list, agency: str = "") -> list:
+    """
+    Find products for multiple unmatched items.
+    items: [{idx, description, quantity}, ...]
+    Returns list of results with idx preserved.
+    """
+    results = []
+    for item in items[:10]:  # Cap at 10 to control API costs
+        desc = item.get("description", "")
+        qty = item.get("quantity") or item.get("qty") or 1
+        if not desc or len(desc) < 5:
+            results.append({"idx": item.get("idx", 0), "ok": False, "error": "Description too short"})
+            continue
+
+        result = ai_find_product(desc, qty, agency)
+        result["idx"] = item.get("idx", 0)
+        results.append(result)
+
     return results
 
 
