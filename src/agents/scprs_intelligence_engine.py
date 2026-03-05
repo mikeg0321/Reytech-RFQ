@@ -246,6 +246,22 @@ PRODUCT_SEARCH_PLAN = [
 ]
 
 
+def _is_target_agency(dept_code: str, dept_name: str, agency_key: str) -> bool:
+    """Check if a SCPRS result belongs to the target agency."""
+    if agency_key not in AGENCY_REGISTRY:
+        return False
+    reg = AGENCY_REGISTRY[agency_key]
+    # Match by department code
+    if dept_code and dept_code in reg.get("dept_codes", []):
+        return True
+    # Match by department name patterns
+    dept_upper = (dept_name or "").upper()
+    for pattern in reg.get("dept_name_patterns", []):
+        if pattern.upper() in dept_upper:
+            return True
+    return False
+
+
 def pull_agency(agency_key: str, search_terms: list = None,
                 days_back: int = 365, notify_fn=None,
                 from_date_override: str = "", to_date_override: str = "") -> dict:
