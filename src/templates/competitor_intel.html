@@ -279,13 +279,13 @@ function loadHealth(){
 function runBackfill(){
  if(!confirm('Pull ALL 2025 SCPRS data across all agencies? This runs in background and may take 30+ minutes.'))return;
  fetch('/api/intel/scprs/backfill',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({year:2025})})
- .then(r=>r.json()).then(d=>{alert(d.ok?'✅ Backfill started — check notifications for progress':'❌ '+d.error)});
+ .then(r=>r.json()).then(d=>{alert(d.ok?'✅ Backfill started — check notifications for progress':'❌ '+(d.error||d.message||'Unknown error'))});
 }
 
 function runFullPull(){
  if(!confirm('Run full SCPRS pull for all agencies now?'))return;
  fetch('/api/intel/scprs/pull',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})})
- .then(r=>r.json()).then(d=>{alert(d.ok?'✅ Pull started — check notifications':'❌ '+(d.error||d.message))});
+ .then(r=>r.json()).then(d=>{alert(d.ok?'✅ Pull started — check notifications':'❌ '+(d.error||d.message||'Unknown error'))});
 }
 
 loadData();
