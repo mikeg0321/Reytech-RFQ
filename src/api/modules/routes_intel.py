@@ -351,6 +351,71 @@ def api_scprs_search():
         return jsonify({"ok": False, "error": str(e)})
 
 
+# ── Growth Discovery Endpoints ──────────────────────────────────────────────
+
+@bp.route("/api/intel/discover-agencies")
+@auth_required
+def api_discover_agencies():
+    """Discover new agencies buying products Reytech sells but not buying from Reytech."""
+    try:
+        from src.agents.growth_discovery import discover_new_agencies
+        min_spend = float(request.args.get("min_spend", 10000))
+        return jsonify(discover_new_agencies(min_spend=min_spend))
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/intel/loss-intelligence")
+@auth_required
+def api_loss_intelligence():
+    """Why we lose: price gaps, competitor patterns, actionable fixes."""
+    try:
+        from src.agents.growth_discovery import get_loss_intelligence
+        return jsonify(get_loss_intelligence())
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/intel/dvbe-calculator")
+@auth_required
+def api_dvbe_calculator():
+    """Calculate DVBE 3% mandate opportunity per agency."""
+    try:
+        from src.agents.growth_discovery import calculate_dvbe_opportunity
+        return jsonify(calculate_dvbe_opportunity())
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/intel/dbe-opportunities")
+@auth_required
+def api_dbe_opportunities():
+    """DBE/DOT opportunities Reytech isn't leveraging."""
+    try:
+        from src.agents.growth_discovery import get_dbe_opportunities
+        return jsonify(get_dbe_opportunities())
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/intel/contract-vehicles")
+@auth_required
+def api_contract_vehicles():
+    """Contract vehicle advisory — which to pursue, how, when."""
+    try:
+        from src.agents.growth_discovery import get_contract_vehicle_advisory
+        return jsonify(get_contract_vehicle_advisory())
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/intel/growth-discovery")
+@auth_required
+def page_growth_discovery():
+    """Growth Discovery Dashboard — new agencies, DVBE math, DBE, contract vehicles."""
+    return render_page("growth_discovery.html", active_page="Intelligence")
+
+
 @bp.route("/api/intel/growth")
 @auth_required
 def api_intel_growth():

@@ -1,0 +1,260 @@
+{% extends "base.html" %}
+{% block title %}Growth Discovery{% endblock %}
+{% block content %}
+<div style="max-width:1400px;margin:0 auto;padding:0 16px">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+ <div>
+  <h2 style="margin:0;color:var(--tx)">🚀 Growth Discovery</h2>
+  <p style="margin:4px 0 0;color:var(--tx2);font-size:14px">Find new agencies, calculate DVBE mandates, identify buyers, leverage DBE certifications</p>
+ </div>
+ <button onclick="refreshAll()" class="btn" style="background:var(--ac);color:#fff;font-size:14px;padding:10px 20px">🔄 Refresh Intelligence</button>
+</div>
+
+<!-- KPI Cards -->
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:20px">
+ <div class="card" style="text-align:center;padding:20px"><div style="font-size:30px;font-weight:700;color:#3fb950" id="k-agencies">—</div><div style="font-size:13px;color:var(--tx2)">New Agencies Found</div></div>
+ <div class="card" style="text-align:center;padding:20px"><div style="font-size:30px;font-weight:700;color:#58a6ff" id="k-dvbe">—</div><div style="font-size:13px;color:var(--tx2)">DVBE Mandate ($)</div></div>
+ <div class="card" style="text-align:center;padding:20px"><div style="font-size:30px;font-weight:700;color:#d2a8ff" id="k-overlap">—</div><div style="font-size:13px;color:var(--tx2)">Product Overlap ($)</div></div>
+ <div class="card" style="text-align:center;padding:20px"><div style="font-size:30px;font-weight:700;color:#fbbf24" id="k-buyers">—</div><div style="font-size:13px;color:var(--tx2)">New Buyers Found</div></div>
+ <div class="card" style="text-align:center;padding:20px"><div style="font-size:30px;font-weight:700;color:#f87171" id="k-dbe">—</div><div style="font-size:13px;color:var(--tx2)">DBE Addressable ($)</div></div>
+</div>
+
+<!-- Tabs -->
+<div style="display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--bd)">
+ <button class="tb active" onclick="showTab('agencies',this)">🏛 New Agencies</button>
+ <button class="tb" onclick="showTab('dvbe',this)">📊 DVBE Calculator</button>
+ <button class="tb" onclick="showTab('dbe',this)">🚛 DBE / DOT</button>
+ <button class="tb" onclick="showTab('losses',this)">❌ Loss Intel</button>
+ <button class="tb" onclick="showTab('vehicles',this)">📜 Contract Vehicles</button>
+</div>
+
+<style>
+.tb{padding:10px 18px;background:none;border:none;border-bottom:2px solid transparent;color:var(--tx2);font-size:14px;cursor:pointer;font-weight:600}
+.tb.active{color:var(--ac);border-bottom-color:var(--ac)}.tb:hover{color:var(--tx)}
+.tp{display:none}.tp.active{display:block}
+.opp-card{background:var(--crd);border:1px solid var(--bd);border-radius:10px;padding:16px;margin-bottom:12px}
+.opp-card:hover{border-color:var(--ac)}
+.score-bar{height:6px;border-radius:3px;background:var(--sf)}
+.score-fill{height:100%;border-radius:3px;transition:width .3s}
+.buyer-tag{display:inline-block;padding:3px 10px;border-radius:12px;font-size:12px;background:rgba(167,139,250,.12);color:#a78bfa;margin:2px}
+</style>
+
+<!-- New Agencies Tab -->
+<div id="tab-agencies" class="tp active">
+ <div id="agencyList" style="color:var(--tx2);padding:40px;text-align:center">Loading agency discovery...</div>
+</div>
+
+<!-- DVBE Calculator Tab -->
+<div id="tab-dvbe" class="tp">
+ <div class="card" style="padding:16px;margin-bottom:16px;background:rgba(63,185,80,.06);border-color:rgba(63,185,80,.2)">
+  <b style="color:#3fb950">The DVBE Math:</b> California agencies must spend 3% with DVBE vendors. For an agency spending $10M/year, that's $300K in <i>mandated</i> DVBE spend. If they're buying from Cardinal/McKesson/Medline (non-DVBE), they're falling short. You can fill that gap.
+ </div>
+ <div id="dvbeTable" style="color:var(--tx2);padding:30px;text-align:center">Loading DVBE calculations...</div>
+</div>
+
+<!-- DBE / DOT Tab -->
+<div id="tab-dbe" class="tp">
+ <div class="card" style="padding:16px;margin-bottom:16px;background:rgba(210,168,255,.06);border-color:rgba(210,168,255,.2)">
+  <b style="color:#d2a8ff">Your Untapped DBE Advantage:</b> You hold DBE certification with every state DOT but aren't leveraging it. CalTrans alone is ~$15B/year with a 12% DBE goal = $1.8B in DBE-mandated spend. Transit agencies (BART, LA Metro, SacRT) add billions more. Even non-construction procurement (office supplies, safety gear) qualifies.
+ </div>
+ <div id="dbeList" style="color:var(--tx2);padding:30px;text-align:center">Loading DBE opportunities...</div>
+</div>
+
+<!-- Loss Intelligence Tab -->
+<div id="tab-losses" class="tp">
+ <div id="lossIntel" style="color:var(--tx2);padding:30px;text-align:center">Loading loss analysis...</div>
+</div>
+
+<!-- Contract Vehicles Tab -->
+<div id="tab-vehicles" class="tp">
+ <div id="vehicleGuide" style="color:var(--tx2);padding:30px;text-align:center">Loading contract vehicle guide...</div>
+</div>
+
+</div>
+
+<script>
+function escH(s){const d=document.createElement('div');d.textContent=s||'';return d.innerHTML}
+function fmt$(n){return '$'+Number(n||0).toLocaleString(undefined,{minimumFractionDigits:0,maximumFractionDigits:0})}
+function showTab(n,b){document.querySelectorAll('.tp').forEach(p=>p.classList.remove('active'));document.querySelectorAll('.tb').forEach(b=>b.classList.remove('active'));document.getElementById('tab-'+n).classList.add('active');b.classList.add('active')}
+
+function refreshAll(){loadAgencies();loadDVBE();loadDBE();loadLosses();loadVehicles()}
+
+function loadAgencies(){
+ fetch('/api/intel/discover-agencies').then(r=>r.json()).then(d=>{
+  if(!d.ok){document.getElementById('agencyList').innerHTML='<div style="color:#f85149">'+escH(d.error)+'</div>';return}
+  const s=d.summary||{};
+  document.getElementById('k-agencies').textContent=s.new_agencies||0;
+  document.getElementById('k-dvbe').textContent=fmt$(s.total_addressable_dvbe);
+  document.getElementById('k-overlap').textContent=fmt$(s.total_product_overlap);
+  document.getElementById('k-buyers').textContent=s.total_new_buyers||0;
+
+  let html='';
+  if(!d.opportunities||!d.opportunities.length){
+   html='<div style="text-align:center;padding:40px;color:var(--tx2)"><div style="font-size:40px;margin-bottom:12px">📡</div><div style="font-size:16px;font-weight:600">No SCPRS data yet</div><div style="font-size:14px;margin-top:8px">Run a SCPRS backfill first: go to 🏢 SCPRS Intel → Backfill 2025</div></div>';
+  } else {
+   d.opportunities.forEach(function(o){
+    const scoreColor=o.opportunity_score>=70?'#3fb950':o.opportunity_score>=40?'#d29922':'#8b949e';
+    const tag=o.is_current_customer?'<span style="color:#3fb950;font-size:12px;font-weight:600">✅ CURRENT</span>':'<span style="color:#58a6ff;font-size:12px;font-weight:600">🆕 NEW</span>';
+    const dbeTag=o.dbe_opportunity?'<span style="background:rgba(210,168,255,.15);color:#d2a8ff;padding:2px 8px;border-radius:8px;font-size:12px;font-weight:600;margin-left:6px">🚛 DBE</span>':'';
+    html+='<div class="opp-card">';
+    html+='<div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:8px">';
+    html+='<div><div style="font-size:16px;font-weight:700;color:var(--tx)">'+escH(o.dept_name)+' '+tag+dbeTag+'</div>';
+    html+='<div style="font-size:13px;color:var(--tx2)">'+escH(o.agency_key)+' · '+escH(o.segment)+' · '+o.po_count+' POs</div></div>';
+    html+='<div style="text-align:right"><div style="font-size:20px;font-weight:700;color:'+scoreColor+'">'+o.opportunity_score+'</div><div style="font-size:11px;color:var(--tx2)">score</div></div></div>';
+    // Metrics row
+    html+='<div style="display:flex;gap:16px;margin-bottom:10px;font-size:13px">';
+    html+='<div><span style="color:var(--tx2)">Total Spend:</span> <b style="color:var(--tx)">'+fmt$(o.total_spend)+'</b></div>';
+    html+='<div><span style="color:var(--tx2)">3% DVBE:</span> <b style="color:#3fb950">'+fmt$(o.dvbe_mandate_3pct)+'</b></div>';
+    html+='<div><span style="color:var(--tx2)">Product Overlap:</span> <b style="color:#58a6ff">'+fmt$(o.overlap_spend)+' ('+o.overlap_pct+'%)</b></div>';
+    html+='<div><span style="color:var(--tx2)">Buyers:</span> <b style="color:#a78bfa">'+o.buyer_count+'</b></div>';
+    html+='</div>';
+    // Score bar
+    html+='<div class="score-bar" style="margin-bottom:10px"><div class="score-fill" style="width:'+o.opportunity_score+'%;background:'+scoreColor+'"></div></div>';
+    // DVBE angle
+    if(o.dvbe_angle) html+='<div style="font-size:13px;color:var(--tx2);margin-bottom:8px;padding:6px 10px;background:rgba(63,185,80,.06);border-radius:6px"><b style="color:#3fb950">DVBE Angle:</b> '+escH(o.dvbe_angle)+'</div>';
+    if(o.dbe_note) html+='<div style="font-size:13px;color:var(--tx2);margin-bottom:8px;padding:6px 10px;background:rgba(210,168,255,.06);border-radius:6px"><b style="color:#d2a8ff">DBE Note:</b> '+escH(o.dbe_note)+'</div>';
+    // Buyers
+    if(o.buyers&&o.buyers.length){
+     html+='<div style="margin-bottom:6px">';
+     o.buyers.slice(0,5).forEach(function(b){
+      html+='<span class="buyer-tag" title="'+escH(b.buyer_email||'')+'">👤 '+escH(b.buyer_name||b.buyer_email||'?')+' ('+b.po_count+' POs, '+fmt$(b.total_spend)+')</span>';
+     });
+     if(o.buyers.length>5) html+='<span class="buyer-tag">+'+( o.buyers.length-5)+' more</span>';
+     html+='</div>';
+    }
+    // Top overlap items
+    if(o.overlap_items&&o.overlap_items.length){
+     html+='<details style="font-size:13px"><summary style="cursor:pointer;color:var(--ac);font-weight:600">📦 '+o.overlap_items.length+' matching products</summary><div style="margin-top:6px">';
+     o.overlap_items.forEach(function(it){
+      html+='<div style="padding:3px 0;border-bottom:1px solid var(--bd)">'+escH(it.description)+' · <span style="font-family:monospace">$'+Number(it.unit_price||0).toFixed(2)+'</span> · '+fmt$(it.total_spend)+' spend · Suppliers: '+escH(it.suppliers||'?')+'</div>';
+     });
+     html+='</div></details>';
+    }
+    html+='</div>';
+   });
+  }
+  document.getElementById('agencyList').innerHTML=html;
+ }).catch(e=>{document.getElementById('agencyList').innerHTML='<div style="color:#f85149">Error: '+escH(e.message)+'</div>'});
+}
+
+function loadDVBE(){
+ fetch('/api/intel/dvbe-calculator').then(r=>r.json()).then(d=>{
+  if(!d.ok){document.getElementById('dvbeTable').innerHTML=escH(d.error);return}
+  let html='<div style="margin-bottom:16px;font-size:15px;color:var(--tx)"><b>'+escH(d.message)+'</b></div>';
+  html+='<table style="width:100%;border-collapse:collapse;font-size:14px"><thead><tr style="border-bottom:2px solid var(--bd)">';
+  html+='<th style="text-align:left;padding:8px;color:var(--tx2)">Agency</th><th style="text-align:right;padding:8px;color:var(--tx2)">Total Spend</th>';
+  html+='<th style="text-align:right;padding:8px;color:var(--tx2)">3% DVBE Mandate</th><th style="text-align:right;padding:8px;color:var(--tx2)">Non-DVBE Spend</th>';
+  html+='<th style="text-align:right;padding:8px;color:var(--tx2)">Opportunity</th></tr></thead><tbody>';
+  (d.agencies||[]).forEach(function(a){
+   html+='<tr style="border-bottom:1px solid var(--bd)">';
+   html+='<td style="padding:8px"><b>'+escH(a.agency_key)+'</b> <span style="color:var(--tx2);font-size:12px">'+escH(a.dept_name||'')+'</span></td>';
+   html+='<td style="text-align:right;padding:8px;font-family:monospace">'+fmt$(a.total_spend)+'</td>';
+   html+='<td style="text-align:right;padding:8px;font-family:monospace;color:#3fb950;font-weight:600">'+fmt$(a.dvbe_mandate_3pct)+'</td>';
+   html+='<td style="text-align:right;padding:8px;font-family:monospace;color:#f87171">'+fmt$(a.non_dvbe_spend)+' ('+a.non_dvbe_pct+'%)</td>';
+   html+='<td style="text-align:right;padding:8px;font-family:monospace;color:#58a6ff;font-weight:700">'+fmt$(a.opportunity)+'</td>';
+   html+='</tr>';
+  });
+  html+='<tr style="border-top:2px solid var(--bd);font-weight:700"><td style="padding:8px">TOTAL</td>';
+  html+='<td style="text-align:right;padding:8px;font-family:monospace"></td>';
+  html+='<td style="text-align:right;padding:8px;font-family:monospace;color:#3fb950">'+fmt$(d.total_dvbe_mandate)+'</td>';
+  html+='<td style="text-align:right;padding:8px;font-family:monospace;color:#f87171">'+fmt$(d.total_non_dvbe_spend)+'</td>';
+  html+='<td style="text-align:right;padding:8px;font-family:monospace;color:#58a6ff;font-size:16px">'+fmt$(d.total_opportunity)+'</td>';
+  html+='</tr></tbody></table>';
+  document.getElementById('dvbeTable').innerHTML=html;
+ });
+}
+
+function loadDBE(){
+ fetch('/api/intel/dbe-opportunities').then(r=>r.json()).then(d=>{
+  if(!d.ok){document.getElementById('dbeList').innerHTML=escH(d.error);return}
+  document.getElementById('k-dbe').textContent=fmt$(d.total_addressable);
+  let html='<div style="font-size:15px;color:var(--tx);margin-bottom:16px"><b>'+escH(d.message)+'</b></div>';
+  // Certifications
+  html+='<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">';
+  for(const[cert,status] of Object.entries(d.certifications||{})){
+   html+='<span style="padding:4px 12px;border-radius:8px;font-size:13px;font-weight:600;background:rgba(63,185,80,.12);color:#3fb950">'+escH(cert)+': '+escH(status)+'</span>';
+  }
+  html+='</div>';
+  // Immediate actions
+  html+='<div class="card" style="margin-bottom:16px;padding:14px;background:rgba(88,166,255,.06);border-color:rgba(88,166,255,.2)"><b style="color:#58a6ff">Immediate Actions:</b><ol style="margin:8px 0 0;padding-left:20px;font-size:14px;color:var(--tx)">';
+  (d.immediate_actions||[]).forEach(function(a){html+='<li style="margin-bottom:4px">'+escH(a)+'</li>'});
+  html+='</ol></div>';
+  // Opportunities
+  for(const[key,opp] of Object.entries(d.opportunities||{})){
+   html+='<div class="opp-card">';
+   html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">';
+   html+='<div style="font-size:16px;font-weight:700;color:var(--tx)">'+escH(opp.name)+'</div>';
+   html+='<div style="font-size:18px;font-weight:700;color:#3fb950">'+fmt$(opp.addressable)+'<span style="font-size:12px;color:var(--tx2)"> DBE goal</span></div></div>';
+   html+='<div style="font-size:14px;color:var(--tx2);margin-bottom:8px">Budget: '+fmt$(opp.annual_budget)+' · DBE goal: '+(opp.dbe_pct*100)+'%</div>';
+   html+='<div style="font-size:14px;color:var(--tx2);margin-bottom:8px">Products: '+escH((opp.categories||[]).join(', '))+'</div>';
+   if(opp.how_to_enter){html+='<div style="font-size:13px"><b style="color:#58a6ff">How to enter:</b><ul style="margin:4px 0;padding-left:20px">';opp.how_to_enter.forEach(function(h){html+='<li>'+escH(h)+'</li>'});html+='</ul></div>'}
+   if(opp.contact) html+='<div style="font-size:13px;color:var(--tx2);margin-top:6px">📞 '+escH(opp.contact)+'</div>';
+   html+='</div>';
+  }
+  document.getElementById('dbeList').innerHTML=html;
+ });
+}
+
+function loadLosses(){
+ fetch('/api/intel/loss-intelligence').then(r=>r.json()).then(d=>{
+  if(!d.ok){document.getElementById('lossIntel').innerHTML=escH(d.error);return}
+  let html='';
+  if(d.total_losses===0){
+   html='<div style="text-align:center;padding:40px;color:var(--tx2)"><div style="font-size:40px;margin-bottom:12px">📊</div><div style="font-size:16px;font-weight:600">No losses tracked yet</div><div style="font-size:14px;margin-top:8px">The award tracker will detect losses from SCPRS data and analyze why you lost.</div></div>';
+  } else {
+   // Recommendations
+   if(d.recommendations&&d.recommendations.length){
+    html+='<div class="card" style="margin-bottom:16px;padding:14px;background:rgba(248,113,113,.06);border-color:rgba(248,113,113,.2)"><b style="color:#f87171">Action Items:</b>';
+    d.recommendations.forEach(function(r){
+     html+='<div style="margin-top:8px;font-size:14px"><span style="padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700;background:'+(r.priority==='HIGH'?'rgba(248,113,113,.15);color:#f87171':'rgba(210,153,34,.15);color:#d29922')+'">'+escH(r.priority)+'</span> <b>'+escH(r.action)+'</b><div style="color:var(--tx2);font-size:13px;margin-top:2px">'+escH(r.detail)+'</div></div>';
+    });
+    html+='</div>';
+   }
+   // By competitor
+   html+='<div style="font-size:14px;font-weight:600;color:var(--tx);margin-bottom:8px">Losses by Competitor</div>';
+   for(const[comp,data] of Object.entries(d.by_competitor||{})){
+    html+='<div class="opp-card"><div style="display:flex;justify-content:space-between"><b>'+escH(comp)+'</b><span style="color:#f87171">'+data.count+' losses · avg delta $'+Math.abs(data.avg_delta).toFixed(0)+'</span></div></div>';
+   }
+   // Price gaps
+   if(d.price_gaps&&d.price_gaps.length){
+    html+='<div style="font-size:14px;font-weight:600;color:var(--tx);margin:16px 0 8px">Catalog Items Above Market Price</div>';
+    d.price_gaps.forEach(function(g){
+     html+='<div style="padding:6px 0;border-bottom:1px solid var(--bd);font-size:13px;display:flex;gap:12px">';
+     html+='<span style="flex:1">'+escH(g.description||g.catalog_name)+'</span>';
+     html+='<span style="color:#f87171;font-family:monospace">Our: $'+Number(g.our_price).toFixed(2)+'</span>';
+     html+='<span style="color:#3fb950;font-family:monospace">Market: $'+Number(g.market_price).toFixed(2)+'</span>';
+     html+='</div>';
+    });
+   }
+  }
+  document.getElementById('lossIntel').innerHTML=html;
+ });
+}
+
+function loadVehicles(){
+ fetch('/api/intel/contract-vehicles').then(r=>r.json()).then(d=>{
+  if(!d.ok){document.getElementById('vehicleGuide').innerHTML=escH(d.error);return}
+  let html='<div style="font-size:15px;font-weight:600;color:var(--tx);margin-bottom:12px">Recommended Sequence</div>';
+  html+='<div class="card" style="padding:14px;margin-bottom:16px;background:rgba(88,166,255,.06);border-color:rgba(88,166,255,.2)"><ol style="margin:0;padding-left:20px;font-size:14px;color:var(--tx)">';
+  (d.recommended_sequence||[]).forEach(function(s){html+='<li style="margin-bottom:6px">'+escH(s)+'</li>'});
+  html+='</ol></div>';
+  // Vehicle cards
+  for(const[key,v] of Object.entries(d.vehicles||{})){
+   const pColor=v.priority==='HIGH'?'#3fb950':v.priority==='MEDIUM'?'#d29922':'#8b949e';
+   html+='<div class="opp-card">';
+   html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">';
+   html+='<div style="font-size:16px;font-weight:700;color:var(--tx)">'+escH(v.name)+'</div>';
+   html+='<span style="padding:3px 10px;border-radius:8px;font-size:12px;font-weight:600;color:'+pColor+';background:'+pColor+'22">'+escH(v.priority)+'</span></div>';
+   html+='<div style="font-size:14px;color:var(--tx2);margin-bottom:4px"><b>Type:</b> '+escH(v.type)+' · <b>Threshold:</b> '+escH(v.threshold)+'</div>';
+   html+='<div style="font-size:14px;color:var(--tx);margin-bottom:8px">'+escH(v.how_it_helps)+'</div>';
+   html+='<div style="font-size:13px"><b style="color:#58a6ff">How to get on:</b><ul style="margin:4px 0;padding-left:20px">';
+   (v.how_to_get_on||[]).forEach(function(h){html+='<li>'+escH(h)+'</li>'});
+   html+='</ul></div></div>';
+  }
+  document.getElementById('vehicleGuide').innerHTML=html;
+ });
+}
+
+refreshAll();
+</script>
+{% endblock %}
