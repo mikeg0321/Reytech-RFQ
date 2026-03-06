@@ -546,6 +546,22 @@ def _merge_continuation_items(items: list) -> list:
         elif item.get("qty", 1) == 0:
             # Zero-qty items are never real line items — always merge
             should_merge = True
+        elif is_default_qty and is_default_uom:
+            # Default qty + default UOM: check if desc is just more detail text
+            # (not a distinct product). Short descs without product keywords = merge
+            desc_up = desc.upper()
+            has_product_word = any(w in desc_up for w in [
+                "GLOVE", "MASK", "BRIEF", "WIPE", "GOWN", "SYRINGE", "BANDAGE",
+                "GAUZE", "TAPE", "SOAP", "TOWEL", "PAPER", "BAG", "LINER",
+                "SANITIZER", "CATHETER", "NEEDLE", "BOOT", "VEST", "HELMET",
+            ])
+            if not has_product_word and len(desc) < 60:
+                should_merge = True
+        elif item.get("qty") == prev.get("qty") and item.get("uom") == prev.get("uom"):
+            # Same qty AND same UOM as previous item — likely auto-filled from above row
+            # Check if description is supplementary or short
+            if is_supplement or len(desc) < 40:
+                should_merge = True
         
         if should_merge:
             # Merge description into previous item

@@ -123,6 +123,50 @@ def api_pc_revert(pcid):
         return jsonify({"ok": False, "error": str(e)})
 
 
+@bp.route("/api/pricecheck/<pcid>/merge-items", methods=["POST"])
+@auth_required
+def api_pc_merge_items(pcid):
+    """Merge an item into the one above it (for false multi-line splits).
+    POST {index: 2} merges item[2] into item[1]."""
+    try:
+        data = request.get_json(silent=True) or {}
+        idx = int(data.get("index", -1))
+
+        pcs = _load_price_checks()
+        pc = pcs.get(pcid)
+        if not pc:
+            return jsonify({"ok": False, "error": "PC not found"})
+
+        items = pc.get("items", [])
+        if idx < 1 or idx >= len(items):
+            return jsonify({"ok": False, "error": f"Invalid index {idx} (need 1-{len(items)-1})"})
+
+        # Save revision before merging
+        _save_pc_revision(pcid, pc, reason=f"before merge item {idx}")
+
+        # Merge item[idx] description into item[idx-1]
+        target = items[idx]
+        prev = items[idx - 1]
+        merged_desc = (prev.get("description", "") + " " + target.get("description", "")).strip()
+        prev["description"] = merged_desc
+        if target.get("mfg_number") and not prev.get("mfg_number"):
+            prev["mfg_number"] = target["mfg_number"]
+
+        # Remove the merged item
+        items.pop(idx)
+        pc["items"] = items
+
+        # Sync parsed
+        if "parsed" in pc:
+            pc["parsed"]["line_items"] = items
+
+        _save_price_checks(pcs)
+        return jsonify({"ok": True, "merged_into": idx - 1, "remaining_items": len(items),
+                        "description": merged_desc[:100]})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
 @bp.route("/pricecheck/<pcid>")
 @auth_required
 def pricecheck_detail(pcid):
@@ -328,7 +372,7 @@ def _pricecheck_detail_inner(pcid):
 
         items_html += f"""<tr style="{row_opacity}" data-row="{idx}">
          <td style="text-align:center"><input type="checkbox" name="bid_{idx}" {bid_checked} onchange="toggleBid({idx},this)" style="width:18px;height:18px;cursor:pointer"></td>
-         <td style="text-align:center;font-weight:600;font-size:13px;color:#8b949e;font-family:'JetBrains Mono',monospace">{line_num}</td>
+         <td style="text-align:center;font-weight:600;font-size:13px;color:#8b949e;font-family:'JetBrains Mono',monospace;position:relative">{line_num}{'<button onclick=\"mergeUp('+str(idx)+');event.stopPropagation()\" title=\"Merge into item above (multi-line description fix)\" style=\"position:absolute;top:-2px;right:-2px;background:#21262d;border:1px solid #30363d;border-radius:3px;color:#a78bfa;font-size:10px;cursor:pointer;padding:1px 3px;display:none\" class=\"merge-btn\" onmouseover=\"this.style.background=&apos;#30363d&apos;\" onmouseout=\"this.style.background=&apos;#21262d&apos;\">⬆</button>' if idx > 0 else ''}</td>
          <td><input type="text" name="itemnum_{idx}" value="{mfg_display}" class="text-in" style="width:80px;text-align:center;font-weight:600;font-size:14px;font-family:'JetBrains Mono',monospace;padding:6px 4px" placeholder="MFG#" onblur="handleMfgInput({idx}, this)"></td>
          <td><input type="number" name="qty_{idx}" value="{qty}" class="num-in sm" style="width:55px" onchange="recalcPC()"></td>
          <td><input type="text" name="uom_{idx}" value="{(item.get('uom') or 'EA').upper()}" class="text-in" style="width:45px;text-transform:uppercase;text-align:center;font-weight:600"></td>
