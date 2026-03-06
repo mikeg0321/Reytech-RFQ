@@ -3125,7 +3125,15 @@ def pricechecks_archive():
             "total": sum((it.get("unit_price") or it.get("pricing", {}).get("recommended_price", 0) or 0) * it.get("qty", 1)
                         for it in pc.get("items", [])),
         })
-    pc_list.sort(key=lambda x: x["created_at"], reverse=True)
+    pc_list.sort(key=lambda x: (
+        # Overdue items first (0 = overdue, 1 = not)
+        0 if x.get("due_date") and x["due_date"][:10] < datetime.now().strftime("%Y-%m-%d") else 1,
+        # Then by due date ascending (soonest first)
+        x.get("due_date", "9999") or "9999",
+        # Then by created_at descending
+        "" if not x.get("created_at") else x["created_at"],
+    ))
+    # Reverse created_at within non-due items
     total = len(pc_list)
 
     # Map internal statuses → 4 display statuses
@@ -3204,11 +3212,21 @@ def pricechecks_archive():
                 pass
         # Build rich search index with all visible fields
         search_index = f"{p['pc_number'].lower()} {p['institution'].lower()} {p['requestor'].lower()} {qn.lower()} {p['display_status']} {badge_label.lower()} {due_str} {date_str}"
-        rows += f'''<tr data-status="{p['display_status']}" data-search="{search_index}" style="cursor:pointer" onclick="location.href='/pricecheck/{p['id']}'">
-         <td style="padding:14px 16px"><a href="/pricecheck/{p['id']}" style="color:#58a6ff;font-family:'JetBrains Mono',monospace;font-weight:700;font-size:15px">#{p['pc_number']}</a></td>
+        # Overdue detection
+        is_overdue = False
+        try:
+            if p.get("due_date") and p["due_date"][:10] < datetime.now().strftime("%Y-%m-%d") and st not in ('sent','won','lost','archived','no_response','duplicate','dismissed'):
+                is_overdue = True
+        except Exception:
+            pass
+        overdue_style = "border-left:3px solid #f85149;" if is_overdue else ""
+        due_color = "#f85149;font-weight:700" if is_overdue else "var(--tx2)"
+        rows += f'''<tr data-status="{p['display_status']}" data-search="{search_index}" data-id="{p['id']}" style="cursor:pointer;{overdue_style}" onclick="if(!event.target.closest('input,button'))location.href='/pricecheck/{p['id']}'">
+         <td style="padding:8px 6px;text-align:center" onclick="event.stopPropagation()"><input type="checkbox" class="pc-bulk-check" value="{p['id']}" onchange="updateBulkBar()" style="width:16px;height:16px;cursor:pointer"></td>
+         <td style="padding:14px 12px"><a href="/pricecheck/{p['id']}" style="color:#58a6ff;font-family:'JetBrains Mono',monospace;font-weight:700;font-size:15px">#{p['pc_number']}</a></td>
          <td style="padding:14px 12px;font-size:15px;font-weight:500">{p['institution']}</td>
          <td style="padding:14px 12px;font-size:15px">{p['requestor'][:30]}</td>
-         <td style="padding:14px 12px;font-size:15px;font-family:'JetBrains Mono',monospace;color:var(--tx2)">{due_str}</td>
+         <td style="padding:14px 12px;font-size:15px;font-family:'JetBrains Mono',monospace;color:{due_color}">{due_str}{' 🔴' if is_overdue else ''}</td>
          <td style="padding:14px 12px;font-size:15px;font-family:'JetBrains Mono',monospace;color:var(--tx2)">{date_str}</td>
          <td style="padding:14px 12px;text-align:center;font-size:16px;font-weight:700">{p['items_count']}</td>
          <td style="padding:14px 12px;text-align:right;font-size:16px;font-weight:700;font-family:'JetBrains Mono',monospace">{total_str}</td>
@@ -3246,10 +3264,17 @@ def pricechecks_archive():
         <option value="">All Statuses</option>{status_options}</select>
       <span id="pc-count" style="font-size:15px;color:var(--tx2);white-space:nowrap">{total} PCs</span>
     </div>
+    <div id="bulk-bar" style="display:none;align-items:center;gap:12px;padding:8px 16px;background:rgba(88,166,255,.08);border:1px solid rgba(88,166,255,.25);border-radius:8px;margin-bottom:8px">
+      <span id="bulk-count" style="font-size:14px;font-weight:600;color:#58a6ff">0 selected</span>
+      <button onclick="bulkAction('archived')" style="padding:4px 12px;background:#21262d;border:1px solid #30363d;border-radius:6px;color:#8b949e;font-size:13px;cursor:pointer">🗄️ Archive</button>
+      <button onclick="bulkAction('duplicate')" style="padding:4px 12px;background:#21262d;border:1px solid #30363d;border-radius:6px;color:#8b949e;font-size:13px;cursor:pointer">📋 Duplicate</button>
+      <button onclick="bulkAction('delete')" style="padding:4px 12px;background:#21262d;border:1px solid #30363d;border-radius:6px;color:#f85149;font-size:13px;cursor:pointer">🗑 Delete</button>
+    </div>
     <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;overflow-x:auto">
       <table style="width:100%;border-collapse:collapse;font-size:15px">
         <thead><tr style="border-bottom:2px solid var(--bd);text-transform:uppercase;font-size:14px;color:var(--tx2);letter-spacing:.5px">
-          <th style="padding:14px 16px;text-align:left;font-weight:600">PC #</th><th style="padding:14px 12px;text-align:left;font-weight:600">Institution</th>
+          <th style="padding:8px 6px;text-align:center;width:30px"><input type="checkbox" onchange="toggleAllPCs(this)" style="width:16px;height:16px;cursor:pointer" title="Select all"></th>
+          <th style="padding:14px 12px;text-align:left;font-weight:600">PC #</th><th style="padding:14px 12px;text-align:left;font-weight:600">Institution</th>
           <th style="padding:14px 12px;text-align:left;font-weight:600">Requestor</th><th style="padding:14px 12px;text-align:left;font-weight:600">Due</th><th style="padding:14px 12px;text-align:left;font-weight:600">Created</th>
           <th style="padding:14px 12px;text-align:center;font-weight:600">Items</th><th style="padding:14px 12px;text-align:right;font-weight:600">Total</th>
           <th style="padding:14px 12px;text-align:center;font-weight:600">Quote</th><th style="padding:14px 12px;text-align:center;font-weight:600">Status</th><th style="padding:14px 12px;text-align:center;font-weight:600">Sent</th><th style="padding:6px 8px;text-align:center;font-weight:600"></th>
@@ -3265,6 +3290,33 @@ def pricechecks_archive():
       fetch('/api/pricecheck/'+pcid+'/dismiss',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{reason:action}})}})
       .then(function(r){{return r.json()}}).then(function(d){{
         if(d.ok){{location.reload()}}else{{alert('Error: '+(d.error||'unknown'))}}
+      }});
+    }}
+    function toggleAllPCs(master){{
+      document.querySelectorAll('.pc-bulk-check').forEach(function(cb){{
+        if(cb.closest('tr').style.display!=='none') cb.checked=master.checked;
+      }});
+      updateBulkBar();
+    }}
+    function updateBulkBar(){{
+      var checked=document.querySelectorAll('.pc-bulk-check:checked');
+      var bar=document.getElementById('bulk-bar');
+      if(checked.length>0){{
+        bar.style.display='flex';
+        document.getElementById('bulk-count').textContent=checked.length+' selected';
+      }}else{{
+        bar.style.display='none';
+      }}
+    }}
+    function bulkAction(action){{
+      var ids=Array.from(document.querySelectorAll('.pc-bulk-check:checked')).map(function(cb){{return cb.value}});
+      if(!ids.length) return;
+      var labels={{'archived':'Archive','duplicate':'Mark Duplicate','delete':'Delete'}};
+      if(!confirm(labels[action]+' '+ids.length+' Price Check'+(ids.length>1?'s':'')+'?')) return;
+      var done=0;var total=ids.length;
+      ids.forEach(function(id){{
+        fetch('/api/pricecheck/'+id+'/dismiss',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{reason:action}})}})
+        .then(function(r){{return r.json()}}).then(function(){{done++;if(done>=total)location.reload()}});
       }});
     }}
     </script>'''

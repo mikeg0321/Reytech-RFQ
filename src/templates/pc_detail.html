@@ -194,9 +194,8 @@
      {% endif %}
 
      <div class="action-bar" style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center" id="actionBar">
-      <button class="btn btn-p" onclick="savePrices(this)" id="saveBtn" style="font-size:14px;padding:8px 20px">💾 Save</button>
+      <button class="btn btn-p" onclick="savePrices(this)" id="saveBtn" style="font-size:14px;padding:8px 20px;background:#238636;color:#fff">💾 Save &amp; Generate</button>
       <button class="btn" onclick="showPreview()" style="background:#21262d;color:#c9d1d9;border:1px solid #484f58;font-size:14px;padding:8px 20px">👁️ Preview</button>
-      <button class="btn btn-g" id="submitBtn" onclick="saveAndGenerate(this)" style="font-size:14px;padding:8px 20px">📄 Save &amp; Fill 704</button>
       {{ download_html | safe }}
       <!-- Pricing: consolidated into dropdown -->
       <span style="border-left:1px solid #30363d;height:28px;margin:0 4px"></span>
@@ -393,21 +392,30 @@
       if(!r.ok) return r.text().then(t=>{throw new Error('Server '+r.status+': '+(t||'').substring(0,100))});
       return r.json();
      }).then(d=>{
-      btn.disabled=false;
       if(d.ok){
        if (d.profit_summary) updateProfitPanel(d.profit_summary);
-       btn.textContent='✅ Saved!';btn.style.background='#238636';
-       const ps = d.profit_summary;
-       const profitMsg = ps && ps.gross_profit
-         ? ' · Profit: $' + ps.gross_profit.toFixed(2) + ' (' + ps.margin_pct.toFixed(1) + '% margin)'
-         : '';
-       const catMsg = d.catalog
-         ? ' · Catalog: ' + (d.catalog.added||0) + ' new, ' + (d.catalog.updated||0) + ' updated'
-         : '';
-       showMsg('✅ Prices saved.' + profitMsg + catMsg,'ok');
-       setTimeout(()=>{btn.textContent=origText;btn.style.background=''},2500);
+       // Smart Save: auto-generate PDF after saving prices
+       btn.textContent='📄 Generating PDF...';
+       fetch('/pricecheck/{{ pcid }}/generate',{method:'POST'}).then(r=>r.json()).then(g=>{
+        btn.disabled=false;
+        if(g.ok){
+         btn.textContent='✅ Saved + PDF Ready';btn.style.background='#238636';
+         showMsg('✅ Saved & PDF generated. <a href="'+g.download+'" style="color:#58a6ff">📥 Download</a>','ok');
+         // Update download button if exists
+         var dlBtn=document.querySelector('a[href*="/api/pricecheck/download/"]');
+         if(dlBtn) dlBtn.href=g.download;
+        } else {
+         btn.textContent='✅ Saved (PDF: '+( g.error||'error').substring(0,30)+')';
+         showMsg('✅ Prices saved. PDF generation: '+(g.error||'failed'),'warn');
+        }
+        setTimeout(()=>{btn.textContent=origText;btn.style.background=''},3000);
+       }).catch(()=>{
+        btn.disabled=false;btn.textContent='✅ Saved';btn.style.background='#238636';
+        showMsg('✅ Prices saved. PDF will generate on next Save & Fill.','ok');
+        setTimeout(()=>{btn.textContent=origText;btn.style.background=''},2500);
+       });
       } else {
-       btn.textContent=origText;
+       btn.disabled=false;btn.textContent=origText;
        showMsg('❌ Save failed: '+(d.error||'unknown'),'err');
       }
      }).catch(e=>{btn.disabled=false;btn.textContent=origText;showMsg('❌ Error: '+e.message,'err')});
