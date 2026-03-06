@@ -1,0 +1,222 @@
+{% extends "base.html" %}
+{% block title %}Buyers — SCPRS Outreach{% endblock %}
+{% block content %}
+<div style="max-width:1400px;margin:0 auto;padding:0 16px">
+
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+ <div>
+  <h2 style="margin:0;color:var(--tx)">🎯 SCPRS Buyers</h2>
+  <p style="margin:4px 0 0;color:var(--tx2);font-size:14px">Every buyer in SCPRS who purchases items you can supply. Click → Draft outreach email.</p>
+ </div>
+ <div style="display:flex;gap:8px;align-items:center">
+  <select id="agencyFilter" onchange="loadBuyers()" style="padding:8px 12px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:14px">
+   <option value="">All Agencies</option>
+  </select>
+  <input id="searchInput" placeholder="Filter by name, email, item..." oninput="filterTable()" style="padding:8px 12px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:14px;width:220px">
+  <span id="buyerCount" style="color:var(--tx2);font-size:14px"></span>
+ </div>
+</div>
+
+<!-- Stats bar -->
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:16px">
+ <div class="card" style="text-align:center;padding:14px"><div style="font-size:24px;font-weight:700;color:var(--ac)" id="s-buyers">—</div><div style="font-size:12px;color:var(--tx2)">Buyers with Email</div></div>
+ <div class="card" style="text-align:center;padding:14px"><div style="font-size:24px;font-weight:700;color:#3fb950" id="s-spend">—</div><div style="font-size:12px;color:var(--tx2)">Total Spend</div></div>
+ <div class="card" style="text-align:center;padding:14px"><div style="font-size:24px;font-weight:700;color:#d2a8ff" id="s-overlap">—</div><div style="font-size:12px;color:var(--tx2)">Buy Items We Sell</div></div>
+ <div class="card" style="text-align:center;padding:14px"><div style="font-size:24px;font-weight:700;color:#fbbf24" id="s-agencies">—</div><div style="font-size:12px;color:var(--tx2)">Agencies</div></div>
+</div>
+
+<!-- Buyer list -->
+<div class="card" style="padding:0;overflow:hidden">
+ <table style="width:100%;border-collapse:collapse;font-size:14px" id="buyerTable">
+  <thead><tr style="background:var(--sf2)">
+   <th style="text-align:left;padding:12px;color:var(--tx2);font-size:12px;text-transform:uppercase">Buyer</th>
+   <th style="text-align:left;padding:12px;color:var(--tx2);font-size:12px;text-transform:uppercase">Agency / Institution</th>
+   <th style="text-align:right;padding:12px;color:var(--tx2);font-size:12px;text-transform:uppercase">POs</th>
+   <th style="text-align:right;padding:12px;color:var(--tx2);font-size:12px;text-transform:uppercase">Spend</th>
+   <th style="text-align:left;padding:12px;color:var(--tx2);font-size:12px;text-transform:uppercase">Items We Can Supply</th>
+   <th style="text-align:center;padding:12px;color:var(--tx2);font-size:12px;text-transform:uppercase">Outreach</th>
+  </tr></thead>
+  <tbody id="buyerBody">
+   <tr><td colspan="6" style="text-align:center;padding:40px;color:var(--tx2)">Loading buyers...</td></tr>
+  </tbody>
+ </table>
+</div>
+
+<!-- Email Draft Modal -->
+<div id="emailModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.6);z-index:1000;align-items:center;justify-content:center">
+ <div style="background:var(--crd);border:1px solid var(--bd);border-radius:12px;padding:24px;width:90%;max-width:700px;max-height:80vh;overflow-y:auto">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+   <h3 style="margin:0;color:var(--tx)" id="modalTitle">Draft Outreach Email</h3>
+   <button onclick="closeModal()" style="background:none;border:none;color:var(--tx2);font-size:20px;cursor:pointer">✕</button>
+  </div>
+  <div style="margin-bottom:12px">
+   <label style="font-size:13px;color:var(--tx2);display:block;margin-bottom:4px">To:</label>
+   <input id="emailTo" style="width:100%;padding:10px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:14px" readonly>
+  </div>
+  <div style="margin-bottom:12px">
+   <label style="font-size:13px;color:var(--tx2);display:block;margin-bottom:4px">Subject:</label>
+   <input id="emailSubject" style="width:100%;padding:10px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:14px">
+  </div>
+  <div style="margin-bottom:16px">
+   <label style="font-size:13px;color:var(--tx2);display:block;margin-bottom:4px">Body:</label>
+   <textarea id="emailBody" rows="14" style="width:100%;padding:10px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:14px;line-height:1.5;resize:vertical"></textarea>
+  </div>
+  <div style="display:flex;gap:8px;justify-content:flex-end">
+   <button onclick="copyEmail()" class="btn" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd);font-size:14px;padding:10px 20px">📋 Copy</button>
+   <button onclick="openInMail()" class="btn" style="background:var(--ac);color:#fff;font-size:14px;padding:10px 20px">📧 Open in Mail</button>
+   <button onclick="saveToOutbox()" class="btn" style="background:#3fb950;color:#fff;font-size:14px;padding:10px 20px">💾 Save to Outbox</button>
+  </div>
+ </div>
+</div>
+
+</div>
+
+<script>
+var _allBuyers=[];
+
+function escH(s){var d=document.createElement('div');d.textContent=s||'';return d.innerHTML}
+function fmt$(n){return '$'+Number(n||0).toLocaleString(undefined,{minimumFractionDigits:0,maximumFractionDigits:0})}
+
+function loadBuyers(){
+ var agency=document.getElementById('agencyFilter').value;
+ var url='/api/buyers'+(agency?'?agency='+agency:'');
+ fetch(url,{credentials:'same-origin'}).then(function(r){return r.json()}).then(function(d){
+  if(!d.ok){document.getElementById('buyerBody').innerHTML='<tr><td colspan="6" style="color:#f85149;padding:20px">'+escH(d.error)+'</td></tr>';return}
+
+  _allBuyers=d.buyers||[];
+  var s=d.stats||{};
+  document.getElementById('s-buyers').textContent=s.total_buyers||0;
+  document.getElementById('s-spend').textContent=fmt$(s.total_spend);
+  document.getElementById('s-overlap').textContent=s.buyers_with_overlap||0;
+  document.getElementById('s-agencies').textContent=s.agencies||0;
+  document.getElementById('buyerCount').textContent=_allBuyers.length+' buyers';
+
+  // Populate agency filter
+  var sel=document.getElementById('agencyFilter');
+  var current=sel.value;
+  var agencies=d.agencies_list||[];
+  // Keep first option
+  while(sel.options.length>1) sel.remove(1);
+  agencies.forEach(function(a){
+   var opt=document.createElement('option');
+   opt.value=a;opt.textContent=a;
+   if(a===current) opt.selected=true;
+   sel.appendChild(opt);
+  });
+
+  renderBuyers(_allBuyers);
+ }).catch(function(e){
+  document.getElementById('buyerBody').innerHTML='<tr><td colspan="6" style="color:#f85149;padding:20px">Error: '+escH(e.message)+'</td></tr>';
+ });
+}
+
+function filterTable(){
+ var q=(document.getElementById('searchInput').value||'').toLowerCase();
+ if(!q){renderBuyers(_allBuyers);return}
+ var filtered=_allBuyers.filter(function(b){
+  return (b.buyer_name||'').toLowerCase().indexOf(q)>=0
+   || (b.buyer_email||'').toLowerCase().indexOf(q)>=0
+   || (b.institution||'').toLowerCase().indexOf(q)>=0
+   || (b.top_items||'').toLowerCase().indexOf(q)>=0;
+ });
+ renderBuyers(filtered);
+}
+
+function renderBuyers(buyers){
+ if(!buyers.length){
+  document.getElementById('buyerBody').innerHTML='<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--tx2)">No buyers found. Run SCPRS backfill first: <a href="/intel/competitors" style="color:var(--ac)">Competitor Intel → Backfill 2025</a></td></tr>';
+  return;
+ }
+ var html='';
+ buyers.forEach(function(b){
+  var overlap=b.overlap_items||[];
+  var overlapHtml=overlap.length
+   ? overlap.map(function(it){return '<span style="display:inline-block;padding:2px 6px;border-radius:4px;font-size:11px;background:rgba(63,185,80,.12);color:#3fb950;margin:1px">'+escH(it)+'</span>'}).join('')
+   : '<span style="color:var(--tx2);font-size:12px">—</span>';
+
+  html+='<tr style="border-bottom:1px solid var(--bd);cursor:pointer" onmouseover="this.style.background=\'rgba(79,140,255,.04)\'" onmouseout="this.style.background=\'\'">'
+   +'<td style="padding:10px 12px"><div style="font-weight:600;color:var(--tx)">'+escH(b.buyer_name||'Unknown')+'</div>'
+   +'<div style="font-size:12px;color:var(--ac)"><a href="mailto:'+escH(b.buyer_email)+'" style="color:var(--ac)">'+escH(b.buyer_email)+'</a></div></td>'
+   +'<td style="padding:10px 12px"><div style="color:var(--tx)">'+escH(b.agency||'')+'</div><div style="font-size:12px;color:var(--tx2)">'+escH(b.institution||'')+'</div></td>'
+   +'<td style="padding:10px 12px;text-align:right;font-family:monospace">'+b.po_count+'</td>'
+   +'<td style="padding:10px 12px;text-align:right;font-family:monospace;font-weight:600;color:#3fb950">'+fmt$(b.total_spend)+'</td>'
+   +'<td style="padding:10px 12px;max-width:300px">'+overlapHtml+'</td>'
+   +'<td style="padding:10px 12px;text-align:center">'
+   +'<button onclick="event.stopPropagation();draftEmail('+JSON.stringify(b).replace(/"/g,'&quot;')+')" style="padding:6px 14px;background:var(--ac);color:#fff;border:none;border-radius:6px;font-size:13px;cursor:pointer;white-space:nowrap">📧 Draft Email</button>'
+   +'</td></tr>';
+ });
+ document.getElementById('buyerBody').innerHTML=html;
+ document.getElementById('buyerCount').textContent=buyers.length+' buyers';
+}
+
+function draftEmail(buyer){
+ var name=buyer.buyer_name||'Procurement Officer';
+ var first=name.split(' ')[0]||name;
+ var agency=buyer.agency||'your agency';
+ var institution=buyer.institution||agency;
+ var items=(buyer.overlap_items||[]).join(', ')||'medical supplies, PPE, and facility products';
+ var topItems=(buyer.top_items||'').substring(0,100);
+
+ var subject='Reytech Inc. — DVBE/SB Certified Supplier for '+agency;
+ var body='Dear '+first+',\n\n'
+  +'My name is Michael Guadan, owner of Reytech Inc. We are a California-certified DVBE and Small Business (SB) supplier.\n\n'
+  +'I noticed that '+institution+' purchases items we specialize in, including '+items+'. '
+  +'We\'d love the opportunity to be added to your RFQ distribution list for these categories.\n\n'
+  +'Reytech can help your agency meet the 3% DVBE spending mandate while providing competitive pricing on:\n'
+  +'• Medical/clinical supplies\n'
+  +'• Personal protective equipment (PPE)\n'
+  +'• Janitorial and facility maintenance\n'
+  +'• Office supplies and furniture\n'
+  +'• Food service products\n\n'
+  +'We are registered on SCPRS and can respond to solicitations of any size. Our DVBE certification number is available upon request.\n\n'
+  +'Would it be possible to schedule a brief call or receive your next RFQ for these categories?\n\n'
+  +'Thank you for your time,\n\n'
+  +'Michael Guadan\n'
+  +'Reytech Inc.\n'
+  +'DVBE / SB Certified\n'
+  +'Phone: (949) 637-1623\n'
+  +'Email: mike@reytechinc.com\n'
+  +'Website: reytechinc.com';
+
+ document.getElementById('emailTo').value=buyer.buyer_email;
+ document.getElementById('emailSubject').value=subject;
+ document.getElementById('emailBody').value=body;
+ document.getElementById('modalTitle').textContent='Draft Email to '+name;
+ document.getElementById('emailModal').style.display='flex';
+}
+
+function closeModal(){document.getElementById('emailModal').style.display='none'}
+
+function copyEmail(){
+ var text='To: '+document.getElementById('emailTo').value+'\n'
+  +'Subject: '+document.getElementById('emailSubject').value+'\n\n'
+  +document.getElementById('emailBody').value;
+ navigator.clipboard.writeText(text).then(function(){alert('Copied to clipboard!')});
+}
+
+function openInMail(){
+ var to=document.getElementById('emailTo').value;
+ var subject=encodeURIComponent(document.getElementById('emailSubject').value);
+ var body=encodeURIComponent(document.getElementById('emailBody').value);
+ window.open('mailto:'+to+'?subject='+subject+'&body='+body);
+}
+
+function saveToOutbox(){
+ var data={
+  to:document.getElementById('emailTo').value,
+  subject:document.getElementById('emailSubject').value,
+  body:document.getElementById('emailBody').value,
+  type:'outreach'
+ };
+ fetch('/api/buyers/save-draft',{
+  method:'POST',headers:{'Content-Type':'application/json'},
+  body:JSON.stringify(data)
+ }).then(function(r){return r.json()}).then(function(d){
+  if(d.ok){alert('Saved to outbox!');closeModal()}
+  else{alert('Error: '+(d.error||'unknown'))}
+ });
+}
+
+loadBuyers();
+</script>
+{% endblock %}

@@ -564,67 +564,147 @@ def api_intel_growth():
         return jsonify({"ok": False, "error": str(e)})
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# BUYERS PAGE — SCPRS buyer outreach workflow
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@bp.route("/buyers")
+@auth_required
+def page_buyers():
+    """SCPRS Buyers — every buyer who purchases items we can supply."""
+    return render_page("buyers.html", active_page="Buyers")
+
+
+@bp.route("/api/buyers")
+@auth_required
+def api_buyers():
+    """Get all SCPRS buyers with spend, items, and catalog overlap."""
+    try:
+        agency_filter = request.args.get("agency", "")
+        conn = get_db()
+
+        clause = "AND p.agency_key = ?" if agency_filter else ""
+        params = (agency_filter,) if agency_filter else ()
+
+        buyers = conn.execute(f"""
+            SELECT p.buyer_name, p.buyer_email, p.institution,
+                   COALESCE(p.agency_key, p.dept_name) as agency,
+                   COUNT(DISTINCT p.po_number) as po_count,
+                   SUM(p.grand_total) as total_spend,
+                   GROUP_CONCAT(DISTINCT p.supplier) as suppliers
+            FROM scprs_po_master p
+            WHERE p.buyer_email IS NOT NULL AND p.buyer_email != ''
+            {clause}
+            GROUP BY LOWER(p.buyer_email)
+            ORDER BY total_spend DESC
+        """, params).fetchall()
+
+        # Get catalog categories for overlap detection
+        catalog_tokens = set()
+        for row in conn.execute("""
+            SELECT DISTINCT LOWER(category) as cat FROM product_catalog
+            WHERE category IS NOT NULL AND category != ''
+        """).fetchall():
+            catalog_tokens.add(row["cat"])
+
+        # Get items each buyer purchases
+        buyer_list = []
+        overlap_count = 0
+        agencies_seen = set()
+
+        for b in buyers:
+            email = b["buyer_email"]
+            agencies_seen.add(b["agency"] or "")
+
+            # Get their line items
+            items = conn.execute(f"""
+                SELECT DISTINCT SUBSTR(l.description, 1, 50) as item,
+                       l.category, l.reytech_sells
+                FROM scprs_po_lines l
+                JOIN scprs_po_master p ON l.po_id = p.id
+                WHERE LOWER(p.buyer_email) = LOWER(?)
+                ORDER BY l.line_total DESC LIMIT 15
+            """, (email,)).fetchall()
+
+            top_items = ", ".join(i["item"] for i in items if i["item"])[:200]
+            overlap = [i["item"] for i in items if i["reytech_sells"]]
+            if overlap:
+                overlap_count += 1
+
+            buyer_list.append({
+                "buyer_name": b["buyer_name"] or "",
+                "buyer_email": email,
+                "institution": b["institution"] or "",
+                "agency": b["agency"] or "",
+                "po_count": b["po_count"],
+                "total_spend": b["total_spend"] or 0,
+                "suppliers": (b["suppliers"] or "")[:100],
+                "top_items": top_items,
+                "overlap_items": overlap[:5],
+            })
+
+        conn.close()
+
+        return jsonify({
+            "ok": True,
+            "buyers": buyer_list,
+            "stats": {
+                "total_buyers": len(buyer_list),
+                "total_spend": sum(b["total_spend"] for b in buyer_list),
+                "buyers_with_overlap": overlap_count,
+                "agencies": len(agencies_seen),
+            },
+            "agencies_list": sorted(a for a in agencies_seen if a),
+        })
+    except Exception as e:
+        import traceback
+        return jsonify({"ok": False, "error": str(e), "traceback": traceback.format_exc()})
+
+
+@bp.route("/api/buyers/save-draft", methods=["POST"])
+@auth_required
+def api_buyers_save_draft():
+    """Save an outreach email draft to the outbox."""
+    try:
+        data = request.get_json(silent=True) or {}
+        to = (data.get("to") or "").strip()
+        subject = (data.get("subject") or "").strip()
+        body = (data.get("body") or "").strip()
+        if not to or not subject:
+            return jsonify({"ok": False, "error": "to and subject required"})
+
+        import json as _json
+        outbox_path = os.path.join(DATA_DIR, "email_outbox.json")
+        try:
+            outbox = _json.load(open(outbox_path))
+        except Exception:
+            outbox = []
+
+        draft = {
+            "id": f"outreach_{__import__('hashlib').md5(to.encode()).hexdigest()[:8]}",
+            "to": to,
+            "subject": subject,
+            "body": body,
+            "status": "draft",
+            "type": "outreach",
+            "created_at": __import__('datetime').datetime.now().isoformat(),
+        }
+        outbox.append(draft)
+        with open(outbox_path, "w") as f:
+            _json.dump(outbox, f, indent=2, default=str)
+
+        return jsonify({"ok": True, "draft_id": draft["id"]})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+
 @bp.route("/intel/competitors")
 @auth_required
 def page_intel_competitors():
     """Competitor Intelligence Dashboard — who sells what, contract vehicles, DVBE opportunities."""
     return render_page("competitor_intel.html", active_page="Intelligence")
-
-
-@bp.route("/intel/growth")
-@auth_required
-def page_intel_growth():
-    """Growth Intelligence Dashboard — the main 'what should I do?' page."""
-    import json as _j
-    from src.agents.scprs_intelligence_engine import get_engine_status, get_growth_intelligence
-    from src.agents.scprs_intelligence_engine import _engine_status as eng_st
-
-    try:
-        engine = get_engine_status()
-        intel = get_growth_intelligence()
-    except Exception as e:
-        engine = {"running": False, "by_agency": [], "total_line_items": 0, "total_gap_items": 0, "quotes_auto_closed": 0}
-        intel = {"recommendations": [], "top_gaps": [], "win_back": [], "competitors": [], "by_agency": [], "recent_losses": []}
-
-    running = eng_st.get("running", False)
-    current_agency = eng_st.get("current_agency", "")
-    total_lines = engine.get("total_line_items", 0)
-    total_gaps = engine.get("total_gap_items", 0)
-    auto_closed = engine.get("quotes_auto_closed", 0)
-    agencies_data = engine.get("by_agency", [])
-    recs = intel.get("recommendations", [])
-    gaps = intel.get("top_gaps", [])
-    win_back = intel.get("win_back", [])
-    losses = intel.get("recent_losses", [])
-
-    total_gap_spend = sum(g.get("total_spend") or 0 for g in gaps)
-    total_wb_spend = sum(w.get("total_spend") or 0 for w in win_back)
-    agencies_loaded = len([a for a in agencies_data if (a.get("pos") or 0) > 0])
-    no_data = total_lines == 0
-
-    # Build lookup maps for agency coverage tab
-    schedule = intel.get("pull_schedule", [])
-    schedule_map = {s.get("agency_key"): s for s in schedule}
-    agency_map = {a.get("agency_key"): a for a in agencies_data}
-    all_agencies = ["CCHCS", "CalVet", "DSH", "CalFire", "CDPH", "CalTrans", "CHP", "DGS"]
-
-    return render_page("growth_intel.html", active_page="Growth",
-        recs=recs,
-        gaps=gaps,
-        win_back=win_back,
-        losses=losses,
-        running=running,
-        no_data=no_data,
-        current_agency=current_agency,
-        total_lines=total_lines,
-        total_gaps=total_gaps,
-        auto_closed=auto_closed,
-        total_gap_spend=total_gap_spend,
-        total_wb_spend=total_wb_spend,
-        agencies_loaded=agencies_loaded,
-        all_agencies=all_agencies,
-        agency_map=agency_map,
-        schedule_map=schedule_map)
 
 
 
@@ -784,63 +864,6 @@ def api_cchcs_intel_data():
         return jsonify({"ok": False, "error": str(e)})
 
 
-@bp.route("/cchcs/intel")
-@auth_required
-def page_cchcs_intel():
-    """CCHCS Purchasing Intelligence Dashboard."""
-    from src.agents.cchcs_intel_puller import get_cchcs_intelligence, get_pull_status, _pull_status
-    import json as _j
-
-    try:
-        intel = get_cchcs_intelligence()
-        status = get_pull_status()
-    except Exception as e:
-        intel = {"summary": {}, "gap_items": [], "win_back_items": [],
-                 "by_category": [], "suppliers": [], "facilities": [], "top_items": []}
-        status = {"pos_stored": 0, "lines_stored": 0}
-
-    pull_running = _pull_status.get("running", False)
-    pos_stored = status.get("pos_stored", 0)
-    lines_stored = status.get("lines_stored", 0)
-    summary = intel.get("summary", {})
-    gap_spend = summary.get("gap_spend_not_selling", 0) or 0
-    win_back = summary.get("win_back_spend", 0) or 0
-    total_captured = summary.get("total_po_value_captured", 0) or 0
-
-    # Enrich suppliers with DVBE flags and parsed categories
-    from src.agents.scprs_intelligence_engine import KNOWN_NON_DVBE_INCUMBENTS, DVBE_PARTNER_TARGETS
-    suppliers = []
-    for s in intel.get("suppliers", [])[:15]:
-        cats_raw = s.get("categories", "[]")
-        try: cats_str = ", ".join(_j.loads(cats_raw))[:50]
-        except Exception: cats_str = str(cats_raw)[:50]
-        supplier_lower = (s.get("supplier_name") or "").lower()
-        suppliers.append({**s,
-            "categories_str": cats_str,
-            "is_dvbe_target": any(inc in supplier_lower for inc in KNOWN_NON_DVBE_INCUMBENTS),
-            "is_partner": any(p in supplier_lower for p in DVBE_PARTNER_TARGETS),
-        })
-
-    # Category chart data
-    cat_labels = _j.dumps([r.get("category","").replace("_"," ").title() for r in intel.get("by_category",[])])
-    cat_values = _j.dumps([round(r.get("total_spend") or 0) for r in intel.get("by_category",[])])
-    cat_colors = _j.dumps(["#DC2626" if r.get("gap_spend",0) > r.get("reytech_sells_spend",0) else "#16A34A"
-                           for r in intel.get("by_category",[])])
-
-    return render_page("cchcs_intel.html", active_page="Intel",
-        gap_items=intel.get("gap_items", []),
-        wb_items=intel.get("win_back_items", []),
-        suppliers=suppliers,
-        gap_spend=gap_spend,
-        lines_stored=lines_stored,
-        pos_stored=pos_stored,
-        total_captured=total_captured,
-        win_back=win_back,
-        cat_labels=cat_labels,
-        cat_values=cat_values,
-        cat_colors=cat_colors,
-        pull_running=pull_running,
-        summary=summary)
 
 # ════════════════════════════════════════════════════════════════════════════════
 # VENDOR ORDERING ROUTES
@@ -4354,299 +4377,6 @@ def api_outbox_sent_log():
 
 
 # ─── Growth Strategy Routes (v2.0 — SCPRS-driven) ──────────────────────────
-
-@bp.route("/growth")
-@auth_required
-def growth_page():
-    """Growth Engine Dashboard — V3: actionable outreach with analytics + automation."""
-    if not GROWTH_AVAILABLE:
-        flash("Growth agent not available", "error")
-        return redirect("/")
-
-    # Top-level try/except to catch ANY crash and show diagnostic
-    try:
-        return _growth_page_inner()
-    except Exception as e:
-        log.error("Growth page CRASH: %s", e, exc_info=True)
-        import traceback
-        tb = traceback.format_exc()
-        return f"""<html><body style="background:#1a1b26;color:#c0caf5;font-family:monospace;padding:40px">
-        <h1 style="color:#f85149">Growth Page Error</h1>
-        <p style="color:#fbbf24;font-size:16px">{type(e).__name__}: {str(e)[:500]}</p>
-        <pre style="background:#24283b;padding:20px;border-radius:8px;overflow-x:auto;font-size:13px;color:#a9b1d6">{tb}</pre>
-        <a href="/" style="color:#7aa2f7">← Back to Home</a>
-        </body></html>""", 500
-
-
-def _growth_page_inner():
-    """Actual growth page logic — separated for clean error handling."""
-    from src.agents.growth_agent import (
-        get_growth_status, get_reytech_credentials, get_follow_up_cohorts,
-        score_prospect_weighted, EMAIL_TEMPLATES,
-        PULL_STATUS, BUYER_STATUS,
-        HISTORY_FILE, CATEGORIES_FILE, PROSPECTS_FILE, OUTREACH_FILE,
-        _load_json,
-        # V2
-        get_growth_kpis, get_win_probability, get_competitor_intel,
-        get_lost_po_analysis, get_ab_stats, get_audit_log,
-        # V3
-        get_workflows, get_workflow_queue, get_notifications,
-        SMS_TEMPLATES,
-    )
-    st = get_growth_status()
-    h = st.get("history", {})
-    c = st.get("categories", {})
-    p = st.get("prospects", {})
-    o = st.get("outreach", {})
-    pull = st.get("pull_status", {})
-    buyer = st.get("buyer_status", {})
-
-    # Reytech credentials for banner
-    creds = get_reytech_credentials()
-
-    # V2: Real-time KPIs
-    try:
-        kpis = get_growth_kpis()
-    except Exception as e:
-        log.error("Growth KPIs error: %s", e)
-        kpis = {}
-
-    # Ensure kpis has all required keys
-    _kpi_defaults = {
-        "total_prospects": 0, "emailed": 0, "responded": 0, "won": 0,
-        "bounced": 0, "dead": 0, "email_rate": 0, "response_rate": 0,
-        "win_rate": 0, "bounce_rate": 0, "won_value": 0, "pipeline_value": 0,
-        "unique_campaigns": 0, "fu_due": 0, "fu_second": 0, "fu_stale": 0,
-        "recent_sends": 0, "trend_pct": 0, "total_sales": 0, "total_pos": 0,
-        "agencies_served": 0,
-    }
-    for k, v in _kpi_defaults.items():
-        kpis.setdefault(k, v)
-
-    # Follow-up cohorts
-    try:
-        followups = get_follow_up_cohorts()
-    except Exception as e:
-        log.error("Growth followups error: %s", e)
-        followups = {"no_response": [], "second_followup": [], "stale": [], "responded": []}
-
-    # Load prospect details + weighted scoring + win probability
-    prospects = []
-    try:
-        prospect_data = _load_json(PROSPECTS_FILE)
-        raw = prospect_data.get("prospects", []) if isinstance(prospect_data, dict) else []
-        if isinstance(raw, list):
-            for pr_ in raw:
-                if not isinstance(pr_, dict):
-                    continue
-                try:
-                    pr_["weighted_score"] = score_prospect_weighted(pr_, creds)
-                    wp = get_win_probability(pr_, creds)
-                    pr_["win_prob"] = wp.get("probability", 50)
-                    pr_["win_tier"] = wp.get("tier", "Unknown")
-                    pr_["win_color"] = wp.get("color", "#888")
-                    prospects.append(pr_)
-                except Exception as pe:
-                    log.error("Prospect scoring error: %s", pe)
-                    pr_["weighted_score"] = 0
-                    pr_["win_prob"] = 50
-                    pr_["win_tier"] = "Unknown"
-                    pr_["win_color"] = "#888"
-                    prospects.append(pr_)
-        prospects.sort(key=lambda x: x.get("weighted_score", 0), reverse=True)
-    except Exception as e:
-        log.error("Prospect load error: %s", e)
-
-    # Load outreach details + campaign metrics
-    total_emailed = total_bounced = total_responded = total_called = total_no_response = 0
-    try:
-        outreach_data = _load_json(OUTREACH_FILE)
-        campaigns = outreach_data.get("campaigns", []) if isinstance(outreach_data, dict) else []
-        if isinstance(campaigns, list):
-            total_emailed = sum(1 for c_ in campaigns for o_ in (c_.get("outreach") or []) if o_.get("email_sent"))
-            total_bounced = sum(1 for c_ in campaigns for o_ in (c_.get("outreach") or []) if o_.get("bounced"))
-            total_responded = sum(1 for c_ in campaigns for o_ in (c_.get("outreach") or []) if o_.get("response_received"))
-            total_called = sum(1 for c_ in campaigns for o_ in (c_.get("outreach") or []) if o_.get("voice_called"))
-            total_no_response = total_emailed - total_bounced - total_responded - total_called
-    except Exception as e:
-        log.error("Outreach metrics error: %s", e)
-
-    # Category summary
-    cat_items = []
-    try:
-        cat_data = _load_json(CATEGORIES_FILE)
-        if isinstance(cat_data, dict) and cat_data.get("categories"):
-            for cat_name, info in sorted(cat_data["categories"].items(), key=lambda x: x[1].get("total_value", 0), reverse=True):
-                cat_items.append({
-                    "name": cat_name, "items": info.get("item_count", 0),
-                    "pos": info.get("po_count", 0), "value": info.get("total_value", 0),
-                    "sample": ", ".join(info.get("sample_items", [])[:2])[:80],
-                })
-        elif prospects:
-            cat_agg = {}
-            for pr_ in prospects:
-                for cat_ in (pr_.get("categories_matched") or []):
-                    if cat_ not in cat_agg:
-                        cat_agg[cat_] = {"spend": 0, "buyers": 0}
-                    cat_agg[cat_]["spend"] += (pr_.get("total_spend") or 0)
-                    cat_agg[cat_]["buyers"] += 1
-            for cat_name, info_ in sorted(cat_agg.items(), key=lambda x: x[1]["spend"], reverse=True):
-                cat_items.append({
-                    "name": cat_name, "items": info_["buyers"], "pos": "—",
-                    "value": info_["spend"], "sample": "from prospect data",
-                })
-    except Exception as e:
-        log.error("Category summary error: %s", e)
-
-    # Lost/missed opportunities from quotes
-    lost_quotes = []
-    try:
-        quotes_path = os.path.join(DATA_DIR, "quotes_log.json")
-        if os.path.exists(quotes_path):
-            import json as _json
-            with open(quotes_path) as f:
-                all_quotes = _json.load(f)
-            if isinstance(all_quotes, dict):
-                all_quotes = list(all_quotes.values())
-            for q in (all_quotes if isinstance(all_quotes, list) else []):
-                if not isinstance(q, dict):
-                    continue
-                if q.get("is_test"):
-                    continue
-                status = (q.get("status", "") or "").lower()
-                if status in ("lost", "expired", "no_response", "not_responding"):
-                    lost_quotes.append(q)
-    except Exception:
-        pass
-
-    pull_running = pull.get("running", False)
-    buyer_running = buyer.get("running", False)
-    pull_progress = pull.get("progress", "") if pull_running else ""
-    buyer_progress = buyer.get("progress", "") if buyer_running else ""
-
-    # Available template keys for the UI
-    template_keys = list(EMAIL_TEMPLATES.keys())
-
-    # V2: Competitor intel + lost PO analysis
-    try:
-        competitor_data = get_competitor_intel()
-    except Exception as e:
-        log.error("Competitor intel error: %s", e)
-        competitor_data = {}
-    competitor_data.setdefault("competitors", [])
-
-    try:
-        lost_analysis = get_lost_po_analysis()
-    except Exception as e:
-        log.error("Lost PO analysis error: %s", e)
-        lost_analysis = {}
-    lost_analysis.setdefault("total_lost_value", 0)
-    lost_analysis.setdefault("total_lost_count", 0)
-    lost_analysis.setdefault("by_reason", {})
-    lost_analysis.setdefault("by_category", {})
-    lost_analysis.setdefault("top_losses", [])
-
-    try:
-        ab_stats = get_ab_stats()
-    except Exception as e:
-        log.error("A/B stats error: %s", e)
-        ab_stats = {}
-
-    # V3: Workflows + notifications
-    try:
-        workflows = get_workflows()
-        if not isinstance(workflows, dict):
-            workflows = {}
-        workflow_queue = get_workflow_queue()
-        if not isinstance(workflow_queue, list):
-            workflow_queue = []
-        notifications = get_notifications(limit=10)
-        if not isinstance(notifications, list):
-            notifications = []
-        unread_count = sum(1 for n in notifications if not n.get("read"))
-        sms_templates = list(SMS_TEMPLATES.keys())
-    except Exception as e:
-        log.error("Growth V3 workflows error: %s", e)
-        workflows = {}
-        workflow_queue = []
-        notifications = []
-        unread_count = 0
-        sms_templates = []
-
-    # V3: Calendar
-    try:
-        from src.agents.growth_agent import get_calendar_events, get_todays_agenda
-        calendar_events = get_calendar_events(upcoming_only=True)[:10]
-        todays_agenda = get_todays_agenda()
-    except Exception as e:
-        log.error("Growth calendar error: %s", e)
-        calendar_events = []
-        todays_agenda = []
-
-    # V4: Funnel + Quick Wins + Daily Brief + Agency Intel
-    try:
-        from src.agents.growth_agent import (
-            get_outreach_funnel, get_quick_wins, generate_daily_brief,
-            get_agency_intelligence, get_campaign_performance, get_kanban_board,
-        )
-        funnel = get_outreach_funnel()
-        funnel_stages = funnel.get("stages", []) if isinstance(funnel, dict) else funnel
-        quick_wins = get_quick_wins(10)
-        # Fix color key to match template's win_color
-        for qw in quick_wins:
-            if "color" in qw and "win_color" not in qw:
-                qw["win_color"] = qw["color"]
-        daily_brief = generate_daily_brief()
-        agency_intel = get_agency_intelligence()
-        campaign_perf = get_campaign_performance()
-        kanban = get_kanban_board()
-    except Exception as e:
-        log.error("Growth V4 error: %s", e)
-        funnel_stages = []
-        quick_wins = []
-        daily_brief = {}
-        agency_intel = {"agencies": [], "total_agencies": 0}
-        campaign_perf = []
-        kanban = {}
-
-    from src.api.render import render_page
-    return render_page("growth.html", active_page="Growth",
-        h_total_pos=h.get("total_pos", 0), h_total_items=h.get("total_items", 0),
-        c_total=c.get("total", 0), p_total=p.get("total", 0),
-        o_total_sent=o.get("total_sent", 0),
-        total_emailed=total_emailed, total_bounced=total_bounced,
-        total_responded=total_responded, total_called=total_called,
-        total_no_response=total_no_response,
-        progress_visible=(pull_running or buyer_running),
-        progress_text=(pull_progress or buyer_progress or "Idle"),
-        cat_items=cat_items, prospects=prospects,
-        prospect_count=len(prospects),
-        creds=creds,
-        followups=followups,
-        lost_quotes=lost_quotes,
-        template_keys=template_keys,
-        # V2
-        kpis=kpis,
-        competitor_data=competitor_data,
-        lost_analysis=lost_analysis,
-        ab_stats=ab_stats,
-        # V3
-        workflows=workflows,
-        workflow_queue=workflow_queue,
-        notifications=notifications,
-        unread_count=unread_count,
-        sms_templates=sms_templates,
-        # Calendar
-        calendar_events=calendar_events,
-        todays_agenda=todays_agenda,
-        # V4
-        funnel=funnel_stages,
-        quick_wins=quick_wins,
-        daily_brief=daily_brief,
-        agency_intel=agency_intel,
-        campaign_perf=campaign_perf,
-        kanban=kanban,
-    )
 
 
 @bp.route("/growth/prospect/<prospect_id>")
