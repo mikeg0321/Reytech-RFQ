@@ -27,6 +27,102 @@ def _sync_pc_items(pc, items):
 # Price Check Pages (v6.2)
 # ═══════════════════════════════════════════════════════════════════════
 
+
+# ── PC Revision System ─────────────────────────────────────────────────────
+# Every save snapshots the previous version. Buyer changes QTY? Previous version preserved.
+
+def _pc_revisions_path():
+    return os.path.join(DATA_DIR, "pc_revisions.json")
+
+def _load_pc_revisions():
+    path = _pc_revisions_path()
+    if os.path.exists(path):
+        try:
+            return json.load(open(path))
+        except Exception:
+            return {}
+    return {}
+
+def _save_pc_revisions(revisions):
+    with open(_pc_revisions_path(), "w") as f:
+        json.dump(revisions, f, indent=2, default=str)
+
+def _save_pc_revision(pcid, pc, reason="edit"):
+    """Snapshot current PC state before changes are applied."""
+    from datetime import datetime as _dt
+    revisions = _load_pc_revisions()
+    if pcid not in revisions:
+        revisions[pcid] = []
+
+    # Create snapshot — just items + metadata (not the full parsed object)
+    snapshot = {
+        "revision": len(revisions[pcid]) + 1,
+        "saved_at": _dt.now().isoformat(),
+        "reason": reason,
+        "items": json.loads(json.dumps(pc.get("items", []), default=str)),
+        "status": pc.get("status", ""),
+        "pc_number": pc.get("pc_number", ""),
+    }
+    revisions[pcid].append(snapshot)
+
+    # Keep last 20 revisions per PC
+    if len(revisions[pcid]) > 20:
+        revisions[pcid] = revisions[pcid][-20:]
+
+    _save_pc_revisions(revisions)
+    log.info("PC revision saved: %s rev#%d (%s)", pcid, snapshot["revision"], reason)
+    return snapshot
+
+
+@bp.route("/api/pricecheck/<pcid>/revisions")
+@auth_required
+def api_pc_revisions(pcid):
+    """Get revision history for a price check."""
+    try:
+        revisions = _load_pc_revisions()
+        pc_revs = revisions.get(pcid, [])
+        return jsonify({"ok": True, "revisions": pc_revs, "count": len(pc_revs)})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/pricecheck/<pcid>/revert", methods=["POST"])
+@auth_required
+def api_pc_revert(pcid):
+    """Revert a price check to a previous revision."""
+    try:
+        data = request.get_json(silent=True) or {}
+        rev_num = int(data.get("revision", 0))
+
+        revisions = _load_pc_revisions()
+        pc_revs = revisions.get(pcid, [])
+        target = None
+        for r in pc_revs:
+            if r.get("revision") == rev_num:
+                target = r
+                break
+
+        if not target:
+            return jsonify({"ok": False, "error": f"Revision {rev_num} not found"})
+
+        pcs = _load_price_checks()
+        pc = pcs.get(pcid)
+        if not pc:
+            return jsonify({"ok": False, "error": "PC not found"})
+
+        # Save current state as a revision before reverting
+        _save_pc_revision(pcid, pc, reason=f"before revert to rev#{rev_num}")
+
+        # Apply the revision
+        pc["items"] = target["items"]
+        _save_price_checks(pcs)
+
+        return jsonify({"ok": True, "reverted_to": rev_num,
+                        "items_count": len(target["items"])})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
 @bp.route("/pricecheck/<pcid>")
 @auth_required
 def pricecheck_detail(pcid):
@@ -807,9 +903,39 @@ def _do_save_prices(pcid):
     """Inner save handler — separated so exceptions always return JSON."""
     pcs = _load_price_checks()
     pc = pcs.get(pcid)
+
+    # If not in JSON, try to recover from SQLite
     if not pc:
-        log.error("SAVE-PRICES %s: PC not found", pcid)
+        log.warning("SAVE-PRICES %s: PC not in JSON, trying SQLite recovery...", pcid)
+        try:
+            from src.core.db import get_db
+            with get_db() as conn:
+                row = conn.execute("SELECT * FROM price_checks WHERE id=?", (pcid,)).fetchone()
+                if row:
+                    pc = {
+                        "id": pcid,
+                        "pc_number": row.get("pc_number") or row.get("quote_number") or pcid,
+                        "institution": row.get("institution") or row.get("agency") or "",
+                        "requestor": row.get("requestor") or "",
+                        "items": json.loads(row.get("items") or "[]"),
+                        "status": row.get("status") or "parsed",
+                        "created_at": row.get("created_at") or "",
+                        "source": "recovered_from_db",
+                    }
+                    pcs[pcid] = pc
+                    log.info("SAVE-PRICES %s: Recovered from SQLite", pcid)
+        except Exception as e:
+            log.error("SAVE-PRICES %s: SQLite recovery failed: %s", pcid, e)
+
+    if not pc:
+        log.error("SAVE-PRICES %s: PC not found in JSON or DB", pcid)
         return jsonify({"ok": False, "error": "PC not found"})
+
+    # ── Save revision snapshot BEFORE applying changes ──
+    try:
+        _save_pc_revision(pcid, pc, reason="edit")
+    except Exception as e:
+        log.debug("Revision snapshot failed (non-fatal): %s", e)
 
     # Use force=True to parse JSON even if Content-Type header is wrong
     data = request.get_json(force=True, silent=True) or {}

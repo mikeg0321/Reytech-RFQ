@@ -231,6 +231,7 @@
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#3fb950;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('won')">🏆 Mark Won</button>
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#d29922;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('lost')">❌ Mark Lost</button>
         <hr style="border-color:#30363d;margin:4px 0">
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#a78bfa;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="showRevisions()">📝 Revisions</button>
         <div style="font-size:13px;color:#484f58;padding:2px 10px;text-transform:uppercase;letter-spacing:.5px">Admin</div>
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('no_response')">💤 No Response</button>
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('duplicate')">📋 Duplicate</button>
@@ -1180,6 +1181,41 @@
        showMsg('ℹ️ No new MFG#s found in '+d.total+' items','warn');
       }
      }).catch(e=>{btn.disabled=false;btn.textContent='🔍 Rescan MFG#s';showMsg('❌ '+e,'err');});
+    }
+
+    function showRevisions() {
+      var pcid={{ pcid|tojson }};
+      fetch('/api/pricecheck/'+pcid+'/revisions').then(function(r){return r.json()}).then(function(d){
+        if(!d.ok||!d.revisions.length){alert('No revisions saved yet. Revisions are created each time you click Save.');return}
+        var html='<div style="max-height:400px;overflow-y:auto">';
+        d.revisions.reverse().forEach(function(rev){
+          var itemCount=rev.items?rev.items.length:0;
+          html+='<div style="padding:10px;border-bottom:1px solid #30363d">';
+          html+='<div style="display:flex;justify-content:space-between;align-items:center">';
+          html+='<div><b style="color:#a78bfa">Rev #'+rev.revision+'</b> <span style="color:#8b949e;font-size:13px">'+rev.saved_at.substring(0,16)+'</span>';
+          html+=' <span style="color:#8b949e;font-size:12px">('+rev.reason+')</span></div>';
+          html+='<button onclick="revertRevision('+rev.revision+')" style="padding:4px 10px;background:#21262d;border:1px solid #30363d;border-radius:4px;color:#58a6ff;font-size:12px;cursor:pointer">↩ Revert</button>';
+          html+='</div>';
+          html+='<div style="font-size:13px;color:#8b949e;margin-top:4px">'+itemCount+' items · status: '+rev.status+'</div>';
+          html+='</div>';
+        });
+        html+='</div>';
+        var div=document.createElement('div');
+        div.style.cssText='position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.6);z-index:1000;display:flex;align-items:center;justify-content:center';
+        div.onclick=function(e){if(e.target===div)div.remove()};
+        div.innerHTML='<div style="background:#161b22;border:1px solid #30363d;border-radius:10px;padding:20px;width:90%;max-width:600px"><div style="display:flex;justify-content:space-between;margin-bottom:12px"><h3 style="margin:0;color:#c9d1d9">📝 Revision History</h3><button onclick="this.closest(\'div[style]\').remove()" style="background:none;border:none;color:#8b949e;font-size:20px;cursor:pointer">✕</button></div>'+html+'</div>';
+        document.body.appendChild(div);
+      });
+    }
+
+    function revertRevision(revNum) {
+      if(!confirm('Revert to revision #'+revNum+'? Current state will be saved as a new revision first.'))return;
+      var pcid={{ pcid|tojson }};
+      fetch('/api/pricecheck/'+pcid+'/revert',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision:revNum})})
+      .then(function(r){return r.json()}).then(function(d){
+        if(d.ok){alert('Reverted to revision #'+revNum);location.reload()}
+        else{alert('Error: '+(d.error||'unknown'))}
+      });
     }
 
     function adminAction(action) {
