@@ -207,7 +207,7 @@ var C={{ contacts_json|safe }};
 var CC={{ central_json|safe }};
 var PR={{ recs_json|safe }};
 var GAPS={{ gaps_json|safe }};
-var HAS_SCPRS={{ 'true' if scprs_has_data else 'false' }};
+var HAS_SCPRS={{ ('true' if scprs_has_data else 'false')|tojson }};
 var cs={f:'score',d:-1},cf='all';
 var TC={CCHCS:'var(--ac)',CalVet:'var(--gn)',DSH:'var(--yl)'};
 

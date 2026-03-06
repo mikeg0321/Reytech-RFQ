@@ -259,7 +259,7 @@ function startPolling() {
       });
   }, 10000);
 }
-{{ 'startPolling();' if running else '' }}
+{{ ('startPolling();' if running else '')|tojson }}
 </script>
 
 {% endblock %}

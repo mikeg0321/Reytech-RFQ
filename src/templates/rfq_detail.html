@@ -647,7 +647,7 @@ function applyScprsUndercut(pct){
 
 function lookupScprs(){
  const btn=event.target;btn.disabled=true;btn.textContent='⏳ Searching FI$Cal...';
- fetch('/api/scprs/{{rid}}',{credentials:'same-origin'}).then(r=>r.json()).then(d=>{
+ fetch('/api/scprs/{{ (rid)|tojson }}',{credentials:'same-origin'}).then(r=>r.json()).then(d=>{
   let found=0,total=0;
   if(d.results){
    total=d.results.length;
@@ -671,7 +671,7 @@ function lookupScprs(){
 
 function researchPrices(){
  const btn=event.target;btn.disabled=true;btn.textContent='⏳ Searching Amazon...';
- fetch('/api/research/rfq/{{rid}}',{credentials:'same-origin'}).then(r=>r.json()).then(d=>{
+ fetch('/api/research/rfq/{{ (rid)|tojson }}',{credentials:'same-origin'}).then(r=>r.json()).then(d=>{
   if(!d.ok){btn.textContent='❌ '+d.message;btn.disabled=false;return;}
   // Poll for results
   const poll=setInterval(()=>{
@@ -897,7 +897,7 @@ function applyRecommendations(){
 function sendQuoteEmail(){
  var to=prompt('Send quote to:',{{r.requestor_email|tojson}});
  if(!to)return;
- var subject=prompt('Subject:','Quote — Solicitation #{{r.solicitation_number}}');
+ var subject=prompt('Subject:','Quote — Solicitation #{{ (r.solicitation_number)|tojson }}');
  if(subject===null)return;
  fetch('/api/rfq/'+RID+'/send-quote',{
   method:'POST',

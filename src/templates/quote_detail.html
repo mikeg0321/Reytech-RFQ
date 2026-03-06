@@ -139,7 +139,7 @@
     function promptEmail() {
       const email = prompt('Enter buyer email for this quote:');
       if (!email || !email.includes('@')) return;
-      fetch('/api/quote/{{ qn }}/update-email', {
+      fetch('/api/quote/{{ (qn)|tojson }}/update-email', {
         method: 'POST', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({email: email})
       }).then(r => r.json()).then(d => {
@@ -197,7 +197,7 @@
 
     function regenerateQuote() {
       if (!confirm('Regenerate the formal quote PDF?\n\nThis will recreate the Reytech-branded quote document.')) return;
-      fetch('/api/quote/{{ qn }}/regenerate', {
+      fetch('/api/quote/{{ (qn)|tojson }}/regenerate', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'}
       })
@@ -237,7 +237,7 @@
     };
 
     function loadActivity() {
-      fetch('/api/crm/activity?ref_id={{ qn }}&limit=30').then(r => r.json()).then(d => {
+      fetch('/api/crm/activity?ref_id={{ (qn)|tojson }}&limit=30').then(r => r.json()).then(d => {
         const el = document.getElementById('crm-activity');
         if (!d.ok || !d.activity.length) {
           el.innerHTML = '<div style="color:var(--tx2);padding:12px">No activity yet</div>';
@@ -297,7 +297,7 @@
 
     // Load revision history
     {% if revision_count %}
-    fetch('/api/quote-lifecycle/revisions/{{ qn }}').then(r=>r.json()).then(d => {
+    fetch('/api/quote-lifecycle/revisions/{{ (qn)|tojson }}').then(r=>r.json()).then(d => {
       const el = document.getElementById('revisions');
       if (!d.ok || !d.revisions || !d.revisions.length) {
         el.innerHTML = '<div style="color:var(--tx2);padding:8px">No revision details</div>';

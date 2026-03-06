@@ -81,8 +81,8 @@ table{width:100%;border-collapse:collapse}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <script>
-const scores = {{ scores_js }};
-const labels = {{ labels_js }};
+const scores = {{ (scores_js)|tojson }};
+const labels = {{ (labels_js)|tojson }};
 if (scores.length > 0) {
   new Chart(document.getElementById('scoreChart'), {
     type: 'line',

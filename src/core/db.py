@@ -855,6 +855,9 @@ def _migrate_columns():
         # ── SCPRS Intelligence ──
         ("scprs_po_master", "agency_key", "TEXT"),
         ("scprs_pull_schedule", "enabled", "INTEGER DEFAULT 1"),
+        # ── Missing columns found by product audit ──
+        ("contacts", "phone", "TEXT DEFAULT ''"),
+        ("price_checks", "contact_email", "TEXT DEFAULT ''"),
     ]
     try:
         conn = sqlite3.connect(DB_PATH, timeout=30)

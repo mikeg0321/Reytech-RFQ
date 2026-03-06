@@ -105,7 +105,7 @@ function approveCS(id,btn){
   }).catch(()=>{btn.disabled=false;btn.textContent='Error'});
 }
 function bulkApproveAll(){
-  if(!confirm('Approve ALL {{ sales_drafts|length }} sales drafts?'))return;
+  if(!confirm('Approve ALL {{ (sales_drafts|length)|tojson }} sales drafts?'))return;
   document.getElementById('bulk-status').textContent='Approving...';
   fetch('/api/outbox/bulk-approve',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({})})
   .then(r=>r.json()).then(d=>{

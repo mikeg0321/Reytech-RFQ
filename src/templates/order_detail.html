@@ -469,7 +469,7 @@
 
     // F9: Load proof attachments
     function loadProofs() {
-      fetch('/api/order/{{ oid }}/attachments').then(r=>r.json()).then(d=>{
+      fetch('/api/order/{{ (oid)|tojson }}/attachments').then(r=>r.json()).then(d=>{
         var el = document.getElementById('proofs-list');
         if (!d.attachments || !d.attachments.length) { el.innerHTML = '<div style="color:var(--tx2);font-size:16px;padding:4px 0">No attachments yet</div>'; return; }
         var html = '';
@@ -509,7 +509,7 @@
 
     // ── Async data loading ──
     // F1: Load timeline
-    fetch('/api/order/{{ oid }}/timeline').then(r=>r.json()).then(d=>{
+    fetch('/api/order/{{ (oid)|tojson }}/timeline').then(r=>r.json()).then(d=>{
       document.getElementById('timeline-count').textContent = d.count + ' events';
       var el = document.getElementById('timeline-body');
       if (!d.events || !d.events.length) { el.innerHTML = '<div style="color:var(--tx2);font-size:16px;padding:8px">No activity recorded yet</div>'; return; }
@@ -532,7 +532,7 @@
     }).catch(function(){document.getElementById('timeline-count').textContent='error';});
 
     // F6: Load emails
-    fetch('/api/order/{{ oid }}/emails').then(r=>r.json()).then(d=>{
+    fetch('/api/order/{{ (oid)|tojson }}/emails').then(r=>r.json()).then(d=>{
       document.getElementById('emails-count').textContent = d.count + ' emails';
       var el = document.getElementById('emails-body');
       if (!d.emails || !d.emails.length) { el.innerHTML = '<div style="color:var(--tx2);font-size:16px;padding:8px">No related emails found</div>'; return; }

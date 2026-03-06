@@ -168,9 +168,9 @@ table{width:100%;border-collapse:collapse}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <script>
-const catLabels = {{ cat_labels }};
-const catValues = {{ cat_values }};
-const catColors = {{ cat_colors }};
+const catLabels = {{ (cat_labels)|tojson }};
+const catValues = {{ (cat_values)|tojson }};
+const catColors = {{ (cat_colors)|tojson }};
 
 if (catLabels.length > 0) {
   new Chart(document.getElementById('catChart'), {

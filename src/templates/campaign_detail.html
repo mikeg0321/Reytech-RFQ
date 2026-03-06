@@ -36,7 +36,7 @@
 {% block scripts %}
 <script>
 function dialContact(idx) {
-  fetch('/api/campaigns/{{ cid }}/call', {
+  fetch('/api/campaigns/{{ (cid)|tojson }}/call', {
     method: 'POST', credentials: 'same-origin',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({target_index: idx})
@@ -46,7 +46,7 @@ function dialContact(idx) {
   });
 }
 function dialNext() {
-  fetch('/api/campaigns/{{ cid }}/call', {
+  fetch('/api/campaigns/{{ (cid)|tojson }}/call', {
     method: 'POST', credentials: 'same-origin',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({})
@@ -57,7 +57,7 @@ function dialNext() {
 }
 function logOutcome(phone, outcome) {
   if (!outcome) return;
-  fetch('/api/campaigns/{{ cid }}/outcome', {
+  fetch('/api/campaigns/{{ (cid)|tojson }}/outcome', {
     method: 'POST', credentials: 'same-origin',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({phone, outcome})

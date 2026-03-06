@@ -200,7 +200,7 @@ function pollStatus() {
       else if(d.pos_stored > 0) { location.reload(); }
     });
 }
-{{ "pollStatus();" if running else "" }}
+{{ ("pollStatus();" if running else "")|tojson }}
 </script>
 
 {% endblock %}
