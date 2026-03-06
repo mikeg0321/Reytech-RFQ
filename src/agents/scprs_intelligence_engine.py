@@ -49,6 +49,8 @@ def _db():
     """Return a plain SQLite connection to reytech.db (not the context-manager get_db)."""
     conn = sqlite3.connect(_DB_PATH, timeout=30, check_same_thread=False)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=30000")
     return conn
 
 
@@ -341,6 +343,7 @@ def pull_agency(agency_key: str, search_terms: list = None,
                         )
 
             time.sleep(1.2)  # Rate limit
+            conn.commit()  # Release DB lock between search terms
 
         except Exception as e:
             log.error(f"Pull '{term}' for {agency_key}: {e}")
