@@ -5272,8 +5272,8 @@ def _scprs_autostart():
             from src.core.db import get_db
             with get_db() as _conn:
                 po_count = _conn.execute("SELECT COUNT(*) FROM scprs_po_master").fetchone()[0]
-            if po_count == 0:
-                log.info("SCPRS tables empty — starting 2025 backfill automatically")
+            if po_count < 500:
+                log.info("SCPRS has only %d POs — starting 2025 backfill automatically", po_count)
                 try:
                     from src.agents.scprs_intelligence_engine import backfill_historical
                     result = backfill_historical(year=2025, notify_fn=_notify_wrapper, force=True)
