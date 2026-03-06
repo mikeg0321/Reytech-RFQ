@@ -213,13 +213,16 @@
  <div class="card">
   <h3>🎯 Win Probability Factors</h3>
   <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
-   <div style="font-size:36px;font-weight:800;font-family:'JetBrains Mono',monospace;color:{% if win_data.win_probability >= 70 %}#3fb950{% elif win_data.win_probability >= 40 %}#fbbf24{% else %}#8b949e{% endif %}">{{ "%.0f"|format(win_data.win_probability) }}%</div>
+   {% set wp = win_data.get('win_probability', 0) if win_data is mapping else 0 %}
+   <div style="font-size:36px;font-weight:800;font-family:'JetBrains Mono',monospace;color:{% if wp >= 70 %}#3fb950{% elif wp >= 40 %}#fbbf24{% else %}#8b949e{% endif %}">{{ "%.0f"|format(wp) }}%</div>
    <div style="font-size:14px;color:var(--tx2)">Predicted win<br>probability</div>
   </div>
-  {% for factor in win_data.factors %}
+  {% for factor in win_data.get('factors', []) %}
+  {% set fname = factor.name if factor is mapping else (factor[0] if factor is iterable else factor) %}
+  {% set fval = factor.value if factor is mapping else (factor[1] if factor is iterable and factor|length > 1 else 0) %}
   <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(46,51,69,.4);font-size:14px">
-   <span>{{ factor.name }}</span>
-   <span style="font-family:'JetBrains Mono',monospace;font-weight:700;color:{% if factor.value > 0 %}#3fb950{% elif factor.value < 0 %}#f85149{% else %}var(--tx2){% endif %}">{{ "+%d"|format(factor.value) if factor.value > 0 else factor.value }}%</span>
+   <span>{{ fname|default('Factor') }}</span>
+   <span style="font-family:'JetBrains Mono',monospace;font-weight:700;color:{% if fval|default(0)|float > 0 %}#3fb950{% elif fval|default(0)|float < 0 %}#f85149{% else %}var(--tx2){% endif %}">{{ fval|default(0) }}%</span>
   </div>
   {% endfor %}
  </div>

@@ -23,7 +23,7 @@
  <div class="meta-g" style="margin-top:12px">
   <div class="meta-i"><div class="meta-l">Vendor</div><div class="meta-v">{{po.vendor_name or '—'}}</div></div>
   <div class="meta-i"><div class="meta-l">Buyer</div><div class="meta-v">{{po.buyer_name or '—'}}</div></div>
-  <div class="meta-i"><div class="meta-l">Total</div><div class="meta-v" style="font-family:'JetBrains Mono',monospace;font-weight:700">${{'%,.2f'|format(po.total_amount or 0)}}</div></div>
+  <div class="meta-i"><div class="meta-l">Total</div><div class="meta-v" style="font-family:'JetBrains Mono',monospace;font-weight:700">${{"${:,.2f}".format(po.total_amount or 0)}}</div></div>
   <div class="meta-i"><div class="meta-l">Expected Delivery</div><div class="meta-v">{{po.expected_delivery or '—'}}</div></div>
  </div>
 </div>
@@ -65,8 +65,8 @@
    <td style="text-align:center;font-weight:700">{{li.qty_ordered}}</td>
    <td style="text-align:center;color:{% if li.qty_shipped >= li.qty_ordered %}var(--gn){% elif li.qty_shipped > 0 %}var(--yl){% else %}var(--tx2){% endif %}">{{li.qty_shipped}}</td>
    <td style="text-align:center;color:{% if li.qty_received >= li.qty_ordered %}var(--gn){% elif li.qty_received > 0 %}var(--yl){% else %}var(--tx2){% endif %}">{{li.qty_received}}</td>
-   <td class="mono">${{'%,.2f'|format(li.unit_price or 0)}}</td>
-   <td class="mono" style="font-weight:600">${{'%,.2f'|format(li.extended_price or 0)}}</td>
+   <td class="mono">${{"${:,.2f}".format(li.unit_price or 0)}}</td>
+   <td class="mono" style="font-weight:600">${{"${:,.2f}".format(li.extended_price or 0)}}</td>
    <td>
     <select onchange="updateLineItem({{li.id}},'status',this.value)" style="font-size:14px;padding:4px;border-radius:4px;background:var(--sf2);color:var(--tx);border:1px solid var(--bd)">
      {% for s in ['pending','confirmed','backordered','shipped','delivered','invoiced'] %}

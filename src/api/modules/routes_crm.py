@@ -2526,6 +2526,13 @@ def _build_expansion_intel_v4():
     from collections import Counter
     import sqlite3
 
+    # Load CRM contacts (defined in routes_intel.py, may not be in namespace)
+    try:
+        crm_path = os.path.join(DATA_DIR, "crm_contacts.json")
+        _crm_data = _json.load(open(crm_path)) if os.path.exists(crm_path) else {}
+    except Exception:
+        _crm_data = {}
+
     _ensure_scprs_tables()
 
     customers = _load_customers()
@@ -2533,7 +2540,7 @@ def _build_expansion_intel_v4():
     pcs = _json.load(open(pcs_path)) if os.path.exists(pcs_path) else {}
     orders_path = os.path.join(DATA_DIR, "orders.json")
     orders = _json.load(open(orders_path)) if os.path.exists(orders_path) else {}
-    crm = _load_crm_contacts()
+    crm = _crm_data
     crm_list = list(crm.values()) if isinstance(crm, dict) else crm
     mi_path = os.path.join(DATA_DIR, "market_intelligence.json")
     market_intel = _json.load(open(mi_path)) if os.path.exists(mi_path) else {}
@@ -2802,43 +2809,8 @@ def _build_expansion_intel_v4():
 @bp.route("/cchcs/expansion")
 @auth_required
 def page_cchcs_expansion():
-    """Territory Intelligence v4 — SCPRS-powered sales command center."""
-    import json as _json
-    intel = _build_expansion_intel_v4()
-
-    facilities_json = _json.dumps([{
-        "id": f["id"], "name": f["name"], "type": f["type"], "ar": f["ar"],
-        "score": f["score"], "outreach_status": f["outreach_status"],
-        "contacts": f["contacts"], "orders": f["orders"], "pcs": f["pcs"],
-        "est_annual": f["est_annual"], "abbr": f["abbr"],
-        "last_activity": f["last_activity"],
-        "scprs_spend": f["scprs_spend"], "gap": f["gap"],
-        "competitors": f["competitors"][:5],
-        "top_items": f["top_items"][:6],
-        "scprs_buyers": f["scprs_buyers"][:5],
-    } for f in intel["facilities"]], default=str)
-
-    contacts_json = _json.dumps(intel["all_contacts"][:150], default=str)
-    central_json = _json.dumps(intel["central_contacts"], default=str)
-    recs_json = _json.dumps({k: v[:6] for k, v in intel["product_recs"].items()}, default=str)
-    gaps_json = _json.dumps(intel["competitive_gaps"], default=str)
-    vendors_json = _json.dumps(intel["vendor_registrations"], default=str)
-
-    from src.api.render import render_page
-    return render_page("expand.html", active_page="Expand",
-        facilities_json=facilities_json, contacts_json=contacts_json,
-        central_json=central_json, recs_json=recs_json,
-        gaps_json=gaps_json, vendors_json=vendors_json,
-        type_stats=intel["type_stats"],
-        total_ar=intel["total_ar"], total_contacts=intel["total_contacts"],
-        total_gap=intel["total_gap"], total_scprs_spend=intel["total_scprs_spend"],
-        scprs_has_data=intel["scprs_has_data"], scprs_last_pull=intel["scprs_last_pull"],
-        scprs_total_buyers=intel["scprs_total_buyers"],
-        n_active=len(intel["active"]), n_untouched=len(intel["untouched"]),
-        n_total=len(intel["facilities"]), n_stale=len(intel["stale_accounts"]),
-        n_gaps=len(intel["competitive_gaps"]),
-    )
-
+    """Redirected to Competitor Intelligence page."""
+    return redirect("/intel/competitors")
 
 @bp.route("/api/expansion/facility/<fac_id>")
 @auth_required

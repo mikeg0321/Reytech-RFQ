@@ -150,7 +150,7 @@
    <td style="color:var(--gn);font-weight:700">{{s.won}}</td>
    <td style="color:var(--rd);font-weight:700">{{s.lost}}</td>
    <td><span style="color:{% if wr > 60 %}var(--gn){% elif wr > 30 %}var(--yl){% else %}var(--rd){% endif %};font-weight:700">{{wr|round(1)}}%</span></td>
-   <td style="font-family:'JetBrains Mono',monospace;font-weight:600">${{'%,.0f'|format(s.revenue)}}</td>
+   <td style="font-family:'JetBrains Mono',monospace;font-weight:600">${{"${:,.0f}".format(s.revenue)}}</td>
   </tr>
   {% endfor %}
   </tbody>
@@ -165,7 +165,7 @@
   {% set max_rev = monthly_revenue.values()|max if monthly_revenue.values()|list else 1 %}
   {% for month, rev in monthly_revenue.items() %}
   <div style="flex:1;text-align:center;display:flex;flex-direction:column;justify-content:flex-end;height:100%">
-   <div style="font-size:13px;font-weight:600;color:var(--gn)">${{'%,.0f'|format(rev)}}</div>
+   <div style="font-size:13px;font-weight:600;color:var(--gn)">${{"${:,.0f}".format(rev)}}</div>
    <div style="background:var(--gn);height:{{(rev / max_rev * 100) if max_rev > 0 else 4}}px;min-height:4px;border-radius:3px;margin:4px 1px"></div>
    <div style="font-size:13px;color:var(--tx2)">{{month[5:]}}</div>
   </div>

@@ -47,7 +47,7 @@
    <td>{{po.vendor_name or '—'}}</td>
    <td>{{po.buyer_name or '—'}}</td>
    <td style="text-align:center">—</td>
-   <td style="font-family:'JetBrains Mono',monospace">${{'%,.2f'|format(po.total_amount or 0)}}</td>
+   <td style="font-family:'JetBrains Mono',monospace">${{"${:,.2f}".format(po.total_amount or 0)}}</td>
    <td>
     {% set sc = {'received':'#58a6ff','processing':'var(--yl)','shipped':'#f0883e','partial_shipped':'#f0883e',
                  'delivered':'var(--gn)','invoiced':'#a78bfa','backordered':'var(--rd)'} %}

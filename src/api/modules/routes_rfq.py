@@ -3196,7 +3196,7 @@ def api_rfq_qa_check(rid):
 @auth_required
 def form_filler_page():
     """Standalone form filler page."""
-    return render_template("form_filler.html", active_page="Forms")
+    return render_page("form_filler.html", active_page="Forms")
 
 
 # ═══════════════════════════════════════════════════════════════════════
