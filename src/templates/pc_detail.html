@@ -577,6 +577,17 @@
      });
     }
 
+    function changeStatus(newStatus) {
+     var pcid={{ pcid|tojson }};
+     fetch('/api/pricecheck/'+pcid+'/status',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({status:newStatus})
+     }).then(function(r){return r.json()}).then(function(d){
+      if(d.ok){showMsg('✅ Status: '+d.old_status+' → '+d.new_status,'ok');setTimeout(function(){location.reload()},600)}
+      else{showMsg('❌ '+d.error,'err')}
+     });
+    }
+
     function addRow() {
      const table=document.getElementById('itemsTable');
      const rows=table.querySelectorAll('tr[data-row]:not(.notes-row)');

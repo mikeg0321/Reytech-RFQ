@@ -167,6 +167,39 @@ def api_pc_merge_items(pcid):
         return jsonify({"ok": False, "error": str(e)})
 
 
+@bp.route("/api/pricecheck/<pcid>/status", methods=["POST"])
+@auth_required
+def api_pc_change_status(pcid):
+    """Change PC status with history tracking.
+    POST {status: "sent"} or {status: "draft"}
+    Valid: new, draft, sent, pending_award, won, lost, no_response, archived"""
+    try:
+        data = request.get_json(silent=True) or {}
+        new_status = (data.get("status") or "").strip().lower()
+        valid = {"new", "draft", "sent", "pending_award", "won", "lost",
+                 "no_response", "archived", "duplicate", "completed", "converted"}
+        if new_status not in valid:
+            return jsonify({"ok": False, "error": f"Invalid status: {new_status}. Valid: {sorted(valid)}"})
+
+        pcs = _load_price_checks()
+        pc = pcs.get(pcid)
+        if not pc:
+            return jsonify({"ok": False, "error": "PC not found"})
+
+        old_status = pc.get("status", "")
+        _transition_status(pc, new_status, actor="user",
+                           notes=data.get("notes", f"Manual: {old_status} → {new_status}"))
+
+        # If marking as sent, record sent_at
+        if new_status == "sent" and not pc.get("sent_at"):
+            pc["sent_at"] = __import__('datetime').datetime.now().isoformat()
+
+        _save_price_checks(pcs)
+        return jsonify({"ok": True, "old_status": old_status, "new_status": new_status})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
 @bp.route("/pricecheck/<pcid>")
 @auth_required
 def pricecheck_detail(pcid):
@@ -455,12 +488,16 @@ def _pricecheck_detail_inner(pcid):
     _pip_parts = []
     for i, (step, icon, label) in enumerate(_steps):
         if i <= _reached:
-            style = "padding:6px 14px;border-radius:8px;background:rgba(52,211,153,.12);color:#3fb950;font-size:15px;font-weight:600"
+            style = "padding:6px 14px;border-radius:8px;background:rgba(52,211,153,.12);color:#3fb950;font-size:15px;font-weight:600;cursor:pointer;border:none"
         else:
-            style = "padding:6px 14px;border-radius:8px;background:#21262d;color:#484f58;font-size:15px"
-        _pip_parts.append(f"<span style=\"{style}\">{icon} {label}</span>")
+            style = "padding:6px 14px;border-radius:8px;background:#21262d;color:#484f58;font-size:15px;cursor:pointer;border:1px solid #30363d"
+        _pip_parts.append(f"<button onclick=\"changeStatus('{step}')\" style=\"{style}\" title=\"Click to set status to {label}\">{icon} {label}</button>")
         if i < len(_steps) - 1:
             _pip_parts.append("<span style=\"color:#484f58;margin:0 6px;font-size:16px\">→</span>")
+    # Add current raw status if it's not one of the 3 main steps
+    if _status not in ('new', 'parsed', 'draft', 'ready', 'auto_drafted', 'quoted',
+                        'generated', 'completed', 'converted', 'sent', 'pending_award', 'won'):
+        _pip_parts.append(f"<span style=\"margin-left:8px;padding:4px 10px;border-radius:6px;background:rgba(248,113,113,.15);color:#f87171;font-size:14px;font-weight:600\">{_status}</span>")
     pipeline_html = "".join(_pip_parts)
 
     from src.api.render import render_page
@@ -1525,7 +1562,11 @@ def _do_generate(pcid):
 
     if result.get("ok"):
         pc["output_pdf"] = output_path
-        _transition_status(pc, "draft", actor="system", notes="704 PDF filled")
+        # Don't downgrade: if already sent/won, keep that status (this is a revision)
+        if pc.get("status") not in ("sent", "pending_award", "won", "lost", "no_response"):
+            _transition_status(pc, "draft", actor="system", notes="704 PDF filled")
+        else:
+            _transition_status(pc, pc["status"], actor="system", notes="704 PDF revised (status preserved)")
         pc["summary"] = result.get("summary", {})
         _save_price_checks(pcs)
 
