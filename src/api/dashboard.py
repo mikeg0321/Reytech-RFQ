@@ -4147,6 +4147,25 @@ def api_disk_cleanup():
         result["action"] = "nuked-uploads"
         result["removed_dirs"] = removed
         result["freed_mb"] = round(freed / 1024 / 1024, 1)
+
+    if action == "vacuum":
+        # VACUUM the database to reclaim space
+        import sqlite3 as _sq
+        db_path = os.path.join(DATA_DIR, "reytech.db")
+        before = os.path.getsize(db_path)
+        try:
+            vc = _sq.connect(db_path, timeout=120)
+            vc.execute("VACUUM")
+            vc.close()
+            after = os.path.getsize(db_path)
+            result["action"] = "vacuumed"
+            result["db_before_mb"] = round(before / 1024 / 1024, 1)
+            result["db_after_mb"] = round(after / 1024 / 1024, 1)
+            result["freed_mb"] = round((before - after) / 1024 / 1024, 1)
+            log.info("VACUUM: %s → %s (freed %s)", _fmt_size(before), _fmt_size(after), _fmt_size(before - after))
+        except Exception as e:
+            result["action"] = "vacuum_failed"
+            result["error"] = str(e)
     
     if action == "trim-data":
         # Trim large data files: truncate logs, compact JSON, remove caches

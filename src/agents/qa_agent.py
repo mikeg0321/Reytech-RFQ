@@ -462,7 +462,7 @@ except ImportError:
     _HAS_DB_DAL = False
 # ─────────────────────────────────────────────────────────────────────────────
 QA_REPORT_FILE = os.path.join(DATA_DIR, "qa_reports.json")
-QA_INTERVAL = 300  # 5 minutes
+QA_INTERVAL = 1800  # 30 minutes (was 300s/5min — too frequent, heavy operation)
 
 
 def _check_route_integrity() -> list:

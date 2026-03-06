@@ -142,7 +142,8 @@ def _get_data_dir():
 def run_backup(data_dir: str = None) -> dict:
     """
     Create a SQLite backup using .backup API.
-    Rotates: keep 7 daily + 4 weekly.
+    Runs VACUUM first to compact the DB, then backs up.
+    Rotates: keep 3 daily + 1 weekly.
     """
     data_dir = data_dir or _get_data_dir()
     db_path = os.path.join(data_dir, "reytech.db")
@@ -157,6 +158,15 @@ def run_backup(data_dir: str = None) -> dict:
     backup_path = os.path.join(backup_dir, filename)
 
     try:
+        # VACUUM first to compact DB (can shrink 567MB → <10MB)
+        try:
+            vc = sqlite3.connect(db_path, timeout=60)
+            vc.execute("VACUUM")
+            vc.close()
+            log.info("Pre-backup VACUUM complete")
+        except Exception as ve:
+            log.warning("Pre-backup VACUUM failed (non-fatal): %s", ve)
+
         # Use sqlite3 backup API (safe, consistent snapshot)
         src_conn = sqlite3.connect(db_path, timeout=30)
         dst_conn = sqlite3.connect(backup_path, timeout=15)
@@ -167,8 +177,8 @@ def run_backup(data_dir: str = None) -> dict:
         size = os.path.getsize(backup_path)
         log.info("Backup created: %s (%s)", filename, _fmt_size(size))
 
-        # Rotate old backups
-        _rotate_backups(backup_dir)
+        # Rotate old backups (3 daily + 1 weekly)
+        _rotate_backups(backup_dir, keep_daily=3, keep_weekly=1)
 
         heartbeat("db-backup", success=True)
         return {

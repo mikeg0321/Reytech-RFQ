@@ -991,7 +991,7 @@ def get_run_history(limit: int = 20) -> list:
 # BACKGROUND MONITOR
 # ═══════════════════════════════════════════════════════════════════════
 
-WORKFLOW_INTERVAL = 600  # 10 minutes
+WORKFLOW_INTERVAL = 1800  # 30 minutes (was 600s/10min — too frequent)
 
 _wf_monitor = None
 _wf_lock = threading.Lock()
