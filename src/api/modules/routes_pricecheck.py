@@ -1450,7 +1450,18 @@ def _do_generate(pcid):
 
     pc_num = pc.get("pc_number", "unknown")
     safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', pc_num.strip())
-    output_path = os.path.join(DATA_DIR, f"PC_{safe_name}_Reytech_.pdf")
+
+    # Determine revision suffix: first download = no suffix, subsequent = _Revised, _Revised_2, etc.
+    gen_count = pc.get("_generate_count", 0) + 1
+    pc["_generate_count"] = gen_count
+    if gen_count <= 1:
+        suffix = ""
+    elif gen_count == 2:
+        suffix = "_Revised"
+    else:
+        suffix = f"_Revised_{gen_count - 1}"
+
+    output_path = os.path.join(DATA_DIR, f"PC_{safe_name}_Reytech{suffix}.pdf")
 
     result = fill_ams704(
         source_pdf=source_pdf,
