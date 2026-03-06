@@ -192,6 +192,21 @@ def normalize_text(text: str) -> str:
     return text.strip()
 
 
+def _is_size_or_generic(text: str) -> bool:
+    """Check if text is a clothing size or generic term, not a real part number."""
+    t = re.sub(r"[^a-z0-9]", "", (text or "").lower().strip())
+    sizes = {"xs", "s", "m", "l", "xl", "xxl", "xxxl",
+             "xsmall", "small", "medium", "large",
+             "xlarge", "xxlarge", "xxsmall", "xxxlarge"}
+    if t in sizes:
+        return True
+    generics = {"each", "ea", "set", "pair", "pack", "box", "case",
+                "unit", "piece", "roll", "bag", "carton"}
+    if t in generics:
+        return True
+    return False
+
+
 def tokenize(text: str) -> set:
     """Extract meaningful tokens from a description, filtering stop words."""
     normalized = normalize_text(text)
@@ -342,9 +357,13 @@ def find_similar_items(
         confidence = 0.0
         match_reasons = []
 
-        # Layer 1: Exact item number match
+        # Layer 1: Exact item number match (only for REAL part numbers)
         quote_item = normalize_text(quote.get("item_number", ""))
-        if normalized_item and quote_item and normalized_item == quote_item:
+        _is_real_pn = (normalized_item and quote_item
+                       and normalized_item == quote_item
+                       and len(normalized_item) >= 4
+                       and not _is_size_or_generic(item_number))
+        if _is_real_pn:
             confidence = 1.0
             match_reasons.append("exact_item_number")
         else:

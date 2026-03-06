@@ -273,6 +273,8 @@
        <label style="font-size:14px;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Default Markup</label>
        <div style="display:flex;align-items:center;gap:6px;margin-top:6px">
         <input type="number" id="markupDefault" value="{{ pc.get('default_markup', 25) }}" min="0" max="200" class="num-in" style="width:60px;text-align:center;font-size:16px;font-weight:700;padding:8px" onchange="applyDefaultMarkup()">
+        <span style="font-size:16px;color:#8b949e">%</span>
+        <button onclick="applyDefaultMarkup()" style="margin-left:6px;padding:4px 10px;background:#21262d;border:1px solid #30363d;border-radius:4px;color:#58a6ff;font-size:12px;cursor:pointer" title="Apply this markup to all items">Apply All</button>
         <span style="font-size:15px;color:#8b949e;font-weight:600">%</span>
        </div>
       </div>
@@ -425,37 +427,49 @@
      if(btn) btn.classList.add('tier-active');
      const markup=parseInt(document.getElementById('markupDefault').value)||25;
      let updated=0;
-     // Apply buffer to Amazon-priced rows, markup to ALL rows
-     document.querySelectorAll('tr[data-row]').forEach((row,i)=>{
-      const markupInp=row.querySelector('[name=markup_'+i+']');
+     // Apply buffer + markup to ALL rows
+     document.querySelectorAll('tr[data-row]:not(.notes-row)').forEach(function(row){
+      var idx=row.getAttribute('data-row');
+      var markupInp=row.querySelector('[name=markup_'+idx+']');
       if(markupInp) markupInp.value=markup;
-      // Apply buffer to Amazon-priced rows
-      const amazonCell=row.querySelector('td[data-amazon]');
-      if(amazonCell) {
-       const amazonPrice=parseFloat(amazonCell.getAttribute('data-amazon'))||0;
-       if(amazonPrice>0) {
-        const protectedCost=Math.round(amazonPrice*(1+buffer/100)*100)/100;
-        const costInp=row.querySelector('[name=cost_'+i+']');
-        if(costInp) { costInp.value=protectedCost.toFixed(2); updated++; }
+      // Apply buffer to cost if there's a cost value
+      if(buffer > 0) {
+       var costInp=row.querySelector('[name=cost_'+idx+']');
+       if(costInp) {
+        var baseCost=parseFloat(costInp.getAttribute('data-base-cost')||costInp.value.replace(/[^0-9.\-]/g,''))||0;
+        if(baseCost>0) {
+         // Store original cost on first buffer application
+         if(!costInp.getAttribute('data-base-cost')) costInp.setAttribute('data-base-cost',baseCost.toFixed(2));
+         var bufferedCost=Math.round(baseCost*(1+buffer/100)*100)/100;
+         costInp.value=bufferedCost.toFixed(2);
+         updated++;
+        }
+       }
+      } else {
+       // Buffer = 0: restore original cost
+       var costInp=row.querySelector('[name=cost_'+idx+']');
+       if(costInp && costInp.getAttribute('data-base-cost')) {
+        costInp.value=costInp.getAttribute('data-base-cost');
+        updated++;
        }
       }
-      // For ALL rows with a cost, recompute price from cost+markup
-      recalcRow(i);
+      recalcRow(parseInt(idx));
      });
      showTierComparison();
-     // Feedback to user
-     if(updated>0) showMsg('✅ Applied '+buffer+'% buffer to '+updated+' Amazon-priced item'+(updated>1?'s':'')+' + '+markup+'% markup to all rows','ok');
-     else showMsg('ℹ️ Set '+markup+'% markup on all rows. No Amazon prices to buffer — enter Unit Cost first, then apply markup.','warn');
+     if(updated>0) showMsg('✅ Applied '+buffer+'% buffer + '+markup+'% markup to '+updated+' items','ok');
+     else showMsg('ℹ️ Set '+markup+'% markup on all rows. Enter Unit Cost first to use buffer.','warn');
     }
 
     // Apply default markup to ALL rows (not just Amazon-priced)
     function applyDefaultMarkup() {
      const markup=parseInt(document.getElementById('markupDefault').value)||25;
-     document.querySelectorAll('tr[data-row]').forEach((row,i)=>{
-      const markupInp=row.querySelector('[name=markup_'+i+']');
+     document.querySelectorAll('tr[data-row]:not(.notes-row)').forEach(function(row){
+      var idx=row.getAttribute('data-row');
+      var markupInp=row.querySelector('[name=markup_'+idx+']');
       if(markupInp) markupInp.value=markup;
-      recalcRow(i);
+      recalcRow(parseInt(idx));
      });
+     showMsg('✅ Applied '+markup+'% markup to all items','ok');
     }
 
     function showTierComparison() {
