@@ -323,17 +323,28 @@ def _lookup_amazon(url: str) -> dict:
         results = search_amazon(f"ASIN {asin}", max_results=1)
         if results:
             r = results[0]
+            title = r.get("title", "")
+            # Extract size from title if present (e.g., "...Scrub Set, X-Small")
+            size = ""
+            import re as _re
+            size_match = _re.search(
+                r',\s*(XX?-?(?:Small|Large)|(?:Small|Medium|Large|X-Large|XX-Large|XS|XL|XXL|S|M|L)\b)',
+                title, _re.IGNORECASE
+            )
+            if size_match:
+                size = size_match.group(1).strip()
             return {
                 "supplier":     "Amazon",
-                "title":        r.get("title", ""),
-                "description":  r.get("title", ""),
+                "title":        title,
+                "description":  title,
                 "price":        r.get("price"),
                 "cost":         r.get("price"),   # Amazon price = your cost
-                "part_number":  asin,
+                "part_number":  r.get("mfg_number", "") or r.get("part_number", ""),
                 "mfg_number":   r.get("mfg_number", ""),
                 "manufacturer": r.get("manufacturer", ""),
                 "url":          url,
                 "asin":         asin,
+                "size":         size,
                 "shipping":     0.0,
                 "shipping_note": "Prime/standard shipping",
                 "source":       "amazon_asin",
@@ -342,7 +353,7 @@ def _lookup_amazon(url: str) -> dict:
         scraped = _scrape_generic(url)
         scraped["supplier"] = "Amazon"
         scraped["asin"] = asin
-        scraped["part_number"] = scraped.get("part_number") or asin
+        # Don't put ASIN in part_number — it goes in description via JS
         return scraped
     except Exception as e:
         return {"error": str(e), "supplier": "Amazon", "asin": asin}

@@ -720,13 +720,32 @@
         filled.push('cost $'+d.price.toFixed(2));
       }
       
-      // Fill MFG#/Part# — ALWAYS override if we got a better number
+      // Fill MFG#/Part# — only if field is empty. Never overwrite existing MFG#.
       const itemNumEl = document.querySelector('[name=itemnum_'+idx+']');
       if (itemNumEl) {
-        const bestNum = d.mfg_number || d.part_number || d.asin || '';
-        if (bestNum) {
+        const currentMfg = itemNumEl.value.trim();
+        const bestNum = d.mfg_number || d.part_number || '';
+        // Only fill MFG# if currently empty AND we have a real part number (not ASIN)
+        if (!currentMfg && bestNum) {
           itemNumEl.value = bestNum;
           filled.push('MFG# ' + bestNum);
+        }
+      }
+
+      // Append ASIN + size to description (never put ASIN in MFG# field)
+      if (descEl) {
+        let appendParts = [];
+        if (d.asin) appendParts.push('REF ASIN: ' + d.asin);
+        if (d.size) appendParts.push('Size: ' + d.size);
+        else if (d.variant) appendParts.push('Size: ' + d.variant);
+        if (appendParts.length) {
+          const cur = descEl.value.trim();
+          // Only append if not already there
+          const appendStr = appendParts.join(', ');
+          if (cur.indexOf(appendStr) < 0 && cur.indexOf(d.asin || '___') < 0) {
+            descEl.value = (cur ? cur + '\n' : '') + appendStr;
+            filled.push(appendStr);
+          }
         }
       }
       // Also try dedicated part field if it exists
