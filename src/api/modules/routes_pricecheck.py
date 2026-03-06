@@ -324,9 +324,29 @@ def _pricecheck_detail_inner(pcid):
             sources.append((scprs_cost, f"SCPRS{scprs_conf_str}", "", "#3fb950", True))
         if amazon_cost:
             a_url = p.get("amazon_url", "")
-            a_label = f"Amazon" + (f" · {asin}" if asin else "")
-            # Preferred if we've used Amazon before for this product
-            a_pref = "amazon" in cat_best_sup or "amazon" in known_supplier
+            # Detect actual source from URL — don't assume Amazon
+            a_source = "Amazon"
+            if a_url:
+                _domain = ""
+                try:
+                    from urllib.parse import urlparse
+                    _domain = urlparse(a_url).hostname or ""
+                except Exception:
+                    pass
+                if "walmart" in _domain: a_source = "Walmart"
+                elif "ebay" in _domain: a_source = "eBay"
+                elif "staples" in _domain: a_source = "Staples"
+                elif "grainger" in _domain: a_source = "Grainger"
+                elif "mckesson" in _domain: a_source = "McKesson"
+                elif "henryschein" in _domain: a_source = "Henry Schein"
+                elif "boundtree" in _domain: a_source = "Bound Tree"
+                elif "medline" in _domain: a_source = "Medline"
+                elif "officedepot" in _domain: a_source = "Office Depot"
+                elif "uline" in _domain: a_source = "Uline"
+                elif "amazon" not in _domain: a_source = _domain.replace("www.","").split(".")[0].title()
+            a_label = a_source + (f" · {asin}" if asin and "amazon" in (a_url or "").lower() else "")
+            # Preferred if we've used this supplier before
+            a_pref = a_source.lower() in cat_best_sup or a_source.lower() in known_supplier or "amazon" in known_supplier
             sources.append((amazon_cost, a_label, a_url, "#ff9900", a_pref))
         web_price = _safe_float(p.get("web_price"), 0)
         if web_price and web_price != amazon_cost:
