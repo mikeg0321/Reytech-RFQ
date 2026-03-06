@@ -34,7 +34,7 @@
      input[type=number]::-webkit-outer-spin-button,input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
      .text-in{background:#0d1117;border:1px solid #484f58;color:#e6edf3;padding:6px 8px;border-radius:5px;font-size:14px;font-family:'Segoe UI',system-ui,sans-serif}
      .text-in:focus{border-color:#58a6ff;outline:none;box-shadow:0 0 0 2px #1f6feb44}
-     textarea.text-in{resize:vertical;min-height:38px;line-height:1.4}
+     textarea.text-in{resize:vertical;min-height:60px;line-height:1.4}
      .msg{padding:10px 14px;border-radius:6px;margin:8px 0;font-size:14px}
      .msg-ok{background:#23863622;color:#3fb950;border:1px solid #23863655}
      .msg-warn{background:#9e6a0322;color:#d29922;border:1px solid #9e6a0355}
@@ -573,7 +573,7 @@
       +'<td><input type="text" name="itemnum_'+idx+'" value="" class="text-in" style="width:80px;text-align:center;font-weight:600;font-size:14px;font-family:JetBrains Mono,monospace;padding:6px 4px" placeholder="MFG#" onblur="handleMfgInput('+idx+',this)"></td>'
       +'<td><input type="number" name="qty_'+idx+'" value="1" class="num-in sm" style="width:55px" onchange="recalcPC()"></td>'
       +'<td><input type="text" name="uom_'+idx+'" value="EA" class="text-in" style="width:45px;text-transform:uppercase;text-align:center;font-weight:600"></td>'
-      +'<td><textarea name="desc_'+idx+'" class="text-in" style="width:100%;min-height:38px;resize:vertical;font-size:13px;line-height:1.4;padding:6px 8px" placeholder="Enter description or paste URL" oninput="detectDescUrl('+idx+',this)"></textarea></td>'
+      +'<td><textarea name="desc_'+idx+'" class="text-in" style="width:100%;min-height:60px;resize:vertical;font-size:13px;line-height:1.4;padding:6px 8px" placeholder="Enter description or paste URL" oninput="detectDescUrl('+idx+',this);if(window._autoResizeTextareas)window._autoResizeTextareas()"></textarea></td>'
       +'<td style="text-align:center"><input type="checkbox" name="substitute_'+idx+'" style="width:16px;height:16px;cursor:pointer;accent-color:#d29922" title="Check if quoting a replacement/substitute item"></td>'
       +'<td style="min-width:160px"><div style="display:flex;flex-direction:column;gap:3px"><div style="display:flex;gap:2px;align-items:center"><input type="text" name="link_'+idx+'" value="" placeholder="Paste supplier URL\u2026" class="text-in" style="flex:1;font-size:14px;color:#58a6ff;padding:5px 7px" oninput="handleLinkInput('+idx+',this)" onpaste="setTimeout(()=>handleLinkInput('+idx+',this),50)"><a href="" target="_blank" id="linkopen_'+idx+'" style="display:none;align-items:center;justify-content:center;width:28px;height:28px;border-radius:4px;background:#21262d;border:1px solid #30363d;color:#58a6ff;font-size:14px;text-decoration:none;flex-shrink:0" title="Open link">\u2197</a></div><div id="link_meta_'+idx+'" style="font-size:13px;color:#8b949e"></div></div></td>'
       +'<td style="min-width:160px"><span style="color:#484f58;font-size:14px">No sources</span></td>'

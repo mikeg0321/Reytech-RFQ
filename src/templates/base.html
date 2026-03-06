@@ -226,6 +226,58 @@ document.addEventListener('keydown',function(e){
 });
 document.getElementById('cmd-palette').addEventListener('click',function(e){if(e.target===this)closeCmd();});
 </script>
+<style>
+/* Global: textareas auto-expand to fit content */
+textarea{overflow:hidden;resize:vertical}
+/* Clickable truncated text expands on click */
+.expandable{cursor:pointer;transition:all .15s}
+.expandable.expanded{white-space:normal!important;overflow:visible!important;text-overflow:clip!important;max-height:none!important}
+</style>
+<script>
+// Auto-resize all textareas to fit content
+(function(){
+ function autoResize(el){
+  el.style.height='auto';
+  el.style.height=Math.max(38,el.scrollHeight)+'px';
+ }
+ function initTextareas(){
+  document.querySelectorAll('textarea').forEach(function(ta){
+   autoResize(ta);
+   if(!ta._autoResize){
+    ta._autoResize=true;
+    ta.addEventListener('input',function(){autoResize(this)});
+    ta.addEventListener('focus',function(){autoResize(this)});
+   }
+  });
+ }
+ // Run on load
+ if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',function(){setTimeout(initTextareas,200)})}
+ else{setTimeout(initTextareas,200)}
+ // Re-run periodically for dynamically created textareas
+ setInterval(initTextareas,2000);
+ // Also expose for manual calls
+ window._autoResizeTextareas=initTextareas;
+
+ // Click-to-expand any truncated text
+ document.addEventListener('click',function(e){
+  var el=e.target;
+  // Check if element has text-overflow:ellipsis style
+  var cs=window.getComputedStyle(el);
+  if(cs.textOverflow==='ellipsis'||cs.overflow==='hidden'&&cs.whiteSpace==='nowrap'){
+   el.classList.toggle('expanded');
+   if(el.classList.contains('expanded')){
+    el.style.whiteSpace='normal';
+    el.style.overflow='visible';
+    el.style.textOverflow='clip';
+   }else{
+    el.style.whiteSpace='';
+    el.style.overflow='';
+    el.style.textOverflow='';
+   }
+  }
+ });
+})();
+</script>
 {% block scripts %}{% endblock %}
 </body>
 </html>
