@@ -196,24 +196,23 @@
      <div class="action-bar" style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center" id="actionBar">
       <button class="btn btn-p" onclick="savePrices(this)" id="saveBtn" style="font-size:14px;padding:8px 20px">💾 Save</button>
       <button class="btn" onclick="showPreview()" style="background:#21262d;color:#c9d1d9;border:1px solid #484f58;font-size:14px;padding:8px 20px">👁️ Preview</button>
-      {% if pc.get('status') in ('completed','converted') %}
-      <button class="btn btn-g" id="submitBtn" onclick="saveAndGenerate(this)" style="font-size:14px;padding:8px 20px">♻️ Re-fill 704</button>
-      {% else %}
       <button class="btn btn-g" id="submitBtn" onclick="saveAndGenerate(this)" style="font-size:14px;padding:8px 20px">📄 Save &amp; Fill 704</button>
-      {% endif %}
-      {% if pc.get('status') == 'parsed' %}
-      <button class="btn" data-testid="pc-auto-process" style="background:#f0883e;color:#fff;font-size:14px;padding:8px 20px" onclick="autoProcess(this)">⚡ Process Now</button>
-      {% endif %}
       {{ download_html | safe }}
-      <!-- Pricing tools — always visible, not buried in dropdown -->
+      <!-- Pricing: consolidated into dropdown -->
       <span style="border-left:1px solid #30363d;height:28px;margin:0 4px"></span>
-      <button class="btn btn-sm" onclick="runScprs(this)" data-testid="pc-scprs-lookup" style="background:#21262d;color:#58a6ff;border:1px solid #30363d;font-size:13px;padding:6px 14px">🔍 SCPRS</button>
-      <button class="btn btn-sm" onclick="runLookup(this)" data-testid="pc-amazon-lookup" style="background:#21262d;color:#f0883e;border:1px solid #30363d;font-size:13px;padding:6px 14px">🔬 Amazon</button>
-      <button class="btn btn-sm" onclick="runCatalogMatch(this)" data-testid="pc-catalog-match" style="background:#21262d;color:#3fb950;border:1px solid #30363d;font-size:13px;padding:6px 14px">🎯 Catalog</button>
-      <button class="btn btn-sm" onclick="runAIFindAll(this)" style="background:#21262d;color:#d2a8ff;border:1px solid #30363d;font-size:13px;padding:6px 14px" title="Use AI to find all unmatched items">🤖 AI Find</button>
-      <button class="btn btn-sm" onclick="runWebSearch(this)" data-testid="pc-web-search" style="background:#21262d;color:#d2a8ff;border:1px solid #30363d;font-size:13px;padding:6px 14px">🌐 Web Search</button>
-      <button class="btn btn-sm" onclick="runAutoPrice(this)" data-testid="pc-auto-price" style="background:#21262d;color:#bc8cff;border:1px solid #30363d;font-size:13px;padding:6px 14px">🧠 Auto-Price</button>
-      <button class="btn btn-sm" onclick="runPriceSweep(this)" data-testid="pc-price-sweep" style="background:#21262d;color:#f778ba;border:1px solid #30363d;font-size:13px;padding:6px 14px">🛒 Sweep</button>
+      <details style="position:relative;display:inline-block" id="priceDropdown">
+       <summary class="btn btn-sm" style="background:#21262d;color:#bc8cff;border:1px solid #30363d;font-size:14px;padding:6px 16px;cursor:pointer;list-style:none;font-weight:600">🔍 Find Prices ▾</summary>
+       <div style="position:absolute;top:100%;left:0;z-index:50;margin-top:4px;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:6px;min-width:220px;box-shadow:0 8px 24px rgba(0,0,0,.4)">
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#bc8cff;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runAutoPrice(this);this.closest('details').open=false">🧠 Auto-Price (all sources)</button>
+        <hr style="border-color:#30363d;margin:4px 0">
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#58a6ff;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runScprs(this);this.closest('details').open=false">🔍 SCPRS (state contracts)</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#3fb950;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runCatalogMatch(this);this.closest('details').open=false">🎯 Catalog (our products)</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#f0883e;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runLookup(this);this.closest('details').open=false">🔬 Amazon</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#f778ba;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runPriceSweep(this);this.closest('details').open=false">🛒 Sweep (multi-retailer)</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#d2a8ff;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runWebSearch(this);this.closest('details').open=false">🌐 Web Search</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#d2a8ff;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runAIFindAll(this);this.closest('details').open=false">🤖 AI Find</button>
+       </div>
+      </details>
       <button class="btn btn-sm" onclick="toggleAllNotes()" style="background:#21262d;color:#d2a8ff;border:1px solid #30363d;font-size:13px;padding:6px 14px" title="Show/hide notes row for each item">📝 Notes</button>
       <details style="position:relative;display:inline-block">
        <summary class="btn btn-sm" style="background:#21262d;color:#8b949e;border:1px solid #30363d;font-size:14px;padding:4px 10px;cursor:pointer;list-style:none">⋯ More</summary>
@@ -222,20 +221,18 @@
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#c9d1d9;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="saveAndGenerate(this)">♻️ Re-fill 704</button>
         {% endif %}
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#c9d1d9;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="window.print()">🖨️ Print Page</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#58a6ff;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="generateQuote1Click(this)">📋 Generate Quote (formal 704b/703b only)</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#58a6ff;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="generateQuote1Click(this)">📋 Generate Formal Quote (704b/703b)</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#a78bfa;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="showRevisions()">📝 Revision History</button>
         <hr style="border-color:#30363d;margin:4px 0">
+        <div style="font-size:13px;color:#484f58;padding:2px 10px;text-transform:uppercase;letter-spacing:.5px">Analysis</div>
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#d2a8ff;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runPortfolioPrice(this)">📊 Portfolio Optimizer</button>
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#f0883e;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runCompetitorIntel(this)">🏢 Competitor Intel</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#58a6ff;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runReparse(this)">🔄 Re-parse from PDF</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#58a6ff;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="rescanMfgNumbers(this)">🔍 Rescan MFG#s</button>
         <hr style="border-color:#30363d;margin:4px 0">
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#3fb950;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('won')">🏆 Mark Won</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#d29922;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('lost')">❌ Mark Lost</button>
-        <hr style="border-color:#30363d;margin:4px 0">
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#a78bfa;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="showRevisions()">📝 Revisions</button>
         <div style="font-size:13px;color:#484f58;padding:2px 10px;text-transform:uppercase;letter-spacing:.5px">Admin</div>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runReparse(this)">🔄 Re-parse from PDF</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="rescanMfgNumbers(this)">🔍 Rescan MFG#s</button>
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('no_response')">💤 No Response</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('duplicate')">📋 Duplicate</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('duplicate')">📋 Mark Duplicate</button>
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('archived')">🗄️ Archive</button>
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#f85149;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('delete')">🗑️ Delete</button>
        </div>
