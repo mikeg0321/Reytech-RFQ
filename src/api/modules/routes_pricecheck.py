@@ -2808,9 +2808,9 @@ def api_pricecheck_dismiss(pcid):
         return jsonify({"ok": False, "error": "PC not found"})
     
     pc = pcs[pcid]
-    # Use specific status for admin reasons, 'dismissed' as fallback
-    admin_statuses = {"not_responding", "dismissed"}
-    new_status = reason if reason in admin_statuses else "not_responding"
+    # Use the reason as the status directly for known actions
+    valid_statuses = {"not_responding", "dismissed", "archived", "duplicate", "no_response"}
+    new_status = reason if reason in valid_statuses else "dismissed"
     pc["status"] = new_status
     pc["dismiss_reason"] = reason
     pc["dismissed_at"] = datetime.now().isoformat()
@@ -3098,7 +3098,8 @@ def pricechecks_archive():
          <td style="padding:14px 12px;text-align:right;font-size:16px;font-weight:700;font-family:'JetBrains Mono',monospace">{total_str}</td>
          <td style="padding:14px 12px;text-align:center">{f'<span style="color:#58a6ff;font-family:JetBrains Mono,monospace;font-weight:700;font-size:14px">{qn}</span>' if qn else chr(8212)}</td>
          <td style="padding:14px 12px;text-align:center"><span style="display:inline-block;padding:4px 12px;border-radius:14px;font-size:14px;font-weight:600;background:{badge_bg};color:{badge_color};white-space:nowrap">{badge_label}</span> {src_icon}</td>
-         <td style="padding:14px 12px;text-align:center;font-size:14px;color:#8b949e">{sent_elapsed}</td></tr>'''
+         <td style="padding:14px 12px;text-align:center;font-size:14px;color:#8b949e">{sent_elapsed}</td>
+         <td style="padding:6px 8px;text-align:center" onclick="event.stopPropagation()"><button onclick="quickDismiss('{p['id']}','archived')" title="Archive" style="background:none;border:none;color:#8b949e;cursor:pointer;font-size:16px;padding:4px">🗄️</button><button onclick="quickDismiss('{p['id']}','duplicate')" title="Duplicate" style="background:none;border:none;color:#8b949e;cursor:pointer;font-size:16px;padding:4px">📋</button><button onclick="quickDismiss('{p['id']}','delete')" title="Delete" style="background:none;border:none;color:#f85149;cursor:pointer;font-size:16px;padding:4px">🗑</button></td></tr>'''
 
     content = f'''
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
@@ -3135,13 +3136,21 @@ def pricechecks_archive():
           <th style="padding:14px 16px;text-align:left;font-weight:600">PC #</th><th style="padding:14px 12px;text-align:left;font-weight:600">Institution</th>
           <th style="padding:14px 12px;text-align:left;font-weight:600">Requestor</th><th style="padding:14px 12px;text-align:left;font-weight:600">Due</th><th style="padding:14px 12px;text-align:left;font-weight:600">Created</th>
           <th style="padding:14px 12px;text-align:center;font-weight:600">Items</th><th style="padding:14px 12px;text-align:right;font-weight:600">Total</th>
-          <th style="padding:14px 12px;text-align:center;font-weight:600">Quote</th><th style="padding:14px 12px;text-align:center;font-weight:600">Status</th><th style="padding:14px 12px;text-align:center;font-weight:600">Sent</th>
+          <th style="padding:14px 12px;text-align:center;font-weight:600">Quote</th><th style="padding:14px 12px;text-align:center;font-weight:600">Status</th><th style="padding:14px 12px;text-align:center;font-weight:600">Sent</th><th style="padding:6px 8px;text-align:center;font-weight:600"></th>
         </tr></thead>
         <tbody id="pc-tbody">{rows}</tbody>
       </table>
     </div>
     <script>
     function filterPCs(){{var q=document.getElementById('pc-search').value.toLowerCase();var st=document.getElementById('pc-status').value;var rows=document.querySelectorAll('#pc-tbody tr');var v=0;rows.forEach(function(r){{var ok=(!q||r.dataset.search.includes(q))&&(!st||r.dataset.status===st);r.style.display=ok?'':'none';if(ok)v++;}});document.getElementById('pc-count').textContent=v+' PCs';}}
+    function quickDismiss(pcid, action){{
+      var labels={{'archived':'Archive','duplicate':'Mark Duplicate','delete':'Delete'}};
+      if(!confirm(labels[action]+' this PC?'))return;
+      fetch('/api/pricecheck/'+pcid+'/dismiss',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{reason:action}})}})
+      .then(function(r){{return r.json()}}).then(function(d){{
+        if(d.ok){{location.reload()}}else{{alert('Error: '+(d.error||'unknown'))}}
+      }});
+    }}
     </script>'''
 
     from src.api.render import render_page
