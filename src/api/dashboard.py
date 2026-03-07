@@ -3804,6 +3804,13 @@ try:
 except Exception as _e:
     log.warning("PO tracking poller failed to start: %s", _e)
 
+# ── Start Invoice Poller (picks up QB invoice emails, enhances PDF) ─────
+try:
+    from src.agents.invoice_processor import start_invoice_poller
+    start_invoice_poller()
+except Exception as _e:
+    log.warning("Invoice poller failed to start: %s", _e)
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Force Recapture — guaranteed to load (not in exec'd module)

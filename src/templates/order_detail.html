@@ -84,6 +84,46 @@
       <span style="border-left:1px solid var(--bd);height:24px;margin:0 4px"></span>
       <button onclick="openOrderPOBuilder()" class="btn btn-s" style="font-size:16px;background:rgba(63,185,80,.1);color:#3fb950;border:1px solid rgba(63,185,80,.25)" aria-label="Create Supplier Purchase Orders in QuickBooks">💰 Create Supplier PO</button>
       <button onclick="createQBInvoice(this)" class="btn btn-s" style="font-size:16px;background:rgba(88,166,255,.1);color:#58a6ff;border:1px solid rgba(88,166,255,.25)" aria-label="Create Customer Invoice in QuickBooks">📄 QB Invoice</button>
+     </div>
+
+    {# ── Invoice Status Tracker ── #}
+    {% if order.get('qb_invoice_id') %}
+    <div class="card" style="margin-top:12px;padding:14px 20px">
+     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <div style="display:flex;align-items:center;gap:8px">
+       <span style="font-size:16px">📄</span>
+       <b style="font-size:15px">Invoice #{{ order.get('qb_invoice_number','') }}</b>
+       <span style="color:var(--tx2);font-size:14px">${{ "%.2f"|format(order.get('qb_invoice_total',0)) }}</span>
+       {% if order.get('qb_invoice_due') %}<span style="color:var(--tx2);font-size:14px">· Due: {{ order.get('qb_invoice_due','') }}</span>{% endif %}
+      </div>
+      <div style="display:flex;gap:6px;align-items:center">
+       {% set inv_st = order.get('invoice_status','created') %}
+       {% if inv_st == 'created' or inv_st == 'awaiting_email' %}
+       <span style="padding:4px 10px;border-radius:12px;font-size:13px;font-weight:600;background:rgba(210,153,34,.1);color:#d29922">⏳ Awaiting QB email</span>
+       <button onclick="pollInvoiceNow()" class="btn btn-s" style="font-size:13px;padding:4px 10px" aria-label="Check for invoice email now">🔄 Check Now</button>
+       {% elif inv_st == 'ready_to_send' %}
+       <span style="padding:4px 10px;border-radius:12px;font-size:13px;font-weight:600;background:rgba(63,185,80,.1);color:#3fb950">✅ PDF Ready</span>
+       <button onclick="sendInvoiceToCustomer(this)" class="btn btn-g" style="font-size:14px;padding:6px 16px" aria-label="Send enhanced invoice to customer">📧 Send to Customer</button>
+       {% elif inv_st == 'sent' %}
+       <span style="padding:4px 10px;border-radius:12px;font-size:13px;font-weight:600;background:rgba(63,185,80,.15);color:#3fb950">📧 Sent</span>
+       <span style="font-size:13px;color:var(--tx2)">to {{ order.get('invoice_sent_to','') }} · {{ order.get('invoice_sent_at','')[:10] }}</span>
+       {% endif %}
+       {% if order.get('invoice_pdf_enhanced') or order.get('invoice_pdf') %}
+       <a href="/api/order/{{ oid }}/download-invoice" class="btn btn-s" style="font-size:13px;padding:4px 10px" aria-label="Download invoice PDF">📥 PDF</a>
+       {% endif %}
+      </div>
+     </div>
+     <div style="display:flex;gap:4px;align-items:center;font-size:13px">
+      <span style="color:{% if inv_st in ('created','awaiting_email','ready_to_send','sent') %}#3fb950{% else %}#484f58{% endif %}">① QB Created</span>
+      <span style="color:#484f58">→</span>
+      <span style="color:{% if inv_st in ('awaiting_email','ready_to_send','sent') %}#3fb950{% else %}#484f58{% endif %}">② Emailed to us</span>
+      <span style="color:#484f58">→</span>
+      <span style="color:{% if inv_st in ('ready_to_send','sent') %}#3fb950{% else %}#484f58{% endif %}">③ UOM + PO# added</span>
+      <span style="color:#484f58">→</span>
+      <span style="color:{% if inv_st == 'sent' %}#3fb950{% else %}#484f58{% endif %}">④ Sent to customer</span>
+     </div>
+    </div>
+    {% endif %}
       <button onclick="linkQuote('{{ oid }}')" class="btn btn-s" style="font-size:16px" id="link-quote-btn" aria-label="if qn  Linked  qn  else">{% if qn %}🔗 Linked: {{ qn }}{% else %}🔗 Link Quote{% endif %}</button>
       <a href="/api/order/{{ oid }}/reply-all" class="btn btn-s" style="font-size:16px">📧 Draft PO Confirmation</a>
      </div>
@@ -658,26 +698,48 @@
     }
 
     function createQBInvoice(btn){
-     if(!confirm('Create & Send Invoice via QuickBooks?\n\n'
-       +'QB will handle: invoice #, date, tax, terms, bill-to, formatting\n'
-       +'App sends: customer, items (MFG# + desc + UOM), PO #\n'
-       +'QB emails the invoice to the customer automatically.\n\n'
+     if(!confirm('Create Invoice in QuickBooks?\n\n'
+       +'QB handles: invoice #, date, tax, terms, formatting\n'
+       +'App sends: customer, items (MFG# + desc), PO ref\n'
+       +'QB will email the invoice PDF to your inbox.\n'
+       +'Then app adds UOM + PO# and you send to customer.\n\n'
        +'Proceed?')) return;
-     btn.disabled=true;btn.textContent='⏳ Creating & sending...';
+     btn.disabled=true;btn.textContent='⏳ Creating...';
      fetch('/api/order/'+{{ oid|tojson }}+'/create-qb-invoice',{
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({send_email:true})
      }).then(function(r){return r.json()}).then(function(d){
       btn.disabled=false;btn.textContent='📄 QB Invoice';
       if(d.ok){
-       var msg='✅ Invoice #'+d.invoice_number+' created!\n';
-       msg+='Total: $'+Number(d.total||0).toFixed(2)+'\n';
-       msg+='Due: '+(d.due_date||'per terms')+'\n';
-       msg+=(d.email_sent?'📧 Sent to customer via QB':'⚠️ Created but email not sent — check QB');
-       alert(msg);
+       alert('✅ Invoice #'+d.invoice_number+' created!\n'
+         +'Total: $'+Number(d.total||0).toFixed(2)+'\n'
+         +'QB is emailing the PDF to '+d.emailed_to+'\n\n'
+         +'Next: app will auto-detect it, add UOM + PO#,\n'
+         +'then you click "Send to Customer".');
        location.reload();
       } else alert('❌ '+(d.error||'Failed'));
      }).catch(function(e){btn.disabled=false;btn.textContent='📄 QB Invoice';alert('Error: '+e.message)});
+    }
+
+    function pollInvoiceNow(){
+     fetch('/api/invoices/poll-now',{method:'POST'}).then(function(r){return r.json()}).then(function(d){
+      if(d.ok && d.processed>0){alert('✅ Found '+d.processed+' invoice(s). Reloading...');location.reload();}
+      else alert('No new QB invoice emails found yet. QB may take a few minutes to send.');
+     });
+    }
+
+    function sendInvoiceToCustomer(btn){
+     var email = prompt('Customer email address:');
+     if(!email) return;
+     btn.disabled=true;btn.textContent='⏳ Sending...';
+     fetch('/api/order/'+{{ oid|tojson }}+'/send-invoice',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({to_email:email})
+     }).then(function(r){return r.json()}).then(function(d){
+      btn.disabled=false;btn.textContent='📧 Send to Customer';
+      if(d.ok){alert('✅ Invoice sent to '+d.sent_to);location.reload();}
+      else alert('❌ '+(d.error||'Failed'));
+     }).catch(function(e){btn.disabled=false;btn.textContent='📧 Send to Customer'});
     }
 
     </script>

@@ -1865,14 +1865,15 @@ def api_order_create_qb_po(oid):
 @bp.route("/api/order/<oid>/create-qb-invoice", methods=["POST"])
 @auth_required
 def api_order_create_qb_invoice(oid):
-    """Create + email QB invoice. Let QB handle formatting, tax, terms, numbering.
+    """Create QB invoice and have QB email it to sales@reytechinc.com.
     
-    Flow: Create in QB → QB emails to customer → store reference on order.
+    Flow: Create in QB → QB emails PDF to us → we poll, enhance, forward.
+    QB does NOT email the customer. We do, after adding UOM + PO#.
     """
     try:
         from src.agents.quickbooks_agent import (
             is_configured, create_invoice, find_customer, create_customer,
-            send_invoice_email, get_invoice_pdf,
+            send_invoice_email,
         )
         if not is_configured():
             return jsonify({"ok": False, "error": "QuickBooks not configured"})
@@ -1882,7 +1883,6 @@ def api_order_create_qb_invoice(oid):
         if not order:
             return jsonify({"ok": False, "error": "Order not found"})
 
-        data = request.get_json(silent=True) or {}
         institution = order.get("institution", "")
 
         # Find or create customer in QB
@@ -1891,62 +1891,60 @@ def api_order_create_qb_invoice(oid):
             customer = create_customer(name=institution)
             if not customer:
                 return jsonify({"ok": False,
-                    "error": f"Customer '{institution}' not in QB and couldn't be created. Add them in QB first."})
+                    "error": f"Customer '{institution}' not in QB. Add them in QuickBooks first."})
 
-        # Build line items — bake MFG# + UOM into description
+        # Build line items — MFG# baked into description
         inv_items = []
         for it in order.get("line_items", []):
             price = it.get("unit_price") or it.get("sell_price") or it.get("price") or 0
             price = float(price) if price else 0
             if price <= 0:
                 continue
+            mfg = it.get("part_number", "") or it.get("mfg_number", "") or ""
+            desc = it.get("description", "") or ""
+            if mfg and not desc.startswith(mfg):
+                desc = f"{mfg}\n{desc}"
             inv_items.append({
-                "description": it.get("description", ""),
-                "mfg_number": it.get("part_number", "") or it.get("mfg_number", ""),
+                "description": desc,
                 "qty": int(it.get("qty", 1)),
                 "unit_price": price,
                 "uom": it.get("uom", "EA") or "EA",
+                "mfg_number": mfg,
             })
 
         if not inv_items:
             return jsonify({"ok": False, "error": "No items with sell prices"})
 
-        # Create invoice — QB handles #, date, tax, terms, bill-to
+        # Create invoice in QB
         result = create_invoice(
             customer_id=customer["Id"],
             items=inv_items,
             po_number=order.get("po_number", ""),
-            memo=data.get("memo", ""),
         )
         if not result:
             return jsonify({"ok": False, "error": "QB invoice creation failed"})
 
-        # Store on order
+        # Have QB email the invoice to sales@reytechinc.com (NOT customer)
+        our_email = os.environ.get("GMAIL_ADDRESS", "sales@reytechinc.com")
+        email_sent = send_invoice_email(result["id"], to_email=our_email)
+
+        # Store on order — items with UOM for later PDF enhancement
         order["qb_invoice_id"] = result["id"]
         order["qb_invoice_number"] = result.get("doc_number", "")
         order["qb_invoice_total"] = result.get("total", 0)
         order["qb_invoice_due"] = result.get("due_date", "")
         order["invoice_status"] = "created"
+        order["invoice_items_uom"] = [{
+            "mfg": it.get("mfg_number", ""),
+            "uom": it.get("uom", "EA"),
+            "qty": it.get("qty", 1),
+        } for it in inv_items]
+        order["invoice_po_number"] = order.get("po_number", "")
 
-        # Email the invoice via QB
-        send_email = data.get("send_email", True)
-        customer_email = data.get("customer_email", "")
-        email_sent = False
-        if send_email:
-            email_sent = send_invoice_email(result["id"], to_email=customer_email)
-            if email_sent:
-                order["invoice_status"] = "sent"
-
-        # Download PDF for local reference
-        try:
-            pdf_bytes = get_invoice_pdf(result["id"])
-            if pdf_bytes:
-                pdf_path = os.path.join(DATA_DIR, f"invoice_{result.get('doc_number', oid)}.pdf")
-                with open(pdf_path, "wb") as f:
-                    f.write(pdf_bytes)
-                order["invoice_pdf"] = pdf_path
-        except Exception as pe:
-            log.debug("Invoice PDF download: %s", pe)
+        if email_sent:
+            order["invoice_status"] = "awaiting_email"
+            log.info("QB Invoice #%s created, emailed to %s. Awaiting pickup.",
+                     result.get("doc_number"), our_email)
 
         _save_orders(orders)
 
@@ -1956,9 +1954,97 @@ def api_order_create_qb_invoice(oid):
             "invoice_number": result.get("doc_number", ""),
             "total": result.get("total", 0),
             "due_date": result.get("due_date", ""),
-            "email_sent": email_sent,
+            "emailed_to": our_email if email_sent else None,
             "status": order["invoice_status"],
+            "next_step": "Invoice will arrive in your inbox. App will auto-detect it, add UOM + PO#, then you can send to customer.",
         })
     except Exception as e:
         log.error("QB invoice error: %s", e, exc_info=True)
         return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/order/<oid>/send-invoice", methods=["POST"])
+@auth_required
+def api_order_send_invoice(oid):
+    """Send the enhanced invoice (with UOM + PO#) to the customer.
+    Called after the invoice PDF has been received and enhanced."""
+    try:
+        orders = _load_orders()
+        order = orders.get(oid)
+        if not order:
+            return jsonify({"ok": False, "error": "Order not found"})
+
+        invoice_pdf = order.get("invoice_pdf_enhanced") or order.get("invoice_pdf")
+        if not invoice_pdf or not os.path.exists(invoice_pdf):
+            return jsonify({"ok": False, "error": "Enhanced invoice PDF not found. Wait for QB email to arrive."})
+
+        data = request.get_json(silent=True) or {}
+        to_email = data.get("to_email", "")
+        if not to_email:
+            return jsonify({"ok": False, "error": "Provide customer email address"})
+
+        # Send via existing email sender
+        from src.agents.email_poller import EmailSender
+        sender = EmailSender()
+        inv_num = order.get("qb_invoice_number", oid)
+        po_num = order.get("po_number", "")
+        institution = order.get("institution", "")
+
+        subject = f"Invoice #{inv_num} — Reytech Inc."
+        if po_num:
+            subject += f" (PO: {po_num})"
+
+        body = f"Please find attached Invoice #{inv_num} for {institution}.\n\n"
+        if po_num:
+            body += f"Reference PO: {po_num}\n"
+        body += f"Total: ${order.get('qb_invoice_total', 0):,.2f}\n"
+        if order.get("qb_invoice_due"):
+            body += f"Due: {order['qb_invoice_due']}\n"
+        body += "\nThank you for your business.\n\nReytech Inc.\n(949) 229-1575\nsales@reytechinc.com"
+
+        result = sender.send_email(
+            to=to_email,
+            subject=subject,
+            body=body,
+            attachments=[invoice_pdf],
+        )
+
+        if result.get("ok"):
+            order["invoice_status"] = "sent"
+            order["invoice_sent_to"] = to_email
+            order["invoice_sent_at"] = __import__("datetime").datetime.now().isoformat()
+            _save_orders(orders)
+            return jsonify({"ok": True, "sent_to": to_email, "status": "sent"})
+        return jsonify({"ok": False, "error": result.get("error", "Email send failed")})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/invoices/poll-now", methods=["POST"])
+@auth_required
+def api_invoices_poll_now():
+    """Manually trigger QB invoice email poll."""
+    try:
+        from src.agents.invoice_processor import poll_for_qb_invoices
+        result = poll_for_qb_invoices()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/order/<oid>/download-invoice")
+@auth_required
+def api_order_download_invoice(oid):
+    """Download the enhanced invoice PDF."""
+    orders = _load_orders()
+    order = orders.get(oid)
+    if not order:
+        return jsonify({"ok": False, "error": "Order not found"})
+
+    pdf_path = order.get("invoice_pdf_enhanced") or order.get("invoice_pdf") or order.get("invoice_pdf_raw")
+    if pdf_path and os.path.exists(pdf_path):
+        inv_num = order.get("qb_invoice_number", oid)
+        return send_file(pdf_path, as_attachment=True,
+                        download_name=f"Invoice_{inv_num}.pdf")
+
+    return jsonify({"ok": False, "error": "Invoice PDF not found. Check if QB email has arrived."})
