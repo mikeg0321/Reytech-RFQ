@@ -81,6 +81,7 @@
   <button class="btn btn-sm btn-p" data-testid="rfq-scprs-lookup" onclick="lookupScprs()" style="margin-left:8px" aria-label="SCPRS Lookup">🔍 SCPRS Lookup</button>
   <button class="btn btn-sm btn-o" data-testid="rfq-amazon-lookup" onclick="researchPrices()" style="margin-left:4px" aria-label="Amazon Lookup">🔬 Amazon Lookup</button>
   <button class="btn btn-sm" style="background:rgba(167,139,250,.15);color:#a78bfa;border:1px solid rgba(167,139,250,.3);margin-left:4px" onclick="runAutoLookup()" aria-label="Full Auto-Lookup">🤖 Full Auto-Lookup</button>
+  <button class="btn btn-sm" style="background:rgba(63,185,80,.15);color:#3fb950;border:1px solid rgba(63,185,80,.3);margin-left:4px" onclick="relinkFromPC(this)" aria-label="Pull prices from matching Price Check">🔗 Link from PC</button>
   <button class="btn btn-sm" style="background:rgba(52,211,153,.15);color:#3fb950;border:1px solid rgba(52,211,153,.3);margin-left:4px" onclick="applyRecommendations()" aria-label="Apply Recommendations">⚡ Apply Recommendations</button>
  </div>
  <!-- E3: Auto-lookup progress bar -->
@@ -813,6 +814,25 @@ function printPreview(){
 }
 
 // E3: Full Auto-Lookup with polling progress
+function relinkFromPC(btn){
+ btn.disabled=true;btn.textContent='⏳ Searching PCs...';
+ fetch('/api/rfq/'+RID+'/relink-pc',{method:'POST'})
+ .then(r=>r.json()).then(d=>{
+  btn.disabled=false;btn.textContent='🔗 Link from PC';
+  if(d.ok){
+   var msg='✅ Linked to PC #'+d.linked_pc+'\n';
+   msg+=d.items_priced+'/'+d.items_total+' items priced from PC\n';
+   msg+='Match: '+d.match_reason+'\n';
+   if(d.diff && d.diff.added && d.diff.added.length) msg+='\n⚠️ New items (not in PC): '+d.diff.added.length;
+   if(d.diff && d.diff.qty_changed && d.diff.qty_changed.length) msg+='\n⚠️ Qty changes: '+d.diff.qty_changed.length;
+   alert(msg);
+   location.reload();
+  } else {
+   alert('❌ '+(d.error||'No match')+'\n\nTry 🤖 Full Auto-Lookup instead.');
+  }
+ }).catch(e=>{btn.disabled=false;btn.textContent='🔗 Link from PC';alert('Error: '+e.message)});
+}
+
 function runAutoLookup(){
  var prog=document.getElementById('lookup-progress');
  var steps=document.getElementById('lookup-steps');

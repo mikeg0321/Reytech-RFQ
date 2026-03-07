@@ -1931,3 +1931,115 @@ def rfq_retry_auto_price(rid):
         "errors": errors,
         "message": f"Priced {found}/{len(items)} RFQ items" + (f" (errors: {errors})" if errors else ""),
     })
+
+
+@bp.route("/api/rfq/<rid>/relink-pc", methods=["POST", "GET"])
+@auth_required
+def rfq_relink_pc(rid):
+    """Re-run PC linkage for an existing RFQ. 
+    Finds matching PC by sol#/requestor/items, ports all prices."""
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"})
+
+    # Run the existing linkage function
+    try:
+        from src.api.dashboard import _link_rfq_to_pc
+        trace = []
+        linked = _link_rfq_to_pc(r, trace)
+        
+        if linked:
+            # Save
+            rfqs[rid] = r
+            save_rfqs(rfqs)
+            
+            # Count what was ported
+            items = r.get("line_items", [])
+            priced = sum(1 for it in items if it.get("supplier_cost") or it.get("price_per_unit") or it.get("scprs_last_price"))
+            diff = r.get("pc_diff", {})
+            
+            return jsonify({
+                "ok": True,
+                "linked_pc": r.get("linked_pc_number", ""),
+                "linked_pc_id": r.get("linked_pc_id", ""),
+                "match_reason": r.get("linked_pc_match_reason", ""),
+                "items_priced": priced,
+                "items_total": len(items),
+                "diff": diff,
+                "trace": trace,
+                "message": f"Linked to PC #{r.get('linked_pc_number','')} — {priced}/{len(items)} items priced",
+            })
+        else:
+            # No match — show why
+            from src.api.dashboard import _load_price_checks
+            pcs = _load_price_checks()
+            pc_summary = []
+            for pid, pc in list(pcs.items())[:10]:
+                pc_summary.append({
+                    "id": pid[:20], "pc_number": pc.get("pc_number", ""),
+                    "institution": (pc.get("institution", "") or "")[:30],
+                    "items": len(pc.get("items", [])),
+                    "status": pc.get("status", ""),
+                })
+            
+            return jsonify({
+                "ok": False,
+                "error": "No matching PC found",
+                "rfq_sol": r.get("solicitation_number", ""),
+                "rfq_sender": r.get("email_sender", ""),
+                "rfq_items": len(r.get("line_items", [])),
+                "rfq_item_descs": [(it.get("description", "") or "")[:50] for it in r.get("line_items", [])[:5]],
+                "available_pcs": pc_summary,
+                "trace": trace,
+            })
+    except Exception as e:
+        import traceback
+        return jsonify({"ok": False, "error": str(e), "traceback": traceback.format_exc()[:500]})
+
+
+@bp.route("/api/rfqs/relink-all", methods=["POST", "GET"])
+@auth_required
+def rfqs_relink_all():
+    """Re-run PC linkage for ALL unlinked RFQs. Fixes historical gaps."""
+    rfqs = load_rfqs()
+    from src.api.dashboard import _link_rfq_to_pc
+    
+    linked = 0
+    already = 0
+    failed = 0
+    details = []
+    
+    for rid, r in rfqs.items():
+        if r.get("linked_pc_id"):
+            already += 1
+            continue
+        if r.get("status") in ("dismissed", "cancelled"):
+            continue
+        if not r.get("line_items"):
+            continue
+        
+        trace = []
+        try:
+            ok = _link_rfq_to_pc(r, trace)
+            if ok:
+                linked += 1
+                details.append(f"✅ {rid[:20]} → PC #{r.get('linked_pc_number','')}")
+            else:
+                failed += 1
+        except Exception as e:
+            failed += 1
+            details.append(f"❌ {rid[:20]}: {e}")
+    
+    if linked > 0:
+        save_rfqs(rfqs)
+    
+    return jsonify({
+        "ok": True,
+        "linked": linked,
+        "already_linked": already,
+        "no_match": failed,
+        "total_rfqs": len(rfqs),
+        "details": details[:20],
+        "message": f"Linked {linked} RFQs to PCs ({already} already linked, {failed} no match)",
+    })
