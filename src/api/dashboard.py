@@ -680,37 +680,51 @@ def _load_price_checks():
             ).fetchall()
             for r in rows:
                 pc_id = r["id"]
-                # Try full PC blob first (has ALL fields)
+                # Start from pc_data blob (has all extra fields like parsed, ship_to, etc.)
+                pc = None
                 pc_blob = r.get("pc_data") or ""
                 if pc_blob and pc_blob != "{}":
                     try:
                         pc = json.loads(pc_blob)
-                        pc["id"] = pc_id  # ensure ID consistency
-                        data[pc_id] = pc
-                        continue
                     except Exception:
-                        pass
-                # Fallback: reconstruct from individual columns
-                items = []
+                        pc = None
+                
+                # ALWAYS use items column as authoritative (it gets updated independently)
+                items_from_col = []
                 try:
-                    items = json.loads(r["items"] or "[]")
+                    items_from_col = json.loads(r["items"] or "[]")
                 except Exception:
                     pass
-                data[pc_id] = {
-                    "id": pc_id,
-                    "pc_number": r.get("pc_number") or r.get("quote_number") or pc_id,
-                    "institution": r.get("institution") or r.get("agency") or "",
-                    "requestor": r.get("requestor") or "",
-                    "items": items,
-                    "source_pdf": r.get("source_file") or "",
-                    "status": r.get("status") or "parsed",
-                    "created_at": r.get("created_at") or "",
-                    "reytech_quote_number": r.get("quote_number") or "",
-                    "email_uid": r.get("email_uid") or "",
-                    "email_subject": r.get("email_subject") or "",
-                    "due_date": r.get("due_date") or "",
-                    "source": "db_columns",
-                }
+                
+                if pc:
+                    # Blob exists — use it BUT override items from column if column is fresher
+                    if items_from_col:
+                        # Check if column items have pricing that blob items don't
+                        col_has_prices = any(it.get("pricing", {}).get("recommended_price") for it in items_from_col if isinstance(it, dict))
+                        blob_has_prices = any(it.get("pricing", {}).get("recommended_price") for it in pc.get("items", []) if isinstance(it, dict))
+                        if col_has_prices and not blob_has_prices:
+                            pc["items"] = items_from_col
+                        elif len(items_from_col) > 0 and len(pc.get("items", [])) == 0:
+                            pc["items"] = items_from_col
+                    pc["id"] = pc_id
+                    data[pc_id] = pc
+                else:
+                    # No blob — reconstruct from columns
+                    data[pc_id] = {
+                        "id": pc_id,
+                        "pc_number": r.get("pc_number") or r.get("quote_number") or pc_id,
+                        "institution": r.get("institution") or r.get("agency") or "",
+                        "requestor": r.get("requestor") or "",
+                        "items": items_from_col,
+                        "source_pdf": r.get("source_file") or "",
+                        "status": r.get("status") or "parsed",
+                        "created_at": r.get("created_at") or "",
+                        "reytech_quote_number": r.get("quote_number") or "",
+                        "email_uid": r.get("email_uid") or "",
+                        "email_subject": r.get("email_subject") or "",
+                        "due_date": r.get("due_date") or "",
+                        "source": "db_columns",
+                    }
     except Exception as e:
         log.warning("DB load failed, falling back to JSON: %s", e)
         # Fallback to JSON only if DB is completely unavailable
