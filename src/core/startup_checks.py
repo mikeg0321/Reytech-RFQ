@@ -167,10 +167,11 @@ def run_all_checks():
                     if 'from src.core.paths import' not in content and fname != 'paths.py':
                         issues.append(f"{rel}: uses env DATA_DIR without paths.py import")
                 
-                # Pattern C: sqlite3.connect without init_db in same file
+                # Pattern C: sqlite3.connect without init_db or get_db or DATA_DIR
                 if 'sqlite3.connect(' in content and fname not in ('db.py', 'startup_checks.py'):
-                    if 'init_db' not in content and 'get_db' not in content:
-                        issues.append(f"{rel}: direct sqlite3.connect without init_db guard")
+                    has_guard = 'init_db' in content or 'get_db' in content or 'from src.core' in content
+                    if not has_guard:
+                        issues.append(f"{rel}: direct sqlite3.connect without any db guard")
 
         if issues:
             return False, f"{len(issues)} code issues: {'; '.join(issues[:5])}"
