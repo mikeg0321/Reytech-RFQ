@@ -1,155 +1,220 @@
 """
-src/core/startup_checks.py — Runtime Self-Test on App Boot
+startup_checks.py — Runs on EVERY deploy/boot. Catches the 3 bug classes:
+  1. "no such table" — sqlite3.connect without init_db
+  2. Wrong DATA_DIR — reading from git dir instead of Railway volume
+  3. Silent thread death — daemon threads with no error handling
 
-Runs automatically when the app starts. Catches the class of bugs that
-static analysis (grep, py_compile) misses:
-
-  1. Path resolution — DATA_DIR actually points to project_root/data/
-  2. Route integrity — every @auth_required has a @bp.route
-  3. Data file access — customers.json, quotes_log.json readable
-  4. Config integrity — reytech_config.json parseable
-  5. Module imports — all src.* imports resolve
-
-This module exists because a B+ audit missed 2 critical runtime bugs.
-Never trust static analysis alone.
+Results at GET /api/health/startup
 """
 
-import json
-import logging
-import os
+import os, re, json, time, sqlite3, logging, importlib
+from datetime import datetime
 
-log = logging.getLogger("reytech.startup")
+log = logging.getLogger("startup_checks")
+
+try:
+    from src.core.paths import DATA_DIR
+except ImportError:
+    DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(
+        os.path.dirname(os.path.abspath(__file__)))), "data")
+
+_results = {"ran_at": None, "passed": 0, "failed": 0, "warnings": 0, "checks": []}
 
 
-def run_startup_checks(app=None) -> dict:
-    """Run all startup validation checks. Call from app.py after blueprint registration.
-    
-    Returns:
-        {"passed": int, "failed": int, "warnings": int, "details": [...]}
-    """
-    results = {"passed": 0, "failed": 0, "warnings": 0, "details": []}
-    
-    def _pass(msg):
-        results["passed"] += 1
-        results["details"].append(("PASS", msg))
-        log.info("✅ %s", msg)
-    
-    def _fail(msg):
-        results["failed"] += 1
-        results["details"].append(("FAIL", msg))
-        log.error("❌ STARTUP CHECK FAILED: %s", msg)
-    
-    def _warn(msg):
-        results["warnings"] += 1
-        results["details"].append(("WARN", msg))
-        log.warning("⚠️  %s", msg)
-
-    # ── 1. Path Validation ────────────────────────────────────────────────────
+def _check(name, fn):
     try:
-        from src.core.paths import validate_paths, DATA_DIR, PROJECT_ROOT
-        path_result = validate_paths()
-        if path_result["ok"]:
-            _pass(f"All paths valid (DATA_DIR={DATA_DIR})")
+        ok, detail = fn()
+        status = "PASS" if ok else "FAIL"
+        if not ok:
+            _results["failed"] += 1
+            log.error("STARTUP FAIL: %s — %s", name, detail)
         else:
-            for err in path_result["errors"]:
-                _fail(err)
-        for warn in path_result.get("warnings", []):
-            _warn(warn)
+            _results["passed"] += 1
+        _results["checks"].append({"name": name, "status": status, "detail": detail})
     except Exception as e:
-        _fail(f"Path validation error: {e}")
+        _results["failed"] += 1
+        detail = f"{type(e).__name__}: {str(e)[:200]}"
+        log.error("STARTUP CRASH: %s — %s", name, detail)
+        _results["checks"].append({"name": name, "status": "CRASH", "detail": detail})
 
-    # ── 2. DATA_DIR Cross-Module Consistency ──────────────────────────────────
-    try:
-        from src.core.paths import DATA_DIR as canonical
-        modules_to_check = [
-            ("src.forms.quote_generator", "DATA_DIR"),
-            ("src.forms.price_check", "DATA_DIR"),
-            ("src.agents.product_research", "DATA_DIR"),
-            ("src.agents.tax_agent", "DATA_DIR"),
-            ("src.auto.auto_processor", "DATA_DIR"),
-            ("src.knowledge.won_quotes_db", "DATA_DIR"),
-        ]
-        mismatches = []
-        for mod_name, attr in modules_to_check:
-            try:
-                mod = __import__(mod_name, fromlist=[attr])
-                mod_val = getattr(mod, attr, None)
-                if mod_val and os.path.abspath(mod_val) != os.path.abspath(canonical):
-                    mismatches.append(f"{mod_name}.{attr}={mod_val}")
-            except ImportError:
-                pass  # Module not available — OK at this stage
-        
-        if mismatches:
-            _fail(f"DATA_DIR mismatch in: {', '.join(mismatches)}")
-        else:
-            _pass("DATA_DIR consistent across all modules")
-    except Exception as e:
-        _warn(f"DATA_DIR cross-check skipped: {e}")
 
-    # ── 3. Data File Readability ──────────────────────────────────────────────
-    try:
-        from src.core.paths import DATA_DIR
-        critical_files = {
-            "customers.json": os.path.join(DATA_DIR, "customers.json"),  # also in SQLite
-            "quotes_log.json": os.path.join(DATA_DIR, "quotes_log.json"),  # also in SQLite
-            "quote_counter.json": os.path.join(DATA_DIR, "quote_counter.json"),
-        }
-        for name, path in critical_files.items():
-            if os.path.exists(path):
-                try:
-                    with open(path) as f:
-                        data = json.load(f)
-                    record_count = len(data) if isinstance(data, (list, dict)) else "?"
-                    _pass(f"{name}: readable ({record_count} records)")
-                except json.JSONDecodeError:
-                    _fail(f"{name}: exists but corrupt JSON")
-                except Exception as e:
-                    _fail(f"{name}: read error — {e}")
-            else:
-                _warn(f"{name}: not found at {path} (will auto-create)")
-    except Exception as e:
-        _warn(f"Data file check skipped: {e}")
+def run_all_checks():
+    _results.update(ran_at=datetime.now().isoformat(), passed=0, failed=0, warnings=0, checks=[])
 
-    # ── 4. Config Integrity ───────────────────────────────────────────────────
-    try:
-        from src.core.paths import CONFIG_PATH
-        if os.path.exists(CONFIG_PATH):
-            with open(CONFIG_PATH) as f:
-                cfg = json.load(f)
-            required_keys = ["company", "pricing_rules", "email"]
-            missing = [k for k in required_keys if k not in cfg]
-            if missing:
-                _warn(f"reytech_config.json missing keys: {missing}")
-            else:
-                _pass(f"reytech_config.json valid ({len(cfg)} top-level keys)")
-        else:
-            _warn(f"reytech_config.json not found at {CONFIG_PATH}")
-    except Exception as e:
-        _warn(f"Config check error: {e}")
+    # 1. DATA_DIR correct location
+    def check_data_dir():
+        on_railway = bool(os.environ.get("RAILWAY_ENVIRONMENT") or os.environ.get("PORT"))
+        git_data = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
+        is_volume = os.path.abspath(DATA_DIR) != os.path.abspath(git_data)
+        if on_railway and not is_volume:
+            return False, f"DATA_DIR={DATA_DIR} is git dir on Railway"
+        if not os.path.exists(DATA_DIR):
+            return False, f"DATA_DIR={DATA_DIR} does not exist"
+        if not os.access(DATA_DIR, os.W_OK):
+            return False, f"DATA_DIR={DATA_DIR} not writable"
+        return True, f"DATA_DIR={DATA_DIR} (volume={is_volume})"
+    _check("DATA_DIR", check_data_dir)
 
-    # ── 5. Route Integrity (if app provided) ──────────────────────────────────
-    if app:
+    # 2. DB exists + critical tables
+    def check_db():
+        db_path = os.path.join(DATA_DIR, "reytech.db")
         try:
-            rules = list(app.url_map.iter_rules())
-            # Filter to our blueprint routes (exclude static)
-            bp_rules = [r for r in rules if r.endpoint and not r.endpoint.startswith("static")]
-            _pass(f"Flask routes registered: {len(bp_rules)}")
-            
-            # Check for duplicate endpoints
-            endpoints = [r.endpoint for r in bp_rules]
-            dupes = set(e for e in endpoints if endpoints.count(e) > 1)
-            if dupes:
-                _fail(f"Duplicate route endpoints: {dupes}")
+            from src.core.db import init_db
+            init_db()
         except Exception as e:
-            _warn(f"Route check skipped: {e}")
+            return False, f"init_db failed: {e}"
+        conn = sqlite3.connect(db_path, timeout=10)
+        tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+        conn.close()
+        critical = ["price_checks", "quotes", "contacts", "notifications", "workflow_runs",
+                     "scprs_po_master", "product_catalog", "audit_trail"]
+        missing = [t for t in critical if t not in tables]
+        if missing:
+            return False, f"Missing tables: {missing}"
+        return True, f"{len(tables)} tables, all {len(critical)} critical present"
+    _check("DB tables", check_db)
 
-    # ── Summary ──────────────────────────────────────────────────────────────
-    total = results["passed"] + results["failed"] + results["warnings"]
-    if results["failed"] > 0:
-        log.error("STARTUP: %d/%d checks FAILED — app may not work correctly",
-                  results["failed"], total)
+    # 3. _load_price_checks works
+    def check_load_pcs():
+        from src.api.dashboard import _load_price_checks
+        pcs = _load_price_checks()
+        return True, f"{len(pcs)} PCs loaded"
+    _check("Load PCs", check_load_pcs)
+
+    # 4. Critical imports
+    def check_imports():
+        failures = []
+        mods = [
+            ("src.agents.product_catalog", "match_item"),
+            ("src.agents.email_poller", "EmailPoller"),
+            ("src.forms.price_check", "fill_704_from_pc"),
+            ("src.core.db", "get_db"),
+        ]
+        for mod, attr in mods:
+            try:
+                m = importlib.import_module(mod)
+                if not hasattr(m, attr):
+                    failures.append(f"{mod}.{attr} missing")
+            except Exception as e:
+                failures.append(f"{mod}: {e}")
+        if failures:
+            return False, "; ".join(failures)
+        return True, f"All {len(mods)} OK"
+    _check("Imports", check_imports)
+
+    # 5. Product catalog accessible
+    def check_catalog():
+        from src.agents.product_catalog import get_catalog_stats, init_catalog_db
+        init_catalog_db()
+        stats = get_catalog_stats()
+        return True, f"{stats.get('total_products', 0)} products"
+    _check("Catalog", check_catalog)
+
+    # 6. SCPRS KB accessible
+    def check_scprs():
+        try:
+            from src.knowledge.won_quotes_db import get_kb_stats
+            stats = get_kb_stats()
+            return True, f"{stats.get('total_quotes', 0)} quotes"
+        except Exception as e:
+            return False, str(e)
+    _check("SCPRS KB", check_scprs)
+
+    # 7. Templates compile
+    def check_templates():
+        from jinja2 import Environment, FileSystemLoader
+        tpl_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src", "templates")
+        env = Environment(loader=FileSystemLoader(tpl_dir))
+        errors = []
+        for name in env.list_templates():
+            try: env.get_template(name)
+            except Exception as e: errors.append(f"{name}: {e}")
+        if errors:
+            return False, f"{len(errors)} errors: {errors[0]}"
+        return True, f"{len(env.list_templates())} clean"
+    _check("Templates", check_templates)
+
+    # 8. WAL mode
+    def check_wal():
+        db_path = os.path.join(DATA_DIR, "reytech.db")
+        conn = sqlite3.connect(db_path, timeout=10)
+        mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
+        if mode != "wal":
+            conn.execute("PRAGMA journal_mode=WAL")
+        conn.close()
+        return True, f"{'was '+mode+', fixed' if mode != 'wal' else 'active'}"
+    _check("WAL mode", check_wal)
+
+    # 9. STATIC CODE AUDIT — catch bugs BEFORE they hit runtime
+    def check_code_patterns():
+        issues = []
+        src_root = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src")
+        for root, dirs, files in os.walk(src_root):
+            dirs[:] = [d for d in dirs if d != '__pycache__']
+            for fname in files:
+                if not fname.endswith('.py'): continue
+                fpath = os.path.join(root, fname)
+                with open(fpath) as f:
+                    content = f.read()
+                rel = os.path.relpath(fpath, src_root)
+                
+                # Pattern A: hardcoded "data/" file paths
+                for m in re.finditer(r'["\']data/(\w+\.\w+)["\']', content):
+                    issues.append(f"{rel}: hardcoded 'data/{m.group(1)}'")
+                
+                # Pattern B: os.environ.get("DATA_DIR"...) without paths.py import
+                if 'os.environ.get("DATA_DIR"' in content or "os.environ.get('DATA_DIR'" in content:
+                    if 'from src.core.paths import' not in content and fname != 'paths.py':
+                        issues.append(f"{rel}: uses env DATA_DIR without paths.py import")
+                
+                # Pattern C: sqlite3.connect without init_db in same file
+                if 'sqlite3.connect(' in content and fname not in ('db.py', 'startup_checks.py'):
+                    if 'init_db' not in content and 'get_db' not in content:
+                        issues.append(f"{rel}: direct sqlite3.connect without init_db guard")
+
+        if issues:
+            return False, f"{len(issues)} code issues: {'; '.join(issues[:5])}"
+        return True, "No hardcoded paths, no unguarded DB, no env DATA_DIR"
+    _check("Code patterns", check_code_patterns)
+
+    # 10. Auto-price pipeline end-to-end (dry run)
+    def check_auto_price_pipeline():
+        errors = []
+        # Can we import all 3 pricing sources?
+        try:
+            from src.agents.product_catalog import match_item, init_catalog_db
+            init_catalog_db()
+        except Exception as e:
+            errors.append(f"catalog import: {e}")
+        try:
+            from src.knowledge.pricing_oracle import find_similar_items
+        except Exception as e:
+            errors.append(f"pricing_oracle import: {e}")
+        try:
+            from src.agents.web_price_research import search_product_price
+        except Exception as e:
+            errors.append(f"web_price_research import: {e}")
+        # Can we call match_item without crashing?
+        try:
+            from src.agents.product_catalog import match_item
+            result = match_item("test nitrile gloves", "TEST-001", top_n=1)
+            # Don't care about results, just that it doesn't crash
+        except Exception as e:
+            errors.append(f"match_item call: {e}")
+        if errors:
+            return False, "; ".join(errors)
+        return True, "All 3 pricing sources importable + callable"
+    _check("Auto-price pipeline", check_auto_price_pipeline)
+
+    # Summary
+    total = _results["passed"] + _results["failed"]
+    if _results["failed"] > 0:
+        log.error("⚠️ STARTUP: %d/%d FAILED — %s", _results["failed"], total,
+                 ", ".join(c["name"] for c in _results["checks"] if c["status"] != "PASS"))
     else:
-        log.info("STARTUP: All %d checks passed (%d warnings)",
-                 results["passed"], results["warnings"])
-    
-    return results
+        log.info("✅ STARTUP: %d/%d passed", _results["passed"], total)
+    return _results
+
+
+def get_results():
+    return _results

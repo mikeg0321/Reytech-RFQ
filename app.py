@@ -223,6 +223,20 @@ def create_app():
 
     elapsed = time.time() - t0
     print(f"[BOOT] create_app() complete ✅ ({elapsed:.1f}s)", flush=True)
+
+    # ── Run startup health checks (background, non-blocking) ──
+    try:
+        from src.core.startup_checks import run_all_checks, get_results
+        import threading as _thr
+        _thr.Thread(target=run_all_checks, daemon=True, name="startup-checks").start()
+
+        @app.route("/api/health/startup")
+        def _startup_health():
+            r = get_results()
+            return r, 200 if r.get("failed", 0) == 0 else 503
+    except Exception as e:
+        logging.getLogger("reytech").warning("Startup checks init: %s", e)
+
     return app
 
 
