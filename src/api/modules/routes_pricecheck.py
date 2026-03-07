@@ -6011,3 +6011,79 @@ def qa_email_pipeline_page():
 
     from src.api.render import render_page
     return render_page("generic.html", active_page="Intel", page_title="Email Pipeline QA", content=content)
+
+
+@bp.route("/api/diag/pc/<pcid>")
+@auth_required
+def api_diag_pc(pcid):
+    """Full diagnostic: where does this PC exist?"""
+    import os, json, sqlite3
+    result = {"pc_id": pcid, "found_in": []}
+    
+    # 1. Check DB directly
+    try:
+        db_path = os.path.join(os.environ.get("DATA_DIR", "data"), "reytech.db")
+        conn = sqlite3.connect(db_path, timeout=5)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT id, pc_number, status, total_items, created_at FROM price_checks WHERE id=?", (pcid,)).fetchone()
+        if row:
+            result["found_in"].append("db")
+            result["db"] = dict(row)
+        else:
+            result["db"] = None
+            # Show count and sample
+            count = conn.execute("SELECT COUNT(*) FROM price_checks").fetchone()[0]
+            sample = [r[0] for r in conn.execute("SELECT id FROM price_checks ORDER BY created_at DESC LIMIT 5").fetchall()]
+            result["db_total"] = count
+            result["db_sample"] = sample
+        conn.close()
+    except Exception as e:
+        result["db_error"] = str(e)
+
+    # 2. Check JSON directly
+    try:
+        json_path = os.path.join(os.environ.get("DATA_DIR", "data"), "price_checks.json")
+        if os.path.exists(json_path):
+            with open(json_path) as f:
+                jdata = json.load(f)
+            if pcid in jdata:
+                result["found_in"].append("json")
+                pc = jdata[pcid]
+                result["json"] = {"pc_number": pc.get("pc_number"), "status": pc.get("status"),
+                                  "items": len(pc.get("items", [])), "institution": pc.get("institution")}
+            else:
+                result["json"] = None
+                result["json_total"] = len(jdata)
+                result["json_sample"] = list(jdata.keys())[:5]
+        else:
+            result["json"] = "FILE NOT FOUND"
+    except Exception as e:
+        result["json_error"] = str(e)
+
+    # 3. Check _load_price_checks
+    try:
+        from src.api.dashboard import _load_price_checks
+        pcs = _load_price_checks()
+        if pcid in pcs:
+            result["found_in"].append("load_func")
+            result["load_func"] = {"items": len(pcs[pcid].get("items", [])), "status": pcs[pcid].get("status")}
+        else:
+            result["load_func"] = None
+            result["load_func_total"] = len(pcs)
+    except Exception as e:
+        result["load_func_error"] = str(e)
+
+    # 4. Check if pc_data column exists
+    try:
+        conn = sqlite3.connect(db_path, timeout=5)
+        try:
+            conn.execute("SELECT pc_data FROM price_checks LIMIT 0")
+            result["pc_data_column"] = True
+        except:
+            result["pc_data_column"] = False
+        conn.close()
+    except:
+        pass
+
+    result["diagnosis"] = "PC not found anywhere" if not result["found_in"] else f"Found in: {', '.join(result['found_in'])}"
+    return jsonify(result)
