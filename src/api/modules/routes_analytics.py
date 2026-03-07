@@ -1964,18 +1964,105 @@ def rfq_relink_pc(rid):
 
     # Run the existing linkage function
     try:
-        from src.api.dashboard import _link_rfq_to_pc
+        from src.api.dashboard import _link_rfq_to_pc, _load_price_checks, _save_price_checks
+        
+        # First: ensure matching PC actually has prices
+        # If PC items have empty pricing, price them NOW before porting
+        pcs = _load_price_checks()
+        for pid, pc in pcs.items():
+            pc_items = pc.get("items", [])
+            has_prices = any(
+                (it.get("pricing") or {}).get("recommended_price") or
+                (it.get("pricing") or {}).get("unit_cost") or
+                (it.get("pricing") or {}).get("scprs_price")
+                for it in pc_items if isinstance(it, dict)
+            )
+            if pc_items and not has_prices:
+                # Price this PC inline
+                try:
+                    from src.agents.product_catalog import match_item, init_catalog_db
+                    init_catalog_db()
+                    priced = 0
+                    for item in pc_items:
+                        desc = item.get("description", "")
+                        pn = str(item.get("item_number", "") or item.get("mfg_number", "") or "")
+                        if not desc and not pn: continue
+                        matches = match_item(desc, pn, top_n=1)
+                        if matches and matches[0].get("match_confidence", 0) >= 0.40:
+                            best = matches[0]
+                            if not item.get("pricing"): item["pricing"] = {}
+                            cat_price = best.get("recommended_price") or best.get("sell_price", 0)
+                            cat_cost = best.get("cost", 0)
+                            if cat_price > 0:
+                                item["pricing"]["catalog_match"] = best.get("name", "")[:60]
+                                item["pricing"]["recommended_price"] = round(cat_price, 2)
+                                if cat_cost > 0:
+                                    item["pricing"]["unit_cost"] = cat_cost
+                                priced += 1
+                    if priced == 0:
+                        # Try SCPRS
+                        try:
+                            from src.knowledge.pricing_oracle import find_similar_items
+                            for item in pc_items:
+                                if (item.get("pricing") or {}).get("recommended_price"): continue
+                                desc = item.get("description", "")
+                                pn = str(item.get("item_number", "") or "")
+                                smatches = find_similar_items(item_number=pn, description=desc)
+                                if smatches:
+                                    best = smatches[0]
+                                    quote = best.get("quote", best)
+                                    price = quote.get("unit_price", 0)
+                                    if price and price > 0:
+                                        if not item.get("pricing"): item["pricing"] = {}
+                                        item["pricing"]["scprs_price"] = price
+                                        item["pricing"]["unit_cost"] = price
+                                        item["pricing"]["recommended_price"] = round(price * 1.25, 2)
+                                        priced += 1
+                        except Exception:
+                            pass
+                    if priced > 0:
+                        pc["items"] = pc_items
+                        pcs[pid] = pc
+                        _save_price_checks(pcs)
+                except Exception as pe:
+                    trace.append(f"Inline pricing error: {pe}")
+
         trace = []
         linked = _link_rfq_to_pc(r, trace)
         
         if linked:
+            # Check if prices actually ported (the _port function may have skipped)
+            items = r.get("line_items", [])
+            priced = sum(1 for it in items if it.get("supplier_cost") or it.get("price_per_unit") or it.get("scprs_last_price"))
+            
+            # FALLBACK: if link matched but 0 prices ported, manually copy
+            if priced == 0:
+                pc_id = r.get("linked_pc_id", "")
+                pcs2 = _load_price_checks()
+                pc2 = pcs2.get(pc_id, {})
+                pc_items = pc2.get("items", [])
+                for ri in items:
+                    rd = (ri.get("description") or "").lower()[:40]
+                    for pci in pc_items:
+                        pd = (pci.get("description") or "").lower()[:40]
+                        if rd == pd or (len(rd) > 8 and rd in pd) or (len(pd) > 8 and pd in rd):
+                            p = pci.get("pricing") or {}
+                            cost = p.get("unit_cost") or p.get("scprs_price") or p.get("catalog_cost") or p.get("web_price") or p.get("amazon_price") or 0
+                            bid = p.get("recommended_price") or 0
+                            if cost:
+                                ri["supplier_cost"] = float(cost)
+                                priced += 1
+                            if bid:
+                                ri["price_per_unit"] = float(bid)
+                            elif cost:
+                                ri["price_per_unit"] = round(float(cost) * 1.25, 2)
+                            ri["_from_pc"] = pc2.get("pc_number", "")
+                            break
+                trace.append(f"Fallback direct copy: {priced} items priced")
+            
             # Save
             rfqs[rid] = r
             save_rfqs(rfqs)
-            
-            # Count what was ported
-            items = r.get("line_items", [])
-            priced = sum(1 for it in items if it.get("supplier_cost") or it.get("price_per_unit") or it.get("scprs_last_price"))
             diff = r.get("pc_diff", {})
             
             return jsonify({
