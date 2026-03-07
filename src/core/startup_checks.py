@@ -87,7 +87,7 @@ def run_all_checks():
         mods = [
             ("src.agents.product_catalog", "match_item"),
             ("src.agents.email_poller", "EmailPoller"),
-            ("src.forms.price_check", "fill_704_from_pc"),
+            ("src.forms.reytech_filler_v4", "fill_704b"),
             ("src.core.db", "get_db"),
         ]
         for mod, attr in mods:
