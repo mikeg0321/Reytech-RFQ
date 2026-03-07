@@ -3437,6 +3437,40 @@ def api_qb_vendor_find():
     return jsonify({"ok": True, "vendor": None, "message": f"No vendor matching '{name}'"})
 
 
+@bp.route("/api/qb/vendors/create", methods=["POST"])
+@auth_required
+def api_qb_vendor_create():
+    """Create a new vendor in QuickBooks. POST {name, email, phone}"""
+    if not QB_AVAILABLE or not qb_configured():
+        return jsonify({"ok": False, "error": "QuickBooks not configured"})
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify({"ok": False, "error": "Vendor name is required"})
+    # Check if already exists
+    existing = find_vendor(name)
+    if existing:
+        return jsonify({"ok": True, "vendor": existing, "message": "Vendor already exists in QB"})
+    try:
+        from src.agents.quickbooks_agent import create_vendor
+        result = create_vendor(name, email=data.get("email", ""), phone=data.get("phone", ""))
+        if result:
+            # Also add to local vendors DB
+            try:
+                from src.core.db import get_db
+                with get_db() as conn:
+                    conn.execute("""
+                        INSERT OR IGNORE INTO vendors (name, qb_vendor_id, email, status, created_at)
+                        VALUES (?, ?, ?, 'active', datetime('now'))
+                    """, (name, result.get("Id", ""), data.get("email", "")))
+            except Exception:
+                pass
+            return jsonify({"ok": True, "vendor": result})
+        return jsonify({"ok": False, "error": "QuickBooks API error — check connection"})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
 @bp.route("/api/qb/po/create", methods=["POST"])
 @auth_required
 def api_qb_create_po():

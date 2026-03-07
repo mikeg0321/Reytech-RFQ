@@ -336,12 +336,52 @@ def find_vendor(name: str) -> Optional[dict]:
     name_lower = name.lower()
     # Exact match first
     for v in vendors:
-        if v["name"].lower() == name_lower:
+        vn = (v.get("name") or v.get("CompanyName") or v.get("DisplayName") or "").lower()
+        if vn == name_lower:
             return v
     # Partial match
     for v in vendors:
-        if name_lower in v["name"].lower() or v["name"].lower() in name_lower:
+        vn = (v.get("name") or v.get("CompanyName") or v.get("DisplayName") or "").lower()
+        if name_lower in vn or vn in name_lower:
             return v
+    return None
+
+
+def create_vendor(name: str, email: str = "", phone: str = "") -> Optional[dict]:
+    """Create a new vendor in QuickBooks.
+
+    Returns the created vendor dict with Id, or None on failure.
+    """
+    if not is_configured():
+        return None
+    if not name:
+        return None
+
+    vendor_data = {
+        "DisplayName": name,
+        "CompanyName": name,
+    }
+    if email:
+        vendor_data["PrimaryEmailAddr"] = {"Address": email}
+    if phone:
+        vendor_data["PrimaryPhone"] = {"FreeFormNumber": phone}
+
+    result = _qb_request("POST", "vendor", vendor_data)
+    if result and "Vendor" in result:
+        v = result["Vendor"]
+        log.info("Created QB vendor: %s (ID: %s)", name, v.get("Id"))
+        # Clear cache so new vendor shows in dropdowns
+        try:
+            os.remove(VENDOR_CACHE_FILE)
+        except Exception:
+            pass
+        return {
+            "Id": v.get("Id"),
+            "CompanyName": v.get("CompanyName", name),
+            "DisplayName": v.get("DisplayName", name),
+            "PrimaryEmailAddr": v.get("PrimaryEmailAddr", {}),
+        }
+    log.error("Failed to create QB vendor '%s': %s", name, result)
     return None
 
 

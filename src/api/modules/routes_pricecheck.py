@@ -3901,10 +3901,11 @@ def api_pricecheck_mark_won(pcid):
 @bp.route("/api/pricecheck/<pcid>/create-qb-po", methods=["POST"])
 @auth_required
 def api_pc_create_qb_po(pcid):
-    """Create QB Purchase Order from a won PC — separate step with validation.
-    Groups items by supplier. Requires vendor match in QB."""
+    """Create QB Purchase Order(s) from PO Builder selections.
+    Accepts {vendor_groups: {vendor_id: {name, items: [{description, qty, unit_cost}]}}}
+    Or legacy mode: auto-groups from PC items if no vendor_groups provided."""
     try:
-        from src.agents.quickbooks_agent import is_configured, create_purchase_order, find_vendor
+        from src.agents.quickbooks_agent import is_configured, create_purchase_order
         if not is_configured():
             return jsonify({"ok": False, "error": "QuickBooks not configured"})
 
@@ -3913,51 +3914,26 @@ def api_pc_create_qb_po(pcid):
         if not pc:
             return jsonify({"ok": False, "error": "PC not found"})
 
-        # Group items by supplier
-        supplier_items = {}
-        for it in pc.get("items", []):
-            if it.get("no_bid"):
-                continue
-            cost = (it.get("vendor_cost")
-                    or it.get("pricing", {}).get("unit_cost")
-                    or it.get("pricing", {}).get("amazon_cost")
-                    or 0)
-            cost = float(cost) if cost else 0
-            if cost <= 0:
-                continue
+        data = request.get_json(silent=True) or {}
+        vendor_groups = data.get("vendor_groups", {})
 
-            supplier = (it.get("item_supplier")
-                       or it.get("pricing", {}).get("catalog_best_supplier")
-                       or "Unknown Supplier")
-
-            if supplier not in supplier_items:
-                supplier_items[supplier] = []
-            supplier_items[supplier].append({
-                "description": (it.get("description") or "")[:200],
-                "qty": int(it.get("qty", 1)),
-                "unit_cost": cost,
-                "item_number": it.get("mfg_number", ""),
-            })
-
-        if not supplier_items:
-            return jsonify({"ok": False, "error": "No priced items to create PO for"})
+        if not vendor_groups:
+            return jsonify({"ok": False, "error": "No items selected for PO. Use the PO Builder to select items and suppliers."})
 
         # Get ship-to from PC header
         header = (pc.get("parsed") or {}).get("header") or {}
         ship_to = header.get("ship_to", "") or header.get("delivery_address", "")
 
-        # Create one PO per supplier
         created_pos = []
         failed = []
-        for supplier, items in supplier_items.items():
-            vendor = find_vendor(supplier)
-            if not vendor:
-                failed.append({"supplier": supplier, "items": len(items),
-                              "error": f"Vendor '{supplier}' not found in QuickBooks. Add them first."})
+        for vendor_id, group in vendor_groups.items():
+            vendor_name = group.get("name", "Unknown")
+            items = group.get("items", [])
+            if not items:
                 continue
 
             result = create_purchase_order(
-                vendor_id=vendor["Id"],
+                vendor_id=vendor_id,
                 items=items,
                 memo=f"Reytech PC #{pc.get('pc_number', '')} — {pc.get('institution', '')}",
                 ship_to=ship_to,
@@ -3965,19 +3941,21 @@ def api_pc_create_qb_po(pcid):
             )
             if result and result.get("qb_id"):
                 created_pos.append({
-                    "supplier": supplier,
+                    "supplier": vendor_name,
                     "qb_id": result["qb_id"],
                     "doc_number": result.get("doc_number", ""),
                     "total": result.get("total", 0),
                     "items": len(items),
                 })
             else:
-                failed.append({"supplier": supplier, "items": len(items),
+                failed.append({"supplier": vendor_name, "items": len(items),
                               "error": "QB API returned error"})
 
         # Store QB references on PC
         if created_pos:
-            pc["qb_pos"] = created_pos
+            existing_pos = pc.get("qb_pos", [])
+            existing_pos.extend(created_pos)
+            pc["qb_pos"] = existing_pos
             pc["qb_po_id"] = created_pos[0]["qb_id"]
             pc["qb_po_number"] = created_pos[0].get("doc_number", "")
             _save_price_checks(pcs)

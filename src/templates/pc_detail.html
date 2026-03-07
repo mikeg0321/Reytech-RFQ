@@ -123,7 +123,10 @@
      <div style="padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;justify-content:space-between;background:rgba(63,185,80,.12);border:1px solid rgba(63,185,80,.35);color:#3fb950;margin-bottom:10px">
       <div style="display:flex;align-items:center;gap:10px"><span style="font-size:18px">🏆</span><div><b>Won</b>{% if pc.get('closed_at') %} — {{ pc.get('closed_at','')[:10] }}{% endif %}{% if pc.get('qb_po_number') %} · QB PO #{{ pc.get('qb_po_number','') }}{% endif %}</div></div>
       {% if not pc.get('qb_po_id') %}
-      <button onclick="createQBPO(this)" style="padding:6px 16px;background:#238636;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer" aria-label="Create QuickBooks Purchase Order">💰 Create QB PO</button>
+      <button onclick="openPOBuilder()" style="padding:6px 16px;background:#238636;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer" aria-label="Create QuickBooks Purchase Order">💰 Create QB PO</button>
+      {% else %}
+      <span style="font-size:13px;color:#8b949e">QB PO: {{ pc.get('qb_po_number','') }}</span>
+      <button onclick="openPOBuilder()" style="padding:4px 10px;background:#21262d;color:#58a6ff;border:1px solid #30363d;border-radius:4px;font-size:12px;cursor:pointer" aria-label="Create additional Purchase Order">+ Another PO</button>
       {% endif %}
      </div>
      {% elif pc.get('status') == 'lost' %}
@@ -613,30 +616,242 @@
      });
     }
 
-    function createQBPO(btn) {
-     if(!confirm('Create Purchase Order in QuickBooks?\n\nThis will:\n• Group items by supplier\n• Find matching vendors in QB\n• Create one PO per supplier\n\nCosts used will be your Unit Cost values.')) return;
-     var pcid=_pcid;
-     btn.disabled=true;btn.textContent='⏳ Creating PO...';
-     fetch('/api/pricecheck/'+pcid+'/create-qb-po',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})
-     .then(function(r){return r.json()}).then(function(d){
-      btn.disabled=false;
-      if(d.ok){
-       var msg='✅ '+d.message;
-       if(d.created && d.created.length){
-        d.created.forEach(function(po){msg+='\nPO #'+po.doc_number+' — '+po.supplier+' ($'+Number(po.total).toFixed(2)+')'});
-       }
-       if(d.failed && d.failed.length){
-        msg+='\n\n⚠️ Failed:';
-        d.failed.forEach(function(f){msg+='\n• '+f.supplier+': '+f.error});
-       }
-       alert(msg);
-       if(d.created && d.created.length) location.reload();
-       else btn.textContent='💰 Create QB PO';
-      } else {
-       alert('❌ '+d.error);
-       btn.textContent='💰 Create QB PO';
+    function createQBPO(btn) { openPOBuilder(); }
+
+    var _qbVendors = null;
+    function openPOBuilder() {
+     // Build modal with item checkboxes + supplier selectors
+     var modal = document.createElement('div');
+     modal.id = 'po-builder-modal';
+     modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000;display:flex;align-items:center;justify-content:center;overflow-y:auto';
+     modal.onclick = function(e){ if(e.target===modal) modal.remove() };
+
+     // Gather items from the page
+     var items = [];
+     document.querySelectorAll('tr[data-row]:not(.notes-row)').forEach(function(row){
+      var idx = row.getAttribute('data-row');
+      var bid = row.querySelector('[name=bid_'+idx+']');
+      if(bid && !bid.checked) return; // skip no-bid items
+      var desc = (row.querySelector('[name=desc_'+idx+']')||{}).value || '';
+      var qty = (row.querySelector('[name=qty_'+idx+']')||{}).value || '1';
+      var cost = (row.querySelector('[name=cost_'+idx+']')||{}).value || '0';
+      var mfg = (row.querySelector('[name=itemnum_'+idx+']')||{}).value || '';
+      var link_meta = row.querySelector('[id=link_meta_'+idx+']');
+      var supplier = '';
+      if(link_meta) {
+       var supMatch = link_meta.textContent.match(/^(\w[\w\s]*)/);
+       if(supMatch) supplier = supMatch[1].trim();
       }
-     }).catch(function(e){btn.disabled=false;btn.textContent='💰 Create QB PO';alert('Error: '+e.message)});
+      var costNum = parseFloat(cost.replace(/[^0-9.\-]/g,'')) || 0;
+      if(costNum <= 0) return;
+      items.push({idx:idx, desc:desc.substring(0,80), qty:parseInt(qty)||1, cost:costNum, mfg:mfg, supplier:supplier});
+     });
+
+     if(!items.length){ alert('No priced items to create a PO for. Add costs first.'); return; }
+
+     var html = '<div style="background:#161b22;border:1px solid #30363d;border-radius:12px;width:95%;max-width:800px;max-height:90vh;overflow-y:auto;margin:20px">';
+     html += '<div style="padding:16px 20px;border-bottom:1px solid #30363d;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;background:#161b22;z-index:1">';
+     html += '<div><h3 style="margin:0;color:#c9d1d9">💰 Purchase Order Builder</h3><span style="color:#8b949e;font-size:13px">Select items and assign suppliers for QB PO</span></div>';
+     html += '<button onclick="this.closest(\'#po-builder-modal\').remove()" style="background:none;border:none;color:#8b949e;font-size:22px;cursor:pointer">✕</button></div>';
+
+     html += '<div style="padding:16px 20px">';
+     html += '<table style="width:100%;border-collapse:collapse;font-size:14px">';
+     html += '<tr style="color:#8b949e;font-size:12px;text-transform:uppercase;border-bottom:1px solid #30363d">';
+     html += '<th style="padding:8px 4px;width:30px"><input type="checkbox" checked onchange="toggleAllPOItems(this)" style="width:16px;height:16px"></th>';
+     html += '<th style="padding:8px;text-align:left">Item</th>';
+     html += '<th style="padding:8px;text-align:center;width:50px">Qty</th>';
+     html += '<th style="padding:8px;text-align:right;width:80px">Cost</th>';
+     html += '<th style="padding:8px;text-align:left;width:220px">Supplier (for PO)</th></tr>';
+
+     items.forEach(function(it, i){
+      html += '<tr style="border-bottom:1px solid #21262d">';
+      html += '<td style="padding:8px 4px;text-align:center"><input type="checkbox" checked class="po-item-check" data-idx="'+i+'" style="width:16px;height:16px"></td>';
+      html += '<td style="padding:8px"><span style="color:#c9d1d9">'+(it.mfg?'<b style="color:#58a6ff;font-family:monospace">'+it.mfg+'</b> ':'')+ it.desc+'</span></td>';
+      html += '<td style="padding:8px;text-align:center;font-family:monospace">'+it.qty+'</td>';
+      html += '<td style="padding:8px;text-align:right;font-family:monospace;color:#3fb950">$'+it.cost.toFixed(2)+'</td>';
+      html += '<td style="padding:8px"><select id="po-vendor-'+i+'" style="width:100%;padding:6px;background:#0d1117;border:1px solid #30363d;border-radius:4px;color:#c9d1d9;font-size:13px" data-default="'+it.supplier+'">';
+      html += '<option value="">Loading vendors...</option></select></td>';
+      html += '</tr>';
+     });
+
+     html += '</table>';
+
+     // Add vendor form
+     html += '<div style="margin-top:16px;padding:12px;background:#0d1117;border-radius:8px;border:1px solid #30363d">';
+     html += '<div style="font-size:13px;color:#8b949e;margin-bottom:8px">Vendor not in QuickBooks?</div>';
+     html += '<div style="display:flex;gap:8px;align-items:center">';
+     html += '<input id="new-vendor-name" placeholder="Vendor name" style="flex:1;padding:6px 10px;background:#161b22;border:1px solid #30363d;border-radius:4px;color:#c9d1d9;font-size:13px">';
+     html += '<input id="new-vendor-email" placeholder="Email (optional)" style="width:180px;padding:6px 10px;background:#161b22;border:1px solid #30363d;border-radius:4px;color:#c9d1d9;font-size:13px">';
+     html += '<button onclick="addQBVendor()" style="padding:6px 14px;background:#238636;color:#fff;border:none;border-radius:4px;font-size:13px;cursor:pointer;white-space:nowrap">+ Add to QB</button>';
+     html += '</div><div id="add-vendor-msg" style="margin-top:6px;font-size:13px"></div></div>';
+
+     // Summary + create button
+     html += '<div style="margin-top:16px;display:flex;justify-content:space-between;align-items:center">';
+     html += '<span id="po-summary" style="font-size:14px;color:#8b949e"></span>';
+     html += '<button onclick="submitPOBuilder()" style="padding:8px 24px;background:#238636;color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer">📦 Create Purchase Order(s)</button>';
+     html += '</div></div></div>';
+
+     modal.innerHTML = html;
+     document.body.appendChild(modal);
+
+     // Store items for later
+     window._poBuilderItems = items;
+
+     // Load QB vendors
+     _loadQBVendors();
+     _updatePOSummary();
+    }
+
+    function _loadQBVendors() {
+     fetch('/api/qb/vendors').then(function(r){return r.json()}).then(function(d){
+      if(!d.ok || !d.vendors) return;
+      _qbVendors = d.vendors;
+      var items = window._poBuilderItems || [];
+      items.forEach(function(it, i){
+       var sel = document.getElementById('po-vendor-'+i);
+       if(!sel) return;
+       var defaultSup = sel.getAttribute('data-default') || '';
+       sel.innerHTML = '<option value="">— Select supplier —</option>';
+       // Add "No PO needed" option
+       sel.innerHTML += '<option value="__skip__" style="color:#8b949e">Skip (no PO needed)</option>';
+       d.vendors.forEach(function(v){
+        var name = v.CompanyName || v.DisplayName || '';
+        var selected = (defaultSup && name.toLowerCase().indexOf(defaultSup.toLowerCase()) >= 0) ? ' selected' : '';
+        sel.innerHTML += '<option value="'+v.Id+'"'+selected+'>'+name+'</option>';
+       });
+       // Auto-select if there's a match
+       if(!sel.value && defaultSup) {
+        // Try fuzzy match
+        for(var j=0;j<d.vendors.length;j++){
+         var vn = (d.vendors[j].CompanyName||d.vendors[j].DisplayName||'').toLowerCase();
+         if(vn.indexOf(defaultSup.toLowerCase())>=0 || defaultSup.toLowerCase().indexOf(vn)>=0){
+          sel.value = d.vendors[j].Id; break;
+         }
+        }
+       }
+      });
+      _updatePOSummary();
+     }).catch(function(){
+      // QB not connected — still allow manual entry
+      var items = window._poBuilderItems || [];
+      items.forEach(function(it, i){
+       var sel = document.getElementById('po-vendor-'+i);
+       if(sel) sel.innerHTML = '<option value="">QB not connected — add vendors first</option>';
+      });
+     });
+    }
+
+    function toggleAllPOItems(master) {
+     document.querySelectorAll('.po-item-check').forEach(function(cb){cb.checked=master.checked});
+     _updatePOSummary();
+    }
+
+    function _updatePOSummary() {
+     var items = window._poBuilderItems || [];
+     var checked = document.querySelectorAll('.po-item-check:checked');
+     var total = 0;
+     checked.forEach(function(cb){
+      var idx = parseInt(cb.getAttribute('data-idx'));
+      if(items[idx]) total += items[idx].qty * items[idx].cost;
+     });
+     var el = document.getElementById('po-summary');
+     if(el) el.textContent = checked.length + ' of ' + items.length + ' items selected · $' + total.toFixed(2);
+     // Attach change listeners
+     document.querySelectorAll('.po-item-check').forEach(function(cb){
+      cb.onchange = function(){ _updatePOSummary(); };
+     });
+    }
+
+    function addQBVendor() {
+     var name = document.getElementById('new-vendor-name').value.trim();
+     var email = document.getElementById('new-vendor-email').value.trim();
+     if(!name){ alert('Enter a vendor name'); return; }
+     var msg = document.getElementById('add-vendor-msg');
+     msg.innerHTML = '<span style="color:#d29922">Adding to QuickBooks...</span>';
+
+     fetch('/api/qb/vendors/create',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name:name, email:email})
+     }).then(function(r){return r.json()}).then(function(d){
+      if(d.ok){
+       msg.innerHTML = '<span style="color:#3fb950">✅ Added: '+name+'</span>';
+       document.getElementById('new-vendor-name').value = '';
+       document.getElementById('new-vendor-email').value = '';
+       _loadQBVendors(); // Refresh dropdowns
+      } else {
+       msg.innerHTML = '<span style="color:#f85149">❌ '+(d.error||'Failed')+'</span>';
+      }
+     }).catch(function(e){ msg.innerHTML = '<span style="color:#f85149">Error: '+e.message+'</span>'; });
+    }
+
+    function submitPOBuilder() {
+     var items = window._poBuilderItems || [];
+     var checked = document.querySelectorAll('.po-item-check:checked');
+     if(!checked.length){ alert('Select at least one item'); return; }
+
+     // Group by vendor
+     var vendorGroups = {};
+     var skipped = 0;
+     var noVendor = [];
+     checked.forEach(function(cb){
+      var i = parseInt(cb.getAttribute('data-idx'));
+      var sel = document.getElementById('po-vendor-'+i);
+      var vendorId = sel ? sel.value : '';
+      var vendorName = sel ? sel.options[sel.selectedIndex].text : '';
+
+      if(vendorId === '__skip__'){ skipped++; return; }
+      if(!vendorId){ noVendor.push(items[i].desc.substring(0,40)); return; }
+
+      if(!vendorGroups[vendorId]) vendorGroups[vendorId] = {name:vendorName, items:[]};
+      vendorGroups[vendorId].items.push({
+       description: items[i].desc,
+       qty: items[i].qty,
+       unit_cost: items[i].cost,
+       item_number: items[i].mfg,
+      });
+     });
+
+     if(noVendor.length){
+      alert('These items have no supplier selected:\n• ' + noVendor.join('\n• ') + '\n\nSelect a supplier or mark as "Skip".');
+      return;
+     }
+
+     var vendorIds = Object.keys(vendorGroups);
+     if(!vendorIds.length){ alert('No items selected for PO (all skipped)'); return; }
+
+     var summary = vendorIds.length + ' PO(s) to create:\n';
+     vendorIds.forEach(function(vid){
+      var g = vendorGroups[vid];
+      var total = g.items.reduce(function(s,it){return s+it.qty*it.unit_cost},0);
+      summary += '• ' + g.name + ': ' + g.items.length + ' items, $' + total.toFixed(2) + '\n';
+     });
+     if(skipped) summary += '\n' + skipped + ' item(s) skipped (no PO needed)';
+     if(!confirm(summary + '\n\nProceed?')) return;
+
+     // Send to backend
+     var pcid = _pcid;
+     var btn = document.querySelector('#po-builder-modal button:last-of-type');
+     if(btn){btn.disabled=true;btn.textContent='⏳ Creating...';}
+
+     fetch('/api/pricecheck/'+pcid+'/create-qb-po',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({vendor_groups: vendorGroups})
+     }).then(function(r){return r.json()}).then(function(d){
+      if(d.ok){
+       var msg = '✅ ' + d.message;
+       if(d.created) d.created.forEach(function(po){msg+='\nPO #'+po.doc_number+' — '+po.supplier+' ($'+Number(po.total).toFixed(2)+')'});
+       if(d.failed && d.failed.length){msg+='\n\n⚠️ Failed:';d.failed.forEach(function(f){msg+='\n• '+f.supplier+': '+f.error})}
+       alert(msg);
+       document.getElementById('po-builder-modal').remove();
+       if(d.created && d.created.length) location.reload();
+      } else {
+       alert('❌ '+(d.error||'Failed'));
+       if(btn){btn.disabled=false;btn.textContent='📦 Create Purchase Order(s)';}
+      }
+     }).catch(function(e){
+      alert('Error: '+e.message);
+      if(btn){btn.disabled=false;btn.textContent='📦 Create Purchase Order(s)';}
+     });
     }
 
     function addRow() {
