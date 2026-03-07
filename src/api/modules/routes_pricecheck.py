@@ -3865,7 +3865,7 @@ def pricecheck_document_save(pcid):
     return jsonify({"ok": True, "doc_id": doc_id, "version": ver, "filename": versioned_name})
 
 
-@bp.route("/api/pricecheck/<pcid>/retry-auto-price", methods=["POST"])
+@bp.route("/api/pricecheck/<pcid>/retry-auto-price", methods=["POST", "GET"])
 @auth_required
 def api_pc_retry_auto_price(pcid):
     """Manually retry auto-pricing for a PC."""
