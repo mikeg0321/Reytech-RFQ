@@ -717,6 +717,22 @@ def _load_price_checks():
             except Exception:
                 data = {}
 
+    # ── One-time migration: merge any JSON-only PCs into DB ──────
+    # PCs created before DB-primary migration may only exist in JSON
+    try:
+        path = os.path.join(DATA_DIR, "price_checks.json")
+        if os.path.exists(path):
+            with open(path) as f:
+                json_pcs = json.load(f)
+            missing = {k: v for k, v in json_pcs.items() if k not in data and isinstance(v, dict)}
+            if missing:
+                log.info("JSON→DB migration: found %d PCs in JSON not in DB, syncing...", len(missing))
+                data.update(missing)
+                # Write them to DB
+                _save_price_checks(missing)
+    except Exception as _mig_e:
+        log.debug("JSON→DB migration check: %s", _mig_e)
+
     return data
 
 def _save_price_checks(pcs):

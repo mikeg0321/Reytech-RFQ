@@ -3873,7 +3873,11 @@ def api_pc_retry_auto_price(pcid):
     from src.api.dashboard import _auto_price_new_pc, _load_price_checks
     pcs = _load_price_checks()
     if pcid not in pcs:
-        return jsonify({"ok": False, "error": "PC not found"})
+        # Debug: show what IDs we DO have
+        sample = list(pcs.keys())[:10]
+        return jsonify({"ok": False, "error": "PC not found",
+                       "debug": {"total_pcs": len(pcs), "sample_ids": sample,
+                                "looking_for": pcid}}), 404
     pc = pcs[pcid]
     items = pc.get("items", [])
     if not items:
