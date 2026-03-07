@@ -194,8 +194,8 @@
      {% endif %}
 
      <div class="action-bar" style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center" id="actionBar">
-      <button class="btn btn-p" onclick="savePrices(this)" id="saveBtn" style="font-size:14px;padding:8px 20px;background:#238636;color:#fff">💾 Save &amp; Generate</button>
-      <button class="btn" onclick="showPreview()" style="background:#21262d;color:#c9d1d9;border:1px solid #484f58;font-size:14px;padding:8px 20px">👁️ Preview</button>
+      <button class="btn btn-p" onclick="savePrices(this)" id="saveBtn" aria-label="Save prices and generate PDF" style="font-size:14px;padding:8px 20px;background:#238636;color:#fff">💾 Save &amp; Generate</button>
+      <button class="btn" onclick="showPreview()" aria-label="Preview quote" style="background:#21262d;color:#c9d1d9;border:1px solid #484f58;font-size:14px;padding:8px 20px">👁️ Preview</button>
       {{ download_html | safe }}
       <!-- Pricing: consolidated into dropdown -->
       <span style="border-left:1px solid #30363d;height:28px;margin:0 4px"></span>
@@ -937,6 +937,35 @@
       el.innerHTML='<span style="background:#23863633;color:#3fb950;padding:2px 8px;border-radius:4px;font-size:14px">'+diffDays+'d left</span>';
      }
     })();} catch(e) { console.warn('calcUrgency:', e); }
+
+    // ═══ Keyboard Shortcuts ═══
+    document.addEventListener('keydown', function(e) {
+      // Ctrl+S or Cmd+S = Save & Generate
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        var btn = document.getElementById('saveBtn');
+        if (btn && !btn.disabled) savePrices(btn);
+      }
+      // Ctrl+P = Preview
+      if ((e.ctrlKey || e.metaKey) && e.key === 'p') {
+        e.preventDefault();
+        showPreview();
+      }
+      // Escape = close any open details/dropdowns
+      if (e.key === 'Escape') {
+        document.querySelectorAll('details[open]').forEach(function(d){d.open=false});
+      }
+    });
+
+    // ═══ Global Fetch Error Safety Net ═══
+    window.addEventListener('unhandledrejection', function(e) {
+      console.error('Unhandled promise rejection:', e.reason);
+      if (typeof showMsg === 'function') {
+        showMsg('⚠️ Network error: ' + (e.reason?.message || 'Request failed'), 'err');
+      }
+      e.preventDefault(); // Prevent console error spam
+    });
+
     _log('functions-defined: showMsg,savePrices,recalcPC,recalcRow,addRow,runScprs,etc');
 
     try { recalcPC(); } catch(e) { console.warn('recalcPC init:', e); }
