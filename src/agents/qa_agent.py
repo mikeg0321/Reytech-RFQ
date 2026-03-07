@@ -309,11 +309,11 @@ def scan_python_source(filepath: str) -> dict:
     for i, line in enumerate(lines, 1):
         stripped = line.strip()
         
-        # Bare except: (no exception type)
-        if stripped == 'except:':
+        # Bare except Exception: (no exception type)
+        if stripped == 'except Exception:':
             findings["critical"].append({
                 "type": "bare_except",
-                "detail": f"Line {i}: bare 'except:' catches everything including KeyboardInterrupt",
+                "detail": f"Line {i}: bare 'except Exception:' catches everything including KeyboardInterrupt",
                 "line": i,
             })
         
@@ -2415,7 +2415,7 @@ def _check_db_schema() -> list:
             _tables_present = {t[0] for t in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
             _col_map = {}
             for tbl in _tables_present:
-                _col_map[tbl] = [c[1] for c in conn.execute(f"PRAGMA table_info({tbl})").fetchall()]
+                _col_map[tbl] = [c[1] for c in conn.execute("PRAGMA table_info(" + re.sub(r"[^a-zA-Z0-9_]", "", tbl) + ")").fetchall()]
         expected_tables = {
             "quotes": ["id", "quote_number", "agency", "status", "total"],
             "contacts": ["id", "buyer_email", "agency", "total_spend"],

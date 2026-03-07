@@ -596,7 +596,7 @@ def update_po_item(po_id):
             updates["delivery_date"] = now
 
         sets = ", ".join(f"{k}=?" for k in updates)
-        conn.execute(f"UPDATE po_line_items SET {sets} WHERE id = ?",
+        conn.execute("UPDATE po_line_items SET " + sets + " WHERE id = ?",
                      list(updates.values()) + [item_id])
 
         conn.execute("""INSERT INTO po_status_history

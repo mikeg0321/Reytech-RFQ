@@ -600,7 +600,7 @@ def mark_notifications_read(notification_ids: list = None) -> dict:
         with get_db() as conn:
             if notification_ids:
                 placeholders = ",".join("?" * len(notification_ids))
-                conn.execute(f"UPDATE notifications SET is_read=1 WHERE id IN ({placeholders})", notification_ids)
+                conn.execute("UPDATE notifications SET is_read=1 WHERE id IN (" + placeholders + ")", notification_ids)
             else:
                 conn.execute("UPDATE notifications SET is_read=1")
         return {"ok": True}

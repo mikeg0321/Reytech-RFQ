@@ -5,7 +5,7 @@ Sprint 6 (M2): Wraps common patterns with logging so failures are visible.
 Usage:
     from src.core.error_handler import safe_call, log_error
 
-    # Instead of:  try: ... except: pass
+    # Instead of:  try: ... except Exception: pass
     # Use:        result = safe_call(risky_function, arg1, arg2, default=None, context="loading data")
 """
 import logging
@@ -29,7 +29,7 @@ def safe_call(fn, *args, default=None, context: str = "", **kwargs):
 
 
 def log_error(e: Exception, context: str = "", level: str = "error"):
-    """Log an exception with context. Use instead of bare `except: pass`."""
+    """Log an exception with context. Use instead of bare `except Exception: pass`."""
     msg = f"{context}: {type(e).__name__}: {str(e)[:300]}"
     getattr(log, level, log.error)(msg)
 

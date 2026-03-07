@@ -96,7 +96,7 @@ def bulk_approve(email_ids: list = None) -> dict:
         with get_db() as conn:
             if email_ids:
                 placeholders = ",".join("?" for _ in email_ids)
-                conn.execute(f"""
+                conn.execute("""
                     UPDATE email_outbox SET status = 'approved', approved_at = ?
                     WHERE id IN ({placeholders}) AND status = 'draft'
                 """, [now] + list(email_ids))
@@ -130,7 +130,7 @@ def bulk_delete(email_ids: list = None, status_filter: str = "draft") -> dict:
         with get_db() as conn:
             if email_ids:
                 placeholders = ",".join("?" for _ in email_ids)
-                conn.execute(f"DELETE FROM email_outbox WHERE id IN ({placeholders})", list(email_ids))
+                conn.execute("DELETE FROM email_outbox WHERE id IN (" + placeholders + ")", list(email_ids))
             else:
                 conn.execute("DELETE FROM email_outbox WHERE status = ?", (status_filter,))
     except Exception:

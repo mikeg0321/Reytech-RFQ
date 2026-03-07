@@ -1472,7 +1472,7 @@ def api_diagnostic_sweep():
         counts = {}
         for t in tables[:20]:
             try:
-                counts[t] = conn.execute(f"SELECT COUNT(*) FROM [{t}]").fetchone()[0]
+                counts[t] = conn.execute("SELECT COUNT(*) FROM [" + re.sub(r"[^a-zA-Z0-9_]", "", t) + "]").fetchone()[0]
             except Exception:
                 counts[t] = "error"
         results["checks"]["row_counts"] = counts

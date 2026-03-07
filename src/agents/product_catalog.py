@@ -356,7 +356,7 @@ def init_catalog_db():
         ("search_tokens", "TEXT"),
     ]:
         try:
-            conn.execute(f"ALTER TABLE product_catalog ADD COLUMN {col_def[0]} {col_def[1]}")
+            conn.execute("ALTER TABLE product_catalog ADD COLUMN " + re.sub(r"[^a-zA-Z0-9_]", "", col_def[0]) + " " + col_def[1])
             log.info("Added column %s to product_catalog", col_def[0])
         except sqlite3.OperationalError as e:
             if "duplicate column" in str(e).lower():
@@ -402,7 +402,7 @@ def init_catalog_db():
         ("catalog_price_history", ("supplier_url", "TEXT")),
     ]:
         try:
-            conn.execute(f"ALTER TABLE {tbl} ADD COLUMN {col_def[0]} {col_def[1]}")
+            conn.execute("ALTER TABLE " + re.sub(r"[^a-zA-Z0-9_]", "", tbl) + " ADD COLUMN " + re.sub(r"[^a-zA-Z0-9_]", "", col_def[0]) + " " + col_def[1])
             log.info("Added column %s to %s", col_def[0], tbl)
         except sqlite3.OperationalError:
             pass  # Already exists
@@ -647,13 +647,13 @@ def search_products(query: str, limit: int = 20, category: str = "",
     
     where = " AND ".join(conditions) if conditions else "1=1"
     
-    rows = conn.execute(f"""
+    rows = conn.execute("""
         SELECT *, 
                CASE WHEN name LIKE ? THEN 3
                     WHEN sku LIKE ? THEN 2
                     ELSE 1 END as relevance
         FROM product_catalog
-        WHERE {where}
+        WHERE """ + where + """
         ORDER BY relevance DESC, times_quoted DESC, sell_price DESC
         LIMIT ?
     """, [f"%{query}%", f"%{query}%"] + params + [limit]).fetchall()
@@ -1599,7 +1599,7 @@ def update_product_pricing(product_id: int, **kwargs):
     conn = _get_conn()
     sets = ", ".join(f"{k} = ?" for k in updates)
     vals = list(updates.values()) + [datetime.now(timezone.utc).isoformat(), product_id]
-    conn.execute(f"UPDATE product_catalog SET {sets}, updated_at = ? WHERE id = ?", vals)
+    conn.execute("UPDATE product_catalog SET " + sets + ", updated_at = ? WHERE id = ?", vals)
     
     # Recalculate margin
     conn.execute("""
@@ -1944,7 +1944,7 @@ def record_outcome_to_catalog(pc: dict, outcome: str = "won",
         if updates:
             sets = ", ".join(f"{k} = ?" for k in updates)
             vals = list(updates.values()) + [now, pid]
-            conn.execute(f"UPDATE product_catalog SET {sets}, updated_at = ? WHERE id = ?", vals)
+            conn.execute("UPDATE product_catalog SET " + sets + ", updated_at = ? WHERE id = ?", vals)
             updated += 1
 
     conn.commit()
@@ -2556,7 +2556,7 @@ def fix_catalog_names() -> dict:
             sets = ", ".join(f"{k} = ?" for k in updates)
             vals = list(updates.values()) + [row["id"]]
             try:
-                conn.execute(f"UPDATE product_catalog SET {sets} WHERE id = ?", vals)
+                conn.execute("UPDATE product_catalog SET " + sets + " WHERE id = ?", vals)
                 fixed += 1
             except Exception as dup_err:
                 # Name collision — append part number to make unique
@@ -2568,7 +2568,7 @@ def fix_catalog_names() -> dict:
                     sets = ", ".join(f"{k} = ?" for k in updates)
                     vals = list(updates.values()) + [row["id"]]
                     try:
-                        conn.execute(f"UPDATE product_catalog SET {sets} WHERE id = ?", vals)
+                        conn.execute("UPDATE product_catalog SET " + sets + " WHERE id = ?", vals)
                         fixed += 1
                     except Exception:
                         pass  # Skip truly problematic rows

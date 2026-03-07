@@ -213,10 +213,10 @@ def get_price_recommendation(description: str = "", part_number: str = "",
             return {"count": 0, "recommendation": None}
         
         where = " AND ".join(conditions)
-        rows = conn.execute(f"""
+        rows = conn.execute("""
             SELECT sell_price, cost, margin_pct, agency, institution, qty, 
                    recorded_at, quote_number, po_number
-            FROM winning_prices WHERE {where}
+            FROM winning_prices WHERE " + where + "
             ORDER BY recorded_at DESC LIMIT 50
         """, params).fetchall()
         

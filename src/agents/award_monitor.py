@@ -264,14 +264,14 @@ def check_pc_award(pc: dict) -> dict | None:
         
         with get_db() as conn:
             conn.row_factory = sqlite3.Row
-            rows = conn.execute(f"""
+            rows = conn.execute("""
                 SELECT p.po_number, p.supplier, p.grand_total, p.start_date, p.buyer_email,
                        l.description, l.unit_price, l.quantity
                 FROM scprs_po_master p
                 JOIN scprs_po_lines l ON l.po_id = p.id
                 WHERE p.dept_code = ?
                   AND p.start_date >= ?
-                  AND ({term_clauses})
+                  AND (" + term_clauses + ")
                 ORDER BY p.start_date DESC LIMIT 10
             """, [dept_code, pc_created] + term_params).fetchall()
         
@@ -381,11 +381,11 @@ def get_price_suggestions(items: list, institution: str = "") -> list:
                 
                 clauses = " AND ".join(["LOWER(item_summary) LIKE ?" for _ in words])
                 like_params = [f"%{w}%" for w in words]
-                rows = conn.execute(f"""
+                rows = conn.execute("""
                     SELECT competitor_name, competitor_price, our_price, 
                            price_delta_pct, found_at, agency, po_number
                     FROM competitor_intel
-                    WHERE {clauses} AND outcome='lost'
+                    WHERE " + clauses + " AND outcome='lost'
                     ORDER BY found_at DESC LIMIT 3
                 """, like_params).fetchall()
                 

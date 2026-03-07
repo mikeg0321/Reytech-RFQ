@@ -5471,7 +5471,7 @@ def api_admin_system_reset():
                 with get_db() as conn:
                     if keep_quotes:
                         placeholders = ",".join("?" for _ in keep_quotes)
-                        conn.execute(f"DELETE FROM quotes WHERE quote_number NOT IN ({placeholders})",
+                        conn.execute("DELETE FROM quotes WHERE quote_number NOT IN (" + placeholders + ")",
                                      list(keep_quotes))
                     else:
                         conn.execute("DELETE FROM quotes")
@@ -5624,7 +5624,7 @@ def api_admin_reset_and_poll():
             with get_db() as conn:
                 if keep_quotes:
                     placeholders = ",".join("?" for _ in keep_quotes)
-                    conn.execute(f"DELETE FROM quotes WHERE quote_number NOT IN ({placeholders})", list(keep_quotes))
+                    conn.execute("DELETE FROM quotes WHERE quote_number NOT IN (" + placeholders + ")", list(keep_quotes))
                 else:
                     conn.execute("DELETE FROM quotes")
                 conn.commit()

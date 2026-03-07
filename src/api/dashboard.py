@@ -2083,17 +2083,25 @@ def do_poll_check():
     if not email_cfg.get("email"):
         email_cfg["email"] = os.environ.get("GMAIL_ADDRESS", "")
     
-    # Always destroy and recreate poller to pick up fresh processed_emails.json
-    # (system-reset clears the file but old poller has stale in-memory set)
-    _shared_poller = None
-    
-    # Force absolute path for processed file
+    # Reuse existing poller if available — just reload processed file
+    # (avoids creating a new IMAP connection on every poll cycle)
     email_cfg = dict(email_cfg)  # copy so we don't mutate
+    email_cfg["email_password"] = effective_password
     email_cfg["processed_file"] = os.path.join(DATA_DIR, "processed_emails.json")
-    _shared_poller = EmailPoller(email_cfg)
+    if not email_cfg.get("email"):
+        email_cfg["email"] = os.environ.get("GMAIL_ADDRESS", "")
+
+    if _shared_poller is None:
+        _shared_poller = EmailPoller(email_cfg)
+        log.info("Created poller for %s", email_cfg.get("email", "NO EMAIL SET"))
+    else:
+        # Reload processed UIDs from file (picks up system-reset changes)
+        try:
+            _shared_poller._load_processed()
+        except Exception:
+            pass
     processed_count = len(_shared_poller._processed)
-    log.info(f"Created fresh poller for {email_cfg.get('email', 'NO EMAIL SET')}, "
-             f"processed: {processed_count} UIDs loaded")
+    log.debug("Poll: %d processed UIDs loaded", processed_count)
     
     # Store diagnostics for debugging
     POLL_STATUS["_diag"] = {

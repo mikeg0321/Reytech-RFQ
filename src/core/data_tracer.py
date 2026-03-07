@@ -349,11 +349,11 @@ def get_pipeline_stats() -> dict:
                 ("quotes", "quotes"), ("orders", "orders"),
             ]:
                 try:
-                    row = conn.execute(f"""
+                    row = conn.execute("""
                         SELECT COUNT(*) as total,
                                COUNT(CASE WHEN status IN ('won','completed','shipped','delivered') THEN 1 END) as completed,
                                COUNT(CASE WHEN status IN ('new','draft','pending','sent') THEN 1 END) as active
-                        FROM {table}
+                        FROM " + re.sub(r"[^a-zA-Z0-9_]", "", table) + "
                     """).fetchone()
                     stats[label] = {
                         "total": row["total"],

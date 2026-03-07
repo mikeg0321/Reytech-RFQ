@@ -207,7 +207,7 @@ def api_scprs_health():
                             if now > next_dt + timedelta(hours=6):
                                 hours_late = (now - next_dt).total_seconds() / 3600
                                 overdue.append({"agency": d["agency_key"], "hours_late": round(hours_late)})
-                        except: pass
+                        except Exception: pass
 
                 if not schedule:
                     health["checks"].append({"check": "pull_schedule", "status": "critical",
@@ -247,7 +247,7 @@ def api_scprs_health():
                     if latest:
                         try:
                             days_old = (now - datetime.fromisoformat(latest.replace("Z","+00:00"))).days
-                        except: pass
+                        except Exception: pass
                     health["checks"].append({"check": "po_data", "status": "ok" if days_old < 7 else "warning",
                         "message": f"{po_count} POs, {line_count} line items, last pull {days_old}d ago"})
                     if days_old > 7: health["score"] -= 10
@@ -583,21 +583,31 @@ def api_buyers():
         agency_filter = request.args.get("agency", "")
         conn = get_db()
 
-        clause = "AND p.agency_key = ?" if agency_filter else ""
-        params = (agency_filter,) if agency_filter else ()
-
-        buyers = conn.execute(f"""
-            SELECT p.buyer_name, p.buyer_email, p.institution,
-                   COALESCE(p.agency_key, p.dept_name) as agency,
-                   COUNT(DISTINCT p.po_number) as po_count,
-                   SUM(p.grand_total) as total_spend,
-                   GROUP_CONCAT(DISTINCT p.supplier) as suppliers
-            FROM scprs_po_master p
-            WHERE p.buyer_email IS NOT NULL AND p.buyer_email != ''
-            {clause}
-            GROUP BY LOWER(p.buyer_email)
-            ORDER BY total_spend DESC
-        """, params).fetchall()
+        if agency_filter:
+            buyers = conn.execute("""
+                SELECT p.buyer_name, p.buyer_email, p.institution,
+                       COALESCE(p.agency_key, p.dept_name) as agency,
+                       COUNT(DISTINCT p.po_number) as po_count,
+                       SUM(p.grand_total) as total_spend,
+                       GROUP_CONCAT(DISTINCT p.supplier) as suppliers
+                FROM scprs_po_master p
+                WHERE p.buyer_email IS NOT NULL AND p.buyer_email != ''
+                AND p.agency_key = ?
+                GROUP BY LOWER(p.buyer_email)
+                ORDER BY total_spend DESC
+            """, (agency_filter,)).fetchall()
+        else:
+            buyers = conn.execute("""
+                SELECT p.buyer_name, p.buyer_email, p.institution,
+                       COALESCE(p.agency_key, p.dept_name) as agency,
+                       COUNT(DISTINCT p.po_number) as po_count,
+                       SUM(p.grand_total) as total_spend,
+                       GROUP_CONCAT(DISTINCT p.supplier) as suppliers
+                FROM scprs_po_master p
+                WHERE p.buyer_email IS NOT NULL AND p.buyer_email != ''
+                GROUP BY LOWER(p.buyer_email)
+                ORDER BY total_spend DESC
+            """).fetchall()
 
         # Get catalog categories for overlap detection
         catalog_tokens = set()
@@ -617,7 +627,7 @@ def api_buyers():
             agencies_seen.add(b["agency"] or "")
 
             # Get their line items
-            items = conn.execute(f"""
+            items = conn.execute("""
                 SELECT DISTINCT SUBSTR(l.description, 1, 50) as item,
                        l.category, l.reytech_sells
                 FROM scprs_po_lines l

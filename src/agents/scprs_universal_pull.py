@@ -583,16 +583,16 @@ def get_universal_intelligence(agency_code: str = None) -> dict:
         agency_params = [agency_code] if agency_code else []
 
         # Totals
-        totals = conn.execute(f"""
+        totals = conn.execute("""
             SELECT COUNT(DISTINCT p.po_number) as po_count,
                    SUM(p.grand_total) as total_spend,
                    COUNT(DISTINCT p.supplier) as supplier_count,
                    COUNT(DISTINCT p.dept_code) as agency_count
-            FROM scprs_po_master p WHERE 1=1 {where}
+            FROM scprs_po_master p WHERE 1=1 " + where + "
         """, agency_params).fetchone()
 
         # By agency
-        by_agency = conn.execute(f"""
+        by_agency = conn.execute("""
             SELECT p.dept_name, p.dept_code, p.agency_code,
                    COUNT(DISTINCT p.po_number) as po_count,
                    SUM(p.grand_total) as total_spend,
@@ -600,13 +600,13 @@ def get_universal_intelligence(agency_code: str = None) -> dict:
                    SUM(CASE WHEN l.reytech_sells=0 THEN l.line_total ELSE 0 END) as gap_spend
             FROM scprs_po_master p
             JOIN scprs_po_lines l ON l.po_id=p.id
-            WHERE 1=1 {where}
+            WHERE 1=1 " + where + "
             GROUP BY p.dept_code
             ORDER BY total_spend DESC
         """, agency_params).fetchall()
 
         # Gap items — products they buy we don't sell
-        gaps = conn.execute(f"""
+        gaps = conn.execute("""
             SELECT l.description, l.category,
                    COUNT(*) as times_ordered,
                    COUNT(DISTINCT p.dept_code) as agencies_buying,
@@ -614,13 +614,13 @@ def get_universal_intelligence(agency_code: str = None) -> dict:
                    AVG(l.unit_price) as avg_price
             FROM scprs_po_lines l
             JOIN scprs_po_master p ON l.po_id=p.id
-            WHERE l.opportunity_flag='GAP_ITEM' AND l.line_total > 0 {where}
+            WHERE l.opportunity_flag='GAP_ITEM' AND l.line_total > 0 " + where + "
             GROUP BY LOWER(l.description)
             ORDER BY total_spend DESC LIMIT 30
         """, agency_params).fetchall()
 
         # Win-back — products they buy that we sell (from competitors)
-        win_back = conn.execute(f"""
+        win_back = conn.execute("""
             SELECT l.description, l.category,
                    p.supplier as incumbent_vendor,
                    COUNT(*) as times_ordered,
@@ -628,7 +628,7 @@ def get_universal_intelligence(agency_code: str = None) -> dict:
                    AVG(l.unit_price) as their_price
             FROM scprs_po_lines l
             JOIN scprs_po_master p ON l.po_id=p.id
-            WHERE l.opportunity_flag='WIN_BACK' AND l.line_total > 0 {where}
+            WHERE l.opportunity_flag='WIN_BACK' AND l.line_total > 0 " + where + "
             GROUP BY LOWER(l.description), p.supplier
             ORDER BY total_spend DESC LIMIT 25
         """, agency_params).fetchall()

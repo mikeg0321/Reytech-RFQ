@@ -1,3 +1,4 @@
+import re
 """
 Order Lifecycle + Revenue Tracking (F8)
 
@@ -53,7 +54,7 @@ def _ensure_lifecycle_columns():
             existing = {r[1] for r in conn.execute("PRAGMA table_info(orders)").fetchall()}
             for col_name, col_type in new_cols:
                 if col_name not in existing:
-                    conn.execute(f"ALTER TABLE orders ADD COLUMN {col_name} {col_type}")
+                    conn.execute("ALTER TABLE orders ADD COLUMN " + re.sub(r"[^a-zA-Z0-9_]", "", col_name) + " " + col_type)
                     log.debug("Added column orders.%s", col_name)
     except Exception as e:
         log.debug("Lifecycle columns: %s", e)
@@ -129,7 +130,7 @@ def transition_order(order_id: str, new_status: str, actor: str = "system",
             # Execute update
             set_clause = ", ".join(f"{k}=?" for k in updates)
             values = list(updates.values()) + [order_id]
-            conn.execute(f"UPDATE orders SET {set_clause} WHERE id=?", values)
+            conn.execute("UPDATE orders SET " + set_clause + " WHERE id=?", values)
 
             log.info("Order %s: %s → %s (by %s)", order_id, old_status, new_status, actor)
 

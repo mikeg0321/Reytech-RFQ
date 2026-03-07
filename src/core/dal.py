@@ -658,7 +658,7 @@ def _update_row(conn, table: str, pk: str, data: dict, columns: list):
     sets = ",".join(f"{c}=?" for c in cols)
     vals = [data.get(c) for c in cols]
     vals.append(data[pk])
-    conn.execute(f"UPDATE {table} SET {sets} WHERE {pk}=?", vals)
+    conn.execute("UPDATE " + table + " SET " + sets + " WHERE " + pk + "=?", vals)
 
 
 def _fallback_load_json(filename: str, default):

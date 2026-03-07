@@ -35,6 +35,14 @@ import os
 import json
 import sqlite3
 import logging
+
+def _safe_identifier(name):
+    """Validate SQL identifier (table/column name) to prevent injection."""
+    clean = re.sub(r'[^a-zA-Z0-9_]', '', str(name))
+    if not clean or clean != str(name).strip():
+        raise ValueError(f"Invalid SQL identifier: {name!r}")
+    return clean
+
 import threading
 from datetime import datetime, timezone
 from contextlib import contextmanager
@@ -863,7 +871,7 @@ def _migrate_columns():
         conn = sqlite3.connect(DB_PATH, timeout=30)
         for table, col, col_type in migrations:
             try:
-                conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}")
+                conn.execute("ALTER TABLE " + _safe_identifier(table) + " ADD COLUMN " + _safe_identifier(col) + " " + col_type)
                 log.info("Migration: added %s.%s", table, col)
             except sqlite3.OperationalError as e:
                 if "duplicate column" in str(e).lower():
@@ -1363,7 +1371,7 @@ def get_db_stats() -> dict:
     with get_db() as conn:
         for table in tables:
             try:
-                count = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+                count = conn.execute("SELECT COUNT(*) FROM " + _safe_identifier(table)).fetchone()[0]
                 stats[table] = count
             except Exception:
                 stats[table] = 0
@@ -2114,7 +2122,7 @@ def update_outbox_status(email_id: str, status: str, **kwargs):
     # Whitelist columns to prevent injection
     updates = {k: v for k, v in updates.items() if k in ALLOWED_COLS}
     sets = ', '.join(f"{k}=?" for k in updates)
-    conn.execute(f"UPDATE email_outbox SET {sets} WHERE id=?",
+    conn.execute("UPDATE email_outbox SET " + sets + " WHERE id=?",
                  list(updates.values()) + [email_id])
     conn.commit()
     conn.close()

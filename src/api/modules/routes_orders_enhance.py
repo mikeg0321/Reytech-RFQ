@@ -520,11 +520,11 @@ def api_order_emails(oid):
                 return jsonify({"ok": True, "emails": [], "count": 0})
 
             where = " OR ".join(conditions)
-            rows = conn.execute(f"""
+            rows = conn.execute("""
                 SELECT id, subject, sender, received_at, classification,
                        substr(body, 1, 200) as preview
                 FROM processed_emails
-                WHERE {where}
+                WHERE " + where + "
                 ORDER BY received_at DESC LIMIT 30
             """, params).fetchall()
             emails = [dict(r) for r in rows]

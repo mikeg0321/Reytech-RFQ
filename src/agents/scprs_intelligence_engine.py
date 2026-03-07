@@ -399,7 +399,7 @@ def _store_po(conn, po: dict, agency_key: str, search_term: str, category: str) 
         if val is None: return None
         if isinstance(val, (int, float)): return float(val)
         try: return float(str(val).replace("$","").replace(",","").strip())
-        except: return None
+        except Exception: return None
 
     grand_total = _safe_float(po.get("grand_total_num")) or _safe_float(po.get("grand_total"))
 
@@ -1190,7 +1190,7 @@ def get_competitor_intelligence(agency_filter: str = "", limit: int = 50) -> dic
     agency_clause = "AND p.agency_key = ?" if agency_filter else ""
     params = (agency_filter,) if agency_filter else ()
 
-    competitors = conn.execute(f"""
+    competitors = conn.execute("""
         SELECT p.supplier,
                COUNT(DISTINCT p.po_number) as po_count,
                SUM(p.grand_total) as total_spend,
@@ -1203,7 +1203,7 @@ def get_competitor_intelligence(agency_filter: str = "", limit: int = 50) -> dic
                AVG(p.grand_total) as avg_po_value
         FROM scprs_po_master p
         WHERE p.supplier IS NOT NULL AND p.supplier != ''
-        {agency_clause}
+        " + agency_clause + "
         GROUP BY LOWER(p.supplier)
         ORDER BY total_spend DESC
         LIMIT ?
@@ -1218,23 +1218,23 @@ def get_competitor_intelligence(agency_filter: str = "", limit: int = 50) -> dic
         d["partner_candidate"] = any(p in name for p in DVBE_PARTNER_TARGETS)
 
         # Get their top product categories
-        cats = conn.execute(f"""
+        cats = conn.execute("""
             SELECT l.category, COUNT(*) as cnt, SUM(l.line_total) as cat_spend
             FROM scprs_po_lines l
             JOIN scprs_po_master p ON l.po_id = p.id
             WHERE LOWER(p.supplier) = ?
-            {agency_clause}
+            " + agency_clause + "
             GROUP BY l.category ORDER BY cat_spend DESC LIMIT 5
         """, (name, *params)).fetchall()
         d["top_categories"] = [dict(r) for r in cats]
 
         # Items where Reytech could compete
-        reytech_items = conn.execute(f"""
+        reytech_items = conn.execute("""
             SELECT l.description, l.unit_price, l.quantity, l.line_total
             FROM scprs_po_lines l
             JOIN scprs_po_master p ON l.po_id = p.id
             WHERE LOWER(p.supplier) = ? AND l.reytech_sells = 1
-            {agency_clause}
+            " + agency_clause + "
             ORDER BY l.line_total DESC LIMIT 10
         """, (name, *params)).fetchall()
         d["reytech_overlap_items"] = [dict(r) for r in reytech_items]
@@ -1243,7 +1243,7 @@ def get_competitor_intelligence(agency_filter: str = "", limit: int = 50) -> dic
         competitor_list.append(d)
 
     # ── Contract vehicle breakdown ──
-    vehicles = conn.execute(f"""
+    vehicles = conn.execute("""
         SELECT p.acq_type as vehicle,
                p.acq_method as method,
                COUNT(DISTINCT p.po_number) as po_count,
@@ -1253,13 +1253,13 @@ def get_competitor_intelligence(agency_filter: str = "", limit: int = 50) -> dic
                GROUP_CONCAT(DISTINCT p.supplier) as top_suppliers
         FROM scprs_po_master p
         WHERE p.acq_type IS NOT NULL AND p.acq_type != ''
-        {agency_clause}
+        " + agency_clause + "
         GROUP BY p.acq_type, p.acq_method
         ORDER BY total_spend DESC
     """, params).fetchall()
 
     # ── Institution-level spending ──
-    institutions = conn.execute(f"""
+    institutions = conn.execute("""
         SELECT p.institution, p.agency_key,
                COUNT(DISTINCT p.po_number) as po_count,
                SUM(p.grand_total) as total_spend,
@@ -1268,28 +1268,28 @@ def get_competitor_intelligence(agency_filter: str = "", limit: int = 50) -> dic
                MAX(p.start_date) as last_po
         FROM scprs_po_master p
         WHERE p.institution IS NOT NULL AND p.institution != ''
-        {agency_clause}
+        " + agency_clause + "
         GROUP BY p.institution
         ORDER BY total_spend DESC
         LIMIT 30
     """, params).fetchall()
 
     # ── Growth opportunities: where competitors win and Reytech can displace ──
-    dvbe_opportunities = conn.execute(f"""
+    dvbe_opportunities = conn.execute("""
         SELECT p.supplier, p.institution, p.agency_key,
                SUM(p.grand_total) as total_spend,
                COUNT(DISTINCT p.po_number) as po_count,
                p.acq_type as vehicle
         FROM scprs_po_master p
         WHERE LOWER(p.supplier) IN ({','.join('?' for _ in KNOWN_NON_DVBE_INCUMBENTS)})
-        {agency_clause}
+        " + agency_clause + "
         GROUP BY LOWER(p.supplier), p.institution
         ORDER BY total_spend DESC
         LIMIT 30
     """, (*[s.lower() for s in KNOWN_NON_DVBE_INCUMBENTS], *params)).fetchall()
 
     # ── Summary stats ──
-    stats = conn.execute(f"""
+    stats = conn.execute("""
         SELECT COUNT(DISTINCT po_number) as total_pos,
                COUNT(DISTINCT supplier) as total_suppliers,
                SUM(grand_total) as total_spend,
