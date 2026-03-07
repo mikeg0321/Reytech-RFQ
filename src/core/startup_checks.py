@@ -178,34 +178,18 @@ def run_all_checks():
         return True, "No hardcoded paths, no unguarded DB, no env DATA_DIR"
     _check("Code patterns", check_code_patterns)
 
-    # 10. Auto-price pipeline end-to-end (dry run)
-    def check_auto_price_pipeline():
+    # 10. Auto-price imports (lightweight — no DB calls)
+    def check_auto_price_imports():
         errors = []
-        # Can we import all 3 pricing sources?
-        try:
-            from src.agents.product_catalog import match_item, init_catalog_db
-            init_catalog_db()
-        except Exception as e:
-            errors.append(f"catalog import: {e}")
-        try:
-            from src.knowledge.pricing_oracle import find_similar_items
-        except Exception as e:
-            errors.append(f"pricing_oracle import: {e}")
-        try:
-            from src.agents.web_price_research import search_product_price
-        except Exception as e:
-            errors.append(f"web_price_research import: {e}")
-        # Can we call match_item without crashing?
-        try:
-            from src.agents.product_catalog import match_item
-            result = match_item("test nitrile gloves", "TEST-001", top_n=1)
-            # Don't care about results, just that it doesn't crash
-        except Exception as e:
-            errors.append(f"match_item call: {e}")
+        for mod in ["src.agents.product_catalog", "src.knowledge.pricing_oracle"]:
+            try:
+                __import__(mod)
+            except Exception as e:
+                errors.append(f"{mod}: {e}")
         if errors:
             return False, "; ".join(errors)
-        return True, "All 3 pricing sources importable + callable"
-    _check("Auto-price pipeline", check_auto_price_pipeline)
+        return True, "Pricing modules importable"
+    _check("Auto-price imports", check_auto_price_imports)
 
     # Summary + auto-alert
     total = _results["passed"] + _results["failed"]

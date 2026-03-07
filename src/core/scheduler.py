@@ -159,14 +159,15 @@ def run_backup(data_dir: str = None) -> dict:
     backup_path = os.path.join(backup_dir, filename)
 
     try:
-        # VACUUM first to compact DB (can shrink 567MB → <10MB)
-        try:
-            vc = sqlite3.connect(db_path, timeout=60)
-            vc.execute("VACUUM")
-            vc.close()
-            log.info("Pre-backup VACUUM complete")
-        except Exception as ve:
-            log.warning("Pre-backup VACUUM failed (non-fatal): %s", ve)
+        # VACUUM disabled — DB is 577MB, VACUUM needs 2x memory (1.2GB)
+        # Run /api/disk-cleanup?action=vacuum manually once to shrink to ~10MB
+        # After that, re-enable auto-VACUUM
+        # try:
+        #     vc = sqlite3.connect(db_path, timeout=60)
+        #     vc.execute("VACUUM")
+        #     vc.close()
+        # except Exception:
+        #     pass
 
         # Use sqlite3 backup API (safe, consistent snapshot)
         src_conn = sqlite3.connect(db_path, timeout=30)
@@ -179,7 +180,7 @@ def run_backup(data_dir: str = None) -> dict:
         log.info("Backup created: %s (%s)", filename, _fmt_size(size))
 
         # Rotate old backups (3 daily + 1 weekly)
-        _rotate_backups(backup_dir, keep_daily=3, keep_weekly=1)
+        _rotate_backups(backup_dir, keep_daily=1, keep_weekly=0)  # 577MB × 3 = 1.7GB, too much
 
         heartbeat("db-backup", success=True)
         return {
@@ -298,8 +299,9 @@ def start_backup_scheduler(interval_hours: int = 24):
     register_job("db-backup", interval_sec=interval_hours * 3600)
 
     def _backup_loop():
-        # Initial backup after 60s
-        time.sleep(60)
+        # Delay first backup — don't compete with boot for CPU/memory
+        # 577MB VACUUM + backup was killing Railway on every deploy
+        time.sleep(6 * 3600)  # 6 hours after boot
         while True:
             try:
                 result = run_backup()
