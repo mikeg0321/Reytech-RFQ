@@ -659,7 +659,12 @@ def _load_price_checks():
     """
     data = {}
     try:
-        from src.core.db import get_db
+        from src.core.db import get_db, init_db
+        # Ensure tables exist (one-time on first access after deploy)
+        try:
+            init_db()
+        except Exception:
+            pass
         with get_db() as conn:
             # Ensure pc_data column exists (stores full PC dict as JSON blob)
             try:

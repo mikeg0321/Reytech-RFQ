@@ -3870,12 +3870,20 @@ def pricecheck_document_save(pcid):
 def api_pc_retry_auto_price(pcid):
     """Manually retry auto-pricing — reads PC from DB or JSON directly, runs inline."""
     import sqlite3
+    from src.core.paths import DATA_DIR as _DATA_DIR
     pc = None
     source = "none"
 
+    # Ensure table exists
+    try:
+        from src.core.db import init_db
+        init_db()
+    except Exception:
+        pass
+
     # Try 1: DB with pc_data blob
     try:
-        db_path = os.path.join(DATA_DIR, "reytech.db")
+        db_path = os.path.join(_DATA_DIR, "reytech.db")
         conn = sqlite3.connect(db_path, timeout=10)
         conn.row_factory = sqlite3.Row
         row = conn.execute("SELECT * FROM price_checks WHERE id=?", (pcid,)).fetchone()
@@ -3896,7 +3904,7 @@ def api_pc_retry_auto_price(pcid):
     # Try 2: JSON file
     if not pc or not pc.get("items"):
         try:
-            json_path = os.path.join(DATA_DIR, "price_checks.json")
+            json_path = os.path.join(_DATA_DIR, "price_checks.json")
             if os.path.exists(json_path):
                 with open(json_path) as f:
                     jdata = json.load(f)
@@ -3987,7 +3995,7 @@ def api_pc_retry_auto_price(pcid):
             errors.append(f"save: {e}")
             # Fallback: write directly to JSON
             try:
-                json_path = os.path.join(DATA_DIR, "price_checks.json")
+                json_path = os.path.join(_DATA_DIR, "price_checks.json")
                 with open(json_path) as f: jdata = json.load(f)
                 jdata[pcid] = pc
                 with open(json_path, "w") as f: json.dump(jdata, f, indent=2, default=str)
@@ -6136,10 +6144,19 @@ def api_diag_pc(pcid):
     """Full diagnostic: where does this PC exist?"""
     import os, json, sqlite3
     result = {"pc_id": pcid, "found_in": []}
+    from src.core.paths import DATA_DIR as _DATA_DIR
     
+    # Ensure tables exist
+    try:
+        from src.core.db import init_db
+        init_db()
+    except Exception as ie:
+        result["init_db_error"] = str(ie)
+
     # 1. Check DB directly
     try:
-        db_path = os.path.join(os.environ.get("DATA_DIR", "data"), "reytech.db")
+        db_path = os.path.join(_DATA_DIR, "reytech.db")
+        result["db_path"] = db_path
         conn = sqlite3.connect(db_path, timeout=5)
         conn.row_factory = sqlite3.Row
         row = conn.execute("SELECT id, pc_number, status, total_items, created_at FROM price_checks WHERE id=?", (pcid,)).fetchone()
@@ -6159,7 +6176,7 @@ def api_diag_pc(pcid):
 
     # 2. Check JSON directly
     try:
-        json_path = os.path.join(os.environ.get("DATA_DIR", "data"), "price_checks.json")
+        json_path = os.path.join(_DATA_DIR, "price_checks.json")
         if os.path.exists(json_path):
             with open(json_path) as f:
                 jdata = json.load(f)
