@@ -113,7 +113,7 @@
      {% if pc.get('status') == 'sent' %}
      <div style="padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;justify-content:space-between;background:rgba(63,185,80,.08);border:1px solid rgba(63,185,80,.25);color:#3fb950;margin-bottom:10px">
       <div style="display:flex;align-items:center;gap:10px"><span style="font-size:18px">📨</span><div><b>Sent</b> — Awaiting award decision{% if pc.get('sent_at') %} · Sent {{ pc.get('sent_at','')[:10] }}{% endif %}
-       {% if pc.get('current_doc_id') %}<br><a href="/pricecheck/{{ pcid }}/document/{{ pc.get('current_doc_id','') }}" style="color:#58a6ff;font-size:14px">📄 View/Edit Sent Document</a> · <a href="/pricecheck/{{ pcid }}/documents" style="color:#8b949e;font-size:14px">All Versions</a>{% endif %}</div></div>
+       {% if pc.get('current_doc_id') %}<br><a href="/pricecheck/'+_pcid+'/document/{{ pc.get('current_doc_id','') }}" style="color:#58a6ff;font-size:14px">📄 View/Edit Sent Document</a> · <a href="/pricecheck/'+_pcid+'/documents" style="color:#8b949e;font-size:14px">All Versions</a>{% endif %}</div></div>
       <div style="display:flex;gap:6px">
        <button class="btn btn-sm" onclick="adminAction('won')" style="background:#238636;color:#fff;font-size:14px;padding:4px 12px;border-radius:6px;border:none;cursor:pointer">🏆 Mark Won</button>
        <button class="btn btn-sm" onclick="adminAction('lost')" style="background:#da3633;color:#fff;font-size:14px;padding:4px 12px;border-radius:6px;border:none;cursor:pointer">❌ Mark Lost</button>
@@ -376,6 +376,7 @@
     } catch(e) {}
     _log('init-ok: tax+delivery');
 
+    var _pcid={{ pcid|tojson }};
     function showMsg(text, type) {
      const el=document.getElementById('statusMsg');
      el.innerHTML='<div class="msg msg-'+type+'" style="animation:slideIn .3s ease">'+text+'</div>';
@@ -387,7 +388,7 @@
     function savePrices(btn) {
      const origText=btn.textContent;
      btn.disabled=true;btn.textContent='⏳ Saving...';
-     fetch('/pricecheck/{{ pcid }}/save-prices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(collectPrices())})
+     fetch('/pricecheck/'+_pcid+'/save-prices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(collectPrices())})
      .then(r=>{
       if(!r.ok) return r.text().then(t=>{throw new Error('Server '+r.status+': '+(t||'').substring(0,100))});
       return r.json();
@@ -396,7 +397,7 @@
        if (d.profit_summary) updateProfitPanel(d.profit_summary);
        // Smart Save: auto-generate PDF after saving prices
        btn.textContent='📄 Generating PDF...';
-       fetch('/pricecheck/{{ pcid }}/generate',{method:'POST'}).then(r=>r.json()).then(g=>{
+       fetch('/pricecheck/'+_pcid+'/generate',{method:'POST'}).then(r=>r.json()).then(g=>{
         btn.disabled=false;
         if(g.ok){
          btn.textContent='✅ Saved + PDF Ready';btn.style.background='#238636';
@@ -951,7 +952,7 @@
     function runScprs(btn) {
      btn.disabled=true;const origText=btn.textContent;btn.textContent='⏳ Searching SCPRS...';
      showMsg('Searching SCPRS Won Quotes knowledge base...','warn');
-     fetch('/pricecheck/{{ pcid }}/scprs-lookup').then(r=>{
+     fetch('/pricecheck/'+_pcid+'/scprs-lookup').then(r=>{
       if(!r.ok) throw new Error('HTTP '+r.status);
       return r.json();
      }).then(d=>{
@@ -973,7 +974,7 @@
     function runWebSearch(btn) {
      btn.disabled=true;const origText=btn.textContent;btn.textContent='⏳ Starting search...';
      showMsg('🌐 Searching Google Shopping, Amazon, and suppliers via Claude AI...','warn');
-     fetch('/api/pricecheck/{{ pcid }}/web-search',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(r=>{
+     fetch('/api/pricecheck/'+_pcid+'/web-search',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(r=>{
       if(!r.ok) throw new Error('HTTP '+r.status);
       return r.json();
      }).then(d=>{
@@ -997,7 +998,7 @@
      setTimeout(()=>{
       const dots='.'.repeat((attempts%3)+1);
       btn.textContent='⏳ Searching'+dots+' ('+Math.round(attempts*2)+'s)';
-      fetch('/api/pricecheck/{{ pcid }}/web-search/status').then(r=>r.json()).then(d=>{
+      fetch('/api/pricecheck/'+_pcid+'/web-search/status').then(r=>r.json()).then(d=>{
        if(d.status==='running'){
         _pollWebSearch(btn, origText, attempts+1);
        } else if(d.ok!==undefined){
@@ -1033,7 +1034,7 @@
     function runLookup(btn) {
      btn.disabled=true;const origText=btn.textContent;btn.textContent='⏳ Searching Amazon...';
      showMsg('🔬 Searching Amazon + web sources for prices...','warn');
-     fetch('/pricecheck/{{ pcid }}/lookup').then(r=>{
+     fetch('/pricecheck/'+_pcid+'/lookup').then(r=>{
       if(!r.ok) throw new Error('HTTP '+r.status);
       return r.json();
      }).then(d=>{
@@ -1221,7 +1222,7 @@
     function runReparse(btn) {
      if(!confirm('Re-parse from source PDF? This will reset descriptions, MFG#s, and substitute flags.\nYour pricing data (costs, markups, prices) will be preserved.')) return;
      btn.disabled=true;btn.textContent='⏳ Re-parsing...';
-     fetch('/pricecheck/{{ pcid }}/reparse',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})
+     fetch('/pricecheck/'+_pcid+'/reparse',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})
      .then(r=>r.json()).then(d=>{
       btn.disabled=false;btn.textContent='🔄 Re-parse from PDF';
       if(!d.ok){showMsg('❌ '+(d.error||'Re-parse failed'),'err');return;}
@@ -1233,7 +1234,7 @@
     /* ═══ ADMIN ACTIONS: Archive, Duplicate, No Response, Delete, Won/Lost ═══ */
     function rescanMfgNumbers(btn) {
      btn.disabled=true;btn.textContent='⏳ Scanning PDF...';
-     fetch('/pricecheck/{{ pcid }}/rescan-mfg',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})
+     fetch('/pricecheck/'+_pcid+'/rescan-mfg',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})
      .then(r=>r.json()).then(d=>{
       btn.disabled=false;btn.textContent='🔍 Rescan MFG#s';
       if(!d.ok){showMsg('❌ '+d.error,'err');return;}
@@ -1299,17 +1300,17 @@
 
      let url, method = 'POST', body = {};
      if (action === 'won') {
-      url = '/api/pricecheck/{{ pcid }}/mark-won';
+      url = '/api/pricecheck/'+_pcid+'/mark-won';
      } else if (action === 'lost') {
       const competitor = prompt('Who won? (optional — competitor name)') || '';
       const price = prompt('Their winning price? (optional — e.g. 12.50)') || '';
-      url = '/api/pricecheck/{{ pcid }}/mark-lost';
+      url = '/api/pricecheck/'+_pcid+'/mark-lost';
       body = {competitor_name: competitor, competitor_price: parseFloat(price) || 0};
      } else if (action === 'delete') {
-      url = '/api/pricecheck/{{ pcid }}/dismiss';
+      url = '/api/pricecheck/'+_pcid+'/dismiss';
       body = {reason: 'delete'};
      } else {
-      url = '/api/pricecheck/{{ pcid }}/dismiss';
+      url = '/api/pricecheck/'+_pcid+'/dismiss';
       body = {reason: action};
      }
 
@@ -1327,7 +1328,7 @@
     function markSent(btn) {
      if (!confirm('Mark this PC as SENT to the requestor?\n\nA versioned copy of the 704 will be saved.\nYou can edit it anytime from the document viewer.')) return;
      btn.disabled=true;btn.textContent='⏳ Updating...';
-     fetch('/api/pricecheck/{{ pcid }}/mark-sent', {
+     fetch('/api/pricecheck/'+_pcid+'/mark-sent', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({notes: '704 sent to requestor'})
      }).then(r=>r.json()).then(d=>{
@@ -1353,7 +1354,7 @@
      btn.disabled=true;const origText=btn.textContent;btn.textContent='⏳ Analyzing...';
      showMsg('🧠 Running pricing intelligence on '+_catalogCount+' catalog products...','warn');
 
-     fetch('/api/pricecheck/{{ pcid }}/auto-price',{
+     fetch('/api/pricecheck/'+_pcid+'/auto-price',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:'{}'
@@ -1415,7 +1416,7 @@
      btn.disabled=true;const origText=btn.textContent;btn.textContent='⏳ Sweeping...';
      showMsg('🛒 Searching Google Shopping for best prices across all retailers...','warn');
 
-     fetch('/api/pricecheck/{{ pcid }}/price-sweep',{
+     fetch('/api/pricecheck/'+_pcid+'/price-sweep',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:'{}'
@@ -1496,7 +1497,7 @@
       if(desc||pn) items.push({idx:parseInt(idx), description:desc, item_number:pn, cost:cost, qty:qty});
      });
 
-     fetch('/api/pricecheck/{{ pcid }}/portfolio-price',{
+     fetch('/api/pricecheck/'+_pcid+'/portfolio-price',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({items:items})
@@ -1599,7 +1600,7 @@
     function runCompetitorIntel(btn) {
      btn.disabled=true;const origText=btn.textContent;btn.textContent='⏳ Loading...';
 
-     fetch('/api/pricecheck/{{ pcid }}/competitor-intel')
+     fetch('/api/pricecheck/'+_pcid+'/competitor-intel')
      .then(r=>r.json()).then(d=>{
       btn.disabled=false;btn.textContent=origText;
       if(!d.ok){showMsg('❌ '+d.error,'err');return;}
@@ -1961,7 +1962,7 @@
     function renamePc() {
       const newName = document.getElementById('pcNumInput').value.trim();
       if (!newName) return;
-      fetch('/pricecheck/{{ pcid }}/rename', {
+      fetch('/pricecheck/'+_pcid+'/rename', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({pc_number: newName})
@@ -2086,14 +2087,14 @@
     function saveAndGenerate(btn) {
      btn.disabled=true;btn.textContent='⏳ Saving prices...';
      showMsg('Saving prices and filling AMS 704 PDF...','warn');
-     fetch('/pricecheck/{{ pcid }}/save-prices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(collectPrices())})
+     fetch('/pricecheck/'+_pcid+'/save-prices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(collectPrices())})
      .then(r=>{
       if(!r.ok) return r.text().then(t=>{throw new Error('Save: Server '+r.status)});
       return r.json();
      }).then(d=>{
       if(!d.ok){btn.textContent='📄 Save & Fill 704';btn.disabled=false;showMsg('❌ Save failed: '+(d.error||'unknown'),'err');return;}
       btn.textContent='⏳ Generating PDF...';
-      return fetch('/pricecheck/{{ pcid }}/generate');
+      return fetch('/pricecheck/'+_pcid+'/generate');
      }).then(r=>{
       if(!r||!r.json) return; // save failed, chain stopped
       if(!r.ok) return r.text().then(t=>{throw new Error('Generate: Server '+r.status)});
@@ -2148,7 +2149,7 @@
      if(meta) meta.textContent = 'Step 1/3: Persisting prices to DB...';
 
      // Step 1: Save current prices
-     fetch('/pricecheck/{{ pcid }}/save-prices', {
+     fetch('/pricecheck/'+_pcid+'/save-prices', {
        method: 'POST',
        headers: {'Content-Type': 'application/json'},
        body: JSON.stringify(collectPrices())
@@ -2232,12 +2233,12 @@
     function generateReytechQuote(btn) {
      btn.disabled=true;btn.textContent='⏳ Saving...';
      showMsg('Saving prices and generating Reytech Quote PDF...','warn');
-     fetch('/pricecheck/{{ pcid }}/save-prices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(collectPrices())})
+     fetch('/pricecheck/'+_pcid+'/save-prices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(collectPrices())})
      .then(r=>r.json()).then(d=>{
       if (d.profit_summary) updateProfitPanel(d.profit_summary);
       if(!d.ok){btn.textContent='📋 Reytech Quote PDF';btn.disabled=false;showMsg('❌ Save failed','err');return;}
       btn.textContent='⏳ Generating quote...';
-      return fetch('/pricecheck/{{ pcid }}/generate-quote');
+      return fetch('/pricecheck/'+_pcid+'/generate-quote');
      }).then(r=>r.json()).then(d=>{
       btn.disabled=false;btn.textContent='📋 Reytech Quote PDF';
       if(d&&d.ok){showMsg('✅ Reytech Quote #'+d.quote_number+' generated! Reloading...','ok');setTimeout(()=>location.reload(),1200)}
@@ -2248,7 +2249,7 @@
     // Enhancement 5: PC→RFQ Linkage
     function linkToRFQ(){
      var rfqId=prompt('Enter RFQ ID to link to (or leave blank to auto-match):','');
-     fetch('/api/pc/{{ pcid }}/link-rfq',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rfq_id:rfqId||''})})
+     fetch('/api/pc/'+_pcid+'/link-rfq',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rfq_id:rfqId||''})})
      .then(r=>r.json()).then(d=>{
       if(d.ok&&d.matched){showMsg('✅ Linked to RFQ '+d.rfq_id,'ok');setTimeout(()=>location.reload(),1000);}
       else if(d.ok&&!d.matched){showMsg('⚠️ No matching RFQ found. Try entering the RFQ ID manually.','warn');}
@@ -2257,7 +2258,7 @@
     }
     function convertPCToRFQ(){
      if(!confirm('Convert this PC to a new RFQ?\n\nAll item data and pricing will carry over.'))return;
-     fetch('/api/pc/{{ pcid }}/convert-to-rfq',{method:'POST'})
+     fetch('/api/pc/'+_pcid+'/convert-to-rfq',{method:'POST'})
      .then(r=>r.json()).then(d=>{
       if(d.ok){showMsg('✅ Converted! '+d.items+' items. Redirecting...','ok');setTimeout(()=>location.href='/rfq/'+d.rfq_id,1200);}
       else{showMsg('❌ '+(d.error||'Conversion failed'),'err');}
@@ -2268,9 +2269,9 @@
      if(!confirm('Convert this Price Check into a full quote?\\n\\nThis will create an RFQ entry with 704A, 704B, and Bid Package forms pre-filled with the pricing from this Price Check.'))return;
      btn.disabled=true;btn.textContent='⏳ Converting...';
      showMsg('Saving prices first...','warn');
-     fetch('/pricecheck/{{ pcid }}/save-prices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(collectPrices())})
+     fetch('/pricecheck/'+_pcid+'/save-prices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(collectPrices())})
      .then(r=>r.json()).then(d=>{
-      return fetch('/pricecheck/{{ pcid }}/convert-to-quote');
+      return fetch('/pricecheck/'+_pcid+'/convert-to-quote');
      }).then(r=>r.json()).then(d=>{
       btn.disabled=false;btn.textContent='🔄 Convert to Full Quote (704A/B + Package)';
       if(d&&d.ok){showMsg('✅ Quote created! Redirecting...','ok');setTimeout(()=>window.location='/rfq/'+d.rfq_id,1000)}
@@ -2281,7 +2282,7 @@
     function autoProcess(btn) {
      btn.disabled=true;btn.textContent='⚡ Running full pipeline...';
      showMsg('⚡ Auto-processing: Parse → SCPRS → Amazon → Price → Generate PDF...','warn');
-     fetch('/pricecheck/{{ pcid }}/auto-process').then(r=>r.json()).then(d=>{
+     fetch('/pricecheck/'+_pcid+'/auto-process').then(r=>r.json()).then(d=>{
       btn.disabled=false;btn.textContent='⚡ Process Now';
       if(d.ok){
        let t=d.timing||{};
@@ -2560,7 +2561,7 @@
       updateBanner('🔬', '<b>Step 2:</b> Catalog found ' + catFound + '. Searching Amazon + web...', '#58a6ff');
 
       // Step 2: Amazon / Web search for remaining unpriced items
-      fetch('/api/pricecheck/{{ pcid }}/web-search',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(r=>r.json()).then(wd=>{
+      fetch('/api/pricecheck/'+_pcid+'/web-search',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(r=>r.json()).then(wd=>{
        let webFound = wd.found || 0;
        let total = catFound + webFound;
        if (total > 0) {
@@ -2568,13 +2569,13 @@
         showMsg('✅ Auto-priced: ' + catFound + ' from catalog, ' + webFound + ' from web. Auto-saving...', 'ok');
         // Auto-save instead of reloading (prevents page flash + data loss)
         recalcPC();
-        fetch('/pricecheck/{{ pcid }}/save-prices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(collectPrices())})
+        fetch('/pricecheck/'+_pcid+'/save-prices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(collectPrices())})
          .then(r=>r.json()).then(sd=>{if(sd.ok) showMsg('✅ Auto-priced '+total+' items and saved.','ok')})
          .catch(()=>{});
        } else {
         // Try SCPRS as last resort
         updateBanner('🔍', '<b>Step 3:</b> Checking SCPRS won quotes KB...', '#58a6ff');
-        fetch('/pricecheck/{{ pcid }}/scprs-lookup').then(r=>r.json()).then(sd=>{
+        fetch('/pricecheck/'+_pcid+'/scprs-lookup').then(r=>r.json()).then(sd=>{
          let scprsFound = sd.found || 0;
          if(scprsFound > 0){
           updateBanner('✅', '<b>Found prices!</b> ' + scprsFound + ' from SCPRS. Reloading...', '#3fb950');
@@ -2595,13 +2596,13 @@
         updateBanner('✅', '<b>Catalog:</b> '+catFound+' matches applied.', '#3fb950');
         showMsg('✅ Catalog: '+catFound+' matches applied. Auto-saving...', 'ok');
         recalcPC();
-        fetch('/pricecheck/{{ pcid }}/save-prices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(collectPrices())})
+        fetch('/pricecheck/'+_pcid+'/save-prices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(collectPrices())})
          .then(r=>r.json()).then(sd=>{if(sd.ok) showMsg('✅ '+catFound+' catalog prices saved.','ok')})
          .catch(()=>{});
        } else {
         // Try SCPRS alone
         updateBanner('🔍', '<b>Web search unavailable.</b> Checking SCPRS...', '#d29922');
-        fetch('/pricecheck/{{ pcid }}/scprs-lookup').then(r=>r.json()).then(sd=>{
+        fetch('/pricecheck/'+_pcid+'/scprs-lookup').then(r=>r.json()).then(sd=>{
          if(sd.found > 0){
           showMsg('✅ SCPRS: Found '+sd.found+' matches. Reloading...', 'ok');
           updateBanner('✅', '<b>Found prices!</b> '+sd.found+' from SCPRS. Reloading...', '#3fb950');
@@ -2614,7 +2615,7 @@
       console.warn('Auto-price catalog error:', e);
       updateBanner('🔬', '<b>Searching Amazon + web...</b>', '#f0883e');
       // Catalog failed, try web search directly
-      fetch('/api/pricecheck/{{ pcid }}/web-search',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(r=>r.json()).then(wd=>{
+      fetch('/api/pricecheck/'+_pcid+'/web-search',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(r=>r.json()).then(wd=>{
        if(wd.found > 0){
         showMsg('✅ Web search: Found ' + wd.found + ' prices. Reloading...', 'ok');
         updateBanner('✅', '<b>Found prices!</b> '+wd.found+' from web search. Reloading...', '#3fb950');
@@ -2636,7 +2637,7 @@
      // Report errors to server for debugging
      if(window._pcErrors.length>0){
       try{
-       fetch('/pricecheck/{{ pcid }}/client-error',{
+       fetch('/pricecheck/'+_pcid+'/client-error',{
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({errors:window._pcErrors, log:window._pcLog.map(function(e){return e.m})})
