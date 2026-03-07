@@ -257,11 +257,12 @@ def load_rfqs():
                     "SELECT * FROM rfqs WHERE status NOT IN ('dismissed','cancelled') ORDER BY received_at DESC"
                 ).fetchall()
                 if rows:
-                    for r in rows:
+                    for _row in rows:
+                        r = dict(_row)
                         rid = r["id"]
                         items = []
                         try:
-                            items = json.loads(r["items"] or "[]")
+                            items = json.loads(r.get("items") or "[]")
                         except Exception:
                             pass
                         data[rid] = {
@@ -678,7 +679,8 @@ def _load_price_checks():
             rows = conn.execute(
                 "SELECT * FROM price_checks WHERE status NOT IN ('deleted')"
             ).fetchall()
-            for r in rows:
+            for _row in rows:
+                r = dict(_row)  # sqlite3.Row doesn't support .get()
                 pc_id = r["id"]
                 # Start from pc_data blob (has all extra fields like parsed, ship_to, etc.)
                 pc = None
@@ -2431,7 +2433,8 @@ def _load_orders() -> dict:
             from src.core.db import get_db
             with get_db() as conn:
                 rows = conn.execute("SELECT * FROM orders").fetchall()
-                for r in rows:
+                for _row in rows:
+                    r = dict(_row)
                     oid = r["id"]
                     items = []
                     try:
