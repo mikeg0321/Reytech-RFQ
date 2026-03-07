@@ -2651,7 +2651,7 @@ def _api_diag_inner():
         diag["connection_traceback"] = traceback.format_exc()
     
     # Check processed emails file
-    proc_file = email_cfg.get("processed_file", "data/processed_emails.json")
+    proc_file = email_cfg.get("processed_file", os.path.join(DATA_DIR, "processed_emails.json"))
     if os.path.exists(proc_file):
         try:
             with open(proc_file) as f:

@@ -119,77 +119,81 @@ def fire_event(event_type: str, payload: dict):
         return
 
     def _do_fire():
-        import urllib.request
-        import urllib.error
+        try:
+            import urllib.request
+            import urllib.error
 
-        config = _load_config()
-        if not config.get("enabled", True):
-            return
+            config = _load_config()
+            if not config.get("enabled", True):
+                return
 
-        # Build event data
-        event_data = {
-            "event": event_type,
-            "event_label": EVENT_TYPES.get(event_type, event_type),
-            "timestamp": datetime.now().isoformat(),
-            "source": "reytech-rfq",
-            **payload,
-        }
+            # Build event data
+            event_data = {
+                "event": event_type,
+                "event_label": EVENT_TYPES.get(event_type, event_type),
+                "timestamp": datetime.now().isoformat(),
+                "source": "reytech-rfq",
+                **payload,
+            }
 
-        # Fire to configured webhooks
-        for webhook in config.get("webhooks", []):
-            if not webhook.get("enabled", True):
-                continue
-            if event_type not in webhook.get("events", []):
-                continue
+            # Fire to configured webhooks
+            for webhook in config.get("webhooks", []):
+                if not webhook.get("enabled", True):
+                    continue
+                if event_type not in webhook.get("events", []):
+                    continue
 
-            url = webhook.get("url", "")
-            if not url:
-                continue
+                url = webhook.get("url", "")
+                if not url:
+                    continue
 
-            try:
-                fmt = webhook.get("format", "json")
-                if fmt == "slack":
-                    # Slack format: {text: "..."}
-                    text = f"*{EVENT_TYPES.get(event_type, event_type)}*\n"
+                try:
+                    fmt = webhook.get("format", "json")
+                    if fmt == "slack":
+                        # Slack format: {text: "..."}
+                        text = f"*{EVENT_TYPES.get(event_type, event_type)}*\n"
+                        for k, v in payload.items():
+                            if k not in ("event", "timestamp", "source"):
+                                text += f"• {k}: {v}\n"
+                        body = json.dumps({"text": text}).encode()
+                    else:
+                        body = json.dumps(event_data).encode()
+
+                    req = urllib.request.Request(
+                        url,
+                        data=body,
+                        headers={"Content-Type": "application/json"},
+                        method="POST",
+                    )
+                    with urllib.request.urlopen(req, timeout=10) as resp:
+                        webhook["fire_count"] = webhook.get("fire_count", 0) + 1
+                        webhook["last_fired"] = datetime.now().isoformat()
+                        webhook["last_error"] = ""
+                except Exception as e:
+                    webhook["last_error"] = str(e)[:200]
+                    log.debug("Webhook %s error: %s", webhook["name"], e)
+
+            # Also fire to env-var Slack webhook for key events
+            slack_url = os.environ.get("SLACK_WEBHOOK_URL", "")
+            if slack_url and event_type in ("new_rfq", "quote_won", "order_created"):
+                try:
+                    text = f"🔔 *{EVENT_TYPES.get(event_type, event_type)}*\n"
                     for k, v in payload.items():
-                        if k not in ("event", "timestamp", "source"):
-                            text += f"• {k}: {v}\n"
+                        text += f"• {k}: {v}\n"
                     body = json.dumps({"text": text}).encode()
-                else:
-                    body = json.dumps(event_data).encode()
+                    req = urllib.request.Request(
+                        slack_url,
+                        data=body,
+                        headers={"Content-Type": "application/json"},
+                        method="POST",
+                    )
+                    urllib.request.urlopen(req, timeout=10)
+                except Exception as e:
+                    log.debug("Slack webhook error: %s", e)
 
-                req = urllib.request.Request(
-                    url,
-                    data=body,
-                    headers={"Content-Type": "application/json"},
-                    method="POST",
-                )
-                with urllib.request.urlopen(req, timeout=10) as resp:
-                    webhook["fire_count"] = webhook.get("fire_count", 0) + 1
-                    webhook["last_fired"] = datetime.now().isoformat()
-                    webhook["last_error"] = ""
-            except Exception as e:
-                webhook["last_error"] = str(e)[:200]
-                log.debug("Webhook %s error: %s", webhook["name"], e)
 
-        # Also fire to env-var Slack webhook for key events
-        slack_url = os.environ.get("SLACK_WEBHOOK_URL", "")
-        if slack_url and event_type in ("new_rfq", "quote_won", "order_created"):
-            try:
-                text = f"🔔 *{EVENT_TYPES.get(event_type, event_type)}*\n"
-                for k, v in payload.items():
-                    text += f"• {k}: {v}\n"
-                body = json.dumps({"text": text}).encode()
-                req = urllib.request.Request(
-                    slack_url,
-                    data=body,
-                    headers={"Content-Type": "application/json"},
-                    method="POST",
-                )
-                urllib.request.urlopen(req, timeout=10)
-            except Exception as e:
-                log.debug("Slack webhook error: %s", e)
-
-        _save_config(config)
+            _save_config(config)
+        except Exception as _wh_err:
+            log.error("Webhook fire error: %s", _wh_err)
 
     threading.Thread(target=_do_fire, daemon=True).start()

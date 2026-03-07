@@ -14,6 +14,14 @@ import logging
 from datetime import datetime, timedelta
 from collections import defaultdict
 
+# Ensure DB tables exist
+try:
+    from src.core.db import init_db as _init_db
+    _init_db()
+except Exception:
+    pass
+
+
 log = logging.getLogger("manager")
 # ── JSON→SQLite compatibility (Phase 32c migration) ──────────────────────────
 try:

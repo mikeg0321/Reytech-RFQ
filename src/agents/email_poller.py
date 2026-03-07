@@ -1122,7 +1122,7 @@ class EmailPoller:
         self.email_addr = config.get("email", os.environ.get("GMAIL_ADDRESS", ""))
         self.password = config.get("email_password", os.environ.get("GMAIL_PASSWORD", ""))
         self.folder = config.get("imap_folder", "INBOX")
-        self.processed_file = config.get("processed_file", "data/processed_emails.json")
+        self.processed_file = config.get("processed_file", os.path.join(DATA_DIR, "processed_emails.json"))
         self._inbox_name = config.get("inbox_name", "sales")  # For cross-inbox dedup
         self._processed = self._load_processed()
         self.mail = None

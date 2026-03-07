@@ -264,7 +264,10 @@ def _poll_loop():
                 log.info("Invoice poller: processed %d invoices", result["processed"])
         except Exception as e:
             log.error("Invoice poller error: %s", e)
-        time.sleep(POLL_INTERVAL)
+        try:
+            time.sleep(POLL_INTERVAL)
+        except Exception:
+            break
 
 
 def start_invoice_poller():

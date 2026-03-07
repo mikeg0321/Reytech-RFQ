@@ -26,6 +26,14 @@ import threading
 from datetime import datetime, timezone
 from collections import defaultdict
 
+# Ensure DB tables exist
+try:
+    from src.core.db import init_db as _init_db
+    _init_db()
+except Exception:
+    pass
+
+
 log = logging.getLogger("workflow_tester")
 
 try:

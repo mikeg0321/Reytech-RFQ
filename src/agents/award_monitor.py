@@ -657,8 +657,11 @@ def _monitor_loop():
     """Background loop — runs every CHECK_INTERVAL_HOURS."""
     global _monitor_running
     _monitor_running = True
-    log.info("Award monitor started (checks every %dh, SCPRS every %d biz days, expires at %dd)",
-             CHECK_INTERVAL_HOURS, SCPRS_CHECK_INTERVAL_DAYS, EXPIRY_DAYS)
+    try:
+        log.info("Award monitor started (checks every %dh, SCPRS every %d biz days, expires at %dd)",
+                 CHECK_INTERVAL_HOURS, SCPRS_CHECK_INTERVAL_DAYS, EXPIRY_DAYS)
+    except Exception:
+        pass
     
     while _monitor_running:
         try:
