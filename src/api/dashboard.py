@@ -4262,7 +4262,7 @@ def api_disk_cleanup():
             result["db_before_mb"] = round(before / 1024 / 1024, 1)
             result["db_after_mb"] = round(after / 1024 / 1024, 1)
             result["freed_mb"] = round((before - after) / 1024 / 1024, 1)
-            log.info("VACUUM: %s → %s (freed %s)", _fmt_size(before), _fmt_size(after), _fmt_size(before - after))
+            log.info("VACUUM: %.1fMB → %.1fMB (freed %.1fMB)", before/1048576, after/1048576, (before-after)/1048576)
         except Exception as e:
             result["action"] = "vacuum_failed"
             result["error"] = str(e)
