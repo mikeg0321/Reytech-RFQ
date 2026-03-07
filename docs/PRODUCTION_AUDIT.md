@@ -32,23 +32,24 @@
 
 | Check | Status | Detail |
 |-------|--------|--------|
-| SQL Injection vectors | ⚠️ WARN | 40 f-string queries (behind auth) |
+| SQL Injection vectors | ✅ PASS | 40 → 0 f-string queries eliminated |
 | XSS via \|safe filter | ⚠️ WARN | 51 uses (many necessary for HTML rendering) |
 | CSRF protection | ⚠️ WARN | No tokens (mitigated by Basic Auth) |
 | Auth coverage | ✅ PASS | 99.7% coverage |
 | Rate limiting | ✅ PASS | Global + per-IP |
 | Quotes JSON↔DB sync | ✅ PASS | 9 quotes in sync |
 | Empty tables | ⚠️ WARN | 46 empty (schema created, no data yet) |
-| Bare except clauses | ✅ PASS | 8 remaining (improved from 74) |
+| Bare except clauses | ✅ PASS | 8 → 0 all specify Exception type |
 | POST error handling | ⚠️ WARN | 153 POST routes without explicit try/except |
 | Background threads | ⚠️ WARN | 17 threads (~136MB stack) |
 | Database indexes | ✅ PASS | 111 indexes |
 | SQLite WAL mode | ✅ PASS | WAL enabled |
 | Database size | ✅ PASS | 1.7MB local |
 | Template compilation | ✅ PASS | 51/51 clean |
-| Jinja-in-JS injection | ✅ PASS | 0 remaining (was 97) |
+| Jinja-in-JS injection | ✅ PASS | 97 → 0 all eliminated |
+| IMAP connection leak | ✅ PASS | Fixed: reuse poller instance |
 
-**Score: 9 PASS, 6 WARN, 0 FAIL**
+**Score: 11 PASS, 5 WARN, 0 FAIL**
 
 ---
 
@@ -96,7 +97,7 @@
 
 ---
 
-## OVERALL GRADE: B+
+## OVERALL GRADE: A-
 
 ### What's working well:
 - 99.7% auth coverage
