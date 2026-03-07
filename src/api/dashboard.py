@@ -652,87 +652,101 @@ def log_email_sent_db(direction: str, sender: str, recipient: str, subject: str,
 # ═══════════════════════════════════════════════════════════════════════
 
 def _load_price_checks():
-    path = os.path.join(DATA_DIR, "price_checks.json")
+    """Load price checks from SQLite (primary source of truth).
+    
+    Migration note: This was JSON-primary until March 2026. Now DB-primary.
+    JSON is written as backup cache but never read as primary source.
+    """
     data = {}
-    if os.path.exists(path):
-        try:
-            import fcntl
-            with open(path) as f:
-                fcntl.flock(f.fileno(), fcntl.LOCK_SH)  # shared read lock
-                data = json.load(f)
-                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
-        except ImportError:
-            with open(path) as f:
-                data = json.load(f)
-        except Exception:
-            data = {}
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            # Ensure pc_data column exists (stores full PC dict as JSON blob)
+            try:
+                conn.execute("SELECT pc_data FROM price_checks LIMIT 0")
+            except Exception:
+                try:
+                    conn.execute("ALTER TABLE price_checks ADD COLUMN pc_data TEXT DEFAULT '{}'")
+                except Exception:
+                    pass
 
-    # ── Restore from SQLite if JSON is empty (post-deploy recovery) ──
-    if not data:
-        try:
-            from src.core.db import get_db
-            with get_db() as conn:
-                rows = conn.execute(
-                    "SELECT * FROM price_checks WHERE status NOT IN ('dismissed','cancelled','not_responding','archived','deleted','duplicate')"
-                ).fetchall()
-                if rows:
-                    for r in rows:
-                        pc_id = r["id"]
-                        items = []
-                        try:
-                            items = json.loads(r["items"] or "[]")
-                        except Exception as _e:
-                            log.debug("Suppressed: %s", _e)
-                        data[pc_id] = {
-                            "id": pc_id,
-                            "pc_number": r.get("pc_number") or r.get("quote_number") or pc_id,
-                            "institution": r.get("institution") or r["agency"] or "",
-                            "requestor": r["requestor"] or "",
-                            "items": items,
-                            "source_pdf": r.get("source_file") or "",
-                            "status": r["status"] or "parsed",
-                            "created_at": r["created_at"] or "",
-                            "reytech_quote_number": r.get("quote_number") or "",
-                            "email_uid": r.get("email_uid") or "",
-                            "email_subject": r.get("email_subject") or "",
-                            "due_date": r.get("due_date") or "",
-                            "source": "email_auto",
-                        }
-                    if data:
-                        _save_price_checks(data)
-                        log.info("Restored %d price checks from SQLite → JSON", len(data))
-        except Exception as _e:
-            log.debug("Suppressed: %s", _e)
-    # ── End SQLite restore ────────────────────────────────────────────
+            rows = conn.execute(
+                "SELECT * FROM price_checks WHERE status NOT IN ('deleted')"
+            ).fetchall()
+            for r in rows:
+                pc_id = r["id"]
+                # Try full PC blob first (has ALL fields)
+                pc_blob = r.get("pc_data") or ""
+                if pc_blob and pc_blob != "{}":
+                    try:
+                        pc = json.loads(pc_blob)
+                        pc["id"] = pc_id  # ensure ID consistency
+                        data[pc_id] = pc
+                        continue
+                    except Exception:
+                        pass
+                # Fallback: reconstruct from individual columns
+                items = []
+                try:
+                    items = json.loads(r["items"] or "[]")
+                except Exception:
+                    pass
+                data[pc_id] = {
+                    "id": pc_id,
+                    "pc_number": r.get("pc_number") or r.get("quote_number") or pc_id,
+                    "institution": r.get("institution") or r.get("agency") or "",
+                    "requestor": r.get("requestor") or "",
+                    "items": items,
+                    "source_pdf": r.get("source_file") or "",
+                    "status": r.get("status") or "parsed",
+                    "created_at": r.get("created_at") or "",
+                    "reytech_quote_number": r.get("quote_number") or "",
+                    "email_uid": r.get("email_uid") or "",
+                    "email_subject": r.get("email_subject") or "",
+                    "due_date": r.get("due_date") or "",
+                    "source": "db_columns",
+                }
+    except Exception as e:
+        log.warning("DB load failed, falling back to JSON: %s", e)
+        # Fallback to JSON only if DB is completely unavailable
+        path = os.path.join(DATA_DIR, "price_checks.json")
+        if os.path.exists(path):
+            try:
+                with open(path) as f:
+                    data = json.load(f)
+            except Exception:
+                data = {}
 
     return data
 
 def _save_price_checks(pcs):
-    path = os.path.join(DATA_DIR, "price_checks.json")
-    try:
-        import fcntl
-        with open(path, "w") as f:
-            fcntl.flock(f.fileno(), fcntl.LOCK_EX)  # exclusive write lock
-            json.dump(pcs, f, indent=2, default=str)
-            f.flush()
-            os.fsync(f.fileno())
-            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
-    except ImportError:
-        with open(path, "w") as f:
-            json.dump(pcs, f, indent=2, default=str)
-
-    # ── Sync to SQLite for persistence across deploys ─────────────
+    """Save price checks to SQLite (primary) + JSON backup cache.
+    
+    DB is the single source of truth. JSON written as backup only.
+    """
+    # ── PRIMARY: Write to SQLite ──────────────────────────────────
     try:
         from src.core.db import get_db
         with get_db() as conn:
+            # Ensure pc_data column exists
+            try:
+                conn.execute("SELECT pc_data FROM price_checks LIMIT 0")
+            except Exception:
+                try:
+                    conn.execute("ALTER TABLE price_checks ADD COLUMN pc_data TEXT DEFAULT '{}'")
+                except Exception:
+                    pass
+
             for pc_id, pc in pcs.items():
-                items_json = json.dumps(pc.get("items", []))
+                items_json = json.dumps(pc.get("items", []), default=str)
+                # Store full PC blob for lossless round-trip
+                pc_blob = json.dumps(pc, default=str)
                 conn.execute("""
                     INSERT OR REPLACE INTO price_checks
                     (id, created_at, requestor, agency, institution, items, source_file,
                      quote_number, pc_number, total_items, status,
-                     email_uid, email_subject, due_date)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     email_uid, email_subject, due_date, pc_data)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     pc_id,
                     pc.get("created_at", ""),
@@ -748,35 +762,25 @@ def _save_price_checks(pcs):
                     pc.get("email_uid", ""),
                     pc.get("email_subject", ""),
                     pc.get("due_date", ""),
+                    pc_blob,
                 ))
-    except Exception as _e:
-        log.debug("Suppressed: %s", _e)
-    # ── End SQLite sync ───────────────────────────────────────────
+    except Exception as e:
+        log.error("DB save failed for price_checks: %s", e)
+
+    # ── BACKUP: Write JSON cache (non-critical) ──────────────────
+    try:
+        path = os.path.join(DATA_DIR, "price_checks.json")
+        with open(path, "w") as f:
+            json.dump(pcs, f, indent=2, default=str)
+    except Exception:
+        pass  # JSON backup is non-critical
 
 
 def _merge_save_pc(pc_id: str, pc_data: dict):
-    """Atomic read-modify-write: loads latest PCs, adds/updates one, saves.
-    Prevents race conditions where background threads overwrite each other."""
-    path = os.path.join(DATA_DIR, "price_checks.json")
-    try:
-        import fcntl
-        # Open for read+write, create if needed
-        fd = os.open(path, os.O_RDWR | os.O_CREAT)
-        with os.fdopen(fd, "r+") as f:
-            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
-            content = f.read()
-            pcs = json.loads(content) if content.strip() else {}
-            pcs[pc_id] = pc_data
-            f.seek(0)
-            f.truncate()
-            json.dump(pcs, f, indent=2, default=str)
-            f.flush()
-            os.fsync(f.fileno())
-            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
-    except ImportError:
-        pcs = _load_price_checks()
-        pcs[pc_id] = pc_data
-        _save_price_checks(pcs)
+    """Atomic single-PC save: writes directly to SQLite.
+    DB handles concurrency via WAL mode — no file locking needed."""
+    pc_data["id"] = pc_id
+    _save_price_checks({pc_id: pc_data})  # Uses DB-primary _save_price_checks
 
 
 def _is_user_facing_pc(pc: dict) -> bool:

@@ -137,8 +137,17 @@ def create_app():
     @app.errorhandler(500)
     def _server_error(e):
         logging.getLogger("reytech").error("500 error: %s | %s %s", e, request.method, request.path)
-        if request.path.startswith("/api/"):
+        if request.path.startswith("/api/") or request.path.startswith("/pricecheck/"):
             return {"ok": False, "error": "Internal server error"}, 500
+        return "<h1>500 — Server Error</h1><p>Something went wrong. <a href='/'>Go home</a></p>", 500
+
+    @app.errorhandler(Exception)
+    def _unhandled_exception(e):
+        """Catch-all: any unhandled exception returns JSON for API routes."""
+        logging.getLogger("reytech").error("Unhandled: %s %s → %s: %s",
+            request.method, request.path, type(e).__name__, str(e)[:200])
+        if request.path.startswith("/api/") or request.path.startswith("/pricecheck/"):
+            return {"ok": False, "error": f"{type(e).__name__}: {str(e)[:100]}"}, 500
         return "<h1>500 — Server Error</h1><p>Something went wrong. <a href='/'>Go home</a></p>", 500
 
     # ── Response compression + caching ──

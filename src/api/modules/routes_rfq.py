@@ -636,37 +636,15 @@ def _handle_price_check_upload(pdf_path, pc_id, from_email=False):
 
 
 def _load_price_checks():
-    path = os.path.join(DATA_DIR, "price_checks.json")
-    if os.path.exists(path):
-        try:
-            import fcntl
-            with open(path) as f:
-                fcntl.flock(f.fileno(), fcntl.LOCK_SH)
-                data = json.load(f)
-                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
-                return data
-        except ImportError:
-            with open(path) as f:
-                return json.load(f)
-        except Exception as e:
-            log.debug("Suppressed: %s", e)
-            return {}
-    return {}
+    """Delegate to dashboard's DB-primary implementation."""
+    from src.api.dashboard import _load_price_checks as _db_load
+    return _db_load()
 
 
 def _save_price_checks(pcs):
-    path = os.path.join(DATA_DIR, "price_checks.json")
-    try:
-        import fcntl
-        with open(path, "w") as f:
-            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
-            json.dump(pcs, f, indent=2, default=str)
-            f.flush()
-            os.fsync(f.fileno())
-            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
-    except ImportError:
-        with open(path, "w") as f:
-            json.dump(pcs, f, indent=2, default=str)
+    """Delegate to dashboard's DB-primary implementation."""
+    from src.api.dashboard import _save_price_checks as _db_save
+    _db_save(pcs)
 
 
 @bp.route("/rfq/<rid>")
