@@ -652,16 +652,25 @@ def log_email_sent_db(direction: str, sender: str, recipient: str, subject: str,
 # which can't be imported directly because bp isn't defined at import time)
 # ═══════════════════════════════════════════════════════════════════════
 
+_pc_cache = None
+_pc_cache_time = 0
+
 def _load_price_checks():
     """Load price checks from SQLite (primary source of truth).
     
     Migration note: This was JSON-primary until March 2026. Now DB-primary.
     JSON is written as backup cache but never read as primary source.
     """
+    # In-memory cache — DB is 577MB, can't re-query on every call (111 callers)
+    global _pc_cache, _pc_cache_time
+    import time as _t
+    now = _t.time()
+    if _pc_cache is not None and (now - _pc_cache_time) < 30:  # 30s TTL
+        return _pc_cache
+    
     data = {}
     try:
         from src.core.db import get_db, init_db
-        # Ensure tables exist (one-time on first access after deploy)
         try:
             init_db()
         except Exception:
@@ -677,56 +686,37 @@ def _load_price_checks():
                     pass
 
             rows = conn.execute(
-                "SELECT * FROM price_checks WHERE status NOT IN ('deleted')"
+                """SELECT id, pc_number, institution, requestor, items, status, 
+                   created_at, email_uid, email_subject, due_date, agency, 
+                   source_file, quote_number, total_items
+                   FROM price_checks WHERE status NOT IN ('deleted')"""
             ).fetchall()
             for _row in rows:
-                r = dict(_row)  # sqlite3.Row doesn't support .get()
+                r = dict(_row)
                 pc_id = r["id"]
-                # Start from pc_data blob (has all extra fields like parsed, ship_to, etc.)
-                pc = None
-                pc_blob = r.get("pc_data") or ""
-                if pc_blob and pc_blob != "{}":
-                    try:
-                        pc = json.loads(pc_blob)
-                    except Exception:
-                        pc = None
                 
-                # ALWAYS use items column as authoritative (it gets updated independently)
-                items_from_col = []
+                # Parse items from column
+                items_list = []
                 try:
-                    items_from_col = json.loads(r["items"] or "[]")
+                    items_list = json.loads(r.get("items") or "[]")
                 except Exception:
                     pass
                 
-                if pc:
-                    # Blob exists — use it BUT override items from column if column is fresher
-                    if items_from_col:
-                        # Check if column items have pricing that blob items don't
-                        col_has_prices = any(it.get("pricing", {}).get("recommended_price") for it in items_from_col if isinstance(it, dict))
-                        blob_has_prices = any(it.get("pricing", {}).get("recommended_price") for it in pc.get("items", []) if isinstance(it, dict))
-                        if col_has_prices and not blob_has_prices:
-                            pc["items"] = items_from_col
-                        elif len(items_from_col) > 0 and len(pc.get("items", [])) == 0:
-                            pc["items"] = items_from_col
-                    pc["id"] = pc_id
-                    data[pc_id] = pc
-                else:
-                    # No blob — reconstruct from columns
-                    data[pc_id] = {
-                        "id": pc_id,
-                        "pc_number": r.get("pc_number") or r.get("quote_number") or pc_id,
-                        "institution": r.get("institution") or r.get("agency") or "",
-                        "requestor": r.get("requestor") or "",
-                        "items": items_from_col,
-                        "source_pdf": r.get("source_file") or "",
-                        "status": r.get("status") or "parsed",
-                        "created_at": r.get("created_at") or "",
-                        "reytech_quote_number": r.get("quote_number") or "",
-                        "email_uid": r.get("email_uid") or "",
-                        "email_subject": r.get("email_subject") or "",
-                        "due_date": r.get("due_date") or "",
-                        "source": "db_columns",
-                    }
+                data[pc_id] = {
+                    "id": pc_id,
+                    "pc_number": r.get("pc_number") or r.get("quote_number") or pc_id,
+                    "institution": r.get("institution") or r.get("agency") or "",
+                    "requestor": r.get("requestor") or "",
+                    "items": items_list,
+                    "source_pdf": r.get("source_file") or "",
+                    "status": r.get("status") or "parsed",
+                    "created_at": r.get("created_at") or "",
+                    "reytech_quote_number": r.get("quote_number") or "",
+                    "email_uid": r.get("email_uid") or "",
+                    "email_subject": r.get("email_subject") or "",
+                    "due_date": r.get("due_date") or "",
+                    "source": "db",
+                }
     except Exception as e:
         log.warning("DB load failed, falling back to JSON: %s", e)
         # Fallback to JSON only if DB is completely unavailable
@@ -754,13 +744,16 @@ def _load_price_checks():
     except Exception as _mig_e:
         log.debug("JSON→DB migration check: %s", _mig_e)
 
+    # Cache for 30 seconds
+    _pc_cache = data
+    _pc_cache_time = _t.time()
     return data
 
 def _save_price_checks(pcs):
-    """Save price checks to SQLite (primary) + JSON backup cache.
-    
-    DB is the single source of truth. JSON written as backup only.
-    """
+    """Save price checks to SQLite (primary) + JSON backup cache."""
+    global _pc_cache, _pc_cache_time
+    _pc_cache = None  # Invalidate cache
+    _pc_cache_time = 0
     # ── PRIMARY: Write to SQLite ──────────────────────────────────
     try:
         from src.core.db import get_db
