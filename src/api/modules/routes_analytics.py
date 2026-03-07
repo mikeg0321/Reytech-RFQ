@@ -2062,3 +2062,106 @@ def rfqs_relink_all():
         "details": details[:20],
         "message": f"Linked {linked} RFQs to PCs ({already} already linked, {failed} no match)",
     })
+
+
+@bp.route("/api/rfq/<rid>/debug-link")
+@auth_required
+def rfq_debug_link(rid):
+    """Show EXACTLY what PC data exists and why porting fails."""
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"})
+
+    from src.api.dashboard import _load_price_checks
+    pcs = _load_price_checks()
+    
+    # RFQ items
+    rfq_items = []
+    for it in r.get("line_items", []):
+        rfq_items.append({
+            "desc": (it.get("description") or "")[:60],
+            "supplier_cost": it.get("supplier_cost"),
+            "price_per_unit": it.get("price_per_unit"),
+            "scprs": it.get("scprs_last_price"),
+            "_from_pc": it.get("_from_pc"),
+        })
+
+    # Find linked or matching PC
+    linked_pc_id = r.get("linked_pc_id")
+    sol = r.get("solicitation_number", "")
+    
+    pc_match = None
+    match_reason = "none"
+    
+    if linked_pc_id and linked_pc_id in pcs:
+        pc_match = pcs[linked_pc_id]
+        match_reason = "already_linked"
+    else:
+        # Try to find by sol#
+        for pid, pc in pcs.items():
+            pc_num = (pc.get("pc_number") or "").strip()
+            if sol and pc_num == sol:
+                pc_match = pc
+                match_reason = f"sol_match:{pc_num}"
+                break
+    
+    if not pc_match:
+        # Show all PCs for manual review
+        all_pcs = []
+        for pid, pc in list(pcs.items())[:20]:
+            all_pcs.append({
+                "id": pid[:25],
+                "pc_number": pc.get("pc_number", ""),
+                "institution": (pc.get("institution") or "")[:30],
+                "items": len(pc.get("items", [])),
+                "status": pc.get("status", ""),
+                "has_pricing": any(
+                    it.get("pricing", {}).get("recommended_price") or it.get("pricing", {}).get("unit_cost")
+                    for it in pc.get("items", []) if isinstance(it, dict)
+                ),
+            })
+        return jsonify({
+            "ok": False,
+            "error": "No PC match found",
+            "rfq_sol": sol,
+            "rfq_items": rfq_items,
+            "available_pcs": all_pcs,
+        })
+
+    # Show PC items with their FULL pricing dict
+    pc_items = []
+    for it in pc_match.get("items", []):
+        pc_items.append({
+            "desc": (it.get("description") or "")[:60],
+            "mfg": it.get("mfg_number") or it.get("item_number", ""),
+            "pricing": it.get("pricing", {}),
+            "qty": it.get("qty"),
+        })
+
+    # Show what would match
+    matches = []
+    for ri in r.get("line_items", []):
+        rd = (ri.get("description") or "").lower()[:40]
+        matched_pc_item = None
+        for pci in pc_match.get("items", []):
+            pd = (pci.get("description") or "").lower()[:40]
+            if rd == pd or (len(rd) > 10 and rd in pd) or (len(pd) > 10 and pd in rd):
+                matched_pc_item = pci
+                break
+        matches.append({
+            "rfq_desc": rd,
+            "matched": bool(matched_pc_item),
+            "pc_desc": (matched_pc_item.get("description") or "")[:40] if matched_pc_item else None,
+            "pc_pricing": matched_pc_item.get("pricing", {}) if matched_pc_item else None,
+        })
+
+    return jsonify({
+        "ok": True,
+        "rfq_sol": sol,
+        "match_reason": match_reason,
+        "pc_number": pc_match.get("pc_number", ""),
+        "rfq_items": rfq_items,
+        "pc_items": pc_items,
+        "item_matches": matches,
+    })
