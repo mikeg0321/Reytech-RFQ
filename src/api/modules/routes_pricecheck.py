@@ -4016,7 +4016,8 @@ def api_pc_retry_auto_price(pcid):
 def api_pc_auto_price_status(pcid):
     """Check auto-price debug status for a PC."""
     import os, json
-    status_file = os.path.join(os.environ.get("DATA_DIR", "data"), "auto_price_status.json")
+    from src.core.paths import DATA_DIR as _DATA_DIR
+    status_file = os.path.join(_DATA_DIR, "auto_price_status.json")
     if os.path.exists(status_file):
         with open(status_file) as f:
             data = json.load(f)

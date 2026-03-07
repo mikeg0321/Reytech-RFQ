@@ -18,9 +18,12 @@ from datetime import datetime
 log = logging.getLogger(__name__)
 
 # ── Settings ─────────────────────────────────────────────────────────
-DATA_DIR = os.environ.get("REYTECH_DATA_DIR",
-                          os.environ.get("DATA_DIR",
-                          os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data")))
+try:
+    from src.core.paths import DATA_DIR
+except ImportError:
+    DATA_DIR = os.environ.get("REYTECH_DATA_DIR",
+                              os.environ.get("DATA_DIR",
+                              os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data")))
 WEBHOOK_CONFIG_FILE = os.path.join(DATA_DIR, "webhook_config.json")
 
 # Event types and their descriptions

@@ -22,7 +22,10 @@ _rate_cache = {}  # zip -> (rate, fetched_at)
 CACHE_TTL = timedelta(hours=24)
 
 # ── Data dir for persistent cache ─────────────────────────────────────────────
-DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "..", "..", "data"))
+try:
+    from src.core.paths import DATA_DIR
+except ImportError:
+    DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "..", "..", "data"))
 
 # ── Hardcoded fallback rates by zip (updated Feb 2026) ────────────────────────
 # Source: https://cdtfa.ca.gov/taxes-and-fees/sales-use-tax-rates.htm
