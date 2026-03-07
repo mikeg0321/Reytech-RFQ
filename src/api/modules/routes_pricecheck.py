@@ -3894,81 +3894,8 @@ def api_pricecheck_mark_won(pcid):
     _enrich_catalog_from_pc(pc)
     log.info("PC %s marked WON: pc#=%s institution=%s", pcid, pc.get("pc_number"), pc.get("institution"))
     return jsonify({"ok": True, "status": "won",
-                    "can_create_qb_po": True,
-                    "message": "Marked as won. Use 'Create QB PO' to send to QuickBooks."})
+                    "message": "Pricing accepted. When official RFQ/PO arrives, create the order to generate supplier POs."})
 
-
-@bp.route("/api/pricecheck/<pcid>/create-qb-po", methods=["POST"])
-@auth_required
-def api_pc_create_qb_po(pcid):
-    """Create QB Purchase Order(s) from PO Builder selections.
-    Accepts {vendor_groups: {vendor_id: {name, items: [{description, qty, unit_cost}]}}}
-    Or legacy mode: auto-groups from PC items if no vendor_groups provided."""
-    try:
-        from src.agents.quickbooks_agent import is_configured, create_purchase_order
-        if not is_configured():
-            return jsonify({"ok": False, "error": "QuickBooks not configured"})
-
-        pcs = _load_price_checks()
-        pc = pcs.get(pcid)
-        if not pc:
-            return jsonify({"ok": False, "error": "PC not found"})
-
-        data = request.get_json(silent=True) or {}
-        vendor_groups = data.get("vendor_groups", {})
-
-        if not vendor_groups:
-            return jsonify({"ok": False, "error": "No items selected for PO. Use the PO Builder to select items and suppliers."})
-
-        # Get ship-to from PC header
-        header = (pc.get("parsed") or {}).get("header") or {}
-        ship_to = header.get("ship_to", "") or header.get("delivery_address", "")
-
-        created_pos = []
-        failed = []
-        for vendor_id, group in vendor_groups.items():
-            vendor_name = group.get("name", "Unknown")
-            items = group.get("items", [])
-            if not items:
-                continue
-
-            result = create_purchase_order(
-                vendor_id=vendor_id,
-                items=items,
-                memo=f"Reytech PC #{pc.get('pc_number', '')} — {pc.get('institution', '')}",
-                ship_to=ship_to,
-                po_number=pc.get("pc_number", "")[:20],
-            )
-            if result and result.get("qb_id"):
-                created_pos.append({
-                    "supplier": vendor_name,
-                    "qb_id": result["qb_id"],
-                    "doc_number": result.get("doc_number", ""),
-                    "total": result.get("total", 0),
-                    "items": len(items),
-                })
-            else:
-                failed.append({"supplier": vendor_name, "items": len(items),
-                              "error": "QB API returned error"})
-
-        # Store QB references on PC
-        if created_pos:
-            existing_pos = pc.get("qb_pos", [])
-            existing_pos.extend(created_pos)
-            pc["qb_pos"] = existing_pos
-            pc["qb_po_id"] = created_pos[0]["qb_id"]
-            pc["qb_po_number"] = created_pos[0].get("doc_number", "")
-            _save_price_checks(pcs)
-
-        return jsonify({
-            "ok": True,
-            "created": created_pos,
-            "failed": failed,
-            "message": f"Created {len(created_pos)} PO(s)" + (f", {len(failed)} failed" if failed else ""),
-        })
-    except Exception as e:
-        log.error("QB PO creation error: %s", e, exc_info=True)
-        return jsonify({"ok": False, "error": str(e)})
 
 
 @bp.route("/api/pricecheck/<pcid>/mark-lost", methods=["POST"])

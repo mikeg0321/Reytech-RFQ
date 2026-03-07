@@ -1793,3 +1793,124 @@ def api_orders_diagnostic():
         "filtered_test": sum(1 for a in results["urgent_analysis"] if a.get("is_test")),
     }
     return jsonify(results)
+
+
+# ─── QuickBooks Integration for Orders ─────────────────────────────────────
+
+@bp.route("/api/order/<oid>/items")
+@auth_required
+def api_order_items(oid):
+    """Return order line items for PO Builder."""
+    orders = _load_orders()
+    order = orders.get(oid)
+    if not order:
+        return jsonify({"ok": False, "error": "Order not found"})
+    items = order.get("line_items", [])
+    return jsonify({"ok": True, "items": items, "count": len(items)})
+
+
+@bp.route("/api/order/<oid>/create-qb-po", methods=["POST"])
+@auth_required
+def api_order_create_qb_po(oid):
+    """Create QB Purchase Orders from order items grouped by vendor."""
+    try:
+        from src.agents.quickbooks_agent import is_configured, create_purchase_order
+        if not is_configured():
+            return jsonify({"ok": False, "error": "QuickBooks not configured"})
+
+        orders = _load_orders()
+        order = orders.get(oid)
+        if not order:
+            return jsonify({"ok": False, "error": "Order not found"})
+
+        data = request.get_json(silent=True) or {}
+        vendor_groups = data.get("vendor_groups", {})
+        if not vendor_groups:
+            return jsonify({"ok": False, "error": "No vendor groups provided"})
+
+        ship_to = order.get("ship_to", "") or order.get("institution", "")
+
+        created = []
+        failed = []
+        for vendor_id, group in vendor_groups.items():
+            vendor_name = group.get("name", "Unknown")
+            items = group.get("items", [])
+            if not items:
+                continue
+            result = create_purchase_order(
+                vendor_id=vendor_id,
+                items=items,
+                memo=f"Reytech Order {oid} — {order.get('institution', '')} — PO: {order.get('po_number', '')}",
+                ship_to=ship_to,
+                po_number=order.get("po_number", "")[:20],
+            )
+            if result and result.get("qb_id"):
+                created.append({"supplier": vendor_name, "qb_id": result["qb_id"],
+                               "doc_number": result.get("doc_number", ""), "total": result.get("total", 0)})
+            else:
+                failed.append({"supplier": vendor_name, "error": "QB API error"})
+
+        # Store on order
+        if created:
+            order.setdefault("qb_pos", []).extend(created)
+            _save_orders(orders)
+
+        return jsonify({"ok": True, "created": created, "failed": failed,
+                       "message": f"Created {len(created)} PO(s)" + (f", {len(failed)} failed" if failed else "")})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/order/<oid>/create-qb-invoice", methods=["POST"])
+@auth_required
+def api_order_create_qb_invoice(oid):
+    """Create QB Invoice to bill the customer for this order."""
+    try:
+        from src.agents.quickbooks_agent import is_configured, create_invoice, find_customer
+        if not is_configured():
+            return jsonify({"ok": False, "error": "QuickBooks not configured"})
+
+        orders = _load_orders()
+        order = orders.get(oid)
+        if not order:
+            return jsonify({"ok": False, "error": "Order not found"})
+
+        # Find customer in QB
+        institution = order.get("institution", "")
+        customer = find_customer(institution) if institution else None
+        if not customer:
+            return jsonify({"ok": False,
+                           "error": f"Customer '{institution}' not found in QuickBooks. Add them in QB first."})
+
+        # Build invoice items from order (SELL prices, not costs)
+        inv_items = []
+        for it in order.get("line_items", []):
+            price = it.get("unit_price") or it.get("sell_price") or it.get("price") or 0
+            price = float(price) if price else 0
+            if price <= 0:
+                continue
+            inv_items.append({
+                "description": (it.get("description") or "")[:200],
+                "qty": int(it.get("qty", 1)),
+                "unit_price": price,
+            })
+
+        if not inv_items:
+            return jsonify({"ok": False, "error": "No items with sell prices to invoice"})
+
+        result = create_invoice(
+            customer_id=customer["Id"],
+            items=inv_items,
+            po_number=order.get("po_number", ""),
+            memo=f"Reytech Order {oid}",
+        )
+        if result:
+            order["qb_invoice_id"] = result.get("id", "")
+            order["qb_invoice_number"] = result.get("doc_number", "")
+            _save_orders(orders)
+            return jsonify({"ok": True, "invoice_id": result["id"],
+                           "invoice_number": result.get("doc_number", ""),
+                           "total": result.get("total", 0)})
+        return jsonify({"ok": False, "error": "QuickBooks returned empty result"})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
