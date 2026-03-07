@@ -1354,10 +1354,11 @@ def _link_rfq_to_pc(rfq_data, _trace):
         if amz:
             try: rfq_item["amazon_price"] = round(float(amz), 2)
             except: pass
-        _port("scprs_last_price", pricing.get("scprs_price"), "scprs_price")
-        _port("amazon_price", pricing.get("amazon_cost"), "amazon_price")
-        _port("item_link", match.get("item_link"), "item_link")
-        _port("item_supplier", match.get("item_supplier"), "item_supplier")
+        # Port item link and supplier
+        if match.get("item_link") and not rfq_item.get("item_link"):
+            rfq_item["item_link"] = match["item_link"]
+        if match.get("item_supplier") and not rfq_item.get("item_supplier"):
+            rfq_item["item_supplier"] = match["item_supplier"]
 
         if not rfq_item.get("item_number") and pn:
             rfq_item["item_number"] = pn
