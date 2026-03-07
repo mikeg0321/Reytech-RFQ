@@ -1320,11 +1320,24 @@ def _link_rfq_to_pc(rfq_data, _trace):
         rfq_id = rfq_data.get("solicitation_number", "")
 
         def _port(rfq_field, pc_value, audit_field):
-            """Port a value if RFQ field is empty and PC has it."""
-            if rfq_item.get(rfq_field):
-                return  # RFQ already has a value
+            """Port a value if RFQ field is empty/zero and PC has it."""
+            existing = rfq_item.get(rfq_field)
+            # Treat 0, 0.0, "0", "0.00", "", None as "no value"
+            has_value = False
+            if existing is not None and existing != "" and existing != 0:
+                try:
+                    has_value = float(existing) > 0
+                except (ValueError, TypeError):
+                    has_value = bool(existing)
+            if has_value:
+                return  # RFQ already has a real value — don't overwrite
             if not pc_value:
                 return
+            try:
+                if float(pc_value) <= 0:
+                    return
+            except (ValueError, TypeError):
+                pass
             old = rfq_item.get(rfq_field)
             rfq_item[rfq_field] = pc_value
             # Record audit
@@ -1336,8 +1349,17 @@ def _link_rfq_to_pc(rfq_data, _trace):
             except Exception:
                 pass
 
-        _port("supplier_cost", pricing.get("your_cost") or pricing.get("unit_cost"), "supplier_cost")
-        _port("price_per_unit", pricing.get("recommended_price") or pricing.get("unit_price"), "bid_price")
+        # Port cost — try every field the auto-pricer might have written to
+        cost = (pricing.get("unit_cost") or pricing.get("your_cost") or 
+                pricing.get("catalog_cost") or pricing.get("scprs_price") or
+                pricing.get("amazon_price") or pricing.get("web_price") or 0)
+        _port("supplier_cost", cost, "supplier_cost")
+        
+        # Port bid price
+        bid = (pricing.get("recommended_price") or pricing.get("unit_price") or 0)
+        if not bid and cost:
+            bid = round(float(cost) * 1.25, 2)  # 25% markup default
+        _port("price_per_unit", bid, "bid_price")
         _port("scprs_last_price", pricing.get("scprs_price"), "scprs_price")
         _port("amazon_price", pricing.get("amazon_cost"), "amazon_price")
         _port("item_link", match.get("item_link"), "item_link")

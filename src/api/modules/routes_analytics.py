@@ -1937,11 +1937,30 @@ def rfq_retry_auto_price(rid):
 @auth_required
 def rfq_relink_pc(rid):
     """Re-run PC linkage for an existing RFQ. 
-    Finds matching PC by sol#/requestor/items, ports all prices."""
+    Clears stale link + zero prices first, then re-matches and ports."""
     rfqs = load_rfqs()
     r = rfqs.get(rid)
     if not r:
         return jsonify({"ok": False, "error": "RFQ not found"})
+
+    # Clear previous link so _link_rfq_to_pc re-runs matching
+    r.pop("linked_pc_id", None)
+    r.pop("linked_pc_number", None)
+    r.pop("linked_pc_match_reason", None)
+    r.pop("pc_diff", None)
+    
+    # Clear zero/empty prices on items so _port overwrites them
+    for it in r.get("line_items", []):
+        for field in ("supplier_cost", "price_per_unit", "scprs_last_price", "amazon_price"):
+            val = it.get(field)
+            if val is not None:
+                try:
+                    if float(val) <= 0:
+                        it.pop(field, None)
+                except (ValueError, TypeError):
+                    if not val or val.strip() in ("", "0", "0.00", "—"):
+                        it.pop(field, None)
+        it.pop("_from_pc", None)
 
     # Run the existing linkage function
     try:
