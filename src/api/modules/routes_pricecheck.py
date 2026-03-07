@@ -3865,6 +3865,37 @@ def pricecheck_document_save(pcid):
     return jsonify({"ok": True, "doc_id": doc_id, "version": ver, "filename": versioned_name})
 
 
+@bp.route("/api/pricecheck/<pcid>/retry-auto-price", methods=["POST"])
+@auth_required
+def api_pc_retry_auto_price(pcid):
+    """Manually retry auto-pricing for a PC."""
+    import threading
+    from src.api.dashboard import _auto_price_new_pc, _load_price_checks
+    pcs = _load_price_checks()
+    if pcid not in pcs:
+        return jsonify({"ok": False, "error": "PC not found"})
+    pc = pcs[pcid]
+    items = pc.get("items", [])
+    if not items:
+        return jsonify({"ok": False, "error": "No items to price"})
+    threading.Thread(target=_auto_price_new_pc, args=(pcid,), daemon=True).start()
+    return jsonify({"ok": True, "message": f"Auto-pricing started for {len(items)} items. Refresh in ~30 seconds."})
+
+
+@bp.route("/api/pricecheck/<pcid>/auto-price-status")
+@auth_required
+def api_pc_auto_price_status(pcid):
+    """Check auto-price debug status for a PC."""
+    import os, json
+    status_file = os.path.join(os.environ.get("DATA_DIR", "data"), "auto_price_status.json")
+    if os.path.exists(status_file):
+        with open(status_file) as f:
+            data = json.load(f)
+        if pcid in data:
+            return jsonify({"ok": True, "status": data[pcid]})
+    return jsonify({"ok": True, "status": None, "message": "No auto-price record found — may not have run yet"})
+
+
 @bp.route("/api/pricecheck/<pcid>/mark-won", methods=["POST"])
 @auth_required
 def api_pricecheck_mark_won(pcid):

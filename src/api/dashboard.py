@@ -817,10 +817,14 @@ _shared_poller = None  # Shared poller instance for manual checks
 def _auto_price_new_pc(pc_id: str):
     """Auto-price a newly created PC: catalog match → SCPRS → apply best prices.
     Runs in background thread so email processing isn't blocked."""
+    _ap_status = {"pc_id": pc_id, "started": datetime.now().isoformat(), "steps": [], "error": None}
     try:
+        _ap_status["steps"].append("loading PC")
         pcs = _load_price_checks()
         pc = pcs.get(pc_id)
         if not pc or not pc.get("items"):
+            _ap_status["steps"].append(f"SKIP: PC not found or no items (found={pc_id in pcs}, items={len(pc.get('items',[])) if pc else 0})")
+            _save_auto_price_status(pc_id, _ap_status)
             return
         
         items = pc["items"]
@@ -973,7 +977,30 @@ def _auto_price_new_pc(pc_id: str):
             log.info("Auto-price PC %s: no matches found for %d items", pc_id, len(items))
 
     except Exception as e:
-        log.error("Auto-price PC %s failed: %s", pc_id, e)
+        log.error("Auto-price PC %s failed: %s", pc_id, e, exc_info=True)
+        _ap_status["error"] = f"{type(e).__name__}: {str(e)[:200]}"
+        _ap_status["steps"].append(f"CRASH: {e}")
+        _save_auto_price_status(pc_id, _ap_status)
+
+
+def _save_auto_price_status(pc_id: str, status: dict):
+    """Save auto-price debug status so it's visible via API."""
+    try:
+        status_file = os.path.join(DATA_DIR, "auto_price_status.json")
+        data = {}
+        if os.path.exists(status_file):
+            with open(status_file) as f:
+                data = json.load(f)
+        data[pc_id] = status
+        # Keep only last 20
+        if len(data) > 20:
+            keys = sorted(data.keys(), key=lambda k: data[k].get("started", ""))
+            for k in keys[:-20]:
+                del data[k]
+        with open(status_file, "w") as f:
+            json.dump(data, f, indent=2, default=str)
+    except Exception:
+        pass
 
 
 def _ensure_contact_from_email(rfq_email: dict):
