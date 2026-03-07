@@ -708,8 +708,72 @@ def api_buyers_save_draft():
         return jsonify({"ok": False, "error": str(e)})
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+@bp.route("/api/buyers/start-nurture", methods=["POST"])
+@auth_required
+def api_buyers_start_nurture():
+    """Convert SCPRS buyers into leads and start nurture sequences."""
+    try:
+        data = request.get_json(silent=True) or {}
+        buyer_emails = data.get("emails", [])  # specific emails, or empty for all
+        
+        from src.core.db import get_db
+        with get_db() as conn:
+            if buyer_emails:
+                placeholders = ",".join("?" * len(buyer_emails))
+                buyers = conn.execute(
+                    "SELECT DISTINCT buyer_name, buyer_email, institution, "
+                    "COALESCE(agency_key, dept_name) as agency "
+                    "FROM scprs_po_master WHERE buyer_email IN (" + placeholders + ")",
+                    buyer_emails
+                ).fetchall()
+            else:
+                buyers = conn.execute("""
+                    SELECT DISTINCT buyer_name, buyer_email, institution,
+                    COALESCE(agency_key, dept_name) as agency
+                    FROM scprs_po_master 
+                    WHERE buyer_email IS NOT NULL AND buyer_email != ''
+                    LIMIT 50
+                """).fetchall()
+        
+        created = 0
+        nurtured = 0
+        for b in buyers:
+            email = b["buyer_email"]
+            if not email: continue
+            # Create contact if not exists
+            try:
+                conn2 = get_db()
+                existing = conn2.execute(
+                    "SELECT id FROM contacts WHERE email=?", (email,)
+                ).fetchone()
+                if not existing:
+                    import uuid
+                    cid = f"lead_{uuid.uuid4().hex[:8]}"
+                    conn2.execute("""
+                        INSERT INTO contacts (id, name, email, agency, institution, source, status, created_at)
+                        VALUES (?, ?, ?, ?, ?, 'scprs_buyer', 'lead', datetime('now'))
+                    """, (cid, b["buyer_name"] or "", email, b["agency"] or "", b["institution"] or ""))
+                    conn2.commit()
+                    created += 1
+                conn2.close()
+            except Exception as e:
+                log.debug("Buyer→contact: %s", e)
+            
+            # Start nurture
+            try:
+                from src.agents.lead_nurture_agent import start_nurture
+                result = start_nurture(email, sequence_key="scprs_buyer_intro")
+                if result.get("ok"): nurtured += 1
+            except Exception as e:
+                log.debug("Nurture start: %s", e)
+        
+        return jsonify({"ok": True, "buyers_found": len(buyers), 
+                       "contacts_created": created, "nurtures_started": nurtured})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
 @bp.route("/intel/competitors")
 @auth_required
 def page_intel_competitors():
@@ -2501,11 +2565,12 @@ except ImportError:
 
 try:
     from src.agents.quickbooks_agent import (
-        fetch_vendors, find_vendor, create_purchase_order,
+        fetch_vendors as qb_fetch_vendors, find_vendor, create_purchase_order,
         get_recent_purchase_orders, get_agent_status as qb_agent_status,
         is_configured as qb_configured,
-        fetch_invoices, get_invoice_summary, create_invoice,
-        fetch_customers, find_customer, get_customer_balance_summary,
+        fetch_invoices, get_invoice_summary, create_invoice, create_invoice as qb_create_invoice,
+        fetch_customers, find_customer, find_customer as qb_find_customer,
+        get_customer_balance_summary,
         get_financial_context,
         get_company_info as qb_company_info,
         get_profit_loss as qb_profit_loss,
@@ -3353,7 +3418,7 @@ def api_qb_vendors():
     if not qb_configured():
         return jsonify({"ok": False, "error": "QuickBooks not configured. Set QB_CLIENT_ID, QB_CLIENT_SECRET, QB_REFRESH_TOKEN, QB_REALM_ID"})
     force = request.args.get("refresh", "").lower() in ("true", "1")
-    vendors = fetch_vendors(force_refresh=force)
+    vendors = qb_fetch_vendors(force_refresh=force)
     return jsonify({"ok": True, "vendors": vendors, "count": len(vendors)})
 
 
@@ -3530,6 +3595,90 @@ def api_qb_diagnose():
         return jsonify({"ok": False, "error": "QuickBooks agent module not available"})
     diag = qb_diagnose()
     return jsonify({"ok": True, "diagnostic": diag})
+
+
+@bp.route("/api/qb/sync-vendors", methods=["POST"])
+@auth_required
+def api_qb_sync_vendors():
+    """Pull QB vendors and merge into product catalog as suppliers."""
+    if not QB_AVAILABLE:
+        return jsonify({"ok": False, "error": "QB not available"})
+    try:
+        vendors = qb_fetch_vendors(force_refresh=True)
+        synced = 0
+        from src.core.db import get_db
+        with get_db() as conn:
+            for v in vendors:
+                name = v.get("CompanyName") or v.get("DisplayName", "")
+                if not name: continue
+                conn.execute("""
+                    INSERT OR IGNORE INTO vendors (name, qb_vendor_id, email, phone, status, created_at)
+                    VALUES (?, ?, ?, ?, 'active', datetime('now'))
+                """, (name, v.get("Id", ""),
+                      (v.get("PrimaryEmailAddr") or {}).get("Address", ""),
+                      (v.get("PrimaryPhone") or {}).get("FreeFormNumber", "")))
+                synced += 1
+        return jsonify({"ok": True, "vendors_pulled": len(vendors), "synced_to_db": synced})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/qb/auto-invoice", methods=["POST"])
+@auth_required
+def api_qb_auto_invoice():
+    """Create QB invoice from a won PC/quote."""
+    if not QB_AVAILABLE:
+        return jsonify({"ok": False, "error": "QB not available"})
+    data = request.get_json(silent=True) or {}
+    pc_id = data.get("pc_id", "")
+    try:
+        pcs = _load_price_checks()
+        pc = pcs.get(pc_id)
+        if not pc:
+            return jsonify({"ok": False, "error": "PC not found"})
+
+        items_for_inv = []
+        for it in pc.get("items", []):
+            if it.get("no_bid"): continue
+            price = it.get("unit_price") or it.get("pricing", {}).get("recommended_price") or 0
+            if price <= 0: continue
+            items_for_inv.append({
+                "description": (it.get("description") or "")[:200],
+                "quantity": it.get("qty", 1),
+                "unit_price": float(price),
+            })
+
+        if not items_for_inv:
+            return jsonify({"ok": False, "error": "No priced items to invoice"})
+
+        # Find customer in QB
+        institution = pc.get("institution", "")
+        customer = qb_find_customer(institution) if institution else None
+        customer_id = customer["Id"] if customer else None
+
+        result = qb_create_invoice(
+            customer_id=customer_id,
+            items=items_for_inv,
+            po_number=pc.get("pc_number", ""),
+            memo=f"Reytech Quote #{pc.get('reytech_quote_number', '')} — {institution}",
+        )
+        if result and result.get("Id"):
+            pc["qb_invoice_id"] = result["Id"]
+            pc["qb_invoice_number"] = result.get("DocNumber", "")
+            _save_price_checks(pcs)
+            return jsonify({"ok": True, "invoice_id": result["Id"],
+                          "invoice_number": result.get("DocNumber", "")})
+        return jsonify({"ok": False, "error": "QB returned empty result"})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/quickbooks")
+@auth_required
+def quickbooks_dashboard():
+    """QuickBooks integration dashboard."""
+    from src.api.render import render_page
+    return render_page("quickbooks.html", title="QuickBooks")
 
 
 # ─── CRM Activity Routes (Phase 16) ───────────────────────────────────────

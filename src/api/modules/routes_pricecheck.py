@@ -3893,7 +3893,46 @@ def api_pricecheck_mark_won(pcid):
         log.debug("mark-won catalog feedback error: %s", e)
     _enrich_catalog_from_pc(pc)
     log.info("PC %s marked WON: pc#=%s institution=%s", pcid, pc.get("pc_number"), pc.get("institution"))
-    return jsonify({"ok": True, "status": "won"})
+
+    # ── AUTO-CREATE QB PURCHASE ORDER ──────────────────────────────
+    qb_result = None
+    try:
+        from src.agents.quickbooks_agent import is_configured, create_purchase_order, find_vendor, find_customer
+        if is_configured():
+            items_for_po = []
+            for it in pc.get("items", []):
+                if it.get("no_bid"): continue
+                cost = it.get("vendor_cost") or it.get("pricing", {}).get("unit_cost") or 0
+                if cost <= 0: continue
+                items_for_po.append({
+                    "description": (it.get("description") or "")[:200],
+                    "quantity": it.get("qty", 1),
+                    "unit_price": float(cost),
+                    "item_number": it.get("mfg_number", ""),
+                })
+            if items_for_po:
+                # Find or default vendor
+                supplier = (pc.get("items", [{}])[0].get("item_supplier") or
+                           pc.get("items", [{}])[0].get("pricing", {}).get("catalog_best_supplier") or "")
+                vendor = find_vendor(supplier) if supplier else None
+                vendor_id = vendor["Id"] if vendor else None
+                qb_result = create_purchase_order(
+                    vendor_id=vendor_id,
+                    items=items_for_po,
+                    memo=f"PC #{pc.get('pc_number','')} — {pc.get('institution','')}",
+                    po_number=pc.get("pc_number", ""),
+                )
+                if qb_result and qb_result.get("Id"):
+                    pc["qb_po_id"] = qb_result["Id"]
+                    pc["qb_po_number"] = qb_result.get("DocNumber", "")
+                    _save_price_checks(pcs)
+                    log.info("QB PO created: #%s (ID: %s) for PC %s",
+                             qb_result.get("DocNumber"), qb_result.get("Id"), pcid)
+    except Exception as e:
+        log.warning("QB auto-PO failed (non-fatal): %s", e)
+
+    return jsonify({"ok": True, "status": "won",
+                    "qb_po": {"id": qb_result.get("Id"), "number": qb_result.get("DocNumber")} if qb_result else None})
 
 
 @bp.route("/api/pricecheck/<pcid>/mark-lost", methods=["POST"])

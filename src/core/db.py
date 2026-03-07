@@ -866,6 +866,16 @@ def _migrate_columns():
         # ── Missing columns found by product audit ──
         ("contacts", "phone", "TEXT DEFAULT ''"),
         ("price_checks", "contact_email", "TEXT DEFAULT ''"),
+        # ── QuickBooks integration ──
+        ("price_checks", "pc_data", "TEXT DEFAULT '{}'"),
+        ("price_checks", "qb_po_id", "TEXT"),
+        ("price_checks", "qb_invoice_id", "TEXT"),
+        ("vendors", "qb_vendor_id", "TEXT"),
+        ("customers", "qb_customer_id", "TEXT"),
+        # ── Lead nurture ──
+        ("contacts", "nurture_sequence", "TEXT"),
+        ("contacts", "nurture_step", "INTEGER DEFAULT 0"),
+        ("contacts", "lead_score", "REAL DEFAULT 0"),
     ]
     try:
         conn = sqlite3.connect(DB_PATH, timeout=30)

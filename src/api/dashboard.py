@@ -3802,6 +3802,14 @@ try:
 except Exception as _e:
     log.warning("Lead nurture scheduler failed to start: %s", _e)
 
+# ── Start PO Tracking Email Poller (auto-updates order status from vendor emails) ──
+try:
+    from src.api.modules.routes_order_tracking import _start_po_poller
+    _start_po_poller()
+    log.info("PO tracking poller started (checks vendor emails every 5min)")
+except Exception as _e:
+    log.warning("PO tracking poller failed to start: %s", _e)
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Force Recapture — guaranteed to load (not in exec'd module)
