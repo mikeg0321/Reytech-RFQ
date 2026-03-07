@@ -6251,3 +6251,43 @@ def api_diag_pc(pcid):
 
     result["diagnosis"] = "PC not found anywhere" if not result["found_in"] else f"Found in: {', '.join(result['found_in'])}"
     return jsonify(result)
+
+
+@bp.route("/api/disk-emergency", methods=["GET", "POST"])
+@auth_required
+def api_disk_emergency():
+    """Emergency disk cleanup — delete backups + temp files."""
+    import shutil
+    from src.core.paths import DATA_DIR as _DD
+    freed = 0
+    deleted = []
+    
+    # Delete ALL backups (2.2GB)
+    backup_dir = os.path.join(_DD, "backups")
+    if os.path.isdir(backup_dir):
+        for f in os.listdir(backup_dir):
+            fp = os.path.join(backup_dir, f)
+            try:
+                sz = os.path.getsize(fp)
+                os.remove(fp)
+                freed += sz
+                deleted.append(f"{f} ({sz//1048576}MB)")
+            except: pass
+    
+    # Delete temp/cache files
+    for pattern in ["*.pyc", "auto_price_status.json", "growth_outreach_cache.json"]:
+        for root, dirs, files in os.walk(_DD):
+            for f in files:
+                if f.endswith(".pyc") or f == pattern:
+                    try:
+                        fp = os.path.join(root, f)
+                        sz = os.path.getsize(fp)
+                        os.remove(fp)
+                        freed += sz
+                    except: pass
+    
+    return jsonify({
+        "ok": True,
+        "freed_mb": round(freed / 1048576, 1),
+        "deleted": deleted,
+    })
