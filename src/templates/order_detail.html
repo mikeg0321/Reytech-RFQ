@@ -658,24 +658,26 @@
     }
 
     function createQBInvoice(btn){
-     var invNum = prompt('Invoice number (leave blank for QB auto-number):','');
-     if(invNum === null) return; // cancelled
-     if(!confirm('Create invoice in QuickBooks for this order?\n\n'
-       +'• Customer: auto-found or created in QB\n'
-       +'• Items: your SELL prices (not costs)\n'
-       +'• PO#: from order\n'
-       +'• Sales Rep: MG\n'
-       +(invNum?'• Invoice #: '+invNum+'\n':'• Invoice #: QB auto-number\n')
-     )) return;
-     btn.disabled=true;btn.textContent='⏳ Creating...';
+     if(!confirm('Create & Send Invoice via QuickBooks?\n\n'
+       +'QB will handle: invoice #, date, tax, terms, bill-to, formatting\n'
+       +'App sends: customer, items (MFG# + desc + UOM), PO #\n'
+       +'QB emails the invoice to the customer automatically.\n\n'
+       +'Proceed?')) return;
+     btn.disabled=true;btn.textContent='⏳ Creating & sending...';
      fetch('/api/order/'+{{ oid|tojson }}+'/create-qb-invoice',{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({invoice_number:invNum, sales_rep:'MG'})
+      body:JSON.stringify({send_email:true})
      }).then(function(r){return r.json()}).then(function(d){
       btn.disabled=false;btn.textContent='📄 QB Invoice';
-      if(d.ok) alert('✅ Invoice #'+(d.invoice_number||'?')+' created in QuickBooks ($'+Number(d.total||0).toFixed(2)+')');
-      else alert('❌ '+(d.error||'Failed'));
-     }).catch(function(){btn.disabled=false;btn.textContent='📄 QB Invoice'});
+      if(d.ok){
+       var msg='✅ Invoice #'+d.invoice_number+' created!\n';
+       msg+='Total: $'+Number(d.total||0).toFixed(2)+'\n';
+       msg+='Due: '+(d.due_date||'per terms')+'\n';
+       msg+=(d.email_sent?'📧 Sent to customer via QB':'⚠️ Created but email not sent — check QB');
+       alert(msg);
+       location.reload();
+      } else alert('❌ '+(d.error||'Failed'));
+     }).catch(function(e){btn.disabled=false;btn.textContent='📄 QB Invoice';alert('Error: '+e.message)});
     }
 
     </script>

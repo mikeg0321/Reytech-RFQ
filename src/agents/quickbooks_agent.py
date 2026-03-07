@@ -618,33 +618,43 @@ def create_invoice(customer_id: str, items: list, po_number: str = "",
                     memo: str = "", doc_number: str = "", terms: str = "",
                     sales_rep: str = "") -> Optional[dict]:
     """
-    Create an invoice in QuickBooks.
-
-    Args:
-        customer_id: QB Customer ID
-        items: [{description, qty, unit_price}]
-        po_number: Reference PO number
-        memo: Customer memo
+    Create an invoice in QuickBooks — let QB handle formatting, tax, terms.
+    
+    We send: customer, line items (with MFG# + UOM baked into description), PO ref.
+    QB handles: invoice #, date, tax, terms, bill-to, logo, formatting.
     """
     if not is_configured():
         log.warning("QB not configured - skipping invoice creation")
         return None
     if not customer_id:
-        log.warning("QB invoice skipped: no customer_id provided")
+        log.warning("QB invoice skipped: no customer_id")
         return None
 
     lines = []
-    for i, item in enumerate(items):
+    for item in items:
         qty = item.get("qty", 0) or item.get("quantity", 0) or 1
         price = item.get("unit_price", 0) or item.get("price", 0) or 0
         price = float(price)
         qty = int(qty)
         if price <= 0:
             continue
+
+        # Build description: "MFG#\nFull description\nUOM: EA"
+        desc_parts = []
+        mfg = item.get("mfg_number", "") or item.get("part_number", "") or ""
+        if mfg:
+            desc_parts.append(mfg)
+        desc_parts.append(item.get("description", ""))
+        uom = item.get("uom", "")
+        if uom and uom.upper() not in ("", "EA"):
+            desc_parts.append(f"UOM: {uom.upper()}")
+        
+        full_desc = "\n".join(d for d in desc_parts if d)
+
         lines.append({
             "DetailType": "SalesItemLineDetail",
             "Amount": round(qty * price, 2),
-            "Description": item.get("description", ""),
+            "Description": full_desc[:4000],
             "SalesItemLineDetail": {
                 "Qty": qty,
                 "UnitPrice": price,
@@ -659,40 +669,85 @@ def create_invoice(customer_id: str, items: list, po_number: str = "",
         "CustomerRef": {"value": customer_id},
         "Line": lines,
     }
+    
+    # PO number as reference (shows on invoice)
+    if po_number:
+        invoice_data["CustomField"] = [
+            {"DefinitionId": "1", "StringValue": po_number, "Type": "StringType", "Name": "P.O. Number"}
+        ]
+    
     if memo:
         invoice_data["CustomerMemo"] = {"value": memo}
-    if po_number:
-        # Set as both DocNumber reference and custom field
-        invoice_data["CustomField"] = [{"DefinitionId": "1", "StringValue": po_number, "Type": "StringType"}]
+
+    # Let QB auto-number unless explicit
     if doc_number:
         invoice_data["DocNumber"] = doc_number[:20]
-    # Terms: look up NET 45 in QB terms list
-    if terms:
-        invoice_data["SalesTermRef"] = {"value": terms}
-    # Sales Rep as custom field
-    if sales_rep:
-        cf = invoice_data.get("CustomField", [])
-        cf.append({"DefinitionId": "2", "StringValue": sales_rep, "Type": "StringType"})
-        invoice_data["CustomField"] = cf
-    # Tax — let QB auto-calculate based on customer tax settings
-    # (QB Online handles tax automatically if tax is enabled for the customer)
 
-    result = _qb_request("POST", "invoice", invoice_data)
+    result = _qb_request("POST", "invoice?minorversion=73", invoice_data)
     if result and result.get("Invoice"):
         inv = result["Invoice"]
-        log.info("QB Invoice created: #%s for $%s", inv.get("DocNumber"), inv.get("TotalAmt"))
+        log.info("QB Invoice created: #%s for $%s (customer=%s)",
+                 inv.get("DocNumber"), inv.get("TotalAmt"), customer_id)
         return {
             "id": inv.get("Id"),
             "doc_number": inv.get("DocNumber"),
             "total": float(inv.get("TotalAmt", 0)),
             "customer": inv.get("CustomerRef", {}).get("name", ""),
+            "due_date": inv.get("DueDate", ""),
+            "email_status": inv.get("EmailStatus", ""),
         }
+    log.error("QB invoice creation failed: %s", result)
     return None
 
 
-# ─── Customer Operations ────────────────────────────────────────────────────
+def send_invoice_email(invoice_id: str, to_email: str = "") -> bool:
+    """Tell QB to email the invoice to the customer.
+    
+    QB sends the formatted invoice PDF from their servers.
+    If to_email is empty, QB uses the email on file for the customer.
+    """
+    if not is_configured() or not invoice_id:
+        return False
+    
+    endpoint = f"invoice/{invoice_id}/send"
+    if to_email:
+        endpoint += f"?sendTo={to_email}"
+    
+    result = _qb_request("POST", endpoint)
+    if result and result.get("Invoice"):
+        inv = result["Invoice"]
+        log.info("QB Invoice #%s emailed to %s (status: %s)",
+                 inv.get("DocNumber"), to_email or "customer on file",
+                 inv.get("EmailStatus"))
+        return True
+    log.error("QB invoice email failed for ID %s: %s", invoice_id, result)
+    return False
 
-CUSTOMER_CACHE_FILE = os.path.join(DATA_DIR, "qb_customers_cache.json")
+
+def get_invoice_pdf(invoice_id: str) -> Optional[bytes]:
+    """Download the invoice PDF from QB for local storage."""
+    if not is_configured() or not invoice_id:
+        return None
+    
+    token = get_access_token()
+    if not token:
+        return None
+    
+    base = _get_api_base()
+    url = f"{base}/invoice/{invoice_id}/pdf?minorversion=73"
+    
+    try:
+        resp = _requests.get(url, headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/pdf",
+        }, timeout=30)
+        if resp.status_code == 200:
+            log.info("Downloaded QB invoice PDF for ID %s (%d bytes)", invoice_id, len(resp.content))
+            return resp.content
+        log.error("QB invoice PDF download failed: %s %s", resp.status_code, resp.text[:200])
+    except Exception as e:
+        log.error("QB invoice PDF download error: %s", e)
+    return None
 
 def fetch_customers(force_refresh: bool = False) -> list:
     """Fetch customers from QuickBooks with balances."""
@@ -1080,3 +1135,6 @@ def diagnose_connection() -> dict:
             diag["api_error"] = str(e)
 
     return diag
+
+
+# ─── Invoice Numbering ─────────────────────────────────────────────────────

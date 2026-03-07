@@ -1861,12 +1861,19 @@ def api_order_create_qb_po(oid):
         return jsonify({"ok": False, "error": str(e)})
 
 
+
 @bp.route("/api/order/<oid>/create-qb-invoice", methods=["POST"])
 @auth_required
 def api_order_create_qb_invoice(oid):
-    """Create QB Invoice to bill the customer for this order."""
+    """Create + email QB invoice. Let QB handle formatting, tax, terms, numbering.
+    
+    Flow: Create in QB → QB emails to customer → store reference on order.
+    """
     try:
-        from src.agents.quickbooks_agent import is_configured, create_invoice, find_customer, create_customer
+        from src.agents.quickbooks_agent import (
+            is_configured, create_invoice, find_customer, create_customer,
+            send_invoice_email, get_invoice_pdf,
+        )
         if not is_configured():
             return jsonify({"ok": False, "error": "QuickBooks not configured"})
 
@@ -1876,22 +1883,17 @@ def api_order_create_qb_invoice(oid):
             return jsonify({"ok": False, "error": "Order not found"})
 
         data = request.get_json(silent=True) or {}
+        institution = order.get("institution", "")
 
         # Find or create customer in QB
-        institution = data.get("customer_name") or order.get("institution", "")
         customer = find_customer(institution) if institution else None
         if not customer:
-            # Auto-create customer
-            customer = create_customer(
-                name=institution,
-                bill_address=order.get("ship_to", ""),
-            )
+            customer = create_customer(name=institution)
             if not customer:
                 return jsonify({"ok": False,
-                    "error": f"Could not find or create customer '{institution}' in QuickBooks.",
-                    "action": "add_customer", "customer_name": institution})
+                    "error": f"Customer '{institution}' not in QB and couldn't be created. Add them in QB first."})
 
-        # Build invoice items from order (SELL prices, not costs)
+        # Build line items — bake MFG# + UOM into description
         inv_items = []
         for it in order.get("line_items", []):
             price = it.get("unit_price") or it.get("sell_price") or it.get("price") or 0
@@ -1899,33 +1901,64 @@ def api_order_create_qb_invoice(oid):
             if price <= 0:
                 continue
             inv_items.append({
-                "description": (it.get("description") or "")[:200],
+                "description": it.get("description", ""),
+                "mfg_number": it.get("part_number", "") or it.get("mfg_number", ""),
                 "qty": int(it.get("qty", 1)),
                 "unit_price": price,
+                "uom": it.get("uom", "EA") or "EA",
             })
 
         if not inv_items:
-            return jsonify({"ok": False, "error": "No items with sell prices to invoice"})
+            return jsonify({"ok": False, "error": "No items with sell prices"})
 
-        # Invoice number: use order's quote number or sequential
-        doc_number = data.get("invoice_number") or order.get("invoice_number", "")
-
+        # Create invoice — QB handles #, date, tax, terms, bill-to
         result = create_invoice(
             customer_id=customer["Id"],
             items=inv_items,
             po_number=order.get("po_number", ""),
-            memo=f"Reytech Order {oid}",
-            doc_number=doc_number,
-            terms=data.get("terms", ""),  # e.g., QB Terms ID for NET 45
-            sales_rep=data.get("sales_rep", "MG"),
+            memo=data.get("memo", ""),
         )
-        if result:
-            order["qb_invoice_id"] = result.get("id", "")
-            order["qb_invoice_number"] = result.get("doc_number", "")
-            _save_orders(orders)
-            return jsonify({"ok": True, "invoice_id": result["id"],
-                           "invoice_number": result.get("doc_number", ""),
-                           "total": result.get("total", 0)})
-        return jsonify({"ok": False, "error": "QuickBooks returned empty result"})
+        if not result:
+            return jsonify({"ok": False, "error": "QB invoice creation failed"})
+
+        # Store on order
+        order["qb_invoice_id"] = result["id"]
+        order["qb_invoice_number"] = result.get("doc_number", "")
+        order["qb_invoice_total"] = result.get("total", 0)
+        order["qb_invoice_due"] = result.get("due_date", "")
+        order["invoice_status"] = "created"
+
+        # Email the invoice via QB
+        send_email = data.get("send_email", True)
+        customer_email = data.get("customer_email", "")
+        email_sent = False
+        if send_email:
+            email_sent = send_invoice_email(result["id"], to_email=customer_email)
+            if email_sent:
+                order["invoice_status"] = "sent"
+
+        # Download PDF for local reference
+        try:
+            pdf_bytes = get_invoice_pdf(result["id"])
+            if pdf_bytes:
+                pdf_path = os.path.join(DATA_DIR, f"invoice_{result.get('doc_number', oid)}.pdf")
+                with open(pdf_path, "wb") as f:
+                    f.write(pdf_bytes)
+                order["invoice_pdf"] = pdf_path
+        except Exception as pe:
+            log.debug("Invoice PDF download: %s", pe)
+
+        _save_orders(orders)
+
+        return jsonify({
+            "ok": True,
+            "invoice_id": result["id"],
+            "invoice_number": result.get("doc_number", ""),
+            "total": result.get("total", 0),
+            "due_date": result.get("due_date", ""),
+            "email_sent": email_sent,
+            "status": order["invoice_status"],
+        })
     except Exception as e:
+        log.error("QB invoice error: %s", e, exc_info=True)
         return jsonify({"ok": False, "error": str(e)})
