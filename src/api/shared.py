@@ -37,8 +37,8 @@ def check_auth(username, password):
 _rate_limiter = {}
 _rate_limiter_lock = threading.Lock()
 RATE_LIMIT_WINDOW = 60
-RATE_LIMIT_MAX = 300
-RATE_LIMIT_AUTH_MAX = 60
+RATE_LIMIT_MAX = 600          # 600 req/min for authenticated users (was 300)
+RATE_LIMIT_AUTH_MAX = 20      # 20 FAILED auth attempts/min (was 60 counting ALL)
 
 
 def _check_rate_limit(key: str = None, max_requests: int = None) -> bool:
@@ -62,14 +62,16 @@ def _check_rate_limit(key: str = None, max_requests: int = None) -> bool:
 def auth_required(f):
     @functools.wraps(f)
     def decorated(*args, **kwargs):
-        auth_key = f"auth:{request.remote_addr}"
-        if not _check_rate_limit(auth_key, RATE_LIMIT_AUTH_MAX):
-            return Response("Rate limited — too many auth attempts", 429)
         auth = request.authorization
         if not auth or not check_auth(auth.username, auth.password):
+            # Only count FAILED attempts toward rate limit
+            auth_key = f"auth_fail:{request.remote_addr}"
+            if not _check_rate_limit(auth_key, RATE_LIMIT_AUTH_MAX):
+                return Response("Rate limited — too many failed auth attempts. Wait 60 seconds.", 429)
             return Response(
                 "🔒 Reytech RFQ Dashboard — Login Required",
                 401, {"WWW-Authenticate": 'Basic realm="Reytech RFQ Dashboard"'})
+        # Authenticated — generous limit
         if not _check_rate_limit():
             return Response("Rate limited — slow down", 429)
         return f(*args, **kwargs)
@@ -87,11 +89,12 @@ def _global_auth_guard():
                    "/api/qb/callback", "/api/voice/webhook", "/api/build")):
         pass
     else:
-        auth_key = f"auth:{request.remote_addr}"
-        if not _check_rate_limit(auth_key, RATE_LIMIT_AUTH_MAX):
-            return Response("Rate limited — too many auth attempts", 429)
         auth = request.authorization
         if not auth or not check_auth(auth.username, auth.password):
+            # Only count FAILED attempts toward rate limit
+            auth_key = f"auth_fail:{request.remote_addr}"
+            if not _check_rate_limit(auth_key, RATE_LIMIT_AUTH_MAX):
+                return Response("Rate limited — too many failed auth attempts. Wait 60 seconds.", 429)
             log.warning("AUTH DENIED: %s %s from %s", request.method, _path, request.remote_addr)
             try:
                 from src.core.security import _log_audit_internal
