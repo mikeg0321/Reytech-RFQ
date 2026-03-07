@@ -18,7 +18,7 @@ th{padding:8px 12px;font-size:14px;color:var(--tx2);text-transform:uppercase;let
   <div style="display:flex;gap:8px">
     <a href="/" class="btn">🏠 Home</a>
     <a href="/api/vendor/status" class="btn" target="_blank">⚙️ API Status</a>
-    <button class="btn" onclick="testGrainger(this)" style="border-color:var(--ac);color:var(--ac)">🔍 Test Grainger Search</button>
+    <button class="btn" onclick="testGrainger(this)" style="border-color:var(--ac);color:var(--ac)" aria-label="Test Grainger Search">🔍 Test Grainger Search</button>
     <button class="btn" onclick="scoreAllVendors(this)" style="border-color:var(--gn);color:var(--gn)" title="Score all vendors by price/reliability/speed">📊 Score Vendors</button>
     <button class="btn" onclick="showEnrichment()" style="border-color:var(--yl);color:var(--yl)" title="Vendor data completeness">📈 Enrichment</button>
   </div>
@@ -80,7 +80,7 @@ th{padding:8px 12px;font-size:14px;color:var(--tx2);text-transform:uppercase;let
 <div class="card" style="margin-bottom:20px">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
     <div style="font-size:14px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px">⭐ Preferred Vendors by Category</div>
-    <button class="btn" onclick="loadPreferred()" style="border-color:var(--ac);color:var(--ac)">Refresh</button>
+    <button class="btn" onclick="loadPreferred()" style="border-color:var(--ac);color:var(--ac)" aria-label="Refresh">Refresh</button>
   </div>
   <div id="preferred-vendors" style="color:var(--tx2);font-size:14px">Loading...</div>
 </div>

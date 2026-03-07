@@ -18,8 +18,8 @@
    <option value="CalFire">CalFire</option>
    <option value="CDPH">CDPH</option>
   </select>
-  <button onclick="runBackfill()" class="btn" style="background:rgba(210,168,255,.15);color:#d2a8ff;border:1px solid rgba(210,168,255,.3);font-size:13px">📥 Backfill 2025</button>
-  <button onclick="runFullPull()" class="btn" style="background:rgba(63,185,80,.15);color:#3fb950;border:1px solid rgba(63,185,80,.3);font-size:13px">🔄 Pull Now</button>
+  <button onclick="runBackfill()" class="btn" style="background:rgba(210,168,255,.15);color:#d2a8ff;border:1px solid rgba(210,168,255,.3);font-size:13px" aria-label="Backfill 2025">📥 Backfill 2025</button>
+  <button onclick="runFullPull()" class="btn" style="background:rgba(63,185,80,.15);color:#3fb950;border:1px solid rgba(63,185,80,.3);font-size:13px" aria-label="Pull Now">🔄 Pull Now</button>
  </div>
 </div>
 
@@ -35,7 +35,7 @@
    <option value="institution">Institutions</option>
    <option value="po">PO Numbers</option>
   </select>
-  <button onclick="searchSCPRS()" class="btn" style="background:var(--ac);color:#fff;font-size:14px;padding:10px 20px">Search</button>
+  <button onclick="searchSCPRS()" class="btn" style="background:var(--ac);color:#fff;font-size:14px;padding:10px 20px" aria-label="Search">Search</button>
  </div>
  <div id="searchResults" style="margin-top:8px"></div>
 </div>
@@ -51,11 +51,11 @@
 
 <!-- Tabs -->
 <div style="display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--bd);padding-bottom:0">
- <button class="tab-btn active" onclick="showTab('competitors',this)">🏢 Competitors</button>
- <button class="tab-btn" onclick="showTab('vehicles',this)">📜 Contract Vehicles</button>
- <button class="tab-btn" onclick="showTab('institutions',this)">🏛 Institutions</button>
- <button class="tab-btn" onclick="showTab('dvbe',this)">⚡ DVBE Opportunities</button>
- <button class="tab-btn" onclick="showTab('health',this)">💚 Data Health</button>
+ <button class="tab-btn active" onclick="showTab('competitors',this)" aria-label="Competitors">🏢 Competitors</button>
+ <button class="tab-btn" onclick="showTab('vehicles',this)" aria-label="Contract Vehicles">📜 Contract Vehicles</button>
+ <button class="tab-btn" onclick="showTab('institutions',this)" aria-label="Institutions">🏛 Institutions</button>
+ <button class="tab-btn" onclick="showTab('dvbe',this)" aria-label="DVBE Opportunities">⚡ DVBE Opportunities</button>
+ <button class="tab-btn" onclick="showTab('health',this)" aria-label="Data Health">💚 Data Health</button>
 </div>
 
 <style>

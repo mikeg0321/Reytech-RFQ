@@ -974,6 +974,7 @@ def start_award_tracker(interval_seconds: int = POLL_INTERVAL_SEC):
 
     def _loop():
         time.sleep(120)  # Wait for app boot + other agents to start
+        _cycle = 0
         while True:
             try:
                 log.info("Award tracker: starting scan")
@@ -983,9 +984,16 @@ def start_award_tracker(interval_seconds: int = POLL_INTERVAL_SEC):
                     result.get("checked", 0), result.get("matches", 0),
                     result.get("losses", 0), result.get("prices_recorded", 0),
                 )
+                # Also run award monitor check (merged — was separate thread)
+                try:
+                    from src.agents.award_monitor import run_award_check as monitor_check
+                    monitor_check()
+                except Exception as me:
+                    log.debug("Award monitor check in tracker: %s", me)
             except Exception as e:
                 log.error("Award tracker error: %s", e)
                 _heartbeat(success=False, error=str(e))
+            _cycle += 1
             time.sleep(interval_seconds)
 
     t = threading.Thread(target=_loop, daemon=True, name="award-tracker")

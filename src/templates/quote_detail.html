@@ -7,7 +7,7 @@
      {% if source_link %}<a href="{{ source_link }}" class="btn btn-s" style="font-size:13px">📎 {{ source_label }}</a>{% endif %}
      {% if fname %}<a href="/api/pricecheck/download/{{ fname }}" class="btn btn-s" style="font-size:13px">📥 Download PDF</a>{% endif %}
      {% if fname %}<a href="/api/pricecheck/view-pdf/{{ fname }}" target="_blank" class="btn btn-s" style="font-size:13px">📄 View PDF</a>{% endif %}
-     <button onclick="regenerateQuote()" class="btn btn-s" style="font-size:13px;background:rgba(79,140,255,.15);color:var(--ac);border:1px solid rgba(79,140,255,.3)">🔄 Regenerate PDF</button>
+     <button onclick="regenerateQuote()" class="btn btn-s" style="font-size:13px;background:rgba(79,140,255,.15);color:var(--ac);border:1px solid rgba(79,140,255,.3)" aria-label="Regenerate PDF">🔄 Regenerate PDF</button>
      <a href="/outbox?filter=cs" class="btn btn-s" style="font-size:13px;background:rgba(251,191,36,.12);color:var(--yl);border:1px solid rgba(251,191,36,.3)">💬 CS Inbox</a>
     </div>
 
@@ -120,7 +120,7 @@
       <div id="crm-activity" style="max-height:320px;overflow-y:auto;font-size:14px">Loading...</div>
       <div style="margin-top:10px;border-top:1px solid var(--bd);padding-top:10px;display:flex;gap:6px">
        <input id="crm-note" placeholder="Add a note..." style="flex:1;padding:8px 10px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:14px">
-       <button onclick="addNote()" class="btn btn-p" style="padding:8px 12px;font-size:14px">Add</button>
+       <button onclick="addNote()" class="btn btn-p" style="padding:8px 12px;font-size:14px" aria-label="Add">Add</button>
       </div>
      </div>
     </div>

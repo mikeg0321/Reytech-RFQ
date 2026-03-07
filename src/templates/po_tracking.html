@@ -7,8 +7,8 @@
   <span style="font-size:14px;color:var(--tx2)">
    {% if poll_status.get('last_poll') %}Last poll: {{poll_status.last_poll[:16].replace('T',' ')}}{% else %}Not polled yet{% endif %}
   </span>
-  <button class="btn btn-sm btn-s" onclick="pollPOInbox()">⚡ Check PO Inbox</button>
-  <button class="btn btn-sm btn-p" onclick="showCreatePO()">+ New PO</button>
+  <button class="btn btn-sm btn-s" onclick="pollPOInbox()" aria-label="Check PO Inbox">⚡ Check PO Inbox</button>
+  <button class="btn btn-sm btn-p" onclick="showCreatePO()" aria-label="New PO">+ New PO</button>
  </div>
 </div>
 
@@ -80,8 +80,8 @@
    <div><label style="font-size:14px;color:var(--tx2)">Link to RFQ ID (optional)</label><input type="text" id="new-po-rfq" class="text-in" style="width:100%" placeholder="Leave blank for standalone PO"></div>
   </div>
   <div style="display:flex;gap:8px;margin-top:16px">
-   <button class="btn btn-p" onclick="createPO()">Create</button>
-   <button class="btn btn-s" onclick="document.getElementById('create-po-modal').style.display='none'">Cancel</button>
+   <button class="btn btn-p" onclick="createPO()" aria-label="Create">Create</button>
+   <button class="btn btn-s" onclick="document.getElementById('create-po-modal').style.display='none'" aria-label="Cancel">Cancel</button>
   </div>
  </div>
 </div>

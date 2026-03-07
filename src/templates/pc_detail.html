@@ -85,7 +85,7 @@
       <div class="modal-header">
        <h2>📋 Preview — <span id="previewFormType">AMS 704 Price Check</span></h2>
        <div>
-        <button class="btn btn-sm btn-g" onclick="window.print()" style="margin-right:8px;font-size:14px">🖨️ Print</button>
+        <button class="btn btn-sm btn-g" onclick="window.print()" style="margin-right:8px;font-size:14px" aria-label="Print">🖨️ Print</button>
         <button class="modal-close" onclick="closePreview()">×</button>
        </div>
       </div>
@@ -99,7 +99,7 @@
       <span id="pcNumDisplay" style="cursor:pointer" title="Click to rename" onclick="document.getElementById('pcNumEdit').style.display='inline-flex';this.style.display='none'">{{ pc.get('pc_number','unknown') }}</span>
       <span id="pcNumEdit" style="display:none;align-items:center;gap:4px">
        <input type="text" id="pcNumInput" value="{{ pc.get('pc_number','') }}" style="background:#0d1117;border:1px solid #58a6ff;color:#c9d1d9;padding:4px 8px;border-radius:4px;font-size:16px;font-weight:700;width:200px;font-family:inherit">
-       <button onclick="renamePc()" style="background:#238636;color:#fff;border:none;padding:4px 10px;border-radius:4px;font-size:14px;cursor:pointer">Save</button>
+       <button onclick="renamePc()" style="background:#238636;color:#fff;border:none;padding:4px 10px;border-radius:4px;font-size:14px;cursor:pointer" aria-label="Save">Save</button>
        <button onclick="document.getElementById('pcNumEdit').style.display='none';document.getElementById('pcNumDisplay').style.display='inline'" style="background:none;border:1px solid #30363d;color:#8b949e;padding:4px 8px;border-radius:4px;font-size:14px;cursor:pointer">✕</button>
       </span>
       <span class="status status-{{ pc.get('status','parsed') }}">{{ pc.get('status','parsed').upper() }}</span>
@@ -115,8 +115,8 @@
       <div style="display:flex;align-items:center;gap:10px"><span style="font-size:18px">📨</span><div><b>Sent</b> — Awaiting award decision{% if pc.get('sent_at') %} · Sent {{ pc.get('sent_at','')[:10] }}{% endif %}
        {% if pc.get('current_doc_id') %}<br><a href="/pricecheck/'+_pcid+'/document/{{ pc.get('current_doc_id','') }}" style="color:#58a6ff;font-size:14px">📄 View/Edit Sent Document</a> · <a href="/pricecheck/'+_pcid+'/documents" style="color:#8b949e;font-size:14px">All Versions</a>{% endif %}</div></div>
       <div style="display:flex;gap:6px">
-       <button class="btn btn-sm" onclick="adminAction('won')" style="background:#238636;color:#fff;font-size:14px;padding:4px 12px;border-radius:6px;border:none;cursor:pointer">🏆 Mark Won</button>
-       <button class="btn btn-sm" onclick="adminAction('lost')" style="background:#da3633;color:#fff;font-size:14px;padding:4px 12px;border-radius:6px;border:none;cursor:pointer">❌ Mark Lost</button>
+       <button class="btn btn-sm" onclick="adminAction('won')" style="background:#238636;color:#fff;font-size:14px;padding:4px 12px;border-radius:6px;border:none;cursor:pointer" aria-label="Mark Won">🏆 Mark Won</button>
+       <button class="btn btn-sm" onclick="adminAction('lost')" style="background:#da3633;color:#fff;font-size:14px;padding:4px 12px;border-radius:6px;border:none;cursor:pointer" aria-label="Mark Lost">❌ Mark Lost</button>
       </div>
      </div>
      {% elif pc.get('status') == 'won' %}
@@ -126,7 +126,7 @@
      {% elif pc.get('status') in ('completed','converted') %}
      <div style="padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;justify-content:space-between;background:rgba(52,211,153,.08);border:1px solid rgba(52,211,153,.25);color:#3fb950;margin-bottom:10px">
       <div style="display:flex;align-items:center;gap:10px"><span style="font-size:18px">✅</span><div><b>704 Complete</b> — Re-fill if prices changed, then mark sent.</div></div>
-      <button class="btn btn-sm" onclick="markSent(this)" style="background:#238636;color:#fff;font-size:13px;padding:6px 16px;border-radius:6px;border:none;cursor:pointer;font-weight:600">📨 Mark Sent</button>
+      <button class="btn btn-sm" onclick="markSent(this)" style="background:#238636;color:#fff;font-size:13px;padding:6px 16px;border-radius:6px;border:none;cursor:pointer;font-weight:600" aria-label="Mark Sent">📨 Mark Sent</button>
      </div>
      {% elif pc.get('status') == 'priced' %}
      <div style="padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(88,166,255,.08);border:1px solid rgba(88,166,255,.25);color:#58a6ff;margin-bottom:10px"><span style="font-size:18px">💰</span><div><b>Priced</b> — review costs below, then Save &amp; Fill 704.</div></div>
@@ -155,9 +155,9 @@
      {% else %}
      <div style="display:flex;gap:6px;margin-top:10px;margin-bottom:4px">
       <button class="btn btn-sm" style="font-size:14px;padding:4px 10px;background:rgba(167,139,250,.08);color:#a78bfa;border:1px solid rgba(167,139,250,.25)" 
-        onclick="linkToRFQ()">🔗 Link to Existing RFQ</button>
+        onclick="linkToRFQ()" aria-label="Link to Existing RFQ">🔗 Link to Existing RFQ</button>
       <button class="btn btn-sm" style="font-size:14px;padding:4px 10px;background:rgba(52,211,153,.08);color:#3fb950;border:1px solid rgba(52,211,153,.25)" 
-        onclick="convertPCToRFQ()">🔄 Convert to New RFQ</button>
+        onclick="convertPCToRFQ()" aria-label="Convert to New RFQ">🔄 Convert to New RFQ</button>
      </div>
      {% endif %}
 
@@ -188,7 +188,7 @@
       </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
        <span style="font-size:14px;color:#3fb950;font-family:monospace" id="next-qn-badge">Next: {{ next_quote_preview or '—' }}</span>
-       <button class="btn" id="genQuoteBtn" data-testid="pc-generate-quote-1click" onclick="generateQuote1Click(this)" style="background:#1f6feb;color:#fff;font-weight:700;font-size:14px;padding:10px 24px;border-radius:8px;transition:all .2s;white-space:nowrap">📋 Generate Quote →</button>
+       <button class="btn" id="genQuoteBtn" data-testid="pc-generate-quote-1click" onclick="generateQuote1Click(this)" style="background:#1f6feb;color:#fff;font-weight:700;font-size:14px;padding:10px 24px;border-radius:8px;transition:all .2s;white-space:nowrap" aria-label="Generate Quote">📋 Generate Quote →</button>
       </div>
      </div>
      {% endif %}
@@ -202,14 +202,14 @@
       <details style="position:relative;display:inline-block" id="priceDropdown">
        <summary class="btn btn-sm" style="background:#21262d;color:#bc8cff;border:1px solid #30363d;font-size:14px;padding:6px 16px;cursor:pointer;list-style:none;font-weight:600">🔍 Find Prices ▾</summary>
        <div style="position:absolute;top:100%;left:0;z-index:50;margin-top:4px;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:6px;min-width:220px;box-shadow:0 8px 24px rgba(0,0,0,.4)">
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#bc8cff;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runAutoPrice(this);this.closest('details').open=false">🧠 Auto-Price (all sources)</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#bc8cff;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runAutoPrice(this);this.closest('details').open=false" aria-label="Auto-Price (all sources)">🧠 Auto-Price (all sources)</button>
         <hr style="border-color:#30363d;margin:4px 0">
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#58a6ff;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runScprs(this);this.closest('details').open=false">🔍 SCPRS (state contracts)</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#3fb950;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runCatalogMatch(this);this.closest('details').open=false">🎯 Catalog (our products)</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#f0883e;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runLookup(this);this.closest('details').open=false">🔬 Amazon</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#f778ba;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runPriceSweep(this);this.closest('details').open=false">🛒 Sweep (multi-retailer)</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#d2a8ff;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runWebSearch(this);this.closest('details').open=false">🌐 Web Search</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#d2a8ff;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runAIFindAll(this);this.closest('details').open=false">🤖 AI Find</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#58a6ff;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runScprs(this);this.closest('details').open=false" aria-label="SCPRS (state contracts)">🔍 SCPRS (state contracts)</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#3fb950;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runCatalogMatch(this);this.closest('details').open=false" aria-label="Catalog (our products)">🎯 Catalog (our products)</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#f0883e;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runLookup(this);this.closest('details').open=false" aria-label="Amazon">🔬 Amazon</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#f778ba;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runPriceSweep(this);this.closest('details').open=false" aria-label="Sweep (multi-retailer)">🛒 Sweep (multi-retailer)</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#d2a8ff;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runWebSearch(this);this.closest('details').open=false" aria-label="Web Search">🌐 Web Search</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#d2a8ff;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runAIFindAll(this);this.closest('details').open=false" aria-label="AI Find">🤖 AI Find</button>
        </div>
       </details>
       <button class="btn btn-sm" onclick="toggleAllNotes()" style="background:#21262d;color:#d2a8ff;border:1px solid #30363d;font-size:13px;padding:6px 14px" title="Show/hide notes row for each item">📝 Notes</button>
@@ -217,23 +217,23 @@
        <summary class="btn btn-sm" style="background:#21262d;color:#8b949e;border:1px solid #30363d;font-size:14px;padding:4px 10px;cursor:pointer;list-style:none">⋯ More</summary>
        <div style="position:absolute;top:100%;left:0;z-index:50;margin-top:4px;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:6px;min-width:220px;box-shadow:0 8px 24px rgba(0,0,0,.4)">
         {% if pc.get('status') in ('completed','converted') %}
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#c9d1d9;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="saveAndGenerate(this)">♻️ Re-fill 704</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#c9d1d9;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="saveAndGenerate(this)" aria-label="Re-fill 704">♻️ Re-fill 704</button>
         {% endif %}
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#c9d1d9;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="window.print()">🖨️ Print Page</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#58a6ff;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="generateQuote1Click(this)">📋 Generate Formal Quote (704b/703b)</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#a78bfa;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="showRevisions()">📝 Revision History</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#c9d1d9;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="window.print()" aria-label="Print Page">🖨️ Print Page</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#58a6ff;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="generateQuote1Click(this)" aria-label="Generate Formal Quote (704b/703b)">📋 Generate Formal Quote (704b/703b)</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#a78bfa;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="showRevisions()" aria-label="Revision History">📝 Revision History</button>
         <hr style="border-color:#30363d;margin:4px 0">
         <div style="font-size:13px;color:#484f58;padding:2px 10px;text-transform:uppercase;letter-spacing:.5px">Analysis</div>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#d2a8ff;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runPortfolioPrice(this)">📊 Portfolio Optimizer</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#f0883e;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runCompetitorIntel(this)">🏢 Competitor Intel</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#d2a8ff;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runPortfolioPrice(this)" aria-label="Portfolio Optimizer">📊 Portfolio Optimizer</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#f0883e;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runCompetitorIntel(this)" aria-label="Competitor Intel">🏢 Competitor Intel</button>
         <hr style="border-color:#30363d;margin:4px 0">
         <div style="font-size:13px;color:#484f58;padding:2px 10px;text-transform:uppercase;letter-spacing:.5px">Admin</div>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runReparse(this)">🔄 Re-parse from PDF</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="rescanMfgNumbers(this)">🔍 Rescan MFG#s</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('no_response')">💤 No Response</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('duplicate')">📋 Mark Duplicate</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('archived')">🗄️ Archive</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#f85149;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('delete')">🗑️ Delete</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runReparse(this)" aria-label="Re-parse from PDF">🔄 Re-parse from PDF</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="rescanMfgNumbers(this)" aria-label="Rescan MFGs">🔍 Rescan MFG#s</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('no_response')" aria-label="No Response">💤 No Response</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('duplicate')" aria-label="Mark Duplicate">📋 Mark Duplicate</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('archived')" aria-label="Archive">🗄️ Archive</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#f85149;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('delete')" aria-label="Delete">🗑️ Delete</button>
        </div>
       </details>
      </div>
@@ -258,10 +258,10 @@
         <span style="font-size:14px;text-transform:none;cursor:help" title="Amazon prices fluctuate. Buffer pads your cost basis so a temporary discount doesn't eat your margin when prices revert.">ⓘ</span>
        </label>
        <div style="display:flex;gap:6px;margin-top:6px" id="pricingTiers">
-        <button class="tier-btn tier-active" onclick="applyTier(0,this)" data-buffer="0">Current<br><span style="font-size:14px;opacity:0.7">No buffer</span></button>
-        <button class="tier-btn" onclick="applyTier(10,this)" data-buffer="10">Light<br><span style="font-size:14px;opacity:0.7">+10%</span></button>
-        <button class="tier-btn" onclick="applyTier(15,this)" data-buffer="15">Standard<br><span style="font-size:14px;opacity:0.7">+15%</span></button>
-        <button class="tier-btn" onclick="applyTier(20,this)" data-buffer="20">Safe<br><span style="font-size:14px;opacity:0.7">+20%</span></button>
+        <button class="tier-btn tier-active" onclick="applyTier(0,this)" data-buffer="0" aria-label="Current">Current<br><span style="font-size:14px;opacity:0.7">No buffer</span></button>
+        <button class="tier-btn" onclick="applyTier(10,this)" data-buffer="10" aria-label="Light">Light<br><span style="font-size:14px;opacity:0.7">+10%</span></button>
+        <button class="tier-btn" onclick="applyTier(15,this)" data-buffer="15" aria-label="Standard">Standard<br><span style="font-size:14px;opacity:0.7">+15%</span></button>
+        <button class="tier-btn" onclick="applyTier(20,this)" data-buffer="20" aria-label="Safe">Safe<br><span style="font-size:14px;opacity:0.7">+20%</span></button>
        </div>
        <div id="tierComparison" style="margin-top:10px;font-size:14px;background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:10px 12px;display:none"></div>
       </div>
@@ -290,7 +290,7 @@
      </table>
      </div>
      <div style="margin-top:8px">
-      <button class="btn btn-sm" style="background:#21262d;color:#8b949e;border:1px solid #30363d" onclick="addRow()">+ Add Item</button>
+      <button class="btn btn-sm" style="background:#21262d;color:#8b949e;border:1px solid #30363d" onclick="addRow()" aria-label="Add Item">+ Add Item</button>
      </div>
 
      <!-- PRD Feature 10: Price History Intelligence Panel -->
@@ -298,7 +298,7 @@
        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
          <span style="font-size:13px;font-weight:700;color:#8b949e;text-transform:uppercase;letter-spacing:.5px">📊 Price History Intelligence</span>
          <span style="font-size:14px;color:#484f58">Historical prices from all prior quotes & lookups</span>
-         <button onclick="loadPriceHistory()" id="phLoadBtn" class="btn btn-sm" style="background:#21262d;color:#8b949e;border:1px solid #30363d;margin-left:auto;font-size:14px">Load History</button>
+         <button onclick="loadPriceHistory()" id="phLoadBtn" class="btn btn-sm" style="background:#21262d;color:#8b949e;border:1px solid #30363d;margin-left:auto;font-size:14px" aria-label="Load History">Load History</button>
        </div>
        <div id="ph-content" style="display:none">
          <div id="ph-rows"></div>
@@ -1287,7 +1287,7 @@
           html+='<div style="display:flex;justify-content:space-between;align-items:center">';
           html+='<div><b style="color:#a78bfa">Rev #'+rev.revision+'</b> <span style="color:#8b949e;font-size:13px">'+rev.saved_at.substring(0,16)+'</span>';
           html+=' <span style="color:#8b949e;font-size:12px">('+rev.reason+')</span></div>';
-          html+='<button onclick="revertRevision('+rev.revision+')" style="padding:4px 10px;background:#21262d;border:1px solid #30363d;border-radius:4px;color:#58a6ff;font-size:12px;cursor:pointer">↩ Revert</button>';
+          html+='<button onclick="revertRevision('+rev.revision+')" style="padding:4px 10px;background:#21262d;border:1px solid #30363d;border-radius:4px;color:#58a6ff;font-size:12px;cursor:pointer" aria-label="Revert">↩ Revert</button>';
           html+='</div>';
           html+='<div style="font-size:13px;color:#8b949e;margin-top:4px">'+itemCount+' items · status: '+rev.status+'</div>';
           html+='</div>';
@@ -1578,8 +1578,8 @@
         <span>💰 ${ss.profit_centers||0} profit centers (45%)</span>
        </div>
        <div style="display:flex;gap:8px">
-        <button onclick="applyPortfolioPrices()" style="background:#d2a8ff22;color:#d2a8ff;border:1px solid #d2a8ff44;border-radius:6px;padding:6px 16px;cursor:pointer;font-weight:600;font-size:14px">✅ Apply Portfolio Prices</button>
-        <button onclick="this.parentElement.parentElement.remove()" style="background:#21262d;color:#8b949e;border:1px solid #30363d;border-radius:6px;padding:6px 16px;cursor:pointer;font-size:14px">Cancel</button>
+        <button onclick="applyPortfolioPrices()" style="background:#d2a8ff22;color:#d2a8ff;border:1px solid #d2a8ff44;border-radius:6px;padding:6px 16px;cursor:pointer;font-weight:600;font-size:14px" aria-label="Apply Portfolio Prices">✅ Apply Portfolio Prices</button>
+        <button onclick="this.parentElement.parentElement.remove()" style="background:#21262d;color:#8b949e;border:1px solid #30363d;border-radius:6px;padding:6px 16px;cursor:pointer;font-size:14px" aria-label="Cancel">Cancel</button>
        </div>`;
 
       // Store portfolio data for apply
@@ -2392,7 +2392,7 @@
          html += '<div style="margin-left:8px;font-size:14px">• ' + c.display_name + ' <span style="color:#8b949e">(' + (c.agency||'') + ')</span></div>';
         });
        }
-       html += '<button onclick="addNewCustomer()" class="btn btn-sm" data-testid="crm-add-customer" style="margin-top:8px;background:rgba(210,153,34,.15);color:#d29922;border:1px solid rgba(210,153,34,.3);font-size:14px;padding:3px 10px;cursor:pointer">+ Add to CRM</button>';
+       html += '<button onclick="addNewCustomer()" class="btn btn-sm" data-testid="crm-add-customer" style="margin-top:8px;background:rgba(210,153,34,.15);color:#d29922;border:1px solid rgba(210,153,34,.3);font-size:14px;padding:3px 10px;cursor:pointer" aria-label="Add to CRM">+ Add to CRM</button>';
        card.innerHTML = html;
       }
      })();

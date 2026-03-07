@@ -60,9 +60,9 @@ VAPI_API_KEY = os.environ.get("VAPI_API_KEY", "")
 VAPI_BASE_URL = "https://api.vapi.ai"
 
 # Twilio (fallback — basic TTS)
-TWILIO_SID = os.environ.get("TWILIO_ACCOUNT_SID", "")
+TWILIO_SID = os.environ.get("TWILIO_ACCOUNT_SID", "") or os.environ.get("TWILIO_SID", "")
 TWILIO_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "")
-TWILIO_PHONE = os.environ.get("TWILIO_PHONE_NUMBER", "")
+TWILIO_PHONE = os.environ.get("TWILIO_PHONE_NUMBER", "") or os.environ.get("TWILIO_PHONE", "")
 ELEVENLABS_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
 ELEVENLABS_VOICE_ID = os.environ.get("ELEVENLABS_VOICE_ID", "")
 

@@ -7,7 +7,7 @@
  <div style="display:flex;gap:8px">
   <a href="/growth" class="btn btn-s" style="font-size:14px;font-weight:600">🚀 Growth Engine</a>
   <a href="/analytics" class="btn btn-s" style="font-size:14px;font-weight:600">📊 Analytics</a>
-  <button onclick="location.reload()" class="btn btn-p" style="font-size:14px">🔄 Refresh</button>
+  <button onclick="location.reload()" class="btn btn-p" style="font-size:14px" aria-label="Refresh">🔄 Refresh</button>
  </div>
 </div>
 
@@ -95,7 +95,7 @@
    <a href="/quotes?status=pending" class="btn btn-s" style="font-size:14px;text-align:center">📋 Pending Quotes ({{ pending }})</a>
    <a href="/quotes?status=sent" class="btn btn-s" style="font-size:14px;text-align:center">📤 Sent Quotes ({{ sent }})</a>
    <a href="/orders" class="btn btn-s" style="font-size:14px;text-align:center">📦 Active Orders ({{ total_orders }})</a>
-   <button onclick="fetch('/api/poll-now').then(function(r){return r.json()}).then(function(d){alert(JSON.stringify(d,null,2))})" class="btn btn-p" style="font-size:14px">⚡ Check Inbox Now</button>
+   <button onclick="fetch('/api/poll-now').then(function(r){return r.json()}).then(function(d){alert(JSON.stringify(d,null,2))})" class="btn btn-p" style="font-size:14px" aria-label="Check Inbox Now">⚡ Check Inbox Now</button>
   </div>
  </div>
 </div>

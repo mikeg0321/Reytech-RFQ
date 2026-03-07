@@ -1,15 +1,16 @@
 {% extends "base.html" %}
 {% block title %}QuickBooks Integration{% endblock %}
 {% block content %}
+<style>@keyframes skeleton-pulse{0%{opacity:.6}50%{opacity:.3}100%{opacity:.6}}.skeleton{background:var(--bd);border-radius:4px;animation:skeleton-pulse 1.5s ease-in-out infinite}.skeleton-line{height:14px;margin:8px 0;border-radius:4px}</style>
 <div class="card" style="margin-bottom:16px">
  <div style="display:flex;justify-content:space-between;align-items:center">
   <h1 style="margin:0;font-size:24px">💰 QuickBooks Integration</h1>
   <div style="display:flex;gap:8px">
-   <button onclick="syncVendors(this)" class="btn btn-sm" style="background:#238636;color:#fff;padding:6px 14px;border:none;border-radius:6px;cursor:pointer">🔄 Sync Vendors</button>
-   <button onclick="runDiagnose()" class="btn btn-sm" style="background:#21262d;color:#58a6ff;padding:6px 14px;border:1px solid #30363d;border-radius:6px;cursor:pointer">🔧 Diagnose</button>
+   <button onclick="syncVendors(this)" class="btn btn-sm" style="background:#238636;color:#fff;padding:6px 14px;border:none;border-radius:6px;cursor:pointer" aria-label="Sync Vendors">🔄 Sync Vendors</button>
+   <button onclick="runDiagnose()" class="btn btn-sm" style="background:#21262d;color:#58a6ff;padding:6px 14px;border:1px solid #30363d;border-radius:6px;cursor:pointer" aria-label="Diagnose">🔧 Diagnose</button>
   </div>
  </div>
- <div id="qbStatus" style="margin-top:8px;font-size:14px;color:#8b949e">Loading...</div>
+ <div id="qbStatus" style="margin-top:8px;font-size:14px;color:#8b949e"><div class="skeleton skeleton-line" style="width:80%"></div><div class="skeleton skeleton-line" style="width:60%"></div><div class="skeleton skeleton-line" style="width:70%"></div></div>
 </div>
 
 <!-- Financial Overview -->
@@ -36,32 +37,32 @@
  <!-- Recent Invoices -->
  <div class="card" style="padding:16px">
   <h3 style="margin:0 0 12px 0;font-size:16px">📄 Recent Invoices</h3>
-  <div id="invoices-list" style="font-size:14px;color:#8b949e">Loading...</div>
+  <div id="invoices-list" style="font-size:14px;color:#8b949e"><div class="skeleton skeleton-line" style="width:80%"></div><div class="skeleton skeleton-line" style="width:60%"></div><div class="skeleton skeleton-line" style="width:70%"></div></div>
  </div>
 
  <!-- Vendors -->
  <div class="card" style="padding:16px">
   <h3 style="margin:0 0 12px 0;font-size:16px">🏢 QB Vendors <span id="vendor-count" style="color:#8b949e;font-size:13px"></span></h3>
-  <div id="vendors-list" style="font-size:14px;color:#8b949e;max-height:400px;overflow-y:auto">Loading...</div>
+  <div id="vendors-list" style="font-size:14px;color:#8b949e;max-height:400px;overflow-y:auto"><div class="skeleton skeleton-line" style="width:80%"></div><div class="skeleton skeleton-line" style="width:60%"></div><div class="skeleton skeleton-line" style="width:70%"></div></div>
  </div>
 
  <!-- Recent Payments -->
  <div class="card" style="padding:16px">
   <h3 style="margin:0 0 12px 0;font-size:16px">💵 Recent Payments</h3>
-  <div id="payments-list" style="font-size:14px;color:#8b949e">Loading...</div>
+  <div id="payments-list" style="font-size:14px;color:#8b949e"><div class="skeleton skeleton-line" style="width:80%"></div><div class="skeleton skeleton-line" style="width:60%"></div><div class="skeleton skeleton-line" style="width:70%"></div></div>
  </div>
 
  <!-- Customers -->
  <div class="card" style="padding:16px">
   <h3 style="margin:0 0 12px 0;font-size:16px">👥 QB Customers <span id="cust-count" style="color:#8b949e;font-size:13px"></span></h3>
-  <div id="customers-list" style="font-size:14px;color:#8b949e;max-height:400px;overflow-y:auto">Loading...</div>
+  <div id="customers-list" style="font-size:14px;color:#8b949e;max-height:400px;overflow-y:auto"><div class="skeleton skeleton-line" style="width:80%"></div><div class="skeleton skeleton-line" style="width:60%"></div><div class="skeleton skeleton-line" style="width:70%"></div></div>
  </div>
 </div>
 
 <!-- A/R Aging -->
 <div class="card" style="padding:16px;margin-top:16px">
  <h3 style="margin:0 0 12px 0;font-size:16px">📊 A/R Aging Summary</h3>
- <div id="aging-table" style="font-size:14px;color:#8b949e">Loading...</div>
+ <div id="aging-table" style="font-size:14px;color:#8b949e"><div class="skeleton skeleton-line" style="width:80%"></div><div class="skeleton skeleton-line" style="width:60%"></div><div class="skeleton skeleton-line" style="width:70%"></div></div>
 </div>
 
 <!-- Diagnose Modal -->

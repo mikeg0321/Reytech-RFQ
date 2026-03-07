@@ -43,10 +43,10 @@
   <h2 style="margin:0;font-size:18px;font-weight:700">🔬 Debug Agent</h2>
   <span style="flex:1"></span>
   <span id="last-run-ts" class="last-run">Loading...</span>
-  <button class="fix-btn" onclick="runDebug()" id="refresh-btn">⟳ Refresh</button>
-  <button class="fix-btn" onclick="runFix('seed_demo')" id="btn-seed">🌱 Load Demo</button>
-  <button class="fix-btn" onclick="runFix('sync_crm')" id="btn-sync">🔄 Sync CRM</button>
-  <button class="fix-btn" onclick="runFix('clear_cache')" id="btn-cache">🗑 Clear Cache</button>
+  <button class="fix-btn" onclick="runDebug()" id="refresh-btn" aria-label="Refresh">⟳ Refresh</button>
+  <button class="fix-btn" onclick="runFix('seed_demo')" id="btn-seed" aria-label="Load Demo">🌱 Load Demo</button>
+  <button class="fix-btn" onclick="runFix('sync_crm')" id="btn-sync" aria-label="Sync CRM">🔄 Sync CRM</button>
+  <button class="fix-btn" onclick="runFix('clear_cache')" id="btn-cache" aria-label="Clear Cache">🗑 Clear Cache</button>
 </div>
 
 <!-- Health Score Banner -->
@@ -77,14 +77,14 @@
 
 <div class="section-hdr">🔧 Available Fixes</div>
 <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:24px" id="fixes-panel">
-  <button class="fix-btn" onclick="runFix('seed_demo')">🌱 Seed Demo Data</button>
-  <button class="fix-btn" onclick="runFix('sync_crm')">🔄 Sync Intel → CRM</button>
-  <button class="fix-btn" onclick="runFix('clear_cache')">🗑 Clear JSON Cache</button>
-  <button class="fix-btn" onclick="runFix('migrate_db')">🗄 Migrate JSON → DB</button>
-  <button class="fix-btn" onclick="window.open('/api/qa/health','_blank')">📊 Full QA Health</button>
-  <button class="fix-btn" onclick="window.open('/api/metrics','_blank')">📈 Metrics API</button>
-  <button class="fix-btn" onclick="window.open('/api/db','_blank')">🗃 DB Status</button>
-  <button class="fix-btn" onclick="window.open('/api/search?q=test','_blank')">🔍 Test Search</button>
+  <button class="fix-btn" onclick="runFix('seed_demo')" aria-label="Seed Demo Data">🌱 Seed Demo Data</button>
+  <button class="fix-btn" onclick="runFix('sync_crm')" aria-label="Sync Intel  CRM">🔄 Sync Intel → CRM</button>
+  <button class="fix-btn" onclick="runFix('clear_cache')" aria-label="Clear JSON Cache">🗑 Clear JSON Cache</button>
+  <button class="fix-btn" onclick="runFix('migrate_db')" aria-label="Migrate JSON  DB">🗄 Migrate JSON → DB</button>
+  <button class="fix-btn" onclick="window.open('/api/qa/health','_blank')" aria-label="Full QA Health">📊 Full QA Health</button>
+  <button class="fix-btn" onclick="window.open('/api/metrics','_blank')" aria-label="Metrics API">📈 Metrics API</button>
+  <button class="fix-btn" onclick="window.open('/api/db','_blank')" aria-label="DB Status">🗃 DB Status</button>
+  <button class="fix-btn" onclick="window.open('/api/search?q=test','_blank')" aria-label="Test Search">🔍 Test Search</button>
 </div>
 
 <div id="fix-result" style="display:none" class="card" style="padding:12px 16px;margin-bottom:16px;font-family:'JetBrains Mono',monospace;font-size:14px"></div>
@@ -173,7 +173,7 @@ function renderDebug(d){
     <div class="dbg-row"><span class="dbg-key">CRM Contacts</span><span class="dbg-val">${sync.crm_contacts||0}</span></div>
     <div class="dbg-row"><span class="dbg-key">Delta</span><span>${badge(syncOk?'ok':'warn', sync.delta===0?'✓ In Sync':'+'+sync.delta+' drift')}</span></div>
     <div class="dbg-row"><span class="dbg-key">Auto-Seed</span><span>${badge(d.auto_seed?.needed?'warn':'ok', d.auto_seed?.status||'—')}</span></div>
-    ${sync.delta>0?`<button class="fix-btn" style="margin-top:12px;width:100%" onclick="runFix('sync_crm')">🔄 Sync Now</button>`:''}
+    ${sync.delta>0?`<button class="fix-btn" style="margin-top:12px;width:100%" onclick="runFix('sync_crm')" aria-label="Sync Now">🔄 Sync Now</button>`:''}
   </div>`);
 
   // Quote Counter Card

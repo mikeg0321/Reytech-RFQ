@@ -54,7 +54,7 @@
      <td style="text-align:right;color:var(--gn)">${{ "{:,.2f}".format(inv.paid) }}</td>
      <td style="text-align:right;font-weight:700;color:{{ bc }}">${{ "{:,.2f}".format(inv.balance) }}</td>
      <td style="color:{{ bc }};font-size:14px">{{ inv.bucket }}</td>
-     <td>{% if inv.balance > 0 %}<button onclick="recordPayment('{{ inv.oid }}')" class="btn btn-s" style="font-size:13px;padding:2px 8px">💳 Pay</button>{% else %}<span style="color:var(--gn);font-size:14px">✅ Paid</span>{% endif %}</td>
+     <td>{% if inv.balance > 0 %}<button onclick="recordPayment('{{ inv.oid }}')" class="btn btn-s" style="font-size:13px;padding:2px 8px" aria-label="Pay">💳 Pay</button>{% else %}<span style="color:var(--gn);font-size:14px">✅ Paid</span>{% endif %}</td>
     </tr>
     {% endfor %}
   {% else %}

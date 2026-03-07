@@ -50,10 +50,10 @@
 <!-- Bulk Action Bar -->
 <div id="bulk-bar" style="display:none;background:var(--ac);color:#fff;padding:10px 18px;border-radius:10px;margin-bottom:12px;align-items:center;gap:12px;font-size:14px;font-weight:600">
  <span id="bulk-count">0 selected</span>
- <button onclick="bulkEmail()" style="padding:6px 14px;background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.3);border-radius:6px;color:#fff;cursor:pointer;font-size:13px;font-weight:600">📧 Email Selected</button>
- <button onclick="bulkStatus('emailed')" style="padding:6px 14px;background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.3);border-radius:6px;color:#fff;cursor:pointer;font-size:13px;font-weight:600">📨 Mark Emailed</button>
- <button onclick="bulkTag()" style="padding:6px 14px;background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.3);border-radius:6px;color:#fff;cursor:pointer;font-size:13px;font-weight:600">🏷️ Tag</button>
- <button onclick="clearSelection()" style="margin-left:auto;padding:6px 14px;background:none;border:1px solid rgba(255,255,255,.4);border-radius:6px;color:#fff;cursor:pointer;font-size:13px">✕ Clear</button>
+ <button onclick="bulkEmail()" style="padding:6px 14px;background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.3);border-radius:6px;color:#fff;cursor:pointer;font-size:13px;font-weight:600" aria-label="Email Selected">📧 Email Selected</button>
+ <button onclick="bulkStatus('emailed')" style="padding:6px 14px;background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.3);border-radius:6px;color:#fff;cursor:pointer;font-size:13px;font-weight:600" aria-label="Mark Emailed">📨 Mark Emailed</button>
+ <button onclick="bulkTag()" style="padding:6px 14px;background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.3);border-radius:6px;color:#fff;cursor:pointer;font-size:13px;font-weight:600" aria-label="Tag">🏷️ Tag</button>
+ <button onclick="clearSelection()" style="margin-left:auto;padding:6px 14px;background:none;border:1px solid rgba(255,255,255,.4);border-radius:6px;color:#fff;cursor:pointer;font-size:13px" aria-label="Clear">✕ Clear</button>
 </div>
 
 <!-- Filters -->
@@ -86,7 +86,7 @@
 <div class="card" style="padding:0;overflow:hidden">
  <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--bd)">
   <span id="crm-freshness" style="font-size:14px;color:var(--tx2);font-family:'JetBrains Mono',monospace">Loading data...</span>
-  <button onclick="refreshCRM(this)" style="font-size:14px;padding:4px 12px;background:rgba(79,140,255,.1);border:1px solid rgba(79,140,255,.3);color:var(--ac);border-radius:6px;cursor:pointer;font-weight:600">🔄 Refresh Data</button>
+  <button onclick="refreshCRM(this)" style="font-size:14px;padding:4px 12px;background:rgba(79,140,255,.1);border:1px solid rgba(79,140,255,.3);color:var(--ac);border-radius:6px;cursor:pointer;font-weight:600" aria-label="Refresh Data">🔄 Refresh Data</button>
  </div>
  <div style="overflow-x:auto">
   <table class="home-tbl" id="crm-table">

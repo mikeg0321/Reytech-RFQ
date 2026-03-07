@@ -62,9 +62,9 @@
    <textarea id="emailBody" rows="14" style="width:100%;padding:10px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:14px;line-height:1.5;resize:vertical"></textarea>
   </div>
   <div style="display:flex;gap:8px;justify-content:flex-end">
-   <button onclick="copyEmail()" class="btn" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd);font-size:14px;padding:10px 20px">📋 Copy</button>
-   <button onclick="openInMail()" class="btn" style="background:var(--ac);color:#fff;font-size:14px;padding:10px 20px">📧 Open in Mail</button>
-   <button onclick="saveToOutbox()" class="btn" style="background:#3fb950;color:#fff;font-size:14px;padding:10px 20px">💾 Save to Outbox</button>
+   <button onclick="copyEmail()" class="btn" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd);font-size:14px;padding:10px 20px" aria-label="Copy">📋 Copy</button>
+   <button onclick="openInMail()" class="btn" style="background:var(--ac);color:#fff;font-size:14px;padding:10px 20px" aria-label="Open in Mail">📧 Open in Mail</button>
+   <button onclick="saveToOutbox()" class="btn" style="background:#3fb950;color:#fff;font-size:14px;padding:10px 20px" aria-label="Save to Outbox">💾 Save to Outbox</button>
   </div>
  </div>
 </div>
@@ -142,7 +142,7 @@ function renderBuyers(buyers){
    +'<td style="padding:10px 12px;text-align:right;font-family:monospace;font-weight:600;color:#3fb950">'+fmt$(b.total_spend)+'</td>'
    +'<td style="padding:10px 12px;max-width:300px">'+overlapHtml+'</td>'
    +'<td style="padding:10px 12px;text-align:center">'
-   +'<button onclick="event.stopPropagation();draftEmail('+JSON.stringify(b).replace(/"/g,'&quot;')+')" style="padding:6px 14px;background:var(--ac);color:#fff;border:none;border-radius:6px;font-size:13px;cursor:pointer;white-space:nowrap">📧 Draft Email</button>'
+   +'<button onclick="event.stopPropagation();draftEmail('+JSON.stringify(b).replace(/"/g,'&quot;')+')" style="padding:6px 14px;background:var(--ac);color:#fff;border:none;border-radius:6px;font-size:13px;cursor:pointer;white-space:nowrap" aria-label="Draft Email">📧 Draft Email</button>'
    +'</td></tr>';
  });
  document.getElementById('buyerBody').innerHTML=html;

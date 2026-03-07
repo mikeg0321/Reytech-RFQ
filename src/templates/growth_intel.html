@@ -17,9 +17,9 @@ table{width:100%;border-collapse:collapse}
     <p style="color:var(--tx2);font-size:13px;margin-top:2px">SCPRS-powered gap analysis · What to sell · Who to beat · Why we lost</p>
   </div>
   <div style="display:flex;gap:8px">
-    <button onclick="pullAll('P0')" style="padding:7px 16px;background:var(--ac);color:white;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">{{ '⏳ Running...' if running else '📡 Pull All Agencies' }}</button>
-    <button onclick="pullAll('all')" style="padding:7px 14px;border:1px solid var(--bd);background:none;color:var(--tx);border-radius:6px;font-size:14px;cursor:pointer">Deep Pull (all products)</button>
-    <button onclick="runMonitor()" style="padding:7px 14px;border:1px solid var(--bd);background:none;color:var(--tx);border-radius:6px;font-size:14px;cursor:pointer">🔍 Check Lost Quotes</button>
+    <button onclick="pullAll('P0')" style="padding:7px 16px;background:var(--ac);color:white;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer" aria-label="Running if running else  Pu">{{ '⏳ Running...' if running else '📡 Pull All Agencies' }}</button>
+    <button onclick="pullAll('all')" style="padding:7px 14px;border:1px solid var(--bd);background:none;color:var(--tx);border-radius:6px;font-size:14px;cursor:pointer" aria-label="Deep Pull (all products)">Deep Pull (all products)</button>
+    <button onclick="runMonitor()" style="padding:7px 14px;border:1px solid var(--bd);background:none;color:var(--tx);border-radius:6px;font-size:14px;cursor:pointer" aria-label="Check Lost Quotes">🔍 Check Lost Quotes</button>
   </div>
 </div>
 
@@ -115,10 +115,10 @@ table{width:100%;border-collapse:collapse}
 
 <!-- TABS -->
 <div style="display:flex;gap:8px;margin-bottom:14px">
-  <button class="tab active" onclick="showTab(this,'gaps')">🚨 Gaps ({{ gaps|length }})</button>
-  <button class="tab" onclick="showTab(this,'winback')">⚔️ Win-Back ({{ win_back|length }})</button>
-  <button class="tab" onclick="showTab(this,'losses')">📉 Lost Quotes ({{ losses|length }})</button>
-  <button class="tab" onclick="showTab(this,'coverage')">📡 Agency Coverage</button>
+  <button class="tab active" onclick="showTab(this,'gaps')" aria-label="Gaps ( gapslength )">🚨 Gaps ({{ gaps|length }})</button>
+  <button class="tab" onclick="showTab(this,'winback')" aria-label="Win-Back ( win_backlength )">⚔️ Win-Back ({{ win_back|length }})</button>
+  <button class="tab" onclick="showTab(this,'losses')" aria-label="Lost Quotes ( losseslength )">📉 Lost Quotes ({{ losses|length }})</button>
+  <button class="tab" onclick="showTab(this,'coverage')" aria-label="Agency Coverage">📡 Agency Coverage</button>
 </div>
 
 <div id="tab-gaps" class="card" style="padding:0;overflow-x:auto">
@@ -213,7 +213,7 @@ table{width:100%;border-collapse:collapse}
         <td style="padding:7px 12px;font-size:14px;color:var(--tx2)">{{ last }}</td>
         <td style="padding:7px 12px;font-size:14px;color:var(--tx2)">Every {{ sch.get("pull_interval_hours",168) }}h</td>
         <td style="padding:7px 12px">
-          <button onclick="pullAgency('{{ ak }}')" style="font-size:13px;padding:3px 10px;border:1px solid var(--bd);border-radius:4px;background:none;color:var(--tx);cursor:pointer">Pull Now</button>
+          <button onclick="pullAgency('{{ ak }}')" style="font-size:13px;padding:3px 10px;border:1px solid var(--bd);border-radius:4px;background:none;color:var(--tx);cursor:pointer" aria-label="Pull Now">Pull Now</button>
         </td>
       </tr>
     {% endfor %}

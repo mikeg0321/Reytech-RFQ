@@ -19,10 +19,10 @@ table{width:100%;border-collapse:collapse}
   </div>
   <div style="display:flex;gap:8px;align-items:center">
     {{ '<div style="background:rgba(22,163,74,.1);color:var(--gn);border:1px solid var(--gn);padding:5px 14px;border-radius:6px;font-size:14px;font-weight:600">⏳ Pull Running...</div>' if pull_running else '' }}
-    <button onclick="startPull('P0')" style="padding:6px 16px;background:var(--ac);color:white;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">
+    <button onclick="startPull('P0')" style="padding:6px 16px;background:var(--ac);color:white;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer" aria-label="Pulling if pull_runnin">
       {{ '⏳ Pulling...' if pull_running else '📡 Pull CCHCS Data Now' }}
     </button>
-    <button onclick="startPull('all')" style="padding:6px 14px;border:1px solid var(--bd);background:none;color:var(--tx);border-radius:6px;font-size:14px;cursor:pointer">Full Pull (all categories)</button>
+    <button onclick="startPull('all')" style="padding:6px 14px;border:1px solid var(--bd);background:none;color:var(--tx);border-radius:6px;font-size:14px;cursor:pointer" aria-label="Full Pull (all categories)">Full Pull (all categories)</button>
     <a href="/" style="padding:5px 12px;border:1px solid var(--bd);border-radius:6px;font-size:14px;text-decoration:none">🏠</a>
   </div>
 </div>

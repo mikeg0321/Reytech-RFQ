@@ -3746,13 +3746,7 @@ for _mod in _ROUTE_MODULES:
 
 log.info(f"Dashboard: {len(_ROUTE_MODULES)} route modules loaded, {len([r for r in bp.deferred_functions])} deferred fns")
 
-# ── Start Award Monitor (checks SCPRS for PO awards on sent quotes) ─────
-try:
-    from src.agents.award_monitor import start_monitor as _start_award_monitor
-    _start_award_monitor()
-    log.info("Award monitor started (checks every 1h, SCPRS every 3 biz days)")
-except Exception as _e:
-    log.warning("Award monitor failed to start: %s", _e)
+# ── Award Monitor merged into Award Tracker (single thread) ─────────────
 
 # ── Start Follow-Up Engine (auto-creates follow-up drafts) ──────────────
 try:

@@ -7,7 +7,7 @@
   <h2 style="margin:0;color:var(--tx)">🚀 Growth Discovery</h2>
   <p style="margin:4px 0 0;color:var(--tx2);font-size:14px">Find new agencies, calculate DVBE mandates, identify buyers, leverage DBE certifications</p>
  </div>
- <button onclick="refreshAll()" class="btn" style="background:var(--ac);color:#fff;font-size:14px;padding:10px 20px">🔄 Refresh Intelligence</button>
+ <button onclick="refreshAll()" class="btn" style="background:var(--ac);color:#fff;font-size:14px;padding:10px 20px" aria-label="Refresh Intelligence">🔄 Refresh Intelligence</button>
 </div>
 
 <!-- KPI Cards -->
@@ -21,11 +21,11 @@
 
 <!-- Tabs -->
 <div style="display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--bd)">
- <button class="tb active" onclick="showTab('agencies',this)">🏛 New Agencies</button>
- <button class="tb" onclick="showTab('dvbe',this)">📊 DVBE Calculator</button>
- <button class="tb" onclick="showTab('dbe',this)">🚛 DBE / DOT</button>
- <button class="tb" onclick="showTab('losses',this)">❌ Loss Intel</button>
- <button class="tb" onclick="showTab('vehicles',this)">📜 Contract Vehicles</button>
+ <button class="tb active" onclick="showTab('agencies',this)" aria-label="New Agencies">🏛 New Agencies</button>
+ <button class="tb" onclick="showTab('dvbe',this)" aria-label="DVBE Calculator">📊 DVBE Calculator</button>
+ <button class="tb" onclick="showTab('dbe',this)" aria-label="DBE / DOT">🚛 DBE / DOT</button>
+ <button class="tb" onclick="showTab('losses',this)" aria-label="Loss Intel">❌ Loss Intel</button>
+ <button class="tb" onclick="showTab('vehicles',this)" aria-label="Contract Vehicles">📜 Contract Vehicles</button>
 </div>
 
 <style>

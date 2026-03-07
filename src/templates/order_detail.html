@@ -6,7 +6,7 @@
      <a href="/orders" class="btn btn-s" style="font-size:15px">← Orders</a>
      {% if qn %}<a href="/quote/{{ qn }}" class="btn btn-s" style="font-size:15px">📋 Quote {{ qn }}</a>{% endif %}
      <button onclick="cloneOrder('{{ oid }}')" class="btn btn-s" style="font-size:16px" title="Create new order with same items">🔄 Reorder</button>
-     <button onclick="if(confirm('Delete order {{ oid }}?'))fetch('/api/order/{{ oid }}/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reason:'manual delete'})}).then(r=>r.json()).then(d=>{if(d.ok)location.href='/orders'})" class="btn btn-s" style="font-size:16px;margin-left:auto;color:var(--rd)">🗑️ Delete</button>
+     <button onclick="if(confirm('Delete order {{ oid }}?'))fetch('/api/order/{{ oid }}/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reason:'manual delete'})}).then(r=>r.json()).then(d=>{if(d.ok)location.href='/orders'})" class="btn btn-s" style="font-size:16px;margin-left:auto;color:var(--rd)" aria-label="Delete">🗑️ Delete</button>
     </div>
 
     <div class="bento bento-2" style="margin-bottom:14px">
@@ -46,8 +46,8 @@
        </div>
       </div>
       <div style="margin-top:12px;display:flex;gap:8px;justify-content:center">
-       <button onclick="invoiceOrder('{{ oid }}','partial')" class="btn btn-s" style="font-size:16px">½ Partial Invoice</button>
-       <button onclick="invoiceOrder('{{ oid }}','full')" class="btn btn-g" style="font-size:16px">💰 Full Invoice</button>
+       <button onclick="invoiceOrder('{{ oid }}','partial')" class="btn btn-s" style="font-size:16px" aria-label="½ Partial Invoice">½ Partial Invoice</button>
+       <button onclick="invoiceOrder('{{ oid }}','full')" class="btn btn-g" style="font-size:16px" aria-label="Full Invoice">💰 Full Invoice</button>
       </div>
      </div>
     </div>
@@ -75,13 +75,13 @@
     <div class="card" style="margin-top:14px">
      <div class="card-t">Quick Actions</div>
      <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <button onclick="openAmazonCart('{{ oid }}')" class="btn btn-s" style="font-size:16px;background:rgba(255,153,0,.15);color:#ff9900;border:1px solid rgba(255,153,0,.3)" id="amazon-cart-btn">🛒 Amazon Cart</button>
-      <button onclick="bulkAddTracking('{{ oid }}')" class="btn btn-s" style="font-size:16px">📋 Bulk Add Tracking</button>
-      <button onclick="markAllOrdered('{{ oid }}')" class="btn btn-s" style="font-size:16px">🛒 Mark All Ordered</button>
-      <button onclick="markAllDelivered('{{ oid }}')" class="btn btn-s" style="font-size:16px">✅ Mark All Delivered</button>
-      <button onclick="addLineItem('{{ oid }}')" class="btn btn-s" style="font-size:16px">➕ Add Line Item</button>
-      <button onclick="lookupSuppliers('{{ oid }}')" class="btn btn-s" style="font-size:16px" id="lookup-btn">🔍 Lookup Suppliers</button>
-      <button onclick="linkQuote('{{ oid }}')" class="btn btn-s" style="font-size:16px" id="link-quote-btn">{% if qn %}🔗 Linked: {{ qn }}{% else %}🔗 Link Quote{% endif %}</button>
+      <button onclick="openAmazonCart('{{ oid }}')" class="btn btn-s" style="font-size:16px;background:rgba(255,153,0,.15);color:#ff9900;border:1px solid rgba(255,153,0,.3)" id="amazon-cart-btn" aria-label="Amazon Cart">🛒 Amazon Cart</button>
+      <button onclick="bulkAddTracking('{{ oid }}')" class="btn btn-s" style="font-size:16px" aria-label="Bulk Add Tracking">📋 Bulk Add Tracking</button>
+      <button onclick="markAllOrdered('{{ oid }}')" class="btn btn-s" style="font-size:16px" aria-label="Mark All Ordered">🛒 Mark All Ordered</button>
+      <button onclick="markAllDelivered('{{ oid }}')" class="btn btn-s" style="font-size:16px" aria-label="Mark All Delivered">✅ Mark All Delivered</button>
+      <button onclick="addLineItem('{{ oid }}')" class="btn btn-s" style="font-size:16px" aria-label="Add Line Item">➕ Add Line Item</button>
+      <button onclick="lookupSuppliers('{{ oid }}')" class="btn btn-s" style="font-size:16px" id="lookup-btn" aria-label="Lookup Suppliers">🔍 Lookup Suppliers</button>
+      <button onclick="linkQuote('{{ oid }}')" class="btn btn-s" style="font-size:16px" id="link-quote-btn" aria-label="if qn  Linked  qn  else">{% if qn %}🔗 Linked: {{ qn }}{% else %}🔗 Link Quote{% endif %}</button>
       <a href="/api/order/{{ oid }}/reply-all" class="btn btn-s" style="font-size:16px">📧 Draft PO Confirmation</a>
      </div>
     </div>
@@ -89,10 +89,10 @@
     <!-- Bulk Selection Bar (appears when checkboxes selected) -->
     <div id="bulk-bar" style="display:none;margin-top:10px;padding:10px 16px;background:var(--sf2);border:1px solid var(--ac);border-radius:8px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
      <span style="font-size:16px;font-weight:600"><span id="sel-count">0</span> items selected</span>
-     <button onclick="selectByStatus('shipped')" class="btn btn-s" style="font-size:15px;padding:4px 10px">Select All Shipped</button>
-     <button onclick="selectByStatus('all')" class="btn btn-s" style="font-size:15px;padding:4px 10px">Select All</button>
-     <button onclick="selectByStatus('none')" class="btn btn-s" style="font-size:15px;padding:4px 10px">Clear</button>
-     <button onclick="sendDeliveryUpdate('{{ oid }}')" class="btn btn-g" style="font-size:16px;margin-left:auto">📧 Send Delivery Update</button>
+     <button onclick="selectByStatus('shipped')" class="btn btn-s" style="font-size:15px;padding:4px 10px" aria-label="Select All Shipped">Select All Shipped</button>
+     <button onclick="selectByStatus('all')" class="btn btn-s" style="font-size:15px;padding:4px 10px" aria-label="Select All">Select All</button>
+     <button onclick="selectByStatus('none')" class="btn btn-s" style="font-size:15px;padding:4px 10px" aria-label="Clear">Clear</button>
+     <button onclick="sendDeliveryUpdate('{{ oid }}')" class="btn btn-g" style="font-size:16px;margin-left:auto" aria-label="Send Delivery Update">📧 Send Delivery Update</button>
     </div>
 
     <!-- F1: Timeline -->
@@ -119,7 +119,7 @@
      <div id="proofs-list" style="margin-bottom:10px"></div>
      <div style="display:flex;gap:8px;align-items:center">
       <input type="file" id="proof-file" accept=".pdf,.png,.jpg,.jpeg" style="display:none" onchange="uploadProof('{{ oid }}',this)">
-      <button onclick="document.getElementById('proof-file').click()" class="btn btn-s" style="font-size:16px">📤 Upload Proof</button>
+      <button onclick="document.getElementById('proof-file').click()" class="btn btn-s" style="font-size:16px" aria-label="Upload Proof">📤 Upload Proof</button>
       <span id="proof-status" style="font-size:16px;color:var(--tx2)"></span>
      </div>
     </div>
@@ -172,9 +172,9 @@
      </table>
      </div>
      <div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end;align-items:center">
-      <button onclick="genInvoicePdf('{{ oid }}')" class="btn btn-s" style="font-size:16px" id="inv-pdf-btn">📄 Generate PDF</button>
+      <button onclick="genInvoicePdf('{{ oid }}')" class="btn btn-s" style="font-size:16px" id="inv-pdf-btn" aria-label="Generate PDF">📄 Generate PDF</button>
       {% if draft_inv.get('pdf_path') %}<a href="/api/order/{{ oid }}/invoice-pdf/download" class="btn btn-s" style="font-size:16px;color:var(--gn)" download>⬇️ Download PDF</a>{% endif %}
-      <button onclick="invoiceOrder('{{ oid }}','full')" class="btn btn-g" style="font-size:15px">💰 Finalize Invoice</button>
+      <button onclick="invoiceOrder('{{ oid }}','full')" class="btn btn-g" style="font-size:15px" aria-label="Finalize Invoice">💰 Finalize Invoice</button>
       {% if draft_inv.get('qb_invoice_id') %}<span style="font-size:16px;color:var(--tx2);line-height:30px">QB #{{ draft_inv.get("qb_invoice_id") }}</span>{% else %}<span style="font-size:16px;color:var(--tx2);line-height:30px">QuickBooks API: not yet connected</span>{% endif %}
      </div>
     </div>

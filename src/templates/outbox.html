@@ -15,7 +15,7 @@
  </div>
  <div style="display:flex;gap:8px">
   <a href="/" class="btn">🏠 Home</a>
-  <button class="btn" onclick="sendAllApproved(this)" style="background:rgba(52,211,153,.1);border-color:var(--gn);color:var(--gn)">📤 Send All Approved</button>
+  <button class="btn" onclick="sendAllApproved(this)" style="background:rgba(52,211,153,.1);border-color:var(--gn);color:var(--gn)" aria-label="Send All Approved">📤 Send All Approved</button>
  </div>
 </div>
 
@@ -29,10 +29,10 @@
 <div style="display:flex;gap:8px;margin-bottom:16px;padding:12px;background:var(--sf2);border-radius:8px;align-items:center;flex-wrap:wrap">
  <span style="font-size:14px;font-weight:600;color:var(--tx2);margin-right:8px">Bulk Actions:</span>
  {% if sales_drafts %}
- <button class="btn btn-sm" onclick="bulkApproveAll()" style="background:rgba(52,211,153,.15);color:var(--gn);font-size:14px;padding:6px 14px">✅ Approve All Drafts ({{ sales_drafts|length }})</button>
- <button class="btn btn-sm" onclick="bulkDeleteDrafts()" style="background:rgba(248,113,113,.1);color:var(--rd);font-size:14px;padding:6px 14px">🗑 Delete All Drafts</button>
+ <button class="btn btn-sm" onclick="bulkApproveAll()" style="background:rgba(52,211,153,.15);color:var(--gn);font-size:14px;padding:6px 14px" aria-label="Approve All Drafts ( sales_draftsl">✅ Approve All Drafts ({{ sales_drafts|length }})</button>
+ <button class="btn btn-sm" onclick="bulkDeleteDrafts()" style="background:rgba(248,113,113,.1);color:var(--rd);font-size:14px;padding:6px 14px" aria-label="Delete All Drafts">🗑 Delete All Drafts</button>
  {% endif %}
- <button class="btn btn-sm" onclick="retryFailed()" style="background:rgba(251,191,36,.1);color:var(--yl);font-size:14px;padding:6px 14px">🔄 Retry Failed</button>
+ <button class="btn btn-sm" onclick="retryFailed()" style="background:rgba(251,191,36,.1);color:var(--yl);font-size:14px;padding:6px 14px" aria-label="Retry Failed">🔄 Retry Failed</button>
  <div style="flex:1"></div>
  <span id="bulk-status" style="font-size:14px;color:var(--tx2)"></span>
 </div>
@@ -56,8 +56,8 @@
     <div style="font-size:14px;color:var(--tx);margin-top:8px;white-space:pre-wrap;padding:8px;background:var(--sf2);border-radius:6px">{{ (d.body or '')[:400] }}{{ '...' if (d.body or '')|length > 400 else '' }}</div>
    </div>
    <div style="display:flex;flex-direction:column;gap:6px;min-width:120px">
-    <button class="btn btn-sm" onclick="approveCS('{{ d.id or '' }}',this)" style="background:var(--gn);color:#000;font-size:14px">✅ Send Reply</button>
-    <button class="btn btn-sm" onclick="deleteCS('{{ d.id or '' }}',this)" style="background:var(--sf2);color:var(--rd);font-size:14px">🗑 Discard</button>
+    <button class="btn btn-sm" onclick="approveCS('{{ d.id or '' }}',this)" style="background:var(--gn);color:#000;font-size:14px" aria-label="Send Reply">✅ Send Reply</button>
+    <button class="btn btn-sm" onclick="deleteCS('{{ d.id or '' }}',this)" style="background:var(--sf2);color:var(--rd);font-size:14px" aria-label="Discard">🗑 Discard</button>
    </div>
   </div>
 </div>
@@ -78,8 +78,8 @@
     <div style="font-size:14px;color:var(--tx2);margin-top:6px;white-space:pre-wrap">{{ (d.body or '')[:300] }}{{ '...' if (d.body or '')|length > 300 else '' }}</div>
    </div>
    <div style="display:flex;flex-direction:column;gap:6px;min-width:120px">
-    <button class="btn btn-sm" onclick="approveDraft('{{ d.id or '' }}',this)" style="background:var(--gn);color:#000;font-size:14px">✅ Approve</button>
-    <button class="btn btn-sm" onclick="deleteDraft('{{ d.id or '' }}',this)" style="background:var(--sf2);color:var(--rd);font-size:14px">🗑 Delete</button>
+    <button class="btn btn-sm" onclick="approveDraft('{{ d.id or '' }}',this)" style="background:var(--gn);color:#000;font-size:14px" aria-label="Approve">✅ Approve</button>
+    <button class="btn btn-sm" onclick="deleteDraft('{{ d.id or '' }}',this)" style="background:var(--sf2);color:var(--rd);font-size:14px" aria-label="Delete">🗑 Delete</button>
     <span style="font-size:13px;color:var(--ac);padding:2px 6px;background:rgba(79,140,255,.1);border-radius:4px">📋 sales draft</span>
    </div>
   </div>

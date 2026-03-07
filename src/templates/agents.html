@@ -92,12 +92,12 @@ h1 { font-size:22px; margin-bottom:4px; }
 <!-- Quick Actions -->
 <div class="qa-bar">
  <span style="color:var(--tx2);font-size:14px;padding:8px 0">⚡ Quick:</span>
- <button class="qa-btn" onclick="apiGet('/api/manager/brief')">📋 Daily Brief</button>
- <button class="qa-btn" onclick="apiGet('/api/qa/health')">🏥 Health</button>
- <button class="qa-btn" onclick="apiGet('/api/qb/financial-context')">💰 QB Snapshot</button>
- <button class="qa-btn" onclick="apiGet('/api/crm/activity?limit=10')">📋 Activity</button>
- <button class="qa-btn" onclick="apiGet('/api/price-alerts?limit=5')">🔔 Alerts</button>
- <button class="qa-btn" onclick="apiPost('/api/catalog/rebuild-from-history',{})">📦 Rebuild Catalog</button>
+ <button class="qa-btn" onclick="apiGet('/api/manager/brief')" aria-label="Daily Brief">📋 Daily Brief</button>
+ <button class="qa-btn" onclick="apiGet('/api/qa/health')" aria-label="Health">🏥 Health</button>
+ <button class="qa-btn" onclick="apiGet('/api/qb/financial-context')" aria-label="QB Snapshot">💰 QB Snapshot</button>
+ <button class="qa-btn" onclick="apiGet('/api/crm/activity?limit=10')" aria-label="Activity">📋 Activity</button>
+ <button class="qa-btn" onclick="apiGet('/api/price-alerts?limit=5')" aria-label="Alerts">🔔 Alerts</button>
+ <button class="qa-btn" onclick="apiPost('/api/catalog/rebuild-from-history',{})" aria-label="Rebuild Catalog">📦 Rebuild Catalog</button>
 </div>
 
 <!-- Result Panel — center overlay -->
@@ -500,8 +500,8 @@ h1 { font-size:22px; margin-bottom:4px; }
  <h2 onclick="tog('trace')">📋 Trace Log <span class="tag tag-ok" id="trace-tag">0 entries</span><span class="caret">▼</span></h2>
  <div class="scol" id="trace-sc">
  <div style="display:flex;gap:8px;margin-bottom:8px">
-  <button class="qa-btn" onclick="clearTraceLog()">🗑️ Clear</button>
-  <button class="qa-btn" onclick="exportTraceLog()">📥 Export</button>
+  <button class="qa-btn" onclick="clearTraceLog()" aria-label="Clear">🗑️ Clear</button>
+  <button class="qa-btn" onclick="exportTraceLog()" aria-label="Export">📥 Export</button>
   <span style="font-size:14px;color:var(--tx2);padding:8px">All API calls logged here</span>
  </div>
  <div id="trace-log" style="max-height:300px;overflow-y:auto;font-size:14px;font-family:monospace;background:#0a0e14;border-radius:8px;padding:8px">

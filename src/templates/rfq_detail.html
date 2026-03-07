@@ -5,7 +5,7 @@
 
 <a href="/" class="btn btn-s" style="margin-bottom:16px">← Queue</a>
 <form method="POST" action="/rfq/{{rid}}/delete" style="display:inline;margin-left:8px;margin-bottom:16px">
- <button type="submit" class="btn btn-sm" style="background:var(--rd);color:#fff;padding:4px 10px;font-size:14px" onclick="return confirm('Delete this RFQ?')">Delete</button>
+ <button type="submit" class="btn btn-sm" style="background:var(--rd);color:#fff;padding:4px 10px;font-size:14px" onclick="return confirm('Delete this RFQ?')" aria-label="Delete">Delete</button>
 </form>
 
 <!-- Preview Modal -->
@@ -14,7 +14,7 @@
   <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 20px;border-bottom:2px solid #1a1a1a;background:#f5f5f0;border-radius:10px 10px 0 0">
    <h2 style="margin:0;font-size:16px;color:#1a1a1a">📋 Quote Preview — <span id="rfqPreviewType">704B Quote Worksheet</span></h2>
    <div>
-    <button class="btn btn-sm" style="background:var(--gn);color:#fff;margin-right:8px;font-size:14px" onclick="printPreview()">🖨️ Print</button>
+    <button class="btn btn-sm" style="background:var(--gn);color:#fff;margin-right:8px;font-size:14px" onclick="printPreview()" aria-label="Print">🖨️ Print</button>
     <button style="background:none;border:none;font-size:24px;cursor:pointer;color:#666" onclick="document.getElementById('previewModal').style.display='none'">×</button>
    </div>
   </div>
@@ -69,19 +69,19 @@
  <!-- Markup Buttons -->
  <div class="markup-bar">
   <span>Quick Markup:</span>
-  <button class="btn btn-sm btn-s" onclick="applyMarkup(0.10)">+10%</button>
-  <button class="btn btn-sm btn-s" onclick="applyMarkup(0.15)">+15%</button>
-  <button class="btn btn-sm btn-s" onclick="applyMarkup(0.20)">+20%</button>
-  <button class="btn btn-sm btn-s" onclick="applyMarkup(0.25)">+25%</button>
-  <button class="btn btn-sm btn-s" onclick="applyMarkup(0.30)">+30%</button>
+  <button class="btn btn-sm btn-s" onclick="applyMarkup(0.10)" aria-label="10">+10%</button>
+  <button class="btn btn-sm btn-s" onclick="applyMarkup(0.15)" aria-label="15">+15%</button>
+  <button class="btn btn-sm btn-s" onclick="applyMarkup(0.20)" aria-label="20">+20%</button>
+  <button class="btn btn-sm btn-s" onclick="applyMarkup(0.25)" aria-label="25">+25%</button>
+  <button class="btn btn-sm btn-s" onclick="applyMarkup(0.30)" aria-label="30">+30%</button>
   <span style="margin-left:8px">SCPRS Undercut:</span>
-  <button class="btn btn-sm btn-s" onclick="applyScprsUndercut(0.01)">-1%</button>
-  <button class="btn btn-sm btn-s" onclick="applyScprsUndercut(0.02)">-2%</button>
-  <button class="btn btn-sm btn-s" onclick="applyScprsUndercut(0.05)">-5%</button>
-  <button class="btn btn-sm btn-p" data-testid="rfq-scprs-lookup" onclick="lookupScprs()" style="margin-left:8px">🔍 SCPRS Lookup</button>
-  <button class="btn btn-sm btn-o" data-testid="rfq-amazon-lookup" onclick="researchPrices()" style="margin-left:4px">🔬 Amazon Lookup</button>
-  <button class="btn btn-sm" style="background:rgba(167,139,250,.15);color:#a78bfa;border:1px solid rgba(167,139,250,.3);margin-left:4px" onclick="runAutoLookup()">🤖 Full Auto-Lookup</button>
-  <button class="btn btn-sm" style="background:rgba(52,211,153,.15);color:#3fb950;border:1px solid rgba(52,211,153,.3);margin-left:4px" onclick="applyRecommendations()">⚡ Apply Recommendations</button>
+  <button class="btn btn-sm btn-s" onclick="applyScprsUndercut(0.01)" aria-label="-1">-1%</button>
+  <button class="btn btn-sm btn-s" onclick="applyScprsUndercut(0.02)" aria-label="-2">-2%</button>
+  <button class="btn btn-sm btn-s" onclick="applyScprsUndercut(0.05)" aria-label="-5">-5%</button>
+  <button class="btn btn-sm btn-p" data-testid="rfq-scprs-lookup" onclick="lookupScprs()" style="margin-left:8px" aria-label="SCPRS Lookup">🔍 SCPRS Lookup</button>
+  <button class="btn btn-sm btn-o" data-testid="rfq-amazon-lookup" onclick="researchPrices()" style="margin-left:4px" aria-label="Amazon Lookup">🔬 Amazon Lookup</button>
+  <button class="btn btn-sm" style="background:rgba(167,139,250,.15);color:#a78bfa;border:1px solid rgba(167,139,250,.3);margin-left:4px" onclick="runAutoLookup()" aria-label="Full Auto-Lookup">🤖 Full Auto-Lookup</button>
+  <button class="btn btn-sm" style="background:rgba(52,211,153,.15);color:#3fb950;border:1px solid rgba(52,211,153,.3);margin-left:4px" onclick="applyRecommendations()" aria-label="Apply Recommendations">⚡ Apply Recommendations</button>
  </div>
  <!-- E3: Auto-lookup progress bar -->
  <div id="lookup-progress" style="display:none;margin:10px 0;padding:10px 14px;border-radius:8px;background:var(--sf2);border:1px solid var(--bd)">
@@ -181,10 +181,10 @@
 
  <div class="bg">
   <button type="submit" class="btn btn-p" data-testid="rfq-save-pricing">💾 Save Pricing</button>
-  <button type="button" class="btn" data-testid="rfq-preview-quote" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd)" onclick="showRfqPreview()">👁️ Preview Quote</button>
+  <button type="button" class="btn" data-testid="rfq-preview-quote" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd)" onclick="showRfqPreview()" aria-label="Preview Quote">👁️ Preview Quote</button>
   <button type="button" onclick="applyRecommended()" class="btn" style="font-size:13px;padding:8px 16px;background:#1f6feb;color:#fff;border:none;border-radius:6px;cursor:pointer" title="Auto-fill bid prices using SCPRS, Amazon, and cost data">💡 Apply Recommended</button>
-  <button type="button" onclick="runQaCheck()" data-testid="rfq-generate-package" class="btn btn-g" style="font-size:14px;padding:10px 24px">📦 Generate RFP Package</button>
-  <button type="button" class="btn" style="background:rgba(79,140,255,.15);color:var(--ac);border:1px solid rgba(79,140,255,.3)" onclick="sendQuoteEmail()">📧 Send Quote</button>
+  <button type="button" onclick="runQaCheck()" data-testid="rfq-generate-package" class="btn btn-g" style="font-size:14px;padding:10px 24px" aria-label="Generate RFP Package">📦 Generate RFP Package</button>
+  <button type="button" class="btn" style="background:rgba(79,140,255,.15);color:var(--ac);border:1px solid rgba(79,140,255,.3)" onclick="sendQuoteEmail()" aria-label="Send Quote">📧 Send Quote</button>
   <button type="button" class="btn" style="background:rgba(34,197,94,.12);color:#22c55e;border:1px solid rgba(34,197,94,.3)" onclick="generateOBS1600()" title="Generate CA Agricultural Food Product Certification (OBS 1600)">🌾 Food Cert</button>
   <button type="button" class="btn" style="background:rgba(168,85,247,.12);color:#a855f7;border:1px solid rgba(168,85,247,.3)" onclick="fillBidPackage()" title="Fill ALL forms in bid package (CUF, Darfur, DVBE, CalRecycle, OBS 1600, etc.)">📋 Fill All Forms</button>
  </div>
@@ -266,7 +266,7 @@
   <div class="card-t" style="margin-bottom:0">🔍 SCPRS Search Results</div>
   <div style="display:flex;gap:8px;align-items:center">
    <span id="scprs-ts" style="font-size:13px;color:var(--tx2);font-family:'JetBrains Mono',monospace"></span>
-   <button class="btn btn-sm btn-s" onclick="document.getElementById('scprs-panel').style.display='none'" style="padding:2px 8px;font-size:13px">✕ Hide</button>
+   <button class="btn btn-sm btn-s" onclick="document.getElementById('scprs-panel').style.display='none'" style="padding:2px 8px;font-size:13px" aria-label="Hide">✕ Hide</button>
   </div>
  </div>
  <div id="scprs-body" style="margin-top:12px"></div>
@@ -279,10 +279,10 @@
   <div style="display:flex;gap:6px">
    {% if r.status in ('sent','generated') %}
    <form method="POST" action="/rfq/{{rid}}/reopen" style="display:inline">
-    <button type="submit" class="btn btn-sm" style="background:var(--wn);color:#000;font-size:14px" onclick="return confirm('Reopen this RFQ for editing? You can re-generate the package after making changes.')">✏️ Reopen for Editing</button>
+    <button type="submit" class="btn btn-sm" style="background:var(--wn);color:#000;font-size:14px" onclick="return confirm('Reopen this RFQ for editing? You can re-generate the package after making changes.')" aria-label="Reopen for Editing">✏️ Reopen for Editing</button>
    </form>
    {% endif %}
-   <button class="btn btn-sm btn-s" style="font-size:14px" onclick="regeneratePackage()">🔄 Regenerate</button>
+   <button class="btn btn-sm btn-s" style="font-size:14px" onclick="regeneratePackage()" aria-label="Regenerate">🔄 Regenerate</button>
   </div>
  </div>
  <div style="display:flex;flex-direction:column;gap:6px;margin-top:12px">
@@ -305,9 +305,9 @@
  </div>
  <div style="margin-top:8px">
   <form method="POST" action="/rfq/{{rid}}/reopen" style="display:inline">
-   <button type="submit" class="btn btn-sm" style="background:var(--wn);color:#000;font-size:14px" onclick="return confirm('Reopen this RFQ for editing?')">✏️ Reopen for Editing</button>
+   <button type="submit" class="btn btn-sm" style="background:var(--wn);color:#000;font-size:14px" onclick="return confirm('Reopen this RFQ for editing?')" aria-label="Reopen for Editing">✏️ Reopen for Editing</button>
   </form>
-  <button class="btn btn-sm btn-s" style="font-size:14px" onclick="regeneratePackage()">🔄 Regenerate</button>
+  <button class="btn btn-sm btn-s" style="font-size:14px" onclick="regeneratePackage()" aria-label="Regenerate">🔄 Regenerate</button>
  </div>
 </div>
 {% endif %}
@@ -338,7 +338,7 @@
   <select id="emailTemplateSelect" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd);border-radius:6px;padding:6px 10px;font-size:13px;min-width:200px" onchange="loadEmailTemplate()">
    <option value="">— Select Template —</option>
   </select>
-  <button type="button" class="btn btn-sm btn-s" onclick="saveCurrentAsTemplate()" style="font-size:14px">💾 Save as Template</button>
+  <button type="button" class="btn btn-sm btn-s" onclick="saveCurrentAsTemplate()" style="font-size:14px" aria-label="Save as Template">💾 Save as Template</button>
  </div>
  
  <form method="POST" action="/rfq/{{rid}}/send-email" id="emailForm">
@@ -346,7 +346,7 @@
    <label style="font-size:13px;color:var(--tx2);font-weight:600">To:</label>
    <div style="display:flex;gap:6px;align-items:center">
     <input type="email" name="to" id="emailTo" value="{{r.requestor_email or (r.draft_email.to if r.draft_email else '')}}" class="text-in" style="font-size:14px;padding:8px 12px;flex:1">
-    <button type="button" class="btn btn-sm" onclick="document.getElementById('ccBccFields').style.display=document.getElementById('ccBccFields').style.display==='none'?'contents':'none'" style="font-size:14px;padding:4px 8px;background:var(--sf2);color:var(--tx2);border:1px solid var(--bd)">CC/BCC ▾</button>
+    <button type="button" class="btn btn-sm" onclick="document.getElementById('ccBccFields').style.display=document.getElementById('ccBccFields').style.display==='none'?'contents':'none'" style="font-size:14px;padding:4px 8px;background:var(--sf2);color:var(--tx2);border:1px solid var(--bd)" aria-label="CC/BCC">CC/BCC ▾</button>
    </div>
    <div id="ccBccFields" style="display:none;grid-column:1/-1">
     <div style="display:grid;grid-template-columns:60px 1fr;gap:8px;align-items:center">
@@ -372,15 +372,15 @@
      <input type="checkbox" id="sigToggle" name="include_signature" value="1" checked onchange="toggleSigPreview()" style="accent-color:var(--ac)">
      <span style="font-weight:600">Include Signature</span>
     </label>
-    <button type="button" class="btn btn-sm" onclick="editSignature()" style="font-size:14px;padding:3px 8px">✏️ Edit</button>
+    <button type="button" class="btn btn-sm" onclick="editSignature()" style="font-size:14px;padding:3px 8px" aria-label="Edit">✏️ Edit</button>
    </div>
    <div id="sigPreview" style="padding:8px 10px;background:var(--bg);border-radius:6px;border:1px solid var(--bd);font-size:14px;max-height:160px;overflow-y:auto"></div>
    <div id="sigEditor" style="display:none;margin-top:6px">
     <textarea id="sigHtml" class="text-in" style="width:100%;min-height:120px;font-size:14px;font-family:'JetBrains Mono',monospace;padding:8px;resize:vertical"></textarea>
     <div style="display:flex;gap:6px;margin-top:6px;align-items:center;flex-wrap:wrap">
-     <button type="button" class="btn btn-sm btn-go" onclick="saveSignature()" style="font-size:14px">💾 Save Signature</button>
-     <button type="button" class="btn btn-sm" onclick="cancelSigEdit()" style="font-size:14px">Cancel</button>
-     <button type="button" class="btn btn-sm" onclick="uploadSigLogo()" style="font-size:14px;background:var(--sf2);color:var(--tx2);border:1px solid var(--bd)">🖼️ Upload Logo PNG</button>
+     <button type="button" class="btn btn-sm btn-go" onclick="saveSignature()" style="font-size:14px" aria-label="Save Signature">💾 Save Signature</button>
+     <button type="button" class="btn btn-sm" onclick="cancelSigEdit()" style="font-size:14px" aria-label="Cancel">Cancel</button>
+     <button type="button" class="btn btn-sm" onclick="uploadSigLogo()" style="font-size:14px;background:var(--sf2);color:var(--tx2);border:1px solid var(--bd)" aria-label="Upload Logo PNG">🖼️ Upload Logo PNG</button>
      <input type="file" id="sigLogoFile" accept="image/png,image/jpeg,image/gif" style="display:none" onchange="handleSigLogoUpload(this)">
      <span style="font-size:13px;color:var(--tx2)">Supports HTML: &lt;img&gt;, &lt;a&gt;, styles</span>
     </div>
@@ -391,7 +391,7 @@
   <div style="margin-top:12px;padding:12px;background:var(--sf2);border-radius:8px;border:1px solid var(--bd)">
    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
     <span style="font-size:13px;font-weight:600;color:var(--tx)">📎 Attachments</span>
-    <button type="button" class="btn btn-sm btn-p" onclick="toggleAllAttachments(true)" style="font-size:14px">Attach All Generated</button>
+    <button type="button" class="btn btn-sm btn-p" onclick="toggleAllAttachments(true)" style="font-size:14px" aria-label="Attach All Generated">Attach All Generated</button>
    </div>
    <div id="attachmentList" style="display:flex;flex-wrap:wrap;gap:6px"></div>
   </div>
@@ -431,9 +431,9 @@
  <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--bd)">
   <div style="font-size:14px;font-weight:600;color:var(--tx2);margin-bottom:6px">Record Outcome</div>
   <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-   <button onclick="recordOutcome('won')" class="btn btn-s" style="font-size:14px;background:rgba(46,160,67,.15);color:var(--gn);border:1px solid rgba(46,160,67,.3)">🏆 Won</button>
-   <button onclick="recordOutcome('lost')" class="btn btn-s" style="font-size:14px;background:rgba(248,81,73,.15);color:var(--rd);border:1px solid rgba(248,81,73,.3)">❌ Lost</button>
-   <button onclick="recordOutcome('no_response')" class="btn btn-s" style="font-size:14px;background:rgba(255,193,7,.15);color:var(--yl);border:1px solid rgba(255,193,7,.3)">⏰ No Response</button>
+   <button onclick="recordOutcome('won')" class="btn btn-s" style="font-size:14px;background:rgba(46,160,67,.15);color:var(--gn);border:1px solid rgba(46,160,67,.3)" aria-label="Won">🏆 Won</button>
+   <button onclick="recordOutcome('lost')" class="btn btn-s" style="font-size:14px;background:rgba(248,81,73,.15);color:var(--rd);border:1px solid rgba(248,81,73,.3)" aria-label="Lost">❌ Lost</button>
+   <button onclick="recordOutcome('no_response')" class="btn btn-s" style="font-size:14px;background:rgba(255,193,7,.15);color:var(--yl);border:1px solid rgba(255,193,7,.3)" aria-label="No Response">⏰ No Response</button>
    <span id="outcome-status" style="font-size:14px;color:var(--tx2)"></span>
   </div>
  </div>
@@ -1006,8 +1006,8 @@ function _showQaPopup(d){
   h+='</div>';
  });
  h+='<div style="display:flex;gap:10px;margin-top:16px;justify-content:flex-end">';
- h+='<button onclick="document.getElementById(\'qa-popup\').remove();document.getElementById(\'qa-backdrop\').remove()" style="padding:8px 16px;background:#21262d;color:#c9d1d9;border:1px solid #30363d;border-radius:6px;cursor:pointer">Fix Issues</button>';
- h+='<button onclick="document.getElementById(\'qa-popup\').remove();document.getElementById(\'qa-backdrop\').remove();_doGenerate()" style="padding:8px 16px;background:'+color+';color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700">'+(oc==='fail'?'Generate Anyway ⚠️':'Proceed →')+'</button>';
+ h+='<button onclick="document.getElementById(\'qa-popup\').remove();document.getElementById(\'qa-backdrop\').remove()" style="padding:8px 16px;background:#21262d;color:#c9d1d9;border:1px solid #30363d;border-radius:6px;cursor:pointer" aria-label="Fix Issues">Fix Issues</button>';
+ h+='<button onclick="document.getElementById(\'qa-popup\').remove();document.getElementById(\'qa-backdrop\').remove();_doGenerate()" style="padding:8px 16px;background:'+color+';color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700" aria-label="(ocfailGenerate Anyway Pr">'+(oc==='fail'?'Generate Anyway ⚠️':'Proceed →')+'</button>';
  h+='</div></div>';
  h+='<div id="qa-backdrop" onclick="document.getElementById(\'qa-popup\').remove();this.remove()" style="position:fixed;top:0;left:0;right:0;bottom:0;z-index:10000;background:rgba(0,0,0,.5)"></div>';
  document.body.insertAdjacentHTML('beforeend',h);

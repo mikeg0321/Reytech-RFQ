@@ -51,7 +51,7 @@
   {% if scprs_has_data %}<span style="color:var(--gn);margin-left:8px">● SCPRS Live</span>{% endif %}</p>
  </div>
  <div style="display:flex;gap:8px">
-  <button onclick="bulkOutreach()" class="hdr-btn" style="font-size:14px;padding:6px 14px;border-color:var(--gn);color:var(--gn)">🚀 Campaign</button>
+  <button onclick="bulkOutreach()" class="hdr-btn" style="font-size:14px;padding:6px 14px;border-color:var(--gn);color:var(--gn)" aria-label="Campaign">🚀 Campaign</button>
   <button onclick="triggerScprs()" class="hdr-btn" style="font-size:14px;padding:6px 14px;border-color:var(--yl);color:var(--yl)" title="Pull latest buyer data from SCPRS">⚡ SCPRS Pull</button>
  </div>
 </div>
@@ -106,10 +106,10 @@
   <div style="display:flex;gap:8px;align-items:center">
    <input type="text" id="fs" placeholder="Search..." oninput="rt()" style="background:var(--sf2);border:1px solid var(--bd);border-radius:5px;padding:5px 10px;font-size:14px;color:var(--tx);width:140px">
    <div class="tb">
-    <button class="ta on" onclick="ff('all',this)">All</button>
-    <button class="ta" onclick="ff('won',this)">Active</button>
-    <button class="ta" onclick="ff('untouched',this)">Untouched</button>
-    <button class="ta" onclick="ff('nocontact',this)">No Contacts</button>
+    <button class="ta on" onclick="ff('all',this)" aria-label="All">All</button>
+    <button class="ta" onclick="ff('won',this)" aria-label="Active">Active</button>
+    <button class="ta" onclick="ff('untouched',this)" aria-label="Untouched">Untouched</button>
+    <button class="ta" onclick="ff('nocontact',this)" aria-label="No Contacts">No Contacts</button>
    </div>
   </div>
  </div>
@@ -245,8 +245,8 @@ function rt(){
   // Action
   var ax;
   if(f.ar>0)ax='<button class="ab" style="border-color:var(--gn);color:var(--gn);font-size:13px;padding:4px 10px" onclick="event.stopPropagation();od(\''+f.id+'\')">📊</button>';
-  else if(f.contacts.length===0)ax='<button class="ab" style="border-color:var(--yl);color:var(--yl);font-size:13px;padding:4px 10px" onclick="event.stopPropagation();od(\''+f.id+'\')">🔍 Research</button>';
-  else ax='<button class="ab" style="border-color:var(--ac);color:var(--ac);font-size:13px;padding:4px 10px" onclick="event.stopPropagation();od(\''+f.id+'\')">🎯 Reach Out</button>';
+  else if(f.contacts.length===0)ax='<button class="ab" style="border-color:var(--yl);color:var(--yl);font-size:13px;padding:4px 10px" onclick="event.stopPropagation();od(\''+f.id+'\')" aria-label="Research">🔍 Research</button>';
+  else ax='<button class="ab" style="border-color:var(--ac);color:var(--ac);font-size:13px;padding:4px 10px" onclick="event.stopPropagation();od(\''+f.id+'\')" aria-label="Reach Out">🎯 Reach Out</button>';
   var ab=f.abbr?' <span style="background:var(--sf2);padding:1px 5px;border-radius:3px;font-size:13px;font-family:JetBrains Mono,monospace;color:var(--ac)">'+f.abbr+'</span>':'';
   h+='<tr class="fr" onclick="od(\''+f.id+'\')">'
    +'<td style="font-weight:500;max-width:240px">'+f.name+ab+'</td>'
@@ -436,8 +436,8 @@ function od(id){
  h+='<div class="ds" style="display:flex;gap:8px;flex-wrap:wrap">';
  if(f.outreach_status==='untouched'){
   var fe='',fn='';f.contacts.forEach(function(c){if(c.email&&!fe){fe=c.email;fn=c.name||'';}});
-  if(fe)h+='<button class="ab" style="border-color:var(--ac);color:var(--ac)" onclick="doOut(\''+f.id+'\',\''+esc(fe)+'\',\''+esc(fn)+'\')">🎯 Create Outreach</button>';
-  else h+='<button class="ab" style="border-color:var(--yl);color:var(--yl)" onclick="doOut(\''+f.id+'\',\'\',\'\')">📋 PC Only (no contact)</button>';
+  if(fe)h+='<button class="ab" style="border-color:var(--ac);color:var(--ac)" onclick="doOut(\''+f.id+'\',\''+esc(fe)+'\',\''+esc(fn)+'\')" aria-label="Create Outreach">🎯 Create Outreach</button>';
+  else h+='<button class="ab" style="border-color:var(--yl);color:var(--yl)" onclick="doOut(\''+f.id+'\',\'\',\'\')" aria-label="PC Only (no contact)">📋 PC Only (no contact)</button>';
  }
  h+='</div>';
  b.innerHTML=h;

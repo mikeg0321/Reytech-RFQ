@@ -16,11 +16,11 @@ tr:hover td{background:rgba(255,255,255,.03)}
     <p style="color:var(--tx2);font-size:13px;margin-top:4px">All CA agencies · What they buy · Who from · What you're missing · What to do about it</p>
   </div>
   <div style="display:flex;gap:8px">
-    <button onclick="triggerPull('P0')" style="padding:7px 16px;background:var(--ac);color:white;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">
+    <button onclick="triggerPull('P0')" style="padding:7px 16px;background:var(--ac);color:white;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer" aria-label="Running if running els">
       {{ "⏳ Running..." if running else "📡 Pull P0 Now (5min)" }}
     </button>
-    <button onclick="triggerPull('all')" style="padding:7px 14px;border:1px solid var(--bd);background:none;color:var(--tx);border-radius:6px;font-size:14px;cursor:pointer">Full Pull (all 40 terms)</button>
-    <button onclick="runCloseLost()" style="padding:7px 14px;border:1px solid var(--bd);background:none;color:var(--tx);border-radius:6px;font-size:14px;cursor:pointer">⚡ Check Lost Quotes</button>
+    <button onclick="triggerPull('all')" style="padding:7px 14px;border:1px solid var(--bd);background:none;color:var(--tx);border-radius:6px;font-size:14px;cursor:pointer" aria-label="Full Pull (all 40 terms)">Full Pull (all 40 terms)</button>
+    <button onclick="runCloseLost()" style="padding:7px 14px;border:1px solid var(--bd);background:none;color:var(--tx);border-radius:6px;font-size:14px;cursor:pointer" aria-label="Check Lost Quotes">⚡ Check Lost Quotes</button>
   </div>
 </div>
 

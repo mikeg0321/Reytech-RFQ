@@ -31,7 +31,7 @@
       <h4>🔔 Notifications</h4>
       <div style="display:flex;gap:8px;align-items:center">
        <span id="notif-cs-count" style="font-size:14px;color:var(--yl);display:none"></span>
-       <button onclick="markAllRead()" style="font-size:14px;color:var(--tx2);background:none;border:none;cursor:pointer;padding:2px 6px">Mark all read</button>
+       <button onclick="markAllRead()" style="font-size:14px;color:var(--tx2);background:none;border:none;cursor:pointer;padding:2px 6px" aria-label="Mark all read">Mark all read</button>
        <button onclick="toggleNotifPanel()" style="font-size:16px;color:var(--tx2);background:none;border:none;cursor:pointer;line-height:1">×</button>
       </div>
      </div>
@@ -105,7 +105,7 @@
    {% endfor %}
    <a href="/settings#nav" class="hdr-btn" style="padding:9px 12px;font-size:13px" title="Nav & Settings">⚙️</a>
    <div style="position:relative;display:inline-block" id="more-nav">
-    <button class="hdr-btn" style="padding:9px 18px;font-size:13px" onclick="var m=document.getElementById('more-menu');m.style.display=m.style.display==='block'?'none':'block'">⋯ More</button>
+    <button class="hdr-btn" style="padding:9px 18px;font-size:13px" onclick="var m=document.getElementById('more-menu');m.style.display=m.style.display==='block'?'none':'block'" aria-label="More">⋯ More</button>
     <div id="more-menu" style="display:none;position:absolute;right:0;top:38px;background:var(--sf2);border:1px solid var(--bd);border-radius:8px;padding:4px 0;min-width:180px;z-index:9999;box-shadow:0 8px 24px rgba(0,0,0,.5)">
      {% for href, label, name in all_pages %}
       {% if name not in top_names %}
@@ -229,6 +229,9 @@ document.addEventListener('keydown',function(e){
 document.getElementById('cmd-palette').addEventListener('click',function(e){if(e.target===this)closeCmd();});
 </script>
 <style>
+/* Accessibility: visible focus indicators */
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible{outline:2px solid #58a6ff;outline-offset:2px;border-radius:4px}
+[role="button"]:focus-visible{outline:2px solid #58a6ff;outline-offset:2px}
 /* Global: textareas auto-expand to fit content */
 textarea{overflow:hidden;resize:vertical}
 /* Clickable truncated text expands on click */

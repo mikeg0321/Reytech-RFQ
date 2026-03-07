@@ -7,7 +7,7 @@
 <div class="card" style="margin-bottom:12px">
  <div class="card-t" style="display:flex;justify-content:space-between;align-items:center">
   <span>🩺 System Health</span>
-  <button class="btn btn-s" onclick="loadHealth()" style="font-size:13px;padding:6px 14px">🔄 Refresh</button>
+  <button class="btn btn-s" onclick="loadHealth()" style="font-size:13px;padding:6px 14px" aria-label="Refresh">🔄 Refresh</button>
  </div>
  <div id="health-cards" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:12px">
   <div style="text-align:center;padding:16px;background:var(--sf);border-radius:8px"><div style="font-size:14px;color:var(--tx2)">Loading...</div></div>
@@ -20,7 +20,7 @@
 <div class="card" style="margin-bottom:12px">
  <div class="card-t" style="display:flex;justify-content:space-between;align-items:center">
   <span>💾 Data Storage</span>
-  <button class="btn btn-s" onclick="loadDataSizes()" style="font-size:13px;padding:6px 14px">📊 Load</button>
+  <button class="btn btn-s" onclick="loadDataSizes()" style="font-size:13px;padding:6px 14px" aria-label="Load">📊 Load</button>
  </div>
  <div id="data-sizes" style="margin-top:12px"><div style="color:var(--tx2);font-size:14px">Click load to view storage details...</div></div>
 </div>
@@ -35,8 +35,8 @@
   <!-- populated by JS -->
  </div>
  <div style="margin-top:12px;display:flex;gap:8px">
-  <button type="button" class="btn btn-p" onclick="saveNavConfig()" style="font-size:13px;padding:8px 16px">💾 Save Nav</button>
-  <button type="button" class="btn btn-s" onclick="resetNavConfig()" style="font-size:13px;padding:8px 16px">↩️ Reset Default</button>
+  <button type="button" class="btn btn-p" onclick="saveNavConfig()" style="font-size:13px;padding:8px 16px" aria-label="Save Nav">💾 Save Nav</button>
+  <button type="button" class="btn btn-s" onclick="resetNavConfig()" style="font-size:13px;padding:8px 16px" aria-label="Reset Default">↩️ Reset Default</button>
  </div>
 </div>
 
@@ -149,8 +149,8 @@ loadNavConfig();
 {% endfor %}
 
 <div style="display:flex;gap:12px;margin-top:16px">
- <button type="button" class="btn btn-p" onclick="saveSettings()">💾 Save Settings</button>
- <button type="button" class="btn btn-s" onclick="location.reload()">↩️ Reset</button>
+ <button type="button" class="btn btn-p" onclick="saveSettings()" aria-label="Save Settings">💾 Save Settings</button>
+ <button type="button" class="btn btn-s" onclick="location.reload()" aria-label="Reset">↩️ Reset</button>
 </div>
 </form>
 

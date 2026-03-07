@@ -50,7 +50,7 @@
   <div class="ff-card">
    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
     <h3>Line Items</h3>
-    <button class="ff-btn ff-btn-green" onclick="addItem()" style="padding:6px 14px;font-size:13px">+ Add Item</button>
+    <button class="ff-btn ff-btn-green" onclick="addItem()" style="padding:6px 14px;font-size:13px" aria-label="Add Item">+ Add Item</button>
    </div>
    
    <div class="item-row" style="font-size:14px;color:var(--tx2);font-weight:600">
@@ -59,9 +59,9 @@
    <div id="itemsList"></div>
    
    <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--bd);display:flex;gap:8px;flex-wrap:wrap">
-    <button class="ff-btn ff-btn-primary" onclick="classifyItems()">🔍 Classify Food Items</button>
-    <button class="ff-btn ff-btn-primary" onclick="fillAndDownload()" style="background:#22c55e">📄 Fill & Download PDF</button>
-    <button class="ff-btn" onclick="loadFromRFQ()" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd)">📥 Load from RFQ</button>
+    <button class="ff-btn ff-btn-primary" onclick="classifyItems()" aria-label="Classify Food Items">🔍 Classify Food Items</button>
+    <button class="ff-btn ff-btn-primary" onclick="fillAndDownload()" style="background:#22c55e" aria-label="Fill & Download PDF">📄 Fill & Download PDF</button>
+    <button class="ff-btn" onclick="loadFromRFQ()" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd)" aria-label="Load from RFQ">📥 Load from RFQ</button>
    </div>
   </div>
 

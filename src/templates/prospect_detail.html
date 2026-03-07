@@ -75,22 +75,22 @@
   </div>
  </div>
  <div style="display:flex;gap:8px;flex-wrap:wrap">
-  <button class="g-btn g-btn-go" onclick="openLog('email')">📧 Log Email</button>
-  <button class="g-btn g-btn-go" onclick="openLog('call')">📞 Log Call</button>
-  <button class="g-btn g-btn-purple" onclick="openLog('chat')">💬 Log Chat</button>
-  <button class="g-btn" onclick="openLog('note')">📝 Note</button>
+  <button class="g-btn g-btn-go" onclick="openLog('email')" aria-label="Log Email">📧 Log Email</button>
+  <button class="g-btn g-btn-go" onclick="openLog('call')" aria-label="Log Call">📞 Log Call</button>
+  <button class="g-btn g-btn-purple" onclick="openLog('chat')" aria-label="Log Chat">💬 Log Chat</button>
+  <button class="g-btn" onclick="openLog('note')" aria-label="Note">📝 Note</button>
   <div style="position:relative;display:inline-block">
-   <button class="g-btn" onclick="toggleMore()" id="more-btn">⚙️ More ▾</button>
+   <button class="g-btn" onclick="toggleMore()" id="more-btn" aria-label="More">⚙️ More ▾</button>
    <div id="more-menu" style="display:none;position:absolute;right:0;top:44px;background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:6px;z-index:100;box-shadow:0 8px 24px rgba(0,0,0,.4);min-width:220px">
-    <button class="tag-menu-item" onclick="setStatus('responded')">✅ Mark Responded</button>
-    <button class="tag-menu-item" onclick="setStatus('follow_up_due')">⏰ Set Follow Up</button>
-    <button class="tag-menu-item" onclick="setStatus('won')">🏆 Mark Won</button>
-    <button class="tag-menu-item" onclick="setStatus('dead')">💀 Mark Dead</button>
-    <button class="tag-menu-item" onclick="convertToCustomer()">🔄 Convert → Customer</button>
+    <button class="tag-menu-item" onclick="setStatus('responded')" aria-label="Mark Responded">✅ Mark Responded</button>
+    <button class="tag-menu-item" onclick="setStatus('follow_up_due')" aria-label="Set Follow Up">⏰ Set Follow Up</button>
+    <button class="tag-menu-item" onclick="setStatus('won')" aria-label="Mark Won">🏆 Mark Won</button>
+    <button class="tag-menu-item" onclick="setStatus('dead')" aria-label="Mark Dead">💀 Mark Dead</button>
+    <button class="tag-menu-item" onclick="convertToCustomer()" aria-label="Convert  Customer">🔄 Convert → Customer</button>
     <div style="border-top:1px solid var(--bd);margin:4px 0"></div>
-    <button class="tag-menu-item" onclick="hideContact()">👁️‍🗨️ Hide Contact</button>
-    <button class="tag-menu-item" onclick="ignoreEmail()" style="color:#fbbf24">🚫 Add to Ignore List</button>
-    <button class="tag-menu-item" onclick="deleteContact()" style="color:#f85149">🗑️ Permanently Delete</button>
+    <button class="tag-menu-item" onclick="hideContact()" aria-label="Hide Contact">👁️‍🗨️ Hide Contact</button>
+    <button class="tag-menu-item" onclick="ignoreEmail()" style="color:#fbbf24" aria-label="Add to Ignore List">🚫 Add to Ignore List</button>
+    <button class="tag-menu-item" onclick="deleteContact()" style="color:#f85149" aria-label="Permanently Delete">🗑️ Permanently Delete</button>
    </div>
   </div>
  </div>
@@ -107,14 +107,14 @@
    <span class="tag tag-add" onclick="toggleTagMenu(event)" id="add-tag-btn">+ Add Tag</span>
   </div>
   <div class="tag-menu" id="tag-menu">
-   <button class="tag-menu-item" onclick="addTag('Buyer')">🛒 Buyer</button>
-   <button class="tag-menu-item" onclick="addTag('Decision Maker')">👑 Decision Maker</button>
-   <button class="tag-menu-item" onclick="addTag('VIP')">⭐ VIP</button>
-   <button class="tag-menu-item" onclick="addTag('Non Responsive')">📭 Non Responsive</button>
-   <button class="tag-menu-item" onclick="addTag('Difficult/Caution')">⚠️ Difficult/Caution</button>
-   <button class="tag-menu-item" onclick="addTag('Influencer')">💡 Influencer</button>
-   <button class="tag-menu-item" onclick="addTag('New Lead')">🆕 New Lead</button>
-   <button class="tag-menu-item" onclick="addTag('Repeat Customer')">🔄 Repeat Customer</button>
+   <button class="tag-menu-item" onclick="addTag('Buyer')" aria-label="Buyer">🛒 Buyer</button>
+   <button class="tag-menu-item" onclick="addTag('Decision Maker')" aria-label="Decision Maker">👑 Decision Maker</button>
+   <button class="tag-menu-item" onclick="addTag('VIP')" aria-label="VIP">⭐ VIP</button>
+   <button class="tag-menu-item" onclick="addTag('Non Responsive')" aria-label="Non Responsive">📭 Non Responsive</button>
+   <button class="tag-menu-item" onclick="addTag('Difficult/Caution')" aria-label="Difficult/Caution">⚠️ Difficult/Caution</button>
+   <button class="tag-menu-item" onclick="addTag('Influencer')" aria-label="Influencer">💡 Influencer</button>
+   <button class="tag-menu-item" onclick="addTag('New Lead')" aria-label="New Lead">🆕 New Lead</button>
+   <button class="tag-menu-item" onclick="addTag('Repeat Customer')" aria-label="Repeat Customer">🔄 Repeat Customer</button>
    <div style="border-top:1px solid var(--bd);margin:4px 0"></div>
    <div style="display:flex;gap:4px;padding:4px">
     <input id="custom-tag-input" placeholder="Custom tag..." style="flex:1;padding:6px 10px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:14px">
@@ -237,12 +237,12 @@
    {% for i in range(wf_state.get('current_step', 0) + 1) %}<span style="padding:4px 10px;border-radius:6px;font-size:13px;font-weight:600;background:rgba(52,211,153,.12);color:#3fb950">✓ Step {{ i + 1 }}</span>{% endfor %}
    <span style="padding:4px 10px;border-radius:6px;font-size:13px;font-weight:600;background:rgba(251,191,36,.15);color:#fbbf24">▶ Next</span>
   </div>
-  <div style="margin-top:14px"><button class="g-btn g-btn-go" onclick="crmPost('/api/growth/workflow/advance',{prospect_id:PID}).then(r=>{if(r.ok)location.reload();else alert(r.error||'Error')})">▶ Advance Step</button></div>
+  <div style="margin-top:14px"><button class="g-btn g-btn-go" onclick="crmPost('/api/growth/workflow/advance',{prospect_id:PID}).then(r=>{if(r.ok)location.reload();else alert(r.error||'Error')})" aria-label="Advance Step">▶ Advance Step</button></div>
   {% else %}
   <div style="text-align:center;padding:20px;color:var(--tx2)">
    <div style="font-size:24px;margin-bottom:6px">⚡</div>
    <div style="font-size:14px;margin-bottom:12px">No workflow assigned</div>
-   <button class="g-btn" onclick="var w=prompt('Workflow ID:','standard_outreach');if(w)crmPost('/api/growth/workflow/assign',{prospect_id:PID,workflow_id:w}).then(r=>{if(r.ok)location.reload();else alert(r.error||'Error')})">Assign Workflow</button>
+   <button class="g-btn" onclick="var w=prompt('Workflow ID:','standard_outreach');if(w)crmPost('/api/growth/workflow/assign',{prospect_id:PID,workflow_id:w}).then(r=>{if(r.ok)location.reload();else alert(r.error||'Error')})" aria-label="Assign Workflow">Assign Workflow</button>
   </div>
   {% endif %}
  </div>
@@ -259,7 +259,7 @@
   <div style="text-align:center;padding:20px;color:var(--tx2)">
    <div style="font-size:24px;margin-bottom:6px">📅</div>
    <div style="font-size:14px;margin-bottom:12px">No scheduled events</div>
-   <button class="g-btn" onclick="crmPost('/api/growth/calendar/schedule',{prospect_id:PID,type:'follow_up',days_from_now:3}).then(r=>{if(r.ok)location.reload();else alert(r.error||'Error')})">📅 Schedule Follow-Up</button>
+   <button class="g-btn" onclick="crmPost('/api/growth/calendar/schedule',{prospect_id:PID,type:'follow_up',days_from_now:3}).then(r=>{if(r.ok)location.reload();else alert(r.error||'Error')})" aria-label="Schedule Follow-Up">📅 Schedule Follow-Up</button>
   </div>
   {% endif %}
  </div>
@@ -315,7 +315,7 @@ function convertToCustomer(){if(!confirm('Convert to customer?'))return;document
 
 // ── LOG ACTIVITY ──
 var logType='';
-function openLog(type){logType=type;var titles={email:'📧 Log Email',call:'📞 Log Call',note:'📝 Add Note',chat:'💬 Log Interaction'};document.getElementById('modal-title').textContent=titles[type]||'Log Activity';var bodies={email:'<label class="form-lbl">Direction</label><select id="log-dir" class="form-input"><option value="sent">Sent</option><option value="received">Received</option></select><label class="form-lbl">Subject</label><input id="log-subject" class="form-input" placeholder="Subject..."><label class="form-lbl">Notes</label><textarea id="log-detail" class="form-input" placeholder="Summary..."></textarea>',call:'<label class="form-lbl">Outcome</label><select id="log-outcome" class="form-input"><option value="reached">Reached</option><option value="voicemail">Voicemail</option><option value="no_answer">No answer</option><option value="callback">Callback requested</option><option value="not_interested">Not interested</option></select><label class="form-lbl">Duration (min)</label><input id="log-duration" class="form-input" type="number" placeholder="5"><label class="form-lbl">Notes</label><textarea id="log-detail" class="form-input" placeholder="Discussion..."></textarea>',note:'<label class="form-lbl">Note</label><textarea id="log-detail" class="form-input" rows="6" placeholder="Note..."></textarea>',chat:'<label class="form-lbl">Channel</label><select id="log-channel" class="form-input"><option value="in_person">In-person</option><option value="teams">Teams/Zoom</option><option value="linkedin">LinkedIn</option><option value="text">Text/SMS</option><option value="other">Other</option></select><label class="form-lbl">Summary</label><textarea id="log-detail" class="form-input" placeholder="Discussion..."></textarea>'};document.getElementById('modal-body').innerHTML=(bodies[type]||'')+'<div style="display:flex;gap:8px;margin-top:4px"><button onclick="submitLog()" class="g-btn g-btn-go" style="flex:1;justify-content:center;padding:12px;font-size:15px">✅ Save</button><button onclick="closeModal()" class="g-btn" style="padding:12px 20px;font-size:15px">Cancel</button></div>';document.getElementById('log-modal').style.display='flex';setTimeout(function(){var d=document.getElementById('log-detail');if(d)d.focus()},100)}
+function openLog(type){logType=type;var titles={email:'📧 Log Email',call:'📞 Log Call',note:'📝 Add Note',chat:'💬 Log Interaction'};document.getElementById('modal-title').textContent=titles[type]||'Log Activity';var bodies={email:'<label class="form-lbl">Direction</label><select id="log-dir" class="form-input"><option value="sent">Sent</option><option value="received">Received</option></select><label class="form-lbl">Subject</label><input id="log-subject" class="form-input" placeholder="Subject..."><label class="form-lbl">Notes</label><textarea id="log-detail" class="form-input" placeholder="Summary..."></textarea>',call:'<label class="form-lbl">Outcome</label><select id="log-outcome" class="form-input"><option value="reached">Reached</option><option value="voicemail">Voicemail</option><option value="no_answer">No answer</option><option value="callback">Callback requested</option><option value="not_interested">Not interested</option></select><label class="form-lbl">Duration (min)</label><input id="log-duration" class="form-input" type="number" placeholder="5"><label class="form-lbl">Notes</label><textarea id="log-detail" class="form-input" placeholder="Discussion..."></textarea>',note:'<label class="form-lbl">Note</label><textarea id="log-detail" class="form-input" rows="6" placeholder="Note..."></textarea>',chat:'<label class="form-lbl">Channel</label><select id="log-channel" class="form-input"><option value="in_person">In-person</option><option value="teams">Teams/Zoom</option><option value="linkedin">LinkedIn</option><option value="text">Text/SMS</option><option value="other">Other</option></select><label class="form-lbl">Summary</label><textarea id="log-detail" class="form-input" placeholder="Discussion..."></textarea>'};document.getElementById('modal-body').innerHTML=(bodies[type]||'')+'<div style="display:flex;gap:8px;margin-top:4px"><button onclick="submitLog()" class="g-btn g-btn-go" style="flex:1;justify-content:center;padding:12px;font-size:15px" aria-label="Save">✅ Save</button><button onclick="closeModal()" class="g-btn" style="padding:12px 20px;font-size:15px" aria-label="Cancel">Cancel</button></div>';document.getElementById('log-modal').style.display='flex';setTimeout(function(){var d=document.getElementById('log-detail');if(d)d.focus()},100)}
 function closeModal(){document.getElementById('log-modal').style.display='none'}
 function submitLog(){var detail=document.getElementById('log-detail')?.value||'';if(!detail.trim()){alert('Add a note or summary');return}var payload={type:logType,detail:detail,actor:'mike'};if(logType==='email'){payload.direction=document.getElementById('log-dir')?.value;payload.subject=document.getElementById('log-subject')?.value;payload.event_type=payload.direction==='sent'?'email_sent':'email_received'}else if(logType==='call'){payload.outcome=document.getElementById('log-outcome')?.value;payload.duration=document.getElementById('log-duration')?.value;payload.event_type='voice_called'}else if(logType==='chat'){payload.channel=document.getElementById('log-channel')?.value;payload.event_type='chat'}else{payload.event_type='note'}crmPost('/api/crm/contact/'+PID+'/log',payload).then(r=>{if(r.ok){closeModal();location.reload()}else alert(r.error||'Failed')})}
 </script>

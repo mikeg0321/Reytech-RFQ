@@ -4,7 +4,7 @@
 {% block content %}
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
  <h1 style="margin:0">📞 Voice Campaigns</h1>
- <button class="btn btn-p" onclick="document.getElementById('new-camp').style.display='block'" style="padding:8px 16px">+ New Campaign</button>
+ <button class="btn btn-p" onclick="document.getElementById('new-camp').style.display='block'" style="padding:8px 16px" aria-label="New Campaign">+ New Campaign</button>
 </div>
 
 <!-- Stats bar -->
@@ -38,8 +38,8 @@
   </div>
  </div>
  <div style="margin-top:12px;display:flex;gap:8px">
-  <button class="btn btn-p" onclick="createCampaign()" style="padding:8px 20px">Create Campaign</button>
-  <button class="btn" onclick="document.getElementById('new-camp').style.display='none'" style="padding:8px 20px">Cancel</button>
+  <button class="btn btn-p" onclick="createCampaign()" style="padding:8px 20px" aria-label="Create Campaign">Create Campaign</button>
+  <button class="btn" onclick="document.getElementById('new-camp').style.display='none'" style="padding:8px 20px" aria-label="Cancel">Cancel</button>
  </div>
 </div>
 

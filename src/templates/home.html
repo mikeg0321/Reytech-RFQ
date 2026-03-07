@@ -37,17 +37,17 @@
  <!-- Urgent -->
  <div id="ad-urgent" style="background:var(--crd);border:1px solid rgba(248,113,113,.3);border-radius:10px;padding:14px;min-height:80px">
   <div style="font-size:13px;font-weight:600;color:#f87171;margin-bottom:8px">🔴 Urgent</div>
-  <div id="ad-urgent-items" style="font-size:14px;color:var(--tx2)">Loading...</div>
+  <div id="ad-urgent-items" style="font-size:14px;color:var(--tx2)"><div class="skeleton skeleton-line" style="width:80%"></div><div class="skeleton skeleton-line" style="width:60%"></div><div class="skeleton skeleton-line" style="width:70%"></div></div>
  </div>
  <!-- Action Needed -->
  <div id="ad-action" style="background:var(--crd);border:1px solid rgba(251,191,36,.3);border-radius:10px;padding:14px;min-height:80px">
   <div style="font-size:13px;font-weight:600;color:#fbbf24;margin-bottom:8px">🟡 Action Needed</div>
-  <div id="ad-action-items" style="font-size:14px;color:var(--tx2)">Loading...</div>
+  <div id="ad-action-items" style="font-size:14px;color:var(--tx2)"><div class="skeleton skeleton-line" style="width:80%"></div><div class="skeleton skeleton-line" style="width:60%"></div><div class="skeleton skeleton-line" style="width:70%"></div></div>
  </div>
  <!-- Progress -->
  <div id="ad-progress" style="background:var(--crd);border:1px solid rgba(46,204,113,.3);border-radius:10px;padding:14px;min-height:80px">
   <div style="font-size:13px;font-weight:600;color:#2ecc71;margin-bottom:8px">🟢 Progress</div>
-  <div id="ad-progress-items" style="font-size:14px;color:var(--tx2)">Loading...</div>
+  <div id="ad-progress-items" style="font-size:14px;color:var(--tx2)"><div class="skeleton skeleton-line" style="width:80%"></div><div class="skeleton skeleton-line" style="width:60%"></div><div class="skeleton skeleton-line" style="width:70%"></div></div>
  </div>
 </div>
 <script>
@@ -87,6 +87,12 @@ fetch('/api/dashboard/init').then(r=>r.json()).then(d=>{
 
 <!-- ═══ Work Queues — Primary Bento Row ═══ -->
 <style>
+/* Skeleton loader animation */
+@keyframes skeleton-pulse{0%{opacity:.6}50%{opacity:.3}100%{opacity:.6}}
+.skeleton{background:var(--bd);border-radius:4px;animation:skeleton-pulse 1.5s ease-in-out infinite}
+.skeleton-line{height:14px;margin:8px 0;border-radius:4px}
+.skeleton-row{display:flex;gap:12px;margin:8px 0}
+.skeleton-row .skeleton{height:16px;border-radius:4px}
 /* Global dismiss popup — rendered on body, outside table */
 #global-dismiss-popup {
   display:none;position:fixed;background:var(--sf2);border:1px solid var(--bd);
@@ -102,13 +108,13 @@ fetch('/api/dashboard/init').then(r=>r.json()).then(d=>{
 <!-- Global dismiss popup (lives outside tables) -->
 <div id="global-dismiss-popup">
  <div style="padding:6px 14px;font-size:14px;color:var(--tx2);font-weight:700;text-transform:uppercase;letter-spacing:.5px">Dismiss reason</div>
- <button onclick="doDismiss('cs_question')">CS / Admin Question</button>
- <button onclick="doDismiss('no_response')">Reytech Did Not Respond</button>
- <button onclick="doDismiss('not_responding')">Customer Not Responding</button>
- <button onclick="doDismiss('duplicate')">Duplicate</button>
- <button onclick="doDismiss('other')">Other</button>
+ <button onclick="doDismiss('cs_question')" aria-label="CS / Admin Question">CS / Admin Question</button>
+ <button onclick="doDismiss('no_response')" aria-label="Reytech Did Not Respond">Reytech Did Not Respond</button>
+ <button onclick="doDismiss('not_responding')" aria-label="Customer Not Responding">Customer Not Responding</button>
+ <button onclick="doDismiss('duplicate')" aria-label="Duplicate">Duplicate</button>
+ <button onclick="doDismiss('other')" aria-label="Other">Other</button>
  <div style="border-top:1px solid var(--bd);margin:4px 0"></div>
- <button onclick="doDismiss('delete')" style="color:#f85149">🗑 Permanently Delete</button>
+ <button onclick="doDismiss('delete')" style="color:#f85149" aria-label="Permanently Delete">🗑 Permanently Delete</button>
 </div>
 <script>
 // Global dismiss state
@@ -251,9 +257,9 @@ document.addEventListener('click', function(e) {
   <!-- E11: Bulk Action Bar -->
   <div class="bulk-bar" id="rfq-bulk-bar">
    <span class="bulk-count"><span id="rfq-bulk-count">0</span> selected</span>
-   <button class="btn btn-sm btn-s" onclick="bulkAction('rfq','dismiss')">Dismiss</button>
-   <button class="btn btn-sm btn-s" onclick="bulkAction('rfq','archive')">Archive</button>
-   <button class="btn btn-sm" style="background:rgba(251,191,36,.15);color:var(--yl)" onclick="bulkAction('rfq','markup')">+20% Markup</button>
+   <button class="btn btn-sm btn-s" onclick="bulkAction('rfq','dismiss')" aria-label="Dismiss">Dismiss</button>
+   <button class="btn btn-sm btn-s" onclick="bulkAction('rfq','archive')" aria-label="Archive">Archive</button>
+   <button class="btn btn-sm" style="background:rgba(251,191,36,.15);color:var(--yl)" onclick="bulkAction('rfq','markup')" aria-label="20 Markup">+20% Markup</button>
   </div>
   {% if rfqs %}
   <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
@@ -318,7 +324,7 @@ document.addEventListener('click', function(e) {
    <div style="font-size:14px;color:var(--tx2)" id="qp-subtitle"></div>
   </div>
   <div style="display:flex;gap:6px">
-   <button class="btn btn-sm btn-p" onclick="saveQuickPrices()">💾 Save & Close</button>
+   <button class="btn btn-sm btn-p" onclick="saveQuickPrices()" aria-label="Save & Close">💾 Save & Close</button>
    <button class="btn btn-sm btn-s" onclick="closeQP()">✕</button>
   </div>
  </div>
