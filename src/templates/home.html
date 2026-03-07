@@ -32,6 +32,22 @@
  <a href="/qa/workflow" style="padding:4px 10px;background:rgba(248,113,113,.15);color:#f87171;border:1px solid rgba(248,113,113,.3);border-radius:6px;font-size:14px;font-weight:600;text-decoration:none;white-space:nowrap">View Tests →</a>
 </div>
 
+<!-- ═══ Deploy Health Banner (auto-hides if all pass) ═══ -->
+<div id="health-banner" style="display:none;background:rgba(248,81,73,.1);border:1px solid rgba(248,81,73,.35);border-radius:8px;padding:10px 16px;margin-bottom:10px;font-size:14px;color:#f85149">
+ <b>⚠️ Deploy Issue:</b> <span id="health-msg"></span>
+ <a href="/api/health/startup" style="color:#58a6ff;margin-left:8px">View details</a>
+</div>
+<script>
+fetch('/api/health/startup').then(function(r){return r.json()}).then(function(d){
+ if(d.failed && d.failed>0){
+  var el=document.getElementById('health-banner');
+  var names=d.checks.filter(function(c){return c.status!=='PASS'}).map(function(c){return c.name}).join(', ');
+  document.getElementById('health-msg').textContent=d.failed+' check(s) failed: '+names;
+  el.style.display='block';
+ }
+}).catch(function(){});
+</script>
+
 <!-- ═══ Action Dashboard — PRD-28 WI-6 ═══ -->
 <div id="action-dash" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:14px">
  <!-- Urgent -->

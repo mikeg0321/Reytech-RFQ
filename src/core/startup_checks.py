@@ -206,14 +206,74 @@ def run_all_checks():
         return True, "All 3 pricing sources importable + callable"
     _check("Auto-price pipeline", check_auto_price_pipeline)
 
-    # Summary
+    # Summary + auto-alert
     total = _results["passed"] + _results["failed"]
+    failed_names = [c["name"] for c in _results["checks"] if c["status"] != "PASS"]
+
     if _results["failed"] > 0:
-        log.error("⚠️ STARTUP: %d/%d FAILED — %s", _results["failed"], total,
-                 ", ".join(c["name"] for c in _results["checks"] if c["status"] != "PASS"))
+        log.error("⚠️ STARTUP: %d/%d FAILED — %s", _results["failed"], total, ", ".join(failed_names))
+        _auto_alert_failures(_results)
     else:
         log.info("✅ STARTUP: %d/%d passed", _results["passed"], total)
+
     return _results
+
+
+def _auto_alert_failures(results):
+    """Send email + bell notification when startup checks fail."""
+    failed = [c for c in results["checks"] if c["status"] != "PASS"]
+    if not failed:
+        return
+
+    subject = f"⚠️ Deploy Health: {len(failed)} check(s) failed"
+    body = f"Startup health checks ran at {results['ran_at']}\n\n"
+    body += f"PASSED: {results['passed']}  |  FAILED: {results['failed']}\n\n"
+    for c in failed:
+        body += f"❌ {c['name']}: {c['detail']}\n"
+    body += f"\nFull results: /api/health/startup"
+
+    # 1. Email alert
+    try:
+        gmail = os.environ.get("GMAIL_ADDRESS", "")
+        gmail_pw = os.environ.get("GMAIL_PASSWORD", "")
+        if gmail and gmail_pw:
+            import smtplib
+            from email.mime.text import MIMEText
+            msg = MIMEText(body)
+            msg["Subject"] = subject
+            msg["From"] = gmail
+            msg["To"] = gmail  # Send to self
+            with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15) as s:
+                s.login(gmail, gmail_pw)
+                s.send_message(msg)
+            log.info("Startup alert emailed to %s", gmail)
+    except Exception as e:
+        log.warning("Startup email alert failed: %s", e)
+
+    # 2. Bell notification (shows on home page)
+    try:
+        from src.agents.notify_agent import send_alert
+        send_alert(
+            event_type="deploy_health",
+            title=subject,
+            body=body,
+            urgency="urgent",
+            channels=["bell", "email"],
+            run_async=False,
+        )
+    except Exception as e:
+        log.debug("Startup bell alert: %s", e)
+
+    # 3. Write to audit trail
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            conn.execute(
+                "INSERT INTO audit_trail (timestamp, event_type, actor, details) VALUES (datetime('now'), ?, ?, ?)",
+                ("deploy_health_fail", "system", json.dumps({"failed": [c["name"] for c in failed], "details": body[:500]}))
+            )
+    except Exception:
+        pass
 
 
 def get_results():
