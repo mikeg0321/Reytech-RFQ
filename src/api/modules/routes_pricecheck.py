@@ -3868,22 +3868,139 @@ def pricecheck_document_save(pcid):
 @bp.route("/api/pricecheck/<pcid>/retry-auto-price", methods=["POST", "GET"])
 @auth_required
 def api_pc_retry_auto_price(pcid):
-    """Manually retry auto-pricing for a PC."""
-    import threading
-    from src.api.dashboard import _auto_price_new_pc, _load_price_checks
-    pcs = _load_price_checks()
-    if pcid not in pcs:
-        # Debug: show what IDs we DO have
-        sample = list(pcs.keys())[:10]
-        return jsonify({"ok": False, "error": "PC not found",
-                       "debug": {"total_pcs": len(pcs), "sample_ids": sample,
-                                "looking_for": pcid}}), 404
-    pc = pcs[pcid]
+    """Manually retry auto-pricing — reads PC from DB or JSON directly, runs inline."""
+    import sqlite3
+    pc = None
+    source = "none"
+
+    # Try 1: DB with pc_data blob
+    try:
+        db_path = os.path.join(DATA_DIR, "reytech.db")
+        conn = sqlite3.connect(db_path, timeout=10)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM price_checks WHERE id=?", (pcid,)).fetchone()
+        if row:
+            blob = row["pc_data"] if "pc_data" in row.keys() else ""
+            if blob and blob != "{}":
+                pc = json.loads(blob)
+                source = "db_blob"
+            else:
+                pc = {"id": pcid, "items": json.loads(row["items"] or "[]"),
+                      "pc_number": row.get("pc_number") or "", "institution": row.get("institution") or "",
+                      "status": row.get("status") or "parsed"}
+                source = "db_columns"
+        conn.close()
+    except Exception as e:
+        log.warning("retry-auto-price DB read: %s", e)
+
+    # Try 2: JSON file
+    if not pc or not pc.get("items"):
+        try:
+            json_path = os.path.join(DATA_DIR, "price_checks.json")
+            if os.path.exists(json_path):
+                with open(json_path) as f:
+                    jdata = json.load(f)
+                if pcid in jdata:
+                    pc = jdata[pcid]
+                    source = "json"
+        except Exception as e:
+            log.warning("retry-auto-price JSON read: %s", e)
+
+    # Try 3: _load_price_checks as last resort
+    if not pc or not pc.get("items"):
+        try:
+            from src.api.dashboard import _load_price_checks
+            pcs = _load_price_checks()
+            if pcid in pcs:
+                pc = pcs[pcid]
+                source = "load_func"
+        except Exception:
+            pass
+
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found in DB, JSON, or load function", "pc_id": pcid})
+
     items = pc.get("items", [])
     if not items:
-        return jsonify({"ok": False, "error": "No items to price"})
-    threading.Thread(target=_auto_price_new_pc, args=(pcid,), daemon=True).start()
-    return jsonify({"ok": True, "message": f"Auto-pricing started for {len(items)} items. Refresh in ~30 seconds."})
+        return jsonify({"ok": False, "error": "PC found but has 0 items", "source": source})
+
+    # Run auto-pricing INLINE (not in thread) so we see results immediately
+    found = 0
+    errors = []
+
+    # Catalog match
+    try:
+        from src.agents.product_catalog import match_item, init_catalog_db
+        init_catalog_db()
+        for item in items:
+            desc = item.get("description", "")
+            pn = str(item.get("item_number", "") or item.get("mfg_number", "") or "")
+            if not desc and not pn: continue
+            matches = match_item(desc, pn, top_n=1)
+            if matches and matches[0].get("match_confidence", 0) >= 0.50:
+                best = matches[0]
+                if not item.get("pricing"): item["pricing"] = {}
+                cat_price = best.get("recommended_price") or best.get("sell_price", 0)
+                cat_cost = best.get("cost", 0)
+                if cat_price > 0:
+                    item["pricing"]["catalog_match"] = best.get("name", "")[:60]
+                    item["pricing"]["catalog_confidence"] = best.get("match_confidence", 0)
+                    item["pricing"]["recommended_price"] = round(cat_price, 2)
+                    if cat_cost > 0: item["pricing"]["unit_cost"] = cat_cost
+                    found += 1
+    except Exception as e:
+        errors.append(f"catalog: {e}")
+
+    # SCPRS
+    try:
+        from src.knowledge.pricing_oracle import find_similar_items
+        for item in items:
+            if item.get("pricing", {}).get("recommended_price"): continue
+            desc = item.get("description", "")
+            pn = str(item.get("item_number", "") or item.get("mfg_number", "") or "")
+            matches = find_similar_items(item_number=pn, description=desc)
+            if matches:
+                best = matches[0]
+                quote = best.get("quote", best)
+                price = quote.get("unit_price", 0)
+                if price and price > 0:
+                    if not item.get("pricing"): item["pricing"] = {}
+                    item["pricing"]["scprs_price"] = price
+                    item["pricing"]["scprs_match"] = quote.get("description", "")[:60]
+                    item["pricing"]["recommended_price"] = round(price * 1.25, 2)
+                    item["pricing"]["unit_cost"] = price
+                    found += 1
+    except Exception as e:
+        errors.append(f"scprs: {e}")
+
+    # Save results
+    if found > 0:
+        pc["items"] = items
+        pc["auto_priced"] = True
+        pc["auto_priced_count"] = found
+        try:
+            from src.api.dashboard import _load_price_checks, _save_price_checks
+            pcs = _load_price_checks()
+            pcs[pcid] = pc
+            _save_price_checks(pcs)
+        except Exception as e:
+            errors.append(f"save: {e}")
+            # Fallback: write directly to JSON
+            try:
+                json_path = os.path.join(DATA_DIR, "price_checks.json")
+                with open(json_path) as f: jdata = json.load(f)
+                jdata[pcid] = pc
+                with open(json_path, "w") as f: json.dump(jdata, f, indent=2, default=str)
+            except: pass
+
+    return jsonify({
+        "ok": True,
+        "source": source,
+        "items": len(items),
+        "priced": found,
+        "errors": errors,
+        "message": f"Found prices for {found}/{len(items)} items" + (f" (errors: {errors})" if errors else ""),
+    })
 
 
 @bp.route("/api/pricecheck/<pcid>/auto-price-status")
