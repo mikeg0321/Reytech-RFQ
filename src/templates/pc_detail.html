@@ -120,7 +120,12 @@
       </div>
      </div>
      {% elif pc.get('status') == 'won' %}
-     <div style="padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(63,185,80,.12);border:1px solid rgba(63,185,80,.35);color:#3fb950;margin-bottom:10px"><span style="font-size:18px">🏆</span><div><b>Won</b>{% if pc.get('closed_at') %} — {{ pc.get('closed_at','')[:10] }}{% endif %}</div></div>
+     <div style="padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;justify-content:space-between;background:rgba(63,185,80,.12);border:1px solid rgba(63,185,80,.35);color:#3fb950;margin-bottom:10px">
+      <div style="display:flex;align-items:center;gap:10px"><span style="font-size:18px">🏆</span><div><b>Won</b>{% if pc.get('closed_at') %} — {{ pc.get('closed_at','')[:10] }}{% endif %}{% if pc.get('qb_po_number') %} · QB PO #{{ pc.get('qb_po_number','') }}{% endif %}</div></div>
+      {% if not pc.get('qb_po_id') %}
+      <button onclick="createQBPO(this)" style="padding:6px 16px;background:#238636;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer" aria-label="Create QuickBooks Purchase Order">💰 Create QB PO</button>
+      {% endif %}
+     </div>
      {% elif pc.get('status') == 'lost' %}
      <div style="padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.25);color:#f85149;margin-bottom:10px"><span style="font-size:18px">❌</span><div><b>Lost</b>{% if pc.get('closed_at') %} — {{ pc.get('closed_at','')[:10] }}{% endif %}{% if pc.get('closed_reason') %} · {{ pc.get('closed_reason','') }}{% endif %}</div></div>
      {% elif pc.get('status') in ('completed','converted') %}
@@ -598,7 +603,7 @@
     }
 
     function changeStatus(newStatus) {
-     var pcid={{ pcid|tojson }};
+     var pcid=_pcid;
      fetch('/api/pricecheck/'+pcid+'/status',{
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({status:newStatus})
@@ -606,6 +611,32 @@
       if(d.ok){showMsg('✅ Status: '+d.old_status+' → '+d.new_status,'ok');setTimeout(function(){location.reload()},600)}
       else{showMsg('❌ '+d.error,'err')}
      });
+    }
+
+    function createQBPO(btn) {
+     if(!confirm('Create Purchase Order in QuickBooks?\n\nThis will:\n• Group items by supplier\n• Find matching vendors in QB\n• Create one PO per supplier\n\nCosts used will be your Unit Cost values.')) return;
+     var pcid=_pcid;
+     btn.disabled=true;btn.textContent='⏳ Creating PO...';
+     fetch('/api/pricecheck/'+pcid+'/create-qb-po',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})
+     .then(function(r){return r.json()}).then(function(d){
+      btn.disabled=false;
+      if(d.ok){
+       var msg='✅ '+d.message;
+       if(d.created && d.created.length){
+        d.created.forEach(function(po){msg+='\nPO #'+po.doc_number+' — '+po.supplier+' ($'+Number(po.total).toFixed(2)+')'});
+       }
+       if(d.failed && d.failed.length){
+        msg+='\n\n⚠️ Failed:';
+        d.failed.forEach(function(f){msg+='\n• '+f.supplier+': '+f.error});
+       }
+       alert(msg);
+       if(d.created && d.created.length) location.reload();
+       else btn.textContent='💰 Create QB PO';
+      } else {
+       alert('❌ '+d.error);
+       btn.textContent='💰 Create QB PO';
+      }
+     }).catch(function(e){btn.disabled=false;btn.textContent='💰 Create QB PO';alert('Error: '+e.message)});
     }
 
     function addRow() {

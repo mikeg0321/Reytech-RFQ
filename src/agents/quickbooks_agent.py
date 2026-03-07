@@ -348,33 +348,49 @@ def find_vendor(name: str) -> Optional[dict]:
 # ─── Purchase Order Operations ───────────────────────────────────────────────
 
 def create_purchase_order(vendor_id: str, items: list,
-                          memo: str = "", ship_to: str = "") -> Optional[dict]:
+                          memo: str = "", ship_to: str = "",
+                          po_number: str = "") -> Optional[dict]:
     """
     Create a Purchase Order in QuickBooks.
 
     Args:
-        vendor_id: QB vendor ID
+        vendor_id: QB vendor ID (required)
         items: List of {"description": str, "qty": int, "unit_cost": float}
         memo: Optional memo/notes
         ship_to: Optional ship-to address
+        po_number: Optional custom PO/reference number
 
     Returns:
-        PO dict from QB or None on failure.
+        PO dict with qb_id, doc_number, total. None on failure.
     """
     if not is_configured():
+        log.warning("QB not configured - skipping PO creation")
+        return None
+    if not vendor_id:
+        log.warning("QB PO skipped: no vendor_id provided")
         return None
 
     lines = []
     for i, item in enumerate(items):
+        qty = item.get("qty", 0) or item.get("quantity", 0) or 1
+        cost = item.get("unit_cost", 0) or item.get("unit_price", 0) or 0
+        cost = float(cost)
+        qty = int(qty)
+        if cost <= 0:
+            continue
         lines.append({
             "DetailType": "ItemBasedExpenseLineDetail",
-            "Amount": round(item.get("qty", 1) * item.get("unit_cost", 0), 2),
+            "Amount": round(qty * cost, 2),
             "Description": item.get("description", "")[:4000],
             "ItemBasedExpenseLineDetail": {
-                "Qty": item.get("qty", 1),
-                "UnitPrice": item.get("unit_cost", 0),
+                "Qty": qty,
+                "UnitPrice": cost,
             },
         })
+
+    if not lines:
+        log.warning("QB PO skipped: no priced line items")
+        return None
 
     po_data = {
         "VendorRef": {"value": vendor_id},
@@ -382,12 +398,16 @@ def create_purchase_order(vendor_id: str, items: list,
     }
     if memo:
         po_data["Memo"] = memo[:4000]
+    if po_number:
+        po_data["DocNumber"] = po_number[:20]
+    if ship_to:
+        po_data["ShipAddr"] = {"Line1": ship_to[:100]}
 
     result = _qb_request("POST", "purchaseorder?minorversion=73", po_data)
     if result and "PurchaseOrder" in result:
         po = result["PurchaseOrder"]
-        log.info("Created QB PO #%s (vendor=%s, lines=%d)",
-                 po.get("DocNumber", "?"), vendor_id, len(lines))
+        log.info("Created QB PO #%s (vendor=%s, lines=%d, total=$%.2f)",
+                 po.get("DocNumber", "?"), vendor_id, len(lines), po.get("TotalAmt", 0))
         return {
             "qb_id": po.get("Id"),
             "doc_number": po.get("DocNumber"),
@@ -395,6 +415,7 @@ def create_purchase_order(vendor_id: str, items: list,
             "vendor": po.get("VendorRef", {}).get("name", ""),
             "created": po.get("MetaData", {}).get("CreateTime", ""),
         }
+    log.error("QB PO creation failed: %s", result)
     return None
 
 
@@ -565,19 +586,33 @@ def create_invoice(customer_id: str, items: list, po_number: str = "",
         memo: Customer memo
     """
     if not is_configured():
+        log.warning("QB not configured - skipping invoice creation")
+        return None
+    if not customer_id:
+        log.warning("QB invoice skipped: no customer_id provided")
         return None
 
     lines = []
     for i, item in enumerate(items):
+        qty = item.get("qty", 0) or item.get("quantity", 0) or 1
+        price = item.get("unit_price", 0) or item.get("price", 0) or 0
+        price = float(price)
+        qty = int(qty)
+        if price <= 0:
+            continue
         lines.append({
             "DetailType": "SalesItemLineDetail",
-            "Amount": round(item.get("qty", 1) * item.get("unit_price", 0), 2),
+            "Amount": round(qty * price, 2),
             "Description": item.get("description", ""),
             "SalesItemLineDetail": {
-                "Qty": item.get("qty", 1),
-                "UnitPrice": item.get("unit_price", 0),
+                "Qty": qty,
+                "UnitPrice": price,
             },
         })
+
+    if not lines:
+        log.warning("QB invoice skipped: no priced line items")
+        return None
 
     invoice_data = {
         "CustomerRef": {"value": customer_id},

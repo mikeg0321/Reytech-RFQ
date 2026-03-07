@@ -3893,46 +3893,104 @@ def api_pricecheck_mark_won(pcid):
         log.debug("mark-won catalog feedback error: %s", e)
     _enrich_catalog_from_pc(pc)
     log.info("PC %s marked WON: pc#=%s institution=%s", pcid, pc.get("pc_number"), pc.get("institution"))
-
-    # ── AUTO-CREATE QB PURCHASE ORDER ──────────────────────────────
-    qb_result = None
-    try:
-        from src.agents.quickbooks_agent import is_configured, create_purchase_order, find_vendor, find_customer
-        if is_configured():
-            items_for_po = []
-            for it in pc.get("items", []):
-                if it.get("no_bid"): continue
-                cost = it.get("vendor_cost") or it.get("pricing", {}).get("unit_cost") or 0
-                if cost <= 0: continue
-                items_for_po.append({
-                    "description": (it.get("description") or "")[:200],
-                    "quantity": it.get("qty", 1),
-                    "unit_price": float(cost),
-                    "item_number": it.get("mfg_number", ""),
-                })
-            if items_for_po:
-                # Find or default vendor
-                supplier = (pc.get("items", [{}])[0].get("item_supplier") or
-                           pc.get("items", [{}])[0].get("pricing", {}).get("catalog_best_supplier") or "")
-                vendor = find_vendor(supplier) if supplier else None
-                vendor_id = vendor["Id"] if vendor else None
-                qb_result = create_purchase_order(
-                    vendor_id=vendor_id,
-                    items=items_for_po,
-                    memo=f"PC #{pc.get('pc_number','')} — {pc.get('institution','')}",
-                    po_number=pc.get("pc_number", ""),
-                )
-                if qb_result and qb_result.get("Id"):
-                    pc["qb_po_id"] = qb_result["Id"]
-                    pc["qb_po_number"] = qb_result.get("DocNumber", "")
-                    _save_price_checks(pcs)
-                    log.info("QB PO created: #%s (ID: %s) for PC %s",
-                             qb_result.get("DocNumber"), qb_result.get("Id"), pcid)
-    except Exception as e:
-        log.warning("QB auto-PO failed (non-fatal): %s", e)
-
     return jsonify({"ok": True, "status": "won",
-                    "qb_po": {"id": qb_result.get("Id"), "number": qb_result.get("DocNumber")} if qb_result else None})
+                    "can_create_qb_po": True,
+                    "message": "Marked as won. Use 'Create QB PO' to send to QuickBooks."})
+
+
+@bp.route("/api/pricecheck/<pcid>/create-qb-po", methods=["POST"])
+@auth_required
+def api_pc_create_qb_po(pcid):
+    """Create QB Purchase Order from a won PC — separate step with validation.
+    Groups items by supplier. Requires vendor match in QB."""
+    try:
+        from src.agents.quickbooks_agent import is_configured, create_purchase_order, find_vendor
+        if not is_configured():
+            return jsonify({"ok": False, "error": "QuickBooks not configured"})
+
+        pcs = _load_price_checks()
+        pc = pcs.get(pcid)
+        if not pc:
+            return jsonify({"ok": False, "error": "PC not found"})
+
+        # Group items by supplier
+        supplier_items = {}
+        for it in pc.get("items", []):
+            if it.get("no_bid"):
+                continue
+            cost = (it.get("vendor_cost")
+                    or it.get("pricing", {}).get("unit_cost")
+                    or it.get("pricing", {}).get("amazon_cost")
+                    or 0)
+            cost = float(cost) if cost else 0
+            if cost <= 0:
+                continue
+
+            supplier = (it.get("item_supplier")
+                       or it.get("pricing", {}).get("catalog_best_supplier")
+                       or "Unknown Supplier")
+
+            if supplier not in supplier_items:
+                supplier_items[supplier] = []
+            supplier_items[supplier].append({
+                "description": (it.get("description") or "")[:200],
+                "qty": int(it.get("qty", 1)),
+                "unit_cost": cost,
+                "item_number": it.get("mfg_number", ""),
+            })
+
+        if not supplier_items:
+            return jsonify({"ok": False, "error": "No priced items to create PO for"})
+
+        # Get ship-to from PC header
+        header = (pc.get("parsed") or {}).get("header") or {}
+        ship_to = header.get("ship_to", "") or header.get("delivery_address", "")
+
+        # Create one PO per supplier
+        created_pos = []
+        failed = []
+        for supplier, items in supplier_items.items():
+            vendor = find_vendor(supplier)
+            if not vendor:
+                failed.append({"supplier": supplier, "items": len(items),
+                              "error": f"Vendor '{supplier}' not found in QuickBooks. Add them first."})
+                continue
+
+            result = create_purchase_order(
+                vendor_id=vendor["Id"],
+                items=items,
+                memo=f"Reytech PC #{pc.get('pc_number', '')} — {pc.get('institution', '')}",
+                ship_to=ship_to,
+                po_number=pc.get("pc_number", "")[:20],
+            )
+            if result and result.get("qb_id"):
+                created_pos.append({
+                    "supplier": supplier,
+                    "qb_id": result["qb_id"],
+                    "doc_number": result.get("doc_number", ""),
+                    "total": result.get("total", 0),
+                    "items": len(items),
+                })
+            else:
+                failed.append({"supplier": supplier, "items": len(items),
+                              "error": "QB API returned error"})
+
+        # Store QB references on PC
+        if created_pos:
+            pc["qb_pos"] = created_pos
+            pc["qb_po_id"] = created_pos[0]["qb_id"]
+            pc["qb_po_number"] = created_pos[0].get("doc_number", "")
+            _save_price_checks(pcs)
+
+        return jsonify({
+            "ok": True,
+            "created": created_pos,
+            "failed": failed,
+            "message": f"Created {len(created_pos)} PO(s)" + (f", {len(failed)} failed" if failed else ""),
+        })
+    except Exception as e:
+        log.error("QB PO creation error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)})
 
 
 @bp.route("/api/pricecheck/<pcid>/mark-lost", methods=["POST"])
