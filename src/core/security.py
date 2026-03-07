@@ -25,13 +25,6 @@ from datetime import datetime
 
 from flask import request, session, jsonify, abort
 
-# Ensure DB tables exist
-try:
-    from src.core.db import init_db as _init_db
-    _init_db()
-except Exception:
-    pass
-
 
 log = logging.getLogger("reytech.security")
 
