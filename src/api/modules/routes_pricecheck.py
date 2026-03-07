@@ -3981,31 +3981,60 @@ def api_pc_retry_auto_price(pcid):
     except Exception as e:
         errors.append(f"scprs: {e}")
 
-    # Save results
+    # Save results — write DIRECTLY to DB for this PC only
+    save_ok = False
     if found > 0:
         pc["items"] = items
         pc["auto_priced"] = True
         pc["auto_priced_count"] = found
+        
+        # Direct DB write — UPDATE items + pc_data for this PC only
         try:
-            from src.api.dashboard import _load_price_checks, _save_price_checks
-            pcs = _load_price_checks()
-            pcs[pcid] = pc
-            _save_price_checks(pcs)
-        except Exception as e:
-            errors.append(f"save: {e}")
-            # Fallback: write directly to JSON
+            db_path = os.path.join(_DATA_DIR, "reytech.db")
+            import sqlite3 as _sq
+            conn = _sq.connect(db_path, timeout=15)
+            pc_blob = json.dumps(pc, default=str)
+            items_json = json.dumps(items, default=str)
+            # Try UPDATE first (row already exists)
+            cur = conn.execute("UPDATE price_checks SET items=?, total_items=? WHERE id=?",
+                              (items_json, len(items), pcid))
+            if cur.rowcount == 0:
+                # Row doesn't exist — INSERT
+                conn.execute("""
+                    INSERT INTO price_checks (id, pc_number, institution, requestor, 
+                    items, status, created_at, agency, total_items)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (pcid, pc.get("pc_number",""), pc.get("institution",""),
+                      pc.get("requestor",""), items_json, pc.get("status","parsed"),
+                      pc.get("created_at",""), pc.get("institution",""), len(items)))
+            # Try to update pc_data blob too (column may not exist)
             try:
-                json_path = os.path.join(_DATA_DIR, "price_checks.json")
-                with open(json_path) as f: jdata = json.load(f)
-                jdata[pcid] = pc
-                with open(json_path, "w") as f: json.dump(jdata, f, indent=2, default=str)
-            except: pass
+                conn.execute("UPDATE price_checks SET pc_data=? WHERE id=?", (pc_blob, pcid))
+            except Exception:
+                pass  # pc_data column may not exist — items column is enough
+            conn.commit()
+            conn.close()
+            save_ok = True
+        except Exception as e:
+            errors.append(f"db_save: {e}")
+        
+        # Also JSON backup
+        try:
+            json_path = os.path.join(_DATA_DIR, "price_checks.json")
+            jdata = {}
+            if os.path.exists(json_path):
+                with open(json_path) as fp2: jdata = json.load(fp2)
+            jdata[pcid] = pc
+            with open(json_path, "w") as fp2: json.dump(jdata, fp2, indent=2, default=str)
+        except Exception as e:
+            errors.append(f"json_save: {e}")
 
     return jsonify({
         "ok": True,
         "source": source,
         "items": len(items),
         "priced": found,
+        "saved": save_ok,
         "errors": errors,
         "message": f"Found prices for {found}/{len(items)} items" + (f" (errors: {errors})" if errors else ""),
     })
