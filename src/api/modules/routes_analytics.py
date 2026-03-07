@@ -1864,3 +1864,70 @@ def api_webhooks_test():
         return jsonify({"ok": True, "message": "Test webhook fired"})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/rfq/<rid>/retry-auto-price", methods=["POST", "GET"])
+@auth_required
+def rfq_retry_auto_price(rid):
+    """Inline auto-price for an RFQ — runs synchronously, returns results."""
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"})
+    items = r.get("line_items", [])
+    if not items:
+        return jsonify({"ok": False, "error": "RFQ has no line items"})
+
+    found = 0
+    errors = []
+
+    # 1. SCPRS
+    try:
+        from src.agents.scprs_lookup import bulk_lookup
+        r["line_items"] = bulk_lookup(items)
+        items = r["line_items"]
+        scprs = sum(1 for i in items if i.get("scprs_last_price"))
+        found += scprs
+    except Exception as e:
+        errors.append(f"scprs: {e}")
+
+    # 2. Catalog
+    try:
+        from src.agents.product_catalog import match_item, init_catalog_db
+        init_catalog_db()
+        for item in items:
+            matches = match_item(item.get("description", ""), item.get("item_number", ""), top_n=1)
+            if matches and matches[0].get("match_confidence", 0) >= 0.50:
+                best = matches[0]
+                item["catalog_match"] = best
+                if best.get("recommended_price") and not item.get("recommended_price"):
+                    item["recommended_price"] = best["recommended_price"]
+                    found += 1
+    except Exception as e:
+        errors.append(f"catalog: {e}")
+
+    # 3. Compute recommended prices
+    try:
+        for item in items:
+            cost = item.get("scprs_last_price") or item.get("amazon_price") or 0
+            if cost and not item.get("recommended_price"):
+                item["recommended_price"] = round(float(cost) * 1.25, 2)
+                found += 1
+    except Exception as e:
+        errors.append(f"pricing: {e}")
+
+    # Save
+    try:
+        rfqs_fresh = load_rfqs()
+        rfqs_fresh[rid] = r
+        save_rfqs(rfqs_fresh)
+    except Exception as e:
+        errors.append(f"save: {e}")
+
+    return jsonify({
+        "ok": True,
+        "items": len(items),
+        "priced": found,
+        "errors": errors,
+        "message": f"Priced {found}/{len(items)} RFQ items" + (f" (errors: {errors})" if errors else ""),
+    })
