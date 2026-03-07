@@ -419,10 +419,10 @@ def create_purchase_order(vendor_id: str, items: list,
         if cost <= 0:
             continue
         lines.append({
-            "DetailType": "ItemBasedExpenseLineDetail",
+            "DetailType": "AccountBasedExpenseLineDetail",
             "Amount": round(qty * cost, 2),
             "Description": item.get("description", "")[:4000],
-            "ItemBasedExpenseLineDetail": {
+            "AccountBasedExpenseLineDetail": {"AccountRef": {"value": "1"},
                 "Qty": qty,
                 "UnitPrice": cost,
             },
@@ -615,7 +615,8 @@ def get_invoice_summary() -> dict:
 
 
 def create_invoice(customer_id: str, items: list, po_number: str = "",
-                    memo: str = "") -> Optional[dict]:
+                    memo: str = "", doc_number: str = "", terms: str = "",
+                    sales_rep: str = "") -> Optional[dict]:
     """
     Create an invoice in QuickBooks.
 
@@ -661,7 +662,20 @@ def create_invoice(customer_id: str, items: list, po_number: str = "",
     if memo:
         invoice_data["CustomerMemo"] = {"value": memo}
     if po_number:
+        # Set as both DocNumber reference and custom field
         invoice_data["CustomField"] = [{"DefinitionId": "1", "StringValue": po_number, "Type": "StringType"}]
+    if doc_number:
+        invoice_data["DocNumber"] = doc_number[:20]
+    # Terms: look up NET 45 in QB terms list
+    if terms:
+        invoice_data["SalesTermRef"] = {"value": terms}
+    # Sales Rep as custom field
+    if sales_rep:
+        cf = invoice_data.get("CustomField", [])
+        cf.append({"DefinitionId": "2", "StringValue": sales_rep, "Type": "StringType"})
+        invoice_data["CustomField"] = cf
+    # Tax — let QB auto-calculate based on customer tax settings
+    # (QB Online handles tax automatically if tax is enabled for the customer)
 
     result = _qb_request("POST", "invoice", invoice_data)
     if result and result.get("Invoice"):
@@ -734,6 +748,47 @@ def find_customer(name: str) -> Optional[dict]:
     for c in customers:
         if name_lower in c["name"].lower() or name_lower in c.get("company", "").lower():
             return c
+    return None
+
+
+
+def create_customer(name: str, email: str = "", phone: str = "",
+                     bill_address: str = "") -> Optional[dict]:
+    """Create a new customer in QuickBooks.
+    
+    Returns the created customer dict with Id, or None on failure.
+    """
+    if not is_configured():
+        return None
+    if not name:
+        return None
+
+    cust_data = {
+        "DisplayName": name,
+        "CompanyName": name,
+    }
+    if email:
+        cust_data["PrimaryEmailAddr"] = {"Address": email}
+    if phone:
+        cust_data["PrimaryPhone"] = {"FreeFormNumber": phone}
+    if bill_address:
+        cust_data["BillAddr"] = {"Line1": bill_address}
+
+    result = _qb_request("POST", "customer", cust_data)
+    if result and "Customer" in result:
+        c = result["Customer"]
+        log.info("Created QB customer: %s (ID: %s)", name, c.get("Id"))
+        # Clear cache
+        try:
+            os.remove(CUSTOMER_CACHE_FILE)
+        except Exception:
+            pass
+        return {
+            "Id": c.get("Id"),
+            "CompanyName": c.get("CompanyName", name),
+            "DisplayName": c.get("DisplayName", name),
+        }
+    log.error("Failed to create QB customer '%s': %s", name, result)
     return None
 
 

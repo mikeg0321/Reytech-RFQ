@@ -1866,7 +1866,7 @@ def api_order_create_qb_po(oid):
 def api_order_create_qb_invoice(oid):
     """Create QB Invoice to bill the customer for this order."""
     try:
-        from src.agents.quickbooks_agent import is_configured, create_invoice, find_customer
+        from src.agents.quickbooks_agent import is_configured, create_invoice, find_customer, create_customer
         if not is_configured():
             return jsonify({"ok": False, "error": "QuickBooks not configured"})
 
@@ -1875,12 +1875,21 @@ def api_order_create_qb_invoice(oid):
         if not order:
             return jsonify({"ok": False, "error": "Order not found"})
 
-        # Find customer in QB
-        institution = order.get("institution", "")
+        data = request.get_json(silent=True) or {}
+
+        # Find or create customer in QB
+        institution = data.get("customer_name") or order.get("institution", "")
         customer = find_customer(institution) if institution else None
         if not customer:
-            return jsonify({"ok": False,
-                           "error": f"Customer '{institution}' not found in QuickBooks. Add them in QB first."})
+            # Auto-create customer
+            customer = create_customer(
+                name=institution,
+                bill_address=order.get("ship_to", ""),
+            )
+            if not customer:
+                return jsonify({"ok": False,
+                    "error": f"Could not find or create customer '{institution}' in QuickBooks.",
+                    "action": "add_customer", "customer_name": institution})
 
         # Build invoice items from order (SELL prices, not costs)
         inv_items = []
@@ -1898,11 +1907,17 @@ def api_order_create_qb_invoice(oid):
         if not inv_items:
             return jsonify({"ok": False, "error": "No items with sell prices to invoice"})
 
+        # Invoice number: use order's quote number or sequential
+        doc_number = data.get("invoice_number") or order.get("invoice_number", "")
+
         result = create_invoice(
             customer_id=customer["Id"],
             items=inv_items,
             po_number=order.get("po_number", ""),
             memo=f"Reytech Order {oid}",
+            doc_number=doc_number,
+            terms=data.get("terms", ""),  # e.g., QB Terms ID for NET 45
+            sales_rep=data.get("sales_rep", "MG"),
         )
         if result:
             order["qb_invoice_id"] = result.get("id", "")

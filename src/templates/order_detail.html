@@ -658,12 +658,22 @@
     }
 
     function createQBInvoice(btn){
-     if(!confirm('Create invoice in QuickBooks for this order?\n\nThis sends your SELL prices (not costs) to QB as a customer invoice.')) return;
+     var invNum = prompt('Invoice number (leave blank for QB auto-number):','');
+     if(invNum === null) return; // cancelled
+     if(!confirm('Create invoice in QuickBooks for this order?\n\n'
+       +'• Customer: auto-found or created in QB\n'
+       +'• Items: your SELL prices (not costs)\n'
+       +'• PO#: from order\n'
+       +'• Sales Rep: MG\n'
+       +(invNum?'• Invoice #: '+invNum+'\n':'• Invoice #: QB auto-number\n')
+     )) return;
      btn.disabled=true;btn.textContent='⏳ Creating...';
-     fetch('/api/order/'+{{ oid|tojson }}+'/create-qb-invoice',{method:'POST'})
-     .then(function(r){return r.json()}).then(function(d){
+     fetch('/api/order/'+{{ oid|tojson }}+'/create-qb-invoice',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({invoice_number:invNum, sales_rep:'MG'})
+     }).then(function(r){return r.json()}).then(function(d){
       btn.disabled=false;btn.textContent='📄 QB Invoice';
-      if(d.ok) alert('✅ Invoice #'+d.invoice_number+' created in QuickBooks ($'+Number(d.total||0).toFixed(2)+')');
+      if(d.ok) alert('✅ Invoice #'+(d.invoice_number||'?')+' created in QuickBooks ($'+Number(d.total||0).toFixed(2)+')');
       else alert('❌ '+(d.error||'Failed'));
      }).catch(function(){btn.disabled=false;btn.textContent='📄 QB Invoice'});
     }

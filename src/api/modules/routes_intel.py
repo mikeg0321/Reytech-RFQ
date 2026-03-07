@@ -3551,6 +3551,30 @@ def api_qb_customers():
     return jsonify({"ok": True, "customers": customers, "count": len(customers)})
 
 
+@bp.route("/api/qb/customers/create", methods=["POST"])
+@auth_required
+def api_qb_customer_create():
+    """Create a new customer in QuickBooks. POST {name, email, bill_address}"""
+    if not QB_AVAILABLE or not qb_configured():
+        return jsonify({"ok": False, "error": "QuickBooks not configured"})
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify({"ok": False, "error": "Customer name is required"})
+    existing = qb_find_customer(name)
+    if existing:
+        return jsonify({"ok": True, "customer": existing, "message": "Customer already exists in QB"})
+    try:
+        from src.agents.quickbooks_agent import create_customer
+        result = create_customer(name, email=data.get("email", ""),
+                                  bill_address=data.get("bill_address", ""))
+        if result:
+            return jsonify({"ok": True, "customer": result})
+        return jsonify({"ok": False, "error": "QuickBooks API error"})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
 @bp.route("/api/qb/customers/balances")
 @auth_required
 def api_qb_customer_balances():
