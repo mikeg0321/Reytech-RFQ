@@ -1365,6 +1365,8 @@ def _enrich_catalog_from_pc(pc):
         mfg = str(item.get("mfg_number") or "").strip()
         up = item.get("unit_price") or item.get("pricing", {}).get("recommended_price") or 0
         cost = item.get("vendor_cost") or item.get("pricing", {}).get("unit_cost") or 0
+        scprs = item.get("pricing", {}).get("scprs_price") or item.get("scprs_last_price") or 0
+        amazon = item.get("pricing", {}).get("amazon_price") or item.get("amazon_price") or 0
         qty = item.get("qty", 1) or 1
         link = (item.get("item_link") or "").strip()
         supplier = (item.get("item_supplier") or "").strip()
@@ -1382,6 +1384,14 @@ def _enrich_catalog_from_pc(pc):
                 if cost > 0:
                     updates["sell_price"] = float(up) if up > 0 else None
                     updates["cost"] = float(cost)
+                if scprs and scprs > 0:
+                    updates["scprs_last_price"] = float(scprs)
+                    updates["scprs_last_date"] = datetime.now().isoformat()
+                    updates["scprs_agency"] = agency
+                if amazon and amazon > 0:
+                    updates["web_lowest_price"] = float(amazon)
+                    updates["web_lowest_source"] = "Amazon"
+                    updates["web_lowest_date"] = datetime.now().isoformat()
                 _cat_update(pid, **updates)
                 # Record supplier with URL (even without cost — URL is valuable)
                 if supplier and link:

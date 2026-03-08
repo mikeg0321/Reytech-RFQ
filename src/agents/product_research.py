@@ -490,6 +490,9 @@ def research_rfq_items(rfq_data: dict) -> dict:
                 item["supplier_cost"] = result["price"]
                 item["supplier_source"] = result["source"]
                 item["supplier_url"] = result.get("url", "")
+                # Also write to field names the RFQ page reads
+                item["item_link"] = result.get("url", "")
+                item["item_supplier"] = result.get("source", "")
                 RESEARCH_STATUS["prices_found"] = found
             else:
                 not_found += 1

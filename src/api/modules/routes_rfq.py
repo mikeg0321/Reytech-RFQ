@@ -825,6 +825,9 @@ def api_rfq_autosave(rid):
                     item["item_supplier"] = detect_supplier(item["item_link"])
                 except Exception:
                     pass
+        if "scprs_last_price" in update and update["scprs_last_price"] is not None:
+            try: item["scprs_last_price"] = float(update["scprs_last_price"])
+            except Exception: pass
 
     save_rfqs(rfqs)
 

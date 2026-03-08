@@ -542,6 +542,7 @@ function _getFormData(){
    item_link:(document.querySelector('[name=link_'+i+']').value||'').trim(),
    supplier_cost:parseFloat(document.querySelector('[name=cost_'+i+']').value)||null,
    price_per_unit:parseFloat(document.querySelector('[name=price_'+i+']').value)||null,
+   scprs_last_price:parseFloat((document.querySelector('[name=scprs_'+i+']')||{}).value)||null,
   });
  }
  return JSON.stringify({items});
@@ -658,6 +659,7 @@ function lookupScprs(){
     if(r.price){document.querySelector(`[name=scprs_${i}]`).value=r.price.toFixed(2);found++}
    });
    recalc();
+   triggerAutosave(); // Save SCPRS results immediately
   }
   btn.disabled=false;
   if(found>0){
