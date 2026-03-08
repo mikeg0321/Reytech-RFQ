@@ -3885,7 +3885,7 @@ except Exception as _e:
 
 # ── Start PO Tracking Email Poller (auto-updates order status from vendor emails) ──
 try:
-    from src.api.modules.routes_order_tracking import _start_po_poller
+    # _start_po_poller is already in namespace from exec'd routes_order_tracking
     _start_po_poller()
     log.info("PO tracking poller started (checks vendor emails every 5min)")
 except Exception as _e:

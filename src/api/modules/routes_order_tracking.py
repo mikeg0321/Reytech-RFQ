@@ -17,6 +17,7 @@ from flask import request, jsonify, Response
 from src.api.shared import bp, auth_required
 import os
 import logging
+from datetime import datetime
 log = logging.getLogger("reytech")
 from flask import redirect, flash
 from src.core.db import get_db
@@ -434,8 +435,8 @@ def _start_po_poller():
     log.info("PO email poller started for %s (interval=%ds)", cfg["email"], _PO_POLL_INTERVAL)
 
 
-# Start poller on module load
-_start_po_poller()
+# PO poller started from dashboard.py boot sequence — not here
+# _start_po_poller()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
