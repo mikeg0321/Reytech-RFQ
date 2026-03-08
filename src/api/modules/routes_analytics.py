@@ -2342,8 +2342,8 @@ def api_rfq_import_from_pc(rid):
             "price_per_unit": bid,
             "scprs_last_price": pricing.get("scprs_price"),
             "amazon_price": pricing.get("amazon_price") or pricing.get("amazon_cost"),
-            "item_link": it.get("item_link") or pricing.get("amazon_url", ""),
-            "item_supplier": it.get("item_supplier") or pricing.get("catalog_best_supplier", ""),
+            "item_link": it.get("item_link") or pricing.get("web_url") or pricing.get("catalog_url") or pricing.get("amazon_url", ""),
+            "item_supplier": it.get("item_supplier") or pricing.get("catalog_best_supplier") or pricing.get("web_source", ""),
             "_from_pc": pc.get("pc_number", pc_id),
         }
         imported.append(rfq_item)

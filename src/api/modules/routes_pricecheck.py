@@ -308,9 +308,14 @@ def _pricecheck_detail_inner(pcid):
         profit_color = "#3fb950" if item_profit > 0 else ("#f85149" if item_profit < 0 else "#8b949e")
         profit_str = f'<span style="color:{profit_color}">${item_profit:.2f}</span>' if (final_price and unit_cost) else "—"
         
-        # Item link
-        item_link = item.get("item_link") or ""
-        item_supplier = item.get("item_supplier") or ""
+        # Item link — check item_link first, then pricing sub-fields
+        item_link = item.get("item_link") or p.get("web_url") or p.get("catalog_url") or p.get("amazon_url") or ""
+        item_supplier = item.get("item_supplier") or p.get("catalog_best_supplier") or p.get("web_source") or ""
+        # Promote from pricing to item level so Save & Generate persists it
+        if item_link and not item.get("item_link"):
+            item["item_link"] = item_link
+        if item_supplier and not item.get("item_supplier"):
+            item["item_supplier"] = item_supplier
         link_display = f'<a href="{item_link}" target="_blank" style="font-size:14px;color:#58a6ff;word-break:break-all">{item_supplier or item_link[:30]}</a>' if item_link else ""
         supplier_badge = f'<span style="font-size:13px;color:#8b949e;display:block;margin-top:1px">{item_supplier}</span>' if item_supplier else ""
 

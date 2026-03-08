@@ -969,6 +969,16 @@ def _auto_price_new_pc(pc_id: str):
                     item["pricing"]["web_source"] = result.get("source", "")
                     item["pricing"]["web_url"] = result.get("url", "")
                     item["pricing"]["unit_cost"] = result["price"]
+                    # Populate item_link — this is what the UI reads and catalog saves
+                    web_url = result.get("url", "")
+                    if web_url and not item.get("item_link"):
+                        item["item_link"] = web_url
+                        # Auto-detect supplier from URL
+                        try:
+                            from src.agents.item_link_lookup import detect_supplier
+                            item["item_supplier"] = detect_supplier(web_url)
+                        except Exception:
+                            item["item_supplier"] = result.get("source", "Web")
                     # Store part/MFG number if found
                     web_pn = result.get("part_number", "")
                     if web_pn:
