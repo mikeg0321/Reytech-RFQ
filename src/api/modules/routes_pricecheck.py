@@ -1013,14 +1013,15 @@ def _do_save_prices(pcid):
             with get_db() as conn:
                 row = conn.execute("SELECT * FROM price_checks WHERE id=?", (pcid,)).fetchone()
                 if row:
+                    r = dict(row)
                     pc = {
                         "id": pcid,
-                        "pc_number": row.get("pc_number") or row.get("quote_number") or pcid,
-                        "institution": row.get("institution") or row.get("agency") or "",
-                        "requestor": row.get("requestor") or "",
-                        "items": json.loads(row.get("items") or "[]"),
-                        "status": row.get("status") or "parsed",
-                        "created_at": row.get("created_at") or "",
+                        "pc_number": r.get("pc_number") or r.get("quote_number") or pcid,
+                        "institution": r.get("institution") or r.get("agency") or "",
+                        "requestor": r.get("requestor") or "",
+                        "items": json.loads(r.get("items") or "[]"),
+                        "status": r.get("status") or "parsed",
+                        "created_at": r.get("created_at") or "",
                         "source": "recovered_from_db",
                     }
                     pcs[pcid] = pc
@@ -3993,13 +3994,10 @@ def api_pc_retry_auto_price(pcid):
             db_path = os.path.join(_DATA_DIR, "reytech.db")
             import sqlite3 as _sq
             conn = _sq.connect(db_path, timeout=15)
-            pc_blob = json.dumps(pc, default=str)
             items_json = json.dumps(items, default=str)
-            # Try UPDATE first (row already exists)
             cur = conn.execute("UPDATE price_checks SET items=?, total_items=? WHERE id=?",
                               (items_json, len(items), pcid))
             if cur.rowcount == 0:
-                # Row doesn't exist — INSERT
                 conn.execute("""
                     INSERT INTO price_checks (id, pc_number, institution, requestor, 
                     items, status, created_at, agency, total_items)
@@ -4007,16 +4005,25 @@ def api_pc_retry_auto_price(pcid):
                 """, (pcid, pc.get("pc_number",""), pc.get("institution",""),
                       pc.get("requestor",""), items_json, pc.get("status","parsed"),
                       pc.get("created_at",""), pc.get("institution",""), len(items)))
-            # Try to update pc_data blob too (column may not exist)
-            try:
-                conn.execute("UPDATE price_checks SET pc_data=? WHERE id=?", (pc_blob, pcid))
-            except Exception:
-                pass  # pc_data column may not exist — items column is enough
             conn.commit()
             conn.close()
             save_ok = True
         except Exception as e:
             errors.append(f"db_save: {e}")
+        
+        # CRITICAL: Invalidate the 30s cache so page reads fresh data
+        try:
+            import src.api.dashboard as _dash
+            _dash._pc_cache = None
+            _dash._pc_cache_time = 0
+        except Exception:
+            pass
+        
+        # Write to catalog so pricing intelligence persists
+        try:
+            _enrich_catalog_from_pc(pc)
+        except Exception as e:
+            errors.append(f"catalog: {e}")
         
         # Also JSON backup
         try:
