@@ -655,7 +655,7 @@ def log_email_sent_db(direction: str, sender: str, recipient: str, subject: str,
 _pc_cache = None
 _pc_cache_time = 0
 
-def _load_price_checks():
+def _load_price_checks(include_items=True):
     """Load price checks from SQLite (primary source of truth).
     
     Migration note: This was JSON-primary until March 2026. Now DB-primary.
@@ -665,7 +665,7 @@ def _load_price_checks():
     global _pc_cache, _pc_cache_time
     import time as _t
     now = _t.time()
-    if _pc_cache is not None and (now - _pc_cache_time) < 30:  # 30s TTL
+    if include_items and _pc_cache is not None and (now - _pc_cache_time) < 30:
         return _pc_cache
     
     data = {}
@@ -685,12 +685,20 @@ def _load_price_checks():
                 except Exception:
                     pass
 
-            rows = conn.execute(
-                """SELECT id, pc_number, institution, requestor, items, status, 
-                   created_at, email_uid, email_subject, due_date, agency, 
-                   source_file, quote_number, total_items
-                   FROM price_checks WHERE status NOT IN ('deleted')"""
-            ).fetchall()
+            if include_items:
+                rows = conn.execute(
+                    """SELECT id, pc_number, institution, requestor, items, status, 
+                       created_at, email_uid, email_subject, due_date, agency, 
+                       source_file, quote_number, total_items
+                       FROM price_checks WHERE status NOT IN ('deleted')"""
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """SELECT id, pc_number, institution, requestor, '[]' as items, status, 
+                       created_at, email_uid, email_subject, due_date, agency, 
+                       source_file, quote_number, total_items
+                       FROM price_checks WHERE status NOT IN ('deleted')"""
+                ).fetchall()
             for _row in rows:
                 r = dict(_row)
                 pc_id = r["id"]
@@ -744,9 +752,10 @@ def _load_price_checks():
     except Exception as _mig_e:
         log.debug("JSON→DB migration check: %s", _mig_e)
 
-    # Cache for 30 seconds
-    _pc_cache = data
-    _pc_cache_time = _t.time()
+    # Only cache full results (with items)
+    if include_items:
+        _pc_cache = data
+        _pc_cache_time = _t.time()
     return data
 
 def _save_price_checks(pcs):
