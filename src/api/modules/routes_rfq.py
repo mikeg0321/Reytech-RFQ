@@ -265,7 +265,7 @@ def health_check():
 @bp.route("/")
 @auth_required
 def home():
-    all_pcs = _load_price_checks(include_items=False)  # Light mode — home page doesn't show items
+    all_pcs = _load_price_checks()
     # Use canonical filter — auto-price PCs belong to RFQ rows, not PC queue
     from src.api.dashboard import _is_user_facing_pc
     user_pcs = {k: v for k, v in all_pcs.items() if _is_user_facing_pc(v)}
