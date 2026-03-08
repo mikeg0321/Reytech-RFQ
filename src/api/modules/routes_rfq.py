@@ -2503,8 +2503,8 @@ def api_generate_obs1600(rid):
         if not bid_pkg:
             import glob
             for pattern in [f"*{sol}*BID*PACKAGE*", f"*{sol}*bid*pack*", f"*{sol}*form*", f"*{sol}*.pdf"]:
-                for search_dir in ["data/uploads", "data/rfq_templates", f"data/output/{sol}"]:
-                    matches = glob.glob(os.path.join(os.path.dirname(__file__), "..", "..", "..", search_dir, pattern))
+                for search_dir in [os.path.join(DATA_DIR, "uploads"), os.path.join(DATA_DIR, "rfq_templates"), os.path.join(DATA_DIR, "output", sol)]:
+                    matches = glob.glob(os.path.join(search_dir, pattern))
                     for m in matches:
                         # Verify it has OBS 1600 fields
                         try:

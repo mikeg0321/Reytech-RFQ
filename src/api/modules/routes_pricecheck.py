@@ -3990,42 +3990,21 @@ def api_pc_retry_auto_price(pcid):
     except Exception as e:
         errors.append(f"scprs: {e}")
 
-    # Save results — write DIRECTLY to DB for this PC only
+    # Save results
     save_ok = False
     if found > 0:
         pc["items"] = items
         pc["auto_priced"] = True
         pc["auto_priced_count"] = found
         
-        # Direct DB write — UPDATE items + pc_data for this PC only
+        # Use _save_price_checks for proper dual-write (DB + JSON) + cache invalidation
         try:
-            db_path = os.path.join(_DATA_DIR, "reytech.db")
-            import sqlite3 as _sq
-            conn = _sq.connect(db_path, timeout=15)
-            items_json = json.dumps(items, default=str)
-            cur = conn.execute("UPDATE price_checks SET items=?, total_items=? WHERE id=?",
-                              (items_json, len(items), pcid))
-            if cur.rowcount == 0:
-                conn.execute("""
-                    INSERT INTO price_checks (id, pc_number, institution, requestor, 
-                    items, status, created_at, agency, total_items)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (pcid, pc.get("pc_number",""), pc.get("institution",""),
-                      pc.get("requestor",""), items_json, pc.get("status","parsed"),
-                      pc.get("created_at",""), pc.get("institution",""), len(items)))
-            conn.commit()
-            conn.close()
+            pcs = _load_price_checks()
+            pcs[pcid] = pc
+            _save_price_checks(pcs)
             save_ok = True
         except Exception as e:
-            errors.append(f"db_save: {e}")
-        
-        # CRITICAL: Invalidate the 30s cache so page reads fresh data
-        try:
-            import src.api.dashboard as _dash
-            _dash._pc_cache = None
-            _dash._pc_cache_time = 0
-        except Exception:
-            pass
+            errors.append(f"save: {e}")
         
         # Write to catalog so pricing intelligence persists
         try:
