@@ -790,6 +790,19 @@ def pricecheck_scprs_lookup(pcid):
                             )
                         except Exception as _e:
                             log.debug("Suppressed: %s", _e)
+                        # Write to catalog so future auto-price finds it
+                        try:
+                            from src.agents.product_catalog import add_to_catalog, init_catalog_db
+                            init_catalog_db()
+                            add_to_catalog(
+                                description=item.get("description", ""),
+                                part_number=str(item.get("item_number", "") or ""),
+                                cost=float(scprs_price),
+                                sell_price=0,
+                                source="scprs_kb_match",
+                            )
+                        except Exception:
+                            pass
                     found += 1
             except Exception as e:
                 log.error(f"SCPRS lookup error: {e}")
@@ -2214,6 +2227,20 @@ def api_scprs(rid):
                             source_id=result.get("po_number", ""),
                             agency=result.get("department", ""),
                             notes=f"SCPRS vendor: {result.get('vendor', '')}"
+                        )
+                    except Exception:
+                        pass
+                    # Also write to product_catalog so future lookups find it
+                    try:
+                        from src.agents.product_catalog import add_to_catalog, init_catalog_db
+                        init_catalog_db()
+                        add_to_catalog(
+                            description=desc or "",
+                            part_number=item_num or "",
+                            cost=float(result["price"]),
+                            sell_price=0,
+                            source="scprs_live",
+                            supplier_name=result.get("vendor", ""),
                         )
                     except Exception:
                         pass

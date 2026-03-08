@@ -858,6 +858,32 @@ def api_rfq_autosave(rid):
     except Exception:
         pass
 
+    # Write priced items to catalog (same as full save does)
+    try:
+        sol = r.get("solicitation_number", "")
+        for update in items_data:
+            idx = update.get("idx")
+            if idx is None or idx >= len(r["line_items"]):
+                continue
+            item = r["line_items"][idx]
+            cost = item.get("supplier_cost") or 0
+            bid = item.get("price_per_unit") or 0
+            desc = item.get("description", "")
+            if desc and (cost > 0 or bid > 0):
+                from src.agents.product_catalog import add_to_catalog, init_catalog_db
+                init_catalog_db()
+                add_to_catalog(
+                    description=desc,
+                    part_number=item.get("item_number", ""),
+                    cost=float(cost) if cost else 0,
+                    sell_price=float(bid) if bid else 0,
+                    source=f"rfq_autosave_{sol}",
+                    supplier_name=item.get("item_supplier", ""),
+                    supplier_url=item.get("item_link", ""),
+                )
+    except Exception:
+        pass
+
     return jsonify({
         "ok": True, "saved": len(items_data),
         "guardrails": guardrail_warnings if guardrail_warnings else None,
