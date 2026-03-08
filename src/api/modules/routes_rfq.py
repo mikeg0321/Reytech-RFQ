@@ -233,6 +233,7 @@ def _record_rfq_prices(rfq_data, source="rfq_save"):
                     sell_price=float(bid) if bid else 0,
                     source=f"rfq_{sol}",
                     supplier_name=item.get("item_supplier", ""),
+                    supplier_url=item.get("item_link", ""),
                 )
             except Exception:
                 pass

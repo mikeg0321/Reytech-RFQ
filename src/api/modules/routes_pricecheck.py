@@ -2948,6 +2948,14 @@ def api_pricecheck_dismiss(pcid):
     except Exception as e:
         log.debug("SQLite PC dismiss update: %s", e)
     
+    # Invalidate cache so next page load sees the change
+    try:
+        import src.api.dashboard as _dash
+        _dash._pc_cache = None
+        _dash._pc_cache_time = 0
+    except Exception:
+        pass
+    
     log.info("PC %s dismissed: reason=%s pc_number=%s", pcid, reason, pc.get("pc_number","?"))
     
     # Queue SCPRS price intelligence pull on the items (async)
