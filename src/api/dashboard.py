@@ -1430,7 +1430,12 @@ def process_rfq_email(rfq_email):
     if is_early_pc:
         _trace.append(f"EARLY PC DETECT: signals={rfq_email.get('_pc_signals', [])}")
     
-    if pdf_paths and PRICE_CHECK_AVAILABLE:
+    # ── ROUTING RULE: 1 PDF = Price Check, multiple PDFs = RFQ ──────────────
+    # Single 704 form → PC (market pricing research)
+    # Multiple PDFs (704B + 703B + bid package) → RFQ (formal bid)
+    is_single_pdf = len(pdf_paths) == 1
+    
+    if (is_single_pdf or is_early_pc) and pdf_paths and PRICE_CHECK_AVAILABLE:
         try:
             # Inline PC detection — can't import from routes_rfq (bp not defined at import time)
             def _is_pc_filename(path):
