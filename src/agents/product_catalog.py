@@ -1691,8 +1691,30 @@ def add_to_catalog(description: str, part_number: str = "", cost: float = 0,
         "SELECT id FROM product_catalog WHERE name = ? LIMIT 1", (name,)
     ).fetchone()
     if existing:
+        pid = existing["id"]
+        # Still update cost + URL even for existing items
+        try:
+            if cost > 0:
+                conn.execute("UPDATE product_catalog SET cost=?, best_cost=?, updated_at=? WHERE id=? AND (cost IS NULL OR cost=0)",
+                            (cost, cost, now, pid))
+            if sell_price > 0:
+                conn.execute("UPDATE product_catalog SET sell_price=?, updated_at=? WHERE id=? AND (sell_price IS NULL OR sell_price=0)",
+                            (sell_price, sell_price, now, pid))
+            if supplier_name:
+                conn.execute("UPDATE product_catalog SET best_supplier=?, updated_at=? WHERE id=? AND (best_supplier IS NULL OR best_supplier='')",
+                            (supplier_name, now, pid))
+            conn.execute("UPDATE product_catalog SET times_quoted=times_quoted+1, updated_at=? WHERE id=?", (now, pid))
+            conn.commit()
+        except Exception:
+            pass
         conn.close()
-        return existing["id"]  # Already exists
+        # Save supplier URL for existing products too
+        if supplier_url:
+            try:
+                add_supplier_price(pid, supplier_name or "Web", cost if cost > 0 else 0, url=supplier_url)
+            except Exception:
+                pass
+        return pid
 
     # Also check by description tokens to prevent near-duplicates
     desc_tokens = set(_tokenize(description).split())
@@ -1710,8 +1732,25 @@ def add_to_catalog(description: str, part_number: str = "", cost: float = 0,
                 prod_tokens = set((candidate["search_tokens"] or "").split())
                 overlap = len(desc_tokens & prod_tokens) / max(len(desc_tokens | prod_tokens), 1)
                 if overlap >= 0.60:
+                    pid = candidate["id"]
+                    try:
+                        if cost > 0:
+                            conn.execute("UPDATE product_catalog SET cost=?, best_cost=?, updated_at=? WHERE id=? AND (cost IS NULL OR cost=0)",
+                                        (cost, cost, now, pid))
+                        if sell_price > 0:
+                            conn.execute("UPDATE product_catalog SET sell_price=?, updated_at=? WHERE id=? AND (sell_price IS NULL OR sell_price=0)",
+                                        (sell_price, sell_price, now, pid))
+                        conn.execute("UPDATE product_catalog SET times_quoted=times_quoted+1, updated_at=? WHERE id=?", (now, pid))
+                        conn.commit()
+                    except Exception:
+                        pass
                     conn.close()
-                    return candidate["id"]
+                    if supplier_url:
+                        try:
+                            add_supplier_price(pid, supplier_name or "Web", cost if cost > 0 else 0, url=supplier_url)
+                        except Exception:
+                            pass
+                    return pid
         except Exception as e:
             log.debug("Token dedup check failed: %s", e)
 
@@ -1760,8 +1799,8 @@ def add_to_catalog(description: str, part_number: str = "", cost: float = 0,
                 VALUES (?, 'cost', ?, ?, ?)
             """, (pid, cost, source, now))
 
-        # Add supplier if URL provided
-        _needs_supplier = supplier_url and cost > 0
+        # Add supplier if URL provided (URL is valuable even without cost)
+        _needs_supplier = bool(supplier_url)
         _sup_name = supplier_name or "Web"
 
         conn.commit()
