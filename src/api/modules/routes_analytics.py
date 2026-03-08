@@ -2362,3 +2362,125 @@ def api_rfq_import_from_pc(rid):
         "pc_number": pc.get("pc_number", ""),
         "priced": sum(1 for it in imported if it.get("supplier_cost") or it.get("price_per_unit")),
     })
+
+
+@bp.route("/api/rfq/<rid>/upload-pc", methods=["POST"])
+@auth_required
+def api_rfq_upload_pc(rid):
+    """Upload a filled PC PDF → parse → verify/save to catalog → populate RFQ.
+    
+    Handles edge case: PC was filled outside app or data was lost.
+    The filled PDF has all the pricing data — extract it, save to catalog,
+    and populate the RFQ line items.
+    """
+    import os, shutil
+    from src.core.paths import DATA_DIR
+
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"})
+
+    f = request.files.get("file")
+    if not f or not f.filename.lower().endswith(".pdf"):
+        return jsonify({"ok": False, "error": "Upload a PDF file"})
+
+    # Save uploaded file
+    upload_dir = os.path.join(DATA_DIR, "uploads")
+    os.makedirs(upload_dir, exist_ok=True)
+    pdf_path = os.path.join(upload_dir, f"pc_import_{rid}_{f.filename}")
+    f.save(pdf_path)
+
+    # Parse the 704
+    try:
+        from src.forms.price_check import parse_ams704
+        parsed = parse_ams704(pdf_path)
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"Parse failed: {e}"})
+
+    if parsed.get("error"):
+        return jsonify({"ok": False, "error": f"Parse error: {parsed['error']}"})
+
+    items = parsed.get("line_items", [])
+    prices = parsed.get("existing_prices", {})
+    header = parsed.get("header", {})
+    pc_number = header.get("price_check_number", "")
+    institution = header.get("institution", "")
+
+    if not items:
+        return jsonify({"ok": False, "error": "No items found in PDF"})
+
+    # Build RFQ line items from parsed PC + merge existing prices
+    catalog_added = 0
+    catalog_updated = 0
+    imported = []
+
+    for it in items:
+        row_idx = it.get("row_index", 0)
+        price = prices.get(row_idx) or prices.get(str(row_idx)) or 0
+        try:
+            price = float(price) if price else 0
+        except:
+            price = 0
+
+        desc = it.get("description", "")
+        qty = it.get("qty", 1) or 1
+        uom = it.get("uom", "EA") or "EA"
+        mfg = it.get("mfg_number", "") or it.get("item_number", "")
+
+        rfq_item = {
+            "description": desc,
+            "qty": qty,
+            "uom": uom,
+            "item_number": mfg,
+            "supplier_cost": price if price > 0 else None,
+            "price_per_unit": price if price > 0 else None,
+            "_from_pc": pc_number or "uploaded",
+        }
+        imported.append(rfq_item)
+
+        # Write to catalog
+        if desc and price > 0:
+            try:
+                from src.agents.product_catalog import (
+                    match_item, add_to_catalog, update_product_pricing,
+                    add_supplier_price, init_catalog_db
+                )
+                init_catalog_db()
+                matches = match_item(desc, mfg, top_n=1)
+                if matches and matches[0].get("match_confidence", 0) >= 0.55:
+                    # Update existing
+                    pid = matches[0]["id"]
+                    update_product_pricing(pid,
+                        sell_price=price, cost=price,
+                        last_sold_price=price,
+                        times_quoted=(matches[0].get("times_quoted") or 0) + 1,
+                    )
+                    catalog_updated += 1
+                else:
+                    # Add new
+                    add_to_catalog(
+                        description=desc, part_number=mfg, mfg_number=mfg,
+                        cost=price, sell_price=price, uom=uom,
+                        source=f"pc_upload_{pc_number}",
+                    )
+                    catalog_added += 1
+            except Exception as e:
+                log.debug("Catalog write from PC upload: %s", e)
+
+    # Replace RFQ line items
+    r["line_items"] = imported
+    r["linked_pc_number"] = pc_number
+    r["linked_pc_match_reason"] = "pdf_upload"
+    r["uploaded_pc_pdf"] = pdf_path
+    save_rfqs(rfqs)
+
+    return jsonify({
+        "ok": True,
+        "items_imported": len(imported),
+        "pc_number": pc_number,
+        "institution": institution,
+        "catalog_added": catalog_added,
+        "catalog_updated": catalog_updated,
+        "priced": sum(1 for it in imported if it.get("price_per_unit")),
+    })
