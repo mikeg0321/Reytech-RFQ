@@ -221,15 +221,18 @@ def _record_rfq_prices(rfq_data, source="rfq_save"):
             except Exception:
                 pass
 
-        # Auto-ingest to catalog if not already there
+        # Auto-ingest to product_catalog (same table PC uses + auto-price reads)
         if cost > 0 or bid > 0:
             try:
-                from src.core.catalog import auto_ingest_item
-                auto_ingest_item(
+                from src.agents.product_catalog import add_to_catalog, init_catalog_db
+                init_catalog_db()
+                add_to_catalog(
                     description=desc,
-                    unit_price=bid or cost,
-                    manufacturer=item.get("manufacturer", ""),
-                    source=f"rfq_{sol}"
+                    part_number=pn,
+                    cost=float(cost) if cost else 0,
+                    sell_price=float(bid) if bid else 0,
+                    source=f"rfq_{sol}",
+                    supplier_name=item.get("item_supplier", ""),
                 )
             except Exception:
                 pass
