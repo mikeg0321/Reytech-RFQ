@@ -2252,3 +2252,113 @@ def rfq_debug_link(rid):
         "pc_items": pc_items,
         "item_matches": matches,
     })
+
+
+@bp.route("/api/pcs/list")
+@auth_required
+def api_pcs_list():
+    """List all PCs with basic info for import picker."""
+    from src.api.dashboard import _load_price_checks
+    pcs = _load_price_checks()
+    result = []
+    for pid, pc in pcs.items():
+        items = pc.get("items", [])
+        priced = sum(1 for it in items if isinstance(it, dict) and (
+            it.get("pricing", {}).get("recommended_price") or
+            it.get("pricing", {}).get("unit_cost") or
+            it.get("pricing", {}).get("scprs_price") or
+            it.get("pricing", {}).get("amazon_price")
+        ))
+        result.append({
+            "id": pid,
+            "pc_number": pc.get("pc_number", "unknown"),
+            "institution": (pc.get("institution") or "")[:40],
+            "status": pc.get("status", ""),
+            "items": len(items),
+            "priced": priced,
+            "created_at": pc.get("created_at", ""),
+        })
+    # Sort: most recently created first
+    result.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    return jsonify({"ok": True, "pcs": result})
+
+
+@bp.route("/api/rfq/<rid>/import-from-pc", methods=["POST"])
+@auth_required
+def api_rfq_import_from_pc(rid):
+    """Import items + prices from a PC directly into an RFQ. No matching logic.
+    Just copies PC items as RFQ line_items with all pricing fields."""
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"})
+
+    data = request.get_json(silent=True) or {}
+    pc_id = data.get("pc_id", "")
+    if not pc_id:
+        return jsonify({"ok": False, "error": "No pc_id provided"})
+
+    from src.api.dashboard import _load_price_checks
+    pcs = _load_price_checks()
+    pc = pcs.get(pc_id)
+    if not pc:
+        return jsonify({"ok": False, "error": f"PC {pc_id} not found"})
+
+    pc_items = pc.get("items", [])
+    if not pc_items:
+        return jsonify({"ok": False, "error": "PC has no items"})
+
+    # Build RFQ line items from PC items — copy EVERYTHING
+    imported = []
+    for it in pc_items:
+        if not isinstance(it, dict):
+            continue
+        pricing = it.get("pricing", {})
+
+        # Get best cost from any source
+        cost = (pricing.get("unit_cost") or pricing.get("your_cost") or
+                pricing.get("catalog_cost") or pricing.get("scprs_price") or
+                pricing.get("amazon_price") or pricing.get("web_price") or 0)
+        try:
+            cost = round(float(cost), 2) if cost else 0
+        except:
+            cost = 0
+
+        # Get bid price
+        bid = pricing.get("recommended_price") or pricing.get("unit_price") or 0
+        try:
+            bid = round(float(bid), 2) if bid else 0
+        except:
+            bid = 0
+        if not bid and cost > 0:
+            bid = round(cost * 1.25, 2)
+
+        rfq_item = {
+            "description": it.get("description", ""),
+            "qty": it.get("qty", 1),
+            "uom": it.get("uom", "EA"),
+            "item_number": it.get("mfg_number") or it.get("item_number", ""),
+            "supplier_cost": cost,
+            "price_per_unit": bid,
+            "scprs_last_price": pricing.get("scprs_price"),
+            "amazon_price": pricing.get("amazon_price") or pricing.get("amazon_cost"),
+            "item_link": it.get("item_link") or pricing.get("amazon_url", ""),
+            "item_supplier": it.get("item_supplier") or pricing.get("catalog_best_supplier", ""),
+            "_from_pc": pc.get("pc_number", pc_id),
+        }
+        imported.append(rfq_item)
+
+    # Replace RFQ line items with PC items
+    r["line_items"] = imported
+    r["linked_pc_id"] = pc_id
+    r["linked_pc_number"] = pc.get("pc_number", "")
+    r["linked_pc_match_reason"] = "manual_import"
+
+    save_rfqs(rfqs)
+
+    return jsonify({
+        "ok": True,
+        "items_imported": len(imported),
+        "pc_number": pc.get("pc_number", ""),
+        "priced": sum(1 for it in imported if it.get("supplier_cost") or it.get("price_per_unit")),
+    })
