@@ -824,6 +824,23 @@ def match_item(description: str, part_number: str = "", top_n: int = 3) -> list:
                 matches.append(m)
                 seen_ids.add(r["id"])
 
+    # ── Enrich matches with best supplier URL from product_suppliers ──
+    for m in matches:
+        try:
+            sup_row = conn.execute("""
+                SELECT supplier_name, supplier_url, last_price, sku
+                FROM product_suppliers 
+                WHERE product_id = ? 
+                ORDER BY last_price DESC LIMIT 1
+            """, (m["id"],)).fetchone()
+            if sup_row:
+                m["best_supplier_name"] = sup_row[0] or ""
+                m["best_supplier_url"] = sup_row[1] or ""
+                m["best_supplier_price"] = sup_row[2] or 0
+                m["best_supplier_sku"] = sup_row[3] or ""
+        except Exception:
+            pass
+
     conn.close()
     # ── Post-match verification: penalize false positives ──
     for m in matches:

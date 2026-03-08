@@ -893,7 +893,7 @@ def _auto_price_new_pc(pc_id: str):
                         p["catalog_sku"] = best.get("sku", "")
                         p["catalog_product_id"] = best.get("id")
                         p["catalog_cost"] = cat_cost if cat_cost > 0 else None
-                        p["catalog_best_supplier"] = best.get("best_supplier", "")
+                        p["catalog_best_supplier"] = best.get("best_supplier", "") or best.get("best_supplier_name", "")
                         if cat_cost > 0:
                             p["unit_cost"] = cat_cost
                             p["last_cost"] = cat_cost
@@ -902,6 +902,14 @@ def _auto_price_new_pc(pc_id: str):
                         cat_mfg = best.get("mfg_number") or best.get("sku", "")
                         if cat_mfg and not item.get("mfg_number"):
                             item["mfg_number"] = cat_mfg
+                        # Propagate supplier URL + name from catalog
+                        cat_url = best.get("best_supplier_url", "")
+                        cat_supplier = best.get("best_supplier_name", "") or best.get("best_supplier", "")
+                        if cat_url and not item.get("item_link"):
+                            item["item_link"] = cat_url
+                            p["catalog_url"] = cat_url
+                        if cat_supplier and not item.get("item_supplier"):
+                            item["item_supplier"] = cat_supplier
                         found_count += 1
                         log.debug("  Catalog match: %s → $%.2f (pid=%s)", desc[:40], cat_price, best.get("id"))
         except Exception as e:
