@@ -15,6 +15,7 @@
 # ── Explicit imports (S11 refactor: no longer relying solely on injection) ──
 from flask import request, jsonify, Response
 from src.api.shared import bp, auth_required
+import os
 import logging
 log = logging.getLogger("reytech")
 from flask import redirect, flash
@@ -139,10 +140,10 @@ _PO_POLL_STATUS = {"running": False, "last_poll": None, "emails_processed": 0, "
 _PO_POLL_INTERVAL = 300  # 5 minutes
 
 def _get_po_email_config():
-    """Get PO inbox credentials from environment."""
+    """Get PO inbox credentials. Falls back to main Gmail (POs come to same inbox)."""
     return {
-        "email": os.environ.get("PO_GMAIL_ADDRESS", ""),
-        "password": os.environ.get("PO_GMAIL_PASSWORD", ""),
+        "email": os.environ.get("PO_GMAIL_ADDRESS", "") or os.environ.get("GMAIL_ADDRESS", ""),
+        "password": os.environ.get("PO_GMAIL_PASSWORD", "") or os.environ.get("GMAIL_PASSWORD", ""),
         "imap_server": os.environ.get("PO_IMAP_SERVER", "imap.gmail.com"),
     }
 
