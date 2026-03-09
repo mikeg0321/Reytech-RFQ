@@ -2009,13 +2009,28 @@ def fill_bid_package(input_path, rfq_data, config, output_path):
     }
 
     # ── CalRecycle 74: populate each line item row ──
+    import re as _re_cr
+    def _cr_desc(item):
+        """Clean + truncate description for CalRecycle (246pt field, ~35 chars safe at 9pt)."""
+        desc = item.get("description", "")
+        if " - " in desc:
+            desc = desc.split(" - ")[0].strip()
+        desc = desc.rstrip(" -")
+        for m in ["(R)", "(TM)", "®", "™"]:
+            desc = desc.replace(m, "")
+        desc = _re_cr.sub(r'\s*\([^)]*\)\s*$', '', desc)
+        desc = _re_cr.sub(r'^\d+\s+EA\s*[-–]\s*', '', desc)
+        desc = _re_cr.sub(r'\s*Model\s*#.*', '', desc, flags=_re_cr.IGNORECASE)
+        desc = _re_cr.sub(r'\s*UPC\s*#.*', '', desc, flags=_re_cr.IGNORECASE)
+        desc = desc.strip(" ,;-/")
+        if len(desc) > 35:
+            desc = desc[:32] + "..."
+        return desc
+
     line_items = rfq_data.get("line_items", [])
     for idx, item in enumerate(line_items[:6], start=1):  # Template has 6 rows max
         pn = item.get("item_number", item.get("part_number", ""))
-        desc = item.get("description", "")
-        # Truncate description to fit form field
-        if len(desc) > 60:
-            desc = desc[:57] + "..."
+        desc = _cr_desc(item)
         values[f"Item Row{idx}"] = pn
         values[f"Product or Services DescriptionRow{idx}"] = desc
         values[f"1Percent Postconsumer Recycled Content MaterialRow{idx}"] = "0%"

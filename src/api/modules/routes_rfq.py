@@ -1188,7 +1188,7 @@ def generate_rfq_package(rid):
             t.step(f"Agency matched: {_agency_key} ({_agency_cfg.get('name','')}), {len(_req_forms)} required forms")
         except Exception as _ae:
             t.warn(f"Agency config load failed, using CCHCS default: {_ae}")
-            _req_forms = {"703b", "704b", "bidpkg", "quote", "std204", "sellers_permit", "dvbe843"}
+            _req_forms = {"703b", "704b", "bidpkg", "quote", "sellers_permit", "bidder_decl", "darfur_act"}
             _opt_forms = set()
             _agency_key = "cchcs"
         
@@ -1467,11 +1467,13 @@ def generate_rfq_package(rid):
                     reader = PdfReader(pdf_path)
                     pages_added = 0
 
-                    # RULE: 703B and 704B are standalone attachments — not in package_pdfs.
-                    # All files here are supporting compliance docs.
-                    # BidPackage is a multi-form template — we must skip its reference/
-                    # definition/instruction pages and any form we already have standalone.
-                    is_bidpkg = "BIDPACKAGE" in label.upper() or "BID_PACKAGE" in label.upper()
+                    # RULE: BidPackage uses a WHITELIST — only include pages that
+                    # match known submission forms. The template has 14 pages but
+                    # only ~8 are actual submission forms; the rest are reference
+                    # tables, food category codes, footnotes, and definition pages.
+                    # All other files (BidderDecl, DarfurAct, etc.) include all pages.
+                    is_bidpkg = ("BIDPACKAGE" in label.upper() or "BID_PACKAGE" in label.upper()
+                                 or "BIDPKG" in label.upper())
 
                     for page_idx, page in enumerate(reader.pages):
                         try:
@@ -1480,41 +1482,58 @@ def generate_rfq_package(rid):
                             text = ""
                         text_stripped = text.strip()
 
-                        # ── Universal filters ──────────────────────────────────
-                        # Skip XFA placeholder pages
+                        # ── Universal: skip XFA placeholder pages ─────────────
                         if text_stripped.startswith("Please wait") or (
                                 "Please wait" in text and len(text_stripped) < 300):
                             continue
-                        # Skip entirely blank pages
+                        # ── Universal: skip entirely blank pages ──────────────
                         has_annots = "/Annots" in page
                         if len(text_stripped) < 3 and not has_annots:
                             continue
 
-                        # ── BidPackage-specific page skip rules ───────────────
-                        # RULE: These pages are embedded in the CDCR template but
-                        # should NOT appear in the final package submission.
-                        # Update this list if the template changes.
+                        # ── BidPackage whitelist ───────────────────────────────
+                        # RULE: Only include pages matching known submission content.
+                        # Pages NOT matched: CalRecycle SABRC reference table, food
+                        # category codes, OBS 1600 footnotes, GenAI definition pages
+                        # (3+4 of 4), VSDS email instruction, Darfur pg2 blank option,
+                        # and any blank pages.
                         if is_bidpkg:
-                            # CalRecycle SABRC reference table (back of CalRecycle 74)
-                            if ("SABRC@CalRecycle" in text or
-                                    "State Agency Buy Recycled Campaign (SABRC) - SABRC" in text):
-                                continue
-                            # GenAI 708 definitions pages (pages 3–4 of 4)
-                            if "GenAI Disclosure & Factsheet Definitions" in text:
-                                continue
-                            # VSDS submit-via-email instruction (not the actual form)
-                            if "Submit the completed DGS PD 802" in text:
-                                continue
-                            # OBS 1600 food footnotes / category codes (not relevant to non-food)
-                            if ("Produced\" is used interchangeably" in text or
-                                    (text_stripped.startswith("Code Category") and "Coffee" in text)):
-                                continue
-                            # Bidder Declaration from BidPackage template — skip because
-                            # generate_bidder_declaration (ReportLab) produces a cleaner
-                            # version with correct signature placement.
-                            if ("BIDDER DECLARATION" in text and
-                                    ("GSPD" in text or "Procurement Division" in text)):
-                                continue
+                            keep = False
+                            # CDCR Special Terms & Conditions
+                            if ("CDCR Special Terms" in text or
+                                    ("DEPARTMENT OF CORRECTIONS AND REHABILITATION" in text
+                                     and "ATTACHMENT" in text)):
+                                keep = True
+                            # CalRecycle 74 certification form (not the SABRC reference table)
+                            elif ("Postconsumer Recycled-Content" in text or
+                                    "CalRecycle 74" in text) and "SABRC@CalRecycle" not in text:
+                                keep = True
+                            # Darfur Act Option 1 certification (pg 1 of 2)
+                            elif ("10475" in text and "scrutinized" in text.lower()
+                                    and "OPTION" in text):
+                                keep = True
+                            # CUF CCHCS-MC-345
+                            elif ("Commercially Useful Function" in text
+                                    or "CCHCS-MC-345" in text):
+                                keep = True
+                            # DVBE Declarations DGS PD 843
+                            elif "DISABLED VETERAN BUSINESS ENTERPRISE DECLARATIONS" in text:
+                                keep = True
+                            # GenAI AMS 708 — ONLY pages 1 of 4 and 2 of 4 (filled form)
+                            # Pages 3 and 4 are definition reference pages — skip them
+                            elif ("GenAI Disclosure" in text and "Definitions" not in text
+                                    and ("1 of 4" in text or "2 of 4" in text)):
+                                keep = True
+                            # Drug-Free Workplace Certification STD 21
+                            elif "DRUG-FREE WORKPLACE" in text:
+                                keep = True
+                            # Voluntary Statistical Data Sheet DGS PD 802
+                            elif ("VOLUNTARY STATISTICAL DATA SHEET" in text
+                                    or "DGS PD 802" in text):
+                                keep = True
+
+                            if not keep:
+                                continue  # skip: reference tables, food codes, defs, blanks
 
                         writer.add_page(page)
                         pages_added += 1
