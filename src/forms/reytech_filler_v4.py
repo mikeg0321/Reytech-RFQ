@@ -2011,7 +2011,11 @@ def fill_bid_package(input_path, rfq_data, config, output_path):
     # ── CalRecycle 74: populate each line item row ──
     import re as _re_cr
     def _cr_desc(item):
-        """Clean + truncate description for CalRecycle (246pt field, ~35 chars safe at 9pt)."""
+        """Clean description for CalRecycle 74.
+        Field is 246pt wide. Font auto-sizer in set_field_fonts will pick
+        7-8pt to fit up to ~58 chars. Don't truncate aggressively — just
+        strip part numbers, UPC suffixes, and trailing noise.
+        """
         desc = item.get("description", "")
         if " - " in desc:
             desc = desc.split(" - ")[0].strip()
@@ -2023,8 +2027,10 @@ def fill_bid_package(input_path, rfq_data, config, output_path):
         desc = _re_cr.sub(r'\s*Model\s*#.*', '', desc, flags=_re_cr.IGNORECASE)
         desc = _re_cr.sub(r'\s*UPC\s*#.*', '', desc, flags=_re_cr.IGNORECASE)
         desc = desc.strip(" ,;-/")
-        if len(desc) > 35:
-            desc = desc[:32] + "..."
+        # Hard cap at 58 chars (fits in 246pt at 7pt Helvetica = ~63 chars max)
+        # Font auto-sizer will reduce from 9pt → 8pt → 7pt as needed
+        if len(desc) > 58:
+            desc = desc[:55] + "..."
         return desc
 
     line_items = rfq_data.get("line_items", [])
@@ -2082,6 +2088,52 @@ def fill_bid_package(input_path, rfq_data, config, output_path):
     except Exception as _e:
         print(f"  ⚠ OBS 1600 header overlay failed: {_e}")
     
+    # ── Trim to submission pages only ───────────────────────────────────
+    # Compute which page indices to keep from the BLANK template (clean text).
+    # This is more reliable than filtering the filled output, where signature
+    # overlays can obscure the text we'd need to match against.
+    try:
+        keep_indices = _compute_bidpkg_keep_indices(input_path)
+        reader = PdfReader(output_path)
+        total_pages = len(reader.pages)
+        # Filter keep_indices to valid range (Railway template may have more pages)
+        valid_keep = [i for i in keep_indices if i < total_pages]
+        # For any Railway-only pages (beyond local template count) that aren't
+        # in keep_indices yet, check them directly from the filled output.
+        # These are pages appended to the Railway template (e.g. GenAI 708).
+        if total_pages > len(PdfReader(input_path).pages):
+            # Railway has extra pages — scan them too
+            extra_start = len(PdfReader(input_path).pages)
+            for i in range(extra_start, total_pages):
+                if i not in valid_keep:
+                    page = reader.pages[i]
+                    text = (page.extract_text() or "").strip()
+                    t = text.lower()
+                    n_f = len(page.get("/Annots", [])) if "/Annots" in page else 0
+                    # Skip definition pages (3+4 of 4)
+                    if ("3 of 4" in text or "4 of 4" in text) and ("genai" in t or "definition" in t or n_f == 0):
+                        continue
+                    # Skip blank / instruction pages
+                    if len(text) == 0 and n_f <= 8:
+                        continue
+                    if "submit the completed dgs pd 802" in t:
+                        continue
+                    valid_keep.append(i)
+            valid_keep.sort()
+
+        if valid_keep and valid_keep != list(range(total_pages)):
+            writer = PdfWriter()
+            for i in valid_keep:
+                writer.add_page(reader.pages[i])
+            with open(output_path, "wb") as f:
+                writer.write(f)
+            skipped = total_pages - len(valid_keep)
+            print(f"  ✓ BidPackage trimmed: {len(valid_keep)} submission pages kept, {skipped} reference/extra pages removed")
+        else:
+            print(f"  ✓ BidPackage: all {total_pages} pages kept (no trimming needed)")
+    except Exception as _te:
+        print(f"  ⚠ BidPackage page trim failed (using full output): {_te}")
+
     food_count = len([k for k in obs1600_values if 'FOOD PROD' in k and obs1600_values[k]])
     extra = f", {food_count} food items" if food_count else ""
     print(f"  ✓ Bid Package filled + signed ({sol}{extra})")
@@ -2185,3 +2237,81 @@ if __name__ == "__main__":
         "bidpkg": "/mnt/user-data/uploads/10838043_BID_PACKAGE___FORMS__Under_100k___-_Attachment_3.pdf",
     }
     generate_bid_package(rfq_data, templates, "/home/claude/output_v4", config)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# BidPackage template page map — computed once from blank template
+# ═══════════════════════════════════════════════════════════════════════
+
+_BIDPKG_KEEP_CACHE = {}  # {template_path: (mtime, [indices])}
+
+
+def _compute_bidpkg_keep_indices(template_path):
+    """
+    Scan blank BidPackage template and return page indices to keep in submission.
+
+    Logic: every page with form fields is a submission form UNLESS it matches
+    a known skip pattern (reference tables, food codes, Darfur standalone,
+    definition pages, blank/instruction pages).
+
+    Run once against the BLANK template (clean text, no overlays) then cache
+    by mtime so template updates are detected automatically.
+    """
+    import os as _os
+    global _BIDPKG_KEEP_CACHE
+    try:
+        mtime = _os.path.getmtime(template_path)
+    except OSError:
+        mtime = 0
+
+    cached = _BIDPKG_KEEP_CACHE.get(template_path)
+    if cached and cached[0] == mtime:
+        return cached[1]
+
+    reader = PdfReader(template_path)
+    keep = []
+
+    for i, page in enumerate(reader.pages):
+        text = (page.extract_text() or "").strip()
+        t = text.lower()
+        n_fields = len(page.get("/Annots", [])) if "/Annots" in page else 0
+
+        # ── Skip conditions ──────────────────────────────────────────
+        skip = False
+
+        # Truly blank (no text, no fields)
+        if len(text) == 0 and n_fields == 0:
+            skip = True
+        # OBS 1600 food entry form (blank text but many fields)
+        elif len(text) == 0 and n_fields > 15:
+            skip = True
+        # Nearly blank (no text, very few fields — spacer/padding pages)
+        elif len(text) == 0 and n_fields <= 8:
+            skip = True
+        # CalRecycle SABRC reference table (back of CalRecycle 74)
+        elif "sabrc@calrecycle" in t or "state agency buy recycled campaign (sabrc) - sabrc" in t:
+            skip = True
+        # OBS 1600 footnotes (food product footnotes)
+        elif '"produced" is used interchangeably' in t:
+            skip = True
+        # OBS 1600 food category codes
+        elif text.startswith("Code Category") and "coffee" in t:
+            skip = True
+        # VSDS email submission instruction
+        elif "submit the completed dgs pd 802" in t:
+            skip = True
+        # Darfur Contracting Act — both pages (standalone version used instead)
+        elif "10475" in text and "scrutinized" in t:
+            skip = True
+        elif "scrutinized company" in t and ("10476" in text or "10477" in text or "written permission" in t):
+            skip = True
+        # GenAI definition pages (3 of 4, 4 of 4 — reference only, not filled form)
+        elif ("3 of 4" in text or "4 of 4" in text) and ("genai" in t or "definition" in t or n_fields == 0):
+            skip = True
+
+        if not skip:
+            keep.append(i)
+
+    _BIDPKG_KEEP_CACHE[template_path] = (mtime, keep)
+    print(f"  ✓ BidPackage page map: keep indices {keep} (of {len(reader.pages)} total)")
+    return keep
