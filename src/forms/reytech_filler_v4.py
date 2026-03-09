@@ -2285,8 +2285,8 @@ def _compute_bidpkg_keep_indices(template_path):
         # OBS 1600 food entry form (blank text but many fields)
         elif len(text) == 0 and n_fields > 15:
             skip = True
-        # Nearly blank (no text, very few fields — spacer/padding pages)
-        elif len(text) == 0 and n_fields <= 8:
+        # Truly blank (no text, no fields at all)
+        elif len(text) == 0 and n_fields == 0:
             skip = True
         # CalRecycle SABRC reference table (back of CalRecycle 74)
         elif "sabrc@calrecycle" in t or "state agency buy recycled campaign (sabrc) - sabrc" in t:
