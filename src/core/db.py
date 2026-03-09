@@ -2518,13 +2518,13 @@ def next_quote_number() -> str:
         if row:
             current = int(row[0])
         else:
-            # No counter — scan all existing quotes and PCs to find the highest number
+            # No counter — scan finalized quotes only (not price_checks; PCs are in-progress)
             import re as _re
             max_num = 0
             year = datetime.now().strftime("%y")
             pattern = _re.compile(rf'^R{year}Q(\d+)$')
             
-            # Scan quotes table
+            # Scan quotes table only — source of truth for issued quote numbers
             try:
                 for qrow in conn.execute("SELECT quote_number FROM quotes").fetchall():
                     m = pattern.match(qrow[0] or "")
@@ -2533,12 +2533,21 @@ def next_quote_number() -> str:
             except Exception:
                 pass
             
-            # Scan price_checks for reytech_quote_number
+            # Also scan rfq_data JSON files to catch quotes issued before DB existed
             try:
-                for prow in conn.execute("SELECT quote_number FROM price_checks WHERE quote_number IS NOT NULL").fetchall():
-                    m = pattern.match(prow[0] or "")
-                    if m:
-                        max_num = max(max_num, int(m.group(1)))
+                import os as _os, json as _json
+                rfq_dir = _os.path.join(_os.path.dirname(DB_PATH), "rfqs")
+                if _os.path.isdir(rfq_dir):
+                    for fn in _os.listdir(rfq_dir):
+                        if fn.endswith(".json"):
+                            try:
+                                with open(_os.path.join(rfq_dir, fn)) as _jf:
+                                    _d = _json.load(_jf)
+                                m = pattern.match(_d.get("reytech_quote_number", "") or "")
+                                if m:
+                                    max_num = max(max_num, int(m.group(1)))
+                            except Exception:
+                                pass
             except Exception:
                 pass
             

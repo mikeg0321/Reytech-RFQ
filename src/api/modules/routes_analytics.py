@@ -2709,6 +2709,37 @@ def _load_agency_configs():
                 conn.commit()
                 configs = DEFAULT_AGENCY_CONFIGS.copy()
                 log.info("Seeded %d default agency package configs", len(configs))
+            else:
+                # Patch stale rows: add missing required_forms from defaults without
+                # removing forms the user has customized.
+                patched = 0
+                for key, default_cfg in DEFAULT_AGENCY_CONFIGS.items():
+                    if key not in configs:
+                        conn.execute("""INSERT OR IGNORE INTO agency_package_configs
+                            (agency_key, agency_name, match_patterns, required_forms, optional_forms, notes, updated_at)
+                            VALUES (?, ?, ?, ?, ?, ?, datetime('now'))""",
+                            (key, default_cfg["name"], json.dumps(default_cfg["match_patterns"]),
+                             json.dumps(default_cfg["required_forms"]), json.dumps(default_cfg["optional_forms"]),
+                             default_cfg.get("notes", "")))
+                        configs[key] = default_cfg.copy()
+                        patched += 1
+                    else:
+                        existing_req = set(configs[key].get("required_forms", []))
+                        default_req = set(default_cfg["required_forms"])
+                        missing = default_req - existing_req
+                        if missing:
+                            # Preserve order: default order first, then any user additions
+                            ordered = [f for f in default_cfg["required_forms"]]
+                            ordered += [f for f in existing_req if f not in default_req]
+                            conn.execute("""UPDATE agency_package_configs
+                                SET required_forms=?, updated_at=datetime('now'), updated_by='auto_patch'
+                                WHERE agency_key=?""",
+                                (json.dumps(ordered), key))
+                            configs[key]["required_forms"] = ordered
+                            log.info("Patched agency config '%s': added %s", key, missing)
+                            patched += 1
+                if patched:
+                    conn.commit()
             
             return configs
     except Exception as e:
@@ -2803,5 +2834,29 @@ def api_delete_agency_config(key):
         with get_db() as conn:
             conn.execute("DELETE FROM agency_package_configs WHERE agency_key=?", (key,))
         return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/agency-config-reset", methods=["POST"])
+@auth_required
+def api_agency_config_reset():
+    """Force-wipe and re-seed all agency configs from DEFAULT_AGENCY_CONFIGS.
+    Use this after a DB rebuild to ensure configs match current defaults."""
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            conn.execute("DELETE FROM agency_package_configs")
+            for key, cfg in DEFAULT_AGENCY_CONFIGS.items():
+                conn.execute("""INSERT INTO agency_package_configs
+                    (agency_key, agency_name, match_patterns, required_forms, optional_forms, notes, updated_at, updated_by)
+                    VALUES (?, ?, ?, ?, ?, ?, datetime('now'), 'reset')""",
+                    (key, cfg["name"], json.dumps(cfg["match_patterns"]),
+                     json.dumps(cfg["required_forms"]), json.dumps(cfg["optional_forms"]),
+                     cfg.get("notes", "")))
+            conn.commit()
+        log.info("Agency configs reset to defaults (%d configs)", len(DEFAULT_AGENCY_CONFIGS))
+        return jsonify({"ok": True, "message": f"Reset {len(DEFAULT_AGENCY_CONFIGS)} agency configs to defaults",
+                        "configs": list(DEFAULT_AGENCY_CONFIGS.keys())})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})

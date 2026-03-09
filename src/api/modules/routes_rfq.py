@@ -1152,6 +1152,7 @@ def generate_rfq_package(rid):
                 t.warn("703B fill failed", error=str(e))
         else:
             t.step("703B skipped — no template")
+            errors.append("703B: no template uploaded — upload 703B PDF on this RFQ page")
         
         if "704b" in tmpl and os.path.exists(tmpl["704b"]):
             try:
@@ -1163,6 +1164,7 @@ def generate_rfq_package(rid):
                 t.warn("704B fill failed", error=str(e))
         else:
             t.step("704B skipped — no template")
+            errors.append("704B: no template uploaded — upload 704B PDF on this RFQ page")
         
         if "bidpkg" in tmpl and os.path.exists(tmpl["bidpkg"]):
             try:
@@ -1174,6 +1176,7 @@ def generate_rfq_package(rid):
                 t.warn("Bid Package fill failed", error=str(e))
         else:
             t.step("Bid Package skipped — no template")
+            errors.append("Bid Package: no template uploaded — upload Bid Package PDF on this RFQ page")
         
         # ── AGENCY-GATED FORMS — driven by /settings/packages config ─────
         # Match this RFQ to an agency config
