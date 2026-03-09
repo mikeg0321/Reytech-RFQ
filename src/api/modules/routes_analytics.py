@@ -2484,3 +2484,58 @@ def api_rfq_upload_pc(rid):
         "catalog_updated": catalog_updated,
         "priced": sum(1 for it in imported if it.get("price_per_unit")),
     })
+
+
+@bp.route("/api/quote-audit")
+@auth_required
+def api_quote_audit():
+    """Show all quote numbers, counter state, and gaps."""
+    from src.core.db import get_db
+    result = {"quotes": [], "counter": None, "pcs_with_quotes": [], "gaps": [], "duplicates": []}
+    
+    try:
+        with get_db() as conn:
+            # All quotes
+            rows = conn.execute("SELECT quote_number, status, total, created_at, agency FROM quotes ORDER BY created_at").fetchall()
+            for r in rows:
+                result["quotes"].append(dict(r))
+            
+            # Counter
+            try:
+                row = conn.execute("SELECT value FROM app_settings WHERE key='quote_counter'").fetchone()
+                result["counter"] = int(row[0]) if row else "NOT SET (default=16)"
+            except:
+                result["counter"] = "app_settings table missing"
+            
+            # PCs with quote numbers
+            try:
+                pcs = conn.execute("SELECT id, quote_number, pc_number, status FROM price_checks WHERE quote_number IS NOT NULL AND quote_number != ''").fetchall()
+                for p in pcs:
+                    result["pcs_with_quotes"].append(dict(p))
+            except:
+                pass
+    except Exception as e:
+        result["error"] = str(e)
+    
+    # Find gaps and duplicates
+    import re
+    nums = []
+    for q in result["quotes"]:
+        m = re.search(r'R\d{2}Q(\d+)', q.get("quote_number", ""))
+        if m:
+            nums.append(int(m.group(1)))
+    
+    nums_set = set(nums)
+    if nums:
+        for i in range(1, max(nums) + 1):
+            if i not in nums_set:
+                result["gaps"].append(f"R26Q{i}")
+        
+        from collections import Counter
+        dupes = [f"R26Q{n}" for n, count in Counter(nums).items() if count > 1]
+        result["duplicates"] = dupes
+    
+    result["max_used"] = max(nums) if nums else 0
+    result["expected_next"] = f"R26Q{max(nums)+1}" if nums else "R26Q1"
+    
+    return jsonify(result)

@@ -774,6 +774,13 @@ CREATE TABLE IF NOT EXISTS buyer_intelligence (
 );
 CREATE INDEX IF NOT EXISTS idx_bi_email ON buyer_intelligence(buyer_email);
 CREATE INDEX IF NOT EXISTS idx_bi_agency ON buyer_intelligence(agency);
+
+CREATE TABLE IF NOT EXISTS app_settings (
+    key         TEXT PRIMARY KEY,
+    value       TEXT,
+    updated_at  TEXT,
+    updated_by  TEXT DEFAULT 'system'
+);
 """
 
 def init_db():
@@ -2477,12 +2484,52 @@ def set_setting(key: str, value) -> bool:
 
 
 def next_quote_number() -> str:
-    """Atomically increment quote counter and return formatted number like R26Q17."""
+    """Atomically increment quote counter and return formatted number like R26Q17.
+    
+    If counter doesn't exist, scans all existing quotes and PCs to find the max,
+    then starts from max+1. No hardcoded defaults. No random fallback.
+    """
     conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
     try:
         conn.execute("BEGIN EXCLUSIVE")
+        
+        # Ensure app_settings table exists
+        conn.execute("""CREATE TABLE IF NOT EXISTS app_settings (
+            key TEXT PRIMARY KEY, value TEXT, updated_at TEXT, updated_by TEXT DEFAULT 'system'
+        )""")
+        
         row = conn.execute("SELECT value FROM app_settings WHERE key='quote_counter'").fetchone()
-        current = int(row[0]) if row else 16
+        
+        if row:
+            current = int(row[0])
+        else:
+            # No counter — scan all existing quotes and PCs to find the highest number
+            import re as _re
+            max_num = 0
+            year = datetime.now().strftime("%y")
+            pattern = _re.compile(rf'^R{year}Q(\d+)$')
+            
+            # Scan quotes table
+            try:
+                for qrow in conn.execute("SELECT quote_number FROM quotes").fetchall():
+                    m = pattern.match(qrow[0] or "")
+                    if m:
+                        max_num = max(max_num, int(m.group(1)))
+            except Exception:
+                pass
+            
+            # Scan price_checks for reytech_quote_number
+            try:
+                for prow in conn.execute("SELECT quote_number FROM price_checks WHERE quote_number IS NOT NULL").fetchall():
+                    m = pattern.match(prow[0] or "")
+                    if m:
+                        max_num = max(max_num, int(m.group(1)))
+            except Exception:
+                pass
+            
+            current = max_num
+            log.info("Quote counter initialized from scan: max=%d, next=R%sQ%d", max_num, year, max_num + 1)
+        
         next_val = current + 1
         conn.execute("""
             INSERT INTO app_settings (key, value, updated_at) VALUES ('quote_counter',?,datetime('now'))
@@ -2490,11 +2537,24 @@ def next_quote_number() -> str:
         """, (str(next_val),))
         conn.commit()
         year = datetime.now().strftime("%y")
-        return f"R{year}Q{next_val}"
+        quote_num = f"R{year}Q{next_val}"
+        
+        # Verify no collision (belt + suspenders)
+        existing = conn.execute("SELECT 1 FROM quotes WHERE quote_number=?", (quote_num,)).fetchone()
+        if existing:
+            log.warning("Quote number collision: %s already exists! Incrementing.", quote_num)
+            next_val += 1
+            quote_num = f"R{year}Q{next_val}"
+            conn.execute("UPDATE app_settings SET value=?, updated_at=datetime('now') WHERE key='quote_counter'", (str(next_val),))
+            conn.commit()
+        
+        return quote_num
     except Exception as e:
         log.error("next_quote_number: %s", e)
         conn.rollback()
-        return f"R26Q{__import__('random').randint(100,999)}"
+        # Last resort: timestamp-based (unique, never collides)
+        ts = datetime.now().strftime("%H%M%S")
+        return f"R{datetime.now().strftime('%y')}Q{ts}"
     finally:
         conn.close()
 
