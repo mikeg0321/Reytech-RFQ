@@ -2637,7 +2637,7 @@ DEFAULT_AGENCY_CONFIGS = {
     "cchcs": {
         "name": "CCHCS / CDCR",
         "match_patterns": ["CDCR", "CCHCS", "CORRECTIONS", "CORRECTIONAL"],
-        "required_forms": ["703b", "704b", "bidpkg", "quote", "std204", "sellers_permit", "dvbe843"],
+        "required_forms": ["703b", "704b", "quote", "std204", "sellers_permit", "dvbe843"],
         "optional_forms": ["calrecycle74"],
         "notes": "California Correctional Health Care Services. Standard AMS 704/703 workflow.",
     },

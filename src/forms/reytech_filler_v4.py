@@ -339,10 +339,11 @@ def fill_704b(input_path, rfq_data, config, output_path):
 
     seq = 0  # sequential line item counter
     for item in line_items:
-        row_num = item.get("form_row", item.get("row_index", item.get("line_number", 0)))
+        seq += 1
+        # form_row is ideal; fall back to row_index, line_number, or sequential position
+        row_num = item.get("form_row") or item.get("row_index") or item.get("line_number") or seq
         if not row_num:
             continue
-        seq += 1
         price = item.get("price_per_unit", 0)
         qty = item.get("qty", 0)
         subtotal = round(price * qty, 2)

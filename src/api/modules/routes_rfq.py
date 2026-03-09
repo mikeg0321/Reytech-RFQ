@@ -1425,15 +1425,22 @@ def generate_rfq_package(rid):
                     # Explicit page limits for filled templates
                     # These templates are full solicitation PDFs — we only fill the first few pages
                     max_pages = None  # None = include all
+                    start_page = 0    # Skip leading pages (e.g. 703B embedded in 704B file)
                     label_upper = label.upper()
                     if "703B" in label_upper:
-                        max_pages = 1  # Only the form page, not 8 pages of solicitation terms
+                        max_pages = 1  # Only the form page, not solicitation terms
                     elif "704B" in label_upper:
-                        max_pages = 2  # Header + pricing rows
+                        # CCHCS 704B template has the 703B form embedded as page 1.
+                        # Skip it — we already have a separately filled 703B.
+                        start_page = 1
+                        max_pages = 2  # Take up to 2 pages of the actual 704B pricing sheet
                     elif "BIDPACKAGE" in label_upper or "BID_PACKAGE" in label_upper:
-                        max_pages = 2  # Attachment page + special terms only
+                        max_pages = 0  # BidPackage = agency T&C doc, not a Reytech submission form
                     
                     for page_idx, page in enumerate(reader.pages):
+                        # Skip leading pages (e.g. 703B embedded in 704B file)
+                        if page_idx < start_page:
+                            continue
                         # Enforce page limit for templates
                         if max_pages is not None and pages_added >= max_pages:
                             break
