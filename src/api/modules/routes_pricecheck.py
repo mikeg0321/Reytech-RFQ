@@ -6635,3 +6635,60 @@ def api_quote_fix():
         result["error"] = str(e)
     
     return jsonify(result)
+
+
+@bp.route("/api/rfq/<rid>/package-contents")
+@auth_required
+def api_rfq_package_contents(rid):
+    """Show what's inside the generated package PDF."""
+    from pypdf import PdfReader
+    from src.core.paths import DATA_DIR as _DD
+    
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"})
+    
+    sol = r.get("solicitation_number", "unknown")
+    out_dir = os.path.join(_DD, "output", sol)
+    
+    result = {"rfq_id": rid, "sol": sol, "agency": r.get("agency", ""), "files_in_dir": [], "package_pages": []}
+    
+    # List all files in output dir
+    if os.path.exists(out_dir):
+        for f in sorted(os.listdir(out_dir)):
+            fpath = os.path.join(out_dir, f)
+            result["files_in_dir"].append({
+                "name": f,
+                "size_kb": round(os.path.getsize(fpath) / 1024, 1),
+            })
+    
+    # Analyze the merged package PDF
+    pkg_name = f"RFQ_Package_{sol.replace(' ','_')}_ReytechInc.pdf"
+    pkg_path = os.path.join(out_dir, pkg_name)
+    if not os.path.exists(pkg_path):
+        # Try alternate names
+        for f in os.listdir(out_dir) if os.path.exists(out_dir) else []:
+            if "Package" in f and f.endswith(".pdf"):
+                pkg_path = os.path.join(out_dir, f)
+                break
+    
+    if os.path.exists(pkg_path):
+        reader = PdfReader(pkg_path)
+        result["package_total_pages"] = len(reader.pages)
+        for i, page in enumerate(reader.pages):
+            try:
+                text = (page.extract_text() or "")[:200].strip()
+            except:
+                text = "(could not extract)"
+            result["package_pages"].append({
+                "page": i + 1,
+                "text_preview": text[:150],
+            })
+    else:
+        result["package_error"] = f"Package not found at {pkg_path}"
+    
+    # Show what output_files the RFQ thinks it has
+    result["rfq_output_files"] = r.get("output_files", [])
+    
+    return jsonify(result)
