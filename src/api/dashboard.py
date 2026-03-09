@@ -670,20 +670,8 @@ def _load_price_checks(include_items=True):
     
     data = {}
     try:
-        from src.core.db import get_db, init_db
-        try:
-            init_db()
-        except Exception:
-            pass
+        from src.core.db import get_db
         with get_db() as conn:
-            # Ensure pc_data column exists (stores full PC dict as JSON blob)
-            try:
-                conn.execute("SELECT pc_data FROM price_checks LIMIT 0")
-            except Exception:
-                try:
-                    conn.execute("ALTER TABLE price_checks ADD COLUMN pc_data TEXT DEFAULT '{}'")
-                except Exception:
-                    pass
 
             if include_items:
                 rows = conn.execute(
