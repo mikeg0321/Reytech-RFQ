@@ -6692,3 +6692,18 @@ def api_rfq_package_contents(rid):
     result["rfq_output_files"] = r.get("output_files", [])
     
     return jsonify(result)
+
+
+@bp.route("/api/quote-set-counter/<int:num>", methods=["GET", "POST"])
+@auth_required
+def api_quote_set_counter(num):
+    """Manually set the quote counter. Next quote will be R26Q(num+1)."""
+    from src.core.db import get_db
+    with get_db() as conn:
+        conn.execute("""CREATE TABLE IF NOT EXISTS app_settings (
+            key TEXT PRIMARY KEY, value TEXT, updated_at TEXT, updated_by TEXT DEFAULT 'system')""")
+        conn.execute("""INSERT INTO app_settings (key, value, updated_at, updated_by) 
+            VALUES ('quote_counter', ?, datetime('now'), 'manual')
+            ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at""",
+            (str(num),))
+    return jsonify({"ok": True, "counter": num, "next_quote": f"R26Q{num+1}"})
