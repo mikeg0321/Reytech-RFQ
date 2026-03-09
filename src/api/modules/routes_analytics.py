@@ -2838,7 +2838,7 @@ def api_delete_agency_config(key):
         return jsonify({"ok": False, "error": str(e)})
 
 
-@bp.route("/api/agency-config-reset", methods=["POST"])
+@bp.route("/api/agency-config-reset", methods=["GET", "POST"])
 @auth_required
 def api_agency_config_reset():
     """Force-wipe and re-seed all agency configs from DEFAULT_AGENCY_CONFIGS.
