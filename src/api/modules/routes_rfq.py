@@ -266,11 +266,14 @@ def health_check():
 @bp.route("/")
 @auth_required
 def home():
+    import time as _ht
+    _t0 = _ht.time()
+    log.info("HOME: request started")
     try:
         all_pcs = _load_price_checks()
     except Exception:
-        all_pcs = {}  # Show page without PCs rather than 500/hang
-    # Use canonical filter — auto-price PCs belong to RFQ rows, not PC queue
+        all_pcs = {}
+    log.info("HOME: PCs loaded (%d) in %.0fms", len(all_pcs), (_ht.time()-_t0)*1000)
     from src.api.dashboard import _is_user_facing_pc
     user_pcs = {k: v for k, v in all_pcs.items() if _is_user_facing_pc(v)}
     # Sort by URGENCY: overdue first, then soonest due date, then newest
@@ -349,6 +352,8 @@ def home():
         3 if x[1].get("status") in ("sent","generated") else 0 if x[1].get("_urgency") in ("overdue","critical") else 1,
         x[1].get("due_date", "9999"),
     )))
+    log.info("HOME: rendering template, %d PCs + %d RFQs, total %.0fms", 
+             len(sorted_pcs), len(active_rfqs), (_ht.time()-_t0)*1000)
     return render_page("home.html", active_page="Home", rfqs=active_rfqs, price_checks=sorted_pcs)
 
 @bp.route("/upload", methods=["POST"])

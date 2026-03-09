@@ -126,6 +126,11 @@ def create_app():
         logging.getLogger("reytech").warning("Security init: %s", e)
 
     # ── Error handlers ──
+    # Bare connectivity test — no auth, no DB, no templates
+    @app.route("/ping")
+    def _ping():
+        return "pong", 200, {"Content-Type": "text/plain"}
+
     @app.errorhandler(404)
     def _not_found(e):
         if request.path.startswith("/api/"):

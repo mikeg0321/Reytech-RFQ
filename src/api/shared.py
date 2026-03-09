@@ -85,7 +85,8 @@ def _global_auth_guard():
     _path = request.path
     if (_path.startswith("/static/") or
         _path.startswith("/api/email/track/") or
-        _path in ("/health", "/api/health", "/favicon.ico", "/login",
+        _path in ("/health", "/api/health", "/api/health/startup", "/ping",
+                   "/favicon.ico", "/login",
                    "/api/qb/callback", "/api/voice/webhook", "/api/build")):
         pass
     else:

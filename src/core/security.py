@@ -237,7 +237,7 @@ def init_security(app):
             rid = getattr(request, '_request_id', '-')
             # Skip health checks and static files from access log
             if request.path not in ('/health',) and not request.path.startswith('/static/'):
-                level = logging.WARNING if duration_ms > 2000 else logging.DEBUG
+                level = logging.WARNING if duration_ms > 2000 else logging.INFO
                 log.log(level, "ACCESS %s %s %s %.0fms [%s] %s",
                         request.method, request.path, response.status_code,
                         duration_ms, rid, request.remote_addr or '-')
