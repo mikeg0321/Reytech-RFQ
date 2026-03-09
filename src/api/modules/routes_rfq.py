@@ -1447,47 +1447,51 @@ def generate_rfq_package(rid):
                 try:
                     reader = PdfReader(pdf_path)
                     pages_added = 0
+                    is_filled_template = any(x in label for x in ["703B", "704B", "BidPackage"])
+                    
                     for page_idx, page in enumerate(reader.pages):
                         try:
                             text = page.extract_text() or ""
                         except Exception:
                             text = ""
-                        
-                        # Skip XFA "Please wait..." placeholder pages (broadened detection)
                         text_stripped = text.strip()
-                        if (text_stripped.startswith("Please wait") or
-                                ("Please wait" in text and len(text_stripped) < 300)):
-                            t.step(f"Skipped XFA placeholder page in {label}")
+                        
+                        # Skip XFA "Please wait..." placeholder pages
+                        if text_stripped.startswith("Please wait") or (
+                                "Please wait" in text and len(text_stripped) < 300):
+                            t.step(f"Skipped XFA placeholder in {label}")
                             continue
                         
-                        # Skip truly blank pages (no text, no form annotations)
-                        has_annots = "/Annots" in page and len(page.get("/Annots", [])) > 0
-                        if len(text_stripped) < 3 and not has_annots:
-                            t.step(f"Skipped blank page {page_idx+1} in {label}")
-                            continue
-                        
-                        # Skip CalRecycle SABRC reference table page
-                        if ("CalRecycle" in label or "calrecycle" in label.lower()):
-                            if ("Code*" in text and "Product Categories" in text):
-                                t.step(f"Skipped SABRC reference page in {label}")
+                        # For filled templates (703B, 704B, Bid Package):
+                        # ONLY include pages that have fillable form fields
+                        # This strips solicitation terms, instructions, CUF, GenAI, etc.
+                        if is_filled_template:
+                            has_form_fields = False
+                            if "/Annots" in page:
+                                for annot in page["/Annots"]:
+                                    try:
+                                        obj = annot.get_object()
+                                        if obj.get("/FT") or obj.get("/Subtype") == "/Widget":
+                                            has_form_fields = True
+                                            break
+                                        # Check parent for inherited /FT
+                                        parent = obj.get("/Parent")
+                                        if parent and parent.get_object().get("/FT"):
+                                            has_form_fields = True
+                                            break
+                                    except Exception:
+                                        pass
+                            
+                            if not has_form_fields:
+                                t.step(f"Skipped non-form page {page_idx+1} in {label}")
                                 continue
-                        
-                        # Skip STD 1000 instructions page (page 3+)
-                        if ("STD1000" in label or "std1000" in label.lower()):
-                            if ("GenAI Reporting and Factsheet Instructions" in text or
-                                    "Instructions" in text and "Factsheet" in text):
-                                t.step(f"Skipped instructions page in {label}")
+                        else:
+                            # For generated forms (STD 204, DVBE, Quote, etc.):
+                            # Skip blank pages only
+                            has_annots = "/Annots" in page and len(page.get("/Annots", [])) > 0
+                            if len(text_stripped) < 3 and not has_annots:
+                                t.step(f"Skipped blank page {page_idx+1} in {label}")
                                 continue
-                        
-                        # Skip CV 039 / Fair & Reasonable pages that snuck in
-                        if "CV 039" in text or "FAIR AND REASONABLE/REQUEST FOR QUOTE" in text:
-                            t.step(f"Skipped solicitation page in {label}")
-                            continue
-                        
-                        # Skip Voluntary Statistical Data pages
-                        if "Voluntary" in text and "Statistical" in text and "Disabled" in text:
-                            t.step(f"Skipped voluntary stats page in {label}")
-                            continue
                         
                         writer.add_page(page)
                         pages_added += 1
