@@ -1329,6 +1329,13 @@ def generate_rfq_package(rid):
         try:
             quote_path = os.path.join(out_dir, f"{safe_sol}_Quote_Reytech.pdf")
             locked_qn = r.get("reytech_quote_number", "")
+
+            # GUARDRAIL: if this RFQ already has a quote number locked in the JSON,
+            # ALWAYS reuse it — never burn a new counter number on regenerate.
+            # A new number is only issued when locked_qn is empty (first generation
+            # or after an explicit clear-quote).
+            if locked_qn:
+                t.step(f"Reusing locked quote number: {locked_qn}")
             
             result = generate_quote_from_rfq(
                 r, quote_path,
