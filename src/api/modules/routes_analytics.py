@@ -2606,3 +2606,202 @@ def api_rfq_package_diag(rid):
         result["output_dir_files"] = f"directory not found: {out_dir}"
     
     return jsonify(result)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# AGENCY PACKAGE SETTINGS — Configure which forms each agency requires
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# All available forms that can be included in a package
+AVAILABLE_FORMS = [
+    {"id": "703b", "name": "AMS 703B — Request for Quotation", "source": "email", "description": "State RFQ form — comes with email"},
+    {"id": "704b", "name": "AMS 704B — Quote Worksheet", "source": "email", "description": "Pricing worksheet — comes with email"},
+    {"id": "bidpkg", "name": "Bid Package", "source": "email", "description": "Agency bid package — comes with email"},
+    {"id": "quote", "name": "Company Quote (Letterhead)", "source": "generated", "description": "Reytech quote on company letterhead"},
+    {"id": "std204", "name": "STD 204 — Payee Data Record", "source": "template", "description": "Standard vendor info form"},
+    {"id": "sellers_permit", "name": "Seller's Permit", "source": "static", "description": "California seller's permit copy"},
+    {"id": "dvbe843", "name": "DVBE 843 — DVBE Declarations", "source": "generated", "description": "Disabled Veteran Business Enterprise declarations"},
+    {"id": "cv012_cuf", "name": "CV 012 — CUF Certification", "source": "template", "description": "Cal Vet Commercially Useful Function certification"},
+    {"id": "barstow_cuf", "name": "Barstow CUF", "source": "generated", "description": "VHC-Barstow facility-specific CUF"},
+    {"id": "bidder_decl", "name": "GSPD-05-106 — Bidder Declaration", "source": "generated", "description": "DGS bidder declaration form"},
+    {"id": "darfur_act", "name": "DGS PD 1 — Darfur Act", "source": "generated", "description": "Darfur Contracting Act certification"},
+    {"id": "calrecycle74", "name": "CalRecycle 74", "source": "template", "description": "CalRecycle recycled content certification"},
+    {"id": "std1000", "name": "STD 1000 — GenAI Reporting", "source": "template", "description": "Generative AI usage disclosure"},
+    {"id": "std205", "name": "STD 205 — Payee Supplement", "source": "generated", "description": "Payee data record supplement"},
+    {"id": "drug_free", "name": "STD 21 — Drug-Free Workplace", "source": "generated", "description": "Drug-free workplace certification"},
+    {"id": "food_cert", "name": "Food Safety Certification", "source": "generated", "description": "Food handling/safety certification"},
+]
+
+# Default agency configs (used to seed the DB)
+DEFAULT_AGENCY_CONFIGS = {
+    "cchcs": {
+        "name": "CCHCS / CDCR",
+        "match_patterns": ["CDCR", "CCHCS", "CORRECTIONS", "CORRECTIONAL"],
+        "required_forms": ["703b", "704b", "bidpkg", "quote", "std204", "sellers_permit", "dvbe843"],
+        "optional_forms": ["calrecycle74"],
+        "notes": "California Correctional Health Care Services. Standard AMS 704/703 workflow.",
+    },
+    "calvet": {
+        "name": "Cal Vet / DVA",
+        "match_patterns": ["CALVET", "CAL VET", "CVA", "VHC", "VETERANS"],
+        "required_forms": ["703b", "704b", "bidpkg", "quote", "std204", "sellers_permit", "dvbe843", "cv012_cuf", "bidder_decl", "darfur_act"],
+        "optional_forms": ["barstow_cuf"],
+        "notes": "California Department of Veterans Affairs. Requires CUF + bidder declarations.",
+    },
+    "dgs": {
+        "name": "DGS",
+        "match_patterns": ["DGS", "GENERAL SERVICES"],
+        "required_forms": ["quote", "std204", "sellers_permit", "dvbe843", "bidder_decl", "darfur_act"],
+        "optional_forms": ["std1000"],
+        "notes": "Department of General Services. No AMS forms — uses their own bid format.",
+    },
+    "calfire": {
+        "name": "CAL FIRE",
+        "match_patterns": ["CALFIRE", "CAL FIRE", "FORESTRY"],
+        "required_forms": ["quote", "std204", "sellers_permit", "dvbe843"],
+        "optional_forms": [],
+        "notes": "California Department of Forestry and Fire Protection.",
+    },
+    "other": {
+        "name": "Other / Unknown",
+        "match_patterns": [],
+        "required_forms": ["quote", "std204", "sellers_permit"],
+        "optional_forms": ["dvbe843"],
+        "notes": "Default config for unrecognized agencies. Minimal forms.",
+    },
+}
+
+
+def _load_agency_configs():
+    """Load agency package configs from DB, seeding defaults if empty."""
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            conn.execute("""CREATE TABLE IF NOT EXISTS agency_package_configs (
+                agency_key   TEXT PRIMARY KEY,
+                agency_name  TEXT NOT NULL,
+                match_patterns TEXT DEFAULT '[]',
+                required_forms TEXT DEFAULT '[]',
+                optional_forms TEXT DEFAULT '[]',
+                notes        TEXT DEFAULT '',
+                updated_at   TEXT,
+                updated_by   TEXT DEFAULT 'system'
+            )""")
+            
+            rows = conn.execute("SELECT * FROM agency_package_configs ORDER BY agency_name").fetchall()
+            configs = {}
+            for r in rows:
+                d = dict(r)
+                d["match_patterns"] = json.loads(d.get("match_patterns") or "[]")
+                d["required_forms"] = json.loads(d.get("required_forms") or "[]")
+                d["optional_forms"] = json.loads(d.get("optional_forms") or "[]")
+                configs[d["agency_key"]] = d
+            
+            # Seed defaults if empty
+            if not configs:
+                for key, cfg in DEFAULT_AGENCY_CONFIGS.items():
+                    conn.execute("""INSERT OR IGNORE INTO agency_package_configs 
+                        (agency_key, agency_name, match_patterns, required_forms, optional_forms, notes, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, datetime('now'))""",
+                        (key, cfg["name"], json.dumps(cfg["match_patterns"]),
+                         json.dumps(cfg["required_forms"]), json.dumps(cfg["optional_forms"]),
+                         cfg.get("notes", "")))
+                conn.commit()
+                configs = DEFAULT_AGENCY_CONFIGS.copy()
+                log.info("Seeded %d default agency package configs", len(configs))
+            
+            return configs
+    except Exception as e:
+        log.warning("Failed to load agency configs: %s", e)
+        return DEFAULT_AGENCY_CONFIGS.copy()
+
+
+def _match_agency(rfq_data):
+    """Match an RFQ to an agency config based on agency field + match patterns."""
+    configs = _load_agency_configs()
+    agency = (rfq_data.get("agency", "") or "").upper()
+    agency_name = (rfq_data.get("agency_name", "") or "").upper()
+    sender = (rfq_data.get("email_sender", "") or "").upper()
+    combined = f"{agency} {agency_name} {sender}"
+    
+    for key, cfg in configs.items():
+        if key == "other":
+            continue
+        patterns = cfg.get("match_patterns", [])
+        if isinstance(patterns, str):
+            patterns = json.loads(patterns)
+        for pattern in patterns:
+            if pattern.upper() in combined:
+                return key, cfg
+    
+    return "other", configs.get("other", DEFAULT_AGENCY_CONFIGS["other"])
+
+
+@bp.route("/settings/packages")
+@auth_required
+def agency_package_settings():
+    """Agency RFQ Package Settings page."""
+    configs = _load_agency_configs()
+    return render_page("agency_packages.html", active_page="Agents",
+                       configs=configs, available_forms=AVAILABLE_FORMS)
+
+
+@bp.route("/api/agency-configs")
+@auth_required
+def api_agency_configs():
+    """Get all agency package configs."""
+    return jsonify({"ok": True, "configs": _load_agency_configs(), "available_forms": AVAILABLE_FORMS})
+
+
+@bp.route("/api/agency-config/<key>", methods=["POST"])
+@auth_required
+def api_save_agency_config(key):
+    """Save or create an agency package config."""
+    data = request.get_json(silent=True) or {}
+    
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            conn.execute("""CREATE TABLE IF NOT EXISTS agency_package_configs (
+                agency_key TEXT PRIMARY KEY, agency_name TEXT NOT NULL,
+                match_patterns TEXT DEFAULT '[]', required_forms TEXT DEFAULT '[]',
+                optional_forms TEXT DEFAULT '[]', notes TEXT DEFAULT '',
+                updated_at TEXT, updated_by TEXT DEFAULT 'system'
+            )""")
+            
+            conn.execute("""INSERT INTO agency_package_configs 
+                (agency_key, agency_name, match_patterns, required_forms, optional_forms, notes, updated_at, updated_by)
+                VALUES (?, ?, ?, ?, ?, ?, datetime('now'), 'user')
+                ON CONFLICT(agency_key) DO UPDATE SET
+                    agency_name=excluded.agency_name,
+                    match_patterns=excluded.match_patterns,
+                    required_forms=excluded.required_forms,
+                    optional_forms=excluded.optional_forms,
+                    notes=excluded.notes,
+                    updated_at=excluded.updated_at,
+                    updated_by=excluded.updated_by""",
+                (key,
+                 data.get("agency_name", key),
+                 json.dumps(data.get("match_patterns", [])),
+                 json.dumps(data.get("required_forms", [])),
+                 json.dumps(data.get("optional_forms", [])),
+                 data.get("notes", "")))
+        
+        return jsonify({"ok": True, "key": key})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/agency-config/<key>", methods=["DELETE"])
+@auth_required
+def api_delete_agency_config(key):
+    """Delete an agency config."""
+    if key in ("cchcs", "other"):
+        return jsonify({"ok": False, "error": "Cannot delete core agency configs"})
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            conn.execute("DELETE FROM agency_package_configs WHERE agency_key=?", (key,))
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})

@@ -1170,69 +1170,77 @@ def generate_rfq_package(rid):
         else:
             t.step("Bid Package skipped — no template")
         
-        # ── AGENCY-GATED FORMS ──────────────────────────────────────────
-        # Only include forms required by this agency. Don't dump everything.
-        _agency = (r.get("agency", "") or "").upper()
-        _is_cdcr = any(x in _agency for x in ["CDCR", "CCHCS", "CORRECTIONS"])
-        _is_calvet = any(x in _agency for x in ["CALVET", "CAL VET", "CVA", "VHC", "VETERANS"])
-        _is_dgs = "DGS" in _agency
-        _is_calfire = any(x in _agency for x in ["CALFIRE", "CAL FIRE", "FORESTRY"])
+        # ── AGENCY-GATED FORMS — driven by /settings/packages config ─────
+        # Match this RFQ to an agency config
+        try:
+            from src.api.modules.routes_analytics import _match_agency, _load_agency_configs, AVAILABLE_FORMS
+            _agency_key, _agency_cfg = _match_agency(r)
+            _req_forms = set(_agency_cfg.get("required_forms", []))
+            _opt_forms = set(_agency_cfg.get("optional_forms", []))
+            t.step(f"Agency matched: {_agency_key} ({_agency_cfg.get('name','')}), {len(_req_forms)} required forms")
+        except Exception as _ae:
+            t.warn(f"Agency config load failed, using CCHCS default: {_ae}")
+            _req_forms = {"703b", "704b", "bidpkg", "quote", "std204", "sellers_permit", "dvbe843"}
+            _opt_forms = set()
+            _agency_key = "cchcs"
         
-        # Universal forms — required by most state agencies
+        # Helper: should this form be included?
+        def _include(form_id):
+            return form_id in _req_forms
+        
         # STD 204 Payee Data Record
-        try:
-            from src.forms.reytech_filler_v4 import fill_std204
-            std204_tmpl = os.path.join(DATA_DIR, "templates", "std204_blank.pdf")
-            if os.path.exists(std204_tmpl):
-                fill_std204(std204_tmpl, r, CONFIG, f"{out_dir}/{sol}_STD204_Reytech.pdf")
-                output_files.append(f"{sol}_STD204_Reytech.pdf")
-                t.step("STD 204 filled")
-        except Exception as e:
-            errors.append(f"STD 204: {e}")
-            t.warn("STD 204 fill failed", error=str(e))
+        if _include("std204"):
+            try:
+                from src.forms.reytech_filler_v4 import fill_std204
+                std204_tmpl = os.path.join(DATA_DIR, "templates", "std204_blank.pdf")
+                if os.path.exists(std204_tmpl):
+                    fill_std204(std204_tmpl, r, CONFIG, f"{out_dir}/{sol}_STD204_Reytech.pdf")
+                    output_files.append(f"{sol}_STD204_Reytech.pdf")
+                    t.step("STD 204 filled")
+            except Exception as e:
+                errors.append(f"STD 204: {e}")
         
-        # Seller's Permit (static copy — universal)
-        try:
-            sellers_permit = os.path.join(DATA_DIR, "templates", "sellers_permit_reytech.pdf")
-            if os.path.exists(sellers_permit):
-                import shutil
-                sp_out = f"{out_dir}/{sol}_SellersPermit_Reytech.pdf"
-                shutil.copy2(sellers_permit, sp_out)
-                output_files.append(f"{sol}_SellersPermit_Reytech.pdf")
-                t.step("Seller's Permit included")
-        except Exception as e:
-            t.warn("Seller's Permit copy failed", error=str(e))
+        # Seller's Permit
+        if _include("sellers_permit"):
+            try:
+                sellers_permit = os.path.join(DATA_DIR, "templates", "sellers_permit_reytech.pdf")
+                if os.path.exists(sellers_permit):
+                    import shutil
+                    shutil.copy2(sellers_permit, f"{out_dir}/{sol}_SellersPermit_Reytech.pdf")
+                    output_files.append(f"{sol}_SellersPermit_Reytech.pdf")
+                    t.step("Seller's Permit included")
+            except Exception as e:
+                t.warn("Seller's Permit copy failed", error=str(e))
         
-        # DVBE 843 — required for most state bids
-        try:
-            from src.forms.reytech_filler_v4 import generate_dvbe_843
-            generate_dvbe_843(r, CONFIG, f"{out_dir}/{sol}_DVBE843_Reytech.pdf")
-            output_files.append(f"{sol}_DVBE843_Reytech.pdf")
-            t.step("DVBE 843 generated")
-        except Exception as e:
-            errors.append(f"DVBE 843: {e}")
-            t.warn("DVBE 843 failed", error=str(e))
+        # DVBE 843
+        if _include("dvbe843"):
+            try:
+                from src.forms.reytech_filler_v4 import generate_dvbe_843
+                generate_dvbe_843(r, CONFIG, f"{out_dir}/{sol}_DVBE843_Reytech.pdf")
+                output_files.append(f"{sol}_DVBE843_Reytech.pdf")
+                t.step("DVBE 843 generated")
+            except Exception as e:
+                errors.append(f"DVBE 843: {e}")
         
-        # ── AGENCY-SPECIFIC FORMS ─────────────────────────────────────
-        
-        # Cal Vet ONLY: CV 012 CUF
-        if _is_calvet:
+        # CV 012 CUF (Cal Vet)
+        if _include("cv012_cuf"):
             try:
                 from src.forms.reytech_filler_v4 import fill_cv012_cuf
                 cuf_tmpl = os.path.join(DATA_DIR, "templates", "cv012_cuf_blank.pdf")
                 if os.path.exists(cuf_tmpl):
                     fill_cv012_cuf(cuf_tmpl, r, CONFIG, f"{out_dir}/{sol}_CV012_CUF_Reytech.pdf")
                     output_files.append(f"{sol}_CV012_CUF_Reytech.pdf")
-                    t.step("CV 012 CUF filled (Cal Vet)")
+                    t.step("CV 012 CUF filled")
             except Exception as e:
                 t.warn("CV 012 CUF failed", error=str(e))
-            
-            # Barstow CUF — only for VHC-Barstow
+        
+        # Barstow CUF (facility-specific)
+        if _include("barstow_cuf") or "barstow_cuf" in _opt_forms:
             try:
                 from src.forms.reytech_filler_v4 import generate_barstow_cuf
                 _rfq_text = " ".join([
                     str(r.get("ship_to", "")), str(r.get("delivery_location", "")),
-                    str(r.get("institution", "")), str(r.get("full_body", "")),
+                    str(r.get("institution", "")),
                 ]).lower()
                 if "barstow" in _rfq_text or "92311" in _rfq_text:
                     generate_barstow_cuf(r, CONFIG, f"{out_dir}/{sol}_BarstowCUF_Reytech.pdf")
@@ -1241,8 +1249,8 @@ def generate_rfq_package(rid):
             except Exception as e:
                 t.warn("Barstow CUF failed", error=str(e))
         
-        # DGS bids: Bidder Declaration + Darfur Act
-        if _is_dgs or _is_calvet:
+        # Bidder Declaration
+        if _include("bidder_decl"):
             try:
                 from src.forms.reytech_filler_v4 import generate_bidder_declaration
                 generate_bidder_declaration(r, CONFIG, f"{out_dir}/{sol}_BidderDecl_Reytech.pdf")
@@ -1250,7 +1258,9 @@ def generate_rfq_package(rid):
                 t.step("Bidder Declaration generated")
             except Exception as e:
                 t.warn("Bidder Declaration failed", error=str(e))
-            
+        
+        # Darfur Act
+        if _include("darfur_act"):
             try:
                 from src.forms.reytech_filler_v4 import generate_darfur_act
                 generate_darfur_act(r, CONFIG, f"{out_dir}/{sol}_DarfurAct_Reytech.pdf")
@@ -1259,8 +1269,8 @@ def generate_rfq_package(rid):
             except Exception as e:
                 t.warn("Darfur Act failed", error=str(e))
         
-        # CalRecycle 74 — only when explicitly required or large item count
-        if "calrecycle" in _agency.lower() or len(r.get("line_items", [])) > 6:
+        # CalRecycle 74
+        if _include("calrecycle74") or ("calrecycle74" in _opt_forms and len(r.get("line_items", [])) > 6):
             try:
                 from src.forms.reytech_filler_v4 import fill_calrecycle_standalone
                 cr_tmpl = os.path.join(DATA_DIR, "templates", "calrecycle_74_blank.pdf")
@@ -1271,9 +1281,37 @@ def generate_rfq_package(rid):
             except Exception as e:
                 t.warn("CalRecycle 74 failed", error=str(e))
         
-        # STD 1000 GenAI — skip for now (not universally required)
-        # STD 205 Payee Supplement — skip for now (rarely required)
-        # Drug-Free Workplace STD 21 — skip for now (rarely required)
+        # STD 1000 GenAI
+        if _include("std1000"):
+            try:
+                from src.forms.reytech_filler_v4 import fill_std1000
+                std1000_tmpl = os.path.join(DATA_DIR, "templates", "std1000_blank.pdf")
+                if os.path.exists(std1000_tmpl):
+                    fill_std1000(std1000_tmpl, r, CONFIG, f"{out_dir}/{sol}_STD1000_Reytech.pdf")
+                    output_files.append(f"{sol}_STD1000_Reytech.pdf")
+                    t.step("STD 1000 filled")
+            except Exception as e:
+                t.warn("STD 1000 failed", error=str(e))
+        
+        # STD 205
+        if _include("std205"):
+            try:
+                from src.forms.reytech_filler_v4 import generate_std205
+                generate_std205(r, CONFIG, f"{out_dir}/{sol}_STD205_Reytech.pdf")
+                output_files.append(f"{sol}_STD205_Reytech.pdf")
+                t.step("STD 205 generated")
+            except Exception as e:
+                t.warn("STD 205 failed", error=str(e))
+        
+        # Drug-Free Workplace
+        if _include("drug_free"):
+            try:
+                from src.forms.reytech_filler_v4 import generate_drug_free
+                generate_drug_free(r, CONFIG, f"{out_dir}/{sol}_DrugFree_Reytech.pdf")
+                output_files.append(f"{sol}_DrugFree_Reytech.pdf")
+                t.step("Drug-Free STD 21 generated")
+            except Exception as e:
+                t.warn("Drug-Free failed", error=str(e))
     except Exception as e:
         errors.append(f"State forms: {e}")
         t.warn("State forms exception", error=str(e))

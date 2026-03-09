@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+{% block title %}RFQ Package Settings — Reytech{% endblock %}
+{% block content %}
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+ <h2 style="font-size:20px;font-weight:700">📦 RFQ Package Settings</h2>
+ <button class="btn btn-p" onclick="addAgency()" style="font-size:14px;padding:8px 18px">+ Add Agency</button>
+</div>
+
+<p style="color:var(--tx2);font-size:14px;margin-bottom:20px;line-height:1.6">
+ Configure which forms are included in each agency's RFQ bid package.
+ When an RFQ email arrives, the app matches the sender to an agency and uses these settings to build the package.
+ Forms from the email (703B, 704B, Bid Package) are always used when available.
+</p>
+
+{% for key, cfg in configs.items() %}
+<div class="card agency-card" data-key="{{ key }}" style="margin-bottom:14px">
+ <div class="card-t" style="display:flex;justify-content:space-between;align-items:center">
+  <div style="display:flex;align-items:center;gap:10px">
+   <span style="font-size:18px">🏛️</span>
+   <input type="text" value="{{ cfg.get("name", "") if cfg is mapping else cfg.name }}" 
+     class="agency-name" placeholder="Agency Name"
+     style="background:transparent;border:none;font-size:15px;font-weight:600;color:var(--tx);text-transform:uppercase;letter-spacing:1px;width:200px;padding:2px 0;border-bottom:1px solid transparent"
+     onfocus="this.style.borderBottomColor='var(--ac)'" onblur="this.style.borderBottomColor='transparent'">
+  </div>
+  <div style="display:flex;gap:8px;align-items:center">
+   <span class="save-status" style="font-size:13px;color:var(--tx2)"></span>
+   <button class="btn btn-s" onclick="saveAgency('{{ key }}')" style="font-size:13px;padding:6px 14px">💾 Save</button>
+   {% if key not in ['cchcs', 'other'] %}
+   <button class="btn btn-s" onclick="deleteAgency('{{ key }}')" style="font-size:13px;padding:6px 14px;color:var(--rd);border-color:rgba(248,113,113,.3)">🗑️</button>
+   {% endif %}
+  </div>
+ </div>
+
+ <!-- Match Patterns -->
+ <div style="margin-top:14px">
+  <label style="font-size:13px;color:var(--tx2);font-weight:600;display:block;margin-bottom:6px">
+   MATCH PATTERNS
+   <span style="font-weight:400;margin-left:8px">Keywords to match this agency from email sender/subject</span>
+  </label>
+  <input type="text" class="agency-patterns" 
+    value="{{ cfg.match_patterns | join(", ") if cfg.match_patterns is iterable else cfg.match_patterns }}"
+    placeholder="CDCR, CCHCS, CORRECTIONS" 
+    style="width:100%;padding:8px 12px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:14px;font-family:'JetBrains Mono',monospace">
+ </div>
+
+ <!-- Required Forms -->
+ <div style="margin-top:14px">
+  <label style="font-size:13px;color:var(--tx2);font-weight:600;display:block;margin-bottom:8px">
+   REQUIRED FORMS
+   <span style="font-weight:400;margin-left:8px">Always included in this agency's package</span>
+  </label>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px" class="required-forms">
+   {% for form in available_forms %}
+   {% set req_list = cfg.get("required_forms", []) %}
+   <label style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;cursor:pointer;transition:.15s"
+     onmouseover="this.style.borderColor='var(--ac)'" onmouseout="this.style.borderColor='var(--bd)'">
+    <input type="checkbox" value="{{ form.id }}" data-type="required"
+      {% if form.id in req_list %}checked{% endif %}
+      style="width:16px;height:16px;accent-color:var(--gn);cursor:pointer">
+    <div>
+     <div style="font-size:14px;color:var(--tx)">{{ form.name }}</div>
+     <div style="font-size:12px;color:var(--tx2)">
+      {% if form.source == 'email' %}📧 From email{% elif form.source == 'template' %}📄 Fill template{% elif form.source == 'generated' %}⚡ Auto-generated{% else %}📎 Static copy{% endif %}
+     </div>
+    </div>
+   </label>
+   {% endfor %}
+  </div>
+ </div>
+
+ <!-- Optional Forms -->
+ <div style="margin-top:14px">
+  <label style="font-size:13px;color:var(--tx2);font-weight:600;display:block;margin-bottom:8px">
+   OPTIONAL FORMS
+   <span style="font-weight:400;margin-left:8px">Included only when specifically needed</span>
+  </label>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px" class="optional-forms">
+   {% for form in available_forms %}
+   {% set opt_list = cfg.get("optional_forms", []) %}
+   <label style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;cursor:pointer;transition:.15s;opacity:0.7"
+     onmouseover="this.style.borderColor='var(--yl)'" onmouseout="this.style.borderColor='var(--bd)'">
+    <input type="checkbox" value="{{ form.id }}" data-type="optional"
+      {% if form.id in opt_list %}checked{% endif %}
+      style="width:16px;height:16px;accent-color:var(--yl);cursor:pointer">
+    <div>
+     <div style="font-size:14px;color:var(--tx)">{{ form.name }}</div>
+    </div>
+   </label>
+   {% endfor %}
+  </div>
+ </div>
+
+ <!-- Notes -->
+ <div style="margin-top:14px">
+  <label style="font-size:13px;color:var(--tx2);font-weight:600;display:block;margin-bottom:6px">NOTES</label>
+  <textarea class="agency-notes" rows="2" placeholder="Internal notes about this agency's requirements..."
+    style="width:100%;padding:8px 12px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:14px;resize:vertical">{{ cfg.get("notes", "") }}</textarea>
+ </div>
+</div>
+{% endfor %}
+
+<script>
+function saveAgency(key) {
+ const card = document.querySelector(`.agency-card[data-key="${key}"]`);
+ const status = card.querySelector('.save-status');
+ 
+ const name = card.querySelector('.agency-name').value.trim();
+ const patterns = card.querySelector('.agency-patterns').value.split(',').map(s => s.trim()).filter(Boolean);
+ const notes = card.querySelector('.agency-notes').value.trim();
+ 
+ const required = [];
+ card.querySelectorAll('.required-forms input[type=checkbox]:checked').forEach(cb => required.push(cb.value));
+ const optional = [];
+ card.querySelectorAll('.optional-forms input[type=checkbox]:checked').forEach(cb => {
+  if (!required.includes(cb.value)) optional.push(cb.value);
+ });
+ 
+ status.textContent = '⏳ Saving...';
+ status.style.color = 'var(--yl)';
+ 
+ fetch(`/api/agency-config/${key}`, {
+  method: 'POST',
+  headers: {'Content-Type': 'application/json'},
+  body: JSON.stringify({agency_name: name, match_patterns: patterns, required_forms: required, optional_forms: optional, notes: notes})
+ }).then(r => r.json()).then(d => {
+  if (d.ok) {
+   status.textContent = '✅ Saved';
+   status.style.color = 'var(--gn)';
+   setTimeout(() => { status.textContent = ''; }, 2000);
+  } else {
+   status.textContent = '❌ ' + (d.error || 'Failed');
+   status.style.color = 'var(--rd)';
+  }
+ }).catch(e => {
+  status.textContent = '❌ Error';
+  status.style.color = 'var(--rd)';
+ });
+}
+
+function deleteAgency(key) {
+ if (!confirm('Delete this agency config? This cannot be undone.')) return;
+ fetch(`/api/agency-config/${key}`, {method: 'DELETE'})
+  .then(r => r.json()).then(d => {
+   if (d.ok) location.reload();
+   else alert('Error: ' + (d.error || 'Failed'));
+  });
+}
+
+function addAgency() {
+ const key = prompt('Agency key (lowercase, no spaces, e.g. "calfire"):');
+ if (!key || !key.match(/^[a-z_]+$/)) {
+  if (key) alert('Key must be lowercase letters and underscores only');
+  return;
+ }
+ const name = prompt('Agency display name (e.g. "CAL FIRE"):');
+ if (!name) return;
+ 
+ fetch(`/api/agency-config/${key}`, {
+  method: 'POST',
+  headers: {'Content-Type': 'application/json'},
+  body: JSON.stringify({agency_name: name, match_patterns: [name.toUpperCase()], required_forms: ['quote', 'std204', 'sellers_permit'], optional_forms: [], notes: ''})
+ }).then(r => r.json()).then(d => {
+  if (d.ok) location.reload();
+  else alert('Error: ' + (d.error || 'Failed'));
+ });
+}
+</script>
+{% endblock %}
