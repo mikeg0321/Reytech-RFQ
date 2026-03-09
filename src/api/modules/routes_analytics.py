@@ -2637,9 +2637,18 @@ DEFAULT_AGENCY_CONFIGS = {
     "cchcs": {
         "name": "CCHCS / CDCR",
         "match_patterns": ["CDCR", "CCHCS", "CORRECTIONS", "CORRECTIONAL"],
-        "required_forms": ["703b", "704b", "quote", "std204", "sellers_permit", "dvbe843"],
-        "optional_forms": ["calrecycle74"],
-        "notes": "California Correctional Health Care Services. Standard AMS 704/703 workflow.",
+        "required_forms": [
+            "703b", "704b", "quote",          # Core submission forms (in this order)
+            "std204",                           # STD 204 Payee Data Record
+            "sellers_permit",                   # CA Seller's Permit
+            "dvbe843",                          # DVBE Declarations DGS PD 843
+            "calrecycle74",                     # CalRecycle 74 Recycled Content
+            "bidder_decl",                      # Bidder Declaration GSPD-05-106
+            "darfur_act",                       # Darfur Contracting Act DGS PD 1
+            "drug_free",                        # Drug-Free Workplace STD 21
+        ],
+        "optional_forms": ["cuf_cchcs", "genai_708"],
+        "notes": "California Correctional Health Care Services. AMS 703B/704B + full supporting docs.",
     },
     "calvet": {
         "name": "Cal Vet / DVA",

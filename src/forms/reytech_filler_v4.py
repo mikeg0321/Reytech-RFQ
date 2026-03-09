@@ -221,9 +221,14 @@ def fill_and_sign_pdf(input_path, field_values, output_path,
 
     for page in writer.pages:
         try:
-            writer.update_page_form_field_values(page, clean_values, auto_regenerate=False)
+            # auto_regenerate=True bakes appearance streams into each field so values
+            # remain visible after the page is copied into a merged package PDF.
+            writer.update_page_form_field_values(page, clean_values, auto_regenerate=True)
         except Exception:
-            pass
+            try:
+                writer.update_page_form_field_values(page, clean_values, auto_regenerate=False)
+            except Exception:
+                pass
 
     sig_path = sig_image or SIGNATURE_PATH
     for page in writer.pages:
@@ -346,27 +351,47 @@ def fill_704b(input_path, rfq_data, config, output_path):
             continue
         price = item.get("price_per_unit", 0)
         qty = item.get("qty", 0)
+        uom = item.get("uom", "EA")
+        desc = item.get("description", "")
+        pn = item.get("part_number", item.get("item_number", ""))
         subtotal = round(price * qty, 2)
         merchandise_subtotal += subtotal
-        values[f"PRICE PER UNITRow{row_num}"] = f"{price:.2f}" if price else ""
-        values[f"SUBTOTALRow{row_num}"] = f"{subtotal:.2f}" if subtotal else ""
 
-        # Fill ITEM # column with sequential line number (1, 2, 3...)
-        values[f"ITEM NUMBERRow{row_num}"] = str(seq)
+        # Write to BOTH RowN and RowN_2 variants.
+        # CCHCS combined templates (703B + 704B in one file) cause pypdf to add
+        # a "_2" page-suffix to fields on page 2 (704B pricing sheet) because the
+        # same field names already appear on page 1 (703B side). By writing both
+        # variants we hit the actual field regardless of template version.
+        for sfx in ("", "_2"):
+            r = f"Row{row_num}{sfx}"
+            values[f"PRICE PER UNIT{r}"] = f"{price:.2f}" if price else ""
+            values[f"SUBTOTAL{r}"] = f"{subtotal:.2f}" if subtotal else ""
+            values[f"ITEM NUMBER{r}"] = str(seq)
+            values[f"QTY{r}"] = str(qty) if qty else ""
+            values[f"UOM{r}"] = uom
+            values[f"ITEM DESCRIPTION PRODUCT SPECIFICATION{r}"] = desc
+            values[f"#{r}"] = str(seq)
+            sub_field = f"SUBSTITUTED ITEM Include manufacturer part number andor reference number{r}"
+            if item.get("is_substitute"):
+                sub_desc = desc
+                mfg = item.get("mfg_number", "")
+                values[sub_field] = f"{sub_desc} (MFG# {mfg})" if mfg else sub_desc
+            else:
+                values[sub_field] = ""
 
-        # SUBSTITUTED ITEM column: only fill when item is marked as a substitute
-        # Otherwise explicitly clear it (original 704A may have reference data in this field)
-        sub_field = f"SUBSTITUTED ITEM Include manufacturer part number andor reference numberRow{row_num}"
-        if item.get("is_substitute"):
-            sub_desc = item.get("description", "")
-            mfg = item.get("mfg_number", "")
-            sub_text = f"{sub_desc} (MFG# {mfg})" if mfg else sub_desc
-            values[sub_field] = sub_text
-        else:
-            values[sub_field] = ""
+    # Header fields — write both plain and _2 variants for same reason
+    for sfx in ("", "_2"):
+        values[f"COMPANY NAME{sfx}"] = company["name"] if sfx == "" else values.get("COMPANY NAME", company["name"])
+        values[f"PERSON PROVIDING QUOTE{sfx}"] = company["owner"]
+        values[f"Contract_Number{sfx}"] = rfq_data.get("solicitation_number", "N/A")
+        values[f"SOLICITATION #{sfx}"] = rfq_data.get("solicitation_number", "")
+        values[f"SOLICITATION{sfx}"] = rfq_data.get("solicitation_number", "")
+        values[f"REQUESTOR{sfx}"] = rfq_data.get("requestor_name", "")
+        values[f"DATE{sfx}"] = sign_date
 
     # Leading space pushes text past the printed "$"
     values["fill_154"] = f" {merchandise_subtotal:.2f}"
+    values["fill_154_2"] = f" {merchandise_subtotal:.2f}"
 
     fill_and_sign_pdf(input_path, values, output_path, sign_date=sign_date)
     print(f"  ✓ 704B filled + signed — ${merchandise_subtotal:,.2f}")

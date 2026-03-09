@@ -1371,21 +1371,24 @@ def generate_rfq_package(rid):
     package_pdfs = []  # (filepath, label) — order matters
     quote_file = None   # The Reytech quote stays separate
     
-    # ── Canonical form order for CalVet/generic RFQ packages ──
+    # ── Canonical form order for CCHCS/CalVet/generic RFQ packages ──
     # Forms appear in this exact sequence in the merged PDF.
     # Key substrings matched against filenames (case-insensitive).
     _FORM_ORDER = [
-        "CalRecycle74",      # 1. CalRecycle 74
-        "STD204",            # 2. STD 204 Payee Data Record
-        "STD205",            # 3. STD 205 Payee Supplement
-        "BidderDecl",        # 4. Bidder Declaration GSPD-05-106
-        "DVBE843",           # 5. DVBE Declarations DGS PD 843
-        "DarfurAct",         # 6. Darfur Contracting Act DGS PD 1
-        "CV012_CUF",         # 7. CUF CV 012
-        "BarstowCUF",        # 8. Barstow CUF (conditional)
-        "STD1000",           # 9. STD 1000 GenAI Reporting
-        "SellersPermit",     # 10. Seller's Permit
-        "DrugFree",          # 11. Drug-Free Workplace STD 21
+        "703B",              # 1. AMS 703B Request for Quotation (filled)
+        "704B",              # 2. AMS 704B Quote Worksheet (filled with line items)
+        "Quote",             # 3. Reytech formal quote on letterhead
+        "CalRecycle74",      # 4. CalRecycle 74
+        "STD204",            # 5. STD 204 Payee Data Record
+        "STD205",            # 6. STD 205 Payee Supplement
+        "BidderDecl",        # 7. Bidder Declaration GSPD-05-106
+        "DVBE843",           # 8. DVBE Declarations DGS PD 843
+        "DarfurAct",         # 9. Darfur Contracting Act DGS PD 1
+        "CV012_CUF",         # 10. CUF CV 012 (CalVet)
+        "BarstowCUF",        # 11. Barstow CUF (conditional)
+        "STD1000",           # 12. STD 1000 GenAI Reporting
+        "SellersPermit",     # 13. Seller's Permit
+        "DrugFree",          # 14. Drug-Free Workplace STD 21
     ]
     
     def _form_sort_key(filename):
@@ -1396,13 +1399,15 @@ def generate_rfq_package(rid):
                 return idx
         return len(_FORM_ORDER)  # unknown forms go at the end
     
-    # Separate quote from package files
+    # All output files go into the package — quote included.
+    # The _FORM_ORDER sort puts 703B → 704B → Quote → supporting docs.
+    quote_file = None  # tracked for email subject line only
     for f in output_files:
         fpath = os.path.join(out_dir, f)
-        if "Quote" in f and os.path.exists(fpath):
-            quote_file = f
-        elif os.path.exists(fpath):
+        if os.path.exists(fpath):
             package_pdfs.append((fpath, f))
+            if "Quote" in f:
+                quote_file = f
     
     # NOTE: We intentionally do NOT include raw email attachments here.
     # The package should contain ONLY:
