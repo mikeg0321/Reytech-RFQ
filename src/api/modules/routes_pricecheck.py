@@ -6376,3 +6376,80 @@ def api_diag_home_timing():
     steps.append({"step": "total", "ms": round((_t.time()-t0)*1000)})
     
     return jsonify({"steps": steps})
+
+
+@bp.route("/api/db-repair", methods=["GET", "POST"])
+@auth_required
+def api_db_repair():
+    """Repair corrupted SQLite DB by rebuilding it."""
+    import sqlite3, shutil
+    from src.core.paths import DATA_DIR as _DD
+    
+    db_path = os.path.join(_DD, "reytech.db")
+    backup_path = db_path + ".corrupt_backup"
+    new_path = db_path + ".rebuilt"
+    
+    if not os.path.exists(db_path):
+        return jsonify({"ok": False, "error": "DB not found"})
+    
+    steps = []
+    db_size = os.path.getsize(db_path)
+    steps.append(f"Original DB: {db_size // 1048576}MB")
+    
+    try:
+        # Step 1: Try integrity check
+        conn = sqlite3.connect(db_path, timeout=10)
+        try:
+            result = conn.execute("PRAGMA integrity_check").fetchone()
+            steps.append(f"Integrity: {result[0]}")
+        except Exception as e:
+            steps.append(f"Integrity check failed: {e}")
+        conn.close()
+        
+        # Step 2: Rebuild via dump + reimport
+        steps.append("Rebuilding via .dump → reimport...")
+        old_conn = sqlite3.connect(db_path, timeout=30)
+        new_conn = sqlite3.connect(new_path, timeout=30)
+        
+        # Dump and reimport
+        dumped = 0
+        errors = 0
+        for line in old_conn.iterdump():
+            try:
+                new_conn.execute(line)
+                dumped += 1
+            except Exception as e:
+                errors += 1
+                if errors <= 5:
+                    steps.append(f"Skip: {str(e)[:80]}")
+        
+        new_conn.commit()
+        new_conn.close()
+        old_conn.close()
+        
+        new_size = os.path.getsize(new_path)
+        steps.append(f"Rebuilt: {dumped} statements, {errors} errors, {new_size // 1048576}MB")
+        
+        # Step 3: Swap
+        shutil.move(db_path, backup_path)
+        shutil.move(new_path, db_path)
+        steps.append("Swapped: corrupt → .corrupt_backup, rebuilt → reytech.db")
+        
+        # Step 4: Verify
+        conn = sqlite3.connect(db_path, timeout=10)
+        result = conn.execute("PRAGMA integrity_check").fetchone()
+        steps.append(f"New integrity: {result[0]}")
+        
+        # WAL mode
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.close()
+        steps.append("WAL mode enabled")
+        
+        return jsonify({"ok": True, "steps": steps, 
+                        "old_mb": db_size // 1048576, "new_mb": new_size // 1048576})
+    
+    except Exception as e:
+        # Cleanup
+        if os.path.exists(new_path):
+            os.remove(new_path)
+        return jsonify({"ok": False, "error": str(e), "steps": steps})
