@@ -247,44 +247,7 @@ def _sanitize_path(path_str: str) -> str:
 
 def rfq_db_path(): return os.path.join(DATA_DIR, "rfqs.json")
 def load_rfqs():
-    data = _cached_json_load(rfq_db_path(), fallback={})
-    # Restore from SQLite if JSON is empty (post-deploy recovery)
-    if not data:
-        try:
-            from src.core.db import get_db
-            with get_db() as conn:
-                rows = conn.execute(
-                    "SELECT * FROM rfqs WHERE status NOT IN ('dismissed','cancelled') ORDER BY received_at DESC"
-                ).fetchall()
-                if rows:
-                    for _row in rows:
-                        r = dict(_row)
-                        rid = r["id"]
-                        items = []
-                        try:
-                            items = json.loads(r.get("items") or "[]")
-                        except Exception:
-                            pass
-                        data[rid] = {
-                            "id": rid,
-                            "received_at": r.get("received_at") or "",
-                            "agency": r.get("agency") or "",
-                            "institution": r.get("institution") or "",
-                            "requestor_name": r.get("requestor_name") or "",
-                            "requestor_email": r.get("requestor_email") or "",
-                            "rfq_number": r.get("rfq_number") or "",
-                            "items": items,
-                            "status": r.get("status") or "new",
-                            "source": r.get("source") or "",
-                            "email_uid": r.get("email_uid") or "",
-                            "notes": r.get("notes") or "",
-                        }
-                    if data:
-                        save_rfqs(data)
-                        log.info("Restored %d RFQs from SQLite → JSON", len(data))
-        except Exception:
-            pass
-    return data
+    return _cached_json_load(rfq_db_path(), fallback={})
 
 def save_rfqs(rfqs):
     p = rfq_db_path()
@@ -670,7 +633,9 @@ def _load_price_checks(include_items=True):
     
     data = {}
     
-    # JSON first — it's small and fast, even on 577MB DB volumes
+    # Read from JSON only — NEVER query the 577MB DB on page load
+    # DB is only for persistence. JSON is the read source.
+    # If JSON is empty/missing, page shows empty PC list (not a hang).
     json_path = os.path.join(DATA_DIR, "price_checks.json")
     if os.path.exists(json_path):
         try:
@@ -678,51 +643,6 @@ def _load_price_checks(include_items=True):
                 data = json.load(f)
         except Exception:
             data = {}
-    
-    # Only query DB if JSON was empty (post-deploy recovery)
-    if not data:
-        try:
-            from src.core.db import get_db
-            with get_db() as conn:
-                if include_items:
-                    rows = conn.execute(
-                        """SELECT id, pc_number, institution, requestor, items, status, 
-                           created_at, email_uid, email_subject, due_date, agency, 
-                           source_file, quote_number, total_items
-                           FROM price_checks WHERE status NOT IN ('deleted')"""
-                    ).fetchall()
-                else:
-                    rows = conn.execute(
-                        """SELECT id, pc_number, institution, requestor, '[]' as items, status, 
-                           created_at, email_uid, email_subject, due_date, agency, 
-                           source_file, quote_number, total_items
-                           FROM price_checks WHERE status NOT IN ('deleted')"""
-                    ).fetchall()
-                for _row in rows:
-                    r = dict(_row)
-                    pc_id = r["id"]
-                    items_list = []
-                    try:
-                        items_list = json.loads(r.get("items") or "[]")
-                    except Exception:
-                        pass
-                    data[pc_id] = {
-                        "id": pc_id,
-                        "pc_number": r.get("pc_number") or r.get("quote_number") or pc_id,
-                        "institution": r.get("institution") or r.get("agency") or "",
-                        "requestor": r.get("requestor") or "",
-                        "items": items_list,
-                        "source_pdf": r.get("source_file") or "",
-                        "status": r.get("status") or "parsed",
-                        "created_at": r.get("created_at") or "",
-                        "reytech_quote_number": r.get("quote_number") or "",
-                        "email_uid": r.get("email_uid") or "",
-                        "email_subject": r.get("email_subject") or "",
-                        "due_date": r.get("due_date") or "",
-                        "source": "db",
-                    }
-        except Exception as e:
-            log.warning("DB load failed for price_checks: %s", e)
 
     # Only cache full results (with items)
     if include_items:
@@ -2416,38 +2336,7 @@ def _find_quote(quote_number: str) -> dict:
 ORDERS_FILE = os.path.join(DATA_DIR, "orders.json")
 
 def _load_orders() -> dict:
-    data = _cached_json_load(ORDERS_FILE, fallback={})
-    # ── Restore from SQLite if JSON is empty ─────────────────────
-    if not data:
-        try:
-            from src.core.db import get_db
-            with get_db() as conn:
-                rows = conn.execute("SELECT * FROM orders").fetchall()
-                for _row in rows:
-                    r = dict(_row)
-                    oid = r["id"]
-                    items = []
-                    try:
-                        items = json.loads(r["items"] or "[]")
-                    except Exception as _e:
-                        log.debug("Suppressed: %s", _e)
-                    data[oid] = {
-                        "order_id": oid,
-                        "quote_number": r.get("quote_number") or "",
-                        "po_number": r.get("po_number") or "",
-                        "agency": r.get("agency") or "",
-                        "institution": r.get("institution") or "",
-                        "total": r.get("total") or 0,
-                        "status": r.get("status") or "new",
-                        "line_items": items,
-                        "created_at": r.get("created_at") or "",
-                    }
-                if data:
-                    _save_orders(data)
-                    log.info("Restored %d orders from SQLite → JSON", len(data))
-        except Exception as _e:
-            log.debug("Suppressed: %s", _e)
-    # ── End restore ──────────────────────────────────────────────
+    return _cached_json_load(ORDERS_FILE, fallback={})
     return data
 
 def _save_orders(orders: dict):

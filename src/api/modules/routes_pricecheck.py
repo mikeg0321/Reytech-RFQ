@@ -6327,3 +6327,52 @@ def api_disk_emergency():
         "freed_mb": round(freed / 1048576, 1),
         "deleted": deleted,
     })
+
+
+@bp.route("/api/diag/home-timing")
+@auth_required
+def api_diag_home_timing():
+    """Time every step of what the home page does."""
+    import time as _t
+    from src.core.paths import DATA_DIR as _DD
+    steps = []
+    
+    t0 = _t.time()
+    
+    # 1. Check if JSON files exist
+    import os
+    json_pc = os.path.join(_DD, "price_checks.json")
+    json_rfq = os.path.join(_DD, "rfqs.json")
+    pc_exists = os.path.exists(json_pc)
+    rfq_exists = os.path.exists(json_rfq)
+    pc_size = os.path.getsize(json_pc) if pc_exists else 0
+    rfq_size = os.path.getsize(json_rfq) if rfq_exists else 0
+    steps.append({"step": "check_files", "ms": round((_t.time()-t0)*1000),
+                  "pc_json_exists": pc_exists, "pc_json_kb": round(pc_size/1024,1),
+                  "rfq_json_exists": rfq_exists, "rfq_json_kb": round(rfq_size/1024,1)})
+    
+    # 2. Load PCs
+    t1 = _t.time()
+    try:
+        pcs = _load_price_checks()
+        steps.append({"step": "load_pcs", "ms": round((_t.time()-t1)*1000), "count": len(pcs)})
+    except Exception as e:
+        steps.append({"step": "load_pcs", "ms": round((_t.time()-t1)*1000), "error": str(e)})
+    
+    # 3. Load RFQs
+    t2 = _t.time()
+    try:
+        from src.api.dashboard import load_rfqs
+        rfqs = load_rfqs()
+        steps.append({"step": "load_rfqs", "ms": round((_t.time()-t2)*1000), "count": len(rfqs)})
+    except Exception as e:
+        steps.append({"step": "load_rfqs", "ms": round((_t.time()-t2)*1000), "error": str(e)})
+    
+    # 4. DB size
+    db_path = os.path.join(_DD, "reytech.db")
+    db_mb = round(os.path.getsize(db_path)/1048576, 1) if os.path.exists(db_path) else 0
+    steps.append({"step": "db_size", "mb": db_mb})
+    
+    steps.append({"step": "total", "ms": round((_t.time()-t0)*1000)})
+    
+    return jsonify({"steps": steps})
