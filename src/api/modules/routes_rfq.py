@@ -3315,3 +3315,20 @@ def api_nuke_rfq(rid):
         "nuked": nuked,
         "poll": poll_result,
     })
+
+
+@bp.route("/api/rfq/<rid>/clear-quote", methods=["POST", "GET"])
+@auth_required
+def api_rfq_clear_quote(rid):
+    """Clear the quote number on an RFQ so regeneration assigns a new one."""
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"})
+    
+    old_qn = r.get("reytech_quote_number", "")
+    r["reytech_quote_number"] = ""
+    r["linked_quote_number"] = ""
+    save_rfqs(rfqs)
+    
+    return jsonify({"ok": True, "cleared": old_qn, "message": f"Cleared {old_qn}. Regenerate to get a new number."})
