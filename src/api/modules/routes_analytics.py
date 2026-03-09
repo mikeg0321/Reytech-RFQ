@@ -2644,12 +2644,11 @@ DEFAULT_AGENCY_CONFIGS = {
             "quote",          # Reytech formal quote on letterhead
             # ── RFQ Package: BidPackage template + extras ────────────
             # NOTE: bidpkg already contains CDCR Terms, CalRecycle 74,
-            # Bidder Declaration, Darfur Act, CUF MC-345, DVBE 843,
-            # GenAI AMS 708, Drug-Free STD 21, Voluntary Stats PD 802.
-            # Do NOT add standalone generators for those — they duplicate.
+            # CUF MC-345, DVBE 843, GenAI AMS 708, Drug-Free STD 21,
+            # Voluntary Stats PD 802.
+            # Darfur Act is also embedded in bidpkg — no standalone needed.
+            # Bidder Declaration (GSPD-05-105) is embedded in bidpkg — no standalone GSPD-05-106.
             "bidpkg",         # CDCR combined template (all forms above)
-            "bidder_decl",    # Standalone Bidder Declaration (cleaner sig than template version)
-            "darfur_act",     # Standalone Darfur Act (cleaner sig than template version)
             "sellers_permit", # CA Seller's Permit (static copy)
         ],
         "optional_forms": [],

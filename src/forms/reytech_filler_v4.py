@@ -106,8 +106,9 @@ def set_field_fonts(writer, field_values, default_size=11, tight_size=9):
     """Set font sizes and FORCE appearance regeneration for clean text rendering."""
     da_default = f"/Helv {default_size} Tf 0 g"
     
-    # Approximate character widths at different font sizes (Helvetica)
-    CHAR_WIDTH = {5: 2.8, 6: 3.3, 7: 3.9, 8: 4.5, 9: 5.0, 10: 5.6, 11: 6.1}
+    # Conservative character widths at different font sizes (Helvetica, mixed text).
+    # Using 0.6em as average glyph advance — wider than naive estimate to avoid clipping.
+    CHAR_WIDTH = {5: 3.1, 6: 3.7, 7: 4.3, 8: 4.9, 9: 5.5, 10: 6.1, 11: 6.7}
     
     for page in writer.pages:
         if "/Annots" not in page:
@@ -186,8 +187,14 @@ def create_signature_overlay(sig_entries, page_width, page_height, sig_image_pat
             continue
 
         # ── Horizontal signature ──
-        # Combo field: signature + date side by side (narrow fields)
-        has_room_for_date = 120 < field_w < 250 and sign_date
+        # Combo field: signature + date side by side (narrow fields).
+        # EXCLUDE: 708_Signature15 (708_Text16 is the Date field)
+        # EXCLUDE: PD843 signatures (Date1/2/3/4_PD843 are separate text fields)
+        is_separate_date_field = (
+            "708_Signature" in name or
+            "_PD843" in name
+        )
+        has_room_for_date = 120 < field_w < 250 and sign_date and not is_separate_date_field
 
         # PRIMARY: size by width (fill the signature line)
         # Real signatures span most of the line, not a tiny portion
@@ -2089,37 +2096,29 @@ def fill_bid_package(input_path, rfq_data, config, output_path):
         print(f"  ⚠ OBS 1600 header overlay failed: {_e}")
     
     # ── Trim to submission pages only ───────────────────────────────────
-    # Compute which page indices to keep from the BLANK template (clean text).
-    # This is more reliable than filtering the filled output, where signature
-    # overlays can obscure the text we'd need to match against.
+    # Strategy: run _bidpkg_page_skip_reason() against EVERY page of the filled
+    # output. This handles Railway templates that have more pages than local.
+    # For pages inside the local template range, we prefer the blank-template scan
+    # (cleaner text). For extra Railway-only pages, scan the filled output directly.
     try:
-        keep_indices = _compute_bidpkg_keep_indices(input_path)
+        local_keep = set(_compute_bidpkg_keep_indices(input_path))
+        local_total = len(PdfReader(input_path).pages)
         reader = PdfReader(output_path)
         total_pages = len(reader.pages)
-        # Filter keep_indices to valid range (Railway template may have more pages)
-        valid_keep = [i for i in keep_indices if i < total_pages]
-        # For any Railway-only pages (beyond local template count) that aren't
-        # in keep_indices yet, check them directly from the filled output.
-        # These are pages appended to the Railway template (e.g. GenAI 708).
-        if total_pages > len(PdfReader(input_path).pages):
-            # Railway has extra pages — scan them too
-            extra_start = len(PdfReader(input_path).pages)
-            for i in range(extra_start, total_pages):
-                if i not in valid_keep:
-                    page = reader.pages[i]
-                    text = (page.extract_text() or "").strip()
-                    t = text.lower()
-                    n_f = len(page.get("/Annots", [])) if "/Annots" in page else 0
-                    # Skip definition pages (3+4 of 4)
-                    if ("3 of 4" in text or "4 of 4" in text) and ("genai" in t or "definition" in t or n_f == 0):
-                        continue
-                    # Skip blank / instruction pages
-                    if len(text) == 0 and n_f <= 8:
-                        continue
-                    if "submit the completed dgs pd 802" in t:
-                        continue
+        valid_keep = []
+
+        for i in range(total_pages):
+            if i < local_total:
+                # Inside local template range — trust the blank-template scan
+                if i in local_keep:
                     valid_keep.append(i)
-            valid_keep.sort()
+            else:
+                # Railway-only extra page — scan the filled output directly
+                reason = _bidpkg_page_skip_reason(reader.pages[i])
+                if reason:
+                    print(f"  BidPkg skip extra pg{i:02d}: {reason}")
+                else:
+                    valid_keep.append(i)
 
         if valid_keep and valid_keep != list(range(total_pages)):
             writer = PdfWriter()
@@ -2128,7 +2127,7 @@ def fill_bid_package(input_path, rfq_data, config, output_path):
             with open(output_path, "wb") as f:
                 writer.write(f)
             skipped = total_pages - len(valid_keep)
-            print(f"  ✓ BidPackage trimmed: {len(valid_keep)} submission pages kept, {skipped} reference/extra pages removed")
+            print(f"  ✓ BidPackage trimmed: {len(valid_keep)} submission pages kept, {skipped} removed")
         else:
             print(f"  ✓ BidPackage: all {total_pages} pages kept (no trimming needed)")
     except Exception as _te:
@@ -2243,19 +2242,92 @@ if __name__ == "__main__":
 # BidPackage template page map — computed once from blank template
 # ═══════════════════════════════════════════════════════════════════════
 
+# BidPackage template page map — computed once from blank template
+# ═══════════════════════════════════════════════════════════════════════
+
 _BIDPKG_KEEP_CACHE = {}  # {template_path: (mtime, [indices])}
+
+
+def _bidpkg_page_skip_reason(page):
+    """
+    Shared logic: return skip reason string if page should be excluded from the
+    submission package, or None if it should be kept.
+
+    Works against both the blank template (clean text) AND filled output pages.
+    Uses field-name fingerprints as primary signal when available, with text
+    patterns as fallback — because text extraction is unreliable on filled PDFs.
+    """
+    text = (page.extract_text() or "").strip()
+    t = text.lower()
+    n_fields = len(page.get("/Annots", [])) if "/Annots" in page else 0
+
+    # ── Collect field name fingerprints (first 3 fields) ──────────────
+    field_names = []
+    if "/Annots" in page:
+        for annot in page.get("/Annots", [])[:5]:
+            try:
+                fn = str(annot.get_object().get("/T", ""))
+                if fn:
+                    field_names.append(fn)
+            except Exception:
+                pass
+    field_sig = " ".join(field_names).lower()
+
+    # ── Hard skip by field-name fingerprint ───────────────────────────
+    # OBS 1600 food entry form (fields named OBS 1600 *)
+    if any("obs 1600" in f.lower() for f in field_names):
+        return "OBS 1600 food entry form"
+    # GSPD-05-105 Bidder Declaration (from template, NOT the standalone)
+    if any("gspd" in f.lower() or "subcontractor" in f.lower() for f in field_names):
+        return "GSPD-05-105 Bidder Declaration (use standalone)"
+    # STD 105 Bidder Declaration by field naming convention
+    if "solicitation number" in field_sig and "subcontractor" in field_sig:
+        return "Bidder Declaration fields"
+
+    # ── Hard skip by text pattern ──────────────────────────────────────
+    # Truly blank (no text, no fields)
+    if len(text) == 0 and n_fields == 0:
+        return "blank (no text, no fields)"
+    # OBS 1600 food entry form (blank text but many food-form fields)
+    if len(text) == 0 and n_fields > 15:
+        return f"OBS food entry (blank text, {n_fields} fields)"
+    # CalRecycle SABRC reference table — identified by the email address in header
+    # or by the product category code table header. The CalRecycle 74 FILL form
+    # also mentions "SABRC" in its intro text, so we must NOT match on "sabrc" alone.
+    if "sabrc@calrecycle" in t:
+        return "CalRecycle SABRC reference table"
+    if "code* product categories" in t and "product subcategories" in t:
+        return "CalRecycle SABRC category table"
+    # OBS 1600 footnotes
+    if '"produced" is used interchangeably' in t:
+        return "OBS 1600 footnotes"
+    # OBS 1600 food category codes table
+    if "code category" in t and "coffee" in t and "dairy" in t:
+        return "OBS 1600 food codes"
+    # VSDS email submission instruction
+    if "submit the completed dgs pd 802" in t:
+        return "VSDS submission instruction"
+    # Darfur Contracting Act (both pages — standalone version used instead)
+    if "10475" in text and "scrutinized" in t and "public contract code" in t:
+        return "Darfur pg1 (standalone used)"
+    if "scrutinized company" in t and ("10476" in text or "written permission" in t):
+        return "Darfur pg2 (standalone used)"
+    # GenAI definition pages (3 of 4 and 4 of 4)
+    if ("3 of 4" in text or "4 of 4" in text) and (
+            "genai" in t or "definition" in t.replace("definitions", "definition")):
+        return f"GenAI definitions page ({text[:30]})"
+    # Bidder Declaration (text-based detection — GSPD-05-105 form)
+    if "gspd" in t and ("bidder declaration" in t or "subcontractor" in t):
+        return "GSPD Bidder Declaration text"
+
+    return None  # KEEP
 
 
 def _compute_bidpkg_keep_indices(template_path):
     """
     Scan blank BidPackage template and return page indices to keep in submission.
-
-    Logic: every page with form fields is a submission form UNLESS it matches
-    a known skip pattern (reference tables, food codes, Darfur standalone,
-    definition pages, blank/instruction pages).
-
-    Run once against the BLANK template (clean text, no overlays) then cache
-    by mtime so template updates are detected automatically.
+    Uses _bidpkg_page_skip_reason() — same logic applied to extra Railway pages.
+    Cached by file mtime; auto-invalidates when template is updated.
     """
     import os as _os
     global _BIDPKG_KEEP_CACHE
@@ -2272,46 +2344,13 @@ def _compute_bidpkg_keep_indices(template_path):
     keep = []
 
     for i, page in enumerate(reader.pages):
-        text = (page.extract_text() or "").strip()
-        t = text.lower()
-        n_fields = len(page.get("/Annots", [])) if "/Annots" in page else 0
-
-        # ── Skip conditions ──────────────────────────────────────────
-        skip = False
-
-        # Truly blank (no text, no fields)
-        if len(text) == 0 and n_fields == 0:
-            skip = True
-        # OBS 1600 food entry form (blank text but many fields)
-        elif len(text) == 0 and n_fields > 15:
-            skip = True
-        # Truly blank (no text, no fields at all)
-        elif len(text) == 0 and n_fields == 0:
-            skip = True
-        # CalRecycle SABRC reference table (back of CalRecycle 74)
-        elif "sabrc@calrecycle" in t or "state agency buy recycled campaign (sabrc) - sabrc" in t:
-            skip = True
-        # OBS 1600 footnotes (food product footnotes)
-        elif '"produced" is used interchangeably' in t:
-            skip = True
-        # OBS 1600 food category codes
-        elif text.startswith("Code Category") and "coffee" in t:
-            skip = True
-        # VSDS email submission instruction
-        elif "submit the completed dgs pd 802" in t:
-            skip = True
-        # Darfur Contracting Act — both pages (standalone version used instead)
-        elif "10475" in text and "scrutinized" in t:
-            skip = True
-        elif "scrutinized company" in t and ("10476" in text or "10477" in text or "written permission" in t):
-            skip = True
-        # GenAI definition pages (3 of 4, 4 of 4 — reference only, not filled form)
-        elif ("3 of 4" in text or "4 of 4" in text) and ("genai" in t or "definition" in t or n_fields == 0):
-            skip = True
-
-        if not skip:
+        reason = _bidpkg_page_skip_reason(page)
+        if reason:
+            print(f"  BidPkg skip pg{i:02d}: {reason}")
+        else:
             keep.append(i)
 
     _BIDPKG_KEEP_CACHE[template_path] = (mtime, keep)
     print(f"  ✓ BidPackage page map: keep indices {keep} (of {len(reader.pages)} total)")
     return keep
+

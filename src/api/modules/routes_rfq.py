@@ -1188,7 +1188,7 @@ def generate_rfq_package(rid):
             t.step(f"Agency matched: {_agency_key} ({_agency_cfg.get('name','')}), {len(_req_forms)} required forms")
         except Exception as _ae:
             t.warn(f"Agency config load failed, using CCHCS default: {_ae}")
-            _req_forms = {"703b", "704b", "bidpkg", "quote", "sellers_permit", "bidder_decl", "darfur_act"}
+            _req_forms = {"703b", "704b", "bidpkg", "quote", "sellers_permit"}
             _opt_forms = set()
             _agency_key = "cchcs"
         
