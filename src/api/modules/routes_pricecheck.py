@@ -6453,3 +6453,113 @@ def api_db_repair():
         if os.path.exists(new_path):
             os.remove(new_path)
         return jsonify({"ok": False, "error": str(e), "steps": steps})
+
+
+@bp.route("/api/db-rebuild", methods=["GET", "POST"])
+@auth_required
+def api_db_rebuild():
+    """Nuclear option: delete corrupt DB, create fresh, reimport from JSON files."""
+    import sqlite3, shutil
+    from src.core.paths import DATA_DIR as _DD
+    from src.core.db import init_db
+    
+    db_path = os.path.join(_DD, "reytech.db")
+    wal_path = db_path + "-wal"
+    shm_path = db_path + "-shm"
+    corrupt_path = db_path + ".corrupt"
+    
+    steps = []
+    
+    # Step 1: Move corrupt DB aside
+    old_size = os.path.getsize(db_path) if os.path.exists(db_path) else 0
+    steps.append(f"Corrupt DB: {old_size // 1048576}MB")
+    
+    try:
+        if os.path.exists(db_path):
+            shutil.move(db_path, corrupt_path)
+            steps.append("Moved corrupt DB to .corrupt")
+        for p in [wal_path, shm_path]:
+            if os.path.exists(p):
+                os.remove(p)
+                steps.append(f"Removed {os.path.basename(p)}")
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"Move failed: {e}", "steps": steps})
+    
+    # Step 2: Create fresh DB
+    try:
+        init_db()
+        new_size = os.path.getsize(db_path) if os.path.exists(db_path) else 0
+        steps.append(f"Fresh DB created: {new_size // 1024}KB")
+    except Exception as e:
+        # Restore corrupt DB if init fails
+        if os.path.exists(corrupt_path) and not os.path.exists(db_path):
+            shutil.move(corrupt_path, db_path)
+        return jsonify({"ok": False, "error": f"init_db failed: {e}", "steps": steps})
+    
+    # Step 3: Reimport from JSON files
+    imported = {}
+    
+    # Price checks
+    pc_json = os.path.join(_DD, "price_checks.json")
+    if os.path.exists(pc_json):
+        try:
+            with open(pc_json) as f:
+                pcs = json.load(f)
+            from src.api.dashboard import _save_price_checks
+            _save_price_checks(pcs)
+            imported["price_checks"] = len(pcs)
+            steps.append(f"Imported {len(pcs)} price checks from JSON")
+        except Exception as e:
+            steps.append(f"PC import error: {e}")
+    
+    # RFQs
+    rfq_json = os.path.join(_DD, "rfqs.json")
+    if os.path.exists(rfq_json):
+        try:
+            with open(rfq_json) as f:
+                rfqs = json.load(f)
+            from src.api.dashboard import save_rfqs
+            save_rfqs(rfqs)
+            imported["rfqs"] = len(rfqs)
+            steps.append(f"Imported {len(rfqs)} RFQs from JSON")
+        except Exception as e:
+            steps.append(f"RFQ import error: {e}")
+    
+    # Orders
+    orders_json = os.path.join(_DD, "orders.json")
+    if os.path.exists(orders_json):
+        try:
+            with open(orders_json) as f:
+                orders = json.load(f)
+            from src.api.dashboard import _save_orders
+            _save_orders(orders)
+            imported["orders"] = len(orders)
+            steps.append(f"Imported {len(orders)} orders from JSON")
+        except Exception as e:
+            steps.append(f"Orders import error: {e}")
+    
+    # Step 4: Enable WAL mode
+    try:
+        conn = sqlite3.connect(db_path, timeout=10)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.close()
+        steps.append("WAL mode enabled")
+    except Exception as e:
+        steps.append(f"WAL mode error: {e}")
+    
+    # Step 5: Delete corrupt backup (save disk space)
+    if os.path.exists(corrupt_path):
+        corrupt_size = os.path.getsize(corrupt_path) // 1048576
+        os.remove(corrupt_path)
+        steps.append(f"Deleted corrupt backup ({corrupt_size}MB freed)")
+    
+    final_size = os.path.getsize(db_path) if os.path.exists(db_path) else 0
+    steps.append(f"Final DB: {final_size // 1024}KB")
+    
+    return jsonify({
+        "ok": True,
+        "old_mb": old_size // 1048576,
+        "new_kb": final_size // 1024,
+        "imported": imported,
+        "steps": steps,
+    })
