@@ -1418,42 +1418,12 @@ def generate_rfq_package(rid):
         elif os.path.exists(fpath):
             package_pdfs.append((fpath, f))
     
-    # Include original RFQ attachments from email (generic agencies: CalVet, CalFire, DGS, etc.)
-    # Skip forms we've already filled + solicitation-only forms + statistical forms
-    _filled_form_patterns = {"std1000", "std_1000", "std 1000", "std204", "std_204", "std 204",
-                             "std205", "std_205", "payee", "cv012", "cv_012", "cuf_", "cuf ",
-                             "calrecycle", "cal_recycle", "seller", "permit", "genai",
-                             "bidder", "gspd", "dvbe", "843", "darfur", "drug_free", "std21", "std_21"}
-    # Patterns for forms that should NEVER be in our response package
-    _exclude_patterns = {"cv039", "cv_039", "fair_and_reasonable", "fair_reasonable",
-                         "voluntary_statistical", "voluntary_stat", "request_for_quote"}
-    db_attachments = list_rfq_files(rid, category="attachment") + list_rfq_files(rid, category="template")
-    for db_f in db_attachments:
-        fname = db_f.get("filename", "")
-        if not fname.lower().endswith(".pdf"):
-            continue
-        # Skip if already in package_pdfs
-        if any(fname == os.path.basename(p) for p, _ in package_pdfs):
-            continue
-        fname_lower = fname.lower().replace("-", "_").replace(" ", "_")
-        # Skip solicitation-only / statistical forms
-        if any(pat in fname_lower for pat in _exclude_patterns):
-            t.step(f"Excluded: {fname} (solicitation/statistical form)")
-            continue
-        # Skip if it's a form we've already filled
-        if any(pat in fname_lower for pat in _filled_form_patterns):
-            t.step(f"Skipped duplicate: {fname} (already filled)")
-            continue
-        try:
-            full_f = get_rfq_file(db_f["id"])
-            if full_f and full_f.get("data"):
-                att_path = os.path.join(out_dir, fname)
-                with open(att_path, "wb") as _fw:
-                    _fw.write(full_f["data"])
-                package_pdfs.append((att_path, fname))
-                t.step(f"Included: {fname}")
-        except Exception as _ae:
-            t.warn(f"Could not include {fname}", error=str(_ae))
+    # NOTE: We intentionally do NOT include raw email attachments here.
+    # The package should contain ONLY:
+    #   - Forms we filled (703B, 704B, Bid Package from templates)
+    #   - Forms we generated (Quote, STD 204, DVBE 843, etc.)
+    # Original solicitation docs, instructions, cover pages stay out.
+    # If an agency requires specific attachments, add them to the agency config.
     
     # Sort package_pdfs into canonical order
     package_pdfs.sort(key=lambda pair: _form_sort_key(pair[1]))
