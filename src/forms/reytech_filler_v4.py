@@ -155,44 +155,53 @@ def create_signature_overlay(sig_entries, page_width, page_height, sig_image_pat
         is_vertical = field_h > field_w * 2
 
         if is_vertical:
-            # GSPD-05-105: skip the vertical field entirely and draw signature
-            # as a horizontal overlay at the bottom (certification line area)
-            draw_h = 18  # fixed height for clean look
+            draw_h = 24
             draw_w = draw_h * aspect
-            if draw_w > 150:
-                draw_w = 150
+            if draw_w > 160:
+                draw_w = 160
                 draw_h = draw_w / aspect
-            # Position at bottom of vertical field, horizontally centered
-            x = rect[0] - draw_w + 10  # draw LEFT of the vertical strip
-            y = rect[1] + 2  # at the bottom where certification line is
+            x = rect[0] - draw_w + 10
+            y = rect[1] + 2
             c.drawImage(img_reader, x, y, draw_w, draw_h, mask='auto')
             continue
 
         # ── Horizontal signature ──
-        # For small combo fields (704B SIGNATURE/DATE), draw sig + date
-        has_room_for_date = field_w < 200 and sign_date and field_w > 100
+        # Combo field: signature + date side by side (narrow fields)
+        has_room_for_date = 120 < field_w < 250 and sign_date
 
-        # Scale to fit — slightly larger than before
-        draw_h = field_h * 0.90
-        draw_w = draw_h * aspect
+        # PRIMARY: size by width (fill the signature line)
+        # Real signatures span most of the line, not a tiny portion
+        if has_room_for_date:
+            draw_w = field_w * 0.55  # Leave room for date
+        else:
+            draw_w = field_w * 0.75  # Fill 75% of the line
+        
+        draw_h = draw_w / aspect
+        
+        # Cap: don't overflow more than 1.5x field height (avoids overlapping other fields)
+        if draw_h > field_h * 1.5:
+            draw_h = field_h * 1.5
+            draw_w = draw_h * aspect
+        
+        # Minimum: never smaller than 20pt tall
+        if draw_h < 20:
+            draw_h = 20
+            draw_w = draw_h * aspect
 
-        # Cap width
-        max_w = field_w * 0.50 if has_room_for_date else field_w * 0.85
-        if draw_w > max_w:
-            draw_w = max_w
-            draw_h = draw_w / aspect
-
-        # Position: left-aligned, vertically centered
-        x = rect[0] + 2
-        y = rect[1] + (field_h - draw_h) / 2
+        # Position: left-aligned, centered on the signature line
+        # Let it overflow above the field slightly (natural look)
+        x = rect[0] + 3
+        y = rect[1] + (field_h - draw_h) / 2  # Centered, may go above field
 
         c.drawImage(img_reader, x, y, draw_w, draw_h, mask='auto')
 
-        # Draw date next to sig in small combo fields
+        # Draw date next to sig in combo fields
         if has_room_for_date:
-            date_x = x + draw_w + 6
-            date_y = rect[1] + (field_h / 2) - 4
-            c.setFont("Helvetica", 9)
+            date_x = x + draw_w + 8
+            date_y = rect[1] + (field_h / 2) - 5
+            c.setFont("Helvetica", 10)
+            c.setFillColorRGB(0, 0, 0)
+            c.drawString(date_x, date_y, sign_date)
             c.setFillColorRGB(0, 0, 0)
             c.drawString(date_x, date_y, sign_date)
 
