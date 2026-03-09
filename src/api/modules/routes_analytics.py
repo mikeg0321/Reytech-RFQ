@@ -2846,6 +2846,12 @@ def api_agency_config_reset():
     try:
         from src.core.db import get_db
         with get_db() as conn:
+            conn.execute("""CREATE TABLE IF NOT EXISTS agency_package_configs (
+                agency_key TEXT PRIMARY KEY, agency_name TEXT NOT NULL,
+                match_patterns TEXT DEFAULT '[]', required_forms TEXT DEFAULT '[]',
+                optional_forms TEXT DEFAULT '[]', notes TEXT DEFAULT '',
+                updated_at TEXT, updated_by TEXT DEFAULT 'system'
+            )""")
             conn.execute("DELETE FROM agency_package_configs")
             for key, cfg in DEFAULT_AGENCY_CONFIGS.items():
                 conn.execute("""INSERT INTO agency_package_configs
