@@ -2638,16 +2638,23 @@ DEFAULT_AGENCY_CONFIGS = {
         "name": "CCHCS / CDCR",
         "match_patterns": ["CDCR", "CCHCS", "CORRECTIONS", "CORRECTIONAL"],
         "required_forms": [
-            "703b", "704b", "quote",          # Core submission forms (in this order)
-            "std204",                           # STD 204 Payee Data Record
-            "sellers_permit",                   # CA Seller's Permit
-            "dvbe843",                          # DVBE Declarations DGS PD 843
-            "calrecycle74",                     # CalRecycle 74 Recycled Content
-            "bidder_decl",                      # Bidder Declaration GSPD-05-106
-            "darfur_act",                       # Darfur Contracting Act DGS PD 1
-            "drug_free",                        # Drug-Free Workplace STD 21
+            # ── Separate standalone attachments ──────────────────────
+            "703b",           # AMS 703B Bidder Info form
+            "704b",           # AMS 704B Pricing worksheet
+            "quote",          # Reytech formal quote on letterhead
+            # ── RFQ Package: BidPackage template + extras ────────────
+            # NOTE: bidpkg already contains CDCR Terms, CalRecycle 74,
+            # Bidder Declaration, Darfur Act, CUF MC-345, DVBE 843,
+            # GenAI AMS 708, Drug-Free STD 21, Voluntary Stats PD 802.
+            # Do NOT add standalone generators for those — they duplicate.
+            "bidpkg",         # CDCR combined template (all forms above)
+            "bidder_decl",    # Standalone Bidder Declaration (cleaner sig than template version)
+            "darfur_act",     # Standalone Darfur Act (cleaner sig than template version)
+            "sellers_permit", # CA Seller's Permit (static copy)
         ],
-        "optional_forms": ["cuf_cchcs", "genai_708"],
+        "optional_forms": [],
+        # RULE: std204 is a SEPARATE standalone attachment, NOT in this package.
+        # RULE: dvbe843/calrecycle74/drug_free/cuf_cchcs are inside bidpkg — never add here.
         "notes": "California Correctional Health Care Services. AMS 703B/704B + full supporting docs.",
     },
     "calvet": {

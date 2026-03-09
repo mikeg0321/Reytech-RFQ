@@ -1403,19 +1403,25 @@ def generate_rfq_package(rid):
 
     # ── Canonical package order — matches model R25Q120_Reytech_CCHCS_BidPackage ──
     # RULE: This order is locked to the model. Do not reorder without a new sample.
+    # BidPackage (pg1 CDCR Terms, pg2 CalRecycle) come first, then standalone forms
+    # fill the gap (BidderDecl, Darfur), then rest of BidPackage (CUF, DVBE, GenAI, DrugFree, PD802).
+    # BUT since we can't interleave pages from BidPackage with standalone files mid-merge,
+    # the actual runtime order is determined by _FORM_ORDER key matching filename patterns.
+    # BidPackage sorts first (position 0), then BidderDecl (2), DarfurAct (3), etc.
+    # The BidPackage page filter already removed BidDecl from the template output.
     _FORM_ORDER = [
-        "BidPackage",    # 1. CDCR Terms + CUF MC-345 + GenAI 708 + Voluntary Stats
-        "CalRecycle74",  # 2. CalRecycle 74
-        "BidderDecl",    # 3. Bidder Declaration GSPD-05-105
-        "DarfurAct",     # 4. Darfur Contracting Act DGS PD 1
-        "DVBE843",       # 5. DVBE Declarations DGS PD 843
-        "DrugFree",      # 6. Drug-Free Workplace STD 21
-        "SellersPermit", # 7. CA Seller's Permit
-        "STD204",        # 8. STD 204 Payee Data Record
-        "CV012_CUF",     # 9. CUF CV 012 (CalVet only)
-        "BarstowCUF",    # 10. Barstow CUF (conditional)
-        "STD1000",       # 11. STD 1000 GenAI (non-CCHCS)
-        "STD205",        # 12. STD 205 Payee Supplement
+        "BidPackage",    # 0. CDCR Terms + CalRecycle + CUF + DVBE + GenAI + DrugFree + PD802
+        "CalRecycle74",  # 1. Standalone CalRecycle (if present — normally inside BidPackage)
+        "BidderDecl",    # 2. Standalone Bidder Declaration (ReportLab — cleaner signature)
+        "DarfurAct",     # 3. Standalone Darfur Act
+        "DVBE843",       # 4. Standalone DVBE (if present — normally inside BidPackage)
+        "DrugFree",      # 5. Standalone Drug-Free (if present — normally inside BidPackage)
+        "SellersPermit", # 6. CA Seller's Permit
+        "STD204",        # 7. STD 204 Payee Data Record (if included)
+        "CV012_CUF",     # 8. CUF CV 012 (CalVet only)
+        "BarstowCUF",    # 9. Barstow CUF (conditional)
+        "STD1000",       # 10. STD 1000 (non-CCHCS agencies)
+        "STD205",        # 11. STD 205 Payee Supplement
     ]
 
     def _form_sort_key(filename):
@@ -1461,22 +1467,21 @@ def generate_rfq_package(rid):
                     reader = PdfReader(pdf_path)
                     pages_added = 0
 
-                    # RULE: 703B and 704B are now standalone attachments — they are
-                    # NOT in package_pdfs. All files that reach here are supporting
-                    # compliance docs and should include ALL their pages.
-                    # Only exception: blank/XFA placeholder pages are always skipped.
-                    max_pages = None  # include all pages
-                    label_upper = label.upper()
+                    # RULE: 703B and 704B are standalone attachments — not in package_pdfs.
+                    # All files here are supporting compliance docs.
+                    # BidPackage is a multi-form template — we must skip its reference/
+                    # definition/instruction pages and any form we already have standalone.
+                    is_bidpkg = "BIDPACKAGE" in label.upper() or "BID_PACKAGE" in label.upper()
 
                     for page_idx, page in enumerate(reader.pages):
-                        if max_pages is not None and pages_added >= max_pages:
-                            break
                         try:
                             text = page.extract_text() or ""
                         except Exception:
                             text = ""
                         text_stripped = text.strip()
-                        # Skip XFA "Please wait..." placeholder pages
+
+                        # ── Universal filters ──────────────────────────────────
+                        # Skip XFA placeholder pages
                         if text_stripped.startswith("Please wait") or (
                                 "Please wait" in text and len(text_stripped) < 300):
                             continue
@@ -1484,13 +1489,41 @@ def generate_rfq_package(rid):
                         has_annots = "/Annots" in page
                         if len(text_stripped) < 3 and not has_annots:
                             continue
+
+                        # ── BidPackage-specific page skip rules ───────────────
+                        # RULE: These pages are embedded in the CDCR template but
+                        # should NOT appear in the final package submission.
+                        # Update this list if the template changes.
+                        if is_bidpkg:
+                            # CalRecycle SABRC reference table (back of CalRecycle 74)
+                            if ("SABRC@CalRecycle" in text or
+                                    "State Agency Buy Recycled Campaign (SABRC) - SABRC" in text):
+                                continue
+                            # GenAI 708 definitions pages (pages 3–4 of 4)
+                            if "GenAI Disclosure & Factsheet Definitions" in text:
+                                continue
+                            # VSDS submit-via-email instruction (not the actual form)
+                            if "Submit the completed DGS PD 802" in text:
+                                continue
+                            # OBS 1600 food footnotes / category codes (not relevant to non-food)
+                            if ("Produced\" is used interchangeably" in text or
+                                    (text_stripped.startswith("Code Category") and "Coffee" in text)):
+                                continue
+                            # Bidder Declaration from BidPackage template — skip because
+                            # generate_bidder_declaration (ReportLab) produces a cleaner
+                            # version with correct signature placement.
+                            if ("BIDDER DECLARATION" in text and
+                                    ("GSPD" in text or "Procurement Division" in text)):
+                                continue
+
                         writer.add_page(page)
                         pages_added += 1
+
                     if pages_added > 0:
                         merge_count += 1
                         t.step(f"  Package includes: {label} ({pages_added} pg)")
                     else:
-                        t.step(f"  Package skipped: {label} (filtered)")
+                        t.step(f"  Package skipped: {label} (all pages filtered)")
                 except Exception as _me:
                     t.warn(f"Could not merge {label}", error=str(_me))
 
