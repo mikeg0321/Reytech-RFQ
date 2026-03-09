@@ -669,76 +669,60 @@ def _load_price_checks(include_items=True):
         return _pc_cache
     
     data = {}
-    try:
-        from src.core.db import get_db
-        with get_db() as conn:
-
-            if include_items:
-                rows = conn.execute(
-                    """SELECT id, pc_number, institution, requestor, items, status, 
-                       created_at, email_uid, email_subject, due_date, agency, 
-                       source_file, quote_number, total_items
-                       FROM price_checks WHERE status NOT IN ('deleted')"""
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    """SELECT id, pc_number, institution, requestor, '[]' as items, status, 
-                       created_at, email_uid, email_subject, due_date, agency, 
-                       source_file, quote_number, total_items
-                       FROM price_checks WHERE status NOT IN ('deleted')"""
-                ).fetchall()
-            for _row in rows:
-                r = dict(_row)
-                pc_id = r["id"]
-                
-                # Parse items from column
-                items_list = []
-                try:
-                    items_list = json.loads(r.get("items") or "[]")
-                except Exception:
-                    pass
-                
-                data[pc_id] = {
-                    "id": pc_id,
-                    "pc_number": r.get("pc_number") or r.get("quote_number") or pc_id,
-                    "institution": r.get("institution") or r.get("agency") or "",
-                    "requestor": r.get("requestor") or "",
-                    "items": items_list,
-                    "source_pdf": r.get("source_file") or "",
-                    "status": r.get("status") or "parsed",
-                    "created_at": r.get("created_at") or "",
-                    "reytech_quote_number": r.get("quote_number") or "",
-                    "email_uid": r.get("email_uid") or "",
-                    "email_subject": r.get("email_subject") or "",
-                    "due_date": r.get("due_date") or "",
-                    "source": "db",
-                }
-    except Exception as e:
-        log.warning("DB load failed, falling back to JSON: %s", e)
-        # Fallback to JSON only if DB is completely unavailable
-        path = os.path.join(DATA_DIR, "price_checks.json")
-        if os.path.exists(path):
-            try:
-                with open(path) as f:
-                    data = json.load(f)
-            except Exception:
-                data = {}
-
-    # ── One-time migration: merge any JSON-only PCs into DB ──────
-    # PCs created before DB-primary migration may only exist in JSON
-    try:
-        path = os.path.join(DATA_DIR, "price_checks.json")
-        if os.path.exists(path):
-            with open(path) as f:
-                json_pcs = json.load(f)
-            missing = {k: v for k, v in json_pcs.items() if k not in data and isinstance(v, dict)}
-            if missing:
-                log.info("JSON→DB migration: found %d PCs in JSON not in DB, syncing...", len(missing))
-                data.update(missing)
-                # Write them to DB
-                _save_price_checks(missing)
-    except Exception as _mig_e:
-        log.debug("JSON→DB migration check: %s", _mig_e)
+    
+    # JSON first — it's small and fast, even on 577MB DB volumes
+    json_path = os.path.join(DATA_DIR, "price_checks.json")
+    if os.path.exists(json_path):
+        try:
+            with open(json_path) as f:
+                data = json.load(f)
+        except Exception:
+            data = {}
+    
+    # Only query DB if JSON was empty (post-deploy recovery)
+    if not data:
+        try:
+            from src.core.db import get_db
+            with get_db() as conn:
+                if include_items:
+                    rows = conn.execute(
+                        """SELECT id, pc_number, institution, requestor, items, status, 
+                           created_at, email_uid, email_subject, due_date, agency, 
+                           source_file, quote_number, total_items
+                           FROM price_checks WHERE status NOT IN ('deleted')"""
+                    ).fetchall()
+                else:
+                    rows = conn.execute(
+                        """SELECT id, pc_number, institution, requestor, '[]' as items, status, 
+                           created_at, email_uid, email_subject, due_date, agency, 
+                           source_file, quote_number, total_items
+                           FROM price_checks WHERE status NOT IN ('deleted')"""
+                    ).fetchall()
+                for _row in rows:
+                    r = dict(_row)
+                    pc_id = r["id"]
+                    items_list = []
+                    try:
+                        items_list = json.loads(r.get("items") or "[]")
+                    except Exception:
+                        pass
+                    data[pc_id] = {
+                        "id": pc_id,
+                        "pc_number": r.get("pc_number") or r.get("quote_number") or pc_id,
+                        "institution": r.get("institution") or r.get("agency") or "",
+                        "requestor": r.get("requestor") or "",
+                        "items": items_list,
+                        "source_pdf": r.get("source_file") or "",
+                        "status": r.get("status") or "parsed",
+                        "created_at": r.get("created_at") or "",
+                        "reytech_quote_number": r.get("quote_number") or "",
+                        "email_uid": r.get("email_uid") or "",
+                        "email_subject": r.get("email_subject") or "",
+                        "due_date": r.get("due_date") or "",
+                        "source": "db",
+                    }
+        except Exception as e:
+            log.warning("DB load failed for price_checks: %s", e)
 
     # Only cache full results (with items)
     if include_items:
