@@ -781,6 +781,21 @@ CREATE TABLE IF NOT EXISTS app_settings (
     updated_at  TEXT,
     updated_by  TEXT DEFAULT 'system'
 );
+
+CREATE TABLE IF NOT EXISTS audit_trail (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_description TEXT,
+    field_changed   TEXT,
+    old_value       TEXT,
+    new_value       TEXT,
+    source          TEXT DEFAULT 'manual',
+    rfq_id          TEXT,
+    part_number     TEXT,
+    actor           TEXT DEFAULT 'system',
+    notes           TEXT,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_audit_desc ON audit_trail(item_description);
 """
 
 def init_db():
