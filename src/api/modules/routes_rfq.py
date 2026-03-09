@@ -1369,43 +1369,19 @@ def generate_rfq_package(rid):
     # ── Step 3.5: Collect ALL package PDFs (state forms + original RFQ attachments) ──
     # These will be merged into one single package PDF
     package_pdfs = []  # (filepath, label) — order matters
-    quote_file = None   # The Reytech quote stays separate
-    
-    # ── Canonical form order for CCHCS/CalVet/generic RFQ packages ──
-    # Forms appear in this exact sequence in the merged PDF.
-    # Key substrings matched against filenames (case-insensitive).
-    _FORM_ORDER = [
-        "703B",              # 1. AMS 703B Request for Quotation (filled)
-        "704B",              # 2. AMS 704B Quote Worksheet (filled with line items)
-        "Quote",             # 3. Reytech formal quote on letterhead
-        "CalRecycle74",      # 4. CalRecycle 74
-        "STD204",            # 5. STD 204 Payee Data Record
-        "STD205",            # 6. STD 205 Payee Supplement
-        "BidderDecl",        # 7. Bidder Declaration GSPD-05-106
-        "DVBE843",           # 8. DVBE Declarations DGS PD 843
-        "DarfurAct",         # 9. Darfur Contracting Act DGS PD 1
-        "CV012_CUF",         # 10. CUF CV 012 (CalVet)
-        "BarstowCUF",        # 11. Barstow CUF (conditional)
-        "STD1000",           # 12. STD 1000 GenAI Reporting
-        "SellersPermit",     # 13. Seller's Permit
-        "DrugFree",          # 14. Drug-Free Workplace STD 21
-    ]
-    
-    def _form_sort_key(filename):
-        """Return sort index for canonical form ordering. Unrecognised forms go last."""
-        fn_upper = filename.upper().replace("-", "").replace("_", "").replace(" ", "")
-        for idx, pattern in enumerate(_FORM_ORDER):
-            if pattern.upper().replace("_", "") in fn_upper:
-                return idx
-        return len(_FORM_ORDER)  # unknown forms go at the end
     
     # ── Split output files into 4 separate attachments ──
-    # Attachment 1: 703B (standalone filled form)
+    # Attachment 1: 703B (standalone filled bidder form)
     # Attachment 2: 704B (standalone filled pricing worksheet)
     # Attachment 3: Formal quote on Reytech letterhead
-    # Attachment 4: RFQ Package (all supporting compliance docs merged)
+    # Attachment 4: RFQ Package — all supporting compliance docs merged in this order:
+    #   BidPackage (CDCR Terms + CUF MC-345 + GenAI 708 + Voluntary Stats)
+    #   CalRecycle 74, Bidder Declaration, Darfur Act, DVBE 843,
+    #   Drug-Free STD 21, Seller's Permit, STD 204
     #
-    # Supporting docs = everything that is NOT 703B, 704B, or Quote.
+    # RULE: To add a form to the package, add its form_id to the agency config
+    # required_forms AND add its filename pattern to _FORM_ORDER below.
+    # NEVER remove BidPackage from the package — it contains CUF/708/Stats.
 
     file_703b = None
     file_704b = None
@@ -1425,7 +1401,30 @@ def generate_rfq_package(rid):
         else:
             package_pdfs.append((fpath, f))
 
-    # Sort package (supporting docs) into canonical order
+    # ── Canonical package order — matches model R25Q120_Reytech_CCHCS_BidPackage ──
+    # RULE: This order is locked to the model. Do not reorder without a new sample.
+    _FORM_ORDER = [
+        "BidPackage",    # 1. CDCR Terms + CUF MC-345 + GenAI 708 + Voluntary Stats
+        "CalRecycle74",  # 2. CalRecycle 74
+        "BidderDecl",    # 3. Bidder Declaration GSPD-05-105
+        "DarfurAct",     # 4. Darfur Contracting Act DGS PD 1
+        "DVBE843",       # 5. DVBE Declarations DGS PD 843
+        "DrugFree",      # 6. Drug-Free Workplace STD 21
+        "SellersPermit", # 7. CA Seller's Permit
+        "STD204",        # 8. STD 204 Payee Data Record
+        "CV012_CUF",     # 9. CUF CV 012 (CalVet only)
+        "BarstowCUF",    # 10. Barstow CUF (conditional)
+        "STD1000",       # 11. STD 1000 GenAI (non-CCHCS)
+        "STD205",        # 12. STD 205 Payee Supplement
+    ]
+
+    def _form_sort_key(filename):
+        fn_upper = filename.upper().replace("-", "").replace("_", "").replace(" ", "")
+        for idx, pattern in enumerate(_FORM_ORDER):
+            if pattern.upper().replace("_", "") in fn_upper:
+                return idx
+        return len(_FORM_ORDER)
+
     package_pdfs.sort(key=lambda pair: _form_sort_key(pair[1]))
     
     # ── Step 4: Merge all package PDFs into ONE file ──
@@ -1462,17 +1461,14 @@ def generate_rfq_package(rid):
                     reader = PdfReader(pdf_path)
                     pages_added = 0
 
-                    max_pages = None
-                    start_page = 0
+                    # RULE: 703B and 704B are now standalone attachments — they are
+                    # NOT in package_pdfs. All files that reach here are supporting
+                    # compliance docs and should include ALL their pages.
+                    # Only exception: blank/XFA placeholder pages are always skipped.
+                    max_pages = None  # include all pages
                     label_upper = label.upper()
-                    # Supporting docs are generated files — include all pages.
-                    # Exception: if a raw bid package template sneaks in, exclude it.
-                    if "BIDPACKAGE" in label_upper or "BID_PACKAGE" in label_upper:
-                        max_pages = 0
 
                     for page_idx, page in enumerate(reader.pages):
-                        if page_idx < start_page:
-                            continue
                         if max_pages is not None and pages_added >= max_pages:
                             break
                         try:
@@ -1480,9 +1476,11 @@ def generate_rfq_package(rid):
                         except Exception:
                             text = ""
                         text_stripped = text.strip()
+                        # Skip XFA "Please wait..." placeholder pages
                         if text_stripped.startswith("Please wait") or (
                                 "Please wait" in text and len(text_stripped) < 300):
                             continue
+                        # Skip entirely blank pages
                         has_annots = "/Annots" in page
                         if len(text_stripped) < 3 and not has_annots:
                             continue

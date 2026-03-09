@@ -26,8 +26,11 @@ SIGNATURE_PATH = os.path.join(SCRIPT_DIR, "signature_transparent.png")
 # ── Signature whitelist ──────────────────────────────────────────────
 # Only these /Sig fields get the signature image. Everything else stays blank.
 SIGN_FIELDS = {
-    # 703B
-    "Signature1",          # 703B Bidder Signature + 704B Vendor Sig + CalRecycle 74
+    # 703B — field name varies by template version
+    "Signature1",          # AMS 703B (most versions) + 704B Vendor Sig + CalRecycle 74
+    "Bidder Signature",    # AMS 703B Rev. 03/2025 alternate name
+    "703B_Bidder Signature",  # prefixed variant
+    "BidderSignature",     # no-space variant
     # Standalone forms
     "Signature",           # CalRecycle 74 standalone + STD 1000 standalone
     "Signature4",          # STD 204 Payee Data Record
@@ -41,7 +44,9 @@ SIGN_FIELDS = {
     "OBS 1600 Signature",  # OBS 1600 Food Cert — text field but needs signature image
     "AuthorizedRepresentative[0]",  # CV 012 CUF page 2 authorizing signature
 }
-# NOTE: Signature1 appears in 703B, 704B, and CalRecycle 74 — all get signed.
+# RULE: When adding a new form, identify its exact signature field name from the PDF
+# and add it here. Use: python3 -c "from pypdf import PdfReader; ..."
+# to dump field names before writing any filler code.
 # NOT signed: Signature2_darfur (Option #2), Signature2/3/4_PD843 (blocks 2-4)
 
 # ── Tight fields (9pt font) ─────────────────────────────────────────
@@ -69,6 +74,21 @@ TIGHT_FIELDS.add("CITY STATE ZIP CODE")
 
 # CalRecycle Date field — only 73pt wide
 TIGHT_FIELDS.add("Date")
+# 703B date fields — narrow in template
+TIGHT_FIELDS.add("703B_Sign_Date")
+TIGHT_FIELDS.add("703B_Release Date")
+TIGHT_FIELDS.add("703B_Due Date")
+TIGHT_FIELDS.add("703B_BidExpirationDate")
+TIGHT_FIELDS.add("703B_Certification Expiration Date")
+# Bid Package date fields
+TIGHT_FIELDS.add("Date_CUF")
+TIGHT_FIELDS.add("Date__darfur")
+TIGHT_FIELDS.add("Date1_PD843")
+TIGHT_FIELDS.add("Date_PD802")
+TIGHT_FIELDS.add("708_Text16")
+# Generic date fields that may appear in newer templates
+for _df in ("Sign Date", "SignDate", "DateSigned", "Date Signed", "Expiration Date"):
+    TIGHT_FIELDS.add(_df)
 
 
 def load_config():
@@ -393,7 +413,37 @@ def fill_704b(input_path, rfq_data, config, output_path):
     values["fill_154"] = f" {merchandise_subtotal:.2f}"
     values["fill_154_2"] = f" {merchandise_subtotal:.2f}"
 
-    fill_and_sign_pdf(input_path, values, output_path, sign_date=sign_date)
+    # Fill all pages of the template first (needed to write to _2 fields on page 2)
+    import tempfile, os as _os
+    tmp_path = output_path + ".tmp704b.pdf"
+    fill_and_sign_pdf(input_path, values, tmp_path, sign_date=sign_date)
+
+    # CCHCS combined templates embed the 703B form as page 1 of the 704B file.
+    # Since 703B is now a separate attachment, trim the output to page 2+ only.
+    # RULE: The standalone 704B output must never contain the 703B form.
+    try:
+        from pypdf import PdfReader as _PR, PdfWriter as _PW
+        _reader = _PR(tmp_path)
+        if len(_reader.pages) > 1:
+            _writer = _PW()
+            for _pg in _reader.pages[1:]:  # skip page 0 (embedded 703B)
+                _writer.add_page(_pg)
+            with open(output_path, "wb") as _f:
+                _writer.write(_f)
+        else:
+            # Single-page template — use as-is (standalone 704B)
+            import shutil as _sh
+            _sh.copy2(tmp_path, output_path)
+    except Exception as _trim_err:
+        import shutil as _sh
+        _sh.copy2(tmp_path, output_path)
+        print(f"  ⚠ 704B trim failed ({_trim_err}) — using full template")
+    finally:
+        try:
+            _os.remove(tmp_path)
+        except Exception:
+            pass
+
     print(f"  ✓ 704B filled + signed — ${merchandise_subtotal:,.2f}")
 
 
