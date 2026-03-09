@@ -2539,3 +2539,70 @@ def api_quote_audit():
     result["expected_next"] = f"R26Q{max(nums)+1}" if nums else "R26Q1"
     
     return jsonify(result)
+
+
+@bp.route("/api/rfq/<rid>/package-diag")
+@auth_required
+def api_rfq_package_diag(rid):
+    """Diagnose RFQ package: what templates, what agency, what forms."""
+    import os
+    from src.core.paths import DATA_DIR
+    
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"})
+    
+    result = {
+        "rfq_id": rid,
+        "solicitation": r.get("solicitation_number", ""),
+        "agency": r.get("agency", ""),
+        "agency_name": r.get("agency_name", ""),
+        "form_type": r.get("form_type", ""),
+        "quote_type": r.get("quote_type", ""),
+        "templates_on_rfq": r.get("templates", {}),
+        "output_files": r.get("output_files", []),
+        "draft_email": bool(r.get("draft_email")),
+    }
+    
+    # Check template files on disk
+    tmpl = r.get("templates", {})
+    result["template_files_exist"] = {}
+    for ttype, path in tmpl.items():
+        exists = os.path.exists(path) if path else False
+        result["template_files_exist"][ttype] = {
+            "path": path,
+            "exists": exists,
+            "size_kb": round(os.path.getsize(path) / 1024, 1) if exists else 0,
+        }
+    
+    # Check rfq_files in DB
+    from src.api.dashboard import list_rfq_files
+    db_files = list_rfq_files(rid)
+    result["db_files"] = []
+    for f in db_files:
+        result["db_files"].append({
+            "id": f.get("id"),
+            "filename": f.get("filename"),
+            "file_type": f.get("file_type"),
+            "category": f.get("category"),
+            "size": f.get("file_size"),
+            "created_at": f.get("created_at"),
+        })
+    
+    # Check what source PDFs came in with this RFQ
+    attachments = r.get("attachments", [])
+    result["original_attachments"] = [
+        {"filename": a.get("filename", ""), "path": a.get("path", "")} 
+        for a in attachments
+    ] if attachments else "none"
+    
+    # Check output directory
+    sol = r.get("solicitation_number", "unknown")
+    out_dir = os.path.join(DATA_DIR, "output", sol)
+    if os.path.exists(out_dir):
+        result["output_dir_files"] = os.listdir(out_dir)
+    else:
+        result["output_dir_files"] = f"directory not found: {out_dir}"
+    
+    return jsonify(result)
