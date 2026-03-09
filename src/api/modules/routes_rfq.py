@@ -1322,6 +1322,30 @@ def generate_rfq_package(rid):
             quote_path = os.path.join(out_dir, f"{safe_sol}_Quote_Reytech.pdf")
             locked_qn = r.get("reytech_quote_number", "")
             
+            # Collision detection: if this quote number exists on a DIFFERENT quote, get a new one
+            if locked_qn:
+                try:
+                    from src.core.db import get_db as _gdb
+                    with _gdb() as _qconn:
+                        existing = _qconn.execute(
+                            "SELECT quote_number, agency, created_at FROM quotes WHERE quote_number=?",
+                            (locked_qn,)
+                        ).fetchall()
+                        if existing:
+                            # Check if any of them belong to a different RFQ
+                            for eq in existing:
+                                eq_agency = (dict(eq).get("agency") or "")
+                                this_agency = (r.get("agency") or "")
+                                eq_date = (dict(eq).get("created_at") or "")[:10]
+                                # If different agency or created more than 1 hour apart, it's a collision
+                                if eq_agency != this_agency:
+                                    t.warn(f"Quote collision: {locked_qn} already used by {eq_agency}, getting new number")
+                                    locked_qn = ""
+                                    r["reytech_quote_number"] = ""
+                                    break
+                except Exception as _qe:
+                    t.warn(f"Collision check failed (non-fatal): {_qe}")
+            
             result = generate_quote_from_rfq(
                 r, quote_path,
                 include_tax=True,
@@ -1672,6 +1696,25 @@ def rfq_generate_quote(rid):
     output_path = os.path.join(out_dir, f"{safe_sol}_Quote_Reytech.pdf")
 
     locked_qn = r.get("reytech_quote_number", "")
+    
+    # Collision detection: if this number already used by a different quote, get a new one
+    if locked_qn:
+        try:
+            from src.core.db import get_db as _gdb2
+            with _gdb2() as _qconn2:
+                existing = _qconn2.execute(
+                    "SELECT agency FROM quotes WHERE quote_number=?", (locked_qn,)
+                ).fetchall()
+                if existing:
+                    for eq in existing:
+                        if (dict(eq).get("agency") or "") != (r.get("agency") or ""):
+                            log.warning("Quote collision: %s used by different agency, assigning new", locked_qn)
+                            locked_qn = ""
+                            r["reytech_quote_number"] = ""
+                            break
+        except Exception:
+            pass
+    
     result = generate_quote_from_rfq(r, output_path,
                                       quote_number=locked_qn if locked_qn else None)
 
