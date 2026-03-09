@@ -1399,108 +1399,114 @@ def generate_rfq_package(rid):
                 return idx
         return len(_FORM_ORDER)  # unknown forms go at the end
     
-    # All output files go into the package — quote included.
-    # The _FORM_ORDER sort puts 703B → 704B → Quote → supporting docs.
-    quote_file = None  # tracked for email subject line only
+    # ── Split output files into 4 separate attachments ──
+    # Attachment 1: 703B (standalone filled form)
+    # Attachment 2: 704B (standalone filled pricing worksheet)
+    # Attachment 3: Formal quote on Reytech letterhead
+    # Attachment 4: RFQ Package (all supporting compliance docs merged)
+    #
+    # Supporting docs = everything that is NOT 703B, 704B, or Quote.
+
+    file_703b = None
+    file_704b = None
+    quote_file = None
+
     for f in output_files:
         fpath = os.path.join(out_dir, f)
-        if os.path.exists(fpath):
+        if not os.path.exists(fpath):
+            continue
+        fu = f.upper()
+        if "703B" in fu:
+            file_703b = f
+        elif "704B" in fu:
+            file_704b = f
+        elif "QUOTE" in fu:
+            quote_file = f
+        else:
             package_pdfs.append((fpath, f))
-            if "Quote" in f:
-                quote_file = f
-    
-    # NOTE: We intentionally do NOT include raw email attachments here.
-    # The package should contain ONLY:
-    #   - Forms we filled (703B, 704B, Bid Package from templates)
-    #   - Forms we generated (Quote, STD 204, DVBE 843, etc.)
-    # Original solicitation docs, instructions, cover pages stay out.
-    # If an agency requires specific attachments, add them to the agency config.
-    
-    # Sort package_pdfs into canonical order
+
+    # Sort package (supporting docs) into canonical order
     package_pdfs.sort(key=lambda pair: _form_sort_key(pair[1]))
     
     # ── Step 4: Merge all package PDFs into ONE file ──
     final_output_files = []
     package_filename = f"RFQ_Package_{safe_sol}_ReytechInc.pdf"
     
+    final_output_files = []
+    package_filename = f"RFQ_Package_{safe_sol}_ReytechInc.pdf"
+
+    # ── Attachment 1: 703B ──
+    if file_703b:
+        final_output_files.append(file_703b)
+        t.step(f"Attachment 1 — 703B: {file_703b}")
+
+    # ── Attachment 2: 704B ──
+    if file_704b:
+        final_output_files.append(file_704b)
+        t.step(f"Attachment 2 — 704B: {file_704b}")
+
+    # ── Attachment 3: Formal Quote ──
+    if quote_file:
+        final_output_files.append(quote_file)
+        t.step(f"Attachment 3 — Quote: {quote_file}")
+
+    # ── Attachment 4: RFQ Package (supporting compliance docs merged) ──
     if package_pdfs:
         try:
             from pypdf import PdfReader, PdfWriter
             writer = PdfWriter()
             merge_count = 0
-            
+
             for pdf_path, label in package_pdfs:
                 try:
                     reader = PdfReader(pdf_path)
                     pages_added = 0
-                    
-                    # Explicit page limits for filled templates
-                    # These templates are full solicitation PDFs — we only fill the first few pages
-                    max_pages = None  # None = include all
-                    start_page = 0    # Skip leading pages (e.g. 703B embedded in 704B file)
+
+                    max_pages = None
+                    start_page = 0
                     label_upper = label.upper()
-                    if "703B" in label_upper:
-                        max_pages = 1  # Only the form page, not solicitation terms
-                    elif "704B" in label_upper:
-                        # CCHCS 704B template has the 703B form embedded as page 1.
-                        # Skip it — we already have a separately filled 703B.
-                        start_page = 1
-                        max_pages = 2  # Take up to 2 pages of the actual 704B pricing sheet
-                    elif "BIDPACKAGE" in label_upper or "BID_PACKAGE" in label_upper:
-                        max_pages = 0  # BidPackage = agency T&C doc, not a Reytech submission form
-                    
+                    # Supporting docs are generated files — include all pages.
+                    # Exception: if a raw bid package template sneaks in, exclude it.
+                    if "BIDPACKAGE" in label_upper or "BID_PACKAGE" in label_upper:
+                        max_pages = 0
+
                     for page_idx, page in enumerate(reader.pages):
-                        # Skip leading pages (e.g. 703B embedded in 704B file)
                         if page_idx < start_page:
                             continue
-                        # Enforce page limit for templates
                         if max_pages is not None and pages_added >= max_pages:
                             break
-                        
                         try:
                             text = page.extract_text() or ""
                         except Exception:
                             text = ""
                         text_stripped = text.strip()
-                        
-                        # Skip XFA "Please wait..." placeholder pages
                         if text_stripped.startswith("Please wait") or (
                                 "Please wait" in text and len(text_stripped) < 300):
                             continue
-                        
-                        # Skip blank pages
-                        has_annots = "/Annots" in page and len(page.get("/Annots", [])) > 0
+                        has_annots = "/Annots" in page
                         if len(text_stripped) < 3 and not has_annots:
                             continue
-                        
                         writer.add_page(page)
                         pages_added += 1
                     if pages_added > 0:
                         merge_count += 1
-                        t.step(f"Merged: {label} ({pages_added} pages)")
+                        t.step(f"  Package includes: {label} ({pages_added} pg)")
                     else:
-                        t.step(f"Skipped: {label} (all pages filtered)")
+                        t.step(f"  Package skipped: {label} (filtered)")
                 except Exception as _me:
                     t.warn(f"Could not merge {label}", error=str(_me))
-            
+
             if merge_count > 0:
                 merged_path = os.path.join(out_dir, package_filename)
                 with open(merged_path, "wb") as _mf:
                     writer.write(_mf)
                 final_output_files.append(package_filename)
-                t.step(f"Package merged: {merge_count} PDFs → {package_filename}")
+                t.step(f"Attachment 4 — RFQ Package: {merge_count} docs → {package_filename}")
             else:
-                t.warn("No PDFs could be merged")
-        except ImportError:
-            t.warn("pypdf not available — including individual files")
-            final_output_files.extend([os.path.basename(p) for p, _ in package_pdfs])
+                t.warn("RFQ Package: no docs to merge")
         except Exception as _merge_err:
-            t.warn("Merge failed — including individual files", error=str(_merge_err))
+            t.warn("Package merge failed", error=str(_merge_err))
             final_output_files.extend([os.path.basename(p) for p, _ in package_pdfs])
-    
-    # Add the quote as a separate file
-    if quote_file:
-        final_output_files.insert(0, quote_file)
     
     if not final_output_files:
         t.fail("No files generated", errors=errors)
