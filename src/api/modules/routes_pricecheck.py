@@ -6563,3 +6563,75 @@ def api_db_rebuild():
         "imported": imported,
         "steps": steps,
     })
+
+
+@bp.route("/api/quote-fix", methods=["GET", "POST"])
+@auth_required
+def api_quote_fix():
+    """Fix duplicate R26Q17 and set counter correctly."""
+    from src.core.db import get_db
+    import re
+    
+    result = {"fixes": [], "counter_before": None, "counter_after": None}
+    
+    try:
+        with get_db() as conn:
+            # 1. Find ALL quotes and their numbers
+            quotes = conn.execute("SELECT quote_number, status, total, created_at, agency FROM quotes ORDER BY created_at").fetchall()
+            result["all_quotes"] = [dict(q) for q in quotes]
+            
+            # 2. Find the max quote number
+            max_num = 0
+            for q in quotes:
+                m = re.match(r'R26Q(\d+)', q["quote_number"] or "")
+                if m:
+                    max_num = max(max_num, int(m.group(1)))
+            
+            # 3. Also scan price_checks for quote numbers
+            try:
+                pcs = conn.execute("SELECT id, quote_number FROM price_checks WHERE quote_number IS NOT NULL AND quote_number != ''").fetchall()
+                for pc in pcs:
+                    m = re.match(r'R26Q(\d+)', pc["quote_number"] or "")
+                    if m:
+                        max_num = max(max_num, int(m.group(1)))
+                    result["fixes"].append(f"PC {pc['id'][:20]} has quote {pc['quote_number']}")
+            except Exception:
+                pass
+            
+            # 4. Also scan rfqs.json for quote numbers
+            try:
+                from src.api.dashboard import load_rfqs
+                rfqs = load_rfqs()
+                for rid, r in rfqs.items():
+                    qn = r.get("reytech_quote_number", "")
+                    if qn:
+                        m = re.match(r'R26Q(\d+)', qn)
+                        if m:
+                            max_num = max(max_num, int(m.group(1)))
+                        result["fixes"].append(f"RFQ {rid[:25]} has quote {qn}")
+            except Exception:
+                pass
+            
+            # 5. Set counter to max
+            conn.execute("""CREATE TABLE IF NOT EXISTS app_settings (
+                key TEXT PRIMARY KEY, value TEXT, updated_at TEXT, updated_by TEXT DEFAULT 'system'
+            )""")
+            
+            old_row = conn.execute("SELECT value FROM app_settings WHERE key='quote_counter'").fetchone()
+            result["counter_before"] = old_row[0] if old_row else "NOT SET"
+            
+            conn.execute("""
+                INSERT INTO app_settings (key, value, updated_at, updated_by) 
+                VALUES ('quote_counter', ?, datetime('now'), 'quote_fix')
+                ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at
+            """, (str(max_num),))
+            
+            result["counter_after"] = max_num
+            result["next_quote"] = f"R26Q{max_num + 1}"
+            result["max_found"] = max_num
+            result["fixes"].append(f"Counter set to {max_num} → next will be R26Q{max_num + 1}")
+    
+    except Exception as e:
+        result["error"] = str(e)
+    
+    return jsonify(result)
