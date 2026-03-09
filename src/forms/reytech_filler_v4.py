@@ -83,11 +83,11 @@ def get_pst_date():
 
 
 def set_field_fonts(writer, field_values, default_size=11, tight_size=9):
-    """Set font sizes — 11pt default, auto-sized for tight numeric fields."""
+    """Set font sizes and FORCE appearance regeneration for clean text rendering."""
     da_default = f"/Helv {default_size} Tf 0 g"
     
     # Approximate character widths at different font sizes (Helvetica)
-    CHAR_WIDTH = {5: 2.8, 6: 3.3, 7: 3.9, 8: 4.5, 9: 5.0, 10: 5.6}
+    CHAR_WIDTH = {5: 2.8, 6: 3.3, 7: 3.9, 8: 4.5, 9: 5.0, 10: 5.6, 11: 6.1}
     
     for page in writer.pages:
         if "/Annots" not in page:
@@ -102,17 +102,16 @@ def set_field_fonts(writer, field_values, default_size=11, tight_size=9):
             if not is_text:
                 continue
             
-            if name in TIGHT_FIELDS:
-                # Auto-size: check content width vs field width
-                content = str(field_values.get(name, ""))
-                rect = obj.get("/Rect")
-                field_w = float(rect[2]) - float(rect[0]) if rect else 60
-                
-                # Try 9pt first, drop to smaller sizes if needed
+            content = str(field_values.get(name, ""))
+            rect = obj.get("/Rect")
+            field_w = float(rect[2]) - float(rect[0]) if rect else 100
+            
+            if name in TIGHT_FIELDS or (content and len(content) * CHAR_WIDTH.get(default_size, 6.1) > field_w - 4):
+                # Auto-size: fit content to field width
                 font_sz = tight_size
-                for try_sz in [9, 8, 7, 6, 5]:
+                for try_sz in [tight_size, 8, 7, 6, 5]:
                     est_width = len(content) * CHAR_WIDTH.get(try_sz, 5.0)
-                    if est_width < field_w - 4:  # 4pt padding
+                    if est_width < field_w - 4:
                         font_sz = try_sz
                         break
                     font_sz = try_sz
@@ -120,6 +119,11 @@ def set_field_fonts(writer, field_values, default_size=11, tight_size=9):
                 obj[NameObject("/DA")] = TextStringObject(f"/Helv {font_sz} Tf 0 g")
             else:
                 obj[NameObject("/DA")] = TextStringObject(da_default)
+            
+            # CRITICAL: Remove existing appearance stream so PDF viewer regenerates it
+            # This fixes the letter spacing issue — old AP has wrong character widths
+            if "/AP" in obj:
+                del obj[NameObject("/AP")]
 
 
 def create_signature_overlay(sig_entries, page_width, page_height, sig_image_path, sign_date=None):
