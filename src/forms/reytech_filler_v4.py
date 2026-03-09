@@ -2096,10 +2096,11 @@ def fill_bid_package(input_path, rfq_data, config, output_path):
         print(f"  ⚠ OBS 1600 header overlay failed: {_e}")
     
     # ── Trim to submission pages only ───────────────────────────────────
-    # Strategy: run _bidpkg_page_skip_reason() against EVERY page of the filled
-    # output. This handles Railway templates that have more pages than local.
-    # For pages inside the local template range, we prefer the blank-template scan
-    # (cleaner text). For extra Railway-only pages, scan the filled output directly.
+    # Strategy: scan the FILLED output for EVERY page using _bidpkg_page_skip_reason().
+    # Skip pages (SABRC table, GenAI defs, VSDS instruction, Darfur pg2, etc.) have
+    # no signature overlays, so their text is fully extractable in the filled PDF.
+    # Blank-template scan is used as a secondary check to catch field-fingerprint skips
+    # (e.g. OBS 1600, GSPD Bidder Declaration) that may not be detectable by text alone.
     try:
         local_keep = set(_compute_bidpkg_keep_indices(input_path))
         local_total = len(PdfReader(input_path).pages)
@@ -2108,17 +2109,17 @@ def fill_bid_package(input_path, rfq_data, config, output_path):
         valid_keep = []
 
         for i in range(total_pages):
-            if i < local_total:
-                # Inside local template range — trust the blank-template scan
-                if i in local_keep:
-                    valid_keep.append(i)
-            else:
-                # Railway-only extra page — scan the filled output directly
-                reason = _bidpkg_page_skip_reason(reader.pages[i])
-                if reason:
-                    print(f"  BidPkg skip extra pg{i:02d}: {reason}")
-                else:
-                    valid_keep.append(i)
+            # PRIMARY: scan the filled output directly — most reliable for skip pages
+            reason = _bidpkg_page_skip_reason(reader.pages[i])
+            if reason:
+                print(f"  BidPkg skip pg{i:02d} (filled scan): {reason}")
+                continue
+            # SECONDARY: if blank-template scan also says skip, respect that
+            # (catches field-fingerprint patterns like OBS 1600, GSPD Bidder Decl)
+            if i < local_total and i not in local_keep:
+                print(f"  BidPkg skip pg{i:02d} (blank-template scan)")
+                continue
+            valid_keep.append(i)
 
         if valid_keep and valid_keep != list(range(total_pages)):
             writer = PdfWriter()
@@ -2288,9 +2289,8 @@ def _bidpkg_page_skip_reason(page):
     # Truly blank (no text, no fields)
     if len(text) == 0 and n_fields == 0:
         return "blank (no text, no fields)"
-    # OBS 1600 food entry form (blank text but many food-form fields)
-    if len(text) == 0 and n_fields > 15:
-        return f"OBS food entry (blank text, {n_fields} fields)"
+    # OBS 1600 food entry form — blank text WITH many fields AND at least one OBS field name.
+    # NOTE: Do NOT rely on n_fields alone (DVBE 843 also has ~29 blank-text fields).
     # CalRecycle SABRC reference table — identified by the email address in header
     # or by the product category code table header. The CalRecycle 74 FILL form
     # also mentions "SABRC" in its intro text, so we must NOT match on "sabrc" alone.
