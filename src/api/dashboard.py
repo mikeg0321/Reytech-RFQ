@@ -3347,10 +3347,22 @@ def unpaid_invoices():
 
 # ── System Operations API (Sprint 5) ────────────────────────────────────────
 
+@bp.route("/ver")
+def public_version():
+    """Public — returns deployed git commit. No auth needed. Use to verify Railway deployed latest code."""
+    import subprocess as _sp
+    try:
+        commit = _sp.check_output(["git", "rev-parse", "--short", "HEAD"],
+                                   stderr=_sp.DEVNULL).decode().strip()
+    except Exception:
+        commit = "unknown"
+    return jsonify({"commit": commit, "expected": "28884d5",
+                    "up_to_date": commit == "28884d5"})
+
+
 @bp.route("/api/system/health")
 @auth_required
 def system_health():
-    """Unified health check: DB, scheduler, backups, schema."""
     import os as _os
     health = {"status": "ok", "checks": {}}
     try:
