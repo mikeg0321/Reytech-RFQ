@@ -3328,3 +3328,59 @@ def api_rfq_clear_quote(rid):
     save_rfqs(rfqs)
     
     return jsonify({"ok": True, "cleared": old_qn, "message": f"Cleared {old_qn}. Regenerate to get a new number."})
+
+
+@bp.route("/api/rfq/<rid>/clear-generated", methods=["POST", "GET"])
+@auth_required
+def api_rfq_clear_generated(rid):
+    """
+    Force-clear all generated files for an RFQ from both DB and JSON.
+    Resets status to 'ready' so the full generate-package pipeline re-runs cleanly.
+    Use this when Railway redeploys cached the old output and Regenerate doesn't help.
+    """
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"})
+
+    # Clear DB generated files
+    db_deleted = 0
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            cur = conn.execute(
+                "DELETE FROM rfq_files WHERE rfq_id = ? AND category = 'generated'",
+                (rid,)
+            )
+            db_deleted = cur.rowcount
+    except Exception as _e:
+        log.warning("clear-generated DB delete failed for %s: %s", rid, _e)
+
+    # Clear disk output files
+    sol = r.get("solicitation_number", rid)
+    import shutil as _sh
+    out_dir = os.path.join(OUTPUT_DIR, sol)
+    disk_deleted = 0
+    if os.path.exists(out_dir):
+        try:
+            for fname in os.listdir(out_dir):
+                fpath = os.path.join(out_dir, fname)
+                if os.path.isfile(fpath):
+                    os.remove(fpath)
+                    disk_deleted += 1
+        except Exception as _de:
+            log.warning("clear-generated disk delete failed: %s", _de)
+
+    # Reset JSON state
+    old_files = r.get("output_files", [])
+    r["output_files"] = []
+    r.pop("draft_email", None)
+    r.pop("generated_at", None)
+    _transition_status(r, "ready", actor="user", notes="Cleared generated files for fresh regeneration")
+    save_rfqs(rfqs)
+
+    msg = f"Cleared {db_deleted} DB files + {disk_deleted} disk files. Status reset to 'ready'. Click Generate Package to rebuild."
+    log.info("clear-generated %s: %s", rid, msg)
+    return jsonify({"ok": True, "db_deleted": db_deleted, "disk_deleted": disk_deleted,
+                    "old_files": old_files, "message": msg})
+
