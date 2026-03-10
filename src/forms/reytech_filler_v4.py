@@ -150,8 +150,8 @@ def set_field_fonts(writer, field_values, default_size=11, tight_size=9):
 def create_signature_overlay(sig_entries, page_width, page_height, sig_image_path, sign_date=None):
     """
     Create PDF overlay with signature images.
-    sig_entries: list of (name, [left, bottom, right, top])
-    Only signs fields in SIGN_FIELDS whitelist.
+    sig_entries: list of (name, [left, bottom, right, top], is_sig_field)
+    /Sig fields always get signed; text fields need SIGN_FIELDS whitelist.
     """
     packet = io.BytesIO()
     c = rl_canvas.Canvas(packet, pagesize=(page_width, page_height))
@@ -164,9 +164,15 @@ def create_signature_overlay(sig_entries, page_width, page_height, sig_image_pat
     img_w, img_h = sig_img.size
     aspect = img_w / img_h
 
-    for name, rect in sig_entries:
-        # Skip fields not in whitelist
-        if name not in SIGN_FIELDS:
+    for entry in sig_entries:
+        # Support both old (name, rect) and new (name, rect, is_sig_field) tuples
+        if len(entry) == 3:
+            name, rect, is_sig_field = entry
+        else:
+            name, rect = entry
+            is_sig_field = False
+        # Text fields need whitelist; /Sig fields always sign
+        if not is_sig_field and name not in SIGN_FIELDS:
             continue
 
         field_w = rect[2] - rect[0]
@@ -268,18 +274,18 @@ def fill_and_sign_pdf(input_path, field_values, output_path,
             name = str(obj.get("/T", ""))
             if "/Rect" not in obj:
                 continue
-            # Overlay signature on /Sig fields
+            # Overlay signature on /Sig fields (always — no whitelist needed)
             if ft == "/Sig":
                 try:
                     r = [float(x) for x in obj["/Rect"]]
-                    sig_entries.append((name, r))
+                    sig_entries.append((name, r, True))
                 except Exception:
                     pass
             # Also overlay on text fields that are in the SIGN_FIELDS whitelist
             elif name in SIGN_FIELDS:
                 try:
                     r = [float(x) for x in obj["/Rect"]]
-                    sig_entries.append((name, r))
+                    sig_entries.append((name, r, False))
                 except Exception:
                     pass
 
@@ -406,15 +412,34 @@ def fill_704b(input_path, rfq_data, config, output_path):
             else:
                 values[sub_field] = ""
 
-    # Header fields — write both plain and _2 variants for same reason
+    # Header fields — write all known variants to handle different 704B template versions
     for sfx in ("", "_2"):
-        values[f"COMPANY NAME{sfx}"] = company["name"] if sfx == "" else values.get("COMPANY NAME", company["name"])
+        values[f"COMPANY NAME{sfx}"] = company["name"]
         values[f"PERSON PROVIDING QUOTE{sfx}"] = company["owner"]
         values[f"Contract_Number{sfx}"] = rfq_data.get("solicitation_number", "N/A")
         values[f"SOLICITATION #{sfx}"] = rfq_data.get("solicitation_number", "")
         values[f"SOLICITATION{sfx}"] = rfq_data.get("solicitation_number", "")
         values[f"REQUESTOR{sfx}"] = rfq_data.get("requestor_name", "")
         values[f"DATE{sfx}"] = sign_date
+        # Additional name variants seen in other 704B template revisions
+        values[f"Solicitation #{sfx}"] = rfq_data.get("solicitation_number", "")
+        values[f"Solicitation{sfx}"] = rfq_data.get("solicitation_number", "")
+        values[f"Requestor{sfx}"] = rfq_data.get("requestor_name", "")
+        values[f"Date{sfx}"] = sign_date
+        values[f"Company Name{sfx}"] = company["name"]
+        values[f"Vendor Name{sfx}"] = company["name"]
+        values[f"Person Providing Quote{sfx}"] = company["owner"]
+        values[f"SIGNATURE DATE{sfx}"] = sign_date
+        values[f"Signature Date{sfx}"] = sign_date
+
+    # Log all field names in this template for diagnostics
+    try:
+        from pypdf import PdfReader as _PR704
+        _r704 = _PR704(input_path)
+        _all_fields = list((_r704.get_fields() or {}).keys())
+        print(f"  704B template fields ({len(_all_fields)}): {_all_fields[:20]}")
+    except Exception:
+        pass
 
     # Leading space pushes text past the printed "$"
     values["fill_154"] = f" {merchandise_subtotal:.2f}"
@@ -1868,8 +1893,8 @@ def generate_drug_free(rfq_data, config, output_path):
 def _calrecycle_fix_date(pdf_path, sign_date):
     """
     The CalRecycle 74 Date field has no /T name, so fill_and_sign_pdf can't reach it.
-    Find the field by its known position (x≈505, y≈148) on page 0 and fill it directly.
-    Also positions the date text precisely above the 'Date' label baseline.
+    Find the CalRecycle page by scanning for its known unnamed date field at x≈505, y≈148.
+    Works for both standalone CalRecycle PDFs and the full bid package.
     """
     from pypdf import PdfReader as _PR, PdfWriter as _PW
     from pypdf.generic import NameObject, TextStringObject
@@ -1877,23 +1902,31 @@ def _calrecycle_fix_date(pdf_path, sign_date):
         reader = _PR(pdf_path)
         writer = _PW()
         writer.append(reader)
-        page = writer.pages[0]
-        if "/Annots" not in page:
-            return
-        for annot in page["/Annots"]:
-            obj = annot.get_object()
-            name = str(obj.get("/T", "UNNAMED"))
-            rect = obj.get("/Rect")
-            if rect and not name or name == "UNNAMED":
-                x0, y0 = float(rect[0]), float(rect[1])
-                # Date field is at approx x=505, y=148 (73pt wide)
-                if 490 < x0 < 520 and 140 < y0 < 160:
-                    obj[NameObject("/V")] = TextStringObject(sign_date)
-                    obj[NameObject("/DA")] = TextStringObject("/Helv 9 Tf 0 g")
-                    if "/AP" in obj:
-                        del obj[NameObject("/AP")]
+        patched = False
+        for page_idx, page in enumerate(writer.pages):
+            if "/Annots" not in page:
+                continue
+            for annot in page["/Annots"]:
+                obj = annot.get_object()
+                name = str(obj.get("/T", "UNNAMED"))
+                rect = obj.get("/Rect")
+                # Find unnamed annotation at the CalRecycle date position
+                if rect and (not name or name == "UNNAMED"):
+                    x0, y0 = float(rect[0]), float(rect[1])
+                    # Date field is at approx x=505, y=148 (73pt wide)
+                    if 490 < x0 < 520 and 140 < y0 < 160:
+                        obj[NameObject("/V")] = TextStringObject(sign_date)
+                        obj[NameObject("/DA")] = TextStringObject("/Helv 9 Tf 0 g")
+                        if "/AP" in obj:
+                            del obj[NameObject("/AP")]
+                        patched = True
+                        break
+            if patched:
+                break
         with open(pdf_path, "wb") as _f:
             writer.write(_f)
+        if not patched:
+            print(f"  ⚠ CalRecycle date fix: unnamed date field not found in {pdf_path}")
     except Exception as _e:
         print(f"  ⚠ CalRecycle date fix failed: {_e}")
 

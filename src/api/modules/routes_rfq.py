@@ -1493,9 +1493,14 @@ def generate_rfq_package(rid):
                                 continue
 
                         # Normalize rotation: embed the rotation into content so all
-                        # viewers display the page consistently (no /Rotate dependency)
+                        # viewers display the page consistently (no /Rotate dependency).
+                        # Remove /Annots first — form fields have their own coordinate
+                        # system and get visually garbled if we rotate after baking
+                        # appearance streams into them (double-rotation artifact).
                         try:
                             if page.rotation != 0:
+                                if "/Annots" in page:
+                                    del page["/Annots"]
                                 page.transfer_rotation_to_content()
                         except Exception:
                             pass
