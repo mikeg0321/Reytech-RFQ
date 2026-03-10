@@ -2160,59 +2160,34 @@ class EmailSender:
         agency_name = rfq_data.get("agency_name", "")
         form_type = rfq_data.get("form_type", "")
         quote_num = rfq_data.get("reytech_quote_number", "")
-        
+
+        # Use first name only for greeting
+        first_name = requestor.split()[0] if requestor.strip() else "there"
+
         # ── Agency-specific subject and body ──
         if form_type == "generic_rfq":
-            # Cal Vet, CalFire, DGS, etc. — formal Reytech quote, no 704 forms
             subject = f"Reytech Inc. - Quote Response - Solicitation #{sol}"
-            
-            # List attachments naturally
-            att_names = [os.path.basename(f) for f in output_files if os.path.exists(f)]
-            att_list = "\n".join(f"- {name}" for name in att_names) if att_names else "- Reytech Quote"
-            
-            body = f"""Dear {requestor},
+            body = f"""Dear {first_name},
 
 Please find attached our quote response for Solicitation #{sol}.
 
-Attached documents:
-{att_list}
+All items are quoted F.O.B. Destination, freight prepaid and included. Pricing is valid for 45 calendar days from the due date.
 
-All items are quoted F.O.B. Destination, freight prepaid and included. 
-Pricing is valid for 45 calendar days from the due date.
+Please let us know if you have any questions.
 
-Please let us know if you need any additional information or have questions regarding our quote.
-
-Best regards,
-Michael Guadan
-Reytech Inc.
-949-229-1575
-sales@reytechinc.com
-SB/DVBE Cert #2002605"""
+Respectfully,"""
         else:
-            # CCHCS, DSH — standard 704B bid package
             subject = f"Reytech Inc. - Bid Response - Solicitation #{sol}"
-            
-            body = f"""Dear {requestor},
+            body = f"""Dear {first_name},
 
 Please find attached our bid response for Solicitation #{sol}.
 
-Bid Package includes:
-- AMS 703B - Request for Quotation (signed)
-- AMS 704B - CCHCS Acquisition Quote Worksheet (with pricing)
-- Bid Package & Forms (all required forms completed)
+All items are quoted F.O.B. Destination, freight prepaid and included. Pricing is valid for 45 calendar days from the due date.
 
-All items are quoted F.O.B. Destination, freight prepaid and included. 
-Pricing is valid for 45 calendar days from the due date.
+Please let us know if you have any questions.
 
-Please let us know if you need any additional information.
+Respectfully,"""
 
-Best regards,
-Michael Guadan
-Reytech Inc.
-949-229-1575
-sales@reytechinc.com
-SB/DVBE Cert #2002605"""
-        
         # Thread reply to original email
         draft = {
             "to": requestor_email,
@@ -2221,13 +2196,13 @@ SB/DVBE Cert #2002605"""
             "attachments": output_files,
             "solicitation": sol,
         }
-        
+
         # Add reply threading if we have the original message ID
         msg_id = rfq_data.get("email_message_id", "")
         if msg_id:
             draft["in_reply_to"] = msg_id
             draft["references"] = msg_id
-        
+
         return draft
     
     def send(self, draft):
