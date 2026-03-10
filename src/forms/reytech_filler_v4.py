@@ -359,7 +359,72 @@ def fill_703b(input_path, rfq_data, config, output_path):
         values["703B_Dropdown2"] = rfq_data["delivery_location"]
 
     fill_and_sign_pdf(input_path, values, output_path, sign_date=sign_date)
+
+    # AMS 703B Rev 03/2025 has no /Sig field — signature line is a printed line.
+    # Overlay signature image at its fixed position on the last content page.
+    try:
+        _703b_overlay_signature(output_path, sign_date)
+    except Exception as _se:
+        print(f"  ⚠ 703B positional sig overlay failed: {_se}")
+
     print(f"  ✓ 703B filled + signed ({sign_date})")
+
+
+def _703b_overlay_signature(pdf_path, sign_date):
+    """
+    Overlay signature image at the 'Bidder Signature' line in AMS 703B.
+    The template has no /Sig field — the line is just printed text.
+    Position is fixed at approx x=35, y=87 pt from bottom on the last page.
+    """
+    from pypdf import PdfReader as _PR, PdfWriter as _PW
+    import io as _io
+    from reportlab.pdfgen import canvas as _rl
+    from reportlab.lib.utils import ImageReader as _IR
+    from PIL import Image as _Img
+
+    if not os.path.exists(SIGNATURE_PATH):
+        return
+
+    reader = _PR(pdf_path)
+    # Find the page that has "Bidder Signature" text (usually last page)
+    target_page = 0
+    for i, pg in enumerate(reader.pages):
+        txt = (pg.extract_text() or "").lower()
+        if "bidder signature" in txt or "bidder" in txt:
+            target_page = i
+            break
+
+    page = reader.pages[target_page]
+    mb = page.get("/MediaBox", [0, 0, 612, 792])
+    pw, ph = float(mb[2]), float(mb[3])
+
+    # Draw sig image at the Bidder Signature line
+    sig_img = _Img.open(SIGNATURE_PATH)
+    ir = _IR(sig_img)
+    iw, ih = sig_img.size
+    aspect = iw / ih
+
+    draw_w = 160
+    draw_h = draw_w / aspect
+    x = 38
+    y = 85  # pt from bottom — the bidder signature line in AMS 703B
+
+    packet = _io.BytesIO()
+    c = _rl.Canvas(packet, pagesize=(pw, ph))
+    c.drawImage(ir, x, y, draw_w, draw_h, mask="auto")
+    c.setFont("Helvetica", 10)
+    c.setFillColorRGB(0, 0, 0)
+    c.drawString(x + draw_w + 15, y + draw_h / 2 - 5, sign_date)
+    c.save()
+    packet.seek(0)
+
+    from pypdf import PdfReader as _PR2, PdfWriter as _PW2
+    overlay = _PR2(packet)
+    writer = _PW2()
+    writer.append(reader)
+    writer.pages[target_page].merge_page(overlay.pages[0])
+    with open(pdf_path, "wb") as _f:
+        writer.write(_f)
 
 
 def fill_704b(input_path, rfq_data, config, output_path):
@@ -417,6 +482,8 @@ def fill_704b(input_path, rfq_data, config, output_path):
         values[f"COMPANY NAME{sfx}"] = company["name"]
         values[f"PERSON PROVIDING QUOTE{sfx}"] = company["owner"]
         values[f"Contract_Number{sfx}"] = rfq_data.get("solicitation_number", "N/A")
+        values[f"DEPARTMENT{sfx}"] = rfq_data.get("agency", "CCHCS")
+        values[f"PHONEEMAIL{sfx}"] = f"{company.get('phone','')} / {company.get('email','')}"
         values[f"SOLICITATION #{sfx}"] = rfq_data.get("solicitation_number", "")
         values[f"SOLICITATION{sfx}"] = rfq_data.get("solicitation_number", "")
         values[f"REQUESTOR{sfx}"] = rfq_data.get("requestor_name", "")
@@ -426,6 +493,8 @@ def fill_704b(input_path, rfq_data, config, output_path):
         values[f"Solicitation{sfx}"] = rfq_data.get("solicitation_number", "")
         values[f"Requestor{sfx}"] = rfq_data.get("requestor_name", "")
         values[f"Date{sfx}"] = sign_date
+        values[f"Date1_af_date"] = sign_date   # AMS 704B Rev 10/2022 date field name
+        values[f"Date1_af_date{sfx}"] = sign_date
         values[f"Company Name{sfx}"] = company["name"]
         values[f"Vendor Name{sfx}"] = company["name"]
         values[f"Person Providing Quote{sfx}"] = company["owner"]
@@ -450,26 +519,40 @@ def fill_704b(input_path, rfq_data, config, output_path):
     tmp_path = output_path + ".tmp704b.pdf"
     fill_and_sign_pdf(input_path, values, tmp_path, sign_date=sign_date)
 
-    # CCHCS combined templates embed the 703B form as page 1 of the 704B file.
-    # Since 703B is now a separate attachment, trim the output to page 2+ only.
-    # RULE: The standalone 704B output must never contain the 703B form.
+    # Some CCHCS combined templates embed the 703B form as page 0 of the 704B file.
+    # Detect this: if page 0 has 703B-specific fields or "BIDDER INFORMATION" text, skip it.
+    # Otherwise (standalone 704B), keep all pages.
     try:
         from pypdf import PdfReader as _PR, PdfWriter as _PW
         _reader = _PR(tmp_path)
+        _page0_is_703b = False
         if len(_reader.pages) > 1:
+            _p0_annots = _reader.pages[0].get("/Annots", []) or []
+            for _a in _p0_annots:
+                _obj = _a.get_object() if hasattr(_a, "get_object") else _a
+                _fn = str(_obj.get("/T", ""))
+                if _fn.startswith("703B_") or "Business Name" in _fn:
+                    _page0_is_703b = True
+                    break
+            if not _page0_is_703b:
+                _p0_text = (_reader.pages[0].extract_text() or "").upper()
+                if "BIDDER INFORMATION" in _p0_text and "REQUEST FOR QUOTATION" in _p0_text:
+                    _page0_is_703b = True
+
+        if _page0_is_703b:
             _writer = _PW()
-            for _pg in _reader.pages[1:]:  # skip page 0 (embedded 703B)
+            for _pg in _reader.pages[1:]:
                 _writer.add_page(_pg)
             with open(output_path, "wb") as _f:
                 _writer.write(_f)
+            print(f"  ℹ 704B: trimmed embedded 703B from page 0")
         else:
-            # Single-page template — use as-is (standalone 704B)
             import shutil as _sh
             _sh.copy2(tmp_path, output_path)
     except Exception as _trim_err:
         import shutil as _sh
         _sh.copy2(tmp_path, output_path)
-        print(f"  ⚠ 704B trim failed ({_trim_err}) — using full template")
+        print(f"  ⚠ 704B trim check failed ({_trim_err}) — keeping all pages")
     finally:
         try:
             _os.remove(tmp_path)
