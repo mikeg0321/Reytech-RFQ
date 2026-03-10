@@ -3438,3 +3438,71 @@ def api_rfq_debug_pages(rid):
                     "kept": sum(1 for p in pages if p["decision"] == "KEEP"),
                     "skipped": sum(1 for p in pages if p["decision"] == "SKIP"),
                     "pages": pages})
+
+
+@bp.route("/api/rfq/<rid>/debug-templates", methods=["GET"])
+@auth_required
+def api_rfq_debug_templates(rid):
+    """Dump all field names from uploaded 703B/704B/bidpkg templates. Use to diagnose fill mismatches."""
+    from pypdf import PdfReader
+
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"})
+
+    result = {}
+    tmpl = r.get("templates", {})
+
+    # Also restore from DB if needed
+    db_files = list_rfq_files(rid, category="template")
+    for db_f in db_files:
+        ft = db_f.get("file_type", "").lower().replace("template_", "")
+        fname = db_f.get("filename", "").lower()
+        ttype = None
+        if "703b" in ft or "703b" in fname: ttype = "703b"
+        elif "704b" in ft or "704b" in fname: ttype = "704b"
+        elif "bid" in ft or "bid" in fname: ttype = "bidpkg"
+        if ttype and (ttype not in tmpl or not os.path.exists(tmpl.get(ttype, ""))):
+            full_f = get_rfq_file(db_f["id"])
+            if full_f and full_f.get("data"):
+                restore_dir = os.path.join(DATA_DIR, "rfq_templates", rid)
+                os.makedirs(restore_dir, exist_ok=True)
+                restore_path = os.path.join(restore_dir, db_f["filename"])
+                with open(restore_path, "wb") as _fw:
+                    _fw.write(full_f["data"])
+                tmpl[ttype] = restore_path
+
+    for tname, tpath in tmpl.items():
+        if not os.path.exists(tpath):
+            result[tname] = {"error": f"file missing: {tpath}"}
+            continue
+        try:
+            rdr = PdfReader(tpath)
+            fields = rdr.get_fields() or {}
+            sig_fields = []
+            all_pages = []
+            for i, pg in enumerate(rdr.pages):
+                annots = pg.get("/Annots", [])
+                pg_fields = []
+                for a in (annots or []):
+                    obj = a.get_object() if hasattr(a, "get_object") else a
+                    name = str(obj.get("/T", ""))
+                    ft_val = str(obj.get("/FT", ""))
+                    if ft_val == "/Sig" or "sig" in name.lower():
+                        sig_fields.append({"name": name, "ft": ft_val, "page": i})
+                    if name:
+                        pg_fields.append(name)
+                all_pages.append({"page": i, "fields": pg_fields[:10]})
+            result[tname] = {
+                "path": tpath,
+                "pages": len(rdr.pages),
+                "total_fields": len(fields),
+                "sig_fields": sig_fields,
+                "all_field_names": sorted(fields.keys())[:50],
+                "pages_preview": all_pages,
+            }
+        except Exception as e:
+            result[tname] = {"error": str(e)}
+
+    return jsonify({"ok": True, "templates": result})
