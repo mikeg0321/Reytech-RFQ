@@ -1610,7 +1610,7 @@ def generate_darfur_act(rfq_data, config, output_path):
         c.drawString(margin, y, line)
         y -= 12
 
-    # Certification statement (highlighted)
+    # Certification statement (highlighted block)
     y -= 8
     c.setFillColor(colors.Color(1, 1, 0.8))
     c.rect(margin, y - 48, w - 2 * margin, 52, fill=1, stroke=0)
@@ -1625,6 +1625,24 @@ def generate_darfur_act(rfq_data, config, output_path):
     for line in cert_lines:
         c.drawString(margin + 4, y, line)
         y -= 12
+
+    # Highlight the word "not" in line 2 of the certification
+    # "prospective proposer/bidder named below is not a scrutinized..."
+    # Calculate position: line 2 is at y_line2, "not" starts after "...below is "
+    from reportlab.pdfbase.pdfmetrics import stringWidth as _sw
+    _font, _size = "Helvetica", 9
+    _line2_text = "prospective proposer/bidder named below is not a scrutinized company per Public"
+    _prefix = "prospective proposer/bidder named below is "
+    _not_x = margin + 4 + _sw(_prefix, _font, _size)
+    _not_w = _sw("not", _font, _size)
+    _not_y = y + 12 * 2 + 2  # line 2 baseline (cert_lines[1], counting from bottom up)
+    c.saveState()
+    c.setFillColor(colors.Color(1, 0.9, 0))   # bright yellow
+    c.rect(_not_x - 1, _not_y - 2, _not_w + 2, _size + 3, fill=1, stroke=0)
+    c.setFillColor(colors.black)
+    c.setFont(_font, _size)
+    c.drawString(_not_x, _not_y, "not")
+    c.restoreState()
 
     # Company info table
     y -= 12
@@ -1847,6 +1865,38 @@ def generate_drug_free(rfq_data, config, output_path):
 # CalRecycle 74 — Standalone with overflow pages
 # ═══════════════════════════════════════════════════════════════════════
 
+def _calrecycle_fix_date(pdf_path, sign_date):
+    """
+    The CalRecycle 74 Date field has no /T name, so fill_and_sign_pdf can't reach it.
+    Find the field by its known position (x≈505, y≈148) on page 0 and fill it directly.
+    Also positions the date text precisely above the 'Date' label baseline.
+    """
+    from pypdf import PdfReader as _PR, PdfWriter as _PW
+    from pypdf.generic import NameObject, TextStringObject
+    try:
+        reader = _PR(pdf_path)
+        writer = _PW()
+        writer.append(reader)
+        page = writer.pages[0]
+        if "/Annots" not in page:
+            return
+        for annot in page["/Annots"]:
+            obj = annot.get_object()
+            name = str(obj.get("/T", "UNNAMED"))
+            rect = obj.get("/Rect")
+            if rect and not name or name == "UNNAMED":
+                x0, y0 = float(rect[0]), float(rect[1])
+                # Date field is at approx x=505, y=148 (73pt wide)
+                if 490 < x0 < 520 and 140 < y0 < 160:
+                    obj[NameObject("/V")] = TextStringObject(sign_date)
+                    obj[NameObject("/DA")] = TextStringObject("/Helv 9 Tf 0 g")
+                    if "/AP" in obj:
+                        del obj[NameObject("/AP")]
+        with open(pdf_path, "wb") as _f:
+            writer.write(_f)
+    except Exception as _e:
+        print(f"  ⚠ CalRecycle date fix failed: {_e}")
+
 def fill_calrecycle_standalone(input_path, rfq_data, config, output_path):
     """Fill CalRecycle 74 form with line items. Adds overflow pages for >6 items."""
     company = config["company"]
@@ -1865,7 +1915,7 @@ def fill_calrecycle_standalone(input_path, rfq_data, config, output_path):
     }
 
     def _short_desc(item):
-        """Extract brand + main product name only (≤45 chars for CalRecycle)."""
+        """Extract brand + main product name only (≤62 chars for CalRecycle)."""
         desc = item.get("description", "")
         # Strip everything after first " - " separator (removes ref numbers, UPCs, etc.)
         if " - " in desc:
@@ -1886,8 +1936,9 @@ def fill_calrecycle_standalone(input_path, rfq_data, config, output_path):
         desc = _re.sub(r'\s*[-/]\s*\(\?\).*', '', desc)
         desc = _re.sub(r'\s*#\s*\d{6,}.*', '', desc)
         desc = desc.strip(" ,;-/")
-        if len(desc) > 45:
-            desc = desc[:42] + "..."
+        # Cap at 62 chars — font auto-sizer will go down to 6pt to fit
+        if len(desc) > 62:
+            desc = desc[:59] + "..."
         return desc
 
     def _short_item(item):
@@ -1911,6 +1962,8 @@ def fill_calrecycle_standalone(input_path, rfq_data, config, output_path):
         values["2SABRC Product Category CodeRow1"] = "N/A"
 
     fill_and_sign_pdf(input_path, values, output_path, sign_date=sign_date)
+    # Fix: CalRecycle Date field has no /T name — fill by rect position
+    _calrecycle_fix_date(output_path, sign_date)
 
     # Overflow: if >6 items, append additional CalRecycle pages
     if len(items) > 6:
@@ -2019,9 +2072,8 @@ def fill_bid_package(input_path, rfq_data, config, output_path):
     import re as _re_cr
     def _cr_desc(item):
         """Clean description for CalRecycle 74.
-        Field is 246pt wide. Font auto-sizer in set_field_fonts will pick
-        7-8pt to fit up to ~58 chars. Don't truncate aggressively — just
-        strip part numbers, UPC suffixes, and trailing noise.
+        Field is 246pt wide. Font auto-sizer goes down to 6pt = ~66 chars max.
+        Strip part numbers, UPC suffixes, and trailing noise.
         """
         desc = item.get("description", "")
         if " - " in desc:
@@ -2034,10 +2086,10 @@ def fill_bid_package(input_path, rfq_data, config, output_path):
         desc = _re_cr.sub(r'\s*Model\s*#.*', '', desc, flags=_re_cr.IGNORECASE)
         desc = _re_cr.sub(r'\s*UPC\s*#.*', '', desc, flags=_re_cr.IGNORECASE)
         desc = desc.strip(" ,;-/")
-        # Hard cap at 58 chars (fits in 246pt at 7pt Helvetica = ~63 chars max)
-        # Font auto-sizer will reduce from 9pt → 8pt → 7pt as needed
-        if len(desc) > 58:
-            desc = desc[:55] + "..."
+        # Cap at 62 chars — fits in 246pt field at 6pt Helvetica (3.7pt/char = 66 max).
+        # Font auto-sizer in set_field_fonts will reduce 9→8→7→6pt as needed.
+        if len(desc) > 62:
+            desc = desc[:59] + "..."
         return desc
 
     line_items = rfq_data.get("line_items", [])
@@ -2083,7 +2135,13 @@ def fill_bid_package(input_path, rfq_data, config, output_path):
     values.update(obs1600_values)
 
     fill_and_sign_pdf(input_path, values, output_path, sign_date=sign_date)
-    
+
+    # Fix CalRecycle unnamed Date field (no /T name — can't be filled via values dict)
+    try:
+        _calrecycle_fix_date(output_path, sign_date)
+    except Exception as _crd_e:
+        print(f"  ⚠ CalRecycle date fix skipped: {_crd_e}")
+
     # ── OBS 1600 Header: Overlay Vendor Name + Solicitation # (not fillable fields) ──
     try:
         reader = PdfReader(output_path)

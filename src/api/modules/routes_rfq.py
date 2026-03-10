@@ -1478,6 +1478,14 @@ def generate_rfq_package(rid):
                                 "Please wait" in text and len(text.strip()) < 300):
                             continue
 
+                        # Normalize rotation: embed the rotation into content so all
+                        # viewers display the page consistently (no /Rotate dependency)
+                        try:
+                            if page.rotation != 0:
+                                page.transfer_rotation_to_content()
+                        except Exception:
+                            pass
+
                         writer.add_page(page)
                         pages_added += 1
 
