@@ -2296,26 +2296,47 @@ SB/DVBE Cert #2002605"""
             import time as _time
             imap = imaplib.IMAP4_SSL("imap.gmail.com")
             imap.login(self.email_addr, self.password)
-            # Try standard folder names (varies by locale)
+            # List folders to find the right name (varies by Gmail locale)
+            _status, _folders = imap.list()
+            _folder_strs = [f.decode() if isinstance(f, bytes) else str(f) for f in (_folders or [])]
+            log.info("IMAP folders: %s", _folder_strs)
             saved = False
+            # Try well-known names first
             for folder in ['"[Gmail]/Sent Mail"', "[Gmail]/Sent Mail",
-                           '"[Gmail]/Sent"', "[Gmail]/Sent"]:
+                           '"[Gmail]/Sent"', "[Gmail]/Sent", "Sent", "SENT"]:
                 try:
-                    result = imap.append(folder, "\\Seen",
-                                         imaplib.Time2Internaldate(_time.time()),
-                                         msg.as_bytes())
-                    if result[0] == "OK":
+                    res = imap.append(folder, "\\Seen",
+                                      imaplib.Time2Internaldate(_time.time()),
+                                      msg.as_bytes())
+                    if res[0] == "OK":
                         saved = True
-                        log.info("Email saved to Gmail Sent folder via IMAP (%s)", folder)
+                        log.info("Saved to Sent folder: %s", folder)
                         break
-                except Exception:
-                    continue
+                except Exception as _fe:
+                    log.debug("IMAP append %s failed: %s", folder, _fe)
+            # If still not saved, scan folder list for anything with "sent"
             if not saved:
-                log.warning("IMAP save-to-sent: could not find Sent folder")
+                import re as _re
+                for _raw in _folder_strs:
+                    if "sent" in _raw.lower():
+                        _m = _re.search(r'"([^"]+)"\s*$', _raw) or _re.search(r'(\S+)$', _raw)
+                        if _m:
+                            _fn = _m.group(1)
+                            try:
+                                res = imap.append(_fn, "\\Seen",
+                                                  imaplib.Time2Internaldate(_time.time()),
+                                                  msg.as_bytes())
+                                if res[0] == "OK":
+                                    saved = True
+                                    log.info("Saved to detected Sent folder: %s", _fn)
+                                    break
+                            except Exception:
+                                pass
+            if not saved:
+                log.warning("IMAP save-to-sent failed. Folders: %s", _folder_strs)
             imap.logout()
         except Exception as _e:
             log.warning("IMAP save-to-sent failed: %s", _e)
-        
         return True
 
 
