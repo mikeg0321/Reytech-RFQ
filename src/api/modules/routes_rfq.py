@@ -3384,3 +3384,87 @@ def api_rfq_clear_generated(rid):
     return jsonify({"ok": True, "db_deleted": db_deleted, "disk_deleted": disk_deleted,
                     "old_files": old_files, "message": msg})
 
+
+@bp.route("/api/rfq/<rid>/debug-pages", methods=["GET"])
+@auth_required
+def api_rfq_debug_pages(rid):
+    """
+    Debug: run _bidpkg_page_skip_reason against the last generated RFQ Package PDF
+    and return per-page skip/keep decisions. Use to diagnose why pages are included.
+    """
+    from src.forms.reytech_filler_v4 import _bidpkg_page_skip_reason
+    from pypdf import PdfReader
+    import os
+
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"})
+
+    sol = r.get("solicitation_number", rid)
+    out_dir = os.path.join(OUTPUT_DIR, sol)
+    pkg_path = os.path.join(out_dir, f"RFQ_Package_{sol}_ReytechInc.pdf")
+
+    if not os.path.exists(pkg_path):
+        # try DB restore
+        return jsonify({"ok": False, "error": f"Package not found at {pkg_path}"})
+
+    reader = PdfReader(pkg_path)
+    pages = []
+    for i, page in enumerate(reader.pages):
+        try:
+            reason = _bidpkg_page_skip_reason(page)
+        except Exception as e:
+            reason = f"ERROR: {e}"
+        text_snip = (page.extract_text() or "")[:80].replace("\n", " ")
+        n_fields = len(page.get("/Annots", [])) if "/Annots" in page else 0
+        pages.append({
+            "page": i,
+            "decision": "SKIP" if reason else "KEEP",
+            "reason": reason or "",
+            "fields": n_fields,
+            "text": text_snip,
+        })
+
+    return jsonify({
+        "ok": True,
+        "total_pages": len(pages),
+        "kept": sum(1 for p in pages if p["decision"] == "KEEP"),
+        "skipped": sum(1 for p in pages if p["decision"] == "SKIP"),
+        "pages": pages,
+    })
+
+@bp.route("/api/rfq/<rid>/debug-pages", methods=["GET"])
+@auth_required
+def api_rfq_debug_pages(rid):
+    """Debug: run page-skip logic against last generated package PDF. Returns per-page decisions."""
+    from src.forms.reytech_filler_v4 import _bidpkg_page_skip_reason
+    from pypdf import PdfReader
+
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"})
+
+    sol = r.get("solicitation_number", rid)
+    pkg_path = os.path.join(OUTPUT_DIR, sol, f"RFQ_Package_{sol}_ReytechInc.pdf")
+
+    if not os.path.exists(pkg_path):
+        return jsonify({"ok": False, "error": f"Not found: {pkg_path}"})
+
+    reader = PdfReader(pkg_path)
+    pages = []
+    for i, page in enumerate(reader.pages):
+        try:
+            reason = _bidpkg_page_skip_reason(page)
+        except Exception as e:
+            reason = f"ERROR: {e}"
+        text_snip = (page.extract_text() or "")[:80].replace("\n", " ")
+        n_fields = len(page.get("/Annots", [])) if "/Annots" in page else 0
+        pages.append({"page": i, "decision": "SKIP" if reason else "KEEP",
+                      "reason": reason or "", "fields": n_fields, "text": text_snip})
+
+    return jsonify({"ok": True, "total": len(pages),
+                    "kept": sum(1 for p in pages if p["decision"] == "KEEP"),
+                    "skipped": sum(1 for p in pages if p["decision"] == "SKIP"),
+                    "pages": pages})
