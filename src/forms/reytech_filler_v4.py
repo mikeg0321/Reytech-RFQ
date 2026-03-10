@@ -251,16 +251,11 @@ def fill_and_sign_pdf(input_path, field_values, output_path,
     writer = PdfWriter()
     writer.append(reader)
 
-    # Normalize rotation BEFORE filling — appearance streams must be generated
-    # in the post-rotation coordinate space, otherwise they render misaligned.
-    # transfer_rotation_to_content() embeds /Rotate into the content stream and
-    # adjusts the MediaBox, so all subsequent drawing uses consistent coords.
-    for page in writer.pages:
-        try:
-            if page.rotation != 0:
-                page.transfer_rotation_to_content()
-        except Exception:
-            pass
+    # NOTE: Do NOT call transfer_rotation_to_content() here.
+    # Annotation /Rect coordinates are in the page's native (pre-rotation) space.
+    # transfer_rotation_to_content() transforms the content stream but does NOT
+    # update /Rect values, causing all field values to render at wrong positions.
+    # PDF viewers apply /Rotate to the whole page uniformly — leave it intact.
 
     clean_values = {k: v for k, v in field_values.items() if v is not None}
     set_field_fonts(writer, clean_values, default_font, tight_font)
