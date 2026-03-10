@@ -431,8 +431,10 @@ def _703b_overlay_signature(pdf_path, sign_date):
         # Try proportional: ~11% from bottom
         sig_y = ph * 0.11
 
-    # Signature sits just above the label baseline — shift up by ~10pt
-    y = sig_y + 2
+    # Signature sits ABOVE the "Bidder Signature" label.
+    # pdfminer returns the bottom of the label text line.
+    # Add label height (~10pt) + spacing (~8pt) to place sig above the label.
+    y = sig_y + 18
 
     sig_img = _Img.open(SIGNATURE_PATH)
     ir = _IR(sig_img)
@@ -444,9 +446,7 @@ def _703b_overlay_signature(pdf_path, sign_date):
     packet = _io.BytesIO()
     c = _rl.Canvas(packet, pagesize=(pw, ph))
     c.drawImage(ir, 38, y, draw_w, draw_h, mask="auto")
-    c.setFont("Helvetica", 10)
-    c.setFillColorRGB(0, 0, 0)
-    c.drawString(38 + draw_w + 15, y + draw_h / 2 - 5, sign_date)
+    # Do NOT draw date here — 703B_Sign_Date form field already fills the Date box on the right
     c.save()
     packet.seek(0)
 
@@ -2042,45 +2042,74 @@ def generate_drug_free(rfq_data, config, output_path):
 
 def _calrecycle_fix_date(pdf_path, sign_date):
     """
-    The CalRecycle 74 Date field has no /T name, so fill_and_sign_pdf can't reach it.
-    Find the CalRecycle page by scanning for its known unnamed date field at x≈505, y≈148.
-    Works for both standalone CalRecycle PDFs and the full bid package.
+    Overlay the date text directly onto the CalRecycle 74 Date field.
+    The field has no /T name so form filling can't reach it.
+    We scan for the CalRecycle page by finding Signature1 at y≈148,
+    then overlay the date text at the rightmost unnamed field position (x≈510, y≈152).
     """
+    import io as _io
     from pypdf import PdfReader as _PR, PdfWriter as _PW
-    from pypdf.generic import NameObject, TextStringObject
+    from reportlab.pdfgen import canvas as _rlc
     try:
         reader = _PR(pdf_path)
         writer = _PW()
         writer.append(reader)
-        patched = False
-        for page_idx, page in enumerate(writer.pages):
-            if "/Annots" not in page:
-                continue
-            for annot in page["/Annots"]:
-                obj = annot.get_object()
-                name = str(obj.get("/T", "UNNAMED"))
+
+        # Find CalRecycle page: has Signature1 at y≈148
+        cr_page_idx = None
+        date_x, date_y = 510.0, 152.0  # default position
+        for pg_idx, pg in enumerate(reader.pages):
+            annots = pg.get("/Annots", []) or []
+            for a in annots:
+                obj = a.get_object() if hasattr(a, "get_object") else a
+                name = str(obj.get("/T", ""))
                 rect = obj.get("/Rect")
-                # Find unnamed annotation at the CalRecycle date position
-                if rect and (not name or name == "UNNAMED"):
-                    x0, y0 = float(rect[0]), float(rect[1])
-                    # Date field is the rightmost unnamed field in the signature row (x≈505, y≈148)
-                # Broadened range to handle template variations
-                if x0 > 450 and 120 < y0 < 180:
-                    obj[NameObject("/V")] = TextStringObject(sign_date)
-                    obj[NameObject("/DA")] = TextStringObject("/Helv 9 Tf 0 g")
-                    if "/AP" in obj:
-                        del obj[NameObject("/AP")]
-                    patched = True
-                    print(f"  ✓ CalRecycle date patched: page={page_idx} x={x0:.1f} y={y0:.1f} → {sign_date}")
-                    break
-            if patched:
+                if name == "Signature1" and rect:
+                    y0 = float(rect[1])
+                    if 120 < y0 < 180:
+                        cr_page_idx = pg_idx
+                        # Date field is the rightmost unnamed annotation at same y
+                        best_x = 0.0
+                        for a2 in annots:
+                            o2 = a2.get_object() if hasattr(a2, "get_object") else a2
+                            n2 = str(o2.get("/T", "UNNAMED"))
+                            r2 = o2.get("/Rect")
+                            if r2 and (not n2 or n2 == "UNNAMED"):
+                                x2, y2 = float(r2[0]), float(r2[1])
+                                if abs(y2 - y0) < 10 and x2 > best_x:
+                                    best_x = x2
+                                    date_x = x2 + 3
+                                    date_y = y2 + 3
+                        break
+            if cr_page_idx is not None:
                 break
+
+        if cr_page_idx is None:
+            print(f"  ⚠ CalRecycle date: could not find CalRecycle page in {pdf_path}")
+            return
+
+        page = writer.pages[cr_page_idx]
+        mb = page.get("/MediaBox", [0, 0, 612, 792])
+        pw, ph = float(mb[2]), float(mb[3])
+
+        packet = _io.BytesIO()
+        c = _rlc.Canvas(packet, pagesize=(pw, ph))
+        c.setFont("Helvetica", 9)
+        c.setFillColorRGB(0, 0, 0)
+        c.drawString(date_x, date_y, sign_date)
+        c.save()
+        packet.seek(0)
+
+        from pypdf import PdfReader as _PR2
+        overlay = _PR2(packet)
+        page.merge_page(overlay.pages[0])
+
         with open(pdf_path, "wb") as _f:
             writer.write(_f)
-        if not patched:
-            print(f"  ⚠ CalRecycle date fix: unnamed date field not found in {pdf_path}")
+        print(f"  ✓ CalRecycle date overlaid: page={cr_page_idx} x={date_x:.1f} y={date_y:.1f} → {sign_date}")
     except Exception as _e:
         print(f"  ⚠ CalRecycle date fix failed: {_e}")
+
 
 def fill_calrecycle_standalone(input_path, rfq_data, config, output_path):
     """Fill CalRecycle 74 form with line items. Adds overflow pages for >6 items."""

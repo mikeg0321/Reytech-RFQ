@@ -1492,16 +1492,9 @@ def generate_rfq_package(rid):
                             if skip:
                                 continue
 
-                        # Normalize rotation: remove the /Rotate key so the page
-                        # is added in its natural content orientation. PDF viewers
-                        # that respect /Rotate would rotate twice (once from the
-                        # filled form, once from the merge). Removing /Rotate here
-                        # preserves all filled field appearance streams correctly.
-                        try:
-                            if page.rotation != 0:
-                                page.rotate(0)
-                        except Exception:
-                            pass
+                        # Do NOT touch /Rotate — form field appearance streams are
+                        # positioned in the rotated coordinate system. Changing rotation
+                        # here misplaces all field values. PDF viewers handle /Rotate natively.
 
                         writer.add_page(page)
                         pages_added += 1
