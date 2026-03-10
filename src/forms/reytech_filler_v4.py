@@ -196,9 +196,11 @@ def create_signature_overlay(sig_entries, page_width, page_height, sig_image_pat
         # Combo field: signature + date side by side (narrow fields).
         # EXCLUDE: 708_Signature15 (708_Text16 is the Date field)
         # EXCLUDE: PD843 signatures (Date1/2/3/4_PD843 are separate text fields)
+        # EXCLUDE: Signature1 (CalRecycle 74 — Date is the unnamed field at x≈505)
         is_separate_date_field = (
             "708_Signature" in name or
-            "_PD843" in name
+            "_PD843" in name or
+            name == "Signature1"
         )
         has_room_for_date = 120 < field_w < 250 and sign_date and not is_separate_date_field
 
@@ -248,6 +250,17 @@ def fill_and_sign_pdf(input_path, field_values, output_path,
     reader = PdfReader(input_path)
     writer = PdfWriter()
     writer.append(reader)
+
+    # Normalize rotation BEFORE filling — appearance streams must be generated
+    # in the post-rotation coordinate space, otherwise they render misaligned.
+    # transfer_rotation_to_content() embeds /Rotate into the content stream and
+    # adjusts the MediaBox, so all subsequent drawing uses consistent coords.
+    for page in writer.pages:
+        try:
+            if page.rotation != 0:
+                page.transfer_rotation_to_content()
+        except Exception:
+            pass
 
     clean_values = {k: v for k, v in field_values.items() if v is not None}
     set_field_fonts(writer, clean_values, default_font, tight_font)
