@@ -1462,6 +1462,11 @@ def generate_rfq_package(rid):
             writer = PdfWriter()
             merge_count = 0
 
+            try:
+                from src.forms.reytech_filler_v4 import _bidpkg_page_skip_reason as _skip_reason
+            except Exception:
+                _skip_reason = None
+
             for pdf_path, label in package_pdfs:
                 try:
                     reader = PdfReader(pdf_path)
@@ -1477,6 +1482,15 @@ def generate_rfq_package(rid):
                         if text.strip().startswith("Please wait") or (
                                 "Please wait" in text and len(text.strip()) < 300):
                             continue
+
+                        # Skip pages flagged by the bid-package page filter
+                        if _skip_reason is not None:
+                            try:
+                                skip = _skip_reason(page)
+                            except Exception:
+                                skip = None
+                            if skip:
+                                continue
 
                         # Normalize rotation: embed the rotation into content so all
                         # viewers display the page consistently (no /Rotate dependency)
