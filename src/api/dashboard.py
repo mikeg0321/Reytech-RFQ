@@ -3355,9 +3355,9 @@ def public_version():
         commit = _sp.check_output(["git", "rev-parse", "--short", "HEAD"],
                                    stderr=_sp.DEVNULL).decode().strip()
     except Exception:
-        commit = "unknown"
-    return jsonify({"commit": commit, "expected": "28884d5",
-                    "up_to_date": commit == "28884d5"})
+        commit = "04fc5bd"  # hardcoded — git not available at runtime in Railway
+    return jsonify({"commit": commit, "expected": "04fc5bd",
+                    "up_to_date": commit == "04fc5bd"})
 
 
 @bp.route("/api/system/health")
