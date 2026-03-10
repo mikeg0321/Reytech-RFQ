@@ -373,8 +373,8 @@ def fill_703b(input_path, rfq_data, config, output_path):
 def _703b_overlay_signature(pdf_path, sign_date):
     """
     Overlay signature image at the 'Bidder Signature' line in AMS 703B.
-    The template has no /Sig field — the line is just printed text.
-    Position is fixed at approx x=35, y=87 pt from bottom on the last page.
+    The template has no /Sig field — the line is just a printed 'X___' line.
+    Uses pdfminer to find the exact Y position of the 'Bidder Signature' label.
     """
     from pypdf import PdfReader as _PR, PdfWriter as _PW
     import io as _io
@@ -383,38 +383,70 @@ def _703b_overlay_signature(pdf_path, sign_date):
     from PIL import Image as _Img
 
     if not os.path.exists(SIGNATURE_PATH):
+        print("  ⚠ 703B sig: signature image not found")
         return
 
     reader = _PR(pdf_path)
-    # Find the page that has "Bidder Signature" text (usually last page)
+
+    # Find page with "Bidder Signature" label — scan all pages, use last match
     target_page = 0
     for i, pg in enumerate(reader.pages):
         txt = (pg.extract_text() or "").lower()
-        if "bidder signature" in txt or "bidder" in txt:
-            target_page = i
-            break
+        if "bidder signature" in txt:
+            target_page = i  # keep scanning — sig page is usually last match
 
     page = reader.pages[target_page]
     mb = page.get("/MediaBox", [0, 0, 612, 792])
     pw, ph = float(mb[2]), float(mb[3])
 
-    # Draw sig image at the Bidder Signature line
+    # Try pdfminer to get exact Y position of "Bidder Signature" text
+    sig_y = None
+    try:
+        from pdfminer.high_level import extract_pages
+        from pdfminer.layout import LTTextBox, LTTextLine, LTChar
+        import pdfminer.high_level as _pmhl
+        from io import BytesIO as _BIO
+        for page_layout in extract_pages(pdf_path, page_numbers=[target_page]):
+            for element in page_layout:
+                if not isinstance(element, LTTextBox):
+                    continue
+                for line in element:
+                    if not isinstance(line, LTTextLine):
+                        continue
+                    txt = line.get_text().lower().strip()
+                    if "bidder signature" in txt:
+                        # y0 is the bottom of the text line
+                        sig_y = line.y0
+                        break
+                if sig_y is not None:
+                    break
+        if sig_y is not None:
+            print(f"  ✓ 703B sig line found at y={sig_y:.1f} (page {target_page})")
+    except Exception as _pme:
+        print(f"  ℹ 703B pdfminer scan skipped ({_pme}) — using fallback y")
+
+    # Fallback positions to try if pdfminer unavailable
+    if sig_y is None:
+        # AMS 703B Rev 03/2025: sig line is ~87pt from bottom on an 8.5x11 page
+        # Try proportional: ~11% from bottom
+        sig_y = ph * 0.11
+
+    # Signature sits just above the label baseline — shift up by ~10pt
+    y = sig_y + 2
+
     sig_img = _Img.open(SIGNATURE_PATH)
     ir = _IR(sig_img)
     iw, ih = sig_img.size
     aspect = iw / ih
-
     draw_w = 160
     draw_h = draw_w / aspect
-    x = 38
-    y = 85  # pt from bottom — the bidder signature line in AMS 703B
 
     packet = _io.BytesIO()
     c = _rl.Canvas(packet, pagesize=(pw, ph))
-    c.drawImage(ir, x, y, draw_w, draw_h, mask="auto")
+    c.drawImage(ir, 38, y, draw_w, draw_h, mask="auto")
     c.setFont("Helvetica", 10)
     c.setFillColorRGB(0, 0, 0)
-    c.drawString(x + draw_w + 15, y + draw_h / 2 - 5, sign_date)
+    c.drawString(38 + draw_w + 15, y + draw_h / 2 - 5, sign_date)
     c.save()
     packet.seek(0)
 
@@ -425,6 +457,7 @@ def _703b_overlay_signature(pdf_path, sign_date):
     writer.pages[target_page].merge_page(overlay.pages[0])
     with open(pdf_path, "wb") as _f:
         writer.write(_f)
+    print(f"  ✓ 703B sig overlay applied (page {target_page}, y={y:.1f})")
 
 
 def fill_704b(input_path, rfq_data, config, output_path):
@@ -440,10 +473,50 @@ def fill_704b(input_path, rfq_data, config, output_path):
     line_items = rfq_data.get("line_items", [])
     merchandise_subtotal = 0.0
 
-    seq = 0  # sequential line item counter
+    # ── Detect page 0 row capacity from template ────────────────────────
+    # Page 0 uses RowN (no suffix). Page 1 uses RowN_2 for collision rows,
+    # and plain RowN for rows with numbers unique to page 1 (e.g. Row17+).
+    import re as _re704
+    _p0_rows, _p1_rows_2, _p1_rows_plain = [], [], []
+    try:
+        from pypdf import PdfReader as _PR704
+        _r704 = _PR704(input_path)
+        _seen_p0, _seen_p1_2, _seen_p1_plain = set(), set(), set()
+        for _a in (_r704.pages[0].get("/Annots", []) or []):
+            _o = _a.get_object() if hasattr(_a, "get_object") else _a
+            _m = _re704.match(r"QTYRow(\d+)$", str(_o.get("/T", "")))
+            if _m: _seen_p0.add(int(_m.group(1)))
+        if len(_r704.pages) > 1:
+            for _a in (_r704.pages[1].get("/Annots", []) or []):
+                _o = _a.get_object() if hasattr(_a, "get_object") else _a
+                _fn = str(_o.get("/T", ""))
+                _m2 = _re704.match(r"QTYRow(\d+)_2$", _fn)
+                _m1 = _re704.match(r"QTYRow(\d+)$", _fn)
+                if _m2: _seen_p1_2.add(int(_m2.group(1)))
+                elif _m1: _seen_p1_plain.add(int(_m1.group(1)))
+        _p0_rows = sorted(_seen_p0)
+        _p1_rows_2 = sorted(_seen_p1_2)
+        _p1_rows_plain = sorted(_seen_p1_plain)
+        print(f"  704B layout: pg0={len(_p0_rows)} rows, pg1={len(_p1_rows_2)}_2+{len(_p1_rows_plain)} plain")
+    except Exception as _scan_err:
+        print(f"  \u26a0 704B layout scan failed ({_scan_err}) — using default 15-row page 0")
+        _p0_rows = list(range(1, 16))
+
+    def _row_field(slot):
+        """Return the Row field-name suffix for a 1-based sequential slot."""
+        if slot <= len(_p0_rows):
+            return f"Row{_p0_rows[slot - 1]}"
+        p1 = slot - len(_p0_rows)
+        if p1 <= len(_p1_rows_2):
+            return f"Row{_p1_rows_2[p1 - 1]}_2"
+        p1p = p1 - len(_p1_rows_2)
+        if p1p <= len(_p1_rows_plain):
+            return f"Row{_p1_rows_plain[p1p - 1]}"
+        return f"Row{p1}_2"  # fallback
+
+    seq = 0
     for item in line_items:
         seq += 1
-        # form_row is ideal; fall back to row_index, line_number, or sequential position
         row_num = item.get("form_row") or item.get("row_index") or item.get("line_number") or seq
         if not row_num:
             continue
@@ -455,27 +528,21 @@ def fill_704b(input_path, rfq_data, config, output_path):
         subtotal = round(price * qty, 2)
         merchandise_subtotal += subtotal
 
-        # Write to BOTH RowN and RowN_2 variants.
-        # CCHCS combined templates (703B + 704B in one file) cause pypdf to add
-        # a "_2" page-suffix to fields on page 2 (704B pricing sheet) because the
-        # same field names already appear on page 1 (703B side). By writing both
-        # variants we hit the actual field regardless of template version.
-        for sfx in ("", "_2"):
-            r = f"Row{row_num}{sfx}"
-            values[f"PRICE PER UNIT{r}"] = f"{price:.2f}" if price else ""
-            values[f"SUBTOTAL{r}"] = f"{subtotal:.2f}" if subtotal else ""
-            values[f"ITEM NUMBER{r}"] = str(seq)
-            values[f"QTY{r}"] = str(qty) if qty else ""
-            values[f"UOM{r}"] = uom
-            values[f"ITEM DESCRIPTION PRODUCT SPECIFICATION{r}"] = desc
-            values[f"#{r}"] = str(seq)
-            sub_field = f"SUBSTITUTED ITEM Include manufacturer part number andor reference number{r}"
-            if item.get("is_substitute"):
-                sub_desc = desc
-                mfg = item.get("mfg_number", "")
-                values[sub_field] = f"{sub_desc} (MFG# {mfg})" if mfg else sub_desc
-            else:
-                values[sub_field] = ""
+        # Write to EXACTLY ONE field — the correct page slot for this item
+        r = _row_field(seq)
+        values[f"PRICE PER UNIT{r}"] = f"{price:.2f}" if price else ""
+        values[f"SUBTOTAL{r}"] = f"{subtotal:.2f}" if subtotal else ""
+        values[f"ITEM NUMBER{r}"] = str(seq)
+        values[f"QTY{r}"] = str(qty) if qty else ""
+        values[f"UOM{r}"] = uom
+        values[f"ITEM DESCRIPTION PRODUCT SPECIFICATION{r}"] = desc
+        values[f"#{r}"] = str(seq)
+        sub_field = f"SUBSTITUTED ITEM Include manufacturer part number andor reference number{r}"
+        if item.get("is_substitute"):
+            mfg = item.get("mfg_number", "")
+            values[sub_field] = f"{desc} (MFG# {mfg})" if mfg else desc
+        else:
+            values[sub_field] = ""
 
     # Header fields — write all known variants to handle different 704B template versions
     for sfx in ("", "_2"):
@@ -1996,14 +2063,16 @@ def _calrecycle_fix_date(pdf_path, sign_date):
                 # Find unnamed annotation at the CalRecycle date position
                 if rect and (not name or name == "UNNAMED"):
                     x0, y0 = float(rect[0]), float(rect[1])
-                    # Date field is at approx x=505, y=148 (73pt wide)
-                    if 490 < x0 < 520 and 140 < y0 < 160:
-                        obj[NameObject("/V")] = TextStringObject(sign_date)
-                        obj[NameObject("/DA")] = TextStringObject("/Helv 9 Tf 0 g")
-                        if "/AP" in obj:
-                            del obj[NameObject("/AP")]
-                        patched = True
-                        break
+                    # Date field is the rightmost unnamed field in the signature row (x≈505, y≈148)
+                # Broadened range to handle template variations
+                if x0 > 450 and 120 < y0 < 180:
+                    obj[NameObject("/V")] = TextStringObject(sign_date)
+                    obj[NameObject("/DA")] = TextStringObject("/Helv 9 Tf 0 g")
+                    if "/AP" in obj:
+                        del obj[NameObject("/AP")]
+                    patched = True
+                    print(f"  ✓ CalRecycle date patched: page={page_idx} x={x0:.1f} y={y0:.1f} → {sign_date}")
+                    break
             if patched:
                 break
         with open(pdf_path, "wb") as _f:

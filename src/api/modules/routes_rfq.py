@@ -1492,16 +1492,14 @@ def generate_rfq_package(rid):
                             if skip:
                                 continue
 
-                        # Normalize rotation: embed the rotation into content so all
-                        # viewers display the page consistently (no /Rotate dependency).
-                        # Remove /Annots first — form fields have their own coordinate
-                        # system and get visually garbled if we rotate after baking
-                        # appearance streams into them (double-rotation artifact).
+                        # Normalize rotation: remove the /Rotate key so the page
+                        # is added in its natural content orientation. PDF viewers
+                        # that respect /Rotate would rotate twice (once from the
+                        # filled form, once from the merge). Removing /Rotate here
+                        # preserves all filled field appearance streams correctly.
                         try:
                             if page.rotation != 0:
-                                if "/Annots" in page:
-                                    del page["/Annots"]
-                                page.transfer_rotation_to_content()
+                                page.rotate(0)
                         except Exception:
                             pass
 
