@@ -2280,6 +2280,130 @@ SBA-SDVOB (Unique Entity ID: FWWSKE9113T7)
 # Enhanced Email Send — DB attachments + email logging + CRM tracking
 # ═══════════════════════════════════════════════════════════════════════
 
+@bp.route("/rfq/<rid>/save-draft", methods=["POST"])
+@auth_required
+def save_gmail_draft(rid):
+    """Save email as Gmail draft — user reviews and sends manually from Gmail."""
+    from src.api.trace import Trace
+    t = Trace("email_draft", rfq_id=rid)
+
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        flash("RFQ not found", "error")
+        return redirect("/")
+
+    to_addr = request.form.get("to", "").strip()
+    subject = request.form.get("subject", "").strip()
+    body = request.form.get("body", "").strip()
+    cc = request.form.get("cc", "").strip()
+    attach_ids = [x.strip() for x in request.form.get("attach_files", "").split(",") if x.strip()]
+
+    if not to_addr or not subject:
+        flash("Draft requires To and Subject", "error")
+        return redirect(f"/rfq/{rid}")
+
+    import tempfile, shutil, imaplib, time as _time
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+    from email.mime.base import MIMEBase
+    from email import encoders
+
+    tmp_dir = tempfile.mkdtemp(prefix="rfq_draft_")
+    try:
+        # Build the MIME message
+        msg = MIMEMultipart("mixed")
+        email_cfg = CONFIG.get("email", {})
+        from_name = email_cfg.get("from_name", "Michael Guadan - Reytech Inc.")
+        from_addr = email_cfg.get("email", os.environ.get("GMAIL_ADDRESS", "sales@reytechinc.com"))
+        password = email_cfg.get("email_password", os.environ.get("GMAIL_PASSWORD", ""))
+
+        msg["From"] = f"{from_name} <{from_addr}>"
+        msg["To"] = to_addr
+        msg["Subject"] = subject
+        if cc:
+            msg["Cc"] = cc
+
+        # HTML body with signature
+        try:
+            from src.core.email_signature import wrap_html_email
+            body_html = wrap_html_email(body)
+        except Exception:
+            body_html = None
+
+        if body_html:
+            alt = MIMEMultipart("alternative")
+            alt.attach(MIMEText(body, "plain"))
+            alt.attach(MIMEText(body_html, "html"))
+            msg.attach(alt)
+        else:
+            msg.attach(MIMEText(body, "plain"))
+
+        # Attach files
+        attached = []
+        for fid in attach_ids:
+            f = get_rfq_file(fid)
+            if f and f.get("data"):
+                path = os.path.join(tmp_dir, f["filename"])
+                with open(path, "wb") as _fw:
+                    _fw.write(f["data"])
+                with open(path, "rb") as _fr:
+                    part = MIMEBase("application", "octet-stream")
+                    part.set_payload(_fr.read())
+                encoders.encode_base64(part)
+                part.add_header("Content-Disposition", f"attachment; filename={f['filename']}")
+                msg.attach(part)
+                attached.append(f["filename"])
+
+        # Save to Gmail Drafts via IMAP APPEND
+        imap = imaplib.IMAP4_SSL("imap.gmail.com")
+        imap.login(from_addr, password)
+
+        saved = False
+        for folder in ['"[Gmail]/Drafts"', "[Gmail]/Drafts", "Drafts", "DRAFTS"]:
+            try:
+                res = imap.append(folder, "", imaplib.Time2Internaldate(_time.time()), msg.as_bytes())
+                if res[0] == "OK":
+                    saved = True
+                    t.ok("Draft saved", folder=folder, attachments=len(attached))
+                    break
+            except Exception as _fe:
+                log.debug("IMAP draft append %s: %s", folder, _fe)
+
+        if not saved:
+            # Auto-detect Drafts folder
+            _, folders = imap.list()
+            import re as _re
+            for _raw in (folders or []):
+                _s = _raw.decode() if isinstance(_raw, bytes) else str(_raw)
+                if "draft" in _s.lower():
+                    _m = _re.search(r'"([^"]+)"\s*$', _s) or _re.search(r'(\S+)$', _s)
+                    if _m:
+                        try:
+                            res = imap.append(_m.group(1), "", imaplib.Time2Internaldate(_time.time()), msg.as_bytes())
+                            if res[0] == "OK":
+                                saved = True
+                                t.ok("Draft saved", folder=_m.group(1))
+                                break
+                        except Exception:
+                            pass
+
+        imap.logout()
+
+        if saved:
+            flash(f"✅ Draft saved to Gmail — open Gmail to review and send ({len(attached)} attachments)", "success")
+        else:
+            flash("⚠️ Could not save to Gmail Drafts — check IMAP is enabled in Gmail settings", "error")
+
+    except Exception as e:
+        t.fail("Draft save failed", error=str(e))
+        flash(f"Draft save failed: {e}", "error")
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    return redirect(f"/rfq/{rid}")
+
+
 @bp.route("/rfq/<rid>/send-email", methods=["POST"])
 @auth_required
 def send_email_enhanced(rid):

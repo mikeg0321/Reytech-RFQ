@@ -401,7 +401,8 @@
   <input type="hidden" name="attach_files" id="attachFilesInput" value="">
   
   <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;align-items:center">
-   <button type="submit" class="btn btn-o" style="font-size:14px;padding:10px 24px">📤 Send Email</button>
+   <button type="submit" class="btn btn-o" style="font-size:14px;padding:10px 24px">📤 Send Now</button>
+   <button type="button" class="btn btn-s" style="font-size:14px;padding:10px 24px" onclick="saveDraft()">💾 Save to Gmail Draft</button>
    <a id="mailAppLink" href="#" class="btn btn-s" style="font-size:13px;padding:8px 16px">📋 Open in Mail App</a>
    <span id="emailStatus" style="font-size:14px;color:var(--tx2)"></span>
   </div>
@@ -965,6 +966,15 @@ function applyRecommendations(){
    alert('Error: '+(d.error||'unknown'));
   }
  });
+}
+
+// E7b: Save to Gmail Draft
+function saveDraft(){
+  var form = document.getElementById("emailForm");
+  if(!form) return;
+  var orig = form.action;
+  form.action = orig.replace("/send-email", "/save-draft");
+  form.submit();
 }
 
 // E8: Send Quote Email
