@@ -82,6 +82,7 @@
   <button class="btn btn-sm btn-o" data-testid="rfq-amazon-lookup" onclick="researchPrices()" style="margin-left:4px" aria-label="Amazon Lookup">🔬 Amazon Lookup</button>
   <button class="btn btn-sm" style="background:rgba(167,139,250,.15);color:#a78bfa;border:1px solid rgba(167,139,250,.3);margin-left:4px" onclick="runAutoLookup()" aria-label="Full Auto-Lookup">🤖 Full Auto-Lookup</button>
   <button class="btn btn-sm" style="background:rgba(63,185,80,.15);color:#3fb950;border:1px solid rgba(63,185,80,.3);margin-left:4px" onclick="importFromPC(this)" aria-label="Import items and prices from a Price Check">📥 Import from PC</button>
+  <button class="btn btn-sm" style="background:rgba(56,189,248,.15);color:#38bdf8;border:1px solid rgba(56,189,248,.3);margin-left:4px" onclick="importFromCatalog(this)" aria-label="Match items against product catalog and auto-fill pricing">📦 Catalog Match</button>
   <button class="btn btn-sm" style="background:rgba(210,153,34,.15);color:#d29922;border:1px solid rgba(210,153,34,.3);margin-left:4px" onclick="uploadPC()" aria-label="Upload a filled PC PDF to import prices">📤 Upload PC PDF</button>
   <input type="file" id="pc-upload-input" accept=".pdf" style="display:none" onchange="handlePCUpload(this)">
   <button class="btn btn-sm" style="background:rgba(52,211,153,.15);color:#3fb950;border:1px solid rgba(52,211,153,.3);margin-left:4px" onclick="applyRecommendations()" aria-label="Apply Recommendations">⚡ Apply Recommendations</button>
@@ -886,6 +887,28 @@ function doImportPC(pcId){
    location.reload();
   } else alert('❌ '+(d.error||'Failed'));
  }).catch(e=>alert('Error: '+e.message));
+}
+
+function importFromCatalog(btn){
+ btn.disabled=true;var orig=btn.textContent;btn.textContent='⏳ Matching...';
+ fetch('/api/rfq/'+RID+'/import-from-catalog',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})
+ .then(r=>r.json()).then(d=>{
+  btn.disabled=false;btn.textContent=orig;
+  if(d.ok){
+   var msg='Catalog Match: '+d.enriched+'/'+d.total+' items enriched\n\n';
+   (d.details||[]).forEach(function(det){
+    if(det.matched && det.filled && det.filled.length>0){
+     msg+='✅ #'+(det.idx+1)+' → '+det.catalog_name+' ('+Math.round(det.confidence*100)+'%) — '+det.filled.join(', ')+'\n';
+    } else if(det.matched){
+     msg+='⚪ #'+(det.idx+1)+' → '+(det.note||'matched')+'\n';
+    } else {
+     msg+='❌ #'+(det.idx+1)+' — '+(det.reason||'no match')+'\n';
+    }
+   });
+   alert(msg);
+   if(d.enriched>0) location.reload();
+  } else alert('❌ '+(d.error||'Failed'));
+ }).catch(e=>{btn.disabled=false;btn.textContent=orig;alert('Error: '+e.message)});
 }
 
 function runAutoLookup(){

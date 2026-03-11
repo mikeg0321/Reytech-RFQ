@@ -2364,6 +2364,93 @@ def api_rfq_import_from_pc(rid):
     })
 
 
+@bp.route("/api/rfq/<rid>/import-from-catalog", methods=["POST"])
+@auth_required
+def api_rfq_import_from_catalog(rid):
+    """Match RFQ line items against the product catalog and auto-fill pricing.
+    For each item: search by description + part number → fill cost, bid, supplier, link.
+    Does NOT replace items, only enriches existing ones with catalog data."""
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"})
+
+    items = r.get("line_items", [])
+    if not items:
+        return jsonify({"ok": False, "error": "RFQ has no line items"})
+
+    try:
+        from src.agents.product_catalog import match_item, init_catalog_db
+        init_catalog_db()
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"Catalog unavailable: {e}"})
+
+    enriched = 0
+    details = []
+    for idx, item in enumerate(items):
+        desc = (item.get("description") or "").strip()
+        pn = str(item.get("item_number") or "").strip()
+        if not desc and not pn:
+            details.append({"idx": idx, "matched": False, "reason": "no description"})
+            continue
+
+        matches = match_item(desc, pn, top_n=1)
+        if not matches or matches[0].get("match_confidence", 0) < 0.3:
+            details.append({"idx": idx, "matched": False, "reason": "no catalog match",
+                           "description": desc[:60]})
+            continue
+
+        best = matches[0]
+        conf = best.get("match_confidence", 0)
+
+        # Fill pricing from catalog — don't overwrite user-entered values
+        catalog_cost = best.get("best_cost") or best.get("cost") or 0
+        catalog_price = best.get("recommended_price") or best.get("sell_price") or 0
+        catalog_supplier = best.get("best_supplier", "")
+        catalog_pn = best.get("mfg_number") or best.get("sku") or ""
+
+        changed = []
+        if catalog_cost and not item.get("supplier_cost"):
+            item["supplier_cost"] = round(float(catalog_cost), 2)
+            changed.append(f"cost=${catalog_cost}")
+        if catalog_price and not item.get("price_per_unit"):
+            item["price_per_unit"] = round(float(catalog_price), 2)
+            changed.append(f"bid=${catalog_price}")
+        elif catalog_cost and not item.get("price_per_unit"):
+            # Auto-calculate 25% markup if we have cost but no sell price
+            item["price_per_unit"] = round(float(catalog_cost) * 1.25, 2)
+            changed.append(f"bid=${item['price_per_unit']}(+25%)")
+        if catalog_supplier and not item.get("item_supplier"):
+            item["item_supplier"] = catalog_supplier
+            changed.append(f"supplier={catalog_supplier}")
+        if catalog_pn and not item.get("item_number"):
+            item["item_number"] = catalog_pn
+            changed.append(f"pn={catalog_pn}")
+
+        # Tag with catalog source
+        item["_catalog_match"] = best.get("name", "")[:60]
+        item["_catalog_confidence"] = round(conf, 2)
+        item["_catalog_product_id"] = best.get("id")
+
+        if changed:
+            enriched += 1
+            details.append({"idx": idx, "matched": True, "confidence": round(conf, 2),
+                           "catalog_name": best.get("name", "")[:60], "filled": changed})
+        else:
+            details.append({"idx": idx, "matched": True, "confidence": round(conf, 2),
+                           "catalog_name": best.get("name", "")[:60],
+                           "filled": [], "note": "already had pricing"})
+
+    save_rfqs(rfqs)
+
+    return jsonify({
+        "ok": True,
+        "enriched": enriched,
+        "total": len(items),
+        "details": details,
+    })
+
+
 @bp.route("/api/rfq/<rid>/upload-pc", methods=["POST"])
 @auth_required
 def api_rfq_upload_pc(rid):
