@@ -208,7 +208,22 @@ def api_pc_change_status(pcid):
             pc["sent_at"] = __import__('datetime').datetime.now().isoformat()
 
         _save_price_checks(pcs)
-        return jsonify({"ok": True, "old_status": old_status, "new_status": new_status})
+        
+        # Auto-save items to catalog on terminal states (sent, won, completed)
+        # This is how the catalog grows organically from daily quoting
+        catalog_result = {}
+        if new_status in ("sent", "won", "completed"):
+            try:
+                from src.agents.product_catalog import save_pc_items_to_catalog, init_catalog_db
+                init_catalog_db()
+                catalog_result = save_pc_items_to_catalog(pc)
+                log.info("Auto-saved PC %s items to catalog on status=%s: %s", pcid, new_status, catalog_result)
+            except Exception as _ce:
+                log.warning("Catalog auto-save failed for PC %s: %s", pcid, _ce)
+                catalog_result = {"error": str(_ce)}
+        
+        return jsonify({"ok": True, "old_status": old_status, "new_status": new_status,
+                        "catalog": catalog_result})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
 
