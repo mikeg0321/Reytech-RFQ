@@ -2562,18 +2562,19 @@ def api_nuke_and_poll():
     global _shared_poller
     cleared = {}
     
-    # 1. Clear JSON processed file
-    proc_file = os.path.join(_DATA_DIR, "processed_emails.json")
-    try:
-        if os.path.exists(proc_file):
-            with open(proc_file) as f:
-                old = json.load(f)
-            cleared["json"] = len(old) if isinstance(old, list) else 0
-            os.remove(proc_file)
-        else:
-            cleared["json"] = "not found"
-    except Exception as e:
-        cleared["json_error"] = str(e)
+    # 1. Clear JSON processed file(s) — both inboxes
+    for _pf_name in ("processed_emails.json", "processed_emails_mike.json"):
+        _pf = os.path.join(_DATA_DIR, _pf_name)
+        try:
+            if os.path.exists(_pf):
+                with open(_pf) as f:
+                    old = json.load(f)
+                cleared[_pf_name] = len(old) if isinstance(old, list) else 0
+                os.remove(_pf)
+            else:
+                cleared[_pf_name] = "not found"
+        except Exception as e:
+            cleared[f"{_pf_name}_error"] = str(e)
     
     # 2. Clear SQLite processed_emails
     try:
@@ -5792,12 +5793,13 @@ def api_admin_system_reset():
     # Step 5: Clear processed emails → poller re-fetches everything
     if reset_processed:
         try:
-            proc_path = os.path.join(DATA_DIR, 'processed_emails.json')
-            if os.path.exists(proc_path):
-                if not dry_run:
-                    with open(proc_path, "w") as f:
-                        json.dump([], f)
-                results["processed_cleared"] = True
+            for _rpf in ('processed_emails.json', 'processed_emails_mike.json'):
+                _rp = os.path.join(DATA_DIR, _rpf)
+                if os.path.exists(_rp):
+                    if not dry_run:
+                        with open(_rp, "w") as f:
+                            json.dump([], f)
+                    results[f"processed_cleared_{_rpf}"] = True
         except Exception as e:
             results["processed_error"] = str(e)
     
@@ -5944,10 +5946,11 @@ def api_admin_reset_and_poll():
         steps["counter"] = counter
         steps["next_quote"] = f"R26Q{counter + 1}"
         
-        # Clear processed emails
-        proc_path = os.path.join(DATA_DIR, 'processed_emails.json')
-        with open(proc_path, "w") as f:
-            json.dump([], f)
+        # Clear processed emails (both inboxes)
+        for _rpf2 in ('processed_emails.json', 'processed_emails_mike.json'):
+            _rp2 = os.path.join(DATA_DIR, _rpf2)
+            with open(_rp2, "w") as f:
+                json.dump([], f)
         steps["processed_cleared"] = True
         
         # Clean CRM activity
