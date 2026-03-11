@@ -2559,24 +2559,29 @@ def api_nuke_and_poll():
         _DATA_DIR = DATA_DIR
     except NameError:
         from src.core.paths import DATA_DIR as _DATA_DIR
-    global _shared_poller
+    # CRITICAL: _shared_poller lives in dashboard.py's module globals.
+    # `global _shared_poller` here would reference routes_pricecheck's copy,
+    # NOT the one that _safe_do_poll_check() reads. Must access directly.
+    import src.api.dashboard as _dash
     cleared = {}
     
     # 0. PAUSE background poller to prevent race condition
-    #    (old poller re-saves processed UIDs between our delete and re-poll)
     POLL_STATUS["paused"] = True
     import time as _time
     _time.sleep(0.5)  # Let any in-flight poll finish
     
-    # 0b. Clear in-memory processed set on existing poller (if alive)
-    if _shared_poller and hasattr(_shared_poller, '_processed'):
-        cleared["in_memory_cleared"] = len(_shared_poller._processed)
-        _shared_poller._processed.clear()
-        # Also save the empty set to disk so it doesn't get re-loaded
+    # 0b. Clear in-memory processed set on existing poller
+    _old_poller = getattr(_dash, '_shared_poller', None)
+    if _old_poller and hasattr(_old_poller, '_processed'):
+        cleared["in_memory_cleared"] = len(_old_poller._processed)
+        _old_poller._processed.clear()
         try:
-            _shared_poller._save_processed()
+            _old_poller._save_processed()
         except Exception:
             pass
+    
+    # Kill dashboard's poller (this is the one _safe_do_poll_check uses)
+    _dash._shared_poller = None
     
     # 1. Clear JSON processed file(s) — both inboxes
     for _pf_name in ("processed_emails.json", "processed_emails_mike.json"):
@@ -2614,8 +2619,7 @@ def api_nuke_and_poll():
     except Exception as e:
         cleared["fp_error"] = str(e)
     
-    # 4. Kill shared poller (forces fresh IMAP connection + empty processed set)
-    _shared_poller = None
+    # 4. Poller already killed above via _dash._shared_poller = None
     cleared["poller"] = "reset"
     
     # 5. Re-poll (with background poller still paused)
