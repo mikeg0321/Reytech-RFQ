@@ -47,6 +47,7 @@ RFQ_STRONG = [
     "request for quotation", "rfq", "703b", "704b", "bid package",
     "cchcs", "cdcr", "solicitation", "informal competitive",
     "acquisition quote", "quote worksheet", "bid response",
+    "quote request", "quote is due",  # "PR 10840486 - QUOTE REQUEST"
     # Non-704 agencies
     "calvet", "cal vet", "veterans affairs", "veterans home",
     "cal fire", "calfire", "department of general services",
@@ -76,6 +77,7 @@ RFQ_PDF_PATTERNS = [
     # Generic RFQ indicators (Cal Vet, etc.)
     r"request.?for.?quot", r"rfq.?package", r"rfq.?form",
     r"cal.?vet", r"veterans", r"scope.?of.?work",
+    r"^pr.?\d{7,8}",  # "PR 10840486 - ..." state procurement request numbers
 ]
 
 ATTACHMENT_PATTERNS = {
@@ -1768,6 +1770,15 @@ class EmailPoller:
                     if not is_rfq_email(subject, body, pdf_names, sender_email=sender_email_raw or self._extract_email(sender)):
                         # Not an RFQ — classify what kind of email it is
                         email_handled = False
+                        # Diagnostic: log emails that had PDFs but weren't classified as RFQ
+                        if pdf_names:
+                            log.warning("NOT_RFQ but has %d PDFs: '%s' from %s — pdfs=%s",
+                                        len(pdf_names), subject[:60], sender_email_raw,
+                                        [p[:40] for p in pdf_names])
+                            self._diag.setdefault("not_rfq_with_pdfs", []).append({
+                                "subject": subject[:80], "pdfs": len(pdf_names),
+                                "sender": sender_email_raw,
+                            })
 
                         # Check if it's a shipping/tracking email
                         try:
