@@ -2066,6 +2066,12 @@ def _auto_price_pipeline(rfq_data: dict):
 def do_poll_check():
     """Run a single email poll check. Used by both background thread and manual trigger."""
     global _shared_poller
+    # Guard: DATA_DIR/UPLOAD_DIR may not be in scope when called from an injected module
+    try:
+        _DATA_DIR = DATA_DIR
+        _UPLOAD_DIR = UPLOAD_DIR
+    except NameError:
+        from src.core.paths import DATA_DIR as _DATA_DIR, UPLOAD_DIR as _UPLOAD_DIR
     t = Trace("email_poll")
     email_cfg = CONFIG.get("email", {})
     
@@ -2087,7 +2093,7 @@ def do_poll_check():
     # (avoids creating a new IMAP connection on every poll cycle)
     email_cfg = dict(email_cfg)  # copy so we don't mutate
     email_cfg["email_password"] = effective_password
-    email_cfg["processed_file"] = os.path.join(DATA_DIR, "processed_emails.json")
+    email_cfg["processed_file"] = os.path.join(_DATA_DIR, "processed_emails.json")
     if not email_cfg.get("email"):
         email_cfg["email"] = os.environ.get("GMAIL_ADDRESS", "")
 
@@ -2119,7 +2125,7 @@ def do_poll_check():
     try:
         # Pre-check: ensure we have disk space for new attachments
         import shutil as _shutil
-        _, _, free_bytes = _shutil.disk_usage(UPLOAD_DIR)
+        _, _, free_bytes = _shutil.disk_usage(_UPLOAD_DIR)
         free_mb = free_bytes / 1024 / 1024
         if free_mb < 50:
             POLL_STATUS["error"] = f"Disk critically low: {free_mb:.0f}MB free — skipping poll"
@@ -2138,7 +2144,7 @@ def do_poll_check():
         POLL_STATUS["last_check"] = _pst_now_iso()  # mark attempt regardless of outcome
         if connected:
             log.info("IMAP connected, checking for RFQs...")
-            rfq_emails = _shared_poller.check_for_rfqs(save_dir=UPLOAD_DIR)
+            rfq_emails = _shared_poller.check_for_rfqs(save_dir=_UPLOAD_DIR)
             POLL_STATUS["error"] = None
             POLL_STATUS["_diag"]["rfqs_returned"] = len(rfq_emails)
             # Capture poller-level diagnostics
@@ -2184,13 +2190,13 @@ def do_poll_check():
             mike_cfg = dict(email_cfg)
             mike_cfg["email"] = mike_addr
             mike_cfg["email_password"] = mike_pwd
-            mike_cfg["processed_file"] = os.path.join(DATA_DIR, "processed_emails_mike.json")
+            mike_cfg["processed_file"] = os.path.join(_DATA_DIR, "processed_emails_mike.json")
             mike_cfg["inbox_name"] = "mike"
             mike_poller = EmailPoller(mike_cfg)
             log.info("Polling second inbox: %s (%d processed UIDs)",
                      mike_addr, len(mike_poller._processed))
             if mike_poller.connect():
-                mike_emails = mike_poller.check_for_rfqs(save_dir=UPLOAD_DIR)
+                mike_emails = mike_poller.check_for_rfqs(save_dir=_UPLOAD_DIR)
                 log.info("Second inbox: %d emails found", len(mike_emails))
                 for rfq_email in mike_emails:
                     try:
