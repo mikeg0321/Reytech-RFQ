@@ -2149,7 +2149,11 @@ def do_poll_check():
             POLL_STATUS["_diag"]["rfqs_returned"] = len(rfq_emails)
             # Capture poller-level diagnostics
             if hasattr(_shared_poller, '_diag'):
-                POLL_STATUS["_diag"]["poller"] = _shared_poller._diag
+                _raw = _shared_poller._diag
+                POLL_STATUS["_diag"]["poller"] = {
+                    k: list(v) if isinstance(v, set) else v
+                    for k, v in _raw.items()
+                }
             log.info(f"Poll check complete: {len(rfq_emails)} RFQ emails found")
             
             for rfq_email in rfq_emails:

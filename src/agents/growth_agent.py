@@ -2144,7 +2144,7 @@ def scan_inbox_for_bounces() -> dict:
                 all_ids.update(ids.split())
 
         for msg_id in list(all_ids)[:50]:
-            _, data = imap.fetch(msg_id, "(RFC822)")
+            _, data = imap.fetch(msg_id, "(BODY.PEEK[])")
             msg = email_lib.message_from_bytes(data[0][1])
             subject = str(msg.get("Subject", ""))
             sender_addr = str(msg.get("From", ""))

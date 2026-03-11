@@ -170,7 +170,7 @@ def _poll_po_inbox():
 
         for num in msg_nums[-50:]:  # Process last 50 unread
             try:
-                status, data = mail.fetch(num, "(RFC822)")
+                status, data = mail.fetch(num, "(BODY.PEEK[])")
                 if status != "OK":
                     continue
 

@@ -6004,7 +6004,11 @@ def api_admin_reset_and_poll():
             try:
                 from src.api.dashboard import _shared_poller
                 if _shared_poller and hasattr(_shared_poller, '_diag'):
-                    POLL_STATUS["_reset_poll_result"]["poller_diag"] = _shared_poller._diag
+                    _raw_d = _shared_poller._diag
+                    POLL_STATUS["_reset_poll_result"]["poller_diag"] = {
+                        k: list(v) if isinstance(v, set) else v
+                        for k, v in _raw_d.items()
+                    }
             except Exception as _e:
                 log.debug("Suppressed: %s", _e)
                 

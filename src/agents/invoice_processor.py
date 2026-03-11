@@ -63,7 +63,7 @@ def poll_for_qb_invoices():
 
         processed = 0
         for mid in ids[-10:]:  # Process up to 10 at a time
-            _, msg_data = mail.fetch(mid, "(RFC822)")
+            _, msg_data = mail.fetch(mid, "(BODY.PEEK[])")
             raw = msg_data[0][1]
             msg = email.message_from_bytes(raw)
 
