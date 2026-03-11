@@ -31,6 +31,13 @@ except ImportError:
     def get_contact_by_agency(a): return []
     def get_best_price(d): return None
 
+# ── Persistent data directory ──
+try:
+    from src.core.paths import DATA_DIR
+except ImportError:
+    DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "data")
+    os.makedirs(DATA_DIR, exist_ok=True)
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # RFQ Detection
 # ═══════════════════════════════════════════════════════════════════════════════
