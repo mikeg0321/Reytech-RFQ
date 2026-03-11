@@ -420,6 +420,58 @@ def run_errors():
 
 
 # ── Run + Report ──────────────────────────────────────────────────────────────
+
+# ── Category: Email Poller Health ─────────────────────────────────────────────
+def run_poll_health():
+    print("\n📬 EMAIL POLLER HEALTH")
+
+    def poll_status_running():
+        r = get("/api/status")
+        assert r.status_code == 200
+        d = r.json()
+        poll = d.get("poll", {})
+        assert poll.get("running") is True, \
+            f"Poller not running. running={poll.get('running')}, error={poll.get('error')}"
+        return f"running=True, last_check={poll.get('last_check','never')}"
+    check("Poller thread is running", "poll", poll_status_running)
+
+    def poll_has_checked():
+        r = get("/api/status")
+        d = r.json()
+        last = d.get("poll", {}).get("last_check")
+        assert last is not None, (
+            "last_check is null — poller has never completed a cycle. "
+            "Check Railway logs for NameError or IMAP failures."
+        )
+        return f"last_check={last}"
+    check("Poller has completed at least one cycle", "poll", poll_has_checked)
+
+    def poll_no_error():
+        r = get("/api/status")
+        d = r.json()
+        err = d.get("poll", {}).get("error")
+        assert not err, f"Poller error: {err}"
+        return "no error"
+    check("Poller has no active error", "poll", poll_no_error)
+
+    def poll_now_reachable():
+        r = get("/api/poll-now")
+        assert r.status_code == 200, f"HTTP {r.status_code}"
+        d = r.json()
+        assert d.get("ok") is True, f"poll-now returned ok=False: {d.get('error')}"
+        return f"ok=True, found={d.get('found', 0)}, error={d.get('error')}"
+    check("GET /api/poll-now returns ok=True (no NameError)", "poll", poll_now_reachable)
+
+    def inbox_peek_reachable():
+        r = get("/api/diag/inbox-peek")
+        assert r.status_code == 200
+        d = r.json()
+        assert d.get("ok") is True, f"inbox-peek error: {d.get('error')}"
+        total = d.get("total_in_window", 0)
+        return f"ok=True, emails_in_window={total}"
+    check("GET /api/diag/inbox-peek returns ok=True", "poll", inbox_peek_reachable)
+
+
 CATEGORIES = {
     "pages":       run_pages,
     "auth":        run_auth,
@@ -432,6 +484,7 @@ CATEGORIES = {
     "prices":      run_price_history,
     "data":        run_data,
     "errors":      run_errors,
+    "poll":        run_poll_health,
 }
 
 
