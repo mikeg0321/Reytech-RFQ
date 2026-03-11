@@ -14,18 +14,13 @@ import os as _os
 
 def _safe_do_poll_check():
     """Call do_poll_check via direct import to guarantee dashboard globals are in scope.
-    Avoids NameError when called from injected module namespace."""
-    try:
-        # Try injected version first (normal path)
-        return do_poll_check()
-    except NameError:
-        # Fall back to direct import — guarantees function runs in dashboard's namespace
-        import importlib.util as _ilu, sys as _sys
-        _dashboard = _sys.modules.get('src.api.dashboard') or _sys.modules.get('dashboard')
-        if _dashboard and hasattr(_dashboard, 'do_poll_check'):
-            return _dashboard.do_poll_check()
-        raise
-
+    Always routes through src.api.dashboard to avoid NameError on injected globals."""
+    import sys as _sys
+    _dashboard = _sys.modules.get('src.api.dashboard') or _sys.modules.get('dashboard')
+    if _dashboard and hasattr(_dashboard, 'do_poll_check'):
+        return _dashboard.do_poll_check()
+    # Last resort: injected version
+    return do_poll_check()
 
 # Price Check Routes
 # 26 routes, 985 lines
@@ -2399,9 +2394,11 @@ def api_poll_now():
             "rfqs": [{"id": r["id"], "sol": r.get("solicitation_number", "?")} for r in imported],
             "last_check": POLL_STATUS.get("last_check"),
             "error": POLL_STATUS.get("error"),
+            "diag": POLL_STATUS.get("_diag", {}),
         })
     except Exception as e:
-        return jsonify({"ok": False, "found": 0, "error": str(e)})
+        import traceback as _tb
+        return jsonify({"ok": False, "found": 0, "error": str(e), "traceback": _tb.format_exc()})
 
 
 @bp.route("/api/poll/reset-processed", methods=["POST"])

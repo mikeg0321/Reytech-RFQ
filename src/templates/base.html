@@ -138,6 +138,36 @@ document.addEventListener('click',function(e){
 });
 </script>
 <script>
+// Check Now button — trigger email poll, reload if new items found
+function pollNow(btn) {
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Checking...'; }
+  fetch('/api/poll-now')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.ok === false && d.error) {
+        alert('Poll error: ' + d.error);
+        if (btn) { btn.disabled = false; btn.textContent = '⚡ Check Now'; }
+        return;
+      }
+      var found = d.found || 0;
+      if (found > 0) {
+        location.reload();
+      } else {
+        var statusEl = document.querySelector('.hdr-status span');
+        if (statusEl) statusEl.textContent = 'Checked — 0 new';
+        setTimeout(function() {
+          if (statusEl) statusEl.textContent = 'Polling';
+          if (btn) { btn.disabled = false; btn.textContent = '⚡ Check Now'; }
+        }, 3000);
+      }
+    })
+    .catch(function(e) {
+      alert('Check failed: ' + e);
+      if (btn) { btn.disabled = false; btn.textContent = '⚡ Check Now'; }
+    });
+}
+</script>
+<script>
 // E5: Auto-inject CSRF tokens into all forms and AJAX calls
 (function(){
  var t=document.querySelector('meta[name="csrf-token"]');
