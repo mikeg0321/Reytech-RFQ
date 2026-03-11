@@ -2614,6 +2614,54 @@ def api_nuke_and_poll():
         return jsonify({"ok": False, "cleared": cleared, "error": str(e)})
 
 
+@bp.route("/api/diag/find-rfq")
+@auth_required
+def api_diag_find_rfq():
+    """Search all RFQs and PCs for a keyword (sol number, subject, sender).
+    Usage: /api/diag/find-rfq?q=10840486
+    """
+    q = request.args.get("q", "").lower()
+    if not q:
+        return jsonify({"error": "Pass ?q=keyword"})
+    
+    rfqs = load_rfqs()
+    pcs = _load_price_checks()
+    
+    rfq_hits = []
+    for rid, r in rfqs.items():
+        searchable = json.dumps(r, default=str).lower()
+        if q in searchable:
+            rfq_hits.append({
+                "id": rid,
+                "sol": r.get("solicitation_number", "?"),
+                "status": r.get("status", "?"),
+                "subject": r.get("email_subject", "")[:80],
+                "sender": r.get("email_sender", r.get("requestor_email", "")),
+                "email_uid": r.get("email_uid", "")[:20],
+                "created_at": r.get("created_at", ""),
+            })
+    
+    pc_hits = []
+    for pid, p in pcs.items():
+        searchable = json.dumps(p, default=str).lower()
+        if q in searchable:
+            pc_hits.append({
+                "id": pid,
+                "pc_number": p.get("pc_number", "?"),
+                "status": p.get("status", "?"),
+                "institution": p.get("institution", ""),
+                "email_uid": p.get("email_uid", "")[:20],
+            })
+    
+    return jsonify({
+        "query": q,
+        "rfq_matches": rfq_hits,
+        "pc_matches": pc_hits,
+        "total_rfqs": len(rfqs),
+        "total_pcs": len(pcs),
+    })
+
+
 @bp.route("/api/diag")
 @auth_required
 def api_diag():
