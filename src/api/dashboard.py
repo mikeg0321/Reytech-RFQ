@@ -2189,6 +2189,7 @@ def do_poll_check():
     # ── Second inbox: mike@ (orders, some PCs/quotes) ──────────────────────
     mike_addr = os.environ.get("GMAIL_ADDRESS_2", "")
     mike_pwd = os.environ.get("GMAIL_PASSWORD_2", "")
+    POLL_STATUS["_mike_diag"] = {"configured": bool(mike_addr and mike_pwd), "addr": mike_addr}
     if mike_addr and mike_pwd:
         try:
             mike_cfg = dict(email_cfg)
@@ -2197,10 +2198,19 @@ def do_poll_check():
             mike_cfg["processed_file"] = os.path.join(_DATA_DIR, "processed_emails_mike.json")
             mike_cfg["inbox_name"] = "mike"
             mike_poller = EmailPoller(mike_cfg)
+            POLL_STATUS["_mike_diag"]["processed_loaded"] = len(mike_poller._processed)
             log.info("Polling second inbox: %s (%d processed UIDs)",
                      mike_addr, len(mike_poller._processed))
             if mike_poller.connect():
+                POLL_STATUS["_mike_diag"]["connected"] = True
                 mike_emails = mike_poller.check_for_rfqs(save_dir=_UPLOAD_DIR)
+                POLL_STATUS["_mike_diag"]["emails_returned"] = len(mike_emails)
+                POLL_STATUS["_mike_diag"]["subjects"] = [e.get("subject", "?")[:60] for e in mike_emails]
+                if hasattr(mike_poller, '_diag'):
+                    POLL_STATUS["_mike_diag"]["poller_diag"] = {
+                        k: list(v) if isinstance(v, set) else v
+                        for k, v in mike_poller._diag.items()
+                    }
                 log.info("Second inbox: %d emails found", len(mike_emails))
                 for rfq_email in mike_emails:
                     try:
@@ -2226,12 +2236,15 @@ def do_poll_check():
                             imported.append(rfq_data)
                     except Exception as pe:
                         log.error("process_rfq_email (mike@) error: %s", pe, exc_info=True)
+                        POLL_STATUS["_mike_diag"].setdefault("errors", []).append(str(pe))
                         failed_uid = rfq_email.get("email_uid", "")
                         if failed_uid:
                             mike_poller._processed.discard(failed_uid)
             else:
+                POLL_STATUS["_mike_diag"]["connected"] = False
                 log.warning("IMAP connect failed for %s", mike_addr)
         except Exception as e:
+            POLL_STATUS["_mike_diag"]["exception"] = str(e)
             log.error("Second inbox poll error: %s", e, exc_info=True)
 
     return imported

@@ -2609,6 +2609,7 @@ def api_nuke_and_poll():
             "found": len(imported),
             "rfqs": [{"id": r.get("id","?"), "subject": r.get("subject","")[:60]} for r in imported],
             "traces": POLL_STATUS.get("_email_traces", [])[-10:],
+            "mike_diag": POLL_STATUS.get("_mike_diag", {}),
         })
     except Exception as e:
         return jsonify({"ok": False, "cleared": cleared, "error": str(e)})
