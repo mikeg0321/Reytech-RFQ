@@ -2135,10 +2135,10 @@ def do_poll_check():
         
         connected = _shared_poller.connect()
         POLL_STATUS["_diag"]["imap_connected"] = connected
+        POLL_STATUS["last_check"] = _pst_now_iso()  # mark attempt regardless of outcome
         if connected:
             log.info("IMAP connected, checking for RFQs...")
             rfq_emails = _shared_poller.check_for_rfqs(save_dir=UPLOAD_DIR)
-            POLL_STATUS["last_check"] = _pst_now_iso()
             POLL_STATUS["error"] = None
             POLL_STATUS["_diag"]["rfqs_returned"] = len(rfq_emails)
             # Capture poller-level diagnostics
@@ -2242,7 +2242,8 @@ def email_poll_loop():
     
     interval = email_cfg.get("poll_interval_seconds", 120)
     POLL_STATUS["running"] = True
-    
+    log.info("Email poll loop started — interval=%ds, polling now...", interval)
+
     while POLL_STATUS["running"]:
         if not POLL_STATUS.get("paused"):
             try:
@@ -2253,6 +2254,8 @@ def email_poll_loop():
                 except Exception:
                     pass
             except Exception as e:
+                POLL_STATUS["error"] = f"Poll loop crash: {e}"
+                log.error("Email poll loop crash: %s", e, exc_info=True)
                 try:
                     from src.core.scheduler import heartbeat
                     heartbeat("email-poller", success=False, error=str(e)[:200])
