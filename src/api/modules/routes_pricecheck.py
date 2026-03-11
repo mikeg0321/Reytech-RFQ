@@ -9,6 +9,24 @@ from src.core.db import get_db
 from src.api.render import render_page
 
 import json as _json
+
+import os as _os
+
+def _safe_do_poll_check():
+    """Call do_poll_check via direct import to guarantee dashboard globals are in scope.
+    Avoids NameError when called from injected module namespace."""
+    try:
+        # Try injected version first (normal path)
+        return do_poll_check()
+    except NameError:
+        # Fall back to direct import — guarantees function runs in dashboard's namespace
+        import importlib.util as _ilu, sys as _sys
+        _dashboard = _sys.modules.get('src.api.dashboard') or _sys.modules.get('dashboard')
+        if _dashboard and hasattr(_dashboard, 'do_poll_check'):
+            return _dashboard.do_poll_check()
+        raise
+
+
 # Price Check Routes
 # 26 routes, 985 lines
 # Loaded by dashboard.py via load_module()
@@ -1901,7 +1919,7 @@ def api_resync():
         # ── 4. Reset poller + re-poll ──
         global _shared_poller
         _shared_poller = None
-        imported = do_poll_check()
+        imported = _safe_do_poll_check()
         
         # ── 5. Report ──
         rfqs_after = load_rfqs()
@@ -2008,7 +2026,7 @@ def api_force_reprocess():
     
     # Re-poll
     try:
-        imported = do_poll_check()
+        imported = _safe_do_poll_check()
         return jsonify({
             "ok": True,
             "cleared_uids": old_count,
@@ -2123,7 +2141,7 @@ def api_force_recapture():
     _shared_poller = None
     
     try:
-        imported = do_poll_check()
+        imported = _safe_do_poll_check()
     except Exception as e:
         imported = []
         log.error("Re-poll failed: %s", e)
@@ -2374,7 +2392,7 @@ def api_status():
 def api_poll_now():
     """Manual trigger: check email inbox right now."""
     try:
-        imported = do_poll_check()
+        imported = _safe_do_poll_check()
         return jsonify({
             "ok": True,
             "found": len(imported),
@@ -2423,7 +2441,7 @@ def api_poll_reset_processed():
     
     # Step 3: Immediately run poll (creates new poller with empty processed set)
     try:
-        imported = do_poll_check()
+        imported = _safe_do_poll_check()
         return jsonify({
             "ok": True,
             "cleared": old_count,
@@ -2586,7 +2604,7 @@ def api_nuke_and_poll():
     
     # 5. Re-poll
     try:
-        imported = do_poll_check()
+        imported = _safe_do_poll_check()
         return jsonify({
             "ok": True,
             "cleared": cleared,
@@ -5959,7 +5977,7 @@ def api_admin_reset_and_poll():
         """Run poll in background, store results in POLL_STATUS."""
         try:
             pcs_before = len(_load_price_checks())
-            imported = do_poll_check()
+            imported = _safe_do_poll_check()
             pcs_after = _load_price_checks()
             new_pcs = len(pcs_after) - pcs_before
             
