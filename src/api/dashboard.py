@@ -1331,13 +1331,16 @@ def process_rfq_email(rfq_email):
     
     # Dedup: check if this email UID is already in the queue
     rfqs = load_rfqs()
-    for existing in rfqs.values():
-        if existing.get("email_uid") == rfq_email.get("email_uid"):
-            _trace.append("SKIP: duplicate email_uid in RFQ queue")
-            log.info(f"Skipping duplicate email UID {rfq_email.get('email_uid')}: already in queue")
-            POLL_STATUS.setdefault("_email_traces", []).append(_trace)
-            t.ok("Skipped: duplicate email_uid in RFQ queue")
-            return None
+    _incoming_uid = rfq_email.get("email_uid", "")
+    if _incoming_uid:  # Only dedup if we have a real UID
+        for _eid, existing in rfqs.items():
+            if existing.get("email_uid") == _incoming_uid:
+                _trace.append(f"SKIP: duplicate email_uid {_incoming_uid} matches existing RFQ {_eid} (sol={existing.get('solicitation_number','?')})")
+                log.info("Skipping duplicate email UID %s: matches RFQ %s (sol=%s)",
+                         _incoming_uid, _eid, existing.get("solicitation_number", "?"))
+                POLL_STATUS.setdefault("_email_traces", []).append(_trace)
+                t.ok("Skipped: duplicate email_uid in RFQ queue", existing_id=_eid)
+                return None
     
     # ── Route 704 price checks to PC queue, NOT the RFQ queue ──────────────
     attachments = rfq_email.get("attachments", [])

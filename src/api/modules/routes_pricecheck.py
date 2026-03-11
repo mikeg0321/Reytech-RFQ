@@ -2608,7 +2608,8 @@ def api_nuke_and_poll():
             "cleared": cleared,
             "found": len(imported),
             "rfqs": [{"id": r.get("id","?"), "subject": r.get("subject","")[:60]} for r in imported],
-            "traces": POLL_STATUS.get("_email_traces", [])[-10:],
+            "traces": POLL_STATUS.get("_email_traces", [])[-30:],
+            "sales_diag": POLL_STATUS.get("_diag", {}),
             "mike_diag": POLL_STATUS.get("_mike_diag", {}),
         })
     except Exception as e:
@@ -2660,6 +2661,7 @@ def api_diag_find_rfq():
         "pc_matches": pc_hits,
         "total_rfqs": len(rfqs),
         "total_pcs": len(pcs),
+        "all_rfq_uids": {rid: {"uid": r.get("email_uid", ""), "sol": r.get("solicitation_number", "?")} for rid, r in rfqs.items()},
     })
 
 
