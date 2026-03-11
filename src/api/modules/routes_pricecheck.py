@@ -4,7 +4,7 @@ from src.api.shared import bp, auth_required
 import logging
 log = logging.getLogger("reytech")
 from flask import redirect, flash, send_file, session
-from src.core.paths import DATA_DIR, OUTPUT_DIR
+from src.core.paths import DATA_DIR, OUTPUT_DIR, UPLOAD_DIR
 from src.core.db import get_db
 from src.api.render import render_page
 
@@ -2540,11 +2540,15 @@ def api_inbox_peek():
 @auth_required
 def api_nuke_and_poll():
     """Nuclear option: clear ALL dedup layers and re-poll. GET to bypass CSRF."""
+    try:
+        _DATA_DIR = DATA_DIR
+    except NameError:
+        from src.core.paths import DATA_DIR as _DATA_DIR
     global _shared_poller
     cleared = {}
     
     # 1. Clear JSON processed file
-    proc_file = os.path.join(DATA_DIR, "processed_emails.json")
+    proc_file = os.path.join(_DATA_DIR, "processed_emails.json")
     try:
         if os.path.exists(proc_file):
             with open(proc_file) as f:
