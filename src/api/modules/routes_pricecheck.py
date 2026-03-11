@@ -2562,6 +2562,22 @@ def api_nuke_and_poll():
     global _shared_poller
     cleared = {}
     
+    # 0. PAUSE background poller to prevent race condition
+    #    (old poller re-saves processed UIDs between our delete and re-poll)
+    POLL_STATUS["paused"] = True
+    import time as _time
+    _time.sleep(0.5)  # Let any in-flight poll finish
+    
+    # 0b. Clear in-memory processed set on existing poller (if alive)
+    if _shared_poller and hasattr(_shared_poller, '_processed'):
+        cleared["in_memory_cleared"] = len(_shared_poller._processed)
+        _shared_poller._processed.clear()
+        # Also save the empty set to disk so it doesn't get re-loaded
+        try:
+            _shared_poller._save_processed()
+        except Exception:
+            pass
+    
     # 1. Clear JSON processed file(s) — both inboxes
     for _pf_name in ("processed_emails.json", "processed_emails_mike.json"):
         _pf = os.path.join(_DATA_DIR, _pf_name)
@@ -2570,9 +2586,11 @@ def api_nuke_and_poll():
                 with open(_pf) as f:
                     old = json.load(f)
                 cleared[_pf_name] = len(old) if isinstance(old, list) else 0
-                os.remove(_pf)
             else:
                 cleared[_pf_name] = "not found"
+            # Write empty list (not delete — prevents re-creation race)
+            with open(_pf, "w") as f:
+                json.dump([], f)
         except Exception as e:
             cleared[f"{_pf_name}_error"] = str(e)
     
@@ -2596,13 +2614,15 @@ def api_nuke_and_poll():
     except Exception as e:
         cleared["fp_error"] = str(e)
     
-    # 4. Kill shared poller
+    # 4. Kill shared poller (forces fresh IMAP connection + empty processed set)
     _shared_poller = None
     cleared["poller"] = "reset"
     
-    # 5. Re-poll
+    # 5. Re-poll (with background poller still paused)
     try:
         imported = _safe_do_poll_check()
+        # 6. Unpause background poller
+        POLL_STATUS["paused"] = False
         return jsonify({
             "ok": True,
             "cleared": cleared,
@@ -2613,6 +2633,7 @@ def api_nuke_and_poll():
             "mike_diag": POLL_STATUS.get("_mike_diag", {}),
         })
     except Exception as e:
+        POLL_STATUS["paused"] = False
         return jsonify({"ok": False, "cleared": cleared, "error": str(e)})
 
 
