@@ -1263,6 +1263,7 @@ class EmailPoller:
                     # Gmail threads sent replies into INBOX view. The poller must
                     # never process emails FROM our own address — UNLESS it's a
                     # forwarded email with PDF attachments (user forwarding an RFQ).
+                    _is_self_forward = False
                     sender_email_raw = self._extract_email(sender).lower()
                     our_email = self.email_addr.lower()
                     our_domains = ["reytechinc.com", "reytech.com"]
@@ -1290,6 +1291,7 @@ class EmailPoller:
                                      sender_email_raw, subject[:60], len(pdf_names))
                             self._diag.setdefault("self_forward_passed", 0)
                             self._diag["self_forward_passed"] += 1
+                            _is_self_forward = True  # skip reply-followup gate below
                             # Rewrite sender to the original forwarded sender if we can parse it
                             try:
                                 fwd_sender = self._extract_forwarded_sender(body)
@@ -1623,7 +1625,8 @@ class EmailPoller:
                     # ── REPLY DETECTION — fires BEFORE is_rfq_email() ──────────
                     # Prevents pipeline pollution from buyer follow-ups/clarifications
                     # being logged as new PCs/RFQs.
-                    followup = is_reply_followup(msg, subject, body, sender, pdf_names)
+                    # SKIP for self-forwards — we already confirmed it's a forwarded RFQ.
+                    followup = None if _is_self_forward else is_reply_followup(msg, subject, body, sender, pdf_names)
                     if followup:
                         # Route to CS Agent with context about which item they're replying to
                         log.info("🔄 Routing follow-up to CS Agent (not PC/RFQ queue): %s", subject[:60])
