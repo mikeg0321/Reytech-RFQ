@@ -11,6 +11,7 @@ from flask import redirect, flash, send_file
 from src.core.paths import DATA_DIR, UPLOAD_DIR, OUTPUT_DIR
 from src.core.db import get_db
 from src.api.render import render_page
+from datetime import datetime, timezone, timedelta
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -276,12 +277,14 @@ def home():
     log.info("HOME: PCs loaded (%d) in %.0fms", len(all_pcs), (_ht.time()-_t0)*1000)
     from src.api.dashboard import _is_user_facing_pc
     user_pcs = {k: v for k, v in all_pcs.items() if _is_user_facing_pc(v)}
+    # PST "today" for California-based due date comparisons
+    _pst = timezone(timedelta(hours=-8))
+    _today = datetime.now(_pst).replace(tzinfo=None)
     # Sort by URGENCY: overdue first, then soonest due date, then newest
     def _pc_sort_key(item):
         pc = item[1]
         due = pc.get("due_date", "") or ""
         status = pc.get("status", "")
-        now_str = datetime.now().strftime("%m/%d/%y")
         # Terminal statuses go to bottom
         if status in ("won", "lost", "dismissed", "archived", "expired"):
             return (3, "9999-99-99", "")
@@ -291,7 +294,7 @@ def home():
             for fmt in ("%m/%d/%y", "%m/%d/%Y", "%Y-%m-%d", "%m-%d-%Y"):
                 try:
                     d = datetime.strptime(due.strip(), fmt)
-                    days_left = (d - datetime.now()).days
+                    days_left = (d - _today).days
                     if days_left < 0:
                         urgency = 0  # OVERDUE — top of queue
                     elif days_left <= 2:
@@ -307,7 +310,6 @@ def home():
     sorted_pcs = dict(sorted(user_pcs.items(), key=_pc_sort_key))
     
     # Also compute urgency metadata for template
-    _today = datetime.now()
     for pid, pc in sorted_pcs.items():
         due = pc.get("due_date", "") or ""
         pc["_days_left"] = None
