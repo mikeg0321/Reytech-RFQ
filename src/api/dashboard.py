@@ -1829,8 +1829,11 @@ def process_rfq_email(rfq_email):
     # Ensure sender is in CRM
     _ensure_contact_from_email(rfq_email)
 
-    # ── F10: Auto-Price from catalog + price_history ──────────────────────
-    # For items that have no pricing (and weren't ported from PC), try catalog + history
+    # ── F10: Auto-Price from catalog + product_catalog + price_history ────
+    # For items that have no pricing, try all available sources:
+    # 1. core/catalog (products table — seed data + manual adds)
+    # 2. agents/product_catalog (product_catalog table — grows from PC work)
+    # 3. price_history (previous quotes)
     try:
         _auto_priced = 0
         for _item in rfq_data.get("line_items", []):
@@ -1841,7 +1844,7 @@ def process_rfq_email(rfq_email):
             if not _desc and not _pn:
                 continue
 
-            # Try catalog first
+            # Source 1: core catalog (products table)
             try:
                 from src.core.catalog import search_catalog
                 _matches = search_catalog(_pn or _desc[:30], limit=1)
@@ -1858,7 +1861,28 @@ def process_rfq_email(rfq_email):
             except Exception:
                 pass
 
-            # Try price_history
+            # Source 2: product_catalog (grows from PC quoting work)
+            try:
+                from src.agents.product_catalog import match_item, init_catalog_db
+                init_catalog_db()
+                _pc_matches = match_item(_desc, _pn, top_n=1)
+                if _pc_matches and _pc_matches[0].get("match_confidence", 0) >= 0.45:
+                    _pm = _pc_matches[0]
+                    if _pm.get("cost") and float(_pm["cost"]) > 0:
+                        _item["supplier_cost"] = float(_pm["cost"])
+                    if _pm.get("sell_price") and float(_pm["sell_price"]) > 0:
+                        _item["price_per_unit"] = float(_pm["sell_price"])
+                    elif _pm.get("last_sold_price") and float(_pm["last_sold_price"]) > 0:
+                        _item["price_per_unit"] = float(_pm["last_sold_price"])
+                    _item["_auto_source"] = f"pc_catalog:{_pm.get('name','')[:30]}"
+                    _item["_catalog_product_id"] = _pm.get("id")
+                    if _item.get("supplier_cost") or _item.get("price_per_unit"):
+                        _auto_priced += 1
+                        continue
+            except Exception:
+                pass
+
+            # Source 3: price_history
             try:
                 from src.core.db import get_price_history_db
                 _hist = get_price_history_db(
