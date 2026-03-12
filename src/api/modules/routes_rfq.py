@@ -1134,6 +1134,31 @@ def rfq_upload_supplier_quote(rid):
     }
     save_rfqs(rfqs)
 
+    # Save supplier quote PDF to rfq_files DB (persists across deploys)
+    try:
+        from src.api.dashboard import save_rfq_file
+        with open(pdf_path, "rb") as _qf:
+            pdf_data = _qf.read()
+        save_rfq_file(
+            rid,
+            f.filename,
+            "application/pdf",
+            pdf_data,
+            category="supplier_quote",
+            uploaded_by="user",
+        )
+        log.info("Supplier quote saved to DB: %s (%d bytes) for RFQ %s", f.filename, len(pdf_data), rid)
+    except Exception as _fe:
+        log.warning("Failed to save supplier quote to DB: %s", _fe)
+
+    # Log activity
+    sol = r.get("solicitation_number", rid)
+    _log_rfq_activity(rid, "supplier_quote_uploaded",
+        f"Supplier quote from {supplier} ({quote_num or f.filename}): "
+        f"{len(quote_items)} items parsed, {applied} matched, "
+        f"catalog +{catalog_added}/~{catalog_updated}",
+        actor="user")
+
     return jsonify({
         "ok": True,
         "supplier": supplier,
