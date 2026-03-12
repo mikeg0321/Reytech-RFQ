@@ -2141,7 +2141,8 @@ def fill_calrecycle_standalone(input_path, rfq_data, config, output_path):
     }
 
     def _short_desc(item):
-        """Extract brand + main product name only (≤85 chars for CalRecycle)."""
+        """Extract product name only for CalRecycle 246pt-wide field (~55 chars at 7pt)."""
+        import re as _re
         desc = item.get("description", "")
         # Strip everything after first " - " separator (removes ref numbers, UPCs, etc.)
         if " - " in desc:
@@ -2151,20 +2152,24 @@ def fill_calrecycle_standalone(input_path, rfq_data, config, output_path):
         # Strip (R), (TM) markers
         for m in ["(R)", "(TM)", "\\(R\\)", "®", "™"]:
             desc = desc.replace(m, "")
+        # Strip ISBN / USBISBN / reference numbers (e.g. "USBISBN: 978-1-68472-...")
+        desc = _re.sub(r'\s*:?\s*U?S?B?ISBN\s*:?\s*[\d\-]+.*', '', desc, flags=_re.IGNORECASE)
+        desc = _re.sub(r'\s*ISBN\s*:?\s*[\d\-]+.*', '', desc, flags=_re.IGNORECASE)
+        # Strip everything after a colon followed by a number (reference codes)
+        desc = _re.sub(r':\s*\d[\d\-]{4,}.*', '', desc)
         # Strip everything in parentheses at end
-        import re as _re
         desc = _re.sub(r'\s*\([^)]*\)\s*$', '', desc)
         # Strip leading ASIN/qty patterns like "10 EA - "
         desc = _re.sub(r'^\d+\s+EA\s*[-–]\s*', '', desc)
-        # Strip Model #, UPC #, Ref: patterns
+        # Strip Model #, UPC #, Ref: patterns and trailing catalog numbers
         desc = _re.sub(r'\s*Model\s*#.*', '', desc, flags=_re.IGNORECASE)
         desc = _re.sub(r'\s*UPC\s*#.*', '', desc, flags=_re.IGNORECASE)
         desc = _re.sub(r'\s*[-/]\s*\(\?\).*', '', desc)
         desc = _re.sub(r'\s*#\s*\d{6,}.*', '', desc)
-        desc = desc.strip(" ,;-/")
-        # Cap at 85 chars — font auto-sizer will go down to 6pt to fit
-        if len(desc) > 85:
-            desc = desc[:82] + "..."
+        desc = desc.strip(" ,;-:/")
+        # Field is 246pt wide — fits ~55 chars at 7pt Helvetica
+        if len(desc) > 55:
+            desc = desc[:52] + "..."
         return desc
 
     def _short_item(item):
