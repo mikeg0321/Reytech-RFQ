@@ -526,35 +526,84 @@ def fill_704b(input_path, rfq_data, config, output_path):
             return f"Row{_p1_rows_plain[p1p - 1]}"
         return f"Row{p1}_2"  # fallback
 
+    # ── Detect if template is agency pre-filled (has QTY values) ──────────
+    # Agency 704B: descriptions span multiple rows, QTY/UOM already filled.
+    # We should ONLY write PRICE PER UNIT and SUBTOTAL to rows that have a #.
+    # Fresh 704B (Cal Vet/generic): we fill everything from scratch.
+    _is_prefilled = False
+    _prefilled_item_rows = {}  # {line_number_value: form_row_suffix}
+    try:
+        from pypdf import PdfReader as _PR704b
+        _tmpl = _PR704b(input_path)
+        _tmpl_fields = _tmpl.get_fields() or {}
+        # Check if any QTY rows have values
+        for row_n in range(1, 25):
+            for sfx in [f"Row{row_n}", f"Row{row_n}_2"]:
+                qty_field = _tmpl_fields.get(f"QTY{sfx}", {})
+                qty_val = str(qty_field.get("/V", "")).strip() if isinstance(qty_field, dict) else ""
+                if qty_val and qty_val not in ("", "0", "/Off"):
+                    _is_prefilled = True
+                    # Find the # (line item number) for this row
+                    hash_field = _tmpl_fields.get(f"#{sfx}", {}) or _tmpl_fields.get(f"Row{row_n}", {})
+                    hash_val = ""
+                    # Try the explicit # field
+                    for hash_name in [f"#{sfx}", f"Row{row_n}"]:
+                        hf = _tmpl_fields.get(hash_name, {})
+                        hv = str(hf.get("/V", "")).strip() if isinstance(hf, dict) else ""
+                        if hv and hv.isdigit():
+                            hash_val = hv
+                            break
+                    if hash_val:
+                        _prefilled_item_rows[int(hash_val)] = sfx
+                    else:
+                        # No explicit # field — infer line number by counting
+                        # rows that have QTY values
+                        inferred_num = len(_prefilled_item_rows) + 1
+                        _prefilled_item_rows[inferred_num] = sfx
+        if _is_prefilled:
+            print(f"  704B: agency pre-filled detected ({len(_prefilled_item_rows)} item rows: {_prefilled_item_rows})")
+    except Exception as _pf_err:
+        print(f"  ⚠ 704B pre-fill detection failed: {_pf_err}")
+
     seq = 0
     for item in line_items:
         seq += 1
-        row_num = item.get("form_row") or item.get("row_index") or item.get("line_number") or seq
-        if not row_num:
-            continue
         price = item.get("price_per_unit", 0)
         qty = item.get("qty", 0)
-        uom = item.get("uom", "EA")
-        desc = item.get("description", "")
-        pn = item.get("part_number", item.get("item_number", ""))
         subtotal = round(price * qty, 2)
         merchandise_subtotal += subtotal
 
-        # Write to EXACTLY ONE field — the correct page slot for this item
-        r = _row_field(seq)
-        values[f"PRICE PER UNIT{r}"] = f"{price:.2f}" if price else ""
-        values[f"SUBTOTAL{r}"] = f"{subtotal:.2f}" if subtotal else ""
-        values[f"ITEM NUMBER{r}"] = str(seq)
-        values[f"QTY{r}"] = str(qty) if qty else ""
-        values[f"UOM{r}"] = uom
-        values[f"ITEM DESCRIPTION PRODUCT SPECIFICATION{r}"] = desc
-        values[f"#{r}"] = str(seq)
-        sub_field = f"SUBSTITUTED ITEM Include manufacturer part number andor reference number{r}"
-        if item.get("is_substitute"):
-            mfg = item.get("mfg_number", "")
-            values[sub_field] = f"{desc} (MFG# {mfg})" if mfg else desc
+        if _is_prefilled:
+            # Agency pre-filled: ONLY write price + subtotal to the correct row
+            # Match by line_number → form row
+            item_num = item.get("line_number") or seq
+            if item_num in _prefilled_item_rows:
+                r = _prefilled_item_rows[item_num]
+                values[f"PRICE PER UNIT{r}"] = f"{price:.2f}" if price else ""
+                values[f"SUBTOTAL{r}"] = f"{subtotal:.2f}" if subtotal else ""
+            else:
+                # Try sequential fallback
+                r = _row_field(seq)
+                values[f"PRICE PER UNIT{r}"] = f"{price:.2f}" if price else ""
+                values[f"SUBTOTAL{r}"] = f"{subtotal:.2f}" if subtotal else ""
         else:
-            values[sub_field] = ""
+            # Fresh template: write everything (original behavior)
+            uom = item.get("uom", "EA")
+            desc = item.get("description", "")
+            r = _row_field(seq)
+            values[f"PRICE PER UNIT{r}"] = f"{price:.2f}" if price else ""
+            values[f"SUBTOTAL{r}"] = f"{subtotal:.2f}" if subtotal else ""
+            values[f"ITEM NUMBER{r}"] = str(item.get("part_number", item.get("item_number", "")))
+            values[f"QTY{r}"] = str(qty) if qty else ""
+            values[f"UOM{r}"] = uom
+            values[f"ITEM DESCRIPTION PRODUCT SPECIFICATION{r}"] = desc
+            values[f"#{r}"] = str(seq)
+            sub_field = f"SUBSTITUTED ITEM Include manufacturer part number andor reference number{r}"
+            if item.get("is_substitute"):
+                mfg = item.get("mfg_number", "")
+                values[sub_field] = f"{desc} (MFG# {mfg})" if mfg else desc
+            else:
+                values[sub_field] = ""
 
     # Header fields — write all known variants to handle different 704B template versions
     for sfx in ("", "_2"):
