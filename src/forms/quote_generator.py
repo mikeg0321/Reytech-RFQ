@@ -72,10 +72,10 @@ REYTECH = {
 AGENCY_CONFIGS = {
     "CCHCS": {
         "full_name": "California Correctional Health Care Services",
-        "show_bill_to": False,
-        "show_permit": False,
-        "bill_to_name": "",
-        "bill_to_lines": [],
+        "show_bill_to": True,
+        "show_permit": True,
+        "bill_to_name": "California Correctional Health Care Services",
+        "bill_to_lines": ["P.O. Box 588500", "Elk Grove, CA 95758", "United States"],
         "default_tax": 0.0725,
         "default_terms": "Net 45",
     },
@@ -1111,8 +1111,17 @@ def generate_quote(
                      str(item.get("line_number", idx + 1)))
 
         # MFG. PART #
-        c.setFont("Helvetica", 8.5)
-        c.drawString(COLS[1][1] + 4, text_baseline, part[:16])
+        c.setFont("Helvetica", 8)
+        part_col_w = COLS[1][2] - 8  # column width minus padding
+        # Truncate to fit column — at 8pt, ~5pt per char → ~16 chars
+        if c.stringWidth(part, "Helvetica", 8) > part_col_w:
+            # Try smaller font first
+            c.setFont("Helvetica", 6.5)
+            if c.stringWidth(part, "Helvetica", 6.5) > part_col_w:
+                # Still too long — truncate
+                while len(part) > 3 and c.stringWidth(part, "Helvetica", 6.5) > part_col_w:
+                    part = part[:-1]
+        c.drawString(COLS[1][1] + 4, text_baseline, part)
 
         # QTY (right-aligned in cell)
         c.setFont("Helvetica", 9)
@@ -1480,7 +1489,7 @@ def generate_quote_from_rfq(rfq: dict, output_path: str, **kwargs) -> dict:
         "line_items": [],
     }
 
-    for item in rfq.get("line_items", []):
+    for idx_q, item in enumerate(rfq.get("line_items", [])):
         up = item.get("price_per_unit") or item.get("our_price") or 0
         pn = item.get("item_number", item.get("part_number", ""))
         asin = item.get("asin", "")
@@ -1499,7 +1508,7 @@ def generate_quote_from_rfq(rfq: dict, output_path: str, **kwargs) -> dict:
         _desc = re.sub(r'\s+', ' ', _desc).strip()
         
         data["line_items"].append({
-            "line_number": item.get("line_number", item.get("item_number", "")),
+            "line_number": item.get("line_number") or (idx_q + 1),
             "part_number": pn,
             "qty": item.get("qty", 1),
             "uom": item.get("uom", "EA"),
@@ -1511,11 +1520,21 @@ def generate_quote_from_rfq(rfq: dict, output_path: str, **kwargs) -> dict:
             "cost": item.get("supplier_cost", 0),
         })
 
-    # Pass agency explicitly if known from RFQ
-    _agency_map = {"calvet": "CalVet", "cchcs": "CCHCS", "dsh": "DSH", "dgs": "DGS"}
+    # Pass agency explicitly if known from RFQ — OVERRIDES facility-derived agency
+    # (CCHCS facilities are inside CDCR prisons, but CCHCS bills separately)
+    _agency_map = {"calvet": "CalVet", "cchcs": "CCHCS", "dsh": "DSH", "dgs": "DGS", "cdcr": "CDCR"}
     _rfq_agency = rfq.get("agency", "")
-    if _rfq_agency in _agency_map and "agency" not in kwargs:
-        kwargs["agency"] = _agency_map[_rfq_agency]
+    if _rfq_agency in _agency_map:
+        _resolved_agency = _agency_map[_rfq_agency]
+        if kwargs.get("agency") != _resolved_agency:
+            log.info("RFQ agency %s overrides facility-derived %s", _resolved_agency, kwargs.get("agency", "none"))
+        kwargs["agency"] = _resolved_agency
+        # Also fix To: name if we overrode the agency
+        _cfg = AGENCY_CONFIGS.get(_resolved_agency, {})
+        if _cfg.get("bill_to_name"):
+            data["institution"] = _cfg["bill_to_name"]
+        if _cfg.get("bill_to_lines"):
+            data["to_address"] = list(_cfg["bill_to_lines"])
 
     # ── Tax: always include, look up rate from ship-to facility ───────────
     # Uses CDTFA API with fallback to hardcoded rates per zip code
