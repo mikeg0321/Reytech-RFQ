@@ -161,7 +161,9 @@
    <td id="pf_{{loop.index0}}" style="font-weight:700;font-size:14px">—</td>
    <td style="position:relative">
     <button type="button" class="btn btn-sm" style="background:none;border:none;color:#8b949e;font-size:16px;padding:2px 6px;cursor:pointer" onclick="toggleItemMenu(event,{{loop.index0}})">⋯</button>
-    <div id="item-menu-{{loop.index0}}" class="item-menu" style="display:none;position:fixed;z-index:999;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:4px 0;min-width:140px;box-shadow:0 8px 24px rgba(0,0,0,.4)">
+    <div id="item-menu-{{loop.index0}}" class="item-menu" style="display:none;position:fixed;z-index:999;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:4px 0;min-width:160px;box-shadow:0 8px 24px rgba(0,0,0,.4)">
+     <button type="button" onclick="lookupSingleItem({{loop.index0}})" style="display:block;width:100%;text-align:left;background:none;border:none;color:#58a6ff;padding:6px 14px;font-size:13px;cursor:pointer;font-weight:600" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'">🔍 Price Lookup</button>
+     <hr style="border:none;border-top:1px solid #21262d;margin:4px 0">
      <button type="button" onclick="itemAction('move-item/{{loop.index0}}/up')" style="display:block;width:100%;text-align:left;background:none;border:none;color:#c9d1d9;padding:6px 14px;font-size:13px;cursor:pointer" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'">⬆ Move Up</button>
      <button type="button" onclick="itemAction('move-item/{{loop.index0}}/down')" style="display:block;width:100%;text-align:left;background:none;border:none;color:#c9d1d9;padding:6px 14px;font-size:13px;cursor:pointer" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'">⬇ Move Down</button>
      <button type="button" onclick="itemAction('duplicate-item/{{loop.index0}}')" style="display:block;width:100%;text-align:left;background:none;border:none;color:#c9d1d9;padding:6px 14px;font-size:13px;cursor:pointer" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'">📋 Duplicate</button>
@@ -988,6 +990,44 @@ function itemAction(path){
   if(d.ok) location.reload();
   else alert('Error: '+(d.message||'Failed'));
  }).catch(e=>alert('Error: '+e.message));
+}
+
+function lookupSingleItem(idx){
+ document.querySelectorAll('.item-menu').forEach(m=>m.style.display='none');
+ // Show inline loading indicator on the row
+ var row=document.querySelector('tbody tr:nth-child('+(idx+1)+')');
+ var intelCell=document.getElementById('intel_'+idx);
+ var origIntel=intelCell?intelCell.innerHTML:'';
+ if(intelCell) intelCell.innerHTML='<span style="color:#d29922">⏳</span>';
+
+ fetch('/rfq/'+RID+'/lookup-item/'+idx,{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'}})
+ .then(r=>r.json()).then(d=>{
+  if(d.ok){
+   var r=d.results;
+   var msg='🔍 Price Lookup: '+d.description+'\n\n';
+   if(r.scprs && !r.scprs.error) msg+='✅ SCPRS: $'+r.scprs.price.toFixed(2)+(r.scprs.vendor?' ('+r.scprs.vendor+')':'')+'\n';
+   else if(r.scprs && r.scprs.error) msg+='❌ SCPRS: '+r.scprs.error+'\n';
+   else msg+='⚪ SCPRS: Not found\n';
+
+   if(r.catalog && !r.catalog.error && r.catalog.cost) msg+='✅ Catalog: $'+r.catalog.cost.toFixed(2)+' ('+r.catalog.supplier+', '+Math.round(r.catalog.confidence*100)+'% match)\n';
+   else if(r.catalog && r.catalog.error) msg+='❌ Catalog: '+r.catalog.error+'\n';
+   else msg+='⚪ Catalog: Not found\n';
+
+   if(r.amazon && !r.amazon.error) msg+='✅ Amazon: $'+r.amazon.price.toFixed(2)+'\n';
+   else if(r.amazon && r.amazon.error) msg+='❌ Amazon: '+r.amazon.error+'\n';
+   else msg+='⚪ Amazon: Not found\n';
+
+   msg+='\nSummary: '+d.summary;
+   alert(msg);
+   location.reload();
+  } else {
+   if(intelCell) intelCell.innerHTML=origIntel;
+   alert('Error: '+(d.error||'Failed'));
+  }
+ }).catch(e=>{
+  if(intelCell) intelCell.innerHTML=origIntel;
+  alert('Error: '+e.message);
+ });
 }
 
 function resetItems(){

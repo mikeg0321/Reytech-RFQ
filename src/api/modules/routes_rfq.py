@@ -1024,6 +1024,98 @@ def rfq_reset_items(rid):
     return _item_response(rid, True, f"Cleared {old_count} items")
 
 
+@bp.route("/rfq/<rid>/lookup-item/<int:idx>", methods=["POST"])
+@auth_required
+def rfq_lookup_single_item(rid, idx):
+    """Run SCPRS + Catalog + Amazon lookup on a single line item by index."""
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"})
+
+    items = r.get("line_items", [])
+    if idx < 0 or idx >= len(items):
+        return jsonify({"ok": False, "error": "Invalid item index"})
+
+    item = items[idx]
+    desc = item.get("description", "")
+    pn = item.get("item_number", "")
+    results = {"scprs": None, "catalog": None, "amazon": None}
+
+    # 1. SCPRS lookup
+    try:
+        from src.agents.scprs_lookup import bulk_lookup
+        wrapped = bulk_lookup([item])
+        if wrapped and wrapped[0].get("scprs_last_price"):
+            items[idx] = wrapped[0]
+            results["scprs"] = {
+                "price": wrapped[0]["scprs_last_price"],
+                "vendor": wrapped[0].get("scprs_vendor", ""),
+                "source": wrapped[0].get("scprs_source", ""),
+            }
+    except Exception as e:
+        results["scprs"] = {"error": str(e)[:80]}
+        log.debug("Single item SCPRS error: %s", e)
+
+    # 2. Catalog lookup
+    try:
+        from src.agents.product_catalog import match_item, init_catalog_db
+        init_catalog_db()
+        matches = match_item(desc, pn, top_n=3)
+        if matches and matches[0].get("match_confidence", 0) >= 0.3:
+            best = matches[0]
+            items[idx]["catalog_match"] = best
+            cost = best.get("best_cost") or best.get("cost") or 0
+            results["catalog"] = {
+                "name": best.get("name", "")[:60],
+                "cost": cost,
+                "supplier": best.get("best_supplier", ""),
+                "confidence": round(best.get("match_confidence", 0), 2),
+                "sell_price": best.get("sell_price") or best.get("recommended_price") or 0,
+            }
+            # Fill cost if empty
+            if cost and not items[idx].get("supplier_cost"):
+                items[idx]["supplier_cost"] = round(float(cost), 2)
+                items[idx]["item_supplier"] = best.get("best_supplier", "")
+    except Exception as e:
+        results["catalog"] = {"error": str(e)[:80]}
+        log.debug("Single item catalog error: %s", e)
+
+    # 3. Amazon/web lookup
+    try:
+        from src.agents.web_price_research import research_items
+        wrapped = research_items([items[idx]])
+        if wrapped and wrapped[0].get("amazon_price"):
+            items[idx] = wrapped[0]
+            results["amazon"] = {
+                "price": wrapped[0].get("amazon_price"),
+                "url": wrapped[0].get("item_link", ""),
+                "source": wrapped[0].get("item_supplier", ""),
+            }
+    except Exception as e:
+        results["amazon"] = {"error": str(e)[:80]}
+        log.debug("Single item Amazon error: %s", e)
+
+    save_rfqs(rfqs)
+
+    # Build summary
+    found = []
+    if results["scprs"] and not results["scprs"].get("error"):
+        found.append(f"SCPRS: ${results['scprs']['price']:.2f}")
+    if results["catalog"] and not results["catalog"].get("error") and results["catalog"].get("cost"):
+        found.append(f"Catalog: ${results['catalog']['cost']:.2f} ({results['catalog']['supplier']})")
+    if results["amazon"] and not results["amazon"].get("error"):
+        found.append(f"Amazon: ${results['amazon']['price']:.2f}")
+
+    return jsonify({
+        "ok": True,
+        "idx": idx,
+        "description": desc[:60],
+        "results": results,
+        "summary": " | ".join(found) if found else "No prices found",
+    })
+
+
 @bp.route("/rfq/<rid>/upload-supplier-quote", methods=["POST"])
 @auth_required
 def rfq_upload_supplier_quote(rid):
