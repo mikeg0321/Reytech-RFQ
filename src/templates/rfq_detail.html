@@ -1194,11 +1194,8 @@ function fillBidPackage(){
 
 function regeneratePackage(){
  if(!confirm('⚠️ REGENERATE PACKAGE?\n\nThis will:\n• Delete all previously generated files\n• Re-fill all state forms with current data\n• Generate a new Reytech Quote\n• Replace all download links\n\nAre you sure?'))return;
- // Submit the generate form
- var form=document.createElement('form');
- form.method='POST';
+ var form=document.getElementById('pf');
  form.action='/rfq/'+RID+'/generate-package';
- document.body.appendChild(form);
  form.submit();
 }
 
@@ -1211,9 +1208,9 @@ function runQaCheck(){
 }
 function _doGenerate(){
  if(!confirm('Generate the full RFQ package?\n\nThis will fill all state forms, generate a quote, and create a merged PDF package.'))return;
- var f=document.createElement('form');f.method='POST';
+ var f=document.getElementById('pf');
  f.action='/rfq/'+RID+'/generate-package';
- document.body.appendChild(f);f.submit();
+ f.submit();
 }
 function _showQaPopup(d){
  var ex=document.getElementById('qa-popup');if(ex)ex.remove();

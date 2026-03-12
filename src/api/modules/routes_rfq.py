@@ -1373,7 +1373,7 @@ def generate_rfq_package(rid):
     sol = r.get("solicitation_number", "unknown")
     t.step("Starting", sol=sol, items=len(r.get("line_items", [])))
     
-    # ── Step 1: Save pricing from form ──
+    # ── Step 1: Save ALL fields from form (not just pricing) ──
     for i, item in enumerate(r.get("line_items", [])):
         for field, key in [("cost", "supplier_cost"), ("scprs", "scprs_last_price"), ("price", "price_per_unit")]:
             v = request.form.get(f"{field}_{i}")
@@ -1382,6 +1382,23 @@ def generate_rfq_package(rid):
                     item[key] = float(v)
                 except Exception as _e:
                     log.debug("Suppressed: %s", _e)
+        # Save description, qty, uom, part# from form too
+        desc_val = request.form.get(f"desc_{i}")
+        if desc_val is not None:
+            item["description"] = desc_val.strip()
+        qty_val = request.form.get(f"qty_{i}")
+        if qty_val:
+            try: item["qty"] = int(float(qty_val))
+            except Exception: pass
+        uom_val = request.form.get(f"uom_{i}")
+        if uom_val is not None:
+            item["uom"] = uom_val.strip().upper()
+        part_val = request.form.get(f"part_{i}")
+        if part_val is not None:
+            item["item_number"] = part_val.strip()
+        link_val = request.form.get(f"link_{i}", "").strip()
+        if link_val:
+            item["item_link"] = link_val
     
     r["sign_date"] = get_pst_date()
     safe_sol = re.sub(r'[^a-zA-Z0-9_-]', '_', sol.strip())
