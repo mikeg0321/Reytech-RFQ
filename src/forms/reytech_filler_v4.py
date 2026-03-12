@@ -2140,36 +2140,54 @@ def fill_calrecycle_standalone(input_path, rfq_data, config, output_path):
         "Date": sign_date,
     }
 
+    # Maximum chars for CalRecycle description field (246pt wide).
+    # At 7pt Helvetica ≈55 chars, at 6pt ≈63 chars, at 5pt ≈76 chars.
+    # We target 55 since the font auto-sizer in set_field_fonts() will
+    # scale down if needed — but giving it 55 means it stays at readable 7pt.
+    _CR_MAX = 55
+
     def _short_desc(item):
-        """Extract product name only for CalRecycle 246pt-wide field (~55 chars at 7pt)."""
+        """Extract product name for CalRecycle 246pt-wide field.
+        
+        Strategy: strip catalog noise first, then word-boundary truncate.
+        This handles ANY future description format — not pattern-specific.
+        """
         import re as _re
         desc = item.get("description", "")
-        # Strip everything after first " - " separator (removes ref numbers, UPCs, etc.)
+
+        # ── Phase 1: strip catalog noise ──
+        # Everything after first " - " (ref numbers, UPCs, secondary info)
+        # But validate: if the left part is just a qty like "10 EA", use right side
         if " - " in desc:
-            desc = desc.split(" - ")[0].strip()
-        # Strip trailing dash
-        desc = desc.rstrip(" -")
-        # Strip (R), (TM) markers
-        for m in ["(R)", "(TM)", "\\(R\\)", "®", "™"]:
-            desc = desc.replace(m, "")
-        # Strip ISBN / USBISBN / reference numbers (e.g. "USBISBN: 978-1-68472-...")
-        desc = _re.sub(r'\s*:?\s*U?S?B?ISBN\s*:?\s*[\d\-]+.*', '', desc, flags=_re.IGNORECASE)
-        desc = _re.sub(r'\s*ISBN\s*:?\s*[\d\-]+.*', '', desc, flags=_re.IGNORECASE)
-        # Strip everything after a colon followed by a number (reference codes)
-        desc = _re.sub(r':\s*\d[\d\-]{4,}.*', '', desc)
-        # Strip everything in parentheses at end
+            left = desc.split(" - ")[0].strip()
+            if _re.match(r'^\d+\s+[A-Z]{2,4}$', left):
+                desc = desc.split(" - ", 1)[1].strip()
+            else:
+                desc = left
+        # Label:value patterns — strip the label AND value (ISBN:, SKU:, NDC:, etc.)
+        desc = _re.sub(r'\s*\b(?:U?S?B?ISBN|SKU|Ref|Cat|MFG|NDC|UPC|GTIN|Item)\s*#?\s*:?\s*[\w\-]*',
+                        '', desc, flags=_re.IGNORECASE)
+        # Colon followed by alphanumeric reference codes (catches remaining "Code: 12345")
+        desc = _re.sub(r':\s*[A-Z]*\d[\w\-]{3,}.*', '', desc, flags=_re.IGNORECASE)
+        # Standalone long numeric codes (6+ digits, likely catalog/part numbers)
+        desc = _re.sub(r'\s*#?\d{6,}[\w\-]*.*', '', desc)
+        # Parenthesized content at end
         desc = _re.sub(r'\s*\([^)]*\)\s*$', '', desc)
-        # Strip leading ASIN/qty patterns like "10 EA - "
-        desc = _re.sub(r'^\d+\s+EA\s*[-–]\s*', '', desc)
-        # Strip Model #, UPC #, Ref: patterns and trailing catalog numbers
-        desc = _re.sub(r'\s*Model\s*#.*', '', desc, flags=_re.IGNORECASE)
-        desc = _re.sub(r'\s*UPC\s*#.*', '', desc, flags=_re.IGNORECASE)
-        desc = _re.sub(r'\s*[-/]\s*\(\?\).*', '', desc)
-        desc = _re.sub(r'\s*#\s*\d{6,}.*', '', desc)
-        desc = desc.strip(" ,;-:/")
-        # Field is 246pt wide — fits ~55 chars at 7pt Helvetica
-        if len(desc) > 55:
-            desc = desc[:52] + "..."
+        # Registration marks
+        for m in ["(R)", "(TM)", "®", "™"]:
+            desc = desc.replace(m, "")
+        # Leading qty patterns: "10 EA - ", "2 BX - "
+        desc = _re.sub(r'^\d+\s+[A-Z]{2,3}\s*[-–]\s*', '', desc)
+        # Collapse whitespace from stripped segments
+        desc = _re.sub(r'\s{2,}', ' ', desc).strip(" ,;-:/")
+
+        # ── Phase 2: smart truncate at word boundary ──
+        if len(desc) > _CR_MAX:
+            cut = desc[:_CR_MAX - 3].rfind(" ")
+            if cut > _CR_MAX // 2:
+                desc = desc[:cut] + "..."
+            else:
+                desc = desc[:_CR_MAX - 3] + "..."
         return desc
 
     def _short_item(item):
