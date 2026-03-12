@@ -66,31 +66,28 @@ def get_plain_signature(closing: str = "Respectfully,") -> str:
 
 
 def get_html_signature(closing: str = "Respectfully,") -> str:
-    """HTML email signature with optional logo image."""
-    logo_src = _get_logo_src()
+    """HTML email signature — compact, no horizontal rule, CID logo."""
+    # NOTE: Logo uses cid:logo reference — the send function must attach
+    # the logo as an inline image with Content-ID <logo>. If not attached,
+    # the img tag gracefully falls back to alt text.
+    logo_html = '<img src="cid:reytech_logo" alt="Reytech Inc." style="width:120px;height:auto;display:block;margin-bottom:4px">'
 
-    logo_cell = ""
-    if logo_src:
-        logo_cell = f"""<td style="padding-right:16px;vertical-align:top">
-     <img src="{logo_src}" alt="{COMPANY}" style="width:80px;height:auto;border-radius:4px" onerror="this.style.display='none'">
-    </td>"""
-
-    return f"""<div style="border-top:1px solid #ddd;padding-top:12px;margin-top:16px">
- <table cellpadding="0" cellspacing="0" style="font-family:'Segoe UI',Arial,sans-serif">
-  <tr>
-   {logo_cell}
-   <td style="vertical-align:top">
-    <div style="font-weight:700;font-size:14px;color:#1a1a2e">{NAME}</div>
-    <div style="font-size:14px;color:#666">{COMPANY}</div>
-    <div style="font-size:14px;color:#666">{ADDRESS}</div>
-    <div style="font-size:14px;margin-top:4px">
-     <a href="tel:{PHONE.replace('-','')}" style="color:#2563eb;text-decoration:none">{PHONE}</a> |
-     <a href="mailto:{EMAIL}" style="color:#2563eb;text-decoration:none">{EMAIL}</a>
-    </div>
-    <div style="font-size:13px;color:#888;margin-top:2px">{CERT} · <a href="{WEBSITE}" style="color:#2563eb;text-decoration:none">{WEBSITE.replace('https://','')}</a></div>
-   </td>
-  </tr>
- </table>
+    return f"""{closing}
+<table cellpadding="0" cellspacing="0" style="font-family:'Segoe UI',Arial,sans-serif;margin-top:12px">
+ <tr>
+  <td style="padding-right:14px;vertical-align:top">{logo_html}</td>
+  <td style="vertical-align:top;font-size:13px;color:#444;line-height:1.5">
+   <strong style="font-size:14px;color:#1a1a2e">{COMPANY}</strong><br>
+   {NAME}<br>
+   <a href="https://www.reytechinc.com" style="color:#2563eb;text-decoration:none">www.reytechinc.com</a><br>
+   Trabuco Canyon, CA<br>
+   <a href="tel:{PHONE.replace('-','')}" style="color:#2563eb;text-decoration:none">{PHONE}</a>
+  </td>
+ </tr>
+</table>
+<div style="font-size:11px;color:#999;margin-top:8px;line-height:1.4">
+CA MB/SB/SB-PW/DVBE #2002605 · NY SDVOB 221449<br>
+DOT DBE #44511 · MBE SC6550 · SBA-SDVOB (FWWSKE9113T7)
 </div>"""
 
 

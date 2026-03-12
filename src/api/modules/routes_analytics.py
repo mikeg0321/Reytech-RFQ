@@ -496,12 +496,33 @@ def send_quote_email(rid):
         from email.mime.base import MIMEBase
         from email import encoders
 
-        msg = MIMEMultipart()
+        msg = MIMEMultipart("mixed")
         msg["From"] = gmail_user
         msg["To"] = to_email
         msg["Subject"] = subject
         msg["Reply-To"] = gmail_user
-        msg.attach(MIMEText(body, "html"))
+
+        # HTML body + inline logo in a 'related' sub-part
+        msg_related = MIMEMultipart("related")
+        msg_related.attach(MIMEText(body, "html"))
+
+        # Embed logo as inline CID attachment (renders in email clients)
+        try:
+            from src.core.paths import DATA_DIR as _dd
+            for _logo_name in ("reytech_logo_email.png", "email_logo.png", "reytech_logo.png", "logo.png"):
+                _logo_path = os.path.join(_dd, _logo_name)
+                if os.path.exists(_logo_path):
+                    from email.mime.image import MIMEImage
+                    with open(_logo_path, "rb") as _lf:
+                        logo_part = MIMEImage(_lf.read(), _subtype="png")
+                    logo_part.add_header("Content-ID", "<reytech_logo>")
+                    logo_part.add_header("Content-Disposition", "inline", filename="reytech_logo.png")
+                    msg_related.attach(logo_part)
+                    break
+        except Exception as _le:
+            log.debug("Logo CID embed failed: %s", _le)
+
+        msg.attach(msg_related)
 
         # Attach PDF if available
         if pdf_path and os.path.exists(pdf_path):
@@ -546,19 +567,33 @@ def send_quote_email(rid):
 
 def _default_quote_email_body(r):
     sol = r.get("solicitation_number", "")
-    items = r.get("line_items", [])
-    total = sum((i.get("qty", 0) or 0) * (i.get("price_per_unit", 0) or 0) for i in items)
-    return f"""<div style="font-family:Arial,sans-serif;color:#333">
-<p>Dear {r.get('requestor_name', 'Procurement Officer')},</p>
-<p>Please find attached our quote for <strong>Solicitation #{sol}</strong>.</p>
-<p><strong>Summary:</strong> {len(items)} line items · Total: ${total:,.2f}</p>
-<p>Please don't hesitate to reach out with any questions.</p>
-<br>
-<p>Best regards,<br>
-<strong>Reytech Inc.</strong><br>
-Michael Guadan<br>
-949-229-1575 · sales@reytechinc.com<br>
-SB/MB #2002605 · DVBE #2002605</p>
+    requestor = r.get("requestor_name", "").split(",")[0].split("@")[0].strip()
+    if not requestor or "@" in requestor:
+        requestor = "Procurement Officer"
+    # Use first name only
+    first_name = requestor.split()[0] if requestor and " " in requestor else requestor
+    
+    return f"""<div style="font-family:'Segoe UI',Arial,sans-serif;font-size:14px;color:#222;line-height:1.6">
+<p>Dear {first_name},</p>
+<p>Please find attached our bid response for Solicitation #{sol}.</p>
+<p>Please let us know if you have any questions.</p>
+<p>Respectfully,</p>
+<table cellpadding="0" cellspacing="0" style="margin-top:8px">
+ <tr>
+  <td style="padding-right:14px;vertical-align:top"><img src="cid:reytech_logo" alt="Reytech Inc." style="width:120px;height:auto;display:block"></td>
+  <td style="vertical-align:top;font-size:13px;color:#444;line-height:1.5">
+   <strong style="font-size:14px;color:#1a1a2e">Reytech Inc.</strong><br>
+   Sales Support<br>
+   <a href="https://www.reytechinc.com" style="color:#2563eb;text-decoration:none">www.reytechinc.com</a><br>
+   Trabuco Canyon, CA<br>
+   949-229-1575
+  </td>
+ </tr>
+</table>
+<div style="font-size:11px;color:#999;margin-top:8px;line-height:1.4">
+CA MB/SB/SB-PW/DVBE #2002605 &middot; NY SDVOB 221449<br>
+DOT DBE #44511 &middot; MBE SC6550 &middot; SBA-SDVOB (FWWSKE9113T7)
+</div>
 </div>"""
 
 

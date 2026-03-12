@@ -2548,48 +2548,22 @@ def upload_sig_logo():
 
 
 def _build_default_signature():
-    """Build the default Reytech email signature HTML with logo."""
-    import base64 as _b64
-    logo_b64 = ""
-    for logo_name in ("email_logo.png", "reytech_logo_email.png", "reytech_logo.png", "logo.png"):
-        logo_path = os.path.join(DATA_DIR, logo_name)
-        if os.path.exists(logo_path):
-            try:
-                with open(logo_path, "rb") as _lf:
-                    raw = _lf.read()
-                try:
-                    from PIL import Image
-                    import io as _io
-                    img = Image.open(_io.BytesIO(raw))
-                    if img.width > 200:
-                        ratio = 200 / img.width
-                        img = img.resize((200, int(img.height * ratio)), Image.LANCZOS)
-                        buf = _io.BytesIO()
-                        img.save(buf, "PNG", optimize=True)
-                        raw = buf.getvalue()
-                except Exception:
-                    pass
-                logo_b64 = f"data:image/png;base64,{_b64.b64encode(raw).decode()}"
-                break
-            except Exception:
-                continue
-
-    logo_img = f'<img src="{logo_b64}" alt="ReyTech Inc." style="height:36px;width:auto">' if logo_b64 else ""
-
-    return f"""<div style="font-family:'Segoe UI',Arial,sans-serif;color:#222">
-{logo_img}
-<div style="font-weight:700;font-size:14px;margin-top:4px">Reytech Inc.</div>
-<div style="font-size:13px;color:#555">Sales Support</div>
-<div style="font-size:13px"><a href="https://www.reytechinc.com" style="color:#2563eb;text-decoration:none">www.reytechinc.com</a></div>
-<div style="font-size:13px;color:#555">Trabuco Canyon, CA</div>
-<div style="font-size:13px;color:#222">949-229-1575</div>
-<div style="font-size:14px;color:#555;margin-top:6px;line-height:1.5">
-CA MB/SB/SB-PW/DVBE #2002605<br>
-NY SDVOB - 221449<br>
-DOT - Disadvantaged Business Enterprise DBE #44511<br>
-MBE - SC6550<br>
-SBA-SDVOB (Unique Entity ID: FWWSKE9113T7)
-</div>
+    """Build the default Reytech email signature HTML for compose section."""
+    return """<table cellpadding="0" cellspacing="0" style="font-family:'Segoe UI',Arial,sans-serif;margin-top:12px">
+ <tr>
+  <td style="padding-right:14px;vertical-align:top"><img src="cid:reytech_logo" alt="Reytech Inc." style="width:120px;height:auto;display:block"></td>
+  <td style="vertical-align:top;font-size:13px;color:#444;line-height:1.5">
+   <strong style="font-size:14px;color:#1a1a2e">Reytech Inc.</strong><br>
+   Sales Support<br>
+   <a href="https://www.reytechinc.com" style="color:#2563eb;text-decoration:none">www.reytechinc.com</a><br>
+   Trabuco Canyon, CA<br>
+   949-229-1575
+  </td>
+ </tr>
+</table>
+<div style="font-size:11px;color:#999;margin-top:8px;line-height:1.4">
+CA MB/SB/SB-PW/DVBE #2002605 &middot; NY SDVOB 221449<br>
+DOT DBE #44511 &middot; MBE SC6550 &middot; SBA-SDVOB (FWWSKE9113T7)
 </div>"""
 
 
@@ -2649,9 +2623,26 @@ def save_gmail_draft(rid):
             body_html = None
 
         if body_html:
+            related = MIMEMultipart("related")
+            related.attach(MIMEText(body_html, "html"))
+            # Embed logo as CID inline attachment
+            try:
+                from src.core.paths import DATA_DIR as _dd2
+                for _ln in ("reytech_logo_email.png", "email_logo.png", "reytech_logo.png", "logo.png"):
+                    _lp = os.path.join(_dd2, _ln)
+                    if os.path.exists(_lp):
+                        from email.mime.image import MIMEImage
+                        with open(_lp, "rb") as _lf2:
+                            _lip = MIMEImage(_lf2.read(), _subtype="png")
+                        _lip.add_header("Content-ID", "<reytech_logo>")
+                        _lip.add_header("Content-Disposition", "inline", filename="reytech_logo.png")
+                        related.attach(_lip)
+                        break
+            except Exception:
+                pass
             alt = MIMEMultipart("alternative")
             alt.attach(MIMEText(body, "plain"))
-            alt.attach(MIMEText(body_html, "html"))
+            alt.attach(related)
             msg.attach(alt)
         else:
             msg.attach(MIMEText(body, "plain"))
