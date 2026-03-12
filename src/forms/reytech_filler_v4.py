@@ -282,8 +282,9 @@ def fill_and_sign_pdf(input_path, field_values, output_path,
             name = str(obj.get("/T", ""))
             if "/Rect" not in obj:
                 continue
-            # Overlay signature on /Sig fields (always — no whitelist needed)
-            if ft == "/Sig":
+            # Overlay signature on /Sig fields — but ONLY if whitelisted
+            # (PD 843 has Signature1-4_PD843 as /Sig, only #1 should be signed)
+            if ft == "/Sig" and name in SIGN_FIELDS:
                 try:
                     r = [float(x) for x in obj["/Rect"]]
                     sig_entries.append((name, r, True))
@@ -2137,7 +2138,7 @@ def fill_calrecycle_standalone(input_path, rfq_data, config, output_path):
     }
 
     def _short_desc(item):
-        """Extract brand + main product name only (≤62 chars for CalRecycle)."""
+        """Extract brand + main product name only (≤85 chars for CalRecycle)."""
         desc = item.get("description", "")
         # Strip everything after first " - " separator (removes ref numbers, UPCs, etc.)
         if " - " in desc:
@@ -2158,9 +2159,9 @@ def fill_calrecycle_standalone(input_path, rfq_data, config, output_path):
         desc = _re.sub(r'\s*[-/]\s*\(\?\).*', '', desc)
         desc = _re.sub(r'\s*#\s*\d{6,}.*', '', desc)
         desc = desc.strip(" ,;-/")
-        # Cap at 62 chars — font auto-sizer will go down to 6pt to fit
-        if len(desc) > 62:
-            desc = desc[:59] + "..."
+        # Cap at 85 chars — font auto-sizer will go down to 6pt to fit
+        if len(desc) > 85:
+            desc = desc[:82] + "..."
         return desc
 
     def _short_item(item):
