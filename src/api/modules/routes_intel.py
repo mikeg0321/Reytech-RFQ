@@ -1717,9 +1717,36 @@ def quotes_list():
         detail_id = f"detail-{qn.replace(' ','')}"
         toggle = f"""<button onclick="document.getElementById('{detail_id}').style.display=document.getElementById('{detail_id}').style.display==='none'?'table-row':'none'" style="background:none;border:none;cursor:pointer;font-size:13px;color:var(--tx2);padding:0" title="Show items">▶ {qt.get('items_count',0)}</button>""" if (items_detail or items_text) else str(qt.get('items_count', 0))
 
-        # Quote number links to dedicated detail page
+        # Quote number links to source RFQ/PC page for editing + resend
+        # Falls back to quote detail page if no source link
+        source_rfq = qt.get("source_rfq_id", "")
+        source_pc = qt.get("source_pc_id", "")
+        rfq_num_val = qt.get("rfq_number", "")
+        
+        # Build link: prefer RFQ detail → PC detail → quote detail
+        if source_rfq:
+            qn_href = f"/rfq/{source_rfq}"
+        elif source_pc:
+            qn_href = f"/pricecheck/{source_pc}"
+        elif rfq_num_val:
+            # Try to find RFQ by solicitation number
+            qn_href = f"/quote/{qn}"  # fallback
+            try:
+                from src.api.modules.routes_rfq import load_rfqs as _lr
+                for _rid, _rfq in _lr().items():
+                    if str(_rfq.get("solicitation_number", "")).strip() == str(rfq_num_val).strip():
+                        qn_href = f"/rfq/{_rid}"
+                        break
+            except Exception:
+                pass
+        else:
+            qn_href = f"/quote/{qn}"
+        
         test_badge = ' <span style="background:#d29922;color:#000;font-size:13px;padding:1px 5px;border-radius:4px;font-weight:700">TEST</span>' if qt.get("is_test") or qt.get("source_pc_id", "").startswith("test_") else ""
-        qn_cell = f'<a href="/quote/{qn}" style="color:var(--ac);text-decoration:none;font-family:\'JetBrains Mono\',monospace;font-weight:700" title="View quote details">{qn}</a>{test_badge}'
+        qn_cell = f'<a href="{qn_href}" style="color:var(--ac);text-decoration:none;font-family:\'JetBrains Mono\',monospace;font-weight:700" title="Open RFQ to edit and resend">{qn}</a>{test_badge}'
+        
+        # RFQ # column — also links to RFQ detail
+        rfq_cell = f'<a href="{qn_href}" style="color:#58a6ff;text-decoration:none">{rfq_num_val}</a>' if rfq_num_val else "—"
 
         # Decided rows get subtle opacity
         row_style = "opacity:0.5" if st in ("won", "lost", "expired") else ""
@@ -1729,7 +1756,7 @@ def quotes_list():
          <td class="mono" style="white-space:nowrap">{qt.get('date','')}</td>
          <td>{agency}</td>
          <td style="max-width:300px;word-wrap:break-word;white-space:normal;font-weight:500">{institution}</td>
-         <td class="mono">{qt.get('rfq_number','')}</td>
+         <td class="mono">{rfq_cell}</td>
          <td style="text-align:right;font-weight:600;font-family:'JetBrains Mono',monospace">${qt.get('total',0):,.2f}</td>
          <td style="text-align:center">{toggle}</td>
          <td style="text-align:center">
