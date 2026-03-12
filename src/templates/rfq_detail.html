@@ -83,6 +83,8 @@
   <button class="btn btn-sm" style="background:rgba(167,139,250,.15);color:#a78bfa;border:1px solid rgba(167,139,250,.3);margin-left:4px" onclick="runAutoLookup()" aria-label="Full Auto-Lookup">🤖 Full Auto-Lookup</button>
   <button class="btn btn-sm" style="background:rgba(63,185,80,.15);color:#3fb950;border:1px solid rgba(63,185,80,.3);margin-left:4px" onclick="importFromPC(this)" aria-label="Import items and prices from a Price Check">📥 Import from PC</button>
   <button class="btn btn-sm" style="background:rgba(56,189,248,.15);color:#38bdf8;border:1px solid rgba(56,189,248,.3);margin-left:4px" onclick="importFromCatalog(this)" aria-label="Match items against product catalog and auto-fill pricing">📦 Catalog Match</button>
+  <button class="btn btn-sm" style="background:rgba(251,146,60,.15);color:#fb923c;border:1px solid rgba(251,146,60,.3);margin-left:4px" onclick="uploadSupplierQuote()" aria-label="Upload supplier quote PDF to fill costs">🏷️ Supplier Quote</button>
+  <input type="file" id="sq-upload-input" accept=".pdf" style="display:none" onchange="handleSQUpload(this)">
   <button class="btn btn-sm" style="background:rgba(210,153,34,.15);color:#d29922;border:1px solid rgba(210,153,34,.3);margin-left:4px" onclick="uploadPC()" aria-label="Upload a filled PC PDF to import prices">📤 Upload PC PDF</button>
   <input type="file" id="pc-upload-input" accept=".pdf" style="display:none" onchange="handlePCUpload(this)">
   <button class="btn btn-sm" style="background:rgba(52,211,153,.15);color:#3fb950;border:1px solid rgba(52,211,153,.3);margin-left:4px" onclick="applyRecommendations()" aria-label="Apply Recommendations">⚡ Apply Recommendations</button>
@@ -833,6 +835,46 @@ function printPreview(){
 
 // E3: Full Auto-Lookup with polling progress
 function uploadPC(){document.getElementById('pc-upload-input').click()}
+function uploadSupplierQuote(){document.getElementById('sq-upload-input').click()}
+function handleSQUpload(input){
+ if(!input.files||!input.files[0])return;
+ var f=input.files[0];
+ if(!f.name.toLowerCase().endsWith('.pdf')){alert('Please select a PDF file');return}
+ var fd=new FormData();
+ fd.append('file',f);
+ var btn=document.querySelector('[onclick*="uploadSupplierQuote"]');
+ if(btn){btn.disabled=true;btn.textContent='⏳ Parsing quote...';}
+ fetch('/rfq/'+RID+'/upload-supplier-quote',{method:'POST',body:fd})
+ .then(r=>r.json()).then(d=>{
+  if(btn){btn.disabled=false;btn.textContent='🏷️ Supplier Quote';}
+  input.value='';
+  if(d.ok){
+   var msg='✅ Supplier Quote Imported\n\n';
+   msg+='Supplier: '+(d.supplier||'Unknown')+'\n';
+   if(d.quote_number) msg+='Quote #: '+d.quote_number+'\n';
+   msg+='Items found: '+d.items_parsed+'\n';
+   msg+='Matched to RFQ: '+d.items_matched+'\n';
+   msg+='Catalog added: '+d.catalog_added+'\n';
+   msg+='Catalog updated: '+d.catalog_updated+'\n';
+   if(d.unmatched && d.unmatched.length>0){
+    msg+='\n⚠ Unmatched items (add manually):\n';
+    d.unmatched.forEach(function(u){
+     msg+='  • '+u.description.substring(0,50)+' @ $'+u.unit_price.toFixed(2)+'\n';
+    });
+   }
+   if(d.items_matched>0) msg+='\n"Your Cost" column updated — adjust markup and bid prices.';
+   alert(msg);
+   if(d.items_matched>0) location.reload();
+  } else {
+   var errMsg='❌ '+(d.error||'Failed');
+   if(d.raw_text) errMsg+='\n\nFirst 300 chars of PDF text:\n'+d.raw_text.substring(0,300);
+   alert(errMsg);
+  }
+ }).catch(e=>{
+  if(btn){btn.disabled=false;btn.textContent='🏷️ Supplier Quote';}
+  input.value='';alert('Error: '+e.message);
+ });
+}
 function handlePCUpload(input){
  if(!input.files||!input.files[0])return;
  var f=input.files[0];

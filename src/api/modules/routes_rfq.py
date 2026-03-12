@@ -1024,6 +1024,128 @@ def rfq_reset_items(rid):
     return _item_response(rid, True, f"Cleared {old_count} items")
 
 
+@bp.route("/rfq/<rid>/upload-supplier-quote", methods=["POST"])
+@auth_required
+def rfq_upload_supplier_quote(rid):
+    """Upload a supplier quote PDF → parse → match to RFQ items → fill costs + update catalog."""
+    import os, json
+    from src.core.paths import DATA_DIR
+
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"})
+
+    f = request.files.get("file")
+    if not f or not f.filename.lower().endswith(".pdf"):
+        return jsonify({"ok": False, "error": "Upload a PDF file"})
+
+    # Save uploaded file
+    upload_dir = os.path.join(DATA_DIR, "uploads", "supplier_quotes")
+    os.makedirs(upload_dir, exist_ok=True)
+    pdf_path = os.path.join(upload_dir, f"sq_{rid}_{f.filename}")
+    f.save(pdf_path)
+
+    # Parse the quote
+    try:
+        from src.forms.supplier_quote_parser import parse_supplier_quote, match_quote_to_rfq
+    except ImportError as e:
+        return jsonify({"ok": False, "error": f"Parser not available: {e}"})
+
+    parsed = parse_supplier_quote(pdf_path)
+    if not parsed.get("ok"):
+        return jsonify({"ok": False, "error": parsed.get("error", "Parse failed"),
+                        "raw_text": parsed.get("raw_text", "")[:500]})
+
+    quote_items = parsed.get("items", [])
+    if not quote_items:
+        return jsonify({"ok": False, "error": "No priced items found in PDF",
+                        "raw_text": parsed.get("raw_text", "")[:500]})
+
+    supplier = parsed.get("supplier", "Unknown")
+    quote_num = parsed.get("quote_number", "")
+
+    # Match to RFQ line items
+    rfq_items = r.get("line_items", [])
+    matches = match_quote_to_rfq(quote_items, rfq_items)
+
+    # Apply matches: fill supplier cost + update catalog
+    applied = 0
+    unmatched = []
+    catalog_added = 0
+    catalog_updated = 0
+
+    for m in matches:
+        cost = m.get("unit_price", 0)
+        q_desc = m.get("quote_desc", "")
+        q_pn = m.get("quote_pn", "")
+
+        if m["matched"] and m["rfq_idx"] is not None and cost > 0:
+            idx = m["rfq_idx"]
+            if idx < len(rfq_items):
+                rfq_items[idx]["supplier_cost"] = round(cost, 2)
+                rfq_items[idx]["item_supplier"] = supplier
+                if q_pn and not rfq_items[idx].get("item_number"):
+                    rfq_items[idx]["item_number"] = q_pn
+                applied += 1
+        else:
+            unmatched.append({
+                "description": q_desc,
+                "part_number": q_pn,
+                "unit_price": cost,
+                "qty": m.get("qty", 1),
+            })
+
+        # Update catalog for ALL parsed items (matched or not)
+        if cost > 0 and q_desc:
+            try:
+                from src.agents.product_catalog import (
+                    match_item, add_to_catalog, add_supplier_price,
+                    init_catalog_db
+                )
+                init_catalog_db()
+                cat_matches = match_item(q_desc, q_pn, top_n=1)
+                if cat_matches and cat_matches[0].get("match_confidence", 0) >= 0.5:
+                    pid = cat_matches[0]["id"]
+                    add_supplier_price(pid, supplier, cost)
+                    catalog_updated += 1
+                else:
+                    pid = add_to_catalog(
+                        description=q_desc,
+                        part_number=q_pn,
+                        cost=cost,
+                        supplier_name=supplier,
+                        source=f"supplier_quote_{quote_num or 'upload'}",
+                    )
+                    if pid:
+                        add_supplier_price(pid, supplier, cost)
+                        catalog_added += 1
+            except Exception as _ce:
+                log.debug("Catalog update from supplier quote: %s", _ce)
+
+    # Save RFQ
+    r["_last_supplier_quote"] = {
+        "supplier": supplier,
+        "quote_number": quote_num,
+        "pdf": pdf_path,
+        "items_parsed": len(quote_items),
+        "items_matched": applied,
+        "uploaded_at": __import__("datetime").datetime.now().isoformat(),
+    }
+    save_rfqs(rfqs)
+
+    return jsonify({
+        "ok": True,
+        "supplier": supplier,
+        "quote_number": quote_num,
+        "items_parsed": len(quote_items),
+        "items_matched": applied,
+        "unmatched": unmatched,
+        "catalog_added": catalog_added,
+        "catalog_updated": catalog_updated,
+    })
+
+
 def _renumber_items(items):
     """Re-number line items sequentially."""
     for i, it in enumerate(items):
