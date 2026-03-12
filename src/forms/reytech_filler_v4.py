@@ -2101,6 +2101,160 @@ def generate_drug_free(rfq_data, config, output_path):
 # CalRecycle 74 — Standalone with overflow pages
 # ═══════════════════════════════════════════════════════════════════════
 
+def _calrecycle_overlay_items(pdf_path, items):
+    """
+    Overlay line item text onto CalRecycle 74 using ReportLab.
+    
+    pypdf form filling clips text in the narrow fields (42pt item#, 246pt desc).
+    ReportLab overlay gives exact control over font size and positioning.
+    
+    Scans the PDF for field coordinates to handle any CalRecycle template version.
+    """
+    import io as _io
+    from pypdf import PdfReader as _PR, PdfWriter as _PW
+    from reportlab.pdfgen import canvas as _rlc
+    import re as _re
+
+    try:
+        reader = _PR(pdf_path)
+        writer = _PW()
+        writer.append(reader)
+
+        # Find CalRecycle page — has "Product or Services DescriptionRow1"
+        cr_page_idx = None
+        row_coords = {}  # {row_num: {field_name: [x0, y0, x1, y1]}}
+        
+        for pg_idx, pg in enumerate(reader.pages):
+            annots = pg.get("/Annots", []) or []
+            found_desc_row1 = False
+            for a in annots:
+                obj = a.get_object() if hasattr(a, "get_object") else a
+                name = str(obj.get("/T", ""))
+                rect = obj.get("/Rect")
+                if not rect:
+                    continue
+                
+                # Detect row fields
+                for row_n in range(1, 7):
+                    if f"Row{row_n}" in name:
+                        coords = [float(x) for x in rect]
+                        row_coords.setdefault(row_n, {})[name] = coords
+                        if "DescriptionRow1" in name:
+                            found_desc_row1 = True
+            
+            if found_desc_row1:
+                cr_page_idx = pg_idx
+                break
+
+        if cr_page_idx is None:
+            print("  ⚠ CalRecycle overlay: could not find CalRecycle page")
+            return
+
+        page = writer.pages[cr_page_idx]
+        mb = page.get("/MediaBox", [0, 0, 612, 792])
+        pw, ph = float(mb[2]), float(mb[3])
+
+        # Create overlay canvas
+        packet = _io.BytesIO()
+        c = _rlc.Canvas(packet, pagesize=(pw, ph))
+        c.setFillColorRGB(0, 0, 0)
+
+        for idx, item in enumerate(items, start=1):
+            if idx not in row_coords:
+                continue
+            
+            fields = row_coords[idx]
+            
+            # Item # — 42pt wide field, use 5.5pt font
+            item_rect = fields.get(f"Item Row{idx}")
+            if item_rect:
+                pn = str(item.get("item_number", item.get("part_number", "")))
+                font_sz = 5.5
+                # Auto-shrink if still too wide
+                item_w = item_rect[2] - item_rect[0] - 4
+                while c.stringWidth(pn, "Helvetica", font_sz) > item_w and font_sz > 4:
+                    font_sz -= 0.5
+                if c.stringWidth(pn, "Helvetica", font_sz) > item_w:
+                    # Still too wide — truncate
+                    while len(pn) > 2 and c.stringWidth(pn, "Helvetica", font_sz) > item_w:
+                        pn = pn[:-1]
+                c.setFont("Helvetica", font_sz)
+                c.drawString(item_rect[0] + 2, item_rect[1] + 8, pn)
+
+            # Description — 246pt wide, use 6pt font with smart truncation
+            desc_rect = fields.get(f"Product or Services DescriptionRow{idx}")
+            if desc_rect:
+                desc = _calrecycle_clean_desc(item)
+                desc_w = desc_rect[2] - desc_rect[0] - 6
+                font_sz = 6.5
+                # Check if it fits, shrink if needed
+                while c.stringWidth(desc, "Helvetica", font_sz) > desc_w and font_sz > 5:
+                    font_sz -= 0.5
+                # Still too wide — truncate at word boundary
+                if c.stringWidth(desc, "Helvetica", font_sz) > desc_w:
+                    while len(desc) > 10 and c.stringWidth(desc, "Helvetica", font_sz) > desc_w:
+                        cut = desc[:-4].rfind(" ")
+                        if cut > len(desc) // 2:
+                            desc = desc[:cut] + "..."
+                        else:
+                            desc = desc[:-4] + "..."
+                c.setFont("Helvetica", font_sz)
+                c.drawString(desc_rect[0] + 3, desc_rect[1] + 8, desc)
+
+            # Percent — "0%"
+            pct_key = f"1Percent Postconsumer Recycled Content MaterialRow{idx}"
+            pct_rect = fields.get(pct_key)
+            if pct_rect:
+                c.setFont("Helvetica", 7)
+                c.drawString(pct_rect[0] + 8, pct_rect[1] + 8, "0%")
+
+            # SABRC Code — "N/A"
+            sabrc_key = f"2SABRC Product Category CodeRow{idx}"
+            sabrc_rect = fields.get(sabrc_key)
+            if sabrc_rect:
+                c.setFont("Helvetica", 7)
+                c.drawString(sabrc_rect[0] + 6, sabrc_rect[1] + 8, "N/A")
+
+        c.save()
+        packet.seek(0)
+
+        from pypdf import PdfReader as _PR2
+        overlay = _PR2(packet)
+        if overlay.pages:
+            page.merge_page(overlay.pages[0])
+
+        with open(pdf_path, "wb") as _f:
+            writer.write(_f)
+        print(f"  ✓ CalRecycle overlay: {len(items)} items drawn at exact field coordinates")
+    except Exception as _e:
+        print(f"  ⚠ CalRecycle overlay failed: {_e}")
+        import traceback; traceback.print_exc()
+
+
+def _calrecycle_clean_desc(item):
+    """Clean description for CalRecycle overlay. More generous than form-field version."""
+    import re as _re
+    desc = item.get("description", "")
+    
+    # Strip after first " - " if left side is substantial
+    if " - " in desc:
+        left = desc.split(" - ")[0].strip()
+        if _re.match(r'^\d+\s+[A-Z]{2,4}$', left):
+            desc = desc.split(" - ", 1)[1].strip()
+        else:
+            desc = left
+    # Strip label:value patterns
+    desc = _re.sub(r'\s*\b(?:U?S?B?ISBN|SKU|Ref|Cat|MFG|NDC|UPC|GTIN|Item)\s*#?\s*:?\s*[\w\-]*',
+                    '', desc, flags=_re.IGNORECASE)
+    desc = _re.sub(r':\s*[A-Z]*\d[\w\-]{3,}.*', '', desc, flags=_re.IGNORECASE)
+    desc = _re.sub(r'\s*#?\d{6,}[\w\-]*.*', '', desc)
+    desc = _re.sub(r'\s*\([^)]*\)\s*$', '', desc)
+    for m in ["(R)", "(TM)", "®", "™"]:
+        desc = desc.replace(m, "")
+    desc = _re.sub(r'^\d+\s+[A-Z]{2,3}\s*[-–]\s*', '', desc)
+    desc = _re.sub(r'\s{2,}', ' ', desc).strip(" ,;-:/")
+    return desc
+
 def _calrecycle_fix_date(pdf_path, sign_date):
     """
     Overlay the date text directly onto the CalRecycle 74 Date field.
@@ -2246,13 +2400,9 @@ def fill_calrecycle_standalone(input_path, rfq_data, config, output_path):
             pn = pn[:10]
         return pn
 
-    # Fill first page (up to 6 items)
+    # Fill header fields only — line items use ReportLab overlay for precise rendering
     values = dict(base_values)
-    for idx, item in enumerate(items[:6], start=1):
-        values[f"Item Row{idx}"] = _short_item(item)
-        values[f"Product or Services DescriptionRow{idx}"] = _short_desc(item)
-        values[f"1Percent Postconsumer Recycled Content MaterialRow{idx}"] = "0%"
-        values[f"2SABRC Product Category CodeRow{idx}"] = "N/A"
+    # DON'T fill item/description/percent/SABRC form fields — overlay handles them
 
     if not items:
         values["Product or Services DescriptionRow1"] = "All Items"
@@ -2260,32 +2410,30 @@ def fill_calrecycle_standalone(input_path, rfq_data, config, output_path):
         values["2SABRC Product Category CodeRow1"] = "N/A"
 
     fill_and_sign_pdf(input_path, values, output_path, sign_date=sign_date)
-    # Fix: CalRecycle Date field has no /T name — fill by rect position
     _calrecycle_fix_date(output_path, sign_date)
+
+    # ── Overlay line items using ReportLab for precise text rendering ──
+    # pypdf form filling clips text in narrow fields. ReportLab gives us
+    # exact control over font size, position, and truncation.
+    if items:
+        _calrecycle_overlay_items(output_path, items[:6])
 
     # Overflow: if >6 items, append additional CalRecycle pages
     if len(items) > 6:
         remaining = items[6:]
-        # Use blank CalRecycle template for overflow
         tmpl_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "data", "templates")
         blank_cr = os.path.join(tmpl_dir, "calrecycle_74_blank.pdf")
         if not os.path.exists(blank_cr):
             print(f"  ⚠ CalRecycle overflow: blank template not found at {blank_cr}")
             return
 
-        # Process in batches of 6
         overflow_pages = []
         for batch_start in range(0, len(remaining), 6):
             batch = remaining[batch_start:batch_start + 6]
             ov_values = dict(base_values)
-            for idx, item in enumerate(batch, start=1):
-                ov_values[f"Item Row{idx}"] = _short_item(item)
-                ov_values[f"Product or Services DescriptionRow{idx}"] = _short_desc(item)
-                ov_values[f"1Percent Postconsumer Recycled Content MaterialRow{idx}"] = "0%"
-                ov_values[f"2SABRC Product Category CodeRow{idx}"] = "N/A"
-
             ov_path = output_path.replace(".pdf", f"_overflow_{batch_start}.pdf")
             fill_and_sign_pdf(blank_cr, ov_values, ov_path, sign_date=sign_date)
+            _calrecycle_overlay_items(ov_path, batch)
             overflow_pages.append(ov_path)
 
         # Merge: original + overflow pages (page 0 only from each overflow, skip ref table)
