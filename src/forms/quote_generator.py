@@ -1443,18 +1443,20 @@ def generate_quote_from_rfq(rfq: dict, output_path: str, **kwargs) -> dict:
         if facility:
             log.info("Facility matched by zip: %s", facility["name"])
 
-    # ── Set To / Ship To from facility ──
+    # ── Set To / Ship To ──
+    # Priority for ship-to: RFQ's parsed delivery_location (from 703B) > facility lookup > raw fields
+    # Priority for bill-to: agency config > facility parent
+    
+    # Start with facility data as base
     if facility:
         ship_name = facility["name"]
         ship_addr = list(facility["address"])
-        # To: uses parent agency name; address comes from AGENCY_CONFIGS bill_to
         to_name = facility["parent_full"]
         _parent_agency_map = {"CDCR": "CDCR", "CCHCS": "CCHCS", "CalVet": "CalVet", "DGS": "DGS", "DSH": "DSH"}
         _agency_key = _parent_agency_map.get(facility["parent"], "")
         if _agency_key:
             if "agency" not in kwargs:
                 kwargs["agency"] = _agency_key
-            # Use agency bill-to as To: address (HQ/invoicing address)
             _cfg = AGENCY_CONFIGS.get(_agency_key, {})
             if _cfg.get("bill_to_lines"):
                 to_addr = list(_cfg["bill_to_lines"])
@@ -1464,7 +1466,6 @@ def generate_quote_from_rfq(rfq: dict, output_path: str, **kwargs) -> dict:
             to_addr = list(ship_addr)
         log.info("Facility resolved: To=%s, Ship To=%s (%s)", to_name, ship_name, ship_addr)
     else:
-        # No facility found — use whatever we have
         if delivery:
             ship_name, ship_addr = _parse_address_parts(delivery)
         elif ship_to_raw:
@@ -1477,6 +1478,16 @@ def generate_quote_from_rfq(rfq: dict, output_path: str, **kwargs) -> dict:
         to_name = institution
         to_addr = list(ship_addr)
         log.warning("No facility match for RFQ %s — To/ShipTo may be incomplete", rfq.get("id", "?"))
+
+    # OVERRIDE ship-to with RFQ's parsed delivery address (from 703B) if available
+    # The 703B has the exact address the agency wants delivery to — always use it
+    if delivery and delivery.strip():
+        _parsed_name, _parsed_addr = _parse_address_parts(delivery)
+        if _parsed_name or _parsed_addr:
+            ship_name = _parsed_name or ship_name
+            if _parsed_addr:
+                ship_addr = _parsed_addr
+            log.info("Ship-to overridden by RFQ delivery_location: %s, %s", ship_name, ship_addr)
 
     data = {
         "institution": to_name,
