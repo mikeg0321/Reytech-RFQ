@@ -1501,6 +1501,13 @@ def generate_quote_from_rfq(rfq: dict, output_path: str, **kwargs) -> dict:
     for idx_q, item in enumerate(rfq.get("line_items", [])):
         up = item.get("price_per_unit") or item.get("our_price") or 0
         pn = item.get("item_number", item.get("part_number", ""))
+        
+        # Don't use pure numeric values as MFG PART # — those are form row numbers
+        # Real part numbers have letters+digits (e.g. "EQX7044", "SHINY-S-852", "491861315")
+        # Pure sequential digits 1-99 are line item numbers, not MFG part numbers
+        if pn and pn.strip().isdigit() and int(pn.strip()) < 100:
+            pn = ""
+        
         asin = item.get("asin", "")
         supplier_url = item.get("supplier_url", "") or item.get("item_link", "")
         
@@ -1510,8 +1517,9 @@ def generate_quote_from_rfq(rfq: dict, output_path: str, **kwargs) -> dict:
         elif not supplier_url and pn and pn.startswith("B0"):
             supplier_url = f"https://www.amazon.com/dp/{pn}"
         
-        # Clean unicode garbage from descriptions (■, □, replacement chars)
-        _desc = item.get("description", "")
+        # Use description_raw if available (full untruncated text from parser)
+        # Fall back to description (cleaned/shortened version)
+        _desc = item.get("description_raw") or item.get("description", "")
         _desc = _desc.replace('\ufffd', '').replace('■', '').replace('□', '')
         _desc = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', _desc)
         _desc = re.sub(r'\s+', ' ', _desc).strip()
