@@ -157,7 +157,16 @@
    <td class="mono" style="font-size:15px;font-weight:700" id="sub_{{loop.index0}}">—</td>
    <td id="mg_{{loop.index0}}" style="font-weight:700;font-size:14px">—</td>
    <td id="pf_{{loop.index0}}" style="font-weight:700;font-size:14px">—</td>
-   <td><form method="POST" action="/rfq/{{rid}}/remove-item/{{loop.index0}}" style="margin:0"><button type="submit" class="btn btn-sm" style="background:none;border:none;color:#f85149;font-size:14px;padding:2px 6px;cursor:pointer" title="Remove item" onclick="return confirm('Remove this line item?')">×</button></form></td>
+   <td style="position:relative">
+    <button type="button" class="btn btn-sm" style="background:none;border:none;color:#8b949e;font-size:16px;padding:2px 6px;cursor:pointer" onclick="toggleItemMenu(event,{{loop.index0}})">⋯</button>
+    <div id="item-menu-{{loop.index0}}" class="item-menu" style="display:none;position:fixed;z-index:999;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:4px 0;min-width:140px;box-shadow:0 8px 24px rgba(0,0,0,.4)">
+     <button type="button" onclick="itemAction('move-item/{{loop.index0}}/up')" style="display:block;width:100%;text-align:left;background:none;border:none;color:#c9d1d9;padding:6px 14px;font-size:13px;cursor:pointer" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'">⬆ Move Up</button>
+     <button type="button" onclick="itemAction('move-item/{{loop.index0}}/down')" style="display:block;width:100%;text-align:left;background:none;border:none;color:#c9d1d9;padding:6px 14px;font-size:13px;cursor:pointer" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'">⬇ Move Down</button>
+     <button type="button" onclick="itemAction('duplicate-item/{{loop.index0}}')" style="display:block;width:100%;text-align:left;background:none;border:none;color:#c9d1d9;padding:6px 14px;font-size:13px;cursor:pointer" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'">📋 Duplicate</button>
+     <hr style="border:none;border-top:1px solid #21262d;margin:4px 0">
+     <button type="button" onclick="if(confirm('Remove this line item?'))itemAction('remove-item/{{loop.index0}}')" style="display:block;width:100%;text-align:left;background:none;border:none;color:#f85149;padding:6px 14px;font-size:13px;cursor:pointer" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'">🗑 Delete</button>
+    </div>
+   </td>
   </tr>
   {% endfor %}
   </tbody>
@@ -175,6 +184,9 @@
    <button type="submit" class="btn btn-sm btn-p" style="padding:6px 14px;font-size:14px">Add</button>
   </form>
  </details>
+ <div style="margin-top:6px">
+  <button type="button" onclick="resetItems()" class="btn btn-sm" style="background:rgba(248,81,73,.08);color:#f85149;border:1px solid rgba(248,81,73,.2);font-size:13px;padding:4px 12px">🔄 Reset All Items</button>
+ </div>
 
  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;padding-top:14px;border-top:1px solid var(--bd)">
   <div>
@@ -909,6 +921,40 @@ function importFromCatalog(btn){
    if(d.enriched>0) location.reload();
   } else alert('❌ '+(d.error||'Failed'));
  }).catch(e=>{btn.disabled=false;btn.textContent=orig;alert('Error: '+e.message)});
+}
+
+function toggleItemMenu(e,idx){
+ e.stopPropagation();
+ // Close all other menus
+ document.querySelectorAll('.item-menu').forEach(m=>m.style.display='none');
+ var menu=document.getElementById('item-menu-'+idx);
+ if(menu.style.display==='none'){
+  var rect=e.target.getBoundingClientRect();
+  menu.style.left=(rect.left-120)+'px';
+  menu.style.top=(rect.bottom+4)+'px';
+  menu.style.display='block';
+ }
+}
+document.addEventListener('click',function(){
+ document.querySelectorAll('.item-menu').forEach(m=>m.style.display='none');
+});
+
+function itemAction(path){
+ document.querySelectorAll('.item-menu').forEach(m=>m.style.display='none');
+ fetch('/rfq/'+RID+'/'+path,{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'}})
+ .then(r=>r.json()).then(d=>{
+  if(d.ok) location.reload();
+  else alert('Error: '+(d.message||'Failed'));
+ }).catch(e=>alert('Error: '+e.message));
+}
+
+function resetItems(){
+ if(!confirm('Clear ALL line items from this RFQ? You can re-import from PC or add manually after.')) return;
+ fetch('/rfq/'+RID+'/reset-items',{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'}})
+ .then(r=>r.json()).then(d=>{
+  if(d.ok){alert(d.message);location.reload();}
+  else alert('Error: '+(d.message||'Failed'));
+ }).catch(e=>alert('Error: '+e.message));
 }
 
 function runAutoLookup(){

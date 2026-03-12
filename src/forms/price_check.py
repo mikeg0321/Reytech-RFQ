@@ -558,9 +558,10 @@ def _merge_continuation_items(items: list) -> list:
             if not has_product_word and len(desc) < 60:
                 should_merge = True
         elif item.get("qty") == prev.get("qty") and item.get("uom") == prev.get("uom"):
-            # Same qty AND same UOM as previous item — likely auto-filled from above row
-            # Check if description is supplementary or short
-            if is_supplement or len(desc) < 40:
+            # Same qty AND same UOM as previous item — could be auto-filled from above row,
+            # but also could be two distinct items with same qty. Only merge if description
+            # is clearly supplementary (pack info, part number) — NOT just because it's short.
+            if is_supplement:
                 should_merge = True
         
         if should_merge:

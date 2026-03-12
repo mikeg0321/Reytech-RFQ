@@ -915,7 +915,7 @@ def rfq_add_item(rid):
     if "line_items" not in r:
         r["line_items"] = []
 
-    next_num = max((it.get("line_number", 0) for it in r["line_items"]), default=0) + 1
+    next_num = len(r["line_items"]) + 1
 
     new_item = {
         "line_number": next_num,
@@ -945,21 +945,97 @@ def rfq_remove_item(rid, idx):
     rfqs = load_rfqs()
     r = rfqs.get(rid)
     if not r:
-        flash("RFQ not found", "error"); return redirect("/")
+        return _item_response(rid, False, "RFQ not found")
 
     items = r.get("line_items", [])
     if 0 <= idx < len(items):
         removed = items.pop(idx)
-        # Re-number remaining items
-        for i, it in enumerate(items):
-            it["line_number"] = i + 1
+        _renumber_items(items)
         save_rfqs(rfqs)
         _log_rfq_activity(rid, "item_removed",
             f"Line item removed: {removed.get('description','')[:60]}",
             actor="user")
-        flash("Item removed", "success")
+        return _item_response(rid, True, "Item removed")
+    return _item_response(rid, False, "Invalid item index")
+
+
+@bp.route("/rfq/<rid>/duplicate-item/<int:idx>", methods=["POST"])
+@auth_required
+def rfq_duplicate_item(rid, idx):
+    """Duplicate a line item (insert copy right after the original)."""
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return _item_response(rid, False, "RFQ not found")
+
+    items = r.get("line_items", [])
+    if 0 <= idx < len(items):
+        import copy
+        dupe = copy.deepcopy(items[idx])
+        dupe.pop("_catalog_product_id", None)
+        items.insert(idx + 1, dupe)
+        _renumber_items(items)
+        save_rfqs(rfqs)
+        return _item_response(rid, True, f"Item duplicated at #{idx + 2}")
+    return _item_response(rid, False, "Invalid item index")
+
+
+@bp.route("/rfq/<rid>/move-item/<int:idx>/<direction>", methods=["POST"])
+@auth_required
+def rfq_move_item(rid, idx, direction):
+    """Move a line item up or down."""
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return _item_response(rid, False, "RFQ not found")
+
+    items = r.get("line_items", [])
+    if direction == "up" and idx > 0:
+        items[idx], items[idx - 1] = items[idx - 1], items[idx]
+    elif direction == "down" and idx < len(items) - 1:
+        items[idx], items[idx + 1] = items[idx + 1], items[idx]
     else:
-        flash("Invalid item index", "error")
+        return _item_response(rid, False, "Cannot move")
+
+    _renumber_items(items)
+    save_rfqs(rfqs)
+    return _item_response(rid, True, f"Item moved {direction}")
+
+
+@bp.route("/rfq/<rid>/reset-items", methods=["POST"])
+@auth_required
+def rfq_reset_items(rid):
+    """Clear all line items from an RFQ so it can be re-imported."""
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return _item_response(rid, False, "RFQ not found")
+
+    old_count = len(r.get("line_items", []))
+    r["line_items"] = []
+    r.pop("linked_pc_id", None)
+    r.pop("linked_pc_number", None)
+    r.pop("linked_pc_match_reason", None)
+    r.pop("uploaded_pc_pdf", None)
+    save_rfqs(rfqs)
+    _log_rfq_activity(rid, "items_reset",
+        f"All {old_count} line items cleared for re-import",
+        actor="user")
+    return _item_response(rid, True, f"Cleared {old_count} items")
+
+
+def _renumber_items(items):
+    """Re-number line items sequentially."""
+    for i, it in enumerate(items):
+        it["line_number"] = i + 1
+
+
+def _item_response(rid, ok, msg):
+    """Return JSON for AJAX or redirect for form POST."""
+    if request.is_json or request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return jsonify({"ok": ok, "message": msg})
+    from flask import flash as _flash
+    _flash(msg, "success" if ok else "error")
     return redirect(f"/rfq/{rid}")
 
 
