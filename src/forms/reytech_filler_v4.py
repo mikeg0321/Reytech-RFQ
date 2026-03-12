@@ -262,9 +262,12 @@ def fill_and_sign_pdf(input_path, field_values, output_path,
 
     for page in writer.pages:
         try:
-            # auto_regenerate=True bakes appearance streams into each field so values
-            # remain visible after the page is copied into a merged package PDF.
-            writer.update_page_form_field_values(page, clean_values, auto_regenerate=True)
+            # Rotated pages (e.g. GSPD-05-105 Bidder Declaration with /Rotate=90)
+            # must NOT use auto_regenerate — it generates appearance streams in
+            # pre-rotation space, making text appear sideways.
+            page_rotate = int(page.get("/Rotate", 0))
+            use_auto_regen = (page_rotate == 0)
+            writer.update_page_form_field_values(page, clean_values, auto_regenerate=use_auto_regen)
         except Exception:
             try:
                 writer.update_page_form_field_values(page, clean_values, auto_regenerate=False)
@@ -2560,8 +2563,11 @@ def _bidpkg_page_skip_reason(page):
     if any("obs 1600" in f.lower() for f in field_names):
         return "OBS 1600 food entry form"
     # GSPD-05-105 Bidder Declaration (from template, NOT the standalone)
+    # Field names: Text0_105, Check3_105, Page1_105, Signature29
     if any("gspd" in f.lower() or "subcontractor" in f.lower() for f in field_names):
         return "GSPD-05-105 Bidder Declaration (use standalone)"
+    if any(f.endswith("_105") for f in field_names) and any(f.startswith("Text") for f in field_names):
+        return "GSPD-05-105 Bidder Declaration (field pattern _105)"
     # STD 105 Bidder Declaration by field naming convention
     if "solicitation number" in field_sig and "subcontractor" in field_sig:
         return "Bidder Declaration fields"
