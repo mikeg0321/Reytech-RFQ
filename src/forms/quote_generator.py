@@ -1443,51 +1443,49 @@ def generate_quote_from_rfq(rfq: dict, output_path: str, **kwargs) -> dict:
         if facility:
             log.info("Facility matched by zip: %s", facility["name"])
 
-    # ── Set To / Ship To ──
-    # Priority for ship-to: RFQ's parsed delivery_location (from 703B) > facility lookup > raw fields
-    # Priority for bill-to: agency config > facility parent
+    # ── Set To / Ship To / Bill To ──
+    # RULE: "To" and "Ship To" are ALWAYS the same — the individual child facility.
+    #       "Bill To" is ALWAYS the parent agency's master billing address.
+    #
+    # Priority for ship-to: RFQ delivery_location (from 703B) > facility lookup > raw fields
+    # Bill-to: always from AGENCY_CONFIGS based on parent agency
     
-    # Start with facility data as base
-    if facility:
-        ship_name = facility["name"]
-        ship_addr = list(facility["address"])
-        to_name = facility["parent_full"]
-        _parent_agency_map = {"CDCR": "CDCR", "CCHCS": "CCHCS", "CalVet": "CalVet", "DGS": "DGS", "DSH": "DSH"}
-        _agency_key = _parent_agency_map.get(facility["parent"], "")
-        if _agency_key:
-            if "agency" not in kwargs:
-                kwargs["agency"] = _agency_key
-            _cfg = AGENCY_CONFIGS.get(_agency_key, {})
-            if _cfg.get("bill_to_lines"):
-                to_addr = list(_cfg["bill_to_lines"])
-            else:
-                to_addr = list(ship_addr)
-        else:
-            to_addr = list(ship_addr)
-        log.info("Facility resolved: To=%s, Ship To=%s (%s)", to_name, ship_name, ship_addr)
-    else:
-        if delivery:
-            ship_name, ship_addr = _parse_address_parts(delivery)
-        elif ship_to_raw:
-            ship_name, ship_addr = _parse_address_parts(ship_to_raw)
-        else:
-            ship_name = institution
-            ship_addr = []
-        if not ship_name:
-            ship_name = institution
-        to_name = institution
-        to_addr = list(ship_addr)
-        log.warning("No facility match for RFQ %s — To/ShipTo may be incomplete", rfq.get("id", "?"))
-
-    # OVERRIDE ship-to with RFQ's parsed delivery address (from 703B) if available
-    # The 703B has the exact address the agency wants delivery to — always use it
+    ship_name = ""
+    ship_addr = []
+    
+    # 1. Try RFQ's parsed delivery_location first (703B has exact address)
     if delivery and delivery.strip():
         _parsed_name, _parsed_addr = _parse_address_parts(delivery)
         if _parsed_name or _parsed_addr:
-            ship_name = _parsed_name or ship_name
-            if _parsed_addr:
-                ship_addr = _parsed_addr
-            log.info("Ship-to overridden by RFQ delivery_location: %s, %s", ship_name, ship_addr)
+            ship_name = _parsed_name or ""
+            ship_addr = _parsed_addr or []
+
+    # 2. Facility lookup as fallback
+    if not ship_name and facility:
+        ship_name = facility["name"]
+        ship_addr = list(facility["address"])
+    
+    # 3. Raw fields as last resort
+    if not ship_name:
+        if ship_to_raw:
+            ship_name, ship_addr = _parse_address_parts(ship_to_raw)
+        elif ship_to_name_raw:
+            ship_name, ship_addr = _parse_address_parts(ship_to_name_raw)
+        if not ship_name:
+            ship_name = institution or institution_name or ""
+    
+    # To = same as Ship To (child facility)
+    to_name = ship_name
+    to_addr = list(ship_addr)
+
+    # Agency detection for bill-to
+    if facility:
+        _parent_agency_map = {"CDCR": "CDCR", "CCHCS": "CCHCS", "CalVet": "CalVet", "DGS": "DGS", "DSH": "DSH"}
+        _agency_key = _parent_agency_map.get(facility["parent"], "")
+        if _agency_key and "agency" not in kwargs:
+            kwargs["agency"] = _agency_key
+
+    log.info("Quote addresses: To/ShipTo=%s %s", ship_name, ship_addr)
 
     data = {
         "institution": to_name,
@@ -1540,12 +1538,8 @@ def generate_quote_from_rfq(rfq: dict, output_path: str, **kwargs) -> dict:
         if kwargs.get("agency") != _resolved_agency:
             log.info("RFQ agency %s overrides facility-derived %s", _resolved_agency, kwargs.get("agency", "none"))
         kwargs["agency"] = _resolved_agency
-        # Also fix To: name if we overrode the agency
-        _cfg = AGENCY_CONFIGS.get(_resolved_agency, {})
-        if _cfg.get("bill_to_name"):
-            data["institution"] = _cfg["bill_to_name"]
-        if _cfg.get("bill_to_lines"):
-            data["to_address"] = list(_cfg["bill_to_lines"])
+        # Bill-to comes from AGENCY_CONFIGS — handled by generate_quote()
+        # Do NOT override data["institution"] or data["to_address"] — those are the child facility
 
     # ── Tax: always include, look up rate from ship-to facility ───────────
     # Uses CDTFA API with fallback to hardcoded rates per zip code
