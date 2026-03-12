@@ -2257,10 +2257,8 @@ def _calrecycle_clean_desc(item):
 
 def _calrecycle_fix_date(pdf_path, sign_date):
     """
-    Overlay the date text directly onto the CalRecycle 74 Date field.
-    The field has no /T name so form filling can't reach it.
-    We scan for the CalRecycle page by finding Signature1 at y≈148,
-    then overlay the date text at the rightmost unnamed field position (x≈510, y≈152).
+    Overlay the date directly onto the CalRecycle 74 Date field.
+    Uses the actual "Date" field coordinates (rect) for exact placement.
     """
     import io as _io
     from pypdf import PdfReader as _PR, PdfWriter as _PW
@@ -2270,37 +2268,25 @@ def _calrecycle_fix_date(pdf_path, sign_date):
         writer = _PW()
         writer.append(reader)
 
-        # Find CalRecycle page: has Signature1 at y≈148
+        # Find the "Date" field on any page
         cr_page_idx = None
-        date_x, date_y = 510.0, 152.0  # default position
+        date_rect = None
         for pg_idx, pg in enumerate(reader.pages):
             annots = pg.get("/Annots", []) or []
             for a in annots:
                 obj = a.get_object() if hasattr(a, "get_object") else a
                 name = str(obj.get("/T", ""))
-                rect = obj.get("/Rect")
-                if name == "Signature1" and rect:
-                    y0 = float(rect[1])
-                    if 120 < y0 < 180:
+                if name == "Date":
+                    rect = obj.get("/Rect")
+                    if rect:
+                        date_rect = [float(x) for x in rect]
                         cr_page_idx = pg_idx
-                        # Date field is the rightmost unnamed annotation at same y
-                        best_x = 0.0
-                        for a2 in annots:
-                            o2 = a2.get_object() if hasattr(a2, "get_object") else a2
-                            n2 = str(o2.get("/T", "UNNAMED"))
-                            r2 = o2.get("/Rect")
-                            if r2 and (not n2 or n2 == "UNNAMED"):
-                                x2, y2 = float(r2[0]), float(r2[1])
-                                if abs(y2 - y0) < 10 and x2 > best_x:
-                                    best_x = x2
-                                    date_x = x2 + 3
-                                    date_y = y2 + 3
                         break
             if cr_page_idx is not None:
                 break
 
-        if cr_page_idx is None:
-            print(f"  ⚠ CalRecycle date: could not find CalRecycle page in {pdf_path}")
+        if cr_page_idx is None or date_rect is None:
+            print(f"  ⚠ CalRecycle date: could not find Date field")
             return
 
         page = writer.pages[cr_page_idx]
@@ -2311,7 +2297,8 @@ def _calrecycle_fix_date(pdf_path, sign_date):
         c = _rlc.Canvas(packet, pagesize=(pw, ph))
         c.setFont("Helvetica", 9)
         c.setFillColorRGB(0, 0, 0)
-        c.drawString(date_x, date_y, sign_date)
+        # Draw inside the Date field rect
+        c.drawString(date_rect[0] + 3, date_rect[1] + 5, sign_date)
         c.save()
         packet.seek(0)
 
@@ -2321,7 +2308,7 @@ def _calrecycle_fix_date(pdf_path, sign_date):
 
         with open(pdf_path, "wb") as _f:
             writer.write(_f)
-        print(f"  ✓ CalRecycle date overlaid: page={cr_page_idx} x={date_x:.1f} y={date_y:.1f} → {sign_date}")
+        print(f"  ✓ CalRecycle date overlaid at field rect {date_rect} → {sign_date}")
     except Exception as _e:
         print(f"  ⚠ CalRecycle date fix failed: {_e}")
 
@@ -2333,14 +2320,13 @@ def fill_calrecycle_standalone(input_path, rfq_data, config, output_path):
     sign_date = rfq_data.get("sign_date", get_pst_date())
     items = rfq_data.get("line_items", [])
 
-    # Common company fields
+    # Common company fields (Date handled by _calrecycle_fix_date overlay)
     base_values = {
         "ContractorCompany Name": company["name"],
         "Address": company["address"],
         "Phone_2": company["phone"],
         "Print Name": company["owner"],
         "Title": company["title"],
-        "Date": sign_date,
     }
 
     # Maximum chars for CalRecycle description field (246pt wide).
