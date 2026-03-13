@@ -1251,6 +1251,13 @@ def rfq_upload_supplier_quote(rid):
         f"catalog +{catalog_added}/~{catalog_updated}",
         actor="user")
 
+    # ── Google Drive: archive supplier quote ──
+    try:
+        from src.agents.drive_triggers import on_supplier_quote_uploaded
+        on_supplier_quote_uploaded(r, pdf_path, supplier, quote_num)
+    except Exception as _gde:
+        log.debug("Drive trigger (supplier_quote): %s", _gde)
+
     return jsonify({
         "ok": True,
         "supplier": supplier,
@@ -1874,6 +1881,13 @@ def generate_rfq_package(rid):
     _transition_status(r, "generated", actor="user", notes=f"Package: {len(final_output_files)} files")
     r["output_files"] = final_output_files
     r["generated_at"] = datetime.now().isoformat()
+    
+    # ── Google Drive: upload package to Pending ──
+    try:
+        from src.agents.drive_triggers import on_package_generated
+        on_package_generated(r, out_dir, final_output_files)
+    except Exception as _gde:
+        log.debug("Drive trigger (package_generated): %s", _gde)
     
     # Draft email with final files attached (quote + merged package)
     try:

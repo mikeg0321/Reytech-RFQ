@@ -451,6 +451,14 @@ def api_order_create():
     })
     if order.get("skipped"):
         return jsonify({"ok": False, "error": "Order rejected: no items or value. Add items or a total."})
+    
+    # ── Google Drive: create PO folder ──
+    try:
+        from src.agents.drive_triggers import on_po_received
+        on_po_received(order)
+    except Exception as _gde:
+        log.debug("Drive trigger (po_received): %s", _gde)
+    
     return jsonify({"ok": True, "order_id": order.get("order_id"), "items": len(order.get("line_items", []))})
 
 
@@ -1906,6 +1914,60 @@ def api_qb_health():
                 result["connected"] = False
                 result["auth_error"] = str(e)
         return jsonify({"ok": True, **result})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/drive/health")
+@auth_required
+def api_drive_health():
+    """Check Google Drive integration status and backup health."""
+    try:
+        from src.core.gdrive import is_configured, GOOGLE_DRIVE_ROOT_FOLDER_ID
+        from src.agents.drive_backup import get_backup_health
+        health = get_backup_health()
+        health["root_folder_id"] = GOOGLE_DRIVE_ROOT_FOLDER_ID[:12] + "..." if GOOGLE_DRIVE_ROOT_FOLDER_ID else "(not set)"
+        return jsonify({"ok": True, **health})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/drive/backup-now", methods=["POST"])
+@auth_required
+def api_drive_backup_now():
+    """Trigger an immediate backup to Google Drive."""
+    try:
+        from src.agents.drive_backup import run_nightly_backup
+        result = run_nightly_backup(force=True)
+        return jsonify(result)
+    except Exception as e:
+        import traceback
+        return jsonify({"ok": False, "error": str(e), "traceback": traceback.format_exc()})
+
+
+@bp.route("/api/drive/restore", methods=["POST"])
+@auth_required
+def api_drive_restore():
+    """Manually trigger disaster recovery from Drive backup."""
+    try:
+        from src.agents.drive_backup import check_and_restore
+        result = check_and_restore()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/drive/search")
+@auth_required
+def api_drive_search():
+    """Search the local Drive file index."""
+    q = request.args.get("q", "")
+    if not q:
+        return jsonify({"ok": False, "error": "No query"})
+    try:
+        from src.core.gdrive import search_index
+        results = search_index(q)
+        return jsonify({"ok": True, "results": results, "count": len(results)})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
 

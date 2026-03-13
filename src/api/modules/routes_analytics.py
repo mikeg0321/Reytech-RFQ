@@ -558,6 +558,14 @@ def send_quote_email(rid):
             pass
 
         log.info("Quote sent for RFQ %s to %s", rid, to_email)
+        
+        # ── Google Drive: archive sent quote email ──
+        try:
+            from src.agents.drive_triggers import on_quote_sent
+            on_quote_sent(r, body, to_email)
+        except Exception as _gde:
+            log.debug("Drive trigger (quote_sent): %s", _gde)
+        
         return jsonify({"ok": True, "sent_to": to_email})
 
     except Exception as e:

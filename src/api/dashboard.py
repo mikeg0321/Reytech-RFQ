@@ -3925,6 +3925,14 @@ try:
 except Exception as _e:
     log.warning("Lead nurture scheduler failed to start: %s", _e)
 
+# ── Start Google Drive Backup Scheduler (nightly at 11pm PST) ────────────
+try:
+    from src.agents.drive_backup import start_backup_scheduler
+    start_backup_scheduler()
+    log.info("Drive backup scheduler started (nightly at 11pm PST)")
+except Exception as _e:
+    log.warning("Drive backup scheduler failed to start: %s", _e)
+
 # ── Start PO Tracking Email Poller (auto-updates order status from vendor emails) ──
 try:
     # _start_po_poller is already in namespace from exec'd routes_order_tracking
