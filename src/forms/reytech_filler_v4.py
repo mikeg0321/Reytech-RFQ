@@ -201,6 +201,7 @@ def create_signature_overlay(sig_entries, page_width, page_height, sig_image_pat
         is_separate_date_field = (
             "708_Signature" in name or
             "_PD843" in name or
+            "DVBEowner" in name or  # DVBE 843 has separate date fields
             name == "Signature1"
         )
         has_room_for_date = 120 < field_w < 250 and sign_date and not is_separate_date_field
