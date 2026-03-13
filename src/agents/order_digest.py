@@ -348,17 +348,25 @@ def scan_email_for_tracking(subject: str, body: str, sender: str = "") -> dict:
             if oid in combined or oid.replace("ORD-", "") in combined:
                 matched.append(oid)
 
+    # Is this a delivery confirmation?
+    delivery_keywords = ["delivered", "has been delivered", "delivery complete",
+                         "package delivered", "your package was delivered",
+                         "left at front door", "signed by", "delivery confirmed"]
+    is_delivered = any(kw in combined_lower for kw in delivery_keywords)
+
     return {
         "has_tracking": bool(found_tracking),
         "tracking_numbers": found_tracking,
         "po_numbers": po_numbers,
         "matched_orders": matched,
         "is_shipping_email": is_shipping,
+        "is_delivery_confirmation": is_delivered,
     }
 
 
 def apply_tracking_to_order(oid: str, tracking_number: str, carrier: str = ""):
-    """Apply a tracking number to the next untracked item in an order."""
+    """Apply a tracking number to untracked items in an order.
+    Also updates order-level status to 'shipped' or 'partial_delivery'."""
     try:
         with open(ORDERS_FILE) as f:
             orders = json.load(f)
@@ -369,31 +377,43 @@ def apply_tracking_to_order(oid: str, tracking_number: str, carrier: str = ""):
     if not order:
         return {"ok": False, "error": f"Order {oid} not found"}
 
+    # Don't re-apply same tracking number
+    existing_tracking = set(it.get("tracking_number", "") for it in order.get("line_items", []))
+    if tracking_number in existing_tracking:
+        return {"ok": True, "applied_to": [], "skipped": "already_applied"}
+
     applied_to = []
     for it in order.get("line_items", []):
         ss = it.get("sourcing_status", "pending")
-        existing_tracking = it.get("tracking_number", "")
+        it_tracking = it.get("tracking_number", "")
 
         # Apply to items that are ordered/pending without tracking
-        if ss in ("ordered", "pending") and not existing_tracking:
+        if ss in ("ordered", "pending") and not it_tracking:
             it["tracking_number"] = tracking_number
             it["carrier"] = carrier or it.get("carrier", "")
-            if ss == "pending":
-                it["sourcing_status"] = "ordered"
             it["sourcing_status"] = "shipped"
             it["ship_date"] = datetime.now().strftime("%Y-%m-%d")
             applied_to.append(it.get("line_id", ""))
 
     if applied_to:
+        # Update order-level status
+        all_items = order.get("line_items", [])
+        all_shipped = all(i.get("sourcing_status") in ("shipped", "delivered") for i in all_items)
+        any_shipped = any(i.get("sourcing_status") in ("shipped", "delivered") for i in all_items)
+        if all_shipped:
+            order["status"] = "shipped"
+        elif any_shipped:
+            order["status"] = "shipped"  # at least one shipped
+
         order["updated_at"] = datetime.now().isoformat()
         orders[oid] = order
         os.makedirs(os.path.dirname(ORDERS_FILE), exist_ok=True)
         with open(ORDERS_FILE, "w") as f:
             json.dump(orders, f, indent=2, default=str)
 
-        log.info("Applied tracking %s to order %s items: %s", tracking_number, oid, applied_to)
+        log.info("Applied tracking %s (%s) to order %s: %d items",
+                 tracking_number, carrier, oid, len(applied_to))
 
-        # Notify
         try:
             from src.agents.notify_agent import send_alert
             inst = order.get("institution", "")
@@ -402,7 +422,7 @@ def apply_tracking_to_order(oid: str, tracking_number: str, carrier: str = ""):
                 event_type="line_shipped",
                 title=f"🚚 Tracking auto-applied: {po or oid}",
                 body=f"PO #{po} ({inst})\nTracking: {tracking_number} ({carrier})\n"
-                     f"Applied to {len(applied_to)} item(s): {', '.join(applied_to)}",
+                     f"Applied to {len(applied_to)} item(s)",
                 urgency="info",
                 cooldown_key=f"track_apply:{oid}:{tracking_number}",
             )

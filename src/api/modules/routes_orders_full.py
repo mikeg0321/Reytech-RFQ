@@ -273,7 +273,7 @@ def _render_order_detail(order, oid):
         if tracking:
             carrier_low = carrier.lower()
             if "amazon" in carrier_low or tracking.startswith("TBA"):
-                track_url = f"https://www.amazon.com/progress-tracker/package/ref=ppx_yo_dt_b_track_package?itemId=&shipmentId={tracking}"
+                track_url = f"https://www.amazon.com/gp/your-account/order-history?search={tracking}"
             elif "ups" in carrier_low or tracking.startswith("1Z"):
                 track_url = f"https://www.ups.com/track?tracknum={tracking}"
             elif "fedex" in carrier_low:
@@ -1160,6 +1160,171 @@ def api_order_delete(oid):
     _save_orders(orders)
     log.info("Order %s deleted. Reason: %s", oid, reason)
     return jsonify({"ok": True, "deleted": oid, "reason": reason})
+
+
+@bp.route("/api/order/<oid>/clone", methods=["POST"])
+@auth_required
+def api_order_clone(oid):
+    """Clone an order (reorder) — creates new order with same items, pending status."""
+    import uuid
+    orders = _load_orders()
+    order = orders.get(oid)
+    if not order:
+        return jsonify({"ok": False, "error": "Order not found"})
+
+    new_oid = f"ORD-{uuid.uuid4().hex[:8].upper()}"
+    import copy
+    new_order = copy.deepcopy(order)
+    new_order["order_id"] = new_oid
+    new_order["status"] = "new"
+    new_order["created_at"] = __import__("datetime").datetime.now().isoformat()
+    new_order["updated_at"] = new_order["created_at"]
+    new_order.pop("draft_invoice", None)
+    new_order.pop("sent_at", None)
+    new_order.pop("invoice_number", None)
+    
+    # Reset all line items to pending
+    for it in new_order.get("line_items", []):
+        it["sourcing_status"] = "pending"
+        it["invoice_status"] = "pending"
+        it["tracking_number"] = ""
+        it["carrier"] = ""
+        it["ship_date"] = ""
+        it.pop("delivered_at", None)
+        it["line_id"] = f"L{uuid.uuid4().hex[:6].upper()}"
+
+    orders[new_oid] = new_order
+    _save_orders(orders)
+    log.info("Order cloned: %s → %s", oid, new_oid)
+    return jsonify({"ok": True, "new_order_id": new_oid})
+
+
+@bp.route("/api/order/<oid>/delivery-update", methods=["POST"])
+@auth_required
+def api_order_delivery_update(oid):
+    """Send a delivery status update email to the customer."""
+    orders = _load_orders()
+    order = orders.get(oid)
+    if not order:
+        return jsonify({"ok": False, "error": "Order not found"})
+
+    data = request.get_json(silent=True) or {}
+    items_data = data.get("items", [])
+    note = data.get("note", "")
+
+    # Find customer email
+    buyer_email = (order.get("buyer_email") or order.get("requestor_email") or 
+                   order.get("contact_email") or "")
+    if not buyer_email:
+        return jsonify({"ok": False, "error": "No customer email on this order"})
+
+    po = order.get("po_number", oid)
+    institution = order.get("institution", "")
+    items = order.get("line_items", [])
+
+    # Build delivery update body
+    lines = []
+    for it_data in items_data:
+        lid = it_data.get("line_id", "")
+        # Find the item
+        for it in items:
+            if it.get("line_id") == lid:
+                status = it.get("sourcing_status", "pending")
+                icon = {"pending": "⏳", "ordered": "🛒", "shipped": "🚚", "delivered": "✅"}.get(status, "")
+                tracking = it.get("tracking_number", "")
+                lines.append(f"{icon} {it.get('description','')[:60]} x{it.get('qty',0)} — {status}"
+                           + (f" (tracking: {tracking})" if tracking else ""))
+                break
+
+    body_html = f"""<div style="font-family:'Segoe UI',Arial,sans-serif;font-size:14px;color:#222;line-height:1.6">
+<p>Dear Customer,</p>
+<p>Here is a delivery status update for <strong>PO #{po}</strong> ({institution}):</p>
+<div style="background:#f8f9fa;border:1px solid #e1e4e8;border-radius:8px;padding:12px 16px;margin:12px 0">
+{'<br>'.join(lines) if lines else 'All items status available on request.'}
+</div>
+{f'<p><strong>Note:</strong> {note}</p>' if note else ''}
+<p>Please let us know if you have any questions.</p>
+</div>"""
+
+    # Send via email
+    try:
+        import os as _os
+        from src.api.dashboard import CONFIG
+        email_cfg = CONFIG.get("email", {})
+        gmail_user = email_cfg.get("email") or _os.environ.get("GMAIL_ADDRESS", "")
+        gmail_pass = email_cfg.get("email_password") or _os.environ.get("GMAIL_PASSWORD", "")
+        if not gmail_user or not gmail_pass:
+            return jsonify({"ok": False, "error": "Gmail not configured"})
+
+        import smtplib
+        from email.mime.multipart import MIMEMultipart
+        from email.mime.text import MIMEText
+
+        msg = MIMEMultipart()
+        msg["From"] = gmail_user
+        msg["To"] = buyer_email
+        msg["Subject"] = f"Delivery Update — PO #{po}"
+        msg["Reply-To"] = gmail_user
+        
+        from src.core.email_signature import get_html_signature
+        full_body = body_html + get_html_signature()
+        msg.attach(MIMEText(full_body, "html"))
+
+        server = smtplib.SMTP_SSL("smtp.gmail.com", 465)
+        server.login(gmail_user, gmail_pass)
+        server.send_message(msg)
+        server.quit()
+        
+        log.info("Delivery update sent for %s to %s", oid, buyer_email)
+        return jsonify({"ok": True, "sent_to": buyer_email, "items_count": len(lines)})
+    except Exception as e:
+        log.error("Delivery update email failed: %s", e)
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/order/<oid>/upload-proof", methods=["POST"])
+@auth_required
+def api_order_upload_proof(oid):
+    """Upload proof of delivery (photo, signed receipt, etc.)."""
+    orders = _load_orders()
+    order = orders.get(oid)
+    if not order:
+        return jsonify({"ok": False, "error": "Order not found"})
+
+    f = request.files.get("file")
+    if not f:
+        return jsonify({"ok": False, "error": "No file uploaded"})
+
+    import os as _os
+    proof_dir = _os.path.join(DATA_DIR, "proofs")
+    _os.makedirs(proof_dir, exist_ok=True)
+    safe_name = f"{oid}_{f.filename}"
+    path = _os.path.join(proof_dir, safe_name)
+    f.save(path)
+
+    # Store in DB
+    try:
+        with get_db() as conn:
+            conn.execute("""INSERT INTO rfq_files (rfq_id, filename, file_type, file_size, data, category, uploaded_by, created_at)
+                VALUES (?,?,?,?,?,?,?,?)""",
+                (oid, f.filename, f.content_type or "application/octet-stream",
+                 _os.path.getsize(path), open(path, "rb").read(),
+                 "proof_of_delivery", "user",
+                 __import__("datetime").datetime.now().isoformat()))
+    except Exception as _de:
+        log.debug("Proof DB save: %s", _de)
+
+    order.setdefault("proofs", []).append({
+        "filename": f.filename,
+        "path": path,
+        "uploaded_at": __import__("datetime").datetime.now().isoformat(),
+    })
+    order["updated_at"] = __import__("datetime").datetime.now().isoformat()
+    orders[oid] = order
+    _save_orders(orders)
+
+    log.info("Proof uploaded for %s: %s", oid, f.filename)
+    return jsonify({"ok": True, "filename": f.filename})
 
 
 @bp.route("/api/order/<oid>/reply-all")

@@ -1319,6 +1319,83 @@ def _link_rfq_to_pc(rfq_data, _trace):
     return True
 
 
+def _check_delivery_status(email_data, track_result):
+    """Detect delivery confirmation emails and update order items to 'delivered'."""
+    import re as _re
+    combined = f"{email_data.get('subject', '')} {email_data.get('body', '')}".lower()
+    
+    delivery_keywords = ["delivered", "has been delivered", "delivery complete",
+                         "package delivered", "your package was delivered",
+                         "left at", "signed by", "delivered to"]
+    is_delivered = any(kw in combined for kw in delivery_keywords) or track_result.get("is_delivery_confirmation", False)
+    
+    if not is_delivered:
+        return
+    
+    matched_orders = track_result.get("matched_orders", [])
+    tracking_numbers = [t["number"] for t in track_result.get("tracking_numbers", [])]
+    
+    # Also try to match by tracking number in existing orders
+    if not matched_orders and tracking_numbers:
+        try:
+            orders_path = os.path.join(DATA_DIR, "orders.json")
+            with open(orders_path) as f:
+                orders = json.load(f)
+            for oid, order in orders.items():
+                if order.get("status") in ("cancelled", "deleted", "closed"):
+                    continue
+                for it in order.get("line_items", []):
+                    if it.get("tracking_number") in tracking_numbers:
+                        if oid not in matched_orders:
+                            matched_orders.append(oid)
+        except Exception:
+            pass
+    
+    if not matched_orders:
+        return
+    
+    # Update matched items from shipped → delivered
+    try:
+        orders_path = os.path.join(DATA_DIR, "orders.json")
+        with open(orders_path) as f:
+            orders = json.load(f)
+        
+        updated = 0
+        for oid in matched_orders:
+            order = orders.get(oid)
+            if not order:
+                continue
+            for it in order.get("line_items", []):
+                # Mark as delivered if shipped AND has matching tracking
+                if it.get("sourcing_status") == "shipped":
+                    tn = it.get("tracking_number", "")
+                    if tn in tracking_numbers or not tracking_numbers:
+                        it["sourcing_status"] = "delivered"
+                        it["delivered_at"] = datetime.now().isoformat()
+                        updated += 1
+            
+            # Update order-level status if all items delivered
+            all_delivered = all(
+                i.get("sourcing_status") == "delivered"
+                for i in order.get("line_items", [])
+            )
+            if all_delivered and order.get("line_items"):
+                order["status"] = "delivered"
+            elif updated > 0:
+                order["status"] = "partial_delivery"
+            
+            order["updated_at"] = datetime.now().isoformat()
+            orders[oid] = order
+        
+        if updated > 0:
+            with open(orders_path, "w") as f:
+                json.dump(orders, f, indent=2, default=str)
+            log.info("Delivery detected: %d items marked delivered across %d orders", 
+                     updated, len(matched_orders))
+    except Exception as e:
+        log.error("Delivery status update failed: %s", e)
+
+
 def process_rfq_email(rfq_email):
     """Process a single RFQ email into the queue. Returns rfq_data or None.
     Deduplicates by checking email_uid against existing RFQs.
@@ -2185,6 +2262,27 @@ def do_poll_check():
             
             for rfq_email in rfq_emails:
                 try:
+                    # Check for shipping/tracking/delivery emails BEFORE RFQ processing
+                    try:
+                        from src.agents.order_digest import scan_email_for_tracking, apply_tracking_to_order
+                        track_result = scan_email_for_tracking(
+                            rfq_email.get("subject", ""),
+                            rfq_email.get("body", ""),
+                            rfq_email.get("sender", ""),
+                        )
+                        if track_result.get("has_tracking"):
+                            for oid in track_result.get("matched_orders", []):
+                                for tn in track_result.get("tracking_numbers", []):
+                                    apply_tracking_to_order(oid, tn["number"], tn["carrier"])
+                            log.info("Sales@ tracking scan: %d tracking numbers, %d matched orders from '%s'",
+                                     len(track_result.get("tracking_numbers", [])),
+                                     len(track_result.get("matched_orders", [])),
+                                     rfq_email.get("subject", "?")[:50])
+                        # Check for delivery confirmation
+                        if track_result.get("is_shipping_email"):
+                            _check_delivery_status(rfq_email, track_result)
+                    except Exception as _te:
+                        log.debug("Sales@ tracking scan: %s", _te)
                     rfq_data = process_rfq_email(rfq_email)
                     if rfq_data:
                         imported.append(rfq_data)

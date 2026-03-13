@@ -855,7 +855,7 @@ def shipping_dashboard():
             # Build tracking URL
             track_url = ""
             if "amazon" in carrier_low or tracking.startswith("TBA"):
-                track_url = f"https://www.amazon.com/progress-tracker/package/?itemId={tracking}"
+                track_url = f"https://www.amazon.com/gp/your-account/order-history?search={tracking}"
             elif "ups" in carrier_low or tracking.startswith("1Z"):
                 track_url = f"https://www.ups.com/track?tracknum={tracking}"
             elif "fedex" in carrier_low:
