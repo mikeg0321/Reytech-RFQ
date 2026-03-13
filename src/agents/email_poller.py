@@ -954,20 +954,41 @@ def is_price_check_email(subject, body, sender, pdf_names):
     signals = []
     score = 0
     
-    # ── Negative FIRST: Has 703B/704B/Bid Package forms → NOT a PC ──
-    for pdf in pdf_names:
-        pl = pdf.lower()
-        if "703b" in pl or "704b" in pl or "bid package" in pl or "bid_package" in pl:
-            log.debug("PC check: has RFQ form (%s) → not a PC", pdf)
-            return None
-    
-    # ── Signal 1: Known PC sender ──
+    # ── Signal 1: Known PC sender (check FIRST, before negatives) ──
     sender_email = _extract_email_addr(sender).lower()
+    is_known_pc_sender = False
     for pattern in PC_KNOWN_SENDERS:
         if pattern in sender_email or pattern in sender_lower:
             signals.append(f"known_sender:{pattern}")
             score += 3
+            is_known_pc_sender = True
             break
+    
+    # ── Signal 1b: Subject matches PC pattern (also check early) ──
+    for pat in PC_SUBJECT_PATTERNS:
+        if re.match(pat, subj_lower):
+            signals.append(f"subject_pattern:{pat}")
+            score += 3
+            break
+
+    # ── Negative: Has 703B/704B/Bid Package forms → NOT a PC ──
+    # BUT: if sender is a KNOWN PC sender AND subject says "Price Check",
+    # override the negative — some agencies label their 704 forms as "704B"
+    has_strong_pc_signals = is_known_pc_sender or score >= 5
+    for pdf in pdf_names:
+        pl = pdf.lower()
+        if "703b" in pl or "bid package" in pl or "bid_package" in pl:
+            # 703B and bid packages are always RFQ indicators — never override
+            log.debug("PC check: has RFQ form (%s) → not a PC", pdf)
+            return None
+        if "704b" in pl and not has_strong_pc_signals:
+            # 704B without strong PC signals → probably an RFQ
+            log.debug("PC check: has 704B form (%s) and no strong PC signals → not a PC", pdf)
+            return None
+        elif "704b" in pl and has_strong_pc_signals:
+            # 704B but known PC sender or strong subject → treat as mislabeled 704
+            log.info("PC check: has 704B form (%s) but KNOWN PC sender/subject → overriding as PC", pdf)
+            signals.append(f"704b_override:{pdf}")
     
     # ── Signal 2: Forwarded from internal (mike@reytechinc.com) ──
     # Mike forwards price checks from buyers — treat as PC if it has 704 attachment
@@ -977,12 +998,7 @@ def is_price_check_email(subject, body, sender, pdf_names):
             signals.append("forwarded_from_internal")
             score += 2
     
-    # ── Signal 3: Subject matches PC pattern ──
-    for pat in PC_SUBJECT_PATTERNS:
-        if re.match(pat, subj_lower):
-            signals.append(f"subject_pattern:{pat}")
-            score += 3
-            break
+    # ── Signal 3: (subject already checked above) ──
     
     # ── Signal 4: PDF filename contains "704" but NOT "704b" ──
     # This is the strongest signal — AMS 704 forms are almost always price checks
@@ -1043,6 +1059,13 @@ def is_rfq_email(subject, body, attachments, sender_email=""):
     # Guard: recall emails are NOT RFQs even if they contain keywords like "cdcr"
     if subject.lower().startswith("recall:") or "would like to recall" in combined:
         return False
+    
+    # Guard: Price Check subjects are NOT RFQs — they should be routed to PC queue
+    _subj_low = (subject or "").strip().lower()
+    for _pc_pat in PC_SUBJECT_PATTERNS:
+        if re.match(_pc_pat, _subj_low):
+            log.debug("is_rfq_email: subject matches PC pattern (%s) → not an RFQ", _pc_pat)
+            return False
     
     # Tier 0: Known agency sender domains → always RFQ
     _agency_domains = ["calvet.ca.gov", "fire.ca.gov", "dgs.ca.gov",
