@@ -2263,83 +2263,249 @@ def download(rid, fname):
 @bp.route("/api/scprs/<rid>")
 @auth_required
 def api_scprs(rid):
-    """SCPRS lookup API endpoint for the dashboard JS."""
+    """SCPRS lookup API endpoint — batch search, single session."""
     log.info("SCPRS lookup requested for RFQ %s", rid)
     rfqs = load_rfqs()
     r = rfqs.get(rid)
     if not r: return jsonify({"error": "not found"})
     
+    items = r.get("line_items", [])
+    if not items:
+        return jsonify({"results": [], "errors": ["No line items"]})
+    
     results = []
     errors = []
-    for item in r["line_items"]:
-        try:
-            from src.agents.scprs_lookup import lookup_price, _build_search_terms
-            item_num = item.get("item_number")
-            desc = item.get("description")
-            search_terms = _build_search_terms(item_num, desc)
-            result = lookup_price(item_num, desc)
-            if result:
-                result["searched"] = search_terms
-                results.append(result)
-                # v6.0: Auto-ingest into Won Quotes KB
-                if PRICING_ORACLE_AVAILABLE and result.get("price"):
-                    try:
-                        ingest_scprs_result(
-                            po_number=result.get("po_number", ""),
-                            item_number=item_num or "",
-                            description=desc or "",
-                            unit_price=result["price"],
-                            quantity=1,
-                            supplier=result.get("vendor", ""),
-                            department=result.get("department", ""),
-                            award_date=result.get("date", ""),
-                            source=result.get("source", "scprs_live"),
-                        )
-                    except Exception as e:
-                        log.debug("Suppressed: %s", e)
-                        pass  # Never let KB ingestion break the lookup flow
-                # Record to price_history
-                if result.get("price"):
-                    try:
-                        from src.core.db import record_price as _rp_scprs
-                        _rp_scprs(
-                            description=desc or "",
-                            unit_price=result["price"],
-                            source="scprs_live",
-                            part_number=item_num or "",
-                            source_id=result.get("po_number", ""),
-                            agency=result.get("department", ""),
-                            notes=f"SCPRS vendor: {result.get('vendor', '')}"
-                        )
-                    except Exception:
-                        pass
-                    # Also write to product_catalog so future lookups find it
-                    try:
-                        from src.agents.product_catalog import add_to_catalog, init_catalog_db
-                        init_catalog_db()
-                        add_to_catalog(
-                            description=desc or "",
-                            part_number=item_num or "",
-                            cost=float(result["price"]),
-                            sell_price=0,
-                            source="scprs_live",
-                            supplier_name=result.get("vendor", ""),
-                        )
-                    except Exception:
-                        pass
-            else:
-                results.append({
-                    "price": None,
-                    "note": f"No SCPRS data found",
-                    "item_number": item_num,
-                    "description": (desc or "")[:80],
-                    "searched": search_terms,
-                })
-        except Exception as e:
-            import traceback
-            results.append({"price": None, "error": str(e), "traceback": traceback.format_exc()})
-            errors.append(str(e))
     
+    try:
+        from src.agents.scprs_lookup import (
+            _get_session, _build_search_terms, _find_best_line_match,
+            _load_db, save_price
+        )
+        
+        # Step 1: Try local DB first for each item
+        db = _load_db()
+        items_needing_search = []
+        
+        for i, item in enumerate(items):
+            item_num = item.get("item_number", "")
+            desc = item.get("description", "")
+            search_terms = _build_search_terms(item_num, desc)
+            
+            # Check local DB
+            local_hit = None
+            if item_num and item_num.strip() in db:
+                e = db[item_num.strip()]
+                local_hit = {
+                    "price": e["price"], "source": "local_db",
+                    "date": e.get("date", ""), "confidence": "high",
+                    "vendor": e.get("vendor", ""), "searched": search_terms,
+                }
+            
+            if not local_hit and desc:
+                dl = desc.lower().split("\n")[0].strip()
+                for key, entry in db.items():
+                    ed = (entry.get("description", "") or "").lower()
+                    wa, wb = set(dl.split()), set(ed.split())
+                    if wa and wb and len(wa & wb) / max(len(wa), len(wb)) > 0.5:
+                        local_hit = {
+                            "price": entry["price"], "source": "local_db_fuzzy",
+                            "date": entry.get("date", ""), "confidence": "medium",
+                            "vendor": entry.get("vendor", ""), "searched": search_terms,
+                        }
+                        break
+            
+            if local_hit:
+                results.append(local_hit)
+            else:
+                results.append(None)  # placeholder
+                items_needing_search.append((i, item_num, desc, search_terms))
+        
+        # Step 2: Batch SCPRS live search — ONE session for all items
+        if items_needing_search:
+            session = _get_session()
+            if not session.initialized:
+                session.init_session()
+            
+            if session.initialized:
+                for idx, item_num, desc, search_terms in items_needing_search:
+                    best_result = None
+                    
+                    for term in search_terms[:2]:  # Max 2 terms per item
+                        try:
+                            search_results = session.search(description=term)
+                            if not search_results:
+                                continue
+                            
+                            import time
+                            time.sleep(0.3)
+                            
+                            # Sort by most recent
+                            from datetime import datetime, timedelta
+                            cutoff = datetime.now() - timedelta(days=548)
+                            recent = [sr for sr in search_results
+                                     if sr.get("start_date_parsed") and sr["start_date_parsed"] >= cutoff]
+                            cands = sorted(recent or search_results,
+                                          key=lambda x: x.get("start_date_parsed") or datetime.min,
+                                          reverse=True)
+                            
+                            # Try detail page on top candidate
+                            for c in cands[:2]:
+                                try:
+                                    if c.get("_results_html"):
+                                        detail = session.get_detail(
+                                            c["_results_html"], c["_row_index"],
+                                            c.get("_click_action"))
+                                        time.sleep(0.3)
+                                        
+                                        if detail and detail.get("line_items"):
+                                            line = _find_best_line_match(
+                                                detail["line_items"], item_num, desc)
+                                            if line and line.get("unit_price_num"):
+                                                best_result = {
+                                                    "price": line["unit_price_num"],
+                                                    "unit_price": line["unit_price_num"],
+                                                    "quantity": line.get("quantity_num"),
+                                                    "source": "fiscal_scprs",
+                                                    "date": c.get("start_date", ""),
+                                                    "confidence": "high",
+                                                    "vendor": c.get("supplier_name", ""),
+                                                    "po_number": c.get("po_number", ""),
+                                                    "department": c.get("dept", ""),
+                                                    "searched": search_terms,
+                                                }
+                                                break
+                                        
+                                        # Re-init session after detail (state is fragile)
+                                        try:
+                                            session.init_session()
+                                        except Exception:
+                                            pass
+                                except Exception as _de:
+                                    log.debug("Detail attempt: %s", _de)
+                            
+                            if best_result:
+                                break
+                            
+                            # Fallback: use search-level data (PO total + vendor)
+                            if not best_result and cands:
+                                c = cands[0]
+                                gt = c.get("grand_total_num", 0)
+                                if gt and gt > 0:
+                                    best_result = {
+                                        "price": gt,
+                                        "source": "fiscal_scprs_summary",
+                                        "date": c.get("start_date", ""),
+                                        "confidence": "low",
+                                        "vendor": c.get("supplier_name", ""),
+                                        "po_number": c.get("po_number", ""),
+                                        "department": c.get("dept", ""),
+                                        "first_item": c.get("first_item", ""),
+                                        "note": "PO total (not unit price)",
+                                        "searched": search_terms,
+                                    }
+                                    break
+                            
+                        except Exception as _se:
+                            log.warning("SCPRS search '%s': %s", term, _se)
+                            # Try to recover session
+                            try:
+                                session.init_session()
+                            except Exception:
+                                pass
+                    
+                    if best_result:
+                        results[idx] = best_result
+                        # Cache for future lookups
+                        if best_result.get("price") and best_result.get("source") != "fiscal_scprs_summary":
+                            try:
+                                save_price(
+                                    item_number=item_num or "",
+                                    description=desc or "",
+                                    price=best_result["price"],
+                                    vendor=best_result.get("vendor", ""),
+                                    unit_price=best_result.get("unit_price"),
+                                    quantity=best_result.get("quantity"),
+                                    po_number=best_result.get("po_number", ""),
+                                    source="fiscal_scprs"
+                                )
+                            except Exception:
+                                pass
+                    else:
+                        results[idx] = {
+                            "price": None,
+                            "note": "No SCPRS data found",
+                            "item_number": item_num,
+                            "description": (desc or "")[:80],
+                            "searched": search_terms,
+                        }
+            else:
+                errors.append("SCPRS session init failed")
+                for idx, item_num, desc, search_terms in items_needing_search:
+                    results[idx] = {
+                        "price": None,
+                        "error": "SCPRS session init failed",
+                        "item_number": item_num,
+                        "searched": search_terms,
+                    }
+    
+    except Exception as e:
+        import traceback
+        errors.append(str(e))
+        log.error("SCPRS batch lookup: %s", e, exc_info=True)
+    
+    # Fill any remaining None slots
+    for i in range(len(results)):
+        if results[i] is None:
+            results[i] = {"price": None, "note": "Lookup skipped"}
+    
+    # Auto-ingest results to catalog + KB
+    for i, res in enumerate(results):
+        if not res or not res.get("price"):
+            continue
+        item = items[i] if i < len(items) else {}
+        item_num = item.get("item_number", "")
+        desc = item.get("description", "")
+        
+        if PRICING_ORACLE_AVAILABLE:
+            try:
+                ingest_scprs_result(
+                    po_number=res.get("po_number", ""),
+                    item_number=item_num, description=desc,
+                    unit_price=res["price"], quantity=1,
+                    supplier=res.get("vendor", ""),
+                    department=res.get("department", ""),
+                    award_date=res.get("date", ""),
+                    source=res.get("source", "scprs_live"),
+                )
+            except Exception:
+                pass
+        
+        try:
+            from src.core.db import record_price as _rp_scprs
+            _rp_scprs(
+                description=desc, unit_price=res["price"],
+                source="scprs_live", part_number=item_num,
+                source_id=res.get("po_number", ""),
+                agency=res.get("department", ""),
+                notes=f"SCPRS vendor: {res.get('vendor', '')}"
+            )
+        except Exception:
+            pass
+        
+        try:
+            from src.agents.product_catalog import add_to_catalog, init_catalog_db
+            init_catalog_db()
+            add_to_catalog(
+                description=desc, part_number=item_num,
+                cost=float(res["price"]), sell_price=0,
+                source="scprs_live",
+                supplier_name=res.get("vendor", ""),
+            )
+        except Exception:
+            pass
+    
+    found = sum(1 for r in results if r and r.get("price"))
+    log.info("SCPRS batch: %d/%d prices found for RFQ %s", found, len(items), rid)
     return jsonify({"results": results, "errors": errors if errors else None})
 
 
