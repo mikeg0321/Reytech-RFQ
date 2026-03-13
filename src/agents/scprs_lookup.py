@@ -480,13 +480,18 @@ def _scrape_fiscal(item_number=None, description=None):
         terms = _build_search_terms(item_number, description)
         log.info(f"SCPRS terms: {terms}")
 
-        all_results, seen = [], set()
+        # Search with the BEST term (most specific first)
+        # Don't do multiple searches — it invalidates session state for detail clicks
+        all_results = []
+        last_search_term = None
         for term in terms[:3]:
             try:
-                for r in session.search(description=term):
-                    po = r.get("po_number", "")
-                    if po and po not in seen:
-                        seen.add(po); all_results.append(r)
+                results = session.search(description=term)
+                if results:
+                    all_results = results  # Keep only the latest search results (session state matches)
+                    last_search_term = term
+                    if len(results) >= 3:
+                        break  # Good enough results, don't invalidate session
             except Exception as e:
                 log.warning(f"Search '{term}': {e}")
             time.sleep(0.5)
@@ -494,7 +499,7 @@ def _scrape_fiscal(item_number=None, description=None):
         if not all_results:
             return None
 
-        log.info(f"SCPRS: {len(all_results)} unique POs")
+        log.info(f"SCPRS: {len(all_results)} results for '{last_search_term}'")
 
         cutoff = datetime.now() - timedelta(days=548)
         recent = [r for r in all_results
@@ -502,8 +507,11 @@ def _scrape_fiscal(item_number=None, description=None):
         cands = (recent or all_results)
         cands.sort(key=lambda x: x.get("start_date_parsed") or datetime.min, reverse=True)
 
-        best = None
-        for c in cands[:5]:
+        best_detail = None
+        best_summary = None
+
+        # Try detail extraction on top 3 candidates only
+        for c in cands[:3]:
             po = c.get("po_number", "")
             detail = None
             if c.get("_results_html"):
@@ -522,16 +530,36 @@ def _scrape_fiscal(item_number=None, description=None):
                          "date": c.get("start_date", ""), "confidence": "high",
                          "vendor": c.get("supplier_name", ""), "po_number": po,
                          "line_desc": line.get("description", "")}
-                    if best is None or r["price"] < best["price"]:
-                        best = r
-            elif not best:
-                gt = c.get("grand_total_num")
-                if gt and gt > 0:
-                    best = {"price": gt, "unit_price": None,
-                            "source": "fiscal_scprs_summary",
-                            "date": c.get("start_date", ""), "confidence": "low",
-                            "vendor": c.get("supplier_name", ""), "po_number": po}
-        return best
+                    if best_detail is None or r["price"] < best_detail["price"]:
+                        best_detail = r
+
+            # Always track best summary-level price as fallback
+            gt = c.get("grand_total_num")
+            if gt and gt > 0 and not best_summary:
+                best_summary = {
+                    "price": gt, "unit_price": None,
+                    "source": "fiscal_scprs_summary",
+                    "date": c.get("start_date", ""), "confidence": "low",
+                    "vendor": c.get("supplier_name", ""), "po_number": po,
+                    "first_item": c.get("first_item", ""),
+                    "department": c.get("dept", ""),
+                }
+
+            # Re-init session for next detail attempt (session state is fragile)
+            if detail is None and c.get("_results_html"):
+                try:
+                    session.init_session()
+                except Exception:
+                    pass
+
+        # Return best detail price, or summary fallback
+        if best_detail:
+            return best_detail
+        if best_summary:
+            log.info("SCPRS: no detail prices, using summary total $%.2f from %s",
+                     best_summary["price"], best_summary.get("vendor", "?"))
+            return best_summary
+        return None
     except Exception as e:
         log.error(f"SCPRS scrape: {e}", exc_info=True)
         return None
