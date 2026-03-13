@@ -4388,7 +4388,58 @@ def api_pc_retry_auto_price(pcid):
 
     items = pc.get("items", [])
     if not items:
-        return jsonify({"ok": False, "error": "PC found but has 0 items", "source": source})
+        # Try to reparse from source PDF before giving up
+        log.info("retry-auto-price: PC %s has 0 items, attempting reparse", pcid)
+        try:
+            source_pdf = pc.get("source_pdf", "")
+            if source_pdf and os.path.exists(source_pdf):
+                from src.forms.price_check import parse_ams704
+                fresh = parse_ams704(source_pdf)
+                if fresh.get("line_items"):
+                    items = fresh["line_items"]
+                    pc["items"] = items
+                    pc["parsed"] = fresh
+                    if fresh.get("header"):
+                        for hk, hv in fresh["header"].items():
+                            if hv and not pc.get(hk):
+                                pc[hk] = hv
+                    log.info("retry-auto-price: reparse got %d items from %s", len(items), source_pdf)
+                    pc["_reparsed"] = True
+            
+            # Also try DB-stored PDF
+            if not items:
+                try:
+                    from src.core.db import get_db
+                    with get_db() as conn:
+                        row = conn.execute(
+                            "SELECT data, filename FROM rfq_files WHERE rfq_id=? AND category='source' ORDER BY id DESC LIMIT 1",
+                            (pcid,)
+                        ).fetchone()
+                        if row and row["data"]:
+                            import tempfile
+                            with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tf:
+                                tf.write(row["data"])
+                                tf_path = tf.name
+                            from src.forms.price_check import parse_ams704
+                            fresh = parse_ams704(tf_path)
+                            if fresh.get("line_items"):
+                                items = fresh["line_items"]
+                                pc["items"] = items
+                                pc["parsed"] = fresh
+                                if fresh.get("header"):
+                                    for hk, hv in fresh["header"].items():
+                                        if hv and not pc.get(hk):
+                                            pc[hk] = hv
+                                log.info("retry-auto-price: DB reparse got %d items", len(items))
+                                pc["_reparsed"] = True
+                            os.unlink(tf_path)
+                except Exception as _dbe:
+                    log.debug("retry-auto-price DB reparse: %s", _dbe)
+        except Exception as _rpe:
+            log.warning("retry-auto-price reparse failed: %s", _rpe)
+        
+        if not items:
+            return jsonify({"ok": False, "error": "PC found but has 0 items — reparse also failed. Upload the PDF manually on the PC detail page.", "source": source})
 
     # Run auto-pricing INLINE (not in thread) so we see results immediately
     found = 0
@@ -4441,10 +4492,12 @@ def api_pc_retry_auto_price(pcid):
 
     # Save results
     save_ok = False
-    if found > 0:
+    reparsed = pc.get("_reparsed", False)  # Set during reparse above
+    if found > 0 or reparsed:
         pc["items"] = items
-        pc["auto_priced"] = True
-        pc["auto_priced_count"] = found
+        if found > 0:
+            pc["auto_priced"] = True
+            pc["auto_priced_count"] = found
         
         # Use _save_price_checks for proper dual-write (DB + JSON) + cache invalidation
         try:
