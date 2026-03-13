@@ -1183,6 +1183,11 @@ def api_order_clone(oid):
     new_order.pop("sent_at", None)
     new_order.pop("invoice_number", None)
     
+    # Update PO number if provided
+    data = request.get_json(silent=True) or {}
+    if data.get("po_number"):
+        new_order["po_number"] = data["po_number"]
+    
     # Reset all line items to pending
     for it in new_order.get("line_items", []):
         it["sourcing_status"] = "pending"
@@ -1196,7 +1201,7 @@ def api_order_clone(oid):
     orders[new_oid] = new_order
     _save_orders(orders)
     log.info("Order cloned: %s → %s", oid, new_oid)
-    return jsonify({"ok": True, "new_order_id": new_oid})
+    return jsonify({"ok": True, "order_id": new_oid})
 
 
 @bp.route("/api/order/<oid>/delivery-update", methods=["POST"])
@@ -1325,6 +1330,65 @@ def api_order_upload_proof(oid):
 
     log.info("Proof uploaded for %s: %s", oid, f.filename)
     return jsonify({"ok": True, "filename": f.filename})
+
+
+@bp.route("/api/order/<oid>/attachments")
+@auth_required
+def api_order_attachments(oid):
+    """List all attachments (proofs, invoices) for an order."""
+    attachments = []
+    try:
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT id, filename, file_type, file_size, category, created_at FROM rfq_files WHERE rfq_id=? ORDER BY created_at DESC",
+                (oid,)
+            ).fetchall()
+            for r in rows:
+                attachments.append({
+                    "id": r["id"],
+                    "filename": r["filename"],
+                    "type": r["file_type"],
+                    "size": r["file_size"],
+                    "category": r["category"],
+                    "created_at": r["created_at"],
+                    "download_url": f"/api/order/{oid}/attachment/{r['id']}",
+                })
+    except Exception as e:
+        log.debug("Attachments query: %s", e)
+    
+    # Also check orders.json proofs
+    orders = _load_orders()
+    order = orders.get(oid, {})
+    for proof in order.get("proofs", []):
+        attachments.append({
+            "filename": proof.get("filename", ""),
+            "category": "proof_of_delivery",
+            "created_at": proof.get("uploaded_at", ""),
+        })
+    
+    return jsonify({"ok": True, "attachments": attachments})
+
+
+@bp.route("/api/order/<oid>/attachment/<file_id>")
+@auth_required
+def api_order_attachment_download(oid, file_id):
+    """Download an order attachment by ID."""
+    try:
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT filename, data, file_type FROM rfq_files WHERE id=? AND rfq_id=?",
+                (file_id, oid)
+            ).fetchone()
+            if row and row["data"]:
+                import io
+                return send_file(
+                    io.BytesIO(row["data"]),
+                    download_name=row["filename"],
+                    mimetype=row["file_type"] or "application/octet-stream",
+                )
+    except Exception as e:
+        log.error("Attachment download: %s", e)
+    return jsonify({"ok": False, "error": "Not found"}), 404
 
 
 @bp.route("/api/order/<oid>/reply-all")
