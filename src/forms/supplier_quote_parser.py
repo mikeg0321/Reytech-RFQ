@@ -310,14 +310,28 @@ def _parse_generic_line(line: str, prices: list) -> Optional[Dict]:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def match_quote_to_rfq(quote_items: List[Dict], rfq_items: List[Dict]) -> List[Dict]:
-    """Match parsed supplier quote items to existing RFQ line items."""
+    """Match parsed supplier quote items to existing RFQ line items.
+    
+    Multi-signal matching:
+    1. Exact part number match (strongest)
+    2. Manufacturer/MFG number extraction from descriptions
+    3. Numeric suffix matching (strip vendor prefixes: SQU022767 → 022767)
+    4. Description keyword overlap (Jaccard similarity)
+    5. Qty + UOM confirmation bonus
+    """
     results = []
     used_rfq = set()
 
     for qi, q_item in enumerate(quote_items):
         q_desc = (q_item.get("description") or "").lower()
         q_pn = (q_item.get("item_number") or "").lower().strip()
+        q_qty = q_item.get("qty", 0)
+        q_uom = (q_item.get("uom") or "").lower().strip()
         q_words = set(re.findall(r'\w{3,}', q_desc))
+
+        # Extract ALL part numbers from the supplier quote description
+        # Echelon format: "McKesson # 449317", "Manufacturer # PG004"
+        q_all_pns = _extract_all_part_numbers(q_desc, q_pn)
 
         best_match = None
         best_score = 0
@@ -327,18 +341,68 @@ def match_quote_to_rfq(quote_items: List[Dict], rfq_items: List[Dict]) -> List[D
                 continue
             r_desc = (r_item.get("description") or "").lower()
             r_pn = (r_item.get("item_number") or r_item.get("part_number") or "").lower().strip()
+            r_qty = r_item.get("qty", 0)
+            r_uom = (r_item.get("uom") or "").lower().strip()
             r_words = set(re.findall(r'\w{3,}', r_desc))
 
+            # Extract part numbers from RFQ description too
+            # RFQ format: "... # EQX7044", "... # J-JPG004Z"
+            r_all_pns = _extract_all_part_numbers(r_desc, r_pn)
+
             score = 0
+
+            # ── Signal 1: Exact part number match (0.8) ──
             if q_pn and r_pn and (q_pn == r_pn or q_pn in r_pn or r_pn in q_pn):
-                score += 0.7
+                score += 0.8
+
+            # ── Signal 2: Cross-reference ALL extracted part numbers (0.7) ──
+            if not score and q_all_pns and r_all_pns:
+                for qp in q_all_pns:
+                    for rp in r_all_pns:
+                        if qp == rp:
+                            score += 0.75
+                            break
+                        # Substring: "022767" in "squ022767" or "pg004" in "jpg004z"
+                        if len(qp) >= 4 and len(rp) >= 4:
+                            if qp in rp or rp in qp:
+                                score += 0.7
+                                break
+                    if score > 0:
+                        break
+
+            # ── Signal 3: Numeric suffix match (0.6) ──
+            # Strip all letter prefixes and compare: "SQU022767" → "022767"
+            if not score:
+                q_nums = _extract_numeric_suffixes(q_all_pns)
+                r_nums = _extract_numeric_suffixes(r_all_pns)
+                for qn in q_nums:
+                    for rn in r_nums:
+                        if qn == rn and len(qn) >= 4:
+                            score += 0.65
+                            break
+                        if len(qn) >= 4 and len(rn) >= 4 and (qn in rn or rn in qn):
+                            score += 0.55
+                            break
+                    if score > 0:
+                        break
+
+            # ── Signal 4: Description word overlap (0.3 max) ──
             if q_words and r_words:
                 overlap = q_words & r_words
                 union = q_words | r_words
-                score += (len(overlap) / len(union) if union else 0) * 0.3
+                jaccard = len(overlap) / len(union) if union else 0
+                score += jaccard * 0.3
+
+            # ── Signal 5: Description prefix match (0.15) ──
             if len(q_desc) > 5 and len(r_desc) > 5:
                 if q_desc[:20] in r_desc or r_desc[:20] in q_desc:
                     score += 0.15
+
+            # ── Signal 6: Qty + UOM confirmation bonus (0.1) ──
+            if q_qty and r_qty and q_qty == r_qty:
+                score += 0.05
+            if q_uom and r_uom and (q_uom == r_uom or q_uom[:2] == r_uom[:2]):
+                score += 0.05
 
             if score > best_score and score >= 0.2:
                 best_score = score
@@ -359,3 +423,58 @@ def match_quote_to_rfq(quote_items: List[Dict], rfq_items: List[Dict]) -> List[D
             used_rfq.add(best_match)
 
     return results
+
+
+def _extract_all_part_numbers(description: str, primary_pn: str = "") -> List[str]:
+    """Extract all part/manufacturer/McKesson numbers from a description.
+    
+    Handles:
+    - "McKesson # 449317" → "449317"
+    - "Manufacturer # PG004" → "pg004"
+    - "# EQX7044" → "eqx7044"
+    - "# J-JPG004Z" → "j-jpg004z", "jpg004z"
+    - "#MDS098001Z" → "mds098001z"
+    """
+    pns = set()
+    desc = description.lower()
+
+    # Add primary part number
+    if primary_pn:
+        pn = primary_pn.lower().strip()
+        pns.add(pn)
+        # Also add without common prefixes
+        stripped = re.sub(r'^[a-z]{1,3}[-]?', '', pn)
+        if stripped and len(stripped) >= 3 and stripped != pn:
+            pns.add(stripped)
+
+    # Extract "# XXXXX" patterns
+    for m in re.finditer(r'#\s*([A-Za-z0-9\-]{3,20})', desc):
+        val = m.group(1).lower().strip('-')
+        pns.add(val)
+        # Strip letter prefixes: "j-jpg004z" → "jpg004z", "squ022767" → "022767"
+        stripped = re.sub(r'^[a-z]{1,3}[-]?', '', val)
+        if stripped and len(stripped) >= 3 and stripped != val:
+            pns.add(stripped)
+
+    # Extract "McKesson # XXX" and "Manufacturer # XXX" explicitly
+    for m in re.finditer(r'(?:mckesson|manufacturer|mfg|mfr)\s*#?\s*:?\s*([A-Za-z0-9\-]{3,20})', desc):
+        val = m.group(1).lower().strip('-')
+        pns.add(val)
+
+    # Extract standalone part-number-like strings at end: "- 816559012292"
+    for m in re.finditer(r'[-–]\s*([A-Za-z0-9]{5,20})\s*$', desc):
+        pns.add(m.group(1).lower())
+
+    return list(pns)
+
+
+def _extract_numeric_suffixes(part_numbers: List[str]) -> List[str]:
+    """Extract pure numeric suffixes from part numbers.
+    "squ022767" → "022767", "j-jpg004z" → "004", "eqx7044" → "7044"
+    """
+    nums = set()
+    for pn in part_numbers:
+        # Find longest numeric run
+        for m in re.finditer(r'\d{3,}', pn):
+            nums.add(m.group(0))
+    return list(nums)
