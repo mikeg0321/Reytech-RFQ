@@ -1722,8 +1722,8 @@ def generate_rfq_package(rid):
         
         # ── Match agency FIRST — determines which forms to generate ──
         try:
-            from src.api.modules.routes_analytics import _match_agency, _load_agency_configs, AVAILABLE_FORMS
-            _agency_key, _agency_cfg = _match_agency(r)
+            from src.core.agency_config import match_agency, load_agency_configs, AVAILABLE_FORMS
+            _agency_key, _agency_cfg = match_agency(r)
             _req_forms = set(_agency_cfg.get("required_forms", []))
             _opt_forms = set(_agency_cfg.get("optional_forms", []))
             t.step(f"Agency matched: {_agency_key} ({_agency_cfg.get('name','')}), {len(_req_forms)} required forms: {', '.join(sorted(_req_forms))}")
@@ -4316,8 +4316,8 @@ def api_diag_package(rid):
     
     # Check agency
     try:
-        from src.api.modules.routes_analytics import _match_agency
-        _agency_key, _agency_cfg = _match_agency(r)
+        from src.core.agency_config import match_agency
+        _agency_key, _agency_cfg = match_agency(r)
         _req = _agency_cfg.get("required_forms", [])
         results["agency"] = _agency_key
         results["required_forms"] = _req
