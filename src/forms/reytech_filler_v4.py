@@ -39,6 +39,7 @@ SIGN_FIELDS = {
     "Signature_darfur",    # Darfur Option #1 ONLY
     "Signature29",         # GSPD-05-105 Bidder Declaration
     "Signature1_PD843",    # DVBE 1st block only
+    "DVBEowner1signature", # DVBE 843 unlocked template owner sig
     "708_Signature15",     # GenAI 708
     "Signature_std21",     # STD 21 Drug-Free
     "OBS 1600 Signature",  # OBS 1600 Food Cert — text field but needs signature image
@@ -1627,7 +1628,6 @@ def generate_dvbe_843(rfq_data, config, output_path):
     sign_date = rfq_data.get("sign_date", get_pst_date())
     sol = rfq_data.get("solicitation_number", "")
 
-    # Find template relative to project data dir
     _data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
     template_path = os.path.join(_data_dir, "templates", "dvbe_843_blank.pdf")
     if not os.path.exists(template_path):
@@ -1636,17 +1636,12 @@ def generate_dvbe_843(rfq_data, config, output_path):
     values = {
         "DVBEname": company["name"],
         "DVBErefno": company["cert_number"],
-        "description": company.get("description_of_goods", "Medical supplies and associated equipment"),
+        "description": "Medical supplies and equipment",
         "SCno": sol,
-        "YNagent": "/1",  # Not a broker
-        "DVBEowner1": f"{company['owner']}",
+        "YNagent": "/1",
+        "DVBEowner1": company["owner"],
         "DVBEowner1date": sign_date,
         "DVBEowner2": "N/A",
-        "DVBEowner2date": "",
-        "DVBEowner3": "",
-        "DVBEowner3Address": "",
-        "DVBEowner3Phone": "",
-        "DVBEowner3TaxID": "",
         "DVBEmgr": "N/A",
         "Principal": "N/A",
         "PrincipalPhone": company["phone"],
@@ -1655,38 +1650,8 @@ def generate_dvbe_843(rfq_data, config, output_path):
         "TotalPages": "1",
     }
 
+    # fill_and_sign_pdf fills fields + overlays signature on DVBEowner1signature (in SIGN_FIELDS)
     fill_and_sign_pdf(template_path, values, output_path, sign_date=sign_date)
-    
-    # Overlay signature at DVBEowner1signature position [324, 452, 493, 464]
-    try:
-        if os.path.exists(SIGNATURE_PATH):
-            from reportlab.lib.pagesizes import letter
-            from reportlab.lib.units import inch
-            from io import BytesIO
-            from pypdf import PdfReader as _PR, PdfWriter as _PW
-            
-            # Create overlay with signature
-            sig_buf = BytesIO()
-            sig_c = rl_canvas.Canvas(sig_buf, pagesize=letter)
-            sig_c.drawImage(SIGNATURE_PATH, 330, 440, width=140, height=35,
-                           preserveAspectRatio=True, mask='auto')
-            sig_c.save()
-            
-            # Merge overlay onto filled PDF
-            sig_buf.seek(0)
-            overlay_reader = _PR(sig_buf)
-            base_reader = _PR(output_path)
-            writer = _PW()
-            
-            base_page = base_reader.pages[0]
-            base_page.merge_page(overlay_reader.pages[0])
-            writer.add_page(base_page)
-            
-            with open(output_path, "wb") as f:
-                writer.write(f)
-    except Exception as _se:
-        print(f"  ⚠ DVBE 843 signature overlay failed: {_se}")
-    
     print(f"  ✓ DVBE 843 filled from template ({sol})")
 
 
