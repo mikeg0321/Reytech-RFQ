@@ -1483,11 +1483,26 @@ def process_rfq_email(rfq_email):
                 
                 existing_pcs = _load_price_checks()
                 email_uid = rfq_email.get("email_uid")
-                if email_uid and any(p.get("email_uid") == email_uid for p in existing_pcs.values()):
-                    _trace.append("SKIP: duplicate email_uid in PC queue")
-                    POLL_STATUS.setdefault("_email_traces", []).append(_trace)
-                    t.ok("Skipped: duplicate email_uid in PC queue")
-                    return None
+                if email_uid:
+                    existing_match = None
+                    existing_match_id = None
+                    for pid, p in existing_pcs.items():
+                        if p.get("email_uid") == email_uid:
+                            existing_match = p
+                            existing_match_id = pid
+                            break
+                    if existing_match:
+                        # Allow re-processing if the existing PC was a failed parse
+                        if existing_match.get("status") == "parse_error" and not existing_match.get("items"):
+                            log.info("Replacing parse_error PC %s (0 items) with fresh parse", existing_match_id)
+                            del existing_pcs[existing_match_id]
+                            _save_price_checks(existing_pcs)
+                            _trace.append(f"Replaced stale parse_error PC: {existing_match_id}")
+                        else:
+                            _trace.append(f"SKIP: duplicate email_uid in PC queue (existing={existing_match_id}, status={existing_match.get('status')}, items={len(existing_match.get('items', []))})")
+                            POLL_STATUS.setdefault("_email_traces", []).append(_trace)
+                            t.ok("Skipped: duplicate email_uid in PC queue")
+                            return None
                 
                 # ── Cross-queue dedup: if this email has RFQ templates (703B/704B/BidPkg),
                 # it's an RFQ, not a PC. Don't create a PC entry for it.
