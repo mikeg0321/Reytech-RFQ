@@ -2789,9 +2789,9 @@ DEFAULT_AGENCY_CONFIGS = {
     "calvet": {
         "name": "Cal Vet / DVA",
         "match_patterns": ["CALVET", "CAL VET", "CVA", "VHC", "VETERANS"],
-        "required_forms": ["703b", "704b", "bidpkg", "quote", "std204", "sellers_permit", "dvbe843", "cv012_cuf", "bidder_decl", "darfur_act"],
+        "required_forms": ["quote", "calrecycle74", "bidder_decl", "dvbe843", "darfur_act", "cv012_cuf", "std204", "std1000", "sellers_permit"],
         "optional_forms": ["barstow_cuf"],
-        "notes": "California Department of Veterans Affairs. Requires CUF + bidder declarations.",
+        "notes": "California Department of Veterans Affairs. No AMS 703B/704B — uses Reytech quote + compliance forms.",
     },
     "dgs": {
         "name": "DGS",
