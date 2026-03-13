@@ -783,15 +783,51 @@ def update(rid):
     
     # Record ALL prices to history + auto-ingest to catalog
     try:
-        _record_rfq_prices(r, source="rfq_save")
+        _record_rfq_prices(r, source="rfq_finalize")
     except Exception as _e:
         log.debug("Price recording: %s", _e)
     
-    _log_rfq_activity(rid, "pricing_saved",
-        f"Pricing updated for #{r.get('solicitation_number','?')} ({len(r.get('line_items',[]))} items)",
+    # Sync all priced items to product catalog
+    cat_added, cat_updated = 0, 0
+    try:
+        from src.agents.product_catalog import match_item, add_to_catalog, add_supplier_price, init_catalog_db
+        init_catalog_db()
+        for item in r.get("line_items", []):
+            desc = item.get("description", "")
+            pn = item.get("item_number", "") or ""
+            cost = item.get("supplier_cost") or 0
+            bid = item.get("price_per_unit") or 0
+            supplier = item.get("item_supplier", "")
+            uom = item.get("uom", "EA")
+            if not desc or (not cost and not bid):
+                continue
+            cat_matches = match_item(desc, pn, top_n=1)
+            if cat_matches and cat_matches[0].get("match_confidence", 0) >= 0.5:
+                pid = cat_matches[0]["id"]
+                if cost > 0 and supplier:
+                    add_supplier_price(pid, supplier, cost)
+                cat_updated += 1
+            else:
+                pid = add_to_catalog(
+                    description=desc, part_number=pn,
+                    cost=cost if cost > 0 else 0,
+                    sell_price=bid if bid > 0 else 0,
+                    supplier_name=supplier, uom=uom,
+                    source=f"rfq_finalize_{r.get('solicitation_number', '')}",
+                )
+                if pid and cost > 0 and supplier:
+                    add_supplier_price(pid, supplier, cost)
+                    cat_added += 1
+        if cat_added or cat_updated:
+            log.info("Finalize catalog sync: +%d new, ~%d updated", cat_added, cat_updated)
+    except Exception as _ce:
+        log.debug("Finalize catalog sync: %s", _ce)
+    
+    _log_rfq_activity(rid, "pricing_finalized",
+        f"Pricing finalized for #{r.get('solicitation_number','?')} ({len(r.get('line_items',[]))} items, catalog +{cat_added}/~{cat_updated})",
         actor="user")
     
-    flash("Pricing saved", "success")
+    flash("Pricing finalized — saved to catalog", "success")
     return redirect(f"/rfq/{rid}")
 
 
