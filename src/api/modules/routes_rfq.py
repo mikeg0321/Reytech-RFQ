@@ -4301,3 +4301,76 @@ def api_rfq_debug_templates(rid):
             result[tname] = {"error": str(e)}
 
     return jsonify({"ok": True, "templates": result})
+
+
+@bp.route("/api/rfq/<rid>/diag-package")
+@auth_required
+def api_diag_package(rid):
+    """Diagnostic: test each form generation step and report what works/fails."""
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"})
+
+    results = {"rid": rid, "items": len(r.get("line_items", [])), "steps": []}
+    
+    # Check agency
+    try:
+        from src.api.modules.routes_analytics import _match_agency
+        _agency_key, _agency_cfg = _match_agency(r)
+        _req = _agency_cfg.get("required_forms", [])
+        results["agency"] = _agency_key
+        results["required_forms"] = _req
+        results["steps"].append({"step": "agency_match", "ok": True, "agency": _agency_key, "forms": _req})
+    except Exception as e:
+        results["steps"].append({"step": "agency_match", "ok": False, "error": str(e)})
+        return jsonify(results)
+    
+    # Check templates dir
+    import os
+    tdir = os.path.join(os.environ.get("DATA_DIR", "data"), "templates")
+    if os.path.exists(tdir):
+        files = os.listdir(tdir)
+        results["steps"].append({"step": "templates_dir", "ok": True, "files": files})
+    else:
+        results["steps"].append({"step": "templates_dir", "ok": False, "error": f"{tdir} not found"})
+    
+    # Check quote generator
+    try:
+        from src.forms.quote_gen import generate_quote_from_rfq
+        results["steps"].append({"step": "quote_gen_import", "ok": True})
+    except Exception as e:
+        results["steps"].append({"step": "quote_gen_import", "ok": False, "error": str(e)})
+    
+    # Check each required form's generator
+    form_checks = {
+        "calrecycle74": ("src.forms.reytech_filler_v4", "fill_calrecycle_standalone"),
+        "std204": ("src.forms.reytech_filler_v4", "fill_std204"),
+        "std1000": ("src.forms.reytech_filler_v4", "fill_std1000"),
+        "dvbe843": ("src.forms.reytech_filler_v4", "generate_dvbe_843"),
+        "bidder_decl": ("src.forms.reytech_filler_v4", "generate_bidder_declaration"),
+        "darfur_act": ("src.forms.reytech_filler_v4", "generate_darfur_act"),
+        "cv012_cuf": ("src.forms.reytech_filler_v4", "fill_cv012_cuf"),
+    }
+    for form_id, (mod, func) in form_checks.items():
+        if form_id in _req:
+            try:
+                m = __import__(mod, fromlist=[func])
+                fn = getattr(m, func)
+                results["steps"].append({"step": f"import_{form_id}", "ok": True, "func": func})
+            except Exception as e:
+                results["steps"].append({"step": f"import_{form_id}", "ok": False, "error": str(e)})
+    
+    # Check CONFIG
+    try:
+        from src.api.modules.routes_rfq import CONFIG
+        results["steps"].append({"step": "config", "ok": True, "company": CONFIG.get("company", {}).get("name", "?")})
+    except Exception as e:
+        results["steps"].append({"step": "config", "ok": False, "error": str(e)})
+    
+    # Check line items have pricing
+    items = r.get("line_items", [])
+    priced = sum(1 for i in items if i.get("price_per_unit") and i["price_per_unit"] > 0)
+    results["steps"].append({"step": "pricing", "items": len(items), "priced": priced})
+    
+    return jsonify(results)
