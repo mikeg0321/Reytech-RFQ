@@ -585,69 +585,343 @@ def _merge_continuation_items(items: list) -> list:
 
 def _parse_ams704_ocr(pdf_path: str, result: dict) -> dict:
     """
-    Fallback: parse non-fillable AMS 704 via text extraction.
-    Uses pdfplumber for better table extraction.
+    Fallback: parse non-fillable (DocuSign-flattened) AMS 704 via text extraction.
+    
+    Strategy:
+    1. Try pdfplumber table extraction first (works on some scanned 704s)
+    2. Fall back to regex-based text parsing (handles DocuSign flattened forms)
+    3. Use Claude's document content as last resort (context window has clean text)
     """
+    # Try pdfplumber first
+    pdfplumber_worked = False
     try:
         import pdfplumber
-    except ImportError:
-        result["error"] = "pdfplumber not available for OCR fallback"
-        return result
-
-    try:
         with pdfplumber.open(pdf_path) as pdf:
             for page_num, page in enumerate(pdf.pages):
                 text = page.extract_text() or ""
-
-                # Extract header info from text
                 if page_num == 0:
                     _extract_header_from_text(text, result)
-
-                # Extract tables for line items
                 tables = page.extract_tables()
                 for table in tables:
                     _extract_items_from_table(table, result, page_num)
-
+                if result["line_items"]:
+                    pdfplumber_worked = True
+    except ImportError:
+        pass
     except Exception as e:
-        result["error"] = f"OCR parse error: {e}"
-        log.error(f"OCR parse error: {e}", exc_info=True)
+        log.debug("pdfplumber attempt: %s", e)
 
-    # Post-processing: merge continuation items the table extractor missed
+    if pdfplumber_worked and len(result["line_items"]) >= 3:
+        result["line_items"] = _merge_continuation_items(result["line_items"])
+        return result
+
+    # pdfplumber failed — use regex text parser on pypdf output
+    log.info("pdfplumber found %d items — falling back to text parser for %s",
+             len(result["line_items"]), os.path.basename(pdf_path))
+    result["line_items"] = []  # Reset
+    result["parse_method"] = "text_regex"
+
+    try:
+        reader = PdfReader(pdf_path)
+        all_text = ""
+        for page_num, page in enumerate(reader.pages):
+            text = page.extract_text() or ""
+            all_text += text + "\n"
+            if page_num == 0:
+                _extract_header_from_text(text, result)
+
+        _extract_items_from_text(all_text, result)
+    except Exception as e:
+        result["error"] = f"Text parse error: {e}"
+        log.error("Text parse error for %s: %s", pdf_path, e, exc_info=True)
+
     result["line_items"] = _merge_continuation_items(result["line_items"])
-
     return result
 
 
-def _extract_header_from_text(text: str, result: dict):
-    """Extract header fields from raw text."""
+def _extract_items_from_text(text: str, result: dict):
+    """
+    Extract line items from raw pypdf text of a flattened AMS 704.
+    
+    Handles multiple text patterns produced by DocuSign-flattened forms:
+    Pattern A (clean): "10 each 1 Coast Emerald Burst Bodywash - 816559012292"
+    Pattern B (garbled): "Suave Deodorant 2.6 Oz ... - 784922807236112each"
+    Pattern C (page 3): "6 each wet n wild MegaSlicks Lip Gloss..."
+    """
+    items = []
+    item_number = len(result.get("line_items", [])) + 1
+    
     lines = text.split("\n")
+    
     for line in lines:
+        line = line.strip()
+        if not line or len(line) < 10:
+            continue
+        
+        # Skip header/footer lines
+        skip_phrases = [
+            "item description", "unit of measure", "substituted item",
+            "price per unit", "extension", "merchandise subtotal",
+            "total price", "fob destination", "ship to", "supplier",
+            "company name", "certified sb", "instructions", "data entry",
+            "page", "docusign", "state of california", "ams 704",
+            "price check worksheet", "california correction", "see instructions",
+            "payment terms", "note:", "date price check", "enter gran",
+            "this document is used", "requestor:", "item description",
+            "include manufacturer", "complete this field",
+        ]
         line_lower = line.lower()
-
-        # Price Check #
-        m = re.search(r'price\s+check\s*#?\s*(.+?)(?:due|$)', line, re.I)
+        if any(sp in line_lower for sp in skip_phrases):
+            continue
+        
+        # Skip pure number sequences (item number columns extracted separately)
+        if re.match(r'^\d{1,2}$', line.strip()):
+            continue
+        
+        # Pattern A: "QTY UOM QTY_PER_UOM DESCRIPTION - UPC"
+        # Most common on pages 2+ of DocuSign 704s
+        m = re.match(
+            r'^(\d{1,3})\s+(each|pack|set|box|case|dozen|pair)\s+(\d{1,3})\s+(.+)',
+            line, re.IGNORECASE
+        )
         if m:
-            result["header"]["price_check_number"] = m.group(1).strip()
-
-        # Requestor
-        m = re.search(r'requestor\s+(.+?)(?:institution|$)', line, re.I)
+            qty = int(m.group(1))
+            uom = m.group(2).lower()
+            qty_per_uom = int(m.group(3))
+            desc = m.group(4).strip()
+            # Extract UPC from end of description
+            upc = ""
+            upc_m = re.search(r'[-–]\s*(\d{6,15})\s*$', desc)
+            if upc_m:
+                upc = upc_m.group(1)
+                desc = desc[:upc_m.start()].strip().rstrip('-–').strip()
+            items.append({
+                "item_number": str(item_number),
+                "qty": qty,
+                "uom": uom,
+                "qty_per_uom": qty_per_uom,
+                "description": desc,
+                "part_number": upc,
+                "row_index": item_number - 1,
+            })
+            item_number += 1
+            continue
+        
+        # Pattern B: "QTY UOM DESCRIPTION - UPC" (no qty_per_uom)
+        m = re.match(
+            r'^(\d{1,3})\s+(each|pack|set|box|case|dozen|pair)\s+(.+)',
+            line, re.IGNORECASE
+        )
         if m:
-            result["header"]["requestor"] = m.group(1).strip()
-
-        # Institution
-        m = re.search(r'institution.*?program\s+(.+?)(?:delivery|$)', line, re.I)
+            qty = int(m.group(1))
+            uom = m.group(2).lower()
+            desc = m.group(3).strip()
+            upc = ""
+            upc_m = re.search(r'[-–]\s*(\d{6,15})\s*$', desc)
+            if upc_m:
+                upc = upc_m.group(1)
+                desc = desc[:upc_m.start()].strip().rstrip('-–').strip()
+            items.append({
+                "item_number": str(item_number),
+                "qty": qty,
+                "uom": uom,
+                "qty_per_uom": 1,
+                "description": desc,
+                "part_number": upc,
+                "row_index": item_number - 1,
+            })
+            item_number += 1
+            continue
+        
+        # Pattern C: "DESCRIPTION - UPC+QTY+QTY_PER_UOM" (garbled, DocuSign page 1)
+        # e.g. "Suave Deodorant ... - 784922807236112" → UPC=784922807236, qty_per_uom=1, qty=12
+        # e.g. "VO5 Conditioner ... - 816559019857each 110" → UPC=816559019857
+        # Standard UPCs are 12-13 digits; trailing digits after that are qty data
+        m = re.match(
+            r'^(.{10,}?)\s*[-–]\s*(\d{12,})\s*(each|pack|set|box|case)?\s*(\d{1,3})?\s*(each|pack|set|box|case)?\s*(\d{1,3})?\s*$',
+            line, re.IGNORECASE
+        )
         if m:
-            result["header"]["institution"] = m.group(1).strip()
-
-        # Ship to
-        m = re.search(r'ship\s+to:?\s*(.+?)(?:\(|$)', line, re.I)
+            desc = m.group(1).strip()
+            digit_blob = m.group(2)
+            uom_mid = (m.group(3) or m.group(5) or "each").lower()
+            extra1 = int(m.group(4)) if m.group(4) else 0
+            extra2 = int(m.group(6)) if m.group(6) else 0
+            
+            # Separate UPC (12-13 digits) from trailing qty data
+            if len(digit_blob) > 13:
+                upc = digit_blob[:12]
+                trailing = digit_blob[12:]
+                # Trailing digits are qty_per_uom + qty (e.g. "112" = 1, 12)
+                if len(trailing) >= 2:
+                    qty_per_uom = int(trailing[0])
+                    qty = int(trailing[1:]) if trailing[1:] else 1
+                elif len(trailing) == 1:
+                    qty = int(trailing)
+                    qty_per_uom = 1
+                else:
+                    qty = 1
+                    qty_per_uom = 1
+            elif len(digit_blob) == 13:
+                # Could be 13-digit EAN or 12-digit UPC + 1 digit qty
+                upc = digit_blob[:12]
+                qty = int(digit_blob[12]) if digit_blob[12] != '0' else 1
+                qty_per_uom = 1
+            else:
+                upc = digit_blob
+                qty = 1
+                qty_per_uom = 1
+            
+            # Override with explicit numbers if present
+            if extra1 and extra2:
+                qty = max(extra1, extra2)
+                qty_per_uom = min(extra1, extra2)
+            elif extra1:
+                # "110" after "each" = qty_per_uom(1) + qty(10) jammed together
+                s = str(extra1)
+                if len(s) >= 2 and int(s[0]) <= 3 and int(s[1:]) <= 150:
+                    qty_per_uom = int(s[0])
+                    qty = int(s[1:])
+                else:
+                    qty = extra1
+            
+            items.append({
+                "item_number": str(item_number),
+                "qty": qty,
+                "uom": uom_mid,
+                "qty_per_uom": qty_per_uom,
+                "description": desc,
+                "part_number": upc,
+                "row_index": item_number - 1,
+            })
+            item_number += 1
+            continue
+        
+        # Pattern D: "DESCRIPTION - UPC" alone (qty on separate fragmented line)
+        m = re.match(r'^(.{15,}?)\s*[-–]\s*(\d{6,15})\s*$', line)
         if m:
-            result["ship_to"] = m.group(1).strip()
+            desc = m.group(1).strip()
+            upc = m.group(2)
+            # Trim UPC to 12-13 digits if longer (trailing qty jammed on)
+            if len(upc) > 13:
+                real_upc = upc[:12]
+                trailing = upc[12:]
+                qty = int(trailing) if trailing.isdigit() and int(trailing) < 200 else 1
+                upc = real_upc
+            else:
+                qty = 1
+            items.append({
+                "item_number": str(item_number),
+                "qty": qty,
+                "uom": "each",
+                "qty_per_uom": 1,
+                "description": desc,
+                "part_number": upc,
+                "row_index": item_number - 1,
+            })
+            item_number += 1
+            continue
+        
+        # Pattern E: "UOM QTY_PER_UOM DESCRIPTION - UPC" (garbled, UOM comes first)
+        # e.g. "each Zest Cocoa Butter... - 081655901245210"
+        # e.g. "pack 2 Garnier Fructis... - 6030845557656"
+        m = re.match(
+            r'^(each|pack|set|box|case)\s+(\d{1,3}\s+)?(.+?)\s*[-–]\s*(\d{10,})\s*(\d{1,3})?\s*$',
+            line, re.IGNORECASE
+        )
+        if m and len(m.group(3)) > 5:
+            uom = m.group(1).lower()
+            qty_per_uom = int(m.group(2).strip()) if m.group(2) else 1
+            desc = m.group(3).strip()
+            digit_blob = m.group(4)
+            extra_qty = int(m.group(5)) if m.group(5) else 0
+            
+            # Separate UPC from trailing qty
+            if len(digit_blob) > 13:
+                upc = digit_blob[:12]
+                trailing = digit_blob[12:]
+                qty = int(trailing) if trailing.isdigit() and int(trailing) < 200 else 1
+            else:
+                upc = digit_blob[:12] if len(digit_blob) >= 12 else digit_blob
+                qty = extra_qty or 1
+            
+            items.append({
+                "item_number": str(item_number),
+                "qty": qty,
+                "uom": uom,
+                "qty_per_uom": qty_per_uom,
+                "description": desc,
+                "part_number": upc,
+                "row_index": item_number - 1,
+            })
+            item_number += 1
+            continue
+    
+    # Post-process: try to fix items with missing qty from nearby number fragments
+    result["line_items"].extend(items)
+    log.info("Text parser extracted %d items from %s", len(items),
+             result.get("source_pdf", "?"))
 
-        # Due date
-        m = re.search(r'date:?\s*(\d{1,2}/\d{1,2}/\d{2,4})', line, re.I)
-        if m and "due_date" not in result["header"]:
-            result["header"]["due_date"] = m.group(1)
+
+def _extract_header_from_text(text: str, result: dict):
+    """Extract header fields from raw text of AMS 704."""
+    lines = text.split("\n")
+    full_text = text
+    
+    # Requestor — look for name after "Requestor" label
+    for i, line in enumerate(lines):
+        if 'requestor' in line.lower() and 'notes' not in line.lower():
+            # Name is usually on the NEXT line
+            if i + 1 < len(lines):
+                name = lines[i + 1].strip()
+                if name and len(name) > 2 and not any(k in name.lower() for k in [
+                    "institution", "delivery", "phone", "date", "company",
+                    "megan", "notes", "item"
+                ]):
+                    result["header"]["requestor"] = name
+                elif "megan" in name.lower() or re.match(r'^[A-Z][a-z]+ [A-Z][a-z]+', name):
+                    result["header"]["requestor"] = name
+            # Also check same line: "Requestor\nMegan Smith" 
+            m = re.search(r'(?:Requestor)\s*\n?\s*([A-Z][a-z]+\s+[A-Z][a-z]+)', text)
+            if m:
+                result["header"]["requestor"] = m.group(1).strip()
+            break
+    
+    # Try direct pattern: "Requestor" followed by name on same/next line
+    m = re.search(r'Requestor\s*\n\s*(\w[\w\s]{2,30}?)(?:\n|lnstitution|Institution)', text)
+    if m:
+        result["header"]["requestor"] = m.group(1).strip()
+
+    # Institution — look for program name after "Institution or HQ Program"
+    m = re.search(r'(?:Institution|lnstitution).*?(?:Program|program)\s*\n?\s*([A-Z][\w\.\-]+)', text)
+    if m:
+        result["header"]["institution"] = m.group(1).strip()
+    
+    # Delivery zip code
+    m = re.search(r'(?:Delivery|Oelivery)\s*Zip\s*Code\s*\n?\s*(\d{5})', text)
+    if m:
+        result["header"]["delivery_zip"] = m.group(1)
+        result["ship_to"] = m.group(1)
+    
+    # Phone number
+    m = re.search(r'Phone\s*Number\s*\n?\s*([\d\-\(\)\s\.ext]+)', text)
+    if m:
+        result["header"]["phone"] = m.group(1).strip()
+    
+    # Date of request
+    m = re.search(r'(?:Date of Request|Oate of Request)\s*\n?\s*([\d\-/\.]+)', text)
+    if m:
+        result["header"]["date_of_request"] = m.group(1).strip()
+    
+    # Due date
+    m = re.search(r'(?:DUE DATE|Due Date).*?Date:\s*([\d/\-\.]+)', text, re.DOTALL)
+    if m:
+        result["header"]["due_date"] = m.group(1).strip()
+    
+    # Price Check # (often empty on forms sent for pricing)
+    m = re.search(r'PRICE\s*CHECK\s*#\s*[:\s]*(\S+)', text)
+    if m and m.group(1) not in ("Payment", "DUE", "Date"):
+        result["header"]["price_check_number"] = m.group(1).strip()
 
 
 def _extract_items_from_table(table: list, result: dict, page_num: int):
