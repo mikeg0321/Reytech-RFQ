@@ -1195,7 +1195,21 @@ def rfq_upload_supplier_quote(rid):
 
     # Match to RFQ line items
     rfq_items = r.get("line_items", [])
+    
+    # ── Diagnostic logging for remote debugging ──
+    log.info("SUPPLIER QUOTE MATCH: %d quote items vs %d RFQ items", len(quote_items), len(rfq_items))
+    for qi, q in enumerate(quote_items[:5]):
+        log.info("  Q[%d] pn='%s' $%.2f desc='%s'", qi, q.get("item_number",""), q.get("unit_price",0), q.get("description","")[:60])
+    for ri, r_item in enumerate(rfq_items[:5]):
+        log.info("  R[%d] pn='%s' desc='%s'", ri, r_item.get("item_number",""), r_item.get("description","")[:60])
+    
     matches = match_quote_to_rfq(quote_items, rfq_items)
+    
+    matched_count = sum(1 for m in matches if m.get("matched"))
+    log.info("MATCH RESULT: %d/%d matched", matched_count, len(matches))
+    for m in matches:
+        if not m.get("matched"):
+            log.info("  UNMATCHED: Q[%d] pn='%s' $%.2f conf=%.2f", m["quote_idx"], m["quote_pn"], m["unit_price"], m.get("confidence",0))
 
     # Apply matches: fill cost, pick best description, update catalog
     applied = 0

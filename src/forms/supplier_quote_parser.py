@@ -164,8 +164,9 @@ def _parse_supplier_quote_vision(pdf_path: str) -> Optional[List[Dict]]:
 def _merge_regex_and_vision(regex_items: List[Dict], vision_items: List[Dict]) -> List[Dict]:
     """Merge regex-parsed items with vision-parsed items.
     
-    Strategy: use vision descriptions (richer) with regex prices (more reliable).
-    For items only in vision → add them. For items only in regex → keep them.
+    Strategy: regex is primary (has McKesson/Manufacturer refs for matching).
+    Vision fills gaps: missing items, missing UOM factors, richer display name.
+    NEVER replace regex descriptions — they contain MFG cross-references.
     """
     merged = []
     used_vision = set()
@@ -181,7 +182,6 @@ def _merge_regex_and_vision(regex_items: List[Dict], vision_items: List[Dict]) -
             v_pn = (vi.get("item_number") or "").lower()
             v_price = vi.get("unit_price", 0)
 
-            # Match by item number or price
             if (r_pn and v_pn and (r_pn == v_pn or r_pn in v_pn or v_pn in r_pn)):
                 best_vision = (vi_idx, vi)
                 break
@@ -192,18 +192,17 @@ def _merge_regex_and_vision(regex_items: List[Dict], vision_items: List[Dict]) -
         if best_vision:
             vi_idx, vi = best_vision
             used_vision.add(vi_idx)
-            # Use vision description if richer, regex price (more reliable)
-            v_desc = vi.get("description", "")
-            r_desc = ri.get("description", "")
-            if len(v_desc) > len(r_desc):
-                ri["description"] = v_desc
-            # Fill in any missing fields from vision
+            # Only fill MISSING fields from vision — never overwrite regex data
             if vi.get("uom_factor") and not ri.get("uom_factor"):
                 ri["uom_factor"] = vi["uom_factor"]
+            # Store vision description separately for display purposes
+            v_desc = vi.get("description", "")
+            if v_desc and len(v_desc) > 10:
+                ri["vision_description"] = v_desc
 
         merged.append(ri)
 
-    # Add vision-only items (regex missed them)
+    # Add vision-only items (regex missed them entirely)
     for vi_idx, vi in enumerate(vision_items):
         if vi_idx not in used_vision and vi.get("unit_price", 0) > 0:
             merged.append({
