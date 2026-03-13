@@ -287,6 +287,33 @@
 
     <div class="card">
      <h3 style="margin-top:0;font-size:18px">Line Items <span id="itemCount" style="font-weight:normal;color:#8b949e;font-size:15px">({{ items|length }} items)</span></h3>
+     <!-- Quick Markup Bar (parity with RFQ) -->
+     <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:10px;font-size:14px">
+      <span style="color:#8b949e">Quick Markup:</span>
+      <button class="btn btn-sm" style="background:#21262d;color:#e6edf3;border:1px solid #30363d;padding:3px 8px;font-size:13px" onclick="applyQuickMarkup(10)">+10%</button>
+      <button class="btn btn-sm" style="background:#21262d;color:#e6edf3;border:1px solid #30363d;padding:3px 8px;font-size:13px" onclick="applyQuickMarkup(15)">+15%</button>
+      <button class="btn btn-sm" style="background:#21262d;color:#e6edf3;border:1px solid #30363d;padding:3px 8px;font-size:13px" onclick="applyQuickMarkup(20)">+20%</button>
+      <button class="btn btn-sm" style="background:#21262d;color:#e6edf3;border:1px solid #30363d;padding:3px 8px;font-size:13px" onclick="applyQuickMarkup(25)">+25%</button>
+      <button class="btn btn-sm" style="background:#21262d;color:#e6edf3;border:1px solid #30363d;padding:3px 8px;font-size:13px" onclick="applyQuickMarkup(30)">+30%</button>
+      <div style="display:flex;align-items:center;gap:3px;background:#21262d;padding:3px 6px;border-radius:6px;border:1px solid #30363d">
+       <input type="number" id="pc-custom-pct" step="0.5" min="0" max="200" placeholder="%" style="width:45px;background:transparent;border:none;color:#e6edf3;font-size:13px;font-weight:600;text-align:center;outline:none">
+       <button class="btn btn-sm" style="background:transparent;color:#58a6ff;border:none;padding:2px 6px;font-size:12px;cursor:pointer" onclick="var v=parseFloat(document.getElementById('pc-custom-pct').value);if(v>0)applyQuickMarkup(v);else alert('Enter a %')">Apply</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:3px;background:#21262d;padding:3px 6px;border-radius:6px;border:1px solid #30363d">
+       <span style="color:#8b949e;font-size:12px">$</span>
+       <input type="number" id="pc-custom-flat" step="0.01" min="0" placeholder="0.00" style="width:50px;background:transparent;border:none;color:#e6edf3;font-size:13px;font-weight:600;text-align:center;outline:none">
+       <button class="btn btn-sm" style="background:transparent;color:#58a6ff;border:none;padding:2px 6px;font-size:12px;cursor:pointer" onclick="applyFlatMarkupPC()">+$</button>
+      </div>
+     </div>
+     <!-- Margin Summary Bar -->
+     <div id="pc-margin-summary" style="display:none;padding:8px 14px;background:#21262d;border:1px solid #30363d;border-radius:8px;font-size:14px;display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+      <span style="color:#8b949e">Margin:</span>
+      <span id="pc-ms-cost"></span>
+      <span id="pc-ms-revenue"></span>
+      <span id="pc-ms-profit" style="font-weight:700"></span>
+      <span id="pc-ms-pct" style="font-weight:700"></span>
+      <span id="pc-ms-items" style="color:#8b949e"></span>
+     </div>
      <div class="pc-table-wrap">
      <table id="itemsTable">
       <tr><th style="width:28px">Bid</th><th style="width:40px">Line#</th><th>MFG#</th><th>Qty</th><th>UOM</th><th style="min-width:250px">Description</th><th style="width:36px" title="Substitute item? Check if quoting a replacement">Sub?</th><th style="min-width:160px">Item Link</th><th style="min-width:160px">Sources</th><th>Unit Cost</th><th>Markup</th><th>Our Price</th><th>Extension</th><th>Profit</th></tr>
@@ -480,6 +507,32 @@
       recalcRow(parseInt(idx));
      });
      showMsg('✅ Applied '+markup+'% markup to all items','ok');
+    }
+
+    function applyQuickMarkup(pct) {
+     document.getElementById('markupDefault').value=pct;
+     document.querySelectorAll('tr[data-row]:not(.notes-row)').forEach(function(row){
+      var idx=row.getAttribute('data-row');
+      var markupInp=row.querySelector('[name=markup_'+idx+']');
+      if(markupInp) markupInp.value=pct;
+      recalcRow(parseInt(idx));
+     });
+     showMsg('✅ Applied '+pct+'% markup to all items','ok');
+    }
+
+    function applyFlatMarkupPC() {
+     var flat=parseFloat(document.getElementById('pc-custom-flat').value);
+     if(isNaN(flat)||flat<=0){alert('Enter a dollar amount');return;}
+     document.querySelectorAll('tr[data-row]:not(.notes-row)').forEach(function(row){
+      var idx=row.getAttribute('data-row');
+      var costEl=row.querySelector('[name=cost_'+idx+']');
+      var priceEl=row.querySelector('[name=price_'+idx+']');
+      if(!costEl||!priceEl) return;
+      var c=parseFloat(costEl.value)||0;
+      if(c>0) priceEl.value=(c+flat).toFixed(2);
+      recalcRow(parseInt(idx));
+     });
+     showMsg('✅ Added $'+flat.toFixed(2)+' to all items','ok');
     }
 
     function showTierComparison() {
@@ -924,6 +977,20 @@
      document.getElementById('totals').innerHTML=html;
      // Also refresh tier comparison
      if(typeof showTierComparison==='function') showTierComparison();
+     // Update margin summary bar
+     var msBar=document.getElementById('pc-margin-summary');
+     if(msBar && (totalCost>0||sub>0)){
+      msBar.style.display='flex';
+      document.getElementById('pc-ms-cost').textContent='Cost: $'+totalCost.toFixed(2);
+      document.getElementById('pc-ms-revenue').textContent='Revenue: $'+sub.toFixed(2);
+      var pe=document.getElementById('pc-ms-profit');
+      pe.textContent=(totalProfit>=0?'+':'')+' $'+totalProfit.toFixed(2);
+      pe.style.color=totalProfit>=0?'#3fb950':'#f85149';
+      var pp=document.getElementById('pc-ms-pct');
+      pp.textContent=margin.toFixed(1)+'% margin';
+      pp.style.color=margin>=20?'#3fb950':margin>=10?'#d29922':'#f85149';
+      document.getElementById('pc-ms-items').textContent=bidCount+'/'+totalCount+' priced';
+     } else if(msBar){msBar.style.display='none';}
     }
 
     // Due date urgency

@@ -1256,6 +1256,46 @@ def _do_save_prices(pcid):
     except Exception as _e:
         log.debug("Suppressed: %s", _e)
 
+    # ── Save items to product catalog on every save (not just terminal status) ──
+    try:
+        from src.agents.product_catalog import (
+            match_item, add_to_catalog, add_supplier_price, init_catalog_db
+        )
+        init_catalog_db()
+        _cat_added, _cat_updated = 0, 0
+        for _item in items:
+            if _item.get("no_bid"):
+                continue
+            _desc = _item.get("description", "")
+            _pn = str(_item.get("mfg_number") or _item.get("item_number") or "")
+            _cost = _item.get("vendor_cost") or _item.get("pricing", {}).get("unit_cost") or 0
+            _price = _item.get("unit_price") or _item.get("pricing", {}).get("recommended_price") or 0
+            _supplier = _item.get("item_supplier", "")
+            _uom = _item.get("uom", "EA")
+            if not _desc or (not _cost and not _price):
+                continue
+            cat_matches = match_item(_desc, _pn, top_n=1)
+            if cat_matches and cat_matches[0].get("match_confidence", 0) >= 0.5:
+                pid = cat_matches[0]["id"]
+                if _cost > 0 and _supplier:
+                    add_supplier_price(pid, _supplier, _cost)
+                _cat_updated += 1
+            else:
+                pid = add_to_catalog(
+                    description=_desc, part_number=_pn,
+                    cost=_cost if _cost > 0 else 0,
+                    sell_price=_price if _price > 0 else 0,
+                    supplier_name=_supplier, uom=_uom,
+                    source=f"pc_{pcid}",
+                )
+                if pid and _cost > 0 and _supplier:
+                    add_supplier_price(pid, _supplier, _cost)
+                    _cat_added += 1
+        if _cat_added or _cat_updated:
+            log.info("PC %s catalog sync: +%d new, ~%d updated", pcid, _cat_added, _cat_updated)
+    except Exception as _ce:
+        log.debug("PC catalog sync: %s", _ce)
+
     # ── GAP 3 FIX: write confirmed prices to price_history + won_quotes ───────
     institution = pc.get("institution", "")
     pc_num      = pc.get("pc_number", "")
