@@ -1622,9 +1622,10 @@ def generate_bidder_declaration(rfq_data, config, output_path):
 # ═══════════════════════════════════════════════════════════════════════
 
 def generate_dvbe_843(rfq_data, config, output_path):
-    """Generate DVBE Declarations DGS PD 843 via ReportLab."""
+    """Generate DVBE Declarations DGS PD 843 (Rev. 9/2019) — matches official form layout."""
     company = config["company"]
     sign_date = rfq_data.get("sign_date", get_pst_date())
+    sol = rfq_data.get("solicitation_number", "")
 
     from reportlab.lib.pagesizes import letter
     from reportlab.lib.units import inch
@@ -1632,151 +1633,248 @@ def generate_dvbe_843(rfq_data, config, output_path):
 
     c = rl_canvas.Canvas(output_path, pagesize=letter)
     w, h = letter
-    margin = 0.6 * inch
+    m = 0.55 * inch  # margin
+    rw = w - 2 * m    # usable width
 
-    # Header
-    y = h - 0.5 * inch
-    c.setFont("Helvetica", 7)
-    c.drawString(margin, y, "STATE OF CALIFORNIA – DEPARTMENT OF GENERAL SERVICES PROCUREMENT DIVISION")
-    y -= 12
-    c.setFont("Helvetica-Bold", 11)
-    c.drawString(margin, y, "DISABLED VETERAN BUSINESS ENTERPRISE DECLARATIONS")
-    y -= 12
-    c.setFont("Helvetica", 7)
-    c.drawString(margin, y, "DGS PD 843 (Rev. 9/2019)")
+    def _line(y_pos):
+        c.setStrokeColor(colors.black)
+        c.setLineWidth(0.5)
+        c.line(m, y_pos, w - m, y_pos)
 
-    # Section 1
-    y -= 24
+    def _box(x, y_top, bw, bh):
+        c.setStrokeColor(colors.black)
+        c.setLineWidth(0.5)
+        c.rect(x, y_top - bh, bw, bh)
+
+    def _wrap_text(text, x, y_pos, max_w, font="Helvetica", size=8, leading=10):
+        """Draw wrapped text, return new y position."""
+        c.setFont(font, size)
+        words = text.split()
+        line = ""
+        for word in words:
+            test = f"{line} {word}".strip()
+            if c.stringWidth(test, font, size) > max_w:
+                c.drawString(x, y_pos, line)
+                y_pos -= leading
+                line = word
+            else:
+                line = test
+        if line:
+            c.drawString(x, y_pos, line)
+            y_pos -= leading
+        return y_pos
+
+    # ══ HEADER ══
+    y = h - 0.45 * inch
+    c.setFont("Helvetica", 6.5)
+    c.drawString(m, y, "STATE OF CALIFORNIA – DEPARTMENT OF GENERAL SERVICES PROCUREMENT DIVISION")
+    y -= 14
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(m, y, "DISABLED VETERAN BUSINESS ENTERPRISE DECLARATIONS")
+    y -= 12
+    c.setFont("Helvetica", 6.5)
+    c.drawString(m, y, "DGS PD 843 (Rev. 9/2019)")
+    y -= 8
+    c.drawString(m, y, "Formerly STD. 843")
+
+    # Instructions
+    y -= 14
+    instr = ("Instructions: The disabled veteran (DV) owner(s) and DV manager(s) of the Disabled Veteran Business "
+             "Enterprise (DVBE) must complete this declaration when a DVBE contractor or subcontractor will provide "
+             "materials, supplies, services or equipment [Military and Veterans Code Section 999.2]. Violations are "
+             "misdemeanors and punishable by imprisonment or fine and violators are liable for civil penalties. "
+             "All signatures are made under penalty of perjury.")
+    y = _wrap_text(instr, m, y, rw, "Helvetica", 7, 9)
+
+    # ══ SECTION 1 ══
+    y -= 8
     c.setFont("Helvetica-Bold", 9)
     c.drawCentredString(w / 2, y, "SECTION 1")
     y -= 4
-    c.line(margin, y, w - margin, y)
+    _line(y)
+
+    # Section 1 box
+    y -= 16
+    c.setFont("Helvetica", 8)
+    c.drawString(m + 4, y, "Name of certified DVBE:")
+    c.setFont("Courier", 9)
+    c.drawString(m + 135, y, company["name"])
+    c.setFont("Helvetica", 8)
+    c.drawString(w / 2 + 30, y, "DVBE Ref. Number:")
+    c.setFont("Courier", 9)
+    c.drawString(w / 2 + 135, y, company["cert_number"])
 
     y -= 16
-    c.setFont("Helvetica", 9)
-    c.drawString(margin + 4, y, "Name of certified DVBE:")
-    c.setFont("Courier", 10)
-    c.drawString(margin + 150, y, company["name"])
-    c.setFont("Helvetica", 9)
-    c.drawString(w / 2 + 40, y, "DVBE Ref. Number:")
-    c.setFont("Courier", 10)
-    c.drawString(w / 2 + 150, y, company["cert_number"])
+    c.setFont("Helvetica", 8)
+    c.drawString(m + 4, y, "Description (materials/supplies/services/equipment")
+    y -= 10
+    c.drawString(m + 4, y, "proposed): Solicitation/Contract Number:")
+    c.setFont("Courier", 9)
+    desc = company.get("description_of_goods", "Medical supplies and associated equipment")
+    c.drawString(w / 2 - 40, y + 10, desc)
 
-    y -= 16
-    c.setFont("Helvetica", 9)
-    c.drawString(margin + 4, y, "Description (materials/supplies/services/equipment proposed):")
-    c.setFont("Courier", 10)
-    c.drawString(margin + 4, y - 14, company.get("description_of_goods", "Medical/MRO Supplies"))
+    y -= 14
+    c.setFont("Helvetica", 8)
+    c.drawString(w / 2 - 40, y, "SCPRS Ref. Number:")
+    c.setFont("Helvetica", 7)
+    c.drawString(w / 2 + 70, y - 10, "(FOR STATE USE ONLY)")
 
-    y -= 32
-    c.setFont("Helvetica", 9)
-    c.drawString(margin + 4, y, "Solicitation/Contract Number:")
-
-    # Section 2
+    # ══ SECTION 2 ══
     y -= 24
     c.setFont("Helvetica-Bold", 9)
     c.drawCentredString(w / 2, y, "SECTION 2")
     y -= 4
-    c.line(margin, y, w - margin, y)
+    _line(y)
+
+    y -= 14
+    c.setFont("Helvetica-Bold", 8)
+    c.drawString(m + 4, y, "APPLIES TO ALL DVBEs. Check only one box in Section 2 and provide original signatures.")
+
+    # Checkbox 1 — NOT a broker (CHECKED)
+    y -= 18
+    # Draw checkbox
+    c.setStrokeColor(colors.black)
+    c.setLineWidth(0.5)
+    c.rect(m + 8, y - 2, 10, 10)
+    c.setFont("ZapfDingbats", 10)
+    c.drawString(m + 9, y - 0.5, "\u2714")  # checkmark
+
+    c.setFont("Helvetica", 7.5)
+    text1 = ("I (we) declare that the DVBE is not a broker or agent, as defined in Military and "
+             "Veterans Code Section 999.2 (b), of materials, supplies, services or equipment listed above. "
+             "Also, complete Section 3 below if renting equipment.")
+    y = _wrap_text(text1, m + 24, y, rw - 24, "Helvetica", 7.5, 9.5)
+
+    # Checkbox 2 — IS a broker (UNCHECKED)
+    y -= 6
+    c.rect(m + 8, y - 2, 10, 10)
+    text2 = ("Pursuant to Military and Veterans Code Section 999.2 (f), I (we) declare that the DVBE is a broker or "
+             "agent for the principal(s) listed below or on an attached sheet(s). (Pursuant to Military and Veterans "
+             "Code 999.2 (e), State funds expended for equipment rented from equipment brokers pursuant to contracts "
+             "awarded under this section shall not be credited toward the 3-percent DVBE participation goal.)")
+    y = _wrap_text(text2, m + 24, y, rw - 24, "Helvetica", 7.5, 9.5)
+
+    # Owner signatures
+    y -= 10
+    c.setFont("Helvetica", 7.5)
+    c.drawString(m + 4, y, "All DV owners and managers of the DVBE (attach additional pages with sufficient signature blocks for each person to sign):")
+
+    y -= 20
+    c.setFont("Courier", 9)
+    c.drawString(m + 4, y, f"{company['owner']}")
+    _line(y - 2)
+
+    # Signature image
+    if os.path.exists(SIGNATURE_PATH):
+        c.drawImage(SIGNATURE_PATH, w / 2 - 40, y - 10, width=1.3 * inch, height=0.45 * inch,
+                     preserveAspectRatio=True, mask='auto')
+
+    c.setFont("Courier", 9)
+    c.drawString(w - 2 * inch, y, sign_date)
+
+    y -= 12
+    c.setFont("Helvetica", 6.5)
+    c.drawString(m + 4, y, "(Printed Name of DV Owner/Manager)")
+    c.drawString(w / 2 - 40, y, "(Signature of DV Owner/ Manager)")
+    c.drawString(w - 2 * inch, y, "(Date Signed)")
 
     y -= 16
-    c.setFont("Helvetica-Bold", 9)
-    c.drawString(margin + 4, y, "APPLIES TO ALL DVBEs. Check only one box in Section 2 and provide original signatures.")
-
-    # Not a broker checkbox (checked)
-    y -= 20
-    c.setFont("Helvetica-Bold", 10)
-    c.drawString(margin + 8, y, "[X]")
-    c.setFont("Helvetica", 9)
-    c.drawString(margin + 30, y, "I (we) declare that the DVBE is not a broker or agent, as defined in Military and")
-    y -= 12
-    c.drawString(margin + 30, y, "Veterans Code Section 999.2 (b), of materials, supplies, services or equipment listed above.")
-
-    # Broker checkbox (unchecked)
-    y -= 20
-    c.drawString(margin + 8, y, "[  ]")
-    c.drawString(margin + 30, y, "Pursuant to Military and Veterans Code Section 999.2 (f), I (we) declare that the DVBE is a")
-    y -= 12
-    c.drawString(margin + 30, y, "broker or agent for the principal(s) listed below.")
-
-    # DV owner/manager signature
-    y -= 28
-    c.setFont("Helvetica", 9)
-    c.drawString(margin + 4, y, "All DV owners and managers of the DVBE:")
-    y -= 18
-    c.setFont("Courier", 10)
-    c.drawString(margin + 4, y, f"R. {company['owner']} [100% Owner]")
-
-    # Signature
-    if os.path.exists(SIGNATURE_PATH):
-        c.drawImage(SIGNATURE_PATH, w / 2 - 20, y - 8, width=1.2 * inch, height=0.4 * inch,
-                     preserveAspectRatio=True, mask='auto')
-    c.setFont("Courier", 10)
-    c.drawString(w - 1.8 * inch, y, sign_date)
-
-    y -= 18
     c.setFont("Courier", 9)
-    c.drawString(margin + 4, y, "N/A")
-    c.setFont("Helvetica", 7)
-    c.drawString(margin + 4, y - 10, "(Printed Name of DV Owner/Manager)")
-    c.drawString(w / 2 - 20, y - 10, "(Signature)")
-    c.drawString(w - 1.8 * inch, y - 10, "(Date Signed)")
+    c.drawString(m + 4, y, "N/A")
+    _line(y - 2)
+    y -= 12
+    c.setFont("Helvetica", 6.5)
+    c.drawString(m + 4, y, "(Printed Name of DV Owner/Manager)")
+    c.drawString(w / 2 - 40, y, "(Signature of DV Owner/Manager)")
+    c.drawString(w - 2 * inch, y, "(Date Signed)")
 
     # Firm/Principal
-    y -= 30
-    c.setFont("Helvetica", 9)
-    c.drawString(margin + 4, y, "Firm/Principal for whom the DVBE is acting as a broker or agent:")
-    c.setFont("Courier", 10)
-    c.drawString(margin + 350, y, "N/A")
+    y -= 18
+    c.setFont("Helvetica", 8)
+    c.drawString(m + 4, y, "Firm/Principal for whom the DVBE is acting as a broker or agent:")
+    c.setFont("Courier", 9)
+    c.drawString(m + 320, y, "N/A")
+    _line(y - 2)
+    c.setFont("Helvetica", 6.5)
+    y -= 10
+    c.drawString(m + 320, y, "(Print or Type Name)")
 
-    y -= 16
-    c.setFont("Helvetica", 9)
-    c.drawString(margin + 4, y, "Firm/Principal Phone:")
-    c.setFont("Courier", 10)
-    c.drawString(margin + 130, y, company["phone"])
-    c.setFont("Helvetica", 9)
-    c.drawString(margin + 250, y, "Address:")
-    c.setFont("Courier", 10)
-    c.drawString(margin + 300, y, company["address"])
+    y -= 14
+    c.setFont("Helvetica", 8)
+    c.drawString(m + 4, y, "Firm/Principal Phone:")
+    c.setFont("Courier", 9)
+    c.drawString(m + 130, y, company["phone"])
+    c.setFont("Helvetica", 8)
+    c.drawString(m + 260, y, "Address:")
+    c.setFont("Courier", 9)
+    c.drawString(m + 310, y, company["address"])
 
-    # Section 3
-    y -= 28
+    # ══ SECTION 3 ══
+    y -= 20
     c.setFont("Helvetica-Bold", 9)
     c.drawCentredString(w / 2, y, "SECTION 3")
     y -= 4
-    c.line(margin, y, w - margin, y)
-    y -= 14
-    c.setFont("Helvetica-Bold", 8)
-    c.drawString(margin + 4, y, "APPLIES TO ALL DVBEs THAT RENT EQUIPMENT AND DECLARE THE DVBE IS NOT A BROKER.")
-    y -= 14
-    c.setFont("Helvetica", 8)
-    c.drawString(margin + 8, y, "[  ] Pursuant to Military and Veterans Code Section 999.2 (c), (d) and (g)...")
-    y -= 14
-    c.drawString(margin + 8, y, "[  ] The undersigned owner(s) own(s) at least 51% of the equipment...")
+    _line(y)
 
-    # N/A for section 3 fields
-    y -= 20
-    c.setFont("Courier", 9)
-    c.drawString(margin + 4, y, "N/A")
-    c.setFont("Helvetica", 7)
-    c.drawString(margin + 4, y - 10, "(Printed Name)")
-    y -= 26
-    c.setFont("Courier", 9)
-    c.drawString(margin + 4, y, "N/A")
-    c.setFont("Helvetica", 7)
-    c.drawString(margin + 4, y - 10, "(Address of Owner)")
-    y -= 26
-    c.setFont("Courier", 9)
-    c.drawString(margin + 4, y, "N/A")
-    c.setFont("Helvetica", 7)
-    c.drawString(margin + 4, y - 10, "(Printed Name of DV Manager)")
+    y -= 14
+    c.setFont("Helvetica-Bold", 7.5)
+    sec3_title = "APPLIES TO ALL DVBEs THAT RENT EQUIPMENT AND DECLARE THE DVBE IS NOT A BROKER."
+    c.drawString(m + 4, y, sec3_title)
 
-    y -= 20
+    # Checkbox 3a (unchecked)
+    y -= 14
+    c.setLineWidth(0.5)
+    c.rect(m + 8, y - 2, 10, 10)
+    text3a = ("Pursuant to Military and Veterans Code Section 999.2 (c), (d) and (g), I am (we are) the DV(s) with at least 51% "
+              "ownership of the DVBE, or a DV manager(s) of the DVBE. The DVBE maintains certification requirements in "
+              "accordance with Military and Veterans Code Section 999 et. seq.")
+    y = _wrap_text(text3a, m + 24, y, rw - 24, "Helvetica", 7, 9)
+
+    # Checkbox 3b (unchecked)
+    y -= 4
+    c.rect(m + 8, y - 2, 10, 10)
+    text3b = ("The undersigned owner(s) own(s) at least 51% of the quantity and value of each piece of equipment that will be rented "
+              "for use in the contract identified above.")
+    y = _wrap_text(text3b, m + 24, y, rw - 24, "Helvetica", 7, 9)
+
+    # Blank signature blocks for Section 3
+    y -= 8
+    c.setFont("Helvetica", 7)
+    c.drawString(m + 4, y, "Disabled Veteran Owner(s) of the DVBE (attach additional pages with signature blocks for each person to sign):")
+
+    y -= 16
+    _line(y)
+    y -= 10
+    c.setFont("Helvetica", 6.5)
+    c.drawString(m + 4, y, "(Printed Name)")
+    c.drawString(w / 2 - 40, y, "(Signature)")
+    c.drawString(w - 2 * inch, y, "(Date Signed)")
+
+    y -= 14
+    _line(y)
+    y -= 10
+    c.drawString(m + 4, y, "(Address of Owner)")
+    c.drawString(w / 2 - 40, y, "(Telephone)")
+    c.drawString(w - 2 * inch, y, "(Tax Identification Number of Owner)")
+
+    y -= 14
+    c.setFont("Helvetica", 7)
+    c.drawString(m + 4, y, "Disabled Veteran Manager(s) of the DVBE (attach additional pages with sufficient signature blocks for each person to sign):")
+
+    y -= 16
+    _line(y)
+    y -= 10
+    c.setFont("Helvetica", 6.5)
+    c.drawString(m + 4, y, "(Printed Name of DV Manager)")
+    c.drawString(w / 2 - 40, y, "(Signature of DV Manager)")
+    c.drawString(w - 2 * inch, y, "(Date Signed)")
+
+    # Page number
     c.setFont("Helvetica", 8)
-    c.drawString(w - 1.5 * inch, y, "Page 1 of 1")
+    c.drawRightString(w - m, 0.4 * inch, "Page  1  of  1")
 
     c.save()
-    print(f"  ✓ DVBE 843 Declarations generated (ReportLab)")
+    print(f"  ✓ DVBE 843 Declarations generated (official layout)")
 
 
 # ═══════════════════════════════════════════════════════════════════════
