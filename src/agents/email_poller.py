@@ -58,6 +58,7 @@ RFQ_STRONG = [
 PC_KNOWN_SENDERS = [
     "demidenko", "valentina.demidenko",   # Valentina Demidenko — CSP-Sacramento
     "delgado", "matt.delgado",            # Matt Delgado
+    "katrina",                            # Katrina — CDCR
 ]
 
 # Subject patterns that indicate a Price Check (not an RFQ)
