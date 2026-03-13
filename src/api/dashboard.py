@@ -1511,13 +1511,20 @@ def process_rfq_email(rfq_email):
                         if parse_error:
                             # Still create minimal PC so email isn't lost
                             _trace.append(f"parse_ams704 error: {parse_error} — creating minimal PC")
+                            _pc_status = "new" if is_early_pc else "parse_error"
                             pcs = _load_price_checks()
                             pcs[pc_id] = {
                                 "id": pc_id,
-                                "pc_number": os.path.basename(pc_pdf).replace(".pdf","")[:40],
-                                "institution": "", "due_date": "", "requestor": "",
+                                "pc_number": rfq_email.get("solicitation_hint", "") or os.path.basename(pc_pdf).replace(".pdf","")[:40],
+                                "institution": "", "due_date": "",
+                                "requestor": rfq_email.get("sender_email", rfq_email.get("sender", "")),
+                                "requestor_email": rfq_email.get("sender_email", ""),
                                 "ship_to": "", "items": [], "source_pdf": pc_file,
-                                "status": "parse_error", "parse_error": parse_error,
+                                "status": _pc_status,
+                                "parse_note": f"Non-704 form — add items manually" if is_early_pc else "",
+                                "parse_error": parse_error,
+                                "email_uid": rfq_email.get("email_uid", ""),
+                                "email_subject": rfq_email.get("subject", ""),
                                 "created_at": datetime.now().isoformat(),
                                 "reytech_quote_number": "", "linked_quote_number": "",
                             }
@@ -1593,16 +1600,40 @@ def process_rfq_email(rfq_email):
                         # PC wasn't saved — if early detect, force-create a minimal PC
                         if is_early_pc:
                             _trace.append("PC NOT in storage but early-detect → force-creating minimal PC")
+                            # Extract metadata from email body
+                            _body = rfq_email.get("body_text", "") or rfq_email.get("body_preview", "")
+                            _sender_name = (rfq_email.get("sender", "").split("<")[0].strip()
+                                           .replace('"','').strip() or
+                                           rfq_email.get("sender_email", ""))
+                            _institution = ""
+                            _due_date = ""
+                            # Try to extract institution from body
+                            import re as _re_pc
+                            for _inst_pat in [
+                                r'(?:california|ca)\s+institution\s+(?:for\s+)?\w+',
+                                r'(?:CSP|CIW|CIM|CTF|SAC|LAC|SQ|CHCF|SATF|PVSP)\b[\w\s\-]*',
+                            ]:
+                                _m = _re_pc.search(_body, _re_pc.IGNORECASE)
+                                if _m:
+                                    _institution = _m.group(0).strip()[:60]
+                                    break
+                            # Extract due date
+                            _due_m = _re_pc.search(r'(?:respond|due|deadline|COB)\s+(?:by\s+)?(\d{1,2}/\d{1,2}/\d{2,4})', _body, _re_pc.IGNORECASE)
+                            if _due_m:
+                                _due_date = _due_m.group(1)
+                            
                             pcs = _load_price_checks()
                             pcs[pc_id] = {
                                 "id": pc_id,
-                                "pc_number": rfq_email.get("solicitation_hint", "unknown"),
-                                "institution": "", "due_date": "", 
-                                "requestor": rfq_email.get("sender_email", ""),
+                                "pc_number": rfq_email.get("solicitation_hint", "") or rfq_email.get("subject", "")[:40],
+                                "institution": _institution,
+                                "due_date": _due_date,
+                                "requestor": _sender_name,
+                                "requestor_email": rfq_email.get("sender_email", ""),
                                 "ship_to": "", "items": [],
                                 "source_pdf": pc_pdf if pc_pdf else "",
-                                "status": "parse_error",
-                                "parse_error": "Early-detect PC: parsing failed but sender/subject matched",
+                                "status": "new",  # SHOW on dashboard — not parse_error
+                                "parse_note": "Non-704 form — add items manually or upload 704",
                                 "created_at": datetime.now().isoformat(),
                                 "email_uid": email_uid,
                                 "email_subject": rfq_email.get("subject", ""),
@@ -1630,13 +1661,14 @@ def process_rfq_email(rfq_email):
                     pcs = _load_price_checks()
                     pcs[_force_id] = {
                         "id": _force_id,
-                        "pc_number": rfq_email.get("solicitation_hint", "unknown"),
+                        "pc_number": rfq_email.get("solicitation_hint", "") or rfq_email.get("subject", "")[:40],
                         "institution": "", "due_date": "",
                         "requestor": rfq_email.get("sender_email", rfq_email.get("sender", "")),
+                        "requestor_email": rfq_email.get("sender_email", ""),
                         "ship_to": "", "items": [],
                         "source_pdf": pdf_paths[0] if pdf_paths else "",
-                        "status": "parse_error",
-                        "parse_error": f"Early-detect exception: {_e}",
+                        "status": "new",  # SHOW on dashboard
+                        "parse_note": f"Non-704 form (error: {_e}) — add items manually",
                         "created_at": datetime.now().isoformat(),
                         "email_uid": rfq_email.get("email_uid", ""),
                         "email_subject": rfq_email.get("subject", ""),
