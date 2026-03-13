@@ -1656,6 +1656,37 @@ def generate_dvbe_843(rfq_data, config, output_path):
     }
 
     fill_and_sign_pdf(template_path, values, output_path, sign_date=sign_date)
+    
+    # Overlay signature at DVBEowner1signature position [324, 452, 493, 464]
+    try:
+        if os.path.exists(SIGNATURE_PATH):
+            from reportlab.lib.pagesizes import letter
+            from reportlab.lib.units import inch
+            from io import BytesIO
+            from pypdf import PdfReader as _PR, PdfWriter as _PW
+            
+            # Create overlay with signature
+            sig_buf = BytesIO()
+            sig_c = rl_canvas.Canvas(sig_buf, pagesize=letter)
+            sig_c.drawImage(SIGNATURE_PATH, 330, 440, width=140, height=35,
+                           preserveAspectRatio=True, mask='auto')
+            sig_c.save()
+            
+            # Merge overlay onto filled PDF
+            sig_buf.seek(0)
+            overlay_reader = _PR(sig_buf)
+            base_reader = _PR(output_path)
+            writer = _PW()
+            
+            base_page = base_reader.pages[0]
+            base_page.merge_page(overlay_reader.pages[0])
+            writer.add_page(base_page)
+            
+            with open(output_path, "wb") as f:
+                writer.write(f)
+    except Exception as _se:
+        print(f"  ⚠ DVBE 843 signature overlay failed: {_se}")
+    
     print(f"  ✓ DVBE 843 filled from template ({sol})")
 
 
