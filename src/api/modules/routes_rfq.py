@@ -1161,63 +1161,168 @@ def rfq_upload_supplier_quote(rid):
     rfq_items = r.get("line_items", [])
     matches = match_quote_to_rfq(quote_items, rfq_items)
 
-    # Apply matches: fill supplier cost + update catalog
+    # Apply matches: fill cost, pick best description, update catalog
     applied = 0
     unmatched = []
     catalog_added = 0
     catalog_updated = 0
+    desc_upgraded = 0
 
     for m in matches:
         cost = m.get("unit_price", 0)
         q_desc = m.get("quote_desc", "")
         q_pn = m.get("quote_pn", "")
+        q_qty = m.get("qty", 1)
+        q_uom = m.get("uom", "EA")
 
         if m["matched"] and m["rfq_idx"] is not None and cost > 0:
             idx = m["rfq_idx"]
             if idx < len(rfq_items):
-                rfq_items[idx]["supplier_cost"] = round(cost, 2)
-                rfq_items[idx]["item_supplier"] = supplier
-                if q_pn and not rfq_items[idx].get("item_number"):
-                    rfq_items[idx]["item_number"] = q_pn
-                # Enrich description with supplier's fuller description if longer
-                existing_desc = rfq_items[idx].get("description", "")
-                if q_desc and len(q_desc) > len(existing_desc) + 10:
-                    rfq_items[idx]["supplier_description"] = q_desc
+                item = rfq_items[idx]
+                item["supplier_cost"] = round(cost, 2)
+                item["item_supplier"] = supplier
+
+                # ── Intelligent description selection ──
+                # Priority: catalog (if enriched) > supplier > existing RFQ
+                existing_desc = item.get("description", "")
+                best_desc = existing_desc
+                best_source = "rfq"
+
+                # Check catalog for an enriched description
+                catalog_desc = ""
+                catalog_match = None
+                try:
+                    from src.agents.product_catalog import match_item, init_catalog_db
+                    init_catalog_db()
+                    pn = q_pn or item.get("item_number", "")
+                    cat_matches = match_item(q_desc or existing_desc, pn, top_n=1)
+                    if cat_matches and cat_matches[0].get("match_confidence", 0) >= 0.7:
+                        catalog_match = cat_matches[0]
+                        catalog_desc = catalog_match.get("description", "")
+                except Exception:
+                    pass
+
+                # Score each description by richness
+                def _desc_score(d):
+                    if not d:
+                        return 0
+                    score = len(d)
+                    # Bonus for containing part numbers, sizes, specs
+                    if re.search(r'#\s*\w{3,}', d): score += 20
+                    if re.search(r'\d+\s*/\s*(BX|CS|PK|EA|CT)', d, re.I): score += 15
+                    if re.search(r'\d+\s*(?:oz|ml|inch|in\b|cm|mm|gal|lb)', d, re.I): score += 10
+                    return score
+
+                rfq_score = _desc_score(existing_desc)
+                supplier_score = _desc_score(q_desc)
+                catalog_score = _desc_score(catalog_desc)
+
+                # Pick winner
+                if catalog_score > rfq_score and catalog_score >= supplier_score:
+                    best_desc = catalog_desc
+                    best_source = "catalog"
+                elif supplier_score > rfq_score:
+                    best_desc = q_desc
+                    best_source = "supplier"
+
+                if best_source != "rfq" and best_desc != existing_desc:
+                    item["description"] = best_desc
+                    item["_desc_source"] = best_source
+                    desc_upgraded += 1
+                    log.debug("Desc upgraded [%s]: '%s' → '%s'",
+                             best_source, existing_desc[:40], best_desc[:40])
+
+                # Fill part number if empty or from a richer source
+                if q_pn and not item.get("item_number"):
+                    item["item_number"] = q_pn
+
                 applied += 1
+
+                # ── Catalog update: always save/enrich ──
+                try:
+                    from src.agents.product_catalog import (
+                        match_item, add_to_catalog, add_supplier_price,
+                        init_catalog_db, update_product_pricing
+                    )
+                    init_catalog_db()
+                    all_pns = set()
+                    if q_pn: all_pns.add(q_pn)
+                    if item.get("item_number"): all_pns.add(item["item_number"])
+
+                    # Find or create catalog entry
+                    if catalog_match:
+                        pid = catalog_match["id"]
+                        # Update description if supplier's is richer
+                        if supplier_score > catalog_score and q_desc:
+                            try:
+                                conn = __import__('src.agents.product_catalog', fromlist=['_get_conn'])._get_conn()
+                                conn.execute(
+                                    "UPDATE product_catalog SET description=?, search_tokens=?, updated_at=? WHERE id=?",
+                                    (q_desc, __import__('src.agents.product_catalog', fromlist=['_tokenize'])._tokenize(q_desc),
+                                     __import__('datetime').datetime.now().isoformat(), pid)
+                                )
+                                conn.commit()
+                                conn.close()
+                            except Exception:
+                                pass
+                        add_supplier_price(pid, supplier, cost)
+                        catalog_updated += 1
+                    else:
+                        # Try broader match
+                        cat_matches2 = match_item(q_desc or existing_desc,
+                                                  q_pn or item.get("item_number", ""), top_n=1)
+                        if cat_matches2 and cat_matches2[0].get("match_confidence", 0) >= 0.5:
+                            pid = cat_matches2[0]["id"]
+                            add_supplier_price(pid, supplier, cost)
+                            catalog_updated += 1
+                        else:
+                            pid = add_to_catalog(
+                                description=best_desc,
+                                part_number=q_pn or item.get("item_number", ""),
+                                cost=cost,
+                                supplier_name=supplier,
+                                uom=q_uom,
+                                source=f"supplier_quote_{quote_num or 'upload'}",
+                            )
+                            if pid:
+                                add_supplier_price(pid, supplier, cost)
+                                catalog_added += 1
+                except Exception as _ce:
+                    log.debug("Catalog update from supplier quote: %s", _ce)
+
         else:
             unmatched.append({
                 "description": q_desc,
                 "part_number": q_pn,
                 "unit_price": cost,
-                "qty": m.get("qty", 1),
+                "qty": q_qty,
             })
-
-        # Update catalog for ALL parsed items (matched or not)
-        if cost > 0 and q_desc:
-            try:
-                from src.agents.product_catalog import (
-                    match_item, add_to_catalog, add_supplier_price,
-                    init_catalog_db
-                )
-                init_catalog_db()
-                cat_matches = match_item(q_desc, q_pn, top_n=1)
-                if cat_matches and cat_matches[0].get("match_confidence", 0) >= 0.5:
-                    pid = cat_matches[0]["id"]
-                    add_supplier_price(pid, supplier, cost)
-                    catalog_updated += 1
-                else:
-                    pid = add_to_catalog(
-                        description=q_desc,
-                        part_number=q_pn,
-                        cost=cost,
-                        supplier_name=supplier,
-                        source=f"supplier_quote_{quote_num or 'upload'}",
+            # Still add unmatched items to catalog
+            if cost > 0 and q_desc:
+                try:
+                    from src.agents.product_catalog import (
+                        match_item, add_to_catalog, add_supplier_price,
+                        init_catalog_db
                     )
-                    if pid:
+                    init_catalog_db()
+                    cat_matches = match_item(q_desc, q_pn, top_n=1)
+                    if cat_matches and cat_matches[0].get("match_confidence", 0) >= 0.5:
+                        pid = cat_matches[0]["id"]
                         add_supplier_price(pid, supplier, cost)
-                        catalog_added += 1
-            except Exception as _ce:
-                log.debug("Catalog update from supplier quote: %s", _ce)
+                        catalog_updated += 1
+                    else:
+                        pid = add_to_catalog(
+                            description=q_desc,
+                            part_number=q_pn,
+                            cost=cost,
+                            supplier_name=supplier,
+                            source=f"supplier_quote_{quote_num or 'upload'}",
+                        )
+                        if pid:
+                            add_supplier_price(pid, supplier, cost)
+                            catalog_added += 1
+                except Exception as _ce:
+                    log.debug("Catalog update (unmatched): %s", _ce)
 
     # Save RFQ
     r["_last_supplier_quote"] = {
@@ -1251,7 +1356,7 @@ def rfq_upload_supplier_quote(rid):
     sol = r.get("solicitation_number", rid)
     _log_rfq_activity(rid, "supplier_quote_uploaded",
         f"Supplier quote from {supplier} ({quote_num or f.filename}): "
-        f"{len(quote_items)} items parsed, {applied} matched, "
+        f"{len(quote_items)} parsed, {applied} matched, {desc_upgraded} desc upgraded, "
         f"catalog +{catalog_added}/~{catalog_updated}",
         actor="user")
 
@@ -1268,6 +1373,7 @@ def rfq_upload_supplier_quote(rid):
         "quote_number": quote_num,
         "items_parsed": len(quote_items),
         "items_matched": applied,
+        "desc_upgraded": desc_upgraded,
         "unmatched": unmatched,
         "catalog_added": catalog_added,
         "catalog_updated": catalog_updated,
