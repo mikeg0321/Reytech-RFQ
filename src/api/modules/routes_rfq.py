@@ -742,7 +742,7 @@ def update(rid):
     if not r: return redirect("/")
     
     for i, item in enumerate(r["line_items"]):
-        for field, key in [("cost", "supplier_cost"), ("scprs", "scprs_last_price"), ("price", "price_per_unit")]:
+        for field, key in [("cost", "supplier_cost"), ("scprs", "scprs_last_price"), ("price", "price_per_unit"), ("markup", "markup_pct")]:
             v = request.form.get(f"{field}_{i}")
             if v:
                 try: item[key] = float(v)
@@ -873,6 +873,9 @@ def api_rfq_autosave(rid):
                     pass
         if "scprs_last_price" in update and update["scprs_last_price"] is not None:
             try: item["scprs_last_price"] = float(update["scprs_last_price"])
+            except Exception: pass
+        if "markup_pct" in update and update["markup_pct"] is not None:
+            try: item["markup_pct"] = float(update["markup_pct"])
             except Exception: pass
 
     save_rfqs(rfqs)
@@ -1616,7 +1619,7 @@ def generate_rfq_package(rid):
     
     # ── Step 1: Save ALL fields from form (not just pricing) ──
     for i, item in enumerate(r.get("line_items", [])):
-        for field, key in [("cost", "supplier_cost"), ("scprs", "scprs_last_price"), ("price", "price_per_unit")]:
+        for field, key in [("cost", "supplier_cost"), ("scprs", "scprs_last_price"), ("price", "price_per_unit"), ("markup", "markup_pct")]:
             v = request.form.get(f"{field}_{i}")
             if v:
                 try:
@@ -2170,7 +2173,7 @@ def generate(rid):
     
     # Update pricing from form
     for i, item in enumerate(r["line_items"]):
-        for field, key in [("cost", "supplier_cost"), ("scprs", "scprs_last_price"), ("price", "price_per_unit")]:
+        for field, key in [("cost", "supplier_cost"), ("scprs", "scprs_last_price"), ("price", "price_per_unit"), ("markup", "markup_pct")]:
             v = request.form.get(f"{field}_{i}")
             if v:
                 try: item[key] = float(v)

@@ -69,19 +69,19 @@
  <!-- Markup Buttons -->
  <div class="markup-bar" style="display:flex;flex-wrap:wrap;align-items:center;gap:6px">
   <span>Quick Markup:</span>
-  <button class="btn btn-sm btn-s" onclick="applyMarkup(0.10)" aria-label="10">+10%</button>
-  <button class="btn btn-sm btn-s" onclick="applyMarkup(0.15)" aria-label="15">+15%</button>
-  <button class="btn btn-sm btn-s" onclick="applyMarkup(0.20)" aria-label="20">+20%</button>
-  <button class="btn btn-sm btn-s" onclick="applyMarkup(0.25)" aria-label="25">+25%</button>
-  <button class="btn btn-sm btn-s" onclick="applyMarkup(0.30)" aria-label="30">+30%</button>
-  <div style="display:flex;align-items:center;gap:3px;margin-left:4px;background:var(--sf2,#21262d);padding:3px 6px;border-radius:6px;border:1px solid var(--bd,#30363d)">
-   <input type="number" id="custom-markup-pct" step="0.5" min="0" max="200" placeholder="%" style="width:50px;background:transparent;border:none;color:#e6edf3;font-size:14px;font-weight:600;text-align:center;outline:none" title="Custom markup percentage">
-   <button class="btn btn-sm btn-s" onclick="applyCustomMarkup()" style="padding:2px 8px;font-size:13px" aria-label="Apply custom %">Apply %</button>
+  <button class="btn btn-sm btn-s mk-btn" onclick="applyMarkup(0.10)" data-mk="10" aria-label="10">+10%</button>
+  <button class="btn btn-sm btn-s mk-btn" onclick="applyMarkup(0.15)" data-mk="15" aria-label="15">+15%</button>
+  <button class="btn btn-sm btn-s mk-btn" onclick="applyMarkup(0.20)" data-mk="20" aria-label="20">+20%</button>
+  <button class="btn btn-sm btn-s mk-btn" onclick="applyMarkup(0.25)" data-mk="25" aria-label="25">+25%</button>
+  <button class="btn btn-sm btn-s mk-btn" onclick="applyMarkup(0.30)" data-mk="30" aria-label="30">+30%</button>
+  <div style="display:flex;align-items:center;gap:4px;margin-left:6px;background:var(--sf2,#21262d);padding:4px 8px;border-radius:6px;border:1px solid var(--bd,#30363d)">
+   <input type="number" id="custom-markup-pct" step="0.5" min="0" max="200" placeholder="Custom %" style="width:80px;background:transparent;border:none;color:#e6edf3;font-size:15px;font-weight:600;text-align:center;outline:none" title="Custom markup percentage">
+   <button class="btn btn-sm" onclick="applyCustomMarkup()" style="padding:3px 10px;font-size:13px;background:#238636;color:#fff;border:none" aria-label="Apply custom %">Apply</button>
   </div>
-  <div style="display:flex;align-items:center;gap:3px;background:var(--sf2,#21262d);padding:3px 6px;border-radius:6px;border:1px solid var(--bd,#30363d)">
-   <span style="color:#8b949e;font-size:13px">$</span>
-   <input type="number" id="custom-markup-flat" step="0.01" min="0" placeholder="0.00" style="width:55px;background:transparent;border:none;color:#e6edf3;font-size:14px;font-weight:600;text-align:center;outline:none" title="Flat dollar markup per item">
-   <button class="btn btn-sm btn-s" onclick="applyFlatMarkup()" style="padding:2px 8px;font-size:13px" aria-label="Apply flat $">+$</button>
+  <div style="display:flex;align-items:center;gap:4px;background:var(--sf2,#21262d);padding:4px 8px;border-radius:6px;border:1px solid var(--bd,#30363d)">
+   <span style="color:#8b949e;font-size:14px">$</span>
+   <input type="number" id="custom-markup-flat" step="0.01" min="0" placeholder="Flat $" style="width:70px;background:transparent;border:none;color:#e6edf3;font-size:15px;font-weight:600;text-align:center;outline:none" title="Flat dollar markup per item">
+   <button class="btn btn-sm" onclick="applyFlatMarkup()" style="padding:3px 10px;font-size:13px;background:#21262d;color:#58a6ff;border:1px solid #30363d" aria-label="Apply flat $">+$</button>
   </div>
   <span style="margin-left:8px">SCPRS Undercut:</span>
   <button class="btn btn-sm btn-s" onclick="applyScprsUndercut(0.01)" aria-label="-1">-1%</button>
@@ -140,7 +140,7 @@
   <thead><tr>
    <th>#</th><th style="width:55px">Qty</th><th style="width:55px">UOM</th><th>Description</th><th>Part #</th>
    <th style="min-width:220px">Item Link</th>
-   <th>Your Cost</th><th style="width:30px" title="Price Intelligence">📊</th><th>SCPRS</th><th>Amazon</th><th>Bid Price</th><th>Subtotal</th><th>Margin</th><th>Profit</th><th style="width:30px"></th>
+   <th>Your Cost</th><th style="width:30px" title="Price Intelligence">📊</th><th style="width:70px">Markup</th><th>Bid Price</th><th>Subtotal</th><th>Margin</th><th>Profit</th><th style="width:30px"></th>
   </tr></thead>
   <tbody>
   {% for i in r.line_items %}
@@ -158,7 +158,14 @@
      {% if i.get('item_supplier') %}<span style="color:#8b949e">{{i.item_supplier}}</span>{% endif %}
     </div>
    </td>
-   <td><input type="number" step="0.01" name="cost_{{loop.index0}}" value="{{i.supplier_cost or ''}}" placeholder="0.00" class="num-in" style="width:90px;font-size:15px;font-weight:700;padding:6px 8px" oninput="recalc()"></td>
+   <td>
+    <input type="number" step="0.01" name="cost_{{loop.index0}}" value="{{i.supplier_cost or ''}}" placeholder="0.00" class="num-in" style="width:90px;font-size:15px;font-weight:700;padding:6px 8px" oninput="recalcFromMarkup({{loop.index0}})">
+    <div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:3px">
+     {% if i.scprs_last_price %}<span style="font-size:11px;padding:1px 6px;border-radius:3px;background:rgba(88,166,255,.15);color:#58a6ff;cursor:help" title="SCPRS{% if i.scprs_vendor %} · {{i.scprs_vendor}}{% endif %}{% if i.scprs_source %} · {{i.scprs_source|replace('_',' ')}}{% endif %}">SCPRS ${{'{:.2f}'.format(i.scprs_last_price)}}</span>{% endif %}
+     {% if i.get('amazon_price') %}<span style="font-size:11px;padding:1px 6px;border-radius:3px;background:rgba(251,146,60,.15);color:#fb923c;cursor:help" title="Amazon price">AMZ ${{'{:.2f}'.format(i.amazon_price)}}</span>{% endif %}
+     <input type="hidden" name="scprs_{{loop.index0}}" value="{{i.scprs_last_price or ''}}">
+    </div>
+   </td>
    <td id="intel_{{loop.index0}}" style="font-size:14px;text-align:center;cursor:pointer" title="Click for price history" onclick="showIntel({{loop.index0}})">
     {% if i.get('price_intel') and i.price_intel.get('history_count', 0) > 0 %}
      <span style="color:#58a6ff">📊{{i.price_intel.history_count}}</span>
@@ -168,14 +175,13 @@
      <span style="color:#484f58">—</span>
     {% endif %}
    </td>
-   <td style="font-size:14px;font-weight:600">
-    {% if i.scprs_last_price %}${{'{:.2f}'.format(i.scprs_last_price)}}{% else %}—{% endif %}
-    {% if i.scprs_source %}<span class="scprs-tag scprs-{{'hi' if i.scprs_confidence=='high' else 'med'}}" title="{{i.scprs_vendor|default('')}}">{{i.scprs_source|replace('_',' ')}}</span>{% endif %}
+   <td>
+    <div style="display:flex;align-items:center;gap:2px">
+     <input type="number" step="1" min="0" max="200" name="markup_{{loop.index0}}" value="{{i.get('markup_pct', '')}}" placeholder="%" class="num-in" style="width:62px;font-size:15px;font-weight:700;padding:6px 4px;text-align:center;background:rgba(88,166,255,.06);border:1px solid rgba(88,166,255,.2)" oninput="recalcFromMarkup({{loop.index0}})">
+     <span style="color:#58a6ff;font-size:14px;font-weight:600">%</span>
+    </div>
    </td>
-   <td style="font-size:14px;font-weight:600">
-    {% if i.get('amazon_price') %}${{'{:.2f}'.format(i.amazon_price)}}{% elif i.get('supplier_cost') %}${{'{:.2f}'.format(i.supplier_cost)}}{% else %}—{% endif %}
-   </td>
-   <td><input type="number" step="0.01" name="price_{{loop.index0}}" value="{{i.price_per_unit or ''}}" placeholder="0.00" class="num-in" style="width:90px;font-size:15px;font-weight:700;padding:6px 8px" oninput="recalc()"></td>
+   <td><input type="number" step="0.01" name="price_{{loop.index0}}" value="{{i.price_per_unit or ''}}" placeholder="0.00" class="num-in" style="width:90px;font-size:15px;font-weight:700;padding:6px 8px" oninput="recalcFromBid({{loop.index0}})"></td>
    <td class="mono" style="font-size:15px;font-weight:700" id="sub_{{loop.index0}}">—</td>
    <td id="mg_{{loop.index0}}" style="font-weight:700;font-size:14px">—</td>
    <td id="pf_{{loop.index0}}" style="font-weight:700;font-size:14px">—</td>
@@ -629,6 +635,7 @@ function _getFormData(){
    supplier_cost:parseFloat(document.querySelector('[name=cost_'+i+']').value)||null,
    price_per_unit:parseFloat(document.querySelector('[name=price_'+i+']').value)||null,
    scprs_last_price:parseFloat((document.querySelector('[name=scprs_'+i+']')||{}).value)||null,
+   markup_pct:parseFloat((document.querySelector('[name=markup_'+i+']')||{}).value)||null,
   });
  }
  return JSON.stringify({items});
@@ -714,6 +721,11 @@ function recalc(){
    if(p>0&&c>0){pf.textContent=`$${ip.toFixed(2)}`;pf.style.color=ip>0?'#3fb950':'#f85149'}
    else{pf.textContent='—';pf.style.color='#8b949e'}
   }
+  // Back-calculate markup % from bid price ÷ cost
+  const mkEl=document.querySelector(`[name=markup_${i}]`);
+  if(mkEl && p>0 && c>0 && document.activeElement===document.querySelector(`[name=price_${i}]`)){
+   mkEl.value=Math.round((p-c)/c*100);
+  }
  }
  document.getElementById('tot').textContent=`$${tb.toFixed(2)}`;
  const pr=tb-tc;
@@ -741,17 +753,28 @@ function recalc(){
 }
 
 function applyMarkup(pct){
+ document.getElementById('custom-markup-pct').value=Math.round(pct*100);
+ // Highlight active button
+ document.querySelectorAll('.mk-btn').forEach(function(b){
+  b.style.background='';b.style.color='';b.style.border='';
+ });
+ var active=document.querySelector('.mk-btn[data-mk="'+Math.round(pct*100)+'"]');
+ if(active){active.style.background='#238636';active.style.color='#fff';active.style.border='1px solid #238636';}
  for(let i=0;i<n;i++){
-  const c=parseFloat(document.querySelector(`[name=cost_${i}]`).value)||0;
-  if(c>0){document.querySelector(`[name=price_${i}]`).value=(c*(1+pct)).toFixed(2)}
+  const mkInp=document.querySelector(`[name=markup_${i}]`);
+  if(mkInp) mkInp.value=Math.round(pct*100);
+  recalcFromMarkup(i);
  }
- recalc();
 }
 
 function applyCustomMarkup(){
  var pct=parseFloat(document.getElementById('custom-markup-pct').value);
  if(isNaN(pct)||pct<=0){alert('Enter a markup percentage');return}
- applyMarkup(pct/100);
+ for(var i=0;i<n;i++){
+  var mkInp=document.querySelector('[name=markup_'+i+']');
+  if(mkInp) mkInp.value=Math.round(pct);
+  recalcFromMarkup(i);
+ }
 }
 
 function applyFlatMarkup(){
@@ -759,15 +782,56 @@ function applyFlatMarkup(){
  if(isNaN(flat)||flat<=0){alert('Enter a dollar amount');return}
  for(var i=0;i<n;i++){
   var c=parseFloat(document.querySelector('[name=cost_'+i+']').value)||0;
-  if(c>0){document.querySelector('[name=price_'+i+']').value=(c+flat).toFixed(2)}
+  if(c>0){
+   var price=c+flat;
+   document.querySelector('[name=price_'+i+']').value=price.toFixed(2);
+   var mkInp=document.querySelector('[name=markup_'+i+']');
+   if(mkInp) mkInp.value=Math.round((flat/c)*100);
+  }
  }
  recalc();
+}
+
+function recalcFromMarkup(idx){
+ var costEl=document.querySelector('[name=cost_'+idx+']');
+ var mkEl=document.querySelector('[name=markup_'+idx+']');
+ var priceEl=document.querySelector('[name=price_'+idx+']');
+ if(!costEl||!priceEl) return;
+ var cost=parseFloat(costEl.value)||0;
+ var mk=mkEl?parseFloat(mkEl.value):0;
+ if(cost>0 && mk>0){
+  priceEl.value=(cost*(1+mk/100)).toFixed(2);
+ }
+ recalc();
+ triggerAutosave();
+}
+
+function recalcFromBid(idx){
+ var costEl=document.querySelector('[name=cost_'+idx+']');
+ var mkEl=document.querySelector('[name=markup_'+idx+']');
+ var priceEl=document.querySelector('[name=price_'+idx+']');
+ if(!costEl||!priceEl||!mkEl) return;
+ var cost=parseFloat(costEl.value)||0;
+ var price=parseFloat(priceEl.value)||0;
+ if(cost>0 && price>0){
+  var mk=Math.round((price-cost)/cost*100);
+  mkEl.value=mk;
+  mkEl.style.background=mk>0?'rgba(88,166,255,.06)':'rgba(248,81,73,.08)';
+ }
+ recalc();
+ triggerAutosave();
 }
 
 function applyScprsUndercut(pct){
  for(let i=0;i<n;i++){
   const s=parseFloat(document.querySelector(`[name=scprs_${i}]`).value)||0;
-  if(s>0){document.querySelector(`[name=price_${i}]`).value=(s*(1-pct)).toFixed(2)}
+  if(s>0){
+   var price=(s*(1-pct)).toFixed(2);
+   document.querySelector(`[name=price_${i}]`).value=price;
+   var c=parseFloat(document.querySelector(`[name=cost_${i}]`).value)||0;
+   var mkEl=document.querySelector(`[name=markup_${i}]`);
+   if(mkEl && c>0) mkEl.value=Math.round((parseFloat(price)-c)/c*100);
+  }
  }
  recalc();
 }
