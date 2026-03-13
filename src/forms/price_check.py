@@ -636,6 +636,50 @@ def _parse_ams704_ocr(pdf_path: str, result: dict) -> dict:
         log.error("Text parse error for %s: %s", pdf_path, e, exc_info=True)
 
     result["line_items"] = _merge_continuation_items(result["line_items"])
+
+    # ── Vision fallback: use when text parser clearly missed items ──
+    text_item_count = len(result["line_items"])
+    
+    # Detect how many items the form SHOULD have by finding highest item number in text
+    try:
+        all_text_for_count = ""
+        for page in PdfReader(pdf_path).pages:
+            all_text_for_count += (page.extract_text() or "") + "\n"
+        # Look for item numbers in the ITEM # column (standalone numbers 1-50)
+        item_nums_found = set()
+        for m in re.finditer(r'(?:^|\n)\s*(\d{1,2})\s*(?:\n|$)', all_text_for_count):
+            n = int(m.group(1))
+            if 1 <= n <= 50:
+                item_nums_found.add(n)
+        max_item_num = max(item_nums_found) if item_nums_found else 0
+        page_count = len(PdfReader(pdf_path).pages)
+        expected_min = max(max_item_num, page_count * 6, 3)
+    except Exception:
+        expected_min = 8
+        max_item_num = 0
+
+    missing_items = expected_min - text_item_count
+    if missing_items > 0:
+        log.info("Text parser got %d items but form has ~%d (max item#=%d, pages=%s) — trying vision",
+                 text_item_count, expected_min, max_item_num, 
+                 page_count if 'page_count' in dir() else '?')
+        try:
+            from src.forms.vision_parser import parse_with_vision, is_available
+            if is_available():
+                vision_result = parse_with_vision(pdf_path)
+                if vision_result and len(vision_result.get("line_items", [])) > text_item_count:
+                    log.info("Vision parser got %d items (vs %d from text) — using vision result",
+                             len(vision_result["line_items"]), text_item_count)
+                    return vision_result
+                else:
+                    log.info("Vision parser got %d items — keeping text result (%d items)",
+                             len(vision_result.get("line_items", [])) if vision_result else 0,
+                             text_item_count)
+            else:
+                log.debug("Vision parser not available (no API key) — using text result")
+        except Exception as _ve:
+            log.debug("Vision fallback: %s", _ve)
+
     return result
 
 
