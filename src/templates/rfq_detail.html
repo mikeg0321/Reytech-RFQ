@@ -900,22 +900,56 @@ function handleSQUpload(input){
   if(btn){btn.disabled=false;btn.textContent='🏷️ Supplier Quote';}
   input.value='';
   if(d.ok){
-   var msg='✅ Supplier Quote Imported\n\n';
-   msg+='Supplier: '+(d.supplier||'Unknown')+'\n';
-   if(d.quote_number) msg+='Quote #: '+d.quote_number+'\n';
-   msg+='Items found: '+d.items_parsed+'\n';
-   msg+='Matched to RFQ: '+d.items_matched+'\n';
-   if(d.desc_upgraded) msg+='Descriptions upgraded: '+d.desc_upgraded+'\n';
-   msg+='Catalog: +'+d.catalog_added+' new, ~'+d.catalog_updated+' updated\n';
-   if(d.unmatched && d.unmatched.length>0){
-    msg+='\n⚠ Unmatched items (add manually):\n';
-    d.unmatched.forEach(function(u){
-     msg+='  • '+u.description.substring(0,50)+' @ $'+u.unit_price.toFixed(2)+'\n';
-    });
+   // Build reconciliation summary
+   var h='<div style="font-family:system-ui;max-height:70vh;overflow-y:auto">';
+   h+='<div style="display:flex;gap:16px;margin-bottom:12px;flex-wrap:wrap">';
+   h+='<div style="background:rgba(63,185,80,.1);padding:8px 12px;border-radius:6px;border:1px solid rgba(63,185,80,.3)">';
+   h+='<b style="color:#3fb950">'+d.items_matched+'/'+d.items_parsed+'</b> matched</div>';
+   if(d.desc_upgraded)h+='<div style="background:rgba(251,146,60,.1);padding:8px 12px;border-radius:6px;border:1px solid rgba(251,146,60,.3)"><b style="color:#fb923c">'+d.desc_upgraded+'</b> descriptions upgraded</div>';
+   h+='<div style="background:rgba(88,166,255,.1);padding:8px 12px;border-radius:6px;border:1px solid rgba(88,166,255,.3)">Catalog: <b style="color:#58a6ff">+'+d.catalog_added+'</b> new, <b style="color:#58a6ff">~'+d.catalog_updated+'</b> updated</div>';
+   h+='</div>';
+   // Warnings
+   if(d.warnings && (d.warnings.qty_mismatches||d.warnings.uom_mismatches)){
+    h+='<div style="background:rgba(210,153,34,.1);padding:8px 12px;border-radius:6px;border:1px solid rgba(210,153,34,.3);margin-bottom:12px;color:#d29922">';
+    h+='⚠️ ';
+    if(d.warnings.qty_mismatches)h+=d.warnings.qty_mismatches+' qty mismatch(es) ';
+    if(d.warnings.uom_mismatches)h+=d.warnings.uom_mismatches+' UOM mismatch(es)';
+    h+='</div>';
    }
-   if(d.items_matched>0) msg+='\nCosts + descriptions applied. Adjust markup and generate package.';
-   alert(msg);
-   if(d.items_matched>0) location.reload();
+   // Reconciliation table
+   if(d.reconciliation && d.reconciliation.length){
+    h+='<table style="width:100%;border-collapse:collapse;font-size:13px">';
+    h+='<tr style="border-bottom:1px solid rgba(255,255,255,.1);color:#8b949e"><th style="text-align:left;padding:4px 6px">#</th><th style="text-align:left;padding:4px">Description</th><th style="text-align:center;padding:4px">Qty</th><th style="text-align:center;padding:4px">UOM</th><th style="text-align:right;padding:4px">Price</th><th style="text-align:center;padding:4px">Match</th></tr>';
+    d.reconciliation.forEach(function(r){
+     var rowStyle=r.matched?'':'color:#f85149;opacity:0.7';
+     var qtyWarn=r.matched&&!r.qty_match?'⚠️ RFQ:'+r.rfq_qty:'';
+     var uomWarn=r.matched&&!r.uom_match?'⚠️ RFQ:'+r.rfq_uom:'';
+     h+='<tr style="border-bottom:1px solid rgba(255,255,255,.05);'+rowStyle+'">';
+     h+='<td style="padding:4px 6px">'+r.line+'</td>';
+     h+='<td style="padding:4px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+(r.supplier_desc||'')+'">'+((r.supplier_pn?'<b>'+r.supplier_pn+'</b> ':'')+r.supplier_desc)+'</td>';
+     h+='<td style="text-align:center;padding:4px">'+(r.supplier_qty||'')+(qtyWarn?' <span style="color:#d29922;font-size:11px">'+qtyWarn+'</span>':'')+'</td>';
+     h+='<td style="text-align:center;padding:4px">'+(r.supplier_uom||'')+(uomWarn?' <span style="color:#d29922;font-size:11px">'+uomWarn+'</span>':'')+'</td>';
+     h+='<td style="text-align:right;padding:4px;font-weight:600">$'+(r.supplier_price||0).toFixed(2)+'</td>';
+     h+='<td style="text-align:center;padding:4px">'+(r.matched?'✅ →#'+r.rfq_line:'❌')+'</td>';
+     h+='</tr>';
+    });
+    h+='</table>';
+   }
+   // Unmatched
+   if(d.unmatched&&d.unmatched.length){
+    h+='<div style="margin-top:10px;color:#f85149;font-size:13px"><b>Unmatched (add manually):</b></div>';
+    d.unmatched.forEach(function(u){h+='<div style="font-size:12px;color:#8b949e;padding:2px 0">• '+u.description.substring(0,50)+' — $'+u.unit_price.toFixed(2)+'</div>'});
+   }
+   h+='</div>';
+   // Show in modal
+   var modal=document.createElement('div');
+   modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;display:flex;align-items:center;justify-content:center';
+   modal.onclick=function(e){if(e.target===modal)modal.remove()};
+   var box=document.createElement('div');
+   box.style.cssText='background:var(--bg2,#161b22);border:1px solid var(--bd,#30363d);border-radius:12px;padding:20px 24px;max-width:700px;width:90%;max-height:85vh;overflow-y:auto';
+   box.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><h3 style="margin:0;color:#e6edf3">🏷️ Supplier Quote — '+(d.supplier||'Unknown')+(d.quote_number?' #'+d.quote_number:'')+'</h3><button onclick="this.closest(\'div[style*=fixed]\').remove();location.reload()" style="background:#238636;color:#fff;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:14px">✓ Done</button></div>'+h;
+   modal.appendChild(box);
+   document.body.appendChild(modal);
   } else {
    var errMsg='❌ '+(d.error||'Failed');
    if(d.raw_text) errMsg+='\n\nFirst 300 chars of PDF text:\n'+d.raw_text.substring(0,300);
