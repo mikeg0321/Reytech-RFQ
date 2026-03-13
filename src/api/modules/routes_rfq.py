@@ -1196,6 +1196,100 @@ def rfq_upload_supplier_quote(rid):
     # Match to RFQ line items
     rfq_items = r.get("line_items", [])
     
+    # ── If RFQ has NO items, create them from supplier quote directly ──
+    if not rfq_items and quote_items:
+        log.info("RFQ has 0 items — creating %d items from supplier quote", len(quote_items))
+        for qi, q in enumerate(quote_items):
+            new_item = {
+                "line_number": qi + 1,
+                "qty": q.get("qty", 1),
+                "uom": (q.get("uom") or "EA").upper(),
+                "description": q.get("description", ""),
+                "item_number": q.get("item_number", ""),
+                "supplier_cost": round(q.get("unit_price", 0), 2),
+                "item_supplier": supplier,
+                "price_per_unit": 0,
+                "scprs_last_price": 0,
+                "amazon_price": 0,
+                "_desc_source": "supplier",
+            }
+            rfq_items.append(new_item)
+        r["line_items"] = rfq_items
+        applied = len(quote_items)
+        desc_upgraded = len(quote_items)
+        unmatched = []
+        catalog_added = 0
+        catalog_updated = 0
+        
+        # Catalog sync for all items
+        try:
+            from src.agents.product_catalog import match_item, add_to_catalog, add_supplier_price, init_catalog_db
+            init_catalog_db()
+            for q in quote_items:
+                _desc = q.get("description", "")
+                _pn = q.get("item_number", "")
+                _cost = q.get("unit_price", 0)
+                if not _desc or _cost <= 0:
+                    continue
+                cat_matches = match_item(_desc, _pn, top_n=1)
+                if cat_matches and cat_matches[0].get("match_confidence", 0) >= 0.5:
+                    pid = cat_matches[0]["id"]
+                    add_supplier_price(pid, supplier, _cost)
+                    catalog_updated += 1
+                else:
+                    pid = add_to_catalog(description=_desc, part_number=_pn, cost=_cost,
+                                         supplier_name=supplier, uom=q.get("uom", "EA"),
+                                         source=f"supplier_quote_{quote_num or 'upload'}")
+                    if pid:
+                        add_supplier_price(pid, supplier, _cost)
+                        catalog_added += 1
+        except Exception as _ce:
+            log.debug("Catalog sync (new items): %s", _ce)
+        
+        # Skip the matching loop — go straight to save
+        r["_last_supplier_quote"] = {
+            "supplier": supplier, "quote_number": quote_num, "pdf": pdf_path,
+            "items_parsed": len(quote_items), "items_matched": applied,
+            "uploaded_at": __import__("datetime").datetime.now().isoformat(),
+        }
+        save_rfqs(rfqs)
+        
+        try:
+            from src.api.dashboard import save_rfq_file
+            with open(pdf_path, "rb") as _qf:
+                pdf_data = _qf.read()
+            save_rfq_file(rid, f.filename, "application/pdf", pdf_data,
+                         category="supplier_quote", uploaded_by="user")
+        except Exception as _fe:
+            log.warning("Failed to save supplier quote to DB: %s", _fe)
+        
+        _log_rfq_activity(rid, "supplier_quote_uploaded",
+            f"Supplier quote from {supplier} ({quote_num or f.filename}): "
+            f"CREATED {len(quote_items)} items (RFQ was empty), catalog +{catalog_added}/~{catalog_updated}",
+            actor="user")
+        
+        try:
+            from src.agents.drive_triggers import on_supplier_quote_uploaded
+            on_supplier_quote_uploaded(r, pdf_path, supplier, quote_num)
+        except Exception:
+            pass
+        
+        return jsonify({
+            "ok": True, "supplier": supplier, "quote_number": quote_num,
+            "items_parsed": len(quote_items), "items_matched": applied,
+            "desc_upgraded": desc_upgraded,
+            "unmatched": [], "catalog_added": catalog_added, "catalog_updated": catalog_updated,
+            "reconciliation": [{
+                "line": i+1, "supplier_desc": q.get("description","")[:60],
+                "supplier_pn": q.get("item_number",""), "supplier_qty": q.get("qty",0),
+                "supplier_uom": q.get("uom",""), "supplier_price": q.get("unit_price",0),
+                "matched": True, "confidence": 1.0, "rfq_line": i+1,
+                "qty_match": True, "uom_match": True,
+            } for i, q in enumerate(quote_items)],
+            "warnings": {"qty_mismatches": 0, "uom_mismatches": 0},
+            "created_items": True,
+        })
+
     # ── Diagnostic logging for remote debugging ──
     log.info("SUPPLIER QUOTE MATCH: %d quote items vs %d RFQ items", len(quote_items), len(rfq_items))
     for qi, q in enumerate(quote_items[:5]):
