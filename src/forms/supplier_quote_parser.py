@@ -12,6 +12,7 @@ Echelon format (pypdf text extraction):
 
 import re
 import os
+import json
 import logging
 from typing import List, Dict, Optional
 
@@ -25,7 +26,11 @@ except ImportError:
 
 
 def parse_supplier_quote(pdf_path: str) -> dict:
-    """Parse a supplier quote PDF and extract line items with prices."""
+    """Parse a supplier quote PDF and extract line items with prices.
+    
+    Pipeline: regex parser → vision upgrade (if API available)
+    Vision catches items regex misses and provides cleaner descriptions.
+    """
     if not HAS_PYPDF:
         return {"ok": False, "error": "pypdf not available"}
     if not os.path.exists(pdf_path):
@@ -58,6 +63,11 @@ def parse_supplier_quote(pdf_path: str) -> dict:
         items = _parse_generic(full_text)
         log.info("Generic parser: %d items found", len(items))
 
+    # ── Vision upgrade: get cleaner descriptions + catch missed items ──
+    vision_items = _parse_supplier_quote_vision(pdf_path)
+    if vision_items:
+        items = _merge_regex_and_vision(items, vision_items)
+
     # Deduplicate
     seen = set()
     unique = []
@@ -77,6 +87,140 @@ def parse_supplier_quote(pdf_path: str) -> dict:
         "raw_text": full_text[:2000],
         "total_pages": len(reader.pages),
     }
+
+
+def _parse_supplier_quote_vision(pdf_path: str) -> Optional[List[Dict]]:
+    """Use Claude vision to extract supplier quote items.
+    Returns list of items or None if unavailable."""
+    try:
+        from src.forms.vision_parser import is_available, _pdf_pages_to_base64, _call_vision_api
+        if not is_available():
+            return None
+    except ImportError:
+        return None
+
+    page_images = _pdf_pages_to_base64(pdf_path, dpi=200, max_pages=5)
+    if not page_images:
+        return None
+
+    # Override the system prompt for supplier quotes
+    import requests as _req
+    from src.forms.vision_parser import ANTHROPIC_API_KEY
+
+    content = []
+    for pg in page_images:
+        content.append({
+            "type": "image",
+            "source": {"type": "base64", "media_type": "image/png", "data": pg["base64"]}
+        })
+    content.append({
+        "type": "text",
+        "text": ("Extract ALL line items from this supplier quote. "
+                 "Return ONLY a JSON array (no other text), each item:\n"
+                 '{"item_number":"449317","qty":40,"uom":"BX","uom_factor":"10EA/BX",'
+                 '"description":"Collagen Dressing 3M Promogran Matrix 4 Square Inch Hexagon Sterile '
+                 'DRESSING, PROMOGRAN MATRIX WND(10/BX) McKesson # 449317 Manufacturer # PG004",'
+                 '"unit_price":87.41,"extended":3496.40}\n\n'
+                 "Rules:\n"
+                 "- Include the FULL description with ALL McKesson #, Manufacturer #, and product codes\n"
+                 "- item_number = the Item# column value\n"
+                 "- Keep pack size info in uom_factor (e.g. '10EA/BX', '50EA/CS')\n"
+                 "- Return raw JSON array, no markdown fences")
+    })
+
+    try:
+        resp = _req.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": ANTHROPIC_API_KEY,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": "claude-sonnet-4-20250514",
+                "max_tokens": 4096,
+                "system": "You are a precise data extractor. Return ONLY valid JSON arrays. No explanation.",
+                "messages": [{"role": "user", "content": content}],
+            },
+            timeout=60,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        text = data["content"][0]["text"].strip()
+        if text.startswith("```"):
+            text = re.sub(r'^```\w*\n?', '', text)
+            text = re.sub(r'\n?```$', '', text)
+
+        vision_items = json.loads(text)
+        if isinstance(vision_items, list):
+            log.info("Vision supplier parser: %d items extracted", len(vision_items))
+            return vision_items
+    except Exception as e:
+        log.debug("Vision supplier parse failed: %s", e)
+
+    return None
+
+
+def _merge_regex_and_vision(regex_items: List[Dict], vision_items: List[Dict]) -> List[Dict]:
+    """Merge regex-parsed items with vision-parsed items.
+    
+    Strategy: use vision descriptions (richer) with regex prices (more reliable).
+    For items only in vision → add them. For items only in regex → keep them.
+    """
+    merged = []
+    used_vision = set()
+
+    for ri in regex_items:
+        r_pn = (ri.get("item_number") or "").lower()
+        r_price = ri.get("unit_price", 0)
+        best_vision = None
+
+        for vi_idx, vi in enumerate(vision_items):
+            if vi_idx in used_vision:
+                continue
+            v_pn = (vi.get("item_number") or "").lower()
+            v_price = vi.get("unit_price", 0)
+
+            # Match by item number or price
+            if (r_pn and v_pn and (r_pn == v_pn or r_pn in v_pn or v_pn in r_pn)):
+                best_vision = (vi_idx, vi)
+                break
+            if r_price > 0 and v_price > 0 and abs(r_price - v_price) < 0.01:
+                best_vision = (vi_idx, vi)
+                break
+
+        if best_vision:
+            vi_idx, vi = best_vision
+            used_vision.add(vi_idx)
+            # Use vision description if richer, regex price (more reliable)
+            v_desc = vi.get("description", "")
+            r_desc = ri.get("description", "")
+            if len(v_desc) > len(r_desc):
+                ri["description"] = v_desc
+            # Fill in any missing fields from vision
+            if vi.get("uom_factor") and not ri.get("uom_factor"):
+                ri["uom_factor"] = vi["uom_factor"]
+
+        merged.append(ri)
+
+    # Add vision-only items (regex missed them)
+    for vi_idx, vi in enumerate(vision_items):
+        if vi_idx not in used_vision and vi.get("unit_price", 0) > 0:
+            merged.append({
+                "item_number": vi.get("item_number", ""),
+                "qty": vi.get("qty", 1),
+                "uom": vi.get("uom", "EA"),
+                "uom_factor": vi.get("uom_factor", ""),
+                "description": vi.get("description", ""),
+                "unit_price": vi.get("unit_price", 0),
+                "extended": vi.get("extended", 0),
+                "part_number": vi.get("item_number", ""),
+                "_source": "vision_only",
+            })
+            log.info("Vision added item regex missed: %s $%.2f",
+                     vi.get("item_number", "?"), vi.get("unit_price", 0))
+
+    return merged
 
 
 def _detect_supplier(text: str) -> str:
@@ -191,35 +335,27 @@ def _parse_echelon(text: str) -> List[Dict]:
                     item_number = candidate
                     remainder = remainder[item_match.end():].strip()
 
-        # Description: clean up remainder
+        # Description: clean up remainder but KEEP manufacturer/McKesson references
         desc = remainder
-        # Strip McKesson/Manufacturer references FIRST (before word boundary fixes)
-        desc = re.sub(r'McKesson\s*#?\s*\d*\w*', '', desc)
-        desc = re.sub(r'Manufacturer\s*#?\s*\w+', '', desc)
-        desc = re.sub(r'#[A-Z0-9][\w\-]*', '', desc, flags=re.IGNORECASE)
+        # Strip footer garbage that leaks into last item
+        desc = re.sub(r'(?:SubTotal|Sub Total|Sales Tax|Shipping|Total)\s*\$[\d,.]+', '', desc)
+        desc = re.sub(r'(?:CALVET|RFQ)\s*(?:DUE|RFQ)\s*[\d/]+', '', desc)
+        desc = re.sub(r'\d+\s+of\s+\d+\s*$', '', desc)
         # Remove ALL-CAPS product code lines (e.g. "DRESSING, PROMOGRAN MATRIX WND")
-        desc = re.sub(r'[A-Z]{3,}(?:,\s*[A-Z\d\s/"()\-\.]+){1,}', '', desc)
-        # Remove UOM/pack info in parens or standalone
-        desc = re.sub(r'\(\d+/[A-Z]{2,3}(?:\s+\d+[A-Z]{2,3}/[A-Z]{2,3})?\)', '', desc, flags=re.IGNORECASE)
-        desc = re.sub(r'\d+/[A-Z]{2,3}\s*$', '', desc, flags=re.IGNORECASE)
+        # but KEEP "McKesson # 449317" and "Manufacturer # PG004"
+        desc = re.sub(r'(?<!\w)[A-Z]{3,}(?:,\s*[A-Z\d\s/"()\-\.]+){1,}(?!\s*#)', '', desc)
         # NOW insert spaces at word boundaries where text is glued
-        # But be careful: only split lowercase→uppercase transitions
         desc = re.sub(r'([a-z])([A-Z][a-z])', r'\1 \2', desc)
-        # Strip leftover # chars and trailing manufacturer numbers
-        desc = re.sub(r'#\s*\d*\s*$', '', desc)
-        desc = re.sub(r'\s*#\s+', ' ', desc)
-        desc = re.sub(r'#$', '', desc)
-        # Strip trailing UOM info (e.g. "2500/CS", "50/CS")
+        # Strip trailing UOM info (e.g. "2500/CS", "50/CS") but not from middle
         desc = re.sub(r'\s*\d+/[A-Z]{2,3}\s*$', '', desc, flags=re.IGNORECASE)
         # Collapse whitespace
-        desc = re.sub(r'\s+', ' ', desc).strip(" ,;-#")
+        desc = re.sub(r'\s+', ' ', desc).strip(" ,;-")
 
         # If description is now too short, use original remainder cleaned minimally
         if len(desc) < 5 and remainder:
-            desc = re.sub(r'McKesson\s*#?\s*\w+', '', remainder)
-            desc = re.sub(r'Manufacturer\s*#?\s*\w+', '', desc)
-            desc = re.sub(r'([a-z])([A-Z][a-z])', r'\1 \2', desc)
-            desc = re.sub(r'\s+', ' ', desc).strip()[:100]
+            desc = re.sub(r'([a-z])([A-Z][a-z])', r'\1 \2', remainder)
+            desc = re.sub(r'(?:SubTotal|Sales Tax|Shipping|Total)\s*\$[\d,.]+', '', desc)
+            desc = re.sub(r'\s+', ' ', desc).strip()[:200]
 
         items.append({
             "line_number": line_num,
