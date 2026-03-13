@@ -4095,6 +4095,105 @@ def api_rfq_clear_generated(rid):
                     "old_files": old_files, "message": msg})
 
 
+@bp.route("/api/rfq/<rid>/clean-slate", methods=["POST", "GET"])
+@auth_required
+def api_rfq_clean_slate(rid):
+    """Nuclear clean: keep ONLY line_items with pricing. Clear everything else.
+    Use when package is broken — stale templates, wrong forms, old data."""
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"})
+
+    # Preserve line items with all pricing fields
+    items = r.get("line_items", [])
+    preserved_items = []
+    for it in items:
+        preserved_items.append({
+            "line_number": it.get("line_number", 0),
+            "qty": it.get("qty", 1),
+            "uom": it.get("uom", "EA"),
+            "description": it.get("description", ""),
+            "item_number": it.get("item_number", ""),
+            "supplier_cost": it.get("supplier_cost", 0),
+            "price_per_unit": it.get("price_per_unit", 0),
+            "markup_pct": it.get("markup_pct"),
+            "scprs_last_price": it.get("scprs_last_price"),
+            "amazon_price": it.get("amazon_price"),
+            "item_link": it.get("item_link", ""),
+            "item_supplier": it.get("item_supplier", ""),
+            "_desc_source": it.get("_desc_source", ""),
+        })
+
+    # Preserve core RFQ identity
+    sol = r.get("solicitation_number", "")
+    identity = {
+        "solicitation_number": sol,
+        "agency": r.get("agency", ""),
+        "requestor_name": r.get("requestor_name", ""),
+        "requestor_email": r.get("requestor_email", ""),
+        "delivery_location": r.get("delivery_location", ""),
+        "due_date": r.get("due_date", ""),
+        "institution": r.get("institution", ""),
+        "ship_to": r.get("ship_to", ""),
+        "created_at": r.get("created_at", ""),
+        "source": r.get("source", ""),
+        "linked_pc_id": r.get("linked_pc_id", ""),
+        "reytech_quote_number": r.get("reytech_quote_number", ""),
+    }
+
+    # Clear DB files (generated + templates)
+    db_deleted = 0
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            cur = conn.execute(
+                "DELETE FROM rfq_files WHERE rfq_id = ? AND category IN ('generated', 'template')",
+                (rid,)
+            )
+            db_deleted = cur.rowcount
+    except Exception as _e:
+        log.warning("clean-slate DB: %s", _e)
+
+    # Clear disk
+    disk_deleted = 0
+    import shutil as _sh2
+    out_dir = os.path.join(OUTPUT_DIR, sol)
+    if os.path.exists(out_dir):
+        try:
+            _sh2.rmtree(out_dir)
+            disk_deleted += 1
+        except Exception:
+            pass
+    tmpl_dir = os.path.join(DATA_DIR, "rfq_templates", rid)
+    if os.path.exists(tmpl_dir):
+        try:
+            _sh2.rmtree(tmpl_dir)
+            disk_deleted += 1
+        except Exception:
+            pass
+
+    # Rebuild RFQ with clean state
+    r.clear()
+    r.update(identity)
+    r["line_items"] = preserved_items
+    r["templates"] = {}
+    r["output_files"] = []
+    r["status"] = "ready"
+
+    save_rfqs(rfqs)
+
+    log.info("clean-slate %s: kept %d items, cleared %d DB + %d disk",
+             rid, len(preserved_items), db_deleted, disk_deleted)
+    return jsonify({
+        "ok": True,
+        "items_preserved": len(preserved_items),
+        "db_cleared": db_deleted,
+        "disk_cleared": disk_deleted,
+        "message": f"Clean slate: {len(preserved_items)} items preserved with pricing. All docs/templates cleared. Ready to regenerate.",
+    })
+
+
 @bp.route("/api/rfq/<rid>/debug-pages", methods=["GET"])
 @auth_required
 def api_rfq_debug_pages(rid):
