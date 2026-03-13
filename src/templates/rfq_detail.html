@@ -67,17 +67,37 @@
  {% endif %}
  
  <!-- Markup Buttons -->
- <div class="markup-bar">
+ <div class="markup-bar" style="display:flex;flex-wrap:wrap;align-items:center;gap:6px">
   <span>Quick Markup:</span>
   <button class="btn btn-sm btn-s" onclick="applyMarkup(0.10)" aria-label="10">+10%</button>
   <button class="btn btn-sm btn-s" onclick="applyMarkup(0.15)" aria-label="15">+15%</button>
   <button class="btn btn-sm btn-s" onclick="applyMarkup(0.20)" aria-label="20">+20%</button>
   <button class="btn btn-sm btn-s" onclick="applyMarkup(0.25)" aria-label="25">+25%</button>
   <button class="btn btn-sm btn-s" onclick="applyMarkup(0.30)" aria-label="30">+30%</button>
+  <div style="display:flex;align-items:center;gap:3px;margin-left:4px;background:var(--sf2,#21262d);padding:3px 6px;border-radius:6px;border:1px solid var(--bd,#30363d)">
+   <input type="number" id="custom-markup-pct" step="0.5" min="0" max="200" placeholder="%" style="width:50px;background:transparent;border:none;color:#e6edf3;font-size:14px;font-weight:600;text-align:center;outline:none" title="Custom markup percentage">
+   <button class="btn btn-sm btn-s" onclick="applyCustomMarkup()" style="padding:2px 8px;font-size:13px" aria-label="Apply custom %">Apply %</button>
+  </div>
+  <div style="display:flex;align-items:center;gap:3px;background:var(--sf2,#21262d);padding:3px 6px;border-radius:6px;border:1px solid var(--bd,#30363d)">
+   <span style="color:#8b949e;font-size:13px">$</span>
+   <input type="number" id="custom-markup-flat" step="0.01" min="0" placeholder="0.00" style="width:55px;background:transparent;border:none;color:#e6edf3;font-size:14px;font-weight:600;text-align:center;outline:none" title="Flat dollar markup per item">
+   <button class="btn btn-sm btn-s" onclick="applyFlatMarkup()" style="padding:2px 8px;font-size:13px" aria-label="Apply flat $">+$</button>
+  </div>
   <span style="margin-left:8px">SCPRS Undercut:</span>
   <button class="btn btn-sm btn-s" onclick="applyScprsUndercut(0.01)" aria-label="-1">-1%</button>
   <button class="btn btn-sm btn-s" onclick="applyScprsUndercut(0.02)" aria-label="-2">-2%</button>
   <button class="btn btn-sm btn-s" onclick="applyScprsUndercut(0.05)" aria-label="-5">-5%</button>
+ </div>
+ <!-- Margin Summary Bar -->
+ <div id="margin-summary" style="display:none;margin-top:6px;padding:8px 14px;background:var(--sf2,#21262d);border:1px solid var(--bd,#30363d);border-radius:8px;font-size:14px;display:flex;gap:16px;flex-wrap:wrap;align-items:center">
+  <span style="color:#8b949e">Margin Summary:</span>
+  <span id="ms-total-cost" style="color:#e6edf3"></span>
+  <span id="ms-total-bid" style="color:#e6edf3"></span>
+  <span id="ms-margin-dollars" style="font-weight:700"></span>
+  <span id="ms-margin-pct" style="font-weight:700"></span>
+  <span id="ms-items-priced" style="color:#8b949e"></span>
+ </div>
+ <div style="display:flex;gap:4px;margin-top:6px;flex-wrap:wrap">
   <button class="btn btn-sm btn-p" data-testid="rfq-scprs-lookup" onclick="lookupScprs()" style="margin-left:8px" aria-label="SCPRS Lookup">🔍 SCPRS Lookup</button>
   <button class="btn btn-sm btn-o" data-testid="rfq-amazon-lookup" onclick="researchPrices()" style="margin-left:4px" aria-label="Amazon Lookup">🔬 Amazon Lookup</button>
   <button class="btn btn-sm" style="background:rgba(167,139,250,.15);color:#a78bfa;border:1px solid rgba(167,139,250,.3);margin-left:4px" onclick="runAutoLookup()" aria-label="Full Auto-Lookup">🤖 Full Auto-Lookup</button>
@@ -672,15 +692,18 @@ document.addEventListener('DOMContentLoaded',function(){
   inp.addEventListener('change',triggerAutosave);
   if(inp.type==='text')inp.addEventListener('input',function(){clearTimeout(_autosaveTimer);_autosaveTimer=setTimeout(triggerAutosave,1500)});
  });
+ recalc(); // Show margin summary on load
 });
 
 function recalc(){
- let tb=0,tc=0;
+ let tb=0,tc=0,itemsPriced=0,itemsTotal=0;
  for(let i=0;i<n;i++){
   const q=parseFloat(document.querySelector(`[name=qty_${i}]`).value)||0;
   const c=parseFloat(document.querySelector(`[name=cost_${i}]`).value)||0;
   const p=parseFloat(document.querySelector(`[name=price_${i}]`).value)||0;
   const s=p*q; tb+=s; tc+=c*q;
+  itemsTotal++;
+  if(p>0)itemsPriced++;
   document.getElementById(`sub_${i}`).textContent=s?`$${s.toFixed(2)}`:'—';
   const m=p>0&&c>0?((p-c)/p*100):null;
   const el=document.getElementById(`mg_${i}`);
@@ -698,12 +721,46 @@ function recalc(){
  const pe=document.getElementById('pft');
  if(tb>0&&tc>0){const pp=(pr/tb*100).toFixed(1);pe.textContent=`💰 Profit: $${pr.toFixed(2)} (${pp}%)`;pe.style.color=pr>0?'#3fb950':'#f85149'}
  else{pe.textContent='—';pe.style.color='#8b949e'}
+ // Margin summary bar
+ var msBar=document.getElementById('margin-summary');
+ if(msBar && (tc>0 || tb>0)){
+  msBar.style.display='flex';
+  document.getElementById('ms-total-cost').textContent='Cost: $'+tc.toFixed(2);
+  document.getElementById('ms-total-bid').textContent='Bid: $'+tb.toFixed(2);
+  var marginD=tb-tc;
+  var marginP=tb>0?(marginD/tb*100):0;
+  var mde=document.getElementById('ms-margin-dollars');
+  mde.textContent=(marginD>=0?'+':'')+' $'+marginD.toFixed(2);
+  mde.style.color=marginD>=0?'#3fb950':'#f85149';
+  var mpe=document.getElementById('ms-margin-pct');
+  mpe.textContent=marginP.toFixed(1)+'% margin';
+  mpe.style.color=marginP>=20?'#3fb950':marginP>=10?'#d29922':'#f85149';
+  document.getElementById('ms-items-priced').textContent=itemsPriced+'/'+itemsTotal+' priced';
+ } else if(msBar){
+  msBar.style.display='none';
+ }
 }
 
 function applyMarkup(pct){
  for(let i=0;i<n;i++){
   const c=parseFloat(document.querySelector(`[name=cost_${i}]`).value)||0;
   if(c>0){document.querySelector(`[name=price_${i}]`).value=(c*(1+pct)).toFixed(2)}
+ }
+ recalc();
+}
+
+function applyCustomMarkup(){
+ var pct=parseFloat(document.getElementById('custom-markup-pct').value);
+ if(isNaN(pct)||pct<=0){alert('Enter a markup percentage');return}
+ applyMarkup(pct/100);
+}
+
+function applyFlatMarkup(){
+ var flat=parseFloat(document.getElementById('custom-markup-flat').value);
+ if(isNaN(flat)||flat<=0){alert('Enter a dollar amount');return}
+ for(var i=0;i<n;i++){
+  var c=parseFloat(document.querySelector('[name=cost_'+i+']').value)||0;
+  if(c>0){document.querySelector('[name=price_'+i+']').value=(c+flat).toFixed(2)}
  }
  recalc();
 }
@@ -733,8 +790,10 @@ function lookupScprs(){
    btn.textContent=`✅ ${found}/${total} prices found`;
    setTimeout(()=>{btn.textContent='🔍 SCPRS Lookup'},4000);
   } else {
-   btn.textContent=`⚠️ 0/${total} found`;
-   setTimeout(()=>{btn.textContent='🔍 SCPRS Lookup'},3000);
+   var errCount=d.errors?d.errors.length:0;
+   btn.textContent=errCount?`❌ ${errCount} errors — see panel`:`⚠️ 0/${total} found`;
+   if(!found) showScprsResults(d); // auto-show panel so user can see search terms + errors
+   setTimeout(()=>{btn.textContent='🔍 SCPRS Lookup'},5000);
   }
   // Populate persistent results panel
   showScprsResults(d);
