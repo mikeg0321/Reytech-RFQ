@@ -2522,6 +2522,96 @@ def api_scprs_test():
         return jsonify({"error": str(e), "traceback": traceback.format_exc()})
 
 
+@bp.route("/api/scprs-bulk/<rid>")
+@auth_required
+def api_scprs_bulk(rid):
+    """Bulk SCPRS search — one session, searches each RFQ item, returns summary table.
+    
+    Hit: /api/scprs-bulk/{rfq_id}
+    Returns clean JSON with per-item SCPRS results (PO#, vendor, total, date).
+    """
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"error": "RFQ not found"})
+    
+    items = r.get("line_items", [])
+    if not items:
+        return jsonify({"error": "No line items"})
+    
+    try:
+        from src.agents.scprs_lookup import _get_session, _build_search_terms
+        import time
+        
+        session = _get_session()
+        if not session.initialized:
+            if not session.init_session():
+                return jsonify({"error": "SCPRS session init failed"})
+        
+        results = []
+        for i, item in enumerate(items):
+            pn = item.get("item_number", "")
+            desc = item.get("description", "")
+            cost = item.get("supplier_cost", 0)
+            terms = _build_search_terms(pn, desc)
+            
+            # Search with first term (most specific)
+            search_results = []
+            searched_term = ""
+            for term in terms[:2]:
+                try:
+                    search_results = session.search(description=term)
+                    searched_term = term
+                    if search_results:
+                        break
+                    time.sleep(0.3)
+                except Exception as e:
+                    log.debug("Bulk SCPRS search '%s': %s", term, e)
+                    try:
+                        session.init_session()
+                    except Exception:
+                        pass
+            
+            # Extract best result
+            best = None
+            for sr in sorted(search_results, 
+                           key=lambda x: x.get("start_date_parsed") or __import__("datetime").datetime.min,
+                           reverse=True)[:3]:
+                gt = sr.get("grand_total_num", 0)
+                if gt and gt > 0:
+                    best = {
+                        "po_number": sr.get("po_number", ""),
+                        "vendor": sr.get("supplier_name", ""),
+                        "grand_total": sr.get("grand_total", ""),
+                        "date": sr.get("start_date", ""),
+                        "dept": sr.get("dept", ""),
+                        "first_item": sr.get("first_item", ""),
+                        "acq_method": sr.get("acq_method", ""),
+                    }
+                    break
+            
+            results.append({
+                "line": i + 1,
+                "part_number": pn,
+                "description": (desc or "")[:50],
+                "echelon_cost": cost,
+                "searched": searched_term,
+                "scprs_results_count": len(search_results),
+                "best_match": best,
+            })
+            time.sleep(0.5)  # Be gentle with FI$Cal
+        
+        return jsonify({
+            "rfq": rid,
+            "items": len(items),
+            "results": results,
+        })
+    
+    except Exception as e:
+        import traceback
+        return jsonify({"error": str(e), "traceback": traceback.format_exc()})
+
+
 @bp.route("/api/scprs-raw")
 @auth_required
 def api_scprs_raw():
