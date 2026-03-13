@@ -1882,6 +1882,34 @@ def build_supplier_purchase_urls(order: dict) -> dict:
 
 # ─── Order Health + Digest API Routes ──────────────────────────────────────
 
+@bp.route("/api/qb/health")
+@auth_required
+def api_qb_health():
+    """Check QuickBooks API connectivity and auth status."""
+    try:
+        from src.agents.quickbooks_agent import (
+            is_configured, QB_CLIENT_ID, QB_REALM_ID, QB_SANDBOX,
+        )
+        result = {
+            "configured": is_configured(),
+            "client_id": QB_CLIENT_ID[:8] + "..." if QB_CLIENT_ID else "(not set)",
+            "realm_id": QB_REALM_ID or "(not set)",
+            "sandbox": QB_SANDBOX,
+        }
+        if is_configured():
+            try:
+                from src.agents.quickbooks_agent import _qb_query
+                customers = _qb_query("SELECT COUNT(*) FROM Customer")
+                result["connected"] = True
+                result["customer_count"] = customers[0] if customers else "?"
+            except Exception as e:
+                result["connected"] = False
+                result["auth_error"] = str(e)
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
 @bp.route("/api/orders/health")
 @auth_required
 def api_orders_health():
@@ -2114,6 +2142,10 @@ def api_order_create_qb_invoice(oid):
 
         institution = order.get("institution", "")
 
+        # Check for selected line items (partial invoice)
+        data = request.get_json(silent=True) or {}
+        selected_ids = data.get("line_ids")  # None = all items
+
         # Find or create customer in QB
         customer = find_customer(institution) if institution else None
         if not customer:
@@ -2122,9 +2154,16 @@ def api_order_create_qb_invoice(oid):
                 return jsonify({"ok": False,
                     "error": f"Customer '{institution}' not in QB. Add them in QuickBooks first."})
 
-        # Build line items — MFG# baked into description
+        # Build line items — filter by selected_ids if provided
         inv_items = []
-        for it in order.get("line_items", []):
+        all_items = order.get("line_items", [])
+        for it in all_items:
+            # Skip if line_ids specified and this item not selected
+            if selected_ids is not None:
+                lid = it.get("line_id", "")
+                if lid not in selected_ids:
+                    continue
+            
             price = it.get("unit_price") or it.get("sell_price") or it.get("price") or 0
             price = float(price) if price else 0
             if price <= 0:
@@ -2170,6 +2209,20 @@ def api_order_create_qb_invoice(oid):
         } for it in inv_items]
         order["invoice_po_number"] = order.get("po_number", "")
 
+        # Mark invoiced items on order line_items
+        invoiced_descs = set(it.get("description", "")[:50] for it in inv_items)
+        for it in all_items:
+            lid = it.get("line_id", "")
+            desc = it.get("description", "")[:50]
+            if selected_ids is not None:
+                if lid in selected_ids:
+                    it["invoice_status"] = "invoiced"
+                    it["qb_invoice_number"] = result.get("doc_number", "")
+            else:
+                if desc in invoiced_descs:
+                    it["invoice_status"] = "invoiced"
+                    it["qb_invoice_number"] = result.get("doc_number", "")
+
         if email_sent:
             order["invoice_status"] = "awaiting_email"
             log.info("QB Invoice #%s created, emailed to %s. Awaiting pickup.",
@@ -2185,6 +2238,7 @@ def api_order_create_qb_invoice(oid):
             "due_date": result.get("due_date", ""),
             "emailed_to": our_email if email_sent else None,
             "status": order["invoice_status"],
+            "items_count": len(inv_items),
             "next_step": "Invoice will arrive in your inbox. App will auto-detect it, add UOM + PO#, then you can send to customer.",
         })
     except Exception as e:

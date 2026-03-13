@@ -136,6 +136,7 @@
      <button onclick="selectByStatus('all')" class="btn btn-s" style="font-size:15px;padding:4px 10px" aria-label="Select All">Select All</button>
      <button onclick="selectByStatus('none')" class="btn btn-s" style="font-size:15px;padding:4px 10px" aria-label="Clear">Clear</button>
      <button onclick="sendDeliveryUpdate('{{ oid }}')" class="btn btn-g" style="font-size:16px;margin-left:auto" aria-label="Send Delivery Update">📧 Send Delivery Update</button>
+     <button onclick="createQBInvoiceSelected()" class="btn btn-s" style="font-size:16px;background:rgba(88,166,255,.1);color:#58a6ff;border:1px solid rgba(88,166,255,.25)" aria-label="QB Invoice Selected Items">📄 QB Invoice Selected</button>
     </div>
 
     <!-- F1: Timeline -->
@@ -697,28 +698,42 @@
      });
     }
 
+    function createQBInvoiceSelected(){
+     var checked = document.querySelectorAll('.line-check:checked');
+     if(checked.length===0){alert('Select items to invoice first.');return;}
+     var ids=[];
+     checked.forEach(function(c){ids.push(c.value)});
+     _doQBInvoice(ids);
+    }
+
     function createQBInvoice(btn){
-     if(!confirm('Create Invoice in QuickBooks?\n\n'
+     _doQBInvoice(null);  // null = all items
+    }
+
+    function _doQBInvoice(lineIds){
+     var itemsLabel = lineIds ? lineIds.length+' selected items' : 'ALL items';
+     if(!confirm('Create Invoice in QuickBooks for '+itemsLabel+'?\n\n'
        +'QB handles: invoice #, date, tax, terms, formatting\n'
        +'App sends: customer, items (MFG# + desc), PO ref\n'
        +'QB will email the invoice PDF to your inbox.\n'
        +'Then app adds UOM + PO# and you send to customer.\n\n'
        +'Proceed?')) return;
-     btn.disabled=true;btn.textContent='⏳ Creating...';
+     var payload = {send_email:true};
+     if(lineIds) payload.line_ids = lineIds;
      fetch('/api/order/'+{{ oid|tojson }}+'/create-qb-invoice',{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({send_email:true})
+      body:JSON.stringify(payload)
      }).then(function(r){return r.json()}).then(function(d){
-      btn.disabled=false;btn.textContent='📄 QB Invoice';
       if(d.ok){
        alert('✅ Invoice #'+d.invoice_number+' created!\n'
          +'Total: $'+Number(d.total||0).toFixed(2)+'\n'
+         +(d.items_count ? d.items_count+' items invoiced\n' : '')
          +'QB is emailing the PDF to '+d.emailed_to+'\n\n'
          +'Next: app will auto-detect it, add UOM + PO#,\n'
          +'then you click "Send to Customer".');
        location.reload();
       } else alert('❌ '+(d.error||'Failed'));
-     }).catch(function(e){btn.disabled=false;btn.textContent='📄 QB Invoice';alert('Error: '+e.message)});
+     }).catch(function(e){alert('Error: '+e.message)});
     }
 
     function pollInvoiceNow(){
