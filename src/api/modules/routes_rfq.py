@@ -1720,50 +1720,13 @@ def generate_rfq_package(rid):
         # Update templates in RFQ data
         r["templates"] = tmpl
         
-        if "703b" in tmpl and os.path.exists(tmpl["703b"]):
-            try:
-                fill_703b(tmpl["703b"], r, CONFIG, f"{out_dir}/{sol}_703B_Reytech.pdf")
-                output_files.append(f"{sol}_703B_Reytech.pdf")
-                t.step("703B filled")
-            except Exception as e:
-                errors.append(f"703B: {e}")
-                t.warn("703B fill failed", error=str(e))
-        else:
-            t.step("703B skipped — no template")
-            errors.append("703B: no template uploaded — upload 703B PDF on this RFQ page")
-        
-        if "704b" in tmpl and os.path.exists(tmpl["704b"]):
-            try:
-                fill_704b(tmpl["704b"], r, CONFIG, f"{out_dir}/{sol}_704B_Reytech.pdf")
-                output_files.append(f"{sol}_704B_Reytech.pdf")
-                t.step("704B filled")
-            except Exception as e:
-                errors.append(f"704B: {e}")
-                t.warn("704B fill failed", error=str(e))
-        else:
-            t.step("704B skipped — no template")
-            errors.append("704B: no template uploaded — upload 704B PDF on this RFQ page")
-        
-        if "bidpkg" in tmpl and os.path.exists(tmpl["bidpkg"]):
-            try:
-                fill_bid_package(tmpl["bidpkg"], r, CONFIG, f"{out_dir}/{sol}_BidPackage_Reytech.pdf")
-                output_files.append(f"{sol}_BidPackage_Reytech.pdf")
-                t.step("Bid Package filled")
-            except Exception as e:
-                errors.append(f"Bid Package: {e}")
-                t.warn("Bid Package fill failed", error=str(e))
-        else:
-            t.step("Bid Package skipped — no template")
-            errors.append("Bid Package: no template uploaded — upload Bid Package PDF on this RFQ page")
-        
-        # ── AGENCY-GATED FORMS — driven by /settings/packages config ─────
-        # Match this RFQ to an agency config
+        # ── Match agency FIRST — determines which forms to generate ──
         try:
             from src.api.modules.routes_analytics import _match_agency, _load_agency_configs, AVAILABLE_FORMS
             _agency_key, _agency_cfg = _match_agency(r)
             _req_forms = set(_agency_cfg.get("required_forms", []))
             _opt_forms = set(_agency_cfg.get("optional_forms", []))
-            t.step(f"Agency matched: {_agency_key} ({_agency_cfg.get('name','')}), {len(_req_forms)} required forms")
+            t.step(f"Agency matched: {_agency_key} ({_agency_cfg.get('name','')}), {len(_req_forms)} required forms: {', '.join(sorted(_req_forms))}")
         except Exception as _ae:
             t.warn(f"Agency config load failed, using CCHCS default: {_ae}")
             _req_forms = {"703b", "704b", "bidpkg", "quote", "sellers_permit"}
@@ -1773,6 +1736,48 @@ def generate_rfq_package(rid):
         # Helper: should this form be included?
         def _include(form_id):
             return form_id in _req_forms
+        
+        # ── Template-based forms (only if agency requires them) ──
+        if _include("703b"):
+            if "703b" in tmpl and os.path.exists(tmpl["703b"]):
+                try:
+                    fill_703b(tmpl["703b"], r, CONFIG, f"{out_dir}/{sol}_703B_Reytech.pdf")
+                    output_files.append(f"{sol}_703B_Reytech.pdf")
+                    t.step("703B filled")
+                except Exception as e:
+                    errors.append(f"703B: {e}")
+                    t.warn("703B fill failed", error=str(e))
+            else:
+                t.step("703B skipped — no template")
+                errors.append("703B: no template uploaded — upload 703B PDF on this RFQ page")
+        
+        if _include("704b"):
+            if "704b" in tmpl and os.path.exists(tmpl["704b"]):
+                try:
+                    fill_704b(tmpl["704b"], r, CONFIG, f"{out_dir}/{sol}_704B_Reytech.pdf")
+                    output_files.append(f"{sol}_704B_Reytech.pdf")
+                    t.step("704B filled")
+                except Exception as e:
+                    errors.append(f"704B: {e}")
+                    t.warn("704B fill failed", error=str(e))
+            else:
+                t.step("704B skipped — no template")
+                errors.append("704B: no template uploaded — upload 704B PDF on this RFQ page")
+        
+        if _include("bidpkg"):
+            if "bidpkg" in tmpl and os.path.exists(tmpl["bidpkg"]):
+                try:
+                    fill_bid_package(tmpl["bidpkg"], r, CONFIG, f"{out_dir}/{sol}_BidPackage_Reytech.pdf")
+                    output_files.append(f"{sol}_BidPackage_Reytech.pdf")
+                    t.step("Bid Package filled")
+                except Exception as e:
+                    errors.append(f"Bid Package: {e}")
+                    t.warn("Bid Package fill failed", error=str(e))
+            else:
+                t.step("Bid Package skipped — no template")
+                errors.append("Bid Package: no template uploaded — upload Bid Package PDF on this RFQ page")
+        
+        # ── AGENCY-GATED FORMS ─────
         
         # STD 204 Payee Data Record
         if _include("std204"):
