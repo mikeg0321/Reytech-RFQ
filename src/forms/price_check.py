@@ -772,16 +772,26 @@ def _extract_items_from_text(text: str, result: dict):
                 qty = 1
                 qty_per_uom = 1
             
-            # Override with explicit numbers if present
+            # Handle explicit numbers after UOM
+            qty_from_blob = (len(digit_blob) > 12)
             if extra1 and extra2:
-                qty = max(extra1, extra2)
                 qty_per_uom = min(extra1, extra2)
-            elif extra1:
-                # "110" after "each" = qty_per_uom(1) + qty(10) jammed together
+                qty = max(extra1, extra2)
+            elif extra1 and qty_from_blob:
+                # qty already set from blob trailing digits — extra1 is qty_per_uom
+                qty_per_uom = extra1
+            elif extra1 and not qty_from_blob:
+                # No qty from blob — extra1 might be jammed qpu+qty
+                # "each 110" → qpu=1, qty=10 | "each 1" → qpu=1
                 s = str(extra1)
-                if len(s) >= 2 and int(s[0]) <= 3 and int(s[1:]) <= 150:
+                if len(s) >= 3 and int(s[0]) <= 3 and int(s[1:]) <= 150:
                     qty_per_uom = int(s[0])
                     qty = int(s[1:])
+                elif len(s) == 2 and int(s[0]) <= 3:
+                    qty_per_uom = int(s[0])
+                    qty = int(s[1])
+                elif extra1 <= 3:
+                    qty_per_uom = extra1
                 else:
                     qty = extra1
             
@@ -857,7 +867,97 @@ def _extract_items_from_text(text: str, result: dict):
             item_number += 1
             continue
     
-    # Post-process: try to fix items with missing qty from nearby number fragments
+    # Post-process pass 1: handle split-line items
+    # Pattern: "QTY UOM QTY_PER_UOM" on one line, description on next
+    # e.g. "2 pack 144\nPaper Mate Arrowhead Pink Cap Erasers..."
+    merged_items = []
+    pending_header = None  # {"qty": int, "uom": str, "qty_per_uom": int}
+    
+    for i, line in enumerate(lines):
+        line = line.strip()
+        if not line:
+            continue
+        
+        # Check for "QTY UOM QTY_PER_UOM" standalone (no description)
+        m = re.match(r'^(\d{1,3})\s+(each|pack|set|box|case)\s+(\d{1,4})\s*$', line, re.IGNORECASE)
+        if m:
+            pending_header = {
+                "qty": int(m.group(1)),
+                "uom": m.group(2).lower(),
+                "qty_per_uom": int(m.group(3)),
+            }
+            continue
+        
+        # If we have a pending header, merge with next descriptive line
+        if pending_header:
+            # This line should be the description
+            desc = line.strip()
+            if len(desc) > 5 and not re.match(r'^\d{1,3}$', desc):
+                # Extract UPC if present
+                upc = ""
+                upc_m = re.search(r'[-–]\s*(\d{6,15})\s*$', desc)
+                if not upc_m:
+                    # Try UPC in parens: "(73015)"
+                    upc_m = re.search(r'\((\d{4,15})\)\s*$', desc)
+                if upc_m:
+                    upc = upc_m.group(1)
+                    desc = desc[:upc_m.start()].strip().rstrip('-–').strip()
+                
+                items.append({
+                    "item_number": str(item_number),
+                    "qty": pending_header["qty"],
+                    "uom": pending_header["uom"],
+                    "qty_per_uom": pending_header["qty_per_uom"],
+                    "description": desc,
+                    "part_number": upc,
+                    "row_index": item_number - 1,
+                })
+                item_number += 1
+            pending_header = None
+            continue
+        pending_header = None
+    
+    # Post-process pass 2: handle "QTY_PER_UOM DESC...trailing QTY UOM" pattern
+    # e.g. "120 Flexible Safety Pens...59574 pack"
+    for i, line in enumerate(lines):
+        line = line.strip()
+        m = re.match(
+            r'^(\d{2,4})\s+(.{10,}?)\s*(\d{1,3})\s+(each|pack|set|box|case)\s*$',
+            line, re.IGNORECASE
+        )
+        if m:
+            qpu = int(m.group(1))
+            desc = m.group(2).strip()
+            qty = int(m.group(3))
+            uom = m.group(4).lower()
+            # Only use if qty_per_uom > qty (120 > 4) and not already captured
+            if qpu > qty and not any(desc[:20] in it.get("description", "") for it in items):
+                # Extract UPC from end of desc
+                upc = ""
+                upc_m = re.search(r'[-–]\s*(\d{4,15})\s*$', desc)
+                if upc_m:
+                    upc = upc_m.group(1)
+                    desc = desc[:upc_m.start()].strip().rstrip('-–').strip()
+                items.append({
+                    "item_number": str(item_number),
+                    "qty": qty,
+                    "uom": uom,
+                    "qty_per_uom": qpu,
+                    "description": desc,
+                    "part_number": upc,
+                    "row_index": item_number - 1,
+                })
+                item_number += 1
+    
+    # Post-process pass 3: fix items where description IS a number (broken split)
+    # e.g. item with desc="144" should be removed (it was merged above)
+    items = [it for it in items if not re.match(r'^\d{1,4}$', it.get("description", "").strip())]
+    
+    # Re-number items sequentially
+    for i, it in enumerate(items):
+        it["item_number"] = str(i + 1)
+        it["row_index"] = i
+    
     result["line_items"].extend(items)
     log.info("Text parser extracted %d items from %s", len(items),
              result.get("source_pdf", "?"))
