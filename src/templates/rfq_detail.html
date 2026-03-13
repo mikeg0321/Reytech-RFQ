@@ -128,7 +128,7 @@
    <td style="font-size:13px">{{i.line_number}}</td>
    <td><input type="number" name="qty_{{loop.index0}}" value="{{i.qty}}" min="1" class="num-in" style="width:55px;font-size:14px;font-weight:700;padding:6px 4px;text-align:center" oninput="recalc()"></td>
    <td><input type="text" name="uom_{{loop.index0}}" value="{{(i.uom or 'EA')|upper}}" class="text-in" style="width:55px;font-size:13px;font-weight:600;padding:6px 4px;text-align:center;text-transform:uppercase" maxlength="6"></td>
-   <td style="position:relative"><textarea name="desc_{{loop.index0}}" class="text-in" style="width:100%;min-width:280px;font-size:13px;padding:6px 8px;resize:vertical;min-height:28px;height:28px;line-height:1.3;overflow:hidden" title="{{i.description}}" onfocus="this.style.height='auto';this.style.height=this.scrollHeight+'px';this.style.overflow='auto'" onblur="if(!this.value||this.scrollHeight<40){this.style.height='28px';this.style.overflow='hidden'}">{{i.description}}</textarea>{% if i.get('_from_pc') %}<span style="position:absolute;top:2px;right:4px;font-size:13px;background:#1f6feb;color:#fff;padding:1px 4px;border-radius:3px;pointer-events:none">PC</span>{% endif %}</td>
+   <td style="position:relative"><textarea name="desc_{{loop.index0}}" class="text-in desc-area" style="width:100%;min-width:280px;font-size:13px;padding:6px 8px 6px 8px;resize:none;min-height:28px;height:28px;line-height:1.3;overflow:hidden;transition:height 0.15s" title="{{i.description}}" onclick="expandDesc(this)" onblur="collapseDesc(this)">{{i.description}}</textarea><button type="button" class="desc-expand-btn" onclick="toggleDescFull(this.previousElementSibling)" title="Expand description" style="position:absolute;bottom:2px;right:4px;background:rgba(88,166,255,.15);border:1px solid rgba(88,166,255,.25);color:#58a6ff;font-size:11px;padding:1px 5px;border-radius:3px;cursor:pointer;opacity:0;transition:opacity 0.15s;line-height:1.4">⤢</button>{% if i.get('supplier_description') %}<div class="supplier-desc-hint" style="font-size:11px;color:#8b949e;margin-top:1px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:280px" title="{{i.supplier_description}}" onclick="useSupplierDesc({{loop.index0}},this)">📦 {{i.supplier_description[:60]}}{% if i.supplier_description|length > 60 %}...{% endif %} <span style="color:#58a6ff">(use)</span></div>{% endif %}{% if i.get('_from_pc') %}<span style="position:absolute;top:2px;right:4px;font-size:13px;background:#1f6feb;color:#fff;padding:1px 4px;border-radius:3px;pointer-events:none">PC</span>{% endif %}</td>
    <td><input type="text" name="part_{{loop.index0}}" value="{{i.item_number}}" class="text-in mono" style="width:90px;font-size:14px;padding:6px 8px"></td>
    <td style="min-width:220px">
     <div style="display:flex;align-items:center;gap:4px">
@@ -480,10 +480,59 @@
  <div id="rfq-activity" style="font-size:13px;color:var(--tx2)">Loading...</div>
 </div>
 
+<style>
+/* Description textarea expand button — appears on hover */
+td:hover .desc-expand-btn { opacity: 1 !important; }
+.desc-area:focus + .desc-expand-btn { opacity: 1 !important; }
+.desc-area.expanded { height: auto !important; min-height: 80px !important; overflow: auto !important; resize: vertical !important; }
+</style>
 <script>
 const RID = {{rid|tojson}};
 const items={{r.line_items|tojson}};
 const n=items.length;
+
+// ── Description textarea expand/collapse ──
+function expandDesc(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.max(el.scrollHeight, 60) + 'px';
+  el.style.overflow = 'auto';
+  el.style.resize = 'vertical';
+}
+function collapseDesc(el) {
+  if (el.classList.contains('expanded')) return; // pinned open
+  setTimeout(function(){
+    if (document.activeElement === el) return;
+    el.style.height = '28px';
+    el.style.overflow = 'hidden';
+    el.style.resize = 'none';
+  }, 200);
+}
+function toggleDescFull(el) {
+  if (el.classList.contains('expanded')) {
+    el.classList.remove('expanded');
+    el.style.height = '28px';
+    el.style.overflow = 'hidden';
+    el.style.resize = 'none';
+  } else {
+    el.classList.add('expanded');
+    el.style.height = 'auto';
+    el.style.height = Math.max(el.scrollHeight, 80) + 'px';
+    el.style.overflow = 'auto';
+    el.style.resize = 'vertical';
+    el.focus();
+  }
+}
+function useSupplierDesc(idx, hintEl) {
+  var ta = document.querySelector('textarea[name="desc_' + idx + '"]');
+  if (!ta) return;
+  var fullDesc = hintEl.getAttribute('title');
+  if (fullDesc) {
+    ta.value = fullDesc;
+    expandDesc(ta);
+    hintEl.innerHTML = '<span style="color:#3fb950">✓ Applied</span>';
+    recalc();
+  }
+}
 
 // ── URL Link Lookup ──
 const _linkDebounce = {};

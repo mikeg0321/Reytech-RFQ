@@ -1179,6 +1179,10 @@ def rfq_upload_supplier_quote(rid):
                 rfq_items[idx]["item_supplier"] = supplier
                 if q_pn and not rfq_items[idx].get("item_number"):
                     rfq_items[idx]["item_number"] = q_pn
+                # Enrich description with supplier's fuller description if longer
+                existing_desc = rfq_items[idx].get("description", "")
+                if q_desc and len(q_desc) > len(existing_desc) + 10:
+                    rfq_items[idx]["supplier_description"] = q_desc
                 applied += 1
         else:
             unmatched.append({

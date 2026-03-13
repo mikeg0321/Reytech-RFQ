@@ -410,7 +410,7 @@ def match_quote_to_rfq(quote_items: List[Dict], rfq_items: List[Dict]) -> List[D
 
         results.append({
             "quote_idx": qi,
-            "quote_desc": q_item.get("description", "")[:80],
+            "quote_desc": q_item.get("description", ""),
             "quote_pn": q_item.get("item_number", ""),
             "unit_price": q_item.get("unit_price", 0),
             "qty": q_item.get("qty", 1),
