@@ -1188,3 +1188,192 @@ def get_price_history_for_item(part_number: str = "", description: str = "",
         log.error("get_price_history_for_item(pn=%s, desc=%s) failed: %s",
                   part_number, description[:50] if description else "", e, exc_info=True)
         raise
+
+
+def _safe_json(raw, default=None):
+    """Parse a JSON string, returning default on failure."""
+    if default is None:
+        default = []
+    if isinstance(raw, (list, dict)):
+        return raw
+    if not raw or not isinstance(raw, str):
+        return default
+    try:
+        return json.loads(raw)
+    except Exception:
+        return default
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Tenant Profile
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def get_tenant_profile(tenant_id: str = "reytech") -> dict:
+    """Get full tenant profile.
+    Input: tenant_id
+    Output: dict with all tenant fields, JSON fields parsed. {} if not found.
+    Side effects: none.
+    """
+    try:
+        with get_db() as conn:
+            row = conn.execute("SELECT * FROM tenant_profiles WHERE tenant_id=?",
+                               (tenant_id,)).fetchone()
+            if not row:
+                return {}
+            d = dict(row)
+            for field in ("dba_names", "vendor_search_names", "vendor_codes",
+                          "certifications", "naics_codes", "licenses_json"):
+                d[field] = _safe_json(d.get(field), [])
+            return d
+    except Exception as e:
+        log.error("get_tenant_profile(%s) failed: %s", tenant_id, e, exc_info=True)
+        return {}
+
+
+def get_tenant_vendor_names(tenant_id: str = "reytech") -> list:
+    """Returns vendor_search_names for this tenant. Used by harvest.
+    Falls back to ['reytech'] if not configured.
+    """
+    try:
+        profile = get_tenant_profile(tenant_id)
+        names = profile.get("vendor_search_names", [])
+        return names if names else ["reytech"]
+    except Exception:
+        return ["reytech"]
+
+
+def get_tenant_certifications(tenant_id: str = "reytech") -> list:
+    """Returns active certifications for tenant."""
+    try:
+        profile = get_tenant_profile(tenant_id)
+        return [c for c in profile.get("certifications", [])
+                if isinstance(c, dict) and c.get("active", True)]
+    except Exception:
+        return []
+
+
+def get_tenant_naics_codes(tenant_id: str = "reytech") -> list:
+    """Returns NAICS codes for tenant."""
+    try:
+        profile = get_tenant_profile(tenant_id)
+        return profile.get("naics_codes", [])
+    except Exception:
+        return []
+
+
+def check_compliance_alerts(tenant_id: str = "reytech") -> list:
+    """Returns list of compliance items needing attention.
+    Each alert: {type, message, severity, due_date}
+    Severity: 'critical' (overdue/<30d), 'warning' (30-90d), 'info' (90-180d)
+    """
+    from datetime import datetime, timedelta
+    alerts = []
+    try:
+        profile = get_tenant_profile(tenant_id)
+        if not profile:
+            return []
+        now = datetime.now()
+
+        # Check Statement of Info
+        soi_due = profile.get("statement_of_info_due", "")
+        if soi_due:
+            try:
+                due_dt = datetime.strptime(soi_due[:10], "%Y-%m-%d")
+                days_until = (due_dt - now).days
+                if days_until < 0:
+                    alerts.append({
+                        "type": "statement_of_info",
+                        "message": f"CA Statement of Information OVERDUE (was due {soi_due})",
+                        "severity": "critical",
+                        "due_date": soi_due,
+                        "link": "https://bizfileonline.sos.ca.gov/search/business"
+                    })
+                elif days_until <= 30:
+                    alerts.append({
+                        "type": "statement_of_info",
+                        "message": f"CA Statement of Information due in {days_until} days ({soi_due})",
+                        "severity": "critical",
+                        "due_date": soi_due,
+                        "link": "https://bizfileonline.sos.ca.gov/search/business"
+                    })
+                elif days_until <= 60:
+                    alerts.append({
+                        "type": "statement_of_info",
+                        "message": f"CA Statement of Information due in {days_until} days ({soi_due})",
+                        "severity": "warning",
+                        "due_date": soi_due,
+                        "link": "https://bizfileonline.sos.ca.gov/search/business"
+                    })
+            except Exception:
+                pass
+
+        # Check certifications with expiry
+        for cert in profile.get("certifications", []):
+            if not isinstance(cert, dict):
+                continue
+            expiry = cert.get("expiry")
+            cert_type = cert.get("type", "Unknown")
+            cert_num = cert.get("number", "")
+            state = cert.get("state", cert.get("jurisdiction", ""))
+
+            if not cert.get("active", True):
+                alerts.append({
+                    "type": f"cert_{cert_type}",
+                    "message": f"{cert_type} #{cert_num} ({state}) is INACTIVE",
+                    "severity": "critical",
+                    "due_date": None
+                })
+                continue
+
+            if expiry:
+                try:
+                    exp_dt = datetime.strptime(expiry[:10], "%Y-%m-%d")
+                    days_until = (exp_dt - now).days
+                    if days_until < 0:
+                        alerts.append({
+                            "type": f"cert_{cert_type}",
+                            "message": f"{cert_type} #{cert_num} ({state}) EXPIRED on {expiry}",
+                            "severity": "critical",
+                            "due_date": expiry
+                        })
+                    elif days_until <= 90:
+                        sev = "critical" if days_until <= 30 else "warning"
+                        alerts.append({
+                            "type": f"cert_{cert_type}",
+                            "message": f"{cert_type} #{cert_num} ({state}) expires in {days_until} days",
+                            "severity": sev,
+                            "due_date": expiry
+                        })
+                except Exception:
+                    pass
+
+        return alerts
+    except Exception as e:
+        log.error("check_compliance_alerts(%s) failed: %s", tenant_id, e, exc_info=True)
+        return []
+
+
+def update_tenant_profile(tenant_id: str, updates: dict) -> bool:
+    """Update tenant profile fields. Only updates provided keys.
+    Input: tenant_id, dict of field:value pairs to update
+    Output: True on success
+    Side effects: writes to tenant_profiles table
+    """
+    if not updates:
+        return True
+    try:
+        with get_db() as conn:
+            # Serialize JSON fields
+            for field in ("dba_names", "vendor_search_names", "vendor_codes",
+                          "certifications", "naics_codes", "licenses_json"):
+                if field in updates and isinstance(updates[field], (list, dict)):
+                    updates[field] = json.dumps(updates[field])
+            sets = ", ".join(f"{k}=?" for k in updates)
+            vals = list(updates.values()) + [tenant_id]
+            conn.execute(
+                f"UPDATE tenant_profiles SET {sets}, updated_at=datetime('now') WHERE tenant_id=?",
+                vals)
+        return True
+    except Exception as e:
+        log.error("update_tenant_profile(%s) failed: %s", tenant_id, e, exc_info=True)
+        raise

@@ -347,6 +347,59 @@ MIGRATIONS = [
             ('ca_demandstar', 'DemandStar CA Local', 'county', 'CA', 'https://network.demandstar.com', NULL, 'none', 168, 'scaffolded', 4, 'Covers 500+ CA local agencies'),
             ('ca_bonfire', 'Bonfire CA Local', 'county', 'CA', 'https://gobonfire.com', NULL, 'none', 168, 'scaffolded', 4, 'Hospital and school districts');
     """),
+
+    (12, "tenant_profiles", """
+        CREATE TABLE IF NOT EXISTS tenant_profiles (
+            tenant_id TEXT PRIMARY KEY,
+            legal_name TEXT NOT NULL,
+            dba_names TEXT,
+            entity_number TEXT,
+            entity_type TEXT,
+            state_of_formation TEXT,
+            formation_date TEXT,
+            status TEXT DEFAULT 'active',
+            website TEXT,
+            phone TEXT,
+            address TEXT,
+            city TEXT,
+            state TEXT,
+            zip TEXT,
+            vendor_search_names TEXT,
+            vendor_codes TEXT,
+            certifications TEXT,
+            naics_codes TEXT,
+            statement_of_info_due TEXT,
+            licenses_json TEXT,
+            notify_phone TEXT,
+            notify_email TEXT,
+            base_url TEXT,
+            api_key_hash TEXT,
+            approval_threshold REAL DEFAULT 5000,
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT DEFAULT (datetime('now'))
+        );
+
+        INSERT OR IGNORE INTO tenant_profiles (
+            tenant_id, legal_name, dba_names, entity_number,
+            entity_type, state_of_formation, formation_date,
+            website, phone, address, city, state, zip,
+            vendor_search_names, certifications, naics_codes,
+            statement_of_info_due
+        ) VALUES (
+            'reytech',
+            'REYTECH INC',
+            '["Reytech Inc.", "Rey Tech Inc", "Reytech"]',
+            '3799353',
+            'S-Corp', 'CA', '2015-06-18',
+            'https://www.reytechinc.com',
+            '949-229-1575',
+            '30 Carnoustie Way', 'Trabuco Canyon', 'CA', '92679',
+            '["REYTECH INC","reytech inc.","reytech inc","reytech","rey tech inc","rey tech"]',
+            '[{"type":"MB","number":"2002605","state":"CA","expiry":null,"active":true},{"type":"SB","number":"2002605","state":"CA","expiry":null,"active":true},{"type":"SB-PW","number":"2002605","state":"CA","expiry":null,"active":true},{"type":"DVBE","number":"2002605","state":"CA","expiry":null,"active":true,"notes":"Service-Disabled Veteran Business Enterprise"},{"type":"SDVOB","number":"221449","state":"NY","expiry":null,"active":true,"notes":"NY Service-Disabled Veteran-Owned Business"},{"type":"DBE","number":"44511","jurisdiction":"DOT","expiry":null,"active":true,"notes":"Disadvantaged Business Enterprise"}]',
+            '["339112","339113","423450","423490","339920"]',
+            '2024-06-30'
+        );
+    """),
 ]
 
 

@@ -368,6 +368,20 @@ def api_v1_health():
         except Exception:
             pass
 
+        # Compliance status
+        compliance = {}
+        try:
+            from src.core.dal import check_compliance_alerts
+            alerts = check_compliance_alerts("reytech")
+            compliance = {
+                "alerts": len(alerts),
+                "critical": len([a for a in alerts if a["severity"] == "critical"]),
+                "warning": len([a for a in alerts if a["severity"] == "warning"]),
+                "health": "critical" if any(a["severity"] == "critical" for a in alerts) else "ok"
+            }
+        except Exception:
+            pass
+
         return api_response({
             "version": version,
             "uptime_seconds": uptime,
@@ -376,6 +390,7 @@ def api_v1_health():
             "agents": agents,
             "scprs_harvest": harvest,
             "connectors": connector_status,
+            "compliance": compliance,
         })
     except Exception as e:
         log.error("v1/health error: %s", e, exc_info=True)
@@ -771,4 +786,142 @@ def api_v1_rebuild_intel():
         return api_response(results)
     except Exception as e:
         log.error("rebuild-intel error: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)
+
+
+@bp.route("/api/v1/tenant/profile")
+@auth_required
+def api_v1_tenant_profile():
+    """Get tenant profile."""
+    try:
+        from src.core.dal import get_tenant_profile
+        profile = get_tenant_profile("reytech")
+        return api_response(profile)
+    except Exception as e:
+        log.error("v1/tenant/profile error: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)
+
+
+@bp.route("/api/v1/tenant/profile", methods=["POST"])
+@auth_required
+def api_v1_update_tenant_profile():
+    """Update tenant profile fields."""
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        from src.core.dal import update_tenant_profile
+        update_tenant_profile("reytech", data)
+        return api_response({"updated": True})
+    except Exception as e:
+        log.error("v1/tenant/profile update error: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)
+
+
+@bp.route("/api/v1/tenant/compliance")
+@auth_required
+def api_v1_tenant_compliance():
+    """Get compliance alerts."""
+    try:
+        from src.core.dal import check_compliance_alerts
+        alerts = check_compliance_alerts("reytech")
+        critical = len([a for a in alerts if a["severity"] == "critical"])
+        warning = len([a for a in alerts if a["severity"] == "warning"])
+        return api_response({
+            "alerts": alerts,
+            "critical_count": critical,
+            "warning_count": warning,
+            "compliance_health": "critical" if critical > 0 else "warning" if warning > 0 else "ok"
+        })
+    except Exception as e:
+        log.error("v1/tenant/compliance error: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)
+
+
+# ── Harvest Operations ──────────────────────────────────────────────────────
+
+@bp.route("/api/v1/harvest/reprocess")
+@auth_required
+def api_v1_harvest_reprocess():
+    """Rebuild intelligence tables from scprs_po_master. Synchronous."""
+    try:
+        import sys, os, sqlite3
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "scripts"))
+        from run_scprs_harvest import (
+            build_vendor_intel, build_buyer_intel, build_competitors,
+            build_won_quotes_kb, build_scprs_awards, get_conn
+        )
+        conn = get_conn()
+        build_vendor_intel(conn)
+        build_buyer_intel(conn)
+        build_competitors(conn)
+        build_won_quotes_kb(conn)
+        build_scprs_awards(conn)
+        # Get counts
+        counts = {}
+        for t in ["won_quotes_kb", "vendor_intel", "buyer_intel", "competitors", "scprs_awards"]:
+            try:
+                counts[t] = conn.execute(f"SELECT COUNT(*) FROM [{t}]").fetchone()[0]
+            except Exception:
+                counts[t] = 0
+        conn.close()
+        return api_response({"reprocessed": True, "table_counts": counts})
+    except Exception as e:
+        log.error("v1/harvest/reprocess error: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)
+
+
+@bp.route("/api/v1/harvest/vendor-search")
+@auth_required
+def api_v1_harvest_vendor_search():
+    """Run vendor name search across active connectors. Synchronous."""
+    try:
+        from src.core.pull_orchestrator import PullOrchestrator
+        from src.core.dal import get_tenant_vendor_names
+        names = get_tenant_vendor_names()
+        result = PullOrchestrator().run_vendor_search(vendor_names=names)
+        return api_response({"vendor_search_complete": True, "result": result})
+    except Exception as e:
+        log.error("v1/harvest/vendor-search error: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)
+
+
+@bp.route("/api/v1/harvest/diagnose")
+@auth_required
+def api_v1_harvest_diagnose():
+    """Diagnostic: row counts + sample rows from harvest tables."""
+    try:
+        import sqlite3
+        from src.core.db import DB_PATH
+        conn = sqlite3.connect(DB_PATH, timeout=10)
+        conn.row_factory = sqlite3.Row
+        diag = {"counts": {}, "samples": {}}
+        for t in ["scprs_po_master", "scprs_po_lines", "won_quotes_kb",
+                   "vendor_intel", "buyer_intel", "competitors", "scprs_awards"]:
+            try:
+                diag["counts"][t] = conn.execute(f"SELECT COUNT(*) FROM [{t}]").fetchone()[0]
+            except Exception:
+                diag["counts"][t] = "MISSING"
+            try:
+                row = conn.execute(f"SELECT * FROM [{t}] LIMIT 1").fetchone()
+                if row:
+                    d = dict(row)
+                    # Truncate long values
+                    for k, v in d.items():
+                        if isinstance(v, str) and len(v) > 200:
+                            d[k] = v[:200] + "..."
+                    diag["samples"][t] = d
+            except Exception:
+                pass
+        # Reytech wins
+        try:
+            r = conn.execute(
+                "SELECT COUNT(*), SUM(grand_total) FROM scprs_po_master WHERE LOWER(supplier) LIKE '%reytech%'"
+            ).fetchone()
+            diag["reytech"] = {"wins": r[0], "value": r[1]}
+        except Exception:
+            pass
+        conn.close()
+        return api_response(diag)
+    except Exception as e:
+        log.error("v1/harvest/diagnose error: %s", e, exc_info=True)
         return api_response(error=str(e), status=500)

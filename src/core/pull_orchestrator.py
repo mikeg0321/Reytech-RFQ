@@ -18,6 +18,17 @@ REYTECH_VENDOR_NAMES = [
     "reytech incorporated", "reytech inc.",
 ]
 
+
+def _get_vendor_names(tenant_id: str = "reytech") -> list:
+    """Get vendor search names from tenant profile, fallback to hardcoded."""
+    try:
+        from src.core.dal import get_tenant_vendor_names
+        names = get_tenant_vendor_names(tenant_id)
+        return names if names else REYTECH_VENDOR_NAMES
+    except Exception:
+        return REYTECH_VENDOR_NAMES
+
+
 DEFAULT_FROM_DATES = {
     "ca_scprs": lambda: datetime.now() - timedelta(days=1095),
     "federal_usaspending": lambda: datetime.now() - timedelta(days=730),
@@ -74,7 +85,7 @@ class PullOrchestrator:
             return {"ok": False, "error": "Authentication failed"}
 
         # Step 2: Vendor search (highest priority)
-        vendor_results = connector.search_by_vendor(REYTECH_VENDOR_NAMES, from_dt)
+        vendor_results = connector.search_by_vendor(_get_vendor_names(), from_dt)
 
         # Step 3: Store results
         conn = _get_conn()
@@ -137,7 +148,7 @@ class PullOrchestrator:
                           connector_ids: list = None) -> dict:
         """Search for vendor across active connectors."""
         from src.core.connector_registry import get_active_connectors
-        names = vendor_names or REYTECH_VENDOR_NAMES
+        names = vendor_names or _get_vendor_names()
         connectors = get_active_connectors()
         if connector_ids:
             connectors = [c for c in connectors if c["id"] in connector_ids]

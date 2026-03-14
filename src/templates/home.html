@@ -48,6 +48,31 @@ fetch('/api/health/startup').then(function(r){return r.json()}).then(function(d)
 }).catch(function(){});
 </script>
 
+<!-- ═══ Compliance Alerts — Phase 3 ═══ -->
+<div id="compliance-alerts"></div>
+<script>
+fetch('/api/v1/tenant/compliance').then(r=>r.json()).then(d=>{
+  if(!d.ok||!d.data||!d.data.alerts||d.data.alerts.length===0)return;
+  var el=document.getElementById('compliance-alerts');
+  var html='';
+  d.data.alerts.forEach(function(a){
+    if(a.severity==='critical'){
+      html+='<div style="background:rgba(248,81,73,.1);border:1px solid rgba(248,81,73,.35);border-radius:8px;padding:10px 16px;margin-bottom:8px;font-size:14px;display:flex;align-items:center;gap:8px">';
+      html+='<span style="color:#f85149;font-weight:700">CRITICAL</span>';
+      html+='<span style="color:#f85149">'+a.message+'</span>';
+      if(a.link)html+=' <a href="'+a.link+'" target="_blank" style="color:#58a6ff;margin-left:auto;font-size:13px">Fix now &rarr;</a>';
+      html+='</div>';
+    }else if(a.severity==='warning'){
+      html+='<div style="background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.3);border-radius:8px;padding:10px 16px;margin-bottom:8px;font-size:14px;display:flex;align-items:center;gap:8px">';
+      html+='<span style="color:#fbbf24;font-weight:700">WARNING</span>';
+      html+='<span style="color:#fbbf24">'+a.message+'</span>';
+      html+='</div>';
+    }
+  });
+  el.innerHTML=html;
+}).catch(function(){});
+</script>
+
 <!-- ═══ Agent Status Card — Layer 2 ═══ -->
 <div id="agent-status" style="background:var(--crd);border:1px solid var(--bd);border-radius:10px;padding:14px 18px;margin-bottom:14px;display:flex;gap:20px;align-items:center;flex-wrap:wrap">
  <div style="font-size:13px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px">Agents</div>
