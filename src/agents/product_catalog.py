@@ -604,6 +604,361 @@ def import_qb_csv(csv_path: str, replace: bool = False) -> dict:
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# Import from QuoteWerks CSV / TSV / Open Export
+# ═══════════════════════════════════════════════════════════════════════
+
+# Column name patterns — QuoteWerks exports vary by method:
+#   Data Manager: database column names (ItemDescription, ManufacturerPartNumber, etc.)
+#   Open Export: sometimes shortened names
+#   Report export: user-chosen labels
+# We match flexibly by checking multiple patterns per field.
+
+_QW_COL_MAP = {
+    "description": [
+        "ItemDescription", "Description", "Item Description", "Product",
+        "ProductDescription", "Product Description", "LineItemDescription",
+        "Sales Description", "SalesDescription", "Desc",
+    ],
+    "part_number": [
+        "ManufacturerPartNumber", "Manufacturer Part Number", "MfgPartNumber",
+        "PartNumber", "Part Number", "Part#", "ItemNumber", "Item Number",
+        "SKU", "Item#", "ProductCode", "Product Code", "VendorPartNumber",
+    ],
+    "cost": [
+        "ItemCost", "Item Cost", "Cost", "UnitCost", "Unit Cost",
+        "VendorCost", "Vendor Cost", "PurchaseCost", "Purchase Cost",
+        "CostEach", "Cost Each",
+    ],
+    "price": [
+        "ItemPrice", "Item Price", "Price", "SellPrice", "Sell Price",
+        "UnitPrice", "Unit Price", "SalesPrice", "Sales Price",
+        "ExtendedPrice", "QuotePrice", "ListPrice", "List Price",
+    ],
+    "qty": [
+        "Quantity", "Qty", "ItemQuantity", "Item Quantity", "OrderQty",
+    ],
+    "uom": [
+        "UnitOfMeasure", "Unit Of Measure", "UOM", "Unit",
+    ],
+    "customer": [
+        "SoldToCompany", "Sold To Company", "Company", "CompanyName",
+        "Company Name", "Customer", "CustomerName", "Customer Name",
+        "SoldToContact", "ContactName",
+    ],
+    "quote_number": [
+        "DocNumber", "Document Number", "QuoteNumber", "Quote Number",
+        "Quote#", "DocNo", "DocumentNumber",
+    ],
+    "date": [
+        "DocDate", "Document Date", "QuoteDate", "Quote Date", "Date",
+        "CreateDate", "Created", "OrderDate", "CreatedDate",
+    ],
+    "manufacturer": [
+        "Manufacturer", "Mfg", "Brand", "MfgName", "Manufacturer Name",
+    ],
+}
+
+
+def _find_qw_column(headers: list, field: str) -> str:
+    """Find the best matching column header for a QuoteWerks field."""
+    patterns = _QW_COL_MAP.get(field, [])
+    header_lower = {h.lower().strip(): h for h in headers}
+    for pat in patterns:
+        if pat.lower() in header_lower:
+            return header_lower[pat.lower()]
+    return ""
+
+
+def import_quotewerks_csv(csv_path: str, replace: bool = False) -> dict:
+    """
+    Import QuoteWerks exported data (CSV/TSV) into the product catalog.
+
+    Handles multiple QuoteWerks export formats:
+      - Data Manager export (DocumentItems dataset → CSV)
+      - Open Export Module (tab-delimited or XML)
+      - Report exports (CSV)
+      - Clipboard/Excel exports (tab-delimited)
+
+    The importer auto-detects column names by matching against known
+    QuoteWerks field patterns. It deduplicates against existing catalog
+    items by part number and description tokens.
+
+    Returns: {imported, updated, skipped, errors, total_rows, columns_found}
+    """
+    init_catalog_db()
+    conn = _get_conn()
+    now = datetime.now(timezone.utc).isoformat()
+
+    stats = {
+        "imported": 0, "updated": 0, "skipped": 0,
+        "errors": [], "categories": {},
+        "total_rows": 0, "columns_found": {},
+    }
+
+    # Read file — detect delimiter (tab vs comma)
+    with open(csv_path, 'r', encoding='utf-8-sig') as f:
+        sample = f.read(2048)
+    delimiter = '\t' if sample.count('\t') > sample.count(',') else ','
+
+    with open(csv_path, 'r', encoding='utf-8-sig') as f:
+        reader = csv.DictReader(f, delimiter=delimiter)
+        headers = reader.fieldnames or []
+        rows = list(reader)
+
+    stats["total_rows"] = len(rows)
+
+    # Map QuoteWerks columns to our fields
+    col_desc = _find_qw_column(headers, "description")
+    col_pn = _find_qw_column(headers, "part_number")
+    col_cost = _find_qw_column(headers, "cost")
+    col_price = _find_qw_column(headers, "price")
+    col_qty = _find_qw_column(headers, "qty")
+    col_uom = _find_qw_column(headers, "uom")
+    col_customer = _find_qw_column(headers, "customer")
+    col_quote = _find_qw_column(headers, "quote_number")
+    col_date = _find_qw_column(headers, "date")
+    col_mfg = _find_qw_column(headers, "manufacturer")
+
+    stats["columns_found"] = {
+        "description": col_desc, "part_number": col_pn,
+        "cost": col_cost, "price": col_price,
+        "qty": col_qty, "uom": col_uom,
+        "customer": col_customer, "quote_number": col_quote,
+        "date": col_date, "manufacturer": col_mfg,
+    }
+
+    if not col_desc and not col_pn:
+        stats["errors"].append(
+            f"Could not find description or part number columns. "
+            f"Headers found: {headers[:15]}"
+        )
+        conn.close()
+        return stats
+
+    log.info("QW import: %d rows, delimiter='%s', desc='%s', pn='%s', cost='%s', price='%s'",
+             len(rows), 'tab' if delimiter == '\t' else 'comma',
+             col_desc, col_pn, col_cost, col_price)
+
+    for row in rows:
+        try:
+            desc = (row.get(col_desc, "") or "").strip() if col_desc else ""
+            pn = (row.get(col_pn, "") or "").strip() if col_pn else ""
+
+            if not desc and not pn:
+                stats["skipped"] += 1
+                continue
+
+            # Parse numeric fields
+            def _parse_num(col):
+                if not col:
+                    return 0
+                val = (row.get(col, "") or "").strip()
+                val = val.replace(",", "").replace("$", "").strip()
+                try:
+                    return float(val) if val else 0
+                except ValueError:
+                    return 0
+
+            cost = _parse_num(col_cost)
+            sell_price = _parse_num(col_price)
+            qty = _parse_num(col_qty) or 1
+
+            # If we have extended price but not unit price, divide by qty
+            if sell_price > 0 and qty > 1:
+                # Check if this looks like an extended price (> 2x reasonable unit)
+                if "extended" in (col_price or "").lower() or "total" in (col_price or "").lower():
+                    sell_price = round(sell_price / qty, 4)
+                    if cost > 0:
+                        cost = round(cost / qty, 4)
+
+            # Skip zero-value rows and obvious garbage
+            if sell_price <= 0 and cost <= 0:
+                stats["skipped"] += 1
+                continue
+
+            uom = "EA"
+            if col_uom:
+                raw_uom = (row.get(col_uom, "") or "").strip().upper()
+                uom = _parse_uom(raw_uom) if raw_uom else "EA"
+
+            customer = (row.get(col_customer, "") or "").strip() if col_customer else ""
+            quote_num = (row.get(col_quote, "") or "").strip() if col_quote else ""
+            mfg = (row.get(col_mfg, "") or "").strip() if col_mfg else ""
+            date_str = (row.get(col_date, "") or "").strip() if col_date else ""
+
+            # Build catalog name: prefer part number, fall back to description
+            name = pn if pn and len(pn) >= 3 else ""
+            if not name:
+                name = desc[:60].strip()
+
+            if not name:
+                stats["skipped"] += 1
+                continue
+
+            # Clean description
+            clean_desc = _clean_description(desc) if desc else name
+
+            # Margin
+            margin_pct = round((sell_price - cost) / sell_price * 100, 2) \
+                if sell_price > 0 and cost > 0 else 0
+
+            # Category + tokens
+            category = auto_categorize(name, clean_desc)
+            stats["categories"][category] = stats["categories"].get(category, 0) + 1
+            search_tokens = _tokenize(f"{name} {clean_desc} {pn} {mfg}")
+
+            # Strategy
+            if margin_pct < 0:
+                strategy = "loss_leader"
+            elif margin_pct < 5:
+                strategy = "margin_protect"
+            elif margin_pct > 25:
+                strategy = "premium"
+            else:
+                strategy = "competitive"
+
+            # Source tag for tracking
+            source_tag = "quotewerks"
+            notes_parts = []
+            if customer:
+                notes_parts.append(f"customer={customer}")
+            if quote_num:
+                notes_parts.append(f"qw_quote={quote_num}")
+            if date_str:
+                notes_parts.append(f"date={date_str}")
+            notes = "; ".join(notes_parts)
+
+            # ── Upsert logic ──
+            existing = conn.execute(
+                "SELECT id, cost, sell_price, times_quoted FROM product_catalog WHERE name = ?",
+                (name,)
+            ).fetchone()
+
+            if existing:
+                pid = existing["id"]
+                old_cost = existing["cost"] or 0
+                old_sell = existing["sell_price"] or 0
+                tq = existing["times_quoted"] or 0
+
+                # Update if new data is better (has price where old didn't, or is newer)
+                update_cost = cost if cost > 0 and (old_cost == 0 or replace) else old_cost
+                update_sell = sell_price if sell_price > 0 and (old_sell == 0 or replace) else old_sell
+                update_margin = round((update_sell - update_cost) / update_sell * 100, 2) \
+                    if update_sell > 0 and update_cost > 0 else 0
+
+                conn.execute("""
+                    UPDATE product_catalog SET
+                        cost = ?, sell_price = ?, margin_pct = ?,
+                        best_cost = CASE WHEN ? > 0 AND (best_cost IS NULL OR ? < best_cost) THEN ? ELSE best_cost END,
+                        description = COALESCE(NULLIF(?, ''), description),
+                        category = COALESCE(NULLIF(?, ''), category),
+                        uom = COALESCE(NULLIF(?, ''), uom),
+                        manufacturer = COALESCE(NULLIF(?, ''), manufacturer),
+                        mfg_number = COALESCE(NULLIF(?, ''), mfg_number),
+                        search_tokens = ?,
+                        times_quoted = ?,
+                        notes = CASE WHEN notes IS NULL OR notes = '' THEN ? ELSE notes || '; ' || ? END,
+                        updated_at = ?
+                    WHERE id = ?
+                """, (update_cost, update_sell, update_margin,
+                      cost, cost, cost,
+                      clean_desc, category, uom, mfg, pn,
+                      search_tokens, tq + 1,
+                      notes, notes, now, pid))
+
+                # Price history
+                if sell_price > 0:
+                    conn.execute("""
+                        INSERT INTO catalog_price_history (product_id, price_type, price, source, recorded_at)
+                        VALUES (?, 'sell', ?, ?, ?)
+                    """, (pid, sell_price, source_tag, now))
+                if cost > 0:
+                    conn.execute("""
+                        INSERT INTO catalog_price_history (product_id, price_type, price, source, recorded_at)
+                        VALUES (?, 'cost', ?, ?, ?)
+                    """, (pid, cost, source_tag, now))
+
+                stats["updated"] += 1
+
+            else:
+                # Also check by token overlap to prevent near-dupes
+                desc_tokens = set(search_tokens.split())
+                is_dupe = False
+                if desc_tokens and len(desc_tokens) >= 2:
+                    try:
+                        search_terms = sorted(desc_tokens, key=len, reverse=True)[:3]
+                        conditions = " AND ".join(["search_tokens LIKE ?" for _ in search_terms])
+                        params = [f"%{t}%" for t in search_terms]
+                        candidate = conn.execute(
+                            f"SELECT id, search_tokens, cost, sell_price, times_quoted FROM product_catalog WHERE {conditions} LIMIT 1",
+                            params
+                        ).fetchone()
+                        if candidate:
+                            prod_tokens = set((candidate["search_tokens"] or "").split())
+                            overlap = len(desc_tokens & prod_tokens) / max(len(desc_tokens | prod_tokens), 1)
+                            if overlap >= 0.60:
+                                # Update existing
+                                pid = candidate["id"]
+                                tq = candidate["times_quoted"] or 0
+                                if cost > 0:
+                                    conn.execute(
+                                        "UPDATE product_catalog SET cost=?, best_cost=CASE WHEN ? > 0 AND (best_cost IS NULL OR ? < best_cost) THEN ? ELSE best_cost END, times_quoted=?, updated_at=? WHERE id=?",
+                                        (cost, cost, cost, cost, tq + 1, now, pid))
+                                if sell_price > 0:
+                                    conn.execute(
+                                        "UPDATE product_catalog SET sell_price=?, times_quoted=?, updated_at=? WHERE id=? AND (sell_price IS NULL OR sell_price=0)",
+                                        (sell_price, tq + 1, now, pid))
+                                stats["updated"] += 1
+                                is_dupe = True
+                    except Exception:
+                        pass
+
+                if not is_dupe:
+                    # Insert new
+                    cursor = conn.execute("""
+                        INSERT INTO product_catalog (
+                            name, sku, description, category, item_type, uom,
+                            sell_price, cost, margin_pct, search_tokens,
+                            price_strategy, manufacturer, mfg_number,
+                            best_cost, best_supplier,
+                            times_quoted, notes,
+                            created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (name, pn, clean_desc, category, "Non-Inventory", uom,
+                          sell_price, cost, margin_pct, search_tokens,
+                          strategy, mfg, pn,
+                          cost if cost > 0 else None, None,
+                          1, notes, now, now))
+
+                    pid = cursor.lastrowid
+                    if sell_price > 0:
+                        conn.execute("""
+                            INSERT INTO catalog_price_history (product_id, price_type, price, source, recorded_at)
+                            VALUES (?, 'sell', ?, ?, ?)
+                        """, (pid, sell_price, source_tag, now))
+                    if cost > 0:
+                        conn.execute("""
+                            INSERT INTO catalog_price_history (product_id, price_type, price, source, recorded_at)
+                            VALUES (?, 'cost', ?, ?, ?)
+                        """, (pid, cost, source_tag, now))
+                    stats["imported"] += 1
+
+        except Exception as e:
+            stats["errors"].append(f"Row {stats['imported'] + stats['updated'] + stats['skipped']}: {e}")
+            if len(stats["errors"]) > 50:
+                stats["errors"].append("... (truncated)")
+                break
+
+    conn.commit()
+    conn.close()
+
+    log.info("QuoteWerks import: %d imported, %d updated, %d skipped from %d rows (%d errors)",
+             stats["imported"], stats["updated"], stats["skipped"],
+             stats["total_rows"], len(stats["errors"]))
+    return stats
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # Search & Lookup
 # ═══════════════════════════════════════════════════════════════════════
 

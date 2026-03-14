@@ -42,6 +42,41 @@ try:
 except ImportError:
     HAS_REQUESTS = False
 
+# ── Global Rate Limiter ──────────────────────────────────────────────────────
+# Track the last API call time to enforce minimum spacing.
+# 50K tokens/min ≈ ~5 web-search calls/min → 12s minimum between calls.
+_last_api_call = 0.0
+_MIN_SPACING_SECS = 12  # seconds between API calls (fits 5 calls/min)
+_RATE_LIMIT_BACKOFF = 30  # seconds to back off after a 429
+
+
+def _wait_for_rate_limit():
+    """Block until we're allowed to make another API call."""
+    global _last_api_call
+    now = time.time()
+    elapsed = now - _last_api_call
+    if elapsed < _MIN_SPACING_SECS:
+        wait = _MIN_SPACING_SECS - elapsed
+        log.debug("Rate limiter: waiting %.1fs before next API call", wait)
+        time.sleep(wait)
+    _last_api_call = time.time()
+
+
+def _handle_429(resp) -> bool:
+    """Handle a 429 rate limit response. Returns True if we should retry."""
+    global _last_api_call
+    retry_after = resp.headers.get("retry-after", "")
+    wait = _RATE_LIMIT_BACKOFF
+    if retry_after:
+        try:
+            wait = max(int(float(retry_after)), 5)
+        except (ValueError, TypeError):
+            pass
+    log.warning("429 rate limited — backing off %ds", wait)
+    _last_api_call = time.time() + wait  # block future calls too
+    time.sleep(wait)
+    return True
+
 
 # ── API Key ──────────────────────────────────────────────────────────────────
 
@@ -162,50 +197,46 @@ IMPORTANT: Respond in this exact JSON format only, no other text:
 If you can't find the product, respond: {{"found": false, "reason": "..."}}"""
 
     try:
+        _wait_for_rate_limit()
+        
+        _request_body = {
+            "model": "claude-haiku-4-5-20251001",
+            "max_tokens": 1024,
+            "tools": [{
+                "type": "web_search_20250305",
+                "name": "web_search",
+                "max_uses": 3,
+            }],
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        _headers = {
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+            "anthropic-beta": "web-search-2025-03-05",
+            "content-type": "application/json",
+        }
+        
         resp = requests.post(
             "https://api.anthropic.com/v1/messages",
-            headers={
-                "x-api-key": api_key,
-                "anthropic-version": "2023-06-01",
-                "anthropic-beta": "web-search-2025-03-05",
-                "content-type": "application/json",
-            },
-            json={
-                "model": "claude-haiku-4-5-20251001",
-                "max_tokens": 1024,
-                "tools": [{
-                    "type": "web_search_20250305",
-                    "name": "web_search",
-                    "max_uses": 3,
-                }],
-                "messages": [{"role": "user", "content": prompt}],
-            },
-            timeout=60,
+            headers=_headers, json=_request_body, timeout=60,
         )
+        
+        # Retry on 429 (rate limit) — back off and try once more
+        if resp.status_code == 429:
+            _handle_429(resp)
+            _wait_for_rate_limit()
+            resp = requests.post(
+                "https://api.anthropic.com/v1/messages",
+                headers=_headers, json=_request_body, timeout=60,
+            )
         
         # Retry once on transient errors (502/503/529)
         if resp.status_code in (502, 503, 529):
             log.warning("Claude API %d on first try, retrying...", resp.status_code)
-            time.sleep(1)
+            time.sleep(3)
             resp = requests.post(
                 "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": api_key,
-                    "anthropic-version": "2023-06-01",
-                    "anthropic-beta": "web-search-2025-03-05",
-                    "content-type": "application/json",
-                },
-                json={
-                    "model": "claude-haiku-4-5-20251001",
-                    "max_tokens": 1024,
-                    "tools": [{
-                        "type": "web_search_20250305",
-                        "name": "web_search",
-                        "max_uses": 3,
-                    }],
-                    "messages": [{"role": "user", "content": prompt}],
-                },
-                timeout=60,
+                headers=_headers, json=_request_body, timeout=60,
             )
         
         if resp.status_code != 200:
@@ -312,15 +343,16 @@ def _parse_price_response(text: str, original_desc: str) -> dict:
 
 # ── Batch Operations ─────────────────────────────────────────────────────────
 
-def bulk_web_search(items: list, max_items: int = 15) -> list:
+def bulk_web_search(items: list, max_items: int = 10) -> list:
     """
-    Search prices for multiple items. Rate-limited to avoid API abuse.
+    Search prices for multiple items. Rate-limited to stay under 50K tokens/min.
     
     items: [{description, part_number, qty, uom, idx}, ...]
     Returns: [{idx, found, price, source, url, options, ...}, ...]
     """
     results = []
     searched = 0
+    consecutive_429s = 0
     
     for item in items[:max_items]:
         desc = (item.get("description") or "").strip()
@@ -329,6 +361,14 @@ def bulk_web_search(items: list, max_items: int = 15) -> list:
         if not desc and not pn:
             results.append({"idx": item.get("idx", 0), "found": False})
             continue
+        
+        # Stop if we keep hitting rate limits
+        if consecutive_429s >= 2:
+            log.warning("bulk_web_search: 2+ consecutive 429s, stopping batch early")
+            for remaining in items[items.index(item):max_items]:
+                results.append({"idx": remaining.get("idx", 0), "found": False,
+                                "error": "rate_limited"})
+            break
         
         result = search_product_price(
             description=desc,
@@ -340,9 +380,11 @@ def bulk_web_search(items: list, max_items: int = 15) -> list:
         results.append(result)
         searched += 1
         
-        # Rate limit: 1 request per second (uncached only)
-        if not result.get("cached") and searched < len(items):
-            time.sleep(1.0)
+        # Track consecutive 429s
+        if "429" in str(result.get("error", "")):
+            consecutive_429s += 1
+        else:
+            consecutive_429s = 0
     
     return results
 

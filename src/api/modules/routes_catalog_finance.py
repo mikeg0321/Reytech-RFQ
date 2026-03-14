@@ -9,6 +9,8 @@
 from flask import request, jsonify, Response
 from src.api.shared import bp, auth_required
 import logging
+import os
+import re
 log = logging.getLogger("reytech")
 from flask import redirect, flash
 from src.core.paths import DATA_DIR
@@ -28,6 +30,8 @@ try:
         reimport_qb_csv, run_sprint1_fixes, fix_catalog_names,
         extract_manufacturers_bulk, bulk_calculate_recommended,
         get_freshness_report, dedup_catalog,
+        # QuoteWerks import
+        import_quotewerks_csv,
     )
     CATALOG_AVAILABLE = True
 except ImportError:
@@ -133,6 +137,8 @@ def catalog_page():
       <span class="mono" style="font-size:14px;color:var(--tx2)">{tp} products</span>
       <button onclick="document.getElementById('import-csv').click()" class="btn btn-s" style="font-size:14px">📥 Import QB CSV</button>
       <input type="file" id="import-csv" accept=".csv" style="display:none" onchange="importCSV(this)">
+      <button onclick="document.getElementById('import-qw').click()" class="btn btn-s" style="font-size:14px;background:#21262d;color:#58a6ff;border:1px solid #58a6ff44">📋 Import QuoteWerks</button>
+      <input type="file" id="import-qw" accept=".csv,.tsv,.txt" style="display:none" onchange="importQW(this)">
       <button onclick="runCatalogFixes(this)" class="btn btn-s" style="font-size:14px;background:#21262d;color:#d2a8ff;border:1px solid #d2a8ff44">🔧 Run Fixes</button>
      </div>
     </div>
@@ -249,6 +255,32 @@ def catalog_page():
         }}).catch(e=>{{
           btn.disabled=false; btn.textContent='🔧 Run Fixes';
           alert('Fix failed: '+e.message);
+        }});
+    }}
+    function importQW(input) {{
+      const file = input.files[0]; if (!file) return;
+      const fd = new FormData(); fd.append('file', file);
+      const btn = input.previousElementSibling;
+      if(btn) {{ btn.textContent='⏳ Importing...'; btn.disabled=true; }}
+      fetch('/api/catalog/import-quotewerks', {{method:'POST', body:fd}})
+        .then(r=>r.json()).then(d=>{{
+          if(btn) {{ btn.textContent='📋 Import QuoteWerks'; btn.disabled=false; }}
+          if(d.ok) {{
+            let msg = '✅ QuoteWerks Import Complete!\\n\\n';
+            msg += 'Rows processed: '+d.total_rows+'\\n';
+            msg += 'New products: '+d.imported+'\\n';
+            msg += 'Updated existing: '+d.updated+'\\n';
+            msg += 'Skipped: '+d.skipped+'\\n';
+            if(d.dupes_merged) msg += 'Dupes merged: '+d.dupes_merged+'\\n';
+            if(d.errors && d.errors.length) msg += '\\nErrors: '+d.errors.length;
+            const cols = d.columns_found || {{}};
+            msg += '\\n\\nColumns matched:\\n';
+            for(const [k,v] of Object.entries(cols)) {{ if(v) msg += '  '+k+' → '+v+'\\n'; }}
+            alert(msg); location.reload();
+          }} else alert('Error: '+(d.error||'unknown'));
+        }}).catch(e=>{{
+          if(btn) {{ btn.textContent='📋 Import QuoteWerks'; btn.disabled=false; }}
+          alert('Import failed: '+e.message);
         }});
     }}
     // Predictive search
@@ -499,6 +531,49 @@ def api_catalog_dedup():
     """Find and merge duplicate products."""
     if not CATALOG_AVAILABLE:
         return jsonify({"ok": False, "error": "Catalog not available"})
+
+
+@bp.route("/api/catalog/import-quotewerks", methods=["POST"])
+@auth_required
+def api_catalog_import_quotewerks():
+    """Import QuoteWerks exported CSV/TSV into the product catalog.
+
+    Accepts Data Manager exports, Open Export Module files, report CSVs,
+    and clipboard tab-delimited pastes. Auto-detects column mapping.
+    """
+    if not CATALOG_AVAILABLE:
+        return jsonify({"ok": False, "error": "Catalog module not available"})
+
+    f = request.files.get("file")
+    if not f:
+        return jsonify({"ok": False, "error": "No file uploaded. Use Data Manager → Export in QuoteWerks."})
+
+    safe = re.sub(r'[^\w.\-]', '_', f.filename or 'qw_import.csv')
+    path = os.path.join(DATA_DIR, f"qw_import_{safe}")
+    f.save(path)
+
+    # Also save a copy for reference / re-import
+    import shutil
+    canonical = os.path.join(DATA_DIR, "quotewerks_import_latest.csv")
+    shutil.copy2(path, canonical)
+
+    try:
+        init_catalog_db()
+        replace = request.form.get("replace", "").lower() in ("true", "1", "yes")
+        result = import_quotewerks_csv(path, replace=replace)
+
+        # Run dedup after import
+        try:
+            dedup_result = dedup_catalog()
+            result["dupes_merged"] = dedup_result.get("groups_merged", 0)
+            result["dupes_deleted"] = dedup_result.get("products_deleted", 0)
+        except Exception:
+            pass
+
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        log.exception("QuoteWerks import error")
+        return jsonify({"ok": False, "error": str(e)})
     try:
         init_catalog_db()
         dry = request.args.get("dry_run", "").lower() in ("1", "true", "yes")
