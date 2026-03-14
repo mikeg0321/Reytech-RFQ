@@ -7,6 +7,7 @@ from flask import request, jsonify, Response
 from src.api.shared import bp, auth_required
 import logging
 log = logging.getLogger("reytech")
+from src.core.error_handler import safe_route
 from flask import redirect, flash, send_file
 from src.core.paths import DATA_DIR, UPLOAD_DIR, OUTPUT_DIR
 from src.core.db import get_db
@@ -663,6 +664,7 @@ def _save_price_checks(pcs):
 
 @bp.route("/rfq/<rid>")
 @auth_required
+@safe_route
 def detail(rid):
     # Check if this is actually a price check
     pcs = _load_price_checks()
@@ -736,6 +738,7 @@ def detail(rid):
 
 @bp.route("/rfq/<rid>/update", methods=["POST"])
 @auth_required
+@safe_route
 def update(rid):
     rfqs = load_rfqs()
     r = rfqs.get(rid)
@@ -956,6 +959,7 @@ def api_rfq_autosave(rid):
 
 @bp.route("/rfq/<rid>/add-item", methods=["POST"])
 @auth_required
+@safe_route
 def rfq_add_item(rid):
     """Add a line item to an RFQ (for generic/Cal Vet RFQs or manual entry)."""
     rfqs = load_rfqs()
@@ -991,6 +995,7 @@ def rfq_add_item(rid):
 
 @bp.route("/rfq/<rid>/remove-item/<int:idx>", methods=["POST"])
 @auth_required
+@safe_route
 def rfq_remove_item(rid, idx):
     """Remove a line item from an RFQ by index."""
     rfqs = load_rfqs()
@@ -1012,6 +1017,7 @@ def rfq_remove_item(rid, idx):
 
 @bp.route("/rfq/<rid>/duplicate-item/<int:idx>", methods=["POST"])
 @auth_required
+@safe_route
 def rfq_duplicate_item(rid, idx):
     """Duplicate a line item (insert copy right after the original)."""
     rfqs = load_rfqs()
@@ -1033,6 +1039,7 @@ def rfq_duplicate_item(rid, idx):
 
 @bp.route("/rfq/<rid>/move-item/<int:idx>/<direction>", methods=["POST"])
 @auth_required
+@safe_route
 def rfq_move_item(rid, idx, direction):
     """Move a line item up or down."""
     rfqs = load_rfqs()
@@ -1055,6 +1062,7 @@ def rfq_move_item(rid, idx, direction):
 
 @bp.route("/rfq/<rid>/reset-items", methods=["POST"])
 @auth_required
+@safe_route
 def rfq_reset_items(rid):
     """Clear all line items from an RFQ so it can be re-imported."""
     rfqs = load_rfqs()
@@ -1536,6 +1544,7 @@ def _item_response(rid, ok, msg):
 
 @bp.route("/rfq/<rid>/upload-templates", methods=["POST"])
 @auth_required
+@safe_route
 def upload_templates(rid):
     """Upload 703B/704B/Bid Package template PDFs for an RFQ."""
     rfqs = load_rfqs()
@@ -1608,6 +1617,7 @@ def upload_templates(rid):
 
 @bp.route("/rfq/<rid>/generate-package", methods=["POST"])
 @auth_required
+@safe_route
 def generate_rfq_package(rid):
     """ONE BUTTON — generates complete RFQ package:
     1. Filled 703B (RFQ form)
@@ -2256,6 +2266,7 @@ def generate(rid):
 
 @bp.route("/rfq/<rid>/generate-quote")
 @auth_required
+@safe_route
 def rfq_generate_quote(rid):
     """Generate a standalone Reytech-branded quote PDF from an RFQ."""
     from src.api.trace import Trace
@@ -2523,6 +2534,7 @@ def api_rfq_dismiss(rid):
 
 @bp.route("/rfq/<rid>/delete", methods=["POST"])
 @auth_required
+@safe_route
 def delete_rfq(rid):
     """Delete an RFQ from the queue and remove its UID from processed list."""
     rfqs = load_rfqs()
@@ -2575,6 +2587,7 @@ def api_rfq_files(rid):
 
 @bp.route("/rfq/<rid>/reopen", methods=["POST"])
 @auth_required
+@safe_route
 def rfq_reopen(rid):
     """Reopen an RFQ for editing. Changes status back to 'ready'."""
     rfqs = load_rfqs()
@@ -2597,6 +2610,7 @@ def rfq_reopen(rid):
 
 @bp.route("/rfq/<rid>/update-status", methods=["POST"])
 @auth_required
+@safe_route
 def rfq_update_status(rid):
     """Change RFQ status to any valid state."""
     rfqs = load_rfqs()
@@ -2999,6 +3013,7 @@ def save_gmail_draft(rid):
 
 @bp.route("/rfq/<rid>/send-email", methods=["POST"])
 @auth_required
+@safe_route
 def send_email_enhanced(rid):
     """Send email with editable fields and DB-stored attachments.
     Form fields: to, subject, body, attach_files (comma-separated file IDs)

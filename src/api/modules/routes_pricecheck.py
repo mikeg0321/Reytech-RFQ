@@ -3,6 +3,7 @@ from flask import request, jsonify, Response
 from src.api.shared import bp, auth_required
 import logging
 log = logging.getLogger("reytech")
+from src.core.error_handler import safe_route
 from flask import redirect, flash, send_file, session
 from src.core.paths import DATA_DIR, OUTPUT_DIR, UPLOAD_DIR
 from src.core.db import get_db
@@ -96,6 +97,7 @@ def api_pc_revisions(pcid):
         pc_revs = revisions.get(pcid, [])
         return jsonify({"ok": True, "revisions": pc_revs, "count": len(pc_revs)})
     except Exception as e:
+        log.error("api_pc_revisions error pcid=%s: %s", pcid, e, exc_info=True)
         return jsonify({"ok": False, "error": str(e)})
 
 
@@ -133,6 +135,7 @@ def api_pc_revert(pcid):
         return jsonify({"ok": True, "reverted_to": rev_num,
                         "items_count": len(target["items"])})
     except Exception as e:
+        log.error("api_pc_revert error pcid=%s: %s", pcid, e, exc_info=True)
         return jsonify({"ok": False, "error": str(e)})
 
 
@@ -177,6 +180,7 @@ def api_pc_merge_items(pcid):
         return jsonify({"ok": True, "merged_into": idx - 1, "remaining_items": len(items),
                         "description": merged_desc[:100]})
     except Exception as e:
+        log.error("api_pc_merge_items error pcid=%s: %s", pcid, e, exc_info=True)
         return jsonify({"ok": False, "error": str(e)})
 
 
@@ -225,6 +229,7 @@ def api_pc_change_status(pcid):
         return jsonify({"ok": True, "old_status": old_status, "new_status": new_status,
                         "catalog": catalog_result})
     except Exception as e:
+        log.error("api_pc_change_status error pcid=%s: %s", pcid, e, exc_info=True)
         return jsonify({"ok": False, "error": str(e)})
 
 
@@ -3337,6 +3342,7 @@ def api_won_quotes_dump():
 
 @bp.route("/api/debug/paths")
 @auth_required
+@safe_route
 def api_debug_paths():
     """Debug: show actual filesystem paths and what exists."""
     try:

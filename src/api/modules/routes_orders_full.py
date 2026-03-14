@@ -10,6 +10,7 @@ from flask import request, jsonify, Response
 from src.api.shared import bp, auth_required
 import logging
 log = logging.getLogger("reytech")
+from src.core.error_handler import safe_route
 from flask import redirect, flash, send_file
 from src.core.paths import DATA_DIR
 from src.core.db import get_db
@@ -17,6 +18,7 @@ from src.api.render import render_page
 
 @bp.route("/orders")
 @auth_required
+@safe_route
 def orders_page():
     """Orders dashboard — track sourcing, shipping, delivery, invoicing."""
     orders = _load_orders()
@@ -464,6 +466,7 @@ def api_order_create():
 
 @bp.route("/api/order/<oid>/add-line", methods=["POST"])
 @auth_required
+@safe_route
 def api_order_add_line(oid):
     """Add a line item to an existing order.
     POST JSON: {description, qty, unit_price, part_number, supplier, supplier_url}
@@ -510,6 +513,7 @@ def api_order_add_line(oid):
 
 @bp.route("/api/order/<oid>/import-po", methods=["POST"])
 @auth_required
+@safe_route
 def api_order_import_po(oid):
     """Upload and parse a PO PDF to populate order line items.
     Multipart form: file=<pdf>
@@ -629,6 +633,7 @@ def api_order_import_po(oid):
 
 @bp.route("/api/order/<oid>/line/<lid>", methods=["POST"])
 @auth_required
+@safe_route
 def api_order_update_line(oid, lid):
     """Update a single line item. POST JSON with any fields to update."""
     orders = _load_orders()
@@ -713,6 +718,7 @@ def api_order_update_line(oid, lid):
 
 @bp.route("/api/order/<oid>/bulk", methods=["POST"])
 @auth_required
+@safe_route
 def api_order_bulk_update(oid):
     """Bulk update all line items. POST JSON with fields to set on all items."""
     orders = _load_orders()
@@ -736,6 +742,7 @@ def api_order_bulk_update(oid):
 
 @bp.route("/api/order/<oid>/bulk-tracking", methods=["POST"])
 @auth_required
+@safe_route
 def api_order_bulk_tracking(oid):
     """Add tracking to all pending/ordered items. POST: {tracking, carrier}"""
     orders = _load_orders()
@@ -765,6 +772,7 @@ def api_order_bulk_tracking(oid):
 
 @bp.route("/api/order/<oid>/invoice", methods=["POST"])
 @auth_required
+@safe_route
 def api_order_invoice(oid):
     """Create partial or full invoice. POST: {type: 'partial'|'full', invoice_number}"""
     orders = _load_orders()
@@ -852,6 +860,7 @@ def api_order_invoice_pdf(oid):
 
 @bp.route("/api/order/<oid>/invoice-pdf/download")
 @auth_required
+@safe_route
 def api_order_invoice_pdf_download(oid):
     """Download the generated invoice PDF."""
     orders = _load_orders()
@@ -898,6 +907,7 @@ def _build_supplier_urls(part_number: str, description: str = "") -> list:
 
 @bp.route("/api/order/<oid>/lookup-suppliers", methods=["POST"])
 @auth_required
+@safe_route
 @rate_limit("heavy")
 def api_order_lookup_suppliers(oid):
     """Auto-lookup supplier links + prices for all line items with part numbers.
@@ -1149,6 +1159,7 @@ def _auto_find_quote_for_order(order: dict) -> str:
 
 @bp.route("/api/order/<oid>/delete", methods=["POST"])
 @auth_required
+@safe_route
 def api_order_delete(oid):
     """Delete/dismiss a duplicate or erroneous order. POST: {reason}"""
     orders = _load_orders()
@@ -1356,6 +1367,7 @@ SB/DVBE Cert #2002605"""
 
 @bp.route("/api/order/<oid>/purchase-urls")
 @auth_required
+@safe_route
 def api_order_purchase_urls(oid):
     """Get purchase URLs grouped by supplier for an order."""
     orders = _load_orders()
