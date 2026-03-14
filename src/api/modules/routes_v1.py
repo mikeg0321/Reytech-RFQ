@@ -746,3 +746,29 @@ def api_v1_harvest_ca_sync():
         import traceback
         log.error("CA harvest sync: %s", e, exc_info=True)
         return api_response(error=str(e), status=500)
+
+
+@bp.route("/api/v1/harvest/rebuild-intel")
+@auth_required
+def api_v1_rebuild_intel():
+    """Rebuild intelligence tables from scprs_po_master data. Synchronous."""
+    try:
+        import sys, os
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "scripts"))
+        from run_scprs_harvest import (
+            build_vendor_intel, build_buyer_intel, build_competitors,
+            build_won_quotes_kb, build_scprs_awards, get_conn
+        )
+        conn = get_conn()
+        results = {}
+        results["vendor_intel"] = build_vendor_intel(conn)
+        results["buyer_intel"] = build_buyer_intel(conn)
+        results["competitors"] = build_competitors(conn)
+        results["won_quotes_kb"] = build_won_quotes_kb(conn)
+        results["scprs_awards"] = build_scprs_awards(conn)
+        conn.close()
+        return api_response(results)
+    except Exception as e:
+        log.error("rebuild-intel error: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)
