@@ -1544,6 +1544,16 @@ def process_rfq_email(rfq_email):
                                 "reytech_quote_number": "", "linked_quote_number": "",
                             }
                             _save_price_checks(pcs)
+                            # Persist source PDF to DB so it survives redeploys
+                            try:
+                                if pc_file and os.path.exists(pc_file):
+                                    with open(pc_file, "rb") as _pdf_f:
+                                        _pdf_bytes = _pdf_f.read()
+                                    save_rfq_file(pc_id, os.path.basename(pc_file),
+                                                  "application/pdf", _pdf_bytes,
+                                                  category="source", uploaded_by="email_poller")
+                            except Exception as _db_e:
+                                log.debug("PC %s: DB PDF save failed: %s", pc_id, _db_e)
                             result = {"ok": True, "pc_id": pc_id, "parse_error": parse_error}
                         else:
                             items = parsed.get("line_items", [])
@@ -1589,6 +1599,16 @@ def process_rfq_email(rfq_email):
                                     "linked_quote_number": "",
                                 }
                                 _save_price_checks(pcs)
+                                # Persist source PDF to DB so it survives redeploys
+                                try:
+                                    if pc_file and os.path.exists(pc_file):
+                                        with open(pc_file, "rb") as _pdf_f:
+                                            _pdf_bytes = _pdf_f.read()
+                                        save_rfq_file(pc_id, os.path.basename(pc_file),
+                                                      "application/pdf", _pdf_bytes,
+                                                      category="source", uploaded_by="email_poller")
+                                except Exception as _db_e:
+                                    log.debug("PC %s: DB PDF save failed: %s", pc_id, _db_e)
                                 result = {"ok": True, "pc_id": pc_id, "items": len(items)}
                         _trace.append(f"PC result: {result}")
                     except Exception as he:
@@ -1656,6 +1676,16 @@ def process_rfq_email(rfq_email):
                                 "reytech_quote_number": "", "linked_quote_number": "",
                             }
                             _save_price_checks(pcs)
+                            # Persist source PDF to DB
+                            try:
+                                _pc_pdf_path = pc_pdf if pc_pdf else ""
+                                if _pc_pdf_path and os.path.exists(_pc_pdf_path):
+                                    with open(_pc_pdf_path, "rb") as _pdf_f:
+                                        save_rfq_file(pc_id, os.path.basename(_pc_pdf_path),
+                                                      "application/pdf", _pdf_f.read(),
+                                                      category="source", uploaded_by="email_poller")
+                            except Exception:
+                                pass
                             _ensure_contact_from_email(rfq_email)
                             _trace.append(f"FORCE PC CREATED: {pc_id}")
                             log.info("Force-created PC %s from early-detect email", pc_id)
@@ -1691,6 +1721,16 @@ def process_rfq_email(rfq_email):
                         "reytech_quote_number": "", "linked_quote_number": "",
                     }
                     _save_price_checks(pcs)
+                    # Persist source PDF to DB
+                    try:
+                        _exc_pdf = pdf_paths[0] if pdf_paths else ""
+                        if _exc_pdf and os.path.exists(_exc_pdf):
+                            with open(_exc_pdf, "rb") as _pdf_f:
+                                save_rfq_file(_force_id, os.path.basename(_exc_pdf),
+                                              "application/pdf", _pdf_f.read(),
+                                              category="source", uploaded_by="email_poller")
+                    except Exception:
+                        pass
                     _trace.append(f"FORCE PC on exception: {_force_id}")
                     log.info("Force-created PC %s after exception in early-detect path", _force_id)
                     POLL_STATUS.setdefault("_email_traces", []).append(_trace)
