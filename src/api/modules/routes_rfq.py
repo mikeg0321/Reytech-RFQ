@@ -2477,13 +2477,13 @@ def api_rfq_dismiss(rid):
                 _jl.dump(rfqs, f, indent=2)
         except Exception as e:
             log.error("Failed to save rfqs.json: %s", e)
-        # Also delete from SQLite
+        # Also delete from SQLite via DAL
         try:
             from src.core.db import get_db
             with get_db() as conn:
                 conn.execute("DELETE FROM rfqs WHERE id=?", (rid,))
         except Exception as e:
-            log.debug("SQLite RFQ delete: %s", e)
+            log.debug("DAL RFQ delete: %s", e)
         log.info("Hard deleted RFQ #%s (id=%s)", sol, rid)
         return jsonify({"ok": True, "deleted": rid})
     
@@ -2498,13 +2498,12 @@ def api_rfq_dismiss(rid):
     except Exception as e:
         log.error("Failed to save rfqs.json: %s", e)
     
-    # Also update SQLite status
+    # Also update SQLite status via DAL
     try:
-        from src.core.db import get_db
-        with get_db() as conn:
-            conn.execute("UPDATE rfqs SET status='dismissed' WHERE id=?", (rid,))
+        from src.core.dal import update_rfq_status as _dal_update_rfq
+        _dal_update_rfq(rid, "dismissed")
     except Exception as e:
-        log.debug("SQLite RFQ dismiss update: %s", e)
+        log.debug("DAL RFQ dismiss update: %s", e)
     
     sol = r.get("solicitation_number", "?")
     log.info("RFQ #%s dismissed: reason=%s", sol, reason)

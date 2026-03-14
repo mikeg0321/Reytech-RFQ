@@ -1869,20 +1869,17 @@ def api_orders_diagnostic():
     except Exception as e:
         results["orders_json_error"] = str(e)
 
-    # 2. DB orders
+    # 2. DB orders via DAL
     try:
-        from src.core.db import get_db
-        with get_db() as conn:
-            rows = conn.execute("SELECT * FROM orders ORDER BY created_at DESC LIMIT 20").fetchall()
-            for r in rows:
-                d = dict(r)
-                results["db_orders"].append({
-                    "id": d.get("id"),
-                    "status": d.get("status"),
-                    "total": d.get("total"),
-                    "po_number": d.get("po_number"),
-                    "created_at": d.get("created_at"),
-                })
+        from src.core.dal import list_orders as _dal_list_orders
+        for d in _dal_list_orders(limit=20):
+            results["db_orders"].append({
+                "id": d.get("id"),
+                "status": d.get("status"),
+                "total": d.get("total"),
+                "po_number": d.get("po_number"),
+                "created_at": d.get("created_at"),
+            })
     except Exception as e:
         results["db_orders_error"] = str(e)
 

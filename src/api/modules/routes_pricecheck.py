@@ -1058,25 +1058,23 @@ def _do_save_prices(pcid):
 
     # If not in JSON, try to recover from SQLite
     if not pc:
-        log.warning("SAVE-PRICES %s: PC not in JSON, trying SQLite recovery...", pcid)
+        log.warning("SAVE-PRICES %s: PC not in JSON, trying DAL recovery...", pcid)
         try:
-            from src.core.db import get_db
-            with get_db() as conn:
-                row = conn.execute("SELECT * FROM price_checks WHERE id=?", (pcid,)).fetchone()
-                if row:
-                    r = dict(row)
-                    pc = {
-                        "id": pcid,
-                        "pc_number": r.get("pc_number") or r.get("quote_number") or pcid,
-                        "institution": r.get("institution") or r.get("agency") or "",
-                        "requestor": r.get("requestor") or "",
-                        "items": json.loads(r.get("items") or "[]"),
-                        "status": r.get("status") or "parsed",
-                        "created_at": r.get("created_at") or "",
-                        "source": "recovered_from_db",
-                    }
-                    pcs[pcid] = pc
-                    log.info("SAVE-PRICES %s: Recovered from SQLite", pcid)
+            from src.core.dal import get_pc as _dal_get_pc
+            _recovered = _dal_get_pc(pcid)
+            if _recovered:
+                pc = {
+                    "id": pcid,
+                    "pc_number": _recovered.get("pc_number") or _recovered.get("quote_number") or pcid,
+                    "institution": _recovered.get("institution") or _recovered.get("agency") or "",
+                    "requestor": _recovered.get("requestor") or "",
+                    "items": _recovered.get("items") if isinstance(_recovered.get("items"), list) else [],
+                    "status": _recovered.get("status") or "parsed",
+                    "created_at": _recovered.get("created_at") or "",
+                    "source": "recovered_from_db",
+                }
+                pcs[pcid] = pc
+                log.info("SAVE-PRICES %s: Recovered from DAL", pcid)
         except Exception as e:
             log.error("SAVE-PRICES %s: SQLite recovery failed: %s", pcid, e)
 
@@ -1255,11 +1253,12 @@ def _do_save_prices(pcid):
 
     _save_price_checks(pcs)
 
-    # Also mirror to SQLite
+    # Also mirror to SQLite via DAL
     try:
-        upsert_price_check(pcid, pc)
+        from src.core.dal import save_pc as _dal_save_pc
+        _dal_save_pc(pc)
     except Exception as _e:
-        log.debug("Suppressed: %s", _e)
+        log.debug("DAL save_pc: %s", _e)
 
     # ── Save items to product catalog on every save (not just terminal status) ──
     try:
@@ -1683,9 +1682,10 @@ def pricecheck_upload_pdf(pcid):
         _sync_pc_items(pc, items)
         _save_price_checks(pcs)
         try:
-            upsert_price_check(pcid, pc)
-        except Exception:
-            pass
+            from src.core.dal import save_pc as _dal_save_pc
+            _dal_save_pc(pc)
+        except Exception as _e:
+            log.debug("DAL save_pc: %s", _e)
         log.info("PC %s: uploaded PDF parsed → %d items", pcid, len(items))
         from flask import flash
         flash(f"Parsed {len(items)} items from uploaded PDF", "success")
@@ -3508,13 +3508,12 @@ def api_pricecheck_dismiss(pcid):
         log.error("Failed to save price_checks.json: %s", e)
         return jsonify({"ok": False, "error": "Save failed"})
     
-    # ALSO update SQLite so all data stores are in sync
+    # ALSO update SQLite via DAL so all data stores are in sync
     try:
-        from src.core.db import get_db
-        with get_db() as conn:
-            conn.execute("UPDATE price_checks SET status=? WHERE id=?", (new_status, pcid))
+        from src.core.dal import update_pc_status as _dal_update_pc
+        _dal_update_pc(pcid, new_status)
     except Exception as e:
-        log.debug("SQLite PC dismiss update: %s", e)
+        log.debug("DAL PC dismiss update: %s", e)
     
     # Invalidate cache so next page load sees the change
     try:
@@ -3974,11 +3973,12 @@ def api_pricecheck_mark_sent(pcid):
             log.warning("sent_document DB write failed: %s", e)
     
     _save_price_checks(pcs)
-    
+
     try:
-        upsert_price_check(pcid, pc)
+        from src.core.dal import save_pc as _dal_save_pc
+        _dal_save_pc(pc)
     except Exception as _e:
-        log.debug("Suppressed: %s", _e)
+        log.debug("DAL save_pc: %s", _e)
     
     _log_crm_activity(pc.get("reytech_quote_number", pcid), "quote_sent",
         f"Quote sent for PC #{pc.get('pc_number','')} to {pc.get('institution','')}", actor="user")
@@ -4473,23 +4473,13 @@ def api_pc_retry_auto_price(pcid):
 
     # Try 1: DB with pc_data blob
     try:
-        db_path = os.path.join(_DATA_DIR, "reytech.db")
-        conn = sqlite3.connect(db_path, timeout=10)
-        conn.row_factory = sqlite3.Row
-        row = conn.execute("SELECT * FROM price_checks WHERE id=?", (pcid,)).fetchone()
-        if row:
-            blob = row["pc_data"] if "pc_data" in row.keys() else ""
-            if blob and blob != "{}":
-                pc = json.loads(blob)
-                source = "db_blob"
-            else:
-                pc = {"id": pcid, "items": json.loads(row["items"] or "[]"),
-                      "pc_number": row.get("pc_number") or "", "institution": row.get("institution") or "",
-                      "status": row.get("status") or "parsed"}
-                source = "db_columns"
-        conn.close()
+        from src.core.dal import get_pc as _dal_get_pc
+        _db_pc = _dal_get_pc(pcid)
+        if _db_pc:
+            pc = _db_pc
+            source = "dal"
     except Exception as e:
-        log.warning("retry-auto-price DB read: %s", e)
+        log.warning("retry-auto-price DAL read: %s", e)
 
     # Try 2: JSON file
     if not pc or not pc.get("items"):
@@ -6074,11 +6064,10 @@ def api_pricecheck_clear_quote(pcid):
     pcs[pcid]["status"] = "parsed"  # Reset to parsed so it can be re-generated
     _save_price_checks(pcs)
     try:
-        from src.core.db import get_db
-        with get_db() as conn:
-            conn.execute("UPDATE price_checks SET reytech_quote_number=NULL, status='parsed' WHERE id=?", (pcid,))
+        from src.core.dal import update_pc_status as _dal_update_pc
+        _dal_update_pc(pcid, "parsed")
     except Exception as e:
-        log.debug("SQLite clear-quote: %s", e)
+        log.debug("DAL clear-quote status: %s", e)
     log.info("CLEARED quote number %s from PC %s", old_qnum, pcid)
     return jsonify({"ok": True, "cleared": old_qnum})
 
@@ -6819,22 +6808,19 @@ def api_diag_pc(pcid):
 
     # 1. Check DB directly
     try:
-        db_path = os.path.join(_DATA_DIR, "reytech.db")
-        result["db_path"] = db_path
-        conn = sqlite3.connect(db_path, timeout=5)
-        conn.row_factory = sqlite3.Row
-        row = conn.execute("SELECT id, pc_number, status, total_items, created_at FROM price_checks WHERE id=?", (pcid,)).fetchone()
-        if row:
+        from src.core.dal import get_pc as _dal_get_pc
+        from src.core.db import DB_PATH as _db_path
+        result["db_path"] = _db_path
+        _db_pc = _dal_get_pc(pcid)
+        if _db_pc:
             result["found_in"].append("db")
-            result["db"] = dict(row)
+            result["db"] = {k: _db_pc[k] for k in ("id", "pc_number", "status", "total_items", "created_at") if k in _db_pc}
         else:
             result["db"] = None
-            # Show count and sample
-            count = conn.execute("SELECT COUNT(*) FROM price_checks").fetchone()[0]
-            sample = [r[0] for r in conn.execute("SELECT id FROM price_checks ORDER BY created_at DESC LIMIT 5").fetchall()]
-            result["db_total"] = count
-            result["db_sample"] = sample
-        conn.close()
+            from src.core.dal import list_pcs as _dal_list_pcs
+            all_pcs = _dal_list_pcs(limit=10000)
+            result["db_total"] = len(all_pcs)
+            result["db_sample"] = [p["id"] for p in all_pcs[:5]]
     except Exception as e:
         result["db_error"] = str(e)
 

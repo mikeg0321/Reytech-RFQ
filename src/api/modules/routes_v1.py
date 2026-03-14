@@ -5,6 +5,9 @@ Stable contract: these routes will not change shape without version bump.
 from flask import request, jsonify
 from src.api.shared import bp, auth_required, api_response
 import logging
+import time as _time
+
+_BOOT_TIME = _time.time()
 
 log = logging.getLogger("reytech")
 
@@ -100,4 +103,155 @@ def api_v1_pipeline():
         })
     except Exception as e:
         log.error("v1/pipeline error: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)
+
+
+@bp.route("/rfq/new")
+@auth_required
+def rfq_new_form():
+    """Manual RFQ creation form — fallback when email poller is down."""
+    from src.api.render import render_page
+    return render_page("rfq_new.html", active_page="Home")
+
+
+@bp.route("/api/v1/rfq/create", methods=["POST"])
+@auth_required
+def api_v1_create_rfq():
+    """Create an RFQ via DAL. Accepts JSON or form data.
+    Returns: api_response({id, status}) with 201 on success.
+    """
+    import uuid
+    try:
+        data = request.get_json(silent=True) or {}
+        # Also accept form data for HTML form submission
+        if not data:
+            data = {k: request.form.get(k, "") for k in request.form}
+
+        # Parse line items from form or JSON
+        items = data.get("items", [])
+        if not items and request.form:
+            # Build items from repeating form fields
+            idx = 0
+            while f"items[{idx}][description]" in request.form:
+                item = {
+                    "description": request.form.get(f"items[{idx}][description]", ""),
+                    "qty": float(request.form.get(f"items[{idx}][qty]", 0) or 0),
+                    "uom": request.form.get(f"items[{idx}][uom]", "EA"),
+                    "unit_price": float(request.form.get(f"items[{idx}][unit_price]", 0) or 0),
+                }
+                if item["description"]:
+                    items.append(item)
+                idx += 1
+
+        rfq_id = uuid.uuid4().hex[:8]
+        from datetime import datetime
+        rfq = {
+            "id": rfq_id,
+            "solicitation_number": data.get("solicitation_number", ""),
+            "agency": data.get("agency", ""),
+            "institution": data.get("institution", data.get("agency", "")),
+            "requestor_name": data.get("requestor_name", ""),
+            "requestor_email": data.get("requestor_email", ""),
+            "rfq_number": data.get("solicitation_number", ""),
+            "received_at": datetime.now().isoformat(),
+            "status": "new",
+            "source": "manual",
+            "notes": data.get("notes", ""),
+            "items": items,
+        }
+
+        from src.core.dal import save_rfq
+        save_rfq(rfq, actor="manual_form")
+
+        # If form submission, redirect to RFQ detail page
+        if request.form:
+            from flask import redirect
+            return redirect(f"/rfq/{rfq_id}")
+
+        return api_response({"id": rfq_id, "status": "new"}, status=201)
+    except Exception as e:
+        log.error("v1/rfq/create error: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)
+
+
+@bp.route("/api/v1/health")
+@auth_required
+def api_v1_health():
+    """Full system health for external orchestrators.
+    Returns: version, uptime, DB state, queue depths, agent status.
+    Auth: X-API-Key or Basic Auth.
+    """
+    import sqlite3
+    try:
+        # Version (git sha)
+        version = "unknown"
+        try:
+            import subprocess
+            version = subprocess.check_output(
+                ["git", "rev-parse", "--short", "HEAD"],
+                stderr=subprocess.DEVNULL, timeout=2
+            ).decode().strip()
+        except Exception:
+            pass
+
+        # Uptime
+        uptime = int(_time.time() - _BOOT_TIME)
+
+        # DB status
+        db_info = {"status": "error", "tables": 0, "row_counts": {}}
+        try:
+            from src.core.db import DB_PATH
+            conn = sqlite3.connect(DB_PATH, timeout=5)
+            conn.row_factory = sqlite3.Row
+            tables = [r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()]
+            db_info["status"] = "ok"
+            db_info["tables"] = len(tables)
+            for t in ("rfqs", "price_checks", "orders", "quotes", "contacts"):
+                try:
+                    cnt = conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+                    db_info["row_counts"][t] = cnt
+                except Exception:
+                    db_info["row_counts"][t] = -1
+            conn.close()
+        except Exception as e:
+            db_info["status"] = f"error: {str(e)[:100]}"
+
+        # Queue depths from DAL
+        queues = {"rfqs_new": 0, "pcs_new": 0, "orders_active": 0}
+        try:
+            from src.core.dal import list_rfqs, list_pcs, list_orders
+            queues["rfqs_new"] = len(list_rfqs(status="new"))
+            queues["pcs_new"] = len(list_pcs(status="parsed"))
+            queues["orders_active"] = len(list_orders(status="new")) + len(list_orders(status="active"))
+        except Exception:
+            pass
+
+        # Agent status from scheduler
+        agents = {}
+        try:
+            from src.core.scheduler import get_all_jobs
+            for job in get_all_jobs():
+                name = job["name"]
+                agents[name] = {
+                    "last_run": job.get("last_run"),
+                    "status": "ok" if job["status"] == "running" else (
+                        "error" if job["status"] in ("error", "dead") else "never"
+                    ),
+                }
+                if name == "email-poller":
+                    agents[name]["emails_processed_24h"] = job.get("run_count", 0)
+        except Exception:
+            pass
+
+        return api_response({
+            "version": version,
+            "uptime_seconds": uptime,
+            "db": db_info,
+            "queues": queues,
+            "agents": agents,
+        })
+    except Exception as e:
+        log.error("v1/health error: %s", e, exc_info=True)
         return api_response(error=str(e), status=500)

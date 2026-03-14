@@ -73,3 +73,16 @@ class TestV1Pipeline:
         assert "pcs" in data
         assert "orders" in data
         assert "agents" in data
+
+
+class TestV1CreateRFQ:
+    def test_create_via_json(self, client, headers):
+        resp = client.post("/api/v1/rfq/create", headers=headers,
+                           json={"solicitation_number": "TEST123", "agency": "CDCR",
+                                 "requestor_name": "Test Buyer",
+                                 "items": [{"description": "Gloves", "qty": 10, "uom": "BX"}]})
+        assert resp.status_code == 201
+        data = resp.get_json()
+        assert data["ok"] is True
+        assert "id" in data["data"]
+        assert data["data"]["status"] == "new"

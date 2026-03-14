@@ -48,6 +48,53 @@ fetch('/api/health/startup').then(function(r){return r.json()}).then(function(d)
 }).catch(function(){});
 </script>
 
+<!-- ═══ Agent Status Card — Layer 2 ═══ -->
+<div id="agent-status" style="background:var(--crd);border:1px solid var(--bd);border-radius:10px;padding:14px 18px;margin-bottom:14px;display:flex;gap:20px;align-items:center;flex-wrap:wrap">
+ <div style="font-size:13px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px">Agents</div>
+ <div id="as-poller" style="display:flex;align-items:center;gap:6px;font-size:14px">
+  <span id="as-poller-dot" style="width:8px;height:8px;border-radius:50%;background:#484f58"></span>
+  <span style="color:var(--tx2)">Email Poller:</span>
+  <span id="as-poller-txt" style="color:var(--tx)">loading...</span>
+ </div>
+ <div id="as-award" style="display:flex;align-items:center;gap:6px;font-size:14px">
+  <span id="as-award-dot" style="width:8px;height:8px;border-radius:50%;background:#484f58"></span>
+  <span style="color:var(--tx2)">Award Tracker:</span>
+  <span id="as-award-txt" style="color:var(--tx)">loading...</span>
+ </div>
+ <button onclick="_runAwardTracker()" style="margin-left:auto;padding:5px 12px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:13px;cursor:pointer" title="Run award tracker now">Run Now</button>
+</div>
+<script>
+function _refreshAgentStatus(){
+ fetch('/api/v1/health').then(r=>r.json()).then(d=>{
+  if(!d.ok||!d.data)return;
+  var agents=d.data.agents||{};
+  // Email poller
+  var ep=agents['email-poller']||{};
+  var epDot=document.getElementById('as-poller-dot');
+  var epTxt=document.getElementById('as-poller-txt');
+  if(ep.status==='ok'){epDot.style.background='#2ecc71';epTxt.textContent='Last: '+(ep.last_run?new Date(ep.last_run).toLocaleTimeString():'—');}
+  else if(ep.status==='error'){epDot.style.background='#f87171';epTxt.textContent='Error';}
+  else{epDot.style.background='#484f58';epTxt.textContent='Never run';}
+  // Award tracker
+  var at=agents['award-monitor']||{};
+  var atDot=document.getElementById('as-award-dot');
+  var atTxt=document.getElementById('as-award-txt');
+  if(at.status==='ok'){atDot.style.background='#2ecc71';atTxt.textContent='Last: '+(at.last_run?new Date(at.last_run).toLocaleTimeString():'—');}
+  else if(at.status==='error'){atDot.style.background='#f87171';atTxt.textContent='Error';}
+  else{atDot.style.background='#484f58';atTxt.textContent='Never run';}
+ }).catch(()=>{});
+}
+_refreshAgentStatus();
+setInterval(_refreshAgentStatus,60000);
+function _runAwardTracker(){
+ var btn=event.target;btn.disabled=true;btn.textContent='Running...';
+ fetch('/api/intel/award-tracker/run',{method:'POST'}).then(r=>r.json()).then(d=>{
+  btn.disabled=false;btn.textContent=d.ok?'Done':'Failed';
+  setTimeout(()=>{btn.textContent='Run Now';_refreshAgentStatus();},3000);
+ }).catch(()=>{btn.disabled=false;btn.textContent='Run Now';});
+}
+</script>
+
 <!-- ═══ Action Dashboard — PRD-28 WI-6 ═══ -->
 <div id="action-dash" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:14px">
  <!-- Urgent -->
