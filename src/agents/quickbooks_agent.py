@@ -170,35 +170,50 @@ def _refresh_access_token() -> Optional[str]:
         resp.raise_for_status()
         data = resp.json()
 
+        new_access = data.get("access_token")
+        if not new_access:
+            log.error("QB token refresh: response missing access_token key")
+            return None
+
         # Merge with existing tokens to preserve realm_id, connected_at, etc.
         existing = _load_tokens()
         existing.update({
-            "access_token": data["access_token"],
+            "access_token": new_access,
             "refresh_token": data.get("refresh_token", refresh),
             "expires_at": time.time() + data.get("expires_in", 3600),
             "refreshed_at": datetime.now().isoformat(),
         })
         _save_tokens(existing)
         log.info("QB access token refreshed (expires in %ds)", data.get("expires_in", 3600))
-        return data["access_token"]
+        return new_access
 
+    except _requests.exceptions.HTTPError as e:
+        log.error("QB token refresh HTTP error: %s (status %s)", e, getattr(e.response, 'status_code', '?'))
+        return None
+    except _requests.exceptions.ConnectionError as e:
+        log.error("QB token refresh connection failed: %s", e)
+        return None
     except Exception as e:
-        log.error("QB token refresh failed: %s", e)
+        log.error("QB token refresh failed: %s — %s", type(e).__name__, e)
         return None
 
 
 def get_access_token() -> Optional[str]:
     """Get a valid access token, refreshing if needed."""
-    tokens = _load_tokens()
-    access = tokens.get("access_token")
-    expires = tokens.get("expires_at", 0)
+    stored = _load_tokens()
+    access = stored.get("access_token")
+    expires = stored.get("expires_at", 0)
 
     # Valid token exists and not expired (with 5 min buffer)
     if access and time.time() < expires - 300:
         return access
 
     # Need refresh
-    return _refresh_access_token()
+    try:
+        return _refresh_access_token()
+    except Exception as e:
+        log.error("QB get_access_token: refresh crashed — %s: %s", type(e).__name__, e)
+        return None
 
 
 # ─── API Client ──────────────────────────────────────────────────────────────
