@@ -45,6 +45,40 @@ log = logging.getLogger("harvest")
 
 REYTECH_PATTERNS = ["reytech", "rey tech", "rey-tech"]
 
+# TODO: Refine REYTECH_KEYWORDS with actual product categories from Mike
+REYTECH_KEYWORDS = [
+    # Medical/clinical
+    "restraint", "medical", "surgical", "exam", "catheter", "glove", "gown",
+    "bandage", "wheelchair", "stretcher", "oxygen", "syringe", "mask", "ppe",
+    "wound", "dressing", "gauze", "sharps", "tourniquet", "n95", "respirator",
+    "nitrile", "incontinence", "brief", "underpad", "pad", "chux",
+    # Personal care
+    "toothbrush", "toothpaste", "shampoo", "soap", "lotion", "razor",
+    "deodorant", "sanitizer", "wipe",
+    # Equipment/supplies
+    "furniture", "chair", "desk", "cabinet", "equipment", "device",
+    "instrument", "tool", "parts", "replacement", "battery",
+    # Cleaning/janitorial
+    "cleaning", "janitorial", "disinfect", "mop", "broom", "trash", "liner",
+    # Office
+    "toner", "printer", "paper", "envelope",
+    # Safety
+    "safety", "glasses", "vest", "hard hat", "boot", "flashlight",
+    "fire extinguisher", "first aid",
+    # Food service (Reytech sells commissary items)
+    "cup", "plate", "utensil", "napkin", "food service",
+]
+
+
+def is_relevant_item(description: str, reytech_won: bool = False) -> bool:
+    """Check if an item is relevant to Reytech's product categories."""
+    if reytech_won:
+        return True  # Always keep Reytech wins
+    if not description:
+        return False
+    desc_lower = description.lower()
+    return any(kw in desc_lower for kw in REYTECH_KEYWORDS)
+
 
 def get_conn():
     conn = sqlite3.connect(DB_PATH, timeout=30); conn.execute("PRAGMA busy_timeout=5000")
@@ -136,13 +170,23 @@ def build_buyer_intel(conn, dry_run=False):
     count = 0
     now = datetime.now(timezone.utc).isoformat()
     for r in rows:
-        # Collect items purchased for this buyer
+        # Collect items purchased for this buyer (from line items + PO search terms)
         items = conn.execute("""
             SELECT DISTINCT l.description FROM scprs_po_lines l
             JOIN scprs_po_master m ON l.po_id = m.id
-            WHERE m.buyer_email = ? LIMIT 20
+            WHERE m.buyer_email = ? AND l.description != '' LIMIT 20
         """, (r["buyer_email"],)).fetchall()
-        items_json = json.dumps([i["description"][:100] for i in items])
+        item_list = [i["description"][:100] for i in items]
+        # Fallback: use search_term from PO master if no line items
+        if not item_list:
+            terms = conn.execute("""
+                SELECT DISTINCT search_term FROM scprs_po_master
+                WHERE buyer_email = ? AND search_term IS NOT NULL
+                  AND search_term != '' AND search_term NOT LIKE 'SUPPLIER:%'
+                LIMIT 10
+            """, (r["buyer_email"],)).fetchall()
+            item_list = [t["search_term"][:100] for t in terms]
+        items_json = json.dumps(item_list)
 
         conn.execute("""
             INSERT OR REPLACE INTO buyer_intel

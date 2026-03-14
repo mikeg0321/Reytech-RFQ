@@ -931,8 +931,9 @@ def api_v1_harvest_diagnose():
 @auth_required
 def api_v1_harvest_deduplicate():
     """Remove duplicate POs from scprs_po_master. Synchronous.
-    Groups by (supplier, dept_name, grand_total, start_date).
-    Keeps the row with the lowest id (first inserted), deletes rest.
+    Groups by (supplier, dept_name, grand_total, start_date, search_term).
+    Tightened key includes search_term to avoid deleting recurring real orders.
+    Only rows from the same scrape session (same search_term) are true dupes.
     """
     try:
         import sqlite3
@@ -942,13 +943,13 @@ def api_v1_harvest_deduplicate():
 
         before = conn.execute("SELECT COUNT(*) FROM scprs_po_master").fetchone()[0]
 
-        # Find duplicate groups
+        # Find duplicate groups — tighter key includes search_term
         dupes = conn.execute("""
-            SELECT supplier, dept_name, grand_total, start_date,
+            SELECT supplier, dept_name, grand_total, start_date, search_term,
                    COUNT(*) as cnt, MIN(id) as keep_id,
                    GROUP_CONCAT(id) as all_ids
             FROM scprs_po_master
-            GROUP BY supplier, dept_name, grand_total, start_date
+            GROUP BY supplier, dept_name, grand_total, start_date, search_term
             HAVING cnt > 1
         """).fetchall()
 
