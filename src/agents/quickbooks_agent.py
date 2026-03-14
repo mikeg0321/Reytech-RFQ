@@ -180,7 +180,7 @@ def _refresh_access_token() -> Optional[str]:
         })
         _save_tokens(existing)
         log.info("QB access token refreshed (expires in %ds)", data.get("expires_in", 3600))
-        return tokens["access_token"]
+        return data["access_token"]
 
     except Exception as e:
         log.error("QB token refresh failed: %s", e)
