@@ -483,6 +483,14 @@ def parse_ams704(pdf_path: str) -> dict:
     # Post-processing: merge items that look like continuation rows the parser missed
     result["line_items"] = _merge_continuation_items(result["line_items"])
     
+    # ── CRITICAL: If fillable fields existed but yielded 0 items, fall through
+    # to text regex + vision chain. This happens with DocuSign-flattened forms
+    # that have field definitions but empty values. ──
+    if not result["line_items"]:
+        log.info("parse_ams704: fillable fields found (%d) but 0 items extracted — trying text/vision fallback",
+                 result["field_count"])
+        return _parse_ams704_ocr(pdf_path, result)
+    
     return result
 
 

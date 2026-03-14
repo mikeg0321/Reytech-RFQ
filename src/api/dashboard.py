@@ -1520,8 +1520,16 @@ def process_rfq_email(rfq_email):
                         import shutil as _shutil
                         pc_file = os.path.join(DATA_DIR, f"pc_upload_{os.path.basename(pc_pdf)}")
                         _shutil.copy2(pc_pdf, pc_file)
+                        _file_size = os.path.getsize(pc_file)
+                        _trace.append(f"PDF copied: {os.path.basename(pc_file)} ({_file_size} bytes)")
+                        log.info("PC parse: %s (%d bytes)", os.path.basename(pc_file), _file_size)
+                        
                         parsed = parse_ams704(pc_file)
                         parse_error = parsed.get("error")
+                        _item_count = len(parsed.get("line_items", []))
+                        _method = parsed.get("parse_method", "?")
+                        _trace.append(f"parse_ams704: method={_method} items={_item_count} error={parse_error}")
+                        log.info("PC parse result: method=%s items=%d error=%s", _method, _item_count, parse_error)
                         
                         if parse_error:
                             # Still create minimal PC so email isn't lost
@@ -1592,7 +1600,8 @@ def process_rfq_email(rfq_email):
                                     "requestor": header.get("requestor", ""),
                                     "ship_to": header.get("ship_to", ""),
                                     "items": items, "source_pdf": pc_file,
-                                    "status": "parsed", "parsed": parsed,
+                                    "status": "parsed" if items else "new",
+                                    "parsed": parsed,
                                     "created_at": datetime.now().isoformat(),
                                     "source": "email_auto",
                                     "reytech_quote_number": "",
