@@ -328,6 +328,16 @@ def test_syntax():
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# Test 7: Data Integrity
+# ═══════════════════════════════════════════════════════════════════════
+
+def test_data_integrity():
+    print("\n🔍 Test 7: Data Integrity Checks")
+    from scripts.data_integrity import run_integrity_checks
+    run_integrity_checks(ok_fn=ok, fail_fn=fail)
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # Run All Tests
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -335,13 +345,14 @@ if __name__ == "__main__":
     print("=" * 60)
     print("🧪 REYTECH PRE-DEPLOY SMOKE TESTS")
     print("=" * 60)
-    
+
     test_route_dedup()
     test_syntax()
     test_pc_detection()
     test_echelon_parser()
     test_supplier_matching()
     test_flattened_704()
+    test_data_integrity()
     
     print("\n" + "=" * 60)
     total = PASS + FAIL + WARN
