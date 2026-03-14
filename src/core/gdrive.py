@@ -97,7 +97,10 @@ def _get_or_create_folder(name: str, parent_id: str) -> str:
     # Search for existing folder
     query = (f"name='{name}' and '{parent_id}' in parents "
              f"and mimeType='application/vnd.google-apps.folder' and trashed=false")
-    results = service.files().list(q=query, fields="files(id,name)", pageSize=1).execute()
+    results = service.files().list(
+        q=query, fields="files(id,name)", pageSize=1,
+        supportsAllDrives=True, includeItemsFromAllDrives=True,
+    ).execute()
     files = results.get("files", [])
 
     if files:
@@ -109,7 +112,9 @@ def _get_or_create_folder(name: str, parent_id: str) -> str:
             "mimeType": "application/vnd.google-apps.folder",
             "parents": [parent_id],
         }
-        folder = service.files().create(body=metadata, fields="id").execute()
+        folder = service.files().create(
+            body=metadata, fields="id", supportsAllDrives=True,
+        ).execute()
         folder_id = folder["id"]
         log.info("Created Drive folder: %s/%s → %s", parent_id[:8], name, folder_id)
 
@@ -191,19 +196,26 @@ def upload_file(local_path: str, folder_id: str, drive_filename: str = "",
 
     # Check if file already exists (update instead of duplicate)
     query = f"name='{filename}' and '{folder_id}' in parents and trashed=false"
-    existing = service.files().list(q=query, fields="files(id)", pageSize=1).execute()
+    existing = service.files().list(
+        q=query, fields="files(id)", pageSize=1,
+        supportsAllDrives=True, includeItemsFromAllDrives=True,
+    ).execute()
 
     if existing.get("files"):
         # Update existing file (Google Drive keeps version history automatically)
         file_id = existing["files"][0]["id"]
         media = MediaFileUpload(local_path, mimetype=mime_type, resumable=True)
-        service.files().update(fileId=file_id, media_body=media).execute()
+        service.files().update(
+            fileId=file_id, media_body=media, supportsAllDrives=True,
+        ).execute()
         log.info("Updated Drive file: %s (id=%s)", filename, file_id)
     else:
         # Create new file
         metadata = {"name": filename, "parents": [folder_id]}
         media = MediaFileUpload(local_path, mimetype=mime_type, resumable=True)
-        result = service.files().create(body=metadata, media_body=media, fields="id").execute()
+        result = service.files().create(
+            body=metadata, media_body=media, fields="id", supportsAllDrives=True,
+        ).execute()
         file_id = result["id"]
         log.info("Uploaded to Drive: %s → folder %s (id=%s)", filename, folder_id[:8], file_id)
 
@@ -225,17 +237,24 @@ def upload_bytes(data: bytes, folder_id: str, filename: str,
 
     # Check for existing
     query = f"name='{filename}' and '{folder_id}' in parents and trashed=false"
-    existing = service.files().list(q=query, fields="files(id)", pageSize=1).execute()
+    existing = service.files().list(
+        q=query, fields="files(id)", pageSize=1,
+        supportsAllDrives=True, includeItemsFromAllDrives=True,
+    ).execute()
 
     if existing.get("files"):
         file_id = existing["files"][0]["id"]
         media = MediaInMemoryUpload(data, mimetype=mime_type, resumable=True)
-        service.files().update(fileId=file_id, media_body=media).execute()
+        service.files().update(
+            fileId=file_id, media_body=media, supportsAllDrives=True,
+        ).execute()
         log.info("Updated Drive file (bytes): %s", filename)
     else:
         metadata = {"name": filename, "parents": [folder_id]}
         media = MediaInMemoryUpload(data, mimetype=mime_type, resumable=True)
-        result = service.files().create(body=metadata, media_body=media, fields="id").execute()
+        result = service.files().create(
+            body=metadata, media_body=media, fields="id", supportsAllDrives=True,
+        ).execute()
         file_id = result["id"]
         log.info("Uploaded to Drive (bytes): %s → %s", filename, folder_id[:8])
 
@@ -268,7 +287,7 @@ def list_files(folder_id: str) -> List[dict]:
     query = f"'{folder_id}' in parents and trashed=false"
     results = service.files().list(
         q=query, fields="files(id,name,mimeType,size,modifiedTime)",
-        pageSize=100
+        pageSize=100, supportsAllDrives=True, includeItemsFromAllDrives=True,
     ).execute()
     return results.get("files", [])
 
@@ -426,7 +445,8 @@ def _create_po_folder_with_contents(task: dict):
                 # Copy file to PO/RFQ/ subfolder
                 service.files().copy(
                     fileId=pf["id"],
-                    body={"name": pf["name"], "parents": [rfq_folder_id]}
+                    body={"name": pf["name"], "parents": [rfq_folder_id]},
+                    supportsAllDrives=True,
                 ).execute()
                 log.info("Copied %s from Pending to PO/%s/RFQ/", pf["name"], po_number)
         except Exception as e:
