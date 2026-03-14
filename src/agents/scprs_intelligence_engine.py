@@ -47,7 +47,7 @@ except ImportError:
 
 def _db():
     """Return a plain SQLite connection to reytech.db (not the context-manager get_db)."""
-    conn = sqlite3.connect(_DB_PATH, timeout=30, check_same_thread=False)
+    conn = sqlite3.connect(_DB_PATH, timeout=30, check_same_thread=False); conn.execute("PRAGMA busy_timeout=5000")
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=30000")

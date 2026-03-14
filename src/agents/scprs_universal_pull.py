@@ -38,7 +38,7 @@ from contextlib import contextmanager
 @contextmanager
 def get_db():
     """Thread-safe SQLite connection with WAL mode and auto-close."""
-    conn = sqlite3.connect(os.path.join(DATA_DIR, "reytech.db"), timeout=30, check_same_thread=False)
+    conn = sqlite3.connect(os.path.join(DATA_DIR, "reytech.db"), timeout=30, check_same_thread=False); conn.execute("PRAGMA busy_timeout=5000")
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
@@ -333,7 +333,7 @@ def run_universal_pull(priority: str = "P0") -> dict:
     except ImportError:
         return {"ok": False, "error": "scprs_lookup unavailable"}
 
-    conn = sqlite3.connect(os.path.join(DATA_DIR, "reytech.db"), timeout=30, check_same_thread=False)
+    conn = sqlite3.connect(os.path.join(DATA_DIR, "reytech.db"), timeout=30, check_same_thread=False); conn.execute("PRAGMA busy_timeout=5000")
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")

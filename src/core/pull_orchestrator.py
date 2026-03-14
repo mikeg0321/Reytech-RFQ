@@ -47,7 +47,7 @@ def _load_connector(connector_class: str):
 
 def _get_conn():
     from src.core.db import DB_PATH
-    conn = sqlite3.connect(DB_PATH, timeout=30)
+    conn = sqlite3.connect(DB_PATH, timeout=30); conn.execute("PRAGMA busy_timeout=5000")
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     return conn

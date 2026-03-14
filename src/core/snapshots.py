@@ -37,7 +37,7 @@ CREATE INDEX IF NOT EXISTS idx_snap_agent ON agent_snapshots(agent_name);
 
 def _get_db():
     from src.core.db import DB_PATH
-    conn = sqlite3.connect(DB_PATH, timeout=30)
+    conn = sqlite3.connect(DB_PATH, timeout=30); conn.execute("PRAGMA busy_timeout=5000")
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     return conn
