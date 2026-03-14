@@ -919,6 +919,7 @@ def _migrate_columns():
         ("contacts", "nurture_step", "INTEGER DEFAULT 0"),
         ("contacts", "lead_score", "REAL DEFAULT 0"),
         # ── Multi-state, multi-source procurement ──
+        ("scprs_po_master", "data_quality_flag", "TEXT"),
         ("scprs_po_master", "state", "TEXT DEFAULT 'CA'"),
         ("scprs_po_master", "jurisdiction", "TEXT DEFAULT 'state'"),
         ("scprs_po_master", "source_system", "TEXT DEFAULT 'scprs'"),

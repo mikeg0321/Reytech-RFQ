@@ -925,3 +925,61 @@ def api_v1_harvest_diagnose():
     except Exception as e:
         log.error("v1/harvest/diagnose error: %s", e, exc_info=True)
         return api_response(error=str(e), status=500)
+
+
+@bp.route("/api/v1/harvest/deduplicate")
+@auth_required
+def api_v1_harvest_deduplicate():
+    """Remove duplicate POs from scprs_po_master. Synchronous.
+    Groups by (supplier, dept_name, grand_total, start_date).
+    Keeps the row with the lowest id (first inserted), deletes rest.
+    """
+    try:
+        import sqlite3
+        from src.core.db import DB_PATH
+        conn = sqlite3.connect(DB_PATH, timeout=30)
+        conn.row_factory = sqlite3.Row
+
+        before = conn.execute("SELECT COUNT(*) FROM scprs_po_master").fetchone()[0]
+
+        # Find duplicate groups
+        dupes = conn.execute("""
+            SELECT supplier, dept_name, grand_total, start_date,
+                   COUNT(*) as cnt, MIN(id) as keep_id,
+                   GROUP_CONCAT(id) as all_ids
+            FROM scprs_po_master
+            GROUP BY supplier, dept_name, grand_total, start_date
+            HAVING cnt > 1
+        """).fetchall()
+
+        deleted = 0
+        for d in dupes:
+            keep_id = d["keep_id"]
+            all_ids = [int(x) for x in d["all_ids"].split(",")]
+            delete_ids = [x for x in all_ids if x != keep_id]
+            if delete_ids:
+                placeholders = ",".join("?" * len(delete_ids))
+                conn.execute(
+                    f"DELETE FROM scprs_po_master WHERE id IN ({placeholders})",
+                    delete_ids)
+                deleted += len(delete_ids)
+
+        conn.commit()
+        after = conn.execute("SELECT COUNT(*) FROM scprs_po_master").fetchone()[0]
+
+        # Reytech after dedup
+        r = conn.execute(
+            "SELECT COUNT(*), SUM(grand_total) FROM scprs_po_master WHERE LOWER(supplier) LIKE '%reytech%'"
+        ).fetchone()
+        conn.close()
+
+        return api_response({
+            "before": before,
+            "deleted": deleted,
+            "after": after,
+            "duplicate_groups": len(dupes),
+            "reytech_after": {"count": r[0], "value": r[1]},
+        })
+    except Exception as e:
+        log.error("v1/harvest/deduplicate error: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)

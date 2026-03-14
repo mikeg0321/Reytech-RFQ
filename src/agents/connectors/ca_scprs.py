@@ -136,8 +136,15 @@ class CASCPRSConnector(BaseConnector):
     def normalize(self, raw: dict) -> dict:
         po_num = raw.get("po_number", "")
         if not po_num:
-            po_num = "SCPRS-" + hashlib.md5(
-                str(raw).encode()).hexdigest()[:12].upper()
+            # Stable composite key from real PO fields (not search HTML)
+            # Same real PO always generates the same ID
+            key = "|".join([
+                raw.get("supplier_name", raw.get("vendor", "")),
+                raw.get("dept", raw.get("dept_name", "")),
+                str(raw.get("grand_total_num", raw.get("grand_total", ""))),
+                raw.get("start_date", ""),
+            ])
+            po_num = "SCPRS-" + hashlib.md5(key.encode()).hexdigest()[:12].upper()
         return {
             "id": po_num,
             "po_number": po_num,
