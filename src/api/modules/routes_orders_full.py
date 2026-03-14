@@ -433,7 +433,7 @@ def api_order_create():
     """Create a new order manually (for POs received outside the system).
     POST JSON: {po_number, agency, institution, total, items: [{description, qty, unit_price, part_number, supplier, supplier_url}]}
     """
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(force=True, silent=True) or {}
     po_number = data.get("po_number", "").strip()
     if not po_number:
         return jsonify({"ok": False, "error": "PO number required"})
@@ -474,7 +474,7 @@ def api_order_add_line(oid):
     order = orders.get(oid)
     if not order:
         return jsonify({"ok": False, "error": "Order not found"})
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(force=True, silent=True) or {}
     items = order.get("line_items", [])
     next_num = len(items) + 1
     pn = data.get("part_number", "")
@@ -639,7 +639,7 @@ def api_order_update_line(oid, lid):
     order = orders.get(oid)
     if not order:
         return jsonify({"ok": False, "error": "Order not found"})
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(force=True, silent=True) or {}
     updated = False
     for it in order.get("line_items", []):
         if it.get("line_id") == lid:
@@ -724,7 +724,7 @@ def api_order_bulk_update(oid):
     order = orders.get(oid)
     if not order:
         return jsonify({"ok": False, "error": "Order not found"})
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(force=True, silent=True) or {}
     for it in order.get("line_items", []):
         for field in ("sourcing_status", "carrier", "invoice_status"):
             if field in data:
@@ -748,7 +748,7 @@ def api_order_bulk_tracking(oid):
     order = orders.get(oid)
     if not order:
         return jsonify({"ok": False, "error": "Order not found"})
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(force=True, silent=True) or {}
     tracking = data.get("tracking", "")
     carrier = data.get("carrier", "")
     updated = 0
@@ -778,7 +778,7 @@ def api_order_invoice(oid):
     order = orders.get(oid)
     if not order:
         return jsonify({"ok": False, "error": "Order not found"})
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(force=True, silent=True) or {}
     inv_type = data.get("type", "full")
     inv_num = data.get("invoice_number", "")
 
@@ -918,7 +918,7 @@ def api_order_lookup_suppliers(oid):
     if not order:
         return jsonify({"ok": False, "error": "Order not found"})
 
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(force=True, silent=True) or {}
     target_lid = data.get("line_id", "")  # empty = all items
 
     results = []
@@ -1025,7 +1025,7 @@ def api_order_link_quote(oid):
     if not order:
         return jsonify({"ok": False, "error": "Order not found"})
 
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(force=True, silent=True) or {}
     qn = data.get("quote_number", "")
 
     # Auto-detect: try to find matching quote by PO reference
@@ -1165,7 +1165,7 @@ def api_order_delete(oid):
     order = orders.get(oid)
     if not order:
         return jsonify({"ok": False, "error": "Order not found"})
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(force=True, silent=True) or {}
     reason = data.get("reason", "duplicate")
 
     # Log before deleting
@@ -1921,7 +1921,7 @@ def api_order_create_qb_po(oid):
         if not order:
             return jsonify({"ok": False, "error": "Order not found"})
 
-        data = request.get_json(silent=True) or {}
+        data = request.get_json(force=True, silent=True) or {}
         vendor_groups = data.get("vendor_groups", {})
         if not vendor_groups:
             return jsonify({"ok": False, "error": "No vendor groups provided"})
@@ -1984,7 +1984,7 @@ def api_order_create_qb_invoice(oid):
         institution = order.get("institution", "")
 
         # Check for selected line items (partial invoice)
-        data = request.get_json(silent=True) or {}
+        data = request.get_json(force=True, silent=True) or {}
         selected_ids = data.get("line_ids")  # None = all items
 
         # Find or create customer in QB
@@ -2102,7 +2102,7 @@ def api_order_send_invoice(oid):
         if not invoice_pdf or not os.path.exists(invoice_pdf):
             return jsonify({"ok": False, "error": "Enhanced invoice PDF not found. Wait for QB email to arrive."})
 
-        data = request.get_json(silent=True) or {}
+        data = request.get_json(force=True, silent=True) or {}
         to_email = data.get("to_email", "")
         if not to_email:
             return jsonify({"ok": False, "error": "Provide customer email address"})
@@ -2813,7 +2813,7 @@ def api_expiring_quotes():
 def api_draft_follow_up():
     """Draft a follow-up email for a specific RFQ."""
     try:
-        data = request.get_json(silent=True) or {}
+        data = request.get_json(force=True, silent=True) or {}
         rfq_id = data.get("rfq_id", "")
         if not rfq_id:
             return jsonify({"ok": False, "error": "rfq_id is required"})

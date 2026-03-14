@@ -865,7 +865,7 @@ def api_rfq_autosave(rid):
     if not r:
         return jsonify({"ok": False, "error": "not found"}), 404
 
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(force=True, silent=True) or {}
     items_data = data.get("items", [])
 
     for update in items_data:
@@ -2712,7 +2712,7 @@ def api_get_email_template(tid):
 @auth_required
 def api_create_email_template():
     """Create or update an email template."""
-    data = request.get_json() or request.form
+    data = request.get_json(force=True, silent=True) or request.form
     tid = save_email_template_db(
         data.get("id", ""), data.get("name", ""), data.get("category", "rfq"),
         data.get("subject", ""), data.get("body", ""), int(data.get("is_default", 0)))
@@ -2738,7 +2738,7 @@ def api_delete_email_template(tid):
 @auth_required
 def api_render_email_template():
     """Render a template with variables. POST {template_id, variables: {...}}"""
-    data = request.get_json()
+    data = request.get_json(force=True, silent=True) or {}
     tid = data.get("template_id", "")
     variables = data.get("variables", {})
     

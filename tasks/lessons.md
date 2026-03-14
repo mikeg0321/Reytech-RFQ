@@ -375,3 +375,13 @@ payloads. (2) Self-email filter now lets clear forwards through (Fwd: subject
 **Mistake:** The JSON→SQLite read migration for `_load_price_checks()` broke indentation — the old `except Exception: data = {}` block lost its indent level when the surrounding code was restructured, causing a compile error.
 **Pattern:** Manual code restructuring around try/except blocks corrupts indentation
 **Rule:** After restructuring any try/except block, always compile-check immediately (`py_compile`) before making more edits. The indentation-sensitive nature of Python means even one-space errors silently change control flow or fail to compile.
+
+## Lesson L51 [2026-03-14]
+**Mistake:** DAL snapshot tests failed because `agent_snapshots` table didn't exist in the test DB — `init_snapshots()` was never called during test setup. The table is created by a separate module, not by `init_db()`.
+**Pattern:** Infrastructure tables created outside the main SCHEMA string don't exist in fresh DBs
+**Rule:** Any DAL function that depends on a table outside the main SCHEMA must call `init_X()` (idempotent) on first use, or the table must be added to the main SCHEMA. Don't assume test DBs have all tables.
+
+## Lesson L52 [2026-03-14]
+**Mistake:** When splitting routes_intel.py (7.1K lines), growth routes referenced `GROWTH_AVAILABLE` and `get_prospect` which are imported at the TOP of routes_intel.py. The new split module needs its own copy of those imports, but the old file also needs to keep them because non-growth routes use them too.
+**Pattern:** Shared imports in exec'd modules must be duplicated in both files after split
+**Rule:** When splitting an exec'd route module, identify which top-level imports are used by BOTH the kept and extracted code. Duplicate those imports in both files — exec'd modules don't share imports, they share the dashboard.py global namespace only AFTER both have been loaded.

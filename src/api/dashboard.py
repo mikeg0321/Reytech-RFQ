@@ -4002,7 +4002,8 @@ _ROUTE_MODULES = [
     "routes_agents",           # Agent control panel, email templates
     "routes_pricecheck",       # Price check pages + lookup
     "routes_crm",              # CRM, pricing oracle, auto-processor
-    "routes_intel",            # SCPRS, CCHCS, vendors, growth, funnel, forecasting
+    "routes_intel",            # SCPRS, CCHCS, vendors, funnel, forecasting
+    "routes_growth_prospects",  # Growth strategy, prospect management, campaigns (split from routes_intel)
     "routes_orders_full",      # Orders, supplier lookup, quote-order link, invoice
     "routes_voice_contacts",   # Intelligence page, voice, contacts, campaigns
     "routes_catalog_finance",  # Catalog, shipping, pricing, margins, payments, audit

@@ -109,3 +109,36 @@ class TestLineItems:
     def test_get_empty(self):
         items = get_line_items("NOPE", "rfq")
         assert items == []
+
+
+class TestAuditTrail:
+    def test_save_rfq_creates_audit(self):
+        save_rfq({"id": "AUD1", "status": "new", "received_at": "2026-01-01"})
+        from src.core.db import get_db
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT * FROM audit_trail WHERE item_description='rfq' AND rfq_id='AUD1'"
+            ).fetchall()
+            assert len(rows) >= 1
+            assert rows[0]["field_changed"] in ("create", "update")
+
+
+class TestSnapshots:
+    def test_snapshot_taken_before_update(self):
+        save_rfq({"id": "SNAP1", "status": "new", "received_at": "2026-01-01", "agency": "BEFORE"})
+        save_rfq({"id": "SNAP1", "status": "new", "received_at": "2026-01-01", "agency": "AFTER"})
+        from src.core.snapshots import list_snapshots
+        snaps = list_snapshots(agent_name="dal")
+        snap_ids = [s["run_id"] for s in snaps]
+        assert "SNAP1" in snap_ids
+
+    def test_restore_returns_original(self):
+        save_rfq({"id": "REST1", "status": "new", "received_at": "2026-01-01", "agency": "ORIG"})
+        save_rfq({"id": "REST1", "status": "draft", "received_at": "2026-01-01", "agency": "CHANGED"})
+        from src.core.snapshots import list_snapshots
+        snaps = [s for s in list_snapshots(agent_name="dal") if s.get("run_id") == "REST1"]
+        assert len(snaps) >= 1
+        from src.core.snapshots import restore_snapshot
+        result = restore_snapshot(snaps[0]["id"])
+        assert result["ok"] is True
+        assert result["data"]["agency"] == "ORIG"

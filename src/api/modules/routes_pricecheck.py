@@ -106,7 +106,7 @@ def api_pc_revisions(pcid):
 def api_pc_revert(pcid):
     """Revert a price check to a previous revision."""
     try:
-        data = request.get_json(silent=True) or {}
+        data = request.get_json(force=True, silent=True) or {}
         rev_num = int(data.get("revision", 0))
 
         revisions = _load_pc_revisions()
@@ -145,7 +145,7 @@ def api_pc_merge_items(pcid):
     """Merge an item into the one above it (for false multi-line splits).
     POST {index: 2} merges item[2] into item[1]."""
     try:
-        data = request.get_json(silent=True) or {}
+        data = request.get_json(force=True, silent=True) or {}
         idx = int(data.get("index", -1))
 
         pcs = _load_price_checks()
@@ -191,7 +191,7 @@ def api_pc_change_status(pcid):
     POST {status: "sent"} or {status: "draft"}
     Valid: new, draft, sent, pending_award, won, lost, no_response, archived"""
     try:
-        data = request.get_json(silent=True) or {}
+        data = request.get_json(force=True, silent=True) or {}
         new_status = (data.get("status") or "").strip().lower()
         valid = {"new", "draft", "sent", "pending_award", "won", "lost",
                  "no_response", "archived", "duplicate", "completed", "converted"}
@@ -909,7 +909,7 @@ def pricecheck_rescan_mfg(pcid):
 @auth_required
 def pricecheck_client_error(pcid):
     """Receive JS errors from the PC detail page for server-side logging."""
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(force=True, silent=True) or {}
     errors = data.get("errors", [])
     log_entries = data.get("log", [])
     if errors:
@@ -927,7 +927,7 @@ def pricecheck_rename(pcid):
     pcs = _load_price_checks()
     if pcid not in pcs:
         return jsonify({"ok": False, "error": "PC not found"})
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(force=True, silent=True) or {}
     new_name = data.get("pc_number", "").strip()
     if not new_name:
         return jsonify({"ok": False, "error": "Name cannot be empty"})
@@ -2217,7 +2217,7 @@ def api_force_recapture():
     POST body: {"match": "calvet"} or {"rfq_id": "exact_id"}
     Searches solicitation_number, email_sender, email_subject, agency.
     """
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(force=True, silent=True) or {}
     match_kw = (data.get("match") or "").lower().strip()
     exact_id = data.get("rfq_id", "").strip()
     
@@ -3284,7 +3284,7 @@ def api_pricing_recommend():
     if not PRICING_ORACLE_AVAILABLE:
         return jsonify({"error": "Pricing oracle not available — check won_quotes_db.py and pricing_oracle.py are in repo"}), 503
 
-    data = request.get_json() or {}
+    data = request.get_json(force=True, silent=True) or {}
     rid = data.get("rfq_id")
 
     if rid:
@@ -3930,7 +3930,7 @@ def api_pricecheck_mark_sent(pcid):
     pcs = _load_price_checks()
     if pcid not in pcs: return jsonify({"ok": False, "error": "PC not found"})
     pc = pcs[pcid]
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(force=True, silent=True) or {}
     
     now = datetime.now().isoformat()
     _transition_status(pc, "sent", actor="user", 
@@ -4099,7 +4099,7 @@ def api_pc_log_follow_up(pcid):
     if not pc:
         return jsonify({"ok": False, "error": "PC not found"})
 
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(force=True, silent=True) or {}
     method = data.get("method", "email")  # email, phone, in_person
     notes = data.get("notes", "")
     now = _dt.now().isoformat()
@@ -4370,7 +4370,7 @@ def pricecheck_document_save(pcid):
     if not pc:
         return jsonify({"ok": False, "error": "PC not found"})
     
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(force=True, silent=True) or {}
     edited_items = data.get("items", [])
     notes = data.get("notes", "")
     
@@ -4683,7 +4683,7 @@ def api_pricecheck_mark_won(pcid):
     """Manually mark PC as won — records to DB, catalog, CRM."""
     pcs = _load_price_checks()
     if pcid not in pcs: return jsonify({"ok": False, "error": "PC not found"})
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(force=True, silent=True) or {}
     pc = pcs[pcid]
     _transition_status(pc, "sent", actor="user", notes=data.get("notes", "Won"))
     pc.update({"award_status": "won",
@@ -4716,7 +4716,7 @@ def api_pricecheck_mark_lost(pcid):
     """Mark PC as lost with competitor details — records to DB, competitor tracking."""
     pcs = _load_price_checks()
     if pcid not in pcs: return jsonify({"ok": False, "error": "PC not found"})
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(force=True, silent=True) or {}
     pc = pcs[pcid]
     comp_name = data.get("competitor_name", "Unknown")
     _transition_status(pc, "not_responding", actor="user", 
@@ -5143,7 +5143,7 @@ def api_catalog_add_item():
     try:
         from src.agents.product_catalog import add_to_catalog, init_catalog_db
         init_catalog_db()
-        data = request.get_json(silent=True) or {}
+        data = request.get_json(force=True, silent=True) or {}
         pid = add_to_catalog(
             description=data.get("description", ""),
             part_number=data.get("part_number", ""),
@@ -5468,7 +5468,7 @@ def api_admin_rescan_item_numbers():
     Returns: { ok, scanned, updated, details: [{pcid, pc_number, items_updated}] }
     """
     try:
-        data = request.get_json(silent=True) or {}
+        data = request.get_json(force=True, silent=True) or {}
         reparse_pdfs = data.get("reparse_pdfs", True)
     
         pcs = _load_price_checks()
@@ -5611,7 +5611,7 @@ def api_admin_counter_set():
     """Force-set the quote counter. POST body: {"seq": 16}
     Next quote will be R26Q(seq+1).
     """
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(force=True, silent=True) or {}
     new_seq = data.get("seq")
     if new_seq is None:
         return jsonify({"ok": False, "error": "Missing 'seq' in body"})
@@ -5636,7 +5636,7 @@ def api_admin_counter_set():
 @auth_required
 def api_admin_delete_quotes():
     """Delete quotes by number. POST body: {"quote_numbers": ["R26Q9","R26Q10"]}"""
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(force=True, silent=True) or {}
     qns = data.get("quote_numbers", [])
     if not qns:
         return jsonify({"ok": False, "error": "Missing 'quote_numbers' list"})
@@ -5669,7 +5669,7 @@ def api_admin_recall():
     POST body: {"pattern": "02.17.26"} or {"pc_ids": ["auto_xxx", ...]}
     Deletes matching PCs, removes linked draft quotes, resets counter.
     """
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(force=True, silent=True) or {}
     pattern = data.get("pattern", "").strip()
     pc_ids = data.get("pc_ids", [])
     
@@ -5789,7 +5789,7 @@ def api_admin_purge_rfqs():
     Returns before/after counts.
     """
     try:
-        data = request.get_json(silent=True) or {}
+        data = request.get_json(force=True, silent=True) or {}
         rfqs = load_rfqs()
         before_count = len(rfqs)
         before_list = {k: {"sol": v.get("solicitation","?"), "req": v.get("requestor","?"),
@@ -5856,7 +5856,7 @@ def api_admin_clean_activity():
       {"all": true}                         — nuclear: clear all activity
     Returns before/after counts.
     """
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(force=True, silent=True) or {}
     crm_path = os.path.join(DATA_DIR, "crm_activity.json")
     try:
         with open(crm_path) as f:
@@ -5995,7 +5995,7 @@ def api_admin_import_contacts():
     import re as _re, hashlib
     from src.core.db import upsert_contact
     
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(force=True, silent=True) or {}
     incoming = data.get("contacts", [])
     if not incoming:
         return jsonify({"ok": False, "error": "No contacts provided"})
@@ -6151,7 +6151,7 @@ def api_item_link_lookup():
     Used for the item_link autofill on PC and RFQ line items.
     Also writes price+supplier to catalog DB for future intelligence.
     """
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(force=True, silent=True) or {}
     url = (data.get("url") or "").strip()
     if not url:
         return jsonify({"ok": False, "error": "url required"})
@@ -6228,7 +6228,7 @@ def api_admin_system_reset():
       reset_processed: true/false (default true — clears processed emails)
       dry_run: true/false (default false)
     """
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(force=True, silent=True) or {}
     keep_quotes = set(data.get("keep_quotes", []))
     keep_pcs = set(data.get("keep_pcs", []))
     reset_processed = data.get("reset_processed", True)
@@ -6404,7 +6404,7 @@ def api_admin_reset_and_poll():
       keep_quotes: [] (default empty)  
       counter: 15 (default — next = R26Q16)
     """
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(force=True, silent=True) or {}
     keep_quotes = data.get("keep_quotes", [])
     counter = data.get("counter", 15)
     
@@ -6631,7 +6631,7 @@ def api_admin_poller_control():
     """Pause or unpause the background email poller.
     POST {"action": "pause"} or {"action": "unpause"}
     """
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(force=True, silent=True) or {}
     action = data.get("action", "")
     from src.api.dashboard import POLL_STATUS
     

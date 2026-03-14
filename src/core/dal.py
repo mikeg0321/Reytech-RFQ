@@ -685,6 +685,34 @@ def _safe_json(raw, default=None):
         return default if default is not None else raw
 
 
+def _audit(entity_type: str, entity_id: str, action: str, actor: str = "system",
+           old_value: str = None, new_value: str = None):
+    """Log an entity change to the audit trail. Never raises."""
+    try:
+        with get_db() as conn:
+            conn.execute("""
+                INSERT INTO audit_trail
+                (item_description, rfq_id, field_changed, source, actor, old_value, new_value)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (entity_type, entity_id, action, actor, actor,
+                  (old_value or "")[:2000], (new_value or "")[:2000]))
+    except Exception as e:
+        log.warning("_audit(%s, %s, %s) failed: %s", entity_type, entity_id, action, e)
+
+
+def _snapshot_before_update(entity_type: str, entity_id: str, get_fn):
+    """Take a snapshot before overwriting an existing record. Never raises."""
+    try:
+        existing = get_fn(entity_id)
+        if existing:
+            from src.core.snapshots import create_snapshot, init_snapshots
+            init_snapshots()  # Ensure table exists (idempotent)
+            create_snapshot("dal", entity_type, existing, run_id=entity_id,
+                           notes=f"pre-update snapshot for {entity_type} {entity_id}")
+    except Exception as e:
+        log.warning("_snapshot_before_update(%s, %s) failed: %s", entity_type, entity_id, e)
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # RFQ Entity
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -746,6 +774,9 @@ def save_rfq(rfq: dict, actor: str = "system") -> bool:
         raise ValueError("RFQ must have an 'id' field")
     try:
         with get_db() as conn:
+            _existing = conn.execute("SELECT id FROM rfqs WHERE id=?", (rfq_id,)).fetchone()
+            if _existing:
+                _snapshot_before_update("rfq", rfq_id, get_rfq)
             conn.execute("""
                 INSERT INTO rfqs (id, received_at, agency, institution, requestor_name,
                     requestor_email, rfq_number, items, status, source, email_uid, notes, updated_at)
@@ -763,6 +794,12 @@ def save_rfq(rfq: dict, actor: str = "system") -> bool:
                   json.dumps(rfq.get("items", []), default=str),
                   rfq.get("status", "new"), rfq.get("source", ""),
                   rfq.get("email_uid", ""), rfq.get("notes", "")))
+        # Audit trail
+        try:
+            _audit("rfq", rfq_id, "create" if not _existing else "update", actor,
+                   new_value=json.dumps(rfq, default=str)[:2000])
+        except Exception:
+            pass
         # Fire webhook for new RFQ creation
         try:
             from src.core.webhooks import fire_webhook
@@ -788,9 +825,17 @@ def update_rfq_status(rfq_id: str, status: str, actor: str = "system") -> bool:
     """
     try:
         with get_db() as conn:
+            old = conn.execute("SELECT status FROM rfqs WHERE id=?", (rfq_id,)).fetchone()
+            old_status = old["status"] if old else ""
             conn.execute(
                 "UPDATE rfqs SET status = ?, updated_at = datetime('now') WHERE id = ?",
                 (status, rfq_id))
+        # Audit trail
+        try:
+            _audit("rfq", rfq_id, "status_change", actor,
+                   old_value=old_status, new_value=status)
+        except Exception:
+            pass
         # Fire webhook for status change
         try:
             from src.core.webhooks import fire_webhook
@@ -866,6 +911,9 @@ def save_pc(pc: dict, actor: str = "system") -> bool:
         raise ValueError("PC must have an 'id' field")
     try:
         with get_db() as conn:
+            _existing = conn.execute("SELECT id FROM price_checks WHERE id=?", (pc_id,)).fetchone()
+            if _existing:
+                _snapshot_before_update("price_check", pc_id, get_pc)
             conn.execute("""
                 INSERT INTO price_checks (id, created_at, requestor, agency, institution,
                     items, source_file, quote_number, pc_number, total_items, status,
@@ -888,6 +936,12 @@ def save_pc(pc: dict, actor: str = "system") -> bool:
                   pc.get("email_uid", ""), pc.get("email_subject", ""),
                   pc.get("due_date", ""), pc.get("pc_data", "{}"),
                   pc.get("ship_to", "")))
+        # Audit trail
+        try:
+            _audit("price_check", pc_id, "create" if not _existing else "update", actor,
+                   new_value=json.dumps(pc, default=str)[:2000])
+        except Exception:
+            pass
         return True
     except Exception as e:
         log.error("save_pc(%s) failed: %s", pc_id, e, exc_info=True)
@@ -902,9 +956,17 @@ def update_pc_status(pc_id: str, status: str, actor: str = "system") -> bool:
     """
     try:
         with get_db() as conn:
+            old = conn.execute("SELECT status FROM price_checks WHERE id=?", (pc_id,)).fetchone()
+            old_status = old["status"] if old else ""
             conn.execute(
                 "UPDATE price_checks SET status = ? WHERE id = ?",
                 (status, pc_id))
+        # Audit trail
+        try:
+            _audit("price_check", pc_id, "status_change", actor,
+                   old_value=old_status, new_value=status)
+        except Exception:
+            pass
         return True
     except Exception as e:
         log.error("update_pc_status(%s, %s) failed: %s", pc_id, status, e, exc_info=True)
@@ -972,6 +1034,9 @@ def save_order(order: dict, actor: str = "system") -> bool:
         raise ValueError("Order must have an 'id' field")
     try:
         with get_db() as conn:
+            _existing = conn.execute("SELECT id FROM orders WHERE id=?", (order_id,)).fetchone()
+            if _existing:
+                _snapshot_before_update("order", order_id, get_order)
             conn.execute("""
                 INSERT INTO orders (id, quote_number, agency, institution, po_number,
                     po_date, status, total, items, notes, created_at, updated_at)
@@ -988,6 +1053,12 @@ def save_order(order: dict, actor: str = "system") -> bool:
                   order.get("total", 0),
                   json.dumps(order.get("items", []), default=str),
                   order.get("notes", ""), order.get("created_at", "")))
+        # Audit trail
+        try:
+            _audit("order", order_id, "create" if not _existing else "update", actor,
+                   new_value=json.dumps(order, default=str)[:2000])
+        except Exception:
+            pass
         return True
     except Exception as e:
         log.error("save_order(%s) failed: %s", order_id, e, exc_info=True)
@@ -1002,14 +1073,22 @@ def update_order_status(order_id: str, status: str, actor: str = "system") -> bo
     """
     try:
         with get_db() as conn:
+            old = conn.execute("SELECT status FROM orders WHERE id=?", (order_id,)).fetchone()
+            old_status = old["status"] if old else ""
             conn.execute(
                 "UPDATE orders SET status = ?, updated_at = datetime('now') WHERE id = ?",
                 (status, order_id))
+        # Audit trail
+        try:
+            _audit("order", order_id, "status_change", actor,
+                   old_value=old_status, new_value=status)
+        except Exception:
+            pass
         # Fire webhook for status change
         try:
             from src.core.webhooks import fire_webhook
             fire_webhook("order.updated", {
-                "order_id": order_id, "old_status": "", "new_status": status,
+                "order_id": order_id, "old_status": old_status, "new_status": status,
                 "actor": actor,
             })
         except Exception:

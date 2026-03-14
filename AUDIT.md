@@ -647,3 +647,68 @@ Add to `.claude/settings.json`:
 - `check_routes.py`: 0 duplicates
 - `data_integrity.py`: 8 passed, 0 failures
 - DATA_DIR grep: all redefinitions are `except ImportError:` fallbacks
+
+---
+
+## Layer 5 Completion — 2026-03-14
+
+### Steps Completed
+
+**Step 1: Audit trail via record_audit()** — `src/core/dal.py`
+- Added `_audit()` helper that inserts into `audit_trail` table after every DAL write
+- Wired into all 6 write functions: save_rfq, update_rfq_status, save_pc, update_pc_status, save_order, update_order_status
+- Tracks entity_type, entity_id, action (create/update/status_change), actor, old_value, new_value
+- Every `_audit()` call wrapped in try/except — never blocks the actual write
+- `GET /api/v1/audit/<entity_type>/<entity_id>` endpoint returns last 20 audit records
+- 1 test: save_rfq creates audit record
+
+**Step 2: Rollback via snapshots** — `src/core/dal.py` + `src/core/snapshots.py`
+- Added `_snapshot_before_update()` helper that captures existing record before overwrite
+- Wired into save_rfq, save_pc, save_order — only on UPDATE (checks for existing record first)
+- Calls `init_snapshots()` on first use to ensure table exists (L51 fix)
+- `POST /api/v1/rollback/<snapshot_id>` restores data via DAL and records audit
+- `GET /api/v1/snapshots/<entity_type>/<entity_id>` returns last 10 snapshots
+- 2 tests: snapshot taken before update, restore returns original data
+
+**Step 3: DAL batch migration** — Deferred to focus on higher-value steps (audit, rollback, split)
+- Raw SQL count: 239 remaining in route modules (was 245+ at audit time)
+- Priority migrations completed in Layers 2-4 (20 calls migrated)
+- Remaining 239 are lower-priority: aggregate queries, admin/debug endpoints, SCPRS intelligence
+
+**Step 4: Split routes_intel.py** — 7,115 lines → two modules
+- Extracted 64 growth routes (1,142 lines) into `routes_growth_prospects.py` (1,189 lines with imports)
+- `routes_intel.py` reduced to 5,973 lines (16% reduction)
+- Preserved shared globals (GROWTH_AVAILABLE, growth agent imports) in both files
+- Registered `routes_growth_prospects` in dashboard.py `_ROUTE_MODULES` after `routes_intel`
+- 0 duplicate routes after split
+
+**Step 5: request.json hardening** — 4 target files
+- Replaced 44 instances of bare `request.json` / unguarded `get_json()` with `get_json(force=True, silent=True)`
+- Files: routes_pricecheck.py (24), routes_orders_full.py (13), routes_v1.py (4), routes_rfq.py (3)
+- 12 remaining bare `request.json` in non-target files (noted for future pass)
+
+### Metrics
+- **Raw SQL in route modules:** 239 (was 245+ at audit, ~6 migrated this layer + 20 prior)
+- **Entities with full audit trail:** 3 (RFQ, PriceCheck, Order) — all creates, updates, status changes
+- **routes_intel.py:** 7,115 → 5,973 lines (−16%)
+- **rfq.db references:** 0 found (all modules use reytech.db via get_db())
+- **Test count:** 20 (was 17 in Layer 4)
+
+### Files Changed
+- `src/core/dal.py` — _audit(), _snapshot_before_update(), wired into 6 DAL writes
+- `src/api/modules/routes_v1.py` — audit, snapshots, rollback endpoints
+- `src/api/modules/routes_growth_prospects.py` — NEW: 64 growth routes split from routes_intel
+- `src/api/modules/routes_intel.py` — removed growth section (−1,142 lines)
+- `src/api/dashboard.py` — added routes_growth_prospects to module list
+- `src/api/modules/routes_pricecheck.py` — get_json(force=True) hardening
+- `src/api/modules/routes_rfq.py` — get_json(force=True) hardening
+- `src/api/modules/routes_orders_full.py` — get_json(force=True) hardening
+- `tests/test_dal.py` — 3 new tests (audit, snapshot, restore)
+- `tasks/lessons.md` — L51, L52 added
+
+### QA Gate Results
+- `pytest tests/ -x -q`: 20 passed, 0 failures, 1.6s
+- `smoke_test.py`: 14 passed, 3 warnings, 0 failures
+- `check_routes.py`: 0 duplicates
+- `data_integrity.py`: 8 passed, 0 failures
+- `request.json` in target files: 0 bare instances remaining
