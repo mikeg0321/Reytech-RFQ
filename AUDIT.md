@@ -797,3 +797,43 @@ Add to `.claude/settings.json`:
 - `scripts/run_scprs_harvest.py` — expanded with --pull-all, parallel, harvest logging
 - `scripts/run_federal_harvest.py` — NEW: federal harvest runner
 - `tasks/lessons.md`: L53 added (ambiguous SQL column names)
+
+---
+
+## Platform Sprint — Connector Registry + Orchestrator — 2026-03-14
+
+### Scope Decision
+- **California SCPRS:** FULL — all agencies, dynamic discovery, no hardcoded lists
+- **Federal USASpending:** DATA ONLY — CA place-of-performance + Reytech NAICS only
+- **Other states (TX, FL, NY, WA, AZ):** REGISTRY ONLY — scaffolded, no active code
+- **Local government (DemandStar, Bonfire):** REGISTRY ONLY — scaffolded
+
+### Connector Registry (Migration v11)
+- `connectors` table: 10 rows (2 active, 8 scaffolded)
+- Active: `ca_scprs` (priority 1), `federal_usaspending` (priority 2)
+- Scaffolded: `federal_sam`, `tx_esbd`, `fl_mfmp`, `ny_ogs`, `wa_webs`, `az_spo`, `ca_demandstar`, `ca_bonfire`
+- Activating = one DB UPDATE, not a code deploy
+- NO Python files for scaffolded connectors
+
+### Architecture
+- `src/agents/connectors/base.py` — BaseConnector interface (5 methods)
+- `src/agents/connectors/ca_scprs.py` — Wraps existing FiscalSession, dynamic agency discovery
+- `src/agents/connectors/federal_usaspending.py` — Wraps USASpending agent, CA-filtered
+- `src/core/connector_registry.py` — Connector lifecycle (get_active, get_due, update_after_pull)
+- `src/core/pull_orchestrator.py` — PullOrchestrator (run_connector, run_due, vendor_search, get_status)
+- `scripts/run_harvest.py` — Unified CLI (--vendor-search, --connector, --all, --health, --dry-run)
+
+### API Endpoints Added
+- `GET /api/v1/connectors` — all connectors with status/health/records
+- `POST /api/v1/connectors/<id>/run` — trigger async pull
+- `GET /api/v1/connectors/<id>/health` — connectivity check
+- `GET /api/v1/agencies` — agency registry with state filter
+- `/api/v1/health` now includes `connectors` status section
+
+### Harvest Results (after remediation)
+- Reytech wins: 210 POs, $2,852,494.91 (was 6 / $166K — 35x improvement)
+- Total POs: 2,429 across 5 agencies
+- Intelligence tables: 1,504 vendors, 601 buyers, 296 competitors, 6,624 won_quotes_kb
+
+### QA Gate
+- smoke_test: 16/0, check_routes: 0, data_integrity: 10/0

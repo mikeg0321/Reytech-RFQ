@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# DEPRECATED: use scripts/run_harvest.py instead. Will be removed in next cleanup sprint.
 """
 run_scprs_harvest.py — SCPRS Historical Harvest Runner
 
@@ -43,7 +44,6 @@ logging.basicConfig(
 log = logging.getLogger("harvest")
 
 REYTECH_PATTERNS = ["reytech", "rey tech", "rey-tech"]
-REYTECH_SUPPLIER_NAMES = ["reytech", "reytech inc", "rey tech", "reytech incorporated"]
 
 
 def get_conn():
@@ -51,79 +51,6 @@ def get_conn():
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     return conn
-
-
-# ── Pass 0: Reytech supplier name search (highest value) ─────────────────────
-
-def pull_reytech_by_supplier_name(days_back: int = 1095, dry_run: bool = False) -> dict:
-    """Search SCPRS by supplier name 'reytech' to find ALL Reytech POs."""
-    if dry_run:
-        log.info("[DRY RUN] Would search SCPRS for supplier_name='reytech' (%d days)", days_back)
-        return {"ok": True, "dry_run": True}
-    try:
-        from src.agents.scprs_lookup import FiscalSession
-        from datetime import timedelta
-        session = FiscalSession()
-        if not session.init_session():
-            return {"ok": False, "error": "SCPRS session init failed"}
-
-        from_date = (datetime.now() - timedelta(days=days_back)).strftime("%m/%d/%Y")
-        total_found = 0
-        total_new = 0
-        conn = get_conn()
-        now = datetime.now(timezone.utc).isoformat()
-
-        for name in REYTECH_SUPPLIER_NAMES:
-            log.info("Searching SCPRS supplier_name='%s' from %s...", name, from_date)
-            try:
-                results = session.search(supplier_name=name, from_date=from_date)
-                total_found += len(results)
-                for po in results:
-                    po_num = po.get("po_number", "")
-                    if not po_num:
-                        import hashlib
-                        po_num = "SCPRS-" + hashlib.md5(
-                            json.dumps(po, default=str).encode()
-                        ).hexdigest()[:12].upper()
-                    # Check if already exists
-                    existing = conn.execute(
-                        "SELECT id FROM scprs_po_master WHERE po_number=?", (po_num,)
-                    ).fetchone()
-                    if existing:
-                        continue
-                    conn.execute("""
-                        INSERT OR IGNORE INTO scprs_po_master
-                        (pulled_at, po_number, dept_code, dept_name, institution,
-                         supplier, supplier_id, status, start_date, end_date,
-                         grand_total, buyer_name, buyer_email, buyer_phone,
-                         search_term, agency_key, state, source_system)
-                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'CA','scprs')
-                    """, (now, po_num,
-                          po.get("dept_code", ""),
-                          po.get("dept", po.get("dept_name", "")),
-                          po.get("dept", po.get("institution", "")),
-                          po.get("supplier_name", po.get("vendor", po.get("supplier", ""))),
-                          po.get("supplier_id", ""),
-                          po.get("status", "Active"),
-                          po.get("start_date", ""), po.get("end_date", ""),
-                          float(po.get("grand_total_num", po.get("grand_total", 0)) or 0),
-                          po.get("buyer_name", ""),
-                          po.get("buyer_email", ""),
-                          po.get("buyer_phone", ""),
-                          f"SUPPLIER:{name}", ""))
-                    total_new += 1
-                log.info("  supplier='%s': %d results, %d new", name, len(results), total_new)
-                time.sleep(3)  # Rate limit between searches
-            except Exception as e:
-                log.error("Supplier search '%s' failed: %s", name, e)
-
-        conn.commit()
-        conn.close()
-        log.info("Reytech supplier search: %d found, %d new POs inserted", total_found, total_new)
-        return {"ok": True, "found": total_found, "new": total_new}
-    except Exception as e:
-        log.error("Reytech supplier search failed: %s", e)
-        return {"ok": False, "error": str(e)}
 
 
 # ── Step 1: Pull new data (optional) ────────────────────────────────────────
@@ -489,13 +416,6 @@ def main():
         log.info("CA agency registry seeded")
     except Exception as e:
         log.warning("Agency registry seed: %s", e)
-
-    # Pass 0: Reytech supplier name search (always runs on pull)
-    if args.pull or args.pull_all:
-        log.info("Pass 0: Reytech supplier name search...")
-        reytech_result = pull_reytech_by_supplier_name(
-            days_back=1095, dry_run=args.dry_run)
-        log.info("Reytech supplier search: %s", reytech_result)
 
     # Step 1: Pull (single or all agencies)
     if args.pull_all:

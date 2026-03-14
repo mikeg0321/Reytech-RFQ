@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# DEPRECATED: use scripts/run_harvest.py instead. Will be removed in next cleanup sprint.
 """
 run_federal_harvest.py — Federal procurement data harvest from USASpending.gov.
 

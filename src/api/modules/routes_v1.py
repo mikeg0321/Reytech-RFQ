@@ -360,6 +360,14 @@ def api_v1_health():
         except Exception:
             pass
 
+        # Connector status
+        connector_status = {}
+        try:
+            from src.core.pull_orchestrator import PullOrchestrator
+            connector_status = PullOrchestrator().get_status()
+        except Exception:
+            pass
+
         return api_response({
             "version": version,
             "uptime_seconds": uptime,
@@ -367,6 +375,7 @@ def api_v1_health():
             "queues": queues,
             "agents": agents,
             "scprs_harvest": harvest,
+            "connectors": connector_status,
         })
     except Exception as e:
         log.error("v1/health error: %s", e, exc_info=True)
@@ -429,4 +438,83 @@ def api_v1_rollback(snapshot_id):
                              "entity_id": result.get("row_count")})
     except Exception as e:
         log.error("v1/rollback error: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)
+
+
+# ── Connector Management Endpoints ──────────────────────────────────────────
+
+@bp.route("/api/v1/connectors")
+@auth_required
+def api_v1_connectors():
+    """List all connectors with status, health, record counts."""
+    try:
+        from src.core.pull_orchestrator import PullOrchestrator
+        status = PullOrchestrator().get_status()
+        return api_response(status)
+    except Exception as e:
+        log.error("v1/connectors error: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)
+
+
+@bp.route("/api/v1/connectors/<connector_id>/run", methods=["POST"])
+@auth_required
+def api_v1_run_connector(connector_id):
+    """Trigger a connector pull. Returns immediately with queued status."""
+    try:
+        from src.core.task_queue import enqueue
+        task_id = enqueue("run_connector", {"connector_id": connector_id},
+                          actor="api_v1")
+        return api_response({"queued": True, "connector_id": connector_id,
+                             "task_id": task_id})
+    except Exception as e:
+        log.error("v1/connectors/%s/run error: %s", connector_id, e, exc_info=True)
+        return api_response(error=str(e), status=500)
+
+
+@bp.route("/api/v1/connectors/<connector_id>/health")
+@auth_required
+def api_v1_connector_health(connector_id):
+    """Health check a connector without pulling data."""
+    try:
+        from src.core.connector_registry import get_connector
+        meta = get_connector(connector_id)
+        if not meta:
+            return api_response(error="Connector not found", status=404)
+        if not meta.get("connector_class"):
+            return api_response({"status": "scaffolded",
+                                 "message": "No connector class — registry only"})
+        import importlib
+        parts = meta["connector_class"].rsplit(".", 1)
+        mod = importlib.import_module(parts[0])
+        connector = getattr(mod, parts[1])()
+        health = connector.health_check()
+        return api_response(health)
+    except Exception as e:
+        log.error("v1/connectors/%s/health error: %s", connector_id, e, exc_info=True)
+        return api_response(error=str(e), status=500)
+
+
+@bp.route("/api/v1/agencies")
+@auth_required
+def api_v1_agencies():
+    """List agencies from registry. Query: ?state=CA&limit=100"""
+    try:
+        import sqlite3
+        from src.core.db import DB_PATH
+        conn = sqlite3.connect(DB_PATH, timeout=10)
+        conn.row_factory = sqlite3.Row
+        state = request.args.get("state", "")
+        limit = int(request.args.get("limit", 100))
+        if state:
+            rows = conn.execute(
+                "SELECT * FROM agency_registry WHERE state=? AND active=1 LIMIT ?",
+                (state, limit)).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM agency_registry WHERE active=1 LIMIT ?",
+                (limit,)).fetchall()
+        conn.close()
+        return api_response([dict(r) for r in rows])
+    except Exception as e:
+        log.error("v1/agencies error: %s", e, exc_info=True)
         return api_response(error=str(e), status=500)

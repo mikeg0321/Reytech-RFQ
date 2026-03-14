@@ -312,6 +312,41 @@ MIGRATIONS = [
              'https://api.usaspending.gov/api/v2',
              0, 'USASpendingAgent', 7, 'planned');
     """),
+
+    (11, "connector_registry", """
+        CREATE TABLE IF NOT EXISTS connectors (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            jurisdiction_level TEXT,
+            state TEXT,
+            base_url TEXT,
+            connector_class TEXT,
+            auth_type TEXT DEFAULT 'none',
+            pull_frequency_hours INTEGER DEFAULT 168,
+            last_pulled_at TEXT,
+            last_health_grade TEXT,
+            status TEXT DEFAULT 'active',
+            priority INTEGER DEFAULT 5,
+            record_count INTEGER DEFAULT 0,
+            notes TEXT,
+            tenant_id TEXT DEFAULT 'reytech',
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_connectors_status ON connectors(status);
+
+        INSERT OR IGNORE INTO connectors (id, name, jurisdiction_level, state, base_url, connector_class, auth_type, pull_frequency_hours, status, priority, notes) VALUES
+            ('ca_scprs', 'California SCPRS', 'state', 'CA', 'https://caleprocure.ca.gov', 'src.agents.connectors.ca_scprs.CASCPRSConnector', 'session', 168, 'active', 1, NULL),
+            ('federal_usaspending', 'USASpending.gov', 'federal', 'federal', 'https://api.usaspending.gov/api/v2', 'src.agents.connectors.federal_usaspending.USASpendingConnector', 'none', 168, 'active', 2, 'Filtered to CA place-of-performance + Reytech NAICS codes'),
+            ('federal_sam', 'SAM.gov Opportunities', 'federal', 'federal', 'https://api.sam.gov', NULL, 'apikey', 168, 'scaffolded', 3, 'Needs SAM.gov API key to activate'),
+            ('tx_esbd', 'Texas ESBD', 'state', 'TX', 'https://www.txsmartbuy.com/esbd', NULL, 'none', 168, 'scaffolded', 5, 'Activate when Reytech expands to TX'),
+            ('fl_mfmp', 'Florida MFMP', 'state', 'FL', 'https://vendor.myfloridamarketplace.com', NULL, 'none', 168, 'scaffolded', 5, 'Activate when Reytech expands to FL'),
+            ('ny_ogs', 'New York OGS', 'state', 'NY', 'https://www.ogs.ny.gov/procurement', NULL, 'none', 168, 'scaffolded', 5, NULL),
+            ('wa_webs', 'Washington WEBS', 'state', 'WA', 'https://pr-webs-customer.des.wa.gov', NULL, 'none', 168, 'scaffolded', 5, NULL),
+            ('az_spo', 'Arizona SPO', 'state', 'AZ', 'https://spo.az.gov/procurement', NULL, 'none', 168, 'scaffolded', 5, NULL),
+            ('ca_demandstar', 'DemandStar CA Local', 'county', 'CA', 'https://network.demandstar.com', NULL, 'none', 168, 'scaffolded', 4, 'Covers 500+ CA local agencies'),
+            ('ca_bonfire', 'Bonfire CA Local', 'county', 'CA', 'https://gobonfire.com', NULL, 'none', 168, 'scaffolded', 4, 'Hospital and school districts');
+    """),
 ]
 
 
