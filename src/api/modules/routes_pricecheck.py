@@ -1272,13 +1272,25 @@ def _do_save_prices(pcid):
             _price = _item.get("unit_price") or _item.get("pricing", {}).get("recommended_price") or 0
             _supplier = _item.get("item_supplier", "")
             _uom = _item.get("uom", "EA")
+            _url = _item.get("item_link", "")
             if not _desc or (not _cost and not _price):
                 continue
             cat_matches = match_item(_desc, _pn, top_n=1)
             if cat_matches and cat_matches[0].get("match_confidence", 0) >= 0.5:
                 pid = cat_matches[0]["id"]
                 if _cost > 0 and _supplier:
-                    add_supplier_price(pid, _supplier, _cost)
+                    add_supplier_price(pid, _supplier, _cost, url=_url)
+                # Update URL on existing catalog entry if we have one
+                if _url:
+                    try:
+                        from src.agents.product_catalog import _get_conn
+                        conn = _get_conn()
+                        conn.execute(
+                            "UPDATE product_catalog SET photo_url=COALESCE(NULLIF(photo_url,''),?) WHERE id=?",
+                            (_url, pid))
+                        conn.commit(); conn.close()
+                    except Exception:
+                        pass
                 _cat_updated += 1
             else:
                 pid = add_to_catalog(
@@ -1286,10 +1298,11 @@ def _do_save_prices(pcid):
                     cost=_cost if _cost > 0 else 0,
                     sell_price=_price if _price > 0 else 0,
                     supplier_name=_supplier, uom=_uom,
+                    supplier_url=_url,
                     source=f"pc_{pcid}",
                 )
                 if pid and _cost > 0 and _supplier:
-                    add_supplier_price(pid, _supplier, _cost)
+                    add_supplier_price(pid, _supplier, _cost, url=_url)
                     _cat_added += 1
         if _cat_added or _cat_updated:
             log.info("PC %s catalog sync: +%d new, ~%d updated", pcid, _cat_added, _cat_updated)

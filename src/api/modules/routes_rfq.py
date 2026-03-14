@@ -799,13 +799,24 @@ def update(rid):
             bid = item.get("price_per_unit") or 0
             supplier = item.get("item_supplier", "")
             uom = item.get("uom", "EA")
+            url = item.get("item_link", "")
             if not desc or (not cost and not bid):
                 continue
             cat_matches = match_item(desc, pn, top_n=1)
             if cat_matches and cat_matches[0].get("match_confidence", 0) >= 0.5:
                 pid = cat_matches[0]["id"]
                 if cost > 0 and supplier:
-                    add_supplier_price(pid, supplier, cost)
+                    add_supplier_price(pid, supplier, cost, url=url)
+                if url:
+                    try:
+                        from src.agents.product_catalog import _get_conn
+                        conn = _get_conn()
+                        conn.execute(
+                            "UPDATE product_catalog SET photo_url=COALESCE(NULLIF(photo_url,''),?) WHERE id=?",
+                            (url, pid))
+                        conn.commit(); conn.close()
+                    except Exception:
+                        pass
                 cat_updated += 1
             else:
                 pid = add_to_catalog(
@@ -813,10 +824,11 @@ def update(rid):
                     cost=cost if cost > 0 else 0,
                     sell_price=bid if bid > 0 else 0,
                     supplier_name=supplier, uom=uom,
+                    supplier_url=url,
                     source=f"rfq_finalize_{r.get('solicitation_number', '')}",
                 )
                 if pid and cost > 0 and supplier:
-                    add_supplier_price(pid, supplier, cost)
+                    add_supplier_price(pid, supplier, cost, url=url)
                     cat_added += 1
         if cat_added or cat_updated:
             log.info("Finalize catalog sync: +%d new, ~%d updated", cat_added, cat_updated)
