@@ -113,6 +113,18 @@ def create_app():
         logging.getLogger("reytech").warning("DB init: %s", e)
     print(f"[BOOT] DB ready ({time.time()-t0:.1f}s)", flush=True)
 
+    # ── Schema validation — fix missing tables/columns before first request ──
+    try:
+        from src.core.startup_checks import run_schema_checks
+        schema_result = run_schema_checks()
+        fixes = schema_result.get("issues_fixed", [])
+        if fixes:
+            print(f"[BOOT] Schema repaired: {len(fixes)} fix(es) — {', '.join(fixes[:5])}", flush=True)
+        else:
+            print(f"[BOOT] Schema OK — {schema_result['tables_checked']} tables, 0 issues", flush=True)
+    except Exception as e:
+        logging.getLogger("reytech").warning("Schema check: %s", e)
+
     # Register blueprint (all routes)
     from src.api.dashboard import bp, start_polling
     app.register_blueprint(bp)

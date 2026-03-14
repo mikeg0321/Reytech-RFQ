@@ -263,3 +263,197 @@ def _auto_alert_failures(results):
 
 def get_results():
     return _results
+
+
+# ── Boot-time schema validation and auto-repair ──────────────────────────────
+
+# Canonical column specs: (table, column, type_with_default)
+# Source of truth is db.py SCHEMA + _migrate_columns()
+_EXPECTED_SCHEMA = {
+    "price_checks": [
+        ("id", "TEXT PRIMARY KEY"),
+        ("created_at", "TEXT NOT NULL"),
+        ("requestor", "TEXT"),
+        ("agency", "TEXT"),
+        ("institution", "TEXT"),
+        ("items", "TEXT"),
+        ("source_file", "TEXT"),
+        ("quote_number", "TEXT"),
+        ("pc_number", "TEXT"),
+        ("total_items", "INTEGER DEFAULT 0"),
+        ("status", "TEXT DEFAULT 'parsed'"),
+        ("email_uid", "TEXT"),
+        ("email_subject", "TEXT"),
+        ("due_date", "TEXT"),
+        ("pc_data", "TEXT DEFAULT '{}'"),
+        ("ship_to", "TEXT DEFAULT ''"),
+        ("contact_email", "TEXT DEFAULT ''"),
+        ("sent_at", "TEXT"),
+        ("last_scprs_check", "TEXT"),
+        ("scprs_check_count", "INTEGER DEFAULT 0"),
+        ("award_status", "TEXT DEFAULT 'pending'"),
+        ("competitor_name", "TEXT"),
+        ("competitor_price", "REAL"),
+        ("competitor_po", "TEXT"),
+        ("revision_of", "TEXT"),
+        ("closed_at", "TEXT"),
+        ("closed_reason", "TEXT"),
+        ("qb_po_id", "TEXT"),
+        ("qb_invoice_id", "TEXT"),
+    ],
+    "rfqs": [
+        ("id", "TEXT PRIMARY KEY"),
+        ("received_at", "TEXT NOT NULL"),
+        ("agency", "TEXT"),
+        ("institution", "TEXT"),
+        ("requestor_name", "TEXT"),
+        ("requestor_email", "TEXT"),
+        ("rfq_number", "TEXT"),
+        ("items", "TEXT"),
+        ("status", "TEXT DEFAULT 'new'"),
+        ("source", "TEXT"),
+        ("email_uid", "TEXT"),
+        ("notes", "TEXT"),
+        ("updated_at", "TEXT"),
+    ],
+    "orders": [
+        ("id", "TEXT PRIMARY KEY"),
+        ("quote_number", "TEXT"),
+        ("agency", "TEXT"),
+        ("institution", "TEXT"),
+        ("po_number", "TEXT"),
+        ("po_date", "TEXT"),
+        ("status", "TEXT DEFAULT 'active'"),
+        ("total", "REAL DEFAULT 0"),
+        ("items", "TEXT"),
+        ("notes", "TEXT"),
+        ("created_at", "TEXT"),
+        ("updated_at", "TEXT"),
+    ],
+    "price_history": [
+        ("id", "INTEGER PRIMARY KEY AUTOINCREMENT"),
+        ("found_at", "TEXT NOT NULL"),
+        ("description", "TEXT NOT NULL"),
+        ("part_number", "TEXT"),
+        ("manufacturer", "TEXT"),
+        ("quantity", "REAL"),
+        ("unit_price", "REAL NOT NULL"),
+        ("source", "TEXT NOT NULL"),
+        ("source_url", "TEXT"),
+        ("source_id", "TEXT"),
+        ("agency", "TEXT"),
+        ("quote_number", "TEXT"),
+        ("price_check_id", "TEXT"),
+        ("notes", "TEXT"),
+    ],
+    "processed_emails": [
+        ("uid", "TEXT PRIMARY KEY"),
+        ("inbox", "TEXT DEFAULT 'sales'"),
+        ("processed_at", "TEXT"),
+    ],
+    "won_quotes": [
+        ("id", "TEXT PRIMARY KEY"),
+        ("po_number", "TEXT"),
+        ("item_number", "TEXT"),
+        ("description", "TEXT"),
+        ("normalized_description", "TEXT"),
+        ("tokens", "TEXT"),
+        ("category", "TEXT"),
+        ("supplier", "TEXT"),
+        ("department", "TEXT"),
+        ("unit_price", "REAL"),
+        ("quantity", "REAL"),
+        ("total", "REAL"),
+        ("award_date", "TEXT"),
+        ("source", "TEXT"),
+        ("confidence", "REAL DEFAULT 1.0"),
+        ("ingested_at", "TEXT"),
+        ("updated_at", "TEXT"),
+    ],
+}
+
+
+def run_schema_checks():
+    """Validate every expected table and column exists in reytech.db.
+
+    For missing tables, run CREATE TABLE IF NOT EXISTS.
+    For missing columns, run ALTER TABLE ADD COLUMN with a safe default.
+    Returns a summary dict with tables_checked, columns_checked, issues_fixed.
+    """
+    db_path = os.path.join(DATA_DIR, "reytech.db")
+    if not os.path.exists(db_path):
+        log.warning("Schema check: %s does not exist yet — skipping", db_path)
+        return {"tables_checked": 0, "columns_checked": 0, "issues_fixed": []}
+
+    issues_fixed = []
+    tables_checked = 0
+    columns_checked = 0
+
+    try:
+        conn = sqlite3.connect(db_path, timeout=30)
+        conn.execute("PRAGMA journal_mode=WAL")
+
+        # Get existing tables
+        existing_tables = {
+            r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+
+        for table, columns in _EXPECTED_SCHEMA.items():
+            tables_checked += 1
+
+            if table not in existing_tables:
+                # Build CREATE TABLE statement from column specs
+                col_defs = ", ".join(f"{col} {ctype}" for col, ctype in columns)
+                conn.execute(f"CREATE TABLE IF NOT EXISTS {table} ({col_defs})")
+                conn.commit()
+                issues_fixed.append(f"created table {table}")
+                log.warning("Schema repair: created missing table %s", table)
+                columns_checked += len(columns)
+                continue
+
+            # Table exists — check each column
+            existing_cols = {
+                r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()
+            }
+
+            for col, ctype in columns:
+                columns_checked += 1
+                if col not in existing_cols:
+                    # Strip PRIMARY KEY / NOT NULL for ALTER TABLE ADD COLUMN
+                    safe_type = ctype.replace("PRIMARY KEY", "").replace("AUTOINCREMENT", "")
+                    safe_type = safe_type.replace("NOT NULL", "").strip()
+                    # Ensure a DEFAULT for non-nullable types
+                    if "DEFAULT" not in safe_type.upper() and "TEXT" in safe_type.upper():
+                        safe_type += " DEFAULT ''"
+                    elif "DEFAULT" not in safe_type.upper() and ("REAL" in safe_type.upper() or "INTEGER" in safe_type.upper()):
+                        safe_type += " DEFAULT 0"
+
+                    try:
+                        conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {safe_type}")
+                        conn.commit()
+                        issues_fixed.append(f"added {table}.{col}")
+                        log.warning("Schema repair: added missing column %s.%s (%s)", table, col, safe_type)
+                    except sqlite3.OperationalError as e:
+                        if "duplicate column" not in str(e).lower():
+                            issues_fixed.append(f"FAILED {table}.{col}: {e}")
+                            log.error("Schema repair failed: %s.%s — %s", table, col, e)
+
+        conn.close()
+    except Exception as e:
+        log.error("Schema check error: %s", e)
+        return {"tables_checked": tables_checked, "columns_checked": columns_checked,
+                "issues_fixed": issues_fixed, "error": str(e)}
+
+    # Log startup report
+    if issues_fixed:
+        log.warning("Schema check — %d tables, %d columns, %d issues fixed: %s",
+                     tables_checked, columns_checked, len(issues_fixed),
+                     "; ".join(issues_fixed))
+    else:
+        log.info("Schema OK — %d tables, %d columns, 0 issues",
+                 tables_checked, columns_checked)
+
+    return {"tables_checked": tables_checked, "columns_checked": columns_checked,
+            "issues_fixed": issues_fixed}
