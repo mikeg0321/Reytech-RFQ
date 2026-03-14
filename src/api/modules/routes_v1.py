@@ -456,7 +456,7 @@ def api_v1_connectors():
         return api_response(error=str(e), status=500)
 
 
-@bp.route("/api/v1/connectors/<connector_id>/run", methods=["POST"])
+@bp.route("/api/v1/connectors/<connector_id>/run", methods=["GET", "POST"])
 @auth_required
 def api_v1_run_connector(connector_id):
     """Trigger a connector pull. Returns immediately with queued status."""
@@ -517,4 +517,55 @@ def api_v1_agencies():
         return api_response([dict(r) for r in rows])
     except Exception as e:
         log.error("v1/agencies error: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)
+
+
+# ── Harvest Trigger Endpoints (GET for browser use) ──────────────────────────
+
+@bp.route("/api/v1/harvest/ca")
+@auth_required
+def api_v1_harvest_ca():
+    """Trigger CA SCPRS harvest. GET for easy browser trigger."""
+    try:
+        import threading
+        from src.core.pull_orchestrator import PullOrchestrator
+        def _run():
+            try:
+                PullOrchestrator().run_connector("ca_scprs")
+            except Exception as e:
+                log.error("CA harvest background: %s", e)
+        threading.Thread(target=_run, daemon=True, name="harvest-ca").start()
+        return api_response({"message": "CA harvest started", "connector": "ca_scprs"})
+    except Exception as e:
+        log.error("v1/harvest/ca error: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)
+
+
+@bp.route("/api/v1/harvest/federal")
+@auth_required
+def api_v1_harvest_federal():
+    """Trigger federal USASpending harvest. GET for easy browser trigger."""
+    try:
+        import threading
+        from src.core.pull_orchestrator import PullOrchestrator
+        def _run():
+            try:
+                PullOrchestrator().run_connector("federal_usaspending")
+            except Exception as e:
+                log.error("Federal harvest background: %s", e)
+        threading.Thread(target=_run, daemon=True, name="harvest-federal").start()
+        return api_response({"message": "Federal harvest started", "connector": "federal_usaspending"})
+    except Exception as e:
+        log.error("v1/harvest/federal error: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)
+
+
+@bp.route("/api/v1/harvest/status")
+def api_v1_harvest_status():
+    """Current connector status. No auth — read only."""
+    try:
+        from src.core.pull_orchestrator import PullOrchestrator
+        return api_response(PullOrchestrator().get_status())
+    except Exception as e:
+        log.error("v1/harvest/status error: %s", e, exc_info=True)
         return api_response(error=str(e), status=500)
