@@ -55,15 +55,22 @@ before RFQs hit the inbox. The system gets smarter with every transaction.
 - Google Drive backup after every harvest
 - Harvest reliability sprint complete — daea5f7
 
-### 🔄 Harvest Remediation (IN PROGRESS)
-Root causes identified:
-  1. Only 3 of 8+ agencies pulled (need all CA agencies)
-  2. Date range only 1 year (need 2-3 years)
-  3. No supplier_name search (misses Reytech-specific POs)
-  4. Missing Reytech-specific search terms
+### ✅ Harvest Remediation (COMPLETE — cbdf379)
+Root causes fixed:
+  1. supplier_name search added → found 210 Reytech POs ($2.85M)
+  2. Connector registry replaces hardcoded agency lists
+  3. Dynamic agency discovery → 51 CA agencies in registry
+  4. Migrations now run on boot path (not gated by background agents)
 
-Target: Reytech wins should reflect $500K+ actual revenue.
-DO NOT start Phase 2 until won_quotes_kb reflects real history.
+Results: 210 Reytech POs, $2,852,494.91 total (was 6 / $166K)
+
+### ✅ Platform Sprint — Connector Registry (COMPLETE — cbdf379)
+  - Connector registry: 2 active (CA SCPRS, USASpending), 8 scaffolded
+  - BaseConnector interface + CASCPRSConnector + USASpendingConnector
+  - PullOrchestrator: unified orchestration, health checks, harvest logging
+  - Agency discovery: dynamic via get_all_agencies(), no hardcoded lists
+  - API: /api/v1/connectors, /api/v1/agencies, connector health in /api/v1/health
+  - Activating a new state = 1 DB row + 1 adapter class. Zero for scaffolded.
 
 ### ⏳ Phase 2 — Pricing Oracle + Buyer Intelligence (NEXT)
 See PHASE_2_PROMPT.md
@@ -117,6 +124,20 @@ F grade = skip intelligence reprocess for that source
 | procurement_sources  | Data source registry           | Scheduler          |
 | agency_registry      | All agencies + metadata        | Harvest runner     |
 | harvest_log          | Pull history + health grades   | Dashboard          |
+| connectors           | Data source registry + lifecycle| Orchestrator       |
+
+### Connector Registry Pattern
+Agency discovery is dynamic via `CASCPRSConnector.get_all_agencies()`.
+No hardcoded agency lists anywhere. Current count: 51 CA agencies.
+
+Adding a new data source = one DB row + one adapter class.
+Activating a scaffolded connector = one UPDATE query.
+No Python files exist for scaffolded states (TX, FL, NY, WA, AZ).
+
+Active connectors: `ca_scprs` (priority 1), `federal_usaspending` (priority 2)
+Scaffolded: `federal_sam`, `tx_esbd`, `fl_mfmp`, `ny_ogs`, `wa_webs`, `az_spo`, `ca_demandstar`, `ca_bonfire`
+
+Federal scope: CA place-of-performance + Reytech NAICS codes only (pricing intelligence, not contracts).
 
 ---
 

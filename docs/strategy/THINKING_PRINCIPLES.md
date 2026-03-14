@@ -139,3 +139,7 @@ If validation fails: restore from snapshot.
 - Never rebuild intelligence tables from a degraded harvest
 - Confidence scores are only honest if the data is complete
 - An oracle built on 6 wins when there are 500 is dangerous
+- No hardcoded agency lists. Ever. Dynamic discovery > hardcoded configuration.
+  If you're typing agency names into Python code, something is wrong.
+- Connector registry = configuration not code. Adding a new data source = one DB row + one adapter.
+  Activating a scaffolded connector = one UPDATE query, zero deploys.

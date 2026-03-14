@@ -375,6 +375,46 @@ def check_won_quotes_kb():
     return True, f"won_quotes_kb: {total} items, {priced} with price > 0"
 
 
+# ── Check 11: Connectors table has active rows ──────────────────────────────
+
+def check_connectors():
+    """connectors table should have 2+ active rows."""
+    conn = _get_conn()
+    if not conn:
+        return True, "No database — skipped"
+    try:
+        active = conn.execute(
+            "SELECT COUNT(*) FROM connectors WHERE status='active'"
+        ).fetchone()[0]
+    except sqlite3.OperationalError:
+        conn.close()
+        return True, "connectors table missing — platform not deployed yet"
+    conn.close()
+    if active < 2:
+        return False, f"Only {active} active connector(s) (need 2+)"
+    return True, f"{active} active connectors"
+
+
+# ── Check 12: Agency registry has CA agencies ────────────────────────────────
+
+def check_agency_registry():
+    """agency_registry should have 50+ CA agencies."""
+    conn = _get_conn()
+    if not conn:
+        return True, "No database — skipped"
+    try:
+        ca = conn.execute(
+            "SELECT COUNT(*) FROM agency_registry WHERE state='CA' AND active=1"
+        ).fetchone()[0]
+    except sqlite3.OperationalError:
+        conn.close()
+        return True, "agency_registry table missing"
+    conn.close()
+    if ca < 20:
+        return False, f"Only {ca} CA agencies (need 20+ for meaningful coverage)"
+    return True, f"{ca} CA agencies in registry"
+
+
 ALL_CHECKS = [
     ("Sent RFQs have linked PC", check_sent_rfqs_have_pc),
     ("Order statuses valid", check_order_statuses),
@@ -386,6 +426,8 @@ ALL_CHECKS = [
     ("Order→quote references", check_order_rfq_refs),
     ("SCPRS harvest has data", check_scprs_harvest),
     ("Won quotes KB populated", check_won_quotes_kb),
+    ("Connectors active", check_connectors),
+    ("CA agency registry", check_agency_registry),
 ]
 
 
