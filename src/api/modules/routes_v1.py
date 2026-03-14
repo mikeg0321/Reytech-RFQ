@@ -894,7 +894,7 @@ def api_v1_harvest_diagnose():
         from src.core.db import DB_PATH
         conn = sqlite3.connect(DB_PATH, timeout=10)
         conn.row_factory = sqlite3.Row
-        diag = {"counts": {}, "samples": {}}
+        diag = {"counts": {}, "samples": {}, "harvest_progress": dict(_harvest_progress)}
         for t in ["scprs_po_master", "scprs_po_lines", "won_quotes_kb",
                    "vendor_intel", "buyer_intel", "competitors", "scprs_awards"]:
             try:
@@ -986,12 +986,22 @@ def api_v1_harvest_deduplicate():
         return api_response(error=str(e), status=500)
 
 
+_harvest_progress = {"running": False}
+
+
 @bp.route("/api/v1/harvest/keywords")
 @auth_required
 def api_v1_harvest_keywords():
     """Run keyword-based harvest that fetches PO line item detail. Background thread."""
+    if _harvest_progress.get("running"):
+        return api_response({
+            "already_running": True,
+            "progress": _harvest_progress,
+        })
     try:
         import threading
+        from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+
         def _run():
             try:
                 from src.core.harvest_keywords import HIGH_PRIORITY_KEYWORDS
@@ -999,30 +1009,40 @@ def api_v1_harvest_keywords():
                 from src.core.pull_orchestrator import _store_results, _get_conn
                 from datetime import datetime, timedelta
 
+                _harvest_progress.update(running=True, keywords_total=len(HIGH_PRIORITY_KEYWORDS),
+                    keywords_done=0, current_keyword="authenticating", lines_found_so_far=0)
+
                 connector = CASCPRSConnector()
                 if not connector.authenticate():
                     log.error("Keyword harvest: SCPRS auth failed")
+                    _harvest_progress.update(running=False, current_keyword="auth_failed")
                     return
 
                 from_dt = datetime.now() - timedelta(days=730)
                 total_stored = 0
                 total_lines = 0
 
-                for kw in HIGH_PRIORITY_KEYWORDS:
+                for i, kw in enumerate(HIGH_PRIORITY_KEYWORDS):
+                    _harvest_progress.update(current_keyword=kw, keywords_done=i)
                     try:
-                        results = connector.search_by_keyword(
-                            kw, from_dt, fetch_detail=True, max_detail=30)
+                        # 45s timeout per keyword
+                        with ThreadPoolExecutor(max_workers=1) as executor:
+                            future = executor.submit(
+                                connector.search_by_keyword,
+                                kw, from_dt, True, 15)  # max_detail=15
+                            results = future.result(timeout=45)
                         if results:
                             conn = _get_conn()
                             stored = _store_results(conn, results, "ca_scprs")
-                            # Count line items stored
                             lines = sum(len(r.get("line_items", [])) for r in results)
                             total_lines += lines
                             total_stored += stored
                             conn.close()
-                            log.info("Keyword '%s': %d POs, %d lines stored",
-                                     kw, stored, lines)
+                            _harvest_progress["lines_found_so_far"] = total_lines
+                            log.info("Keyword '%s': %d POs, %d lines stored", kw, stored, lines)
                         import time; time.sleep(3)
+                    except FuturesTimeout:
+                        log.warning("Keyword '%s' timed out (45s) — skipping", kw)
                     except Exception as e:
                         log.error("Keyword harvest '%s' failed: %s", kw, e)
 
@@ -1044,8 +1064,11 @@ def api_v1_harvest_keywords():
                 except Exception as e:
                     log.warning("Intel rebuild after keywords: %s", e)
 
+                _harvest_progress.update(keywords_done=len(HIGH_PRIORITY_KEYWORDS),
+                    current_keyword="complete", running=False)
             except Exception as e:
                 log.error("Keyword harvest background: %s", e, exc_info=True)
+                _harvest_progress.update(running=False, current_keyword=f"error: {str(e)[:50]}")
 
         threading.Thread(target=_run, daemon=True, name="harvest-keywords").start()
         from src.core.harvest_keywords import HIGH_PRIORITY_KEYWORDS
@@ -1063,13 +1086,14 @@ def api_v1_harvest_keywords():
 @bp.route("/api/v1/harvest/keywords-sync")
 @auth_required
 def api_v1_harvest_keywords_sync():
-    """Run keyword harvest SYNCHRONOUSLY (first 5 keywords only). For debugging."""
+    """Run keyword harvest SYNCHRONOUSLY (first 3 keywords, 5 detail max, 30s timeout each)."""
     try:
         from src.core.harvest_keywords import HIGH_PRIORITY_KEYWORDS
         from src.agents.connectors.ca_scprs import CASCPRSConnector
         from src.core.pull_orchestrator import _store_results, _get_conn
         from datetime import datetime, timedelta
         import time as _t
+        from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 
         connector = CASCPRSConnector()
         if not connector.authenticate():
@@ -1079,19 +1103,33 @@ def api_v1_harvest_keywords_sync():
         results_summary = {}
         total_lines = 0
 
-        for kw in HIGH_PRIORITY_KEYWORDS[:5]:
+        for kw in HIGH_PRIORITY_KEYWORDS[:3]:
             t0 = _t.time()
-            results = connector.search_by_keyword(
-                kw, from_dt, fetch_detail=True, max_detail=10)
-            conn = _get_conn()
-            stored = _store_results(conn, results, "ca_scprs")
-            lines = sum(len(r.get("line_items", [])) for r in results)
-            total_lines += lines
-            conn.close()
-            results_summary[kw] = {
-                "pos": len(results), "stored": stored,
-                "lines": lines, "seconds": round(_t.time() - t0, 1)
-            }
+            try:
+                # 30s timeout per keyword using thread executor
+                with ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(
+                        connector.search_by_keyword,
+                        kw, from_dt, True, 5)  # fetch_detail=True, max_detail=5
+                    results = future.result(timeout=30)
+                conn = _get_conn()
+                stored = _store_results(conn, results, "ca_scprs")
+                lines = sum(len(r.get("line_items", [])) for r in results)
+                total_lines += lines
+                conn.close()
+                results_summary[kw] = {
+                    "pos": len(results), "stored": stored,
+                    "lines": lines, "seconds": round(_t.time() - t0, 1)
+                }
+            except FuturesTimeout:
+                results_summary[kw] = {
+                    "pos": 0, "stored": 0, "lines": 0,
+                    "seconds": round(_t.time() - t0, 1), "error": "timeout (30s)"
+                }
+                log.warning("Keyword '%s' timed out after 30s — skipping", kw)
+            except Exception as e:
+                results_summary[kw] = {"error": str(e)[:100]}
+                log.warning("Keyword '%s' failed: %s", kw, e)
             _t.sleep(2)
 
         return api_response({
