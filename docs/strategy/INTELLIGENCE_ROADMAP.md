@@ -234,3 +234,76 @@ Full lessons: tasks/lessons.md
 3. Build permissioning (roles: admin, operator, viewer)
 4. Build tenant onboarding flow
 5. Fork UI/branding only — engine stays shared
+
+---
+
+## Phase 3 — Tenant Profile + Automated Pipeline
+See PHASE_3_PROMPT.md for full prompt.
+
+### What it delivers
+- Reytech identity locked in DB (legal name, entity number,
+  certifications, NAICS codes, vendor search names)
+- Compliance alerts for overdue filings + cert expiry
+- New RFQs auto-priced by oracle on arrival
+- Approval threshold: small RFQs auto-draft, large go to review
+- Win/loss feedback loop — every outcome improves the oracle
+- Pipeline status bar on home dashboard
+- routes_intel.py god module split
+
+### Reytech Certifications (seeded in tenant_profiles)
+| Type   | Number  | Jurisdiction | Notes                          |
+|--------|---------|--------------|--------------------------------|
+| MB     | 2002605 | CA           | Micro Business                 |
+| SB     | 2002605 | CA           | Small Business                 |
+| SB-PW  | 2002605 | CA           | Small Business Public Works    |
+| DVBE   | 2002605 | CA           | Disabled Veteran Business      |
+| SDVOB  | 221449  | NY           | Service-Disabled Veteran       |
+| DBE    | 44511   | DOT          | Disadvantaged Business Ent.    |
+
+### Compliance Alert
+Statement of Info due: 06/30/2024 — OVERDUE.
+Surface as critical alert on home dashboard immediately.
+
+---
+
+## Phase 4 — Proactive Growth + Margin Intelligence
+See PHASE_4_PROMPT.md for full prompt.
+
+### What it delivers
+- Buying cycle predictions (who buys what, when)
+- Proactive outreach targets 60 days ahead
+- Margin optimizer per agency (highest price with 60%+ win rate)
+- Set-aside opportunity flagging (DVBE/SB eligible contracts missed)
+- QB revenue reconciliation against oracle records
+
+---
+
+## Phase Sequence Summary
+
+| Phase | Focus | Prompt File | Status |
+|-------|-------|-------------|--------|
+| Harvest | Data collection | (in sprint) | 🔄 |
+| 1 | SCPRS harvest, tables | (done) | ✅ |
+| 2 | Oracle + buyer intel | PHASE_2_PROMPT.md | ⏳ |
+| 3 | Tenant profile + pipeline | PHASE_3_PROMPT.md | ⏳ |
+| 4 | Growth + margin intel | PHASE_4_PROMPT.md | ⏳ |
+| 5 | Multi-user, hiring | (TBD) | ⏳ |
+
+---
+
+## Locked Decisions (do not revisit without business reason)
+
+### Tenant identity — March 2026
+All vendor search names, NAICS codes, and certifications
+live in tenant_profiles table, not hardcoded anywhere.
+Reytech is tenant_id='reytech'. Future tenants get their own row.
+
+### Certification-aware bidding
+DVBE and SB certifications create set-aside opportunities.
+System flags contracts Reytech is eligible for but hasn't bid on.
+Cert expiry tracked with alerts — a lapsed cert = lost revenue.
+
+### Win/loss feedback is mandatory
+Every RFQ outcome (won or lost) must be recorded.
+The oracle is only as good as its feedback data.
+Skipping this step degrades intelligence quality over time.
