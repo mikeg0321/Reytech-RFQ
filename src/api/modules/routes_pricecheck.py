@@ -4436,6 +4436,19 @@ def pricecheck_document_save(pcid):
     return jsonify({"ok": True, "doc_id": doc_id, "version": ver, "filename": versioned_name})
 
 
+@bp.route("/api/pricecheck/<pcid>/mark-auto-priced", methods=["POST"])
+@auth_required
+def api_pc_mark_auto_priced(pcid):
+    """Mark a PC as auto-priced so the on-load auto-pricing doesn't re-run."""
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"})
+    pc["auto_priced"] = True
+    _save_price_checks(pcs)
+    return jsonify({"ok": True})
+
+
 @bp.route("/api/pricecheck/<pcid>/retry-auto-price", methods=["POST", "GET"])
 @auth_required
 def api_pc_retry_auto_price(pcid):

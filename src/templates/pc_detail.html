@@ -2643,8 +2643,20 @@
     var recalcPC = (typeof window.recalcPC==='function') ? window.recalcPC : function(){};
     var recalcRow = (typeof window.recalcRow==='function') ? window.recalcRow : function(){};
     _log('block3: auto-pricing-start');
-    // ── AUTO-PRICE ON LOAD ──
+    // ── AUTO-PRICE ON LOAD — ONCE ONLY ──
+    // Only runs when status='parsed' AND auto-pricing hasn't been attempted yet.
+    // Prevents re-running on every page visit when some items remain unpriced.
     (function autoRunPricing() {
+     var pcStatus = '{{ pc.get("status","") }}';
+     var alreadyAutoPriced = '{{ pc.get("auto_priced","") }}' === 'True';
+     
+     // Only auto-price on first load after parsing
+     if (pcStatus !== 'parsed' || alreadyAutoPriced) {
+      var banner = document.getElementById('autoStatusBanner');
+      if (banner) banner.style.display = 'none';
+      return;
+     }
+     
      // Check if any items need pricing
      const costInputs = document.querySelectorAll('input[name^=cost_]');
      let unpriced = 0;
@@ -2652,7 +2664,6 @@
       if (!parseFloat(inp.value)) unpriced++;
      });
      if (unpriced === 0 || costInputs.length === 0) {
-      // All items priced — update banner
       const banner = document.getElementById('autoStatusBanner');
       if (banner) banner.style.display = 'none';
       return;
@@ -2719,7 +2730,10 @@
         // Auto-save instead of reloading (prevents page flash + data loss)
         recalcPC();
         fetch('/pricecheck/'+_pcid+'/save-prices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(collectPrices())})
-         .then(r=>r.json()).then(sd=>{if(sd.ok) showMsg('✅ Auto-priced '+total+' items and saved.','ok')})
+         .then(r=>r.json()).then(sd=>{
+          if(sd.ok) showMsg('✅ Auto-priced '+total+' items and saved.','ok');
+          fetch('/api/pricecheck/'+_pcid+'/mark-auto-priced',{method:'POST'});
+         })
          .catch(()=>{});
        } else {
         // Try SCPRS as last resort
@@ -2729,14 +2743,16 @@
          if(scprsFound > 0){
           updateBanner('✅', '<b>Found prices!</b> ' + scprsFound + ' from SCPRS. Reloading...', '#3fb950');
           showMsg('✅ Auto-priced: ' + scprsFound + ' from SCPRS. Reloading...', 'ok');
-          setTimeout(() => location.reload(), 1500);
+          fetch("/api/pricecheck/"+_pcid+"/mark-auto-priced",{method:"POST"}).then(()=>setTimeout(()=>location.reload(),500));
          } else {
           updateBanner('ℹ️', '<b>No auto-matches found.</b> Use 🔬 Amazon, 🌐 Web Search, or paste supplier URLs.', '#8b949e');
           showMsg('ℹ️ No auto-matches found. Use the pricing buttons or paste supplier URLs.', 'warn');
+          fetch('/api/pricecheck/'+_pcid+'/mark-auto-priced',{method:'POST'});
          }
         }).catch(()=>{
          updateBanner('ℹ️', '<b>No auto-matches found.</b> Use 🔬 Amazon, 🌐 Web Search, or paste supplier URLs.', '#8b949e');
          showMsg('ℹ️ No auto-matches. Use the pricing buttons or paste supplier URLs.', 'warn');
+         fetch('/api/pricecheck/'+_pcid+'/mark-auto-priced',{method:'POST'});
         });
        }
       }).catch(() => {
@@ -2755,7 +2771,7 @@
          if(sd.found > 0){
           showMsg('✅ SCPRS: Found '+sd.found+' matches. Reloading...', 'ok');
           updateBanner('✅', '<b>Found prices!</b> '+sd.found+' from SCPRS. Reloading...', '#3fb950');
-          setTimeout(()=>location.reload(), 1500);
+          fetch("/api/pricecheck/"+_pcid+"/mark-auto-priced",{method:"POST"}).then(()=>setTimeout(()=>location.reload(),500));
          }
         }).catch(()=>{});
        }
@@ -2768,7 +2784,7 @@
        if(wd.found > 0){
         showMsg('✅ Web search: Found ' + wd.found + ' prices. Reloading...', 'ok');
         updateBanner('✅', '<b>Found prices!</b> '+wd.found+' from web search. Reloading...', '#3fb950');
-        setTimeout(() => location.reload(), 1500);
+        fetch("/api/pricecheck/"+_pcid+"/mark-auto-priced",{method:"POST"}).then(()=>setTimeout(()=>location.reload(),500));
        } else {
         updateBanner('ℹ️', '<b>No auto-matches.</b> Use 🔬 Amazon, 🌐 Web Search, or paste supplier URLs.', '#8b949e');
         showMsg('ℹ️ No auto-matches. Use the pricing buttons or paste supplier URLs.', 'warn');
