@@ -126,7 +126,11 @@ def create_app():
         logging.getLogger("reytech").warning("Schema check: %s", e)
 
     # Register blueprint (all routes)
-    from src.api.dashboard import bp, start_polling
+    from src.api.dashboard import bp
+    try:
+        from src.api.dashboard import start_polling
+    except ImportError:
+        start_polling = None
     app.register_blueprint(bp)
     print(f"[BOOT] Routes registered ({time.time()-t0:.1f}s)", flush=True)
 
@@ -232,10 +236,11 @@ def create_app():
         logging.getLogger("reytech").info("Deferred init complete")
 
     import threading
-    threading.Thread(target=_deferred_init, daemon=True, name="deferred-init").start()
+    if os.environ.get("ENABLE_BACKGROUND_AGENTS", "true").lower() not in ("false", "0", "off"):
+        threading.Thread(target=_deferred_init, daemon=True, name="deferred-init").start()
 
     # Start email polling (production only)
-    if os.environ.get("ENABLE_EMAIL_POLLING", "").lower() == "true":
+    if os.environ.get("ENABLE_EMAIL_POLLING", "").lower() == "true" and start_polling:
         with app.app_context():
             start_polling(app)
 
@@ -246,7 +251,8 @@ def create_app():
     try:
         from src.core.startup_checks import run_all_checks, get_results
         import threading as _thr
-        _thr.Thread(target=run_all_checks, daemon=True, name="startup-checks").start()
+        if os.environ.get("ENABLE_BACKGROUND_AGENTS", "true").lower() not in ("false", "0", "off"):
+            _thr.Thread(target=run_all_checks, daemon=True, name="startup-checks").start()
 
         @app.route("/api/health/startup")
         def _startup_health():

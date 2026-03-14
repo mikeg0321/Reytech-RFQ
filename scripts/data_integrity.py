@@ -243,12 +243,108 @@ def check_duplicate_solicitations():
 
 # ── Runner ───────────────────────────────────────────────────────────────────
 
+# ── Check 6: RFQ parity — SQLite vs JSON ─────────────────────────────────────
+
+def check_rfq_parity():
+    """RFQ count in SQLite should match rfqs.json within a small delta."""
+    json_rfqs = _load_json("rfqs.json")
+    json_count = len(json_rfqs) if isinstance(json_rfqs, dict) else 0
+
+    conn = _get_conn()
+    if not conn:
+        return True, f"No database — JSON has {json_count} RFQs"
+    try:
+        db_count = conn.execute("SELECT COUNT(*) FROM rfqs").fetchone()[0]
+    except sqlite3.OperationalError:
+        conn.close()
+        return True, f"rfqs table missing — JSON has {json_count}"
+    conn.close()
+
+    delta = abs(db_count - json_count)
+    if delta > 10:
+        return False, f"Large parity gap: DB={db_count}, JSON={json_count} (delta={delta})"
+    if delta > 2:
+        return True, f"Minor parity gap: DB={db_count}, JSON={json_count} (delta={delta}, within tolerance)"
+    return True, f"RFQ parity OK: DB={db_count}, JSON={json_count}"
+
+
+# ── Check 7: Sent RFQs have priced line items ────────────────────────────────
+
+def check_sent_rfqs_priced():
+    """Every sent RFQ should have at least one line item with price > 0."""
+    conn = _get_conn()
+    if not conn:
+        return True, "No database — skipped"
+    try:
+        rows = conn.execute(
+            "SELECT id, items FROM rfqs WHERE status = 'sent'"
+        ).fetchall()
+    except sqlite3.OperationalError:
+        conn.close()
+        return True, "rfqs table missing — skipped"
+    conn.close()
+
+    if not rows:
+        return True, "No sent RFQs to check"
+
+    unpriced = []
+    for r in rows:
+        items = []
+        try:
+            items = json.loads(r["items"] or "[]") if isinstance(r["items"], str) else (r["items"] or [])
+        except Exception:
+            pass
+        has_price = any(
+            (item.get("price_per_unit") or item.get("unit_price") or 0) > 0
+            for item in items if isinstance(item, dict)
+        )
+        if items and not has_price:
+            unpriced.append(r["id"])
+
+    if unpriced:
+        return False, f"{len(unpriced)} sent RFQ(s) with all-zero prices: {', '.join(unpriced[:5])}"
+    return True, f"{len(rows)} sent RFQs checked, all have priced items"
+
+
+# ── Check 8: No orphaned order→quote references ──────────────────────────────
+
+def check_order_rfq_refs():
+    """Orders with quote_number should reference an existing quote."""
+    orders = _load_json("orders.json")
+    if not orders:
+        return True, "No orders to check"
+
+    conn = _get_conn()
+    quote_numbers = set()
+    if conn:
+        try:
+            rows = conn.execute("SELECT quote_number FROM quotes WHERE quote_number IS NOT NULL").fetchall()
+            quote_numbers = {r[0] for r in rows}
+        except sqlite3.OperationalError:
+            pass
+        conn.close()
+
+    orphaned = []
+    for oid, o in orders.items():
+        qn = (o.get("quote_number") or "").strip()
+        if qn and quote_numbers and qn not in quote_numbers:
+            orphaned.append(oid)
+
+    if orphaned:
+        # Warn but don't fail — quotes may be in JSON only
+        return True, f"{len(orphaned)} order(s) reference quotes not in DB (may be JSON-only): {', '.join(orphaned[:5])}"
+    return True, f"{len(orders)} orders checked, all quote refs valid"
+
+
 ALL_CHECKS = [
     ("Sent RFQs have linked PC", check_sent_rfqs_have_pc),
     ("Order statuses valid", check_order_statuses),
     ("Price history PC refs", check_price_history_refs),
     ("Processed emails sync", check_processed_emails_sync),
     ("No duplicate solicitations", check_duplicate_solicitations),
+    ("RFQ DB/JSON parity", check_rfq_parity),
+    ("Sent RFQs have priced items", check_sent_rfqs_priced),
+    ("Order→quote references", check_order_rfq_refs),
 ]
 
 

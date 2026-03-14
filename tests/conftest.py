@@ -146,6 +146,9 @@ def app(temp_data_dir, monkeypatch):
     for d in ("output", "uploads"):
         os.makedirs(os.path.join(temp_data_dir, d), exist_ok=True)
 
+    monkeypatch.setenv("ENABLE_EMAIL_POLLING", "false")
+    monkeypatch.setenv("ENABLE_BACKGROUND_AGENTS", "false")
+
     from app import create_app
     _app = create_app()
     _app.config["TESTING"] = True

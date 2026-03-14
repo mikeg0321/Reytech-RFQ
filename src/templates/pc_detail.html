@@ -409,6 +409,34 @@
     _log('init-ok: tax+delivery');
 
     var _pcid={{ pcid|tojson }};
+
+    function togglePriceHistory(pcId, itemNum, el) {
+      var container = el.nextElementSibling;
+      if (container && container.classList.contains('ph-open')) {
+        container.remove(); el.textContent = '\u25b8 Price history'; return;
+      }
+      el.textContent = '\u25be Loading...';
+      fetch('/api/v1/pc/' + pcId + '/item/' + encodeURIComponent(itemNum) + '/history')
+        .then(r => r.json()).then(d => {
+          el.textContent = '\u25be Price history';
+          var div = document.createElement('div');
+          div.className = 'ph-open';
+          div.style.cssText = 'margin:4px 0 8px 0;padding:6px 10px;background:rgba(88,166,255,.06);border:1px solid rgba(88,166,255,.15);border-radius:6px;font-size:13px';
+          var rows = (d.data || d || []);
+          if (!rows.length) {
+            div.innerHTML = '<span style="color:var(--tx2)">No previous quotes for this item</span>';
+          } else {
+            var html = '<table style="width:100%;font-size:13px"><tr style="color:var(--tx2)"><th style="text-align:left;padding:2px 8px">Date</th><th style="text-align:right;padding:2px 8px">Price</th><th style="padding:2px 8px">Source</th><th style="padding:2px 8px">Agency</th></tr>';
+            rows.forEach(function(r) {
+              html += '<tr><td style="padding:2px 8px">' + (r.found_at||'').substring(0,10) + '</td><td style="text-align:right;padding:2px 8px">$' + (r.unit_price||0).toFixed(2) + '</td><td style="padding:2px 8px">' + (r.source||'') + '</td><td style="padding:2px 8px">' + (r.agency||'') + '</td></tr>';
+            });
+            html += '</table>';
+            div.innerHTML = html;
+          }
+          el.after(div);
+        }).catch(function() { el.textContent = '\u25b8 Price history'; });
+    }
+
     function showMsg(text, type) {
      const el=document.getElementById('statusMsg');
      el.innerHTML='<div class="msg msg-'+type+'" style="animation:slideIn .3s ease">'+text+'</div>';
@@ -898,7 +926,9 @@
         const mfgStr = d.mfg_number ? ' \u00B7 MFG: <span style="font-family:monospace;color:#bc8cff">'+d.mfg_number+'</span>' : '';
         const mfrStr = d.manufacturer ? ' \u00B7 '+d.manufacturer : '';
         const fillStr = filled.length ? ' <span style="color:#3fb950">\u2713 '+filled.join(', ')+'</span>' : '';
-        metaEl.innerHTML = supStr+shipStr+partStr+mfgStr+mfrStr+fillStr;
+        var bestNum = (document.querySelector('[name=itemnum_'+idx+']')||{}).value || d.part_number || d.mfg_number || '';
+        var phLink = bestNum ? ' <a onclick="togglePriceHistory(\''+_pcid+'\',\''+bestNum.replace(/'/g,"\\'")+'\',this)" style="cursor:pointer;color:var(--tx2,#8b949e);font-size:12px;margin-left:8px">\u25b8 Price history</a>' : '';
+        metaEl.innerHTML = supStr+shipStr+partStr+mfgStr+mfrStr+fillStr+phLink;
       }
       if (filled.length > 0 && typeof showMsg==='function') {
         showMsg('\uD83D\uDD17 Auto-filled from '+(d.supplier||'URL')+': '+filled.join(', '),'ok');

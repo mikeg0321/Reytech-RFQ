@@ -1066,3 +1066,46 @@ def save_line_items(parent_id: str, items: list[dict],
     except Exception as e:
         log.error("save_line_items(%s, %s) failed: %s", parent_id, parent_type, e, exc_info=True)
         raise
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Price History
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def get_price_history_for_item(part_number: str = "", description: str = "",
+                                limit: int = 5) -> list[dict]:
+    """Get price history records matching an item by part number or description.
+    Input: part_number (exact match first), description (keyword match fallback), limit
+    Output: list of price history dicts sorted by found_at desc.
+    Side effects: None.
+    """
+    try:
+        with get_db() as conn:
+            results = []
+            # Try exact part number match first
+            if part_number and part_number.strip():
+                rows = conn.execute(
+                    "SELECT found_at, unit_price, source, agency, quote_number "
+                    "FROM price_history WHERE part_number = ? "
+                    "ORDER BY found_at DESC LIMIT ?",
+                    (part_number.strip(), limit)).fetchall()
+                results = [dict(r) for r in rows]
+
+            # Fallback: keyword match on description
+            if not results and description and description.strip():
+                # Extract first 4 meaningful words (skip short ones)
+                words = [w for w in description.split() if len(w) >= 3][:4]
+                if words:
+                    like_pattern = "%" + "%".join(words) + "%"
+                    rows = conn.execute(
+                        "SELECT found_at, unit_price, source, agency, quote_number "
+                        "FROM price_history WHERE description LIKE ? "
+                        "ORDER BY found_at DESC LIMIT ?",
+                        (like_pattern, limit)).fetchall()
+                    results = [dict(r) for r in rows]
+
+            return results
+    except Exception as e:
+        log.error("get_price_history_for_item(pn=%s, desc=%s) failed: %s",
+                  part_number, description[:50] if description else "", e, exc_info=True)
+        raise

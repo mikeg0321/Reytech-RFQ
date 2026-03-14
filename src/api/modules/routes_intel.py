@@ -2633,7 +2633,8 @@ try:
         generate_recommendations, full_report, lead_funnel,
     )
     GROWTH_AVAILABLE = True
-    start_scheduler()  # Background: bounce scan + follow-up status updates every hour
+    if os.environ.get("ENABLE_BACKGROUND_AGENTS", "true").lower() not in ("false", "0", "off"):
+        start_scheduler()  # Background: bounce scan + follow-up status updates every hour
 except ImportError:
     GROWTH_AVAILABLE = False
 
@@ -2694,10 +2695,11 @@ try:
         run_health_check, get_qa_history, get_health_trend, start_qa_monitor,
     )
     QA_AVAILABLE = True
-    try:
-        start_qa_monitor()
-    except Exception as _e:
-        log.debug("Suppressed: %s", _e)
+    if os.environ.get("ENABLE_BACKGROUND_AGENTS", "true").lower() not in ("false", "0", "off"):
+        try:
+            start_qa_monitor()
+        except Exception as _e:
+            log.debug("Suppressed: %s", _e)
 except ImportError:
     QA_AVAILABLE = False
 
@@ -2706,7 +2708,8 @@ try:
         run_workflow_tests, get_latest_run as get_latest_wf_run,
         get_run_history as get_wf_history, start_workflow_monitor,
     )
-    start_workflow_monitor()
+    if os.environ.get("ENABLE_BACKGROUND_AGENTS", "true").lower() not in ("false", "0", "off"):
+        start_workflow_monitor()
     _WF_AVAILABLE = True
 except Exception:
     _WF_AVAILABLE = False
@@ -5322,7 +5325,8 @@ def _full_scprs_scheduler_loop():
         # Check every 30 minutes
         _time.sleep(1800)
 
-_scprs_autostart()
+if os.environ.get("ENABLE_BACKGROUND_AGENTS", "true").lower() not in ("false", "0", "off"):
+    _scprs_autostart()
 
 
 @bp.route("/api/intel/pull/schedule", methods=["GET", "POST"])

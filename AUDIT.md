@@ -582,3 +582,68 @@ Add to `.claude/settings.json`:
 - `data_integrity.py`: 5 passed, 0 failures
 - Unit tests: DAL 13 passed, notify 2 passed, webhooks 2 passed
 - DATA_DIR grep: all redefinitions are `except ImportError:` fallbacks
+
+---
+
+## Layer 4 Completion — 2026-03-14
+
+### Steps Completed
+
+**Step 1: Fixed pytest hanging** — `tests/conftest.py` + `app.py` + `dashboard.py` + `routes_intel.py`
+- Added `ENABLE_EMAIL_POLLING=false` and `ENABLE_BACKGROUND_AGENTS=false` to test fixture
+- Guarded `_deferred_init` thread, `startup-checks` thread in app.py
+- Guarded 9 background agent scheduler starts in dashboard.py
+- Guarded 4 module-level scheduler starts in routes_intel.py
+- Result: `pytest tests/ -x -q` completes in 1.3s (was hanging indefinitely)
+
+**Step 2: JSON→SQLite fallback reads** — `src/api/dashboard.py`
+- `load_rfqs()` now calls `dal.list_rfqs()` first, JSON fallback if DAL empty/fails
+- `_load_price_checks()` now calls `dal.list_pcs()` first, JSON fallback if DAL empty/fails
+- `_load_orders()` now calls `dal.list_orders()` first, JSON fallback if DAL empty/fails
+- In-memory cache (30s TTL) preserved for price checks
+- Every fallback logs a warning so production divergence is visible in Railway logs
+- DB size check: 3.1 MB, 8 PCs, 8 RFQs, 5 orders — no pagination needed
+
+**Step 3: Price history per line item** — `src/core/dal.py` + `routes_v1.py` + `pc_detail.html`
+- `get_price_history_for_item()` DAL function: exact part number match, then keyword fallback
+- `GET /api/v1/pc/<pc_id>/item/<item_number>/history` endpoint
+- Collapsed "Price history" toggle on each line item in PC detail page
+- Renders inline table: Date | Price | Source | Agency
+
+**Step 4: QB health in /api/v1/health** — `src/agents/quickbooks_agent.py` + `routes_v1.py`
+- `get_qb_health()` returns {status, last_sync, token_expires, error}
+- Three states: connected, disconnected (no tokens), error (refresh failed)
+- Read-only check — no API calls, just token file inspection
+- Added to `agents.quickbooks` in /api/v1/health response
+
+**Step 5: 3 migration validation checks** — `scripts/data_integrity.py`
+- Check 6: RFQ parity (DB vs JSON count, FAIL if delta >10)
+- Check 7: Sent RFQs have priced items (FAIL if all-zero)
+- Check 8: Order→quote references (warn if orphaned)
+
+### Migration Metrics
+- DB size: 3.1 MB (small — no pagination needed)
+- Fallback logging: 0 fallbacks in smoke tests (SQLite has all data)
+- Raw SQL delta: ~20 additional calls migrated to DAL (total ~225 remaining from original 245+)
+- pytest: was hanging indefinitely, now completes in 1.3s
+
+### Files Changed
+- `tests/conftest.py` — ENABLE_EMAIL_POLLING=false, ENABLE_BACKGROUND_AGENTS=false
+- `app.py` — guarded deferred_init and startup-checks threads
+- `src/api/dashboard.py` — DAL-first loaders for RFQs/PCs/orders + guarded background agents
+- `src/api/modules/routes_intel.py` — guarded 4 module-level scheduler starts
+- `src/api/modules/routes_v1.py` — price history endpoint, QB health in /api/v1/health
+- `src/core/dal.py` — get_price_history_for_item()
+- `src/agents/quickbooks_agent.py` — get_qb_health()
+- `src/templates/pc_detail.html` — price history toggle UI
+- `src/api/modules/routes_pricecheck.py` — price history link in server-rendered items
+- `scripts/data_integrity.py` — 3 new migration checks (8 total)
+- `tests/test_notify.py` — fixed mock path
+- `tests/test_webhooks.py` — fixed mock path
+
+### QA Gate Results
+- `pytest tests/ -x -q`: 17 passed, 0 failures, 1.33s (no hanging)
+- `smoke_test.py`: 14 passed, 3 warnings, 0 failures
+- `check_routes.py`: 0 duplicates
+- `data_integrity.py`: 8 passed, 0 failures
+- DATA_DIR grep: all redefinitions are `except ImportError:` fallbacks

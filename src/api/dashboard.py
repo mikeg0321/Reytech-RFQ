@@ -247,6 +247,15 @@ def _sanitize_path(path_str: str) -> str:
 
 def rfq_db_path(): return os.path.join(DATA_DIR, "rfqs.json")
 def load_rfqs():
+    """Load RFQs — DAL (SQLite) primary, JSON fallback."""
+    try:
+        from src.core.dal import list_rfqs as _dal_list
+        rows = _dal_list(limit=10000)
+        if rows:
+            return {r["id"]: r for r in rows}
+    except Exception as e:
+        log.warning("DAL list_rfqs failed, falling back to JSON: %s", str(e)[:200])
+    # JSON fallback
     return _cached_json_load(rfq_db_path(), fallback={})
 
 def save_rfqs(rfqs):
@@ -619,30 +628,37 @@ _pc_cache = None
 _pc_cache_time = 0
 
 def _load_price_checks(include_items=True):
-    """Load price checks from SQLite (primary source of truth).
-    
-    Migration note: This was JSON-primary until March 2026. Now DB-primary.
-    JSON is written as backup cache but never read as primary source.
+    """Load price checks — DAL (SQLite) primary, JSON fallback.
+
+    Layer 4 migration: DAL first, JSON fallback if DAL empty/fails.
+    In-memory cache (30s TTL) prevents repeated DB queries.
     """
-    # In-memory cache — DB is 577MB, can't re-query on every call (111 callers)
     global _pc_cache, _pc_cache_time
     import time as _t
     now = _t.time()
     if include_items and _pc_cache is not None and (now - _pc_cache_time) < 30:
         return _pc_cache
-    
+
     data = {}
-    
-    # Read from JSON only — NEVER query the 577MB DB on page load
-    # DB is only for persistence. JSON is the read source.
-    # If JSON is empty/missing, page shows empty PC list (not a hang).
-    json_path = os.path.join(DATA_DIR, "price_checks.json")
-    if os.path.exists(json_path):
-        try:
-            with open(json_path) as f:
-                data = json.load(f)
-        except Exception:
-            data = {}
+
+    # DAL primary read
+    try:
+        from src.core.dal import list_pcs as _dal_list_pcs
+        rows = _dal_list_pcs(limit=10000)
+        if rows:
+            data = {r["id"]: r for r in rows}
+    except Exception as e:
+        log.warning("DAL list_pcs failed, falling back to JSON: %s", str(e)[:200])
+
+    # JSON fallback — only if DAL returned nothing
+    if not data:
+        json_path = os.path.join(DATA_DIR, "price_checks.json")
+        if os.path.exists(json_path):
+            try:
+                with open(json_path) as f:
+                    data = json.load(f)
+            except Exception:
+                data = {}
 
     # Only cache full results (with items)
     if include_items:
@@ -2607,8 +2623,15 @@ def _find_quote(quote_number: str) -> dict:
 ORDERS_FILE = os.path.join(DATA_DIR, "orders.json")
 
 def _load_orders() -> dict:
+    """Load orders — DAL (SQLite) primary, JSON fallback."""
+    try:
+        from src.core.dal import list_orders as _dal_list
+        rows = _dal_list(limit=10000)
+        if rows:
+            return {r["id"]: r for r in rows}
+    except Exception as e:
+        log.warning("DAL list_orders failed, falling back to JSON: %s", str(e)[:200])
     return _cached_json_load(ORDERS_FILE, fallback={})
-    return data
 
 def _save_orders(orders: dict):
     os.makedirs(DATA_DIR, exist_ok=True)
@@ -4002,76 +4025,80 @@ log.info(f"Dashboard: {len(_ROUTE_MODULES)} route modules loaded, {len([r for r 
 
 # ── Award Monitor merged into Award Tracker (single thread) ─────────────
 
-# ── Start Follow-Up Engine (auto-creates follow-up drafts) ──────────────
-try:
-    from src.agents.follow_up_engine import start_follow_up_scheduler
-    start_follow_up_scheduler()
-    log.info("Follow-up engine started (scans every 1h)")
-except Exception as _e:
-    log.warning("Follow-up engine failed to start: %s", _e)
+# ── Background agent schedulers (disabled in tests via ENABLE_BACKGROUND_AGENTS=false) ──
+if os.environ.get("ENABLE_BACKGROUND_AGENTS", "true").lower() not in ("false", "0", "off"):
+    # ── Start Follow-Up Engine (auto-creates follow-up drafts) ──────────────
+    try:
+        from src.agents.follow_up_engine import start_follow_up_scheduler
+        start_follow_up_scheduler()
+        log.info("Follow-up engine started (scans every 1h)")
+    except Exception as _e:
+        log.warning("Follow-up engine failed to start: %s", _e)
 
-# ── Start Award Tracker (polls SCPRS 3x/day for PO awards) ──────────────
-try:
-    from src.agents.award_tracker import start_award_tracker
-    start_award_tracker()
-    log.info("Award tracker started (polls SCPRS every 8h)")
-except Exception as _e:
-    log.warning("Award tracker failed to start: %s", _e)
+    # ── Start Award Tracker (polls SCPRS 3x/day for PO awards) ──────────────
+    try:
+        from src.agents.award_tracker import start_award_tracker
+        start_award_tracker()
+        log.info("Award tracker started (polls SCPRS every 8h)")
+    except Exception as _e:
+        log.warning("Award tracker failed to start: %s", _e)
 
-# ── Start Quote Lifecycle (auto-expire, follow-up triggers) ──────────────
-try:
-    from src.agents.quote_lifecycle import start_lifecycle_scheduler
-    start_lifecycle_scheduler()
-    log.info("Quote lifecycle scheduler started (checks every 1h)")
-except Exception as _e:
-    log.warning("Quote lifecycle failed to start: %s", _e)
+    # ── Start Quote Lifecycle (auto-expire, follow-up triggers) ──────────────
+    try:
+        from src.agents.quote_lifecycle import start_lifecycle_scheduler
+        start_lifecycle_scheduler()
+        log.info("Quote lifecycle scheduler started (checks every 1h)")
+    except Exception as _e:
+        log.warning("Quote lifecycle failed to start: %s", _e)
 
-# ── Start Email Retry Scheduler (retries failed emails) ─────────────────
-try:
-    from src.agents.email_lifecycle import start_retry_scheduler
-    start_retry_scheduler()
-    log.info("Email retry scheduler started (checks every 15m)")
-except Exception as _e:
-    log.warning("Email retry scheduler failed to start: %s", _e)
+    # ── Start Email Retry Scheduler (retries failed emails) ─────────────────
+    try:
+        from src.agents.email_lifecycle import start_retry_scheduler
+        start_retry_scheduler()
+        log.info("Email retry scheduler started (checks every 15m)")
+    except Exception as _e:
+        log.warning("Email retry scheduler failed to start: %s", _e)
 
-# ── Start Order Digest Scheduler (daily digest + tracking checks) ────────
-try:
-    from src.agents.order_digest import start_order_digest_scheduler
-    start_order_digest_scheduler()
-    log.info("Order digest scheduler started (every 4h, digest at 8am)")
-except Exception as _e:
-    log.warning("Order digest scheduler failed to start: %s", _e)
+    # ── Start Order Digest Scheduler (daily digest + tracking checks) ────────
+    try:
+        from src.agents.order_digest import start_order_digest_scheduler
+        start_order_digest_scheduler()
+        log.info("Order digest scheduler started (every 4h, digest at 8am)")
+    except Exception as _e:
+        log.warning("Order digest scheduler failed to start: %s", _e)
 
-# ── Start Lead Nurture Scheduler (drip sequences + rescoring) ────────────
-try:
-    from src.agents.lead_nurture_agent import start_nurture_scheduler
-    start_nurture_scheduler()
-    log.info("Lead nurture scheduler started (daily)")
-except Exception as _e:
-    log.warning("Lead nurture scheduler failed to start: %s", _e)
+    # ── Start Lead Nurture Scheduler (drip sequences + rescoring) ────────────
+    try:
+        from src.agents.lead_nurture_agent import start_nurture_scheduler
+        start_nurture_scheduler()
+        log.info("Lead nurture scheduler started (daily)")
+    except Exception as _e:
+        log.warning("Lead nurture scheduler failed to start: %s", _e)
 
-# ── Start Google Drive Backup Scheduler (nightly at 11pm PST) ────────────
-try:
-    from src.agents.drive_backup import start_backup_scheduler
-    start_backup_scheduler()
-    log.info("Drive backup scheduler started (nightly at 11pm PST)")
-except Exception as _e:
-    log.warning("Drive backup scheduler failed to start: %s", _e)
+    # ── Start Google Drive Backup Scheduler (nightly at 11pm PST) ────────────
+    try:
+        from src.agents.drive_backup import start_backup_scheduler
+        start_backup_scheduler()
+        log.info("Drive backup scheduler started (nightly at 11pm PST)")
+    except Exception as _e:
+        log.warning("Drive backup scheduler failed to start: %s", _e)
 
-# ── Start PO Tracking Email Poller (auto-updates order status from vendor emails) ──
-try:
-    # _start_po_poller is already in namespace from exec'd routes_order_tracking
-    _start_po_poller()
-    log.info("PO tracking poller started (checks vendor emails every 5min)")
-except Exception as _e:
-    log.warning("PO tracking poller failed to start: %s", _e)
+    # ── Start PO Tracking Email Poller (auto-updates order status from vendor emails) ──
+    try:
+        # _start_po_poller is already in namespace from exec'd routes_order_tracking
+        _start_po_poller()
+        log.info("PO tracking poller started (checks vendor emails every 5min)")
+    except Exception as _e:
+        log.warning("PO tracking poller failed to start: %s", _e)
 
-# ── Start Invoice Poller (picks up QB invoice emails, enhances PDF) ─────
-try:
-    from src.agents.invoice_processor import start_invoice_poller
-    start_invoice_poller()
-except Exception as _e:
-    log.warning("Invoice poller failed to start: %s", _e)
+    # ── Start Invoice Poller (picks up QB invoice emails, enhances PDF) ─────
+    try:
+        from src.agents.invoice_processor import start_invoice_poller
+        start_invoice_poller()
+    except Exception as _e:
+        log.warning("Invoice poller failed to start: %s", _e)
+else:
+    log.info("Background agents disabled via ENABLE_BACKGROUND_AGENTS=false")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

@@ -351,6 +351,10 @@ def _pricecheck_detail_inner(pcid):
             item["item_supplier"] = item_supplier
         link_display = f'<a href="{item_link}" target="_blank" style="font-size:14px;color:#58a6ff;word-break:break-all">{item_supplier or item_link[:30]}</a>' if item_link else ""
         supplier_badge = f'<span style="font-size:13px;color:#8b949e;display:block;margin-top:1px">{item_supplier}</span>' if item_supplier else ""
+        # Price history toggle link for this item
+        _ph_num = (item.get("mfg_number") or p.get("mfg_number") or p.get("manufacturer_part") or "").strip()
+        _ph_num_safe = str(_ph_num).replace("'", "\\'").replace('"', '&quot;')
+        ph_link = f' <a onclick="togglePriceHistory(\'{pcid}\',\'{_ph_num_safe}\',this)" style="cursor:pointer;color:#8b949e;font-size:12px;margin-left:4px">&#x25b8; Price history</a>' if _ph_num else ""
 
         # ── Unified Sources column: all price sources as compact chips ──
         sources = []  # list of (price, label, url, color, is_preferred)
@@ -475,7 +479,7 @@ def _pricecheck_detail_inner(pcid):
             <input type="text" name="link_{idx}" value="{item_link.replace(chr(34), '&quot;')}" placeholder="Paste supplier URL…" class="text-in" style="flex:1;font-size:14px;color:#58a6ff;padding:5px 7px" oninput="handleLinkInput({idx}, this)" onpaste="setTimeout(()=>handleLinkInput({idx},this),50)">
             <a href="{item_link}" target="_blank" id="linkopen_{idx}" onclick="return !!this.href && this.href!==''" style="display:{'flex' if item_link else 'none'};align-items:center;justify-content:center;width:28px;height:28px;border-radius:4px;background:#21262d;border:1px solid #30363d;color:#58a6ff;font-size:14px;text-decoration:none;flex-shrink:0" title="Open link">↗</a>
            </div>
-           <div id="link_meta_{idx}" style="font-size:13px;color:#8b949e">{supplier_badge}</div>
+           <div id="link_meta_{idx}" style="font-size:13px;color:#8b949e">{supplier_badge}{ph_link}</div>
           </div>
          </td>
          <td style="min-width:160px;max-width:220px;vertical-align:top;padding:6px 4px">{source_html}</td>

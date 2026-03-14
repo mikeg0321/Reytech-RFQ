@@ -231,6 +231,36 @@ def api_v1_test_sms():
         return api_response(error=str(e), status=500)
 
 
+@bp.route("/api/v1/pc/<pc_id>/item/<path:item_number>/history")
+@auth_required
+def api_v1_pc_item_history(pc_id, item_number):
+    """Price history for a specific line item on a PC.
+    Returns last 5 price records matching by part number or description.
+    """
+    try:
+        from src.core.dal import get_pc, get_price_history_for_item
+        pc = get_pc(pc_id)
+        if not pc:
+            return api_response(error="PC not found", status=404)
+
+        # Find the item in the PC to get description for fallback matching
+        description = ""
+        items = pc.get("items", [])
+        if isinstance(items, list):
+            for item in items:
+                pn = item.get("item_number", "") or item.get("part_number", "")
+                if pn == item_number:
+                    description = item.get("description", "")
+                    break
+
+        history = get_price_history_for_item(
+            part_number=item_number, description=description, limit=5)
+        return api_response(history)
+    except Exception as e:
+        log.error("v1/pc/%s/item/%s/history error: %s", pc_id, item_number, e, exc_info=True)
+        return api_response(error=str(e), status=500)
+
+
 @bp.route("/api/v1/health")
 @auth_required
 def api_v1_health():
@@ -301,6 +331,13 @@ def api_v1_health():
                     agents[name]["emails_processed_24h"] = job.get("run_count", 0)
         except Exception:
             pass
+
+        # QB health
+        try:
+            from src.agents.quickbooks_agent import get_qb_health
+            agents["quickbooks"] = get_qb_health()
+        except Exception:
+            agents["quickbooks"] = {"status": "unavailable", "error": "Module not loaded"}
 
         return api_response({
             "version": version,
