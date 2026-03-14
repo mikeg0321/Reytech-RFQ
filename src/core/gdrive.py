@@ -118,7 +118,7 @@ def _get_or_create_folder(name: str, parent_id: str) -> str:
     return folder_id
 
 
-def get_folder_path(year: str, quarter: str = "", po_number: str = "",
+def get_folder_path(year: str = "", quarter: str = "", po_number: str = "",
                     subfolder: str = "", category: str = "") -> str:
     """
     Navigate/create the folder hierarchy and return the target folder ID.
