@@ -129,6 +129,9 @@ def app(temp_data_dir, monkeypatch):
                         os.path.join(temp_data_dir, "output"))
     monkeypatch.setattr(dashboard, "UPLOAD_DIR",
                         os.path.join(temp_data_dir, "uploads"))
+    # Clear price check cache so tests get fresh data from temp_data_dir
+    monkeypatch.setattr(dashboard, "_pc_cache", None)
+    monkeypatch.setattr(dashboard, "_pc_cache_time", 0)
     # Ensure auth vars match test credentials (patch both dashboard + shared)
     monkeypatch.setattr(dashboard, "DASH_USER", "reytech")
     monkeypatch.setattr(dashboard, "DASH_PASS", "changeme")

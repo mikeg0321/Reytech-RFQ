@@ -2396,14 +2396,14 @@ def api_rfq_import_from_pc(rid):
                 pricing.get("amazon_price") or pricing.get("web_price") or 0)
         try:
             cost = round(float(cost), 2) if cost else 0
-        except:
+        except (ValueError, TypeError):
             cost = 0
 
         # Get bid price
         bid = pricing.get("recommended_price") or pricing.get("unit_price") or 0
         try:
             bid = round(float(bid), 2) if bid else 0
-        except:
+        except (ValueError, TypeError):
             bid = 0
         if not bid and cost > 0:
             bid = round(cost * 1.25, 2)
@@ -2582,7 +2582,7 @@ def api_rfq_upload_pc(rid):
         price = prices.get(row_idx) or prices.get(str(row_idx)) or 0
         try:
             price = float(price) if price else 0
-        except:
+        except (ValueError, TypeError):
             price = 0
 
         desc = it.get("description", "")
@@ -2666,15 +2666,15 @@ def api_quote_audit():
             try:
                 row = conn.execute("SELECT value FROM app_settings WHERE key='quote_counter'").fetchone()
                 result["counter"] = int(row[0]) if row else "NOT SET (default=16)"
-            except:
+            except Exception:
                 result["counter"] = "app_settings table missing"
-            
+
             # PCs with quote numbers
             try:
                 pcs = conn.execute("SELECT id, quote_number, pc_number, status FROM price_checks WHERE quote_number IS NOT NULL AND quote_number != ''").fetchall()
                 for p in pcs:
                     result["pcs_with_quotes"].append(dict(p))
-            except:
+            except Exception:
                 pass
     except Exception as e:
         result["error"] = str(e)

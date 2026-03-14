@@ -482,7 +482,7 @@ def _check_route_integrity() -> list:
 
         # Check auth coverage on API routes
         dash_source = open(os.path.join(os.path.dirname(os.path.dirname(
-            os.path.abspath(__file__))), "api", "dashboard.py")).read()
+            os.path.abspath(__file__))), "api", "dashboard.py"), encoding="utf-8", errors="replace").read()
         unprotected = []
         for rule in rules:
             path = str(rule)
@@ -2341,7 +2341,13 @@ def _check_route_coverage() -> list:
     dash_path = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))),
                               "api", "dashboard.py")
     try:
-        content = open(dash_path).read()
+        content = open(dash_path, encoding="utf-8", errors="replace").read()
+        # Also scan route modules (routes are loaded via exec into dashboard namespace)
+        mod_dir = _os.path.join(_os.path.dirname(dash_path), "modules")
+        if _os.path.isdir(mod_dir):
+            for mf in _os.listdir(mod_dir):
+                if mf.endswith(".py"):
+                    content += open(_os.path.join(mod_dir, mf), encoding="utf-8", errors="replace").read()
         critical_routes = [
             ("/api/catalog/search", "Product catalog search"),
             ("/api/intel/draft-outreach", "Buyer outreach engine"),
@@ -2396,7 +2402,7 @@ def _check_data_files() -> list:
                             "message": f"Missing: {fname}"})
             continue
         try:
-            content = _j.load(open(fpath))
+            content = _j.load(open(fpath, encoding="utf-8", errors="replace"))
             size = len(content) if isinstance(content, (list, dict)) else 1
             results.append({"check": "data_files", "status": "pass",
                             "message": f"{fname}: valid JSON ({size} items)"})

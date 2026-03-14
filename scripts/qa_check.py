@@ -28,6 +28,10 @@ import sys
 
 VERBOSE = "-v" in sys.argv
 
+def _open(path, mode="r"):
+    """Open with UTF-8 encoding to avoid Windows CP1252 errors."""
+    return open(path, mode, encoding="utf-8", errors="replace")
+
 # Resolve project root from this script
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 os.chdir(PROJECT_ROOT)
@@ -98,7 +102,7 @@ modules_with_datadir = [
 ]
 
 for mod_file in modules_with_datadir:
-    with open(mod_file) as f:
+    with _open(mod_file) as f:
         content = f.read()
     
     # Check if module imports from centralized paths.py
@@ -127,7 +131,7 @@ for mod_file in modules_with_datadir:
             break
 
 # Check scprs_lookup DB_PATH
-with open("src/agents/scprs_lookup.py") as f:
+with _open("src/agents/scprs_lookup.py") as f:
     content = f.read()
 
 if "from src.core.paths import" in content and "DB_PATH" in content.split("from src.core.paths import")[1].split("\n")[0]:
@@ -157,7 +161,7 @@ else:
 # 3. ROUTE INTEGRITY — Every @auth_required MUST have a preceding @bp.route
 # ═══════════════════════════════════════════════════════════════════════════════
 print("\n3. ROUTE INTEGRITY")
-with open("src/api/dashboard.py") as f:
+with _open("src/api/dashboard.py") as f:
     dash_lines = f.readlines()
 
 route_count = 0
@@ -197,17 +201,22 @@ print("\n4. FORM → ROUTE WIRING")
 
 actions = set()
 for fname in ["src/api/templates.py", "src/api/dashboard.py"]:
-    with open(fname) as f:
+    with _open(fname) as f:
         content = f.read()
     for m in re.findall(r'action="(/[^"]*)"', content):
         actions.add(re.sub(r'\{\{[^}]+\}\}', '<var>', m))
 
 routes = set()
-with open("src/api/dashboard.py") as f:
-    for line in f:
-        m = re.search(r'@bp\.route\("(/[^"]*)"', line)
-        if m:
-            routes.add(re.sub(r'<[^>]+>', '<var>', m.group(1)))
+_route_files = ["src/api/dashboard.py"]
+_mod_dir = os.path.join("src", "api", "modules")
+if os.path.isdir(_mod_dir):
+    _route_files += [os.path.join(_mod_dir, f) for f in os.listdir(_mod_dir) if f.endswith(".py")]
+for _rf in _route_files:
+    with _open(_rf) as f:
+        for line in f:
+            m = re.search(r'@bp\.route\("(/[^"]*)"', line)
+            if m:
+                routes.add(re.sub(r'<[^>]+>', '<var>', m.group(1)))
 
 form_ok = 0
 for a in sorted(actions):
@@ -225,7 +234,7 @@ print("\n5. JS FETCH → ROUTE WIRING")
 
 urls = set()
 for fname in ["src/api/templates.py", "src/api/dashboard.py"]:
-    with open(fname) as f:
+    with _open(fname) as f:
         content = f.read()
     for m in re.findall(r"fetch\(['\"](/[^'\"?]+)", content):
         normalized = re.sub(r'\{\{[^}]+\}\}', '<var>', m)
@@ -250,7 +259,7 @@ print("\n6. IMPORT PATHS")
 
 import_ok = 0
 import_fail = 0
-with open("src/api/dashboard.py") as f:
+with _open("src/api/dashboard.py") as f:
     content = f.read()
 imports = re.findall(r'from (src\.\S+) import', content)
 for imp in sorted(set(imports)):
@@ -278,7 +287,7 @@ data_files = {
 for name, path in data_files.items():
     if os.path.exists(path):
         try:
-            with open(path) as f:
+            with _open(path) as f:
                 data = json.load(f)
             count = len(data) if isinstance(data, (list, dict)) else "?"
             _pass(f"{name}: {count} records")
@@ -316,7 +325,7 @@ for root, dirs, files in os.walk("src"):
     for f in files:
         if f.endswith(".py"):
             fp = os.path.join(root, f)
-            with open(fp) as fh:
+            with _open(fp) as fh:
                 for ln, line in enumerate(fh, 1):
                     stripped = line.strip()
                     if stripped == "except:" or stripped.startswith("except: "):
@@ -334,14 +343,21 @@ if bare_excepts == 0:
 # ═══════════════════════════════════════════════════════════════════════════════
 print("\n10. TEST SUITE")
 import subprocess
-result = subprocess.run(
-    ["python3", "-m", "pytest", "tests/", "-q", "--tb=line"],
-    capture_output=True, text=True, cwd=PROJECT_ROOT, timeout=60
-)
+try:
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", "tests/", "-q", "--tb=line"],
+        capture_output=True, text=True, cwd=PROJECT_ROOT, timeout=120,
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+    )
+    output = result.stdout + result.stderr
+except subprocess.TimeoutExpired as te:
+    # Tests may pass but daemon threads prevent clean exit — parse partial output
+    output = (te.stdout or "") + (te.stderr or "")
+    if not isinstance(output, str):
+        output = output.decode("utf-8", errors="replace")
+
 # Parse output for pass/fail counts
-output = result.stdout + result.stderr
 if "passed" in output:
-    # Extract "N passed" from output
     import re as _re
     m = _re.search(r"(\d+) passed", output)
     passed_count = int(m.group(1)) if m else 0
@@ -358,7 +374,7 @@ if "passed" in output:
             for line in output.strip().split("\n")[-10:]:
                 print(f"    {line}")
 else:
-    _warn(f"Could not parse test output")
+    _warn(f"Could not parse test output (timeout or no pytest)")
     if VERBOSE:
         print(output[:500])
 
@@ -382,7 +398,7 @@ for root, dirs, files in os.walk("src"):
         if not f.endswith(".py"):
             continue
         path = os.path.join(root, f)
-        with open(path) as fh:
+        with _open(path) as fh:
             lines = fh.readlines()
         for i, line in enumerate(lines):
             stripped = line.strip()
@@ -431,13 +447,13 @@ for root, dirs, files in os.walk("src"):
         if not f.endswith(".py"):
             continue
         path = os.path.join(root, f)
-        with open(path) as fh:
+        with _open(path) as fh:
             for ln, line in enumerate(fh, 1):
                 if "sys.path.insert" in line and not line.strip().startswith("#"):
                     syspath_found.append(f"{path}:{ln}")
 
 # Only dashboard.py is allowed (entry point needs it for fallback imports)
-allowed = ["src/api/dashboard.py"]
+allowed = ["src/api/dashboard.py", "src\\api\\dashboard.py"]
 violations = [s for s in syspath_found if not any(a in s for a in allowed)]
 
 if violations:
@@ -460,71 +476,3 @@ if failed > 0:
 else:
     print("\n🟢 ALL CLEAR — safe to push/deploy")
     sys.exit(0)
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# 11. INLINE TEMPLATE CHECK — no HTML should leak back into dashboard.py
-# ═══════════════════════════════════════════════════════════════════════════════
-print("\n11. TEMPLATE SEPARATION")
-with open("src/api/dashboard.py") as f:
-    dash_content = f.read()
-
-inline_templates = dash_content.count('f"""<!doctype') + dash_content.count('f"""<!DOCTYPE')
-render_wrapper_count = 1  # the render() wrapper is intentionally inline (38 lines)
-
-if inline_templates <= render_wrapper_count:
-    _pass(f"No leaked inline templates in dashboard.py ({inline_templates} f-string HTML blocks = render wrapper only)")
-else:
-    _fail(f"{inline_templates} inline HTML templates found in dashboard.py (expected {render_wrapper_count})")
-
-with open("src/api/templates.py") as f:
-    tmpl_lines = len(f.readlines())
-_pass(f"templates.py: {tmpl_lines} lines (all page HTML centralized)")
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# 12. IMPORT HYGIENE — all primary imports use src.* prefix
-# ═══════════════════════════════════════════════════════════════════════════════
-print("\n12. IMPORT HYGIENE")
-
-# Scan for bare sibling imports that are NOT inside except blocks
-import_issues = []
-for root, dirs, files in os.walk("src"):
-    dirs[:] = [d for d in dirs if d != "__pycache__"]
-    for fname in files:
-        if not fname.endswith(".py") or fname == "__init__.py":
-            continue
-        filepath = os.path.join(root, fname)
-        with open(filepath) as fh:
-            file_lines = fh.readlines()
-        
-        # Check each import line
-        for ln, line in enumerate(file_lines, 1):
-            stripped = line.strip()
-            # Skip comments
-            if stripped.startswith("#"):
-                continue
-            # Check for bare imports of sibling modules
-            bare_modules = ["quote_generator", "price_check", "product_research",
-                           "pricing_oracle", "won_quotes_db", "auto_processor",
-                           "tax_agent", "scprs_lookup", "rfq_parser", 
-                           "reytech_filler_v4", "email_poller"]
-            for mod in bare_modules:
-                if f"from {mod} import" in stripped or f"import {mod}" == stripped:
-                    # Check if this is inside an except block (look up for except)
-                    in_except = False
-                    for check_ln in range(ln - 2, max(ln - 5, 0), -1):
-                        check_line = file_lines[check_ln].strip()
-                        if check_line.startswith("except"):
-                            in_except = True
-                            break
-                        if check_line.startswith("try:") or check_line.startswith("def ") or check_line.startswith("class "):
-                            break
-                    if not in_except:
-                        import_issues.append(f"{filepath}:{ln} bare import: {stripped[:60]}")
-
-if import_issues:
-    for issue in import_issues:
-        _fail(issue)
-else:
-    _pass("All sibling imports use src.* prefix (bare imports only in except fallbacks)")

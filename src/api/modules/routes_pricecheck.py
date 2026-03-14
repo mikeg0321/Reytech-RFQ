@@ -6871,10 +6871,10 @@ def api_diag_pc(pcid):
         try:
             conn.execute("SELECT pc_data FROM price_checks LIMIT 0")
             result["pc_data_column"] = True
-        except:
+        except Exception:
             result["pc_data_column"] = False
         conn.close()
-    except:
+    except Exception:
         pass
 
     result["diagnosis"] = "PC not found anywhere" if not result["found_in"] else f"Found in: {', '.join(result['found_in'])}"
@@ -6900,8 +6900,8 @@ def api_disk_emergency():
                 os.remove(fp)
                 freed += sz
                 deleted.append(f"{f} ({sz//1048576}MB)")
-            except: pass
-    
+            except OSError: pass
+
     # Delete temp/cache files
     for pattern in ["*.pyc", "auto_price_status.json", "growth_outreach_cache.json"]:
         for root, dirs, files in os.walk(_DD):
@@ -6912,7 +6912,7 @@ def api_disk_emergency():
                         sz = os.path.getsize(fp)
                         os.remove(fp)
                         freed += sz
-                    except: pass
+                    except OSError: pass
     
     return jsonify({
         "ok": True,
@@ -7271,7 +7271,7 @@ def api_rfq_package_contents(rid):
         for i, page in enumerate(reader.pages):
             try:
                 text = (page.extract_text() or "")[:200].strip()
-            except:
+            except Exception:
                 text = "(could not extract)"
             result["package_pages"].append({
                 "page": i + 1,

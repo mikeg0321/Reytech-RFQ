@@ -154,7 +154,7 @@ def run_all_checks():
             for fname in files:
                 if not fname.endswith('.py'): continue
                 fpath = os.path.join(root, fname)
-                with open(fpath) as f:
+                with open(fpath, encoding="utf-8", errors="replace") as f:
                     content = f.read()
                 rel = os.path.relpath(fpath, src_root)
                 
