@@ -125,13 +125,25 @@ def create_app():
     except Exception as e:
         logging.getLogger("reytech").warning("Schema check: %s", e)
 
-    # ── Run migrations (always, even when background agents disabled) ──
+    # ── Run migrations (always — creates intelligence tables on first deploy) ──
     try:
         from src.core.migrations import run_migrations
-        run_migrations()
-        print(f"[BOOT] Migrations OK ({time.time()-t0:.1f}s)", flush=True)
+        mig_result = run_migrations()
+        if mig_result.get("applied", 0) > 0:
+            print(f"[BOOT] Migrations applied: {mig_result['applied']} (now at v{mig_result['version']})", flush=True)
+        else:
+            print(f"[BOOT] Migrations OK (v{mig_result.get('version', '?')})", flush=True)
     except Exception as e:
         logging.getLogger("reytech").warning("Migrations: %s", e)
+
+    # ── Seed agency registry (idempotent) ──
+    try:
+        from src.core.ca_agencies import seed_agency_registry
+        from src.core.db import get_db
+        with get_db() as _seed_conn:
+            seed_agency_registry(_seed_conn)
+    except Exception:
+        pass
 
     # Register blueprint (all routes)
     from src.api.dashboard import bp
