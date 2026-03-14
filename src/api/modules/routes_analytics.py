@@ -4034,3 +4034,37 @@ def _webhook_mark_shipped(payload, actor):
     from src.core.task_queue import enqueue
     task_id = enqueue("mark_order_shipped", payload, actor=actor)
     return {"queued": True, "task_id": task_id}
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Integration Settings (Layer 3 — webhook / SMS / base URL config)
+# ═══════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/settings/integrations")
+@auth_required
+def api_get_integrations():
+    """Get integration settings (webhook URLs, SMS config)."""
+    import os
+    from src.core.db import get_setting
+    return jsonify({"ok": True, "settings": {
+        "webhook_rfq_created_url": get_setting("webhook_rfq_created_url", ""),
+        "webhook_order_updated_url": get_setting("webhook_order_updated_url", ""),
+        "notify_phone": os.environ.get("NOTIFY_PHONE", get_setting("notify_phone", "")),
+        "base_url": os.environ.get("BASE_URL", get_setting("base_url", "")),
+    }})
+
+
+@bp.route("/api/settings/integrations", methods=["POST"])
+@auth_required
+def api_save_integrations():
+    """Save integration settings."""
+    import os
+    from src.core.db import set_setting
+    data = request.get_json(silent=True) or {}
+    for key in ("webhook_rfq_created_url", "webhook_order_updated_url", "notify_phone", "base_url"):
+        if key in data:
+            set_setting(key, data[key])
+            # Also set as env var for current process
+            env_key = key.upper()
+            os.environ[env_key] = data[key]
+    return jsonify({"ok": True})

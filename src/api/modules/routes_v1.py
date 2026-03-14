@@ -174,6 +174,63 @@ def api_v1_create_rfq():
         return api_response(error=str(e), status=500)
 
 
+@bp.route("/api/v1/webhook/rfq-created", methods=["POST"])
+@auth_required
+def api_v1_webhook_rfq_created():
+    """Manually fire the rfq.created webhook (for testing)."""
+    data = request.get_json(silent=True) or {}
+    try:
+        from src.core.webhooks import fire_webhook
+        fire_webhook("rfq.created", data)
+        return api_response({"dispatched": True})
+    except Exception as e:
+        return api_response(error=str(e), status=500)
+
+
+@bp.route("/api/v1/webhook/order-updated", methods=["POST"])
+@auth_required
+def api_v1_webhook_order_updated():
+    """Manually fire the order.updated webhook (for testing)."""
+    data = request.get_json(silent=True) or {}
+    try:
+        from src.core.webhooks import fire_webhook
+        fire_webhook("order.updated", data)
+        return api_response({"dispatched": True})
+    except Exception as e:
+        return api_response(error=str(e), status=500)
+
+
+@bp.route("/api/v1/webhook/test", methods=["POST"])
+@auth_required
+def api_v1_webhook_test():
+    """Fire a test webhook to verify n8n connectivity."""
+    try:
+        from src.core.webhooks import fire_webhook
+        fire_webhook("test", {
+            "message": "Test webhook from Reytech RFQ",
+            "timestamp": __import__("datetime").datetime.now().isoformat(),
+        })
+        return api_response({"dispatched": True, "message": "Test webhook fired"})
+    except Exception as e:
+        return api_response(error=str(e), status=500)
+
+
+@bp.route("/api/v1/notify/test-sms", methods=["POST"])
+@auth_required
+def api_v1_test_sms():
+    """Send a test SMS to NOTIFY_PHONE."""
+    try:
+        from src.agents.notify_agent import notify_new_rfq_sms
+        notify_new_rfq_sms({
+            "id": "TEST", "solicitation_number": "TEST-SMS",
+            "agency": "Test Agency", "items": [{"d": "test"}],
+            "due_date": "2026-12-31",
+        })
+        return api_response({"sent": True})
+    except Exception as e:
+        return api_response(error=str(e), status=500)
+
+
 @bp.route("/api/v1/health")
 @auth_required
 def api_v1_health():

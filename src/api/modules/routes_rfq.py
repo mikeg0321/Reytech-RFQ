@@ -419,7 +419,12 @@ def upload():
     rfqs = load_rfqs()
     rfqs[rfq_id] = rfq
     save_rfqs(rfqs)
-    
+    try:
+        from src.core.dal import update_rfq_status as _dal_ur
+        _dal_ur(rfq_id, rfq.get("status", "draft"))
+    except Exception:
+        pass
+
     scprs_found = sum(1 for i in rfq["line_items"] if i.get("scprs_last_price"))
     msg = f"RFQ #{rfq['solicitation_number']} parsed — {len(rfq['line_items'])} items"
     if scprs_found:
@@ -780,7 +785,12 @@ def update(rid):
     
     _transition_status(r, "ready", actor="user", notes="Pricing updated")
     save_rfqs(rfqs)
-    
+    try:
+        from src.core.dal import update_rfq_status as _dal_ur
+        _dal_ur(rid, "ready")
+    except Exception:
+        pass
+
     # Save SCPRS prices for future lookups
     save_prices_from_rfq(r)
     
@@ -2169,7 +2179,12 @@ def generate_rfq_package(rid):
         log.debug("Suppressed: %s", _e)
     
     save_rfqs(rfqs)
-    
+    try:
+        from src.core.dal import update_rfq_status as _dal_ur
+        _dal_ur(rid, "generated")
+    except Exception:
+        pass
+
     # Build success message
     parts = []
     for f in final_output_files:
@@ -2252,6 +2267,11 @@ def generate(rid):
         save_prices_from_rfq(r)
         
         save_rfqs(rfqs)
+        try:
+            from src.core.dal import update_rfq_status as _dal_ur
+            _dal_ur(rid, "generated")
+        except Exception:
+            pass
         msg = f"Generated {len(output_files)} form(s) for #{sol}"
         if missing:
             msg += f" — missing: {', '.join(missing)}"
@@ -2332,6 +2352,11 @@ def send_email(rid):
         _transition_status(r, "sent", actor="user", notes="Email sent to buyer")
         r["sent_at"] = datetime.now().isoformat()
         save_rfqs(rfqs)
+        try:
+            from src.core.dal import update_rfq_status as _dal_ur
+            _dal_ur(rid, "sent")
+        except Exception:
+            pass
         t.ok("Email sent", to=r["draft_email"].get("to",""), sol=r.get("solicitation_number","?"))
         flash(f"Bid response sent to {r['draft_email']['to']}", "success")
         _log_rfq_activity(rid, "email_sent",
@@ -2598,7 +2623,12 @@ def rfq_reopen(rid):
     old_status = r.get("status", "?")
     _transition_status(r, "ready", actor="user", notes=f"Reopened from '{old_status}'")
     save_rfqs(rfqs)
-    
+    try:
+        from src.core.dal import update_rfq_status as _dal_ur
+        _dal_ur(rid, "ready")
+    except Exception:
+        pass
+
     _log_rfq_activity(rid, "reopened",
         f"RFQ #{r.get('solicitation_number','?')} reopened for editing (was: {old_status})",
         actor="user", metadata={"old_status": old_status})
@@ -2628,11 +2658,16 @@ def rfq_update_status(rid):
     notes = request.form.get("notes", "").strip()
     _transition_status(r, new_status, actor="user", notes=notes or f"Changed from {old_status}")
     save_rfqs(rfqs)
-    
+    try:
+        from src.core.dal import update_rfq_status as _dal_ur
+        _dal_ur(rid, new_status)
+    except Exception:
+        pass
+
     _log_rfq_activity(rid, "status_changed",
         f"RFQ #{r.get('solicitation_number','?')} status: {old_status} → {new_status}" + (f" ({notes})" if notes else ""),
         actor="user", metadata={"old_status": old_status, "new_status": new_status, "notes": notes})
-    
+
     flash(f"Status changed: {old_status} → {new_status}", "success")
     return redirect(f"/rfq/{rid}")
 
@@ -3108,6 +3143,11 @@ def send_email_enhanced(rid):
         r["sent_at"] = datetime.now().isoformat()
         r["draft_email"] = {"to": to_addr, "subject": subject, "body": body, "cc": cc, "bcc": bcc}
         save_rfqs(rfqs)
+        try:
+            from src.core.dal import update_rfq_status as _dal_ur
+            _dal_ur(rid, "sent")
+        except Exception:
+            pass
         
         # ── Log to email_log table ──
         sol = r.get("solicitation_number", "")
@@ -4118,6 +4158,11 @@ def api_rfq_clear_generated(rid):
     r.pop("generated_at", None)
     _transition_status(r, "ready", actor="user", notes="Cleared generated files for fresh regeneration")
     save_rfqs(rfqs)
+    try:
+        from src.core.dal import update_rfq_status as _dal_ur
+        _dal_ur(rid, "ready")
+    except Exception:
+        pass
 
     msg = f"Cleared {db_deleted} DB files + {disk_deleted} disk files. Status reset to 'ready'. Click Generate Package to rebuild."
     log.info("clear-generated %s: %s", rid, msg)
@@ -4212,6 +4257,11 @@ def api_rfq_clean_slate(rid):
     r["status"] = "ready"
 
     save_rfqs(rfqs)
+    try:
+        from src.core.dal import update_rfq_status as _dal_ur
+        _dal_ur(rid, "ready")
+    except Exception:
+        pass
 
     log.info("clean-slate %s: kept %d items, cleared %d DB + %d disk",
              rid, len(preserved_items), db_deleted, disk_deleted)

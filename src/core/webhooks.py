@@ -197,3 +197,51 @@ def fire_event(event_type: str, payload: dict):
             log.error("Webhook fire error: %s", _wh_err)
 
     threading.Thread(target=_do_fire, daemon=True).start()
+
+
+# ── Environment-variable-based webhook dispatcher (for n8n/Zapier) ────────────
+
+def fire_webhook(event_name: str, payload: dict) -> None:
+    """Fire a webhook to an env-var-configured URL. Non-blocking, never raises.
+
+    Looks up WEBHOOK_{EVENT_NAME}_URL env var (dots→underscores, uppercase).
+    Example: fire_webhook("rfq.created", {...}) checks WEBHOOK_RFQ_CREATED_URL.
+    """
+    env_key = "WEBHOOK_" + event_name.upper().replace(".", "_") + "_URL"
+    url = os.environ.get(env_key, "")
+    if not url:
+        return  # No URL configured — silently skip
+
+    base_url = os.environ.get("BASE_URL",
+        os.environ.get("RAILWAY_PUBLIC_DOMAIN", ""))
+
+    full_payload = {
+        "event": event_name,
+        "timestamp": datetime.now().isoformat(),
+        **payload,
+    }
+    if base_url and "app_url" not in full_payload:
+        rfq_id = payload.get("rfq_id", "")
+        order_id = payload.get("order_id", "")
+        if rfq_id:
+            full_payload["app_url"] = f"{base_url}/rfq/{rfq_id}"
+        elif order_id:
+            full_payload["app_url"] = f"{base_url}/order/{order_id}"
+
+    def _fire():
+        try:
+            import urllib.request
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(full_payload).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST"
+            )
+            urllib.request.urlopen(req, timeout=5)
+            log.info("Webhook fired: %s → %s", event_name, url[:60])
+        except Exception as e:
+            log.warning("Webhook %s failed: %s → %s", event_name, url[:60], str(e)[:100])
+
+    # Fire async — never block the caller
+    t = threading.Thread(target=_fire, daemon=True, name=f"webhook-{event_name}")
+    t.start()

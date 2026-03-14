@@ -471,3 +471,114 @@ What's missing: Not all data mutations go through audit. Direct JSON file writes
 - `data_integrity.py`: 5 passed, 0 failures
 - DAL tests: 13 passed (run via direct Python — pytest hangs on app import due to IMAP)
 - DATA_DIR grep: all redefinitions are `except ImportError:` fallbacks
+
+---
+
+## MCP Integration
+
+### Connecting to Claude Desktop
+
+1. Set environment variables:
+   ```
+   API_KEY=your-secret-key-here
+   REYTECH_URL=https://your-app.railway.app
+   ```
+
+2. Add to Claude Desktop config (`~/.claude/claude_desktop_config.json`):
+   ```json
+   {
+     "mcpServers": {
+       "reytech-rfq": {
+         "command": "python",
+         "args": ["mcp_server.py"],
+         "cwd": "/path/to/Reytech-RFQ",
+         "env": {
+           "API_KEY": "your-secret-key-here",
+           "REYTECH_URL": "https://your-app.railway.app"
+         }
+       }
+     }
+   }
+   ```
+
+3. Restart Claude Desktop. Five tools will appear:
+   - `get_health` — system status (call first)
+   - `get_pipeline` — queue depths and agent status
+   - `get_rfq` — single RFQ with line items
+   - `create_rfq` — create RFQ with line items
+   - `trigger_pricing` — trigger automated pricing
+
+### Connecting to Claude Code
+
+Add to `.claude/settings.json`:
+```json
+{
+  "mcpServers": {
+    "reytech-rfq": {
+      "command": "python",
+      "args": ["mcp_server.py"],
+      "env": {
+        "API_KEY": "your-key",
+        "REYTECH_URL": "https://your-app.railway.app"
+      }
+    }
+  }
+}
+```
+
+---
+
+## Layer 3 Completion — 2026-03-14
+
+### Steps Completed
+
+**Step 1: Claude MCP server** — `mcp_server.py` (project root)
+- 5 tools registered: get_rfq, get_pipeline, trigger_pricing, get_health, create_rfq
+- Each tool calls the corresponding `/api/v1/` endpoint with X-API-Key auth
+- Uses `mcp` Python SDK v1.26.0 with stdio transport
+- Fully documented connection instructions for Claude Desktop and Claude Code
+
+**Step 2: SMS on new RFQ** — `src/agents/notify_agent.py`
+- `notify_new_rfq_sms()` sends Twilio SMS with solicitation, agency, item count, due date, link
+- Falls back to log.info() if Twilio unconfigured — never crashes
+- Wired into dashboard.py RFQ creation (line ~1971) in try/except
+- 2 tests in `tests/test_notify.py`
+
+**Step 3: n8n webhook dispatcher** — `src/core/webhooks.py`
+- `fire_webhook(event_name, payload)` looks up `WEBHOOK_{EVENT}_URL` env var
+- Fires async POST in daemon thread (5s timeout, never blocks)
+- Wired into DAL: `save_rfq()` fires `rfq.created`, `update_rfq_status()` fires `rfq.status_changed`, `update_order_status()` fires `order.updated`
+- Manual fire routes: `/api/v1/webhook/test`, `/api/v1/webhook/rfq-created`, `/api/v1/webhook/order-updated`
+- Test SMS route: `/api/v1/notify/test-sms`
+- 2 tests in `tests/test_webhooks.py`
+
+**Step 4: Status changes through DAL** — routes_rfq.py + dashboard.py
+- 9 RFQ status change locations in routes_rfq.py now call `dal.update_rfq_status()`
+- 1 order status change in dashboard.py `_update_order_status()` now calls `dal.update_order_status()`
+- All status changes automatically fire webhooks via the DAL hooks
+
+**Step 5: Settings page webhook config** — `src/templates/settings.html`
+- Integrations card: webhook URLs, SMS number, base URL inputs
+- Save/load via `/api/settings/integrations` GET/POST
+- "Send Test Webhook" and "Send Test SMS" buttons
+- Settings saved to DB via `set_setting()` + set as env vars for running process
+
+### Files Changed
+- `mcp_server.py` — NEW: Claude MCP tool server (5 tools)
+- `src/agents/notify_agent.py` — added `notify_new_rfq_sms()`
+- `src/api/dashboard.py` — wired SMS + webhook on RFQ creation, DAL on order status
+- `src/core/webhooks.py` — added `fire_webhook()` env-var dispatcher
+- `src/core/dal.py` — webhook hooks in save_rfq, update_rfq_status, update_order_status
+- `src/api/modules/routes_v1.py` — webhook fire/test routes, SMS test route
+- `src/api/modules/routes_rfq.py` — 9 DAL status change calls
+- `src/api/modules/routes_analytics.py` — integration settings GET/POST routes
+- `src/templates/settings.html` — integrations config UI
+- `tests/test_notify.py` — NEW: 2 SMS tests
+- `tests/test_webhooks.py` — NEW: 2 webhook tests
+
+### QA Gate Results
+- `smoke_test.py`: 11 passed, 3 warnings, 0 failures
+- `check_routes.py`: 0 duplicates
+- `data_integrity.py`: 5 passed, 0 failures
+- Unit tests: DAL 13 passed, notify 2 passed, webhooks 2 passed
+- DATA_DIR grep: all redefinitions are `except ImportError:` fallbacks

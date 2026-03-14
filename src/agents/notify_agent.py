@@ -650,3 +650,30 @@ def get_agent_status() -> dict:
             *([] if TWILIO_SID else ["Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER"]),
         ],
     }
+
+
+def notify_new_rfq_sms(rfq_data: dict) -> None:
+    """Send SMS alert for a new RFQ. Falls back to log warning if Twilio unconfigured."""
+    if not all([TWILIO_SID, TWILIO_TOKEN, TWILIO_FROM, NOTIFY_PHONE]):
+        log.info("SMS skip (Twilio not configured): new RFQ %s", rfq_data.get("id", "?"))
+        return
+    if not SMS_ENABLED:
+        return
+    try:
+        sol = rfq_data.get("solicitation_number", "?")
+        agency = rfq_data.get("agency", "?")
+        items = rfq_data.get("line_items", rfq_data.get("items", []))
+        item_count = len(items) if isinstance(items, list) else 0
+        due = rfq_data.get("due_date", "TBD")
+        rfq_id = rfq_data.get("id", "?")
+        base_url = os.environ.get("BASE_URL",
+            os.environ.get("RAILWAY_PUBLIC_DOMAIN", "https://web-production-dcee9.up.railway.app"))
+        if not base_url.startswith("http"):
+            base_url = f"https://{base_url}"
+        msg = f"New RFQ: {sol} | {agency} | {item_count} items | Due {due} | {base_url}/rfq/{rfq_id}"
+        from twilio.rest import Client
+        client = Client(TWILIO_SID, TWILIO_TOKEN)
+        client.messages.create(body=msg, from_=TWILIO_FROM, to=NOTIFY_PHONE)
+        log.info("SMS sent for new RFQ %s to %s", sol, NOTIFY_PHONE)
+    except Exception as e:
+        log.warning("SMS for new RFQ failed (non-blocking): %s", e)

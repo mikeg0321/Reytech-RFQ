@@ -130,6 +130,88 @@ function resetNavConfig(){
 loadNavConfig();
 </script>
 
+<!-- ═══ Integrations (Webhooks / SMS / Base URL) ═══ -->
+<div class="card" style="margin-bottom:12px" id="integrations">
+ <div class="card-t">🔗 Integrations</div>
+ <div style="font-size:14px;color:var(--tx2);margin-bottom:12px">
+  Configure webhook URLs for n8n automation, SMS notifications, and the app base URL.
+ </div>
+ <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+  <div>
+   <label style="font-size:14px;color:var(--tx2);display:block;margin-bottom:4px">n8n RFQ Webhook URL</label>
+   <input type="text" id="int-webhook-rfq" placeholder="https://n8n.example.com/webhook/rfq-created" class="text-in" style="width:100%;font-size:13px;padding:8px">
+  </div>
+  <div>
+   <label style="font-size:14px;color:var(--tx2);display:block;margin-bottom:4px">n8n Order Webhook URL</label>
+   <input type="text" id="int-webhook-order" placeholder="https://n8n.example.com/webhook/order-updated" class="text-in" style="width:100%;font-size:13px;padding:8px">
+  </div>
+  <div>
+   <label style="font-size:14px;color:var(--tx2);display:block;margin-bottom:4px">SMS Notify Phone</label>
+   <input type="text" id="int-notify-phone" placeholder="+15551234567" class="text-in" style="width:100%;font-size:13px;padding:8px">
+  </div>
+  <div>
+   <label style="font-size:14px;color:var(--tx2);display:block;margin-bottom:4px">App Base URL</label>
+   <input type="text" id="int-base-url" placeholder="https://web-production-dcee9.up.railway.app" class="text-in" style="width:100%;font-size:13px;padding:8px">
+  </div>
+ </div>
+ <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+  <button type="button" class="btn btn-p" onclick="saveIntegrations()" style="font-size:13px;padding:8px 16px">Save Integrations</button>
+  <button type="button" class="btn btn-s" onclick="testWebhook()" style="font-size:13px;padding:8px 16px">Send Test Webhook</button>
+  <button type="button" class="btn btn-s" onclick="testSms()" style="font-size:13px;padding:8px 16px">Send Test SMS</button>
+ </div>
+ <div id="int-msg" style="margin-top:8px;font-size:14px;display:none"></div>
+</div>
+
+<script>
+function loadIntegrations(){
+ fetch('/api/settings/integrations').then(function(r){return r.json()}).then(function(d){
+  if(!d.ok)return;
+  var s=d.settings||{};
+  document.getElementById('int-webhook-rfq').value=s.webhook_rfq_created_url||'';
+  document.getElementById('int-webhook-order').value=s.webhook_order_updated_url||'';
+  document.getElementById('int-notify-phone').value=s.notify_phone||'';
+  document.getElementById('int-base-url').value=s.base_url||'';
+ }).catch(function(){});
+}
+function saveIntegrations(){
+ var payload={
+  webhook_rfq_created_url:document.getElementById('int-webhook-rfq').value.trim(),
+  webhook_order_updated_url:document.getElementById('int-webhook-order').value.trim(),
+  notify_phone:document.getElementById('int-notify-phone').value.trim(),
+  base_url:document.getElementById('int-base-url').value.trim()
+ };
+ fetch('/api/settings/integrations',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})
+ .then(function(r){return r.json()}).then(function(d){
+  var el=document.getElementById('int-msg');
+  el.style.display='block';
+  if(d.ok){el.style.color='#3fb950';el.textContent='Integrations saved.';}
+  else{el.style.color='#f85149';el.textContent='Error: '+(d.error||'unknown');}
+  setTimeout(function(){el.style.display='none'},4000);
+ });
+}
+function testWebhook(){
+ var el=document.getElementById('int-msg');
+ el.style.display='block';el.style.color='var(--tx2)';el.textContent='Sending test webhook...';
+ fetch('/api/v1/webhook/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})})
+ .then(function(r){return r.json()}).then(function(d){
+  el.style.color=d.ok?'#3fb950':'#f85149';
+  el.textContent=d.ok?'Test webhook sent.':'Webhook failed: '+(d.error||'unknown');
+  setTimeout(function(){el.style.display='none'},5000);
+ }).catch(function(e){el.style.color='#f85149';el.textContent='Error: '+e.message;});
+}
+function testSms(){
+ var el=document.getElementById('int-msg');
+ el.style.display='block';el.style.color='var(--tx2)';el.textContent='Sending test SMS...';
+ fetch('/api/v1/notify/test-sms',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})})
+ .then(function(r){return r.json()}).then(function(d){
+  el.style.color=d.ok?'#3fb950':'#f85149';
+  el.textContent=d.ok?'Test SMS sent.':'SMS failed: '+(d.error||'unknown');
+  setTimeout(function(){el.style.display='none'},5000);
+ }).catch(function(e){el.style.color='#f85149';el.textContent='Error: '+e.message;});
+}
+loadIntegrations();
+</script>
+
 <!-- ═══ App Settings ═══ -->
 <form id="settings-form">
 {% for cat, items in groups.items()|sort %}

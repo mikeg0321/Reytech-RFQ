@@ -1969,6 +1969,23 @@ def process_rfq_email(rfq_email):
     rfqs[rfq_data["id"]] = rfq_data
     save_rfqs(rfqs)
     POLL_STATUS["emails_found"] += 1
+    # SMS + webhook notification for new RFQ
+    try:
+        from src.agents.notify_agent import notify_new_rfq_sms
+        notify_new_rfq_sms(rfq_data)
+    except Exception as _e:
+        log.debug("RFQ SMS notify: %s", _e)
+    try:
+        from src.core.webhooks import fire_webhook
+        fire_webhook("rfq.created", {
+            "rfq_id": rfq_data.get("id", ""),
+            "solicitation_number": rfq_data.get("solicitation_number", ""),
+            "agency": rfq_data.get("agency", ""),
+            "item_count": len(rfq_data.get("line_items", rfq_data.get("items", []))),
+            "due_date": rfq_data.get("due_date", ""),
+        })
+    except Exception as _e:
+        log.debug("RFQ webhook fire: %s", _e)
     _trace.append(f"RFQ CREATED: sol={rfq_data.get('solicitation_number','?')}")
     
     # ── F1: Auto-link RFQ to matching PC, port pricing ──────────────
@@ -2971,6 +2988,13 @@ def _update_order_status(oid: str):
     order["updated_at"] = datetime.now().isoformat()
     orders[oid] = order
     _save_orders(orders)
+
+    # ── DAL sync (Layer 3) ──
+    try:
+        from src.core.dal import update_order_status as _dal_uo
+        _dal_uo(oid, order["status"])
+    except Exception:
+        pass
 
     # ── ALL DELIVERED TRIGGER — auto-draft invoice + notify Mike ──
     if order["status"] == "delivered" and old_status != "delivered":

@@ -763,6 +763,17 @@ def save_rfq(rfq: dict, actor: str = "system") -> bool:
                   json.dumps(rfq.get("items", []), default=str),
                   rfq.get("status", "new"), rfq.get("source", ""),
                   rfq.get("email_uid", ""), rfq.get("notes", "")))
+        # Fire webhook for new RFQ creation
+        try:
+            from src.core.webhooks import fire_webhook
+            fire_webhook("rfq.created", {
+                "rfq_id": rfq_id,
+                "solicitation_number": rfq.get("solicitation_number", ""),
+                "agency": rfq.get("agency", ""),
+                "item_count": len(rfq.get("items", [])),
+            })
+        except Exception:
+            pass
         return True
     except Exception as e:
         log.error("save_rfq(%s) failed: %s", rfq_id, e, exc_info=True)
@@ -780,6 +791,14 @@ def update_rfq_status(rfq_id: str, status: str, actor: str = "system") -> bool:
             conn.execute(
                 "UPDATE rfqs SET status = ?, updated_at = datetime('now') WHERE id = ?",
                 (status, rfq_id))
+        # Fire webhook for status change
+        try:
+            from src.core.webhooks import fire_webhook
+            fire_webhook("rfq.status_changed", {
+                "rfq_id": rfq_id, "new_status": status, "actor": actor,
+            })
+        except Exception:
+            pass
         return True
     except Exception as e:
         log.error("update_rfq_status(%s, %s) failed: %s", rfq_id, status, e, exc_info=True)
@@ -986,6 +1005,15 @@ def update_order_status(order_id: str, status: str, actor: str = "system") -> bo
             conn.execute(
                 "UPDATE orders SET status = ?, updated_at = datetime('now') WHERE id = ?",
                 (status, order_id))
+        # Fire webhook for status change
+        try:
+            from src.core.webhooks import fire_webhook
+            fire_webhook("order.updated", {
+                "order_id": order_id, "old_status": "", "new_status": status,
+                "actor": actor,
+            })
+        except Exception:
+            pass
         return True
     except Exception as e:
         log.error("update_order_status(%s, %s) failed: %s", order_id, status, e, exc_info=True)
