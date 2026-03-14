@@ -152,7 +152,9 @@ def build_buyer_intel(conn, dry_run=False):
     """Aggregate buyer stats from PO data."""
     log.info("Building buyer_intel...")
     rows = conn.execute("""
-        SELECT buyer_email, buyer_name, dept_name as agency, agency_key,
+        SELECT buyer_email,
+               COALESCE(NULLIF(buyer_name, ''), buyer_email) as buyer_name,
+               dept_name as agency, agency_key,
                COUNT(DISTINCT m.po_number) as rfq_count,
                SUM(grand_total) as total_spend,
                MAX(start_date) as last_purchase,
@@ -199,12 +201,22 @@ def build_buyer_intel(conn, dry_run=False):
             buyer_items = [t[0][:100] for t in terms]
         items_json = json.dumps(buyer_items)
 
+        # Derive buyer_name from email if not available
+        buyer_name = r["buyer_name"] or ""
+        if not buyer_name or buyer_name == r["buyer_email"]:
+            # Extract name from email: jessica.harris@cdcr.ca.gov → Jessica Harris
+            local = r["buyer_email"].split("@")[0] if "@" in r["buyer_email"] else ""
+            parts = local.replace(".", " ").replace("_", " ").replace("-", " ").split()
+            # Remove trailing digits (jessica.harris3 → Jessica Harris)
+            parts = [p.rstrip("0123456789") for p in parts if p.rstrip("0123456789")]
+            buyer_name = " ".join(p.capitalize() for p in parts) if parts else r["buyer_email"]
+
         conn.execute("""
             INSERT OR REPLACE INTO buyer_intel
             (buyer_name, buyer_email, agency, agency_code, items_purchased,
              categories, total_spend, rfq_count, last_purchase, tenant_id, updated_at)
             VALUES (?,?,?,?,?,?,?,?,?,'reytech',?)
-        """, (r["buyer_name"], r["buyer_email"], r["agency"], r["agency_key"],
+        """, (buyer_name, r["buyer_email"], r["agency"], r["agency_key"],
               items_json, r["categories"], r["total_spend"],
               r["rfq_count"], r["last_purchase"], now))
         count += 1

@@ -1140,3 +1140,50 @@ def api_v1_harvest_keywords_sync():
     except Exception as e:
         log.error("v1/harvest/keywords-sync error: %s", e, exc_info=True)
         return api_response(error=str(e), status=500)
+
+
+@bp.route("/api/v1/harvest/debug-buyer")
+@auth_required
+def api_v1_debug_buyer():
+    """Debug buyer_intel data. Query: ?email=buyer@agency.gov"""
+    try:
+        import sqlite3, json
+        from src.core.db import DB_PATH
+        conn = sqlite3.connect(DB_PATH, timeout=10)
+        conn.row_factory = sqlite3.Row
+        email = request.args.get("email", "")
+        if not email:
+            # Pick the top buyer by spend
+            r = conn.execute("SELECT buyer_email FROM buyer_intel ORDER BY total_spend DESC LIMIT 1").fetchone()
+            email = r[0] if r else ""
+        result = {"email": email}
+        # POs for this buyer
+        pos = conn.execute("SELECT id, po_number, grand_total, institution FROM scprs_po_master WHERE buyer_email=?", (email,)).fetchall()
+        result["po_count"] = len(pos)
+        result["po_sample"] = [dict(p) for p in pos[:5]]
+        # Lines for those POs
+        if pos:
+            po_ids = [p["id"] for p in pos]
+            ph = ",".join("?" * len(po_ids))
+            lines = conn.execute(f"SELECT po_id, description, unit_price FROM scprs_po_lines WHERE po_id IN ({ph}) LIMIT 10", po_ids).fetchall()
+            result["line_count"] = len(lines)
+            result["line_sample"] = [dict(l) for l in lines]
+        else:
+            result["line_count"] = 0
+        # Current buyer_intel record
+        bi = conn.execute("SELECT * FROM buyer_intel WHERE buyer_email=?", (email,)).fetchone()
+        if bi:
+            d = dict(bi)
+            d["items_purchased"] = json.loads(d.get("items_purchased", "[]") or "[]")
+            result["buyer_intel"] = d
+        # Global stats
+        result["global"] = {
+            "total_buyers": conn.execute("SELECT COUNT(*) FROM buyer_intel").fetchone()[0],
+            "with_items": conn.execute("SELECT COUNT(*) FROM buyer_intel WHERE items_purchased != '[]' AND items_purchased IS NOT NULL AND items_purchased != ''").fetchone()[0],
+            "with_name": conn.execute("SELECT COUNT(*) FROM buyer_intel WHERE buyer_name IS NOT NULL AND buyer_name != ''").fetchone()[0],
+        }
+        conn.close()
+        return api_response(result)
+    except Exception as e:
+        log.error("debug-buyer error: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)
