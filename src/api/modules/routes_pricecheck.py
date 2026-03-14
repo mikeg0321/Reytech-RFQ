@@ -1524,7 +1524,39 @@ def pricecheck_reparse(pcid):
 
     source_pdf = pc.get("source_pdf", "")
     if not source_pdf or not os.path.exists(source_pdf):
-        return jsonify({"ok": False, "error": "Source PDF not found"})
+        # Try to recover from DB
+        recovered = False
+        try:
+            from src.core.db import get_db
+            with get_db() as conn:
+                # Check rfq_files first
+                row = conn.execute(
+                    "SELECT data, filename FROM rfq_files WHERE rfq_id=? AND category='source' ORDER BY id DESC LIMIT 1",
+                    (pcid,)
+                ).fetchone()
+                if not row:
+                    # Also try email_attachments
+                    try:
+                        row = conn.execute(
+                            "SELECT data, filename FROM email_attachments WHERE pc_id=? ORDER BY id DESC LIMIT 1",
+                            (pcid,)
+                        ).fetchone()
+                    except Exception:
+                        pass
+                if row and row["data"]:
+                    restore_dir = os.path.join(os.environ.get("DATA_DIR", "data"), "pc_pdfs")
+                    os.makedirs(restore_dir, exist_ok=True)
+                    source_pdf = os.path.join(restore_dir, row["filename"] or f"{pcid}.pdf")
+                    with open(source_pdf, "wb") as _fw:
+                        _fw.write(row["data"])
+                    pc["source_pdf"] = source_pdf
+                    recovered = True
+                    log.info("REPARSE %s: recovered PDF from DB (%d bytes)", pcid, len(row["data"]))
+        except Exception as _dbe:
+            log.warning("REPARSE %s: DB recovery failed: %s", pcid, _dbe)
+
+        if not recovered:
+            return jsonify({"ok": False, "error": "Source PDF not found on disk or in DB. Upload the PDF manually."})
 
     from src.forms.price_check import parse_ams704
 
@@ -1578,6 +1610,74 @@ def pricecheck_reparse(pcid):
     log.info("REPARSE PC %s: %d items re-parsed from source PDF", pcid, len(fresh["line_items"]))
     return jsonify({"ok": True, "items": len(fresh["line_items"]),
                     "msg": f"Re-parsed {len(fresh['line_items'])} items from source PDF"})
+
+
+@bp.route("/pricecheck/<pcid>/upload-pdf", methods=["POST"])
+@auth_required
+def pricecheck_upload_pdf(pcid):
+    """Upload a PDF to a PC and parse it. Use when source PDF is lost after deploy."""
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"})
+
+    f = request.files.get("file")
+    if not f or not f.filename.lower().endswith(".pdf"):
+        return jsonify({"ok": False, "error": "Upload a PDF file"})
+
+    # Save to disk
+    upload_dir = os.path.join(os.environ.get("DATA_DIR", "data"), "pc_pdfs")
+    os.makedirs(upload_dir, exist_ok=True)
+    safe_name = re.sub(r'[^a-zA-Z0-9_.\-]', '_', f.filename)
+    pdf_path = os.path.join(upload_dir, f"{pcid}_{safe_name}")
+    f.save(pdf_path)
+    pc["source_pdf"] = pdf_path
+
+    # Also save to DB for persistence across deploys
+    try:
+        from src.api.dashboard import save_rfq_file
+        with open(pdf_path, "rb") as _pf:
+            pdf_data = _pf.read()
+        save_rfq_file(pcid, safe_name, "application/pdf", pdf_data,
+                      category="source", uploaded_by="user")
+        log.info("PC %s: saved uploaded PDF to DB (%d bytes)", pcid, len(pdf_data))
+    except Exception as _e:
+        log.warning("PC %s: DB save failed: %s", pcid, _e)
+
+    # Parse
+    from src.forms.price_check import parse_ams704
+    result = parse_ams704(pdf_path)
+    items = result.get("line_items", [])
+    header = result.get("header", {})
+
+    if items:
+        pc["items"] = items
+        pc["parsed"] = result
+        # Fill header fields if empty
+        for hk, hv in header.items():
+            if hv and not pc.get(hk):
+                pc[hk] = hv
+        if not pc.get("requestor") and header.get("requestor"):
+            pc["requestor"] = header["requestor"]
+        if not pc.get("institution") and header.get("institution"):
+            pc["institution"] = header["institution"]
+        pc["status"] = "parsed"
+        _sync_pc_items(pc, items)
+        _save_price_checks(pcs)
+        try:
+            upsert_price_check(pcid, pc)
+        except Exception:
+            pass
+        log.info("PC %s: uploaded PDF parsed → %d items", pcid, len(items))
+        from flask import flash
+        flash(f"Parsed {len(items)} items from uploaded PDF", "success")
+    else:
+        _save_price_checks(pcs)
+        log.warning("PC %s: uploaded PDF parsed 0 items", pcid)
+        from flask import flash
+        flash("PDF uploaded but no items found — try vision parse", "error")
+
+    return redirect(f"/pricecheck/{pcid}")
 
 
 @bp.route("/pricecheck/<pcid>/generate")
