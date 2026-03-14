@@ -66,17 +66,14 @@
  </div>
  {% endif %}
  
- <!-- Markup Buttons -->
+ <!-- Markup Buttons (loaded from settings) -->
  <div class="markup-bar" style="display:flex;flex-wrap:wrap;align-items:center;gap:6px">
   <span>Quick Markup:</span>
-  <button class="btn btn-sm btn-s mk-btn" onclick="applyMarkup(0.10)" data-mk="10" aria-label="10">+10%</button>
-  <button class="btn btn-sm btn-s mk-btn" onclick="applyMarkup(0.15)" data-mk="15" aria-label="15">+15%</button>
-  <button class="btn btn-sm btn-s mk-btn" onclick="applyMarkup(0.20)" data-mk="20" aria-label="20">+20%</button>
-  <button class="btn btn-sm btn-s mk-btn" onclick="applyMarkup(0.25)" data-mk="25" aria-label="25">+25%</button>
-  <button class="btn btn-sm btn-s mk-btn" onclick="applyMarkup(0.30)" data-mk="30" aria-label="30">+30%</button>
+  <span id="mk-buttons-container"></span>
   <div style="display:flex;align-items:center;gap:4px;margin-left:6px;background:var(--sf2,#21262d);padding:4px 8px;border-radius:6px;border:1px solid var(--bd,#30363d)">
-   <input type="number" id="custom-markup-pct" step="0.5" min="0" max="200" placeholder="Custom %" style="width:80px;background:transparent;border:none;color:#e6edf3;font-size:15px;font-weight:600;text-align:center;outline:none" title="Custom markup percentage">
-   <button class="btn btn-sm" onclick="applyCustomMarkup()" style="padding:3px 10px;font-size:13px;background:#238636;color:#fff;border:none" aria-label="Apply custom %">Apply</button>
+   <input type="number" id="custom-markup-pct" step="1" min="0" max="200" placeholder="%" style="width:72px;background:transparent;border:none;color:#e6edf3;font-size:16px;font-weight:700;text-align:center;outline:none" title="Markup % — click a button or type any value, then Apply or use arrows">
+   <span style="color:#8b949e;font-size:14px;font-weight:600">%</span>
+   <button class="btn btn-sm" onclick="applyCustomMarkup()" style="padding:4px 12px;font-size:14px;background:#238636;color:#fff;border:none;font-weight:600" aria-label="Apply markup">Apply</button>
   </div>
   <div style="display:flex;align-items:center;gap:4px;background:var(--sf2,#21262d);padding:4px 8px;border-radius:6px;border:1px solid var(--bd,#30363d)">
    <span style="color:#8b949e;font-size:14px">$</span>
@@ -84,9 +81,7 @@
    <button class="btn btn-sm" onclick="applyFlatMarkup()" style="padding:3px 10px;font-size:13px;background:#21262d;color:#58a6ff;border:1px solid #30363d" aria-label="Apply flat $">+$</button>
   </div>
   <span style="margin-left:8px">SCPRS Undercut:</span>
-  <button class="btn btn-sm btn-s" onclick="applyScprsUndercut(0.01)" aria-label="-1">-1%</button>
-  <button class="btn btn-sm btn-s" onclick="applyScprsUndercut(0.02)" aria-label="-2">-2%</button>
-  <button class="btn btn-sm btn-s" onclick="applyScprsUndercut(0.05)" aria-label="-5">-5%</button>
+  <span id="uc-buttons-container"></span>
  </div>
  <!-- Margin Summary Bar -->
  <div id="margin-summary" style="display:none;margin-top:6px;padding:8px 14px;background:var(--sf2,#21262d);border:1px solid var(--bd,#30363d);border-radius:8px;font-size:14px;display:flex;gap:16px;flex-wrap:wrap;align-items:center">
@@ -752,17 +747,53 @@ function recalc(){
  }
 }
 
+// ── Markup Config: load from settings, build buttons dynamically ──
+var _mkConfig={buttons:[10,15,20,25,30],undercuts:[1,2,5],step:1};
+(function loadMarkupConfig(){
+ fetch('/api/settings/markup-config',{credentials:'same-origin'}).then(function(r){return r.json()}).then(function(d){
+  if(d.ok){
+   _mkConfig.buttons=d.markup_buttons||[10,15,20,25,30];
+   _mkConfig.undercuts=d.undercut_buttons||[1,2,5];
+   _mkConfig.step=d.step||1;
+  }
+  _buildMarkupButtons();
+ }).catch(function(){_buildMarkupButtons()});
+})();
+
+function _buildMarkupButtons(){
+ var mc=document.getElementById('mk-buttons-container');
+ if(!mc)return;
+ var html='';
+ _mkConfig.buttons.forEach(function(pct){
+  var label=pct%1===0?'+'+pct+'%':'+'+pct.toFixed(1)+'%';
+  html+='<button class="btn btn-sm btn-s mk-btn" data-mk="'+pct+'" onclick="applyMarkup('+(pct/100)+')">'+label+'</button>';
+ });
+ mc.innerHTML=html;
+ var inp=document.getElementById('custom-markup-pct');
+ if(inp)inp.step=_mkConfig.step;
+ var uc=document.getElementById('uc-buttons-container');
+ if(uc){
+  var uh='';
+  _mkConfig.undercuts.forEach(function(pct){
+   uh+='<button class="btn btn-sm btn-s" onclick="applyScprsUndercut('+(pct/100)+')">-'+pct+'%</button>';
+  });
+  uc.innerHTML=uh;
+ }
+}
+
 function applyMarkup(pct){
- document.getElementById('custom-markup-pct').value=Math.round(pct*100);
+ var pctVal=Math.round(pct*1000)/10; // 0.10→10, 0.025→2.5, 0.185→18.5
+ var inp=document.getElementById('custom-markup-pct');
+ if(inp) inp.value=pctVal;
  // Highlight active button
  document.querySelectorAll('.mk-btn').forEach(function(b){
   b.style.background='';b.style.color='';b.style.border='';
  });
- var active=document.querySelector('.mk-btn[data-mk="'+Math.round(pct*100)+'"]');
+ var active=document.querySelector('.mk-btn[data-mk="'+pctVal+'"]');
  if(active){active.style.background='#238636';active.style.color='#fff';active.style.border='1px solid #238636';}
- for(let i=0;i<n;i++){
-  const mkInp=document.querySelector(`[name=markup_${i}]`);
-  if(mkInp) mkInp.value=Math.round(pct*100);
+ for(var i=0;i<n;i++){
+  var mkInp=document.querySelector('[name=markup_'+i+']');
+  if(mkInp) mkInp.value=pctVal;
   recalcFromMarkup(i);
  }
 }
@@ -770,9 +801,16 @@ function applyMarkup(pct){
 function applyCustomMarkup(){
  var pct=parseFloat(document.getElementById('custom-markup-pct').value);
  if(isNaN(pct)||pct<=0){alert('Enter a markup percentage');return}
+ // Clear button highlights (custom value)
+ document.querySelectorAll('.mk-btn').forEach(function(b){
+  b.style.background='';b.style.color='';b.style.border='';
+ });
+ // Highlight matching button if exact match
+ var active=document.querySelector('.mk-btn[data-mk="'+pct+'"]');
+ if(active){active.style.background='#238636';active.style.color='#fff';active.style.border='1px solid #238636';}
  for(var i=0;i<n;i++){
   var mkInp=document.querySelector('[name=markup_'+i+']');
-  if(mkInp) mkInp.value=Math.round(pct);
+  if(mkInp) mkInp.value=pct;
   recalcFromMarkup(i);
  }
 }
@@ -791,6 +829,14 @@ function applyFlatMarkup(){
  }
  recalc();
 }
+
+// Enter key on custom % input applies immediately
+(function(){
+ var inp=document.getElementById('custom-markup-pct');
+ if(inp)inp.addEventListener('keydown',function(e){
+  if(e.key==='Enter'){e.preventDefault();applyCustomMarkup();}
+ });
+})();
 
 function recalcFromMarkup(idx){
  var costEl=document.querySelector('[name=cost_'+idx+']');

@@ -291,17 +291,14 @@
 
     <div class="card">
      <h3 style="margin-top:0;font-size:18px">Line Items <span id="itemCount" style="font-weight:normal;color:#8b949e;font-size:15px">({{ items|length }} items)</span></h3>
-     <!-- Quick Markup Bar (parity with RFQ) -->
+     <!-- Quick Markup Bar (config-driven, parity with RFQ) -->
      <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:10px;font-size:14px">
       <span style="color:#8b949e">Quick Markup:</span>
-      <button class="btn btn-sm" style="background:#21262d;color:#e6edf3;border:1px solid #30363d;padding:3px 8px;font-size:13px" onclick="applyQuickMarkup(10)">+10%</button>
-      <button class="btn btn-sm" style="background:#21262d;color:#e6edf3;border:1px solid #30363d;padding:3px 8px;font-size:13px" onclick="applyQuickMarkup(15)">+15%</button>
-      <button class="btn btn-sm" style="background:#21262d;color:#e6edf3;border:1px solid #30363d;padding:3px 8px;font-size:13px" onclick="applyQuickMarkup(20)">+20%</button>
-      <button class="btn btn-sm" style="background:#21262d;color:#e6edf3;border:1px solid #30363d;padding:3px 8px;font-size:13px" onclick="applyQuickMarkup(25)">+25%</button>
-      <button class="btn btn-sm" style="background:#21262d;color:#e6edf3;border:1px solid #30363d;padding:3px 8px;font-size:13px" onclick="applyQuickMarkup(30)">+30%</button>
-      <div style="display:flex;align-items:center;gap:3px;background:#21262d;padding:3px 6px;border-radius:6px;border:1px solid #30363d">
-       <input type="number" id="pc-custom-pct" step="0.5" min="0" max="200" placeholder="%" style="width:45px;background:transparent;border:none;color:#e6edf3;font-size:13px;font-weight:600;text-align:center;outline:none">
-       <button class="btn btn-sm" style="background:transparent;color:#58a6ff;border:none;padding:2px 6px;font-size:12px;cursor:pointer" onclick="var v=parseFloat(document.getElementById('pc-custom-pct').value);if(v>0)applyQuickMarkup(v);else alert('Enter a %')">Apply</button>
+      <span id="pc-mk-buttons"></span>
+      <div style="display:flex;align-items:center;gap:3px;background:#21262d;padding:4px 8px;border-radius:6px;border:1px solid #30363d">
+       <input type="number" id="pc-custom-pct" step="1" min="0" max="200" placeholder="%" style="width:60px;background:transparent;border:none;color:#e6edf3;font-size:15px;font-weight:700;text-align:center;outline:none">
+       <span style="color:#8b949e;font-size:13px;font-weight:600">%</span>
+       <button class="btn btn-sm" style="background:#238636;color:#fff;border:none;padding:3px 10px;font-size:13px;font-weight:600" onclick="var v=parseFloat(document.getElementById('pc-custom-pct').value);if(v>0)applyQuickMarkup(v);else alert('Enter a %')">Apply</button>
       </div>
       <div style="display:flex;align-items:center;gap:3px;background:#21262d;padding:3px 6px;border-radius:6px;border:1px solid #30363d">
        <span style="color:#8b949e;font-size:12px">$</span>
@@ -514,7 +511,14 @@
     }
 
     function applyQuickMarkup(pct) {
+     document.getElementById('pc-custom-pct').value=pct;
      document.getElementById('markupDefault').value=pct;
+     // Highlight active
+     document.querySelectorAll('.pc-mk-btn').forEach(function(b){
+      b.style.background='#21262d';b.style.color='#e6edf3';b.style.border='1px solid #30363d';
+     });
+     var active=document.querySelector('.pc-mk-btn[data-mk="'+pct+'"]');
+     if(active){active.style.background='#238636';active.style.color='#fff';active.style.border='1px solid #238636';}
      document.querySelectorAll('tr[data-row]:not(.notes-row)').forEach(function(row){
       var idx=row.getAttribute('data-row');
       var markupInp=row.querySelector('[name=markup_'+idx+']');
@@ -523,6 +527,32 @@
      });
      showMsg('✅ Applied '+pct+'% markup to all items','ok');
     }
+
+    // Load dynamic markup buttons from settings
+    (function(){
+     fetch('/api/settings/markup-config',{credentials:'same-origin'}).then(function(r){return r.json()}).then(function(d){
+      if(!d.ok) return;
+      var mc=document.getElementById('pc-mk-buttons');
+      if(!mc) return;
+      var html='';
+      (d.markup_buttons||[10,15,20,25,30]).forEach(function(pct){
+       var label=pct%1===0?'+'+pct+'%':'+'+pct.toFixed(1)+'%';
+       html+='<button class="btn btn-sm pc-mk-btn" data-mk="'+pct+'" style="background:#21262d;color:#e6edf3;border:1px solid #30363d;padding:3px 8px;font-size:13px" onclick="applyQuickMarkup('+pct+')">'+label+'</button>';
+      });
+      mc.innerHTML=html;
+      var inp=document.getElementById('pc-custom-pct');
+      if(inp) inp.step=d.step||1;
+     }).catch(function(){
+      // Fallback: render default buttons
+      var mc=document.getElementById('pc-mk-buttons');
+      if(mc) mc.innerHTML='<button class="btn btn-sm pc-mk-btn" data-mk="10" style="background:#21262d;color:#e6edf3;border:1px solid #30363d;padding:3px 8px;font-size:13px" onclick="applyQuickMarkup(10)">+10%</button><button class="btn btn-sm pc-mk-btn" data-mk="15" style="background:#21262d;color:#e6edf3;border:1px solid #30363d;padding:3px 8px;font-size:13px" onclick="applyQuickMarkup(15)">+15%</button><button class="btn btn-sm pc-mk-btn" data-mk="20" style="background:#21262d;color:#e6edf3;border:1px solid #30363d;padding:3px 8px;font-size:13px" onclick="applyQuickMarkup(20)">+20%</button><button class="btn btn-sm pc-mk-btn" data-mk="25" style="background:#21262d;color:#e6edf3;border:1px solid #30363d;padding:3px 8px;font-size:13px" onclick="applyQuickMarkup(25)">+25%</button><button class="btn btn-sm pc-mk-btn" data-mk="30" style="background:#21262d;color:#e6edf3;border:1px solid #30363d;padding:3px 8px;font-size:13px" onclick="applyQuickMarkup(30)">+30%</button>';
+     });
+     // Enter key on custom input
+     var inp=document.getElementById('pc-custom-pct');
+     if(inp) inp.addEventListener('keydown',function(e){
+      if(e.key==='Enter'){e.preventDefault();var v=parseFloat(inp.value);if(v>0)applyQuickMarkup(v);}
+     });
+    })();
 
     function applyFlatMarkupPC() {
      var flat=parseFloat(document.getElementById('pc-custom-flat').value);

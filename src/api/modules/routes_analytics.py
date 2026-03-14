@@ -733,6 +733,9 @@ _DEFAULT_SETTINGS = {
     "pricing.scprs_undercut_pct": 2,
     "pricing.minimum_margin_pct": 5,
     "pricing.auto_recommend": True,
+    "pricing.markup_buttons": "10,15,20,25,30",
+    "pricing.markup_step": 1,
+    "pricing.undercut_buttons": "1,2,5",
     "email.quote_template": "default",
     "email.auto_send_on_generate": False,
     "import.auto_process_emails": True,
@@ -842,6 +845,35 @@ def get_single_setting():
     settings = _load_settings()
     value = settings.get(key, "")
     return jsonify({"ok": True, "key": key, "value": value})
+
+
+@bp.route("/api/settings/markup-config")
+@auth_required
+def get_markup_config():
+    """Return markup button configuration for RFQ/PC pages."""
+    settings = _load_settings()
+    buttons_str = settings.get("pricing.markup_buttons", "10,15,20,25,30")
+    undercut_str = settings.get("pricing.undercut_buttons", "1,2,5")
+    step = settings.get("pricing.markup_step", 1)
+    try:
+        buttons = [float(x.strip()) for x in str(buttons_str).split(",") if x.strip()]
+    except Exception:
+        buttons = [10, 15, 20, 25, 30]
+    try:
+        undercuts = [float(x.strip()) for x in str(undercut_str).split(",") if x.strip()]
+    except Exception:
+        undercuts = [1, 2, 5]
+    try:
+        step = float(step)
+    except Exception:
+        step = 1
+    return jsonify({
+        "ok": True,
+        "markup_buttons": buttons,
+        "undercut_buttons": undercuts,
+        "step": step,
+        "default_markup": settings.get("pricing.default_markup_pct", 20),
+    })
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
