@@ -750,4 +750,50 @@ Add to `.claude/settings.json`:
 - `smoke_test.py`: 16 passed, 3 warnings, 0 failures
 - `check_routes.py`: 0 duplicates
 - `data_integrity.py`: 10 passed, 0 failures
+
+---
+
+## Universal Government Procurement Sprint — 2026-03-14
+
+### Schema Expansion (Migration v10)
+- Added `state`, `jurisdiction`, `source_system` columns to 7 existing intelligence tables
+- Created `procurement_sources` table (2 sources seeded: SCPRS + USASpending)
+- Created `agency_registry` table (33 CA agencies seeded across 10 categories)
+- Created `harvest_log` table for per-pull tracking
+- All new columns default to `CA`/`state`/`scprs` — existing data unchanged
+
+### California Expansion
+- `src/core/ca_agencies.py`: 33 agencies in 10 categories with priority levels
+- `CA_STATE_AGENCIES` dict: healthcare, corrections, veterans, safety, infrastructure, admin, education, environment, social, labor, technology, housing
+- `seed_agency_registry()`: populates agency_registry table on startup
+- `run_scprs_harvest.py` updated with `--pull-all`, `--priority`, `--workers` flags
+- Parallel pull support via `ThreadPoolExecutor` (1-4 workers)
+- Harvest logging: every agency pull writes to `harvest_log` table
+
+### Federal Procurement
+- `src/agents/usaspending_agent.py`: REST API client for USASpending.gov (no auth required)
+  - `search_awards()`: keyword + agency + date range search with pagination
+  - `search_recipient()`: find vendor by name
+  - `pull_reytech_federal()`: Reytech + category keyword search
+  - `normalize_to_po_master()`: maps federal fields to scprs_po_master schema
+  - Rate limiting: 10 req/min via 6s interval
+  - NAICS codes for medical supply categories defined
+- `scripts/run_federal_harvest.py`: harvest runner with `--dry-run`, `--reytech` flags
+- Output normalized to scprs_po_master with `state='federal'`, `source_system='usaspending'`
+
+### Multi-State Framework
+- `src/agents/state_procurement_agent.py`: base class for all state scrapers
+  - `search_by_vendor()`, `search_by_keyword()`, `search_by_agency()` — abstract
+  - `normalize()`: maps state-specific fields to po_master schema
+  - `store_results()`: inserts normalized data with state/jurisdiction/source_system
+- `STATE_PROCUREMENT_SYSTEMS` dict: CA (active), federal (active), TX/NY/FL (planned)
+
+### Files Created/Modified
+- `src/core/migrations.py` — migration v10: multi-state schema
+- `src/core/db.py` — 13 new ALTER TABLE columns in _migrate_columns
+- `src/core/ca_agencies.py` — NEW: 33 CA agency registry
+- `src/agents/usaspending_agent.py` — NEW: federal procurement agent
+- `src/agents/state_procurement_agent.py` — NEW: multi-state base class
+- `scripts/run_scprs_harvest.py` — expanded with --pull-all, parallel, harvest logging
+- `scripts/run_federal_harvest.py` — NEW: federal harvest runner
 - `tasks/lessons.md`: L53 added (ambiguous SQL column names)

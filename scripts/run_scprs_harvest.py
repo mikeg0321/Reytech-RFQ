@@ -20,8 +20,10 @@ import json
 import sqlite3
 import logging
 import argparse
-from datetime import datetime, timezone
+import time
+from datetime import datetime, timezone, timedelta
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -284,11 +286,96 @@ def build_scprs_awards(conn, dry_run=False):
     return count
 
 
+# ── Agency pull via intelligence engine ──────────────────────────────────────
+
+def pull_agency_scprs(agency_code: str, days_back: int = 730, dry_run: bool = False) -> dict:
+    """Pull one agency from SCPRS via the intelligence engine."""
+    if dry_run:
+        log.info("[DRY RUN] Would pull %s (%d days back)", agency_code, days_back)
+        return {"ok": True, "dry_run": True, "agency": agency_code}
+    t0 = time.time()
+    try:
+        from src.agents.scprs_intelligence_engine import pull_agency
+        result = pull_agency(agency_code)
+        duration = round(time.time() - t0, 1)
+        pos = result.get("new_pos", 0)
+        lines = result.get("new_lines", 0)
+        log.info("Agency %s: %d POs, %d lines in %.1fs", agency_code, pos, lines, duration)
+        # Log to harvest_log
+        try:
+            conn = get_conn()
+            now = datetime.now(timezone.utc).isoformat()
+            conn.execute("""
+                INSERT INTO harvest_log (source_system, state, agency, pos_found,
+                    lines_found, started_at, completed_at, duration_seconds, tenant_id)
+                VALUES ('scprs', 'CA', ?, ?, ?, ?, ?, ?, 'reytech')
+            """, (agency_code, pos, lines, now, now, duration))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            log.debug("Harvest log write: %s", e)
+        return result
+    except Exception as e:
+        duration = round(time.time() - t0, 1)
+        log.error("Agency %s failed in %.1fs: %s", agency_code, duration, e)
+        return {"ok": False, "error": str(e), "agency": agency_code}
+
+
+def pull_all_agencies(priority: str = "P1", days_back: int = 730,
+                      max_workers: int = 1, dry_run: bool = False) -> dict:
+    """Pull all CA agencies up to a priority level. Returns summary."""
+    from src.core.ca_agencies import get_agencies_by_priority, HIGH_VALUE_AGENCIES
+
+    agencies = get_agencies_by_priority(priority)
+    log.info("Pulling %d CA agencies (priority <= %s, %d workers)",
+             len(agencies), priority, max_workers)
+
+    results = {}
+    total_pos = 0
+    errors = []
+
+    def _pull_one(code):
+        db = HIGH_VALUE_AGENCIES if hasattr(HIGH_VALUE_AGENCIES, '__contains__') else set()
+        days = 1095 if code in db else days_back
+        return code, pull_agency_scprs(code, days_back=days, dry_run=dry_run)
+
+    if max_workers <= 1:
+        for code in agencies:
+            c, r = _pull_one(code)
+            results[c] = r
+            if r.get("ok"):
+                total_pos += r.get("new_pos", 0)
+            else:
+                errors.append(c)
+            time.sleep(2)  # Rate limit
+    else:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(_pull_one, code): code for code in agencies}
+            for future in as_completed(futures):
+                try:
+                    c, r = future.result()
+                    results[c] = r
+                    if r.get("ok"):
+                        total_pos += r.get("new_pos", 0)
+                    else:
+                        errors.append(c)
+                except Exception as e:
+                    code = futures[future]
+                    results[code] = {"ok": False, "error": str(e)}
+                    errors.append(code)
+
+    return {"total_agencies": len(agencies), "total_pos": total_pos,
+            "errors": errors, "results": results}
+
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
     parser = argparse.ArgumentParser(description="SCPRS Historical Harvest Runner")
     parser.add_argument("--pull", action="store_true", help="Pull new data from SCPRS first")
+    parser.add_argument("--pull-all", action="store_true", help="Pull ALL CA agencies from SCPRS")
+    parser.add_argument("--priority", default="P1", help="Max priority level (P0/P1/P2)")
+    parser.add_argument("--workers", type=int, default=1, help="Parallel pull workers (1-4)")
     parser.add_argument("--dry-run", action="store_true", help="Show what would happen")
     args = parser.parse_args()
 
@@ -297,8 +384,28 @@ def main():
     log.info("DB: %s", DB_PATH)
     log.info("=" * 60)
 
-    # Step 1: Optional pull
-    if args.pull:
+    # Seed agency registry
+    try:
+        from src.core.ca_agencies import seed_agency_registry
+        conn = get_conn()
+        seed_agency_registry(conn)
+        conn.close()
+        log.info("CA agency registry seeded")
+    except Exception as e:
+        log.warning("Agency registry seed: %s", e)
+
+    # Step 1: Pull (single or all agencies)
+    if args.pull_all:
+        pull_result = pull_all_agencies(
+            priority=args.priority,
+            max_workers=min(args.workers, 4),
+            dry_run=args.dry_run)
+        log.info("Pull-all result: %d agencies, %d new POs, %d errors",
+                 pull_result["total_agencies"], pull_result["total_pos"],
+                 len(pull_result["errors"]))
+        if pull_result["errors"]:
+            log.warning("Failed agencies: %s", pull_result["errors"])
+    elif args.pull:
         pull_result = pull_new_data(dry_run=args.dry_run)
         if not pull_result.get("ok") and not args.dry_run:
             log.warning("Pull had issues: %s", pull_result)
@@ -306,13 +413,12 @@ def main():
     # Step 2-6: Process existing data into intelligence tables
     conn = get_conn()
 
-    # Check baseline
     po_count = conn.execute("SELECT COUNT(*) FROM scprs_po_master").fetchone()[0]
     line_count = conn.execute("SELECT COUNT(*) FROM scprs_po_lines").fetchone()[0]
     log.info("Baseline: %d POs, %d lines in scprs_po_master/lines", po_count, line_count)
 
     if po_count == 0:
-        log.warning("No PO data to process. Run with --pull first or check SCPRS connectivity.")
+        log.warning("No PO data to process. Run with --pull or --pull-all first.")
         conn.close()
         return
 
