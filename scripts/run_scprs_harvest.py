@@ -301,7 +301,7 @@ def pull_agency_scprs(agency_code: str, days_back: int = 730, dry_run: bool = Fa
         pos = result.get("new_pos", 0)
         lines = result.get("new_lines", 0)
         log.info("Agency %s: %d POs, %d lines in %.1fs", agency_code, pos, lines, duration)
-        # Log to harvest_log
+        # Log to harvest_log + run health check
         try:
             conn = get_conn()
             now = datetime.now(timezone.utc).isoformat()
@@ -311,9 +311,14 @@ def pull_agency_scprs(agency_code: str, days_back: int = 730, dry_run: bool = Fa
                 VALUES ('scprs', 'CA', ?, ?, ?, ?, ?, ?, 'reytech')
             """, (agency_code, pos, lines, now, now, duration))
             conn.commit()
+            # Health contract validation
+            from src.core.harvest_health import validate_pull
+            health = validate_pull(agency_code, "scprs", "CA", conn)
+            result["health_grade"] = health["grade"]
+            result["health_issues"] = health["issues"]
             conn.close()
         except Exception as e:
-            log.debug("Harvest log write: %s", e)
+            log.debug("Harvest log/health: %s", e)
         return result
     except Exception as e:
         duration = round(time.time() - t0, 1)
@@ -377,12 +382,29 @@ def main():
     parser.add_argument("--priority", default="P1", help="Max priority level (P0/P1/P2)")
     parser.add_argument("--workers", type=int, default=1, help="Parallel pull workers (1-4)")
     parser.add_argument("--dry-run", action="store_true", help="Show what would happen")
+    parser.add_argument("--health", action="store_true", help="Run health check on existing data only")
     args = parser.parse_args()
 
     log.info("=" * 60)
     log.info("SCPRS HARVEST STARTING")
     log.info("DB: %s", DB_PATH)
     log.info("=" * 60)
+
+    # Health-only mode
+    if args.health:
+        conn = get_conn()
+        from src.core.harvest_health import validate_all_agencies
+        summary = validate_all_agencies(conn, "scprs", "CA")
+        log.info("Health check: %d agencies", summary["agencies_checked"])
+        log.info("Grades: %s", summary["grades"])
+        for agency, report in summary["reports"].items():
+            status = "PASS" if report["grade"] in ("A", "B") else "WARN" if report["grade"] == "C" else "FAIL"
+            log.info("  [%s] %s: %s (%d/%d checks) %s",
+                     report["grade"], agency, status,
+                     report["passed"], report["total_checks"],
+                     " — " + "; ".join(report["issues"]) if report["issues"] else "")
+        conn.close()
+        return
 
     # Seed agency registry
     try:
@@ -455,6 +477,22 @@ def main():
     log.info("  buyer_intel:     %d buyers", buyer_count)
     log.info("  competitors:     %d vendors tracked", competitor_count)
     log.info("  Reytech wins:    %d POs", reytech_wins)
+
+    # Health contract validation
+    if not args.dry_run:
+        try:
+            health_conn = get_conn()
+            from src.core.harvest_health import validate_all_agencies
+            summary = validate_all_agencies(health_conn, "scprs", "CA")
+            log.info("  Health: %s", summary["grades"])
+            for agency, report in summary["reports"].items():
+                if report["grade"] not in ("A", "B"):
+                    log.warning("  [%s] %s: %s", report["grade"], agency,
+                                "; ".join(report["issues"]))
+            health_conn.close()
+        except Exception as e:
+            log.debug("Health check: %s", e)
+
     log.info("=" * 60)
 
 
