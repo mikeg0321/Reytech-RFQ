@@ -136,6 +136,10 @@ MIGRATIONS = [
         CREATE INDEX IF NOT EXISTS idx_paudit_desc ON price_audit(item_description);
         CREATE INDEX IF NOT EXISTS idx_paudit_ts ON price_audit(ts);
     """),
+
+    (8, "add_price_checks_ship_to", """
+        ALTER TABLE price_checks ADD COLUMN ship_to TEXT DEFAULT '';
+    """),
 ]
 
 

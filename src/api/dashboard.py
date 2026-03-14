@@ -659,14 +659,20 @@ def _save_price_checks(pcs):
     try:
         from src.core.db import get_db
         with get_db() as conn:
-            # Ensure pc_data column exists
-            try:
-                conn.execute("SELECT pc_data FROM price_checks LIMIT 0")
-            except Exception:
+            # Ensure dynamic columns exist (covers DBs created before schema updates)
+            for col, default in [
+                ("institution", "''"), ("pc_number", "''"),
+                ("status", "'parsed'"), ("email_uid", "''"),
+                ("email_subject", "''"), ("due_date", "''"),
+                ("pc_data", "'{}'"), ("ship_to", "''"),
+            ]:
                 try:
-                    conn.execute("ALTER TABLE price_checks ADD COLUMN pc_data TEXT DEFAULT '{}'")
+                    conn.execute(f"SELECT {col} FROM price_checks LIMIT 0")
                 except Exception:
-                    pass
+                    try:
+                        conn.execute(f"ALTER TABLE price_checks ADD COLUMN {col} TEXT DEFAULT {default}")
+                    except Exception:
+                        pass
 
             for pc_id, pc in pcs.items():
                 items_json = json.dumps(pc.get("items", []), default=str)
@@ -676,8 +682,8 @@ def _save_price_checks(pcs):
                     INSERT OR REPLACE INTO price_checks
                     (id, created_at, requestor, agency, institution, items, source_file,
                      quote_number, pc_number, total_items, status,
-                     email_uid, email_subject, due_date, pc_data)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     email_uid, email_subject, due_date, pc_data, ship_to)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     pc_id,
                     pc.get("created_at", ""),
@@ -694,6 +700,7 @@ def _save_price_checks(pcs):
                     pc.get("email_subject", ""),
                     pc.get("due_date", ""),
                     pc_blob,
+                    pc.get("ship_to", ""),
                 ))
     except Exception as e:
         log.error("DB save failed for price_checks: %s", e)

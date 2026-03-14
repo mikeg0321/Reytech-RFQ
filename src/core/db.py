@@ -274,10 +274,18 @@ CREATE TABLE IF NOT EXISTS price_checks (
     created_at      TEXT NOT NULL,
     requestor       TEXT,
     agency          TEXT,
+    institution     TEXT,
     items           TEXT,           -- JSON with full pricing per item
     source_file     TEXT,
     quote_number    TEXT,
-    total_items     INTEGER DEFAULT 0
+    pc_number       TEXT,
+    total_items     INTEGER DEFAULT 0,
+    status          TEXT DEFAULT 'parsed',
+    email_uid       TEXT,
+    email_subject   TEXT,
+    due_date        TEXT,
+    pc_data         TEXT DEFAULT '{}',
+    ship_to         TEXT DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS notifications (
