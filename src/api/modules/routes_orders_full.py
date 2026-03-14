@@ -1703,7 +1703,7 @@ def api_drive_health():
         return jsonify({"ok": False, "error": str(e)})
 
 
-@bp.route("/api/drive/backup-now", methods=["POST"])
+@bp.route("/api/drive/backup-now", methods=["POST", "GET"])
 @auth_required
 def api_drive_backup_now():
     """Trigger an immediate backup to Google Drive."""
