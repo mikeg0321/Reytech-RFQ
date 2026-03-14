@@ -1592,5 +1592,1026 @@ def audit_trail_page():
         entries=entries, action_counts=action_counts)
 
 
+# ══ Consolidated from routes_features*.py ══════════════════════════════════
+
+# ── QB Action Endpoints ─────────────────────────────────────────────────────
+
+@bp.route("/api/qb/sync-customers", methods=["POST"])
+@auth_required
+def api_qb_sync_customers():
+    """Import QB customers into CRM contacts."""
+    try:
+        from src.agents.quickbooks_agent import fetch_customers, is_configured
+        if not is_configured():
+            return jsonify({"ok": False, "error": "QuickBooks not configured"})
+        customers = fetch_customers(force_refresh=True)
+        if not customers:
+            return jsonify({"ok": True, "message": "No customers found in QB", "synced": 0})
+
+        # Load CRM contacts
+        crm_path = os.path.join(DATA_DIR, "crm_contacts.json")
+        try:
+            with open(crm_path) as f:
+                crm = json.load(f)
+        except Exception:
+            crm = {"contacts": []}
+
+        existing_emails = {c.get("email", "").lower() for c in crm.get("contacts", []) if c.get("email")}
+        synced = 0
+        for cust in customers:
+            email = (cust.get("PrimaryEmailAddr", {}) or {}).get("Address", "")
+            name = cust.get("DisplayName", "") or cust.get("CompanyName", "")
+            if not name:
+                continue
+            if email and email.lower() in existing_emails:
+                continue
+            contact = {
+                "display_name": name,
+                "qb_name": name,
+                "email": email,
+                "phone": (cust.get("PrimaryPhone", {}) or {}).get("FreeFormNumber", ""),
+                "source": "quickbooks_sync",
+                "qb_id": cust.get("Id", ""),
+                "balance": float(cust.get("Balance", 0)),
+                "synced_at": datetime.now().isoformat(),
+            }
+            crm.setdefault("contacts", []).append(contact)
+            if email:
+                existing_emails.add(email.lower())
+            synced += 1
+
+        with open(crm_path, "w") as f:
+            json.dump(crm, f, indent=2)
+
+        return jsonify({"ok": True, "synced": synced, "total_qb_customers": len(customers),
+                        "total_crm_contacts": len(crm.get("contacts", []))})
+    except Exception as e:
+        log.exception("QB sync customers failed")
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/qb/collection-alerts")
+@auth_required
+def api_qb_collection_alerts():
+    """Show overdue invoices with aging brackets and collection priority."""
+    try:
+        from src.agents.quickbooks_agent import fetch_invoices, is_configured
+        if not is_configured():
+            return jsonify({"ok": False, "error": "QuickBooks not configured"})
+        invoices = fetch_invoices(status="overdue")
+        alerts = []
+        now = datetime.now()
+        for inv in invoices:
+            due_str = inv.get("DueDate", "")
+            try:
+                due = datetime.strptime(due_str, "%Y-%m-%d")
+                days_late = (now - due).days
+            except Exception:
+                days_late = 0
+            amount = float(inv.get("Balance", inv.get("TotalAmt", 0)))
+            cust = inv.get("CustomerRef", {}).get("name", "Unknown")
+            bracket = "1-30 days" if days_late <= 30 else "31-60 days" if days_late <= 60 else "61-90 days" if days_late <= 90 else "90+ days"
+            priority = "🔴 CRITICAL" if days_late > 60 or amount > 5000 else "🟡 HIGH" if days_late > 30 else "🟢 NORMAL"
+            alerts.append({
+                "invoice": inv.get("DocNumber", "?"),
+                "customer": cust,
+                "amount": amount,
+                "due_date": due_str,
+                "days_late": days_late,
+                "bracket": bracket,
+                "priority": priority,
+            })
+        alerts.sort(key=lambda x: (-x["days_late"], -x["amount"]))
+        total_overdue = sum(a["amount"] for a in alerts)
+        return jsonify({"ok": True, "alerts": alerts, "count": len(alerts),
+                        "total_overdue": round(total_overdue, 2),
+                        "brackets": {b: sum(1 for a in alerts if a["bracket"] == b)
+                                     for b in ["1-30 days", "31-60 days", "61-90 days", "90+ days"]}})
+    except Exception as e:
+        log.exception("Collection alerts failed")
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/qb/cash-flow")
+@auth_required
+def api_qb_cash_flow():
+    """30-day cash flow projection from open invoices + pipeline."""
+    try:
+        from src.agents.quickbooks_agent import fetch_invoices, is_configured
+        if not is_configured():
+            return jsonify({"ok": False, "error": "QuickBooks not configured"})
+        invoices = fetch_invoices(status="open")
+        now = datetime.now()
+
+        # Expected inflows from invoices
+        inflows = []
+        for inv in invoices:
+            due_str = inv.get("DueDate", "")
+            amount = float(inv.get("Balance", inv.get("TotalAmt", 0)))
+            try:
+                due = datetime.strptime(due_str, "%Y-%m-%d")
+                days_until = (due - now).days
+            except Exception:
+                days_until = 30
+            if days_until <= 30:
+                inflows.append({"source": f"Invoice #{inv.get('DocNumber', '?')}", "amount": amount,
+                                "due": due_str, "days_until": days_until,
+                                "customer": inv.get("CustomerRef", {}).get("name", "?")})
+
+        # Pipeline value
+        pipeline_value = 0
+        try:
+            from src.core.db import DB_PATH as _DB_PATH; conn = sqlite3.connect(_DB_PATH, timeout=10); conn.row_factory = sqlite3.Row
+            cur = conn.execute("SELECT SUM(total) FROM quotes WHERE is_test=0 AND status IN ('sent','quoted') AND total > 0")
+            row = cur.fetchone()
+            pipeline_value = float(row[0] or 0)
+            conn.close()
+        except Exception:
+            pass
+
+        total_expected = sum(i["amount"] for i in inflows)
+        return jsonify({
+            "ok": True,
+            "30_day_forecast": {
+                "expected_collections": round(total_expected, 2),
+                "pipeline_pending": round(pipeline_value, 2),
+                "total_potential": round(total_expected + pipeline_value * 0.3, 2),
+            },
+            "inflows": sorted(inflows, key=lambda x: x.get("days_until", 99)),
+            "count": len(inflows),
+        })
+    except Exception as e:
+        log.exception("Cash flow forecast failed")
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/qb/vendor-spend")
+@auth_required
+def api_qb_vendor_spend():
+    """Top vendors by spending."""
+    try:
+        from src.agents.quickbooks_agent import get_recent_purchase_orders, is_configured
+        if not is_configured():
+            return jsonify({"ok": False, "error": "QuickBooks not configured"})
+        pos = get_recent_purchase_orders(days_back=365)
+        spend = defaultdict(lambda: {"total": 0, "count": 0, "last_po": ""})
+        for po in pos:
+            vendor = po.get("VendorRef", {}).get("name", "Unknown")
+            amount = float(po.get("TotalAmt", 0))
+            spend[vendor]["total"] += amount
+            spend[vendor]["count"] += 1
+            spend[vendor]["last_po"] = po.get("DocNumber", "")
+        result = [{"vendor": k, "total_spend": round(v["total"], 2), "po_count": v["count"],
+                    "last_po": v["last_po"]} for k, v in spend.items()]
+        result.sort(key=lambda x: -x["total_spend"])
+        return jsonify({"ok": True, "vendors": result[:20], "total_vendors": len(result),
+                        "total_spend": round(sum(v["total_spend"] for v in result), 2)})
+    except Exception as e:
+        log.exception("Vendor spend failed")
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/qb/invoice-from-quote", methods=["POST"])
+@auth_required
+def api_qb_invoice_from_quote():
+    """Create QB invoice from a won quote."""
+    try:
+        from src.agents.quickbooks_agent import create_invoice, find_customer, is_configured
+        if not is_configured():
+            return jsonify({"ok": False, "error": "QuickBooks not configured"})
+        data = request.get_json(silent=True) or {}
+        qnum = data.get("quote_number", "")
+        if not qnum:
+            return jsonify({"ok": False, "error": "quote_number required"})
+
+        from src.core.db import DB_PATH as _DB_PATH; conn = sqlite3.connect(_DB_PATH, timeout=10); conn.row_factory = sqlite3.Row
+        conn.row_factory = sqlite3.Row
+        quote = conn.execute("SELECT * FROM quotes WHERE is_test=0 AND quote_number=?", (qnum,)).fetchone()
+        if not quote:
+            conn.close()
+            return jsonify({"ok": False, "error": f"Quote {qnum} not found"})
+
+        institution = quote["institution"] or ""
+        customer = find_customer(institution)
+        if not customer:
+            conn.close()
+            return jsonify({"ok": False, "error": f"No QB customer match for '{institution}'. Create customer in QB first."})
+
+        items_rows = conn.execute("SELECT * FROM quote_items WHERE quote_number=?", (qnum,)).fetchall()
+        items = []
+        for it in items_rows:
+            items.append({
+                "description": it["description"] or "",
+                "quantity": int(it["quantity"] or 1),
+                "unit_price": float(it["unit_price"] or 0),
+            })
+        conn.close()
+
+        if not items:
+            return jsonify({"ok": False, "error": f"No line items in quote {qnum}"})
+
+        result = create_invoice(
+            customer_id=customer["Id"],
+            items=items,
+            po_number=qnum,
+            memo=f"Created from Reytech quote {qnum}",
+        )
+        if result:
+            return jsonify({"ok": True, "invoice": result, "quote": qnum, "customer": institution})
+        return jsonify({"ok": False, "error": "Failed to create invoice in QB"})
+    except Exception as e:
+        log.exception("Invoice from quote failed")
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/qb/revenue-by-month")
+@auth_required
+def api_qb_revenue_by_month():
+    """Monthly revenue breakdown from QB payments."""
+    try:
+        from src.agents.quickbooks_agent import get_recent_payments, is_configured
+        if not is_configured():
+            return jsonify({"ok": False, "error": "QuickBooks not configured"})
+        payments = get_recent_payments(days_back=365)
+        monthly = defaultdict(float)
+        for p in payments:
+            date_str = p.get("TxnDate", "")
+            try:
+                dt = datetime.strptime(date_str, "%Y-%m-%d")
+                key = dt.strftime("%Y-%m")
+            except Exception:
+                continue
+            monthly[key] += float(p.get("TotalAmt", 0))
+        result = [{"month": k, "revenue": round(v, 2)} for k, v in sorted(monthly.items())]
+        return jsonify({"ok": True, "months": result, "ytd_total": round(sum(v["revenue"] for v in result if v["month"].startswith(str(datetime.now().year))), 2)})
+    except Exception as e:
+        log.exception("Revenue by month failed")
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/qb/draft-reminders", methods=["POST"])
+@auth_required
+def api_qb_draft_reminders():
+    """Draft payment reminder emails for overdue invoices."""
+    try:
+        from src.agents.quickbooks_agent import fetch_invoices, fetch_customers, is_configured
+        if not is_configured():
+            return jsonify({"ok": False, "error": "QuickBooks not configured"})
+        invoices = fetch_invoices(status="overdue")
+        if not invoices:
+            return jsonify({"ok": True, "message": "No overdue invoices found", "drafts": []})
+        customers = {c.get("Id"): c for c in fetch_customers()}
+        drafts = []
+        for inv in invoices[:10]:
+            cust_ref = inv.get("CustomerRef", {})
+            cust_id = cust_ref.get("value", "")
+            cust_name = cust_ref.get("name", "Customer")
+            cust = customers.get(cust_id, {})
+            email = cust.get("PrimaryEmailAddr", {}).get("Address", "") if isinstance(cust.get("PrimaryEmailAddr"), dict) else ""
+            balance = float(inv.get("Balance", 0))
+            inv_num = inv.get("DocNumber", "?")
+            due_date = inv.get("DueDate", "?")
+            days_overdue = 0
+            try:
+                due_dt = datetime.strptime(due_date, "%Y-%m-%d")
+                days_overdue = (datetime.now() - due_dt).days
+            except Exception:
+                pass
+            drafts.append({
+                "to": email or f"(no email for {cust_name})",
+                "customer": cust_name, "invoice_number": inv_num,
+                "amount": balance, "due_date": due_date, "days_overdue": days_overdue,
+                "subject": f"Payment Reminder — Invoice #{inv_num} (${balance:,.2f})",
+                "body": (f"Dear {cust_name},\n\nThis is a friendly reminder that Invoice #{inv_num} "
+                         f"for ${balance:,.2f} was due on {due_date} ({days_overdue} days ago).\n\n"
+                         f"Please arrange payment at your earliest convenience.\n\nThank you,\nReytech Inc."),
+            })
+        return jsonify({"ok": True, "drafts": drafts, "count": len(drafts),
+                        "total_overdue": sum(d["amount"] for d in drafts)})
+    except Exception as e:
+        log.exception("Draft reminders failed")
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/qb/profit-margins")
+@auth_required
+def api_qb_profit_margins():
+    """Calculate profit margins from QB invoice and purchase data."""
+    try:
+        from src.agents.quickbooks_agent import fetch_invoices, get_recent_purchase_orders, is_configured
+        if not is_configured():
+            return jsonify({"ok": False, "error": "QuickBooks not configured"})
+        invoices = fetch_invoices(status="all", days_back=180)
+        pos = get_recent_purchase_orders(days_back=180)
+        cust_revenue = defaultdict(float)
+        total_revenue = 0
+        for inv in invoices:
+            cust = inv.get("CustomerRef", {}).get("name", "Unknown")
+            amt = float(inv.get("TotalAmt", 0))
+            cust_revenue[cust] += amt
+            total_revenue += amt
+        total_cost = sum(float(po.get("TotalAmt", 0)) for po in pos)
+        gross_margin = total_revenue - total_cost
+        margin_pct = (gross_margin / total_revenue * 100) if total_revenue > 0 else 0
+        top_customers = sorted(cust_revenue.items(), key=lambda x: -x[1])[:10]
+        return jsonify({
+            "ok": True, "total_revenue_180d": round(total_revenue, 2),
+            "total_cost_180d": round(total_cost, 2),
+            "gross_margin": round(gross_margin, 2),
+            "margin_percent": round(margin_pct, 1),
+            "top_customers": [{"customer": c, "revenue": round(r, 2)} for c, r in top_customers],
+            "invoice_count": len(invoices), "po_count": len(pos),
+        })
+    except Exception as e:
+        log.exception("Profit margins failed")
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/qb/expense-summary")
+@auth_required
+def api_qb_expense_summary():
+    """Expense breakdown from QB purchase orders and bills."""
+    try:
+        from src.agents.quickbooks_agent import get_recent_purchase_orders, is_configured
+        if not is_configured():
+            return jsonify({"ok": False, "error": "QuickBooks not configured"})
+        pos = get_recent_purchase_orders(days_back=90)
+        vendor_spend = defaultdict(float)
+        total = 0
+        for po in pos:
+            vendor = po.get("VendorRef", {}).get("name", "Unknown")
+            amt = float(po.get("TotalAmt", 0))
+            vendor_spend[vendor] += amt
+            total += amt
+        top_vendors = sorted(vendor_spend.items(), key=lambda x: -x[1])[:15]
+        # Try QB bills query
+        bills, bill_total = [], 0
+        try:
+            from src.agents.quickbooks_agent import _qb_query
+            bills = _qb_query("SELECT * FROM Bill WHERE TxnDate >= '{}' MAXRESULTS 100".format(
+                (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")))
+            bill_total = sum(float(b.get("TotalAmt", 0)) for b in bills)
+        except Exception:
+            pass
+        return jsonify({
+            "ok": True, "po_total_90d": round(total, 2),
+            "bill_total_90d": round(bill_total, 2),
+            "combined_expenses": round(total + bill_total, 2),
+            "top_vendors": [{"vendor": v, "amount": round(a, 2)} for v, a in top_vendors],
+            "po_count": len(pos), "bill_count": len(bills),
+        })
+    except Exception as e:
+        log.exception("Expense summary failed")
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/qb/test-connection")
+@auth_required
+def api_qb_test_connection():
+    """Quick QB connection test — tries to fetch company info."""
+    try:
+        from src.agents.quickbooks_agent import is_configured, get_access_token, get_company_info, _load_tokens
+        tokens = _load_tokens()
+        has_token = bool(tokens.get("access_token"))
+        configured = is_configured()
+        result = {
+            "ok": True,
+            "has_token_file": has_token,
+            "is_configured": configured,
+            "realm_id": tokens.get("realm_id", "")[:6] + "..." if tokens.get("realm_id") else "",
+            "connected_at": tokens.get("connected_at", ""),
+            "last_refreshed": tokens.get("refreshed_at", ""),
+        }
+        if configured:
+            token = get_access_token()
+            result["has_valid_access_token"] = bool(token)
+            if token:
+                info = get_company_info()
+                result["company"] = info.get("name", "") if info else "FAILED"
+                result["api_reachable"] = bool(info)
+            else:
+                result["api_reachable"] = False
+                result["hint"] = "Token refresh failed — try reconnecting via Connect QuickBooks"
+        else:
+            missing = []
+            if not os.environ.get("QB_CLIENT_ID"): missing.append("QB_CLIENT_ID")
+            if not os.environ.get("QB_CLIENT_SECRET"): missing.append("QB_CLIENT_SECRET")
+            if not tokens.get("refresh_token") and not os.environ.get("QB_REFRESH_TOKEN"): missing.append("refresh_token (connect QB first)")
+            if not tokens.get("realm_id") and not os.environ.get("QB_REALM_ID"): missing.append("realm_id (connect QB first)")
+            result["missing"] = missing
+            result["hint"] = "Missing: " + ", ".join(missing)
+        return jsonify(result)
+    except ImportError:
+        return jsonify({"ok": False, "error": "QuickBooks agent module not available"})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/qb/force-refresh", methods=["POST"])
+@auth_required
+def api_qb_force_refresh():
+    """Force-refresh the QB access token."""
+    try:
+        from src.agents.quickbooks_agent import _refresh_access_token, _load_tokens
+        token = _refresh_access_token()
+        if token:
+            tokens = _load_tokens()
+            return jsonify({"ok": True, "message": "Token refreshed successfully",
+                            "expires_at": tokens.get("expires_at", 0),
+                            "realm_id": tokens.get("realm_id", "")[:6] + "..."})
+        return jsonify({"ok": False, "error": "Token refresh failed — check credentials or reconnect"})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/qb/summary-card")
+@auth_required
+def api_qb_summary_card():
+    """Pre-formatted QB financial summary for dashboard cards."""
+    try:
+        from src.agents.quickbooks_agent import is_configured, get_financial_context
+        if not is_configured():
+            return jsonify({"ok": False, "connected": False, "error": "QB not configured"})
+        ctx = get_financial_context()
+        return jsonify({
+            "ok": True, "connected": True,
+            "receivable": ctx.get("total_receivable", 0),
+            "overdue": ctx.get("overdue_amount", 0),
+            "collected": ctx.get("total_collected", 0),
+            "open_invoices": ctx.get("open_invoices", 0),
+            "customers": ctx.get("customer_count", 0),
+            "vendors": ctx.get("vendor_count", 0),
+            "last_updated": datetime.now().isoformat(),
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+# ── Catalog Intelligence Endpoints ──────────────────────────────────────────
+
+@bp.route("/api/catalog/margin-analysis")
+@auth_required
+def api_catalog_margin_analysis():
+    """Analyze catalog products by margin tier."""
+    db_path = os.path.join(DATA_DIR, "catalog.db")
+    if not os.path.exists(db_path):
+        return jsonify({"ok": True, "tiers": {}, "total": 0})
+    try:
+        from src.core.db import DB_PATH as _DB_PATH; conn = sqlite3.connect(_DB_PATH, timeout=10); conn.row_factory = sqlite3.Row
+        conn.row_factory = sqlite3.Row
+        products = conn.execute("""
+            SELECT name, sell_price, cost_price, margin_pct, times_quoted, category
+            FROM products WHERE sell_price > 0 AND cost_price > 0
+            ORDER BY margin_pct ASC
+        """).fetchall()
+        conn.close()
+
+        tiers = {"🔴 Negative (<0%)": [], "🟡 Low (0-10%)": [], "🟢 Mid (10-25%)": [], "🔵 High (>25%)": []}
+        for p in products:
+            margin = float(p["margin_pct"] or 0)
+            item = {"name": p["name"][:60], "sell": float(p["sell_price"]), "cost": float(p["cost_price"]),
+                    "margin": round(margin, 1), "quoted": p["times_quoted"] or 0, "category": p["category"] or ""}
+            if margin < 0:
+                tiers["🔴 Negative (<0%)"].append(item)
+            elif margin < 10:
+                tiers["🟡 Low (0-10%)"].append(item)
+            elif margin < 25:
+                tiers["🟢 Mid (10-25%)"].append(item)
+            else:
+                tiers["🔵 High (>25%)"].append(item)
+
+        summary = {k: {"count": len(v), "avg_margin": round(sum(i["margin"] for i in v) / max(len(v), 1), 1)}
+                   for k, v in tiers.items()}
+        return jsonify({"ok": True, "summary": summary, "total": len(products),
+                        "worst_margins": tiers["🔴 Negative (<0%)"][:10],
+                        "best_margins": tiers["🔵 High (>25%)"][:10]})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/catalog/top-quoted")
+@auth_required
+def api_catalog_top_quoted():
+    """Top 20 most-quoted catalog items."""
+    db_path = os.path.join(DATA_DIR, "catalog.db")
+    if not os.path.exists(db_path):
+        return jsonify({"ok": True, "items": []})
+    try:
+        from src.core.db import DB_PATH as _DB_PATH; conn = sqlite3.connect(_DB_PATH, timeout=10); conn.row_factory = sqlite3.Row
+        conn.row_factory = sqlite3.Row
+        items = conn.execute("""
+            SELECT name, sell_price, cost_price, margin_pct, times_quoted, category, last_quoted
+            FROM products WHERE times_quoted > 0 ORDER BY times_quoted DESC LIMIT 20
+        """).fetchall()
+        conn.close()
+        result = [{"name": i["name"][:60], "sell": float(i["sell_price"] or 0),
+                    "cost": float(i["cost_price"] or 0), "margin": round(float(i["margin_pct"] or 0), 1),
+                    "times_quoted": i["times_quoted"], "category": i["category"] or "",
+                    "last_quoted": i["last_quoted"] or ""} for i in items]
+        return jsonify({"ok": True, "items": result, "count": len(result)})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/catalog/quick-quote")
+@auth_required
+def api_catalog_quick_quote():
+    """Search catalog for quick quote pricing."""
+    q = request.args.get("q", "")
+    if not q:
+        return jsonify({"ok": False, "error": "?q= search term required"})
+    db_path = os.path.join(DATA_DIR, "catalog.db")
+    if not os.path.exists(db_path):
+        return jsonify({"ok": True, "matches": []})
+    try:
+        from src.core.db import DB_PATH as _DB_PATH; conn = sqlite3.connect(_DB_PATH, timeout=10); conn.row_factory = sqlite3.Row
+        conn.row_factory = sqlite3.Row
+        items = conn.execute("""
+            SELECT name, sell_price, cost_price, margin_pct, category, item_number,
+                   times_quoted, last_quoted
+            FROM products WHERE name LIKE ? OR item_number LIKE ? OR category LIKE ?
+            ORDER BY times_quoted DESC LIMIT 10
+        """, (f"%{q}%", f"%{q}%", f"%{q}%")).fetchall()
+        conn.close()
+        matches = [{"name": i["name"], "price": float(i["sell_price"] or 0),
+                     "cost": float(i["cost_price"] or 0), "margin": round(float(i["margin_pct"] or 0), 1),
+                     "item_number": i["item_number"] or "", "category": i["category"] or "",
+                     "times_quoted": i["times_quoted"] or 0} for i in items]
+        return jsonify({"ok": True, "query": q, "matches": matches, "count": len(matches)})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/catalog/price-history")
+@auth_required
+def api_catalog_price_history():
+    """Get price history for a catalog item. ?q=description or ?id=catalog_id"""
+    try:
+        conn = _get_db()
+        q = request.args.get("q", "")
+        cid = request.args.get("id", "")
+        if cid:
+            row = conn.execute("SELECT * FROM catalog WHERE id = ?", (cid,)).fetchone()
+        elif q:
+            row = conn.execute("SELECT * FROM catalog WHERE description LIKE ? LIMIT 1", (f"%{q}%",)).fetchone()
+        else:
+            return jsonify({"ok": False, "error": "Provide ?q=keyword or ?id=catalog_id"})
+        if not row:
+            return jsonify({"ok": False, "error": "Item not found"})
+        item = dict(row)
+        # Parse price history from JSON field
+        history = []
+        try:
+            ph = json.loads(item.get("price_history", "[]"))
+            if isinstance(ph, list):
+                history = ph
+        except Exception:
+            pass
+        conn.close()
+        return jsonify({"ok": True, "item": item.get("description", ""),
+                         "current_price": float(item.get("unit_price", 0) or 0),
+                         "cost": float(item.get("supplier_cost", 0) or 0),
+                         "margin_pct": float(item.get("margin_pct", 0) or 0),
+                         "times_quoted": int(item.get("times_quoted", 0) or 0),
+                         "history": history[-20:], "history_points": len(history)})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+# ── From routes_features2.py ───────────────────────────────────────────────
+
+@bp.route("/api/qb/customer-health")
+@auth_required
+def api_qb_customer_health():
+    """Score customers by payment reliability, order frequency, and value."""
+    try:
+        from src.agents.quickbooks_agent import fetch_customers, fetch_invoices, is_configured
+        if not is_configured():
+            return jsonify({"ok": False, "error": "QuickBooks not configured"})
+
+        customers = fetch_customers() or []
+        invoices = fetch_invoices(status="all", days_back=365) or []
+
+        # Build per-customer stats
+        cust_stats = {}
+        for inv in invoices:
+            cid = (inv.get("CustomerRef") or {}).get("value", "")
+            cname = (inv.get("CustomerRef") or {}).get("name", "Unknown")
+            if cid not in cust_stats:
+                cust_stats[cid] = {"name": cname, "total": 0, "paid": 0, "overdue": 0,
+                                   "invoices": 0, "total_amount": 0, "avg_days_to_pay": []}
+            cust_stats[cid]["invoices"] += 1
+            bal = float(inv.get("Balance", 0))
+            total = float(inv.get("TotalAmt", 0))
+            cust_stats[cid]["total_amount"] += total
+
+            due = inv.get("DueDate", "")
+            if bal <= 0:
+                cust_stats[cid]["paid"] += 1
+                # Calculate days to pay
+                created = inv.get("MetaData", {}).get("CreateTime", "")[:10]
+                if created and due:
+                    try:
+                        d1 = datetime.strptime(created, "%Y-%m-%d")
+                        d2 = datetime.strptime(due, "%Y-%m-%d")
+                        days = (d2 - d1).days
+                        cust_stats[cid]["avg_days_to_pay"].append(max(days, 0))
+                    except Exception:
+                        pass
+            elif due:
+                try:
+                    if datetime.strptime(due, "%Y-%m-%d") < datetime.now():
+                        cust_stats[cid]["overdue"] += 1
+                except Exception:
+                    pass
+
+        # Score each customer
+        scored = []
+        for cid, st in cust_stats.items():
+            score = 50  # base
+            # Payment reliability (0-30)
+            if st["invoices"] > 0:
+                pay_rate = st["paid"] / st["invoices"]
+                score += int(pay_rate * 30)
+            # No overdue (0-20)
+            if st["overdue"] == 0:
+                score += 20
+            elif st["overdue"] == 1:
+                score += 10
+            # Order volume bonus
+            if st["total_amount"] > 10000:
+                score = min(100, score + 10)
+            elif st["total_amount"] > 5000:
+                score = min(100, score + 5)
+
+            avg_days = round(sum(st["avg_days_to_pay"]) / max(len(st["avg_days_to_pay"]), 1))
+            grade = "A" if score >= 85 else "B" if score >= 70 else "C" if score >= 55 else "D" if score >= 40 else "F"
+
+            scored.append({
+                "customer_id": cid, "name": st["name"],
+                "score": min(score, 100), "grade": grade,
+                "invoices": st["invoices"], "paid": st["paid"],
+                "overdue": st["overdue"],
+                "total_revenue": round(st["total_amount"], 2),
+                "avg_days_to_pay": avg_days
+            })
+
+        scored.sort(key=lambda x: x["score"], reverse=True)
+        return jsonify({"ok": True, "customers": scored, "count": len(scored)})
+    except Exception as e:
+        log.exception("customer-health")
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/qb/customer-lifetime-value")
+@auth_required
+def api_qb_customer_ltv():
+    """Calculate customer lifetime value from invoice history."""
+    try:
+        from src.agents.quickbooks_agent import fetch_invoices, is_configured
+        if not is_configured():
+            return jsonify({"ok": False, "error": "QuickBooks not configured"})
+
+        invoices = fetch_invoices(status="all", days_back=730) or []  # 2 years
+        cust_data = {}
+        for inv in invoices:
+            cid = (inv.get("CustomerRef") or {}).get("value", "")
+            cname = (inv.get("CustomerRef") or {}).get("name", "Unknown")
+            total = float(inv.get("TotalAmt", 0))
+            created = inv.get("MetaData", {}).get("CreateTime", "")[:10]
+            if cid not in cust_data:
+                cust_data[cid] = {"name": cname, "revenue": 0, "orders": 0,
+                                  "first_order": created, "last_order": created}
+            cust_data[cid]["revenue"] += total
+            cust_data[cid]["orders"] += 1
+            if created < cust_data[cid]["first_order"]:
+                cust_data[cid]["first_order"] = created
+            if created > cust_data[cid]["last_order"]:
+                cust_data[cid]["last_order"] = created
+
+        results = []
+        for cid, d in cust_data.items():
+            # Annualized revenue
+            try:
+                first = datetime.strptime(d["first_order"], "%Y-%m-%d")
+                last = datetime.strptime(d["last_order"], "%Y-%m-%d")
+                span_months = max((last - first).days / 30, 1)
+                monthly_avg = d["revenue"] / span_months
+                annual_projected = monthly_avg * 12
+            except Exception:
+                annual_projected = d["revenue"]
+
+            results.append({
+                "customer_id": cid, "name": d["name"],
+                "total_revenue": round(d["revenue"], 2),
+                "orders": d["orders"],
+                "first_order": d["first_order"],
+                "last_order": d["last_order"],
+                "avg_order_value": round(d["revenue"] / max(d["orders"], 1), 2),
+                "annual_projected": round(annual_projected, 2),
+                "ltv_3yr": round(annual_projected * 3, 2)
+            })
+        results.sort(key=lambda x: x["ltv_3yr"], reverse=True)
+        total_ltv = sum(r["ltv_3yr"] for r in results)
+        return jsonify({"ok": True, "customers": results, "count": len(results),
+                        "total_portfolio_ltv": round(total_ltv, 2)})
+    except Exception as e:
+        log.exception("customer-ltv")
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/qb/payment-aging-trend")
+@auth_required
+def api_qb_payment_aging_trend():
+    """Track how quickly customers pay invoices over time."""
+    try:
+        from src.agents.quickbooks_agent import fetch_invoices, get_recent_payments, is_configured
+        if not is_configured():
+            return jsonify({"ok": False, "error": "QuickBooks not configured"})
+
+        invoices = fetch_invoices(status="all", days_back=365) or []
+        payments = get_recent_payments(days_back=365) or []
+
+        # Bucket by month
+        monthly = defaultdict(lambda: {"paid": 0, "total": 0, "days": [], "amount": 0})
+        for inv in invoices:
+            created = (inv.get("MetaData", {}).get("CreateTime", "") or "")[:7]  # YYYY-MM
+            if not created:
+                continue
+            bal = float(inv.get("Balance", 0))
+            total = float(inv.get("TotalAmt", 0))
+            monthly[created]["total"] += 1
+            monthly[created]["amount"] += total
+            if bal <= 0:
+                monthly[created]["paid"] += 1
+
+        months_sorted = sorted(monthly.keys())
+        trend = []
+        for m in months_sorted[-12:]:
+            d = monthly[m]
+            pay_rate = d["paid"] / max(d["total"], 1) * 100
+            trend.append({
+                "month": m,
+                "invoices": d["total"],
+                "paid": d["paid"],
+                "payment_rate": round(pay_rate, 1),
+                "total_amount": round(d["amount"], 2)
+            })
+
+        return jsonify({"ok": True, "trend": trend, "months": len(trend)})
+    except Exception as e:
+        log.exception("payment-aging-trend")
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/qb/top-products-report")
+@auth_required
+def api_qb_top_products_report():
+    """Most quoted, highest margin, and most won products."""
+    try:
+        cat_path = os.path.join(DATA_DIR, "product_catalog.json")
+        if not os.path.exists(cat_path):
+            return jsonify({"ok": False, "error": "No catalog"})
+        with open(cat_path) as f:
+            catalog = json.load(f)
+
+        products = catalog.get("products", [])
+        # Top quoted
+        by_quoted = sorted(products, key=lambda p: p.get("times_quoted", 0), reverse=True)[:10]
+        # Best margin
+        by_margin = sorted(
+            [p for p in products if p.get("avg_sell_price") and p.get("avg_cost")],
+            key=lambda p: (p["avg_sell_price"] - p["avg_cost"]) / max(p["avg_sell_price"], 0.01) * 100,
+            reverse=True
+        )[:10]
+        # Most recently won (from win_loss_log)
+        won_items = []
+        wl_path = os.path.join(DATA_DIR, "win_loss_log.json")
+        if os.path.exists(wl_path):
+            with open(wl_path) as f:
+                wl = json.load(f)
+            for entry in wl.get("entries", []):
+                if entry.get("outcome") == "won":
+                    won_items.append(entry.get("rfq_id", ""))
+
+        return jsonify({
+            "ok": True,
+            "total_products": len(products),
+            "top_quoted": [{"name": p.get("description", "")[:60], "times_quoted": p.get("times_quoted", 0),
+                            "avg_price": p.get("avg_sell_price")} for p in by_quoted],
+            "best_margin": [{"name": p.get("description", "")[:60],
+                             "margin_pct": round((p["avg_sell_price"] - p["avg_cost"]) / max(p["avg_sell_price"], 0.01) * 100, 1),
+                             "avg_price": p.get("avg_sell_price"),
+                             "avg_cost": p.get("avg_cost")} for p in by_margin],
+            "recent_wins": len(won_items)
+        })
+    except Exception as e:
+        log.exception("top-products")
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/qb/price-comparison")
+@auth_required
+def api_qb_price_comparison():
+    """Compare our catalog prices vs supplier costs and market rates."""
+    try:
+        cat_path = os.path.join(DATA_DIR, "product_catalog.json")
+        if not os.path.exists(cat_path):
+            return jsonify({"ok": False, "error": "No catalog"})
+        with open(cat_path) as f:
+            catalog = json.load(f)
+
+        comparisons = []
+        for prod in catalog.get("products", []):
+            sell = prod.get("avg_sell_price", 0)
+            cost = prod.get("avg_cost", 0)
+            if not sell:
+                continue
+
+            comp = {
+                "product": prod.get("description", "")[:60],
+                "our_price": sell,
+                "cost": cost,
+                "margin_pct": round(((sell - cost) / max(sell, 0.01)) * 100, 1) if cost else None,
+                "markup_pct": round(((sell - cost) / max(cost, 0.01)) * 100, 1) if cost else None,
+                "times_quoted": prod.get("times_quoted", 0)
+            }
+
+            # Check price history for trends
+            history = prod.get("price_history", [])
+            if len(history) >= 2:
+                recent = history[-1].get("price", sell)
+                oldest = history[0].get("price", sell)
+                comp["price_trend"] = "up" if recent > oldest * 1.05 else "down" if recent < oldest * 0.95 else "stable"
+                comp["price_change_pct"] = round(((recent - oldest) / max(oldest, 0.01)) * 100, 1)
+            else:
+                comp["price_trend"] = "insufficient_data"
+
+            comparisons.append(comp)
+
+        comparisons.sort(key=lambda x: abs(x.get("margin_pct") or 0))
+        return jsonify({
+            "ok": True, "comparisons": comparisons[:50],
+            "total": len(comparisons),
+            "avg_margin": round(sum(c.get("margin_pct") or 0 for c in comparisons) / max(len(comparisons), 1), 1)
+        })
+    except Exception as e:
+        log.exception("price-comparison")
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/qb/reorder-alerts")
+@auth_required
+def api_qb_reorder_alerts():
+    """Items frequently ordered that may need restocking or re-quoting."""
+    try:
+        cat_path = os.path.join(DATA_DIR, "product_catalog.json")
+        if not os.path.exists(cat_path):
+            return jsonify({"ok": False, "error": "No catalog"})
+        with open(cat_path) as f:
+            catalog = json.load(f)
+
+        alerts = []
+        for prod in catalog.get("products", []):
+            quoted = prod.get("times_quoted", 0)
+            if quoted < 2:
+                continue
+            last_seen = prod.get("last_seen", "")
+            days_since = 999
+            if last_seen:
+                try:
+                    days_since = (datetime.now() - datetime.fromisoformat(last_seen[:19])).days
+                except Exception: pass
+
+            # Frequently quoted but not seen recently = may need re-quote
+            if days_since > 30 and quoted >= 3:
+                alerts.append({
+                    "product": prod.get("description", "")[:60],
+                    "times_quoted": quoted,
+                    "last_seen": last_seen[:10] if last_seen else "unknown",
+                    "days_since_last": days_since,
+                    "avg_price": prod.get("avg_sell_price"),
+                    "suppliers": prod.get("supplier_urls", [])[:3],
+                    "alert": "Frequently quoted item not seen in 30+ days — re-check pricing"
+                })
+
+        alerts.sort(key=lambda x: x["times_quoted"], reverse=True)
+        return jsonify({"ok": True, "alerts": alerts[:20], "count": len(alerts)})
+    except Exception as e:
+        log.exception("reorder-alerts")
+        return jsonify({"ok": False, "error": str(e)})
+
+
+# ── From routes_features3.py ───────────────────────────────────────────────
+
+@bp.route("/api/qb/quick-dashboard")
+@auth_required
+def api_qb_quick_dashboard():
+    """Combined QB dashboard — invoices, payments, overdue, customers in one call."""
+    try:
+        from src.agents.quickbooks_agent import (
+            is_configured, fetch_invoices, fetch_customers,
+            fetch_vendors, fetch_payments, get_company_info
+        )
+        if not is_configured():
+            return jsonify({"ok": False, "error": "QuickBooks not configured. Click 'Connect QuickBooks' first."})
+
+        company = get_company_info() or {}
+        invoices = fetch_invoices() or []
+        customers = fetch_customers() or []
+        vendors = fetch_vendors() or []
+        payments = fetch_payments() or []
+
+        open_inv = [i for i in invoices if i.get("Balance", 0) > 0]
+        overdue = [i for i in open_inv if i.get("DueDate") and i["DueDate"] < datetime.now().strftime("%Y-%m-%d")]
+
+        total_receivable = sum(i.get("Balance", 0) for i in open_inv)
+        total_overdue = sum(i.get("Balance", 0) for i in overdue)
+        total_paid = sum(p.get("TotalAmt", 0) for p in payments)
+
+        return jsonify({
+            "ok": True,
+            "company": company.get("CompanyName", "Unknown"),
+            "summary": {
+                "total_receivable": round(total_receivable, 2),
+                "total_overdue": round(total_overdue, 2),
+                "total_collected_30d": round(total_paid, 2),
+                "open_invoices": len(open_inv),
+                "overdue_invoices": len(overdue),
+                "customers": len(customers),
+                "vendors": len(vendors),
+            },
+            "top_overdue": [
+                {"customer": i.get("CustomerRef", {}).get("name", "?"),
+                 "amount": i.get("Balance", 0),
+                 "due": i.get("DueDate", "?"),
+                 "invoice": i.get("DocNumber", "?")}
+                for i in sorted(overdue, key=lambda x: x.get("Balance", 0), reverse=True)[:5]
+            ],
+            "recent_payments": [
+                {"customer": p.get("CustomerRef", {}).get("name", "?"),
+                 "amount": p.get("TotalAmt", 0),
+                 "date": p.get("TxnDate", "?")}
+                for p in sorted(payments, key=lambda x: x.get("TxnDate", ""), reverse=True)[:5]
+            ]
+        })
+    except ImportError:
+        return jsonify({"ok": False, "error": "QuickBooks agent not available"})
+    except Exception as e:
+        log.error(f"QB quick dashboard error: {e}")
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/catalog/pricing-suggestion")
+@auth_required
+def api_pricing_suggestion():
+    """Get AI pricing suggestions for catalog items."""
+    product_name = request.args.get("product", "").strip()
+
+    cat_path = os.path.join(DATA_DIR, "product_catalog.json")
+    suggestions = []
+
+    try:
+        with open(cat_path) as f:
+            cat = json.load(f)
+
+        for pid, p in cat.get("products", {}).items():
+            if product_name and product_name.lower() not in (p.get("name") or "").lower():
+                continue
+
+            cost = p.get("supplier_cost", 0)
+            last_price = p.get("last_quoted_price", 0)
+            prices = p.get("price_history", [])
+
+            if cost > 0 and last_price > 0:
+                current_margin = ((last_price - cost) / last_price) * 100
+
+                # Suggest based on margin targets
+                suggested_low = round(cost * 1.15, 2)   # 15% margin
+                suggested_mid = round(cost * 1.25, 2)    # 25% margin
+                suggested_high = round(cost * 1.35, 2)   # 35% margin
+
+                suggestions.append({
+                    "product": p.get("name", "?")[:50],
+                    "current_cost": cost,
+                    "current_price": last_price,
+                    "current_margin": round(current_margin, 1),
+                    "suggested_competitive": suggested_low,
+                    "suggested_balanced": suggested_mid,
+                    "suggested_premium": suggested_high,
+                    "times_quoted": p.get("times_quoted", 0),
+                    "flag": "⚠️ Low margin" if current_margin < 10 else "✅ Healthy" if current_margin < 40 else "💰 High margin"
+                })
+
+        suggestions.sort(key=lambda x: x.get("current_margin", 50))
+    except Exception: pass
+
+    return jsonify({
+        "ok": True,
+        "suggestions": suggestions[:20],
+        "count": len(suggestions),
+    })
+
+
 # Start polling on import (for gunicorn) and on direct run
 start_polling()

@@ -3926,3 +3926,68 @@ def api_data_quality():
         report["issues"].append(f"vendors: {e}")
 
     return jsonify(report)
+
+
+# ══ Consolidated from routes_features*.py ══════════════════════════════════
+
+# From routes_features.py — Contact Search
+@bp.route("/api/crm/search")
+@auth_required
+def api_crm_contact_search():
+    """Search contacts by name, email, or institution. ?q=keyword"""
+    try:
+        q = request.args.get("q", "").strip()
+        if not q:
+            return jsonify({"ok": False, "error": "Provide ?q=search_term"})
+        with get_db() as conn:
+            like = f"%{q}%"
+            rows = conn.execute(
+                "SELECT * FROM contacts WHERE name LIKE ? OR email LIKE ? OR institution LIKE ? LIMIT 20",
+                (like, like, like)).fetchall()
+            return jsonify({"ok": True, "contacts": [dict(r) for r in rows], "count": len(rows), "query": q})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+# From routes_features3.py — Vendor Performance
+@bp.route("/api/vendor/performance")
+@auth_required
+def api_vendor_performance():
+    """Score vendors by response time, pricing accuracy, fill rate."""
+    cat_path = os.path.join(DATA_DIR, "product_catalog.json")
+    vendors = defaultdict(lambda: {"quotes": 0, "products": 0, "avg_markup": [], "urls": set()})
+
+    try:
+        with open(cat_path) as f:
+            cat = json.load(f)
+
+        for pid, p in cat.get("products", {}).items():
+            for url in p.get("supplier_urls", []):
+                domain = url.split("/")[2] if "/" in url and len(url.split("/")) > 2 else url
+                domain = domain.replace("www.", "")
+                vendors[domain]["products"] += 1
+                vendors[domain]["urls"].add(url)
+
+            if p.get("supplier_cost") and p.get("last_quoted_price"):
+                cost = p["supplier_cost"]
+                price = p["last_quoted_price"]
+                if cost > 0:
+                    markup = ((price - cost) / cost) * 100
+                    for url in p.get("supplier_urls", []):
+                        domain = url.split("/")[2] if "/" in url and len(url.split("/")) > 2 else url
+                        domain = domain.replace("www.", "")
+                        vendors[domain]["avg_markup"].append(markup)
+    except Exception:
+        pass
+
+    result = []
+    for name, data in vendors.items():
+        markups = data.pop("avg_markup", [])
+        data["urls"] = list(data["urls"])[:3]
+        data["avg_markup_pct"] = round(sum(markups) / len(markups), 1) if markups else None
+        data["name"] = name
+        result.append(data)
+
+    result.sort(key=lambda x: x["products"], reverse=True)
+
+    return jsonify({"ok": True, "vendors": result[:20], "total": len(result)})

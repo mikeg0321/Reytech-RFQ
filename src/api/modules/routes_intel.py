@@ -6817,3 +6817,295 @@ def api_delete_quotes():
         "pcs_cleaned": pcs_cleaned,
         "message": f"{'DRY RUN: Would delete' if dry_run else 'Deleted'} {len(deleted)} quotes: {[d['quote_number'] for d in deleted]}",
     })
+
+
+# ══ Consolidated from routes_features*.py ══════════════════════════════════
+
+# ═══════════════════════════════════════════════════════════════════════
+# Competitor Price Intel — what are competitors charging?
+# ═══════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/competitor/price-intel")
+@auth_required
+def api_competitor_price_intel():
+    """Analyze competitor pricing from won/lost data."""
+    wl_path = os.path.join(DATA_DIR, "win_loss_log.json")
+    intel = {"competitors": {}, "insights": []}
+
+    try:
+        with open(wl_path) as f:
+            wl = json.load(f)
+
+        for entry in wl.get("entries", []):
+            comp = entry.get("competitor_name") or entry.get("notes", "")
+            price = entry.get("competitor_price", 0)
+            outcome = entry.get("outcome", "")
+            our_price = entry.get("our_price", 0)
+
+            if comp and comp != "Unknown":
+                if comp not in intel["competitors"]:
+                    intel["competitors"][comp] = {"won_against": 0, "lost_to": 0, "avg_price_diff": []}
+
+                if outcome == "won":
+                    intel["competitors"][comp]["won_against"] += 1
+                elif outcome == "lost":
+                    intel["competitors"][comp]["lost_to"] += 1
+
+                if price and our_price and price > 0:
+                    diff = ((our_price - price) / price) * 100
+                    intel["competitors"][comp]["avg_price_diff"].append(diff)
+
+        # Calculate averages
+        for comp, data in intel["competitors"].items():
+            diffs = data.pop("avg_price_diff", [])
+            data["avg_price_diff_pct"] = round(sum(diffs) / len(diffs), 1) if diffs else None
+            data["total_encounters"] = data["won_against"] + data["lost_to"]
+            data["win_rate_vs"] = round(data["won_against"] / data["total_encounters"] * 100, 1) if data["total_encounters"] > 0 else None
+    except Exception:
+        pass
+
+    return jsonify({"ok": True, **intel})
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Agency Leaderboard — which agencies bring most revenue
+# ═══════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/agency/leaderboard")
+@auth_required
+def api_agency_leaderboard():
+    """Rank agencies by revenue, order count, and growth."""
+    rfqs_path = os.path.join(DATA_DIR, "rfqs.json")
+    orders_path = os.path.join(DATA_DIR, "orders.json")
+    agencies = defaultdict(lambda: {"quotes": 0, "orders": 0, "revenue": 0, "rfqs": 0})
+
+    try:
+        with open(rfqs_path) as f:
+            rfqs = json.load(f)
+        for r in rfqs.values():
+            agency = r.get("institution") or r.get("agency") or "Unknown"
+            agencies[agency]["rfqs"] += 1
+            if (r.get("status") or "").lower() in ("sent", "quoted"):
+                agencies[agency]["quotes"] += 1
+    except Exception: pass
+
+    try:
+        with open(orders_path) as f:
+            orders = json.load(f)
+        for o in orders.values():
+            agency = o.get("institution") or o.get("agency") or "Unknown"
+            agencies[agency]["orders"] += 1
+            agencies[agency]["revenue"] += o.get("total", 0)
+    except Exception: pass
+
+    result = [{"agency": k, **v} for k, v in agencies.items()]
+    result.sort(key=lambda x: x["revenue"], reverse=True)
+
+    return jsonify({"ok": True, "agencies": result[:20], "total": len(result)})
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Product Quick Search from Agents page
+# ═══════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/product/search")
+@auth_required
+def api_product_search():
+    """Quick product search in catalog."""
+    q = (request.args.get("q") or "").strip().lower()
+    if not q:
+        return jsonify({"ok": False, "error": "Provide ?q=<search_term>"})
+
+    cat_path = os.path.join(DATA_DIR, "product_catalog.json")
+    results = []
+
+    try:
+        with open(cat_path) as f:
+            cat = json.load(f)
+
+        for pid, p in cat.get("products", {}).items():
+            name = (p.get("name") or "").lower()
+            desc = (p.get("description") or "").lower()
+            sku = (p.get("sku") or p.get("item_number") or "").lower()
+
+            if q in name or q in desc or q in sku:
+                results.append({
+                    "id": pid,
+                    "name": p.get("name", "?"),
+                    "sku": p.get("sku") or p.get("item_number") or "",
+                    "last_price": p.get("last_quoted_price", 0),
+                    "cost": p.get("supplier_cost", 0),
+                    "margin_pct": round(((p.get("last_quoted_price", 0) - p.get("supplier_cost", 0)) / p.get("last_quoted_price", 1)) * 100, 1) if p.get("last_quoted_price", 0) > 0 else None,
+                    "times_quoted": p.get("times_quoted", 0),
+                    "category": p.get("category", ""),
+                })
+    except Exception: pass
+
+    results.sort(key=lambda x: x.get("times_quoted", 0), reverse=True)
+
+    return jsonify({"ok": True, "query": q, "results": results[:20], "count": len(results)})
+
+
+# ── Intel routes from routes_features2.py ────────────────────────────────────
+
+@bp.route("/api/intel/agency-penetration")
+@auth_required
+def api_intel_agency_penetration():
+    """How deep we've penetrated each agency — facilities, contacts, quotes."""
+    try:
+        import sqlite3
+        crm_path = os.path.join(DATA_DIR, "crm_contacts.json")
+        crm = {}
+        if os.path.exists(crm_path):
+            with open(crm_path) as f:
+                crm = json.load(f)
+
+        agencies = {}
+        for contact in crm.get("contacts", []):
+            agency = contact.get("agency") or contact.get("organization") or "Unknown"
+            if agency not in agencies:
+                agencies[agency] = {"contacts": 0, "facilities": set(), "emailed": 0, "has_phone": 0}
+            agencies[agency]["contacts"] += 1
+            fac = contact.get("facility") or contact.get("institution") or ""
+            if fac:
+                agencies[agency]["facilities"].add(fac)
+            if contact.get("status") == "emailed":
+                agencies[agency]["emailed"] += 1
+            if contact.get("phone"):
+                agencies[agency]["has_phone"] += 1
+
+        # Count quotes per agency from DB
+        quote_counts = {}
+        from src.core.db import DB_PATH as _DB_PATH
+        conn = sqlite3.connect(_DB_PATH, timeout=10)
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("SELECT agency, COUNT(*) as c FROM rfq_records WHERE agency IS NOT NULL GROUP BY agency").fetchall()
+        conn.close()
+        for r in rows:
+            quote_counts[r["agency"]] = r["c"]
+
+        results = []
+        for ag, data in agencies.items():
+            quotes = quote_counts.get(ag, 0)
+            fac_count = len(data["facilities"])
+            # Penetration score: contacts + facilities + quotes
+            score = min(100, data["contacts"] * 5 + fac_count * 15 + quotes * 10)
+            results.append({
+                "agency": ag, "contacts": data["contacts"],
+                "facilities": fac_count, "facility_names": sorted(data["facilities"]),
+                "emailed": data["emailed"], "quotes": quotes,
+                "penetration_score": score,
+                "grade": "A" if score >= 80 else "B" if score >= 50 else "C" if score >= 25 else "D"
+            })
+        results.sort(key=lambda x: x["penetration_score"], reverse=True)
+        return jsonify({"ok": True, "agencies": results, "count": len(results)})
+    except Exception as e:
+        log.exception("agency-penetration")
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/intel/competitive-pricing")
+@auth_required
+def api_intel_competitive_pricing():
+    """Suggest prices based on win/loss history and catalog data."""
+    try:
+        cat_path = os.path.join(DATA_DIR, "product_catalog.json")
+        if not os.path.exists(cat_path):
+            return jsonify({"ok": False, "error": "No catalog"})
+        with open(cat_path) as f:
+            catalog = json.load(f)
+
+        wl_path = os.path.join(DATA_DIR, "win_loss_log.json")
+        wl_entries = []
+        if os.path.exists(wl_path):
+            with open(wl_path) as f:
+                wl_entries = json.load(f).get("entries", [])
+
+        suggestions = []
+        for prod in catalog.get("products", []):
+            if not prod.get("avg_sell_price"):
+                continue
+            sell = prod["avg_sell_price"]
+            cost = prod.get("avg_cost", 0)
+            margin_pct = ((sell - cost) / max(sell, 0.01)) * 100 if cost else None
+
+            suggestion = {
+                "product": prod.get("description", "")[:60],
+                "current_price": sell,
+                "cost": cost,
+                "margin_pct": round(margin_pct, 1) if margin_pct else None,
+                "times_quoted": prod.get("times_quoted", 0)
+            }
+
+            # If margin is very high (>40%) and we're losing, suggest lower
+            if margin_pct and margin_pct > 40:
+                suggestion["recommendation"] = "Consider lowering price — high margin may be losing deals"
+                suggestion["suggested_price"] = round(cost * 1.25 if cost else sell * 0.85, 2)
+            elif margin_pct and margin_pct < 10:
+                suggestion["recommendation"] = "Margin too thin — raise price or find cheaper supplier"
+                suggestion["suggested_price"] = round(cost * 1.20 if cost else sell * 1.10, 2)
+            else:
+                suggestion["recommendation"] = "Price looks competitive"
+                suggestion["suggested_price"] = sell
+
+            suggestions.append(suggestion)
+
+        suggestions.sort(key=lambda x: x.get("times_quoted", 0), reverse=True)
+        return jsonify({"ok": True, "suggestions": suggestions[:30], "total": len(suggestions)})
+    except Exception as e:
+        log.exception("competitive-pricing")
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/intel/revenue-by-agency")
+@auth_required
+def api_intel_revenue_by_agency():
+    """Revenue breakdown by agency from quotes and QB data."""
+    try:
+        import sqlite3
+        from src.core.db import DB_PATH as _DB_PATH
+        conn = sqlite3.connect(_DB_PATH, timeout=10)
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("""
+            SELECT agency, status, total_amount
+            FROM rfq_records WHERE agency IS NOT NULL
+        """).fetchall()
+        conn.close()
+
+        agencies = {}
+        for r in rows:
+            ag = r["agency"] or "Unknown"
+            if ag not in agencies:
+                agencies[ag] = {"quoted": 0, "quoted_value": 0, "won": 0, "won_value": 0,
+                                "lost": 0, "pending": 0}
+            amt = float(r["total_amount"] or 0)
+            agencies[ag]["quoted"] += 1
+            agencies[ag]["quoted_value"] += amt
+            status = (r["status"] or "").lower()
+            if status in ("won", "ordered", "po_received"):
+                agencies[ag]["won"] += 1
+                agencies[ag]["won_value"] += amt
+            elif status in ("lost",):
+                agencies[ag]["lost"] += 1
+            else:
+                agencies[ag]["pending"] += 1
+
+        results = []
+        for ag, d in agencies.items():
+            win_rate = d["won"] / max(d["won"] + d["lost"], 1) * 100
+            results.append({
+                "agency": ag,
+                "total_quoted": d["quoted"],
+                "quoted_value": round(d["quoted_value"], 2),
+                "won": d["won"],
+                "won_value": round(d["won_value"], 2),
+                "lost": d["lost"],
+                "pending": d["pending"],
+                "win_rate": round(win_rate, 1)
+            })
+        results.sort(key=lambda x: x["won_value"], reverse=True)
+        total_won = sum(r["won_value"] for r in results)
+        return jsonify({"ok": True, "agencies": results, "total_won_value": round(total_won, 2)})
+    except Exception as e:
+        log.exception("revenue-by-agency")
+        return jsonify({"ok": False, "error": str(e)})

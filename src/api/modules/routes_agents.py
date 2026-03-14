@@ -7,6 +7,8 @@ from src.api.shared import bp, auth_required
 import logging
 log = logging.getLogger("reytech")
 from src.core.paths import DATA_DIR
+import os, json, time
+from datetime import datetime, timedelta
 
 try:
     from src.core.db import (
@@ -537,3 +539,164 @@ def api_email_send():
 
 
 # ═══════════════════════════════════════════════════════════════════════
+
+# ══ Consolidated from routes_features*.py ══════════════════════════════════
+
+_action_log = []
+_favorites = []
+
+
+@bp.route("/api/agents/health-sweep")
+@auth_required
+def api_agents_health_sweep():
+    """Quick health sweep of all agent subsystems."""
+    from src.core.db import get_db as _ctx_db
+    results = {}
+    # QB check
+    try:
+        from src.agents.quickbooks_agent import is_configured, get_access_token
+        results["quickbooks"] = {"configured": is_configured(), "has_token": bool(get_access_token()) if is_configured() else False}
+    except Exception:
+        results["quickbooks"] = {"configured": False, "error": "module unavailable"}
+    # DB checks
+    endpoints = {
+        "database": "SELECT 1",
+        "catalog": "SELECT COUNT(*) FROM catalog",
+        "quotes": "SELECT COUNT(*) FROM quotes WHERE is_test=0",
+        "orders": "SELECT COUNT(*) FROM orders",
+        "price_checks": "SELECT COUNT(*) FROM price_checks",
+    }
+    for name, sql in endpoints.items():
+        try:
+            start = time.time()
+            with _ctx_db() as conn:
+                ok = bool(conn.execute(sql).fetchone())
+            dur = round((time.time() - start) * 1000)
+            results[name] = {"ok": ok, "ms": dur}
+        except Exception as e:
+            results[name] = {"ok": False, "error": str(e)}
+    # Summary
+    total = len(results)
+    healthy = sum(1 for v in results.values() if v.get("ok") or v.get("configured"))
+    return jsonify({"ok": True, "results": results, "healthy": healthy, "total": total,
+                     "grade": "A" if healthy == total else "B" if healthy >= total - 1 else "C"})
+
+
+@bp.route("/api/agents/log-action", methods=["POST"])
+@auth_required
+def api_log_action():
+    """Log a button action for audit trail."""
+    data = request.get_json(silent=True) or {}
+    entry = {
+        "action": data.get("action", "unknown"),
+        "url": data.get("url", ""),
+        "timestamp": datetime.now().isoformat(),
+        "result": data.get("result", ""),
+    }
+    _action_log.append(entry)
+    if len(_action_log) > 200:
+        _action_log.pop(0)
+    return jsonify({"ok": True})
+
+
+@bp.route("/api/agents/action-log")
+@auth_required
+def api_action_log():
+    """Get recent action log."""
+    return jsonify({"ok": True, "actions": _action_log[-50:], "count": len(_action_log)})
+
+
+@bp.route("/api/agents/favorites", methods=["GET", "POST"])
+@auth_required
+def api_agent_favorites():
+    """Get or set favorite agent buttons."""
+    global _favorites
+    if request.method == "POST":
+        data = request.get_json(silent=True) or {}
+        _favorites = data.get("favorites", [])[:10]
+        # Persist to file
+        fav_file = os.path.join(DATA_DIR, "agent_favorites.json")
+        try:
+            with open(fav_file, "w") as f:
+                json.dump(_favorites, f)
+        except Exception:
+            pass
+        return jsonify({"ok": True, "favorites": _favorites})
+    # GET
+    if not _favorites:
+        fav_file = os.path.join(DATA_DIR, "agent_favorites.json")
+        try:
+            with open(fav_file) as f:
+                _favorites = json.load(f)
+        except Exception:
+            pass
+    return jsonify({"ok": True, "favorites": _favorites})
+
+
+@bp.route("/api/agents/batch-test")
+@auth_required
+def api_agents_batch_test():
+    """Test all critical endpoints and return their status."""
+    import requests as _req
+    from flask import request as flask_req
+
+    endpoints = [
+        ("/api/health", "Health"),
+        ("/api/qb/test-connection", "QuickBooks"),
+        ("/api/qa/health", "QA Agent"),
+        ("/api/agents/status", "Fleet Status"),
+        ("/api/scanner/status", "Email Scanner"),
+        ("/api/catalog/stats", "Catalog"),
+        ("/api/pipeline/stats", "Pipeline"),
+        ("/api/crm/activity?limit=1", "CRM Activity"),
+        ("/api/price-alerts?limit=1", "Price Alerts"),
+        ("/api/follow-ups/summary", "Follow-Ups"),
+        ("/api/manager/brief", "Daily Brief"),
+        ("/api/qb/financial-context", "QB Finance"),
+        ("/api/win-loss-analytics", "Win/Loss"),
+        ("/api/revenue/dashboard", "Revenue"),
+    ]
+
+    results = []
+    passed = 0
+    auth = flask_req.authorization
+
+    for path, name in endpoints:
+        t0 = time.time()
+        try:
+            base = flask_req.host_url.rstrip("/")
+            resp = _req.get(f"{base}{path}",
+                          auth=(auth.username, auth.password) if auth else None,
+                          timeout=8,
+                          verify=False)
+            ms = int((time.time() - t0) * 1000)
+            ok = resp.status_code == 200
+            try:
+                data = resp.json()
+                ok = data.get("ok", True) != False and resp.status_code == 200
+                err = data.get("error", "") if not ok else ""
+            except Exception:
+                err = f"HTTP {resp.status_code}" if not ok else ""
+
+            if ok:
+                passed += 1
+            results.append({
+                "name": name, "endpoint": path, "ok": ok,
+                "ms": ms, "status": resp.status_code,
+                "error": err[:100] if err else None
+            })
+        except Exception as e:
+            ms = int((time.time() - t0) * 1000)
+            results.append({
+                "name": name, "endpoint": path, "ok": False,
+                "ms": ms, "status": "timeout", "error": str(e)[:100]
+            })
+
+    return jsonify({
+        "ok": True,
+        "passed": passed,
+        "total": len(endpoints),
+        "grade": "A" if passed == len(endpoints) else "B" if passed >= len(endpoints) * 0.8 else "C" if passed >= len(endpoints) * 0.6 else "F",
+        "results": results,
+        "tested_at": datetime.now().isoformat()
+    })

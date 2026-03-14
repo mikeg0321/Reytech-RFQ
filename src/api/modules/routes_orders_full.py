@@ -2164,3 +2164,769 @@ def api_order_download_invoice(oid):
                         download_name=f"Invoice_{inv_num}.pdf")
 
     return jsonify({"ok": False, "error": "Invoice PDF not found. Check if QB email has arrived."})
+
+
+# ══ Consolidated from routes_features*.py ══════════════════════════════════
+
+import os, json
+from datetime import datetime, timedelta
+from collections import defaultdict
+
+
+# ── From routes_features.py ─────────────────────────────────────────────────
+
+@bp.route("/api/pipeline/quote-to-cash", methods=["GET"])
+@auth_required
+def api_quote_to_cash():
+    """Quote-to-cash pipeline: track RFQs from quote through order to payment."""
+    try:
+        rfqs_path = os.path.join(DATA_DIR, "rfqs.json")
+        orders_path = os.path.join(DATA_DIR, "orders.json")
+
+        try:
+            with open(rfqs_path) as f:
+                rfqs = json.load(f)
+        except Exception:
+            rfqs = {}
+
+        try:
+            with open(orders_path) as f:
+                orders = json.load(f)
+        except Exception:
+            orders = {}
+
+        stages = {
+            "draft": [], "priced": [], "sent": [],
+            "ordered": [], "invoiced": [], "paid": []
+        }
+
+        for rid, r in rfqs.items():
+            status = (r.get("status") or "").lower()
+            entry = {
+                "id": rid,
+                "solicitation": (r.get("solicitation_number") or rid)[:30],
+                "agency": r.get("institution", "?"),
+                "total": r.get("total_price", 0),
+                "created": r.get("created", r.get("received_date", "")),
+            }
+            if status in ("new", "draft", "inbox"):
+                stages["draft"].append(entry)
+            elif status == "priced":
+                stages["priced"].append(entry)
+            elif status in ("sent", "quoted"):
+                stages["sent"].append(entry)
+            elif status in ("ordered", "won"):
+                stages["ordered"].append(entry)
+
+        for oid, o in orders.items():
+            entry = {
+                "id": oid,
+                "solicitation": o.get("po_number", oid)[:30],
+                "agency": o.get("institution", o.get("agency", "?")),
+                "total": o.get("total", 0),
+                "created": o.get("created_at", ""),
+            }
+            status = (o.get("status") or "").lower()
+            if status in ("invoiced",):
+                stages["invoiced"].append(entry)
+            elif status in ("paid", "closed"):
+                stages["paid"].append(entry)
+            else:
+                stages["ordered"].append(entry)
+
+        totals = {k: sum(e.get("total", 0) for e in v) for k, v in stages.items()}
+
+        return jsonify({
+            "ok": True,
+            "stages": {k: {"count": len(v), "total": round(totals[k], 2), "items": v[:10]} for k, v in stages.items()},
+            "pipeline_total": round(sum(totals.values()), 2),
+        })
+    except Exception as e:
+        log.error("quote-to-cash error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route("/api/quotes/stale", methods=["GET"])
+@auth_required
+def api_stale_quotes():
+    """Identify quotes that have gone stale (no activity in 14+ days)."""
+    try:
+        rfqs_path = os.path.join(DATA_DIR, "rfqs.json")
+        try:
+            with open(rfqs_path) as f:
+                rfqs = json.load(f)
+        except Exception:
+            rfqs = {}
+
+        threshold = int(request.args.get("days", 14))
+        cutoff = (datetime.now() - timedelta(days=threshold)).strftime("%Y-%m-%d")
+        stale = []
+
+        for rid, r in rfqs.items():
+            status = (r.get("status") or "").lower()
+            if status not in ("sent", "quoted", "priced"):
+                continue
+            last_activity = r.get("sent_date") or r.get("updated") or r.get("created") or ""
+            if last_activity and last_activity[:10] < cutoff:
+                days_stale = (datetime.now() - datetime.strptime(last_activity[:10], "%Y-%m-%d")).days
+                stale.append({
+                    "id": rid,
+                    "solicitation": (r.get("solicitation_number") or rid)[:30],
+                    "agency": r.get("institution", "?"),
+                    "status": status,
+                    "last_activity": last_activity[:10],
+                    "days_stale": days_stale,
+                    "total": r.get("total_price", 0),
+                })
+
+        stale.sort(key=lambda x: x["days_stale"], reverse=True)
+
+        return jsonify({
+            "ok": True,
+            "stale_quotes": stale[:25],
+            "count": len(stale),
+            "threshold_days": threshold,
+            "total_at_risk": round(sum(s.get("total", 0) for s in stale), 2),
+        })
+    except Exception as e:
+        log.error("stale quotes error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route("/api/pipeline/follow-up-queue", methods=["GET"])
+@auth_required
+def api_follow_up_queue():
+    """Return prioritised follow-up queue from follow_up_state.json."""
+    try:
+        fu_path = os.path.join(DATA_DIR, "follow_up_state.json")
+        try:
+            with open(fu_path) as f:
+                fu = json.load(f)
+        except Exception:
+            fu = {}
+
+        today = datetime.now().strftime("%Y-%m-%d")
+        queue = []
+
+        for fid, f_data in fu.items():
+            if not isinstance(f_data, dict):
+                continue
+            next_date = f_data.get("next_follow_up", "")
+            status = f_data.get("status", "pending")
+            if status in ("completed", "cancelled"):
+                continue
+            overdue = bool(next_date and next_date[:10] <= today)
+            queue.append({
+                "id": fid,
+                "rfq_id": f_data.get("rfq_id", fid),
+                "contact": f_data.get("contact", f_data.get("buyer_name", "?")),
+                "next_follow_up": next_date[:10] if next_date else "TBD",
+                "status": status,
+                "overdue": overdue,
+                "attempts": f_data.get("attempts", 0),
+                "notes": (f_data.get("notes") or "")[:80],
+            })
+
+        queue.sort(key=lambda x: (not x["overdue"], x["next_follow_up"] or "9999"))
+
+        return jsonify({
+            "ok": True,
+            "queue": queue[:30],
+            "total": len(queue),
+            "overdue_count": len([q for q in queue if q["overdue"]]),
+        })
+    except Exception as e:
+        log.error("follow-up queue error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route("/api/pipeline/revenue-goal", methods=["GET"])
+@auth_required
+def api_revenue_goal():
+    """Track progress toward monthly / quarterly revenue goals."""
+    try:
+        now = datetime.now()
+        month_start = now.replace(day=1).strftime("%Y-%m-%d")
+        q_month = ((now.month - 1) // 3) * 3 + 1
+        quarter_start = now.replace(month=q_month, day=1).strftime("%Y-%m-%d")
+
+        orders_path = os.path.join(DATA_DIR, "orders.json")
+        try:
+            with open(orders_path) as f:
+                orders = json.load(f)
+        except Exception:
+            orders = {}
+
+        monthly_rev = 0.0
+        quarterly_rev = 0.0
+        for o in orders.values():
+            created = (o.get("created_at") or "")[:10]
+            total = o.get("total", 0)
+            if isinstance(total, (int, float)):
+                if created >= month_start:
+                    monthly_rev += total
+                if created >= quarter_start:
+                    quarterly_rev += total
+
+        monthly_goal = float(request.args.get("monthly_goal", 50000))
+        quarterly_goal = float(request.args.get("quarterly_goal", monthly_goal * 3))
+
+        return jsonify({
+            "ok": True,
+            "monthly": {
+                "revenue": round(monthly_rev, 2),
+                "goal": monthly_goal,
+                "pct": round(monthly_rev / monthly_goal * 100, 1) if monthly_goal > 0 else 0,
+                "remaining": round(max(0, monthly_goal - monthly_rev), 2),
+            },
+            "quarterly": {
+                "revenue": round(quarterly_rev, 2),
+                "goal": quarterly_goal,
+                "pct": round(quarterly_rev / quarterly_goal * 100, 1) if quarterly_goal > 0 else 0,
+                "remaining": round(max(0, quarterly_goal - quarterly_rev), 2),
+            },
+            "period": now.strftime("%B %Y"),
+        })
+    except Exception as e:
+        log.error("revenue goal error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route("/api/pipeline/conversion-funnel", methods=["GET"])
+@auth_required
+def api_conversion_funnel():
+    """Show conversion rates at each pipeline stage."""
+    try:
+        rfqs_path = os.path.join(DATA_DIR, "rfqs.json")
+        try:
+            with open(rfqs_path) as f:
+                rfqs = json.load(f)
+        except Exception:
+            rfqs = {}
+
+        counts = defaultdict(int)
+        for r in rfqs.values():
+            status = (r.get("status") or "").lower()
+            if status in ("new", "inbox", "draft"):
+                counts["received"] += 1
+            if status in ("priced",):
+                counts["priced"] += 1
+            if status in ("sent", "quoted"):
+                counts["quoted"] += 1
+            if status in ("won", "ordered"):
+                counts["won"] += 1
+            if status in ("lost",):
+                counts["lost"] += 1
+
+        total = counts["received"] + counts["priced"] + counts["quoted"] + counts["won"] + counts["lost"]
+        funnel = []
+        for stage, label in [("received", "Received"), ("priced", "Priced"),
+                             ("quoted", "Quoted"), ("won", "Won")]:
+            funnel.append({
+                "stage": label,
+                "count": counts[stage],
+                "pct_of_total": round(counts[stage] / total * 100, 1) if total > 0 else 0,
+            })
+
+        win_rate = round(counts["won"] / (counts["won"] + counts["lost"]) * 100, 1) if (counts["won"] + counts["lost"]) > 0 else None
+
+        return jsonify({
+            "ok": True,
+            "funnel": funnel,
+            "total_rfqs": total,
+            "win_rate": win_rate,
+            "lost": counts["lost"],
+        })
+    except Exception as e:
+        log.error("conversion funnel error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route("/api/pipeline/avg-deal-size", methods=["GET"])
+@auth_required
+def api_avg_deal_size():
+    """Calculate average deal size from won quotes and orders."""
+    try:
+        rfqs_path = os.path.join(DATA_DIR, "rfqs.json")
+        orders_path = os.path.join(DATA_DIR, "orders.json")
+        amounts = []
+
+        try:
+            with open(rfqs_path) as f:
+                rfqs = json.load(f)
+            for r in rfqs.values():
+                if (r.get("status") or "").lower() in ("won", "ordered"):
+                    total = r.get("total_price", 0)
+                    if isinstance(total, (int, float)) and total > 0:
+                        amounts.append(total)
+        except Exception:
+            pass
+
+        try:
+            with open(orders_path) as f:
+                orders = json.load(f)
+            for o in orders.values():
+                total = o.get("total", 0)
+                if isinstance(total, (int, float)) and total > 0:
+                    amounts.append(total)
+        except Exception:
+            pass
+
+        avg = round(sum(amounts) / len(amounts), 2) if amounts else 0
+        median = sorted(amounts)[len(amounts) // 2] if amounts else 0
+
+        return jsonify({
+            "ok": True,
+            "avg_deal_size": avg,
+            "median_deal_size": round(median, 2),
+            "min_deal": round(min(amounts), 2) if amounts else 0,
+            "max_deal": round(max(amounts), 2) if amounts else 0,
+            "deals_counted": len(amounts),
+        })
+    except Exception as e:
+        log.error("avg deal size error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route("/api/pipeline/daily-summary", methods=["GET"])
+@auth_required
+def api_pipeline_daily_summary():
+    """Daily pipeline summary: new RFQs, quotes sent, orders received today."""
+    try:
+        today = datetime.now().strftime("%Y-%m-%d")
+        rfqs_path = os.path.join(DATA_DIR, "rfqs.json")
+        orders_path = os.path.join(DATA_DIR, "orders.json")
+
+        try:
+            with open(rfqs_path) as f:
+                rfqs = json.load(f)
+        except Exception:
+            rfqs = {}
+
+        try:
+            with open(orders_path) as f:
+                orders = json.load(f)
+        except Exception:
+            orders = {}
+
+        new_today = [r for r in rfqs.values() if (r.get("created") or r.get("received_date") or "")[:10] == today]
+        sent_today = [r for r in rfqs.values() if (r.get("sent_date") or "")[:10] == today]
+        orders_today = [o for o in orders.values() if (o.get("created_at") or "")[:10] == today]
+
+        return jsonify({
+            "ok": True,
+            "date": today,
+            "new_rfqs": len(new_today),
+            "quotes_sent": len(sent_today),
+            "orders_received": len(orders_today),
+            "new_rfq_value": round(sum(r.get("total_price", 0) for r in new_today), 2),
+            "sent_value": round(sum(r.get("total_price", 0) for r in sent_today), 2),
+            "orders_value": round(sum(o.get("total", 0) for o in orders_today), 2),
+        })
+    except Exception as e:
+        log.error("pipeline daily summary error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ── From routes_features2.py ────────────────────────────────────────────────
+
+@bp.route("/api/pipeline/sales-velocity", methods=["GET"])
+@auth_required
+def api_sales_velocity():
+    """Measure sales velocity: deals * avg_value * win_rate / cycle_time."""
+    try:
+        rfqs_path = os.path.join(DATA_DIR, "rfqs.json")
+        try:
+            with open(rfqs_path) as f:
+                rfqs = json.load(f)
+        except Exception:
+            rfqs = {}
+
+        active_deals = 0
+        won_deals = 0
+        lost_deals = 0
+        total_value = 0.0
+        cycle_days = []
+
+        for r in rfqs.values():
+            status = (r.get("status") or "").lower()
+            if status in ("new", "draft", "priced", "sent", "quoted"):
+                active_deals += 1
+                total_value += r.get("total_price", 0) or 0
+            elif status in ("won", "ordered"):
+                won_deals += 1
+                created = r.get("created") or r.get("received_date") or ""
+                closed = r.get("won_date") or r.get("sent_date") or ""
+                if created and closed:
+                    try:
+                        c = datetime.strptime(created[:10], "%Y-%m-%d")
+                        d = datetime.strptime(closed[:10], "%Y-%m-%d")
+                        days = (d - c).days
+                        if 0 < days <= 180:
+                            cycle_days.append(days)
+                    except Exception:
+                        pass
+            elif status == "lost":
+                lost_deals += 1
+
+        avg_value = total_value / active_deals if active_deals > 0 else 0
+        win_rate = won_deals / (won_deals + lost_deals) if (won_deals + lost_deals) > 0 else 0
+        avg_cycle = sum(cycle_days) / len(cycle_days) if cycle_days else 30
+
+        velocity = (active_deals * avg_value * win_rate) / avg_cycle if avg_cycle > 0 else 0
+
+        return jsonify({
+            "ok": True,
+            "velocity": round(velocity, 2),
+            "active_deals": active_deals,
+            "avg_deal_value": round(avg_value, 2),
+            "win_rate_pct": round(win_rate * 100, 1),
+            "avg_cycle_days": round(avg_cycle, 1),
+            "won": won_deals,
+            "lost": lost_deals,
+        })
+    except Exception as e:
+        log.error("sales velocity error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route("/api/pipeline/weekly-summary", methods=["GET"])
+@auth_required
+def api_pipeline_weekly_summary():
+    """Weekly pipeline summary: activity over the past 7 days."""
+    try:
+        now = datetime.now()
+        week_ago = (now - timedelta(days=7)).strftime("%Y-%m-%d")
+
+        rfqs_path = os.path.join(DATA_DIR, "rfqs.json")
+        orders_path = os.path.join(DATA_DIR, "orders.json")
+
+        try:
+            with open(rfqs_path) as f:
+                rfqs = json.load(f)
+        except Exception:
+            rfqs = {}
+
+        try:
+            with open(orders_path) as f:
+                orders = json.load(f)
+        except Exception:
+            orders = {}
+
+        new_rfqs = [r for r in rfqs.values()
+                    if (r.get("created") or r.get("received_date") or "")[:10] >= week_ago]
+        sent_rfqs = [r for r in rfqs.values()
+                     if (r.get("sent_date") or "")[:10] >= week_ago]
+        new_orders = [o for o in orders.values()
+                      if (o.get("created_at") or "")[:10] >= week_ago]
+
+        return jsonify({
+            "ok": True,
+            "period": f"{week_ago} to {now.strftime('%Y-%m-%d')}",
+            "new_rfqs": len(new_rfqs),
+            "quotes_sent": len(sent_rfqs),
+            "orders": len(new_orders),
+            "rfq_value": round(sum(r.get("total_price", 0) for r in new_rfqs), 2),
+            "sent_value": round(sum(r.get("total_price", 0) for r in sent_rfqs), 2),
+            "order_value": round(sum(o.get("total", 0) for o in new_orders), 2),
+        })
+    except Exception as e:
+        log.error("pipeline weekly summary error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route("/api/pipeline/po-match", methods=["GET"])
+@auth_required
+def api_po_match():
+    """Match POs to quotes — find orders that reference known RFQ IDs."""
+    try:
+        rfqs_path = os.path.join(DATA_DIR, "rfqs.json")
+        orders_path = os.path.join(DATA_DIR, "orders.json")
+
+        try:
+            with open(rfqs_path) as f:
+                rfqs = json.load(f)
+        except Exception:
+            rfqs = {}
+
+        try:
+            with open(orders_path) as f:
+                orders = json.load(f)
+        except Exception:
+            orders = {}
+
+        matched = []
+        unmatched_orders = []
+
+        for oid, o in orders.items():
+            rfq_id = o.get("rfq_id") or o.get("quote_id") or ""
+            po = o.get("po_number", oid)
+            if rfq_id and rfq_id in rfqs:
+                matched.append({
+                    "order_id": oid,
+                    "po_number": po,
+                    "rfq_id": rfq_id,
+                    "solicitation": (rfqs[rfq_id].get("solicitation_number") or "")[:30],
+                    "order_total": o.get("total", 0),
+                    "quote_total": rfqs[rfq_id].get("total_price", 0),
+                })
+            else:
+                unmatched_orders.append({
+                    "order_id": oid,
+                    "po_number": po,
+                    "total": o.get("total", 0),
+                    "agency": o.get("institution", o.get("agency", "?")),
+                })
+
+        return jsonify({
+            "ok": True,
+            "matched": matched[:20],
+            "unmatched": unmatched_orders[:20],
+            "matched_count": len(matched),
+            "unmatched_count": len(unmatched_orders),
+        })
+    except Exception as e:
+        log.error("po-match error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route("/api/pipeline/auto-follow-up", methods=["POST"])
+@auth_required
+def api_auto_follow_up():
+    """Generate follow-up entries for stale quotes automatically."""
+    try:
+        rfqs_path = os.path.join(DATA_DIR, "rfqs.json")
+        fu_path = os.path.join(DATA_DIR, "follow_up_state.json")
+
+        try:
+            with open(rfqs_path) as f:
+                rfqs = json.load(f)
+        except Exception:
+            rfqs = {}
+
+        try:
+            with open(fu_path) as f:
+                fu = json.load(f)
+        except Exception:
+            fu = {}
+
+        threshold = int(request.args.get("days", 7))
+        cutoff = (datetime.now() - timedelta(days=threshold)).strftime("%Y-%m-%d")
+        created = 0
+
+        for rid, r in rfqs.items():
+            status = (r.get("status") or "").lower()
+            if status not in ("sent", "quoted"):
+                continue
+            last_activity = r.get("sent_date") or r.get("updated") or r.get("created") or ""
+            if not last_activity or last_activity[:10] >= cutoff:
+                continue
+            if rid in fu:
+                continue
+
+            fu[rid] = {
+                "rfq_id": rid,
+                "contact": r.get("requestor", r.get("buyer_name", "Unknown")),
+                "next_follow_up": datetime.now().strftime("%Y-%m-%d"),
+                "status": "pending",
+                "attempts": 0,
+                "created": datetime.now().isoformat(),
+                "notes": f"Auto-created: quote stale since {last_activity[:10]}",
+            }
+            created += 1
+
+        with open(fu_path, "w") as f:
+            json.dump(fu, f, indent=2)
+
+        return jsonify({
+            "ok": True,
+            "created": created,
+            "total_follow_ups": len(fu),
+            "message": f"Created {created} new follow-up entries",
+        })
+    except Exception as e:
+        log.error("auto follow-up error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route("/api/quotes/expiring", methods=["GET"])
+@auth_required
+def api_expiring_quotes():
+    """Find quotes expiring within N days (default 7)."""
+    try:
+        rfqs_path = os.path.join(DATA_DIR, "rfqs.json")
+        try:
+            with open(rfqs_path) as f:
+                rfqs = json.load(f)
+        except Exception:
+            rfqs = {}
+
+        days = int(request.args.get("days", 7))
+        now = datetime.now()
+        cutoff = (now + timedelta(days=days)).strftime("%Y-%m-%d")
+        today = now.strftime("%Y-%m-%d")
+        expiring = []
+
+        for rid, r in rfqs.items():
+            status = (r.get("status") or "").lower()
+            if status not in ("sent", "quoted", "priced"):
+                continue
+            due = r.get("due_date") or r.get("deadline") or ""
+            if not due:
+                continue
+            due_str = due[:10]
+            if due_str <= cutoff and due_str >= today:
+                days_left = (datetime.strptime(due_str, "%Y-%m-%d") - now).days
+                expiring.append({
+                    "id": rid,
+                    "solicitation": (r.get("solicitation_number") or rid)[:30],
+                    "agency": r.get("institution", "?"),
+                    "status": status,
+                    "due_date": due_str,
+                    "days_left": days_left,
+                    "total": r.get("total_price", 0),
+                })
+
+        expiring.sort(key=lambda x: x["days_left"])
+
+        return jsonify({
+            "ok": True,
+            "expiring": expiring[:25],
+            "count": len(expiring),
+            "window_days": days,
+        })
+    except Exception as e:
+        log.error("expiring quotes error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route("/api/pipeline/draft-follow-up", methods=["POST"])
+@auth_required
+def api_draft_follow_up():
+    """Draft a follow-up email for a specific RFQ."""
+    try:
+        data = request.get_json(silent=True) or {}
+        rfq_id = data.get("rfq_id", "")
+        if not rfq_id:
+            return jsonify({"ok": False, "error": "rfq_id is required"})
+
+        rfqs_path = os.path.join(DATA_DIR, "rfqs.json")
+        try:
+            with open(rfqs_path) as f:
+                rfqs = json.load(f)
+        except Exception:
+            rfqs = {}
+
+        rfq = rfqs.get(rfq_id)
+        if not rfq:
+            return jsonify({"ok": False, "error": f"RFQ {rfq_id} not found"})
+
+        contact = rfq.get("requestor") or rfq.get("buyer_name") or "there"
+        sol = rfq.get("solicitation_number") or rfq_id
+        total = rfq.get("total_price", 0)
+
+        subject = f"Follow-up: Quote for {sol}"
+        body = (
+            f"Hi {contact},\n\n"
+            f"I wanted to follow up on our quote for solicitation {sol}"
+            f"{' (${:,.2f})'.format(total) if total else ''}.\n\n"
+            f"Please let me know if you have any questions or if there's "
+            f"anything I can help with.\n\n"
+            f"Best regards,\nReytech Inc."
+        )
+
+        return jsonify({
+            "ok": True,
+            "draft": {
+                "to": rfq.get("email", rfq.get("buyer_email", "")),
+                "subject": subject,
+                "body": body,
+                "rfq_id": rfq_id,
+            },
+        })
+    except Exception as e:
+        log.error("draft follow-up error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ── From routes_features3.py ────────────────────────────────────────────────
+
+@bp.route("/api/pipeline/velocity")
+@auth_required
+def api_pipeline_velocity():
+    """Measure how quickly quotes move from inbox to sent to won."""
+    rfqs_path = os.path.join(DATA_DIR, "rfqs.json")
+
+    try:
+        with open(rfqs_path) as f:
+            rfqs = json.load(f)
+    except Exception:
+        return jsonify({"ok": True, "message": "No RFQ data", "avg_days_to_quote": None})
+
+    quote_times = []
+
+    for r in rfqs.values():
+        created = r.get("created") or r.get("received_date")
+        sent = r.get("sent_date")
+
+        if created and sent:
+            try:
+                c = datetime.strptime(created[:10], "%Y-%m-%d")
+                s = datetime.strptime(sent[:10], "%Y-%m-%d")
+                days = (s - c).days
+                if 0 <= days <= 90:
+                    quote_times.append(days)
+            except Exception:
+                pass
+
+    avg_quote_days = round(sum(quote_times) / len(quote_times), 1) if quote_times else None
+
+    return jsonify({
+        "ok": True,
+        "avg_days_to_quote": avg_quote_days,
+        "fastest_quote_days": min(quote_times) if quote_times else None,
+        "slowest_quote_days": max(quote_times) if quote_times else None,
+        "quotes_measured": len(quote_times),
+        "target_days": 2,
+        "on_target": avg_quote_days is not None and avg_quote_days <= 2,
+    })
+
+
+@bp.route("/api/quote/lookup")
+@auth_required
+def api_quote_lookup():
+    """Lookup a quote by number, solicitation, or keyword."""
+    q = (request.args.get("q") or "").strip()
+    if not q:
+        return jsonify({"ok": False, "error": "Provide ?q=<quote_number>"})
+
+    rfqs_path = os.path.join(DATA_DIR, "rfqs.json")
+    results = []
+
+    if os.path.exists(rfqs_path):
+        try:
+            with open(rfqs_path) as f:
+                rfqs = json.load(f)
+            for rid, r in rfqs.items():
+                sol = r.get("solicitation_number", "")
+                qn = r.get("quote_number", "")
+                buyer = r.get("requestor", r.get("buyer_name", ""))
+                if (q.lower() in rid.lower() or q.lower() in sol.lower()
+                        or q.lower() in (qn or "").lower()
+                        or q.lower() in buyer.lower()):
+                    results.append({
+                        "id": rid, "solicitation": sol[:30],
+                        "quote_number": qn, "status": r.get("status", "?"),
+                        "requestor": buyer, "institution": r.get("institution", "?"),
+                        "total": r.get("total_price", 0),
+                        "created": r.get("created", r.get("received_date", "?")),
+                    })
+        except Exception:
+            pass
+
+    return jsonify({
+        "ok": True,
+        "query": q,
+        "results": results[:20],
+        "count": len(results),
+    })

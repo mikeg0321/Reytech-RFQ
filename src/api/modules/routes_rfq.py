@@ -4384,5 +4384,110 @@ def api_diag_package(rid):
     items = r.get("line_items", [])
     priced = sum(1 for i in items if i.get("price_per_unit") and i["price_per_unit"] > 0)
     results["steps"].append({"step": "pricing", "items": len(items), "priced": priced})
-    
+
     return jsonify(results)
+
+
+# ══ Consolidated from routes_features*.py ══════════════════════════════════
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Email Draft Queue Status
+# ═══════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/email/queue-status")
+@auth_required
+def api_email_queue_status():
+    """Status of email drafts: pending, approved, sent."""
+    outbox_path = os.path.join(DATA_DIR, "outbox.json")
+    try:
+        with open(outbox_path) as f:
+            outbox = json.load(f)
+    except Exception:
+        outbox = []
+
+    if isinstance(outbox, dict):
+        outbox = list(outbox.values())
+
+    draft = [e for e in outbox if (e.get("status") or "").lower() in ("draft", "pending")]
+    approved = [e for e in outbox if (e.get("status") or "").lower() == "approved"]
+    sent = [e for e in outbox if (e.get("status") or "").lower() == "sent"]
+
+    return jsonify({
+        "ok": True,
+        "drafts": len(draft),
+        "approved": len(approved),
+        "sent": len(sent),
+        "total": len(outbox),
+        "needs_review": len(draft),
+        "ready_to_send": len(approved),
+        "recent_drafts": [
+            {"to": e.get("to", "?"), "subject": e.get("subject", "?")[:50],
+             "created": e.get("created", "?"), "type": e.get("type", "?")}
+            for e in sorted(draft, key=lambda x: x.get("created", ""), reverse=True)[:5]
+        ]
+    })
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# RFQs Ready to Quote
+# ═══════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/rfq/ready-to-quote")
+@auth_required
+def api_rfq_ready_to_quote():
+    """RFQs that need pricing/quoting — prioritized by deadline."""
+    rfqs_path = os.path.join(DATA_DIR, "rfqs.json")
+    if not os.path.exists(rfqs_path):
+        return jsonify({"ok": True, "rfqs": [], "count": 0})
+
+    try:
+        with open(rfqs_path) as f:
+            rfqs = json.load(f)
+    except Exception:
+        return jsonify({"ok": True, "rfqs": [], "count": 0})
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    ready = []
+
+    for rid, r in rfqs.items():
+        status = (r.get("status") or "").lower()
+        if status in ("new", "draft", "priced", "inbox"):
+            due = r.get("due_date") or r.get("deadline") or ""
+            sol = r.get("solicitation_number", rid)
+            items = r.get("line_items") or r.get("items_detail") or []
+            if isinstance(items, str):
+                try: items = json.loads(items)
+                except Exception: items = []
+
+            overdue = due and due < today
+            days_left = None
+            if due:
+                try:
+                    dd = datetime.strptime(due[:10], "%Y-%m-%d")
+                    days_left = (dd - datetime.now()).days
+                except Exception: pass
+
+            ready.append({
+                "id": rid,
+                "solicitation": sol[:30],
+                "requestor": r.get("requestor", r.get("buyer_name", "?")),
+                "institution": r.get("institution", "?"),
+                "status": status.upper(),
+                "items": len(items) if isinstance(items, list) else 0,
+                "due": due[:10] if due else "TBD",
+                "days_left": days_left,
+                "overdue": overdue,
+                "total": r.get("total_price", 0),
+            })
+
+    # Sort: overdue first, then by days_left
+    ready.sort(key=lambda x: (not x["overdue"], x["days_left"] if x["days_left"] is not None else 999))
+
+    return jsonify({
+        "ok": True,
+        "rfqs": ready[:20],
+        "count": len(ready),
+        "overdue": len([r for r in ready if r["overdue"]]),
+        "due_this_week": len([r for r in ready if r.get("days_left") is not None and 0 <= r["days_left"] <= 7])
+    })

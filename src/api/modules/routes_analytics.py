@@ -21,6 +21,15 @@ import sqlite3 as _sqlite3
 from collections import defaultdict as _defaultdict
 from datetime import timedelta as _timedelta
 
+import csv, io, glob, platform, re, sqlite3
+from datetime import datetime, timedelta
+from collections import defaultdict
+try:
+    import psutil
+    HAS_PSUTIL = True
+except ImportError:
+    HAS_PSUTIL = False
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # E3: Progress Tracking for Long-Running Operations (file-based for multi-worker)
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -3043,3 +3052,932 @@ def api_agency_config_reset():
                         "configs": list(DEFAULT_AGENCY_CONFIGS.keys())})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
+
+
+# ══ Consolidated from routes_features*.py ══════════════════════════════════
+
+
+# ── System Dashboard (from routes_features.py) ────────────────────────────
+
+@bp.route("/api/system/dashboard")
+@auth_required
+def api_system_dashboard():
+    """System health: disk, memory, uptime, data stats."""
+    try:
+        sys_info = {
+            "platform": platform.platform(),
+            "python": platform.python_version(),
+        }
+        disk_info = {}
+        mem_info = {}
+        if HAS_PSUTIL:
+            disk = psutil.disk_usage("/")
+            mem = psutil.virtual_memory()
+            boot = datetime.fromtimestamp(psutil.boot_time())
+            uptime = datetime.now() - boot
+            sys_info["uptime"] = str(uptime).split(".")[0]
+            disk_info = {"total_gb": round(disk.total / (1024**3), 1), "used_gb": round(disk.used / (1024**3), 1),
+                         "free_gb": round(disk.free / (1024**3), 1), "pct_used": disk.percent}
+            mem_info = {"total_gb": round(mem.total / (1024**3), 2), "used_gb": round(mem.used / (1024**3), 2),
+                        "pct_used": mem.percent}
+        else:
+            try:
+                st = os.statvfs("/")
+                disk_info = {"total_gb": round(st.f_blocks * st.f_frsize / (1024**3), 1),
+                             "free_gb": round(st.f_bavail * st.f_frsize / (1024**3), 1)}
+            except Exception:
+                disk_info = {"note": "psutil not available"}
+            mem_info = {"note": "psutil not available"}
+
+        data_files = glob.glob(os.path.join(DATA_DIR, "*"))
+        db_files = [f for f in data_files if f.endswith(".db")]
+        json_files = [f for f in data_files if f.endswith(".json")]
+
+        return jsonify({
+            "ok": True,
+            "system": sys_info,
+            "disk": disk_info,
+            "memory": mem_info,
+            "data": {
+                "total_files": len(data_files),
+                "databases": len(db_files),
+                "json_files": len(json_files),
+                "total_size_mb": round(sum(os.path.getsize(f) for f in data_files if os.path.isfile(f)) / (1024**2), 1),
+            },
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/system/error-log")
+@auth_required
+def api_system_error_log():
+    """Recent application errors from logs."""
+    errors = []
+    log_paths = [
+        "/tmp/gunicorn_error.log",
+        os.path.join(DATA_DIR, "error.log"),
+        os.path.join(DATA_DIR, "app.log"),
+    ]
+    for path in log_paths:
+        if os.path.exists(path):
+            try:
+                with open(path) as f:
+                    lines = f.readlines()
+                for line in lines[-100:]:
+                    lower = line.lower()
+                    if "error" in lower or "exception" in lower or "traceback" in lower:
+                        errors.append({"file": os.path.basename(path), "line": line.strip()[:200]})
+            except Exception:
+                pass
+
+    qa_path = os.path.join(DATA_DIR, "qa_history.json")
+    if os.path.exists(qa_path):
+        try:
+            with open(qa_path) as f:
+                qa = json.load(f)
+            recent = qa[-5:] if isinstance(qa, list) else []
+            for run in recent:
+                if isinstance(run, dict) and run.get("score", 100) < 70:
+                    errors.append({"file": "qa_history", "line": f"QA score {run.get('score')}: {run.get('grade', '?')}"})
+        except Exception:
+            pass
+
+    return jsonify({"ok": True, "errors": errors[-30:], "count": len(errors)})
+
+
+@bp.route("/api/system/route-map")
+@auth_required
+def api_system_route_map():
+    """List all registered API routes."""
+    from flask import current_app
+    routes = []
+    for rule in current_app.url_map.iter_rules():
+        if rule.endpoint == "static":
+            continue
+        routes.append({
+            "path": rule.rule,
+            "methods": sorted([m for m in rule.methods if m not in ("HEAD", "OPTIONS")]),
+            "endpoint": rule.endpoint,
+        })
+    routes.sort(key=lambda x: x["path"])
+    api_routes = [r for r in routes if r["path"].startswith("/api/")]
+    page_routes = [r for r in routes if not r["path"].startswith("/api/")]
+    return jsonify({"ok": True, "api_routes": len(api_routes), "page_routes": len(page_routes),
+                    "total": len(routes), "routes": routes})
+
+
+@bp.route("/api/system/data-sizes")
+@auth_required
+def api_system_data_sizes():
+    """Show sizes of all data files."""
+    files = []
+    for f in sorted(glob.glob(os.path.join(DATA_DIR, "*"))):
+        if os.path.isfile(f):
+            size = os.path.getsize(f)
+            files.append({
+                "file": os.path.basename(f),
+                "size_kb": round(size / 1024, 1),
+                "size_mb": round(size / (1024**2), 2),
+                "modified": datetime.fromtimestamp(os.path.getmtime(f)).strftime("%Y-%m-%d %H:%M"),
+            })
+    files.sort(key=lambda x: -x["size_kb"])
+    total = sum(f["size_kb"] for f in files)
+    return jsonify({"ok": True, "files": files, "total_mb": round(total / 1024, 1), "count": len(files)})
+
+
+@bp.route("/api/system/batch-health", methods=["POST"])
+@auth_required
+def api_system_batch_health():
+    """Test all critical endpoints at once."""
+    from flask import current_app
+    test_endpoints = [
+        ("/api/qa/health", "QA Health"),
+        ("/api/agents/status", "Agent Fleet"),
+        ("/api/catalog/stats", "Catalog"),
+        ("/api/crm/activity?limit=1", "CRM Activity"),
+        ("/api/pipeline/revenue-goal", "Revenue Goal"),
+    ]
+    results = []
+    for path, name in test_endpoints:
+        start = time.time()
+        try:
+            with current_app.test_client() as client:
+                resp = client.get(path, headers={"Authorization": request.headers.get("Authorization", "")})
+                elapsed = round((time.time() - start) * 1000)
+                ok = resp.status_code == 200
+                results.append({"name": name, "path": path, "status": resp.status_code,
+                                "ok": ok, "ms": elapsed})
+        except Exception as e:
+            results.append({"name": name, "path": path, "status": 500, "ok": False,
+                            "ms": 0, "error": str(e)})
+
+    healthy = sum(1 for r in results if r["ok"])
+    return jsonify({"ok": True, "results": results, "healthy": healthy,
+                    "total": len(results), "grade": "A" if healthy == len(results) else "B" if healthy >= 3 else "F"})
+
+
+@bp.route("/api/system/env-check")
+@auth_required
+def api_system_env_check():
+    """Check which environment variables are configured."""
+    checks = {
+        "DASH_USER": bool(os.environ.get("DASH_USER")),
+        "DASH_PASS": os.environ.get("DASH_PASS", "changeme") != "changeme",
+        "GMAIL_ADDRESS": bool(os.environ.get("GMAIL_ADDRESS")),
+        "GMAIL_PASSWORD": bool(os.environ.get("GMAIL_PASSWORD")),
+        "QB_CLIENT_ID": bool(os.environ.get("QB_CLIENT_ID")),
+        "QB_CLIENT_SECRET": bool(os.environ.get("QB_CLIENT_SECRET")),
+        "QB_REALM_ID": bool(os.environ.get("QB_REALM_ID")),
+        "QB_REFRESH_TOKEN": bool(os.environ.get("QB_REFRESH_TOKEN")),
+        "OPENAI_API_KEY": bool(os.environ.get("OPENAI_API_KEY")),
+        "ANTHROPIC_API_KEY": bool(os.environ.get("ANTHROPIC_API_KEY")),
+        "VAPI_API_KEY": bool(os.environ.get("VAPI_API_KEY")),
+        "TWILIO_ACCOUNT_SID": bool(os.environ.get("TWILIO_ACCOUNT_SID")),
+        "TWILIO_AUTH_TOKEN": bool(os.environ.get("TWILIO_AUTH_TOKEN")),
+        "RAILWAY_ENVIRONMENT": os.environ.get("RAILWAY_ENVIRONMENT", "unknown"),
+    }
+    configured = sum(1 for k, v in checks.items() if v and k != "RAILWAY_ENVIRONMENT")
+    return jsonify({"ok": True, "env_vars": checks, "configured": configured,
+                    "total_checked": len(checks) - 1})
+
+
+@bp.route("/api/system/metrics")
+@auth_required
+def api_system_metrics():
+    """System performance metrics."""
+    metrics = {
+        "ok": True,
+        "python_version": platform.python_version(),
+        "platform": platform.platform(),
+        "uptime_seconds": int(time.time() - _plt_start) if '_plt_start' in dir() else None,
+    }
+    if HAS_PSUTIL:
+        try:
+            metrics["cpu_percent"] = psutil.cpu_percent(interval=0.1)
+            mem = psutil.virtual_memory()
+            metrics["memory_used_mb"] = round(mem.used / 1024 / 1024)
+            metrics["memory_total_mb"] = round(mem.total / 1024 / 1024)
+            metrics["memory_percent"] = mem.percent
+            disk = psutil.disk_usage("/")
+            metrics["disk_used_gb"] = round(disk.used / 1024 / 1024 / 1024, 1)
+            metrics["disk_total_gb"] = round(disk.total / 1024 / 1024 / 1024, 1)
+        except Exception:
+            pass
+    data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
+    try:
+        files = os.listdir(data_dir)
+        metrics["data_files"] = len(files)
+        total_size = sum(os.path.getsize(os.path.join(data_dir, f)) for f in files if os.path.isfile(os.path.join(data_dir, f)))
+        metrics["data_size_mb"] = round(total_size / 1024 / 1024, 2)
+    except Exception:
+        pass
+    return jsonify(metrics)
+
+
+@bp.route("/api/system/recent-errors")
+@auth_required
+def api_system_recent_errors_trace():
+    """Recent application errors with context."""
+    errors = []
+    log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
+    err_file = os.path.join(log_dir, "error_log.json")
+    try:
+        if os.path.exists(err_file):
+            with open(err_file) as f:
+                data = json.load(f)
+                if isinstance(data, list):
+                    errors = data[-20:]
+                elif isinstance(data, dict):
+                    errors = data.get("errors", [])[-20:]
+    except Exception:
+        pass
+    qa_file = os.path.join(log_dir, "qa_reports.json")
+    qa_errors = []
+    try:
+        if os.path.exists(qa_file):
+            with open(qa_file) as f:
+                reports = json.load(f)
+                if isinstance(reports, list) and reports:
+                    latest = reports[-1]
+                    for r in latest.get("results", []):
+                        if r.get("status") == "fail":
+                            qa_errors.append({"source": "qa", "test": r.get("test"), "message": r.get("message"), "fix": r.get("fix")})
+    except Exception:
+        pass
+    return jsonify({"ok": True, "errors": errors, "qa_failures": qa_errors,
+                     "total": len(errors), "qa_total": len(qa_errors)})
+
+
+@bp.route("/api/system/diagnostic-sweep")
+@auth_required
+def api_diagnostic_sweep():
+    """Comprehensive diagnostic sweep of all systems."""
+    results = {"ok": True, "timestamp": datetime.now().isoformat(), "checks": {}}
+
+    # Database
+    try:
+        conn = _get_db()
+        tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+        results["checks"]["database"] = {"ok": True, "tables": len(tables), "table_list": tables}
+        counts = {}
+        for t in tables[:20]:
+            try:
+                counts[t] = conn.execute("SELECT COUNT(*) FROM [" + re.sub(r"[^a-zA-Z0-9_]", "", t) + "]").fetchone()[0]
+            except Exception:
+                counts[t] = "error"
+        results["checks"]["row_counts"] = counts
+        conn.close()
+    except Exception as e:
+        results["checks"]["database"] = {"ok": False, "error": str(e)}
+
+    # File system
+    data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
+    try:
+        files = os.listdir(data_dir)
+        json_files = [f for f in files if f.endswith(".json")]
+        db_files = [f for f in files if f.endswith(".db") or f.endswith(".sqlite")]
+        results["checks"]["filesystem"] = {"ok": True, "total_files": len(files), "json_files": len(json_files), "db_files": len(db_files)}
+    except Exception as e:
+        results["checks"]["filesystem"] = {"ok": False, "error": str(e)}
+
+    # Environment
+    env_vars = ["DASH_USER", "DASH_PASS", "QB_CLIENT_ID", "QB_CLIENT_SECRET",
+                "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "VAPI_API_KEY",
+                "SMTP_USER", "IMAP_USER", "QB_REALM_ID"]
+    env_status = {}
+    for v in env_vars:
+        val = os.environ.get(v, "")
+        env_status[v] = "set" if val else "missing"
+    results["checks"]["env_vars"] = env_status
+
+    # QB
+    try:
+        from src.agents.quickbooks_agent import is_configured, _load_tokens
+        tokens = _load_tokens()
+        results["checks"]["quickbooks"] = {
+            "configured": is_configured(),
+            "token_file_exists": bool(tokens),
+            "has_access_token": bool(tokens.get("access_token")),
+            "has_refresh_token": bool(tokens.get("refresh_token")),
+            "has_realm_id": bool(tokens.get("realm_id")),
+            "connected_at": tokens.get("connected_at", ""),
+        }
+    except Exception:
+        results["checks"]["quickbooks"] = {"configured": False, "error": "module unavailable"}
+
+    # Summary
+    total = len(results["checks"])
+    ok_count = sum(1 for v in results["checks"].values() if isinstance(v, dict) and v.get("ok", v.get("configured", False)))
+    results["summary"] = f"{ok_count}/{total} checks passed"
+    results["grade"] = "A" if ok_count >= total - 1 else "B" if ok_count >= total - 2 else "C"
+
+    return jsonify(results)
+
+
+@bp.route("/api/dashboard/kpis")
+@auth_required
+def api_dashboard_kpis():
+    """Key performance indicators -- single-call business health."""
+    try:
+        conn = _get_db()
+        kpis = {}
+        kpis["total_quotes"] = conn.execute("SELECT COUNT(*) FROM quotes WHERE is_test=0").fetchone()[0]
+        kpis["quotes_this_month"] = conn.execute(
+            "SELECT COUNT(*) FROM quotes WHERE is_test=0 AND created_date >= date('now','start of month')").fetchone()[0]
+        won = conn.execute("SELECT SUM(total) FROM quotes WHERE is_test=0 AND status='won'").fetchone()[0]
+        kpis["revenue_won"] = float(won or 0)
+        pipeline = conn.execute("SELECT SUM(total) FROM quotes WHERE is_test=0 AND status IN ('sent','draft','priced','quoted')").fetchone()[0]
+        kpis["pipeline_value"] = float(pipeline or 0)
+        kpis["total_orders"] = conn.execute("SELECT COUNT(*) FROM orders").fetchone()[0]
+        kpis["total_pcs"] = conn.execute("SELECT COUNT(*) FROM price_checks").fetchone()[0]
+        kpis["open_pcs"] = conn.execute("SELECT COUNT(*) FROM price_checks WHERE status NOT IN ('priced','completed','cancelled')").fetchone()[0]
+        try:
+            kpis["total_rfqs"] = conn.execute("SELECT COUNT(*) FROM rfqs").fetchone()[0]
+            kpis["new_rfqs"] = conn.execute("SELECT COUNT(*) FROM rfqs WHERE status='new'").fetchone()[0]
+        except Exception:
+            kpis["total_rfqs"] = 0
+            kpis["new_rfqs"] = 0
+        try:
+            kpis["crm_contacts"] = conn.execute("SELECT COUNT(*) FROM contacts").fetchone()[0]
+        except Exception:
+            kpis["crm_contacts"] = 0
+        won_count = conn.execute("SELECT COUNT(*) FROM quotes WHERE is_test=0 AND status='won'").fetchone()[0]
+        lost_count = conn.execute("SELECT COUNT(*) FROM quotes WHERE is_test=0 AND status='lost'").fetchone()[0]
+        total_decided = (won_count or 0) + (lost_count or 0)
+        kpis["win_rate"] = round((won_count or 0) / total_decided * 100, 1) if total_decided > 0 else 0
+        kpis["$2m_goal_pct"] = round(kpis["revenue_won"] / 2000000 * 100, 2)
+        conn.close()
+        return jsonify({"ok": True, **kpis})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/workflow/history")
+@auth_required
+def api_workflow_history():
+    """Recent workflow execution history."""
+    history = []
+    data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
+    wf_file = os.path.join(data_dir, "workflow_runs.json")
+    try:
+        if os.path.exists(wf_file):
+            with open(wf_file) as f:
+                runs = json.load(f)
+                history = runs[-20:] if isinstance(runs, list) else []
+    except Exception:
+        pass
+    return jsonify({"ok": True, "runs": history, "count": len(history)})
+
+
+@bp.route("/api/export/json", methods=["POST"])
+@auth_required
+def api_export_json():
+    """Save JSON data to downloadable file."""
+    data = request.get_json(silent=True) or {}
+    content = data.get("content", "")
+    filename = data.get("filename", f"reytech-export-{datetime.now().strftime('%Y%m%d-%H%M%S')}.json")
+    export_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "exports")
+    os.makedirs(export_dir, exist_ok=True)
+    filepath = os.path.join(export_dir, filename)
+    with open(filepath, "w") as f:
+        f.write(content if isinstance(content, str) else json.dumps(content, indent=2))
+    return jsonify({"ok": True, "file": filename, "path": filepath})
+
+
+# ── Data Quality (from routes_features.py) ─────────────────────────────────
+
+@bp.route("/api/data-quality/duplicates")
+@auth_required
+def api_data_quality_duplicates():
+    """Find duplicate contacts/vendors in CRM."""
+    crm_path = os.path.join(DATA_DIR, "crm_contacts.json")
+    if not os.path.exists(crm_path):
+        return jsonify({"ok": True, "duplicates": [], "count": 0})
+    try:
+        with open(crm_path) as f:
+            crm = json.load(f)
+        contacts = crm.get("contacts", [])
+
+        by_email = defaultdict(list)
+        for c in contacts:
+            email = (c.get("email") or "").lower().strip()
+            if email:
+                by_email[email].append(c.get("display_name") or c.get("qb_name") or "Unknown")
+
+        by_name = defaultdict(list)
+        for c in contacts:
+            name = (c.get("display_name") or c.get("qb_name") or "").lower().strip()
+            if name and len(name) > 3:
+                by_name[name].append(c.get("email") or "no email")
+
+        email_dupes = [{"email": k, "names": v, "count": len(v)} for k, v in by_email.items() if len(v) > 1]
+        name_dupes = [{"name": k, "emails": v, "count": len(v)} for k, v in by_name.items() if len(v) > 1]
+
+        return jsonify({
+            "ok": True,
+            "email_duplicates": email_dupes[:20],
+            "name_duplicates": name_dupes[:20],
+            "total_contacts": len(contacts),
+            "duplicate_emails": len(email_dupes),
+            "duplicate_names": len(name_dupes),
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/data-quality/missing-data")
+@auth_required
+def api_data_quality_missing_data():
+    """Find records with incomplete data."""
+    issues = []
+    if True:
+        try:
+            from src.core.db import DB_PATH as _DB_PATH; conn = sqlite3.connect(_DB_PATH, timeout=10); conn.row_factory = sqlite3.Row
+            no_total = conn.execute("SELECT COUNT(*) FROM quotes WHERE is_test=0 AND (total IS NULL OR total = 0)").fetchone()[0]
+            no_inst = conn.execute("SELECT COUNT(*) FROM quotes WHERE is_test=0 AND (institution IS NULL OR institution = '')").fetchone()[0]
+            no_items = conn.execute("""
+                SELECT COUNT(*) FROM quotes q
+                WHERE q.is_test=0 AND NOT EXISTS (SELECT 1 FROM quote_items qi WHERE qi.quote_number = q.quote_number)
+            """).fetchone()[0]
+            conn.close()
+            if no_total: issues.append({"type": "quotes", "issue": f"{no_total} quotes with $0 total"})
+            if no_inst: issues.append({"type": "quotes", "issue": f"{no_inst} quotes missing institution"})
+            if no_items: issues.append({"type": "quotes", "issue": f"{no_items} quotes with no line items"})
+        except Exception:
+            pass
+
+    crm_path = os.path.join(DATA_DIR, "crm_contacts.json")
+    if os.path.exists(crm_path):
+        try:
+            with open(crm_path) as f:
+                crm = json.load(f)
+            contacts = crm.get("contacts", [])
+            no_email = sum(1 for c in contacts if not c.get("email"))
+            no_phone = sum(1 for c in contacts if not c.get("phone"))
+            if no_email: issues.append({"type": "crm", "issue": f"{no_email} contacts missing email"})
+            if no_phone: issues.append({"type": "crm", "issue": f"{no_phone} contacts missing phone"})
+        except Exception:
+            pass
+
+    return jsonify({"ok": True, "issues": issues, "count": len(issues)})
+
+
+@bp.route("/api/data-quality/orphaned-quotes")
+@auth_required
+def api_data_quality_orphaned_quotes():
+    """Find quotes not linked to any CRM contact."""
+    crm_path = os.path.join(DATA_DIR, "crm_contacts.json")
+    from src.core.db import DB_PATH as _DB_PATH
+    if not os.path.exists(_DB_PATH):
+        return jsonify({"ok": True, "orphaned": []})
+    try:
+        crm_institutions = set()
+        if os.path.exists(crm_path):
+            with open(crm_path) as f:
+                crm = json.load(f)
+            for c in crm.get("contacts", []):
+                name = (c.get("display_name") or c.get("qb_name") or "").lower()
+                if name:
+                    crm_institutions.add(name)
+
+        conn = sqlite3.connect(_DB_PATH, timeout=10); conn.row_factory = sqlite3.Row
+        quotes = conn.execute("SELECT quote_number, institution, total, status FROM quotes WHERE is_test=0").fetchall()
+        conn.close()
+
+        orphaned = []
+        for q in quotes:
+            inst = (q["institution"] or "").lower()
+            if inst and inst not in crm_institutions:
+                orphaned.append({
+                    "quote": q["quote_number"], "institution": q["institution"],
+                    "total": float(q["total"] or 0), "status": q["status"],
+                })
+
+        return jsonify({"ok": True, "orphaned": orphaned[:30], "count": len(orphaned),
+                        "total_quotes": len(quotes), "crm_contacts": len(crm_institutions)})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+# ── System Heartbeat & Morning Brief (from routes_features2.py) ────────────
+
+@bp.route("/api/system/heartbeat")
+@auth_required
+def api_system_heartbeat():
+    """Quick health check of all major subsystems in one call."""
+    results = {"ok": True, "timestamp": datetime.now().isoformat(), "systems": {}}
+
+    try:
+        from src.core.db import DB_PATH as _DB_PATH; conn = sqlite3.connect(_DB_PATH, timeout=10); conn.row_factory = sqlite3.Row
+        ct = conn.execute("SELECT COUNT(*) FROM rfq_records").fetchone()[0]
+        conn.close()
+        results["systems"]["database"] = {"status": "ok", "rfq_count": ct}
+    except Exception as e:
+        results["systems"]["database"] = {"status": "error", "error": str(e)}
+
+    try:
+        cat_path = os.path.join(DATA_DIR, "product_catalog.json")
+        if os.path.exists(cat_path):
+            with open(cat_path) as f:
+                cat = json.load(f)
+            results["systems"]["catalog"] = {"status": "ok", "products": len(cat.get("products", []))}
+        else:
+            results["systems"]["catalog"] = {"status": "empty"}
+    except Exception as e:
+        results["systems"]["catalog"] = {"status": "error", "error": str(e)}
+
+    try:
+        crm_path = os.path.join(DATA_DIR, "crm_contacts.json")
+        if os.path.exists(crm_path):
+            with open(crm_path) as f:
+                crm = json.load(f)
+            results["systems"]["crm"] = {"status": "ok", "contacts": len(crm.get("contacts", []))}
+        else:
+            results["systems"]["crm"] = {"status": "empty"}
+    except Exception as e:
+        results["systems"]["crm"] = {"status": "error", "error": str(e)}
+
+    try:
+        from src.agents.quickbooks_agent import is_configured, get_access_token
+        if is_configured():
+            token = get_access_token()
+            results["systems"]["quickbooks"] = {"status": "connected" if token else "token_expired",
+                                                "configured": True}
+        else:
+            results["systems"]["quickbooks"] = {"status": "not_configured"}
+    except Exception:
+        results["systems"]["quickbooks"] = {"status": "unavailable"}
+
+    try:
+        results["systems"]["email"] = {
+            "status": "configured" if os.environ.get("EMAIL_USER") else "not_configured"
+        }
+    except Exception:
+        pass
+
+    all_ok = all(s.get("status") in ("ok", "connected", "configured") for s in results["systems"].values())
+    results["overall"] = "healthy" if all_ok else "degraded"
+    return jsonify(results)
+
+
+@bp.route("/api/dashboard/morning-brief")
+@auth_required
+def api_dashboard_morning_brief():
+    """One-call consolidated morning briefing: key metrics, alerts, and actions."""
+    brief = {"ok": True, "generated": datetime.now().isoformat(), "sections": {}}
+
+    try:
+        from src.core.db import DB_PATH as _DB_PATH; conn = sqlite3.connect(_DB_PATH, timeout=10); conn.row_factory = sqlite3.Row
+        conn.row_factory = sqlite3.Row
+        today = datetime.now().strftime("%Y-%m-%d")
+        week_ago = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+
+        total = conn.execute("SELECT COUNT(*) as c FROM rfq_records").fetchone()["c"]
+        new_this_week = conn.execute("SELECT COUNT(*) as c FROM rfq_records WHERE created_at >= ?", (week_ago,)).fetchone()["c"]
+        pending = conn.execute("SELECT COUNT(*) as c FROM rfq_records WHERE status IN ('new','draft','priced','quoted')").fetchone()["c"]
+        overdue = conn.execute("SELECT COUNT(*) as c FROM rfq_records WHERE due_date < ? AND status NOT IN ('sent','won','lost','ordered')", (today,)).fetchone()["c"]
+        conn.close()
+
+        brief["sections"]["pipeline"] = {
+            "total_rfqs": total, "new_this_week": new_this_week,
+            "pending_action": pending, "overdue": overdue
+        }
+    except Exception as e:
+        brief["sections"]["pipeline"] = {"error": str(e)}
+
+    try:
+        from src.agents.quickbooks_agent import is_configured, get_financial_context
+        if is_configured():
+            ctx = get_financial_context()
+            brief["sections"]["financial"] = {
+                "receivable": ctx.get("total_receivable", 0),
+                "overdue": ctx.get("overdue_amount", 0),
+                "collected_30d": ctx.get("total_collected", 0),
+                "open_invoices": ctx.get("open_invoices", 0)
+            }
+    except Exception:
+        pass
+
+    try:
+        cat_path = os.path.join(DATA_DIR, "product_catalog.json")
+        if os.path.exists(cat_path):
+            with open(cat_path) as f:
+                cat = json.load(f)
+            brief["sections"]["catalog"] = {
+                "total_products": len(cat.get("products", [])),
+                "with_pricing": sum(1 for p in cat.get("products", []) if p.get("avg_sell_price"))
+            }
+    except Exception:
+        pass
+
+    try:
+        oq_path = os.path.join(DATA_DIR, "outreach_queue.json")
+        if os.path.exists(oq_path):
+            with open(oq_path) as f:
+                oq = json.load(f)
+            sent = len(oq.get("emails", []))
+            follow_ups = sum(1 for e in oq.get("emails", [])
+                             if e.get("status") == "sent" and
+                             e.get("follow_up_date", "") <= datetime.now().strftime("%Y-%m-%d"))
+            brief["sections"]["outreach"] = {"sent": sent, "follow_ups_due": follow_ups}
+    except Exception:
+        pass
+
+    actions = []
+    pipeline = brief["sections"].get("pipeline", {})
+    if pipeline.get("overdue", 0) > 0:
+        actions.append(f"{pipeline['overdue']} overdue RFQs need attention")
+    if pipeline.get("pending_action", 0) > 5:
+        actions.append(f"{pipeline['pending_action']} quotes pending action")
+    financial = brief["sections"].get("financial", {})
+    if financial.get("overdue", 0) > 0:
+        actions.append(f"${financial['overdue']:,.0f} in overdue invoices")
+    outreach = brief["sections"].get("outreach", {})
+    if outreach.get("follow_ups_due", 0) > 0:
+        actions.append(f"{outreach['follow_ups_due']} outreach follow-ups due")
+
+    brief["actions_needed"] = actions
+    brief["action_count"] = len(actions)
+    return jsonify(brief)
+
+
+# ── Daily Wins, Health Score, Notifications, CSV Export (from routes_features3.py) ──
+
+@bp.route("/api/daily-wins")
+@auth_required
+def api_daily_wins():
+    """Today's wins: new quotes, orders, payments, won bids."""
+    today = datetime.now().strftime("%Y-%m-%d")
+    wins = []
+
+    orders_path = os.path.join(DATA_DIR, "orders.json")
+    if os.path.exists(orders_path):
+        try:
+            with open(orders_path) as f:
+                orders = json.load(f)
+            for oid, o in orders.items():
+                if o.get("created", "").startswith(today):
+                    wins.append({"type": "New Order", "detail": f"PO {o.get('po_number', oid)}",
+                                "value": o.get("total", 0), "time": o.get("created", "")})
+        except Exception: pass
+
+    wl_path = os.path.join(DATA_DIR, "win_loss_log.json")
+    if os.path.exists(wl_path):
+        try:
+            with open(wl_path) as f:
+                wl = json.load(f)
+            for entry in wl.get("entries", []):
+                if entry.get("outcome") == "won" and entry.get("date", "").startswith(today):
+                    wins.append({"type": "Won Quote", "detail": entry.get("rfq_id", "?"),
+                                "value": entry.get("amount", 0), "time": entry.get("date", "")})
+        except Exception: pass
+
+    rfqs_path = os.path.join(DATA_DIR, "rfqs.json")
+    if os.path.exists(rfqs_path):
+        try:
+            with open(rfqs_path) as f:
+                rfqs = json.load(f)
+            for rid, r in rfqs.items():
+                if r.get("status") == "sent" and r.get("sent_date", "").startswith(today):
+                    wins.append({"type": "Sent Quote", "detail": f"Sol# {r.get('solicitation_number', rid)[:20]}",
+                                "value": r.get("total_price", 0), "time": r.get("sent_date", "")})
+        except Exception: pass
+
+    total_value = sum(w.get("value", 0) for w in wins if isinstance(w.get("value"), (int, float)))
+
+    return jsonify({
+        "ok": True,
+        "date": today,
+        "wins": sorted(wins, key=lambda w: w.get("time", ""), reverse=True),
+        "total_wins": len(wins),
+        "total_value": round(total_value, 2),
+        "message": f"{len(wins)} wins today!" if wins else "No wins yet today -- keep pushing!"
+    })
+
+
+def _get_health_recommendations(factors):
+    """Generate recommendations based on health score factors."""
+    recs = []
+    for f in factors:
+        if f["score"] < f["max"] * 0.5:
+            if f["name"] == "Active Pipeline":
+                recs.append("Pipeline is thin -- check inbox for new RFQs or run SCPRS deep pull")
+            elif f["name"] == "Win Rate":
+                recs.append("Track win/loss outcomes on RFQ detail pages to improve your rate")
+            elif f["name"] == "Catalog":
+                recs.append("Run 'Rebuild Catalog from History' to auto-populate from quotes")
+            elif f["name"] == "QuickBooks":
+                recs.append("Connect QuickBooks for financial tracking & invoice creation")
+            elif f["name"] == "Follow-Ups":
+                recs.append("You have overdue follow-ups -- check Follow-Up page")
+            elif f["name"] == "CRM Contacts":
+                recs.append("Sync QB customers to CRM to build your contact database")
+    return recs
+
+
+@bp.route("/api/business/health-score")
+@auth_required
+def api_business_health_score():
+    """Calculate overall business health score (0-100)."""
+    score = 0
+    factors = []
+
+    rfqs_path = os.path.join(DATA_DIR, "rfqs.json")
+    try:
+        with open(rfqs_path) as f:
+            rfqs = json.load(f)
+        active = [r for r in rfqs.values() if (r.get("status") or "").lower() in ("new", "draft", "priced", "sent", "quoted")]
+        pts = min(20, len(active) * 4)
+        score += pts
+        factors.append({"name": "Active Pipeline", "score": pts, "max": 20, "detail": f"{len(active)} active RFQs"})
+    except Exception:
+        factors.append({"name": "Active Pipeline", "score": 0, "max": 20, "detail": "No data"})
+
+    wl_path = os.path.join(DATA_DIR, "win_loss_log.json")
+    try:
+        with open(wl_path) as f:
+            wl = json.load(f)
+        entries = wl.get("entries", [])
+        won = len([e for e in entries if e.get("outcome") == "won"])
+        lost = len([e for e in entries if e.get("outcome") == "lost"])
+        if won + lost > 0:
+            rate = won / (won + lost) * 100
+            pts = min(20, int(rate / 5))
+            factors.append({"name": "Win Rate", "score": pts, "max": 20, "detail": f"{rate:.0f}% ({won}W/{lost}L)"})
+        else:
+            pts = 10
+            factors.append({"name": "Win Rate", "score": pts, "max": 20, "detail": "No outcomes tracked"})
+        score += pts
+    except Exception:
+        score += 10
+        factors.append({"name": "Win Rate", "score": 10, "max": 20, "detail": "No data"})
+
+    cat_path = os.path.join(DATA_DIR, "product_catalog.json")
+    try:
+        with open(cat_path) as f:
+            cat = json.load(f)
+        products = cat.get("products", {})
+        with_pricing = len([p for p in products.values() if p.get("last_quoted_price", 0) > 0])
+        pts = min(15, len(products) // 50)
+        score += pts
+        factors.append({"name": "Catalog", "score": pts, "max": 15, "detail": f"{len(products)} products, {with_pricing} priced"})
+    except Exception:
+        factors.append({"name": "Catalog", "score": 0, "max": 15, "detail": "No data"})
+
+    try:
+        from src.agents.quickbooks_agent import is_configured, get_access_token
+        if is_configured() and get_access_token():
+            score += 15
+            factors.append({"name": "QuickBooks", "score": 15, "max": 15, "detail": "Connected"})
+        elif is_configured():
+            score += 5
+            factors.append({"name": "QuickBooks", "score": 5, "max": 15, "detail": "Configured but token expired"})
+        else:
+            factors.append({"name": "QuickBooks", "score": 0, "max": 15, "detail": "Not connected"})
+    except Exception:
+        factors.append({"name": "QuickBooks", "score": 0, "max": 15, "detail": "Module not available"})
+
+    fu_path = os.path.join(DATA_DIR, "follow_up_state.json")
+    try:
+        with open(fu_path) as f:
+            fu = json.load(f)
+        overdue = len([f for f in fu.values() if isinstance(f, dict) and f.get("status") == "overdue"])
+        pending = len([f for f in fu.values() if isinstance(f, dict) and f.get("status") == "pending"])
+        pts = max(0, 15 - overdue * 3)
+        score += pts
+        factors.append({"name": "Follow-Ups", "score": pts, "max": 15, "detail": f"{pending} pending, {overdue} overdue"})
+    except Exception:
+        score += 10
+        factors.append({"name": "Follow-Ups", "score": 10, "max": 15, "detail": "No data"})
+
+    crm_path = os.path.join(DATA_DIR, "crm_contacts.json")
+    try:
+        with open(crm_path) as f:
+            crm = json.load(f)
+        contacts = crm.get("contacts", [])
+        with_email = len([c for c in contacts if c.get("email")])
+        pts = min(15, len(contacts) // 5)
+        score += pts
+        factors.append({"name": "CRM Contacts", "score": pts, "max": 15, "detail": f"{len(contacts)} contacts, {with_email} with email"})
+    except Exception:
+        factors.append({"name": "CRM Contacts", "score": 0, "max": 15, "detail": "No data"})
+
+    grade = "A+" if score >= 90 else "A" if score >= 80 else "B" if score >= 65 else "C" if score >= 50 else "D" if score >= 35 else "F"
+
+    return jsonify({
+        "ok": True,
+        "score": min(100, score),
+        "grade": grade,
+        "factors": factors,
+        "recommendations": _get_health_recommendations(factors),
+        "calculated_at": datetime.now().isoformat()
+    })
+
+
+@bp.route("/api/notifications/smart")
+@auth_required
+def api_smart_notifications():
+    """AI-generated notifications based on current state."""
+    notifs = []
+    now = datetime.now()
+    today = now.strftime("%Y-%m-%d")
+
+    rfqs_path = os.path.join(DATA_DIR, "rfqs.json")
+    try:
+        with open(rfqs_path) as f:
+            rfqs = json.load(f)
+        for rid, r in rfqs.items():
+            due = r.get("due_date") or r.get("deadline") or ""
+            status = (r.get("status") or "").lower()
+            if due and due[:10] < today and status in ("new", "draft", "priced"):
+                notifs.append({
+                    "severity": "high",
+                    "type": "overdue_rfq",
+                    "message": f"RFQ {r.get('solicitation_number', rid)[:20]} is OVERDUE (due {due[:10]})",
+                    "action_url": f"/rfq/{rid}",
+                    "action_label": "Open RFQ"
+                })
+            elif due and due[:10] == today and status in ("new", "draft", "priced"):
+                notifs.append({
+                    "severity": "high",
+                    "type": "due_today",
+                    "message": f"RFQ {r.get('solicitation_number', rid)[:20]} is DUE TODAY",
+                    "action_url": f"/rfq/{rid}",
+                    "action_label": "Open RFQ"
+                })
+    except Exception: pass
+
+    outbox_path = os.path.join(DATA_DIR, "outbox.json")
+    try:
+        with open(outbox_path) as f:
+            outbox = json.load(f)
+        if isinstance(outbox, dict): outbox = list(outbox.values())
+        drafts = [e for e in outbox if (e.get("status") or "").lower() in ("draft", "pending")]
+        if len(drafts) > 0:
+            notifs.append({
+                "severity": "medium",
+                "type": "drafts_pending",
+                "message": f"{len(drafts)} email drafts need review",
+                "action_url": "/outbox",
+                "action_label": "Review Drafts"
+            })
+    except Exception: pass
+
+    fu_path = os.path.join(DATA_DIR, "follow_up_state.json")
+    try:
+        with open(fu_path) as f:
+            fu = json.load(f)
+        overdue_fu = len([f for f in fu.values() if isinstance(f, dict) and
+                         f.get("next_follow_up", "") and f["next_follow_up"][:10] <= today])
+        if overdue_fu > 0:
+            notifs.append({
+                "severity": "medium",
+                "type": "follow_ups_due",
+                "message": f"{overdue_fu} follow-ups are due today or overdue",
+                "action_url": "/follow-up",
+                "action_label": "View Follow-Ups"
+            })
+    except Exception: pass
+
+    sev_order = {"high": 0, "medium": 1, "low": 2}
+    notifs.sort(key=lambda n: sev_order.get(n.get("severity"), 9))
+
+    return jsonify({
+        "ok": True,
+        "notifications": notifs[:15],
+        "count": len(notifs),
+        "high": len([n for n in notifs if n["severity"] == "high"]),
+        "medium": len([n for n in notifs if n["severity"] == "medium"]),
+    })
+
+
+@bp.route("/api/export/csv", methods=["POST"])
+@auth_required
+def api_export_csv():
+    """Export JSON data as downloadable CSV."""
+    data = request.json or {}
+    rows = data.get("rows") or data.get("data") or data.get("results") or []
+    filename = data.get("filename", "export.csv")
+
+    if not rows or not isinstance(rows, list):
+        return jsonify({"ok": False, "error": "No data to export. Provide {rows: [...]} or {results: [...]}"})
+
+    if isinstance(rows[0], dict):
+        headers = list(rows[0].keys())
+        output = io.StringIO()
+        writer = csv.DictWriter(output, fieldnames=headers)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({k: str(v) for k, v in row.items()})
+    else:
+        output = io.StringIO()
+        writer = csv.writer(output)
+        for row in rows:
+            writer.writerow(row if isinstance(row, list) else [row])
+
+    return Response(
+        output.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
