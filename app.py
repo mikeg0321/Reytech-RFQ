@@ -125,6 +125,14 @@ def create_app():
     except Exception as e:
         logging.getLogger("reytech").warning("Schema check: %s", e)
 
+    # ── Run migrations (always, even when background agents disabled) ──
+    try:
+        from src.core.migrations import run_migrations
+        run_migrations()
+        print(f"[BOOT] Migrations OK ({time.time()-t0:.1f}s)", flush=True)
+    except Exception as e:
+        logging.getLogger("reytech").warning("Migrations: %s", e)
+
     # Register blueprint (all routes)
     from src.api.dashboard import bp
     try:
