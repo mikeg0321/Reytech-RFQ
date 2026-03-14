@@ -339,12 +339,34 @@ def api_v1_health():
         except Exception:
             agents["quickbooks"] = {"status": "unavailable", "error": "Module not loaded"}
 
+        # SCPRS harvest status
+        harvest = {}
+        try:
+            from src.core.db import DB_PATH as _hp
+            import sqlite3 as _sq
+            _hc = _sq.connect(_hp, timeout=5)
+            harvest["po_master_count"] = _hc.execute("SELECT COUNT(*) FROM scprs_po_master").fetchone()[0]
+            harvest["vendor_intel_count"] = _hc.execute("SELECT COUNT(*) FROM vendor_intel").fetchone()[0]
+            harvest["buyer_intel_count"] = _hc.execute("SELECT COUNT(*) FROM buyer_intel").fetchone()[0]
+            harvest["won_quotes_kb_count"] = _hc.execute("SELECT COUNT(*) FROM won_quotes_kb").fetchone()[0]
+            harvest["competitors_count"] = _hc.execute("SELECT COUNT(*) FROM competitors").fetchone()[0]
+            _hc.close()
+            # Last harvest timestamp from log file
+            import os as _os
+            _log_path = _os.path.join(_os.environ.get("DATA_DIR", "data"), "scprs_harvest.log")
+            if _os.path.exists(_log_path):
+                harvest["last_harvest"] = datetime.fromtimestamp(
+                    _os.path.getmtime(_log_path)).isoformat()
+        except Exception:
+            pass
+
         return api_response({
             "version": version,
             "uptime_seconds": uptime,
             "db": db_info,
             "queues": queues,
             "agents": agents,
+            "scprs_harvest": harvest,
         })
     except Exception as e:
         log.error("v1/health error: %s", e, exc_info=True)

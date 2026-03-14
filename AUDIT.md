@@ -712,3 +712,42 @@ Add to `.claude/settings.json`:
 - `check_routes.py`: 0 duplicates
 - `data_integrity.py`: 8 passed, 0 failures
 - `request.json` in target files: 0 bare instances remaining
+
+---
+
+## Phase 1 Completion — SCPRS Historical Harvest — 2026-03-14
+
+### Harvest Results
+- **scprs_po_master:** 2,225 POs from CDCR, CalVet, DSH, SCC, Delta Stewardship
+- **scprs_po_lines:** 2,225 line items
+- **scprs_awards:** 2,225 awards with fiscal year tags
+- **vendor_intel:** 376 vendor profiles across 5 agencies
+- **won_quotes_kb:** 4,416 items with winning prices
+- **buyer_intel:** 198 unique buyers (396 with agency splits) across 5 agencies
+- **competitors:** 296 vendor profiles tracked
+- **Reytech wins identified:** 6 POs, $166,556.47 total
+
+### Top Competitors (by win count)
+1. McKesson Medical-Surgical: 1,488 wins, $19.8M
+2. US Foods: 735 wins, $3.3M
+3. Henry Schein: 456 wins, $3.9M
+4. CA Correctional Training: 246 wins, $25.9M
+5. Echelon Distribution: 147 wins, $2.5M
+
+### Agency Coverage
+- Dept of Corrections & Rehab: 1,600 POs ($72.5M)
+- Dept of Veterans Affairs: 442 POs ($5.6M)
+- Department of State Hospitals: 180 POs ($2.9M)
+
+### Infrastructure Created
+- Migration v9: 7 intelligence tables with tenant_id columns
+- `scripts/run_scprs_harvest.py`: idempotent harvest runner with --dry-run
+- `scripts/scprs_harvest_plan.md`: agent execution order documentation
+- SCPRS harvest status added to `/api/v1/health`
+- 2 new data integrity checks (checks 9-10)
+
+### QA Gate Results
+- `smoke_test.py`: 16 passed, 3 warnings, 0 failures
+- `check_routes.py`: 0 duplicates
+- `data_integrity.py`: 10 passed, 0 failures
+- `tasks/lessons.md`: L53 added (ambiguous SQL column names)

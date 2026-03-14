@@ -140,6 +140,104 @@ MIGRATIONS = [
     (8, "add_price_checks_ship_to",
      "SELECT 1;"  # ship_to now in CREATE TABLE; this is a no-op for new DBs
      ),
+
+    (9, "create_scprs_intelligence_tables", """
+        CREATE TABLE IF NOT EXISTS scprs_awards (
+            id TEXT PRIMARY KEY,
+            po_number TEXT,
+            agency TEXT,
+            agency_code TEXT,
+            vendor_name TEXT,
+            vendor_code TEXT,
+            award_date TEXT,
+            fiscal_year TEXT,
+            total_value REAL,
+            item_count INTEGER,
+            source TEXT DEFAULT 'scprs',
+            tenant_id TEXT DEFAULT 'reytech',
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS scprs_results (
+            id TEXT PRIMARY KEY,
+            search_query TEXT,
+            agency TEXT,
+            result_json TEXT,
+            pulled_at TEXT,
+            tenant_id TEXT DEFAULT 'reytech'
+        );
+
+        CREATE TABLE IF NOT EXISTS vendor_intel (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            vendor_name TEXT,
+            vendor_code TEXT,
+            agency TEXT,
+            category TEXT,
+            win_count INTEGER DEFAULT 0,
+            total_value REAL DEFAULT 0,
+            avg_price REAL,
+            items_won TEXT,
+            first_seen TEXT,
+            last_seen TEXT,
+            tenant_id TEXT DEFAULT 'reytech',
+            updated_at TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS buyer_intel (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            buyer_name TEXT,
+            buyer_email TEXT,
+            agency TEXT,
+            agency_code TEXT,
+            items_purchased TEXT,
+            categories TEXT,
+            total_spend REAL DEFAULT 0,
+            rfq_count INTEGER DEFAULT 0,
+            last_purchase TEXT,
+            contact_status TEXT DEFAULT 'unknown',
+            tenant_id TEXT DEFAULT 'reytech',
+            updated_at TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS competitors (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            vendor_name TEXT UNIQUE,
+            vendor_code TEXT,
+            primary_agencies TEXT,
+            primary_categories TEXT,
+            win_rate REAL,
+            avg_margin_vs_reytech REAL,
+            last_win TEXT,
+            weakness_notes TEXT,
+            tenant_id TEXT DEFAULT 'reytech',
+            updated_at TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS won_quotes_kb (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            item_description TEXT,
+            nsn TEXT,
+            mfg_number TEXT,
+            agency TEXT,
+            winning_price REAL,
+            winning_vendor TEXT,
+            reytech_won INTEGER DEFAULT 0,
+            reytech_price REAL,
+            price_delta REAL,
+            award_date TEXT,
+            po_number TEXT,
+            tenant_id TEXT DEFAULT 'reytech',
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_vendor_intel_name ON vendor_intel(vendor_name);
+        CREATE INDEX IF NOT EXISTS idx_buyer_intel_email ON buyer_intel(buyer_email);
+        CREATE INDEX IF NOT EXISTS idx_buyer_intel_agency ON buyer_intel(agency);
+        CREATE INDEX IF NOT EXISTS idx_competitors_name ON competitors(vendor_name);
+        CREATE INDEX IF NOT EXISTS idx_won_kb_desc ON won_quotes_kb(item_description);
+        CREATE INDEX IF NOT EXISTS idx_won_kb_agency ON won_quotes_kb(agency);
+        CREATE INDEX IF NOT EXISTS idx_scprs_awards_agency ON scprs_awards(agency);
+    """),
 ]
 
 

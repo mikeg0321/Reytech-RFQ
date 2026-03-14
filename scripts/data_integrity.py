@@ -336,6 +336,45 @@ def check_order_rfq_refs():
     return True, f"{len(orders)} orders checked, all quote refs valid"
 
 
+# ── Check 9: SCPRS harvest has data ──────────────────────────────────────────
+
+def check_scprs_harvest():
+    """scprs_po_master should have rows from a successful harvest."""
+    conn = _get_conn()
+    if not conn:
+        return True, "No database — skipped"
+    try:
+        count = conn.execute("SELECT COUNT(*) FROM scprs_po_master").fetchone()[0]
+    except sqlite3.OperationalError:
+        conn.close()
+        return True, "scprs_po_master table missing — harvest not run yet"
+    conn.close()
+    if count == 0:
+        return False, "scprs_po_master is empty — run scripts/run_scprs_harvest.py"
+    return True, f"scprs_po_master: {count} POs harvested"
+
+
+# ── Check 10: won_quotes_kb has priced items ─────────────────────────────────
+
+def check_won_quotes_kb():
+    """won_quotes_kb should have rows with winning_price > 0."""
+    conn = _get_conn()
+    if not conn:
+        return True, "No database — skipped"
+    try:
+        total = conn.execute("SELECT COUNT(*) FROM won_quotes_kb").fetchone()[0]
+        priced = conn.execute(
+            "SELECT COUNT(*) FROM won_quotes_kb WHERE winning_price > 0"
+        ).fetchone()[0]
+    except sqlite3.OperationalError:
+        conn.close()
+        return True, "won_quotes_kb table missing — harvest not run yet"
+    conn.close()
+    if total == 0:
+        return False, "won_quotes_kb is empty — run scripts/run_scprs_harvest.py"
+    return True, f"won_quotes_kb: {total} items, {priced} with price > 0"
+
+
 ALL_CHECKS = [
     ("Sent RFQs have linked PC", check_sent_rfqs_have_pc),
     ("Order statuses valid", check_order_statuses),
@@ -345,6 +384,8 @@ ALL_CHECKS = [
     ("RFQ DB/JSON parity", check_rfq_parity),
     ("Sent RFQs have priced items", check_sent_rfqs_priced),
     ("Order→quote references", check_order_rfq_refs),
+    ("SCPRS harvest has data", check_scprs_harvest),
+    ("Won quotes KB populated", check_won_quotes_kb),
 ]
 
 

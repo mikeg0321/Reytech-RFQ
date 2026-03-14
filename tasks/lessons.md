@@ -385,3 +385,8 @@ payloads. (2) Self-email filter now lets clear forwards through (Fwd: subject
 **Mistake:** When splitting routes_intel.py (7.1K lines), growth routes referenced `GROWTH_AVAILABLE` and `get_prospect` which are imported at the TOP of routes_intel.py. The new split module needs its own copy of those imports, but the old file also needs to keep them because non-growth routes use them too.
 **Pattern:** Shared imports in exec'd modules must be duplicated in both files after split
 **Rule:** When splitting an exec'd route module, identify which top-level imports are used by BOTH the kept and extracted code. Duplicate those imports in both files — exec'd modules don't share imports, they share the dashboard.py global namespace only AFTER both have been loaded.
+
+## Lesson L53 [2026-03-14]
+**Mistake:** SQL JOINs between scprs_po_master and scprs_po_lines failed with "ambiguous column name: po_number" because both tables have a `po_number` column. Two separate queries had the same bug — wasn't caught until runtime.
+**Pattern:** Ambiguous column names in JOINs between tables with overlapping schemas
+**Rule:** When writing SQL JOINs, ALWAYS prefix every column with its table alias (`m.po_number` not `po_number`), especially when both tables share column names. Test every new SQL query with actual data before committing.
