@@ -569,3 +569,166 @@ def api_v1_harvest_status():
     except Exception as e:
         log.error("v1/harvest/status error: %s", e, exc_info=True)
         return api_response(error=str(e), status=500)
+
+
+# ── Admin: DB Repair ────────────────────────────────────────────────────────
+
+@bp.route("/api/v1/admin/db-repair")
+@auth_required
+def api_v1_db_repair():
+    """Check DB integrity and repair if corrupted.
+    If corrupt: rebuilds DB from scratch, runs migrations, re-seeds.
+    If healthy: returns status ok.
+    Auth: X-API-Key or Basic Auth required.
+    """
+    import sqlite3, os, shutil
+    from src.core.db import DB_PATH, init_db
+    from src.core.paths import DATA_DIR
+
+    report = {
+        "db_path": DB_PATH,
+        "data_dir": DATA_DIR,
+        "using_volume": DATA_DIR != os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data"),
+        "steps": [],
+    }
+
+    # Step 1: Integrity check
+    try:
+        conn = sqlite3.connect(DB_PATH, timeout=10)
+        result = conn.execute("PRAGMA integrity_check").fetchone()[0]
+        db_size = os.path.getsize(DB_PATH) if os.path.exists(DB_PATH) else 0
+        report["integrity"] = result
+        report["db_size_kb"] = db_size // 1024
+        conn.close()
+
+        if result == "ok":
+            report["status"] = "healthy"
+            report["steps"].append("Integrity check: OK")
+            # Still run migrations in case tables are missing
+            try:
+                from src.core.migrations import run_migrations
+                mig = run_migrations()
+                report["steps"].append(f"Migrations: v{mig.get('version', '?')}, {mig.get('applied', 0)} applied")
+            except Exception as e:
+                report["steps"].append(f"Migrations: {e}")
+            # Seed agency registry
+            try:
+                from src.core.ca_agencies import seed_agency_registry
+                from src.core.db import get_db
+                with get_db() as sc:
+                    seed_agency_registry(sc)
+                report["steps"].append("Agency registry seeded")
+            except Exception as e:
+                report["steps"].append(f"Agency seed: {e}")
+            # Check table counts
+            try:
+                conn2 = sqlite3.connect(DB_PATH, timeout=5)
+                for t in ["connectors", "agency_registry", "scprs_po_master",
+                           "won_quotes_kb", "vendor_intel", "buyer_intel"]:
+                    try:
+                        cnt = conn2.execute(f"SELECT COUNT(*) FROM [{t}]").fetchone()[0]
+                        report["steps"].append(f"{t}: {cnt} rows")
+                    except Exception:
+                        report["steps"].append(f"{t}: MISSING")
+                conn2.close()
+            except Exception:
+                pass
+            return api_response(report)
+
+    except Exception as e:
+        report["integrity"] = f"FAILED: {e}"
+        report["steps"].append(f"Integrity check failed: {e}")
+
+    # Step 2: DB is corrupt — rebuild
+    report["status"] = "rebuilding"
+    report["steps"].append("DB corrupt — starting rebuild")
+
+    # Backup corrupt file
+    try:
+        if os.path.exists(DB_PATH):
+            backup = DB_PATH + ".corrupt." + __import__("datetime").datetime.now().strftime("%Y%m%d_%H%M%S")
+            shutil.copy2(DB_PATH, backup)
+            report["steps"].append(f"Corrupt DB backed up to {backup}")
+            os.remove(DB_PATH)
+            # Also remove WAL/SHM
+            for ext in ["-wal", "-shm", "-journal"]:
+                p = DB_PATH + ext
+                if os.path.exists(p):
+                    os.remove(p)
+            report["steps"].append("Corrupt DB + WAL/SHM removed")
+    except Exception as e:
+        report["steps"].append(f"Backup failed: {e}")
+        return api_response(report, status=500)
+
+    # Step 3: Rebuild
+    try:
+        init_db()
+        report["steps"].append("init_db: schema created")
+    except Exception as e:
+        report["steps"].append(f"init_db failed: {e}")
+        return api_response(report, status=500)
+
+    try:
+        from src.core.migrations import run_migrations
+        mig = run_migrations()
+        report["steps"].append(f"Migrations: v{mig.get('version', '?')}")
+    except Exception as e:
+        report["steps"].append(f"Migrations failed: {e}")
+
+    try:
+        from src.core.ca_agencies import seed_agency_registry
+        from src.core.db import get_db
+        with get_db() as sc:
+            seed_agency_registry(sc)
+        report["steps"].append("Agency registry seeded")
+    except Exception as e:
+        report["steps"].append(f"Agency seed failed: {e}")
+
+    report["steps"].append("Rebuild complete — run /api/v1/harvest/ca to repopulate")
+    return api_response(report)
+
+
+@bp.route("/api/v1/admin/db-info")
+@auth_required
+def api_v1_db_info():
+    """Quick DB diagnostic — path, size, table counts, volume status."""
+    import sqlite3, os
+    from src.core.db import DB_PATH
+    from src.core.paths import DATA_DIR, _USING_VOLUME
+
+    info = {
+        "db_path": DB_PATH,
+        "data_dir": DATA_DIR,
+        "using_volume": _USING_VOLUME,
+        "db_exists": os.path.exists(DB_PATH),
+        "db_size_kb": os.path.getsize(DB_PATH) // 1024 if os.path.exists(DB_PATH) else 0,
+    }
+
+    try:
+        conn = sqlite3.connect(DB_PATH, timeout=5)
+        tables = [r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+        ).fetchall()]
+        info["table_count"] = len(tables)
+        # Key table row counts
+        info["tables"] = {}
+        for t in ["scprs_po_master", "won_quotes_kb", "connectors",
+                   "agency_registry", "vendor_intel", "buyer_intel",
+                   "rfqs", "price_checks", "quotes", "orders"]:
+            try:
+                info["tables"][t] = conn.execute(f"SELECT COUNT(*) FROM [{t}]").fetchone()[0]
+            except Exception:
+                info["tables"][t] = "MISSING"
+        # Schema version
+        try:
+            info["schema_version"] = conn.execute(
+                "SELECT MAX(version) FROM schema_migrations"
+            ).fetchone()[0]
+        except Exception:
+            info["schema_version"] = "unknown"
+        conn.close()
+    except Exception as e:
+        info["error"] = str(e)
+
+    return api_response(info)
