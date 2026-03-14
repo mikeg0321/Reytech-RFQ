@@ -804,6 +804,17 @@ CREATE TABLE IF NOT EXISTS audit_trail (
     created_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_audit_desc ON audit_trail(item_description);
+
+CREATE TABLE IF NOT EXISTS api_keys (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    key_hash    TEXT UNIQUE NOT NULL,
+    name        TEXT NOT NULL,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    last_used   TEXT,
+    is_active   INTEGER DEFAULT 1,
+    created_by  TEXT DEFAULT 'system',
+    scopes      TEXT DEFAULT '["read","write"]'
+);
 """
 
 def init_db():
@@ -1008,7 +1019,7 @@ def _reconcile_quotes_json():
         log.warning("_reconcile_quotes_json: %s", e)
 
 # ── Quote operations ──────────────────────────────────────────────────────────
-def upsert_quote(q: dict) -> bool:
+def upsert_quote(q: dict, actor: str = "system") -> bool:
     """Insert or update a quote record. Called from _log_quote().
     
     Computes profit fields from line_items if vendor_cost is present.
@@ -2800,3 +2811,52 @@ def get_sent_document(doc_id: int) -> dict:
         return {}
     finally:
         conn.close()
+
+
+# ── API Key Management ───────────────────────────────────────────────────────
+
+def generate_api_key(name: str, created_by: str = "system") -> str:
+    """Generate a new API key. Returns the raw key (only shown once)."""
+    import hashlib, secrets
+    raw_key = f"reytech_{secrets.token_urlsafe(32)}"
+    key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO api_keys (key_hash, name, created_by) VALUES (?, ?, ?)",
+            (key_hash, name, created_by))
+    log.info("API key created: name=%s by=%s", name, created_by)
+    return raw_key
+
+
+def validate_api_key(raw_key: str) -> dict | None:
+    """Validate an API key. Returns key info dict or None if invalid."""
+    import hashlib
+    key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT id, name, is_active, scopes FROM api_keys WHERE key_hash = ?",
+            (key_hash,)).fetchone()
+        if row and row["is_active"]:
+            conn.execute(
+                "UPDATE api_keys SET last_used = datetime('now') WHERE id = ?",
+                (row["id"],))
+            return {"id": row["id"], "name": row["name"],
+                    "scopes": json.loads(row["scopes"] or '["read","write"]')}
+    return None
+
+
+def list_api_keys() -> list:
+    """List all API keys (without hashes)."""
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT id, name, created_at, last_used, is_active, created_by, scopes "
+            "FROM api_keys ORDER BY created_at DESC").fetchall()
+        return [dict(r) for r in rows]
+
+
+def revoke_api_key(key_id: int) -> bool:
+    """Revoke an API key by ID."""
+    with get_db() as conn:
+        conn.execute("UPDATE api_keys SET is_active = 0 WHERE id = ?", (key_id,))
+    log.info("API key revoked: id=%d", key_id)
+    return True

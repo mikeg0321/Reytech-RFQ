@@ -5,7 +5,7 @@ Extracted from dashboard.py so route modules can explicitly import
 their core dependencies instead of relying on _load_route_module injection.
 
 Usage in route modules:
-    from src.api.shared import bp, auth_required
+    from src.api.shared import bp, auth_required, api_response
 """
 import os
 import time
@@ -14,7 +14,7 @@ import logging
 import functools
 import threading
 
-from flask import Blueprint, request, Response
+from flask import Blueprint, request, Response, jsonify, g
 
 log = logging.getLogger("reytech")
 
@@ -24,21 +24,36 @@ bp = Blueprint("dashboard", __name__)
 # ── Auth credentials ─────────────────────────────────────────────────────────
 DASH_USER = os.environ.get("DASH_USER", "reytech")
 DASH_PASS = os.environ.get("DASH_PASS", "changeme")
+API_KEY = os.environ.get("API_KEY", "")
 
 if DASH_PASS == "changeme":
-    log.warning("⚠️  SECURITY: DASH_PASS is set to default 'changeme'. Set DASH_PASS env var for production!")
+    log.warning("SECURITY: DASH_PASS is set to default 'changeme'. Set DASH_PASS env var for production!")
 
 
 def check_auth(username, password):
     return username == DASH_USER and password == DASH_PASS
 
 
+def _check_api_key() -> bool:
+    """Check X-API-Key header. Returns True if valid, False if absent, raises 401 if invalid."""
+    key = request.headers.get("X-API-Key", "")
+    if not key:
+        return False
+    if not API_KEY:
+        return False  # No API_KEY configured — ignore header
+    if key == API_KEY:
+        g.api_auth = True
+        return True
+    # Key present but invalid — hard fail
+    return None  # sentinel for "invalid key"
+
+
 # ── Rate Limiting ────────────────────────────────────────────────────────────
 _rate_limiter = {}
 _rate_limiter_lock = threading.Lock()
 RATE_LIMIT_WINDOW = 60
-RATE_LIMIT_MAX = 600          # 600 req/min for authenticated users (was 300)
-RATE_LIMIT_AUTH_MAX = 20      # 20 FAILED auth attempts/min (was 60 counting ALL)
+RATE_LIMIT_MAX = 600          # 600 req/min for authenticated users
+RATE_LIMIT_AUTH_MAX = 20      # 20 FAILED auth attempts/min
 
 
 def _check_rate_limit(key: str = None, max_requests: int = None) -> bool:
@@ -62,16 +77,23 @@ def _check_rate_limit(key: str = None, max_requests: int = None) -> bool:
 def auth_required(f):
     @functools.wraps(f)
     def decorated(*args, **kwargs):
+        # Check X-API-Key first
+        api_result = _check_api_key()
+        if api_result is None:
+            return jsonify({"ok": False, "error": "Invalid API key"}), 401
+        if api_result is True:
+            if not _check_rate_limit():
+                return Response("Rate limited — slow down", 429)
+            return f(*args, **kwargs)
+        # Fall back to Basic Auth
         auth = request.authorization
         if not auth or not check_auth(auth.username, auth.password):
-            # Only count FAILED attempts toward rate limit
             auth_key = f"auth_fail:{request.remote_addr}"
             if not _check_rate_limit(auth_key, RATE_LIMIT_AUTH_MAX):
                 return Response("Rate limited — too many failed auth attempts. Wait 60 seconds.", 429)
             return Response(
-                "🔒 Reytech RFQ Dashboard — Login Required",
+                "Reytech RFQ Dashboard — Login Required",
                 401, {"WWW-Authenticate": 'Basic realm="Reytech RFQ Dashboard"'})
-        # Authenticated — generous limit
         if not _check_rate_limit():
             return Response("Rate limited — slow down", 429)
         return f(*args, **kwargs)
@@ -87,12 +109,19 @@ def _global_auth_guard():
         _path.startswith("/api/email/track/") or
         _path in ("/health", "/api/health", "/api/health/startup", "/ping",
                    "/favicon.ico", "/login",
-                   "/api/qb/callback", "/api/voice/webhook", "/api/build")):
+                   "/api/qb/callback", "/api/voice/webhook", "/api/build",
+                   "/api/webhook/inbound")):
         pass
     else:
+        # Check X-API-Key first
+        api_result = _check_api_key()
+        if api_result is None:
+            return jsonify({"ok": False, "error": "Invalid API key"}), 401
+        if api_result is True:
+            request._start_time = time.time()
+            return None
         auth = request.authorization
         if not auth or not check_auth(auth.username, auth.password):
-            # Only count FAILED attempts toward rate limit
             auth_key = f"auth_fail:{request.remote_addr}"
             if not _check_rate_limit(auth_key, RATE_LIMIT_AUTH_MAX):
                 return Response("Rate limited — too many failed auth attempts. Wait 60 seconds.", 429)
@@ -103,11 +132,8 @@ def _global_auth_guard():
             except Exception:
                 pass
             return Response(
-                "🔒 Reytech RFQ Dashboard — Login Required",
+                "Reytech RFQ Dashboard — Login Required",
                 401, {"WWW-Authenticate": 'Basic realm="Reytech RFQ Dashboard"'})
-    # CSRF: Disabled — all state-changing routes use @auth_required (HTTP Basic Auth)
-    # which is inherently CSRF-resistant (browsers don't auto-send Basic Auth cross-origin)
-    # Request timing
     request._start_time = time.time()
 
 
@@ -121,3 +147,25 @@ def _log_request_end(response):
                      extra={"route": request.path, "method": request.method,
                             "status": response.status_code, "duration_ms": duration_ms})
     return response
+
+
+# ── API Response Helper ──────────────────────────────────────────────────────
+
+def api_response(data=None, error=None, status=200):
+    """Standard API response shape for machine consumption.
+
+    Usage:
+        return api_response({"rfqs": [...]})
+        return api_response(error="Not found", status=404)
+    """
+    payload = {"ok": error is None}
+    if data is not None:
+        payload["data"] = data
+    if error is not None:
+        payload["error"] = error
+    return jsonify(payload), status
+
+
+# ── API Versioning ──────────────────────────────────────────────────────────
+# /api/v1/* routes live in routes_v1.py as dedicated endpoints (not redirects)
+# This keeps v1 stable while /api/* can evolve freely.

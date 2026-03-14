@@ -883,82 +883,8 @@ def get_markup_config():
     })
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# E13: API v1 Endpoints (Token Auth)
-# ═══════════════════════════════════════════════════════════════════════════════
 
-def _api_auth():
-    """Validate API token or fall back to Basic Auth."""
-    token = request.headers.get("X-API-Key", "")
-    if token:
-        expected = os.environ.get("REYTECH_API_KEY", "")
-        if expected and token == expected:
-            return True
-    # Fall back to Basic Auth
-    auth = request.authorization
-    if auth:
-        from src.api.dashboard import DASH_USER, DASH_PASS
-        return auth.username == DASH_USER and auth.password == DASH_PASS
-    return False
-
-
-@bp.route("/api/v1/rfqs")
-def api_v1_list_rfqs():
-    """API v1: List RFQs with filtering."""
-    if not _api_auth():
-        return jsonify({"error": "Unauthorized"}), 401
-    rfqs = load_rfqs()
-    status = request.args.get("status")
-    limit = int(request.args.get("limit", 50))
-
-    items = []
-    for rid, r in sorted(rfqs.items(), key=lambda x: x[1].get("created_at", ""), reverse=True):
-        if status and r.get("status") != status:
-            continue
-        items.append({
-            "id": rid,
-            "solicitation_number": r.get("solicitation_number"),
-            "status": r.get("status"),
-            "requestor_name": r.get("requestor_name"),
-            "requestor_email": r.get("requestor_email"),
-            "due_date": r.get("due_date"),
-            "item_count": len(r.get("line_items", [])),
-            "created_at": r.get("created_at"),
-            "total": sum((i.get("qty", 0) or 0) * (i.get("price_per_unit", 0) or 0) for i in r.get("line_items", [])),
-        })
-        if len(items) >= limit:
-            break
-
-    return jsonify({"ok": True, "rfqs": items, "total": len(items)})
-
-
-@bp.route("/api/v1/rfqs/<rid>")
-def api_v1_get_rfq(rid):
-    """API v1: Get RFQ detail."""
-    if not _api_auth():
-        return jsonify({"error": "Unauthorized"}), 401
-    rfqs = load_rfqs()
-    r = rfqs.get(rid)
-    if not r:
-        return jsonify({"error": "Not found"}), 404
-    return jsonify({"ok": True, "rfq": r})
-
-
-@bp.route("/api/v1/stats")
-def api_v1_stats():
-    """API v1: Dashboard KPIs."""
-    if not _api_auth():
-        return jsonify({"error": "Unauthorized"}), 401
-    rfqs = load_rfqs()
-    pcs = _load_price_checks()
-
-    return jsonify({
-        "ok": True,
-        "rfqs": {"total": len(rfqs), "active": sum(1 for r in rfqs.values() if r.get("status") not in ("dismissed", "archived", "deleted"))},
-        "pcs": {"total": len(pcs), "active": sum(1 for p in pcs.values() if p.get("status") not in ("dismissed", "archived", "deleted"))},
-        "won": sum(1 for r in rfqs.values() if r.get("status") == "won"),
-        "lost": sum(1 for r in rfqs.values() if r.get("status") == "lost"),
-    })
+# (Legacy v1 endpoints removed — replaced by routes_v1.py with proper auth)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -3979,3 +3905,132 @@ def api_export_csv():
         mimetype="text/csv",
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
+
+
+# ── API Key Management ───────────────────────────────────────────────────────
+
+@bp.route("/api/settings/api-keys")
+@auth_required
+def api_list_keys():
+    """List all API keys (admin only)."""
+    from src.core.db import list_api_keys
+    return jsonify({"ok": True, "keys": list_api_keys()})
+
+
+@bp.route("/api/settings/api-keys", methods=["POST"])
+@auth_required
+def api_create_key():
+    """Generate a new API key. Returns the raw key (shown once)."""
+    data = request.get_json(silent=True) or {}
+    name = data.get("name", "").strip()
+    if not name:
+        return jsonify({"ok": False, "error": "name is required"})
+    from src.core.db import generate_api_key
+    actor = getattr(request, '_api_key', {}).get('name', request.authorization.username if request.authorization else 'system')
+    raw_key = generate_api_key(name, created_by=actor)
+    return jsonify({"ok": True, "key": raw_key, "name": name,
+                    "warning": "Save this key now — it cannot be retrieved again"})
+
+
+@bp.route("/api/settings/api-keys/<int:key_id>/revoke", methods=["POST"])
+@auth_required
+def api_revoke_key(key_id):
+    """Revoke an API key."""
+    from src.core.db import revoke_api_key
+    revoke_api_key(key_id)
+    return jsonify({"ok": True, "revoked": key_id})
+
+
+# ── Incoming Webhook Receiver ────────────────────────────────────────────────
+
+@bp.route("/api/webhook/inbound", methods=["POST"])
+def api_webhook_inbound():
+    """Generic incoming webhook for external integrations (n8n, Zapier, etc.).
+    Validates HMAC signature if WEBHOOK_SECRET env var is set.
+    POST JSON: {action: "submit_rfq"|"trigger_price_check"|..., data: {...}}
+    """
+    import hmac, hashlib
+    secret = os.environ.get("WEBHOOK_SECRET", "")
+    if secret:
+        sig = request.headers.get("X-Webhook-Signature", "")
+        body = request.get_data()
+        expected = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(sig, expected):
+            log.warning("Webhook HMAC mismatch from %s", request.remote_addr)
+            return jsonify({"ok": False, "error": "Invalid signature"}), 403
+
+    data = request.get_json(silent=True) or {}
+    action = data.get("action", "")
+    payload = data.get("data", {})
+    actor = data.get("actor", "webhook")
+
+    if not action:
+        return jsonify({"ok": False, "error": "action field required"})
+
+    ACTIONS = {
+        "submit_rfq": "_webhook_submit_rfq",
+        "trigger_price_check": "_webhook_trigger_pc",
+        "update_order_status": "_webhook_update_order",
+        "get_pipeline_status": "_webhook_pipeline_status",
+        "mark_order_shipped": "_webhook_mark_shipped",
+    }
+
+    handler_name = ACTIONS.get(action)
+    if not handler_name:
+        return jsonify({"ok": False, "error": f"Unknown action: {action}",
+                        "available": list(ACTIONS.keys())})
+
+    try:
+        handler = globals().get(handler_name)
+        if not handler:
+            return jsonify({"ok": False, "error": f"Handler not implemented: {action}"})
+        result = handler(payload, actor)
+        return jsonify({"ok": True, "action": action, "result": result})
+    except Exception as e:
+        log.error("Webhook action %s failed: %s", action, e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+def _webhook_pipeline_status(payload, actor):
+    """Return current pipeline summary."""
+    rfqs = {}
+    try:
+        rfqs_path = os.path.join(DATA_DIR, "rfqs.json")
+        if os.path.exists(rfqs_path):
+            with open(rfqs_path) as f:
+                rfqs = json.load(f)
+    except Exception:
+        pass
+    statuses = {}
+    for r in rfqs.values():
+        s = (r.get("status") or "unknown").lower()
+        statuses[s] = statuses.get(s, 0) + 1
+    return {"total_rfqs": len(rfqs), "by_status": statuses}
+
+
+def _webhook_submit_rfq(payload, actor):
+    """Create a new RFQ from webhook data."""
+    from src.core.task_queue import enqueue
+    task_id = enqueue("submit_rfq", payload, actor=actor)
+    return {"queued": True, "task_id": task_id}
+
+
+def _webhook_trigger_pc(payload, actor):
+    """Trigger a price check."""
+    from src.core.task_queue import enqueue
+    task_id = enqueue("trigger_price_check", payload, actor=actor)
+    return {"queued": True, "task_id": task_id}
+
+
+def _webhook_update_order(payload, actor):
+    """Update order status via webhook."""
+    from src.core.task_queue import enqueue
+    task_id = enqueue("update_order_status", payload, actor=actor)
+    return {"queued": True, "task_id": task_id}
+
+
+def _webhook_mark_shipped(payload, actor):
+    """Mark order as shipped via webhook."""
+    from src.core.task_queue import enqueue
+    task_id = enqueue("mark_order_shipped", payload, actor=actor)
+    return {"queued": True, "task_id": task_id}

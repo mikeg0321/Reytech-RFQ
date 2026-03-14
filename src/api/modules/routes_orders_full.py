@@ -2353,7 +2353,7 @@ def api_follow_up_queue():
 
 @bp.route("/api/pipeline/revenue-goal", methods=["GET"])
 @auth_required
-def api_revenue_goal():
+def api_pipeline_revenue_goal():
     """Track progress toward monthly / quarterly revenue goals."""
     try:
         now = datetime.now()

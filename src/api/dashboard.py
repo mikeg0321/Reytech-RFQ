@@ -3964,6 +3964,7 @@ _ROUTE_MODULES = [
     "routes_order_tracking",  # PRD-29: PO tracking, separate email inbox, line item lifecycle
     "routes_orders_enhance",  # Order enhancements: timeline, margins, aging, KPI, reorder, proofs
     "routes_growth_intel",    # Features #8,10,11,13: Catalog growth, price alerts, win/loss, outreach
+    "routes_v1",              # MCP-ready /api/v1/ endpoints for external AI agents
 ]
 
 for _mod in _ROUTE_MODULES:

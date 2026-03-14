@@ -671,3 +671,370 @@ def _fallback_load_json(filename: str, default):
     except Exception:
         pass
     return default
+
+
+def _safe_json(raw, default=None):
+    """Parse a JSON string safely, returning default on failure."""
+    if raw is None:
+        return default if default is not None else None
+    if isinstance(raw, (list, dict)):
+        return raw
+    try:
+        return json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return default if default is not None else raw
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# RFQ Entity
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def get_rfq(rfq_id: str) -> dict | None:
+    """Get a single RFQ by ID.
+    Input: rfq_id (str)
+    Output: dict with all RFQ fields + parsed items, or None if not found.
+    Side effects: None.
+    """
+    try:
+        with get_db() as conn:
+            row = conn.execute("SELECT * FROM rfqs WHERE id = ?", (rfq_id,)).fetchone()
+            if not row:
+                return None
+            d = dict(row)
+            d["items"] = _safe_json(d.get("items"), [])
+            return d
+    except Exception as e:
+        log.error("get_rfq(%s) failed: %s", rfq_id, e, exc_info=True)
+        raise
+
+
+def list_rfqs(status: str = None, limit: int = 500) -> list[dict]:
+    """List RFQs, optionally filtered by status.
+    Input: status (optional str), limit (int, default 500)
+    Output: list of RFQ dicts sorted by received_at desc.
+    Side effects: None.
+    """
+    try:
+        with get_db() as conn:
+            if status:
+                rows = conn.execute(
+                    "SELECT * FROM rfqs WHERE status = ? ORDER BY received_at DESC LIMIT ?",
+                    (status, limit)).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM rfqs ORDER BY received_at DESC LIMIT ?",
+                    (limit,)).fetchall()
+            result = []
+            for r in rows:
+                d = dict(r)
+                d["items"] = _safe_json(d.get("items"), [])
+                result.append(d)
+            return result
+    except Exception as e:
+        log.error("list_rfqs(status=%s) failed: %s", status, e, exc_info=True)
+        raise
+
+
+def save_rfq(rfq: dict, actor: str = "system") -> bool:
+    """Insert or update an RFQ record.
+    Input: rfq dict (must have 'id'), actor (str for audit trail)
+    Output: True on success.
+    Side effects: Writes to rfqs table.
+    """
+    rfq_id = rfq.get("id")
+    if not rfq_id:
+        raise ValueError("RFQ must have an 'id' field")
+    try:
+        with get_db() as conn:
+            conn.execute("""
+                INSERT INTO rfqs (id, received_at, agency, institution, requestor_name,
+                    requestor_email, rfq_number, items, status, source, email_uid, notes, updated_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))
+                ON CONFLICT(id) DO UPDATE SET
+                    agency=excluded.agency, institution=excluded.institution,
+                    requestor_name=excluded.requestor_name, requestor_email=excluded.requestor_email,
+                    rfq_number=excluded.rfq_number, items=excluded.items,
+                    status=excluded.status, source=excluded.source,
+                    email_uid=excluded.email_uid, notes=excluded.notes,
+                    updated_at=excluded.updated_at
+            """, (rfq_id, rfq.get("received_at", ""), rfq.get("agency", ""),
+                  rfq.get("institution", ""), rfq.get("requestor_name", ""),
+                  rfq.get("requestor_email", ""), rfq.get("rfq_number", ""),
+                  json.dumps(rfq.get("items", []), default=str),
+                  rfq.get("status", "new"), rfq.get("source", ""),
+                  rfq.get("email_uid", ""), rfq.get("notes", "")))
+        return True
+    except Exception as e:
+        log.error("save_rfq(%s) failed: %s", rfq_id, e, exc_info=True)
+        raise
+
+
+def update_rfq_status(rfq_id: str, status: str, actor: str = "system") -> bool:
+    """Update only the status field of an RFQ.
+    Input: rfq_id, new status string, actor for audit
+    Output: True on success.
+    Side effects: Writes to rfqs table.
+    """
+    try:
+        with get_db() as conn:
+            conn.execute(
+                "UPDATE rfqs SET status = ?, updated_at = datetime('now') WHERE id = ?",
+                (status, rfq_id))
+        return True
+    except Exception as e:
+        log.error("update_rfq_status(%s, %s) failed: %s", rfq_id, status, e, exc_info=True)
+        raise
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PriceCheck Entity
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def get_pc(pc_id: str) -> dict | None:
+    """Get a single price check by ID.
+    Input: pc_id (str)
+    Output: dict with all PC fields + parsed items, or None if not found.
+    Side effects: None.
+    """
+    try:
+        with get_db() as conn:
+            row = conn.execute("SELECT * FROM price_checks WHERE id = ?", (pc_id,)).fetchone()
+            if not row:
+                return None
+            d = dict(row)
+            d["items"] = _safe_json(d.get("items"), [])
+            return d
+    except Exception as e:
+        log.error("get_pc(%s) failed: %s", pc_id, e, exc_info=True)
+        raise
+
+
+def list_pcs(status: str = None, limit: int = 500) -> list[dict]:
+    """List price checks, optionally filtered by status.
+    Input: status (optional str), limit (int, default 500)
+    Output: list of PC dicts sorted by created_at desc.
+    Side effects: None.
+    """
+    try:
+        with get_db() as conn:
+            if status:
+                rows = conn.execute(
+                    "SELECT * FROM price_checks WHERE status = ? ORDER BY created_at DESC LIMIT ?",
+                    (status, limit)).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM price_checks ORDER BY created_at DESC LIMIT ?",
+                    (limit,)).fetchall()
+            result = []
+            for r in rows:
+                d = dict(r)
+                d["items"] = _safe_json(d.get("items"), [])
+                result.append(d)
+            return result
+    except Exception as e:
+        log.error("list_pcs(status=%s) failed: %s", status, e, exc_info=True)
+        raise
+
+
+def save_pc(pc: dict, actor: str = "system") -> bool:
+    """Insert or update a price check record.
+    Input: pc dict (must have 'id'), actor for audit
+    Output: True on success.
+    Side effects: Writes to price_checks table.
+    """
+    pc_id = pc.get("id")
+    if not pc_id:
+        raise ValueError("PC must have an 'id' field")
+    try:
+        with get_db() as conn:
+            conn.execute("""
+                INSERT INTO price_checks (id, created_at, requestor, agency, institution,
+                    items, source_file, quote_number, pc_number, total_items, status,
+                    email_uid, email_subject, due_date, pc_data, ship_to)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(id) DO UPDATE SET
+                    requestor=excluded.requestor, agency=excluded.agency,
+                    institution=excluded.institution, items=excluded.items,
+                    status=excluded.status, quote_number=excluded.quote_number,
+                    pc_number=excluded.pc_number, total_items=excluded.total_items,
+                    email_uid=excluded.email_uid, email_subject=excluded.email_subject,
+                    due_date=excluded.due_date, pc_data=excluded.pc_data,
+                    ship_to=excluded.ship_to
+            """, (pc_id, pc.get("created_at", ""), pc.get("requestor", ""),
+                  pc.get("agency", ""), pc.get("institution", ""),
+                  json.dumps(pc.get("items", []), default=str),
+                  pc.get("source_file", ""), pc.get("quote_number", ""),
+                  pc.get("pc_number", ""), len(pc.get("items", [])),
+                  pc.get("status", "parsed"),
+                  pc.get("email_uid", ""), pc.get("email_subject", ""),
+                  pc.get("due_date", ""), pc.get("pc_data", "{}"),
+                  pc.get("ship_to", "")))
+        return True
+    except Exception as e:
+        log.error("save_pc(%s) failed: %s", pc_id, e, exc_info=True)
+        raise
+
+
+def update_pc_status(pc_id: str, status: str, actor: str = "system") -> bool:
+    """Update only the status field of a price check.
+    Input: pc_id, new status string, actor for audit
+    Output: True on success.
+    Side effects: Writes to price_checks table.
+    """
+    try:
+        with get_db() as conn:
+            conn.execute(
+                "UPDATE price_checks SET status = ? WHERE id = ?",
+                (status, pc_id))
+        return True
+    except Exception as e:
+        log.error("update_pc_status(%s, %s) failed: %s", pc_id, status, e, exc_info=True)
+        raise
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Order Entity
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def get_order(order_id: str) -> dict | None:
+    """Get a single order by ID.
+    Input: order_id (str)
+    Output: dict with all order fields + parsed items, or None if not found.
+    Side effects: None.
+    """
+    try:
+        with get_db() as conn:
+            row = conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
+            if not row:
+                return None
+            d = dict(row)
+            d["items"] = _safe_json(d.get("items"), [])
+            return d
+    except Exception as e:
+        log.error("get_order(%s) failed: %s", order_id, e, exc_info=True)
+        raise
+
+
+def list_orders(status: str = None, limit: int = 500) -> list[dict]:
+    """List orders, optionally filtered by status.
+    Input: status (optional str), limit (int, default 500)
+    Output: list of order dicts sorted by created_at desc.
+    Side effects: None.
+    """
+    try:
+        with get_db() as conn:
+            if status:
+                rows = conn.execute(
+                    "SELECT * FROM orders WHERE status = ? ORDER BY created_at DESC LIMIT ?",
+                    (status, limit)).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM orders ORDER BY created_at DESC LIMIT ?",
+                    (limit,)).fetchall()
+            result = []
+            for r in rows:
+                d = dict(r)
+                d["items"] = _safe_json(d.get("items"), [])
+                result.append(d)
+            return result
+    except Exception as e:
+        log.error("list_orders(status=%s) failed: %s", status, e, exc_info=True)
+        raise
+
+
+def save_order(order: dict, actor: str = "system") -> bool:
+    """Insert or update an order record.
+    Input: order dict (must have 'id'), actor for audit
+    Output: True on success.
+    Side effects: Writes to orders table.
+    """
+    order_id = order.get("id")
+    if not order_id:
+        raise ValueError("Order must have an 'id' field")
+    try:
+        with get_db() as conn:
+            conn.execute("""
+                INSERT INTO orders (id, quote_number, agency, institution, po_number,
+                    po_date, status, total, items, notes, created_at, updated_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,datetime('now'))
+                ON CONFLICT(id) DO UPDATE SET
+                    quote_number=excluded.quote_number, agency=excluded.agency,
+                    institution=excluded.institution, po_number=excluded.po_number,
+                    po_date=excluded.po_date, status=excluded.status,
+                    total=excluded.total, items=excluded.items,
+                    notes=excluded.notes, updated_at=excluded.updated_at
+            """, (order_id, order.get("quote_number", ""), order.get("agency", ""),
+                  order.get("institution", ""), order.get("po_number", ""),
+                  order.get("po_date", ""), order.get("status", "new"),
+                  order.get("total", 0),
+                  json.dumps(order.get("items", []), default=str),
+                  order.get("notes", ""), order.get("created_at", "")))
+        return True
+    except Exception as e:
+        log.error("save_order(%s) failed: %s", order_id, e, exc_info=True)
+        raise
+
+
+def update_order_status(order_id: str, status: str, actor: str = "system") -> bool:
+    """Update only the status field of an order.
+    Input: order_id, new status string, actor for audit
+    Output: True on success.
+    Side effects: Writes to orders table.
+    """
+    try:
+        with get_db() as conn:
+            conn.execute(
+                "UPDATE orders SET status = ?, updated_at = datetime('now') WHERE id = ?",
+                (status, order_id))
+        return True
+    except Exception as e:
+        log.error("update_order_status(%s, %s) failed: %s", order_id, status, e, exc_info=True)
+        raise
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# LineItem Entity
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def get_line_items(parent_id: str, parent_type: str = "rfq") -> list[dict]:
+    """Get line items for a parent entity (RFQ, PC, or Order).
+    Input: parent_id, parent_type ('rfq'|'price_check'|'order')
+    Output: list of item dicts (parsed from JSON column).
+    Side effects: None.
+    """
+    table_map = {"rfq": "rfqs", "price_check": "price_checks", "order": "orders"}
+    table = table_map.get(parent_type)
+    if not table:
+        raise ValueError(f"Unknown parent_type: {parent_type}")
+    try:
+        with get_db() as conn:
+            row = conn.execute(f"SELECT items FROM {table} WHERE id = ?",
+                               (parent_id,)).fetchone()
+            if not row:
+                return []
+            return _safe_json(row["items"], [])
+    except Exception as e:
+        log.error("get_line_items(%s, %s) failed: %s", parent_id, parent_type, e, exc_info=True)
+        raise
+
+
+def save_line_items(parent_id: str, items: list[dict],
+                    parent_type: str = "rfq") -> bool:
+    """Save line items for a parent entity.
+    Input: parent_id, items list, parent_type ('rfq'|'price_check'|'order')
+    Output: True on success.
+    Side effects: Writes items JSON column in parent table.
+    """
+    table_map = {"rfq": "rfqs", "price_check": "price_checks", "order": "orders"}
+    table = table_map.get(parent_type)
+    if not table:
+        raise ValueError(f"Unknown parent_type: {parent_type}")
+    try:
+        with get_db() as conn:
+            conn.execute(
+                f"UPDATE {table} SET items = ?, updated_at = datetime('now') WHERE id = ?",
+                (json.dumps(items, default=str), parent_id))
+        return True
+    except Exception as e:
+        log.error("save_line_items(%s, %s) failed: %s", parent_id, parent_type, e, exc_info=True)
+        raise

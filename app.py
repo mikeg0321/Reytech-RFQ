@@ -217,7 +217,7 @@ def create_app():
         except Exception:
             pass
         try:
-            from src.core.scheduler import start_backup_scheduler, register_job
+            from src.core.scheduler import start_backup_scheduler, register_job, start_watchdog
             start_backup_scheduler(interval_hours=24)
             for job_name, interval in [
                 ("email-poller", 300), ("award-monitor", 3600),
@@ -226,6 +226,7 @@ def create_app():
                 ("qa-monitor", 900), ("growth-agent", 86400),
             ]:
                 register_job(job_name, interval_sec=interval)
+            start_watchdog(check_interval=300)
         except Exception:
             pass
         logging.getLogger("reytech").info("Deferred init complete")

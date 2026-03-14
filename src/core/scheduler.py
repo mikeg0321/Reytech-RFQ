@@ -129,6 +129,64 @@ def get_all_jobs() -> list:
     return result
 
 
+def restart_dead_jobs():
+    """Check for dead jobs and restart them if a func reference is stored."""
+    restarted = []
+    with _lock:
+        for name, job in _jobs.items():
+            if not job.func:
+                continue
+            is_alive = job.thread.is_alive() if job.thread else False
+            if is_alive:
+                continue
+            # Check if job was previously running and has gone silent
+            if job.last_run and job.interval_sec > 0:
+                try:
+                    last = datetime.fromisoformat(job.last_run)
+                    elapsed = (datetime.now(timezone.utc) - last).total_seconds()
+                    if elapsed > job.interval_sec * 3:
+                        # Dead — restart it
+                        t = threading.Thread(target=job.func, daemon=True, name=f"restart-{name}")
+                        t.start()
+                        job.thread = t
+                        job.started_at = datetime.now(timezone.utc).isoformat()
+                        job.status = "restarted"
+                        restarted.append(name)
+                        log.warning("RESTARTED dead job: %s (was silent for %.0fs)", name, elapsed)
+                except Exception as e:
+                    log.error("Failed to restart job %s: %s", name, e)
+    return restarted
+
+
+def start_watchdog(check_interval: int = 300):
+    """Start a watchdog thread that restarts dead jobs every check_interval seconds."""
+    def _watchdog_loop():
+        time.sleep(120)  # Wait 2 min after boot before first check
+        while True:
+            try:
+                restarted = restart_dead_jobs()
+                if restarted:
+                    try:
+                        from src.agents.notify_agent import send_alert
+                        send_alert(
+                            event_type="job_restarted",
+                            title=f"Restarted {len(restarted)} dead job(s)",
+                            body=f"Jobs restarted: {', '.join(restarted)}",
+                            urgency="warning",
+                            channels=["bell"],
+                            run_async=False,
+                        )
+                    except Exception:
+                        pass
+            except Exception as e:
+                log.error("Watchdog error: %s", e)
+            time.sleep(check_interval)
+
+    t = threading.Thread(target=_watchdog_loop, daemon=True, name="job-watchdog")
+    t.start()
+    log.info("Job watchdog started (check every %ds)", check_interval)
+
+
 # ── Database Backup (F5) ─────────────────────────────────────────────────────
 
 def _get_data_dir():
