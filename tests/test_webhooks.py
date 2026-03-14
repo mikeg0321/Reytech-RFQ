@@ -9,7 +9,7 @@ import time
 def test_fire_webhook_sends_post():
     """fire_webhook sends POST to the configured URL with correct payload."""
     with patch.dict(os.environ, {"WEBHOOK_RFQ_CREATED_URL": "https://example.com/hook"}):
-        with patch("src.core.webhooks.urllib.request.urlopen") as mock_open:
+        with patch("urllib.request.urlopen") as mock_open:
             from src.core.webhooks import fire_webhook
             fire_webhook("rfq.created", {
                 "rfq_id": "abc123",

@@ -1152,4 +1152,32 @@ def diagnose_connection() -> dict:
     return diag
 
 
+def get_qb_health() -> dict:
+    """Returns QB connectivity status without raising.
+    Input: none
+    Output: {status, last_sync, token_expires, error}
+    Side effects: none (read-only token check)
+    """
+    try:
+        tokens = _load_tokens()
+        if not tokens or not tokens.get("refresh_token"):
+            return {"status": "disconnected", "last_sync": None,
+                    "token_expires": None, "error": "No refresh token"}
+        expires = tokens.get("expires_at")
+        last_sync = tokens.get("last_sync")
+        if not is_configured():
+            return {"status": "disconnected", "last_sync": last_sync,
+                    "token_expires": expires, "error": "Missing QB credentials"}
+        # Check if token is valid (without making API call)
+        access = tokens.get("access_token")
+        if not access:
+            return {"status": "error", "last_sync": last_sync,
+                    "token_expires": expires, "error": "No access token — needs refresh"}
+        return {"status": "connected", "last_sync": last_sync,
+                "token_expires": expires, "error": None}
+    except Exception as e:
+        return {"status": "error", "last_sync": None,
+                "token_expires": None, "error": str(e)[:200]}
+
+
 # ─── Invoice Numbering ─────────────────────────────────────────────────────

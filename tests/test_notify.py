@@ -20,7 +20,7 @@ def test_sms_called_with_correct_fields():
         importlib.reload(na)
 
         mock_client = MagicMock()
-        with patch("src.agents.notify_agent.Client", return_value=mock_client) as mock_cls:
+        with patch("twilio.rest.Client", return_value=mock_client) as mock_cls:
             na.notify_new_rfq_sms({
                 "id": "abc123",
                 "solicitation_number": "SOL-999",

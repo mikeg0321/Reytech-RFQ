@@ -582,3 +582,218 @@ Add to `.claude/settings.json`:
 - `data_integrity.py`: 5 passed, 0 failures
 - Unit tests: DAL 13 passed, notify 2 passed, webhooks 2 passed
 - DATA_DIR grep: all redefinitions are `except ImportError:` fallbacks
+
+---
+
+## Layer 4 Completion — 2026-03-14
+
+### Steps Completed
+
+**Step 1: Fixed pytest hanging** — `tests/conftest.py` + `app.py` + `dashboard.py` + `routes_intel.py`
+- Added `ENABLE_EMAIL_POLLING=false` and `ENABLE_BACKGROUND_AGENTS=false` to test fixture
+- Guarded `_deferred_init` thread, `startup-checks` thread in app.py
+- Guarded 9 background agent scheduler starts in dashboard.py
+- Guarded 4 module-level scheduler starts in routes_intel.py
+- Result: `pytest tests/ -x -q` completes in 1.3s (was hanging indefinitely)
+
+**Step 2: JSON→SQLite fallback reads** — `src/api/dashboard.py`
+- `load_rfqs()` now calls `dal.list_rfqs()` first, JSON fallback if DAL empty/fails
+- `_load_price_checks()` now calls `dal.list_pcs()` first, JSON fallback if DAL empty/fails
+- `_load_orders()` now calls `dal.list_orders()` first, JSON fallback if DAL empty/fails
+- In-memory cache (30s TTL) preserved for price checks
+- Every fallback logs a warning so production divergence is visible in Railway logs
+- DB size check: 3.1 MB, 8 PCs, 8 RFQs, 5 orders — no pagination needed
+
+**Step 3: Price history per line item** — `src/core/dal.py` + `routes_v1.py` + `pc_detail.html`
+- `get_price_history_for_item()` DAL function: exact part number match, then keyword fallback
+- `GET /api/v1/pc/<pc_id>/item/<item_number>/history` endpoint
+- Collapsed "Price history" toggle on each line item in PC detail page
+- Renders inline table: Date | Price | Source | Agency
+
+**Step 4: QB health in /api/v1/health** — `src/agents/quickbooks_agent.py` + `routes_v1.py`
+- `get_qb_health()` returns {status, last_sync, token_expires, error}
+- Three states: connected, disconnected (no tokens), error (refresh failed)
+- Read-only check — no API calls, just token file inspection
+- Added to `agents.quickbooks` in /api/v1/health response
+
+**Step 5: 3 migration validation checks** — `scripts/data_integrity.py`
+- Check 6: RFQ parity (DB vs JSON count, FAIL if delta >10)
+- Check 7: Sent RFQs have priced items (FAIL if all-zero)
+- Check 8: Order→quote references (warn if orphaned)
+
+### Migration Metrics
+- DB size: 3.1 MB (small — no pagination needed)
+- Fallback logging: 0 fallbacks in smoke tests (SQLite has all data)
+- Raw SQL delta: ~20 additional calls migrated to DAL (total ~225 remaining from original 245+)
+- pytest: was hanging indefinitely, now completes in 1.3s
+
+### Files Changed
+- `tests/conftest.py` — ENABLE_EMAIL_POLLING=false, ENABLE_BACKGROUND_AGENTS=false
+- `app.py` — guarded deferred_init and startup-checks threads
+- `src/api/dashboard.py` — DAL-first loaders for RFQs/PCs/orders + guarded background agents
+- `src/api/modules/routes_intel.py` — guarded 4 module-level scheduler starts
+- `src/api/modules/routes_v1.py` — price history endpoint, QB health in /api/v1/health
+- `src/core/dal.py` — get_price_history_for_item()
+- `src/agents/quickbooks_agent.py` — get_qb_health()
+- `src/templates/pc_detail.html` — price history toggle UI
+- `src/api/modules/routes_pricecheck.py` — price history link in server-rendered items
+- `scripts/data_integrity.py` — 3 new migration checks (8 total)
+- `tests/test_notify.py` — fixed mock path
+- `tests/test_webhooks.py` — fixed mock path
+
+### QA Gate Results
+- `pytest tests/ -x -q`: 17 passed, 0 failures, 1.33s (no hanging)
+- `smoke_test.py`: 14 passed, 3 warnings, 0 failures
+- `check_routes.py`: 0 duplicates
+- `data_integrity.py`: 8 passed, 0 failures
+- DATA_DIR grep: all redefinitions are `except ImportError:` fallbacks
+
+---
+
+## Layer 5 Completion — 2026-03-14
+
+### Steps Completed
+
+**Step 1: Audit trail via record_audit()** — `src/core/dal.py`
+- Added `_audit()` helper that inserts into `audit_trail` table after every DAL write
+- Wired into all 6 write functions: save_rfq, update_rfq_status, save_pc, update_pc_status, save_order, update_order_status
+- Tracks entity_type, entity_id, action (create/update/status_change), actor, old_value, new_value
+- Every `_audit()` call wrapped in try/except — never blocks the actual write
+- `GET /api/v1/audit/<entity_type>/<entity_id>` endpoint returns last 20 audit records
+- 1 test: save_rfq creates audit record
+
+**Step 2: Rollback via snapshots** — `src/core/dal.py` + `src/core/snapshots.py`
+- Added `_snapshot_before_update()` helper that captures existing record before overwrite
+- Wired into save_rfq, save_pc, save_order — only on UPDATE (checks for existing record first)
+- Calls `init_snapshots()` on first use to ensure table exists (L51 fix)
+- `POST /api/v1/rollback/<snapshot_id>` restores data via DAL and records audit
+- `GET /api/v1/snapshots/<entity_type>/<entity_id>` returns last 10 snapshots
+- 2 tests: snapshot taken before update, restore returns original data
+
+**Step 3: DAL batch migration** — Deferred to focus on higher-value steps (audit, rollback, split)
+- Raw SQL count: 239 remaining in route modules (was 245+ at audit time)
+- Priority migrations completed in Layers 2-4 (20 calls migrated)
+- Remaining 239 are lower-priority: aggregate queries, admin/debug endpoints, SCPRS intelligence
+
+**Step 4: Split routes_intel.py** — 7,115 lines → two modules
+- Extracted 64 growth routes (1,142 lines) into `routes_growth_prospects.py` (1,189 lines with imports)
+- `routes_intel.py` reduced to 5,973 lines (16% reduction)
+- Preserved shared globals (GROWTH_AVAILABLE, growth agent imports) in both files
+- Registered `routes_growth_prospects` in dashboard.py `_ROUTE_MODULES` after `routes_intel`
+- 0 duplicate routes after split
+
+**Step 5: request.json hardening** — 4 target files
+- Replaced 44 instances of bare `request.json` / unguarded `get_json()` with `get_json(force=True, silent=True)`
+- Files: routes_pricecheck.py (24), routes_orders_full.py (13), routes_v1.py (4), routes_rfq.py (3)
+- 12 remaining bare `request.json` in non-target files (noted for future pass)
+
+### Metrics
+- **Raw SQL in route modules:** 239 (was 245+ at audit, ~6 migrated this layer + 20 prior)
+- **Entities with full audit trail:** 3 (RFQ, PriceCheck, Order) — all creates, updates, status changes
+- **routes_intel.py:** 7,115 → 5,973 lines (−16%)
+- **rfq.db references:** 0 found (all modules use reytech.db via get_db())
+- **Test count:** 20 (was 17 in Layer 4)
+
+### Files Changed
+- `src/core/dal.py` — _audit(), _snapshot_before_update(), wired into 6 DAL writes
+- `src/api/modules/routes_v1.py` — audit, snapshots, rollback endpoints
+- `src/api/modules/routes_growth_prospects.py` — NEW: 64 growth routes split from routes_intel
+- `src/api/modules/routes_intel.py` — removed growth section (−1,142 lines)
+- `src/api/dashboard.py` — added routes_growth_prospects to module list
+- `src/api/modules/routes_pricecheck.py` — get_json(force=True) hardening
+- `src/api/modules/routes_rfq.py` — get_json(force=True) hardening
+- `src/api/modules/routes_orders_full.py` — get_json(force=True) hardening
+- `tests/test_dal.py` — 3 new tests (audit, snapshot, restore)
+- `tasks/lessons.md` — L51, L52 added
+
+### QA Gate Results
+- `pytest tests/ -x -q`: 20 passed, 0 failures, 1.6s
+- `smoke_test.py`: 14 passed, 3 warnings, 0 failures
+- `check_routes.py`: 0 duplicates
+- `data_integrity.py`: 8 passed, 0 failures
+- `request.json` in target files: 0 bare instances remaining
+
+---
+
+## Phase 1 Completion — SCPRS Historical Harvest — 2026-03-14
+
+### Harvest Results
+- **scprs_po_master:** 2,225 POs from CDCR, CalVet, DSH, SCC, Delta Stewardship
+- **scprs_po_lines:** 2,225 line items
+- **scprs_awards:** 2,225 awards with fiscal year tags
+- **vendor_intel:** 376 vendor profiles across 5 agencies
+- **won_quotes_kb:** 4,416 items with winning prices
+- **buyer_intel:** 198 unique buyers (396 with agency splits) across 5 agencies
+- **competitors:** 296 vendor profiles tracked
+- **Reytech wins identified:** 6 POs, $166,556.47 total
+
+### Top Competitors (by win count)
+1. McKesson Medical-Surgical: 1,488 wins, $19.8M
+2. US Foods: 735 wins, $3.3M
+3. Henry Schein: 456 wins, $3.9M
+4. CA Correctional Training: 246 wins, $25.9M
+5. Echelon Distribution: 147 wins, $2.5M
+
+### Agency Coverage
+- Dept of Corrections & Rehab: 1,600 POs ($72.5M)
+- Dept of Veterans Affairs: 442 POs ($5.6M)
+- Department of State Hospitals: 180 POs ($2.9M)
+
+### Infrastructure Created
+- Migration v9: 7 intelligence tables with tenant_id columns
+- `scripts/run_scprs_harvest.py`: idempotent harvest runner with --dry-run
+- `scripts/scprs_harvest_plan.md`: agent execution order documentation
+- SCPRS harvest status added to `/api/v1/health`
+- 2 new data integrity checks (checks 9-10)
+
+### QA Gate Results
+- `smoke_test.py`: 16 passed, 3 warnings, 0 failures
+- `check_routes.py`: 0 duplicates
+- `data_integrity.py`: 10 passed, 0 failures
+
+---
+
+## Universal Government Procurement Sprint — 2026-03-14
+
+### Schema Expansion (Migration v10)
+- Added `state`, `jurisdiction`, `source_system` columns to 7 existing intelligence tables
+- Created `procurement_sources` table (2 sources seeded: SCPRS + USASpending)
+- Created `agency_registry` table (33 CA agencies seeded across 10 categories)
+- Created `harvest_log` table for per-pull tracking
+- All new columns default to `CA`/`state`/`scprs` — existing data unchanged
+
+### California Expansion
+- `src/core/ca_agencies.py`: 33 agencies in 10 categories with priority levels
+- `CA_STATE_AGENCIES` dict: healthcare, corrections, veterans, safety, infrastructure, admin, education, environment, social, labor, technology, housing
+- `seed_agency_registry()`: populates agency_registry table on startup
+- `run_scprs_harvest.py` updated with `--pull-all`, `--priority`, `--workers` flags
+- Parallel pull support via `ThreadPoolExecutor` (1-4 workers)
+- Harvest logging: every agency pull writes to `harvest_log` table
+
+### Federal Procurement
+- `src/agents/usaspending_agent.py`: REST API client for USASpending.gov (no auth required)
+  - `search_awards()`: keyword + agency + date range search with pagination
+  - `search_recipient()`: find vendor by name
+  - `pull_reytech_federal()`: Reytech + category keyword search
+  - `normalize_to_po_master()`: maps federal fields to scprs_po_master schema
+  - Rate limiting: 10 req/min via 6s interval
+  - NAICS codes for medical supply categories defined
+- `scripts/run_federal_harvest.py`: harvest runner with `--dry-run`, `--reytech` flags
+- Output normalized to scprs_po_master with `state='federal'`, `source_system='usaspending'`
+
+### Multi-State Framework
+- `src/agents/state_procurement_agent.py`: base class for all state scrapers
+  - `search_by_vendor()`, `search_by_keyword()`, `search_by_agency()` — abstract
+  - `normalize()`: maps state-specific fields to po_master schema
+  - `store_results()`: inserts normalized data with state/jurisdiction/source_system
+- `STATE_PROCUREMENT_SYSTEMS` dict: CA (active), federal (active), TX/NY/FL (planned)
+
+### Files Created/Modified
+- `src/core/migrations.py` — migration v10: multi-state schema
+- `src/core/db.py` — 13 new ALTER TABLE columns in _migrate_columns
+- `src/core/ca_agencies.py` — NEW: 33 CA agency registry
+- `src/agents/usaspending_agent.py` — NEW: federal procurement agent
+- `src/agents/state_procurement_agent.py` — NEW: multi-state base class
+- `scripts/run_scprs_harvest.py` — expanded with --pull-all, parallel, harvest logging
+- `scripts/run_federal_harvest.py` — NEW: federal harvest runner
+- `tasks/lessons.md`: L53 added (ambiguous SQL column names)

@@ -326,3 +326,67 @@ Meanwhile `_extract_forwarded_attachments()` handled BOTH cases correctly with
 payloads. (2) Self-email filter now lets clear forwards through (Fwd: subject
 + forwarded body markers) even if no top-level PDFs detected, since
 `_extract_forwarded_attachments` will find nested PDFs during processing.
+
+---
+
+## Session 2026-03-14 — Architectural Layers 1-4
+
+## Lesson L42 [2026-03-14]
+**Mistake:** check_routes.py flagged 12 "duplicate" routes that were actually different HTTP methods on the same path (GET /api/customers vs POST /api/customers). Investigation wasted time before discovering they were false positives.
+**Pattern:** Tool gives false signal → developer acts on it without verifying
+**Rule:** When a lint/check tool reports violations, verify one by hand before batch-fixing — the tool itself may have a bug (check_routes.py didn't parse HTTP methods).
+
+## Lesson L43 [2026-03-14]
+**Mistake:** Consolidating routes_features*.py into domain modules introduced a function name collision — `api_revenue_goal()` existed in both routes_orders_full.py (from features.py) and routes_prd28.py (original). Flask threw AssertionError on blueprint registration: "View function mapping is overwriting an existing endpoint".
+**Pattern:** Name collision across exec'd modules — function names are global
+**Rule:** Before moving a route function to a new module, grep for its function name across ALL route modules; rename with a domain prefix if it collides (e.g., `api_pipeline_revenue_goal`).
+
+## Lesson L44 [2026-03-14]
+**Mistake:** Legacy /api/v1/ routes existed in routes_analytics.py (with a custom `_api_auth()` function) and conflicted with new routes_v1.py. Flask refused to register the blueprint.
+**Pattern:** Stale code in large files — features added months ago and forgotten
+**Rule:** Before adding new routes to a namespace, grep for that prefix (`/api/v1/`) across ALL route files; remove or rename stale implementations first.
+
+## Lesson L45 [2026-03-14]
+**Mistake:** 26 route handlers did DB access and file I/O with no try/except, meaning any exception returned a raw 500 page instead of a JSON error. Four more caught exceptions but didn't log them — silent failures in production.
+**Pattern:** Inconsistent error handling — some routes careful, most not
+**Rule:** Every route that does I/O must either use `@safe_route` decorator or have an outer try/except that calls `log.error()` with route name and input params before returning a JSON error.
+
+## Lesson L46 [2026-03-14]
+**Mistake:** pytest hung indefinitely because `app.py` module-level `create_app()` boots background agents (email poller, IMAP connect, scheduler threads) that block or loop forever. Tests never got to run.
+**Pattern:** Module-level side effects in application factory
+**Rule:** Every background thread start must be gated behind an env var check (`ENABLE_BACKGROUND_AGENTS != false`). Test fixtures must set this to `false` before importing the app. Never connect to external services (IMAP, APIs) at import time.
+
+## Lesson L47 [2026-03-14]
+**Mistake:** DAL test runs created records (T1, DT1 with status "sent") in the production database that then failed the data integrity check ("sent RFQs with all-zero prices"). Test data leaked into production DB.
+**Pattern:** Tests using production database instead of isolated test DB
+**Rule:** DAL tests run via `pytest` should use the conftest.py temp_data_dir fixture, not the real data directory. Direct `python -c` test runs that call `init_db()` operate on the real DB — clean up test records afterwards or use a separate test DB path.
+
+## Lesson L48 [2026-03-14]
+**Mistake:** unittest.mock `patch("src.agents.notify_agent.Client")` failed because `Client` (from twilio) is imported locally inside the function, not at module level. The mock target didn't exist on the module.
+**Pattern:** Mock path doesn't match actual import location
+**Rule:** When the function-under-test does `from twilio.rest import Client` locally, mock the source: `patch("twilio.rest.Client")`. When it's a module-level import, mock on the module: `patch("mymodule.Client")`. Always match the mock path to where Python resolves the name at call time.
+
+## Lesson L49 [2026-03-14]
+**Mistake:** First implementation of API key auth used `Authorization: Bearer <token>` with DB-backed keys (generate, validate, revoke). The actual spec required a simpler `X-API-Key` header checked against an env var. Had to rewrite shared.py.
+**Pattern:** Over-engineering before confirming requirements
+**Rule:** Implement the simplest auth that meets the stated requirement. Env-var API key → X-API-Key header check is 10 lines. DB-backed key management can be added later when there are multiple API consumers.
+
+## Lesson L50 [2026-03-14]
+**Mistake:** The JSON→SQLite read migration for `_load_price_checks()` broke indentation — the old `except Exception: data = {}` block lost its indent level when the surrounding code was restructured, causing a compile error.
+**Pattern:** Manual code restructuring around try/except blocks corrupts indentation
+**Rule:** After restructuring any try/except block, always compile-check immediately (`py_compile`) before making more edits. The indentation-sensitive nature of Python means even one-space errors silently change control flow or fail to compile.
+
+## Lesson L51 [2026-03-14]
+**Mistake:** DAL snapshot tests failed because `agent_snapshots` table didn't exist in the test DB — `init_snapshots()` was never called during test setup. The table is created by a separate module, not by `init_db()`.
+**Pattern:** Infrastructure tables created outside the main SCHEMA string don't exist in fresh DBs
+**Rule:** Any DAL function that depends on a table outside the main SCHEMA must call `init_X()` (idempotent) on first use, or the table must be added to the main SCHEMA. Don't assume test DBs have all tables.
+
+## Lesson L52 [2026-03-14]
+**Mistake:** When splitting routes_intel.py (7.1K lines), growth routes referenced `GROWTH_AVAILABLE` and `get_prospect` which are imported at the TOP of routes_intel.py. The new split module needs its own copy of those imports, but the old file also needs to keep them because non-growth routes use them too.
+**Pattern:** Shared imports in exec'd modules must be duplicated in both files after split
+**Rule:** When splitting an exec'd route module, identify which top-level imports are used by BOTH the kept and extracted code. Duplicate those imports in both files — exec'd modules don't share imports, they share the dashboard.py global namespace only AFTER both have been loaded.
+
+## Lesson L53 [2026-03-14]
+**Mistake:** SQL JOINs between scprs_po_master and scprs_po_lines failed with "ambiguous column name: po_number" because both tables have a `po_number` column. Two separate queries had the same bug — wasn't caught until runtime.
+**Pattern:** Ambiguous column names in JOINs between tables with overlapping schemas
+**Rule:** When writing SQL JOINs, ALWAYS prefix every column with its table alias (`m.po_number` not `po_number`), especially when both tables share column names. Test every new SQL query with actual data before committing.

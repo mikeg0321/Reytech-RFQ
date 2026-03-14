@@ -44,7 +44,7 @@ def api_v1_price_rfq(rfq_id):
         rfq = get_rfq(rfq_id)
         if not rfq:
             return api_response(error="RFQ not found", status=404)
-        data = request.get_json(silent=True) or {}
+        data = request.get_json(force=True, silent=True) or {}
         force = data.get("force", False)
         try:
             from src.core.task_queue import enqueue
@@ -122,7 +122,7 @@ def api_v1_create_rfq():
     """
     import uuid
     try:
-        data = request.get_json(silent=True) or {}
+        data = request.get_json(force=True, silent=True) or {}
         # Also accept form data for HTML form submission
         if not data:
             data = {k: request.form.get(k, "") for k in request.form}
@@ -178,7 +178,7 @@ def api_v1_create_rfq():
 @auth_required
 def api_v1_webhook_rfq_created():
     """Manually fire the rfq.created webhook (for testing)."""
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(force=True, silent=True) or {}
     try:
         from src.core.webhooks import fire_webhook
         fire_webhook("rfq.created", data)
@@ -191,7 +191,7 @@ def api_v1_webhook_rfq_created():
 @auth_required
 def api_v1_webhook_order_updated():
     """Manually fire the order.updated webhook (for testing)."""
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(force=True, silent=True) or {}
     try:
         from src.core.webhooks import fire_webhook
         fire_webhook("order.updated", data)
@@ -228,6 +228,36 @@ def api_v1_test_sms():
         })
         return api_response({"sent": True})
     except Exception as e:
+        return api_response(error=str(e), status=500)
+
+
+@bp.route("/api/v1/pc/<pc_id>/item/<path:item_number>/history")
+@auth_required
+def api_v1_pc_item_history(pc_id, item_number):
+    """Price history for a specific line item on a PC.
+    Returns last 5 price records matching by part number or description.
+    """
+    try:
+        from src.core.dal import get_pc, get_price_history_for_item
+        pc = get_pc(pc_id)
+        if not pc:
+            return api_response(error="PC not found", status=404)
+
+        # Find the item in the PC to get description for fallback matching
+        description = ""
+        items = pc.get("items", [])
+        if isinstance(items, list):
+            for item in items:
+                pn = item.get("item_number", "") or item.get("part_number", "")
+                if pn == item_number:
+                    description = item.get("description", "")
+                    break
+
+        history = get_price_history_for_item(
+            part_number=item_number, description=description, limit=5)
+        return api_response(history)
+    except Exception as e:
+        log.error("v1/pc/%s/item/%s/history error: %s", pc_id, item_number, e, exc_info=True)
         return api_response(error=str(e), status=500)
 
 
@@ -302,13 +332,101 @@ def api_v1_health():
         except Exception:
             pass
 
+        # QB health
+        try:
+            from src.agents.quickbooks_agent import get_qb_health
+            agents["quickbooks"] = get_qb_health()
+        except Exception:
+            agents["quickbooks"] = {"status": "unavailable", "error": "Module not loaded"}
+
+        # SCPRS harvest status
+        harvest = {}
+        try:
+            from src.core.db import DB_PATH as _hp
+            import sqlite3 as _sq
+            _hc = _sq.connect(_hp, timeout=5)
+            harvest["po_master_count"] = _hc.execute("SELECT COUNT(*) FROM scprs_po_master").fetchone()[0]
+            harvest["vendor_intel_count"] = _hc.execute("SELECT COUNT(*) FROM vendor_intel").fetchone()[0]
+            harvest["buyer_intel_count"] = _hc.execute("SELECT COUNT(*) FROM buyer_intel").fetchone()[0]
+            harvest["won_quotes_kb_count"] = _hc.execute("SELECT COUNT(*) FROM won_quotes_kb").fetchone()[0]
+            harvest["competitors_count"] = _hc.execute("SELECT COUNT(*) FROM competitors").fetchone()[0]
+            _hc.close()
+            # Last harvest timestamp from log file
+            import os as _os
+            _log_path = _os.path.join(_os.environ.get("DATA_DIR", "data"), "scprs_harvest.log")
+            if _os.path.exists(_log_path):
+                harvest["last_harvest"] = datetime.fromtimestamp(
+                    _os.path.getmtime(_log_path)).isoformat()
+        except Exception:
+            pass
+
         return api_response({
             "version": version,
             "uptime_seconds": uptime,
             "db": db_info,
             "queues": queues,
             "agents": agents,
+            "scprs_harvest": harvest,
         })
     except Exception as e:
         log.error("v1/health error: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)
+
+
+@bp.route("/api/v1/audit/<entity_type>/<entity_id>")
+@auth_required
+def api_v1_audit_trail(entity_type, entity_id):
+    """Get audit trail for an entity. Returns last 20 records."""
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT * FROM audit_trail WHERE item_description=? AND rfq_id=? "
+                "ORDER BY created_at DESC LIMIT 20",
+                (entity_type, entity_id)).fetchall()
+            return api_response([dict(r) for r in rows])
+    except Exception as e:
+        log.error("v1/audit error: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)
+
+
+@bp.route("/api/v1/snapshots/<entity_type>/<entity_id>")
+@auth_required
+def api_v1_snapshots(entity_type, entity_id):
+    """Get snapshots for an entity. Returns last 10."""
+    try:
+        from src.core.snapshots import list_snapshots
+        snaps = list_snapshots(agent_name="dal", limit=50)
+        # Filter to this entity
+        filtered = [s for s in snaps if s.get("run_id") == entity_id
+                    and s.get("entity_type") == entity_type][:10]
+        return api_response(filtered)
+    except Exception as e:
+        log.error("v1/snapshots error: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)
+
+
+@bp.route("/api/v1/rollback/<int:snapshot_id>", methods=["POST"])
+@auth_required
+def api_v1_rollback(snapshot_id):
+    """Restore an entity from a snapshot."""
+    try:
+        from src.core.snapshots import restore_snapshot
+        from src.core.dal import save_rfq, save_pc, save_order
+        result = restore_snapshot(snapshot_id)
+        if not result.get("ok"):
+            return api_response(error=result.get("error", "Restore failed"), status=404)
+        # Write restored data back via DAL
+        entity_type = result.get("entity")
+        data = result.get("data")
+        if entity_type == "rfq" and isinstance(data, dict):
+            save_rfq(data, actor="rollback")
+        elif entity_type == "price_check" and isinstance(data, dict):
+            save_pc(data, actor="rollback")
+        elif entity_type == "order" and isinstance(data, dict):
+            save_order(data, actor="rollback")
+        return api_response({"restored": True, "entity_type": entity_type,
+                             "entity_id": result.get("row_count")})
+    except Exception as e:
+        log.error("v1/rollback error: %s", e, exc_info=True)
         return api_response(error=str(e), status=500)

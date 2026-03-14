@@ -918,6 +918,20 @@ def _migrate_columns():
         ("contacts", "nurture_sequence", "TEXT"),
         ("contacts", "nurture_step", "INTEGER DEFAULT 0"),
         ("contacts", "lead_score", "REAL DEFAULT 0"),
+        # ── Multi-state, multi-source procurement ──
+        ("scprs_po_master", "state", "TEXT DEFAULT 'CA'"),
+        ("scprs_po_master", "jurisdiction", "TEXT DEFAULT 'state'"),
+        ("scprs_po_master", "source_system", "TEXT DEFAULT 'scprs'"),
+        ("scprs_po_lines", "state", "TEXT DEFAULT 'CA'"),
+        ("scprs_awards", "state", "TEXT DEFAULT 'CA'"),
+        ("scprs_awards", "source_system", "TEXT DEFAULT 'scprs'"),
+        ("vendor_intel", "state", "TEXT DEFAULT 'CA'"),
+        ("vendor_intel", "source_system", "TEXT DEFAULT 'scprs'"),
+        ("buyer_intel", "state", "TEXT DEFAULT 'CA'"),
+        ("buyer_intel", "source_system", "TEXT DEFAULT 'scprs'"),
+        ("won_quotes_kb", "state", "TEXT DEFAULT 'CA'"),
+        ("won_quotes_kb", "source_system", "TEXT DEFAULT 'scprs'"),
+        ("competitors", "states", "TEXT DEFAULT 'CA'"),
     ]
     try:
         conn = sqlite3.connect(DB_PATH, timeout=30)

@@ -140,6 +140,178 @@ MIGRATIONS = [
     (8, "add_price_checks_ship_to",
      "SELECT 1;"  # ship_to now in CREATE TABLE; this is a no-op for new DBs
      ),
+
+    (9, "create_scprs_intelligence_tables", """
+        CREATE TABLE IF NOT EXISTS scprs_awards (
+            id TEXT PRIMARY KEY,
+            po_number TEXT,
+            agency TEXT,
+            agency_code TEXT,
+            vendor_name TEXT,
+            vendor_code TEXT,
+            award_date TEXT,
+            fiscal_year TEXT,
+            total_value REAL,
+            item_count INTEGER,
+            source TEXT DEFAULT 'scprs',
+            tenant_id TEXT DEFAULT 'reytech',
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS scprs_results (
+            id TEXT PRIMARY KEY,
+            search_query TEXT,
+            agency TEXT,
+            result_json TEXT,
+            pulled_at TEXT,
+            tenant_id TEXT DEFAULT 'reytech'
+        );
+
+        CREATE TABLE IF NOT EXISTS vendor_intel (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            vendor_name TEXT,
+            vendor_code TEXT,
+            agency TEXT,
+            category TEXT,
+            win_count INTEGER DEFAULT 0,
+            total_value REAL DEFAULT 0,
+            avg_price REAL,
+            items_won TEXT,
+            first_seen TEXT,
+            last_seen TEXT,
+            tenant_id TEXT DEFAULT 'reytech',
+            updated_at TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS buyer_intel (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            buyer_name TEXT,
+            buyer_email TEXT,
+            agency TEXT,
+            agency_code TEXT,
+            items_purchased TEXT,
+            categories TEXT,
+            total_spend REAL DEFAULT 0,
+            rfq_count INTEGER DEFAULT 0,
+            last_purchase TEXT,
+            contact_status TEXT DEFAULT 'unknown',
+            tenant_id TEXT DEFAULT 'reytech',
+            updated_at TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS competitors (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            vendor_name TEXT UNIQUE,
+            vendor_code TEXT,
+            primary_agencies TEXT,
+            primary_categories TEXT,
+            win_rate REAL,
+            avg_margin_vs_reytech REAL,
+            last_win TEXT,
+            weakness_notes TEXT,
+            tenant_id TEXT DEFAULT 'reytech',
+            updated_at TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS won_quotes_kb (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            item_description TEXT,
+            nsn TEXT,
+            mfg_number TEXT,
+            agency TEXT,
+            winning_price REAL,
+            winning_vendor TEXT,
+            reytech_won INTEGER DEFAULT 0,
+            reytech_price REAL,
+            price_delta REAL,
+            award_date TEXT,
+            po_number TEXT,
+            tenant_id TEXT DEFAULT 'reytech',
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_vendor_intel_name ON vendor_intel(vendor_name);
+        CREATE INDEX IF NOT EXISTS idx_buyer_intel_email ON buyer_intel(buyer_email);
+        CREATE INDEX IF NOT EXISTS idx_buyer_intel_agency ON buyer_intel(agency);
+        CREATE INDEX IF NOT EXISTS idx_competitors_name ON competitors(vendor_name);
+        CREATE INDEX IF NOT EXISTS idx_won_kb_desc ON won_quotes_kb(item_description);
+        CREATE INDEX IF NOT EXISTS idx_won_kb_agency ON won_quotes_kb(agency);
+        CREATE INDEX IF NOT EXISTS idx_scprs_awards_agency ON scprs_awards(agency);
+    """),
+
+    (10, "multi_state_multi_source_schema", """
+        -- Add state + source_system columns to existing tables (safe: no-op if exists)
+        -- Using separate statements because ALTER TABLE ADD COLUMN IF NOT EXISTS
+        -- is not supported in SQLite — we rely on duplicate column error being caught
+
+        CREATE TABLE IF NOT EXISTS procurement_sources (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_name TEXT UNIQUE,
+            state TEXT,
+            jurisdiction TEXT,
+            base_url TEXT,
+            auth_required INTEGER DEFAULT 0,
+            scraper_class TEXT,
+            last_pulled TEXT,
+            pull_frequency_days INTEGER DEFAULT 7,
+            status TEXT DEFAULT 'active',
+            notes TEXT,
+            tenant_id TEXT DEFAULT 'reytech'
+        );
+
+        CREATE TABLE IF NOT EXISTS agency_registry (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            agency_name TEXT,
+            agency_code TEXT,
+            state TEXT,
+            jurisdiction TEXT,
+            category TEXT,
+            procurement_url TEXT,
+            annual_spend_est REAL,
+            reytech_customer INTEGER DEFAULT 0,
+            active INTEGER DEFAULT 1,
+            tenant_id TEXT DEFAULT 'reytech',
+            UNIQUE(agency_name, state)
+        );
+
+        CREATE TABLE IF NOT EXISTS harvest_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_system TEXT,
+            state TEXT,
+            agency TEXT,
+            fiscal_year TEXT,
+            pos_found INTEGER DEFAULT 0,
+            lines_found INTEGER DEFAULT 0,
+            reytech_wins INTEGER DEFAULT 0,
+            errors TEXT,
+            duration_seconds REAL,
+            started_at TEXT,
+            completed_at TEXT,
+            tenant_id TEXT DEFAULT 'reytech'
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_harvest_log_agency ON harvest_log(agency);
+        CREATE INDEX IF NOT EXISTS idx_harvest_log_source ON harvest_log(source_system);
+        CREATE INDEX IF NOT EXISTS idx_agency_reg_state ON agency_registry(state);
+        CREATE INDEX IF NOT EXISTS idx_proc_sources_state ON procurement_sources(state);
+
+        -- Seed California SCPRS as procurement source
+        INSERT OR IGNORE INTO procurement_sources
+            (source_name, state, jurisdiction, base_url, auth_required,
+             scraper_class, pull_frequency_days, status)
+        VALUES
+            ('scprs', 'CA', 'state',
+             'https://caleprocure.ca.gov/pages/SCPRSSearch/scprs-search.aspx',
+             0, 'FiscalSession', 7, 'active');
+
+        INSERT OR IGNORE INTO procurement_sources
+            (source_name, state, jurisdiction, base_url, auth_required,
+             scraper_class, pull_frequency_days, status)
+        VALUES
+            ('usaspending', 'federal', 'federal',
+             'https://api.usaspending.gov/api/v2',
+             0, 'USASpendingAgent', 7, 'planned');
+    """),
 ]
 
 
