@@ -141,6 +141,34 @@ Federal scope: CA place-of-performance + Reytech NAICS codes only (pricing intel
 
 ---
 
+## Locked Decisions (do not revisit without business reason)
+
+### Data scope — March 2026
+CA fully + federal intelligence only.
+- California SCPRS: all agencies, dynamic discovery, 3 years
+- Federal USASpending: CA-based locations + Reytech NAICS only
+  (pricing intelligence, not contract pursuit)
+- Other states: registry entries only, no active code
+  Activation = one DB update when business expands
+
+### No hardcoded agency lists — ever
+Agency discovery is always dynamic via connector.get_all_agencies().
+If you are typing agency names into a list, stop and build
+the discovery method instead.
+
+### Connector registry = configuration not code
+Adding a data source = one DB row + one adapter class.
+Activating a scaffolded source = one SQL UPDATE.
+No deployment needed to add a new data source.
+
+### Federal ≠ selling federal
+Having federal pricing data makes CA pricing smarter.
+Reytech is not pursuing federal contracts until a
+deliberate business decision is made to do so.
+Data collection and business development are separate decisions.
+
+---
+
 ## Pricing Oracle Design
 
 ### Confidence Scoring
