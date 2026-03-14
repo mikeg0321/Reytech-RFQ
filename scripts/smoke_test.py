@@ -57,7 +57,7 @@ def test_route_dedup():
         if not fname.endswith(".py"):
             continue
         fpath = os.path.join(src_dir, fname)
-        with open(fpath) as f:
+        with open(fpath, encoding="utf-8", errors="replace") as f:
             for i, line in enumerate(f, 1):
                 m = re.match(r'^@bp\.route\((.+?)(?:,|\))', line)
                 if m:
