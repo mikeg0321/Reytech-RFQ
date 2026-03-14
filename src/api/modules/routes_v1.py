@@ -732,3 +732,17 @@ def api_v1_db_info():
         info["error"] = str(e)
 
     return api_response(info)
+
+
+@bp.route("/api/v1/harvest/ca-sync")
+@auth_required
+def api_v1_harvest_ca_sync():
+    """Run CA harvest SYNCHRONOUSLY with full error output. Use for debugging."""
+    try:
+        from src.core.pull_orchestrator import PullOrchestrator
+        result = PullOrchestrator().run_connector("ca_scprs")
+        return api_response(result)
+    except Exception as e:
+        import traceback
+        log.error("CA harvest sync: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)
