@@ -984,3 +984,121 @@ def api_v1_harvest_deduplicate():
     except Exception as e:
         log.error("v1/harvest/deduplicate error: %s", e, exc_info=True)
         return api_response(error=str(e), status=500)
+
+
+@bp.route("/api/v1/harvest/keywords")
+@auth_required
+def api_v1_harvest_keywords():
+    """Run keyword-based harvest that fetches PO line item detail. Background thread."""
+    try:
+        import threading
+        def _run():
+            try:
+                from src.core.harvest_keywords import HIGH_PRIORITY_KEYWORDS
+                from src.agents.connectors.ca_scprs import CASCPRSConnector
+                from src.core.pull_orchestrator import _store_results, _get_conn
+                from datetime import datetime, timedelta
+
+                connector = CASCPRSConnector()
+                if not connector.authenticate():
+                    log.error("Keyword harvest: SCPRS auth failed")
+                    return
+
+                from_dt = datetime.now() - timedelta(days=730)
+                total_stored = 0
+                total_lines = 0
+
+                for kw in HIGH_PRIORITY_KEYWORDS:
+                    try:
+                        results = connector.search_by_keyword(
+                            kw, from_dt, fetch_detail=True, max_detail=30)
+                        if results:
+                            conn = _get_conn()
+                            stored = _store_results(conn, results, "ca_scprs")
+                            # Count line items stored
+                            lines = sum(len(r.get("line_items", [])) for r in results)
+                            total_lines += lines
+                            total_stored += stored
+                            conn.close()
+                            log.info("Keyword '%s': %d POs, %d lines stored",
+                                     kw, stored, lines)
+                        import time; time.sleep(3)
+                    except Exception as e:
+                        log.error("Keyword harvest '%s' failed: %s", kw, e)
+
+                log.info("Keyword harvest complete: %d POs, %d line items",
+                         total_stored, total_lines)
+
+                # Rebuild intelligence tables
+                try:
+                    import sys, os
+                    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
+                        os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "scripts"))
+                    from run_scprs_harvest import (
+                        build_won_quotes_kb, build_vendor_intel, get_conn as harvest_conn)
+                    hconn = harvest_conn()
+                    build_won_quotes_kb(hconn)
+                    build_vendor_intel(hconn)
+                    hconn.close()
+                    log.info("Intelligence tables rebuilt after keyword harvest")
+                except Exception as e:
+                    log.warning("Intel rebuild after keywords: %s", e)
+
+            except Exception as e:
+                log.error("Keyword harvest background: %s", e, exc_info=True)
+
+        threading.Thread(target=_run, daemon=True, name="harvest-keywords").start()
+        from src.core.harvest_keywords import HIGH_PRIORITY_KEYWORDS
+        return api_response({
+            "started": True,
+            "keywords": len(HIGH_PRIORITY_KEYWORDS),
+            "estimated_pos": "200-1000",
+            "note": "Fetching PO detail pages for line items. Monitor via /api/v1/harvest/diagnose"
+        })
+    except Exception as e:
+        log.error("v1/harvest/keywords error: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)
+
+
+@bp.route("/api/v1/harvest/keywords-sync")
+@auth_required
+def api_v1_harvest_keywords_sync():
+    """Run keyword harvest SYNCHRONOUSLY (first 5 keywords only). For debugging."""
+    try:
+        from src.core.harvest_keywords import HIGH_PRIORITY_KEYWORDS
+        from src.agents.connectors.ca_scprs import CASCPRSConnector
+        from src.core.pull_orchestrator import _store_results, _get_conn
+        from datetime import datetime, timedelta
+        import time as _t
+
+        connector = CASCPRSConnector()
+        if not connector.authenticate():
+            return api_response(error="SCPRS auth failed", status=500)
+
+        from_dt = datetime.now() - timedelta(days=730)
+        results_summary = {}
+        total_lines = 0
+
+        for kw in HIGH_PRIORITY_KEYWORDS[:5]:
+            t0 = _t.time()
+            results = connector.search_by_keyword(
+                kw, from_dt, fetch_detail=True, max_detail=10)
+            conn = _get_conn()
+            stored = _store_results(conn, results, "ca_scprs")
+            lines = sum(len(r.get("line_items", [])) for r in results)
+            total_lines += lines
+            conn.close()
+            results_summary[kw] = {
+                "pos": len(results), "stored": stored,
+                "lines": lines, "seconds": round(_t.time() - t0, 1)
+            }
+            _t.sleep(2)
+
+        return api_response({
+            "keywords_run": len(results_summary),
+            "results": results_summary,
+            "total_line_items": total_lines,
+        })
+    except Exception as e:
+        log.error("v1/harvest/keywords-sync error: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)

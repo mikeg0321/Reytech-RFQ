@@ -72,14 +72,37 @@ class CASCPRSConnector(BaseConnector):
 
     def search_by_keyword(self, keyword: str,
                           from_date: datetime,
-                          to_date: datetime = None) -> list:
+                          to_date: datetime = None,
+                          fetch_detail: bool = True,
+                          max_detail: int = 50) -> list:
+        """Search by keyword and optionally fetch line item detail per PO."""
         if not self.session:
             if not self.authenticate():
                 return []
         from_str = from_date.strftime("%m/%d/%Y")
         try:
             raw = self.session.search(description=keyword, from_date=from_str)
-            return [self.normalize(r) for r in (raw or [])]
+            results = []
+            detail_count = 0
+            for r in (raw or []):
+                normalized = self.normalize(r)
+                # Fetch line item detail if available and within limit
+                if (fetch_detail and detail_count < max_detail
+                        and r.get("_results_html") and r.get("_row_index") is not None):
+                    try:
+                        detail = self.session.get_detail(
+                            r["_results_html"], r["_row_index"])
+                        if detail and detail.get("line_items"):
+                            normalized["line_items"] = detail["line_items"]
+                            detail_count += 1
+                        time.sleep(1)  # Rate limit detail fetches
+                    except Exception as e:
+                        log.debug("Detail fetch failed for %s: %s",
+                                  normalized.get("po_number", "?"), e)
+                results.append(normalized)
+            log.info("SCPRS keyword '%s': %d results, %d with detail",
+                     keyword, len(results), detail_count)
+            return results
         except Exception as e:
             log.error("SCPRS keyword search '%s' failed: %s", keyword, e)
             return []

@@ -234,6 +234,27 @@ def _store_results(conn, results: list, connector_id: str) -> int:
                   r.get("state", "CA"),
                   r.get("source_system", connector_id)))
             count += 1
+            # Store line items if present
+            if r.get("line_items"):
+                po_row = conn.execute(
+                    "SELECT id FROM scprs_po_master WHERE po_number=?",
+                    (po_num,)).fetchone()
+                if po_row:
+                    po_id = po_row[0]
+                    for idx, item in enumerate(r["line_items"]):
+                        if not isinstance(item, dict):
+                            continue
+                        conn.execute("""
+                            INSERT OR IGNORE INTO scprs_po_lines
+                            (po_id, po_number, line_num, description,
+                             unit_price, quantity, line_total, category)
+                            VALUES (?,?,?,?,?,?,?,?)
+                        """, (po_id, po_num, idx + 1,
+                              (item.get("description", "") or "")[:500],
+                              float(item.get("unit_price", 0) or 0),
+                              float(item.get("quantity", 0) or 0),
+                              float(item.get("line_total", item.get("extended", 0)) or 0),
+                              item.get("category", "other")))
         except Exception as e:
             log.debug("Store: %s", e)
     conn.commit()
