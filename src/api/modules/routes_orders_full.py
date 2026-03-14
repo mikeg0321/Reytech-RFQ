@@ -6,14 +6,13 @@
 # ═══════════════════════════════════════════════════════════════════════
 
 # ── Explicit imports (S11 refactor: no longer relying solely on injection) ──
-from flask import request, jsonify, Response
+from flask import request, jsonify
 from src.api.shared import bp, auth_required
 import logging
 log = logging.getLogger("reytech")
 from src.core.error_handler import safe_route
 from flask import redirect, flash, send_file
 from src.core.paths import DATA_DIR
-from src.core.db import get_db
 from src.api.render import render_page
 
 @bp.route("/orders")
@@ -1706,7 +1705,7 @@ def api_qb_health():
 def api_drive_health():
     """Check Google Drive integration status and backup health."""
     try:
-        from src.core.gdrive import is_configured, GOOGLE_DRIVE_ROOT_FOLDER_ID
+        from src.core.gdrive import GOOGLE_DRIVE_ROOT_FOLDER_ID
         from src.agents.drive_backup import get_backup_health
         health = get_backup_health()
         health["root_folder_id"] = GOOGLE_DRIVE_ROOT_FOLDER_ID[:12] + "..." if GOOGLE_DRIVE_ROOT_FOLDER_ID else "(not set)"

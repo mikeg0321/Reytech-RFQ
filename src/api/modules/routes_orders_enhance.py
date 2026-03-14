@@ -13,14 +13,14 @@ F9: Delivery Photo/Proof upload
 F10: Order KPI Dashboard
 """
 
-from flask import request, jsonify, redirect, flash
+from flask import request, jsonify
 from src.api.shared import bp, auth_required
 from src.api.render import render_page
 import logging
 import os
 import json
 import re
-from datetime import datetime, timedelta
+from datetime import datetime
 
 log = logging.getLogger("reytech")
 

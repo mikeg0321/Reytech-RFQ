@@ -1,6 +1,6 @@
 # routes_crm.py
 # ── Explicit imports (S11 refactor: no longer relying solely on injection) ──
-from flask import request, jsonify, Response
+from flask import request, jsonify
 from src.api.shared import bp, auth_required
 import logging
 log = logging.getLogger("reytech")
@@ -11,21 +11,6 @@ from src.api.render import render_page
 
 import re
 from datetime import datetime
-
-# ── JSON→SQLite compatibility (Phase 32c migration) ──────────────────────────
-try:
-    from src.core.db import (
-        get_all_customers, get_all_vendors, get_all_price_checks, get_price_check,
-        upsert_price_check, get_outbox, upsert_outbox_email, update_outbox_status,
-        get_email_templates, upsert_email_template, get_vendor_registrations,
-        upsert_vendor_registration, get_market_intelligence, upsert_market_intelligence,
-        get_intel_agencies, upsert_intel_agency, get_growth_outreach, save_growth_campaign,
-        get_qa_reports, save_qa_report, get_latest_qa_report,
-        upsert_customer, upsert_vendor,
-    )
-    _HAS_DB_DAL = True
-except ImportError:
-    _HAS_DB_DAL = False
 # ─────────────────────────────────────────────────────────────────────────────
 # 70 routes, 3186 lines
 # Loaded by dashboard.py via load_module()

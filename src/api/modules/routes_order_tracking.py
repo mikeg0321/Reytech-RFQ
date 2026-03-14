@@ -13,22 +13,19 @@
 #   pending → confirmed → backordered → shipped → delivered → invoiced
 
 # ── Explicit imports (S11 refactor: no longer relying solely on injection) ──
-from flask import request, jsonify, Response
+from flask import request, jsonify
 from src.api.shared import bp, auth_required
 import os
 import logging
 from datetime import datetime
 log = logging.getLogger("reytech")
 from flask import redirect, flash
-from src.core.db import get_db
 from src.api.render import render_page
 
 import re as _re
 import imaplib as _imaplib
 import email as _email_lib
 from email.header import decode_header as _decode_header
-from datetime import timedelta as _timedelta
-from collections import defaultdict as _defaultdict
 import threading as _threading
 import time as _time
 import sqlite3 as _sqlite3

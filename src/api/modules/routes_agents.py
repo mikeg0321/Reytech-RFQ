@@ -2,27 +2,13 @@
 
 # ── JSON→SQLite compatibility (Phase 32c migration) ──────────────────────────
 # ── Explicit imports (S11 refactor: no longer relying solely on injection) ──
-from flask import request, jsonify, Response
+from flask import request, jsonify
 from src.api.shared import bp, auth_required
 import logging
 log = logging.getLogger("reytech")
 from src.core.paths import DATA_DIR
 import os, json, time
 from datetime import datetime, timedelta
-
-try:
-    from src.core.db import (
-        get_all_customers, get_all_vendors, get_all_price_checks, get_price_check,
-        upsert_price_check, get_outbox, upsert_outbox_email, update_outbox_status,
-        get_email_templates, upsert_email_template, get_vendor_registrations,
-        upsert_vendor_registration, get_market_intelligence, upsert_market_intelligence,
-        get_intel_agencies, upsert_intel_agency, get_growth_outreach, save_growth_campaign,
-        get_qa_reports, save_qa_report, get_latest_qa_report,
-        upsert_customer, upsert_vendor,
-    )
-    _HAS_DB_DAL = True
-except ImportError:
-    _HAS_DB_DAL = False
 # ─────────────────────────────────────────────────────────────────────────────
 # 7 routes, 506 lines
 # Loaded by dashboard.py via load_module()

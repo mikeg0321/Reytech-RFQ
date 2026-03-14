@@ -3,12 +3,12 @@
 # Loaded by dashboard.py via load_module()
 
 # ── Explicit imports (S11 refactor: no longer relying solely on injection) ──
-from flask import request, jsonify, Response
+from flask import request, jsonify
 from src.api.shared import bp, auth_required
 import logging
 log = logging.getLogger("reytech")
 from src.core.error_handler import safe_route
-from flask import redirect, flash, send_file
+from flask import redirect, flash
 from src.core.paths import DATA_DIR, UPLOAD_DIR, OUTPUT_DIR
 from src.core.db import get_db
 from src.api.render import render_page
@@ -1179,7 +1179,7 @@ def rfq_lookup_single_item(rid, idx):
 @auth_required
 def rfq_upload_supplier_quote(rid):
     """Upload a supplier quote PDF → parse → match to RFQ items → fill costs + update catalog."""
-    import os, json
+    import os
     from src.core.paths import DATA_DIR
 
     rfqs = load_rfqs()
@@ -1744,7 +1744,7 @@ def generate_rfq_package(rid):
         
         # ── Match agency FIRST — determines which forms to generate ──
         try:
-            from src.core.agency_config import match_agency, load_agency_configs, AVAILABLE_FORMS
+            from src.core.agency_config import match_agency
             _agency_key, _agency_cfg = match_agency(r)
             _req_forms = set(_agency_cfg.get("required_forms", []))
             _opt_forms = set(_agency_cfg.get("optional_forms", []))
@@ -3196,7 +3196,7 @@ def api_food_classify():
     Returns classified items with food codes.
     """
     try:
-        from src.forms.food_classifier import classify_quote_items, is_food_item
+        from src.forms.food_classifier import classify_quote_items
         data = request.get_json(force=True)
         items = data.get("items", [])
         classified = classify_quote_items(items)
@@ -3217,8 +3217,8 @@ def api_generate_obs1600(rid):
     t = Trace("obs1600_fill", rfq_id=rid)
     
     try:
-        from src.forms.reytech_filler_v4 import load_config, fill_obs1600, fill_obs1600_fields, get_pst_date, fill_and_sign_pdf
-        from src.forms.food_classifier import classify_food_item, get_food_items_for_obs1600
+        from src.forms.reytech_filler_v4 import load_config, fill_obs1600, get_pst_date
+        from src.forms.food_classifier import get_food_items_for_obs1600
         
         rfqs = load_rfqs()
         r = rfqs.get(rid)
@@ -4100,7 +4100,6 @@ def api_rfq_clear_generated(rid):
 
     # Clear disk output files
     sol = r.get("solicitation_number", rid)
-    import shutil as _sh
     out_dir = os.path.join(OUTPUT_DIR, sol)
     disk_deleted = 0
     if os.path.exists(out_dir):
@@ -4364,7 +4363,6 @@ def api_diag_package(rid):
     
     # Check quote generator
     try:
-        from src.forms.quote_gen import generate_quote_from_rfq
         results["steps"].append({"step": "quote_gen_import", "ok": True})
     except Exception as e:
         results["steps"].append({"step": "quote_gen_import", "ok": False, "error": str(e)})

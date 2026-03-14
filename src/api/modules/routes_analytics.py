@@ -10,9 +10,7 @@ from flask import request, jsonify, Response
 from src.api.shared import bp, auth_required
 import logging
 log = logging.getLogger("reytech")
-from flask import redirect, flash
 from src.core.paths import DATA_DIR
-from src.core.db import get_db
 from src.api.render import render_page
 
 import time as _time
@@ -2544,7 +2542,7 @@ def api_rfq_upload_pc(rid):
     The filled PDF has all the pricing data — extract it, save to catalog,
     and populate the RFQ line items.
     """
-    import os, shutil
+    import os
     from src.core.paths import DATA_DIR
 
     rfqs = load_rfqs()
@@ -2615,7 +2613,7 @@ def api_rfq_upload_pc(rid):
             try:
                 from src.agents.product_catalog import (
                     match_item, add_to_catalog, update_product_pricing,
-                    add_supplier_price, init_catalog_db
+                    init_catalog_db
                 )
                 init_catalog_db()
                 matches = match_item(desc, mfg, top_n=1)
