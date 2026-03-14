@@ -685,9 +685,24 @@ def _safe_json(raw, default=None):
         return default if default is not None else raw
 
 
-def _audit(entity_type: str, entity_id: str, action: str, actor: str = "system",
+def _get_actor() -> str:
+    """Resolve the current actor for audit trail entries."""
+    try:
+        from flask import g, session, has_request_context
+        if has_request_context():
+            if hasattr(g, 'api_auth') and g.api_auth:
+                return 'api_key'
+            return session.get('user', 'web')
+    except Exception:
+        pass
+    return 'system'
+
+
+def _audit(entity_type: str, entity_id: str, action: str, actor: str = None,
            old_value: str = None, new_value: str = None):
     """Log an entity change to the audit trail. Never raises."""
+    if actor is None:
+        actor = _get_actor()
     try:
         with get_db() as conn:
             conn.execute("""
@@ -1377,3 +1392,61 @@ def update_tenant_profile(tenant_id: str, updates: dict) -> bool:
     except Exception as e:
         log.error("update_tenant_profile(%s) failed: %s", tenant_id, e, exc_info=True)
         raise
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Pipeline Aggregates (replaces common raw SQL in routes_analytics)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def get_pipeline_counts(tenant_id: str = "reytech") -> dict:
+    """Queue depths for home dashboard. Replaces common aggregate queries.
+    Input: tenant_id
+    Output: {rfqs_new, rfqs_sent, pcs_new, pcs_sent, orders_active, orders_shipped}
+    Side effects: none
+    """
+    try:
+        with get_db() as conn:
+            def _count(table, status):
+                try:
+                    return conn.execute(
+                        f"SELECT COUNT(*) FROM {table} WHERE status=?", (status,)
+                    ).fetchone()[0]
+                except Exception:
+                    return 0
+            return {
+                "rfqs_new": _count("rfqs", "new"),
+                "rfqs_sent": _count("rfqs", "sent"),
+                "pcs_new": _count("price_checks", "parsed"),
+                "pcs_sent": _count("price_checks", "sent"),
+                "orders_active": _count("orders", "new") + _count("orders", "active"),
+                "orders_shipped": _count("orders", "shipped"),
+            }
+    except Exception as e:
+        log.error("get_pipeline_counts failed: %s", e, exc_info=True)
+        return {}
+
+
+def get_funnel_stats(tenant_id: str = "reytech") -> dict:
+    """Conversion funnel data. Replaces funnel query in routes_analytics.
+    Input: tenant_id
+    Output: {imported, parsed, priced, sent, won, lost, total}
+    Side effects: none
+    """
+    try:
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT status, COUNT(*) FROM rfqs GROUP BY status"
+            ).fetchall()
+            counts = {r[0]: r[1] for r in rows}
+            return {
+                "imported": counts.get("new", 0),
+                "parsed": counts.get("draft", 0),
+                "priced": counts.get("priced", 0) + counts.get("generated", 0),
+                "sent": counts.get("sent", 0) + counts.get("quoted", 0),
+                "won": counts.get("won", 0),
+                "lost": counts.get("lost", 0),
+                "total": sum(counts.values()),
+            }
+    except Exception as e:
+        log.error("get_funnel_stats failed: %s", e, exc_info=True)
+        return {}

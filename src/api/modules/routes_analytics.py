@@ -3880,7 +3880,7 @@ def api_smart_notifications():
 @auth_required
 def api_export_csv():
     """Export JSON data as downloadable CSV."""
-    data = request.json or {}
+    data = request.get_json(force=True, silent=True) or {}
     rows = data.get("rows") or data.get("data") or data.get("results") or []
     filename = data.get("filename", "export.csv")
 

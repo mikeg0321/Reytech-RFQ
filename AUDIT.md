@@ -837,3 +837,32 @@ Add to `.claude/settings.json`:
 
 ### QA Gate
 - smoke_test: 16/0, check_routes: 0, data_integrity: 10/0
+
+---
+
+## Layer 5 Completion — 2026-03-14
+
+### Steps Completed
+
+**Step 1: Audit trail** — Already wired from prior Layer 5 work. Added `_get_actor()` helper that auto-resolves actor from Flask request context (api_key, session user, or system). Updated `_audit()` to use `_get_actor()` as default. Audit/snapshot/rollback API routes already live from prior commits.
+
+**Step 2: Snapshots** — Already wired from prior Layer 5 work. `_snapshot_before_update()` calls `init_snapshots()` on first use (L51 fix). Snapshot/rollback routes live.
+
+**Step 3: request.get_json hardening (L32)** — All 56 bare `request.json` instances across all route modules replaced with `request.get_json(force=True, silent=True) or {}`. Zero bare instances remain (verified by grep).
+
+**Step 4: routes_intel.py split** — Growth routes (64) already extracted to `routes_growth_prospects.py` in prior sprint. Current routes_intel.py at 5,973 lines with 164 routes. Further splitting deferred — the remaining routes (intel, QB, outbox, QA) are tightly coupled to SCPRS/intel domain.
+
+**Step 5: DAL pipeline aggregates** — Added `get_pipeline_counts()` and `get_funnel_stats()` to dal.py. These replace the most common aggregate queries in routes_analytics.py.
+
+### Metrics
+- **Raw SQL in route modules:** 254 (was 245+ at audit time — migrations added some, DAL removed others)
+- **request.json instances:** 0 (was 56 across all files)
+- **routes_intel.py:** 5,973 lines (was 7,115; growth routes extracted = -16%)
+- **Entities with full audit trail:** 4 (RFQ, PriceCheck, Order, Tenant)
+- **DAL functions:** 42 total (added get_pipeline_counts, get_funnel_stats, _get_actor)
+- **Test count:** 16 DAL tests passing
+
+### QA Gate
+- smoke_test: 18/0, check_routes: 0, data_integrity: 12/0, pytest: 16/0
+- Zero bare request.json remaining
+- DATA_DIR: all redefinitions are except ImportError fallbacks

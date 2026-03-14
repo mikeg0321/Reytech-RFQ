@@ -87,7 +87,7 @@ def api_customers():
 @auth_required
 def api_customers_add():
     """Add a new customer. User confirms before saving."""
-    data = request.json
+    data = request.get_json(force=True, silent=True) or {}
     if not data or not data.get("display_name"):
         return jsonify({"ok": False, "error": "display_name required"})
     customers = _load_customers()
@@ -617,7 +617,7 @@ def api_debug_env_check():
 def api_set_serpapi_key():
     """Store SerpApi key on persistent volume (bypasses Railway env var issues)."""
     if request.method == "POST":
-        key = request.json.get("key", "") if request.is_json else request.args.get("key", "")
+        key = (request.get_json(force=True, silent=True) or {}).get("key", "") if request.is_json else request.args.get("key", "")
     else:
         key = request.args.get("key", "")
     if not key:
@@ -681,9 +681,9 @@ def api_pricecheck_process():
         f = request.files["file"]
         pdf_path = os.path.join(DATA_DIR, f"pc_upload_{_safe_filename(f.filename)}")
         f.save(pdf_path)
-    elif request.is_json and request.json.get("pdf_path"):
+    elif request.is_json and (request.get_json(force=True, silent=True) or {}).get("pdf_path"):
         try:
-            pdf_path = _validate_pdf_path(request.json["pdf_path"])
+            pdf_path = _validate_pdf_path((request.get_json(force=True, silent=True) or {}).get("pdf_path", ""))
         except ValueError as _e:
             return jsonify({"error": f"Invalid pdf_path: {_e}"}), 400
     else:
@@ -691,7 +691,7 @@ def api_pricecheck_process():
 
     tax_rate = 0.0
     if request.is_json:
-        tax_rate = float(request.json.get("tax_rate", 0.0))
+        tax_rate = float((request.get_json(force=True, silent=True) or {}).get("tax_rate", 0.0))
     elif request.form.get("tax_rate"):
         tax_rate = float(request.form.get("tax_rate", 0.0))
 
@@ -1328,7 +1328,7 @@ def quote_update_status(quote_number):
     """Mark a quote as won, lost, or pending. Triggers won workflow if applicable."""
     if not QUOTE_GEN_AVAILABLE:
         return jsonify({"ok": False, "error": "Quote generator not available"})
-    data = request.json or request.form
+    data = request.get_json(force=True, silent=True) or request.form
     new_status = data.get("status", "").lower()
     po_number = data.get("po_number", "")
     notes = data.get("notes", "")

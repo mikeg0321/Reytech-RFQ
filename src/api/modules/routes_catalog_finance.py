@@ -609,7 +609,7 @@ def api_catalog_freshness_report():
         return jsonify({"ok": False, "error": "Catalog not available"})
     try:
         init_catalog_db()
-        items = request.json.get("items", [])
+        items = (request.get_json(force=True, silent=True) or {}).get("items", [])
         report = get_freshness_report(items)
         return jsonify({"ok": True, "items": report})
     except Exception as e:

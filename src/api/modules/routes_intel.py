@@ -58,7 +58,7 @@ def api_intel_pull_all():
     """Trigger full SCPRS pull for ALL agencies in background."""
     try:
         from src.agents.scprs_intelligence_engine import pull_all_agencies_background
-        priority = (request.json or {}).get("priority", "P0")
+        priority = (request.get_json(force=True, silent=True) or {}).get("priority", "P0")
         result = pull_all_agencies_background(notify_fn=_notify_wrapper, priority_filter=priority)
         return jsonify({"ok": True, **result})
     except Exception as e:
@@ -792,7 +792,7 @@ def api_scprs_universal_pull():
     """Trigger full SCPRS pull for all agencies."""
     try:
         from src.agents.scprs_universal_pull import pull_background
-        priority = (request.json or {}).get("priority", "P0")
+        priority = (request.get_json(force=True, silent=True) or {}).get("priority", "P0")
         result = pull_background(priority=priority)
         _notify_wrapper("bell", f"SCPRS universal pull started ({priority})", "info")
         return jsonify({"ok": True, **result})
@@ -904,7 +904,7 @@ def api_cchcs_intel_pull():
     """Trigger CCHCS SCPRS purchasing data pull in background."""
     try:
         from src.agents.cchcs_intel_puller import pull_in_background
-        priority = request.json.get("priority", "P0") if request.is_json else "P0"
+        priority = (request.get_json(force=True, silent=True) or {}).get("priority", "P0") if request.is_json else "P0"
         result = pull_in_background(priority=priority)
         _notify_wrapper("bell", f"CCHCS intel pull started (priority={priority})", "info")
         return jsonify({"ok": True, **result})
@@ -3291,7 +3291,7 @@ def api_workflow_run():
     """Execute a named workflow pipeline."""
     if not ORCHESTRATOR_AVAILABLE:
         return jsonify({"ok": False, "error": "Orchestrator not available"})
-    data = request.json or {}
+    data = request.get_json(force=True, silent=True) or {}
     name = data.get("workflow", "")
     inputs = data.get("inputs", {})
     if not name:
