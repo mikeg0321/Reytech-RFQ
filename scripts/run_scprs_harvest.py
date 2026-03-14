@@ -170,23 +170,34 @@ def build_buyer_intel(conn, dry_run=False):
     count = 0
     now = datetime.now(timezone.utc).isoformat()
     for r in rows:
-        # Collect items purchased for this buyer (from line items + PO search terms)
-        items = conn.execute("""
-            SELECT DISTINCT l.description FROM scprs_po_lines l
-            JOIN scprs_po_master m ON l.po_id = m.id
-            WHERE m.buyer_email = ? AND l.description != '' LIMIT 20
-        """, (r["buyer_email"],)).fetchall()
-        item_list = [i["description"][:100] for i in items]
-        # Fallback: use search_term from PO master if no line items
-        if not item_list:
+        # Collect items purchased for this buyer
+        buyer_items = []
+        # Step 1: Get PO IDs for this buyer
+        buyer_pos = conn.execute(
+            "SELECT id FROM scprs_po_master WHERE buyer_email = ?",
+            (r["buyer_email"],)).fetchall()
+        po_ids = [p[0] for p in buyer_pos]
+        # Step 2: Get line items from those POs
+        if po_ids:
+            placeholders = ",".join("?" * len(po_ids))
+            lines = conn.execute(f"""
+                SELECT DISTINCT description FROM scprs_po_lines
+                WHERE po_id IN ({placeholders})
+                  AND description != '' AND unit_price > 0
+                LIMIT 50
+            """, po_ids).fetchall()
+            buyer_items = [l[0][:100] for l in lines]
+        # Fallback: use search terms if no line items found
+        if not buyer_items:
             terms = conn.execute("""
                 SELECT DISTINCT search_term FROM scprs_po_master
                 WHERE buyer_email = ? AND search_term IS NOT NULL
                   AND search_term != '' AND search_term NOT LIKE 'SUPPLIER:%'
-                LIMIT 10
+                  AND search_term NOT LIKE 'FULL:%'
+                LIMIT 20
             """, (r["buyer_email"],)).fetchall()
-            item_list = [t["search_term"][:100] for t in terms]
-        items_json = json.dumps(item_list)
+            buyer_items = [t[0][:100] for t in terms]
+        items_json = json.dumps(buyer_items)
 
         conn.execute("""
             INSERT OR REPLACE INTO buyer_intel
@@ -226,16 +237,22 @@ def build_competitors(conn, dry_run=False):
         log.info("[DRY RUN] Would insert %d competitor rows", len(rows))
         return len(rows)
 
+    # Get total PO count for win_rate percentage
+    total_pos = conn.execute("SELECT COUNT(*) FROM scprs_po_master").fetchone()[0] or 1
+
     count = 0
     now = datetime.now(timezone.utc).isoformat()
     for r in rows:
+        win_count = r["total_wins"] or 0
+        win_rate = round((win_count / total_pos) * 100, 1) if total_pos > 0 else None
+        win_rate = min(win_rate, 100.0) if win_rate is not None else None
         conn.execute("""
             INSERT OR REPLACE INTO competitors
             (vendor_name, vendor_code, primary_agencies, primary_categories,
              win_rate, last_win, tenant_id, updated_at)
             VALUES (?,?,?,?,?,?,'reytech',?)
         """, (r["vendor_name"], r["vendor_code"], r["primary_agencies"],
-              r["primary_categories"], r["total_wins"], r["last_win"], now))
+              r["primary_categories"], win_rate, r["last_win"], now))
         count += 1
     conn.commit()
     log.info("competitors: %d rows written", count)
