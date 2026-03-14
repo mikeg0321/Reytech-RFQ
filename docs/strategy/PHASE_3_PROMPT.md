@@ -677,3 +677,59 @@ Phase 4 = Proactive outreach agent (surfaces opportunities
           based on win rate data), QB revenue sync
           verified against oracle win records.
 ```
+
+---
+
+## Compliance Feature Spec (reference for Step A3 + A4)
+
+### What it tracks
+Every item that has a date or expiry tied to Reytech's
+ability to bid on contracts:
+
+| Item | Current Value | Alert Window |
+|------|--------------|--------------|
+| CA Statement of Info | Due 06/30/2024 (OVERDUE) | 60 days before |
+| DVBE #2002605 | No expiry on file | Verify annually |
+| SB/MB #2002605 | No expiry on file | Verify annually |
+| SDVOB NY #221449 | No expiry on file | Verify annually |
+| DBE DOT #44511 | No expiry on file | Verify annually |
+| Business license renewal | Unknown | 90 days before |
+| Insurance certificates | Unknown | 90 days before |
+
+### Alert severity levels
+- CRITICAL (red): overdue OR expires within 30 days
+  → Show banner on every page, not just settings
+  → SMS alert to notify_phone
+- WARNING (yellow): expires within 60-90 days
+  → Show on home dashboard compliance card
+- INFO (gray): upcoming in 90-180 days
+  → Show on settings compliance section only
+
+### Why this matters for bids
+- Lapsed DVBE = cannot bid on DVBE set-aside contracts
+- Lapsed SB = cannot bid on small business set-asides
+- Expired DBE = cannot bid on DOT-funded projects
+- Missing Statement of Info = CA SOS may suspend entity
+
+### Feature scope (Phase 3 Step A3/A4)
+1. Compliance card on home dashboard
+   - Shows count of critical/warning/info items
+   - Click → expands detail
+   - "Mark resolved" button per item
+
+2. Settings > Business Profile > Compliance section
+   - Full table of all tracked items
+   - Editable expiry dates
+   - "Add compliance item" for custom items
+     (insurance, bonding, local business licenses)
+   - Last verified date per item
+   - Link to renewal portal where available
+
+3. Automated reminders
+   - Weekly compliance check runs as scheduler job
+   - SMS alert when item moves to CRITICAL
+   - Never alerts more than once per day per item
+
+4. Compliance health in /api/v1/health
+   - Machine-readable for future MCP tool access
+   - "compliance_health": "ok|warning|critical"
