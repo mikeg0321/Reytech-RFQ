@@ -164,6 +164,19 @@ async def _scrape_detail_async(supplier_name="reytech",
                     log.info("Browser: clicking %s", link_id)
                     await link.click()
 
+                    # Wait a moment for modal to start loading
+                    await page.wait_for_timeout(3000)
+
+                    # Screenshot to see what browser shows
+                    try:
+                        await page.screenshot(
+                            path="/data/scprs_click.png",
+                            full_page=True
+                        )
+                        log.info("Browser: screenshot saved to /data/scprs_click.png")
+                    except Exception as ss_err:
+                        log.warning("Browser: screenshot failed: %s", ss_err)
+
                     # Wait for detail content to appear
                     try:
                         await page.wait_for_selector(
