@@ -1977,6 +1977,70 @@ def api_v1_populate_catalog():
         return api_response(error=f"{e}\n{traceback.format_exc()}", status=500)
 
 
+@bp.route("/api/v1/buyers/refresh")
+@auth_required
+def api_v1_buyers_refresh():
+    """Rebuild all buyer profiles from FI$Cal data."""
+    from src.agents.buyer_intelligence import refresh_buyer_profiles
+    count = refresh_buyer_profiles()
+    return api_response({"buyers_updated": count})
+
+
+@bp.route("/api/v1/buyers/prospects")
+@auth_required
+def api_v1_buyers_prospects():
+    """Get ranked prospect list for outreach."""
+    from src.agents.buyer_intelligence import get_top_prospects
+    limit = int(request.args.get("limit", "50"))
+    min_score = float(request.args.get("min_score", "20"))
+    new_only = request.args.get("new_only", "false").lower() == "true"
+    prospects = get_top_prospects(limit=limit, min_score=min_score, exclude_customers=new_only)
+    return api_response({"prospects": prospects, "count": len(prospects)})
+
+
+@bp.route("/api/v1/buyers/profile/<path:email>")
+@auth_required
+def api_v1_buyer_profile(email):
+    """Get full buyer profile with history and Reytech overlap."""
+    from src.agents.buyer_intelligence import get_buyer_profile
+    profile = get_buyer_profile(email)
+    if not profile:
+        return api_response(error=f"Buyer {email} not found", status=404)
+    return api_response(profile)
+
+
+@bp.route("/api/v1/buyers/search")
+@auth_required
+def api_v1_buyers_search():
+    """Search buyers by name, department, or category."""
+    import sqlite3
+    from src.core.db import DB_PATH
+    q = request.args.get("q", "")
+    if not q:
+        return api_response(error="No query", status=400)
+    db = sqlite3.connect(DB_PATH, timeout=10)
+    rows = db.execute("""
+        SELECT buyer_email, buyer_name, department,
+               total_pos, total_spend, prospect_score,
+               relationship_status, top_categories
+        FROM scprs_buyers
+        WHERE LOWER(buyer_name) LIKE ?
+           OR LOWER(department) LIKE ?
+           OR LOWER(top_categories) LIKE ?
+           OR LOWER(buyer_email) LIKE ?
+        ORDER BY prospect_score DESC LIMIT 25
+    """, (f"%{q.lower()}%",) * 4).fetchall()
+    db.close()
+    return api_response({
+        "query": q,
+        "results": [{
+            "email": r[0], "name": r[1], "department": r[2],
+            "total_pos": r[3], "total_spend": r[4],
+            "prospect_score": r[5], "status": r[6], "categories": r[7],
+        } for r in rows],
+    })
+
+
 @bp.route("/api/v1/quote/intelligence", methods=["POST"])
 @auth_required
 def api_v1_quote_intelligence():

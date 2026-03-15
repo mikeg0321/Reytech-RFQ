@@ -561,6 +561,14 @@ def _store_results(batch, seen_pos):
 
     log.info("Stored: %d POs, %d lines -> DB | %d -> Won Quotes | %d -> Catalog",
              stored_pos, stored_lines, won_quotes, catalog_items)
+
+    # Refresh buyer profiles after storing new data
+    try:
+        from src.agents.buyer_intelligence import refresh_buyer_profiles
+        refresh_buyer_profiles()
+    except Exception as e:
+        log.warning("Buyer refresh failed: %s", str(e)[:60])
+
     return stored_lines
 
 

@@ -832,6 +832,41 @@ CREATE TABLE IF NOT EXISTS scprs_catalog (
     product_image_url  TEXT DEFAULT '',
     updated_at      TEXT DEFAULT ''
 );
+
+CREATE TABLE IF NOT EXISTS scprs_buyers (
+    buyer_email         TEXT PRIMARY KEY,
+    buyer_name          TEXT DEFAULT '',
+    department          TEXT DEFAULT '',
+    dept_code           TEXT DEFAULT '',
+    total_pos           INTEGER DEFAULT 0,
+    total_spend         REAL DEFAULT 0,
+    total_line_items    INTEGER DEFAULT 0,
+    first_po_date       TEXT DEFAULT '',
+    last_po_date        TEXT DEFAULT '',
+    top_categories      TEXT DEFAULT '',
+    buys_from_reytech   INTEGER DEFAULT 0,
+    reytech_spend       REAL DEFAULT 0,
+    reytech_last_date   TEXT DEFAULT '',
+    relationship_status TEXT DEFAULT 'unknown',
+    prospect_score      REAL DEFAULT 0,
+    outreach_status     TEXT DEFAULT 'none',
+    outreach_last_date  TEXT DEFAULT '',
+    outreach_response   TEXT DEFAULT '',
+    notes               TEXT DEFAULT '',
+    updated_at          TEXT DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS scprs_buyer_items (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    buyer_email     TEXT NOT NULL,
+    po_number       TEXT DEFAULT '',
+    description     TEXT DEFAULT '',
+    unit_price      TEXT DEFAULT '',
+    quantity        TEXT DEFAULT '',
+    supplier        TEXT DEFAULT '',
+    date            TEXT DEFAULT '',
+    UNIQUE(buyer_email, po_number, description)
+);
 """
 
 def init_db():
