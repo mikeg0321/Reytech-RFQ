@@ -391,13 +391,13 @@ class FiscalSession:
         return None
 
     def get_detail(self, results_html, row_index, click_action=None):
-        """Click result row on SCPRS1, then navigate to detail page."""
+        """Click result row on SCPRS1 — parse modal response for detail data."""
         if not click_action:
             click_action = f"ZZ_SCPR_RSLT_VW$hmodal${row_index}"
 
         current_html = self._last_html or results_html
 
-        # Step 1: Modal click to set PO context server-side
+        # Modal click — the 553KB response contains PO data
         search_values = {}
         for fld in ALL_SEARCH_FIELDS:
             m = re.search(rf"name='{re.escape(fld)}'[^>]*value=\"([^\"]*)\"", current_html)
@@ -410,47 +410,79 @@ class FiscalSession:
             if modal_r.status_code != 200:
                 return None
 
-            # Step 2: Navigate to ZZ_SCPRS_RD_PG — the DETAIL page
-            # within ZZ_SCPRS1_CMP (same component, different page)
-            DETAIL_PAGE_URL = (
-                "https://suppliers.fiscal.ca.gov/psc/"
-                "psfpd1/SUPPLIER/ERP/c/"
-                "ZZ_PO.ZZ_SCPRS1_CMP.GBL"
-                "?page=ZZ_SCPRS_RD_PG&"
-            )
-            r = self.session.get(DETAIL_PAGE_URL, timeout=20)
-            has_pdl = "ZZ_SCPR_PDL_DVW" in r.text
-            has_sbp = "ZZ_SCPR_SBP_WRK" in r.text
-            log.info("Detail RD_PG GET: %db has_PDL=%s has_SBP=%s",
-                     len(r.content), has_pdl, has_sbp)
+            modal_html = modal_r.text
+            has_pdl = "ZZ_SCPR_PDL_DVW" in modal_html
 
-            if r.status_code == 200:
-                # Log what ZZ_ prefixes exist
-                _zz = set()
-                _soup = BeautifulSoup(r.text, "html.parser")
-                for el in _soup.find_all(id=re.compile(r'^ZZ_')):
-                    base = re.sub(r'\$\d+$', '', el.get("id", ""))
-                    _zz.add(base)
-                log.info("Detail RD_PG ZZ prefixes: %s", sorted(_zz))
+            # Try standard detail parse first
+            if has_pdl:
+                log.info("Detail POST: %db has_PDL_DVW=True", len(modal_html))
+                return self._parse_detail(modal_html)
 
-                # Look for dollar amounts
-                _dollars = re.findall(r'\$[\d,]+\.\d{2}', r.text)
-                log.info("Detail RD_PG dollar amounts: %d found, first 5: %s",
-                         len(_dollars), _dollars[:5])
+            # Parse the modal response for detail data using ZZ_SCPR_RD_DVW IDs
+            # (modal uses RD_DVW prefix instead of PDL_DVW for line items)
+            soup = BeautifulSoup(modal_html, "html.parser")
 
-                # Try parsing as detail page
-                if has_pdl:
-                    return self._parse_detail(r.text)
+            def get_span(id_val):
+                el = soup.find(id=id_val)
+                return el.get_text(strip=True) if el else ""
 
-                # Try parsing even without PDL_DVW
-                result = self._parse_detail(r.text)
-                if result and result.get("line_items"):
-                    return result
+            # Find all ZZ_ prefixes that contain data (for discovery)
+            zz_with_data = set()
+            for el in soup.find_all(id=re.compile(r'^ZZ_.*\$0$')):
+                text = el.get_text(strip=True)
+                if text and text != "\xa0":
+                    zz_with_data.add(el.get("id", ""))
+            if zz_with_data:
+                log.info("Modal $0 elements with data: %s", sorted(zz_with_data))
 
-                # Log preview for debugging
-                _title = re.search(r'<title>([^<]*)</title>', r.text)
-                log.info("Detail RD_PG title: %s, size: %d",
-                         _title.group(1)[:80] if _title else "?", len(r.text))
+            # Extract PO numbers
+            po_nums = re.findall(r'4500\d{6}', modal_html)
+
+            # Try RD_DVW prefix for line items (confirmed from earlier scprs-raw)
+            line_items = []
+            for prefix in ["ZZ_SCPR_RD_DVW", "ZZ_SCPR_PDL_DVW", "ZZ_SCPR_RSLT_VW"]:
+                i = 0
+                while True:
+                    desc = get_span(f"{prefix}_DESCR254_MIXED${i}")
+                    if not desc:
+                        desc = get_span(f"{prefix}_DESCR254${i}")
+                    if not desc:
+                        break
+                    up_raw = get_span(f"{prefix}_UNIT_PRICE${i}")
+                    lt_raw = get_span(f"{prefix}_LINE_TOTAL${i}")
+                    qty_raw = get_span(f"{prefix}_QUANTITY${i}")
+                    up = _parse_dollar(up_raw) or 0.0
+                    qty = _parse_dollar(qty_raw) or 0.0
+                    line_items.append({
+                        "line_num": i + 1,
+                        "item_id": get_span(f"{prefix}_INV_ITEM_ID${i}"),
+                        "description": desc,
+                        "unit_price": up, "unit_price_num": up,
+                        "quantity": qty, "quantity_num": qty,
+                        "line_total": _parse_dollar(lt_raw) or 0.0,
+                    })
+                    i += 1
+                if line_items:
+                    log.info("Detail: %d lines from prefix %s", len(line_items), prefix)
+                    break
+
+            # Extract header info
+            po_number = po_nums[0] if po_nums else ""
+            buyer_name = get_span("ZZ_SCPR_SBP_WRK_BUYER_DESCR") or get_span("ZZ_SCPR_RD_DVW_BUYER_DESCR$0")
+            buyer_email = get_span("ZZ_SCPR_SBP_WRK_EMAILID") or get_span("ZZ_SCPR_RD_DVW_EMAILID$0")
+            acq_method = get_span("ZZ_SCPR_SBP_WRK_ZZ_ACQ_MTHD")
+
+            log.info("Detail: PO=%s, %d lines, buyer=%s", po_number, len(line_items), buyer_name)
+
+            header = {
+                "po_number": po_number, "buyer_name": buyer_name,
+                "buyer_email": buyer_email, "acq_method": acq_method,
+            }
+            return {
+                "header": header, "po_number": po_number,
+                "buyer_name": buyer_name, "buyer_email": buyer_email,
+                "acq_method": acq_method, "line_items": line_items,
+            }
 
         except Exception as e:
             log.error("Detail click failed: %s", e)
