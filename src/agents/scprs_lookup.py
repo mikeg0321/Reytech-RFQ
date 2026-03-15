@@ -335,18 +335,31 @@ class FiscalSession:
             if r2.status_code == 200 and has_pdl:
                 return self._parse_detail(r2.text)
 
-            # If search returned results, click row 0
-            if r2.status_code == 200 and "1 to" in r2.text:
+            # Discover clickable result links in search response
+            if r2.status_code == 200:
+                _soup2 = _BS(r2.text, "html.parser")
+                _links2 = [a.get("id", "") for a in _soup2.find_all("a")
+                           if "RSLT" in (a.get("id") or "") or "SCPR" in (a.get("id") or "")]
+                log.info("SCPRS2 result links: %s", _links2[:10])
+
+                # Click row 0 directly
                 click_sv = {}
                 for fld in ALL_SEARCH_FIELDS:
                     m2 = re.search(rf"name='{re.escape(fld)}'[^>]*value=\"([^\"]*)\"", r2.text)
                     click_sv[fld] = m2.group(1) if m2 else ""
-                click_data = self._build_form_data(r2.text, "ZZ_SCPR_RSLT_VW$0", click_sv)
+
+                # Try the first RSLT link found, or default to ZZ_SCPR_RSLT_VW$0
+                click_id = "ZZ_SCPR_RSLT_VW$0"
+                for lid in _links2:
+                    if "RSLT" in lid and "$0" in lid:
+                        click_id = lid
+                        break
+                click_data = self._build_form_data(r2.text, click_id, click_sv)
 
                 r3 = s2.post(SCPRS_DETAIL_URL, data=click_data, timeout=20)
                 has_pdl3 = "ZZ_SCPR_PDL_DVW" in r3.text
-                log.info("Detail POST: %db has_PDL_DVW=%s (SCPRS2 click PO=%s)",
-                         len(r3.text), has_pdl3, po_number)
+                log.info("Detail POST: %db has_PDL_DVW=%s (SCPRS2 click %s PO=%s)",
+                         len(r3.text), has_pdl3, click_id, po_number)
                 if r3.status_code == 200:
                     return self._parse_detail(r3.text)
         except Exception as e:
