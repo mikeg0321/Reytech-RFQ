@@ -186,6 +186,7 @@ class FiscalSession:
         self.icsid = None
         self.initialized = False
         self._last_html = None
+        self._last_state_num = None
 
     def _load_page(self, max_attempts=3):
         url = f"{SCPRS_SEARCH_URL}?&"
@@ -273,20 +274,33 @@ class FiscalSession:
         self._last_html = html
         new_id = self._extract_icsid(html)
         if new_id: self.icsid = new_id
+        # Store current ICStateNum from search response for detail clicks
+        self._last_state_num = self._extract_state_num(html)
+        log.info("Search: ICSID=%s ICStateNum=%s", self.icsid, self._last_state_num)
         return self._parse_results(html)
 
     def get_detail(self, results_html, row_index, click_action=None):
-        """Click into a result row — the POST response IS the detail page."""
+        """Click into a result row — uses current session state, not stale HTML."""
         if not click_action:
             click_action = f"ZZ_SCPR_RSLT_VW${row_index}"
 
-        log.info("Detail click: %s", click_action)
+        # Use the LATEST search results HTML for form data (has current ICStateNum)
+        current_html = self._last_html or results_html
 
         search_values = {}
         for fld in ALL_SEARCH_FIELDS:
-            m = re.search(rf"name='{re.escape(fld)}'[^>]*value=\"([^\"]*)\"", results_html)
+            m = re.search(rf"name='{re.escape(fld)}'[^>]*value=\"([^\"]*)\"", current_html)
             search_values[fld] = m.group(1) if m else ""
-        form_data = self._build_form_data(results_html, click_action, search_values)
+
+        form_data = self._build_form_data(current_html, click_action, search_values)
+        # Override with stored state if available (most current values)
+        if hasattr(self, "_last_state_num") and self._last_state_num:
+            form_data["ICStateNum"] = self._last_state_num
+        if self.icsid:
+            form_data["ICSID"] = self.icsid
+
+        log.info("Detail click: %s ICStateNum=%s ICSID=%s",
+                 click_action, form_data.get("ICStateNum"), form_data.get("ICSID", "?")[:8])
         try:
             r = self.session.post(SCPRS_SEARCH_URL, data=form_data, timeout=20)
             has_pdl = "ZZ_SCPR_PDL_DVW" in r.text
@@ -294,7 +308,6 @@ class FiscalSession:
                      r.status_code, len(r.text), has_pdl)
             if r.status_code == 200 and has_pdl:
                 return self._parse_detail(r.text)
-            # POST response lacks line items — try GET to detail URL as fallback
             if r.status_code == 200 and not has_pdl:
                 log.info("POST lacked PDL_DVW, trying GET to detail URL")
                 try:
