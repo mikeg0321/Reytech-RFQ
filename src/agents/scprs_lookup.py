@@ -49,7 +49,7 @@ except ImportError:
 
 SCPRS_BASE = "https://suppliers.fiscal.ca.gov"
 SCPRS_SEARCH_URL = f"{SCPRS_BASE}/psc/psfpd1/SUPPLIER/ERP/c/ZZ_PO.ZZ_SCPRS1_CMP.GBL"
-SCPRS_DETAIL_URL = f"{SCPRS_BASE}/psc/psfpd1_1/SUPPLIER/ERP/c/ZZ_PO.ZZ_SCPRS2_CMP.GBL?Page=ZZ_SCPRS_PDDTL_PG&Action=U"
+SCPRS_DETAIL_URL = f"{SCPRS_BASE}/psc/psfpd1/SUPPLIER/ERP/c/ZZ_PO.ZZ_SCPRS2_CMP.GBL?Page=ZZ_SCPRS_PDDTL_PG&Action=U"
 
 # Search form fields
 FIELD_DESCRIPTION = "ZZ_SCPRS_SP_WRK_DESCR254"
@@ -391,7 +391,7 @@ class FiscalSession:
         return None
 
     def get_detail(self, results_html, row_index, click_action=None):
-        """Modal click on SCPRS1 to get PO number, then SCPRS2 for detail."""
+        """Modal click on SCPRS1 to get PO, then search SCPRS2 for detail."""
         if not click_action:
             click_action = f"ZZ_SCPR_RSLT_VW$hmodal${row_index}"
 
@@ -410,22 +410,24 @@ class FiscalSession:
             if modal_r.status_code != 200:
                 return None
 
-            # Modal click set PO context server-side — GET detail page immediately
-            DETAIL_URL = (
-                "https://suppliers.fiscal.ca.gov/psc/"
-                "psfpd1_1/SUPPLIER/ERP/c/"
-                "ZZ_PO.ZZ_SCPRS2_CMP.GBL"
-                "?Page=ZZ_SCPRS_PDDTL_PG&Action=U"
-            )
-            r = self.session.get(DETAIL_URL, timeout=20)
-            has_pdl = "ZZ_SCPR_PDL_DVW" in r.text
-            log.info("Detail GET: %db has_PDL_DVW=%s", len(r.content), has_pdl)
-            if r.status_code == 200 and has_pdl:
-                return self._parse_detail(r.text)
-            if r.status_code == 200:
-                result = self._parse_detail(r.text)
-                if result and result.get("line_items"):
-                    return result
+            # Extract PO number from modal response
+            po_nums = re.findall(r'4500\d{6}', modal_r.text)
+            if not po_nums:
+                log.warning("Modal returned no PO numbers (%db)", len(modal_r.text))
+                return None
+            po_number = po_nums[0]
+            log.info("Modal extracted PO=%s, delegating to get_po_detail", po_number)
+
+            # Step 2: Use get_po_detail to search SCPRS2 by PO number
+            detail = self.get_po_detail(po_number)
+            if detail:
+                log.info("Detail via SCPRS2: PO=%s, %d lines, buyer=%s",
+                         detail.get("header", {}).get("po_number", ""),
+                         len(detail.get("line_items", [])),
+                         detail.get("header", {}).get("buyer_name", ""))
+            else:
+                log.warning("get_po_detail returned None for PO=%s", po_number)
+            return detail
 
         except Exception as e:
             log.error("Detail click failed: %s", e)
