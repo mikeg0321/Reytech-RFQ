@@ -749,19 +749,6 @@ def api_v1_db_info():
     return api_response(info)
 
 
-@bp.route("/api/v1/harvest/ca-sync")
-@auth_required
-def api_v1_harvest_ca_sync():
-    """Run CA harvest SYNCHRONOUSLY with full error output. Use for debugging."""
-    try:
-        from src.core.pull_orchestrator import PullOrchestrator
-        result = PullOrchestrator().run_connector("ca_scprs")
-        return api_response(result)
-    except Exception as e:
-        import traceback
-        log.error("CA harvest sync: %s", e, exc_info=True)
-        return api_response(error=str(e), status=500)
-
 
 @bp.route("/api/v1/harvest/rebuild-intel")
 @auth_required
@@ -1229,9 +1216,13 @@ def api_v1_backfill_details():
                     LIMIT 200
                 """).fetchall()
 
-                log.info("Backfill: %d POs need detail pages", len(pos))
+                total = len(pos)
+                log.info("Backfill: %d POs need detail pages", total)
                 filled = 0
-                for po in pos:
+                lines_inserted = 0
+                for i, po in enumerate(pos):
+                    if i % 10 == 0:
+                        log.info("Backfill: %d/%d POs, %d lines so far", i, total, lines_inserted)
                     # We need to search for this PO to get the results page,
                     # then click into it. Search by supplier + date range.
                     try:
@@ -1244,8 +1235,12 @@ def api_v1_backfill_details():
                                 (r.get("supplier_name", "") == po["supplier"] and
                                  abs(float(r.get("grand_total_num", 0) or 0)) > 0)):
                                 if r.get("_results_html") and r.get("_row_index") is not None:
-                                    detail = connector.session.get_detail(
-                                        r["_results_html"], r["_row_index"])
+                                    try:
+                                        detail = connector.session.get_detail(
+                                            r["_results_html"], r["_row_index"])
+                                    except Exception as e:
+                                        log.warning("Detail fetch timeout/error for %s: %s", po["po_number"], e)
+                                        detail = {"line_items": [], "buyer_name": None}
                                     if detail and detail.get("line_items"):
                                         po_id = po["id"]
                                         for idx, item in enumerate(detail["line_items"]):
@@ -1262,6 +1257,7 @@ def api_v1_backfill_details():
                                                   item.get("quantity_num", 0) or 0,
                                                   _parse_dollar_safe(item.get("line_total", "0")),
                                                   "other"))
+                                            lines_inserted += 1
                                         # Update buyer info
                                         header = detail.get("header", {})
                                         if header.get("buyer_name"):
@@ -1277,7 +1273,7 @@ def api_v1_backfill_details():
                         log.debug("Backfill PO %s: %s", po["po_number"], e)
 
                 conn.close()
-                log.info("Backfill complete: %d/%d POs got detail", filled, len(pos))
+                log.info("Backfill complete: %d/%d POs got detail, %d lines inserted", filled, total, lines_inserted)
             except Exception as e:
                 log.error("Backfill error: %s", e, exc_info=True)
 

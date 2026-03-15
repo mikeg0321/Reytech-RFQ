@@ -190,7 +190,7 @@ class FiscalSession:
         url = f"{SCPRS_SEARCH_URL}?&"
         page = ""
         for attempt in range(1, max_attempts + 1):
-            r = self.session.get(url, timeout=15, allow_redirects=True)
+            r = self.session.get(url, timeout=20, allow_redirects=True)
             page = r.text
             log.info(f"SCPRS load {attempt}: {r.status_code} ({len(page)}b)")
             if "ZZ_SCPRS" in page or "ICSID" in page:
@@ -262,7 +262,7 @@ class FiscalSession:
         form_data = self._build_form_data(page, SEARCH_BUTTON, search_values)
 
         try:
-            r = self.session.post(SCPRS_SEARCH_URL, data=form_data, timeout=30)
+            r = self.session.post(SCPRS_SEARCH_URL, data=form_data, timeout=20)
             log.info(f"SCPRS search '{description}': {r.status_code} ({len(r.text)}b)")
         except Exception as e:
             log.error(f"SCPRS search POST: {e}")
@@ -288,7 +288,7 @@ class FiscalSession:
             search_values[fld] = m.group(1) if m else ""
         form_data = self._build_form_data(results_html, click_action, search_values)
         try:
-            r = self.session.post(SCPRS_SEARCH_URL, data=form_data, timeout=30)
+            r = self.session.post(SCPRS_SEARCH_URL, data=form_data, timeout=20)
             log.info(f"SCPRS detail row {row_index}: {r.status_code} ({len(r.text)}b)")
             if r.status_code == 200:
                 return self._parse_detail(r.text)
