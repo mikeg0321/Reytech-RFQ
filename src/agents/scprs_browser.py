@@ -216,49 +216,76 @@ async def _scrape_detail_async(supplier_name="reytech",
                     # Click the first PO link to get detail page
                     po_text = await po_link.first.text_content()
                     log.info("Browser: clicking PO link: %s", po_text)
-                    await po_link.first.click()
 
-                    # Screenshot step 2: after PO click
-                    await page.wait_for_timeout(2000)
+                    # PO click may open new window to SCPRS2 detail
+                    detail_page = None
+                    try:
+                        async with page.context.expect_page(timeout=15000) as new_page_info:
+                            await po_link.first.click()
+                        detail_page = await new_page_info.value
+                        await detail_page.wait_for_load_state("networkidle")
+                        log.info("Browser: NEW WINDOW opened! url=%s",
+                                 detail_page.url[:120])
+                    except Exception as e:
+                        log.info("Browser: no new window (%s), checking frames", str(e)[:60])
+                        await page.wait_for_timeout(5000)
+
+                    # Screenshot step 2
                     await page.screenshot(
                         path=f"/data/scprs_step2_po_click_{row_idx}.png",
                         full_page=True
                     )
 
-                    # Wait for detail page to load
-                    try:
-                        await modal_frame.wait_for_selector(
-                            "[id^='ZZ_SCPR_PDL_DVW'], [id^='ZZ_SCPR_SBP_WRK']",
-                            timeout=15000
+                    # If new window opened, check it for detail
+                    if detail_page:
+                        dp_content = await detail_page.content()
+                        log.info("Browser: new window %db PDL=%s SBP=%s",
+                                 len(dp_content),
+                                 "ZZ_SCPR_PDL_DVW" in dp_content,
+                                 "ZZ_SCPR_SBP_WRK" in dp_content)
+                        await detail_page.screenshot(
+                            path=f"/data/scprs_step3_detail_{row_idx}.png",
+                            full_page=True
                         )
-                        log.info("Browser: detail content appeared!")
-                    except Exception:
-                        await page.wait_for_timeout(3000)
-                        log.info("Browser: waited 3s for detail")
 
-                    # Screenshot step 3: detail loaded
-                    await page.screenshot(
-                        path=f"/data/scprs_step3_detail_{row_idx}.png",
-                        full_page=True
-                    )
-
-                    # Check all frames for detail content
-                    for fi, f in enumerate(page.frames):
-                        fc = await f.content()
-                        has_pdl = "ZZ_SCPR_PDL_DVW" in fc
-                        has_sbp = "ZZ_SCPR_SBP_WRK" in fc
-                        log.info("Browser: post-PO-click frame[%d] %db PDL=%s SBP=%s",
-                                 fi, len(fc), has_pdl, has_sbp)
-
-                        if has_pdl:
-                            detail = _parse_browser_detail(fc)
+                        if "ZZ_SCPR_PDL_DVW" in dp_content:
+                            detail = _parse_browser_detail(dp_content)
                             if detail and detail.get("line_items"):
                                 detail["source"] = "scprs_browser"
                                 results.append(detail)
-                                log.info("Browser: GOT LINE ITEMS! PO=%s %d lines buyer=%s",
+                                log.info("Browser: GOT LINE ITEMS! PO=%s %d lines",
                                          detail["header"].get("po_number", "?"),
-                                         len(detail["line_items"]),
-                                         detail["header"].get("buyer_name", "?"))
+                                         len(detail["line_items"]))
+                        await detail_page.close()
+
+                    # Also check all pages and frames
+                    all_pages = page.context.pages
+                    log.info("Browser: %d total pages after PO click", len(all_pages))
+                    for pi, pg in enumerate(all_pages):
+                        pg_url = pg.url
+                        pg_content = await pg.content()
+                        has_pdl = "ZZ_SCPR_PDL_DVW" in pg_content
+                        log.info("Browser: page[%d] %db PDL=%s url=%s",
+                                 pi, len(pg_content), has_pdl, pg_url[:100])
+                        if has_pdl and pg != page:
+                            await pg.screenshot(
+                                path=f"/data/scprs_detail_page_{pi}.png",
+                                full_page=True
+                            )
+                            detail = _parse_browser_detail(pg_content)
+                            if detail and detail.get("line_items"):
+                                detail["source"] = "scprs_browser"
+                                results.append(detail)
+                                log.info("Browser: GOT LINE ITEMS from page[%d]! %d lines",
+                                         pi, len(detail["line_items"]))
+
+                    # Check frames too
+                    for fi, f in enumerate(page.frames):
+                        fc = await f.content()
+                        log.info("Browser: frame[%d] %db PDL=%s url=%s",
+                                 fi, len(fc),
+                                 "ZZ_SCPR_PDL_DVW" in fc,
+                                 f.url[:100])
 
                 except Exception as e:
                     log.warning("Browser: row %d error: %s", row_idx, e)
