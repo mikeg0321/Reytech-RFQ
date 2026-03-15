@@ -1736,11 +1736,40 @@ def api_v1_harvest_browser_test():
         from src.agents.scprs_browser import scrape_details
         results = scrape_details(
             supplier_name="reytech",
-            from_date="01/01/2024",
-            max_rows=2
+            from_date="",
+            max_rows=200
         )
+
+        # Store in won_quotes KB
+        ingested = 0
+        try:
+            from src.knowledge.won_quotes_db import ingest_scprs_result
+            for r in results:
+                header = r.get("header", {})
+                for line in r.get("line_items", []):
+                    up = line.get("unit_price_num")
+                    if up and up > 0:
+                        try:
+                            ingest_scprs_result(
+                                po_number=header.get("po_number", ""),
+                                item_number=line.get("item_id", ""),
+                                description=line.get("description", ""),
+                                unit_price=up,
+                                quantity=line.get("quantity_num", 1) or 1,
+                                supplier=header.get("supplier", ""),
+                                department=header.get("dept_name", ""),
+                                award_date=header.get("start_date", ""),
+                                source="scprs_browser",
+                            )
+                            ingested += 1
+                        except Exception:
+                            pass
+        except ImportError:
+            pass
+
         return api_response({
             "count": len(results),
+            "ingested": ingested,
             "results": [
                 {
                     "po": r.get("header", {}).get("po_number"),

@@ -56,8 +56,8 @@ def _parse_dollar(text):
 
 
 async def _scrape_detail_async(supplier_name="reytech",
-                                from_date="01/01/2024",
-                                max_rows=5):
+                                from_date="",
+                                max_rows=200):
     """
     Launch headless browser, search SCPRS, click each PO link,
     wait for detail modal, extract line items.
@@ -161,137 +161,120 @@ async def _scrape_detail_async(supplier_name="reytech",
             total = int(count_match.group(3))
             log.info("Browser: %d results found", total)
 
-            # Step 3: Click PO link — PeopleSoft renders modal WITHIN the page
-            rows_to_check = min(total, max_rows)
-            for row_idx in range(rows_to_check):
-                try:
-                    link_id = f"ZZ_SCPR_RSLT_VW$hmodal${row_idx}"
-                    link = page.locator(f"[id='{link_id}']")
+            # Step 3: Click first result to open modal, then click each PO
+            link_id = "ZZ_SCPR_RSLT_VW$hmodal$0"
+            link = page.locator(f"[id='{link_id}']")
+            if await link.count() == 0:
+                log.warning("Browser: no modal link found")
+                await context.close()
+                await browser.close()
+                return results
 
-                    if await link.count() == 0:
-                        log.warning("Browser: link %s not found", link_id)
+            log.info("Browser: clicking %s to open modal", link_id)
+            await link.click()
+            await page.wait_for_timeout(5000)
+
+            frames = page.frames
+            if len(frames) < 2:
+                log.warning("Browser: no modal frame")
+                await context.close()
+                await browser.close()
+                return results
+
+            modal_frame = frames[1]
+
+            # Find ALL PO links in modal
+            po_links = await modal_frame.locator("a:has-text('4500')").all()
+            other_links = await modal_frame.locator("a:has-text('0000')").all()
+            all_po_elements = po_links + other_links
+
+            log.info("Browser: found %d PO links in modal (%d 4500-prefix, %d 0000-prefix)",
+                     len(all_po_elements), len(po_links), len(other_links))
+
+            await page.screenshot(path="/data/scprs_step1_modal_0.png", full_page=True)
+
+            # Process each PO
+            processed = 0
+            failed = 0
+            for po_idx, po_el in enumerate(all_po_elements):
+                if processed >= max_rows:
+                    break
+
+                try:
+                    po_text = (await po_el.text_content() or "").strip()
+                    if not po_text or len(po_text) < 7:
                         continue
 
-                    log.info("Browser: clicking %s", link_id)
-                    await link.click()
+                    log.info("Browser: [%d/%d] clicking PO %s",
+                             po_idx + 1, len(all_po_elements), po_text)
 
-                    # Wait for modal frame to load
-                    await page.wait_for_timeout(5000)
-
-                    # Find the modal frame (frame[1])
-                    frames = page.frames
-                    log.info("Browser: %d frames after click", len(frames))
-
-                    if len(frames) < 2:
-                        log.warning("Browser: no modal frame appeared")
-                        break
-
-                    modal_frame = frames[1]
-                    modal_content = await modal_frame.content()
-                    log.info("Browser: modal frame %db", len(modal_content))
-
-                    # Screenshot step 1: modal loaded
-                    await page.screenshot(
-                        path=f"/data/scprs_step1_modal_{row_idx}.png",
-                        full_page=True
-                    )
-
-                    # Find PO number links in the modal frame
-                    po_link = modal_frame.locator("[id='ZZ_SCPR_RSLT_VW$0']")
-                    if await po_link.count() == 0:
-                        po_link = modal_frame.locator("[id='ZZ_SCPR_RSLT_VW$hmodal$0']")
-
-                    if await po_link.count() == 0:
-                        # Try finding any link with a PO number pattern
-                        po_link = modal_frame.locator("a:has-text('4500')")
-
-                    po_count = await po_link.count()
-                    log.info("Browser: found %d PO links in modal", po_count)
-
-                    if po_count == 0:
-                        await page.screenshot(path="/data/scprs_modal_nolinks.png", full_page=True)
-                        log.warning("Browser: no PO links found in modal")
-                        break
-
-                    # Click the first PO link to get detail page
-                    po_text = await po_link.first.text_content()
-                    log.info("Browser: clicking PO link: %s", po_text)
-
-                    # PO click may open new window to SCPRS2 detail
+                    # Click PO — opens new window
                     detail_page = None
                     try:
                         async with page.context.expect_page(timeout=15000) as new_page_info:
-                            await po_link.first.click()
+                            await po_el.click()
                         detail_page = await new_page_info.value
                         await detail_page.wait_for_load_state("networkidle")
-                        log.info("Browser: NEW WINDOW opened! url=%s",
-                                 detail_page.url[:120])
                     except Exception as e:
-                        log.info("Browser: no new window (%s), checking frames", str(e)[:60])
-                        await page.wait_for_timeout(5000)
+                        log.warning("Browser: PO %s no window: %s", po_text, str(e)[:40])
+                        failed += 1
+                        if failed > 5:
+                            log.error("Browser: too many failures, stopping")
+                            break
+                        continue
 
-                    # Screenshot step 2
-                    await page.screenshot(
-                        path=f"/data/scprs_step2_po_click_{row_idx}.png",
-                        full_page=True
-                    )
+                    dp_content = await detail_page.content()
+                    has_pdl = "ZZ_SCPR_PDL_DVW" in dp_content
+                    log.info("Browser: PO %s window %db PDL=%s",
+                             po_text, len(dp_content), has_pdl)
 
-                    # If new window opened, check it for detail
-                    if detail_page:
-                        dp_content = await detail_page.content()
-                        log.info("Browser: new window %db PDL=%s SBP=%s",
-                                 len(dp_content),
-                                 "ZZ_SCPR_PDL_DVW" in dp_content,
-                                 "ZZ_SCPR_SBP_WRK" in dp_content)
-                        await detail_page.screenshot(
-                            path=f"/data/scprs_step3_detail_{row_idx}.png",
-                            full_page=True
-                        )
+                    if has_pdl:
+                        detail = _parse_browser_detail(dp_content)
+                        if detail and detail.get("line_items"):
+                            detail["source"] = "scprs_browser"
+                            detail["_po_text"] = po_text
+                            results.append(detail)
+                            processed += 1
+                            log.info("Browser: PO=%s %d lines, $%s buyer=%s [%d done]",
+                                     detail["header"].get("po_number", po_text),
+                                     len(detail["line_items"]),
+                                     detail["header"].get("grand_total", "?"),
+                                     detail["header"].get("buyer_name", "?"),
+                                     processed)
 
-                        if "ZZ_SCPR_PDL_DVW" in dp_content:
-                            detail = _parse_browser_detail(dp_content)
-                            if detail and detail.get("line_items"):
-                                detail["source"] = "scprs_browser"
-                                results.append(detail)
-                                log.info("Browser: GOT LINE ITEMS! PO=%s %d lines",
-                                         detail["header"].get("po_number", "?"),
-                                         len(detail["line_items"]))
-                        await detail_page.close()
+                            # Save screenshot every 10th PO
+                            if processed % 10 == 0 or processed <= 3:
+                                await detail_page.screenshot(
+                                    path=f"/data/scprs_detail_{processed}.png",
+                                    full_page=True
+                                )
+                    else:
+                        log.warning("Browser: PO %s no line items in %db",
+                                    po_text, len(dp_content))
+                        failed += 1
 
-                    # Also check all pages and frames
-                    all_pages = page.context.pages
-                    log.info("Browser: %d total pages after PO click", len(all_pages))
-                    for pi, pg in enumerate(all_pages):
-                        pg_url = pg.url
-                        pg_content = await pg.content()
-                        has_pdl = "ZZ_SCPR_PDL_DVW" in pg_content
-                        log.info("Browser: page[%d] %db PDL=%s url=%s",
-                                 pi, len(pg_content), has_pdl, pg_url[:100])
-                        if has_pdl and pg != page:
-                            await pg.screenshot(
-                                path=f"/data/scprs_detail_page_{pi}.png",
-                                full_page=True
-                            )
-                            detail = _parse_browser_detail(pg_content)
-                            if detail and detail.get("line_items"):
-                                detail["source"] = "scprs_browser"
-                                results.append(detail)
-                                log.info("Browser: GOT LINE ITEMS from page[%d]! %d lines",
-                                         pi, len(detail["line_items"]))
+                    # Close detail window
+                    await detail_page.close()
 
-                    # Check frames too
-                    for fi, f in enumerate(page.frames):
-                        fc = await f.content()
-                        log.info("Browser: frame[%d] %db PDL=%s url=%s",
-                                 fi, len(fc),
-                                 "ZZ_SCPR_PDL_DVW" in fc,
-                                 f.url[:100])
+                    # Small delay to not hammer the server
+                    await page.wait_for_timeout(500)
 
                 except Exception as e:
-                    log.warning("Browser: row %d error: %s", row_idx, e)
+                    log.warning("Browser: PO[%d] error: %s", po_idx, str(e)[:80])
+                    failed += 1
+                    # Close any extra windows
+                    for extra in page.context.pages[1:]:
+                        try:
+                            await extra.close()
+                        except Exception:
+                            pass
+                    if failed > 10:
+                        log.error("Browser: too many failures (%d), stopping", failed)
+                        break
+                    continue
 
-                # Only process first row for now
-                break
+            log.info("Browser: COMPLETE — %d POs extracted, %d failed out of %d total",
+                     processed, failed, len(all_po_elements))
 
             # Save final state
             try:
