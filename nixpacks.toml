@@ -6,4 +6,4 @@ aptPkgs = ["tesseract-ocr", "tesseract-ocr-eng", "poppler-utils",
            "libcairo2", "libasound2t64", "libxshmfence1", "libx11-xcb1"]
 
 [phases.install]
-cmds = ["/opt/venv/bin/pip install -r requirements.txt", "/opt/venv/bin/playwright install chromium"]
+cmds = ["python -m venv --copies /opt/venv", "/opt/venv/bin/pip install -r requirements.txt", "/opt/venv/bin/playwright install chromium"]
