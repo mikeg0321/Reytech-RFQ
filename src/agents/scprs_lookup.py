@@ -280,70 +280,42 @@ class FiscalSession:
         return self._parse_results(html)
 
     def get_detail(self, results_html, row_index, click_action=None):
-        """Click into a result row — navigation-only POST, no search fields."""
+        """Click a result row. PeopleSoft requires ALL form fields echoed back."""
         if not click_action:
             click_action = f"ZZ_SCPR_RSLT_VW${row_index}"
 
-        # Navigation-only payload — NO search form fields (ZZ_SCPRS_SP_WRK_*)
-        # Including search fields causes PeopleSoft to re-run the search
-        # instead of navigating to the detail page
-        form_data = {
-            "ICType": "Panel",
-            "ICElementNum": "0",
-            "ICStateNum": self._last_state_num or self._extract_state_num(
-                self._last_html or results_html),
-            "ICAction": click_action,
-            "ICModelCancel": "0",
-            "ICXPos": "0",
-            "ICYPos": "0",
-            "ResponsetoDiffFrame": "-1",
-            "TargetFrameName": "None",
-            "FacetPath": "None",
-            "ICFocus": "",
-            "ICSaveWarningFilter": "0",
-            "ICChanged": "-1",
-            "ICSkipPending": "0",
-            "ICAutoSave": "0",
-            "ICResubmit": "0",
-            "ICSID": self.icsid or "",
-            "ICActionPrompt": "false",
-            "ICBcDomData": "",
-            "ICPanelName": "",
-            "ICFind": "",
-            "ICAddCount": "",
-            "ICAppClsData": "",
-        }
+        # Use the LATEST results HTML (has current ICStateNum/ICSID)
+        current_html = self._last_html or results_html
 
-        log.info("Detail click: %s ICStateNum=%s", click_action, form_data["ICStateNum"])
+        # Extract current search field values from results page
+        # PeopleSoft requires these echoed back — omitting them causes
+        # the server to just re-render the search page
+        search_values = {}
+        for fld in ALL_SEARCH_FIELDS:
+            m = re.search(rf"name='{re.escape(fld)}'[^>]*value=\"([^\"]*)\"", current_html)
+            search_values[fld] = m.group(1) if m else ""
+
+        # Build full form data: IC* fields + DUMMY_FIELD + search values
+        form_data = self._build_form_data(current_html, click_action, search_values)
+
+        log.info("Detail click: %s ICStateNum=%s ICSID=%s",
+                 click_action, form_data.get("ICStateNum"),
+                 (form_data.get("ICSID") or "?")[:12])
         try:
             r = self.session.post(SCPRS_SEARCH_URL, data=form_data, timeout=20)
             has_pdl = "ZZ_SCPR_PDL_DVW" in r.text
             has_sbp = "ZZ_SCPR_SBP_WRK" in r.text
             log.info("Detail POST: %d (%db) has_PDL_DVW=%s has_SBP=%s",
                      r.status_code, len(r.text), has_pdl, has_sbp)
+            if r.status_code == 200 and (has_pdl or has_sbp):
+                return self._parse_detail(r.text)
             if r.status_code == 200:
-                # Always try to parse — the page may have detail content
-                # even if PDL_DVW string search fails (encoding, JS-loaded)
+                # Try parsing anyway — might have partial detail content
                 result = self._parse_detail(r.text)
                 if result and result.get("line_items"):
                     return result
-                # If no lines from POST, try GET fallback
-                log.info("POST parse got %d lines, trying GET fallback",
+                log.info("POST returned %d lines, no detail content",
                          len(result.get("line_items", [])) if result else 0)
-                try:
-                    detail_r = self.session.get(SCPRS_DETAIL_URL, timeout=20)
-                    log.info("Detail GET fallback: %d (%db) has_PDL_DVW=%s",
-                             detail_r.status_code, len(detail_r.text),
-                             "ZZ_SCPR_PDL_DVW" in detail_r.text)
-                    if detail_r.status_code == 200:
-                        result2 = self._parse_detail(detail_r.text)
-                        if result2 and result2.get("line_items"):
-                            return result2
-                except Exception as e:
-                    log.warning("Detail GET fallback failed: %s", e)
-                # Return POST result even if 0 lines (has header info)
-                if result and (result.get("po_number") or result.get("buyer_name")):
-                    return result
         except Exception as e:
             log.error("Detail POST failed: %s", e)
         return None
