@@ -367,11 +367,18 @@ class FiscalSession:
 
     def _parse_detail(self, html):
         """Parse detail page by PeopleSoft span IDs (not table cells)."""
-        log.info("_parse_detail preview: %s", html[:500].replace("\n", " "))
-        log.info("_parse_detail has CRDMEM_ACCT_NBR: %s",
-                 "ZZ_SCPR_SBP_WRK_CRDMEM_ACCT_NBR" in html)
+        log.info("_parse_detail type: %s len: %d", type(html).__name__, len(html))
+
+        # Force to string if bytes
+        if isinstance(html, bytes):
+            html = html.decode("utf-8", errors="replace")
+            log.info("_parse_detail: decoded bytes to str")
+
+        log.info("_parse_detail has CRDMEM: %s",
+                 "CRDMEM_ACCT_NBR" in html)
         log.info("_parse_detail has PDL_DVW: %s",
                  "ZZ_SCPR_PDL_DVW" in html)
+        log.info("_parse_detail preview: %s", html[:500].replace("\n", " "))
         soup = BeautifulSoup(html, "html.parser")
 
         def get_span(id_val):
