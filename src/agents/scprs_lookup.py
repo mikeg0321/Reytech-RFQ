@@ -406,26 +406,24 @@ class FiscalSession:
 
         log.info("Detail click: %s", click_action)
         try:
-            r = self.session.post(SCPRS_SEARCH_URL, data=form_data, timeout=20)
-            if r.status_code != 200:
+            modal_r = self.session.post(SCPRS_SEARCH_URL, data=form_data, timeout=20)
+            if modal_r.status_code != 200:
                 return None
 
-            # Extract PO number from modal response
-            po_nums = re.findall(r'4500\d{6}', r.text)
-            if not po_nums:
-                log.warning("Modal returned no PO numbers")
-                return None
-            po_number = po_nums[0]
-
-            # Step 2: GET detail page using SCPRS1 session (modal set PO context)
-            dr = self.session.get(SCPRS_DETAIL_URL, timeout=20)
-            has_pdl = "ZZ_SCPR_PDL_DVW" in dr.text
-            log.info("Detail GET: %db has_PDL_DVW=%s (PO=%s)",
-                     len(dr.text), has_pdl, po_number)
-            if dr.status_code == 200 and has_pdl:
-                return self._parse_detail(dr.text)
-            if dr.status_code == 200:
-                result = self._parse_detail(dr.text)
+            # Modal click set PO context server-side — GET detail page immediately
+            DETAIL_URL = (
+                "https://suppliers.fiscal.ca.gov/psc/"
+                "psfpd1_1/SUPPLIER/ERP/c/"
+                "ZZ_PO.ZZ_SCPRS2_CMP.GBL"
+                "?Page=ZZ_SCPRS_PDDTL_PG&Action=U"
+            )
+            r = self.session.get(DETAIL_URL, timeout=20)
+            has_pdl = "ZZ_SCPR_PDL_DVW" in r.text
+            log.info("Detail GET: %db has_PDL_DVW=%s", len(r.content), has_pdl)
+            if r.status_code == 200 and has_pdl:
+                return self._parse_detail(r.text)
+            if r.status_code == 200:
+                result = self._parse_detail(r.text)
                 if result and result.get("line_items"):
                     return result
 
