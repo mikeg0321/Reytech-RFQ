@@ -307,7 +307,16 @@ class FiscalSession:
             has_sbp = "ZZ_SCPR_SBP_WRK" in r.text
             log.info("Detail POST: %d (%db) has_PDL_DVW=%s has_SBP=%s",
                      r.status_code, len(r.text), has_pdl, has_sbp)
-            log.info("Detail resp preview: %s", r.text[:500].replace("\n", " "))
+            log.info("Modal resp 3000: %s", r.text[:3000].replace("\n", " "))
+            log.info("Modal has iframe=%s PDL=%s PDDTL=%s strReqURL=%s",
+                     "iframe" in r.text.lower(),
+                     "ZZ_SCPR_PDL" in r.text,
+                     "PDDTL" in r.text,
+                     "strReqURL" in r.text)
+            # Search for PO number patterns (10-digit numbers starting with 4500)
+            import re as _re
+            po_nums = _re.findall(r'4500\d{6}', r.text)
+            log.info("Modal PO numbers found: %s", po_nums[:5] if po_nums else "NONE")
             if r.status_code == 200 and (has_pdl or has_sbp):
                 return self._parse_detail(r.text)
             if r.status_code == 200:
