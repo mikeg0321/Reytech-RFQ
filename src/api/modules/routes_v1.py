@@ -1702,13 +1702,15 @@ def api_v1_harvest_debug_click():
 @bp.route("/api/v1/harvest/browser-screenshot")
 @auth_required
 def api_v1_browser_screenshot():
-    """Serve the latest browser screenshot."""
+    """Serve browser screenshots."""
     import os
-    path = "/data/scprs_click.png"
+    from flask import send_file
+    name = request.args.get("name", "scprs_click")
+    path = f"/data/{name}.png"
     if os.path.exists(path):
-        from flask import send_file
         return send_file(path, mimetype="image/png")
-    return api_response(error="No screenshot yet", status=404)
+    shots = [f for f in os.listdir("/data") if f.endswith(".png")]
+    return api_response({"available": shots, "requested": name}, status=404)
 
 
 @bp.route("/api/v1/harvest/browser-test")
