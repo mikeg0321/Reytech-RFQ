@@ -175,74 +175,82 @@ async def _scrape_detail_async(supplier_name="reytech",
                     log.info("Browser: clicking %s", link_id)
                     await link.click()
 
-                    # PeopleSoft modal loads WITHIN the page
+                    # Wait for modal frame to load
                     await page.wait_for_timeout(5000)
 
-                    # Screenshot current state
+                    # Find the modal frame (frame[1])
+                    frames = page.frames
+                    log.info("Browser: %d frames after click", len(frames))
+
+                    if len(frames) < 2:
+                        log.warning("Browser: no modal frame appeared")
+                        break
+
+                    modal_frame = frames[1]
+                    modal_content = await modal_frame.content()
+                    log.info("Browser: modal frame %db", len(modal_content))
+
+                    # Find PO number links in the modal frame
+                    po_link = modal_frame.locator("[id='ZZ_SCPR_RSLT_VW$0']")
+                    if await po_link.count() == 0:
+                        po_link = modal_frame.locator("[id='ZZ_SCPR_RSLT_VW$hmodal$0']")
+
+                    if await po_link.count() == 0:
+                        # Try finding any link with a PO number pattern
+                        po_link = modal_frame.locator("a:has-text('4500')")
+
+                    po_count = await po_link.count()
+                    log.info("Browser: found %d PO links in modal", po_count)
+
+                    if po_count == 0:
+                        await page.screenshot(path="/data/scprs_modal_nolinks.png", full_page=True)
+                        log.warning("Browser: no PO links found in modal")
+                        break
+
+                    # Click the first PO link to get detail page
+                    po_text = await po_link.first.text_content()
+                    log.info("Browser: clicking PO link: %s", po_text)
+                    await po_link.first.click()
+
+                    # Wait for detail page to load
+                    try:
+                        await modal_frame.wait_for_selector(
+                            "[id^='ZZ_SCPR_PDL_DVW'], [id^='ZZ_SCPR_SBP_WRK']",
+                            timeout=15000
+                        )
+                        log.info("Browser: detail content appeared!")
+                    except Exception:
+                        await page.wait_for_timeout(3000)
+                        log.info("Browser: waited 3s for detail")
+
+                    # Screenshot the detail page
                     await page.screenshot(
-                        path=f"/data/scprs_click_{row_idx}.png",
+                        path=f"/data/scprs_detail_{row_idx}.png",
                         full_page=True
                     )
-                    log.info("Browser: screenshot saved after click")
 
-                    # Check for iframes (PeopleSoft modal often uses iframe)
-                    iframes = page.frames
-                    log.info("Browser: %d frames found", len(iframes))
+                    # Check all frames for detail content
+                    for fi, f in enumerate(page.frames):
+                        fc = await f.content()
+                        has_pdl = "ZZ_SCPR_PDL_DVW" in fc
+                        has_sbp = "ZZ_SCPR_SBP_WRK" in fc
+                        log.info("Browser: post-PO-click frame[%d] %db PDL=%s SBP=%s",
+                                 fi, len(fc), has_pdl, has_sbp)
 
-                    for i, frame in enumerate(iframes):
-                        frame_content = await frame.content()
-                        has_pdl = "ZZ_SCPR_PDL_DVW" in frame_content
-                        has_sbp = "ZZ_SCPR_SBP_WRK" in frame_content
-                        has_rslt = "ZZ_SCPR_RSLT_VW" in frame_content
-                        log.info("Browser: frame[%d] %db PDL=%s SBP=%s RSLT=%s url=%s",
-                                 i, len(frame_content), has_pdl, has_sbp, has_rslt,
-                                 frame.url[:100])
-
-                        if has_pdl or has_sbp:
-                            detail = _parse_browser_detail(frame_content)
+                        if has_pdl:
+                            detail = _parse_browser_detail(fc)
                             if detail and detail.get("line_items"):
                                 detail["source"] = "scprs_browser"
                                 results.append(detail)
-                                log.info("Browser: GOT DETAIL from frame! %d lines",
-                                         len(detail["line_items"]))
-                                break
-
-                    # Also check main page content for modal content
-                    main_content = await page.content()
-                    log.info("Browser: main page after click %db", len(main_content))
-
-                    # Check if page now has new windows
-                    all_pages = page.context.pages
-                    log.info("Browser: %d pages in context", len(all_pages))
-                    for pi, pg in enumerate(all_pages):
-                        if pg != page:
-                            pg_content = await pg.content()
-                            log.info("Browser: extra page[%d] %db PDL=%s",
-                                     pi, len(pg_content),
-                                     "ZZ_SCPR_PDL_DVW" in pg_content)
-                            await pg.screenshot(
-                                path=f"/data/scprs_page_{pi}.png",
-                                full_page=True
-                            )
-
-                    # Look for detail-related elements
-                    detail_links = await page.locator(
-                        "[id*='DETAIL'], [id*='Detail'], "
-                        "text=Detail, text=Download"
-                    ).all()
-                    log.info("Browser: %d detail-related elements found",
-                             len(detail_links))
-                    for dl in detail_links[:5]:
-                        dl_id = await dl.get_attribute("id") or ""
-                        dl_text = await dl.text_content() or ""
-                        log.info("Browser: detail element id=%s text=%s",
-                                 dl_id[:60], dl_text[:60])
+                                log.info("Browser: GOT LINE ITEMS! PO=%s %d lines buyer=%s",
+                                         detail["header"].get("po_number", "?"),
+                                         len(detail["line_items"]),
+                                         detail["header"].get("buyer_name", "?"))
 
                 except Exception as e:
                     log.warning("Browser: row %d error: %s", row_idx, e)
-                    continue
 
-                # Only try one row for now
+                # Only process first row for now
                 break
 
         except Exception as e:
