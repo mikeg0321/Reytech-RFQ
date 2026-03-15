@@ -276,38 +276,38 @@ class FiscalSession:
         return self._parse_results(html)
 
     def get_detail(self, results_html, row_index, click_action=None):
-        """Two-step detail fetch: POST click to update session, then GET detail page."""
+        """Click into a result row — the POST response IS the detail page."""
         if not click_action:
             click_action = f"ZZ_SCPR_RSLT_VW${row_index}"
 
         log.info("Detail click: %s", click_action)
 
-        # Step 1: POST the click to navigate PeopleSoft session to selected PO
         search_values = {}
         for fld in ALL_SEARCH_FIELDS:
             m = re.search(rf"name='{re.escape(fld)}'[^>]*value=\"([^\"]*)\"", results_html)
             search_values[fld] = m.group(1) if m else ""
         form_data = self._build_form_data(results_html, click_action, search_values)
-        log.info("Detail POST ICAction=%s ICStateNum=%s",
-                 form_data.get("ICAction", "?"), form_data.get("ICStateNum", "?"))
         try:
-            click_r = self.session.post(SCPRS_SEARCH_URL, data=form_data, timeout=20)
-            log.info("Detail click POST: %d (%db)",
-                     click_r.status_code, len(click_r.text))
+            r = self.session.post(SCPRS_SEARCH_URL, data=form_data, timeout=20)
+            has_pdl = "ZZ_SCPR_PDL_DVW" in r.text
+            log.info("Detail POST: %d (%db) has_PDL_DVW=%s",
+                     r.status_code, len(r.text), has_pdl)
+            if r.status_code == 200 and has_pdl:
+                return self._parse_detail(r.text)
+            # POST response lacks line items — try GET to detail URL as fallback
+            if r.status_code == 200 and not has_pdl:
+                log.info("POST lacked PDL_DVW, trying GET to detail URL")
+                try:
+                    detail_r = self.session.get(SCPRS_DETAIL_URL, timeout=20)
+                    has_pdl2 = "ZZ_SCPR_PDL_DVW" in detail_r.text
+                    log.info("Detail GET fallback: %d (%db) has_PDL_DVW=%s",
+                             detail_r.status_code, len(detail_r.text), has_pdl2)
+                    if detail_r.status_code == 200 and has_pdl2:
+                        return self._parse_detail(detail_r.text)
+                except Exception as e:
+                    log.warning("Detail GET fallback failed: %s", e)
         except Exception as e:
-            log.error("Detail click POST failed: %s", e)
-            return None
-
-        # Step 2: GET the actual detail page with line items
-        try:
-            detail_r = self.session.get(SCPRS_DETAIL_URL, timeout=20)
-            log.info("Detail GET: %d (%db) has_PDL_DVW=%s",
-                     detail_r.status_code, len(detail_r.text),
-                     "ZZ_SCPR_PDL_DVW" in detail_r.text)
-            if detail_r.status_code == 200:
-                return self._parse_detail(detail_r.text)
-        except Exception as e:
-            log.error("Detail GET failed: %s", e)
+            log.error("Detail POST failed: %s", e)
         return None
 
     # ── Parsers ────────────────────────────────────────────────────
