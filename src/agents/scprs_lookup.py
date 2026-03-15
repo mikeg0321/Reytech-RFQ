@@ -282,7 +282,7 @@ class FiscalSession:
     def get_detail(self, results_html, row_index, click_action=None):
         """Click a result row. PeopleSoft requires ALL form fields echoed back."""
         if not click_action:
-            click_action = f"ZZ_SCPR_RSLT_VW${row_index}"
+            click_action = f"ZZ_SCPR_RSLT_VW$hmodal${row_index}"
 
         # Use the LATEST results HTML (has current ICStateNum/ICSID)
         current_html = self._last_html or results_html
@@ -379,7 +379,10 @@ class FiscalSession:
                 break
 
             # PO number: link with id='ZZ_SCPR_RSLT_VW$N' (prefix$N, no suffix)
-            po_link = soup.find("a", id=f"{PREFIX}${row_idx}")
+            # PO link: try modal pattern first, then bare prefix
+            po_link = soup.find("a", id=f"{PREFIX}$hmodal${row_idx}")
+            if not po_link:
+                po_link = soup.find("a", id=f"{PREFIX}${row_idx}")
             if po_link:
                 entry["po_number"] = po_link.get_text(strip=True)
                 entry["_click_action"] = po_link.get("id", "")
