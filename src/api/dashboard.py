@@ -928,7 +928,28 @@ def _auto_price_new_pc(pc_id: str):
         except Exception as e:
             log.debug("Auto-price web search error: %s", e)
 
-        # ── 4. Save if we found anything ──
+        # ── 4. FI$Cal market intelligence enrichment ──
+        try:
+            from src.agents.quote_intelligence import enrich_extracted_items
+            enriched = enrich_extracted_items(items)
+            for i, enriched_item in enumerate(enriched):
+                if i < len(items) and enriched_item.get("intelligence"):
+                    items[i]["intelligence"] = enriched_item["intelligence"]
+                    # If no price found yet, use FI$Cal recommendation
+                    rec = enriched_item["intelligence"].get("recommendation", {})
+                    if rec.get("quote_price") and not items[i].get("pricing", {}).get("recommended_price"):
+                        if not items[i].get("pricing"):
+                            items[i]["pricing"] = {}
+                        items[i]["pricing"]["recommended_price"] = rec["quote_price"]
+                        items[i]["pricing"]["price_source"] = f"fiscal_{rec.get('confidence', 'low')}"
+                        found_count += 1
+            log.info("FI$Cal intelligence: enriched %d items", len(enriched))
+        except ImportError:
+            log.debug("quote_intelligence not available")
+        except Exception as e:
+            log.debug("FI$Cal enrichment error: %s", e)
+
+        # ── 5. Save if we found anything ──
         if found_count > 0:
             pcs = _load_price_checks()  # Reload fresh
             if pc_id in pcs:

@@ -4704,6 +4704,24 @@ def api_pricecheck_mark_won(pcid):
     except Exception as e:
         log.debug("mark-won catalog feedback error: %s", e)
     _enrich_catalog_from_pc(pc)
+    # ── Feed won items to FI$Cal catalog for future intelligence ──
+    try:
+        from src.agents.quote_intelligence import learn_new_item
+        for item in pc.get("items", []):
+            desc = item.get("description", "")
+            price = item.get("pricing", {}).get("recommended_price") or item.get("pricing", {}).get("unit_cost")
+            if desc and price and float(price) > 0:
+                learn_new_item(
+                    description=desc, unit_price=float(price),
+                    quantity=item.get("qty", 1),
+                    uom=item.get("uom", ""),
+                    supplier="REYTECH INC",
+                    department=pc.get("institution", ""),
+                    po_number=pc.get("pc_number", pcid),
+                    date=datetime.now().strftime("%m/%d/%Y") if "datetime" in dir() else "",
+                )
+    except Exception as e:
+        log.debug("FI$Cal catalog learning on win: %s", e)
     log.info("PC %s marked WON: pc#=%s institution=%s", pcid, pc.get("pc_number"), pc.get("institution"))
     return jsonify({"ok": True, "status": "won",
                     "message": "Pricing accepted. When official RFQ/PO arrives, create the order to generate supplier POs."})

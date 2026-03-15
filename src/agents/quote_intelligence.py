@@ -497,3 +497,241 @@ def enrich_quote_draft(rfq_data):
         "high_confidence_count": high_confidence,
         "pricing_coverage": f"{sum(1 for i in enriched if i.get('suggested_price'))}/{len(enriched)}",
     }
+
+
+# ── PC/RFQ Item Enrichment ─────────────────────────────────────
+
+def enrich_extracted_items(items):
+    """Enrich extracted PC/RFQ line items with market intelligence."""
+    enriched = []
+    for item in items:
+        desc = item.get("description", "")
+        qty = item.get("quantity") or item.get("qty") or 1
+        cost = item.get("unit_price") or item.get("cost") or item.get("pricing", {}).get("unit_cost")
+
+        if not desc:
+            enriched.append({**item, "intelligence": None})
+            continue
+
+        catalog_matches = search_catalog(desc, limit=5)
+        competitor_prices = get_competitor_prices(desc, limit=15)
+        reytech_prices = get_reytech_prices(desc, limit=5)
+
+        # Normalize market prices
+        market_prices = []
+        for cp in competitor_prices:
+            norm = _normalize_unit_price(
+                _parse_price_str(cp.get("unit_price")),
+                cp.get("description", ""),
+                _parse_qty_str(cp.get("quantity"))
+            )
+            if norm and norm["normalized_price"] > 0:
+                market_prices.append({**cp, "normalized_price": norm["normalized_price"],
+                                      "normalization": norm["normalization"]})
+
+        market_analysis = _analyze_market(market_prices, qty)
+        recommendation = _calculate_recommendation(
+            cost=float(cost) if cost else None,
+            market=market_analysis,
+            reytech_history=reytech_prices,
+            quantity=qty, description=desc,
+        )
+        verification = _verify_item_match(desc, catalog_matches)
+
+        enriched.append({
+            **item,
+            "intelligence": {
+                "catalog_matches": catalog_matches[:3],
+                "market_analysis": market_analysis,
+                "reytech_history": reytech_prices[:3],
+                "competitor_breakdown": market_prices[:8],
+                "recommendation": recommendation,
+                "verification": verification,
+            }
+        })
+
+    return enriched
+
+
+def _analyze_market(market_prices, request_qty):
+    """Analyze what agencies actually pay for this item."""
+    import math
+    from datetime import datetime as _dt
+
+    if not market_prices:
+        return {"data_points": 0, "message": "No market data found"}
+
+    now = _dt.now()
+    weighted = []
+    for mp in market_prices:
+        price = mp.get("normalized_price", 0)
+        if not price or price <= 0:
+            continue
+        date_str = mp.get("date", "")
+        weight = 0.5
+        for fmt in ("%m/%d/%Y", "%Y-%m-%d"):
+            try:
+                dt = _dt.strptime(str(date_str).strip(), fmt)
+                age_days = max(0, (now - dt).days)
+                weight = math.pow(0.5, age_days / 180)
+                break
+            except (ValueError, TypeError):
+                continue
+        weighted.append({"price": price, "weight": weight,
+                         "supplier": mp.get("supplier", ""), "date": date_str})
+
+    if not weighted:
+        return {"data_points": 0, "message": "No valid prices"}
+
+    total_w = sum(w["weight"] for w in weighted)
+    wavg = sum(w["price"] * w["weight"] for w in weighted) / total_w if total_w > 0 else 0
+    prices = [w["price"] for w in weighted]
+
+    reytech_entries = [w for w in weighted if "REYTECH" in (w.get("supplier", "") or "").upper()]
+    reytech_avg = None
+    if reytech_entries:
+        rt_w = sum(w["weight"] for w in reytech_entries)
+        reytech_avg = sum(w["price"] * w["weight"] for w in reytech_entries) / rt_w if rt_w > 0 else None
+
+    comp_entries = [w for w in weighted if "REYTECH" not in (w.get("supplier", "") or "").upper()]
+    comp_avg = comp_low = comp_high = None
+    if comp_entries:
+        ct_w = sum(w["weight"] for w in comp_entries)
+        comp_avg = sum(w["price"] * w["weight"] for w in comp_entries) / ct_w if ct_w > 0 else None
+        comp_low = min(w["price"] for w in comp_entries)
+        comp_high = max(w["price"] for w in comp_entries)
+
+    best_weight = max(w["weight"] for w in weighted)
+    freshness = "fresh" if best_weight > 0.7 else ("aging" if best_weight > 0.4 else "stale")
+
+    return {
+        "data_points": len(weighted), "freshness": freshness,
+        "market_weighted_avg": round(wavg, 4) if wavg else None,
+        "market_low": round(min(prices), 4), "market_high": round(max(prices), 4),
+        "reytech_weighted_avg": round(reytech_avg, 4) if reytech_avg else None,
+        "competitor_weighted_avg": round(comp_avg, 4) if comp_avg else None,
+        "competitor_low": round(comp_low, 4) if comp_low else None,
+        "competitor_high": round(comp_high, 4) if comp_high else None,
+        "unique_suppliers": len(set(w.get("supplier", "") for w in weighted)),
+    }
+
+
+def _calculate_recommendation(cost, market, reytech_history, quantity, description):
+    """Calculate recommended quote price with margin tiers."""
+    result = {"quote_price": None, "markup_pct": None, "margin_analysis": [],
+              "rationale": "", "confidence": "low", "visual_indicator": "red"}
+
+    has_cost = cost is not None and cost > 0
+    has_market = market.get("data_points", 0) > 0
+    comp_avg = market.get("competitor_weighted_avg")
+    market_avg = market.get("market_weighted_avg")
+    reytech_avg = market.get("reytech_weighted_avg")
+
+    if has_cost and has_market and comp_avg:
+        tiers = []
+        for pct in [15, 20, 25, 30, 35]:
+            price = round(cost * (1 + pct / 100), 2)
+            tiers.append({
+                "pct": pct, "price": price,
+                "beats_comp_avg": price < comp_avg,
+                "margin_dollar": round(price - cost, 2),
+                "margin_on_qty": round((price - cost) * float(quantity), 2),
+            })
+        result["margin_analysis"] = tiers
+
+        winning = [t for t in tiers if t["beats_comp_avg"]]
+        if winning:
+            best = winning[-1]
+            result["quote_price"] = best["price"]
+            result["markup_pct"] = best["pct"]
+            result["confidence"] = "high"
+            result["visual_indicator"] = "green"
+            result["rationale"] = (
+                f"Cost: ${cost:.2f} -> Quote: ${best['price']:.2f} ({best['pct']}% markup). "
+                f"${comp_avg - best['price']:.2f} below competitor avg ${comp_avg:.2f}. "
+                f"Margin on {quantity} units: ${best['margin_on_qty']:.2f}"
+            )
+        else:
+            result["quote_price"] = round(comp_avg * 0.95, 2)
+            actual_markup = ((comp_avg * 0.95) - cost) / cost * 100 if cost > 0 else 0
+            result["markup_pct"] = round(actual_markup, 1)
+            result["confidence"] = "medium"
+            result["visual_indicator"] = "yellow"
+            result["rationale"] = (
+                f"Tight market. Cost: ${cost:.2f}. Competitor avg: ${comp_avg:.2f}. "
+                f"Max competitive: ${result['quote_price']:.2f} ({result['markup_pct']}% markup)."
+            )
+
+    elif has_cost:
+        tiers = []
+        for pct in [15, 20, 25, 30]:
+            price = round(cost * (1 + pct / 100), 2)
+            tiers.append({"pct": pct, "price": price,
+                          "margin_dollar": round(cost * pct / 100, 2),
+                          "margin_on_qty": round(cost * pct / 100 * float(quantity), 2)})
+        result["margin_analysis"] = tiers
+        result["quote_price"] = round(cost * 1.25, 2)
+        result["markup_pct"] = 25
+        result["confidence"] = "low"
+        result["visual_indicator"] = "yellow"
+        result["rationale"] = f"Cost: ${cost:.2f} -> ${result['quote_price']:.2f} (25% default). No market data."
+
+    elif has_market and comp_avg:
+        suggested = round(comp_avg * 0.92, 2)
+        result["quote_price"] = suggested
+        result["confidence"] = "medium"
+        result["visual_indicator"] = "yellow"
+        result["rationale"] = f"No cost data. Competitor avg: ${comp_avg:.2f}. Suggested: ${suggested:.2f} (8% undercut)."
+        if reytech_avg:
+            result["rationale"] += f" Your history: ${reytech_avg:.2f}."
+
+    else:
+        result["rationale"] = "No cost or market data. Manual research required."
+
+    return result
+
+
+def _verify_item_match(description, catalog_matches):
+    """Check confidence that we matched the right item."""
+    if not catalog_matches:
+        return {"status": "no_match", "confidence": 0,
+                "message": "Item not in catalog — new item or check description"}
+
+    best = catalog_matches[0]
+    score = best.get("relevance_score", 0)
+    if score > 0.7:
+        return {"status": "high_match", "confidence": score,
+                "matched_description": best["description"], "message": "Strong match"}
+    elif score > 0.4:
+        return {"status": "partial_match", "confidence": score,
+                "matched_description": best["description"], "message": "Possible match — verify"}
+    else:
+        return {"status": "weak_match", "confidence": score,
+                "matched_description": best["description"], "message": "Weak match — search manually"}
+
+
+def learn_new_item(description, unit_price, quantity=1, uom="",
+                   supplier="", department="", po_number="", date=""):
+    """Add a newly-priced item to the catalog for future reference."""
+    try:
+        import sqlite3
+        from src.core.db import DB_PATH
+        db = sqlite3.connect(DB_PATH, timeout=10)
+        db.execute("""
+            INSERT INTO scprs_catalog
+            (description, last_unit_price, last_quantity, last_uom,
+             last_supplier, last_department, last_po_number,
+             last_date, times_seen, updated_at)
+            VALUES (?,?,?,?,?,?,?,?,1,datetime('now'))
+            ON CONFLICT(description) DO UPDATE SET
+                last_unit_price = excluded.last_unit_price,
+                last_quantity = excluded.last_quantity,
+                times_seen = scprs_catalog.times_seen + 1,
+                updated_at = datetime('now')
+        """, (description[:500], unit_price, quantity, uom,
+              supplier, department, po_number, date))
+        db.commit()
+        db.close()
+        log.info("Learned catalog item: %s @ $%s", description[:60], unit_price)
+    except Exception as e:
+        log.warning("Learn item failed: %s", e)

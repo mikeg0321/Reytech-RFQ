@@ -270,6 +270,46 @@ def create_app():
         except ImportError:
             pass
 
+        # Auto-populate catalog from won_quotes if empty
+        try:
+            import sqlite3
+            from src.core.db import DB_PATH
+            _db = sqlite3.connect(DB_PATH, timeout=10)
+            _cat_count = _db.execute("SELECT COUNT(*) FROM scprs_catalog").fetchone()[0]
+            _db.close()
+            if _cat_count == 0:
+                logging.getLogger("reytech").info("Catalog empty — populating from won_quotes...")
+                try:
+                    from src.knowledge.won_quotes_db import get_db as _get_wq
+                    _wq = _get_wq()
+                    _rows = _wq.execute(
+                        "SELECT description, unit_price, quantity, supplier, "
+                        "department, po_number, award_date FROM won_quotes WHERE unit_price > 0"
+                    ).fetchall()
+                    _db2 = sqlite3.connect(DB_PATH, timeout=10)
+                    for _r in _rows:
+                        _desc = (_r[0] or "")[:500]
+                        if not _desc or not _r[1] or _r[1] <= 0:
+                            continue
+                        try:
+                            _db2.execute("""
+                                INSERT OR IGNORE INTO scprs_catalog
+                                (description, last_unit_price, last_quantity,
+                                 last_supplier, last_department, last_po_number,
+                                 last_date, times_seen, updated_at)
+                                VALUES (?,?,?,?,?,?,?,1,datetime('now'))
+                            """, (_desc, _r[1], _r[2] or 1, _r[3] or "", _r[4] or "", _r[5] or "", _r[6] or ""))
+                        except Exception:
+                            pass
+                    _db2.commit()
+                    _new_count = _db2.execute("SELECT COUNT(*) FROM scprs_catalog").fetchone()[0]
+                    _db2.close()
+                    logging.getLogger("reytech").info("Catalog populated: %d items", _new_count)
+                except Exception as _e:
+                    logging.getLogger("reytech").warning("Catalog population failed: %s", _e)
+        except Exception:
+            pass
+
         logging.getLogger("reytech").info("Deferred init complete")
 
     import threading
