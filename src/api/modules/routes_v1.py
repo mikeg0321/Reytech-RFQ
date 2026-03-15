@@ -1874,6 +1874,109 @@ def api_v1_po_screenshot(po_number):
     return api_response(error=f"No screenshot for {po_number}", status=404)
 
 
+@bp.route("/api/v1/harvest/populate-catalog")
+@auth_required
+def api_v1_populate_catalog():
+    """One-time: populate scprs_catalog from existing PO line data."""
+    try:
+        import sqlite3
+        from src.core.db import DB_PATH
+        db = sqlite3.connect(DB_PATH, timeout=30)
+
+        po_lines_count = db.execute("SELECT COUNT(*) FROM scprs_po_lines").fetchone()[0]
+
+        if po_lines_count == 0:
+            try:
+                from src.knowledge.won_quotes_db import get_db as get_wq_db
+                wq = get_wq_db()
+                rows = wq.execute("""
+                    SELECT description, unit_price, quantity, supplier,
+                           department, po_number, award_date, item_number
+                    FROM won_quotes WHERE unit_price > 0
+                """).fetchall()
+                for r in rows:
+                    desc = (r[0] or "")[:500]
+                    price = r[1] or 0
+                    if price <= 0 or not desc:
+                        continue
+                    try:
+                        db.execute("""
+                            INSERT INTO scprs_catalog
+                            (description, unspsc, last_unit_price, last_quantity,
+                             last_uom, last_supplier, last_department,
+                             last_po_number, last_date, times_seen, updated_at)
+                            VALUES (?,?,?,?,?,?,?,?,?,1,datetime('now'))
+                            ON CONFLICT(description) DO UPDATE SET
+                                times_seen = scprs_catalog.times_seen + 1,
+                                updated_at = datetime('now')
+                        """, (desc, "", price, r[2] or 1, "", r[3] or "", r[4] or "", r[5] or "", r[6] or ""))
+                    except Exception:
+                        pass
+                db.commit()
+                catalog_count = db.execute("SELECT COUNT(*) FROM scprs_catalog").fetchone()[0]
+                db.close()
+                return api_response({
+                    "source": "won_quotes_db",
+                    "source_rows": len(rows),
+                    "catalog_items": catalog_count
+                })
+            except Exception as e:
+                db.close()
+                return api_response({"error": f"won_quotes fallback failed: {e}"})
+
+        rows = db.execute("""
+            SELECT l.description, l.unspsc, l.unit_price, l.quantity,
+                   l.uom, m.supplier, m.dept_name, l.po_number, m.start_date
+            FROM scprs_po_lines l
+            JOIN scprs_po_master m ON l.po_number = m.po_number
+            WHERE l.description != '' AND l.unit_price != ''
+        """).fetchall()
+
+        inserted = 0
+        for r in rows:
+            desc = (r[0] or "")[:500]
+            try:
+                price = float(str(r[2]).replace("$", "").replace(",", "").strip())
+            except (ValueError, TypeError):
+                continue
+            if price <= 0 or not desc:
+                continue
+            try:
+                qty = float(str(r[3]).replace(",", "").strip()) if r[3] else 1
+            except (ValueError, TypeError):
+                qty = 1
+            try:
+                db.execute("""
+                    INSERT INTO scprs_catalog
+                    (description, unspsc, last_unit_price, last_quantity,
+                     last_uom, last_supplier, last_department,
+                     last_po_number, last_date, times_seen, updated_at)
+                    VALUES (?,?,?,?,?,?,?,?,?,1,datetime('now'))
+                    ON CONFLICT(description) DO UPDATE SET
+                        last_unit_price = CASE WHEN excluded.last_date > scprs_catalog.last_date
+                            THEN excluded.last_unit_price ELSE scprs_catalog.last_unit_price END,
+                        last_supplier = CASE WHEN excluded.last_date > scprs_catalog.last_date
+                            THEN excluded.last_supplier ELSE scprs_catalog.last_supplier END,
+                        times_seen = scprs_catalog.times_seen + 1,
+                        updated_at = datetime('now')
+                """, (desc, r[1] or "", price, qty, r[4] or "", r[5] or "", r[6] or "", r[7] or "", r[8] or ""))
+                inserted += 1
+            except Exception:
+                pass
+        db.commit()
+        catalog_count = db.execute("SELECT COUNT(*) FROM scprs_catalog").fetchone()[0]
+        db.close()
+        return api_response({
+            "source": "scprs_po_lines",
+            "source_rows": len(rows),
+            "catalog_items_populated": inserted,
+            "catalog_total": catalog_count
+        })
+    except Exception as e:
+        import traceback
+        return api_response(error=f"{e}\n{traceback.format_exc()}", status=500)
+
+
 @bp.route("/api/v1/quote/intelligence", methods=["POST"])
 @auth_required
 def api_v1_quote_intelligence():
