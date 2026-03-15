@@ -2041,6 +2041,54 @@ def api_v1_buyers_search():
     })
 
 
+@bp.route("/api/v1/system/audit-now")
+@auth_required
+def api_v1_audit_now():
+    """Trigger system audit immediately."""
+    import threading as _th
+    from src.agents.system_auditor import run_full_audit
+    t = _th.Thread(target=run_full_audit, daemon=True, name="audit-manual")
+    t.start()
+    return api_response({"status": "started", "message": "Audit running. Check /api/v1/system/audit-report in a few minutes."})
+
+
+@bp.route("/api/v1/system/audit-report")
+@auth_required
+def api_v1_audit_report():
+    """View the latest audit report."""
+    import os as _os
+    import json as _json
+    json_path = "/data/system_audit.json"
+    if not _os.path.exists(json_path):
+        return api_response(error="No audit report yet. Hit /api/v1/system/audit-now first.", status=404)
+    with open(json_path, "r") as f:
+        report = _json.load(f)
+    report["summary"] = {
+        "enhancements": len(report.get("enhancements", [])),
+        "critical": len(report.get("critical", [])),
+        "duplicates": len(report.get("duplicates", [])),
+        "data_issues": len(report.get("data_issues", [])),
+        "ui_issues": len(report.get("ui_issues", [])),
+        "missing_integrations": len(report.get("missing_integrations", [])),
+        "markdown_url": "/api/v1/system/audit-report-md",
+    }
+    return api_response(report)
+
+
+@bp.route("/api/v1/system/audit-report-md")
+@auth_required
+def api_v1_audit_report_md():
+    """View audit report as readable markdown."""
+    from flask import Response
+    import os as _os
+    md_path = "/data/system_audit.md"
+    if not _os.path.exists(md_path):
+        return api_response(error="No audit report yet", status=404)
+    with open(md_path, "r") as f:
+        content = f.read()
+    return Response(content, mimetype="text/plain")
+
+
 @bp.route("/api/v1/quote/intelligence", methods=["POST"])
 @auth_required
 def api_v1_quote_intelligence():

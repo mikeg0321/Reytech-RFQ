@@ -262,6 +262,14 @@ def create_app():
         except ImportError:
             pass
 
+        # System audit after data pull
+        try:
+            from src.agents.system_auditor import schedule_system_audit
+            schedule_system_audit()
+            logging.getLogger("reytech").info("System audit scheduled for 5:30 AM PST (after data pull)")
+        except ImportError:
+            pass
+
         logging.getLogger("reytech").info("Deferred init complete")
 
     import threading
