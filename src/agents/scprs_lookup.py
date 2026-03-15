@@ -287,9 +287,13 @@ class FiscalSession:
             m = re.search(rf"name='{re.escape(fld)}'[^>]*value=\"([^\"]*)\"", results_html)
             search_values[fld] = m.group(1) if m else ""
         form_data = self._build_form_data(results_html, click_action, search_values)
+        log.info("Detail POST ICAction=%s ICStateNum=%s",
+                 form_data.get("ICAction", "?"), form_data.get("ICStateNum", "?"))
         try:
             r = self.session.post(SCPRS_SEARCH_URL, data=form_data, timeout=20)
-            log.info(f"SCPRS detail row {row_index}: {r.status_code} ({len(r.text)}b)")
+            log.info("SCPRS detail row %d: %s (%db) content-type=%s",
+                     row_index, r.status_code, len(r.text),
+                     r.headers.get("content-type", "?"))
             if r.status_code == 200:
                 return self._parse_detail(r.text)
         except Exception as e:
@@ -363,6 +367,11 @@ class FiscalSession:
 
     def _parse_detail(self, html):
         """Parse detail page by PeopleSoft span IDs (not table cells)."""
+        log.info("_parse_detail preview: %s", html[:500].replace("\n", " "))
+        log.info("_parse_detail has CRDMEM_ACCT_NBR: %s",
+                 "ZZ_SCPR_SBP_WRK_CRDMEM_ACCT_NBR" in html)
+        log.info("_parse_detail has PDL_DVW: %s",
+                 "ZZ_SCPR_PDL_DVW" in html)
         soup = BeautifulSoup(html, "html.parser")
 
         def get_span(id_val):
