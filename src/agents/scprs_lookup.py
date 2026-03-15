@@ -281,7 +281,6 @@ class FiscalSession:
 
     def get_po_detail(self, po_number):
         """Fetch detail for a PO by searching its number, then clicking row 0."""
-        log.info("get_po_detail: searching PO=%s", po_number)
         try:
             # Search by PO number — should return exactly 1 result
             page = self._load_page(2)
@@ -292,8 +291,6 @@ class FiscalSession:
             form_data = self._build_form_data(page, SEARCH_BUTTON, search_values)
 
             r = self.session.post(SCPRS_SEARCH_URL, data=form_data, timeout=20)
-            log.info("PO search %s: %d (%db)", po_number, r.status_code, len(r.text))
-
             if r.status_code != 200:
                 return None
 
@@ -306,15 +303,14 @@ class FiscalSession:
 
             has_pdl = "ZZ_SCPR_PDL_DVW" in html
             has_sbp = "ZZ_SCPR_SBP_WRK" in html
-            log.info("PO search %s: has_PDL_DVW=%s has_SBP=%s",
-                     po_number, has_pdl, has_sbp)
+            log.info("Detail POST: %db has_PDL_DVW=%s (PO search %s)",
+                     len(html), has_pdl, po_number)
 
             # If PO search returns detail page directly, parse it
             if has_pdl or has_sbp:
                 return self._parse_detail(html)
 
             # Otherwise click row 0 of the single-result search
-            # Try $hmodal$ first, then bare click
             for click_id in [f"ZZ_SCPR_RSLT_VW$hmodal$0", f"ZZ_SCPR_RSLT_VW$0"]:
                 click_values = {}
                 for fld in ALL_SEARCH_FIELDS:
@@ -325,8 +321,8 @@ class FiscalSession:
                 cr = self.session.post(SCPRS_SEARCH_URL, data=click_data, timeout=20)
                 has_pdl2 = "ZZ_SCPR_PDL_DVW" in cr.text
                 has_sbp2 = "ZZ_SCPR_SBP_WRK" in cr.text
-                log.info("PO click %s (%s): %d (%db) PDL=%s SBP=%s",
-                         po_number, click_id, cr.status_code, len(cr.text), has_pdl2, has_sbp2)
+                log.info("Detail POST: %db has_PDL_DVW=%s (%s click %s)",
+                         len(cr.text), has_pdl2, po_number, click_id.split("$")[1])
                 if cr.status_code == 200 and (has_pdl2 or has_sbp2):
                     return self._parse_detail(cr.text)
                 if cr.status_code == 200:
@@ -340,8 +336,6 @@ class FiscalSession:
                 if new_id:
                     self.icsid = new_id
                 self._last_state_num = self._extract_state_num(html)
-
-            log.info("PO %s: no detail page found after search + click", po_number)
         except Exception as e:
             log.error("get_po_detail failed PO=%s: %s", po_number, e)
         return None
@@ -353,7 +347,6 @@ class FiscalSession:
 
         current_html = self._last_html or results_html
 
-        # POST modal click to extract PO number
         search_values = {}
         for fld in ALL_SEARCH_FIELDS:
             m = re.search(rf"name='{re.escape(fld)}'[^>]*value=\"([^\"]*)\"", current_html)
@@ -363,18 +356,12 @@ class FiscalSession:
         log.info("Detail click: %s", click_action)
         try:
             r = self.session.post(SCPRS_SEARCH_URL, data=form_data, timeout=20)
-            log.info("Modal POST: %d (%db)", r.status_code, len(r.text))
-
             if r.status_code == 200:
                 po_nums = re.findall(r'4500\d{6}', r.text)
                 if po_nums:
-                    po_number = po_nums[0]
-                    log.info("Modal PO=%s, fetching via PO search", po_number)
-                    return self.get_po_detail(po_number)
-                else:
-                    log.warning("Modal click returned no PO numbers")
+                    return self.get_po_detail(po_nums[0])
         except Exception as e:
-            log.error("Modal click failed: %s", e)
+            log.error("Detail click failed: %s", e)
         return None
 
     # ── Parsers ────────────────────────────────────────────────────

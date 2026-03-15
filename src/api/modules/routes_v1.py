@@ -1189,33 +1189,6 @@ def api_v1_backfill_details():
     if _backfill_running:
         return api_response({"started": False, "reason": "backfill already running"})
 
-    # Log all debug-related route functions so we can inspect them
-    import inspect
-    for name in dir():
-        if "debug" in name.lower() and "detail" in name.lower():
-            log.info("FOUND debug-detail fn: %s", name)
-    # Search all blueprint routes for debug-detail
-    try:
-        for rule in bp.deferred_functions:
-            log.info("BP deferred: %s", rule)
-    except Exception:
-        pass
-    # Check globals for any debug_detail function
-    import sys
-    dashboard_mod = sys.modules.get("src.api.dashboard") or sys.modules.get("dashboard")
-    if dashboard_mod:
-        matches = [k for k in dir(dashboard_mod) if "debug" in k.lower() and "detail" in k.lower()]
-        log.info("Dashboard debug-detail matches: %s", matches)
-        for m in matches:
-            fn = getattr(dashboard_mod, m, None)
-            if fn and callable(fn):
-                try:
-                    log.info("DEBUG_DETAIL_CODE [%s]: %s", m, inspect.getsource(fn))
-                except Exception as e:
-                    log.info("DEBUG_DETAIL_CODE [%s]: could not get source: %s", m, e)
-    else:
-        log.info("Dashboard module not found in sys.modules")
-
     try:
         import sqlite3
         from src.core.db import DB_PATH
