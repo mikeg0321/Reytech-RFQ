@@ -307,25 +307,38 @@ class FiscalSession:
             has_sbp = "ZZ_SCPR_SBP_WRK" in r.text
             log.info("Detail POST: %d (%db) has_PDL_DVW=%s has_SBP=%s",
                      r.status_code, len(r.text), has_pdl, has_sbp)
-            log.info("Modal resp 3000: %s", r.text[:3000].replace("\n", " "))
-            log.info("Modal has iframe=%s PDL=%s PDDTL=%s strReqURL=%s",
-                     "iframe" in r.text.lower(),
-                     "ZZ_SCPR_PDL" in r.text,
-                     "PDDTL" in r.text,
-                     "strReqURL" in r.text)
-            # Search for PO number patterns (10-digit numbers starting with 4500)
-            import re as _re
-            po_nums = _re.findall(r'4500\d{6}', r.text)
-            log.info("Modal PO numbers found: %s", po_nums[:5] if po_nums else "NONE")
+
             if r.status_code == 200 and (has_pdl or has_sbp):
                 return self._parse_detail(r.text)
+
+            # Modal response: extract PO numbers + find detail navigation links
             if r.status_code == 200:
-                # Try parsing anyway — might have partial detail content
+                modal_soup = BeautifulSoup(r.text, "html.parser")
+
+                # Find PO number spans (CRDMEM_ACCT_NBR = PO number field)
+                po_span = modal_soup.find(id=re.compile(r'CRDMEM_ACCT_NBR\$0'))
+                po_from_span = po_span.get_text(strip=True) if po_span else None
+                log.info("Modal PO span: id=%s text=%s",
+                         po_span.get("id") if po_span else "NONE", po_from_span)
+
+                # Find ALL clickable links in modal (for detail navigation)
+                modal_links = [a.get("id", "") for a in modal_soup.find_all("a")
+                               if "SCPR" in (a.get("id") or "")]
+                log.info("Modal SCPR links: %s", modal_links[:20])
+
+                # Also look for any link to ZZ_SCPRS2 (detail component)
+                scprs2_refs = re.findall(r'ZZ_SCPRS2[^"\'<>\s]*', r.text)
+                log.info("Modal ZZ_SCPRS2 refs: %s", scprs2_refs[:5] if scprs2_refs else "NONE")
+
+                # Try parsing anyway
                 result = self._parse_detail(r.text)
                 if result and result.get("line_items"):
                     return result
-                log.info("POST returned %d lines, no detail content",
-                         len(result.get("line_items", [])) if result else 0)
+                # Return PO number from modal even if no lines
+                if po_from_span:
+                    log.info("Modal has PO=%s but no line items", po_from_span)
+                    return {"header": {"po_number": po_from_span}, "po_number": po_from_span,
+                            "line_items": [], "buyer_name": None}
         except Exception as e:
             log.error("Detail POST failed: %s", e)
         return None
