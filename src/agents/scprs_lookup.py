@@ -48,7 +48,7 @@ except ImportError:
 # ── FI$Cal URLs & Field IDs ───────────────────────────────────────
 
 SCPRS_BASE = "https://suppliers.fiscal.ca.gov"
-SCPRS_SEARCH_URL = f"{SCPRS_BASE}/psc/psfpd1/SUPPLIER/ERP/c/ZZ_PO.ZZ_SCPRS2_CMP.GBL"
+SCPRS_SEARCH_URL = f"{SCPRS_BASE}/psc/psfpd1/SUPPLIER/ERP/c/ZZ_PO.ZZ_SCPRS1_CMP.GBL"
 SCPRS_DETAIL_URL = f"{SCPRS_BASE}/psp/psfpd1/SUPPLIER/ERP/c/ZZ_PO.ZZ_SCPRS2_CMP.GBL?Page=ZZ_SCPRS_PDDTL_PG&Action=U"
 
 # Search form fields
