@@ -1181,6 +1181,128 @@ _backfill_lock = _threading.Lock()
 _backfill_running = False
 
 
+@bp.route("/api/v1/harvest/debug-detail")
+@auth_required
+def api_v1_harvest_debug_detail():
+    """Minimal standalone test: fresh session, search, click, log everything."""
+    try:
+        from src.agents.scprs_lookup import (
+            FiscalSession, SCPRS_SEARCH_URL, ALL_SEARCH_FIELDS,
+            SEARCH_BUTTON, FIELD_SUPPLIER_NAME, FIELD_PO_NUM
+        )
+        from bs4 import BeautifulSoup
+        import re as _re
+
+        info = {"steps": []}
+
+        # Step 1: Fresh session
+        fs = FiscalSession()
+        ok = fs.init_session()
+        info["steps"].append({"step": "init", "ok": ok, "icsid": (fs.icsid or "")[:12]})
+        if not ok:
+            return api_response(info)
+
+        # Step 2: Search (supplier_name=reytech)
+        results = fs.search(supplier_name="reytech", from_date="01/01/2022")
+        info["steps"].append({
+            "step": "search",
+            "results": len(results or []),
+            "state_num": fs._last_state_num,
+            "last_html_size": len(fs._last_html or ""),
+        })
+        if not results:
+            return api_response(info)
+
+        # Step 3: Modal click on row 0
+        current_html = fs._last_html
+        click_action = "ZZ_SCPR_RSLT_VW$hmodal$0"
+        sv = {}
+        for fld in ALL_SEARCH_FIELDS:
+            m = _re.search(rf"name='{_re.escape(fld)}'[^>]*value=\"([^\"]*)\"", current_html)
+            sv[fld] = m.group(1) if m else ""
+        fd = fs._build_form_data(current_html, click_action, sv)
+        modal_r = fs.session.post(SCPRS_SEARCH_URL, data=fd, timeout=20)
+        modal_html = modal_r.text
+
+        # Extract PO numbers from modal
+        po_nums = _re.findall(r'4500\d{6}', modal_html)
+
+        # Find all clickable links in modal
+        modal_soup = BeautifulSoup(modal_html, "html.parser")
+        all_links = [a.get("id", "") for a in modal_soup.find_all("a") if a.get("id")]
+        scpr_links = [lid for lid in all_links if "SCPR" in lid]
+
+        info["steps"].append({
+            "step": "modal_click",
+            "action": click_action,
+            "status": modal_r.status_code,
+            "size": len(modal_html),
+            "has_PDL_DVW": "ZZ_SCPR_PDL_DVW" in modal_html,
+            "has_SBP_WRK": "ZZ_SCPR_SBP_WRK" in modal_html,
+            "po_numbers": po_nums[:5],
+            "scpr_links": scpr_links[:20],
+            "all_link_count": len(all_links),
+        })
+
+        # Step 4: Try clicking every unique SCPR link from the modal
+        # to find which one leads to the detail page
+        tried = set()
+        for link_id in scpr_links[:5]:
+            if link_id in tried or link_id == click_action:
+                continue
+            tried.add(link_id)
+
+            # Update state from modal response
+            new_icsid = fs._extract_icsid(modal_html)
+            if new_icsid:
+                fs.icsid = new_icsid
+            sv2 = {}
+            for fld in ALL_SEARCH_FIELDS:
+                m = _re.search(rf"name='{_re.escape(fld)}'[^>]*value=\"([^\"]*)\"", modal_html)
+                sv2[fld] = m.group(1) if m else ""
+            fd2 = fs._build_form_data(modal_html, link_id, sv2)
+            try:
+                r2 = fs.session.post(SCPRS_SEARCH_URL, data=fd2, timeout=20)
+                info["steps"].append({
+                    "step": f"click_{link_id}",
+                    "status": r2.status_code,
+                    "size": len(r2.text),
+                    "has_PDL_DVW": "ZZ_SCPR_PDL_DVW" in r2.text,
+                    "has_SBP_WRK": "ZZ_SCPR_SBP_WRK" in r2.text,
+                    "preview": r2.text[:200].replace("\n", " "),
+                })
+                if "ZZ_SCPR_PDL_DVW" in r2.text:
+                    info["FOUND_DETAIL"] = link_id
+                    break
+            except Exception as e:
+                info["steps"].append({"step": f"click_{link_id}", "error": str(e)})
+
+        # Step 5: Also try searching by PO number directly
+        if po_nums:
+            fs2 = FiscalSession()
+            fs2.init_session()
+            page2 = fs2._load_page(2)
+            fs2.icsid = fs2._extract_icsid(page2) or fs2.icsid
+            sv3 = {f: "" for f in ALL_SEARCH_FIELDS}
+            sv3[FIELD_PO_NUM] = po_nums[0]
+            fd3 = fs2._build_form_data(page2, SEARCH_BUTTON, sv3)
+            r3 = fs2.session.post(SCPRS_SEARCH_URL, data=fd3, timeout=20)
+            info["steps"].append({
+                "step": f"po_search_{po_nums[0]}",
+                "status": r3.status_code,
+                "size": len(r3.text),
+                "has_PDL_DVW": "ZZ_SCPR_PDL_DVW" in r3.text,
+                "has_SBP_WRK": "ZZ_SCPR_SBP_WRK" in r3.text,
+                "preview": r3.text[:200].replace("\n", " "),
+            })
+
+        return api_response(info)
+    except Exception as e:
+        import traceback
+        log.error("debug-detail error: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)
+
+
 @bp.route("/api/v1/harvest/backfill-details")
 @auth_required
 def api_v1_backfill_details():
