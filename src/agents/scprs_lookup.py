@@ -280,103 +280,58 @@ class FiscalSession:
         return self._parse_results(html)
 
     def get_po_detail(self, po_number):
-        """Fetch detail via ZZ_SCPRS2_CMP with PO number search."""
+        """Fetch detail via ZZ_SCPRS2_CMP with shared auth cookies."""
         try:
-            # Fresh session on ZZ_SCPRS2 (detail component)
-            detail_session = requests.Session()
-            detail_session.headers.update({"User-Agent": USER_AGENT})
+            # Share cookies from SCPRS1 session (already authenticated)
+            s2 = requests.Session()
+            s2.headers.update(self.session.headers)
+            s2.cookies.update(self.session.cookies)
 
-            # Load the ZZ_SCPRS2 page to get ICSID
-            url = f"{SCPRS_DETAIL_URL}?&"
-            r1 = detail_session.get(url, timeout=20, allow_redirects=True)
+            # Load ZZ_SCPRS2 to get its hidden fields
+            r1 = s2.get(f"{SCPRS_DETAIL_URL}?&", timeout=20, allow_redirects=True)
             page = r1.text
-            log.info("SCPRS2 load: %d (%db)", r1.status_code, len(page))
+            log.info("SCPRS2 load: %db", len(page))
 
             icsid = self._extract_icsid(page)
             if not icsid:
-                # PeopleSoft double-load
                 time.sleep(0.5)
-                r1b = detail_session.get(url, timeout=20, allow_redirects=True)
+                r1b = s2.get(f"{SCPRS_DETAIL_URL}?&", timeout=20, allow_redirects=True)
                 page = r1b.text
                 icsid = self._extract_icsid(page)
-                log.info("SCPRS2 reload: %d (%db) icsid=%s",
-                         r1b.status_code, len(page), "yes" if icsid else "no")
+                log.info("SCPRS2 reload: %db icsid=%s", len(page), "yes" if icsid else "no")
 
             if not icsid:
                 log.error("SCPRS2: no ICSID for PO=%s", po_number)
                 return None
 
-            # Search by PO number on ZZ_SCPRS2
+            # POST search with PO number on ZZ_SCPRS2
             search_values = {f: "" for f in ALL_SEARCH_FIELDS}
             search_values[FIELD_PO_NUM] = po_number
+            form_data = self._build_form_data(page, SEARCH_BUTTON, search_values)
+            form_data["ICSID"] = icsid
 
-            state_num = self._extract_state_num(page)
-            form_data = {
-                "ICType": "Panel", "ICElementNum": "0",
-                "ICStateNum": state_num,
-                "ICAction": SEARCH_BUTTON, "ICModelCancel": "0",
-                "ICXPos": "0", "ICYPos": "0",
-                "ResponsetoDiffFrame": "-1", "TargetFrameName": "None",
-                "FacetPath": "None", "ICFocus": "",
-                "ICSaveWarningFilter": "0", "ICChanged": "-1",
-                "ICSkipPending": "0", "ICAutoSave": "0",
-                "ICResubmit": "0", "ICSID": icsid,
-                "ICActionPrompt": "false", "ICBcDomData": "",
-                "ICPanelName": "", "ICFind": "", "ICAddCount": "",
-                "ICAppClsData": "",
-            }
-            # Add DUMMY_FIELD if present
-            m = re.search(r"name='DUMMY_FIELD\$hnewpers\$0'[^>]*value='([^']*)'", page)
-            if m:
-                form_data["DUMMY_FIELD$hnewpers$0"] = m.group(1)
-            form_data.update(search_values)
-
-            r2 = detail_session.post(SCPRS_DETAIL_URL, data=form_data, timeout=20)
+            r2 = s2.post(SCPRS_DETAIL_URL, data=form_data, timeout=20)
             has_pdl = "ZZ_SCPR_PDL_DVW" in r2.text
-            has_sbp = "ZZ_SCPR_SBP_WRK" in r2.text
             log.info("Detail POST: %db has_PDL_DVW=%s (SCPRS2 PO=%s)",
                      len(r2.text), has_pdl, po_number)
 
-            if r2.status_code == 200 and (has_pdl or has_sbp):
+            if r2.status_code == 200 and has_pdl:
                 return self._parse_detail(r2.text)
 
             # If search returned results, click row 0
             if r2.status_code == 200 and "1 to" in r2.text:
-                icsid2 = self._extract_icsid(r2.text) or icsid
-                state2 = self._extract_state_num(r2.text)
                 click_sv = {}
                 for fld in ALL_SEARCH_FIELDS:
                     m2 = re.search(rf"name='{re.escape(fld)}'[^>]*value=\"([^\"]*)\"", r2.text)
                     click_sv[fld] = m2.group(1) if m2 else ""
-                click_data = {
-                    "ICType": "Panel", "ICElementNum": "0",
-                    "ICStateNum": state2,
-                    "ICAction": "ZZ_SCPR_RSLT_VW$0", "ICModelCancel": "0",
-                    "ICXPos": "0", "ICYPos": "0",
-                    "ResponsetoDiffFrame": "-1", "TargetFrameName": "None",
-                    "FacetPath": "None", "ICFocus": "",
-                    "ICSaveWarningFilter": "0", "ICChanged": "-1",
-                    "ICSkipPending": "0", "ICAutoSave": "0",
-                    "ICResubmit": "0", "ICSID": icsid2,
-                    "ICActionPrompt": "false", "ICBcDomData": "",
-                    "ICPanelName": "", "ICFind": "", "ICAddCount": "",
-                    "ICAppClsData": "",
-                }
-                m3 = re.search(r"name='DUMMY_FIELD\$hnewpers\$0'[^>]*value='([^']*)'", r2.text)
-                if m3:
-                    click_data["DUMMY_FIELD$hnewpers$0"] = m3.group(1)
-                click_data.update(click_sv)
+                click_data = self._build_form_data(r2.text, "ZZ_SCPR_RSLT_VW$0", click_sv)
 
-                r3 = detail_session.post(SCPRS_DETAIL_URL, data=click_data, timeout=20)
+                r3 = s2.post(SCPRS_DETAIL_URL, data=click_data, timeout=20)
                 has_pdl3 = "ZZ_SCPR_PDL_DVW" in r3.text
                 log.info("Detail POST: %db has_PDL_DVW=%s (SCPRS2 click PO=%s)",
                          len(r3.text), has_pdl3, po_number)
-                if r3.status_code == 200 and has_pdl3:
-                    return self._parse_detail(r3.text)
                 if r3.status_code == 200:
-                    result = self._parse_detail(r3.text)
-                    if result and result.get("line_items"):
-                        return result
+                    return self._parse_detail(r3.text)
         except Exception as e:
             log.error("get_po_detail failed PO=%s: %s", po_number, e)
         return None
