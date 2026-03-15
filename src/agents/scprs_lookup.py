@@ -49,7 +49,7 @@ except ImportError:
 
 SCPRS_BASE = "https://suppliers.fiscal.ca.gov"
 SCPRS_SEARCH_URL = f"{SCPRS_BASE}/psc/psfpd1/SUPPLIER/ERP/c/ZZ_PO.ZZ_SCPRS1_CMP.GBL"
-SCPRS_DETAIL_URL = f"{SCPRS_BASE}/psc/psfpd1/SUPPLIER/ERP/c/ZZ_PO.ZZ_SCPRS2_CMP.GBL"
+SCPRS_DETAIL_URL = f"{SCPRS_BASE}/psc/psfpd1_1/SUPPLIER/ERP/c/ZZ_PO.ZZ_SCPRS2_CMP.GBL?Page=ZZ_SCPRS_PDDTL_PG&Action=U"
 
 # Search form fields
 FIELD_DESCRIPTION = "ZZ_SCPRS_SP_WRK_DESCR254"
@@ -393,18 +393,17 @@ class FiscalSession:
                 return None
             po_number = po_nums[0]
 
-            # Step 2: Open ZZ_SCPRS2 with shared auth cookies
-            import requests as _req
-            _s2 = _req.Session()
-            _s2.cookies.update(self.session.cookies)
-            _SCPRS2 = ("https://suppliers.fiscal.ca.gov/psp/"
-                       "psfpd1/SUPPLIER/ERP/c/"
-                       "ZZ_PO.ZZ_SCPRS2_CMP.GBL")
-            _r1 = _s2.get(_SCPRS2, timeout=20)
-            log.info("S2 load: %db", len(_r1.content))
-
-            # Step 3: Search by PO number on SCPRS2 using same session
-            return self.get_po_detail(po_number, s2=_s2)
+            # Step 2: GET the detail page directly — modal click set PO context
+            dr = self.session.get(SCPRS_DETAIL_URL, timeout=20)
+            has_pdl = "ZZ_SCPR_PDL_DVW" in dr.text
+            log.info("Detail GET: %db has_PDL_DVW=%s (PO=%s)",
+                     len(dr.text), has_pdl, po_number)
+            if dr.status_code == 200 and has_pdl:
+                return self._parse_detail(dr.text)
+            if dr.status_code == 200:
+                result = self._parse_detail(dr.text)
+                if result and result.get("line_items"):
+                    return result
 
         except Exception as e:
             log.error("Detail click failed: %s", e)
