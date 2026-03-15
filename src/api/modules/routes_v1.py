@@ -1874,6 +1874,52 @@ def api_v1_po_screenshot(po_number):
     return api_response(error=f"No screenshot for {po_number}", status=404)
 
 
+@bp.route("/api/v1/quote/intelligence", methods=["POST"])
+@auth_required
+def api_v1_quote_intelligence():
+    """Match RFQ items against catalog and suggest pricing."""
+    from src.agents.quote_intelligence import match_rfq_items
+    data = request.get_json(force=True, silent=True) or {}
+    items = data.get("items", [])
+    if not items:
+        return api_response(error="No items provided", status=400)
+    results = match_rfq_items(items)
+    total_with_pricing = sum(1 for r in results if r.get("suggested_price"))
+    return api_response({
+        "matches": results,
+        "items_total": len(results),
+        "items_with_pricing": total_with_pricing,
+    })
+
+
+@bp.route("/api/v1/quote/catalog-search")
+@auth_required
+def api_v1_catalog_search():
+    """Search the catalog for items matching a query."""
+    from src.agents.quote_intelligence import search_catalog, get_competitor_prices
+    q = request.args.get("q", "")
+    limit = int(request.args.get("limit", "10"))
+    if not q:
+        return api_response(error="No query provided", status=400)
+    catalog = search_catalog(q, limit=limit)
+    competitors = get_competitor_prices(q, limit=20)
+    return api_response({
+        "query": q,
+        "catalog_matches": catalog,
+        "all_supplier_prices": competitors,
+    })
+
+
+@bp.route("/api/v1/quote/enrich", methods=["POST"])
+@auth_required
+def api_v1_quote_enrich():
+    """Full quote enrichment — takes RFQ data, returns draft with pricing."""
+    from src.agents.quote_intelligence import enrich_quote_draft
+    data = request.get_json(force=True, silent=True) or {}
+    result = enrich_quote_draft(data)
+    return api_response(result)
+
+
 @bp.route("/api/v1/harvest/backfill-details")
 @auth_required
 def api_v1_backfill_details():

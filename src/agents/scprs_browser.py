@@ -657,6 +657,154 @@ def _run_exhaustive_scrape():
     log.info("=" * 60)
 
 
+async def _scrape_full_async(search_params, seen_pos, max_rows=500):
+    """Full async scrape with search_params dict (supports to_date, description)."""
+    from playwright.async_api import async_playwright
+    results = []
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-popup-blocking"]
+        )
+        context = await browser.new_context(java_script_enabled=True, bypass_csp=True)
+        page = await context.new_page()
+        page.set_default_timeout(30000)
+        try:
+            await page.goto(SCPRS_SEARCH_URL + "?&", wait_until="networkidle")
+            content = await page.content()
+            if "ICSID" not in content:
+                await page.goto(SCPRS_SEARCH_URL + "?&", wait_until="networkidle")
+
+            supplier = search_params.get("supplier_name", "")
+            from_date = search_params.get("from_date", "")
+            to_date = search_params.get("to_date", "")
+            description = search_params.get("description", "")
+
+            if supplier:
+                f = page.locator("#ZZ_SCPRS_SP_WRK_NAME1")
+                if await f.count() > 0:
+                    await f.fill(supplier)
+            if from_date:
+                f = page.locator("#ZZ_SCPRS_SP_WRK_FROM_DATE")
+                if await f.count() > 0:
+                    await f.fill(from_date)
+            if to_date:
+                f = page.locator("#ZZ_SCPRS_SP_WRK_TO_DATE")
+                if await f.count() > 0:
+                    await f.fill(to_date)
+            if description:
+                f = page.locator("#ZZ_SCPRS_SP_WRK_DESCR254")
+                if await f.count() > 0:
+                    await f.fill(description)
+
+            search_btn = page.locator("#ZZ_SCPRS_SP_WRK_BUTTON")
+            if await search_btn.count() == 0:
+                await context.close()
+                await browser.close()
+                return results
+            await search_btn.click()
+
+            try:
+                await page.wait_for_selector("[id^='ZZ_SCPR_RSLT_VW']", timeout=15000)
+            except Exception:
+                await page.wait_for_timeout(3000)
+            await page.wait_for_load_state("networkidle")
+
+            content = await page.content()
+            count_match = re.search(r'(\d+)\s+to\s+(\d+)\s+of\s+(\d+)', content)
+            if not count_match:
+                await context.close()
+                await browser.close()
+                return results
+
+            total = int(count_match.group(3))
+            log.info("Browser full: %d results found", total)
+
+            link = page.locator("[id='ZZ_SCPR_RSLT_VW$hmodal$0']")
+            if await link.count() == 0:
+                await context.close()
+                await browser.close()
+                return results
+
+            await link.click()
+            await page.wait_for_timeout(5000)
+
+            frames = page.frames
+            if len(frames) < 2:
+                await context.close()
+                await browser.close()
+                return results
+
+            modal_frame = frames[1]
+            failed = 0
+
+            po_links = await modal_frame.locator("a:has-text('4500')").all()
+            other_links = await modal_frame.locator("a:has-text('0000')").all()
+            all_po_elements = po_links + other_links
+            log.info("Browser full: %d PO links in modal", len(all_po_elements))
+
+            for po_el in all_po_elements:
+                if len(results) >= max_rows:
+                    break
+                try:
+                    po_text = (await po_el.text_content() or "").strip()
+                    if not po_text or len(po_text) < 7 or po_text in seen_pos:
+                        continue
+
+                    detail_page = None
+                    try:
+                        async with page.context.expect_page(timeout=15000) as info:
+                            await po_el.click()
+                        detail_page = await info.value
+                        await detail_page.wait_for_load_state("networkidle")
+                    except Exception:
+                        failed += 1
+                        if failed > 10:
+                            break
+                        continue
+
+                    dp_content = await detail_page.content()
+                    if "ZZ_SCPR_PDL_DVW" in dp_content:
+                        import os
+                        os.makedirs("/data/po_records", exist_ok=True)
+                        try:
+                            await detail_page.screenshot(path=f"/data/po_records/{po_text}.png", full_page=True)
+                            with open(f"/data/po_records/{po_text}.html", "w", encoding="utf-8") as fw:
+                                fw.write(dp_content)
+                        except Exception:
+                            pass
+                        detail = _parse_browser_detail(dp_content)
+                        if detail and detail.get("line_items"):
+                            detail["source"] = "scprs_browser"
+                            detail["screenshot_path"] = f"/data/po_records/{po_text}.png"
+                            results.append(detail)
+                            seen_pos.add(po_text)
+                            log.info("Browser full: PO=%s %d lines [%d done]",
+                                     detail["header"].get("po_number", po_text),
+                                     len(detail["line_items"]), len(results))
+                    else:
+                        failed += 1
+
+                    await detail_page.close()
+                    await page.wait_for_timeout(500)
+                except Exception:
+                    failed += 1
+                    for extra in page.context.pages[1:]:
+                        try:
+                            await extra.close()
+                        except Exception:
+                            pass
+                    if failed > 10:
+                        break
+
+        except Exception as e:
+            log.error("Browser full scrape error: %s", e)
+        finally:
+            await context.close()
+            await browser.close()
+    return results
+
+
 def _scrape_with_retry(search_params, seen_pos, max_rows=500, max_retries=3):
     """Scrape with retry logic."""
     import time as _time
@@ -665,16 +813,14 @@ def _scrape_with_retry(search_params, seen_pos, max_rows=500, max_retries=3):
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             results = loop.run_until_complete(
-                _scrape_detail_async(
-                    supplier_name=search_params.get("supplier_name", ""),
-                    from_date=search_params.get("from_date", ""),
+                _scrape_full_async(
+                    search_params=search_params,
+                    seen_pos=seen_pos,
                     max_rows=max_rows,
                 )
             )
             loop.close()
-            new_results = [r for r in results
-                           if r.get("header", {}).get("po_number", "") not in seen_pos]
-            return new_results
+            return results
         except Exception as e:
             log.warning("Scrape attempt %d/%d failed: %s", attempt, max_retries, e)
             if attempt < max_retries:
