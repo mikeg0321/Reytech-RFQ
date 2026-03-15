@@ -1795,6 +1795,85 @@ def api_v1_harvest_browser_test():
         )
 
 
+@bp.route("/api/v1/harvest/fiscal-scrape-now")
+@auth_required
+def api_v1_fiscal_scrape_now():
+    """Manually trigger full FI$Cal exhaustive scrape."""
+    import threading as _th
+    from src.agents.scprs_browser import _run_exhaustive_scrape
+    t = _th.Thread(target=_run_exhaustive_scrape, daemon=True, name="fiscal-manual")
+    t.start()
+    return api_response({"status": "started", "message": "Full FI$Cal scrape running. Check logs."})
+
+
+@bp.route("/api/v1/harvest/fiscal-scrape-status")
+@auth_required
+def api_v1_fiscal_scrape_status():
+    """Check scrape progress across all data layers."""
+    import os
+    try:
+        import sqlite3
+        from src.core.db import DB_PATH
+        db = sqlite3.connect(DB_PATH, timeout=10)
+        db.row_factory = sqlite3.Row
+        po_count = db.execute("SELECT COUNT(*) FROM scprs_po_master").fetchone()[0]
+        line_count = db.execute("SELECT COUNT(*) FROM scprs_po_lines").fetchone()[0]
+        try:
+            catalog_count = db.execute("SELECT COUNT(*) FROM scprs_catalog").fetchone()[0]
+        except Exception:
+            catalog_count = 0
+        reytech_pos = db.execute(
+            "SELECT COUNT(*) FROM scprs_po_master WHERE UPPER(supplier) LIKE '%REYTECH%'"
+        ).fetchone()[0]
+        top_suppliers = db.execute("""
+            SELECT supplier, COUNT(*) as cnt FROM scprs_po_master
+            GROUP BY supplier ORDER BY cnt DESC LIMIT 20
+        """).fetchall()
+        top_depts = db.execute("""
+            SELECT dept_name, COUNT(*) as cnt FROM scprs_po_master
+            GROUP BY dept_name ORDER BY cnt DESC LIMIT 20
+        """).fetchall()
+        latest = db.execute("""
+            SELECT po_number, supplier, grand_total, start_date
+            FROM scprs_po_master ORDER BY rowid DESC LIMIT 10
+        """).fetchall()
+        db.close()
+    except Exception as e:
+        return api_response({"error": str(e)})
+
+    po_screenshots = 0
+    po_htmls = 0
+    try:
+        records_dir = "/data/po_records"
+        if os.path.exists(records_dir):
+            files = os.listdir(records_dir)
+            po_screenshots = len([f for f in files if f.endswith(".png")])
+            po_htmls = len([f for f in files if f.endswith(".html")])
+    except Exception:
+        pass
+
+    return api_response({
+        "layer1_raw_fiscal": {"total_pos": po_count, "total_line_items": line_count, "reytech_pos": reytech_pos},
+        "layer3_catalog": {"unique_items": catalog_count},
+        "po_records": {"screenshots": po_screenshots, "html_backups": po_htmls},
+        "top_suppliers": [{"supplier": s[0], "count": s[1]} for s in top_suppliers],
+        "top_departments": [{"dept": d[0], "count": d[1]} for d in top_depts],
+        "latest_scraped": [{"po": l[0], "supplier": l[1], "total": l[2], "date": l[3]} for l in latest],
+    })
+
+
+@bp.route("/api/v1/harvest/po-screenshot/<po_number>")
+@auth_required
+def api_v1_po_screenshot(po_number):
+    """Serve stored PO screenshot."""
+    import os
+    from flask import send_file
+    path = f"/data/po_records/{po_number}.png"
+    if os.path.exists(path):
+        return send_file(path, mimetype="image/png")
+    return api_response(error=f"No screenshot for {po_number}", status=404)
+
+
 @bp.route("/api/v1/harvest/backfill-details")
 @auth_required
 def api_v1_backfill_details():

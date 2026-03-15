@@ -242,12 +242,19 @@ async def _scrape_detail_async(supplier_name="reytech",
                                      detail["header"].get("buyer_name", "?"),
                                      processed)
 
-                            # Save screenshot every 10th PO
-                            if processed % 10 == 0 or processed <= 3:
+                            # Save screenshot + HTML for every PO
+                            import os
+                            os.makedirs("/data/po_records", exist_ok=True)
+                            try:
                                 await detail_page.screenshot(
-                                    path=f"/data/scprs_detail_{processed}.png",
+                                    path=f"/data/po_records/{po_text}.png",
                                     full_page=True
                                 )
+                                with open(f"/data/po_records/{po_text}.html", "w", encoding="utf-8") as _f:
+                                    _f.write(dp_content)
+                                detail["screenshot_path"] = f"/data/po_records/{po_text}.png"
+                            except Exception:
+                                pass
                     else:
                         log.warning("Browser: PO %s no line items in %db",
                                     po_text, len(dp_content))
@@ -331,8 +338,8 @@ def _parse_browser_detail(html):
     return {"header": header, "line_items": line_items}
 
 
-def scrape_details(supplier_name="reytech", from_date="01/01/2024",
-                   max_rows=5):
+def scrape_details(supplier_name="reytech", from_date="",
+                   max_rows=500):
     """Synchronous wrapper for async browser scraping."""
     try:
         loop = asyncio.new_event_loop()
@@ -425,3 +432,253 @@ async def _scrape_single_po(po_number):
             await browser.close()
 
     return None
+
+
+# ── 3-Layer Storage ─────────────────────────────────────────────
+
+def _store_results(batch, seen_pos):
+    """Store into 3 layers: raw FI$Cal DB, Reytech won quotes, catalog."""
+    stored_pos = 0
+    stored_lines = 0
+    won_quotes = 0
+    catalog_items = 0
+
+    try:
+        import sqlite3
+        from src.core.db import DB_PATH
+        db = sqlite3.connect(DB_PATH, timeout=30)
+
+        for r in batch:
+            header = r.get("header", {})
+            po = header.get("po_number", "")
+            if not po:
+                continue
+            seen_pos.add(po)
+            screenshot_path = r.get("screenshot_path", "")
+
+            # LAYER 1: Raw FI$Cal
+            try:
+                db.execute("""
+                    INSERT OR REPLACE INTO scprs_po_master
+                    (po_number, dept_code, dept_name, status, start_date,
+                     end_date, supplier, supplier_id, acq_type, acq_method,
+                     merch_amount, grand_total, buyer_name, buyer_email,
+                     buyer_phone, source_system, screenshot_path, scraped_at)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))
+                """, (
+                    po, header.get("dept_code", ""), header.get("dept_name", ""),
+                    header.get("status", ""), header.get("start_date", ""),
+                    header.get("end_date", ""), header.get("supplier", ""),
+                    header.get("supplier_id", ""), header.get("acq_type", ""),
+                    header.get("acq_method", ""), header.get("merch_amount", ""),
+                    header.get("grand_total", ""), header.get("buyer_name", ""),
+                    header.get("buyer_email", ""), header.get("buyer_phone", ""),
+                    "scprs_browser", screenshot_path,
+                ))
+                stored_pos += 1
+            except Exception as e:
+                log.warning("Store PO master %s: %s", po, str(e)[:60])
+
+            for line in r.get("line_items", []):
+                try:
+                    db.execute("""
+                        INSERT OR IGNORE INTO scprs_po_lines
+                        (po_number, line_num, item_id, description,
+                         unspsc, uom, quantity, unit_price, line_total,
+                         line_status, category)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                    """, (
+                        po, line.get("line_number", ""), line.get("item_id", ""),
+                        (line.get("description", "") or "")[:500],
+                        line.get("unspsc", ""), line.get("uom", ""),
+                        line.get("quantity_num", 0) or 0,
+                        line.get("unit_price_num", 0) or 0,
+                        line.get("line_total_num", 0) or 0,
+                        line.get("line_status", ""), "other",
+                    ))
+                    stored_lines += 1
+                except Exception as e:
+                    log.warning("Store line %s: %s", po, str(e)[:60])
+
+            # LAYER 2: Won Quotes — Reytech only
+            supplier = (header.get("supplier", "") or "").upper()
+            if "REYTECH" in supplier:
+                try:
+                    from src.knowledge.won_quotes_db import ingest_scprs_result
+                    for line in r.get("line_items", []):
+                        up = line.get("unit_price_num")
+                        if up and up > 0:
+                            ingest_scprs_result(
+                                po_number=po,
+                                item_number=line.get("item_id", ""),
+                                description=line.get("description", ""),
+                                unit_price=up,
+                                quantity=line.get("quantity_num", 1) or 1,
+                                supplier=header.get("supplier", ""),
+                                department=header.get("dept_name", ""),
+                                award_date=header.get("start_date", ""),
+                                source="scprs_browser_won",
+                            )
+                            won_quotes += 1
+                except Exception as e:
+                    log.warning("Won quotes %s: %s", po, str(e)[:60])
+
+            # LAYER 3: Product Catalog
+            for line in r.get("line_items", []):
+                up = line.get("unit_price_num")
+                desc = line.get("description", "")
+                if up and up > 0 and desc:
+                    try:
+                        db.execute("""
+                            INSERT INTO scprs_catalog
+                            (description, unspsc, last_unit_price, last_quantity,
+                             last_uom, last_supplier, last_department,
+                             last_po_number, last_date, times_seen, updated_at)
+                            VALUES (?,?,?,?,?,?,?,?,?,1,datetime('now'))
+                            ON CONFLICT(description) DO UPDATE SET
+                                last_unit_price = excluded.last_unit_price,
+                                last_quantity = excluded.last_quantity,
+                                last_supplier = excluded.last_supplier,
+                                last_department = excluded.last_department,
+                                last_po_number = excluded.last_po_number,
+                                last_date = excluded.last_date,
+                                times_seen = scprs_catalog.times_seen + 1,
+                                updated_at = datetime('now')
+                        """, (
+                            desc[:500], line.get("unspsc", ""), up,
+                            line.get("quantity_num", 1), line.get("uom", ""),
+                            header.get("supplier", ""), header.get("dept_name", ""),
+                            po, header.get("start_date", ""),
+                        ))
+                        catalog_items += 1
+                    except Exception:
+                        pass
+
+        db.commit()
+        db.close()
+    except Exception as e:
+        log.error("Store results DB error: %s", e)
+
+    log.info("Stored: %d POs, %d lines -> DB | %d -> Won Quotes | %d -> Catalog",
+             stored_pos, stored_lines, won_quotes, catalog_items)
+    return stored_lines
+
+
+# ── Exhaustive Scrape ───────────────────────────────────────────
+
+def schedule_full_fiscal_scrape(target_hour_pst=2):
+    """Schedule exhaustive FI$Cal scrape at target hour PST."""
+    import threading
+    from datetime import datetime, timezone, timedelta
+    PST = timezone(timedelta(hours=-8))
+
+    def _wait_and_run():
+        import time as _time
+        while True:
+            now = datetime.now(PST)
+            target = now.replace(hour=target_hour_pst, minute=0, second=0, microsecond=0)
+            if target <= now:
+                target += timedelta(days=1)
+            wait_seconds = (target - now).total_seconds()
+            log.info("FISCAL SCRAPE: next run %s PST (in %.1f hours)",
+                     target.strftime("%Y-%m-%d %H:%M"), wait_seconds / 3600)
+            _time.sleep(wait_seconds)
+            try:
+                _run_exhaustive_scrape()
+            except Exception as e:
+                log.error("FISCAL SCRAPE failed: %s", e)
+            _time.sleep(60)
+
+    t = threading.Thread(target=_wait_and_run, daemon=True, name="fiscal-exhaustive")
+    t.start()
+
+
+def _run_exhaustive_scrape():
+    """Every PO in FI$Cal since 2019. Monthly windows. Auto-retry."""
+    import time as _time
+    from datetime import datetime, timedelta
+
+    log.info("=" * 60)
+    log.info("FISCAL EXHAUSTIVE SCRAPE — STARTING")
+    log.info("=" * 60)
+
+    seen_pos = set()
+    total_pos = 0
+    total_lines = 0
+    total_ingested = 0
+    total_errors = 0
+
+    # Monthly windows from Jan 2019 to now
+    date_ranges = []
+    current = datetime(2019, 1, 1)
+    now = datetime.now()
+    while current < now:
+        next_month = (current + timedelta(days=32)).replace(day=1)
+        if next_month > now:
+            next_month = now
+        date_ranges.append((current.strftime("%m/%d/%Y"), next_month.strftime("%m/%d/%Y")))
+        current = next_month
+
+    date_ranges.reverse()
+    log.info("FISCAL: %d monthly windows", len(date_ranges))
+
+    for idx, (from_d, to_d) in enumerate(date_ranges):
+        log.info("FISCAL [%d/%d]: %s - %s (seen %d POs)",
+                 idx + 1, len(date_ranges), from_d, to_d, len(seen_pos))
+        try:
+            batch = _scrape_with_retry(
+                search_params={"supplier_name": "", "from_date": from_d,
+                               "to_date": to_d, "description": ""},
+                seen_pos=seen_pos, max_rows=500,
+            )
+            ingested = _store_results(batch, seen_pos)
+            batch_lines = sum(len(r.get("line_items", [])) for r in batch)
+            total_pos += len(batch)
+            total_lines += batch_lines
+            total_ingested += ingested
+
+            log.info("FISCAL [%d/%d]: %d POs, %d lines [TOTAL: %d POs, %d unique]",
+                     idx + 1, len(date_ranges), len(batch), batch_lines,
+                     total_pos, len(seen_pos))
+
+            _time.sleep(5)
+        except Exception as e:
+            total_errors += 1
+            log.error("FISCAL [%d/%d]: FAILED: %s", idx + 1, len(date_ranges), e)
+            _time.sleep(15)
+
+    log.info("=" * 60)
+    log.info("FISCAL EXHAUSTIVE SCRAPE COMPLETE")
+    log.info("  POs extracted:    %d", total_pos)
+    log.info("  Line items:       %d", total_lines)
+    log.info("  Unique POs:       %d", len(seen_pos))
+    log.info("  Items ingested:   %d", total_ingested)
+    log.info("  Errors (skipped): %d", total_errors)
+    log.info("=" * 60)
+
+
+def _scrape_with_retry(search_params, seen_pos, max_rows=500, max_retries=3):
+    """Scrape with retry logic."""
+    import time as _time
+    for attempt in range(1, max_retries + 1):
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            results = loop.run_until_complete(
+                _scrape_detail_async(
+                    supplier_name=search_params.get("supplier_name", ""),
+                    from_date=search_params.get("from_date", ""),
+                    max_rows=max_rows,
+                )
+            )
+            loop.close()
+            new_results = [r for r in results
+                           if r.get("header", {}).get("po_number", "") not in seen_pos]
+            return new_results
+        except Exception as e:
+            log.warning("Scrape attempt %d/%d failed: %s", attempt, max_retries, e)
+            if attempt < max_retries:
+                _time.sleep(10 * attempt)
+            else:
+                raise
+    return []

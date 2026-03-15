@@ -253,6 +253,15 @@ def create_app():
             start_watchdog(check_interval=300)
         except Exception:
             pass
+
+        # Full FI$Cal exhaustive scrape at 2:00 AM PST
+        try:
+            from src.agents.scprs_browser import schedule_full_fiscal_scrape
+            schedule_full_fiscal_scrape(target_hour_pst=2)
+            logging.getLogger("reytech").info("FI$Cal exhaustive scrape scheduled for 2:00 AM PST")
+        except ImportError:
+            pass
+
         logging.getLogger("reytech").info("Deferred init complete")
 
     import threading

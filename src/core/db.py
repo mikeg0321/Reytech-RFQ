@@ -816,6 +816,22 @@ CREATE TABLE IF NOT EXISTS api_keys (
     created_by  TEXT DEFAULT 'system',
     scopes      TEXT DEFAULT '["read","write"]'
 );
+
+CREATE TABLE IF NOT EXISTS scprs_catalog (
+    description     TEXT PRIMARY KEY,
+    unspsc          TEXT DEFAULT '',
+    last_unit_price REAL,
+    last_quantity   REAL,
+    last_uom        TEXT DEFAULT '',
+    last_supplier   TEXT DEFAULT '',
+    last_department TEXT DEFAULT '',
+    last_po_number  TEXT DEFAULT '',
+    last_date       TEXT DEFAULT '',
+    times_seen      INTEGER DEFAULT 1,
+    product_image_path TEXT DEFAULT '',
+    product_image_url  TEXT DEFAULT '',
+    updated_at      TEXT DEFAULT ''
+);
 """
 
 def init_db():
@@ -934,6 +950,9 @@ def _migrate_columns():
         ("won_quotes_kb", "state", "TEXT DEFAULT 'CA'"),
         ("won_quotes_kb", "source_system", "TEXT DEFAULT 'scprs'"),
         ("competitors", "states", "TEXT DEFAULT 'CA'"),
+        # ── Exhaustive scrape columns ──
+        ("scprs_po_master", "screenshot_path", "TEXT DEFAULT ''"),
+        ("scprs_po_master", "scraped_at", "TEXT DEFAULT ''"),
     ]
     try:
         conn = sqlite3.connect(DB_PATH, timeout=30)
