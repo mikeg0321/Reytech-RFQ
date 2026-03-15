@@ -280,39 +280,46 @@ class FiscalSession:
         return self._parse_results(html)
 
     def get_detail(self, results_html, row_index, click_action=None):
-        """Click into a result row — uses current session state, not stale HTML."""
+        """Click into a result row — navigation-only POST, no search fields."""
         if not click_action:
             click_action = f"ZZ_SCPR_RSLT_VW${row_index}"
 
-        # Use the LATEST search results HTML for form data (has current ICStateNum)
-        current_html = self._last_html or results_html
+        # Navigation-only payload — NO search form fields (ZZ_SCPRS_SP_WRK_*)
+        # Including search fields causes PeopleSoft to re-run the search
+        # instead of navigating to the detail page
+        form_data = {
+            "ICType": "Panel",
+            "ICElementNum": "0",
+            "ICStateNum": self._last_state_num or self._extract_state_num(
+                self._last_html or results_html),
+            "ICAction": click_action,
+            "ICModelCancel": "0",
+            "ICXPos": "0",
+            "ICYPos": "0",
+            "ResponsetoDiffFrame": "-1",
+            "TargetFrameName": "None",
+            "FacetPath": "None",
+            "ICFocus": "",
+            "ICSaveWarningFilter": "0",
+            "ICChanged": "-1",
+            "ICSkipPending": "0",
+            "ICAutoSave": "0",
+            "ICResubmit": "0",
+            "ICSID": self.icsid or "",
+            "ICActionPrompt": "false",
+            "ICBcDomData": "",
+            "ICPanelName": "",
+            "ICFind": "",
+            "ICAddCount": "",
+            "ICAppClsData": "",
+        }
 
-        search_values = {}
-        for fld in ALL_SEARCH_FIELDS:
-            m = re.search(rf"name='{re.escape(fld)}'[^>]*value=\"([^\"]*)\"", current_html)
-            search_values[fld] = m.group(1) if m else ""
-
-        form_data = self._build_form_data(current_html, click_action, search_values)
-        # Override with stored state if available (most current values)
-        if hasattr(self, "_last_state_num") and self._last_state_num:
-            form_data["ICStateNum"] = self._last_state_num
-        if self.icsid:
-            form_data["ICSID"] = self.icsid
-
-        # Log full POST payload for debugging
-        log.info("Detail click: %s ICStateNum=%s ICSID=%s ICChanged=%s",
-                 click_action, form_data.get("ICStateNum"),
-                 form_data.get("ICSID", "?")[:8], form_data.get("ICChanged"))
-        log.info("Detail POST fields: %s",
-                 {k: v[:50] if isinstance(v, str) and len(v) > 50 else v
-                  for k, v in form_data.items()})
+        log.info("Detail click: %s ICStateNum=%s", click_action, form_data["ICStateNum"])
         try:
             r = self.session.post(SCPRS_SEARCH_URL, data=form_data, timeout=20)
             has_pdl = "ZZ_SCPR_PDL_DVW" in r.text
-            # Also extract ICStateNum from response for comparison
-            resp_state = self._extract_state_num(r.text)
-            log.info("Detail POST: %d (%db) has_PDL_DVW=%s resp_ICStateNum=%s",
-                     r.status_code, len(r.text), has_pdl, resp_state)
+            log.info("Detail POST: %d (%db) has_PDL_DVW=%s",
+                     r.status_code, len(r.text), has_pdl)
             if r.status_code == 200 and has_pdl:
                 return self._parse_detail(r.text)
             if r.status_code == 200 and not has_pdl:
