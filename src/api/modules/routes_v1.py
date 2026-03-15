@@ -1228,8 +1228,8 @@ def api_v1_backfill_details():
                         log.info("Backfill: %d/%d POs, %d lines so far, %d filled", i, total, lines_inserted, filled)
                     try:
                         po_num = po["po_number"]
-                        supplier = po["supplier"] or ""
-                        log.info("Backfill %d/%d: PO=%s supplier=%s", i + 1, total, po_num, supplier[:30])
+                        search_term = po["search_term"] or ""
+                        log.info("Backfill %d/%d: PO=%s term=%s", i + 1, total, po_num, search_term[:40])
 
                         # Isolated session per PO — no shared state, no race condition
                         session = FiscalSession()
@@ -1237,38 +1237,28 @@ def api_v1_backfill_details():
                             log.error("Backfill PO %s: session init FAILED", po_num)
                             _t.sleep(2)
                             continue
-                        log.info("Backfill PO %s: session init OK", po_num)
 
-                        # Search by supplier to find this PO in results
-                        supplier_term = supplier[:20]
-                        raw = session.search(supplier_name=supplier_term, from_date="01/01/2022")
-                        log.info("Backfill PO %s: search returned %d results", po_num, len(raw or []))
+                        # Search by the PO's original search_term (description keyword)
+                        raw = session.search(description=search_term, from_date="01/01/2022")
+                        log.info("Backfill PO %s: search '%s' returned %d results",
+                                 po_num, search_term[:30], len(raw or []))
 
                         if not raw:
                             _t.sleep(2)
                             continue
 
-                        # Find matching PO and click into detail
+                        # Click row 0 — most relevant match for this search_term
+                        r0 = raw[0]
                         detail = None
-                        matched = False
-                        for r in raw:
-                            if r.get("po_number") == po_num:
-                                matched = True
-                                if r.get("_results_html") and r.get("_row_index") is not None:
-                                    try:
-                                        detail = session.get_detail(
-                                            r["_results_html"], r["_row_index"],
-                                            r.get("_click_action"))
-                                    except Exception as e:
-                                        log.error("Backfill PO %s: get_detail FAILED: %s", po_num, e, exc_info=True)
-                                else:
-                                    log.warning("Backfill PO %s: matched but no _results_html or _row_index", po_num)
-                                break
-
-                        if not matched:
-                            log.info("Backfill PO %s: not found in %d search results", po_num, len(raw))
-                            _t.sleep(2)
-                            continue
+                        if r0.get("_results_html") and r0.get("_row_index") is not None:
+                            try:
+                                detail = session.get_detail(
+                                    r0["_results_html"], r0["_row_index"],
+                                    r0.get("_click_action"))
+                            except Exception as e:
+                                log.error("Backfill PO %s: get_detail FAILED: %s", po_num, e, exc_info=True)
+                        else:
+                            log.warning("Backfill PO %s: row 0 has no _results_html", po_num)
 
                         line_count = len(detail.get("line_items", [])) if detail else 0
                         log.info("Backfill PO %s: detail returned %d lines", po_num, line_count)
