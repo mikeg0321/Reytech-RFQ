@@ -419,3 +419,15 @@ Two threads touching the same session = guaranteed corruption.
 ### Law 5: Compare Working vs Broken
 When X works and Y doesn't, diff them immediately.
 Don't fix Y until you know every difference between X and Y.
+
+### Law 6: One URL Scheme — Verify Every Endpoint
+When a URL bug is fixed (psp->psc, psfpd1->psfpd1_1, etc.), immediately audit EVERY other URL in the codebase and apply the same fix.
+
+Never assume a URL fix is isolated. PeopleSoft uses the same scheme everywhere. If one endpoint was wrong, they're all wrong.
+
+Checklist when fixing any URL:
+  `grep -r "psp/" src/` — should return 0 results
+  `grep -r "psfpd1/" src/` — should return 0 results (must be psfpd1_1)
+  All URLs must use: `psc/psfpd1_1/`
+
+"Fix the URL in one place, audit every URL."
