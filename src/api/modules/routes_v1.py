@@ -1187,3 +1187,112 @@ def api_v1_debug_buyer():
     except Exception as e:
         log.error("debug-buyer error: %s", e, exc_info=True)
         return api_response(error=str(e), status=500)
+
+
+@bp.route("/api/v1/harvest/backfill-details")
+@auth_required
+def api_v1_backfill_details():
+    """Backfill detail pages for POs that have no line items. Background thread."""
+    try:
+        import sqlite3
+        from src.core.db import DB_PATH
+        conn = sqlite3.connect(DB_PATH, timeout=10)
+        # Count POs needing backfill
+        need_backfill = conn.execute("""
+            SELECT COUNT(*) FROM scprs_po_master pm
+            WHERE NOT EXISTS (
+                SELECT 1 FROM scprs_po_lines pl WHERE pl.po_id = pm.id
+            )
+        """).fetchone()[0]
+        conn.close()
+
+        import threading
+        def _run():
+            try:
+                from src.agents.connectors.ca_scprs import CASCPRSConnector
+                from src.core.pull_orchestrator import _store_results, _get_conn
+                import time as _t
+
+                connector = CASCPRSConnector()
+                if not connector.authenticate():
+                    log.error("Backfill: auth failed")
+                    return
+
+                conn = _get_conn()
+                # Get POs without line items that have results_html
+                pos = conn.execute("""
+                    SELECT pm.id, pm.po_number, pm.supplier, pm.dept_name
+                    FROM scprs_po_master pm
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM scprs_po_lines pl WHERE pl.po_id = pm.id
+                    )
+                    LIMIT 200
+                """).fetchall()
+
+                log.info("Backfill: %d POs need detail pages", len(pos))
+                filled = 0
+                for po in pos:
+                    # We need to search for this PO to get the results page,
+                    # then click into it. Search by supplier + date range.
+                    try:
+                        raw = connector.session.search(
+                            supplier_name=po["supplier"][:20] if po["supplier"] else "",
+                            from_date="01/01/2022")
+                        # Find the matching PO in results
+                        for r in (raw or []):
+                            if (r.get("po_number") == po["po_number"] or
+                                (r.get("supplier_name", "") == po["supplier"] and
+                                 abs(float(r.get("grand_total_num", 0) or 0)) > 0)):
+                                if r.get("_results_html") and r.get("_row_index") is not None:
+                                    detail = connector.session.get_detail(
+                                        r["_results_html"], r["_row_index"])
+                                    if detail and detail.get("line_items"):
+                                        po_id = po["id"]
+                                        for idx, item in enumerate(detail["line_items"]):
+                                            if not isinstance(item, dict):
+                                                continue
+                                            conn.execute("""
+                                                INSERT OR IGNORE INTO scprs_po_lines
+                                                (po_id, po_number, line_num, description,
+                                                 unit_price, quantity, line_total, category)
+                                                VALUES (?,?,?,?,?,?,?,?)
+                                            """, (po_id, po["po_number"], idx + 1,
+                                                  (item.get("description", "") or "")[:500],
+                                                  item.get("unit_price_num", 0) or 0,
+                                                  item.get("quantity_num", 0) or 0,
+                                                  _parse_dollar_safe(item.get("line_total", "0")),
+                                                  "other"))
+                                        # Update buyer info
+                                        header = detail.get("header", {})
+                                        if header.get("buyer_name"):
+                                            conn.execute(
+                                                "UPDATE scprs_po_master SET buyer_name=?, buyer_email=? WHERE id=?",
+                                                (header.get("buyer_name", ""),
+                                                 header.get("buyer_email", ""), po_id))
+                                        filled += 1
+                                        conn.commit()
+                                    break
+                        _t.sleep(2)
+                    except Exception as e:
+                        log.debug("Backfill PO %s: %s", po["po_number"], e)
+
+                conn.close()
+                log.info("Backfill complete: %d/%d POs got detail", filled, len(pos))
+            except Exception as e:
+                log.error("Backfill error: %s", e, exc_info=True)
+
+        def _parse_dollar_safe(text):
+            try:
+                return float(str(text).replace("$", "").replace(",", "").strip())
+            except Exception:
+                return 0
+
+        threading.Thread(target=_run, daemon=True, name="backfill-details").start()
+        return api_response({
+            "started": True,
+            "pos_to_backfill": need_backfill,
+            "note": "Fetching detail pages for POs without line items"
+        })
+    except Exception as e:
+        log.error("backfill-details error: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)

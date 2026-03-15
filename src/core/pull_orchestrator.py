@@ -234,6 +234,24 @@ def _store_results(conn, results: list, connector_id: str) -> int:
                   r.get("state", "CA"),
                   r.get("source_system", connector_id)))
             count += 1
+            # Update buyer_name/email/acq_method if detail page provided them
+            if r.get("buyer_name") or r.get("acq_method"):
+                updates = []
+                params = []
+                if r.get("buyer_name"):
+                    updates.append("buyer_name=?")
+                    params.append(r["buyer_name"])
+                if r.get("buyer_email"):
+                    updates.append("buyer_email=?")
+                    params.append(r["buyer_email"])
+                if r.get("acq_method"):
+                    updates.append("acq_method=?")
+                    params.append(r["acq_method"])
+                if updates:
+                    params.append(po_num)
+                    conn.execute(
+                        f"UPDATE scprs_po_master SET {', '.join(updates)} WHERE po_number=?",
+                        params)
             # Store line items if present
             if r.get("line_items"):
                 po_row = conn.execute(
