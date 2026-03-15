@@ -69,9 +69,18 @@ async def _scrape_detail_async(supplier_name="reytech",
     async with async_playwright() as p:
         browser = await p.chromium.launch(
             headless=True,
-            args=["--no-sandbox", "--disable-dev-shm-usage"]
+            args=[
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-popup-blocking",
+                "--disable-features=BlockInsecurePrivateNetworkRequests",
+            ]
         )
-        page = await browser.new_page()
+        context = await browser.new_context(
+            java_script_enabled=True,
+            bypass_csp=True,
+        )
+        page = await context.new_page()
         page.set_default_timeout(30000)
 
         try:
@@ -111,6 +120,7 @@ async def _scrape_detail_async(supplier_name="reytech",
             log.info("Browser: search button count=%d", btn_count)
             if btn_count == 0:
                 log.error("Browser: no search button found")
+                await context.close()
                 await browser.close()
                 return results
 
@@ -144,6 +154,7 @@ async def _scrape_detail_async(supplier_name="reytech",
                 log.warning("Browser: no results. title=%s form=%s size=%d",
                             title.group(1)[:50] if title else "?",
                             has_form, len(content))
+                await context.close()
                 await browser.close()
                 return results
 
@@ -164,7 +175,7 @@ async def _scrape_detail_async(supplier_name="reytech",
                     log.info("Browser: clicking %s", link_id)
 
                     # PeopleSoft opens a POPUP WINDOW — catch it
-                    async with page.context.expect_page(timeout=20000) as popup_info:
+                    async with page.expect_popup(timeout=20000) as popup_info:
                         await link.click()
                     popup = await popup_info.value
                     await popup.wait_for_load_state("networkidle")
@@ -203,7 +214,7 @@ async def _scrape_detail_async(supplier_name="reytech",
 
                         # This might open ANOTHER popup or navigate
                         try:
-                            async with popup.context.expect_page(timeout=15000) as detail_info:
+                            async with popup.expect_popup(timeout=15000) as detail_info:
                                 await popup_link.click()
                             detail_page = await detail_info.value
                             await detail_page.wait_for_load_state("networkidle")
@@ -248,6 +259,7 @@ async def _scrape_detail_async(supplier_name="reytech",
         except Exception as e:
             log.error("Browser scrape failed: %s", e)
         finally:
+            await context.close()
             await browser.close()
 
     return results
@@ -331,9 +343,18 @@ async def _scrape_single_po(po_number):
     async with async_playwright() as p:
         browser = await p.chromium.launch(
             headless=True,
-            args=["--no-sandbox", "--disable-dev-shm-usage"]
+            args=[
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-popup-blocking",
+                "--disable-features=BlockInsecurePrivateNetworkRequests",
+            ]
         )
-        page = await browser.new_page()
+        context = await browser.new_context(
+            java_script_enabled=True,
+            bypass_csp=True,
+        )
+        page = await context.new_page()
         page.set_default_timeout(30000)
 
         try:
@@ -374,6 +395,7 @@ async def _scrape_single_po(po_number):
         except Exception as e:
             log.error("Browser PO %s failed: %s", po_number, e)
         finally:
+            await context.close()
             await browser.close()
 
     return None
