@@ -299,13 +299,20 @@ class FiscalSession:
         if self.icsid:
             form_data["ICSID"] = self.icsid
 
-        log.info("Detail click: %s ICStateNum=%s ICSID=%s",
-                 click_action, form_data.get("ICStateNum"), form_data.get("ICSID", "?")[:8])
+        # Log full POST payload for debugging
+        log.info("Detail click: %s ICStateNum=%s ICSID=%s ICChanged=%s",
+                 click_action, form_data.get("ICStateNum"),
+                 form_data.get("ICSID", "?")[:8], form_data.get("ICChanged"))
+        log.info("Detail POST fields: %s",
+                 {k: v[:50] if isinstance(v, str) and len(v) > 50 else v
+                  for k, v in form_data.items()})
         try:
             r = self.session.post(SCPRS_SEARCH_URL, data=form_data, timeout=20)
             has_pdl = "ZZ_SCPR_PDL_DVW" in r.text
-            log.info("Detail POST: %d (%db) has_PDL_DVW=%s",
-                     r.status_code, len(r.text), has_pdl)
+            # Also extract ICStateNum from response for comparison
+            resp_state = self._extract_state_num(r.text)
+            log.info("Detail POST: %d (%db) has_PDL_DVW=%s resp_ICStateNum=%s",
+                     r.status_code, len(r.text), has_pdl, resp_state)
             if r.status_code == 200 and has_pdl:
                 return self._parse_detail(r.text)
             if r.status_code == 200 and not has_pdl:
