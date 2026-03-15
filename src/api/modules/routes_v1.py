@@ -1200,106 +1200,148 @@ def api_v1_backfill_details():
                 from src.agents.scprs_lookup import FiscalSession
                 from src.core.pull_orchestrator import _get_conn
                 import time as _t
-                log.info("Backfill: imports OK, connecting to DB")
 
                 conn = _get_conn()
-                log.info("Backfill: DB connected, running query")
-                pos = conn.execute("""
-                    SELECT pm.id, pm.po_number, pm.supplier, pm.dept_name, pm.search_term
-                    FROM scprs_po_master pm
-                    WHERE NOT EXISTS (
-                        SELECT 1 FROM scprs_po_lines pl WHERE pl.po_id = pm.id
-                    )
-                    LIMIT 200
-                """).fetchall()
 
-                total = len(pos)
-                if total == 0:
-                    log.info("Backfill: 0 POs need detail pages — all have lines or table empty")
+                # Get PO numbers that already have lines (skip these)
+                have_lines = set()
+                for row in conn.execute("SELECT DISTINCT po_number FROM scprs_po_lines").fetchall():
+                    have_lines.add(row["po_number"])
+                log.info("Backfill: %d POs already have lines in DB", len(have_lines))
+
+                # One session, one empty search — returns all Reytech POs
+                session = FiscalSession()
+                if not session.init_session():
+                    log.error("Backfill: session init FAILED")
                     conn.close()
                     return
-                log.info("Backfill: %d POs need detail pages, first=%s supplier=%s",
-                         total, pos[0]["po_number"], pos[0]["supplier"])
+
+                results = session.search(supplier_name="reytech", from_date="01/01/2022")
+                total_rows = len(results or [])
+                log.info("Backfill: search returned %d rows", total_rows)
+
+                if not results:
+                    log.error("Backfill: 0 results from search — nothing to do")
+                    conn.close()
+                    return
+
                 filled = 0
                 lines_inserted = 0
+                skipped = 0
 
-                for i, po in enumerate(pos):
-                    if i % 10 == 0:
-                        log.info("Backfill: %d/%d POs, %d lines so far, %d filled", i, total, lines_inserted, filled)
+                for row_idx in range(total_rows):
+                    r = results[row_idx]
+                    # Skip POs that already have lines
+                    r_po = r.get("po_number", "")
+                    if r_po and r_po in have_lines:
+                        skipped += 1
+                        continue
+
                     try:
-                        po_num = po["po_number"]
-                        search_term = po["search_term"] or ""
-                        log.info("Backfill %d/%d: PO=%s term=%s", i + 1, total, po_num, search_term[:40])
-
-                        # Isolated session per PO — no shared state, no race condition
-                        session = FiscalSession()
-                        if not session.init_session():
-                            log.error("Backfill PO %s: session init FAILED", po_num)
-                            _t.sleep(2)
+                        # Click this row to get detail page
+                        if not r.get("_results_html") or r.get("_row_index") is None:
+                            log.warning("Backfill row %d: no _results_html, skipping", row_idx)
                             continue
 
-                        # Search by the PO's original search_term (description keyword)
-                        raw = session.search(description=search_term, from_date="01/01/2022")
-                        log.info("Backfill PO %s: search '%s' returned %d results",
-                                 po_num, search_term[:30], len(raw or []))
-
-                        if not raw:
-                            _t.sleep(2)
-                            continue
-
-                        # Click row 0 — most relevant match for this search_term
-                        r0 = raw[0]
-                        detail = None
-                        if r0.get("_results_html") and r0.get("_row_index") is not None:
-                            try:
-                                detail = session.get_detail(
-                                    r0["_results_html"], r0["_row_index"],
-                                    r0.get("_click_action"))
-                            except Exception as e:
-                                log.error("Backfill PO %s: get_detail FAILED: %s", po_num, e, exc_info=True)
-                        else:
-                            log.warning("Backfill PO %s: row 0 has no _results_html", po_num)
+                        detail = session.get_detail(
+                            r["_results_html"], r["_row_index"],
+                            r.get("_click_action"))
 
                         line_count = len(detail.get("line_items", [])) if detail else 0
-                        log.info("Backfill PO %s: detail returned %d lines", po_num, line_count)
 
                         if detail and detail.get("line_items"):
-                            po_id = po["id"]
-                            for idx, item in enumerate(detail["line_items"]):
-                                if not isinstance(item, dict):
-                                    continue
-                                conn.execute("""
-                                    INSERT OR IGNORE INTO scprs_po_lines
-                                    (po_id, po_number, line_num, description,
-                                     unit_price, quantity, line_total, category)
-                                    VALUES (?,?,?,?,?,?,?,?)
-                                """, (po_id, po_num, idx + 1,
-                                      (item.get("description", "") or "")[:500],
-                                      item.get("unit_price_num") or item.get("unit_price", 0) or 0,
-                                      item.get("quantity_num") or item.get("quantity", 0) or 0,
-                                      item.get("line_total", 0) or 0,
-                                      "other"))
-                                lines_inserted += 1
-                            # Update buyer info + acq_method on po_master
+                            # Get real PO number from detail header
                             header = detail.get("header", {})
-                            buyer = header.get("buyer_name") or detail.get("buyer_name")
-                            email = header.get("buyer_email") or detail.get("buyer_email")
-                            acq = header.get("acq_method") or detail.get("acq_method")
-                            if buyer or acq:
-                                conn.execute(
-                                    "UPDATE scprs_po_master SET buyer_name=?, buyer_email=?, acq_method=? WHERE id=?",
-                                    (buyer or "", email or "", acq or "", po_id))
-                            filled += 1
-                            conn.commit()
-                            log.info("Backfill PO %s: STORED %d lines, buyer=%s",
-                                     po_num, len(detail["line_items"]), buyer or "?")
+                            real_po = header.get("po_number") or detail.get("po_number") or r_po
 
-                        _t.sleep(2)
+                            # Find matching po_master row by PO number or search_term
+                            master = conn.execute(
+                                "SELECT id FROM scprs_po_master WHERE po_number = ? LIMIT 1",
+                                (real_po,)).fetchone()
+                            if not master and r_po:
+                                master = conn.execute(
+                                    "SELECT id FROM scprs_po_master WHERE po_number = ? LIMIT 1",
+                                    (r_po,)).fetchone()
+                            if not master:
+                                # Try matching by grand total + supplier
+                                gt = r.get("grand_total_num")
+                                sup = r.get("supplier_name", "")
+                                if gt and sup:
+                                    master = conn.execute(
+                                        "SELECT id FROM scprs_po_master WHERE grand_total = ? AND supplier = ? LIMIT 1",
+                                        (gt, sup)).fetchone()
+
+                            if master:
+                                po_id = master["id"]
+                                store_po = real_po or r_po
+                                for idx, item in enumerate(detail["line_items"]):
+                                    if not isinstance(item, dict):
+                                        continue
+                                    conn.execute("""
+                                        INSERT OR IGNORE INTO scprs_po_lines
+                                        (po_id, po_number, line_num, description,
+                                         unit_price, quantity, line_total, category)
+                                        VALUES (?,?,?,?,?,?,?,?)
+                                    """, (po_id, store_po, idx + 1,
+                                          (item.get("description", "") or "")[:500],
+                                          item.get("unit_price_num") or item.get("unit_price", 0) or 0,
+                                          item.get("quantity_num") or item.get("quantity", 0) or 0,
+                                          item.get("line_total", 0) or 0,
+                                          "other"))
+                                    lines_inserted += 1
+                                # Update buyer info + acq_method + real PO number
+                                buyer = header.get("buyer_name") or detail.get("buyer_name")
+                                email = header.get("buyer_email") or detail.get("buyer_email")
+                                acq = header.get("acq_method") or detail.get("acq_method")
+                                updates = []
+                                params = []
+                                if buyer:
+                                    updates.append("buyer_name=?"); params.append(buyer)
+                                if email:
+                                    updates.append("buyer_email=?"); params.append(email)
+                                if acq:
+                                    updates.append("acq_method=?"); params.append(acq)
+                                if real_po and real_po != r_po:
+                                    updates.append("po_number=?"); params.append(real_po)
+                                if updates:
+                                    params.append(po_id)
+                                    conn.execute(
+                                        f"UPDATE scprs_po_master SET {', '.join(updates)} WHERE id=?",
+                                        params)
+                                filled += 1
+                                conn.commit()
+                                log.info("Backfill row %d: PO=%s %d lines, buyer=%s",
+                                         row_idx, store_po, line_count, buyer or "?")
+                            else:
+                                log.warning("Backfill row %d: PO=%s not found in po_master", row_idx, real_po)
+                        else:
+                            log.info("Backfill row %d: PO=%s 0 lines from detail", row_idx, r_po)
+
+                        # Re-search to reset session back to results page for next click
+                        results = session.search(supplier_name="reytech", from_date="01/01/2022")
+                        if not results or len(results) != total_rows:
+                            log.warning("Backfill: re-search returned %d rows (expected %d)",
+                                        len(results or []), total_rows)
+                            if not results:
+                                break
+
+                        _t.sleep(1)
                     except Exception as e:
-                        log.error("Backfill PO FAILED: %s", e, exc_info=True)
+                        log.error("Backfill row %d FAILED: %s", row_idx, e, exc_info=True)
+                        # Try to recover session for next row
+                        try:
+                            results = session.search(supplier_name="reytech", from_date="01/01/2022")
+                        except Exception:
+                            log.error("Backfill: session recovery failed, stopping")
+                            break
+
+                    if (row_idx + 1) % 10 == 0:
+                        log.info("Backfill: %d/%d rows, %d filled, %d lines, %d skipped",
+                                 row_idx + 1, total_rows, filled, lines_inserted, skipped)
 
                 conn.close()
-                log.info("Backfill complete: %d/%d POs got detail, %d lines inserted", filled, total, lines_inserted)
+                log.info("Backfill complete: %d filled, %d lines inserted, %d skipped (already had lines)",
+                         filled, lines_inserted, skipped)
             except Exception as e:
                 log.error("Backfill error: %s", e, exc_info=True)
 
