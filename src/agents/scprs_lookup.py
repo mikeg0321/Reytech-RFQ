@@ -427,6 +427,12 @@ class FiscalSession:
             page = self.detail_session.get(f"{detail_url}?&", timeout=20, allow_redirects=True).text
             self._detail_icsid = self._extract_icsid(page) or self._detail_icsid
 
+            # Discover all input field names on SCPRS2
+            from bs4 import BeautifulSoup as _BS
+            _soup = _BS(page, "html.parser")
+            _all_inputs = [i.get("name") for i in _soup.find_all("input") if i.get("name")]
+            log.info("SCPRS2 all inputs: %s", _all_inputs)
+
             sv = {f: "" for f in ALL_SEARCH_FIELDS}
             sv[FIELD_PO_NUM] = po_number
             fd = self._build_form_data(page, SEARCH_BUTTON, sv)
