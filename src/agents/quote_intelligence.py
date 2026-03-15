@@ -10,6 +10,114 @@ from difflib import SequenceMatcher
 log = logging.getLogger("reytech.quote_intelligence")
 
 
+def _parse_price_str(p):
+    try:
+        return float(str(p).replace("$", "").replace(",", "").strip())
+    except (ValueError, TypeError):
+        return None
+
+
+def _parse_qty_str(q):
+    try:
+        return float(str(q).replace(",", "").strip())
+    except (ValueError, TypeError):
+        return 1.0
+
+
+def _extract_pack_info(description):
+    """Extract packaging/UOM info from FI$Cal descriptions."""
+    desc = description.upper()
+    result = {
+        "unit_count": 1, "pack_count": 1, "total_units": 1,
+        "unit_type": "EA", "outer_type": "", "raw_match": "",
+    }
+
+    # Pattern 1: "100/BX 10 BXS/CS"
+    m = re.search(
+        r'(\d+)\s*/\s*(BX|BOX|PK|PACK|PAC|BT|BTL|RL|CS|CASE|CN|CAN|TB|TUBE)'
+        r'[\s,]+(\d+)\s*(?:BXS?|PKS?|PCS?|PACKS?)?\s*/\s*'
+        r'(CS|CASE|CTN|CARTON|PAC|PACK)', desc)
+    if m:
+        result["unit_count"] = int(m.group(1))
+        result["unit_type"] = m.group(2)
+        result["pack_count"] = int(m.group(3))
+        result["outer_type"] = m.group(4)
+        result["total_units"] = result["unit_count"] * result["pack_count"]
+        result["raw_match"] = m.group(0)
+        return result
+
+    # Pattern 2: "CS/12" or "BX/100" (reversed)
+    m = re.search(r'(CS|CASE|BX|BOX|PK|PACK|PAC)\s*/\s*(\d+)', desc)
+    if m:
+        result["unit_type"] = m.group(1)
+        result["unit_count"] = int(m.group(2))
+        result["total_units"] = result["unit_count"]
+        result["raw_match"] = m.group(0)
+        m2 = re.search(r'(\d+)\s*/\s*(BX|BOX|PK|PACK|PAC|RL|BTL)', desc)
+        if m2 and m2.start() < m.start():
+            inner = int(m2.group(1))
+            result["pack_count"] = result["unit_count"]
+            result["unit_count"] = inner
+            result["total_units"] = inner * result["pack_count"]
+        return result
+
+    # Pattern 3: Simple "100/BX" or "50/CS"
+    m = re.search(
+        r'(\d+)\s*/\s*(BX|BOX|PK|PACK|PAC|CS|CASE|CTN|CN|RL|BTL|BT|TB|TUBE|EA|SET)', desc)
+    if m:
+        result["unit_count"] = int(m.group(1))
+        result["unit_type"] = m.group(2)
+        result["total_units"] = result["unit_count"]
+        result["raw_match"] = m.group(0)
+        return result
+
+    # Pattern 4: "(50/CS)" with parens
+    m = re.search(r'\((\d+)\s*/\s*(\w{2,4})\)', desc)
+    if m:
+        result["unit_count"] = int(m.group(1))
+        result["unit_type"] = m.group(2)
+        result["total_units"] = result["unit_count"]
+        result["raw_match"] = m.group(0)
+        return result
+
+    # Pattern 5: Number before EA/EACH/PCS
+    m = re.search(r'(\d+)\s*(EA|EACH|PCS|PIECES)', desc)
+    if m:
+        result["unit_count"] = int(m.group(1))
+        result["total_units"] = result["unit_count"]
+        result["raw_match"] = m.group(0)
+        return result
+
+    return result
+
+
+def _normalize_unit_price(raw_price, description, quantity=1):
+    """Normalize price to per-each unit price."""
+    if not raw_price or raw_price <= 0:
+        return None
+
+    pack = _extract_pack_info(description)
+    total = pack["total_units"]
+
+    if total > 1:
+        normalized = raw_price / total
+        return {
+            "raw_price": raw_price,
+            "normalized_price": round(normalized, 4),
+            "total_units": total,
+            "pack_info": pack,
+            "normalization": f"${raw_price:.2f} / {total} units ({pack['raw_match']})",
+        }
+
+    return {
+        "raw_price": raw_price,
+        "normalized_price": raw_price,
+        "total_units": 1,
+        "pack_info": pack,
+        "normalization": f"${raw_price:.2f} / EA (no pack info detected)",
+    }
+
+
 def match_rfq_items(rfq_items):
     """Take RFQ line items, match against catalog, return enriched items."""
     results = []
@@ -83,9 +191,14 @@ def search_catalog(query, limit=10):
             similarity = SequenceMatcher(None, query.lower(), row[0].lower()).ratio()
             keyword_hits = sum(1 for kw in keywords if kw.lower() in row[0].lower())
             score = (similarity * 0.6) + (keyword_hits / max(len(keywords), 1) * 0.4)
+            norm = _normalize_unit_price(row[2], row[0], row[3])
             scored.append({
                 "description": row[0], "unspsc": row[1],
-                "last_unit_price": row[2], "last_quantity": row[3],
+                "last_unit_price": row[2],
+                "normalized_unit_price": norm["normalized_price"] if norm else row[2],
+                "normalization": norm["normalization"] if norm else "",
+                "pack_info": norm["pack_info"] if norm else {},
+                "last_quantity": row[3],
                 "last_uom": row[4], "last_supplier": row[5],
                 "last_department": row[6], "last_po_number": row[7],
                 "last_date": row[8], "times_seen": row[9],
@@ -127,13 +240,19 @@ def get_competitor_prices(query, limit=10):
         params.append(limit)
         rows = db.execute(sql, params).fetchall()
         db.close()
-        return [{
-            "description": r[0], "unit_price": r[1], "quantity": r[2],
-            "uom": r[3], "supplier": r[4], "department": r[5],
-            "po_number": r[6], "date": r[7], "buyer_name": r[8],
-            "buyer_email": r[9],
-            "is_reytech": "REYTECH" in (r[4] or "").upper(),
-        } for r in rows]
+        results = []
+        for r in rows:
+            norm = _normalize_unit_price(_parse_price_str(r[1]), r[0], _parse_qty_str(r[2]))
+            results.append({
+                "description": r[0], "unit_price": r[1],
+                "normalized_unit_price": norm["normalized_price"] if norm else None,
+                "normalization": norm["normalization"] if norm else "",
+                "quantity": r[2], "uom": r[3], "supplier": r[4],
+                "department": r[5], "po_number": r[6], "date": r[7],
+                "buyer_name": r[8], "buyer_email": r[9],
+                "is_reytech": "REYTECH" in (r[4] or "").upper(),
+            })
+        return results
     except Exception as e:
         log.error("Competitor prices error: %s", e)
         return []
@@ -245,12 +364,17 @@ def _calculate_suggested_price(reytech_prices, competitor_prices, quantity):
     def _score_prices(price_list, is_reytech=False):
         scored = []
         for p in price_list:
-            price = _parse_price(p.get("unit_price"))
-            if not price or price <= 0:
+            raw_price = _parse_price(p.get("unit_price"))
+            if not raw_price or raw_price <= 0:
                 continue
-            date = p.get("date", "")
+
             desc = p.get("description", "")
+            date = p.get("date", "")
             qty = _parse_qty(p.get("quantity"))
+
+            # Use normalized price if available
+            norm = _normalize_unit_price(raw_price, desc, qty)
+            price = norm["normalized_price"] if norm else raw_price
 
             time_w = _time_weight(date)
             covid_w = _covid_penalty(date, desc)
@@ -261,8 +385,10 @@ def _calculate_suggested_price(reytech_prices, competitor_prices, quantity):
                 weight *= 1.2
 
             scored.append({
-                "price": price, "weight": round(weight, 4),
+                "price": price, "raw_price": raw_price,
+                "weight": round(weight, 4),
                 "date": date, "qty": qty,
+                "normalization": norm["normalization"] if norm else "",
                 "time_w": time_w, "covid_w": covid_w, "vol_w": vol_w,
             })
         return scored
