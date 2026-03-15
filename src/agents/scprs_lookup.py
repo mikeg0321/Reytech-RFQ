@@ -48,7 +48,7 @@ except ImportError:
 # ── FI$Cal URLs & Field IDs ───────────────────────────────────────
 
 SCPRS_BASE = "https://suppliers.fiscal.ca.gov"
-SCPRS_SEARCH_URL = f"{SCPRS_BASE}/psc/psfpd1/SUPPLIER/ERP/c/ZZ_PO.ZZ_SCPRS1_CMP.GBL"
+SCPRS_SEARCH_URL = f"{SCPRS_BASE}/psc/psfpd1/SUPPLIER/ERP/c/ZZ_PO.ZZ_SCPRS2_CMP.GBL"
 SCPRS_DETAIL_URL = f"{SCPRS_BASE}/psp/psfpd1/SUPPLIER/ERP/c/ZZ_PO.ZZ_SCPRS2_CMP.GBL?Page=ZZ_SCPRS_PDDTL_PG&Action=U"
 
 # Search form fields
@@ -341,9 +341,9 @@ class FiscalSession:
         return None
 
     def get_detail(self, results_html, row_index, click_action=None):
-        """Extract PO number from modal click, then fetch detail via PO search."""
+        """Click a result row on ZZ_SCPRS2 — returns detail page directly."""
         if not click_action:
-            click_action = f"ZZ_SCPR_RSLT_VW$hmodal${row_index}"
+            click_action = f"ZZ_SCPR_RSLT_VW${row_index}"
 
         current_html = self._last_html or results_html
 
@@ -356,10 +356,14 @@ class FiscalSession:
         log.info("Detail click: %s", click_action)
         try:
             r = self.session.post(SCPRS_SEARCH_URL, data=form_data, timeout=20)
+            has_pdl = "ZZ_SCPR_PDL_DVW" in r.text
+            log.info("Detail POST: %db has_PDL_DVW=%s", len(r.text), has_pdl)
+            if r.status_code == 200 and has_pdl:
+                return self._parse_detail(r.text)
             if r.status_code == 200:
-                po_nums = re.findall(r'4500\d{6}', r.text)
-                if po_nums:
-                    return self.get_po_detail(po_nums[0])
+                result = self._parse_detail(r.text)
+                if result and result.get("line_items"):
+                    return result
         except Exception as e:
             log.error("Detail click failed: %s", e)
         return None
