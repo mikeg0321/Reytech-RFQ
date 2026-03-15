@@ -1187,8 +1187,9 @@ def api_v1_harvest_debug_detail():
     """Minimal standalone test: fresh session, search, click, log everything."""
     try:
         from src.agents.scprs_lookup import (
-            FiscalSession, SCPRS_SEARCH_URL, ALL_SEARCH_FIELDS,
-            SEARCH_BUTTON, FIELD_SUPPLIER_NAME, FIELD_PO_NUM
+            FiscalSession, SCPRS_SEARCH_URL, SCPRS_DETAIL_URL,
+            ALL_SEARCH_FIELDS, SEARCH_BUTTON, FIELD_SUPPLIER_NAME,
+            FIELD_PO_NUM
         )
         from bs4 import BeautifulSoup
         import re as _re
@@ -1295,6 +1296,31 @@ def api_v1_harvest_debug_detail():
                 "has_SBP_WRK": "ZZ_SCPR_SBP_WRK" in r3.text,
                 "preview": r3.text[:200].replace("\n", " "),
             })
+
+        # Step 6: Test SCPRS2 via get_po_detail
+        if po_nums:
+            import requests as _requests
+            s2 = _requests.Session()
+            s2.headers.update({"User-Agent": fs.session.headers.get("User-Agent", "")})
+            # Init SCPRS2 session
+            s2_init = s2.get(SCPRS_DETAIL_URL.split("?")[0] + "?&", timeout=20, allow_redirects=True)
+            info["steps"].append({
+                "step": "scprs2_init",
+                "status": s2_init.status_code,
+                "size": len(s2_init.text),
+                "has_ICSID": "ICSID" in s2_init.text,
+                "has_form": "ZZ_SCPRS" in s2_init.text,
+            })
+            # Now try get_po_detail with that PO
+            detail = fs.get_po_detail(po_nums[0], s2=s2)
+            info["steps"].append({
+                "step": f"get_po_detail_{po_nums[0]}",
+                "got_result": detail is not None,
+                "line_count": len(detail.get("line_items", [])) if detail else 0,
+                "header": detail.get("header", {}) if detail else {},
+            })
+            if detail and detail.get("line_items"):
+                info["FOUND_DETAIL"] = "get_po_detail"
 
         return api_response(info)
     except Exception as e:
