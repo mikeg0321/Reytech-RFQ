@@ -1329,6 +1329,132 @@ def api_v1_harvest_debug_detail():
         return api_response(error=str(e), status=500)
 
 
+@bp.route("/api/v1/harvest/debug-modal")
+@auth_required
+def api_v1_harvest_debug_modal():
+    """Analyze modal HTML to find where detail data actually lives."""
+    try:
+        from src.agents.scprs_lookup import (
+            FiscalSession, SCPRS_SEARCH_URL, SCPRS_DETAIL_URL,
+            ALL_SEARCH_FIELDS, SEARCH_BUTTON, FIELD_SUPPLIER_NAME
+        )
+        from bs4 import BeautifulSoup
+        import re as _re
+
+        info = {"approaches": []}
+
+        # Fresh session + search
+        fs = FiscalSession()
+        fs.init_session()
+        results = fs.search(supplier_name="reytech", from_date="01/01/2024")
+        if not results:
+            return api_response({"error": "no search results"})
+        info["search_results"] = len(results)
+
+        # Modal click
+        current_html = fs._last_html
+        click_action = "ZZ_SCPR_RSLT_VW$hmodal$0"
+        sv = {}
+        for fld in ALL_SEARCH_FIELDS:
+            m = _re.search(rf"name='{_re.escape(fld)}'[^>]*value=\"([^\"]*)\"", current_html)
+            sv[fld] = m.group(1) if m else ""
+        fd = fs._build_form_data(current_html, click_action, sv)
+        modal_r = fs.session.post(SCPRS_SEARCH_URL, data=fd, timeout=20)
+        modal_html = modal_r.text
+
+        # ANALYSIS 1: Find ALL unique ZZ_ element ID prefixes
+        soup = BeautifulSoup(modal_html, "html.parser")
+        all_ids = [el.get("id", "") for el in soup.find_all(id=True)]
+        zz_prefixes = set()
+        for eid in all_ids:
+            if eid.startswith("ZZ_"):
+                base = _re.sub(r'\$\d+$', '', eid)
+                zz_prefixes.add(base)
+        info["zz_prefixes"] = sorted(zz_prefixes)
+        info["total_elements_with_id"] = len(all_ids)
+
+        # ANALYSIS 2: Find all dollar amounts and their parent elements
+        dollar_pattern = _re.compile(r'\$[\d,]+\.\d{2}')
+        dollar_elements = []
+        for el in soup.find_all(string=dollar_pattern):
+            parent = el.parent
+            dollar_elements.append({
+                "text": el.strip()[:100],
+                "parent_id": parent.get("id", ""),
+                "parent_tag": parent.name,
+                "grandparent_id": parent.parent.get("id", "") if parent.parent else "",
+            })
+        info["dollar_elements"] = dollar_elements[:30]
+
+        # ANALYSIS 3: Find elements with qty/unit/price/line/item in ID
+        detail_fields = []
+        for el in soup.find_all(id=_re.compile(r'(?i)(PRICE|QTY|QUANTITY|UNIT|LINE|ITEM|DESCR)')):
+            eid = el.get("id", "")
+            text = el.get_text(strip=True)[:100]
+            if text and text != "\xa0":
+                detail_fields.append({"id": eid, "text": text})
+        info["detail_fields"] = detail_fields[:50]
+
+        # ANALYSIS 4: Find links with detail/transfer/modal keywords
+        all_links = []
+        for a in soup.find_all("a"):
+            aid = a.get("id", "")
+            href = a.get("href", "")[:200]
+            onclick = a.get("onclick", "")[:200]
+            text = a.get_text(strip=True)[:50]
+            if any(kw in (aid + href + onclick).upper() for kw in
+                   ["DETAIL", "TRANSFER", "MODAL", "SCPRS2", "PDDTL", "VIEW", "EXPAND"]):
+                all_links.append({"id": aid, "href": href, "onclick": onclick, "text": text})
+        info["navigation_links"] = all_links[:20]
+
+        # ANALYSIS 5: Find all iframes
+        iframes = [{"src": f.get("src", ""), "id": f.get("id", "")}
+                   for f in soup.find_all("iframe")]
+        info["iframes"] = iframes
+
+        # ANALYSIS 6: Try SCPRS2 with PO as URL search key
+        po_nums = _re.findall(r'4500\d{6}', modal_html)
+        info["po_numbers"] = po_nums[:5]
+        if po_nums:
+            import requests as _requests
+            for url_pattern in [
+                f"{SCPRS_DETAIL_URL}&CRDMEM_ACCT_NBR={po_nums[0]}",
+                f"{SCPRS_DETAIL_URL}&ZZ_SCPRS_SP_WRK_CRDMEM_ACCT_NBR={po_nums[0]}",
+                SCPRS_DETAIL_URL,
+            ]:
+                s2 = _requests.Session()
+                s2.headers.update({"User-Agent": fs.session.headers.get("User-Agent", "")})
+                r2 = s2.get(url_pattern, timeout=20, allow_redirects=True)
+                info["approaches"].append({
+                    "url_tail": url_pattern.split("GBL")[1] if "GBL" in url_pattern else url_pattern[-80:],
+                    "status": r2.status_code,
+                    "size": len(r2.text),
+                    "has_PDL": "ZZ_SCPR_PDL_DVW" in r2.text,
+                    "has_SBP": "ZZ_SCPR_SBP_WRK" in r2.text,
+                    "has_lines": bool(_re.search(r'UNIT_PRICE|LINE_TOTAL', r2.text)),
+                })
+
+            # ANALYSIS 7: Try with SCPRS1 cookies forwarded to SCPRS2
+            s3 = _requests.Session()
+            s3.headers.update(fs.session.headers)
+            s3.cookies.update(fs.session.cookies)
+            r3 = s3.get(SCPRS_DETAIL_URL, timeout=20, allow_redirects=True)
+            info["approaches"].append({
+                "url_tail": "SCPRS2_with_SCPRS1_cookies",
+                "status": r3.status_code,
+                "size": len(r3.text),
+                "has_PDL": "ZZ_SCPR_PDL_DVW" in r3.text,
+                "has_SBP": "ZZ_SCPR_SBP_WRK" in r3.text,
+                "has_lines": bool(_re.search(r'UNIT_PRICE|LINE_TOTAL', r3.text)),
+            })
+
+        return api_response(info)
+    except Exception as e:
+        import traceback
+        log.error("debug-modal error: %s", e, exc_info=True)
+        return api_response(error=f"{e}\n{traceback.format_exc()}", status=500)
+
+
 @bp.route("/api/v1/harvest/backfill-details")
 @auth_required
 def api_v1_backfill_details():
