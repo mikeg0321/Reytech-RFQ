@@ -190,6 +190,12 @@ async def _scrape_detail_async(supplier_name="reytech",
                     modal_content = await modal_frame.content()
                     log.info("Browser: modal frame %db", len(modal_content))
 
+                    # Screenshot step 1: modal loaded
+                    await page.screenshot(
+                        path=f"/data/scprs_step1_modal_{row_idx}.png",
+                        full_page=True
+                    )
+
                     # Find PO number links in the modal frame
                     po_link = modal_frame.locator("[id='ZZ_SCPR_RSLT_VW$0']")
                     if await po_link.count() == 0:
@@ -212,6 +218,13 @@ async def _scrape_detail_async(supplier_name="reytech",
                     log.info("Browser: clicking PO link: %s", po_text)
                     await po_link.first.click()
 
+                    # Screenshot step 2: after PO click
+                    await page.wait_for_timeout(2000)
+                    await page.screenshot(
+                        path=f"/data/scprs_step2_po_click_{row_idx}.png",
+                        full_page=True
+                    )
+
                     # Wait for detail page to load
                     try:
                         await modal_frame.wait_for_selector(
@@ -223,9 +236,9 @@ async def _scrape_detail_async(supplier_name="reytech",
                         await page.wait_for_timeout(3000)
                         log.info("Browser: waited 3s for detail")
 
-                    # Screenshot the detail page
+                    # Screenshot step 3: detail loaded
                     await page.screenshot(
-                        path=f"/data/scprs_detail_{row_idx}.png",
+                        path=f"/data/scprs_step3_detail_{row_idx}.png",
                         full_page=True
                     )
 
@@ -252,6 +265,12 @@ async def _scrape_detail_async(supplier_name="reytech",
 
                 # Only process first row for now
                 break
+
+            # Save final state
+            try:
+                await page.screenshot(path="/data/scprs_final.png", full_page=True)
+            except Exception:
+                pass
 
         except Exception as e:
             log.error("Browser scrape failed: %s", e)

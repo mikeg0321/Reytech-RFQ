@@ -1713,6 +1713,21 @@ def api_v1_browser_screenshot():
     return api_response({"available": shots, "requested": name}, status=404)
 
 
+@bp.route("/api/v1/harvest/browser-screenshots")
+@auth_required
+def api_v1_browser_screenshots():
+    """List all available browser screenshots."""
+    import os
+    shots = sorted([f for f in os.listdir("/data") if f.startswith("scprs_") and f.endswith(".png")])
+    base_url = request.host_url.rstrip("/")
+    return api_response({
+        "screenshots": [
+            {"name": f.replace(".png", ""), "url": f"{base_url}/api/v1/harvest/browser-screenshot?name={f.replace('.png', '')}"}
+            for f in shots
+        ]
+    })
+
+
 @bp.route("/api/v1/harvest/browser-test")
 @auth_required
 def api_v1_harvest_browser_test():
