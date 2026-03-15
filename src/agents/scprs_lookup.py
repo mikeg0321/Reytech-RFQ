@@ -49,7 +49,7 @@ except ImportError:
 
 SCPRS_BASE = "https://suppliers.fiscal.ca.gov"
 SCPRS_SEARCH_URL = f"{SCPRS_BASE}/psc/psfpd1/SUPPLIER/ERP/c/ZZ_PO.ZZ_SCPRS1_CMP.GBL"
-SCPRS_DETAIL_URL = f"{SCPRS_BASE}/psp/psfpd1_3/SUPPLIER/ERP/c/ZZ_PO.ZZ_SCPRS2_CMP.GBL?Page=ZZ_SCPRS_PDDTL_PG&Action=U"
+SCPRS_DETAIL_URL = f"{SCPRS_BASE}/psp/psfpd1/SUPPLIER/ERP/c/ZZ_PO.ZZ_SCPRS2_CMP.GBL?Page=ZZ_SCPRS_PDDTL_PG&Action=U"
 
 # Search form fields
 FIELD_DESCRIPTION = "ZZ_SCPRS_SP_WRK_DESCR254"
@@ -279,68 +279,59 @@ class FiscalSession:
         log.info("Search: ICSID=%s ICStateNum=%s", self.icsid, self._last_state_num)
         return self._parse_results(html)
 
-    def get_detail(self, results_html, row_index, click_action=None):
-        """Click a result row. PeopleSoft requires ALL form fields echoed back."""
-        if not click_action:
-            click_action = f"ZZ_SCPR_RSLT_VW$hmodal${row_index}"
-
-        # Use the LATEST results HTML (has current ICStateNum/ICSID)
-        current_html = self._last_html or results_html
-
-        # Extract current search field values from results page
-        # PeopleSoft requires these echoed back — omitting them causes
-        # the server to just re-render the search page
-        search_values = {}
-        for fld in ALL_SEARCH_FIELDS:
-            m = re.search(rf"name='{re.escape(fld)}'[^>]*value=\"([^\"]*)\"", current_html)
-            search_values[fld] = m.group(1) if m else ""
-
-        # Build full form data: IC* fields + DUMMY_FIELD + search values
-        form_data = self._build_form_data(current_html, click_action, search_values)
-
-        log.info("Detail click: %s ICStateNum=%s ICSID=%s",
-                 click_action, form_data.get("ICStateNum"),
-                 (form_data.get("ICSID") or "?")[:12])
+    def get_po_detail(self, po_number):
+        """Fetch detail page for a specific PO number via direct GET to ZZ_SCPRS2."""
+        url = f"{SCPRS_DETAIL_URL}&ZZ_SCPRS_SP_WRK_CRDMEM_ACCT_NBR={po_number}"
+        log.info("Detail GET: PO=%s url=%s", po_number, url[:120])
         try:
-            r = self.session.post(SCPRS_SEARCH_URL, data=form_data, timeout=20)
+            r = self.session.get(url, timeout=20)
             has_pdl = "ZZ_SCPR_PDL_DVW" in r.text
             has_sbp = "ZZ_SCPR_SBP_WRK" in r.text
-            log.info("Detail POST: %d (%db) has_PDL_DVW=%s has_SBP=%s",
+            log.info("Detail GET: %d (%db) has_PDL_DVW=%s has_SBP=%s",
                      r.status_code, len(r.text), has_pdl, has_sbp)
-
             if r.status_code == 200 and (has_pdl or has_sbp):
                 return self._parse_detail(r.text)
-
-            # Modal response: extract PO numbers + find detail navigation links
             if r.status_code == 200:
-                modal_soup = BeautifulSoup(r.text, "html.parser")
-
-                # Find PO number spans (CRDMEM_ACCT_NBR = PO number field)
-                po_span = modal_soup.find(id=re.compile(r'CRDMEM_ACCT_NBR\$0'))
-                po_from_span = po_span.get_text(strip=True) if po_span else None
-                log.info("Modal PO span: id=%s text=%s",
-                         po_span.get("id") if po_span else "NONE", po_from_span)
-
-                # Find ALL clickable links in modal (for detail navigation)
-                modal_links = [a.get("id", "") for a in modal_soup.find_all("a")
-                               if "SCPR" in (a.get("id") or "")]
-                log.info("Modal SCPR links: %s", modal_links[:20])
-
-                # Also look for any link to ZZ_SCPRS2 (detail component)
-                scprs2_refs = re.findall(r'ZZ_SCPRS2[^"\'<>\s]*', r.text)
-                log.info("Modal ZZ_SCPRS2 refs: %s", scprs2_refs[:5] if scprs2_refs else "NONE")
-
                 # Try parsing anyway
                 result = self._parse_detail(r.text)
                 if result and result.get("line_items"):
                     return result
-                # Return PO number from modal even if no lines
-                if po_from_span:
-                    log.info("Modal has PO=%s but no line items", po_from_span)
-                    return {"header": {"po_number": po_from_span}, "po_number": po_from_span,
-                            "line_items": [], "buyer_name": None}
+                log.info("Detail GET: PO=%s parsed 0 lines, preview: %s",
+                         po_number, r.text[:500].replace("\n", " "))
         except Exception as e:
-            log.error("Detail POST failed: %s", e)
+            log.error("Detail GET failed for PO=%s: %s", po_number, e)
+        return None
+
+    def get_detail(self, results_html, row_index, click_action=None):
+        """Extract PO number from modal click, then GET detail page directly."""
+        if not click_action:
+            click_action = f"ZZ_SCPR_RSLT_VW$hmodal${row_index}"
+
+        current_html = self._last_html or results_html
+
+        # Step 1: POST modal click to get PO number
+        search_values = {}
+        for fld in ALL_SEARCH_FIELDS:
+            m = re.search(rf"name='{re.escape(fld)}'[^>]*value=\"([^\"]*)\"", current_html)
+            search_values[fld] = m.group(1) if m else ""
+        form_data = self._build_form_data(current_html, click_action, search_values)
+
+        log.info("Detail click: %s", click_action)
+        try:
+            r = self.session.post(SCPRS_SEARCH_URL, data=form_data, timeout=20)
+            log.info("Modal POST: %d (%db)", r.status_code, len(r.text))
+
+            if r.status_code == 200:
+                # Extract PO number from modal response
+                po_nums = re.findall(r'4500\d{6}', r.text)
+                if po_nums:
+                    po_number = po_nums[0]
+                    log.info("Modal PO=%s, fetching detail page directly", po_number)
+                    return self.get_po_detail(po_number)
+                else:
+                    log.warning("Modal click returned no PO numbers")
+        except Exception as e:
+            log.error("Modal click failed: %s", e)
         return None
 
     # ── Parsers ────────────────────────────────────────────────────
