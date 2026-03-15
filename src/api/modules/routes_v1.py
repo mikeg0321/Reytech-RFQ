@@ -1196,19 +1196,13 @@ def api_v1_backfill_details():
         import threading
         def _run():
             try:
-                from src.agents.connectors.ca_scprs import CASCPRSConnector
-                from src.core.pull_orchestrator import _store_results, _get_conn
+                from src.agents.scprs_lookup import FiscalSession
+                from src.core.pull_orchestrator import _get_conn
                 import time as _t
 
-                connector = CASCPRSConnector()
-                if not connector.authenticate():
-                    log.error("Backfill: auth failed")
-                    return
-
                 conn = _get_conn()
-                # Get POs without line items that have results_html
                 pos = conn.execute("""
-                    SELECT pm.id, pm.po_number, pm.supplier, pm.dept_name
+                    SELECT pm.id, pm.po_number, pm.supplier, pm.dept_name, pm.search_term
                     FROM scprs_po_master pm
                     WHERE NOT EXISTS (
                         SELECT 1 FROM scprs_po_lines pl WHERE pl.po_id = pm.id
@@ -1217,59 +1211,70 @@ def api_v1_backfill_details():
                 """).fetchall()
 
                 total = len(pos)
-                log.info("Backfill: %d POs need detail pages", total)
+                log.info("Backfill: %d POs need detail pages (isolated sessions)", total)
                 filled = 0
                 lines_inserted = 0
+
                 for i, po in enumerate(pos):
                     if i % 10 == 0:
                         log.info("Backfill: %d/%d POs, %d lines so far", i, total, lines_inserted)
-                    # We need to search for this PO to get the results page,
-                    # then click into it. Search by supplier + date range.
                     try:
-                        raw = connector.session.search(
-                            supplier_name=po["supplier"][:20] if po["supplier"] else "",
-                            from_date="01/01/2022")
-                        # Find the matching PO in results
+                        # Isolated session per PO — no shared state, no race condition
+                        session = FiscalSession()
+                        if not session.init_session():
+                            log.warning("Backfill PO %s: session init failed, skipping", po["po_number"])
+                            _t.sleep(2)
+                            continue
+
+                        # Search by supplier to find this PO in results
+                        supplier_term = po["supplier"][:20] if po["supplier"] else ""
+                        raw = session.search(supplier_name=supplier_term, from_date="01/01/2022")
+
+                        # Find matching PO and click into detail
+                        detail = None
                         for r in (raw or []):
-                            if (r.get("po_number") == po["po_number"] or
-                                (r.get("supplier_name", "") == po["supplier"] and
-                                 abs(float(r.get("grand_total_num", 0) or 0)) > 0)):
+                            if r.get("po_number") == po["po_number"]:
                                 if r.get("_results_html") and r.get("_row_index") is not None:
                                     try:
-                                        detail = connector.session.get_detail(
-                                            r["_results_html"], r["_row_index"])
+                                        detail = session.get_detail(
+                                            r["_results_html"], r["_row_index"],
+                                            r.get("_click_action"))
                                     except Exception as e:
-                                        log.warning("Detail fetch timeout/error for %s: %s", po["po_number"], e)
-                                        detail = {"line_items": [], "buyer_name": None}
-                                    if detail and detail.get("line_items"):
-                                        po_id = po["id"]
-                                        for idx, item in enumerate(detail["line_items"]):
-                                            if not isinstance(item, dict):
-                                                continue
-                                            conn.execute("""
-                                                INSERT OR IGNORE INTO scprs_po_lines
-                                                (po_id, po_number, line_num, description,
-                                                 unit_price, quantity, line_total, category)
-                                                VALUES (?,?,?,?,?,?,?,?)
-                                            """, (po_id, po["po_number"], idx + 1,
-                                                  (item.get("description", "") or "")[:500],
-                                                  item.get("unit_price_num") or item.get("unit_price", 0) or 0,
-                                                  item.get("quantity_num") or item.get("quantity", 0) or 0,
-                                                  item.get("line_total", 0) or 0,
-                                                  "other"))
-                                            lines_inserted += 1
-                                        # Update buyer info + acq_method on po_master
-                                        header = detail.get("header", {})
-                                        buyer = header.get("buyer_name") or detail.get("buyer_name")
-                                        email = header.get("buyer_email") or detail.get("buyer_email")
-                                        acq = header.get("acq_method") or detail.get("acq_method")
-                                        if buyer or acq:
-                                            conn.execute(
-                                                "UPDATE scprs_po_master SET buyer_name=?, buyer_email=?, acq_method=? WHERE id=?",
-                                                (buyer or "", email or "", acq or "", po_id))
-                                        filled += 1
-                                        conn.commit()
-                                    break
+                                        log.warning("Detail fetch error for %s: %s", po["po_number"], e)
+                                break
+
+                        if detail and detail.get("line_items"):
+                            po_id = po["id"]
+                            for idx, item in enumerate(detail["line_items"]):
+                                if not isinstance(item, dict):
+                                    continue
+                                conn.execute("""
+                                    INSERT OR IGNORE INTO scprs_po_lines
+                                    (po_id, po_number, line_num, description,
+                                     unit_price, quantity, line_total, category)
+                                    VALUES (?,?,?,?,?,?,?,?)
+                                """, (po_id, po["po_number"], idx + 1,
+                                      (item.get("description", "") or "")[:500],
+                                      item.get("unit_price_num") or item.get("unit_price", 0) or 0,
+                                      item.get("quantity_num") or item.get("quantity", 0) or 0,
+                                      item.get("line_total", 0) or 0,
+                                      "other"))
+                                lines_inserted += 1
+                            # Update buyer info + acq_method on po_master
+                            header = detail.get("header", {})
+                            buyer = header.get("buyer_name") or detail.get("buyer_name")
+                            email = header.get("buyer_email") or detail.get("buyer_email")
+                            acq = header.get("acq_method") or detail.get("acq_method")
+                            if buyer or acq:
+                                conn.execute(
+                                    "UPDATE scprs_po_master SET buyer_name=?, buyer_email=?, acq_method=? WHERE id=?",
+                                    (buyer or "", email or "", acq or "", po_id))
+                            filled += 1
+                            conn.commit()
+                            log.info("Backfill PO %s: %d lines, buyer=%s",
+                                     po["po_number"], len(detail["line_items"]),
+                                     buyer or "?")
+
                         _t.sleep(2)
                     except Exception as e:
                         log.debug("Backfill PO %s: %s", po["po_number"], e)
@@ -1278,12 +1283,6 @@ def api_v1_backfill_details():
                 log.info("Backfill complete: %d/%d POs got detail, %d lines inserted", filled, total, lines_inserted)
             except Exception as e:
                 log.error("Backfill error: %s", e, exc_info=True)
-
-        def _parse_dollar_safe(text):
-            try:
-                return float(str(text).replace("$", "").replace(",", "").strip())
-            except Exception:
-                return 0
 
         threading.Thread(target=_run, daemon=True, name="backfill-details").start()
         return api_response({
