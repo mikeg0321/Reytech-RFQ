@@ -664,6 +664,13 @@ def _run_exhaustive_scrape():
     log.info("  Errors (skipped): %d", total_errors)
     log.info("=" * 60)
 
+    # Post-scrape: re-enrich all existing quotes with fresh data
+    try:
+        from src.agents.quote_reprocessor import reprocess_all_quotes
+        reprocess_all_quotes()
+    except Exception as e:
+        log.warning("Post-scrape quote reprocessing failed: %s", e)
+
 
 async def _scrape_full_async(search_params, seen_pos, max_rows=500):
     """Full async scrape with search_params dict (supports to_date, description)."""

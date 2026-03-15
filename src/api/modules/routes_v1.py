@@ -2041,6 +2041,51 @@ def api_v1_buyers_search():
     })
 
 
+@bp.route("/api/v1/quotes/reprocess")
+@auth_required
+def api_v1_quotes_reprocess():
+    """Re-enrich all pending quotes + validate sent quotes with fresh market data."""
+    import threading as _th
+    from src.agents.quote_reprocessor import reprocess_all_quotes
+    t = _th.Thread(target=reprocess_all_quotes, daemon=True, name="quote-reprocess")
+    t.start()
+    return api_response({"status": "started", "message": "Reprocessing all quotes. Check logs."})
+
+
+@bp.route("/api/v1/quotes/price-alerts")
+@auth_required
+def api_v1_price_alerts():
+    """View underpricing alerts from last validation."""
+    import os as _os
+    import json as _json
+    path = "/data/price_alerts.json"
+    if not _os.path.exists(path):
+        return api_response({"alerts": [], "message": "No alerts yet. Run /api/v1/quotes/reprocess first."})
+    with open(path, "r") as f:
+        return api_response(_json.load(f))
+
+
+@bp.route("/api/v1/outreach/preview/<path:email>")
+@auth_required
+def api_v1_outreach_preview(email):
+    """Preview outreach email for a specific prospect."""
+    from src.agents.outreach_agent import generate_outreach_email
+    strategy = request.args.get("strategy", "A")
+    result = generate_outreach_email(email, strategy=strategy)
+    return api_response(result)
+
+
+@bp.route("/api/v1/outreach/batch")
+@auth_required
+def api_v1_outreach_batch():
+    """Generate batch outreach for top prospects with A/B variants."""
+    from src.agents.outreach_agent import generate_batch_outreach
+    limit = int(request.args.get("limit", "20"))
+    min_score = float(request.args.get("min_score", "30"))
+    batch = generate_batch_outreach(limit=limit, min_score=min_score)
+    return api_response({"emails": batch, "count": len(batch)})
+
+
 @bp.route("/api/v1/system/audit-now")
 @auth_required
 def api_v1_audit_now():
