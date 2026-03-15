@@ -169,10 +169,50 @@ async def _scrape_detail_async(supplier_name="reytech",
                         await page.wait_for_selector(
                             "[id^='ZZ_SCPR_PDL_DVW'], "
                             "[id^='ZZ_SCPR_SBP_WRK']",
-                            timeout=10000
+                            timeout=20000
                         )
                     except Exception:
-                        log.warning("Browser: detail didn't load for row %d", row_idx)
+                        # Capture what we got after the click
+                        post_click = await page.content()
+                        _zz = set()
+                        for _m in re.finditer(r'id=["\']?(ZZ_[A-Z_]+)', post_click):
+                            base = re.sub(r'\$\d+$', '', _m.group(1))
+                            _zz.add(base)
+                        _dollars = re.findall(r'\$[\d,]+\.\d{2}', post_click)
+                        _title = re.search(r'<title>([^<]*)</title>', post_click)
+
+                        # Check for new windows/pages
+                        all_pages = page.context.pages
+
+                        log.warning(
+                            "Browser: detail didn't load for row %d. "
+                            "size=%d title=%s pages=%d dollars=%d "
+                            "new_zz=%s",
+                            row_idx, len(post_click),
+                            _title.group(1)[:50] if _title else "?",
+                            len(all_pages),
+                            len(_dollars),
+                            sorted(_zz - {"ZZ_SCPR_RSLT_VW", "ZZ_SCPRS_SP_WRK",
+                                          "ZZ_SCPRS1_CMP", "ZZ_BIDR_VND_VW"})[:10]
+                        )
+
+                        # If multiple pages, check the new one
+                        if len(all_pages) > 1:
+                            new_page = all_pages[-1]
+                            new_content = await new_page.content()
+                            log.info("Browser: NEW PAGE %db has_PDL=%s has_SBP=%s",
+                                     len(new_content),
+                                     "ZZ_SCPR_PDL_DVW" in new_content,
+                                     "ZZ_SCPR_SBP_WRK" in new_content)
+                            if "ZZ_SCPR_PDL_DVW" in new_content:
+                                detail = _parse_browser_detail(new_content)
+                                if detail and detail.get("line_items"):
+                                    detail["source"] = "scprs_browser"
+                                    results.append(detail)
+                                    log.info("Browser: GOT DETAIL from new page! %d lines",
+                                             len(detail["line_items"]))
+                                    continue
+
                         close_btn = page.locator(
                             "[id*='CLOSE'], [id*='close'], "
                             "[id*='Cancel'], .ps_closebox"
