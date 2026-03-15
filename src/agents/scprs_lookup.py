@@ -49,7 +49,7 @@ except ImportError:
 
 SCPRS_BASE = "https://suppliers.fiscal.ca.gov"
 SCPRS_SEARCH_URL = f"{SCPRS_BASE}/psc/psfpd1/SUPPLIER/ERP/c/ZZ_PO.ZZ_SCPRS1_CMP.GBL"
-SCPRS_DETAIL_URL = f"{SCPRS_BASE}/psc/psfpd1_3/SUPPLIER/ERP/c/ZZ_PO.ZZ_SCPRS2_CMP.GBL?Page=ZZ_SCPRS_PDDTL_PG&Action=U"
+SCPRS_DETAIL_URL = f"{SCPRS_BASE}/psp/psfpd1_3/SUPPLIER/ERP/c/ZZ_PO.ZZ_SCPRS2_CMP.GBL?Page=ZZ_SCPRS_PDDTL_PG&Action=U"
 
 # Search form fields
 FIELD_DESCRIPTION = "ZZ_SCPRS_SP_WRK_DESCR254"
@@ -377,18 +377,8 @@ class FiscalSession:
 
     def _parse_detail(self, html):
         """Parse detail page by PeopleSoft span IDs (not table cells)."""
-        log.info("_parse_detail type: %s len: %d", type(html).__name__, len(html))
-
-        # Force to string if bytes
         if isinstance(html, bytes):
             html = html.decode("utf-8", errors="replace")
-            log.info("_parse_detail: decoded bytes to str")
-
-        log.info("_parse_detail has CRDMEM: %s",
-                 "CRDMEM_ACCT_NBR" in html)
-        log.info("_parse_detail has PDL_DVW: %s",
-                 "ZZ_SCPR_PDL_DVW" in html)
-        log.info("_parse_detail preview: %s", html[:500].replace("\n", " "))
         soup = BeautifulSoup(html, "html.parser")
 
         def get_span(id_val):
