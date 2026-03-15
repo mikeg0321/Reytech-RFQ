@@ -187,6 +187,9 @@ class FiscalSession:
         self.initialized = False
         self._last_html = None
         self._last_state_num = None
+        # Separate session for detail pages (different PeopleSoft server)
+        self.detail_session = None
+        self._detail_icsid = None
 
     def _load_page(self, max_attempts=3):
         url = f"{SCPRS_SEARCH_URL}?&"
@@ -241,6 +244,27 @@ class FiscalSession:
             return False
         except Exception as e:
             log.error(f"SCPRS init failed: {e}")
+            return False
+
+    def _init_detail_session(self):
+        """Initialize a separate session for ZZ_SCPRS2 (different PeopleSoft server)."""
+        try:
+            self.detail_session = requests.Session()
+            self.detail_session.headers.update({"User-Agent": USER_AGENT})
+            url = f"{SCPRS_DETAIL_URL.split('?')[0]}?&"
+            for attempt in range(1, 3):
+                r = self.detail_session.get(url, timeout=20, allow_redirects=True)
+                log.info("SCPRS2 init %d: %d (%db)", attempt, r.status_code, len(r.text))
+                if "ICSID" in r.text or "ZZ_SCPRS" in r.text:
+                    self._detail_icsid = self._extract_icsid(r.text)
+                    if self._detail_icsid:
+                        log.info("SCPRS2 session OK")
+                        return True
+                time.sleep(0.5)
+            log.error("SCPRS2 init: no ICSID")
+            return False
+        except Exception as e:
+            log.error("SCPRS2 init failed: %s", e)
             return False
 
     def search(self, description="", from_date="", to_date="", supplier_name=""):
@@ -393,8 +417,11 @@ class FiscalSession:
                 return None
             po_number = po_nums[0]
 
-            # Step 2: GET the detail page directly — modal click set PO context
-            dr = self.session.get(SCPRS_DETAIL_URL, timeout=20)
+            # Step 2: Use detail_session (separate server) to GET detail page
+            if not self.detail_session:
+                if not self._init_detail_session():
+                    return None
+            dr = self.detail_session.get(SCPRS_DETAIL_URL, timeout=20)
             has_pdl = "ZZ_SCPR_PDL_DVW" in dr.text
             log.info("Detail GET: %db has_PDL_DVW=%s (PO=%s)",
                      len(dr.text), has_pdl, po_number)
