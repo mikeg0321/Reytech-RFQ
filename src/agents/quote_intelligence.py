@@ -179,8 +179,18 @@ def get_reytech_prices(query, limit=5):
 
 
 def _calculate_suggested_price(reytech_prices, competitor_prices, quantity):
-    """Calculate optimal price based on history and competition."""
+    """Calculate optimal price with time decay, volume normalization, COVID adjustment."""
+    import math
+    from datetime import datetime, timedelta
     result = {"price": None, "rationale": "", "confidence": "low"}
+
+    now = datetime.now()
+
+    # COVID anomaly window for PPE/medical items
+    COVID_START = datetime(2020, 3, 1)
+    COVID_END = datetime(2021, 12, 31)
+    COVID_CATEGORIES = ["glove", "mask", "gown", "sanitiz", "disinfect",
+                        "ppe", "face shield", "respirator", "n95", "wipe"]
 
     def _parse_price(p):
         try:
@@ -188,39 +198,144 @@ def _calculate_suggested_price(reytech_prices, competitor_prices, quantity):
         except (ValueError, TypeError):
             return None
 
-    reytech_nums = [_parse_price(p["unit_price"]) for p in reytech_prices]
-    reytech_nums = [n for n in reytech_nums if n and n > 0]
+    def _parse_date(d):
+        for fmt in ("%m/%d/%Y", "%Y-%m-%d", "%m/%d/%y"):
+            try:
+                return datetime.strptime(str(d).strip(), fmt)
+            except (ValueError, TypeError):
+                continue
+        return None
 
-    comp_nums = [_parse_price(p["unit_price"]) for p in competitor_prices if not p.get("is_reytech")]
-    comp_nums = [n for n in comp_nums if n and n > 0]
+    def _parse_qty(q):
+        try:
+            return float(str(q).replace(",", "").strip())
+        except (ValueError, TypeError):
+            return 1.0
 
-    if reytech_nums:
-        latest_reytech = reytech_nums[0]
-        if comp_nums:
-            avg_comp = sum(comp_nums) / len(comp_nums)
-            min_comp = min(comp_nums)
-            suggested = min(latest_reytech, avg_comp * 0.95)
-            suggested = max(suggested, min_comp * 0.9)
-            result["price"] = round(suggested, 2)
-            result["rationale"] = (
-                f"Your last price: ${latest_reytech:.2f}. "
-                f"Competitor avg: ${avg_comp:.2f} (low: ${min_comp:.2f}). "
-                f"Suggested: ${suggested:.2f} (5% below competitor avg)"
-            )
-            result["confidence"] = "high"
-        else:
-            result["price"] = round(latest_reytech, 2)
-            result["rationale"] = f"Based on your last winning price: ${latest_reytech:.2f}. No competitor data."
-            result["confidence"] = "medium"
-    elif comp_nums:
-        avg_comp = sum(comp_nums) / len(comp_nums)
-        suggested = avg_comp * 0.92
+    def _time_weight(date_str):
+        """6-month half-life exponential decay."""
+        dt = _parse_date(date_str)
+        if not dt:
+            return 0.1
+        age_days = max((now - dt).days, 0)
+        return round(math.pow(0.5, age_days / 180), 4)
+
+    def _covid_penalty(date_str, description=""):
+        """Apply near-zero weight to COVID-inflated PPE prices."""
+        dt = _parse_date(date_str)
+        if not dt:
+            return 1.0
+        if COVID_START <= dt <= COVID_END:
+            desc_lower = description.lower()
+            if any(cat in desc_lower for cat in COVID_CATEGORIES):
+                return 0.05
+        return 1.0
+
+    def _volume_weight(price_qty, request_qty):
+        """Weight prices from similar quantities higher."""
+        if not price_qty or price_qty <= 0:
+            return 0.5
+        if not request_qty or request_qty <= 0:
+            return 0.5
+        ratio = price_qty / request_qty
+        if ratio > 1:
+            ratio = 1 / ratio
+        return max(0.2, math.pow(ratio, 0.3))
+
+    def _score_prices(price_list, is_reytech=False):
+        scored = []
+        for p in price_list:
+            price = _parse_price(p.get("unit_price"))
+            if not price or price <= 0:
+                continue
+            date = p.get("date", "")
+            desc = p.get("description", "")
+            qty = _parse_qty(p.get("quantity"))
+
+            time_w = _time_weight(date)
+            covid_w = _covid_penalty(date, desc)
+            vol_w = _volume_weight(qty, quantity)
+
+            weight = time_w * covid_w * vol_w
+            if is_reytech:
+                weight *= 1.2
+
+            scored.append({
+                "price": price, "weight": round(weight, 4),
+                "date": date, "qty": qty,
+                "time_w": time_w, "covid_w": covid_w, "vol_w": vol_w,
+            })
+        return scored
+
+    reytech_scored = _score_prices(reytech_prices, is_reytech=True)
+    comp_scored = _score_prices(
+        [p for p in competitor_prices if not p.get("is_reytech")],
+        is_reytech=False
+    )
+
+    def _weighted_avg(scored_list):
+        if not scored_list:
+            return None
+        total_weight = sum(s["weight"] for s in scored_list)
+        if total_weight == 0:
+            return None
+        return sum(s["price"] * s["weight"] for s in scored_list) / total_weight
+
+    reytech_wavg = _weighted_avg(reytech_scored)
+    comp_wavg = _weighted_avg(comp_scored)
+
+    comp_low = None
+    if comp_scored:
+        high_weight = [s for s in comp_scored if s["weight"] > 0.3]
+        if high_weight:
+            comp_low = min(s["price"] for s in high_weight)
+
+    rationale_parts = []
+
+    if reytech_wavg and comp_wavg:
+        suggested = min(reytech_wavg, comp_wavg * 0.95)
+        if comp_low:
+            suggested = max(suggested, comp_low * 0.9)
         result["price"] = round(suggested, 2)
-        result["rationale"] = f"No Reytech history. Competitor avg: ${avg_comp:.2f}. Suggested: ${suggested:.2f} (8% undercut)"
-        result["confidence"] = "medium"
-    else:
-        result["rationale"] = "No pricing data available. Research needed."
+        result["confidence"] = "high"
+        rationale_parts.append(f"Your weighted avg: ${reytech_wavg:.2f}")
+        rationale_parts.append(f"Competitor weighted avg: ${comp_wavg:.2f}")
+        if comp_low:
+            rationale_parts.append(f"Competitor floor: ${comp_low:.2f}")
+        rationale_parts.append(f"Suggested: ${suggested:.2f}")
+        if reytech_scored:
+            newest_r = max(reytech_scored, key=lambda x: x["time_w"])
+            rationale_parts.append(f"Your most recent: ${newest_r['price']:.2f} ({newest_r['date']})")
 
+    elif reytech_wavg:
+        result["price"] = round(reytech_wavg, 2)
+        result["confidence"] = "medium"
+        rationale_parts.append(f"Based on your weighted history: ${reytech_wavg:.2f}")
+        rationale_parts.append("No recent competitor data")
+
+    elif comp_wavg:
+        suggested = comp_wavg * 0.92
+        result["price"] = round(suggested, 2)
+        result["confidence"] = "medium"
+        rationale_parts.append("No Reytech history")
+        rationale_parts.append(f"Competitor weighted avg: ${comp_wavg:.2f}")
+        rationale_parts.append(f"Suggested 8% undercut: ${suggested:.2f}")
+
+    else:
+        result["rationale"] = "No weighted pricing data. All available prices too old or mismatched. Manual research needed."
+        return result
+
+    # Flag stale data
+    all_scored = reytech_scored + comp_scored
+    if all_scored:
+        max_weight = max(s["weight"] for s in all_scored)
+        if max_weight < 0.3:
+            rationale_parts.append("WARNING: All pricing data >6 months old. Verify before quoting.")
+            result["confidence"] = "low"
+        elif max_weight < 0.5:
+            rationale_parts.append("Note: Best data is 3-6 months old")
+
+    result["rationale"] = " | ".join(rationale_parts)
     return result
 
 
