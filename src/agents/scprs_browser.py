@@ -161,7 +161,7 @@ async def _scrape_detail_async(supplier_name="reytech",
             total = int(count_match.group(3))
             log.info("Browser: %d results found", total)
 
-            # Step 3: Click each PO link — PeopleSoft opens a POPUP WINDOW
+            # Step 3: Click PO link — PeopleSoft renders modal WITHIN the page
             rows_to_check = min(total, max_rows)
             for row_idx in range(rows_to_check):
                 try:
@@ -173,88 +173,77 @@ async def _scrape_detail_async(supplier_name="reytech",
                         continue
 
                     log.info("Browser: clicking %s", link_id)
+                    await link.click()
 
-                    # PeopleSoft opens a POPUP WINDOW — catch it
-                    async with page.expect_popup(timeout=20000) as popup_info:
-                        await link.click()
-                    popup = await popup_info.value
-                    await popup.wait_for_load_state("networkidle")
+                    # PeopleSoft modal loads WITHIN the page
+                    await page.wait_for_timeout(5000)
 
-                    popup_content = await popup.content()
-                    log.info("Browser: popup opened %db has_PDL=%s has_SBP=%s",
-                             len(popup_content),
-                             "ZZ_SCPR_PDL_DVW" in popup_content,
-                             "ZZ_SCPR_SBP_WRK" in popup_content)
-
-                    # Save screenshot of popup
-                    await popup.screenshot(
-                        path=f"/data/scprs_popup_{row_idx}.png",
+                    # Screenshot current state
+                    await page.screenshot(
+                        path=f"/data/scprs_click_{row_idx}.png",
                         full_page=True
                     )
+                    log.info("Browser: screenshot saved after click")
 
-                    # If popup has detail data directly, parse it
-                    if "ZZ_SCPR_PDL_DVW" in popup_content:
-                        detail = _parse_browser_detail(popup_content)
-                        if detail and detail.get("line_items"):
-                            detail["source"] = "scprs_browser"
-                            results.append(detail)
-                            log.info("Browser: DETAIL FOUND! PO=%s %d lines",
-                                     detail["header"].get("po_number", "?"),
-                                     len(detail["line_items"]))
-                            await popup.close()
-                            continue
+                    # Check for iframes (PeopleSoft modal often uses iframe)
+                    iframes = page.frames
+                    log.info("Browser: %d frames found", len(iframes))
 
-                    # If popup shows results grid, click row 0 to get detail
-                    popup_link = popup.locator("[id='ZZ_SCPR_RSLT_VW$hmodal$0']")
-                    if await popup_link.count() == 0:
-                        popup_link = popup.locator("[id='ZZ_SCPR_RSLT_VW$0']")
+                    for i, frame in enumerate(iframes):
+                        frame_content = await frame.content()
+                        has_pdl = "ZZ_SCPR_PDL_DVW" in frame_content
+                        has_sbp = "ZZ_SCPR_SBP_WRK" in frame_content
+                        has_rslt = "ZZ_SCPR_RSLT_VW" in frame_content
+                        log.info("Browser: frame[%d] %db PDL=%s SBP=%s RSLT=%s url=%s",
+                                 i, len(frame_content), has_pdl, has_sbp, has_rslt,
+                                 frame.url[:100])
 
-                    if await popup_link.count() > 0:
-                        log.info("Browser: popup has results grid, clicking row 0")
+                        if has_pdl or has_sbp:
+                            detail = _parse_browser_detail(frame_content)
+                            if detail and detail.get("line_items"):
+                                detail["source"] = "scprs_browser"
+                                results.append(detail)
+                                log.info("Browser: GOT DETAIL from frame! %d lines",
+                                         len(detail["line_items"]))
+                                break
 
-                        # This might open ANOTHER popup or navigate
-                        try:
-                            async with popup.expect_popup(timeout=15000) as detail_info:
-                                await popup_link.click()
-                            detail_page = await detail_info.value
-                            await detail_page.wait_for_load_state("networkidle")
-                        except Exception:
-                            # No new popup — page navigated in place
-                            await popup.wait_for_load_state("networkidle")
-                            await popup.wait_for_timeout(2000)
-                            detail_page = popup
+                    # Also check main page content for modal content
+                    main_content = await page.content()
+                    log.info("Browser: main page after click %db", len(main_content))
 
-                        detail_content = await detail_page.content()
-                        log.info("Browser: detail page %db has_PDL=%s has_SBP=%s",
-                                 len(detail_content),
-                                 "ZZ_SCPR_PDL_DVW" in detail_content,
-                                 "ZZ_SCPR_SBP_WRK" in detail_content)
+                    # Check if page now has new windows
+                    all_pages = page.context.pages
+                    log.info("Browser: %d pages in context", len(all_pages))
+                    for pi, pg in enumerate(all_pages):
+                        if pg != page:
+                            pg_content = await pg.content()
+                            log.info("Browser: extra page[%d] %db PDL=%s",
+                                     pi, len(pg_content),
+                                     "ZZ_SCPR_PDL_DVW" in pg_content)
+                            await pg.screenshot(
+                                path=f"/data/scprs_page_{pi}.png",
+                                full_page=True
+                            )
 
-                        await detail_page.screenshot(
-                            path=f"/data/scprs_detail_{row_idx}.png",
-                            full_page=True
-                        )
-
-                        detail = _parse_browser_detail(detail_content)
-                        if detail and detail.get("line_items"):
-                            detail["source"] = "scprs_browser"
-                            results.append(detail)
-                            log.info("Browser: GOT LINE ITEMS! PO=%s %d lines buyer=%s",
-                                     detail["header"].get("po_number", "?"),
-                                     len(detail["line_items"]),
-                                     detail["header"].get("buyer_name", "?"))
-
-                        if detail_page != popup:
-                            await detail_page.close()
-
-                    await popup.close()
+                    # Look for detail-related elements
+                    detail_links = await page.locator(
+                        "[id*='DETAIL'], [id*='Detail'], "
+                        "text=Detail, text=Download"
+                    ).all()
+                    log.info("Browser: %d detail-related elements found",
+                             len(detail_links))
+                    for dl in detail_links[:5]:
+                        dl_id = await dl.get_attribute("id") or ""
+                        dl_text = await dl.text_content() or ""
+                        log.info("Browser: detail element id=%s text=%s",
+                                 dl_id[:60], dl_text[:60])
 
                 except Exception as e:
                     log.warning("Browser: row %d error: %s", row_idx, e)
-                    # Close any extra pages
-                    while len(page.context.pages) > 1:
-                        await page.context.pages[-1].close()
                     continue
+
+                # Only try one row for now
+                break
 
         except Exception as e:
             log.error("Browser scrape failed: %s", e)
