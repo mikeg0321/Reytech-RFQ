@@ -115,7 +115,21 @@ async def _scrape_detail_async(supplier_name="reytech",
                 return results
 
             await search_btn.click()
-            log.info("Browser: search clicked, waiting...")
+            log.info("Browser: search clicked, waiting for results...")
+
+            # PeopleSoft search is AJAX — wait for results grid
+            try:
+                await page.wait_for_selector(
+                    "[id^='ZZ_SCPR_RSLT_VW']",
+                    timeout=15000
+                )
+                log.info("Browser: results grid appeared")
+            except Exception:
+                # Fallback: wait for processing to complete
+                await page.wait_for_timeout(3000)
+                log.info("Browser: waited 3s fallback")
+
+            # Also wait for network to settle after AJAX
             await page.wait_for_load_state("networkidle")
 
             # Check for results
