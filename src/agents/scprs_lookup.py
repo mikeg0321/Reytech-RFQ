@@ -307,6 +307,7 @@ class FiscalSession:
             has_sbp = "ZZ_SCPR_SBP_WRK" in r.text
             log.info("Detail POST: %d (%db) has_PDL_DVW=%s has_SBP=%s",
                      r.status_code, len(r.text), has_pdl, has_sbp)
+            log.info("Detail resp preview: %s", r.text[:500].replace("\n", " "))
             if r.status_code == 200 and (has_pdl or has_sbp):
                 return self._parse_detail(r.text)
             if r.status_code == 200:
@@ -355,6 +356,14 @@ class FiscalSession:
             "EMAILID": "buyer_email",
             "STATUS2": "status",
         }
+
+        # Discover actual clickable element IDs in row 0
+        row0_links = soup.find_all("a", id=re.compile(r'\$0$'))
+        if row0_links:
+            link_ids = [a.get("id", "") for a in row0_links if "SCPR" in a.get("id", "")]
+            log.info("Row 0 clickable links: %s", link_ids[:10])
+        else:
+            log.warning("No <a> elements with $0 IDs found in results")
 
         results = []
         for row_idx in range(total):
