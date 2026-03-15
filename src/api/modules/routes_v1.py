@@ -1595,6 +1595,110 @@ def api_v1_harvest_debug_modal2():
         return api_response(error=f"{e}\n{traceback.format_exc()}", status=500)
 
 
+@bp.route("/api/v1/harvest/debug-click")
+@auth_required
+def api_v1_harvest_debug_click():
+    """Analyze what the non-modal $0 click actually returns."""
+    try:
+        from src.agents.scprs_lookup import (
+            FiscalSession, SCPRS_SEARCH_URL, ALL_SEARCH_FIELDS
+        )
+        from bs4 import BeautifulSoup
+        import re as _re
+
+        info = {}
+
+        fs = FiscalSession()
+        fs.init_session()
+        results = fs.search(supplier_name="reytech", from_date="01/01/2024")
+        if not results:
+            return api_response({"error": "no results"})
+        info["search_results"] = len(results)
+
+        current_html = fs._last_html
+
+        # Non-modal click: $0 (not $hmodal$0)
+        sv = {}
+        for fld in ALL_SEARCH_FIELDS:
+            m = _re.search(rf"name='{_re.escape(fld)}'[^>]*value=\"([^\"]*)\"", current_html)
+            sv[fld] = m.group(1) if m else ""
+        fd = fs._build_form_data(current_html, "ZZ_SCPR_RSLT_VW$0", sv)
+        r = fs.session.post(SCPRS_SEARCH_URL, data=fd, timeout=30)
+        html = r.text
+        info["click_size"] = len(html)
+        info["status"] = r.status_code
+
+        soup = BeautifulSoup(html, "html.parser")
+
+        # 1. ALL unique ZZ_ prefixes
+        zz_prefixes = set()
+        for el in soup.find_all(id=_re.compile(r'^ZZ_')):
+            base = _re.sub(r'\$\d+$', '', el.get("id", ""))
+            zz_prefixes.add(base)
+        info["zz_prefixes"] = sorted(zz_prefixes)
+
+        # 2. ALL dollar amounts with parent IDs
+        dollar_elements = []
+        for el in soup.find_all(string=_re.compile(r'\$[\d,]+\.\d{2}')):
+            p = el.parent
+            gp = p.parent if p.parent else p
+            dollar_elements.append({
+                "text": el.strip()[:80],
+                "parent_id": p.get("id", "")[:80],
+                "gp_id": gp.get("id", "")[:80],
+            })
+        info["dollar_count"] = len(dollar_elements)
+        info["dollar_elements"] = dollar_elements[:20]
+
+        # 3. Fields with price/qty/unit/line keywords
+        detail_data = []
+        for el in soup.find_all(id=_re.compile(r'(?i)(PRICE|QTY|QUANTITY|UNIT|LINE|ITEM_ID|UOM|DESCR254)')):
+            eid = el.get("id", "")
+            text = el.get_text(strip=True)[:120]
+            if text and text != "\xa0":
+                detail_data.append({"id": eid, "text": text})
+        info["detail_data"] = detail_data[:40]
+
+        # 4. Page title
+        title = _re.search(r'<title>([^<]*)</title>', html)
+        info["title"] = title.group(1)[:100] if title else "?"
+
+        # 5. PO numbers found
+        po_nums = _re.findall(r'4500\d{6}', html)
+        info["po_numbers"] = list(dict.fromkeys(po_nums))[:10]
+
+        # 6. Any elements with BUYER, SUPPLIER, STATUS
+        header_data = []
+        for el in soup.find_all(id=_re.compile(r'(?i)(BUYER|SUPPLIER|STATUS|AWARDED|MERCH|FREIGHT|PHONE|EMAIL|START_DATE|END_DATE)')):
+            eid = el.get("id", "")
+            text = el.get_text(strip=True)[:120]
+            if text and text != "\xa0":
+                header_data.append({"id": eid, "text": text})
+        info["header_data"] = header_data[:30]
+
+        # 7. Forms and their actions
+        forms = [{"id": f.get("id", ""), "name": f.get("name", ""),
+                  "action": f.get("action", "")[:200]}
+                 for f in soup.find_all("form")]
+        info["forms"] = forms
+
+        # 8. Non-ZZ unique ID prefixes
+        other_prefixes = set()
+        for el in soup.find_all(id=True):
+            eid = el.get("id", "")
+            if not eid.startswith("ZZ_") and not eid.startswith("win0"):
+                base = _re.sub(r'[\$_]\d+$', '', eid)
+                if len(base) > 3:
+                    other_prefixes.add(base)
+        info["other_prefixes_sample"] = sorted(other_prefixes)[:30]
+
+        return api_response(info)
+    except Exception as e:
+        import traceback
+        log.error("debug-click: %s", e, exc_info=True)
+        return api_response(error=f"{e}\n{traceback.format_exc()}", status=500)
+
+
 @bp.route("/api/v1/harvest/backfill-details")
 @auth_required
 def api_v1_backfill_details():
