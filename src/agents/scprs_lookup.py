@@ -318,21 +318,32 @@ class FiscalSession:
         try:
             r = self.session.post(SCPRS_SEARCH_URL, data=form_data, timeout=20)
             has_pdl = "ZZ_SCPR_PDL_DVW" in r.text
-            log.info("Detail POST: %d (%db) has_PDL_DVW=%s",
-                     r.status_code, len(r.text), has_pdl)
-            if r.status_code == 200 and has_pdl:
-                return self._parse_detail(r.text)
-            if r.status_code == 200 and not has_pdl:
-                log.info("POST lacked PDL_DVW, trying GET to detail URL")
+            has_sbp = "ZZ_SCPR_SBP_WRK" in r.text
+            log.info("Detail POST: %d (%db) has_PDL_DVW=%s has_SBP=%s",
+                     r.status_code, len(r.text), has_pdl, has_sbp)
+            if r.status_code == 200:
+                # Always try to parse — the page may have detail content
+                # even if PDL_DVW string search fails (encoding, JS-loaded)
+                result = self._parse_detail(r.text)
+                if result and result.get("line_items"):
+                    return result
+                # If no lines from POST, try GET fallback
+                log.info("POST parse got %d lines, trying GET fallback",
+                         len(result.get("line_items", [])) if result else 0)
                 try:
                     detail_r = self.session.get(SCPRS_DETAIL_URL, timeout=20)
-                    has_pdl2 = "ZZ_SCPR_PDL_DVW" in detail_r.text
                     log.info("Detail GET fallback: %d (%db) has_PDL_DVW=%s",
-                             detail_r.status_code, len(detail_r.text), has_pdl2)
-                    if detail_r.status_code == 200 and has_pdl2:
-                        return self._parse_detail(detail_r.text)
+                             detail_r.status_code, len(detail_r.text),
+                             "ZZ_SCPR_PDL_DVW" in detail_r.text)
+                    if detail_r.status_code == 200:
+                        result2 = self._parse_detail(detail_r.text)
+                        if result2 and result2.get("line_items"):
+                            return result2
                 except Exception as e:
                     log.warning("Detail GET fallback failed: %s", e)
+                # Return POST result even if 0 lines (has header info)
+                if result and (result.get("po_number") or result.get("buyer_name")):
+                    return result
         except Exception as e:
             log.error("Detail POST failed: %s", e)
         return None
