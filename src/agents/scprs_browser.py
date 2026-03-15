@@ -155,7 +155,7 @@ async def _scrape_detail_async(supplier_name="reytech",
             for row_idx in range(rows_to_check):
                 try:
                     link_id = f"ZZ_SCPR_RSLT_VW$hmodal${row_idx}"
-                    link = page.locator(f"#{link_id}")
+                    link = page.locator(f"[id='{link_id}']")
 
                     if await link.count() == 0:
                         log.warning("Browser: link %s not found", link_id)
@@ -321,7 +321,7 @@ async def _scrape_single_po(po_number):
             await page.wait_for_load_state("networkidle")
 
             # Click first result
-            link = page.locator("#ZZ_SCPR_RSLT_VW\\$hmodal\\$0")
+            link = page.locator("[id='ZZ_SCPR_RSLT_VW$hmodal$0']")
             if await link.count() > 0:
                 await link.click()
                 try:
