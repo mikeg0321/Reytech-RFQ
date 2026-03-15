@@ -2086,6 +2086,101 @@ def api_v1_outreach_batch():
     return api_response({"emails": batch, "count": len(batch)})
 
 
+@bp.route("/api/v1/catalog/enrich")
+@auth_required
+def api_v1_catalog_enrich():
+    """Run catalog enrichment — parse identifiers from all items."""
+    from src.agents.item_enricher import enrich_catalog
+    count = enrich_catalog()
+    return api_response({"items_enriched": count})
+
+
+@bp.route("/api/v1/catalog/item-lookup")
+@auth_required
+def api_v1_catalog_item_lookup():
+    """Look up item — parse identifiers, generate search URLs."""
+    from src.agents.item_enricher import search_product_url, parse_identifiers
+    from src.agents.quote_intelligence import search_catalog
+    q = request.args.get("q", "")
+    if not q:
+        return api_response(error="No query", status=400)
+    matches = search_catalog(q, limit=5)
+    parsed = parse_identifiers(q)
+    urls = search_product_url(q)
+    stored_ids = None
+    if matches:
+        import sqlite3
+        from src.core.db import DB_PATH
+        _db = sqlite3.connect(DB_PATH, timeout=10)
+        best = matches[0]["description"]
+        stored = _db.execute("""
+            SELECT mfg_number, mfg_name, upc, asin, nsn, sku,
+                   product_url, product_url_verified, identifiers_json,
+                   enriched_description, enrichment_status
+            FROM scprs_catalog WHERE description = ?
+        """, (best,)).fetchone()
+        _db.close()
+        if stored:
+            import json as _json
+            stored_ids = {
+                "mfg_number": stored[0], "mfg_name": stored[1],
+                "upc": stored[2], "asin": stored[3], "nsn": stored[4],
+                "sku": stored[5], "product_url": stored[6],
+                "url_verified": bool(stored[7]),
+                "all_identifiers": _json.loads(stored[8]) if stored[8] else {},
+                "enriched_description": stored[9], "status": stored[10],
+            }
+    return api_response({
+        "query": q, "parsed_identifiers": parsed,
+        "search_urls": urls["search_urls"],
+        "catalog_matches": matches, "stored_identifiers": stored_ids,
+    })
+
+
+@bp.route("/api/v1/catalog/set-url", methods=["POST"])
+@auth_required
+def api_v1_catalog_set_url():
+    """User confirms a product URL for a catalog item."""
+    from src.agents.item_enricher import set_product_url
+    data = request.get_json(force=True, silent=True) or {}
+    description = data.get("description", "")
+    url = data.get("url", "")
+    if not description or not url:
+        return api_response(error="Need description and url", status=400)
+    set_product_url(description, url, verified=True)
+    return api_response({"status": "saved", "description": description[:60], "url": url})
+
+
+@bp.route("/api/v1/catalog/enrichment-stats")
+@auth_required
+def api_v1_catalog_enrichment_stats():
+    """Show catalog enrichment statistics."""
+    import sqlite3
+    from src.core.db import DB_PATH
+    db = sqlite3.connect(DB_PATH, timeout=10)
+    total = db.execute("SELECT COUNT(*) FROM scprs_catalog").fetchone()[0]
+    by_status = db.execute("SELECT enrichment_status, COUNT(*) FROM scprs_catalog GROUP BY enrichment_status").fetchall()
+    with_url = db.execute("SELECT COUNT(*) FROM scprs_catalog WHERE product_url != ''").fetchone()[0]
+    verified = db.execute("SELECT COUNT(*) FROM scprs_catalog WHERE product_url_verified = 1").fetchone()[0]
+    with_mfg = db.execute("SELECT COUNT(*) FROM scprs_catalog WHERE mfg_number != ''").fetchone()[0]
+    with_upc = db.execute("SELECT COUNT(*) FROM scprs_catalog WHERE upc != ''").fetchone()[0]
+    with_asin = db.execute("SELECT COUNT(*) FROM scprs_catalog WHERE asin != ''").fetchone()[0]
+    needs_url = db.execute("""
+        SELECT description, mfg_number, mfg_name, last_unit_price, times_seen
+        FROM scprs_catalog WHERE product_url = '' AND enrichment_status = 'enriched'
+        ORDER BY times_seen DESC LIMIT 20
+    """).fetchall()
+    db.close()
+    return api_response({
+        "total_items": total,
+        "by_status": {s[0] or "unknown": s[1] for s in by_status},
+        "with_product_url": with_url, "urls_verified": verified,
+        "with_mfg_number": with_mfg, "with_upc": with_upc, "with_asin": with_asin,
+        "needs_url_review": [{"description": r[0][:80], "mfg_number": r[1],
+                              "mfg_name": r[2], "price": r[3], "times_seen": r[4]} for r in needs_url],
+    })
+
+
 @bp.route("/api/v1/system/audit-now")
 @auth_required
 def api_v1_audit_now():

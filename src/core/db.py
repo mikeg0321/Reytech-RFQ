@@ -988,6 +988,18 @@ def _migrate_columns():
         # ── Exhaustive scrape columns ──
         ("scprs_po_master", "screenshot_path", "TEXT DEFAULT ''"),
         ("scprs_po_master", "scraped_at", "TEXT DEFAULT ''"),
+        # ── Catalog item enrichment ──
+        ("scprs_catalog", "mfg_number", "TEXT DEFAULT ''"),
+        ("scprs_catalog", "mfg_name", "TEXT DEFAULT ''"),
+        ("scprs_catalog", "upc", "TEXT DEFAULT ''"),
+        ("scprs_catalog", "asin", "TEXT DEFAULT ''"),
+        ("scprs_catalog", "nsn", "TEXT DEFAULT ''"),
+        ("scprs_catalog", "sku", "TEXT DEFAULT ''"),
+        ("scprs_catalog", "product_url", "TEXT DEFAULT ''"),
+        ("scprs_catalog", "product_url_verified", "INTEGER DEFAULT 0"),
+        ("scprs_catalog", "identifiers_json", "TEXT DEFAULT ''"),
+        ("scprs_catalog", "enriched_description", "TEXT DEFAULT ''"),
+        ("scprs_catalog", "enrichment_status", "TEXT DEFAULT 'raw'"),
     ]
     try:
         conn = sqlite3.connect(DB_PATH, timeout=30)

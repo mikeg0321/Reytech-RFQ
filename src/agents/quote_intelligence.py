@@ -163,15 +163,25 @@ def search_catalog(query, limit=10):
             where_clauses.append("LOWER(description) LIKE ?")
             params.append(f"%{kw.lower()}%")
 
+        # Also search by identifier fields
+        id_clauses = [
+            "LOWER(mfg_number) LIKE ?", "upc LIKE ?", "asin LIKE ?"
+        ]
+        id_params = [f"%{query.strip().upper()}%"] * 3
+
         sql = f"""
             SELECT description, unspsc, last_unit_price, last_quantity,
                    last_uom, last_supplier, last_department,
-                   last_po_number, last_date, times_seen
+                   last_po_number, last_date, times_seen,
+                   mfg_number, mfg_name, upc, asin, product_url,
+                   product_url_verified, enriched_description
             FROM scprs_catalog
-            WHERE {' AND '.join(where_clauses)}
+            WHERE ({' AND '.join(where_clauses)})
+               OR {' OR '.join(id_clauses)}
             ORDER BY times_seen DESC, last_date DESC
             LIMIT ?
         """
+        params.extend(id_params)
         params.append(limit)
         rows = db.execute(sql, params).fetchall()
 
@@ -181,7 +191,9 @@ def search_catalog(query, limit=10):
             rows = db.execute(f"""
                 SELECT description, unspsc, last_unit_price, last_quantity,
                        last_uom, last_supplier, last_department,
-                       last_po_number, last_date, times_seen
+                       last_po_number, last_date, times_seen,
+                       mfg_number, mfg_name, upc, asin, product_url,
+                       product_url_verified, enriched_description
                 FROM scprs_catalog WHERE {where_any}
                 ORDER BY times_seen DESC, last_date DESC LIMIT ?
             """, params_any).fetchall()
@@ -203,6 +215,13 @@ def search_catalog(query, limit=10):
                 "last_department": row[6], "last_po_number": row[7],
                 "last_date": row[8], "times_seen": row[9],
                 "relevance_score": round(score, 3),
+                "mfg_number": row[10] or "" if len(row) > 10 else "",
+                "mfg_name": row[11] or "" if len(row) > 11 else "",
+                "upc": row[12] or "" if len(row) > 12 else "",
+                "asin": row[13] or "" if len(row) > 13 else "",
+                "product_url": row[14] or "" if len(row) > 14 else "",
+                "url_verified": bool(row[15]) if len(row) > 15 else False,
+                "enriched_description": row[16] or "" if len(row) > 16 else "",
             })
         scored.sort(key=lambda x: x["relevance_score"], reverse=True)
         db.close()

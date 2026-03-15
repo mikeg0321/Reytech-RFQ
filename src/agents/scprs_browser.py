@@ -671,6 +671,14 @@ def _run_exhaustive_scrape():
     except Exception as e:
         log.warning("Post-scrape quote reprocessing failed: %s", e)
 
+    # Enrich catalog with product identifiers
+    try:
+        from src.agents.item_enricher import enrich_catalog
+        enriched = enrich_catalog()
+        log.info("Catalog enrichment: %d items processed", enriched)
+    except Exception as e:
+        log.warning("Catalog enrichment failed: %s", e)
+
 
 async def _scrape_full_async(search_params, seen_pos, max_rows=500):
     """Full async scrape with search_params dict (supports to_date, description)."""
