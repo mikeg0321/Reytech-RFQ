@@ -49,6 +49,7 @@ except ImportError:
 
 SCPRS_BASE = "https://suppliers.fiscal.ca.gov"
 SCPRS_SEARCH_URL = f"{SCPRS_BASE}/psc/psfpd1/SUPPLIER/ERP/c/ZZ_PO.ZZ_SCPRS1_CMP.GBL"
+SCPRS_DETAIL_URL = f"{SCPRS_BASE}/psc/psfpd1_3/SUPPLIER/ERP/c/ZZ_PO.ZZ_SCPRS2_CMP.GBL?Page=ZZ_SCPRS_PDDTL_PG&Action=U"
 
 # Search form fields
 FIELD_DESCRIPTION = "ZZ_SCPRS_SP_WRK_DESCR254"
@@ -275,13 +276,13 @@ class FiscalSession:
         return self._parse_results(html)
 
     def get_detail(self, results_html, row_index, click_action=None):
-        """Click into a result to get detail page with unit prices."""
-        # Use stored click action, or construct from confirmed pattern
+        """Two-step detail fetch: POST click to update session, then GET detail page."""
         if not click_action:
             click_action = f"ZZ_SCPR_RSLT_VW${row_index}"
 
-        log.info(f"Detail click: {click_action}")
+        log.info("Detail click: %s", click_action)
 
+        # Step 1: POST the click to navigate PeopleSoft session to selected PO
         search_values = {}
         for fld in ALL_SEARCH_FIELDS:
             m = re.search(rf"name='{re.escape(fld)}'[^>]*value=\"([^\"]*)\"", results_html)
@@ -290,14 +291,23 @@ class FiscalSession:
         log.info("Detail POST ICAction=%s ICStateNum=%s",
                  form_data.get("ICAction", "?"), form_data.get("ICStateNum", "?"))
         try:
-            r = self.session.post(SCPRS_SEARCH_URL, data=form_data, timeout=20)
-            log.info("SCPRS detail row %d: %s (%db) content-type=%s",
-                     row_index, r.status_code, len(r.text),
-                     r.headers.get("content-type", "?"))
-            if r.status_code == 200:
-                return self._parse_detail(r.text)
+            click_r = self.session.post(SCPRS_SEARCH_URL, data=form_data, timeout=20)
+            log.info("Detail click POST: %d (%db)",
+                     click_r.status_code, len(click_r.text))
         except Exception as e:
-            log.error(f"SCPRS detail: {e}")
+            log.error("Detail click POST failed: %s", e)
+            return None
+
+        # Step 2: GET the actual detail page with line items
+        try:
+            detail_r = self.session.get(SCPRS_DETAIL_URL, timeout=20)
+            log.info("Detail GET: %d (%db) has_PDL_DVW=%s",
+                     detail_r.status_code, len(detail_r.text),
+                     "ZZ_SCPR_PDL_DVW" in detail_r.text)
+            if detail_r.status_code == 200:
+                return self._parse_detail(detail_r.text)
+        except Exception as e:
+            log.error("Detail GET failed: %s", e)
         return None
 
     # ── Parsers ────────────────────────────────────────────────────
