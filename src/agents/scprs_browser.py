@@ -79,31 +79,57 @@ async def _scrape_detail_async(supplier_name="reytech",
             log.info("Browser: loading SCPRS search page")
             await page.goto(SCPRS_SEARCH_URL + "?&",
                             wait_until="networkidle")
+            content = await page.content()
+            log.info("Browser: load1 %db ICSID=%s",
+                     len(content), "ICSID" in content)
 
-            if "ICSID" not in await page.content():
+            # PeopleSoft often needs a second load
+            if "ICSID" not in content or len(content) < 10000:
                 await page.goto(SCPRS_SEARCH_URL + "?&",
                                 wait_until="networkidle")
+                content = await page.content()
+                log.info("Browser: load2 %db ICSID=%s",
+                         len(content), "ICSID" in content)
 
             # Step 2: Fill search form
             log.info("Browser: filling search form")
             name_field = page.locator("#ZZ_SCPRS_SP_WRK_NAME1")
-            if await name_field.count() > 0:
+            name_count = await name_field.count()
+            log.info("Browser: name field count=%d", name_count)
+            if name_count > 0:
                 await name_field.fill(supplier_name)
 
             date_field = page.locator("#ZZ_SCPRS_SP_WRK_FROM_DATE")
-            if await date_field.count() > 0:
+            date_count = await date_field.count()
+            log.info("Browser: date field count=%d", date_count)
+            if date_count > 0:
                 await date_field.fill(from_date)
 
+            # Click search button
             search_btn = page.locator("#ZZ_SCPRS_SP_WRK_BUTTON")
+            btn_count = await search_btn.count()
+            log.info("Browser: search button count=%d", btn_count)
+            if btn_count == 0:
+                log.error("Browser: no search button found")
+                await browser.close()
+                return results
+
             await search_btn.click()
+            log.info("Browser: search clicked, waiting...")
             await page.wait_for_load_state("networkidle")
 
+            # Check for results
             content = await page.content()
+            log.info("Browser: post-search %db", len(content))
             count_match = re.search(
                 r'(\d+)\s+to\s+(\d+)\s+of\s+(\d+)', content
             )
             if not count_match:
-                log.warning("Browser: no search results")
+                title = re.search(r'<title>([^<]*)</title>', content)
+                has_form = "ZZ_SCPRS_SP_WRK" in content
+                log.warning("Browser: no results. title=%s form=%s size=%d",
+                            title.group(1)[:50] if title else "?",
+                            has_form, len(content))
                 await browser.close()
                 return results
 
