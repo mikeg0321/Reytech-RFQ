@@ -628,39 +628,115 @@ def _calculate_recommendation(cost, market, reytech_history, quantity, descripti
     reytech_avg = market.get("reytech_weighted_avg")
 
     if has_cost and has_market and comp_avg:
-        tiers = []
-        for pct in [15, 20, 25, 30, 35]:
-            price = round(cost * (1 + pct / 100), 2)
-            tiers.append({
-                "pct": pct, "price": price,
-                "beats_comp_avg": price < comp_avg,
-                "margin_dollar": round(price - cost, 2),
-                "margin_on_qty": round((price - cost) * float(quantity), 2),
-            })
-        result["margin_analysis"] = tiers
+        comp_low = market.get("competitor_low") or comp_avg
+        comp_high = market.get("competitor_high") or comp_avg
+        qty_float = float(quantity) if quantity else 1
 
-        winning = [t for t in tiers if t["beats_comp_avg"]]
-        if winning:
-            best = winning[-1]
-            result["quote_price"] = best["price"]
-            result["markup_pct"] = best["pct"]
+        # Strategy: price just under the ceiling, not above the floor
+        # Ceiling: 2% under competitor weighted avg (wins most bids at max margin)
+        ceiling_price = round(comp_avg * 0.98, 2)
+        ceiling_markup = ((ceiling_price - cost) / cost * 100) if cost > 0 else 0
+        ceiling_margin_total = round((ceiling_price - cost) * qty_float, 2)
+
+        # Competitive: 2% under competitor low (guaranteed win, lower margin)
+        competitive_price = round(comp_low * 0.98, 2)
+        competitive_markup = ((competitive_price - cost) / cost * 100) if cost > 0 else 0
+        competitive_margin_total = round((competitive_price - cost) * qty_float, 2)
+
+        # Floor: minimum acceptable (15%)
+        floor_price = round(cost * 1.15, 2)
+        floor_margin_total = round((floor_price - cost) * qty_float, 2)
+
+        strategies = [
+            {
+                "name": "Maximize Margin",
+                "price": ceiling_price,
+                "markup_pct": round(ceiling_markup, 1),
+                "margin_per_unit": round(ceiling_price - cost, 2),
+                "margin_total": ceiling_margin_total,
+                "rationale": f"2% under competitor avg (${comp_avg:.2f}). Wins most bids at highest margin.",
+                "risk": "low",
+            },
+            {
+                "name": "Undercut All",
+                "price": competitive_price,
+                "markup_pct": round(competitive_markup, 1),
+                "margin_per_unit": round(competitive_price - cost, 2),
+                "margin_total": competitive_margin_total,
+                "rationale": f"2% under lowest competitor (${comp_low:.2f}). Guaranteed win, lower margin.",
+                "risk": "none",
+            },
+            {
+                "name": "Floor",
+                "price": floor_price,
+                "markup_pct": 15,
+                "margin_per_unit": round(floor_price - cost, 2),
+                "margin_total": floor_margin_total,
+                "rationale": "Minimum 15% markup. Below this isn't worth the work.",
+                "risk": "n/a",
+            },
+        ]
+
+        # Markup tiers for reference
+        tiers = []
+        for pct in [15, 20, 25, 30, 35, 40, 45, 50]:
+            tier_price = round(cost * (1 + pct / 100), 2)
+            beats_avg = tier_price < comp_avg
+            beats_low = tier_price < comp_low
+            tiers.append({
+                "pct": pct, "price": tier_price,
+                "margin_per_unit": round(tier_price - cost, 2),
+                "margin_total": round((tier_price - cost) * qty_float, 2),
+                "beats_comp_avg": beats_avg, "beats_comp_low": beats_low,
+                "tag": "WINS" if beats_avg else ("ABOVE AVG" if beats_low else "ABOVE ALL"),
+            })
+
+        result["strategies"] = strategies
+        result["markup_tiers"] = tiers
+
+        # Default: maximize margin (ceiling) unless below floor
+        if ceiling_price > floor_price:
+            result["quote_price"] = ceiling_price
+            result["markup_pct"] = round(ceiling_markup, 1)
             result["confidence"] = "high"
             result["visual_indicator"] = "green"
             result["rationale"] = (
-                f"Cost: ${cost:.2f} -> Quote: ${best['price']:.2f} ({best['pct']}% markup). "
-                f"${comp_avg - best['price']:.2f} below competitor avg ${comp_avg:.2f}. "
-                f"Margin on {quantity} units: ${best['margin_on_qty']:.2f}"
+                f"Cost: ${cost:.2f} -> Quote: ${ceiling_price:.2f} "
+                f"({round(ceiling_markup, 1)}% markup). "
+                f"Just under market avg ${comp_avg:.2f}. "
+                f"Margin: ${ceiling_price - cost:.2f}/unit x {int(qty_float)} = "
+                f"${ceiling_margin_total:,.2f}"
             )
-        else:
-            result["quote_price"] = round(comp_avg * 0.95, 2)
-            actual_markup = ((comp_avg * 0.95) - cost) / cost * 100 if cost > 0 else 0
-            result["markup_pct"] = round(actual_markup, 1)
+        elif competitive_price > floor_price:
+            result["quote_price"] = competitive_price
+            result["markup_pct"] = round(competitive_markup, 1)
             result["confidence"] = "medium"
             result["visual_indicator"] = "yellow"
             result["rationale"] = (
-                f"Tight market. Cost: ${cost:.2f}. Competitor avg: ${comp_avg:.2f}. "
-                f"Max competitive: ${result['quote_price']:.2f} ({result['markup_pct']}% markup)."
+                f"Tight market. Cost: ${cost:.2f}. "
+                f"Competitor low: ${comp_low:.2f}. "
+                f"Best competitive: ${competitive_price:.2f} "
+                f"({round(competitive_markup, 1)}% markup). "
+                f"Margin: ${competitive_margin_total:,.2f} on {int(qty_float)} units."
             )
+        else:
+            result["quote_price"] = floor_price
+            result["markup_pct"] = 15
+            result["confidence"] = "low"
+            result["visual_indicator"] = "red"
+            result["rationale"] = (
+                f"Competitors at ${comp_low:.2f} — below your "
+                f"15% floor of ${floor_price:.2f}. "
+                f"Negotiate better cost or pass."
+            )
+
+        # Highlight money difference between strategies
+        if len(strategies) >= 2:
+            money_diff = strategies[0]["margin_total"] - strategies[1]["margin_total"]
+            if money_diff > 50:
+                result["rationale"] += (
+                    f" | Maximize vs Undercut = ${money_diff:,.2f} difference"
+                )
 
     elif has_cost:
         tiers = []
