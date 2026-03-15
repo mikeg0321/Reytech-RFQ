@@ -1455,6 +1455,146 @@ def api_v1_harvest_debug_modal():
         return api_response(error=f"{e}\n{traceback.format_exc()}", status=500)
 
 
+@bp.route("/api/v1/harvest/debug-modal2")
+@auth_required
+def api_v1_harvest_debug_modal2():
+    """Find how PeopleSoft actually loads detail data."""
+    try:
+        from src.agents.scprs_lookup import (
+            FiscalSession, SCPRS_SEARCH_URL, SCPRS_BASE,
+            ALL_SEARCH_FIELDS, SEARCH_BUTTON, FIELD_PO_NUM
+        )
+        from bs4 import BeautifulSoup
+        import re as _re
+        import requests as _requests
+
+        info = {"tests": []}
+
+        # Fresh session + search
+        fs = FiscalSession()
+        fs.init_session()
+        results = fs.search(supplier_name="reytech", from_date="01/01/2024")
+        if not results:
+            return api_response({"error": "no results"})
+        info["result_count"] = len(results)
+
+        current_html = fs._last_html
+
+        # TEST 1: Modal click — search response JS for URLs
+        click_action = "ZZ_SCPR_RSLT_VW$hmodal$0"
+        sv = {}
+        for fld in ALL_SEARCH_FIELDS:
+            m = _re.search(rf"name='{_re.escape(fld)}'[^>]*value=\"([^\"]*)\"", current_html)
+            sv[fld] = m.group(1) if m else ""
+        fd = fs._build_form_data(current_html, click_action, sv)
+        modal_r = fs.session.post(SCPRS_SEARCH_URL, data=fd, timeout=20)
+        modal_html = modal_r.text
+
+        # Find ALL URLs in the response
+        all_urls = set()
+        for match in _re.findall(r'(?:href|src|action|url)\s*[=:]\s*["\']([^"\']{10,})["\']', modal_html, _re.IGNORECASE):
+            if "fiscal" in match.lower() or "SCPR" in match or "psc/" in match or "psfpd" in match:
+                all_urls.add(match[:200])
+        for match in _re.findall(r'["\']((https?://[^"\']+|/psc/[^"\']+))["\']', modal_html):
+            url = match[0] if isinstance(match, tuple) else match
+            if len(url) > 10:
+                all_urls.add(url[:200])
+        for match in _re.findall(r'(?:Url|URL|url|target|Target)\s*[=:]\s*["\']([^"\']+)["\']', modal_html):
+            all_urls.add(match[:200])
+        info["urls_in_modal"] = sorted(all_urls)
+
+        # Find JS clues about detail navigation
+        js_clues = []
+        for pattern in [r'SCPRS2[^"\']{0,100}', r'PDDTL[^"\']{0,100}',
+                        r'strModal[^;]{0,200}', r'ModalTarget[^;]{0,200}',
+                        r'ICModal[^;]{0,200}', r'win1[^;]{0,200}',
+                        r'secondary[^;]{0,200}']:
+            for m2 in _re.findall(pattern, modal_html, _re.IGNORECASE):
+                js_clues.append(m2[:150])
+        info["js_clues"] = js_clues[:30]
+
+        # Hidden inputs with modal/transfer/redirect keywords
+        soup = BeautifulSoup(modal_html, "html.parser")
+        hidden_modal = {}
+        for inp in soup.find_all("input", {"type": "hidden"}):
+            name = inp.get("name", "")
+            val = inp.get("value", "")
+            if any(kw in name.upper() for kw in ["MODAL", "TARGET", "TRANSFER", "REDIRECT", "COMP", "PAGE", "MENU"]):
+                hidden_modal[name] = val[:200]
+        info["hidden_modal_inputs"] = hidden_modal
+
+        po_nums = _re.findall(r'4500\d{6}', modal_html)
+        info["po_numbers"] = po_nums[:5]
+
+        # TEST 2: Non-modal row click (ZZ_SCPR_RSLT_VW$0 without $hmodal$)
+        # Re-search first to reset session state
+        fs2 = FiscalSession()
+        fs2.init_session()
+        results2 = fs2.search(supplier_name="reytech", from_date="01/01/2024")
+        if results2:
+            html2 = fs2._last_html
+            sv2 = {}
+            for fld in ALL_SEARCH_FIELDS:
+                m2 = _re.search(rf"name='{_re.escape(fld)}'[^>]*value=\"([^\"]*)\"", html2)
+                sv2[fld] = m2.group(1) if m2 else ""
+            fd2 = fs2._build_form_data(html2, "ZZ_SCPR_RSLT_VW$0", sv2)
+            bare_r = fs2.session.post(SCPRS_SEARCH_URL, data=fd2, timeout=20)
+            info["tests"].append({
+                "test": "bare_click_$0",
+                "status": bare_r.status_code,
+                "size": len(bare_r.text),
+                "has_PDL": "ZZ_SCPR_PDL_DVW" in bare_r.text,
+                "has_SBP": "ZZ_SCPR_SBP_WRK" in bare_r.text,
+                "has_SCPRS2": "ZZ_SCPRS2" in bare_r.text,
+                "has_PDDTL": "PDDTL" in bare_r.text,
+                "preview": bare_r.text[:300].replace("\n", " "),
+            })
+
+        # TEST 3: SCPRS2 on same server (psfpd1 not psfpd1_1)
+        scprs2_same = f"{SCPRS_BASE}/psc/psfpd1/SUPPLIER/ERP/c/ZZ_PO.ZZ_SCPRS2_CMP.GBL?Page=ZZ_SCPRS_PDDTL_PG&Action=U"
+        r3 = fs.session.get(scprs2_same, timeout=20, allow_redirects=True)
+        info["tests"].append({
+            "test": "scprs2_psfpd1_GET",
+            "status": r3.status_code,
+            "size": len(r3.text),
+            "has_PDL": "ZZ_SCPR_PDL_DVW" in r3.text,
+            "has_SBP": "ZZ_SCPR_SBP_WRK" in r3.text,
+            "has_ICSID": "ICSID" in r3.text,
+            "preview": r3.text[:300].replace("\n", " "),
+        })
+
+        # TEST 4: PO search on SCPRS1 (same component, same server)
+        if po_nums:
+            fs3 = FiscalSession()
+            fs3.init_session()
+            po_results = fs3.search(description=po_nums[0])
+            info["tests"].append({
+                "test": f"scprs1_po_search_{po_nums[0]}",
+                "result_count": len(po_results or []),
+            })
+            # Also try with PO number field
+            page3 = fs3._load_page(2)
+            fs3.icsid = fs3._extract_icsid(page3) or fs3.icsid
+            sv3 = {f: "" for f in ALL_SEARCH_FIELDS}
+            sv3[FIELD_PO_NUM] = po_nums[0]
+            fd3 = fs3._build_form_data(page3, SEARCH_BUTTON, sv3)
+            r4 = fs3.session.post(SCPRS_SEARCH_URL, data=fd3, timeout=20)
+            info["tests"].append({
+                "test": f"scprs1_po_field_{po_nums[0]}",
+                "status": r4.status_code,
+                "size": len(r4.text),
+                "has_PDL": "ZZ_SCPR_PDL_DVW" in r4.text,
+                "has_results": "1 to" in r4.text,
+                "preview": r4.text[:300].replace("\n", " "),
+            })
+
+        return api_response(info)
+    except Exception as e:
+        import traceback
+        log.error("debug-modal2 error: %s", e, exc_info=True)
+        return api_response(error=f"{e}\n{traceback.format_exc()}", status=500)
+
+
 @bp.route("/api/v1/harvest/backfill-details")
 @auth_required
 def api_v1_backfill_details():
