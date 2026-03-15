@@ -391,13 +391,13 @@ class FiscalSession:
         return None
 
     def get_detail(self, results_html, row_index, click_action=None):
-        """Modal click on SCPRS1 to get PO, then search SCPRS2 for detail."""
+        """Click result row on SCPRS1, then navigate to detail page."""
         if not click_action:
             click_action = f"ZZ_SCPR_RSLT_VW$hmodal${row_index}"
 
         current_html = self._last_html or results_html
 
-        # Step 1: Modal click on SCPRS1 to extract PO number
+        # Step 1: Modal click to set PO context server-side
         search_values = {}
         for fld in ALL_SEARCH_FIELDS:
             m = re.search(rf"name='{re.escape(fld)}'[^>]*value=\"([^\"]*)\"", current_html)
@@ -410,24 +410,47 @@ class FiscalSession:
             if modal_r.status_code != 200:
                 return None
 
-            # Extract PO number from modal response
-            po_nums = re.findall(r'4500\d{6}', modal_r.text)
-            if not po_nums:
-                log.warning("Modal returned no PO numbers (%db)", len(modal_r.text))
-                return None
-            po_number = po_nums[0]
-            log.info("Modal extracted PO=%s, delegating to get_po_detail", po_number)
+            # Step 2: Navigate to ZZ_SCPRS_RD_PG — the DETAIL page
+            # within ZZ_SCPRS1_CMP (same component, different page)
+            DETAIL_PAGE_URL = (
+                "https://suppliers.fiscal.ca.gov/psc/"
+                "psfpd1/SUPPLIER/ERP/c/"
+                "ZZ_PO.ZZ_SCPRS1_CMP.GBL"
+                "?page=ZZ_SCPRS_RD_PG&"
+            )
+            r = self.session.get(DETAIL_PAGE_URL, timeout=20)
+            has_pdl = "ZZ_SCPR_PDL_DVW" in r.text
+            has_sbp = "ZZ_SCPR_SBP_WRK" in r.text
+            log.info("Detail RD_PG GET: %db has_PDL=%s has_SBP=%s",
+                     len(r.content), has_pdl, has_sbp)
 
-            # Step 2: Use get_po_detail to search SCPRS2 by PO number
-            detail = self.get_po_detail(po_number)
-            if detail:
-                log.info("Detail via SCPRS2: PO=%s, %d lines, buyer=%s",
-                         detail.get("header", {}).get("po_number", ""),
-                         len(detail.get("line_items", [])),
-                         detail.get("header", {}).get("buyer_name", ""))
-            else:
-                log.warning("get_po_detail returned None for PO=%s", po_number)
-            return detail
+            if r.status_code == 200:
+                # Log what ZZ_ prefixes exist
+                _zz = set()
+                _soup = BeautifulSoup(r.text, "html.parser")
+                for el in _soup.find_all(id=re.compile(r'^ZZ_')):
+                    base = re.sub(r'\$\d+$', '', el.get("id", ""))
+                    _zz.add(base)
+                log.info("Detail RD_PG ZZ prefixes: %s", sorted(_zz))
+
+                # Look for dollar amounts
+                _dollars = re.findall(r'\$[\d,]+\.\d{2}', r.text)
+                log.info("Detail RD_PG dollar amounts: %d found, first 5: %s",
+                         len(_dollars), _dollars[:5])
+
+                # Try parsing as detail page
+                if has_pdl:
+                    return self._parse_detail(r.text)
+
+                # Try parsing even without PDL_DVW
+                result = self._parse_detail(r.text)
+                if result and result.get("line_items"):
+                    return result
+
+                # Log preview for debugging
+                _title = re.search(r'<title>([^<]*)</title>', r.text)
+                log.info("Detail RD_PG title: %s, size: %d",
+                         _title.group(1)[:80] if _title else "?", len(r.text))
 
         except Exception as e:
             log.error("Detail click failed: %s", e)
