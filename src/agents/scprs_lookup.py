@@ -362,45 +362,93 @@ class FiscalSession:
         return results
 
     def _parse_detail(self, html):
-        """Parse detail page for line item unit prices."""
+        """Parse detail page by PeopleSoft span IDs (not table cells)."""
         soup = BeautifulSoup(html, "html.parser")
-        detail = {}
-        for fid, key in DETAIL_HEADER_FIELDS.items():
-            val = _get_text(soup, fid)
-            if val: detail[key] = val
 
-        detail["line_items"] = []
-        for row_idx in range(200):
-            desc = _get_text(soup, f"{DETAIL_DESCRIPTION}${row_idx}")
-            if not desc: break
-            up_text = _get_text(soup, f"{DETAIL_UNIT_PRICE}${row_idx}")
-            qty_text = _get_text(soup, f"{DETAIL_QUANTITY}${row_idx}")
-            line = {
-                "line_num": _get_text(soup, f"{DETAIL_LINE_NUM}${row_idx}"),
-                "item_id": _get_text(soup, f"{DETAIL_ITEM_ID}${row_idx}"),
-                "description": desc,
-                "unit_of_measure": _get_text(soup, f"{DETAIL_UOM}${row_idx}"),
-                "quantity": qty_text,
-                "unit_price": up_text,
-                "line_total": _get_text(soup, f"{DETAIL_LINE_TOTAL}${row_idx}"),
-                "status": _get_text(soup, f"{DETAIL_LINE_STATUS}${row_idx}"),
-                "unit_price_num": _parse_dollar(up_text),
-                "quantity_num": None,
-            }
-            if qty_text:
-                try: line["quantity_num"] = float(qty_text.replace(",", ""))
-                except Exception: pass
-            detail["line_items"].append(line)
+        def get_span(id_val):
+            el = soup.find(id=id_val)
+            return el.get_text(strip=True) if el else ""
 
-        log.info(f"Detail: PO={detail.get('po_number','?')}, {len(detail['line_items'])} lines")
+        def parse_price(s):
+            try:
+                return float(s.replace("$", "").replace(",", ""))
+            except Exception:
+                return 0.0
 
-        # Try regex phone extraction if not found in standard fields
-        if "buyer_phone" not in detail or not detail.get("buyer_phone"):
-            phone_match = re.search(r'(?:phone|tel|fax)[:\s]*[\(]?(\d{3})[\)\-\.\s]+(\d{3})[\-\.\s]+(\d{4})', html, re.IGNORECASE)
+        # Header fields by span ID
+        po_number = get_span("ZZ_SCPR_SBP_WRK_CRDMEM_ACCT_NBR")
+        buyer_name = get_span("ZZ_SCPR_SBP_WRK_BUYER_DESCR")
+        buyer_email = get_span("ZZ_SCPR_SBP_WRK_EMAILID")
+        buyer_phone = get_span("ZZ_SCPR_SBP_WRK_PHONE")
+        acq_method = get_span("ZZ_SCPR_SBP_WRK_ZZ_ACQ_MTHD")
+        dept_code = get_span("ZZ_SCPR_SBP_WRK_BUSINESS_UNIT")
+        dept_name = get_span("ZZ_SCPR_SBP_WRK_DESCR")
+        supplier = get_span("ZZ_SCPR_SBP_WRK_NAME1")
+        status = get_span("ZZ_SCPR_SBP_WRK_STATUS1")
+        start_date = get_span("ZZ_SCPR_SBP_WRK_START_DATE")
+        end_date = get_span("ZZ_SCPR_SBP_WRK_END_DATE")
+        acq_type = get_span("ZZ_SCPR_SBP_WRK_ZZ_COMMENT1")
+        merch_amount = get_span("ZZ_SCPR_SBP_WRK_MERCH_AMT_TTL")
+        grand_total = get_span("ZZ_SCPR_SBP_WRK_AWARDED_AMT")
+
+        # Regex phone fallback
+        if not buyer_phone:
+            phone_match = re.search(
+                r'(?:phone|tel|fax)[:\s]*[\(]?(\d{3})[\)\-\.\s]+(\d{3})[\-\.\s]+(\d{4})',
+                html, re.IGNORECASE)
             if phone_match:
-                detail["buyer_phone"] = f"({phone_match.group(1)}) {phone_match.group(2)}-{phone_match.group(3)}"
+                buyer_phone = f"({phone_match.group(1)}) {phone_match.group(2)}-{phone_match.group(3)}"
 
-        return {"header": detail, "line_items": detail.pop("line_items", [])}
+        # Line items — indexed by PeopleSoft span IDs: $0, $1, $2, ...
+        line_items = []
+        i = 0
+        while True:
+            desc = get_span(f"ZZ_SCPR_PDL_DVW_DESCR254_MIXED${i}")
+            if not desc:
+                break
+            unit_price_raw = get_span(f"ZZ_SCPR_PDL_DVW_UNIT_PRICE${i}")
+            line_total_raw = get_span(f"ZZ_SCPR_PDL_DVW_LINE_TOTAL${i}")
+            quantity_raw = get_span(f"ZZ_SCPR_PDL_DVW_QUANTITY${i}")
+            up = parse_price(unit_price_raw)
+            qty = parse_price(quantity_raw)
+            line_items.append({
+                "line_num": i + 1,
+                "item_id": get_span(f"ZZ_SCPR_PDL_DVW_INV_ITEM_ID${i}"),
+                "description": desc,
+                "unspsc": get_span(f"ZZ_SCPR_PDL_DVW_PV_UNSPSC_CODE${i}"),
+                "unspsc_description": get_span(f"ZZ_CAT_ID_VW_DESCR254${i}"),
+                "unit_of_measure": get_span(f"ZZ_SCPR_PDL_DVW_DESCR${i}"),
+                "quantity": qty,
+                "unit_price": up,
+                "line_total": parse_price(line_total_raw),
+                "line_status": get_span(f"ZZ_SCPR_PDL_DVW_DESCR1${i}"),
+                # Backward compat keys for callers expecting _num fields
+                "unit_price_num": up,
+                "quantity_num": qty,
+            })
+            i += 1
+
+        log.info("Detail: PO=%s, %d lines, buyer=%s", po_number, len(line_items), buyer_name)
+
+        # Build header dict for callers that use detail.get("header", {})
+        header = {
+            "po_number": po_number, "buyer_name": buyer_name,
+            "buyer_email": buyer_email, "buyer_phone": buyer_phone,
+            "acq_method": acq_method, "dept_code": dept_code,
+            "dept_name": dept_name, "supplier": supplier,
+            "status": status, "start_date": start_date,
+            "end_date": end_date, "acq_type": acq_type,
+            "merch_amount": merch_amount, "grand_total": grand_total,
+        }
+
+        return {
+            "header": header,
+            "po_number": po_number,
+            "buyer_name": buyer_name,
+            "buyer_email": buyer_email,
+            "acq_method": acq_method,
+            "line_items": line_items,
+        }
 
 
 # ── High-Level Lookup ──────────────────────────────────────────────

@@ -1253,18 +1253,20 @@ def api_v1_backfill_details():
                                                 VALUES (?,?,?,?,?,?,?,?)
                                             """, (po_id, po["po_number"], idx + 1,
                                                   (item.get("description", "") or "")[:500],
-                                                  item.get("unit_price_num", 0) or 0,
-                                                  item.get("quantity_num", 0) or 0,
-                                                  _parse_dollar_safe(item.get("line_total", "0")),
+                                                  item.get("unit_price_num") or item.get("unit_price", 0) or 0,
+                                                  item.get("quantity_num") or item.get("quantity", 0) or 0,
+                                                  item.get("line_total", 0) or 0,
                                                   "other"))
                                             lines_inserted += 1
-                                        # Update buyer info
+                                        # Update buyer info + acq_method on po_master
                                         header = detail.get("header", {})
-                                        if header.get("buyer_name"):
+                                        buyer = header.get("buyer_name") or detail.get("buyer_name")
+                                        email = header.get("buyer_email") or detail.get("buyer_email")
+                                        acq = header.get("acq_method") or detail.get("acq_method")
+                                        if buyer or acq:
                                             conn.execute(
-                                                "UPDATE scprs_po_master SET buyer_name=?, buyer_email=? WHERE id=?",
-                                                (header.get("buyer_name", ""),
-                                                 header.get("buyer_email", ""), po_id))
+                                                "UPDATE scprs_po_master SET buyer_name=?, buyer_email=?, acq_method=? WHERE id=?",
+                                                (buyer or "", email or "", acq or "", po_id))
                                         filled += 1
                                         conn.commit()
                                     break
