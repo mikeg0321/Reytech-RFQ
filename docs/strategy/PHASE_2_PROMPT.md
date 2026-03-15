@@ -440,8 +440,49 @@ In src/core/scheduler.py, after ca_scprs weekly run:
 This ensures intelligence tables are always fresh
 and never rebuilt from bad data.
 
-Commit: "feat(scheduler): post-harvest intel reprocess 
+Commit: "feat(scheduler): post-harvest intel reprocess
          wired to health grade"
+
+── STEP 5B: Award tracker + win/loss feedback loop ──────
+(Phase 2B — required for oracle self-improvement.
+ See INTELLIGENCE_ROADMAP.md "Closed-Loop Win/Loss
+ Feedback System" for full specification.)
+
+After the oracle is built and weekly sync is running,
+add the closed-loop feedback system:
+
+1. Schedule daily 6am PST SCPRS harvest (Mon-Fri):
+   - Vendor search for new Reytech awards
+   - Award tracker matches open RFQs to new awards
+   - Win/loss updater pushes outcomes to pipeline + oracle
+
+2. Build src/agents/award_tracker.py (or extend existing):
+   match_open_rfqs_to_awards(tenant_id='reytech') -> list
+   For each RFQ with status='sent', search SCPRS awards by:
+     - Agency match (institution ~ dept_name)
+     - Item description fuzzy match
+     - Date range (award_date within 90 days of sent_date)
+     - Dollar range (+/-40% of quoted amount)
+
+3. On match: update RFQ outcome (won/lost), record in
+   won_quotes_kb with reytech_won, price_delta,
+   winning_vendor. Notify Mike via SMS/bell.
+
+4. On loss: update competitor_intel (win_count, avg_price).
+   Queue growth agent analysis with price gap data.
+
+5. Add rfqs table columns:
+   awarded_po_number, awarded_vendor, awarded_price,
+   award_detected_at, outcome (won/lost/stale/unknown)
+
+6. After 90 days with no match: flag RFQ as stale.
+
+This feedback loop is what makes the oracle improve over
+time. Without it, the oracle only knows historical prices.
+With it, the oracle learns what price actually wins.
+
+Commit: "feat(feedback): award tracker + win/loss
+         detection, oracle self-improvement loop"
 
 ── STEP 6: QA gate ──────────────────────────────────────────
 python scripts/smoke_test.py           — must be green
@@ -533,6 +574,11 @@ DEFINITION OF DONE — PHASE 2
 □ Weekly sync triggers safe_reprocess after healthy harvest
 □ All tests pass, smoke green, 0 duplicate routes
 □ Oracle verified against real won_quotes_kb data
+□ Phase 2B: daily 6am harvest scheduled (Mon-Fri)
+□ Phase 2B: award tracker matches open RFQs to SCPRS awards
+□ Phase 2B: win/loss auto-detected, recorded in won_quotes_kb
+□ Phase 2B: SMS/bell notification on win or loss
+□ Phase 2B: competitor_intel updated on each loss
 □ AUDIT.md + INTELLIGENCE_ROADMAP.md + lessons.md updated
 □ Pushed to main
 

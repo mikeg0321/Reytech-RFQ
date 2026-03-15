@@ -191,6 +191,118 @@ final = max(recommended, floor)
 
 ---
 
+## Closed-Loop Win/Loss Feedback System
+
+*Required for Phase 2 oracle to be self-improving.*
+
+SCPRS refreshes daily Mon-Fri including holidays.
+After each refresh, the system must check whether any
+open RFQs in Reytech's pipeline have been awarded.
+
+### How It Works
+
+1. **Daily harvest** runs after SCPRS refresh (schedule below).
+
+2. **For each RFQ in pipeline with status 'sent':**
+   Match against new SCPRS awards by:
+   - Agency (institution matches dept_name)
+   - Item descriptions (fuzzy match on key terms)
+   - Date range (award_date within 90 days of sent_date)
+   - Dollar range (+/-40% of quoted amount)
+
+3. **Match found, Reytech is supplier:**
+   - Update RFQ status: `won`
+   - Record in won_quotes_kb:
+     - `reytech_won = 1`
+     - `reytech_price = our quoted price`
+     - `winning_price = awarded price`
+     - `price_delta = winning_price - reytech_price`
+   - Notify Mike via SMS/bell: "RFQ #XYZ AWARDED to Reytech"
+
+4. **Match found, different supplier:**
+   - Update RFQ status: `lost`
+   - Record in won_quotes_kb:
+     - `reytech_won = 0`
+     - `reytech_price = our quoted price`
+     - `winning_price = competitor's awarded price`
+     - `winning_vendor = competitor name`
+     - `price_delta = winning_price - reytech_price` (negative = we were too high)
+   - Add to competitor intel: vendor won at $X for this item
+   - Notify Mike: "RFQ #XYZ lost to [vendor] at $X (you quoted $Y, gap: $Z)"
+   - Growth agent queues follow-up analysis
+
+5. **No match after 90 days:**
+   - Flag RFQ as `stale/no-award`
+   - May have been cancelled or awarded off-SCPRS
+
+### Harvest Schedule (aligned to SCPRS refresh)
+
+SCPRS refreshes: Mon-Fri including holidays.
+
+| Schedule | Time | Purpose |
+|----------|------|---------|
+| Daily (Mon-Fri) | 6:00 AM PST | Vendor search (new Reytech awards) + award tracker (match open RFQs) + win/loss updater (pipeline + oracle) |
+| Monday | 7:00 AM PST | Full vendor harvest (all Reytech PO history) |
+| Wednesday | 10:00 AM PST | Keyword harvest (market intelligence) |
+
+### Data Changes Required
+
+1. **rfqs table** — add columns if not present:
+   - `awarded_po_number TEXT` (matched SCPRS PO)
+   - `awarded_vendor TEXT` (who got it if not us)
+   - `awarded_price REAL` (what they paid)
+   - `award_detected_at TEXT` (when we found out)
+   - `outcome TEXT` (won/lost/stale/unknown)
+
+2. **won_quotes_kb** — already has:
+   - `reytech_won INTEGER`
+   - `reytech_price REAL`
+   - `price_delta REAL`
+   These need to be populated from the feedback loop.
+
+3. **competitor_intel** — update on each loss:
+   - `win_count += 1` for losing vendor
+   - `avg_price` updated for that item category
+   - `weakness_notes`: price gap patterns
+
+### Growth Agent Integration
+
+**After each loss:**
+> "Lost RFQ #{id} to {vendor} at ${price}.
+> You quoted ${our_price} (gap: ${delta}).
+> This agency has {n} similar upcoming RFQs.
+> Recommended action: price {item} at ${oracle_rec} next time to be competitive."
+
+**After each win:**
+> "Won RFQ #{id} -- ${amount}.
+> Your price was ${our_price}. Market avg was ${market_avg}.
+> Margin captured: {pct}%."
+
+### Implementation Phases
+
+**Phase 2B** (after oracle built):
+- [ ] Daily 6am SCPRS harvest scheduled
+- [ ] Award tracker matches open RFQs to new awards
+- [ ] Win/loss auto-detected and recorded
+- [ ] won_quotes_kb.reytech_won populated from outcomes
+- [ ] Oracle confidence improves with each feedback cycle
+- [ ] SMS/bell notification on win or loss
+
+**Phase 4** (buying cycles + proactive outreach):
+- [ ] Growth agent uses loss patterns to recommend pricing
+- [ ] Stale RFQ detection triggers proactive outreach
+- [ ] Competitor price tracking per agency per category
+- [ ] Margin optimizer uses win/loss price delta data
+
+### Key Insight
+
+This is what makes the oracle self-improving.
+Without outcome feedback, the oracle only knows what agencies have paid historically.
+With feedback, it learns what price point actually wins in real-time competition.
+Every loss teaches the oracle. Every win confirms the floor.
+
+---
+
 ## Business Context (reference when making architectural decisions)
 
 **Current state:** ~$500K revenue, 1 person (Mike), manual process

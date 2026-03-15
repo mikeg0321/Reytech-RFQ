@@ -7,7 +7,9 @@
 - [ ] Phase 3 complete and pushed
 - [ ] Tenant profile seeded with Reytech certifications
 - [ ] Automated pipeline running (new RFQs auto-priced)
-- [ ] Win/loss feedback loop recording outcomes
+- [ ] Phase 2B win/loss feedback loop recording outcomes
+- [ ] won_quotes_kb has reytech_won + price_delta populated
+- [ ] Daily 6am harvest running (award tracker active)
 - [ ] smoke_test.py ALL green
 - [ ] data_integrity.py ALL PASS
 
@@ -101,6 +103,13 @@ Add to home dashboard — "Outreach This Week" card:
   Refreshes weekly after buying cycle update
 
 ── STEP 3: Margin optimization by agency ────────────────────
+Foundation: Phase 2B win/loss feedback data.
+The margin optimizer depends on the closed-loop feedback
+system from Phase 2B (see INTELLIGENCE_ROADMAP.md).
+won_quotes_kb.reytech_won + price_delta accumulated during
+Phase 2B provides the win rate data at each price point.
+Without this data, the optimizer has no signal.
+
 Build src/knowledge/margin_optimizer.py
 
   get_optimal_margin(
@@ -112,6 +121,10 @@ Build src/knowledge/margin_optimizer.py
   """
   Recommends the optimal markup % for an item at a
   specific agency based on win rate data.
+
+  Uses Phase 2B win/loss feedback (reytech_won, price_delta,
+  winning_vendor) accumulated in won_quotes_kb to calculate
+  win rates at different price points per agency.
 
   Logic:
   - Pull win/loss history for this item + agency
