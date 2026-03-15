@@ -417,49 +417,17 @@ class FiscalSession:
                 return None
             po_number = po_nums[0]
 
-            # Step 2: Init detail session on SCPRS2 server if needed
-            if not self.detail_session:
-                if not self._init_detail_session():
-                    return None
-
-            # Step 3: Search by PO number on SCPRS2
-            detail_url = SCPRS_DETAIL_URL.split("?")[0]
-            page = self.detail_session.get(f"{detail_url}?&", timeout=20, allow_redirects=True).text
-            self._detail_icsid = self._extract_icsid(page) or self._detail_icsid
-
-            # Discover all input field names on SCPRS2
-            from bs4 import BeautifulSoup as _BS
-            _soup = _BS(page, "html.parser")
-            _all_inputs = [i.get("name") for i in _soup.find_all("input") if i.get("name")]
-            log.info("SCPRS2 all inputs: %s", _all_inputs)
-
-            sv = {f: "" for f in ALL_SEARCH_FIELDS}
-            sv[FIELD_PO_NUM] = po_number
-            fd = self._build_form_data(page, SEARCH_BUTTON, sv)
-            fd["ICSID"] = self._detail_icsid or ""
-
-            r2 = self.detail_session.post(detail_url, data=fd, timeout=20)
-            has_pdl = "ZZ_SCPR_PDL_DVW" in r2.text
-            log.info("SCPRS2 PO search: %db has_PDL_DVW=%s (PO=%s)",
-                     len(r2.text), has_pdl, po_number)
-
-            if r2.status_code == 200 and has_pdl:
-                return self._parse_detail(r2.text)
-
-            # Step 4: If results returned, click row 0 directly
-            if r2.status_code == 200 and "ZZ_SCPR_RSLT_VW" in r2.text:
-                fd2 = self._build_form_data(r2.text, "ZZ_SCPR_RSLT_VW$0")
-                # Echo back search field values
-                for fld in ALL_SEARCH_FIELDS:
-                    m2 = re.search(rf"name='{re.escape(fld)}'[^>]*value=\"([^\"]*)\"", r2.text)
-                    fd2[fld] = m2.group(1) if m2 else ""
-
-                r3 = self.detail_session.post(detail_url, data=fd2, timeout=20)
-                has_pdl3 = "ZZ_SCPR_PDL_DVW" in r3.text
-                log.info("SCPRS2 row click: %db has_PDL_DVW=%s (PO=%s)",
-                         len(r3.text), has_pdl3, po_number)
-                if r3.status_code == 200:
-                    return self._parse_detail(r3.text)
+            # Step 2: GET detail page using SCPRS1 session (modal set PO context)
+            dr = self.session.get(SCPRS_DETAIL_URL, timeout=20)
+            has_pdl = "ZZ_SCPR_PDL_DVW" in dr.text
+            log.info("Detail GET: %db has_PDL_DVW=%s (PO=%s)",
+                     len(dr.text), has_pdl, po_number)
+            if dr.status_code == 200 and has_pdl:
+                return self._parse_detail(dr.text)
+            if dr.status_code == 200:
+                result = self._parse_detail(dr.text)
+                if result and result.get("line_items"):
+                    return result
 
         except Exception as e:
             log.error("Detail click failed: %s", e)
