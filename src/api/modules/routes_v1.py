@@ -1699,6 +1699,44 @@ def api_v1_harvest_debug_click():
         return api_response(error=f"{e}\n{traceback.format_exc()}", status=500)
 
 
+@bp.route("/api/v1/harvest/browser-test")
+@auth_required
+def api_v1_harvest_browser_test():
+    """Test Playwright-based SCPRS detail scraping."""
+    try:
+        from src.agents.scprs_browser import scrape_details
+        results = scrape_details(
+            supplier_name="reytech",
+            from_date="01/01/2024",
+            max_rows=2
+        )
+        return api_response({
+            "count": len(results),
+            "results": [
+                {
+                    "po": r.get("header", {}).get("po_number"),
+                    "lines": len(r.get("line_items", [])),
+                    "buyer": r.get("header", {}).get("buyer_name"),
+                    "items": [
+                        {
+                            "desc": li.get("description", "")[:60],
+                            "price": li.get("unit_price"),
+                            "qty": li.get("quantity"),
+                        }
+                        for li in r.get("line_items", [])[:5]
+                    ],
+                }
+                for r in results
+            ],
+        })
+    except Exception as e:
+        import traceback
+        return api_response(
+            error=f"{e}\n{traceback.format_exc()}",
+            status=500
+        )
+
+
 @bp.route("/api/v1/harvest/backfill-details")
 @auth_required
 def api_v1_backfill_details():

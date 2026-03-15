@@ -418,6 +418,24 @@ class FiscalSession:
                 log.info("Detail POST: %db has_PDL_DVW=True", len(modal_html))
                 return self._parse_detail(modal_html)
 
+            # Extract PO number for browser fallback
+            po_nums = re.findall(r'4500\d{6}', modal_html)
+            po_number = po_nums[0] if po_nums else None
+
+            # Try browser-based detail extraction (Playwright)
+            if po_number:
+                try:
+                    from src.agents.scprs_browser import scrape_po_detail
+                    browser_detail = scrape_po_detail(po_number)
+                    if browser_detail and browser_detail.get("line_items"):
+                        log.info("Detail via browser: PO=%s, %d lines",
+                                 po_number, len(browser_detail["line_items"]))
+                        return browser_detail
+                except ImportError:
+                    log.debug("scprs_browser not available")
+                except Exception as e:
+                    log.warning("Browser detail failed PO=%s: %s", po_number, e)
+
             # Parse the modal response for detail data using ZZ_SCPR_RD_DVW IDs
             # (modal uses RD_DVW prefix instead of PDL_DVW for line items)
             soup = BeautifulSoup(modal_html, "html.parser")
