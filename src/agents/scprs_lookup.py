@@ -303,6 +303,24 @@ class FiscalSession:
                 log.error("SCPRS2: no ICSID for PO=%s", po_number)
                 return None
 
+            # Discover SCPRS2 form structure
+            from bs4 import BeautifulSoup as _BS
+            _soup = _BS(page, "html.parser")
+            _ic_fields = {i.get("name"): i.get("value", "")
+                          for i in _soup.find_all("input")
+                          if (i.get("name") or "").startswith("IC")}
+            _links = [a.get("id", "") for a in _soup.find_all("a")
+                      if "SCPR" in (a.get("id") or "") or "SEARCH" in (a.get("id") or "").upper()]
+            _buttons = [i.get("name", "") for i in _soup.find_all("input", {"type": "button"})
+                        if "SEARCH" in (i.get("name") or "").upper() or "SCPR" in (i.get("name") or "")]
+            log.info("SCPRS2 IC fields: %s", _ic_fields)
+            log.info("SCPRS2 links: %s", _links[:20])
+            log.info("SCPRS2 buttons: %s", _buttons[:10])
+            # Also find all input names containing SCPR or PO
+            _po_fields = [i.get("name", "") for i in _soup.find_all("input")
+                          if "SCPR" in (i.get("name") or "") or "CRDMEM" in (i.get("name") or "")]
+            log.info("SCPRS2 PO/SCPR inputs: %s", _po_fields[:10])
+
             # POST search with PO number on ZZ_SCPRS2
             search_values = {f: "" for f in ALL_SEARCH_FIELDS}
             search_values[FIELD_PO_NUM] = po_number
