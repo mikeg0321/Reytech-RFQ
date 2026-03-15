@@ -390,3 +390,32 @@ payloads. (2) Self-email filter now lets clear forwards through (Fwd: subject
 **Mistake:** SQL JOINs between scprs_po_master and scprs_po_lines failed with "ambiguous column name: po_number" because both tables have a `po_number` column. Two separate queries had the same bug — wasn't caught until runtime.
 **Pattern:** Ambiguous column names in JOINs between tables with overlapping schemas
 **Rule:** When writing SQL JOINs, ALWAYS prefix every column with its table alias (`m.po_number` not `po_number`), especially when both tables share column names. Test every new SQL query with actual data before committing.
+
+---
+
+## Debugging Laws
+
+### Law 1: Working Code Is Sacred
+If an endpoint or function works and returns the correct result, READ ITS SOURCE CODE IMMEDIATELY.
+Do not hypothesize why it works. Do not build a "better" version. Copy it exactly, line by line.
+
+"Working code is the ground truth. Everything else is a guess."
+
+Applied: If debug-detail returns PDL_DVW=True, open debug-detail, read every line, copy into get_detail().
+Do this BEFORE any other debugging step.
+
+### Law 2: Log Before You Fix
+Before changing any logic, add logging to show exactly what is happening. Diagnose first, fix second.
+Never fix blind.
+
+### Law 3: One Change Per Deploy
+Each deploy changes exactly one thing. If it doesn't fix the bug, revert and try something else.
+Multiple simultaneous changes make root cause impossible to find.
+
+### Law 4: Mutex Before Threads
+Any endpoint that spawns a background thread must check a lock first.
+Two threads touching the same session = guaranteed corruption.
+
+### Law 5: Compare Working vs Broken
+When X works and Y doesn't, diff them immediately.
+Don't fix Y until you know every difference between X and Y.
