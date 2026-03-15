@@ -1211,37 +1211,64 @@ def api_v1_backfill_details():
                 """).fetchall()
 
                 total = len(pos)
-                log.info("Backfill: %d POs need detail pages (isolated sessions)", total)
+                if total == 0:
+                    log.info("Backfill: 0 POs need detail pages — all have lines or table empty")
+                    conn.close()
+                    return
+                log.info("Backfill: %d POs need detail pages, first=%s supplier=%s",
+                         total, pos[0]["po_number"], pos[0]["supplier"])
                 filled = 0
                 lines_inserted = 0
 
                 for i, po in enumerate(pos):
                     if i % 10 == 0:
-                        log.info("Backfill: %d/%d POs, %d lines so far", i, total, lines_inserted)
+                        log.info("Backfill: %d/%d POs, %d lines so far, %d filled", i, total, lines_inserted, filled)
                     try:
+                        po_num = po["po_number"]
+                        supplier = po["supplier"] or ""
+                        log.info("Backfill %d/%d: PO=%s supplier=%s", i + 1, total, po_num, supplier[:30])
+
                         # Isolated session per PO — no shared state, no race condition
                         session = FiscalSession()
                         if not session.init_session():
-                            log.warning("Backfill PO %s: session init failed, skipping", po["po_number"])
+                            log.error("Backfill PO %s: session init FAILED", po_num)
+                            _t.sleep(2)
+                            continue
+                        log.info("Backfill PO %s: session init OK", po_num)
+
+                        # Search by supplier to find this PO in results
+                        supplier_term = supplier[:20]
+                        raw = session.search(supplier_name=supplier_term, from_date="01/01/2022")
+                        log.info("Backfill PO %s: search returned %d results", po_num, len(raw or []))
+
+                        if not raw:
                             _t.sleep(2)
                             continue
 
-                        # Search by supplier to find this PO in results
-                        supplier_term = po["supplier"][:20] if po["supplier"] else ""
-                        raw = session.search(supplier_name=supplier_term, from_date="01/01/2022")
-
                         # Find matching PO and click into detail
                         detail = None
-                        for r in (raw or []):
-                            if r.get("po_number") == po["po_number"]:
+                        matched = False
+                        for r in raw:
+                            if r.get("po_number") == po_num:
+                                matched = True
                                 if r.get("_results_html") and r.get("_row_index") is not None:
                                     try:
                                         detail = session.get_detail(
                                             r["_results_html"], r["_row_index"],
                                             r.get("_click_action"))
                                     except Exception as e:
-                                        log.warning("Detail fetch error for %s: %s", po["po_number"], e)
+                                        log.error("Backfill PO %s: get_detail FAILED: %s", po_num, e, exc_info=True)
+                                else:
+                                    log.warning("Backfill PO %s: matched but no _results_html or _row_index", po_num)
                                 break
+
+                        if not matched:
+                            log.info("Backfill PO %s: not found in %d search results", po_num, len(raw))
+                            _t.sleep(2)
+                            continue
+
+                        line_count = len(detail.get("line_items", [])) if detail else 0
+                        log.info("Backfill PO %s: detail returned %d lines", po_num, line_count)
 
                         if detail and detail.get("line_items"):
                             po_id = po["id"]
@@ -1253,7 +1280,7 @@ def api_v1_backfill_details():
                                     (po_id, po_number, line_num, description,
                                      unit_price, quantity, line_total, category)
                                     VALUES (?,?,?,?,?,?,?,?)
-                                """, (po_id, po["po_number"], idx + 1,
+                                """, (po_id, po_num, idx + 1,
                                       (item.get("description", "") or "")[:500],
                                       item.get("unit_price_num") or item.get("unit_price", 0) or 0,
                                       item.get("quantity_num") or item.get("quantity", 0) or 0,
@@ -1271,13 +1298,12 @@ def api_v1_backfill_details():
                                     (buyer or "", email or "", acq or "", po_id))
                             filled += 1
                             conn.commit()
-                            log.info("Backfill PO %s: %d lines, buyer=%s",
-                                     po["po_number"], len(detail["line_items"]),
-                                     buyer or "?")
+                            log.info("Backfill PO %s: STORED %d lines, buyer=%s",
+                                     po_num, len(detail["line_items"]), buyer or "?")
 
                         _t.sleep(2)
                     except Exception as e:
-                        log.debug("Backfill PO %s: %s", po["po_number"], e)
+                        log.error("Backfill PO FAILED: %s", e, exc_info=True)
 
                 conn.close()
                 log.info("Backfill complete: %d/%d POs got detail, %d lines inserted", filled, total, lines_inserted)
