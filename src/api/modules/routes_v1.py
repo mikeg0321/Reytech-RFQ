@@ -1195,12 +1195,15 @@ def api_v1_backfill_details():
 
         import threading
         def _run():
+            log.info("Backfill thread STARTED")
             try:
                 from src.agents.scprs_lookup import FiscalSession
                 from src.core.pull_orchestrator import _get_conn
                 import time as _t
+                log.info("Backfill: imports OK, connecting to DB")
 
                 conn = _get_conn()
+                log.info("Backfill: DB connected, running query")
                 pos = conn.execute("""
                     SELECT pm.id, pm.po_number, pm.supplier, pm.dept_name, pm.search_term
                     FROM scprs_po_master pm
@@ -1310,6 +1313,7 @@ def api_v1_backfill_details():
             except Exception as e:
                 log.error("Backfill error: %s", e, exc_info=True)
 
+        log.info("Backfill: pre-check count=%d, launching thread", need_backfill)
         threading.Thread(target=_run, daemon=True, name="backfill-details").start()
         return api_response({
             "started": True,
