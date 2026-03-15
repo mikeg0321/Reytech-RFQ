@@ -150,7 +150,7 @@ async def _scrape_detail_async(supplier_name="reytech",
             total = int(count_match.group(3))
             log.info("Browser: %d results found", total)
 
-            # Step 3: Click each PO link
+            # Step 3: Click each PO link — PeopleSoft opens a POPUP WINDOW
             rows_to_check = min(total, max_rows)
             for row_idx in range(rows_to_check):
                 try:
@@ -162,108 +162,87 @@ async def _scrape_detail_async(supplier_name="reytech",
                         continue
 
                     log.info("Browser: clicking %s", link_id)
-                    await link.click()
 
-                    # Wait a moment for modal to start loading
-                    await page.wait_for_timeout(3000)
+                    # PeopleSoft opens a POPUP WINDOW — catch it
+                    async with page.context.expect_page(timeout=20000) as popup_info:
+                        await link.click()
+                    popup = await popup_info.value
+                    await popup.wait_for_load_state("networkidle")
 
-                    # Screenshot to see what browser shows
-                    try:
-                        await page.screenshot(
-                            path="/data/scprs_click.png",
+                    popup_content = await popup.content()
+                    log.info("Browser: popup opened %db has_PDL=%s has_SBP=%s",
+                             len(popup_content),
+                             "ZZ_SCPR_PDL_DVW" in popup_content,
+                             "ZZ_SCPR_SBP_WRK" in popup_content)
+
+                    # Save screenshot of popup
+                    await popup.screenshot(
+                        path=f"/data/scprs_popup_{row_idx}.png",
+                        full_page=True
+                    )
+
+                    # If popup has detail data directly, parse it
+                    if "ZZ_SCPR_PDL_DVW" in popup_content:
+                        detail = _parse_browser_detail(popup_content)
+                        if detail and detail.get("line_items"):
+                            detail["source"] = "scprs_browser"
+                            results.append(detail)
+                            log.info("Browser: DETAIL FOUND! PO=%s %d lines",
+                                     detail["header"].get("po_number", "?"),
+                                     len(detail["line_items"]))
+                            await popup.close()
+                            continue
+
+                    # If popup shows results grid, click row 0 to get detail
+                    popup_link = popup.locator("[id='ZZ_SCPR_RSLT_VW$hmodal$0']")
+                    if await popup_link.count() == 0:
+                        popup_link = popup.locator("[id='ZZ_SCPR_RSLT_VW$0']")
+
+                    if await popup_link.count() > 0:
+                        log.info("Browser: popup has results grid, clicking row 0")
+
+                        # This might open ANOTHER popup or navigate
+                        try:
+                            async with popup.context.expect_page(timeout=15000) as detail_info:
+                                await popup_link.click()
+                            detail_page = await detail_info.value
+                            await detail_page.wait_for_load_state("networkidle")
+                        except Exception:
+                            # No new popup — page navigated in place
+                            await popup.wait_for_load_state("networkidle")
+                            await popup.wait_for_timeout(2000)
+                            detail_page = popup
+
+                        detail_content = await detail_page.content()
+                        log.info("Browser: detail page %db has_PDL=%s has_SBP=%s",
+                                 len(detail_content),
+                                 "ZZ_SCPR_PDL_DVW" in detail_content,
+                                 "ZZ_SCPR_SBP_WRK" in detail_content)
+
+                        await detail_page.screenshot(
+                            path=f"/data/scprs_detail_{row_idx}.png",
                             full_page=True
                         )
-                        log.info("Browser: screenshot saved to /data/scprs_click.png")
-                    except Exception as ss_err:
-                        log.warning("Browser: screenshot failed: %s", ss_err)
 
-                    # Wait for detail content to appear
-                    try:
-                        await page.wait_for_selector(
-                            "[id^='ZZ_SCPR_PDL_DVW'], "
-                            "[id^='ZZ_SCPR_SBP_WRK']",
-                            timeout=20000
-                        )
-                    except Exception:
-                        # Capture what we got after the click
-                        post_click = await page.content()
-                        _zz = set()
-                        for _m in re.finditer(r'id=["\']?(ZZ_[A-Z_]+)', post_click):
-                            base = re.sub(r'\$\d+$', '', _m.group(1))
-                            _zz.add(base)
-                        _dollars = re.findall(r'\$[\d,]+\.\d{2}', post_click)
-                        _title = re.search(r'<title>([^<]*)</title>', post_click)
+                        detail = _parse_browser_detail(detail_content)
+                        if detail and detail.get("line_items"):
+                            detail["source"] = "scprs_browser"
+                            results.append(detail)
+                            log.info("Browser: GOT LINE ITEMS! PO=%s %d lines buyer=%s",
+                                     detail["header"].get("po_number", "?"),
+                                     len(detail["line_items"]),
+                                     detail["header"].get("buyer_name", "?"))
 
-                        # Check for new windows/pages
-                        all_pages = page.context.pages
+                        if detail_page != popup:
+                            await detail_page.close()
 
-                        log.warning(
-                            "Browser: detail didn't load for row %d. "
-                            "size=%d title=%s pages=%d dollars=%d "
-                            "new_zz=%s",
-                            row_idx, len(post_click),
-                            _title.group(1)[:50] if _title else "?",
-                            len(all_pages),
-                            len(_dollars),
-                            sorted(_zz - {"ZZ_SCPR_RSLT_VW", "ZZ_SCPRS_SP_WRK",
-                                          "ZZ_SCPRS1_CMP", "ZZ_BIDR_VND_VW"})[:10]
-                        )
-
-                        # If multiple pages, check the new one
-                        if len(all_pages) > 1:
-                            new_page = all_pages[-1]
-                            new_content = await new_page.content()
-                            log.info("Browser: NEW PAGE %db has_PDL=%s has_SBP=%s",
-                                     len(new_content),
-                                     "ZZ_SCPR_PDL_DVW" in new_content,
-                                     "ZZ_SCPR_SBP_WRK" in new_content)
-                            if "ZZ_SCPR_PDL_DVW" in new_content:
-                                detail = _parse_browser_detail(new_content)
-                                if detail and detail.get("line_items"):
-                                    detail["source"] = "scprs_browser"
-                                    results.append(detail)
-                                    log.info("Browser: GOT DETAIL from new page! %d lines",
-                                             len(detail["line_items"]))
-                                    continue
-
-                        close_btn = page.locator(
-                            "[id*='CLOSE'], [id*='close'], "
-                            "[id*='Cancel'], .ps_closebox"
-                        )
-                        if await close_btn.count() > 0:
-                            await close_btn.first.click()
-                            await page.wait_for_load_state("networkidle")
-                        continue
-
-                    detail_html = await page.content()
-                    detail = _parse_browser_detail(detail_html)
-
-                    if detail and detail.get("line_items"):
-                        log.info(
-                            "Browser: PO=%s %d lines, buyer=%s",
-                            detail["header"].get("po_number", "?"),
-                            len(detail["line_items"]),
-                            detail["header"].get("buyer_name", "?")
-                        )
-                        detail["source"] = "scprs_browser"
-                        results.append(detail)
-                    else:
-                        log.info("Browser: row %d no line items", row_idx)
-
-                    # Close modal / go back to results
-                    close_btn = page.locator(
-                        "[id*='CLOSE'], [id*='close'], "
-                        ".ps_closebox, [id*='Return']"
-                    )
-                    if await close_btn.count() > 0:
-                        await close_btn.first.click()
-                        await page.wait_for_load_state("networkidle")
-                    else:
-                        await page.go_back()
-                        await page.wait_for_load_state("networkidle")
+                    await popup.close()
 
                 except Exception as e:
                     log.warning("Browser: row %d error: %s", row_idx, e)
+                    # Close any extra pages
+                    while len(page.context.pages) > 1:
+                        await page.context.pages[-1].close()
                     continue
 
         except Exception as e:
