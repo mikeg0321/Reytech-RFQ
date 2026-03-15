@@ -279,26 +279,25 @@ class FiscalSession:
         log.info("Search: ICSID=%s ICStateNum=%s", self.icsid, self._last_state_num)
         return self._parse_results(html)
 
-    def get_po_detail(self, po_number):
-        """Fetch detail via ZZ_SCPRS2_CMP with shared auth cookies."""
+    def get_po_detail(self, po_number, s2=None):
+        """Fetch detail via ZZ_SCPRS2_CMP. Uses provided session or creates one."""
         try:
-            # Share cookies from SCPRS1 session (already authenticated)
-            s2 = requests.Session()
-            s2.headers.update(self.session.headers)
-            s2.cookies.update(self.session.cookies)
+            if not s2:
+                s2 = requests.Session()
+                s2.headers.update(self.session.headers)
+                s2.cookies.update(self.session.cookies)
+                r1 = s2.get(f"{SCPRS_DETAIL_URL}?&", timeout=20, allow_redirects=True)
+                log.info("SCPRS2 load: %db", len(r1.text))
 
-            # Load ZZ_SCPRS2 to get its hidden fields
-            r1 = s2.get(f"{SCPRS_DETAIL_URL}?&", timeout=20, allow_redirects=True)
-            page = r1.text
-            log.info("SCPRS2 load: %db", len(page))
-
+            # Load SCPRS2 page to get hidden fields
+            page_r = s2.get(f"{SCPRS_DETAIL_URL}?&", timeout=20, allow_redirects=True)
+            page = page_r.text
             icsid = self._extract_icsid(page)
             if not icsid:
                 time.sleep(0.5)
-                r1b = s2.get(f"{SCPRS_DETAIL_URL}?&", timeout=20, allow_redirects=True)
-                page = r1b.text
+                page_r = s2.get(f"{SCPRS_DETAIL_URL}?&", timeout=20, allow_redirects=True)
+                page = page_r.text
                 icsid = self._extract_icsid(page)
-                log.info("SCPRS2 reload: %db icsid=%s", len(page), "yes" if icsid else "no")
 
             if not icsid:
                 log.error("SCPRS2: no ICSID for PO=%s", po_number)
@@ -337,12 +336,13 @@ class FiscalSession:
         return None
 
     def get_detail(self, results_html, row_index, click_action=None):
-        """Click a result row on ZZ_SCPRS2 — returns detail page directly."""
+        """Modal click on SCPRS1 to get PO number, then SCPRS2 for detail."""
         if not click_action:
-            click_action = f"ZZ_SCPR_RSLT_VW${row_index}"
+            click_action = f"ZZ_SCPR_RSLT_VW$hmodal${row_index}"
 
         current_html = self._last_html or results_html
 
+        # Step 1: Modal click on SCPRS1 to extract PO number
         search_values = {}
         for fld in ALL_SEARCH_FIELDS:
             m = re.search(rf"name='{re.escape(fld)}'[^>]*value=\"([^\"]*)\"", current_html)
@@ -352,14 +352,29 @@ class FiscalSession:
         log.info("Detail click: %s", click_action)
         try:
             r = self.session.post(SCPRS_SEARCH_URL, data=form_data, timeout=20)
-            has_pdl = "ZZ_SCPR_PDL_DVW" in r.text
-            log.info("Detail POST: %db has_PDL_DVW=%s", len(r.text), has_pdl)
-            if r.status_code == 200 and has_pdl:
-                return self._parse_detail(r.text)
-            if r.status_code == 200:
-                result = self._parse_detail(r.text)
-                if result and result.get("line_items"):
-                    return result
+            if r.status_code != 200:
+                return None
+
+            # Extract PO number from modal response
+            po_nums = re.findall(r'4500\d{6}', r.text)
+            if not po_nums:
+                log.warning("Modal returned no PO numbers")
+                return None
+            po_number = po_nums[0]
+
+            # Step 2: Open ZZ_SCPRS2 with shared auth cookies
+            import requests as _req
+            _s2 = _req.Session()
+            _s2.cookies.update(self.session.cookies)
+            _SCPRS2 = ("https://suppliers.fiscal.ca.gov/psp/"
+                       "psfpd1/SUPPLIER/ERP/c/"
+                       "ZZ_PO.ZZ_SCPRS2_CMP.GBL")
+            _r1 = _s2.get(_SCPRS2, timeout=20)
+            log.info("S2 load: %db", len(_r1.content))
+
+            # Step 3: Search by PO number on SCPRS2 using same session
+            return self.get_po_detail(po_number, s2=_s2)
+
         except Exception as e:
             log.error("Detail click failed: %s", e)
         return None
