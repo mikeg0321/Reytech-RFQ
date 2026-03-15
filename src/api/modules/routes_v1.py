@@ -2041,6 +2041,130 @@ def api_v1_buyers_search():
     })
 
 
+@bp.route("/api/v1/harvest/fire-all-now")
+@auth_required
+def api_v1_fire_all_now():
+    """Trigger entire pipeline immediately."""
+    import threading as _th
+
+    def _run_full_pipeline():
+        import time as _time
+        _log = log
+
+        _log.info("FULL PIPELINE — STARTING NOW")
+
+        # Step 1: Populate catalog
+        _log.info("Step 1: Populating catalog...")
+        try:
+            import sqlite3
+            from src.core.db import DB_PATH
+            _db = sqlite3.connect(DB_PATH, timeout=30)
+            try:
+                from src.knowledge.won_quotes_db import get_db as _gwq
+                _wq = _gwq()
+                _rows = _wq.execute(
+                    "SELECT description, unit_price, quantity, supplier, "
+                    "department, po_number, award_date FROM won_quotes WHERE unit_price > 0"
+                ).fetchall()
+                for _r in _rows:
+                    _desc = (_r[0] or "")[:500]
+                    if not _desc or not _r[1] or _r[1] <= 0:
+                        continue
+                    try:
+                        _db.execute(
+                            "INSERT OR IGNORE INTO scprs_catalog "
+                            "(description, last_unit_price, last_quantity, "
+                            "last_supplier, last_department, last_po_number, "
+                            "last_date, times_seen, updated_at) "
+                            "VALUES (?,?,?,?,?,?,?,1,datetime('now'))",
+                            (_desc, _r[1], _r[2] or 1, _r[3] or "", _r[4] or "", _r[5] or "", _r[6] or ""))
+                    except Exception:
+                        pass
+                _db.commit()
+                _log.info("Step 1 done: catalog has %d items",
+                          _db.execute("SELECT COUNT(*) FROM scprs_catalog").fetchone()[0])
+            except Exception as _e:
+                _log.warning("Step 1 catalog: %s", _e)
+            _db.close()
+        except Exception as _e:
+            _log.error("Step 1 failed: %s", _e)
+
+        # Step 2: Exhaustive FI$Cal scrape
+        _log.info("Step 2: FI$Cal exhaustive scrape starting...")
+        try:
+            from src.agents.scprs_browser import _run_exhaustive_scrape
+            _run_exhaustive_scrape()
+        except Exception as _e:
+            _log.error("Step 2 scrape failed: %s", _e)
+
+        # Step 3: Enrich catalog identifiers
+        _log.info("Step 3: Enriching catalog identifiers...")
+        try:
+            from src.agents.item_enricher import enrich_catalog
+            enrich_catalog()
+        except Exception as _e:
+            _log.error("Step 3 enrich failed: %s", _e)
+
+        # Step 4: Refresh buyer profiles
+        _log.info("Step 4: Refreshing buyer profiles...")
+        try:
+            from src.agents.buyer_intelligence import refresh_buyer_profiles
+            refresh_buyer_profiles()
+        except Exception as _e:
+            _log.error("Step 4 buyers failed: %s", _e)
+
+        # Step 5: Reprocess quotes
+        _log.info("Step 5: Reprocessing quotes...")
+        try:
+            from src.agents.quote_reprocessor import reprocess_all_quotes
+            reprocess_all_quotes()
+        except Exception as _e:
+            _log.error("Step 5 reprocess failed: %s", _e)
+
+        # Step 6: System audit
+        _log.info("Step 6: Running system audit...")
+        try:
+            from src.agents.system_auditor import run_full_audit
+            run_full_audit()
+        except Exception as _e:
+            _log.error("Step 6 audit failed: %s", _e)
+
+        _log.info("FULL PIPELINE — COMPLETE")
+
+    t = _th.Thread(target=_run_full_pipeline, daemon=True, name="fire-all-now")
+    t.start()
+
+    return api_response({
+        "status": "started",
+        "pipeline": [
+            "Step 1: Populate catalog from won_quotes",
+            "Step 2: Exhaustive FI$Cal scrape (all POs since 2019)",
+            "Step 3: Enrich catalog with MFG#/UPC/ASIN",
+            "Step 4: Refresh buyer profiles",
+            "Step 5: Reprocess pending + validate sent quotes",
+            "Step 6: System audit",
+        ],
+        "message": "Full pipeline running. Check /api/v1/harvest/fiscal-scrape-status for progress."
+    })
+
+
+@bp.route("/api/v1/quotes/underpriced")
+@auth_required
+def api_v1_quotes_underpriced():
+    """Sent quotes that were underpriced vs market."""
+    try:
+        from src.agents.quote_reprocessor import get_underpriced_report
+        report = get_underpriced_report()
+        total_left = sum(r.get("gap_total", 0) for r in report if r.get("gap_total", 0) > 0)
+        return api_response({
+            "underpriced_items": report,
+            "count": len(report),
+            "total_margin_left_on_table": round(total_left, 2),
+        })
+    except Exception as e:
+        return api_response({"underpriced_items": [], "count": 0, "error": str(e)})
+
+
 @bp.route("/api/v1/quotes/reprocess")
 @auth_required
 def api_v1_quotes_reprocess():
