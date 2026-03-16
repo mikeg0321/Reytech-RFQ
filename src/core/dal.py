@@ -882,6 +882,18 @@ def get_pc(pc_id: str) -> dict | None:
                 return None
             d = dict(row)
             d["items"] = _safe_json(d.get("items"), [])
+            # Unpack pc_data blob into top-level dict
+            pc_blob = d.get("pc_data", "")
+            if pc_blob and isinstance(pc_blob, str):
+                try:
+                    import json as _json
+                    pc_data = _json.loads(pc_blob)
+                    if isinstance(pc_data, dict):
+                        for k, v in pc_data.items():
+                            if k not in d or not d[k]:
+                                d[k] = v
+                except (json.JSONDecodeError, TypeError):
+                    pass
             return d
     except Exception as e:
         log.error("get_pc(%s) failed: %s", pc_id, e, exc_info=True)
@@ -908,6 +920,18 @@ def list_pcs(status: str = None, limit: int = 500) -> list[dict]:
             for r in rows:
                 d = dict(r)
                 d["items"] = _safe_json(d.get("items"), [])
+                # Unpack pc_data blob into top-level dict
+                pc_blob = d.get("pc_data", "")
+                if pc_blob and isinstance(pc_blob, str):
+                    try:
+                        import json as _json
+                        pc_data = _json.loads(pc_blob)
+                        if isinstance(pc_data, dict):
+                            for k, v in pc_data.items():
+                                if k not in d or not d[k]:
+                                    d[k] = v
+                    except (json.JSONDecodeError, TypeError):
+                        pass
                 result.append(d)
             return result
     except Exception as e:
