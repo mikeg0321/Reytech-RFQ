@@ -787,6 +787,9 @@ def detail(rid):
     if not isinstance(r.get("line_items"), list):
         r["line_items"] = r.get("line_items") or []
 
+    log.info("RFQ detail render: rid=%s, line_items=%d, keys=%s",
+             rid, len(r.get("line_items", [])), list(r.keys())[:10])
+
     return render_page("rfq_detail.html", active_page="Home", r=r, rid=rid)
 
 
