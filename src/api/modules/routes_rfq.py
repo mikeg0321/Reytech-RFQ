@@ -781,24 +781,32 @@ def detail(rid):
     # TODO: re-enable after fixing stored Undefined values in rfqs.json
     pass  # enrichment disabled
 
-    # NUCLEAR SANITIZE: round-trip through JSON to guarantee no Undefined objects
-    import json as _json
-    try:
-        r = _json.loads(_json.dumps(r, default=str))
-    except Exception:
-        # If even that fails, build a minimal safe dict
+    # NUCLEAR SANITIZE: manually walk and convert every value
+    def _nuke(obj):
+        if obj is None:
+            return ""
+        t = type(obj).__name__
+        if t == "Undefined":
+            return ""
+        if isinstance(obj, bool):
+            return obj
+        if isinstance(obj, (int, float)):
+            return obj
+        if isinstance(obj, str):
+            return obj
+        if isinstance(obj, dict):
+            return {str(k): _nuke(v) for k, v in obj.items()}
+        if isinstance(obj, (list, tuple)):
+            return [_nuke(v) for v in obj]
         try:
-            safe_items = []
-            for _it in (r.get("line_items") or []):
-                try:
-                    safe_items.append(_json.loads(_json.dumps(_it, default=str)))
-                except Exception:
-                    safe_items.append({"description": str(_it.get("description", ""))})
-            r = _json.loads(_json.dumps({k: v for k, v in r.items()
-                                          if k != "line_items"}, default=str))
-            r["line_items"] = safe_items
+            return str(obj)
         except Exception:
-            pass
+            return ""
+
+    try:
+        r = _nuke(r)
+    except Exception as _sanitize_err:
+        log.error("Sanitize failed: %s", _sanitize_err)
 
     return render_page("rfq_detail.html", active_page="Home", r=r, rid=rid)
 
