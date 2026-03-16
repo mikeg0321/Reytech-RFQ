@@ -3048,3 +3048,32 @@ def api_v1_backfill_details():
     except Exception as e:
         log.error("backfill-details error: %s", e, exc_info=True)
         return api_response(error=str(e), status=500)
+
+
+# ── RFQ Metadata Backfill ─────────────────────────────────────────────────
+
+@bp.route("/api/v1/rfq/backfill-metadata")
+@auth_required
+def api_v1_rfq_backfill_metadata():
+    """Backfill solicitation numbers and due dates for existing RFQs."""
+    try:
+        count = backfill_rfq_metadata()
+        return api_response({"updated": count})
+    except Exception as e:
+        log.error("backfill-metadata error: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)
+
+
+# ── Due Date Reminders ────────────────────────────────────────────────────
+
+@bp.route("/api/v1/reminders/check-now")
+@auth_required
+def api_v1_reminders_check_now():
+    """Manually trigger due date reminder check."""
+    try:
+        from src.agents.due_date_reminder import check_due_dates
+        alerts = check_due_dates()
+        return api_response({"alerts": alerts, "count": len(alerts)})
+    except Exception as e:
+        log.error("reminders/check-now error: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)

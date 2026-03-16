@@ -327,6 +327,67 @@ def save_rfqs(rfqs):
     except Exception as e:
         log.debug("RFQ dual-write to SQLite failed: %s", str(e)[:200])
 
+def backfill_rfq_metadata():
+    """Extract solicitation numbers and due dates from existing RFQs that are missing them."""
+    rfqs = load_rfqs()
+    updated = 0
+    for rid, r in rfqs.items():
+        changed = False
+
+        # Try email subject/body
+        subject = r.get("email_subject", "")
+        body = r.get("body_text", r.get("email_body", ""))
+        combined = f"{subject} {body} {r.get('parse_note', '')}"
+
+        if not r.get("solicitation_number") or r.get("solicitation_number") == "unknown":
+            sol = _extract_solicitation(combined)
+            if sol:
+                r["solicitation_number"] = sol
+                changed = True
+
+        if not r.get("due_date") or r.get("due_date") == "TBD":
+            due = _extract_due_date(combined)
+            if due:
+                r["due_date"] = due
+                changed = True
+
+        # Try matching PC for metadata
+        if (not r.get("solicitation_number") or r.get("solicitation_number") == "unknown"
+                or not r.get("due_date") or r.get("due_date") == "TBD"):
+            email = r.get("requestor_email", "")
+            if email:
+                try:
+                    from src.core.db import get_db
+                    db = get_db()
+                    pc_row = db.execute("""
+                        SELECT pc_data FROM price_checks
+                        WHERE pc_data LIKE ?
+                        ORDER BY created_at DESC LIMIT 1
+                    """, (f"%{email}%",)).fetchone()
+                    if pc_row:
+                        pc_data = json.loads(pc_row[0] or "{}")
+                        if not r.get("solicitation_number") or r.get("solicitation_number") == "unknown":
+                            _sol = pc_data.get("pc_number", pc_data.get("solicitation_number", ""))
+                            if _sol:
+                                r["solicitation_number"] = _sol
+                                changed = True
+                        if not r.get("due_date") or r.get("due_date") == "TBD":
+                            _due = pc_data.get("due_date", "")
+                            if _due:
+                                r["due_date"] = _due
+                                changed = True
+                except Exception:
+                    pass
+
+        if changed:
+            updated += 1
+
+    if updated:
+        save_rfqs(rfqs)
+        log.info("Backfilled metadata for %d RFQs", updated)
+    return updated
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # RFQ File Storage — PDFs stored as BLOBs in SQLite (survives redeploys)
 # ═══════════════════════════════════════════════════════════════════════
@@ -1530,6 +1591,45 @@ def _check_delivery_status(email_data, track_result):
         log.error("Delivery status update failed: %s", e)
 
 
+def _extract_solicitation(text):
+    """Extract solicitation/RFQ number from text (email subject, body, PDF text)."""
+    import re as _re
+    patterns = [
+        r'(?:solicitation|sol|rfq|bid|ifb|rfi)[\s#:]+([A-Z0-9][\w\-/]+)',
+        r'#\s*(\d{2,4}[-/]\d{2,4}[\w\-]*)',
+        r'(?:number|no|num)[\s.:]+([A-Z0-9][\w\-/]+)',
+        r'(\d{2}/\d{2}-\d{3,}[A-Z]*)',
+    ]
+    for p in patterns:
+        m = _re.search(p, str(text), _re.IGNORECASE)
+        if m:
+            return m.group(1).strip()
+    return ""
+
+
+def _extract_due_date(text):
+    """Extract due date from text (email subject, body, PDF text)."""
+    import re as _re
+    from datetime import datetime as _dt
+    patterns = [
+        r'(?:due|deadline|respond by|response due|close[sd]?)[\s:]+(\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4})',
+        r'(?:due|deadline)[\s:]+(\w+ \d{1,2},?\s*\d{4})',
+        r'(\d{1,2}/\d{1,2}/\d{2,4})\s*(?:at\s+\d)',
+    ]
+    for p in patterns:
+        m = _re.search(p, str(text), _re.IGNORECASE)
+        if m:
+            date_str = m.group(1).strip()
+            for fmt in ["%m/%d/%Y", "%m/%d/%y", "%m-%d-%Y",
+                        "%B %d, %Y", "%B %d %Y", "%b %d, %Y"]:
+                try:
+                    return _dt.strptime(date_str, fmt).strftime("%m/%d/%Y")
+                except ValueError:
+                    continue
+            return date_str
+    return ""
+
+
 def process_rfq_email(rfq_email):
     """Process a single RFQ email into the queue. Returns rfq_data or None.
     Deduplicates by checking email_uid against existing RFQs.
@@ -2093,6 +2193,21 @@ def process_rfq_email(rfq_email):
             rfq_data["form_type"] = "ams_704"
             rfq_data["quote_type"] = "704b_fill"
     
+    # ── Fallback: extract solicitation + due date from email text ──────────
+    _email_subject = rfq_email.get("subject", "")
+    _email_body = rfq_email.get("body_text", rfq_email.get("body", rfq_email.get("body_preview", "")))
+    _combined_text = f"{_email_subject} {_email_body}"
+    if not rfq_data.get("solicitation_number") or rfq_data.get("solicitation_number") == "unknown":
+        _sol = _extract_solicitation(_combined_text)
+        if _sol:
+            rfq_data["solicitation_number"] = _sol
+            _trace.append(f"SOL FROM EMAIL TEXT: {_sol}")
+    if not rfq_data.get("due_date") or rfq_data.get("due_date") == "TBD":
+        _due = _extract_due_date(_combined_text)
+        if _due:
+            rfq_data["due_date"] = _due
+            _trace.append(f"DUE FROM EMAIL TEXT: {_due}")
+
     rfqs[rfq_data["id"]] = rfq_data
     save_rfqs(rfqs)
     POLL_STATUS["emails_found"] += 1
@@ -4263,6 +4378,22 @@ if os.environ.get("ENABLE_BACKGROUND_AGENTS", "true").lower() not in ("false", "
             log.info("Catalog has %d items", _cat)
     except Exception as _e:
         log.warning("Catalog check failed: %s", _e)
+
+    # ── Due Date Reminders (hourly, SMS + bell) ──────────────────
+    try:
+        from src.agents.due_date_reminder import start_reminder_scheduler
+        start_reminder_scheduler()
+        log.info("Due date reminder scheduler started (hourly)")
+    except Exception as _e:
+        log.warning("Due date reminders failed: %s", _e)
+
+    # ── Backfill RFQ metadata on boot ──────────────────────────
+    try:
+        _bf_meta = backfill_rfq_metadata()
+        if _bf_meta:
+            log.info("RFQ metadata backfill: %d RFQs updated", _bf_meta)
+    except Exception as _e:
+        log.warning("RFQ metadata backfill failed: %s", _e)
 
     # ── Backfill item memory from existing PCs/quotes ──────────
     try:
