@@ -5097,6 +5097,8 @@ def api_pricecheck_competitor_intel(pcid):
                         "description": desc[:60],
                         "scprs_price": m.get("scprs_last_price"),
                         "scprs_agency": m.get("scprs_agency", ""),
+                        "scprs_po": m.get("scprs_po", m.get("last_po_number", "")),
+                        "scprs_source": m.get("scprs_source", ""),
                         "competitor_price": m.get("competitor_low_price"),
                         "competitor_source": m.get("competitor_source", ""),
                         "web_lowest": m.get("web_lowest_price"),

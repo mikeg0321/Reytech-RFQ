@@ -1815,7 +1815,7 @@
        d.catalog_intel.forEach(ci=>{
         html+='<div style="background:#161b22;border-radius:6px;padding:8px 10px;margin-bottom:4px;font-size:14px;display:flex;gap:12px;flex-wrap:wrap">';
         html+='<span style="color:#c9d1d9;font-weight:600;min-width:150px">Item '+ci.idx+': '+escHtml(ci.description)+'</span>';
-        if(ci.scprs_price) html+='<span style="color:#58a6ff">SCPRS: $'+Number(ci.scprs_price).toFixed(2)+'</span>';
+        if(ci.scprs_price){html+=(ci.scprs_po?'<a href="/api/v1/harvest/po-screenshot/'+ci.scprs_po+'" target="_blank" style="text-decoration:none">':'')+'<span style="color:#58a6ff;cursor:'+(ci.scprs_po?'pointer':'help')+'">SCPRS: $'+Number(ci.scprs_price).toFixed(2)+(ci.scprs_source==='fiscal_scprs_summary'?' <small style="opacity:.6">(PO total)</small>':'')+'</span>'+(ci.scprs_po?'</a>':'');}
         if(ci.competitor_price) html+='<span style="color:#f85149">Competitor: $'+Number(ci.competitor_price).toFixed(2)+' ('+escHtml(ci.competitor_source)+')</span>';
         if(ci.web_lowest) html+='<span style="color:#d29922">Web: $'+Number(ci.web_lowest).toFixed(2)+'</span>';
         if(ci.win_rate>0) html+='<span style="color:'+(ci.win_rate>=60?'#3fb950':'#f85149')+'">Win: '+Math.round(ci.win_rate)+'%</span>';
