@@ -844,13 +844,24 @@ def detail(rid):
     except Exception as _e:
         log.warning("Memory auto-fill failed (non-fatal): %s", _e)
 
-    # Sanitize: strip any non-serializable values from items before render
+    # CRITICAL: sanitize ALL item values before render — tojson crashes on Undefined
     try:
+        import json as _json
         for _item in r.get("line_items", []):
-            for _k, _v in list(_item.items()):
+            for _k in list(_item.keys()):
+                _v = _item[_k]
+                # Remove Jinja2 Undefined, non-serializable objects, or test serialize
                 if _v is None:
+                    _item[_k] = ""
+                elif isinstance(_v, (str, int, float, bool)):
                     continue
-                if not isinstance(_v, (str, int, float, bool, list, dict)):
+                elif isinstance(_v, (list, dict)):
+                    try:
+                        _json.dumps(_v, default=str)
+                    except (TypeError, ValueError):
+                        _item[_k] = str(_v)
+                else:
+                    # Catches Jinja2 Undefined and any other non-standard type
                     _item[_k] = str(_v) if _v else ""
     except Exception:
         pass
