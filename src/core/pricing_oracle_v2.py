@@ -134,15 +134,27 @@ def _get_locked_cost(db, description, item_number=""):
 def _search_scprs_catalog(db, description, item_number=""):
     prices = []
     try:
-        kw = _tokenize(description)[:4]
-        if not kw:
+        token_groups = _tokenize(description)[:4]
+        if not token_groups:
             return prices
-        where = " AND ".join(["LOWER(description) LIKE ?" for _ in kw])
-        params = [f"%{k.lower()}%" for k in kw]
+        where_parts = []
+        params = []
+        for group in token_groups:
+            if len(group) == 1:
+                where_parts.append("LOWER(description) LIKE ?")
+                params.append(f"%{group[0]}%")
+            else:
+                or_clause = " OR ".join(["LOWER(description) LIKE ?" for _ in group])
+                where_parts.append(f"({or_clause})")
+                params.extend([f"%{v}%" for v in group])
+        where = " AND ".join(where_parts)
+        if item_number:
+            where = f"({where}) OR LOWER(mfg_number) = ?"
+            params.append(item_number.lower())
         rows = db.execute(f"""
             SELECT description, last_unit_price, last_quantity, last_uom,
                    last_supplier, last_department, last_date, times_seen
-            FROM scprs_catalog WHERE {where} ORDER BY times_seen DESC LIMIT 15
+            FROM scprs_catalog WHERE {where} ORDER BY times_seen DESC LIMIT 20
         """, params).fetchall()
         for r in rows:
             if r[1] and r[1] > 0:
@@ -150,24 +162,33 @@ def _search_scprs_catalog(db, description, item_number=""):
                                "uom": r[3] or "", "supplier": r[4] or "", "department": r[5] or "",
                                "date": r[6] or "", "source": "scprs_catalog",
                                "is_reytech": "REYTECH" in (r[4] or "").upper()})
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug("scprs_catalog search: %s", e)
     return prices
 
 
 def _search_po_lines(db, description, item_number=""):
     prices = []
     try:
-        kw = _tokenize(description)[:3]
-        if not kw:
+        token_groups = _tokenize(description)[:3]
+        if not token_groups:
             return prices
-        where = " AND ".join(["LOWER(l.description) LIKE ?" for _ in kw])
-        params = [f"%{k.lower()}%" for k in kw]
+        where_parts = []
+        params = []
+        for group in token_groups:
+            if len(group) == 1:
+                where_parts.append("LOWER(l.description) LIKE ?")
+                params.append(f"%{group[0]}%")
+            else:
+                or_clause = " OR ".join(["LOWER(l.description) LIKE ?" for _ in group])
+                where_parts.append(f"({or_clause})")
+                params.extend([f"%{v}%" for v in group])
+        where = " AND ".join(where_parts)
         rows = db.execute(f"""
             SELECT l.description, l.unit_price, l.quantity, l.uom,
                    m.supplier, m.dept_name, m.start_date, m.buyer_email
             FROM scprs_po_lines l JOIN scprs_po_master m ON l.po_number=m.po_number
-            WHERE {where} ORDER BY m.start_date DESC LIMIT 20
+            WHERE {where} ORDER BY m.start_date DESC LIMIT 25
         """, params).fetchall()
         for r in rows:
             try:
@@ -181,19 +202,23 @@ def _search_po_lines(db, description, item_number=""):
                                "date": r[6] or "", "buyer_email": r[7] or "",
                                "source": "scprs_po_lines",
                                "is_reytech": "REYTECH" in (r[4] or "").upper()})
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug("po_lines search: %s", e)
     return prices
 
 
 def _search_product_catalog(db, description, item_number=""):
     prices = []
     try:
-        kw = _tokenize(description)[:3]
-        if not kw:
+        token_groups = _tokenize(description)[:3]
+        if not token_groups:
             return prices
-        where = " OR ".join(["LOWER(name) LIKE ?" for _ in kw])
-        params = [f"%{k.lower()}%" for k in kw]
+        # Use OR across all variant groups for product catalog (broader match)
+        all_variants = []
+        for group in token_groups:
+            all_variants.extend(group)
+        where = " OR ".join(["LOWER(name) LIKE ?" for _ in all_variants])
+        params = [f"%{v}%" for v in all_variants]
         rows = db.execute(f"""
             SELECT name, sell_price, cost, best_supplier FROM product_catalog WHERE {where} LIMIT 10
         """, params).fetchall()
@@ -219,7 +244,7 @@ def _analyze_market_prices(market_prices, request_qty):
         try:
             from src.agents.quote_intelligence import _normalize_unit_price
             norm = _normalize_unit_price(price, mp.get("description", ""), mp.get("quantity", 1))
-            if norm:
+            if norm and norm.get("normalized_price") and norm["normalized_price"] > 0:
                 price = norm["normalized_price"]
         except Exception:
             pass
@@ -333,11 +358,13 @@ def _get_competitor_breakdown(market_prices):
 
 def _get_cross_sell(db, description):
     try:
-        kw = _tokenize(description)[:3]
-        if not kw:
+        token_groups = _tokenize(description)[:3]
+        if not token_groups:
             return []
-        where = " AND ".join(["LOWER(l1.description) LIKE ?" for _ in kw])
-        params = [f"%{k.lower()}%" for k in kw]
+        # Flatten to first variant of each group for cross-sell query
+        flat_kw = [g[0] for g in token_groups]
+        where = " AND ".join(["LOWER(l1.description) LIKE ?" for _ in flat_kw])
+        params = [f"%{k}%" for k in flat_kw]
         rows = db.execute(f"""
             SELECT l2.description, COUNT(*) c FROM scprs_po_lines l1
             JOIN scprs_po_lines l2 ON l1.po_number=l2.po_number AND l1.description!=l2.description
@@ -349,9 +376,31 @@ def _get_cross_sell(db, description):
 
 
 def _tokenize(text):
+    """Extract keywords with abbreviation expansion. Returns list of lists."""
     stop = {'the', 'a', 'an', 'and', 'or', 'for', 'of', 'to', 'in', 'with',
-            'item', 'items', 'each', 'per', 'ea', 'cs', 'bx', 'pk', 'box', 'case', 'pack', 'qty'}
-    return [w for w in re.findall(r'[a-zA-Z]{3,}', (text or "").lower()) if w not in stop]
+            'item', 'items', 'each', 'per', 'ea', 'cs', 'bx', 'pk', 'box',
+            'case', 'pack', 'qty', 'options', 'option', 'size', 'type'}
+    expansions = {
+        'medium': ['medium', 'med'], 'large': ['large', 'lg', 'lrg'],
+        'small': ['small', 'sm', 'sml'], 'extra': ['extra', 'xtra'],
+        'black': ['black', 'blk'], 'blue': ['blue', 'blu'],
+        'white': ['white', 'wht'], 'powder': ['powder', 'pwdr', 'pwdrfree'],
+        'nitrile': ['nitrile', 'nitrl'], 'gloves': ['gloves', 'glove', 'glov'],
+        'exam': ['exam', 'examination'], 'wheelchair': ['wheelchair', 'whlchr'],
+        'diabetic': ['diabetic', 'diab'],
+    }
+    words = [w for w in re.findall(r'[a-zA-Z0-9]{2,}', (text or "").lower()) if w not in stop]
+    expanded = []
+    for w in words:
+        found = False
+        for key, variants in expansions.items():
+            if w in variants or w == key:
+                expanded.append(variants)
+                found = True
+                break
+        if not found:
+            expanded.append([w])
+    return expanded
 
 
 # ── Item Memory ─────────────────────────────────────────────────
