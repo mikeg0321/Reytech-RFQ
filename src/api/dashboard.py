@@ -653,13 +653,15 @@ def imap_backfill_rfq_metadata(dry_run=False):
                             from src.forms.rfq_parser import parse_703b
                             parsed = parse_703b(tmp_path)
                             if _needs_sol and parsed.get("solicitation_number"):
-                                r["solicitation_number"] = parsed["solicitation_number"]
-                                _needs_sol = False
-                                entry["sol"] = parsed["solicitation_number"]
+                                _psol = parsed["solicitation_number"].strip().rstrip("_.- ")
+                                if _psol and len(_psol) > 2 and "_____" not in _psol and _psol.lower() not in ("number", "response"):
+                                    r["solicitation_number"] = _psol
+                                    _needs_sol = False
+                                    entry["sol"] = _psol
                             if _needs_due and parsed.get("due_date"):
-                                r["due_date"] = parsed["due_date"]
+                                r["due_date"] = _normalize_date(parsed["due_date"])
                                 _needs_due = False
-                                entry["due"] = parsed["due_date"]
+                                entry["due"] = r["due_date"]
                             # Recover requestor info
                             if not r.get("requestor_name") and parsed.get("requestor_name"):
                                 r["requestor_name"] = parsed["requestor_name"]
@@ -673,9 +675,11 @@ def imap_backfill_rfq_metadata(dry_run=False):
                             parsed = parse_704b(tmp_path)
                             header = parsed.get("header", {})
                             if _needs_sol and header.get("solicitation_number"):
-                                r["solicitation_number"] = header["solicitation_number"]
-                                _needs_sol = False
-                                entry["sol"] = header["solicitation_number"]
+                                _hsol = header["solicitation_number"].strip().rstrip("_.- ")
+                                if _hsol and len(_hsol) > 2 and "_____" not in _hsol and _hsol.lower() not in ("number", "response"):
+                                    r["solicitation_number"] = _hsol
+                                    _needs_sol = False
+                                    entry["sol"] = _hsol
                             if not r.get("form_type"):
                                 r["form_type"] = "ams_704"
                         else:
@@ -1942,42 +1946,86 @@ def _check_delivery_status(email_data, track_result):
 
 
 def _extract_solicitation(text):
-    """Extract solicitation/RFQ number from text (email subject, body, PDF text)."""
+    """Extract solicitation/RFQ number from text (email subject, body, PDF text).
+
+    Targets CDCR/CalVet patterns: PR 10837814, PREQ 10840485, Solicitation #25-067MC,
+    Request for Quote: 10840878, RFQ SAC 10840487, etc.
+    """
     import re as _re
+    _text = str(text)
+
+    # Garbage filter — reject common false positives
+    _garbage = {"response", "number", "quote", "request", "bid", "vendor",
+                "price", "check", "form", "item", "unit", "total", "date",
+                "name", "email", "phone", "fax", "attachment", "page"}
+
     patterns = [
-        r'(?:solicitation|sol|rfq|bid|ifb|rfi)[\s#:]+([A-Z0-9][\w\-/]+)',
-        r'#\s*(\d{2,4}[-/]\d{2,4}[\w\-]*)',
-        r'(?:number|no|num)[\s.:]+([A-Z0-9][\w\-/]+)',
-        r'(\d{2}/\d{2}-\d{3,}[A-Z]*)',
+        # PR/PREQ + number (CDCR standard)
+        r'(?:PR|PREQ|P\.?R\.?)\s*#?\s*(\d{7,})',
+        # Solicitation/RFQ/Bid + number
+        r'(?:solicitation|sol)\s*[#:\s]+(\d{5,}[\w\-]*)',
+        r'(?:rfq|bid|ifb|rfi)\s+(?:[A-Z]{2,4}\s+)?(\d{5,}[\w\-]*)',
+        # "Request for Quote/Bid: NUMBER" or "Request for Bid- NUMBER"
+        r'(?:request\s+for\s+(?:quot(?:e|ation)|bid))\s*[:\-]\s*(\d{5,}[\w\-]*)',
+        # Solicitation #XX-XXXXX format
+        r'(?:solicitation|sol|rfq|bid)\s*[#:\s]+([A-Z0-9]{2,4}[\-/]\d{2,}[\w\-]*)',
+        # Ref/Requisition + number
+        r'(?:ref|requisition|req)\s+(?:requisition\s+)?(\d{2,4}[\-/]\d{2,4}[\w\-]*)',
+        # Bare #NUMBER with 5+ digits
+        r'#\s*(\d{5,}[\w\-]*)',
+        # Standalone 7+ digit number (CDCR PR numbers)
+        r'\b(\d{7,8})\b',
     ]
     for p in patterns:
-        m = _re.search(p, str(text), _re.IGNORECASE)
+        m = _re.search(p, _text, _re.IGNORECASE)
         if m:
-            return m.group(1).strip()
+            val = m.group(1).strip().rstrip("_.- ")
+            # Filter garbage
+            if val.lower() in _garbage:
+                continue
+            if "_____" in val or len(val) < 2:
+                continue
+            return val
     return ""
 
 
 def _extract_due_date(text):
-    """Extract due date from text (email subject, body, PDF text)."""
+    """Extract due date from text (email subject, body, PDF text).
+    Normalizes all dates to MM/DD/YYYY format."""
     import re as _re
     from datetime import datetime as _dt
     patterns = [
-        r'(?:due|deadline|respond by|response due|close[sd]?)[\s:]+(\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4})',
-        r'(?:due|deadline)[\s:]+(\w+ \d{1,2},?\s*\d{4})',
-        r'(\d{1,2}/\d{1,2}/\d{2,4})\s*(?:at\s+\d)',
+        r'(?:due|deadline|respond by|response due|close[sd]?)\s*[:\s]+(\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4})',
+        r'(?:due|deadline)\s*[:\s]+(\w+ \d{1,2},?\s*\d{4})',
+        r'DUE\s+(\d{1,2}/\d{1,2}/\d{2,4})',
+        r'(\d{1,2}/\d{1,2}/\d{2,4})\s*(?:at\s+\d|by\s+\d)',
     ]
     for p in patterns:
         m = _re.search(p, str(text), _re.IGNORECASE)
         if m:
             date_str = m.group(1).strip()
-            for fmt in ["%m/%d/%Y", "%m/%d/%y", "%m-%d-%Y",
-                        "%B %d, %Y", "%B %d %Y", "%b %d, %Y"]:
+            for fmt in ["%m/%d/%Y", "%m/%d/%y", "%m-%d-%Y", "%m-%d-%y",
+                        "%B %d, %Y", "%B %d %Y", "%b %d, %Y", "%b %d %Y"]:
                 try:
                     return _dt.strptime(date_str, fmt).strftime("%m/%d/%Y")
                 except ValueError:
                     continue
             return date_str
     return ""
+
+
+def _normalize_date(date_str):
+    """Normalize a date string to MM/DD/YYYY. Used for dates from PDF form fields."""
+    if not date_str:
+        return date_str
+    from datetime import datetime as _dt
+    for fmt in ["%m/%d/%Y", "%m/%d/%y", "%m-%d-%Y", "%m-%d-%y",
+                "%Y-%m-%d", "%B %d, %Y", "%B %d %Y", "%b %d, %Y"]:
+        try:
+            return _dt.strptime(str(date_str).strip(), fmt).strftime("%m/%d/%Y")
+        except (ValueError, TypeError):
+            continue
+    return str(date_str).strip()
 
 
 def process_rfq_email(rfq_email):
