@@ -917,8 +917,13 @@ function recalcFromMarkup(idx){
  if(!costEl||!priceEl) return;
  var cost=parseFloat(costEl.value)||0;
  var mk=mkEl?parseFloat(mkEl.value):0;
+ var price=parseFloat(priceEl.value)||0;
  if(cost>0 && mk>0){
+  // Markup exists — calculate bid from cost + markup
   priceEl.value=(cost*(1+mk/100)).toFixed(2);
+ } else if(cost>0 && price>0 && mkEl && !mk){
+  // Cost changed, bid exists but no markup — back-calculate markup
+  mkEl.value=Math.round((price-cost)/cost*100);
  }
  recalc();
  triggerAutosave();

@@ -690,6 +690,18 @@
      recalcPC();
     }
 
+    function reverseMarkup(idx) {
+     const costEl=document.querySelector('[name=cost_'+idx+']');
+     const markupEl=document.querySelector('[name=markup_'+idx+']');
+     const priceEl=document.querySelector('[name=price_'+idx+']');
+     if(!costEl||!markupEl||!priceEl) return;
+     const cost=parseFloat(costEl.value.replace(/[^0-9.\-]/g,''))||0;
+     const price=parseFloat(priceEl.value.replace(/[^0-9.\-]/g,''))||0;
+     if(cost>0 && price>0){
+      markupEl.value=Math.round((price-cost)/cost*100);
+     }
+    }
+
     function toggleBid(idx, cb) {
      const row=document.querySelector('tr[data-row="'+idx+'"]:not(.notes-row)');
      if(row) row.style.opacity=cb.checked?'1':'0.4';
@@ -759,7 +771,7 @@
       +'<td style="min-width:160px"><span style="color:#484f58;font-size:14px">No sources</span></td>'
       +'<td><div class="currency-wrap"><input type="text" inputmode="decimal" name="cost_'+idx+'" value="" class="num-in" placeholder="0.00" oninput="sanitizePrice(this)" onchange="recalcRow('+idx+')" onblur="fmtCurrency(this)"></div></td>'
       +'<td><input type="text" inputmode="numeric" name="markup_'+idx+'" value="25" class="num-in sm" style="width:48px" oninput="sanitizeInt(this)" onchange="recalcRow('+idx+')"><span style="color:#8b949e;font-size:13px">%</span></td>'
-      +'<td><div class="currency-wrap"><input type="text" inputmode="decimal" name="price_'+idx+'" value="" class="num-in price-out" placeholder="0.00" oninput="sanitizePrice(this)" onchange="recalcPC()" onblur="fmtCurrency(this)"></div></td>'
+      +'<td><div class="currency-wrap"><input type="text" inputmode="decimal" name="price_'+idx+'" value="" class="num-in price-out" placeholder="0.00" oninput="sanitizePrice(this)" onchange="reverseMarkup('+idx+');recalcPC()" onblur="fmtCurrency(this)"></div></td>'
       +'<td class="ext">\u2014</td><td class="profit">\u2014</td>';
      table.appendChild(tr);
      // Add notes row (hidden by default)
