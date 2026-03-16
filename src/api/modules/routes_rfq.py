@@ -781,32 +781,22 @@ def detail(rid):
     # TODO: re-enable after fixing stored Undefined values in rfqs.json
     pass  # enrichment disabled
 
-    # CRITICAL: recursively sanitize ENTIRE r dict — tojson crashes on Undefined
+    # NUCLEAR SANITIZE: round-trip through JSON to guarantee no Undefined objects
     import json as _json
-
-    def _sanitize(obj):
-        """Recursively make any object JSON-serializable."""
-        if obj is None:
-            return ""
-        if isinstance(obj, (str, int, float, bool)):
-            return obj
-        if isinstance(obj, dict):
-            return {k: _sanitize(v) for k, v in obj.items()}
-        if isinstance(obj, (list, tuple)):
-            return [_sanitize(v) for v in obj]
-        # Jinja2 Undefined, custom objects, anything else
-        try:
-            _json.dumps(obj)
-            return obj
-        except (TypeError, ValueError):
-            return str(obj) if obj else ""
-
     try:
-        r = _sanitize(r)
+        r = _json.loads(_json.dumps(r, default=str))
     except Exception:
-        # Last resort: round-trip through JSON with default=str
+        # If even that fails, build a minimal safe dict
         try:
-            r = _json.loads(_json.dumps(r, default=str))
+            safe_items = []
+            for _it in (r.get("line_items") or []):
+                try:
+                    safe_items.append(_json.loads(_json.dumps(_it, default=str)))
+                except Exception:
+                    safe_items.append({"description": str(_it.get("description", ""))})
+            r = _json.loads(_json.dumps({k: v for k, v in r.items()
+                                          if k != "line_items"}, default=str))
+            r["line_items"] = safe_items
         except Exception:
             pass
 
