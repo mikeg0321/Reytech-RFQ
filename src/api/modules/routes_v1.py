@@ -3568,6 +3568,74 @@ def api_v1_system_boot_health():
         return api_response(error=str(e), status=500)
 
 
+@bp.route("/api/v1/system/disk-usage")
+@auth_required
+def api_v1_system_disk_usage():
+    """Show disk usage breakdown and clean up old files."""
+    import subprocess
+    try:
+        from src.core.paths import DATA_DIR as _DATA_DIR
+    except Exception:
+        _DATA_DIR = os.environ.get("DATA_DIR", "/data")
+
+    clean = request.args.get("clean", "0") == "1"
+    result = {"data_dir": _DATA_DIR, "usage": [], "cleaned": []}
+
+    # Disk usage per directory
+    try:
+        for entry in sorted(os.listdir(_DATA_DIR)):
+            path = os.path.join(_DATA_DIR, entry)
+            if os.path.isfile(path):
+                result["usage"].append({"name": entry, "size_mb": round(os.path.getsize(path) / 1_000_000, 1)})
+            elif os.path.isdir(path):
+                total = 0
+                count = 0
+                for root, dirs, files in os.walk(path):
+                    for f in files:
+                        fp = os.path.join(root, f)
+                        try:
+                            total += os.path.getsize(fp)
+                            count += 1
+                        except OSError:
+                            pass
+                result["usage"].append({"name": entry + "/", "size_mb": round(total / 1_000_000, 1), "files": count})
+        result["usage"].sort(key=lambda x: x["size_mb"], reverse=True)
+        result["total_mb"] = round(sum(u["size_mb"] for u in result["usage"]), 1)
+    except Exception as e:
+        result["error"] = str(e)
+
+    # Cleanup if requested
+    if clean:
+        import time as _time
+        now = _time.time()
+        cutoff_90d = now - (90 * 86400)
+        cutoff_7d = now - (7 * 86400)
+
+        # PO screenshots older than 90 days
+        po_dir = os.path.join(_DATA_DIR, "po_records")
+        if os.path.isdir(po_dir):
+            for f in os.listdir(po_dir):
+                fp = os.path.join(po_dir, f)
+                if f.endswith((".png", ".html")) and os.path.getmtime(fp) < cutoff_90d:
+                    size = os.path.getsize(fp)
+                    os.remove(fp)
+                    result["cleaned"].append({"file": f"po_records/{f}", "size_mb": round(size / 1_000_000, 2)})
+
+        # Snapshots older than 7 days
+        snap_dir = os.path.join(_DATA_DIR, "snapshots")
+        if os.path.isdir(snap_dir):
+            for f in os.listdir(snap_dir):
+                fp = os.path.join(snap_dir, f)
+                if os.path.getmtime(fp) < cutoff_7d:
+                    size = os.path.getsize(fp)
+                    os.remove(fp)
+                    result["cleaned"].append({"file": f"snapshots/{f}", "size_mb": round(size / 1_000_000, 2)})
+
+        result["freed_mb"] = round(sum(c["size_mb"] for c in result["cleaned"]), 1)
+
+    return api_response(result)
+
+
 @bp.route("/api/v1/locations/search")
 @auth_required
 def api_v1_locations_search():
