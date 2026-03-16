@@ -3080,15 +3080,20 @@ def api_v1_rfq_diagnose_fields():
         if source == "json":
             # Raw JSON file — no DAL, no merge
             import os as _os
-            _rfq_path = _os.path.join(
-                _os.environ.get("DATA_DIR", _os.path.join(_os.path.dirname(__file__), "..", "..", "data")),
-                "rfqs.json")
+            try:
+                from src.core.paths import DATA_DIR as _DATA_DIR
+            except Exception:
+                _DATA_DIR = _os.environ.get("DATA_DIR", _os.path.join(_os.path.dirname(__file__), "..", "..", "data"))
+            _rfq_path = _os.path.join(_DATA_DIR, "rfqs.json")
+            exists = _os.path.exists(_rfq_path)
+            size = _os.path.getsize(_rfq_path) if exists else 0
             try:
                 with open(_rfq_path) as f:
                     rfqs = _json.load(f)
             except Exception as _e:
-                return api_response({"error": f"JSON read failed: {_e}", "path": _rfq_path})
-            label = f"json ({_rfq_path})"
+                return api_response({"error": f"JSON read failed: {_e}", "path": _rfq_path,
+                                     "exists": exists, "size": size, "data_dir": _DATA_DIR})
+            label = f"json ({_rfq_path}, {size}b, {len(rfqs)} entries)"
         elif source == "db":
             # Raw SQLite — no JSON merge
             from src.core.dal import list_rfqs as _dal_list
