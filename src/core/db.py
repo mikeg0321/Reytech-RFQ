@@ -1062,6 +1062,12 @@ def _migrate_columns():
         ("item_mappings", "uom", "TEXT DEFAULT ''"),
         ("item_mappings", "supplier_url", "TEXT DEFAULT ''"),
         ("item_mappings", "notes", "TEXT DEFAULT ''"),
+        # ── RFQ metadata columns ──
+        ("rfqs", "solicitation_number", "TEXT DEFAULT ''"),
+        ("rfqs", "due_date", "TEXT DEFAULT ''"),
+        ("rfqs", "email_subject", "TEXT DEFAULT ''"),
+        ("rfqs", "body_text", "TEXT DEFAULT ''"),
+        ("rfqs", "form_type", "TEXT DEFAULT ''"),
     ]
     try:
         conn = sqlite3.connect(DB_PATH, timeout=30)

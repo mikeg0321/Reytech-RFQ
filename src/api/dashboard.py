@@ -280,16 +280,27 @@ def load_rfqs():
         rows = _dal_list(limit=10000)
         if rows:
             result = {r["id"]: r for r in rows}
-            # Merge line_items from JSON for RFQs with empty items in SQLite
+            # Merge missing fields from JSON into SQLite results
             json_data = _cached_json_load(rfq_db_path(), fallback={})
             if json_data:
                 for rid, r in result.items():
+                    jr = json_data.get(rid, {})
+                    if not jr:
+                        continue
+                    # Merge line_items if SQLite items column is empty
                     items = r.get("items", [])
                     if not items or (isinstance(items, list) and len(items) == 0):
-                        jr = json_data.get(rid, {})
                         li = jr.get("line_items", jr.get("items", []))
                         if li and isinstance(li, list) and len(li) > 0:
                             r["items"] = li
+                    # Merge any other fields that are empty in SQLite but present in JSON
+                    for key in ("solicitation_number", "due_date", "email_subject",
+                                "body_text", "form_type", "agency_name", "quote_type",
+                                "parse_note", "parse_details", "delivery_location",
+                                "requestor_phone", "templates", "attachments_raw",
+                                "email_message_id", "institution_name"):
+                        if not r.get(key) and jr.get(key):
+                            r[key] = jr[key]
             return _normalize_rfq_fields(result)
     except Exception as e:
         log.warning("DAL list_rfqs failed, falling back to JSON: %s", str(e)[:200])
@@ -314,15 +325,23 @@ def save_rfqs(rfqs):
                 conn.execute("""
                     INSERT OR REPLACE INTO rfqs
                     (id, received_at, agency, institution, requestor_name, requestor_email,
-                     rfq_number, items, status, source, email_uid, notes, updated_at)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))
+                     rfq_number, items, status, source, email_uid, notes,
+                     solicitation_number, due_date, email_subject, body_text, form_type,
+                     updated_at)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))
                 """, (
                     rid, r.get("received_at", ""), r.get("agency", ""),
                     r.get("institution", ""), r.get("requestor_name", ""),
-                    r.get("requestor_email", ""), r.get("rfq_number", ""),
+                    r.get("requestor_email", ""),
+                    r.get("rfq_number", "") or r.get("solicitation_number", ""),
                     json.dumps(r.get("line_items", r.get("items", [])), default=str),
                     r.get("status", "new"), r.get("source", ""),
                     r.get("email_uid", ""), r.get("notes", ""),
+                    r.get("solicitation_number", "") or r.get("rfq_number", ""),
+                    r.get("due_date", ""),
+                    r.get("email_subject", ""),
+                    (r.get("body_text", "") or "")[:3000],
+                    r.get("form_type", ""),
                 ))
     except Exception as e:
         log.debug("RFQ dual-write to SQLite failed: %s", str(e)[:200])
