@@ -773,7 +773,7 @@ def detail(rid):
             rfqs[rid] = r
             save_rfqs(rfqs)
     
-    # ── Enrich items with pricing intelligence ──
+    # ── Enrichment (ALL optional — must NEVER crash the page) ──
     try:
         _enrich_items_with_intel(
             r.get("line_items", []),
@@ -781,58 +781,77 @@ def detail(rid):
             agency=r.get("agency", "")
         )
     except Exception as _e:
-        log.debug("Price intel enrichment: %s", _e)
+        log.warning("Price intel enrichment failed (non-fatal): %s", _e)
 
-    # Auto-fill ALL fields from item memory (previously-priced PCs/quotes)
-    _memory_filled = 0
     try:
         from src.core.pricing_oracle_v2 import _check_item_memory
-        import sqlite3
-        from src.core.db import DB_PATH
-        _mem_db = sqlite3.connect(DB_PATH, timeout=10)
+        import sqlite3 as _sqlite3
+        from src.core.db import DB_PATH as _DB_PATH
+        _mem_db = _sqlite3.connect(_DB_PATH, timeout=5)
+        _memory_filled = 0
         for _item in r.get("line_items", []):
-            _desc = _item.get("description", "")
-            _item_num = _item.get("item_number", "")
-            mem = _check_item_memory(_mem_db, _desc, _item_num)
-            if not mem:
+            try:
+                _desc = str(_item.get("description", "") or "")
+                _item_num = str(_item.get("item_number", "") or "")
+                if not _desc or len(_desc) < 3:
+                    continue
+                mem = _check_item_memory(_mem_db, _desc, _item_num)
+                if not mem:
+                    continue
+                # Fill cost (only if empty)
+                try:
+                    _cur_cost = float(str(_item.get("supplier_cost", 0) or 0).replace("$", "").replace(",", ""))
+                except (ValueError, TypeError):
+                    _cur_cost = 0
+                if mem.get("last_cost") and float(mem["last_cost"] or 0) > 0 and _cur_cost <= 0:
+                    _item["supplier_cost"] = round(float(mem["last_cost"]), 2)
+                # Fill sell price (only if empty)
+                try:
+                    _cur_sell = float(str(_item.get("price_per_unit", 0) or 0).replace("$", "").replace(",", ""))
+                except (ValueError, TypeError):
+                    _cur_sell = 0
+                if mem.get("last_sell_price") and float(mem["last_sell_price"] or 0) > 0 and _cur_sell <= 0:
+                    _item["price_per_unit"] = round(float(mem["last_sell_price"]), 2)
+                # Fill supplier
+                if mem.get("supplier") and not _item.get("item_supplier"):
+                    _item["item_supplier"] = str(mem["supplier"])
+                # Fill URL (critical for ordering)
+                if not _item.get("item_link"):
+                    _url = mem.get("product_url") or mem.get("supplier_url") or ""
+                    if _url:
+                        _item["item_link"] = str(_url)
+                # Fill MFG#
+                if not _item.get("item_number"):
+                    _mfg = mem.get("mfg_number") or mem.get("canonical_item_number") or ""
+                    if _mfg:
+                        _item["item_number"] = str(_mfg)
+                # Fill ASIN
+                if mem.get("asin") and not _item.get("asin"):
+                    _item["asin"] = str(mem["asin"])
+                # Fill UOM
+                if mem.get("uom") and not _item.get("uom"):
+                    _item["uom"] = str(mem["uom"])
+                _item["memory_match"] = True
+                _memory_filled += 1
+            except Exception:
                 continue
-            # Fill cost (only if empty)
-            if mem.get("last_cost") and mem["last_cost"] > 0:
-                if not _item.get("supplier_cost") or float(str(_item.get("supplier_cost", 0)).replace("$", "").replace(",", "") or "0") <= 0:
-                    _item["supplier_cost"] = round(mem["last_cost"], 2)
-            # Fill sell price (only if empty)
-            if mem.get("last_sell_price") and mem["last_sell_price"] > 0:
-                if not _item.get("price_per_unit") or float(str(_item.get("price_per_unit", 0)).replace("$", "").replace(",", "") or "0") <= 0:
-                    _item["price_per_unit"] = round(mem["last_sell_price"], 2)
-            # Fill supplier (only if empty)
-            if mem.get("supplier") and not _item.get("item_supplier"):
-                _item["item_supplier"] = mem["supplier"]
-            # Fill URL (always carry forward — critical for ordering)
-            if mem.get("product_url") and not _item.get("item_link"):
-                _item["item_link"] = mem["product_url"]
-            if mem.get("supplier_url") and not _item.get("item_link"):
-                _item["item_link"] = mem["supplier_url"]
-            # Fill MFG# / part number
-            if mem.get("mfg_number") and not _item.get("item_number"):
-                _item["item_number"] = mem["mfg_number"]
-            if mem.get("canonical_item_number") and not _item.get("item_number"):
-                _item["item_number"] = mem["canonical_item_number"]
-            # Fill ASIN
-            if mem.get("asin") and not _item.get("asin"):
-                _item["asin"] = mem["asin"]
-            # Fill UOM
-            if mem.get("uom") and not _item.get("uom"):
-                _item["uom"] = mem["uom"]
-            # Mark as memory-filled
-            _item["memory_match"] = True
-            _item["memory_confidence"] = mem.get("confidence", 0)
-            _item["memory_source"] = mem.get("match_type", "")
-            _memory_filled += 1
         _mem_db.close()
-        # Persist the auto-filled data back to the RFQ
         if _memory_filled > 0:
-            save_rfqs(rfqs)
-            log.info("RFQ %s: auto-filled %d items from memory", rid, _memory_filled)
+            try:
+                save_rfqs(rfqs)
+            except Exception:
+                pass
+    except Exception as _e:
+        log.warning("Memory auto-fill failed (non-fatal): %s", _e)
+
+    # Sanitize: strip any non-serializable values from items before render
+    try:
+        for _item in r.get("line_items", []):
+            for _k, _v in list(_item.items()):
+                if _v is None:
+                    continue
+                if not isinstance(_v, (str, int, float, bool, list, dict)):
+                    _item[_k] = str(_v) if _v else ""
     except Exception:
         pass
 
