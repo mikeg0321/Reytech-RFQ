@@ -308,14 +308,16 @@ def load_rfqs():
     return _normalize_rfq_fields(_cached_json_load(rfq_db_path(), fallback={}))
 
 def save_rfqs(rfqs):
+    import traceback
     p = rfq_db_path()
-    # Atomic write: temp file → fsync → rename (prevents partial reads by other workers)
-    tmp = p + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(rfqs, f, indent=2, default=str)
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp, p)  # atomic on POSIX
+    # Snapshot-protected save — blocks destructive writes
+    caller = traceback.extract_stack()[-2]
+    reason = f"{caller.filename.split('/')[-1]}:{caller.lineno} {caller.name}"
+    from src.core.data_guard import safe_save_json
+    result = safe_save_json(p, rfqs, reason=reason)
+    if not result:
+        log.error("save_rfqs BLOCKED by data_guard (reason: %s)", reason)
+        return
     _invalidate_cache(p)
     # Dual-write to SQLite (survives redeploy)
     try:
@@ -1183,13 +1185,16 @@ def _save_price_checks(pcs):
     except Exception as e:
         log.error("DB save failed for price_checks: %s", e)
 
-    # ── BACKUP: Write JSON cache (non-critical) ──────────────────
+    # ── BACKUP: Write JSON cache with data guard ──────────────────
     try:
+        import traceback
+        from src.core.data_guard import safe_save_json
+        caller = traceback.extract_stack()[-2]
+        reason = f"{caller.filename.split('/')[-1]}:{caller.lineno}"
         path = os.path.join(DATA_DIR, "price_checks.json")
-        with open(path, "w") as f:
-            json.dump(pcs, f, indent=2, default=str)
+        safe_save_json(path, pcs, reason=reason)
     except Exception:
-        pass  # JSON backup is non-critical
+        pass
 
 
 def _merge_save_pc(pc_id: str, pc_data: dict):

@@ -3206,3 +3206,91 @@ def api_v1_reminders_check_now():
     except Exception as e:
         log.error("reminders/check-now error: %s", e, exc_info=True)
         return api_response(error=str(e), status=500)
+
+
+# ── System Safety: Snapshots / Restore / Data Health ──────────────────
+
+@bp.route("/api/v1/system/snapshots")
+@auth_required
+def api_v1_system_snapshots():
+    """List data file snapshots."""
+    try:
+        from src.core.data_guard import list_snapshots
+        filename = request.args.get("file", "")
+        return api_response({"snapshots": list_snapshots(filename)})
+    except Exception as e:
+        log.error("system/snapshots error: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)
+
+
+@bp.route("/api/v1/system/restore", methods=["POST"])
+@auth_required
+def api_v1_system_restore():
+    """Restore a data file from a snapshot."""
+    try:
+        from src.core.data_guard import restore_snapshot
+        data = request.get_json(force=True, silent=True) or {}
+        snapshot = data.get("snapshot", "")
+        target = data.get("target", "")
+        allowed = ["rfqs.json", "price_checks.json", "orders.json"]
+        if os.path.basename(target) not in allowed:
+            return api_response(error=f"Only: {allowed}", status=403)
+        try:
+            from src.core.paths import DATA_DIR as _DATA_DIR
+        except Exception:
+            _DATA_DIR = os.environ.get("DATA_DIR", "/data")
+        target_path = os.path.join(_DATA_DIR, target)
+        return api_response(restore_snapshot(snapshot, target_path))
+    except Exception as e:
+        log.error("system/restore error: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)
+
+
+@bp.route("/api/v1/system/data-health")
+@auth_required
+def api_v1_system_data_health():
+    """Check data file integrity — item counts and snapshot status."""
+    import json as _json
+    try:
+        from src.core.paths import DATA_DIR as _DATA_DIR
+    except Exception:
+        _DATA_DIR = os.environ.get("DATA_DIR", "/data")
+    health = {"ok": True, "checks": []}
+    for fname, item_key in [("rfqs.json", "line_items"),
+                             ("price_checks.json", "items")]:
+        try:
+            with open(os.path.join(_DATA_DIR, fname)) as f:
+                data = _json.load(f)
+            total = len(data)
+            total_items = 0
+            for v in data.values():
+                if not isinstance(v, dict):
+                    continue
+                if item_key == "items":
+                    pd = v.get("pc_data", v)
+                    if isinstance(pd, str):
+                        try:
+                            pd = _json.loads(pd)
+                        except Exception:
+                            pd = {}
+                    total_items += len(
+                        pd.get("items", v.get("items", []))
+                        if isinstance(pd, dict) else []
+                    )
+                else:
+                    total_items += len(v.get("line_items", v.get("items", [])))
+            health["checks"].append({
+                "file": fname, "records": total,
+                "items": total_items, "ok": total_items > 0 or total == 0,
+            })
+            if total > 0 and total_items == 0:
+                health["ok"] = False
+        except Exception as e:
+            health["checks"].append({"file": fname, "error": str(e), "ok": False})
+            health["ok"] = False
+    try:
+        from src.core.data_guard import list_snapshots
+        health["snapshots"] = len(list_snapshots())
+    except Exception:
+        health["snapshots"] = 0
+    return api_response(health)

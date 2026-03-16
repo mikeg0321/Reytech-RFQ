@@ -757,7 +757,7 @@ def detail(rid):
     if restored:
         r["templates"] = tmpl
         rfqs[rid] = r
-        save_rfqs(rfqs)
+        r["_needs_save"] = True  # Deferred to POST /rfq/{rid}/save-restore
     
     # ── Restore output_files from DB if empty (post-redeploy) ──
     if not r.get("output_files") and r.get("status") in ("generated", "sent", "won", "lost"):
@@ -777,8 +777,8 @@ def detail(rid):
                         with open(restore_path, "wb") as _fw:
                             _fw.write(full_f["data"])
             rfqs[rid] = r
-            save_rfqs(rfqs)
-    
+            r["_needs_save"] = True  # Deferred to POST /rfq/{rid}/save-restore
+
     # ── Enrichment DISABLED — was crashing page with Undefined serialization ──
     # TODO: re-enable after fixing stored Undefined values in rfqs.json
     pass  # enrichment disabled
@@ -807,6 +807,21 @@ def detail(rid):
              rid, len(r.get("line_items", [])), "items" in r)
 
     return render_page("rfq_detail.html", active_page="Home", r=r, rid=rid)
+
+
+@bp.route("/rfq/<rid>/save-restore", methods=["POST"])
+@auth_required
+@safe_route
+def rfq_save_restore(rid):
+    """Save template/file restorations. Called via POST from rfq_detail.html, not GET."""
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False})
+    if r.pop("_needs_save", False):
+        save_rfqs(rfqs)
+        return jsonify({"ok": True, "saved": True})
+    return jsonify({"ok": True, "saved": False})
 
 
 @bp.route("/rfq/<rid>/update", methods=["POST"])

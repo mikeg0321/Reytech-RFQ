@@ -508,6 +508,8 @@ td:hover .desc-expand-btn { opacity: 1 !important; }
 </style>
 <script>
 const RID = {{rid|tojson}};
+// Save restored templates/files via POST (not in GET handler — Law 14)
+fetch('/rfq/'+RID+'/save-restore',{method:'POST',credentials:'same-origin'}).catch(function(){});
 const items={{r.get("line_items",[])|tojson}};
 const n=items.length;
 
