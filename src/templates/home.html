@@ -312,7 +312,8 @@ document.addEventListener('click', function(e) {
       {% if pc._urgency == 'overdue' %}<span style="color:#f85149;font-weight:700">{{pc.due_date}} ⚠️</span>
       {% elif pc._urgency == 'critical' %}<span style="color:#f0883e;font-weight:700">{{pc.due_date}} 🔥</span>
       {% elif pc._urgency == 'soon' %}<span style="color:#d29922;font-weight:600">{{pc.due_date}}</span>
-      {% else %}{{pc.due_date or '—'}}{% endif %}
+      {% elif pc.due_date %}{{pc.due_date}}
+      {% else %}<span style="color:var(--tx2);font-size:12px;opacity:.6">TBD</span>{% endif %}
       {% if pc._days_left is not none %}<div style="font-size:13px;color:{% if pc._days_left < 0 %}#f85149{% elif pc._days_left <= 1 %}#f0883e{% elif pc._days_left <= 3 %}#d29922{% else %}var(--tx2){% endif %}">
        {% if pc._days_left < 0 %}{{-pc._days_left}}d overdue{% elif pc._days_left == 0 %}Due today{% elif pc._days_left == 1 %}Tomorrow{% else %}{{pc._days_left}}d left{% endif %}
       </div>{% endif %}
@@ -367,13 +368,14 @@ document.addEventListener('click', function(e) {
     {% for id, r in rfqs|dictsort(reverse=true) %}
     <tr class="home-row" onclick="location.href='/rfq/{{id}}'" style="{% if r.status in ('sent','generated') %}opacity:0.55{% endif %}">
      <td onclick="event.stopPropagation()"><input type="checkbox" class="row-check rfq-check" value="{{id}}" onchange="updateBulkBar('rfq')"></td>
-     <td><a href="/rfq/{{id}}" class="sol">#{{r.get("solicitation_number") or r.get("rfq_number") or "—"}}</a></td>
+     <td><a href="/rfq/{{id}}" class="sol">{% if r.get("solicitation_number") or r.get("rfq_number") %}#{{r.get("solicitation_number") or r.get("rfq_number")}}{% else %}<span style="color:var(--tx2);opacity:.6">Pending</span>{% endif %}</a></td>
      <td style="font-weight:600">{{r.requestor_name}}{% if r.get('agency_name') and r.get('form_type') == 'generic_rfq' %}<span style="display:block;font-size:13px;font-weight:500;color:#a78bfa">{{r.agency_name}}</span>{% endif %}</td>
      <td class="mono">
       {% if r._urgency == 'overdue' %}<span style="color:#f85149;font-weight:700">{{r.due_date}} ⚠️</span>
       {% elif r._urgency == 'critical' %}<span style="color:#f0883e;font-weight:700">{{r.due_date}} 🔥</span>
       {% elif r._urgency == 'soon' %}<span style="color:#d29922;font-weight:600">{{r.due_date}}</span>
-      {% else %}{{r.due_date}}{% endif %}
+      {% elif r.due_date %}{{r.due_date}}
+      {% else %}<span style="color:var(--tx2);font-size:12px;opacity:.6">TBD</span>{% endif %}
       {% if r._days_left is not none %}<div style="font-size:13px;color:{% if r._days_left < 0 %}#f85149{% elif r._days_left <= 1 %}#f0883e{% elif r._days_left <= 3 %}#d29922{% else %}var(--tx2){% endif %}">
        {% if r._days_left < 0 %}{{-r._days_left}}d overdue{% elif r._days_left == 0 %}Due today{% elif r._days_left == 1 %}Tomorrow{% else %}{{r._days_left}}d left{% endif %}
       </div>{% endif %}
