@@ -540,3 +540,16 @@ Before any save_rfqs() call, snapshot the current state:
         save_rfqs(rfqs)
     except:
         rfqs[rid] = json.loads(backup)  # rollback
+
+### Law 17: Field Name Consistency — One Name, Everywhere
+The same data must use the same field name in:
+- DB schema (CREATE TABLE)
+- JSON files
+- Python dicts
+- Jinja2 templates
+- JavaScript
+
+On 2026-03-16, SQLite stored items as "items" but templates
+read "line_items". Data appeared lost but was there all along.
+Before adding ANY field, grep the entire codebase for existing
+names: `grep -rn "line_items\|\"items\"" src/`
