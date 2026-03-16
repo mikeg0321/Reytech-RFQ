@@ -3797,11 +3797,23 @@ def api_download_file(sol, filename):
     # Sanitize inputs
     sol = _re.sub(r'[^a-zA-Z0-9_-]', '', sol)
     filename = os.path.basename(filename)
-    filepath = os.path.join(os.path.dirname(__file__), "..", "..", "..", "data", "output", sol, filename)
+    filepath = os.path.join(OUTPUT_DIR, sol, filename)
     if not os.path.exists(filepath):
+        # Fallback: try serving from DB
+        try:
+            files = list_rfq_files(sol, category="generated")
+            for dbf in files:
+                if dbf.get("filename") == filename:
+                    full = get_rfq_file(dbf["id"])
+                    if full and full.get("data"):
+                        from flask import Response
+                        return Response(full["data"], mimetype="application/pdf",
+                                        headers={"Content-Disposition": f'inline; filename="{filename}"'})
+        except Exception:
+            pass
         return jsonify({"ok": False, "error": "File not found"}), 404
     from flask import send_file
-    return send_file(filepath, as_attachment=True, download_name=filename)
+    return send_file(filepath, mimetype="application/pdf", download_name=filename)
 
 
 # ═══════════════════════════════════════════════════════════════════════

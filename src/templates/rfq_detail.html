@@ -228,7 +228,7 @@
  </div>
 
  <div class="bg">
-  <button type="submit" class="btn btn-p" data-testid="rfq-save-pricing">✅ Finalize Pricing</button>
+  <button type="submit" class="btn btn-p" data-testid="rfq-save-pricing" onclick="this.textContent='⏳ Saving...';this.disabled=true;this.form.submit()">✅ Finalize Pricing</button>
   <button type="button" class="btn" data-testid="rfq-preview-quote" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd)" onclick="showRfqPreview()" aria-label="Preview Quote">👁️ Preview Quote</button>
   <button type="button" onclick="runQaCheck()" data-testid="rfq-generate-package" class="btn btn-g" style="font-size:14px;padding:10px 24px" aria-label="Generate RFP Package">📦 Generate RFP Package</button>
   <button type="button" class="btn" style="background:rgba(79,140,255,.15);color:var(--ac);border:1px solid rgba(79,140,255,.3)" onclick="sendQuoteEmail()" aria-label="Send Quote">📧 Send Quote</button>
@@ -337,8 +337,8 @@
   <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px">
    <span style="font-size:16px">{% if 'Quote' in f %}💰{% elif 'Package' in f %}📦{% elif '703B' in f %}📝{% elif '704B' in f %}📊{% elif 'BidPackage' in f %}📋{% else %}📄{% endif %}</span>
    <span style="flex:1;font-size:13px;color:var(--tx)">{{f}}</span>
-   <a href="#" onclick="previewPdf('/api/pricecheck/view-pdf/{{f}}','{{f}}');return false" class="btn btn-sm btn-s" style="font-size:14px;padding:4px 8px">👁️ View</a>
-   <a href="/dl/{{rid}}/{{f}}" class="btn btn-sm btn-s" style="font-size:14px;padding:4px 8px">⬇️ Download</a>
+   <a href="#" onclick="previewPdf('/api/download/{{r.get('solicitation_number','unknown').replace('/','_')}}/{{f}}','{{f}}');return false" class="btn btn-sm btn-s" style="font-size:14px;padding:4px 8px">👁️ View</a>
+   <a href="/api/download/{{r.get('solicitation_number','unknown').replace('/','_')}}/{{f}}" class="btn btn-sm btn-s" style="font-size:14px;padding:4px 8px">⬇️ Download</a>
   </div>
   {% endfor %}
  </div>

@@ -38,20 +38,24 @@
  <a href="/api/health/startup" style="color:#58a6ff;margin-left:8px">View details</a>
 </div>
 <script>
-fetch('/api/health/startup').then(function(r){return r.json()}).then(function(d){
- if(d.failed && d.failed>0){
-  var el=document.getElementById('health-banner');
-  var names=d.checks.filter(function(c){return c.status!=='PASS'}).map(function(c){return c.name}).join(', ');
-  document.getElementById('health-msg').textContent=d.failed+' check(s) failed: '+names;
-  el.style.display='block';
- }
-}).catch(function(){});
+// Defer non-critical health check (doesn't block page render)
+setTimeout(function(){
+ fetch('/api/health/startup').then(function(r){return r.json()}).then(function(d){
+  if(d.failed && d.failed>0){
+   var el=document.getElementById('health-banner');
+   var names=d.checks.filter(function(c){return c.status!=='PASS'}).map(function(c){return c.name}).join(', ');
+   document.getElementById('health-msg').textContent=d.failed+' check(s) failed: '+names;
+   el.style.display='block';
+  }
+ }).catch(function(){});
+},3000);
 </script>
 
 <!-- ═══ Compliance Alerts — Phase 3 ═══ -->
 <div id="compliance-alerts"></div>
 <script>
-fetch('/api/v1/tenant/compliance').then(r=>r.json()).then(d=>{
+// Defer compliance check
+setTimeout(function(){ fetch('/api/v1/tenant/compliance').then(r=>r.json()).then(d=>{
   if(!d.ok||!d.data||!d.data.alerts||d.data.alerts.length===0)return;
   var el=document.getElementById('compliance-alerts');
   var html='';
@@ -70,7 +74,7 @@ fetch('/api/v1/tenant/compliance').then(r=>r.json()).then(d=>{
     }
   });
   el.innerHTML=html;
-}).catch(function(){});
+}).catch(function(){}); },5000);
 </script>
 
 <!-- ═══ Agent Status Card — Layer 2 ═══ -->
@@ -109,7 +113,7 @@ function _refreshAgentStatus(){
   else{atDot.style.background='#484f58';atTxt.textContent='Never run';}
  }).catch(()=>{});
 }
-_refreshAgentStatus();
+setTimeout(_refreshAgentStatus,4000);
 setInterval(_refreshAgentStatus,60000);
 function _runAwardTracker(){
  var btn=event.target;btn.disabled=true;btn.textContent='Running...';
