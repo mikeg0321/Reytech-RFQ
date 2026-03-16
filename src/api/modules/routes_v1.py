@@ -3055,12 +3055,57 @@ def api_v1_backfill_details():
 @bp.route("/api/v1/rfq/backfill-metadata")
 @auth_required
 def api_v1_rfq_backfill_metadata():
-    """Backfill solicitation numbers and due dates for existing RFQs."""
+    """Backfill solicitation numbers and due dates for existing RFQs.
+    ?dry_run=1 — show what would be recovered without saving
+    """
     try:
-        result = backfill_rfq_metadata()
+        dry = request.args.get("dry_run", "0") == "1"
+        result = backfill_rfq_metadata(dry_run=dry)
         return api_response(result)
     except Exception as e:
         log.error("backfill-metadata error: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)
+
+
+@bp.route("/api/v1/rfq/diagnose-files")
+@auth_required
+def api_v1_rfq_diagnose_files():
+    """Show what PDFs are stored in rfq_files for each RFQ."""
+    try:
+        from src.core.db import get_db
+        db = get_db()
+        rows = db.execute("""
+            SELECT rfq_id, filename, file_type, category, file_size, created_at
+            FROM rfq_files ORDER BY rfq_id, created_at
+        """).fetchall()
+        files_by_rfq = {}
+        for r in rows:
+            rid = r[0]
+            files_by_rfq.setdefault(rid, []).append({
+                "filename": r[1], "file_type": r[2], "category": r[3],
+                "size": r[4], "created_at": r[5],
+            })
+        # Also show RFQs with zero files
+        rfqs = load_rfqs()
+        diag = []
+        for rid in rfqs:
+            diag.append({
+                "rfq_id": rid,
+                "status": rfqs[rid].get("status", ""),
+                "files": files_by_rfq.get(rid, []),
+                "file_count": len(files_by_rfq.get(rid, [])),
+            })
+        total_files = sum(len(v) for v in files_by_rfq.values())
+        orphan_rfq_ids = [rid for rid in files_by_rfq if rid not in rfqs]
+        return api_response({
+            "rfqs": diag,
+            "total_files": total_files,
+            "rfqs_with_files": len([d for d in diag if d["file_count"] > 0]),
+            "rfqs_without_files": len([d for d in diag if d["file_count"] == 0]),
+            "orphan_file_rfq_ids": orphan_rfq_ids,
+        })
+    except Exception as e:
+        log.error("diagnose-files error: %s", e, exc_info=True)
         return api_response(error=str(e), status=500)
 
 

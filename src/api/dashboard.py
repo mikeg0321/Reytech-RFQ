@@ -346,7 +346,7 @@ def save_rfqs(rfqs):
     except Exception as e:
         log.debug("RFQ dual-write to SQLite failed: %s", str(e)[:200])
 
-def backfill_rfq_metadata():
+def backfill_rfq_metadata(dry_run=False):
     """Extract solicitation numbers and due dates from existing RFQs that are missing them.
 
     Recovery sources (in priority order):
@@ -483,12 +483,17 @@ def backfill_rfq_metadata():
         if changed:
             updated += 1
             details.append({"id": rid, "sol": r.get("solicitation_number", ""),
-                            "due": r.get("due_date", "")})
+                            "due": r.get("due_date", ""), "source": "recovered"})
+        else:
+            details.append({"id": rid, "sol": "", "due": "", "source": "no_data_found",
+                            "email": r.get("requestor_email", "")})
 
-    if updated:
+    if updated and not dry_run:
         save_rfqs(rfqs)
-        log.info("Backfilled metadata for %d RFQs: %s", updated, details)
-    return {"updated": updated, "details": details}
+        log.info("Backfilled metadata for %d RFQs: %s", updated,
+                 [d for d in details if d["source"] == "recovered"])
+    return {"updated": updated, "details": details, "dry_run": dry_run,
+            "total_checked": len(details)}
 
 
 # ═══════════════════════════════════════════════════════════════════════
