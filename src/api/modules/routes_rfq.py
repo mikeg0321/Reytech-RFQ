@@ -783,12 +783,22 @@ def detail(rid):
     # TODO: re-enable after fixing stored Undefined values in rfqs.json
     pass  # enrichment disabled
 
-    # Sanitize: just ensure line_items exists and is a list
-    if not isinstance(r.get("line_items"), list):
-        r["line_items"] = r.get("line_items") or []
+    # Map items → line_items (SQLite column is "items", template expects "line_items")
+    if not r.get("line_items") and r.get("items"):
+        items_data = r["items"]
+        if isinstance(items_data, str):
+            try:
+                import json as _json
+                items_data = _json.loads(items_data)
+            except Exception:
+                items_data = []
+        r["line_items"] = items_data if isinstance(items_data, list) else []
 
-    log.info("RFQ detail render: rid=%s, line_items=%d, keys=%s",
-             rid, len(r.get("line_items", [])), list(r.keys())[:10])
+    if not isinstance(r.get("line_items"), list):
+        r["line_items"] = []
+
+    log.info("RFQ detail render: rid=%s, line_items=%d",
+             rid, len(r.get("line_items", [])))
 
     return render_page("rfq_detail.html", active_page="Home", r=r, rid=rid)
 
