@@ -2300,6 +2300,194 @@ def api_v1_pricing_cross_sell():
     return api_response({"suggestions": result})
 
 
+@bp.route("/api/v1/recovery/restore-from-db-backup")
+@auth_required
+def api_v1_recovery_from_db():
+    """Restore rfqs + price_checks from the SQLite DB backup file."""
+    import json as _json
+    import os as _os
+    import shutil as _shutil
+    import sqlite3 as _sqlite3
+
+    results = {"steps": [], "restored_rfqs": 0, "restored_pcs": 0}
+
+    # Find backup DB
+    backup_path = None
+    for d in ["/data", "/data/backups"]:
+        if not _os.path.exists(d):
+            continue
+        for f in sorted(_os.listdir(d), reverse=True):
+            if "20260315" in f and f.endswith(".db"):
+                backup_path = _os.path.join(d, f)
+                break
+        if backup_path:
+            break
+
+    if not backup_path or not _os.path.exists(backup_path):
+        # List all .db files to help find it
+        all_dbs = []
+        for d in ["/data", "/data/backups"]:
+            if _os.path.exists(d):
+                all_dbs.extend([f for f in _os.listdir(d) if f.endswith(".db")])
+        return api_response({"error": "Backup DB not found", "available_dbs": all_dbs})
+
+    results["backup_file"] = backup_path
+    results["steps"].append(f"Found backup: {backup_path}")
+
+    try:
+        bak = _sqlite3.connect(backup_path, timeout=10)
+
+        # Check rfqs in backup
+        try:
+            rfq_rows = bak.execute("SELECT id, items, status FROM rfqs").fetchall()
+            results["backup_rfqs"] = len(rfq_rows)
+            rfq_details = []
+            for r in rfq_rows:
+                items = _json.loads(r[1] or "[]") if r[1] else []
+                rfq_details.append({"id": r[0], "items": len(items), "status": r[2]})
+            results["rfq_details"] = rfq_details
+        except Exception as e:
+            results["steps"].append(f"rfqs table: {e}")
+            rfq_rows = []
+
+        # Check price_checks in backup
+        try:
+            pc_rows = bak.execute("SELECT id, pc_data, items, status FROM price_checks").fetchall()
+            results["backup_pcs"] = len(pc_rows)
+            pc_details = []
+            for r in pc_rows:
+                pc_data = _json.loads(r[1] or "{}") if r[1] else {}
+                items_col = _json.loads(r[2] or "[]") if r[2] else []
+                items = pc_data.get("items", items_col)
+                if isinstance(items, str):
+                    items = _json.loads(items)
+                pc_details.append({"id": r[0], "items": len(items), "status": r[3]})
+            results["pc_details"] = pc_details
+        except Exception as e:
+            results["steps"].append(f"price_checks table: {e}")
+            pc_rows = []
+
+        bak.close()
+
+        # Restore to live DB
+        live = _sqlite3.connect("/data/reytech.db", timeout=30)
+        restored_rfqs = 0
+        for r in rfq_rows:
+            items = _json.loads(r[1] or "[]") if r[1] else []
+            if items:
+                try:
+                    live.execute("UPDATE rfqs SET items=?, updated_at=datetime('now') WHERE id=?",
+                                 (_json.dumps(items, default=str), r[0]))
+                    restored_rfqs += 1
+                except Exception:
+                    pass
+        live.commit()
+        results["restored_rfqs_to_sqlite"] = restored_rfqs
+        results["steps"].append(f"Restored {restored_rfqs} RFQs to SQLite")
+
+        restored_pcs = 0
+        for r in pc_rows:
+            pc_data = _json.loads(r[1] or "{}") if r[1] else {}
+            items_col = _json.loads(r[2] or "[]") if r[2] else []
+            if pc_data.get("items") or items_col:
+                try:
+                    live.execute("UPDATE price_checks SET pc_data=?, items=?, updated_at=datetime('now') WHERE id=?",
+                                 (_json.dumps(pc_data, default=str), _json.dumps(items_col, default=str), r[0]))
+                    restored_pcs += 1
+                except Exception:
+                    pass
+        live.commit()
+        live.close()
+        results["restored_pcs_to_sqlite"] = restored_pcs
+        results["steps"].append(f"Restored {restored_pcs} PCs to SQLite")
+
+        # Restore rfqs.json
+        rfqs_path = "/data/rfqs.json"
+        try:
+            with open(rfqs_path) as f:
+                current = _json.load(f)
+        except Exception:
+            current = {}
+
+        bak = _sqlite3.connect(backup_path, timeout=10)
+        bak.row_factory = _sqlite3.Row
+        rows = bak.execute("SELECT * FROM rfqs").fetchall()
+        json_restored = 0
+        for row in rows:
+            rid = row["id"]
+            items = _json.loads(row["items"] or "[]") if row["items"] else []
+            if rid in current:
+                cur_items = current[rid].get("line_items", [])
+                if not cur_items and items:
+                    current[rid]["line_items"] = items
+                    json_restored += 1
+            else:
+                current[rid] = {"line_items": items, "status": row["status"] or "draft",
+                                "solicitation_number": row["rfq_number"] or "",
+                                "created_at": row["received_at"] or ""}
+                json_restored += 1
+
+        # Backup current and write
+        if _os.path.exists(rfqs_path):
+            _shutil.copy2(rfqs_path, rfqs_path + ".pre_restore")
+        with open(rfqs_path, "w") as f:
+            _json.dump(current, f, indent=2, default=str)
+        bak.close()
+        results["json_rfqs_restored"] = json_restored
+        results["steps"].append(f"rfqs.json: {json_restored} RFQs restored, {len(current)} total")
+
+        # Restore price_checks.json
+        pc_path = "/data/price_checks.json"
+        try:
+            with open(pc_path) as f:
+                current_pcs = _json.load(f)
+        except Exception:
+            current_pcs = {}
+
+        bak = _sqlite3.connect(backup_path, timeout=10)
+        bak.row_factory = _sqlite3.Row
+        rows = bak.execute("SELECT * FROM price_checks").fetchall()
+        pc_json_restored = 0
+        for row in rows:
+            pcid = row["id"]
+            pc_data = _json.loads(row["pc_data"] or "{}") if row["pc_data"] else {}
+            items = _json.loads(row["items"] or "[]") if row["items"] else []
+            if not pc_data.get("items"):
+                pc_data["items"] = items
+
+            if pcid in current_pcs:
+                cpd = current_pcs[pcid].get("pc_data", current_pcs[pcid])
+                if isinstance(cpd, str):
+                    try:
+                        cpd = _json.loads(cpd)
+                    except Exception:
+                        cpd = {}
+                if not cpd.get("items") and pc_data.get("items"):
+                    current_pcs[pcid]["pc_data"] = pc_data
+                    pc_json_restored += 1
+            else:
+                current_pcs[pcid] = {"pc_data": pc_data, "items": items,
+                                     "status": row["status"] or "parsed"}
+                pc_json_restored += 1
+
+        if _os.path.exists(pc_path):
+            _shutil.copy2(pc_path, pc_path + ".pre_restore")
+        with open(pc_path, "w") as f:
+            _json.dump(current_pcs, f, indent=2, default=str)
+        bak.close()
+        results["json_pcs_restored"] = pc_json_restored
+        results["steps"].append(f"price_checks.json: {pc_json_restored} PCs restored, {len(current_pcs)} total")
+
+        results["steps"].append("RECOVERY COMPLETE — reload app to verify")
+
+    except Exception as e:
+        import traceback
+        results["error"] = str(e)
+        results["traceback"] = traceback.format_exc()
+
+    return api_response(results)
+
+
 @bp.route("/api/v1/recovery/restore-from-drive")
 @auth_required
 def api_v1_recovery_restore():
