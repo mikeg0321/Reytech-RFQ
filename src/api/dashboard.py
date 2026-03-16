@@ -347,32 +347,114 @@ def save_rfqs(rfqs):
         log.debug("RFQ dual-write to SQLite failed: %s", str(e)[:200])
 
 def backfill_rfq_metadata():
-    """Extract solicitation numbers and due dates from existing RFQs that are missing them."""
+    """Extract solicitation numbers and due dates from existing RFQs that are missing them.
+
+    Recovery sources (in priority order):
+    1. Stored PDFs in rfq_files table (re-parse 703B/704B forms)
+    2. Email subject/body text
+    3. Matching price check data
+    """
     rfqs = load_rfqs()
     updated = 0
+    details = []
     for rid, r in rfqs.items():
         changed = False
+        _needs_sol = not r.get("solicitation_number") or r.get("solicitation_number") == "unknown"
+        _needs_due = not r.get("due_date") or r.get("due_date") in ("", "TBD")
 
-        # Try email subject/body
-        subject = r.get("email_subject", "")
-        body = r.get("body_text", r.get("email_body", ""))
-        combined = f"{subject} {body} {r.get('parse_note', '')}"
+        if not _needs_sol and not _needs_due:
+            continue
 
-        if not r.get("solicitation_number") or r.get("solicitation_number") == "unknown":
-            sol = _extract_solicitation(combined)
-            if sol:
-                r["solicitation_number"] = sol
-                changed = True
+        # ── Source 1: Re-parse stored PDFs from rfq_files table ──────────
+        if _needs_sol or _needs_due:
+            try:
+                from src.core.db import get_db
+                import tempfile
+                db = get_db()
+                files = db.execute(
+                    "SELECT filename, file_type, data FROM rfq_files WHERE rfq_id = ?",
+                    (rid,)).fetchall()
+                for frow in files:
+                    fname = (frow[0] or "").lower()
+                    fdata = frow[2]
+                    if not fdata or not fname.endswith(".pdf"):
+                        continue
+                    # Write to temp file for parsing
+                    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+                        tmp.write(fdata)
+                        tmp_path = tmp.name
+                    try:
+                        if "703b" in fname or "703b" in (frow[1] or "").lower():
+                            from src.forms.rfq_parser import parse_703b
+                            parsed = parse_703b(tmp_path)
+                            if _needs_sol and parsed.get("solicitation_number"):
+                                r["solicitation_number"] = parsed["solicitation_number"]
+                                _needs_sol = False
+                                changed = True
+                            if _needs_due and parsed.get("due_date"):
+                                r["due_date"] = parsed["due_date"]
+                                _needs_due = False
+                                changed = True
+                            # Also recover requestor info if missing
+                            if not r.get("requestor_name") and parsed.get("requestor_name"):
+                                r["requestor_name"] = parsed["requestor_name"]
+                                changed = True
+                        elif "704b" in fname or "704" in fname or "704" in (frow[1] or "").lower():
+                            from src.forms.rfq_parser import parse_704b
+                            parsed = parse_704b(tmp_path)
+                            header = parsed.get("header", {})
+                            if _needs_sol and header.get("solicitation_number"):
+                                r["solicitation_number"] = header["solicitation_number"]
+                                _needs_sol = False
+                                changed = True
+                        else:
+                            # Try text extraction for solicitation/due date
+                            try:
+                                from pypdf import PdfReader
+                                reader = PdfReader(tmp_path)
+                                text = " ".join((p.extract_text() or "") for p in reader.pages[:3])
+                                if _needs_sol:
+                                    sol = _extract_solicitation(text)
+                                    if sol:
+                                        r["solicitation_number"] = sol
+                                        _needs_sol = False
+                                        changed = True
+                                if _needs_due:
+                                    due = _extract_due_date(text)
+                                    if due:
+                                        r["due_date"] = due
+                                        _needs_due = False
+                                        changed = True
+                            except Exception:
+                                pass
+                    finally:
+                        try:
+                            os.unlink(tmp_path)
+                        except Exception:
+                            pass
+            except Exception as _e:
+                log.debug("Backfill PDF re-parse for %s: %s", rid, _e)
 
-        if not r.get("due_date") or r.get("due_date") == "TBD":
-            due = _extract_due_date(combined)
-            if due:
-                r["due_date"] = due
-                changed = True
+        # ── Source 2: Email subject/body text ──────────────────────────────
+        if _needs_sol or _needs_due:
+            subject = r.get("email_subject", "")
+            body = r.get("body_text", r.get("email_body", ""))
+            combined = f"{subject} {body} {r.get('parse_note', '')}"
+            if _needs_sol:
+                sol = _extract_solicitation(combined)
+                if sol:
+                    r["solicitation_number"] = sol
+                    _needs_sol = False
+                    changed = True
+            if _needs_due:
+                due = _extract_due_date(combined)
+                if due:
+                    r["due_date"] = due
+                    _needs_due = False
+                    changed = True
 
-        # Try matching PC for metadata
-        if (not r.get("solicitation_number") or r.get("solicitation_number") == "unknown"
-                or not r.get("due_date") or r.get("due_date") == "TBD"):
+        # ── Source 3: Matching price check data ───────────────────────────
+        if _needs_sol or _needs_due:
             email = r.get("requestor_email", "")
             if email:
                 try:
@@ -385,12 +467,12 @@ def backfill_rfq_metadata():
                     """, (f"%{email}%",)).fetchone()
                     if pc_row:
                         pc_data = json.loads(pc_row[0] or "{}")
-                        if not r.get("solicitation_number") or r.get("solicitation_number") == "unknown":
+                        if _needs_sol:
                             _sol = pc_data.get("pc_number", pc_data.get("solicitation_number", ""))
                             if _sol:
                                 r["solicitation_number"] = _sol
                                 changed = True
-                        if not r.get("due_date") or r.get("due_date") == "TBD":
+                        if _needs_due:
                             _due = pc_data.get("due_date", "")
                             if _due:
                                 r["due_date"] = _due
@@ -400,11 +482,13 @@ def backfill_rfq_metadata():
 
         if changed:
             updated += 1
+            details.append({"id": rid, "sol": r.get("solicitation_number", ""),
+                            "due": r.get("due_date", "")})
 
     if updated:
         save_rfqs(rfqs)
-        log.info("Backfilled metadata for %d RFQs", updated)
-    return updated
+        log.info("Backfilled metadata for %d RFQs: %s", updated, details)
+    return {"updated": updated, "details": details}
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -4409,8 +4493,8 @@ if os.environ.get("ENABLE_BACKGROUND_AGENTS", "true").lower() not in ("false", "
     # ── Backfill RFQ metadata on boot ──────────────────────────
     try:
         _bf_meta = backfill_rfq_metadata()
-        if _bf_meta:
-            log.info("RFQ metadata backfill: %d RFQs updated", _bf_meta)
+        if _bf_meta.get("updated"):
+            log.info("RFQ metadata backfill: %d RFQs updated — %s", _bf_meta["updated"], _bf_meta.get("details", []))
     except Exception as _e:
         log.warning("RFQ metadata backfill failed: %s", _e)
 

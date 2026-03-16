@@ -3057,8 +3057,8 @@ def api_v1_backfill_details():
 def api_v1_rfq_backfill_metadata():
     """Backfill solicitation numbers and due dates for existing RFQs."""
     try:
-        count = backfill_rfq_metadata()
-        return api_response({"updated": count})
+        result = backfill_rfq_metadata()
+        return api_response(result)
     except Exception as e:
         log.error("backfill-metadata error: %s", e, exc_info=True)
         return api_response(error=str(e), status=500)
