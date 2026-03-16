@@ -1057,6 +1057,11 @@ def _migrate_columns():
         ("quotes", "generated_at", "TEXT DEFAULT ''"),
         ("quotes", "time_to_price_mins", "INTEGER DEFAULT 0"),
         ("quotes", "time_to_send_mins", "INTEGER DEFAULT 0"),
+        # ── Item memory full fields ──
+        ("item_mappings", "last_sell_price", "REAL DEFAULT 0"),
+        ("item_mappings", "uom", "TEXT DEFAULT ''"),
+        ("item_mappings", "supplier_url", "TEXT DEFAULT ''"),
+        ("item_mappings", "notes", "TEXT DEFAULT ''"),
     ]
     try:
         conn = sqlite3.connect(DB_PATH, timeout=30)

@@ -783,7 +783,8 @@ def detail(rid):
     except Exception as _e:
         log.debug("Price intel enrichment: %s", _e)
 
-    # Auto-fill from item memory (previously-priced PCs/quotes)
+    # Auto-fill ALL fields from item memory (previously-priced PCs/quotes)
+    _memory_filled = 0
     try:
         from src.core.pricing_oracle_v2 import _check_item_memory
         import sqlite3
@@ -792,16 +793,46 @@ def detail(rid):
         for _item in r.get("line_items", []):
             _desc = _item.get("description", "")
             _item_num = _item.get("item_number", "")
-            _cost = _item.get("supplier_cost")
-            if _cost and float(str(_cost).replace("$", "").replace(",", "") or "0") > 0:
-                continue
             mem = _check_item_memory(_mem_db, _desc, _item_num)
-            if mem and mem.get("last_cost") and mem["last_cost"] > 0:
-                _item["supplier_cost"] = round(mem["last_cost"], 2)
-                _item["item_supplier"] = mem.get("supplier", "")
-                _item["memory_match"] = True
-                _item["memory_confidence"] = mem.get("confidence", 0)
+            if not mem:
+                continue
+            # Fill cost (only if empty)
+            if mem.get("last_cost") and mem["last_cost"] > 0:
+                if not _item.get("supplier_cost") or float(str(_item.get("supplier_cost", 0)).replace("$", "").replace(",", "") or "0") <= 0:
+                    _item["supplier_cost"] = round(mem["last_cost"], 2)
+            # Fill sell price (only if empty)
+            if mem.get("last_sell_price") and mem["last_sell_price"] > 0:
+                if not _item.get("price_per_unit") or float(str(_item.get("price_per_unit", 0)).replace("$", "").replace(",", "") or "0") <= 0:
+                    _item["price_per_unit"] = round(mem["last_sell_price"], 2)
+            # Fill supplier (only if empty)
+            if mem.get("supplier") and not _item.get("item_supplier"):
+                _item["item_supplier"] = mem["supplier"]
+            # Fill URL (always carry forward — critical for ordering)
+            if mem.get("product_url") and not _item.get("item_link"):
+                _item["item_link"] = mem["product_url"]
+            if mem.get("supplier_url") and not _item.get("item_link"):
+                _item["item_link"] = mem["supplier_url"]
+            # Fill MFG# / part number
+            if mem.get("mfg_number") and not _item.get("item_number"):
+                _item["item_number"] = mem["mfg_number"]
+            if mem.get("canonical_item_number") and not _item.get("item_number"):
+                _item["item_number"] = mem["canonical_item_number"]
+            # Fill ASIN
+            if mem.get("asin") and not _item.get("asin"):
+                _item["asin"] = mem["asin"]
+            # Fill UOM
+            if mem.get("uom") and not _item.get("uom"):
+                _item["uom"] = mem["uom"]
+            # Mark as memory-filled
+            _item["memory_match"] = True
+            _item["memory_confidence"] = mem.get("confidence", 0)
+            _item["memory_source"] = mem.get("match_type", "")
+            _memory_filled += 1
         _mem_db.close()
+        # Persist the auto-filled data back to the RFQ
+        if _memory_filled > 0:
+            save_rfqs(rfqs)
+            log.info("RFQ %s: auto-filled %d items from memory", rid, _memory_filled)
     except Exception:
         pass
 
