@@ -256,3 +256,65 @@ def _write_price_alerts(alerts):
         send_alert("bell", msg, {"type": "price_validation"})
     except Exception:
         pass
+
+
+def get_underpriced_report():
+    """Get summary of sent quotes that were underpriced vs market."""
+    import json
+    import os
+    results = []
+
+    # First check the alerts file
+    try:
+        path = "/data/price_alerts.json"
+        if os.path.exists(path):
+            with open(path, "r") as f:
+                data = json.load(f)
+            for alert in data.get("alerts", []):
+                for item in alert.get("underpriced_items", []):
+                    results.append({
+                        "pc_number": alert.get("pc_number", ""),
+                        "institution": alert.get("institution", ""),
+                        **item,
+                    })
+            return results
+    except Exception:
+        pass
+
+    # Fallback: scan DB for intelligence with underpriced flags
+    try:
+        import sqlite3
+        from src.core.db import DB_PATH
+        db = sqlite3.connect(DB_PATH, timeout=10)
+
+        tables = db.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()
+
+        for tbl in [t[0] for t in tables]:
+            try:
+                cols = [d[1] for d in db.execute(f"PRAGMA table_info([{tbl}])").fetchall()]
+                if "intelligence" not in cols:
+                    continue
+                rows = db.execute(f"""
+                    SELECT * FROM [{tbl}]
+                    WHERE intelligence LIKE '%UNDERPRICED%'
+                       OR intelligence LIKE '%SLIGHTLY_UNDER%'
+                """).fetchall()
+                intel_idx = cols.index("intelligence")
+                for row in rows:
+                    try:
+                        intel = json.loads(row[intel_idx] or "{}")
+                        validation = intel.get("market_validation", {})
+                        if validation:
+                            results.append(validation)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+        db.close()
+    except Exception as e:
+        results.append({"error": str(e)})
+
+    return results
