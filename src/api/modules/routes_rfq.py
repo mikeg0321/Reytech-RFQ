@@ -783,6 +783,28 @@ def detail(rid):
     except Exception as _e:
         log.debug("Price intel enrichment: %s", _e)
 
+    # Auto-fill from item memory (previously-priced PCs/quotes)
+    try:
+        from src.core.pricing_oracle_v2 import _check_item_memory
+        import sqlite3
+        from src.core.db import DB_PATH
+        _mem_db = sqlite3.connect(DB_PATH, timeout=10)
+        for _item in r.get("line_items", []):
+            _desc = _item.get("description", "")
+            _item_num = _item.get("item_number", "")
+            _cost = _item.get("supplier_cost")
+            if _cost and float(str(_cost).replace("$", "").replace(",", "") or "0") > 0:
+                continue
+            mem = _check_item_memory(_mem_db, _desc, _item_num)
+            if mem and mem.get("last_cost") and mem["last_cost"] > 0:
+                _item["supplier_cost"] = round(mem["last_cost"], 2)
+                _item["item_supplier"] = mem.get("supplier", "")
+                _item["memory_match"] = True
+                _item["memory_confidence"] = mem.get("confidence", 0)
+        _mem_db.close()
+    except Exception:
+        pass
+
     return render_page("rfq_detail.html", active_page="Home", r=r, rid=rid)
 
 

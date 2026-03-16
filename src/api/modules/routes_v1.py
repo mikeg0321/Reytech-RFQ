@@ -2276,6 +2276,15 @@ def api_v1_pricing_speed_stats():
     return api_response(get_speed_stats())
 
 
+@bp.route("/api/v1/pricing/backfill-memory")
+@auth_required
+def api_v1_pricing_backfill_memory():
+    """Backfill item memory from all existing PCs, quotes, RFQs."""
+    from src.core.pricing_oracle_v2 import backfill_item_memory
+    result = backfill_item_memory()
+    return api_response(result)
+
+
 @bp.route("/api/v1/pricing/cross-sell")
 @auth_required
 def api_v1_pricing_cross_sell():

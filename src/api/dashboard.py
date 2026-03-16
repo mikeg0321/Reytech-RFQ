@@ -4216,6 +4216,14 @@ if os.environ.get("ENABLE_BACKGROUND_AGENTS", "true").lower() not in ("false", "
     except Exception as _e:
         log.warning("Catalog check failed: %s", _e)
 
+    # ── Backfill item memory from existing PCs/quotes ──────────
+    try:
+        from src.core.pricing_oracle_v2 import backfill_item_memory
+        _bf = backfill_item_memory()
+        log.info("Item memory backfill: %d items learned", _bf)
+    except Exception as _e:
+        log.warning("Item memory backfill failed: %s", _e)
+
 else:
     log.info("Background agents disabled via ENABLE_BACKGROUND_AGENTS=false")
 

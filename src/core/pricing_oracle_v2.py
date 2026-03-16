@@ -491,6 +491,134 @@ def _tokenize(text):
 
 # ── Item Memory ─────────────────────────────────────────────────
 
+def backfill_item_memory():
+    """Learn from ALL existing priced PCs and quotes."""
+    import json
+    import sqlite3
+    from src.core.db import DB_PATH
+    db = sqlite3.connect(DB_PATH, timeout=30)
+    learned = 0
+
+    # From price_checks
+    try:
+        rows = db.execute("""
+            SELECT id, pc_data, items FROM price_checks
+            WHERE status IN ('sent','submitted','won','completed','priced')
+        """).fetchall()
+        for row in rows:
+            try:
+                pc_data = json.loads(row[1] or "{}") if row[1] else {}
+                items = pc_data.get("items", pc_data.get("line_items", []))
+                if isinstance(items, str):
+                    items = json.loads(items)
+                if not items:
+                    items = json.loads(row[2] or "[]") if row[2] else []
+                for item in (items or []):
+                    desc = item.get("description", item.get("desc", ""))
+                    cost = item.get("supplier_cost") or item.get("cost") or item.get("unit_cost")
+                    sell = item.get("unit_price") or item.get("price") or item.get("bid_price")
+                    item_num = item.get("item_number", item.get("part_number", ""))
+                    supplier = item.get("item_supplier", item.get("supplier", ""))
+                    if not desc or len(desc) < 3:
+                        continue
+                    try:
+                        cost_val = float(str(cost or 0).replace("$", "").replace(",", ""))
+                    except (ValueError, TypeError):
+                        cost_val = 0
+                    try:
+                        sell_val = float(str(sell or 0).replace("$", "").replace(",", ""))
+                    except (ValueError, TypeError):
+                        sell_val = 0
+                    if cost_val > 0 or sell_val > 0:
+                        try:
+                            db.execute("""
+                                INSERT INTO item_mappings
+                                (original_description, original_item_number, canonical_description,
+                                 canonical_item_number, supplier, last_cost, confidence,
+                                 confirmed, times_confirmed, last_confirmed)
+                                VALUES (?,?,?,?,?,?,0.8,1,1,datetime('now'))
+                                ON CONFLICT(original_description, original_item_number) DO UPDATE SET
+                                    last_cost = CASE WHEN excluded.last_cost > 0 THEN excluded.last_cost
+                                                     ELSE item_mappings.last_cost END,
+                                    supplier = COALESCE(NULLIF(excluded.supplier,''), item_mappings.supplier),
+                                    times_confirmed = item_mappings.times_confirmed + 1,
+                                    last_confirmed = datetime('now')
+                            """, (desc[:500], item_num, desc[:500], item_num,
+                                  supplier, cost_val))
+                            learned += 1
+                        except Exception:
+                            pass
+                    # Also lock cost if valid
+                    if cost_val > 0:
+                        try:
+                            expires = (datetime.now() + timedelta(days=60)).isoformat()
+                            db.execute("""
+                                INSERT INTO supplier_costs
+                                (description, item_number, cost, supplier, source, confirmed_at, expires_at)
+                                VALUES (?,?,?,?,?,datetime('now'),?)
+                                ON CONFLICT(description, supplier) DO UPDATE SET
+                                    cost = excluded.cost, confirmed_at = datetime('now'),
+                                    expires_at = excluded.expires_at
+                            """, (desc[:500], item_num, cost_val, supplier, "backfill_pc", expires))
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+    except Exception as e:
+        log.warning("Backfill PCs: %s", e)
+
+    # From quotes
+    try:
+        rows = db.execute("""
+            SELECT id, items_detail, line_items FROM quotes
+            WHERE status IN ('sent','submitted','won','completed')
+        """).fetchall()
+        for row in rows:
+            try:
+                items = json.loads(row[1] or "[]") if row[1] else []
+                if not items:
+                    items = json.loads(row[2] or "[]") if row[2] else []
+                if isinstance(items, str):
+                    items = json.loads(items)
+                for item in (items or []):
+                    desc = item.get("description", "")
+                    cost = item.get("cost") or item.get("supplier_cost") or item.get("unit_cost")
+                    item_num = item.get("part_number", item.get("item_number", ""))
+                    supplier = item.get("supplier", "")
+                    if not desc or len(desc) < 3:
+                        continue
+                    try:
+                        cost_val = float(str(cost or 0).replace("$", "").replace(",", ""))
+                    except (ValueError, TypeError):
+                        cost_val = 0
+                    if cost_val > 0:
+                        try:
+                            db.execute("""
+                                INSERT INTO item_mappings
+                                (original_description, original_item_number, canonical_description,
+                                 canonical_item_number, supplier, last_cost, confidence,
+                                 confirmed, times_confirmed, last_confirmed)
+                                VALUES (?,?,?,?,?,?,0.8,1,1,datetime('now'))
+                                ON CONFLICT(original_description, original_item_number) DO UPDATE SET
+                                    last_cost = CASE WHEN excluded.last_cost > 0 THEN excluded.last_cost
+                                                     ELSE item_mappings.last_cost END,
+                                    times_confirmed = item_mappings.times_confirmed + 1,
+                                    last_confirmed = datetime('now')
+                            """, (desc[:500], item_num, desc[:500], item_num, supplier, cost_val))
+                            learned += 1
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+    except Exception as e:
+        log.warning("Backfill quotes: %s", e)
+
+    db.commit()
+    db.close()
+    log.info("Item memory backfill: %d items learned", learned)
+    return learned
+
+
 def confirm_item_mapping(original_description, canonical_description,
                           item_number="", mfg_number="", product_url="",
                           supplier="", cost=None):
