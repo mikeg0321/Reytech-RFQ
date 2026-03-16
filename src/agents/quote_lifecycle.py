@@ -189,6 +189,31 @@ def process_reply_signal(quote_number: str, signal: str, confidence: float = 0.0
                 _auto_create_order(conn, quote_number, po_number)
                 log.info("Quote %s → WON (PO: %s, conf: %.0f%%)", quote_number, po_number, confidence * 100)
 
+                # Learn item mappings + lock costs from won quote
+                try:
+                    from src.core.pricing_oracle_v2 import confirm_item_mapping, lock_cost
+                    _items_raw = row["line_items"] or row["items_detail"] or "[]"
+                    _items = json.loads(_items_raw) if isinstance(_items_raw, str) else _items_raw
+                    for _it in (_items or []):
+                        _desc = _it.get("description", "")
+                        _cost = _it.get("cost") or _it.get("supplier_cost") or _it.get("unit_cost")
+                        if _desc:
+                            confirm_item_mapping(
+                                original_description=_desc, canonical_description=_desc,
+                                item_number=_it.get("part_number", _it.get("item_number", "")),
+                                supplier=_it.get("supplier", ""),
+                                cost=float(str(_cost or 0).replace("$", "").replace(",", "")) if _cost else None,
+                            )
+                            if _cost:
+                                try:
+                                    lock_cost(_desc, float(str(_cost).replace("$", "").replace(",", "")),
+                                              supplier=_it.get("supplier", ""),
+                                              source="won_quote_lifecycle", expires_days=60)
+                                except Exception:
+                                    pass
+                except Exception:
+                    pass
+
             elif signal == "loss" and confidence >= 0.6:
                 new_status = "lost"
                 history.append({"from": current_status, "to": new_status,

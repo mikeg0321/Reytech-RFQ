@@ -78,6 +78,19 @@ def parse_supplier_quote(pdf_path: str) -> dict:
             it["line_number"] = len(unique) + 1
             unique.append(it)
 
+    # Enrich with pricing intelligence
+    try:
+        from src.agents.quote_intelligence import enrich_extracted_items
+        for _it in unique:
+            if _it.get("unit_price") and not _it.get("cost"):
+                _it["cost"] = _it["unit_price"]
+        enriched = enrich_extracted_items(unique)
+        for _i, _e in enumerate(enriched):
+            if _i < len(unique) and _e.get("intelligence"):
+                unique[_i]["intelligence"] = _e["intelligence"]
+    except Exception:
+        pass
+
     return {
         "ok": True,
         "supplier": supplier,

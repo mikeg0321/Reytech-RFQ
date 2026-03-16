@@ -1537,6 +1537,21 @@ def generate_quote_from_rfq(rfq: dict, output_path: str, **kwargs) -> dict:
             "cost": item.get("supplier_cost", 0),
         })
 
+    # Enrich items without intelligence
+    try:
+        from src.agents.quote_intelligence import enrich_extracted_items
+        _unenriched = [i for i in data["line_items"] if not i.get("intelligence")]
+        if _unenriched:
+            _enriched = enrich_extracted_items(_unenriched)
+            _emap = {e.get("original_description", ""): e.get("intelligence")
+                     for e in _enriched if e.get("intelligence")}
+            for _item in data["line_items"]:
+                _d = _item.get("description", "")
+                if _d in _emap and not _item.get("intelligence"):
+                    _item["intelligence"] = _emap[_d]
+    except Exception:
+        pass
+
     # Pass agency explicitly if known from RFQ — OVERRIDES facility-derived agency
     # (CCHCS facilities are inside CDCR prisons, but CCHCS bills separately)
     _agency_map = {"calvet": "CalVet", "cchcs": "CCHCS", "dsh": "DSH", "dgs": "DGS", "cdcr": "CDCR"}
