@@ -370,10 +370,10 @@ def backfill_rfq_metadata(dry_run=False):
             try:
                 from src.core.db import get_db
                 import tempfile
-                db = get_db()
-                files = db.execute(
-                    "SELECT filename, file_type, data FROM rfq_files WHERE rfq_id = ?",
-                    (rid,)).fetchall()
+                with get_db() as db:
+                    files = db.execute(
+                        "SELECT filename, file_type, data FROM rfq_files WHERE rfq_id = ?",
+                        (rid,)).fetchall()
                 for frow in files:
                     fname = (frow[0] or "").lower()
                     fdata = frow[2]
@@ -459,12 +459,12 @@ def backfill_rfq_metadata(dry_run=False):
             if email:
                 try:
                     from src.core.db import get_db
-                    db = get_db()
-                    pc_row = db.execute("""
-                        SELECT pc_data FROM price_checks
-                        WHERE pc_data LIKE ?
-                        ORDER BY created_at DESC LIMIT 1
-                    """, (f"%{email}%",)).fetchone()
+                    with get_db() as db:
+                        pc_row = db.execute("""
+                            SELECT pc_data FROM price_checks
+                            WHERE pc_data LIKE ?
+                            ORDER BY created_at DESC LIMIT 1
+                        """, (f"%{email}%",)).fetchone()
                     if pc_row:
                         pc_data = json.loads(pc_row[0] or "{}")
                         if _needs_sol:

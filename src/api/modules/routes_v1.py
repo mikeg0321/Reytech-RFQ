@@ -3073,11 +3073,11 @@ def api_v1_rfq_diagnose_files():
     """Show what PDFs are stored in rfq_files for each RFQ."""
     try:
         from src.core.db import get_db
-        db = get_db()
-        rows = db.execute("""
-            SELECT rfq_id, filename, file_type, category, file_size, created_at
-            FROM rfq_files ORDER BY rfq_id, created_at
-        """).fetchall()
+        with get_db() as db:
+            rows = db.execute("""
+                SELECT rfq_id, filename, file_type, category, file_size, created_at
+                FROM rfq_files ORDER BY rfq_id, created_at
+            """).fetchall()
         files_by_rfq = {}
         for r in rows:
             rid = r[0]
