@@ -3608,30 +3608,100 @@ def api_v1_system_disk_usage():
     if clean:
         import time as _time
         now = _time.time()
-        cutoff_90d = now - (90 * 86400)
+        cutoff_30d = now - (30 * 86400)
         cutoff_7d = now - (7 * 86400)
 
-        # PO screenshots older than 90 days
+        # 1. PO records: delete ALL .html files (PNGs are enough), PNGs >30 days
         po_dir = os.path.join(_DATA_DIR, "po_records")
         if os.path.isdir(po_dir):
             for f in os.listdir(po_dir):
                 fp = os.path.join(po_dir, f)
-                if f.endswith((".png", ".html")) and os.path.getmtime(fp) < cutoff_90d:
+                try:
                     size = os.path.getsize(fp)
-                    os.remove(fp)
-                    result["cleaned"].append({"file": f"po_records/{f}", "size_mb": round(size / 1_000_000, 2)})
+                    if f.endswith(".html"):
+                        os.remove(fp)
+                        result["cleaned"].append({"file": f"po_records/{f}", "size_mb": round(size / 1_000_000, 2)})
+                    elif f.endswith(".png") and os.path.getmtime(fp) < cutoff_30d:
+                        os.remove(fp)
+                        result["cleaned"].append({"file": f"po_records/{f}", "size_mb": round(size / 1_000_000, 2)})
+                except OSError:
+                    pass
 
-        # Snapshots older than 7 days
+        # 2. Snapshots >7 days
         snap_dir = os.path.join(_DATA_DIR, "snapshots")
         if os.path.isdir(snap_dir):
             for f in os.listdir(snap_dir):
                 fp = os.path.join(snap_dir, f)
-                if os.path.getmtime(fp) < cutoff_7d:
+                try:
+                    if os.path.getmtime(fp) < cutoff_7d:
+                        size = os.path.getsize(fp)
+                        os.remove(fp)
+                        result["cleaned"].append({"file": f"snapshots/{f}", "size_mb": round(size / 1_000_000, 2)})
+                except OSError:
+                    pass
+
+        # 3. Uploads >30 days
+        upload_dir = os.path.join(_DATA_DIR, "uploads")
+        if os.path.isdir(upload_dir):
+            for root, dirs, files in os.walk(upload_dir):
+                for f in files:
+                    fp = os.path.join(root, f)
+                    try:
+                        if os.path.getmtime(fp) < cutoff_30d:
+                            size = os.path.getsize(fp)
+                            os.remove(fp)
+                            relpath = os.path.relpath(fp, _DATA_DIR)
+                            result["cleaned"].append({"file": relpath, "size_mb": round(size / 1_000_000, 2)})
+                    except OSError:
+                        pass
+
+        # 4. Delete corrupt DB backup
+        corrupt = os.path.join(_DATA_DIR, "reytech.db.corrupt.20260314_205443")
+        if os.path.exists(corrupt):
+            size = os.path.getsize(corrupt)
+            os.remove(corrupt)
+            result["cleaned"].append({"file": "reytech.db.corrupt.20260314_205443", "size_mb": round(size / 1_000_000, 1)})
+
+        # 5. Rebuild price_checks.json if bloated (>5MB means recursive nesting)
+        pc_path = os.path.join(_DATA_DIR, "price_checks.json")
+        if os.path.exists(pc_path) and os.path.getsize(pc_path) > 5_000_000:
+            try:
+                import json as _jclean
+                from src.core.db import get_db
+                with get_db() as conn:
+                    rows = conn.execute("SELECT id, pc_data FROM price_checks WHERE pc_data IS NOT NULL").fetchall()
+                rebuilt = {}
+                for r in rows:
+                    try:
+                        pd = _jclean.loads(r[1]) if isinstance(r[1], str) else r[1]
+                        if isinstance(pd, dict):
+                            rebuilt[r[0]] = {k: v for k, v in pd.items() if k != "pc_data"}
+                    except Exception:
+                        pass
+                if rebuilt:
+                    old_size = os.path.getsize(pc_path)
+                    from src.core.data_guard import safe_save_json
+                    safe_save_json(pc_path, rebuilt, reason="disk_cleanup_rebuild")
+                    new_size = os.path.getsize(pc_path)
+                    result["cleaned"].append({
+                        "file": "price_checks.json (rebuilt from SQLite)",
+                        "size_mb": round((old_size - new_size) / 1_000_000, 1)
+                    })
+            except Exception as _e:
+                result["cleaned"].append({"file": "price_checks.json rebuild FAILED", "error": str(_e)})
+
+        # 6. Delete stale scprs screenshots in /data root
+        for f in os.listdir(_DATA_DIR):
+            if f.startswith("scprs_") and f.endswith(".png"):
+                fp = os.path.join(_DATA_DIR, f)
+                try:
                     size = os.path.getsize(fp)
                     os.remove(fp)
-                    result["cleaned"].append({"file": f"snapshots/{f}", "size_mb": round(size / 1_000_000, 2)})
+                    result["cleaned"].append({"file": f, "size_mb": round(size / 1_000_000, 2)})
+                except OSError:
+                    pass
 
-        result["freed_mb"] = round(sum(c["size_mb"] for c in result["cleaned"]), 1)
+        result["freed_mb"] = round(sum(c.get("size_mb", 0) for c in result["cleaned"]), 1)
 
     return api_response(result)
 
