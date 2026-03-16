@@ -2530,6 +2530,15 @@ def api_rfq_import_from_catalog(rid):
             item["item_number"] = catalog_pn
             changed.append(f"pn={catalog_pn}")
 
+        # Copy product URL from catalog
+        if not item.get("item_link"):
+            for url_field in ["best_supplier_url", "product_url", "url", "amazon_url", "item_link"]:
+                cat_url = best.get(url_field, "")
+                if cat_url:
+                    item["item_link"] = cat_url
+                    changed.append(f"url={cat_url[:40]}")
+                    break
+
         # Tag with catalog source
         item["_catalog_match"] = best.get("name", "")[:60]
         item["_catalog_confidence"] = round(conf, 2)
