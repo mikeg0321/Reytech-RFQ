@@ -2205,6 +2205,92 @@ def api_v1_usage_dead_pages():
     return api_response(get_dead_pages(days))
 
 
+@bp.route("/api/v1/pricing/lookup")
+@auth_required
+def api_v1_pricing_lookup():
+    """Unified pricing lookup — THE endpoint for all pricing."""
+    from src.core.pricing_oracle_v2 import get_pricing
+    q = request.args.get("q", "")
+    qty = float(request.args.get("qty", "1"))
+    cost_str = request.args.get("cost")
+    cost = float(cost_str) if cost_str else None
+    item_num = request.args.get("item_number", "")
+    if not q:
+        return api_response(error="No query", status=400)
+    result = get_pricing(q, quantity=qty, cost=cost, item_number=item_num)
+    try:
+        from src.core.usage_tracker import track_feature
+        track_feature("pricing_lookup", q[:60])
+    except Exception:
+        pass
+    return api_response(result)
+
+
+@bp.route("/api/v1/pricing/confirm-item", methods=["POST"])
+@auth_required
+def api_v1_pricing_confirm_item():
+    """Confirm an item mapping — persists forever."""
+    from src.core.pricing_oracle_v2 import confirm_item_mapping
+    data = request.get_json(force=True, silent=True) or {}
+    confirm_item_mapping(
+        original_description=data.get("original", ""),
+        canonical_description=data.get("canonical", data.get("original", "")),
+        item_number=data.get("item_number", ""),
+        mfg_number=data.get("mfg_number", ""),
+        product_url=data.get("product_url", ""),
+        supplier=data.get("supplier", ""),
+        cost=data.get("cost"),
+    )
+    return api_response({"status": "confirmed"})
+
+
+@bp.route("/api/v1/pricing/lock-cost", methods=["POST"])
+@auth_required
+def api_v1_pricing_lock_cost():
+    """Lock a supplier cost with expiry."""
+    from src.core.pricing_oracle_v2 import lock_cost
+    data = request.get_json(force=True, silent=True) or {}
+    lock_cost(
+        description=data.get("description", ""),
+        cost=float(data.get("cost", 0)),
+        supplier=data.get("supplier", ""),
+        source=data.get("source", "manual"),
+        expires_days=int(data.get("expires_days", 30)),
+        item_number=data.get("item_number", ""),
+    )
+    return api_response({"status": "locked"})
+
+
+@bp.route("/api/v1/pricing/expiring-costs")
+@auth_required
+def api_v1_pricing_expiring_costs():
+    from src.core.pricing_oracle_v2 import get_expiring_costs
+    days = int(request.args.get("days", "7"))
+    return api_response({"expiring": get_expiring_costs(days)})
+
+
+@bp.route("/api/v1/pricing/speed-stats")
+@auth_required
+def api_v1_pricing_speed_stats():
+    from src.core.pricing_oracle_v2 import get_speed_stats
+    return api_response(get_speed_stats())
+
+
+@bp.route("/api/v1/pricing/cross-sell")
+@auth_required
+def api_v1_pricing_cross_sell():
+    from src.core.pricing_oracle_v2 import _get_cross_sell
+    import sqlite3
+    from src.core.db import DB_PATH
+    q = request.args.get("q", "")
+    if not q:
+        return api_response(error="No query", status=400)
+    db = sqlite3.connect(DB_PATH, timeout=10)
+    result = _get_cross_sell(db, q)
+    db.close()
+    return api_response({"suggestions": result})
+
+
 @bp.route("/api/v1/quotes/reprocess")
 @auth_required
 def api_v1_quotes_reprocess():

@@ -867,6 +867,43 @@ CREATE TABLE IF NOT EXISTS scprs_buyer_items (
     date            TEXT DEFAULT '',
     UNIQUE(buyer_email, po_number, description)
 );
+
+CREATE TABLE IF NOT EXISTS item_mappings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    original_description TEXT NOT NULL,
+    original_item_number TEXT DEFAULT '',
+    canonical_description TEXT DEFAULT '',
+    canonical_item_number TEXT DEFAULT '',
+    mfg_number TEXT DEFAULT '',
+    mfg_name TEXT DEFAULT '',
+    upc TEXT DEFAULT '',
+    asin TEXT DEFAULT '',
+    product_url TEXT DEFAULT '',
+    supplier TEXT DEFAULT '',
+    last_cost REAL DEFAULT 0,
+    confidence REAL DEFAULT 0.5,
+    confirmed INTEGER DEFAULT 0,
+    times_confirmed INTEGER DEFAULT 0,
+    first_seen TEXT DEFAULT (datetime('now')),
+    last_confirmed TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(original_description, original_item_number)
+);
+CREATE INDEX IF NOT EXISTS idx_item_mappings_desc ON item_mappings(original_description);
+
+CREATE TABLE IF NOT EXISTS supplier_costs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    description TEXT NOT NULL,
+    item_number TEXT DEFAULT '',
+    cost REAL NOT NULL,
+    supplier TEXT DEFAULT '',
+    source TEXT DEFAULT '',
+    source_url TEXT DEFAULT '',
+    confirmed_at TEXT DEFAULT (datetime('now')),
+    expires_at TEXT DEFAULT '',
+    notes TEXT DEFAULT '',
+    UNIQUE(description, supplier)
+);
 """
 
 def init_db():
@@ -1007,6 +1044,19 @@ def _migrate_columns():
         ("scprs_catalog", "identifiers_json", "TEXT DEFAULT ''"),
         ("scprs_catalog", "enriched_description", "TEXT DEFAULT ''"),
         ("scprs_catalog", "enrichment_status", "TEXT DEFAULT 'raw'"),
+        # ── Quote speed clock ──
+        ("price_checks", "received_at", "TEXT DEFAULT ''"),
+        ("price_checks", "first_opened_at", "TEXT DEFAULT ''"),
+        ("price_checks", "priced_at", "TEXT DEFAULT ''"),
+        ("price_checks", "generated_at", "TEXT DEFAULT ''"),
+        ("price_checks", "time_to_price_mins", "INTEGER DEFAULT 0"),
+        ("price_checks", "time_to_send_mins", "INTEGER DEFAULT 0"),
+        ("quotes", "received_at", "TEXT DEFAULT ''"),
+        ("quotes", "first_opened_at", "TEXT DEFAULT ''"),
+        ("quotes", "priced_at", "TEXT DEFAULT ''"),
+        ("quotes", "generated_at", "TEXT DEFAULT ''"),
+        ("quotes", "time_to_price_mins", "INTEGER DEFAULT 0"),
+        ("quotes", "time_to_send_mins", "INTEGER DEFAULT 0"),
     ]
     try:
         conn = sqlite3.connect(DB_PATH, timeout=30)
