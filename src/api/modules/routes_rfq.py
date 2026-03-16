@@ -784,21 +784,27 @@ def detail(rid):
     pass  # enrichment disabled
 
     # Map items → line_items (SQLite column is "items", template expects "line_items")
-    if not r.get("line_items") and r.get("items"):
-        items_data = r["items"]
+    # Also handle: items might be a JSON string, a list, or missing
+    if "line_items" not in r or not r["line_items"]:
+        items_data = r.get("items", [])
         if isinstance(items_data, str):
             try:
                 import json as _json
                 items_data = _json.loads(items_data)
             except Exception:
                 items_data = []
-        r["line_items"] = items_data if isinstance(items_data, list) else []
+        if isinstance(items_data, list) and items_data:
+            r["line_items"] = items_data
 
     if not isinstance(r.get("line_items"), list):
         r["line_items"] = []
 
-    log.info("RFQ detail render: rid=%s, line_items=%d",
-             rid, len(r.get("line_items", [])))
+    # Also map solicitation_number from rfq_number (SQLite vs JSON field names)
+    if not r.get("solicitation_number") and r.get("rfq_number"):
+        r["solicitation_number"] = r["rfq_number"]
+
+    log.info("RFQ detail render: rid=%s, line_items=%d, has_items_key=%s",
+             rid, len(r.get("line_items", [])), "items" in r)
 
     return render_page("rfq_detail.html", active_page="Home", r=r, rid=rid)
 

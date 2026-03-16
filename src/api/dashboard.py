@@ -247,12 +247,27 @@ def _sanitize_path(path_str: str) -> str:
 
 def rfq_db_path(): return os.path.join(DATA_DIR, "rfqs.json")
 def load_rfqs():
-    """Load RFQs — DAL (SQLite) primary, JSON fallback."""
+    """Load RFQs — DAL (SQLite) primary, JSON fallback.
+
+    Merges line_items from JSON when SQLite items column is empty
+    (historical bug: save_rfqs used r.get("items") when data was under "line_items").
+    """
     try:
         from src.core.dal import list_rfqs as _dal_list
         rows = _dal_list(limit=10000)
         if rows:
-            return {r["id"]: r for r in rows}
+            result = {r["id"]: r for r in rows}
+            # Merge line_items from JSON for RFQs with empty items in SQLite
+            json_data = _cached_json_load(rfq_db_path(), fallback={})
+            if json_data:
+                for rid, r in result.items():
+                    items = r.get("items", [])
+                    if not items or (isinstance(items, list) and len(items) == 0):
+                        jr = json_data.get(rid, {})
+                        li = jr.get("line_items", jr.get("items", []))
+                        if li and isinstance(li, list) and len(li) > 0:
+                            r["items"] = li
+            return result
     except Exception as e:
         log.warning("DAL list_rfqs failed, falling back to JSON: %s", str(e)[:200])
     # JSON fallback
@@ -282,7 +297,7 @@ def save_rfqs(rfqs):
                     rid, r.get("received_at", ""), r.get("agency", ""),
                     r.get("institution", ""), r.get("requestor_name", ""),
                     r.get("requestor_email", ""), r.get("rfq_number", ""),
-                    json.dumps(r.get("items", []), default=str),
+                    json.dumps(r.get("line_items", r.get("items", [])), default=str),
                     r.get("status", "new"), r.get("source", ""),
                     r.get("email_uid", ""), r.get("notes", ""),
                 ))
