@@ -427,7 +427,33 @@ Never assume a URL fix is isolated. PeopleSoft uses the same scheme everywhere. 
 
 Checklist when fixing any URL:
   `grep -r "psp/" src/` — should return 0 results
-  `grep -r "psfpd1/" src/` — should return 0 results (must be psfpd1_1)
-  All URLs must use: `psc/psfpd1_1/`
+  All SCPRS URLs must use: `psc/psfpd1/`
+  (psfpd1_1 is DEAD — confirmed 2026-03-15)
 
 "Fix the URL in one place, audit every URL."
+
+### Law 7: PeopleSoft Needs a Real Browser
+HTTP scraping cannot execute PeopleSoft's JavaScript modals. The click POST
+returns a 553KB page with PO numbers but no line items. Only a headless
+browser (Playwright/Chromium) can click the PO link, wait for the JS modal
+to render, catch the popup window, and extract ZZ_SCPR_PDL_DVW line items.
+
+Applied: 6 hours of HTTP debugging (wrong ICAction, wrong URL, wrong fields,
+stale state) — all failed. Playwright solved it in one deploy.
+
+### Law 8: Wire Schedulers in dashboard.py, Not Just app.py
+Background schedulers must be in the `if ENABLE_BACKGROUND_AGENTS` block
+in `dashboard.py`, not just in `app.py` deferred init. The deferred init
+runs once but may not persist through Railway worker restarts. Dashboard.py
+is the canonical scheduler location.
+
+### Law 9: Price From the Ceiling Down
+When you have cost + competitor data, price 2% UNDER the competitor average
+(ceiling), not at a fixed markup above cost (floor). Every dollar between
+cost and competitor avg is YOUR margin. A 30% markup that leaves $1,071 on
+the table is worse than a 45% markup that captures it.
+
+### Law 10: Pre-load State Before Long Jobs
+Any exhaustive scrape or batch job should load existing data into a skip-set
+before starting. The 2AM run pre-loads 14K+ existing PO numbers so it only
+fetches new ones. Without this, you re-scrape everything every night.
