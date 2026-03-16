@@ -25,14 +25,14 @@
 <div class="card">
  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px">
   <div>
-   <div style="font-family:'JetBrains Mono',monospace;font-size:24px;font-weight:700">#{{r.solicitation_number}}</div>
+   <div style="font-family:'JetBrains Mono',monospace;font-size:24px;font-weight:700">#{{r.get("solicitation_number") or r.get("rfq_number") or "—"}}</div>
    <div style="color:var(--tx2);font-size:14px;margin-top:2px">{{r.get('award_method','all_or_none')|replace('_',' ')|title}}{% if r.source=='email' %} · 📧 Auto-imported{% endif %}{% if r.get('agency_name') %} · <span style="padding:2px 8px;border-radius:4px;font-size:13px;font-weight:600;{% if r.get('form_type')=='generic_rfq' %}background:rgba(167,139,250,.15);color:#a78bfa;border:1px solid rgba(167,139,250,.3){% else %}background:rgba(52,211,153,.1);color:#3fb950;border:1px solid rgba(52,211,153,.2){% endif %}">{{ r.agency_name }}</span>{% endif %}</div>
   </div>
   <span class="badge b-{{r.status}}">{{r.status}}</span>
  </div>
  <div class="meta-g">
-  <div class="meta-i"><div class="meta-l">Requestor</div><div class="meta-v">{% if r.requestor_name %}<a href="/contacts?q={{ r.requestor_name|urlencode }}" style="color:#58a6ff;text-decoration:none" title="View buyer profile">{{r.requestor_name}}</a>{% else %}—{% endif %}</div></div>
-  <div class="meta-i"><div class="meta-l">Email</div><div class="meta-v">{% if r.requestor_email %}<a href="mailto:{{r.requestor_email}}" style="color:#58a6ff;text-decoration:none" title="Send email">{{r.requestor_email}}</a>{% else %}—{% endif %}</div></div>
+  <div class="meta-i"><div class="meta-l">Requestor</div><div class="meta-v">{% if r.get("requestor_name") %}<a href="/contacts?q={{ r.get("requestor_name","")|urlencode }}" style="color:#58a6ff;text-decoration:none" title="View buyer profile">{{r.get("requestor_name","")}}</a>{% else %}—{% endif %}</div></div>
+  <div class="meta-i"><div class="meta-l">Email</div><div class="meta-v">{% if r.get("requestor_email") %}<a href="mailto:{{r.get("requestor_email","")}}" style="color:#58a6ff;text-decoration:none" title="Send email">{{r.get("requestor_email","")}}</a>{% else %}—{% endif %}</div></div>
   <div class="meta-i"><div class="meta-l">Due Date</div><div class="meta-v">{{r.due_date}}</div></div>
   <div class="meta-i"><div class="meta-l">Delivery</div><div class="meta-v" style="font-size:14px">{{r.get('delivery_location','N/A')[:55]}}</div></div>
  </div>
@@ -138,7 +138,7 @@
    <th>Your Cost</th><th style="width:30px" title="Price Intelligence">📊</th><th style="width:70px">Markup</th><th>Bid Price</th><th>Subtotal</th><th>Margin</th><th>Profit</th><th style="width:30px"></th>
   </tr></thead>
   <tbody>
-  {% for i in r.line_items %}
+  {% for i in (r.get("line_items") or r.get("items") or []) %}
   <tr>
    <td style="font-size:13px">{{i.line_number}}</td>
    <td><input type="number" name="qty_{{loop.index0}}" value="{{i.qty}}" min="1" class="num-in" style="width:55px;font-size:14px;font-weight:700;padding:6px 4px;text-align:center" oninput="recalc()"></td>
@@ -385,7 +385,7 @@
   <div style="display:grid;grid-template-columns:60px 1fr;gap:8px;margin-bottom:10px;align-items:center">
    <label style="font-size:13px;color:var(--tx2);font-weight:600">To:</label>
    <div style="display:flex;gap:6px;align-items:center">
-    <input type="email" name="to" id="emailTo" value="{{r.requestor_email or (r.draft_email.to if r.draft_email else '')}}" class="text-in" style="font-size:14px;padding:8px 12px;flex:1">
+    <input type="email" name="to" id="emailTo" value="{{r.get('requestor_email','') or (r.get('draft_email',{}).get('to','') if r.get('draft_email') else '')}}" class="text-in" style="font-size:14px;padding:8px 12px;flex:1">
     <button type="button" class="btn btn-sm" onclick="document.getElementById('ccBccFields').style.display=document.getElementById('ccBccFields').style.display==='none'?'contents':'none'" style="font-size:14px;padding:4px 8px;background:var(--sf2);color:var(--tx2);border:1px solid var(--bd)" aria-label="CC/BCC">CC/BCC ▾</button>
    </div>
    <div id="ccBccFields" style="display:none;grid-column:1/-1">

@@ -367,7 +367,7 @@ document.addEventListener('click', function(e) {
     {% for id, r in rfqs|dictsort(reverse=true) %}
     <tr class="home-row" onclick="location.href='/rfq/{{id}}'" style="{% if r.status in ('sent','generated') %}opacity:0.55{% endif %}">
      <td onclick="event.stopPropagation()"><input type="checkbox" class="row-check rfq-check" value="{{id}}" onchange="updateBulkBar('rfq')"></td>
-     <td><a href="/rfq/{{id}}" class="sol">#{{r.solicitation_number}}</a></td>
+     <td><a href="/rfq/{{id}}" class="sol">#{{r.get("solicitation_number") or r.get("rfq_number") or "—"}}</a></td>
      <td style="font-weight:600">{{r.requestor_name}}{% if r.get('agency_name') and r.get('form_type') == 'generic_rfq' %}<span style="display:block;font-size:13px;font-weight:500;color:#a78bfa">{{r.agency_name}}</span>{% endif %}</td>
      <td class="mono">
       {% if r._urgency == 'overdue' %}<span style="color:#f85149;font-weight:700">{{r.due_date}} ⚠️</span>
@@ -378,7 +378,7 @@ document.addEventListener('click', function(e) {
        {% if r._days_left < 0 %}{{-r._days_left}}d overdue{% elif r._days_left == 0 %}Due today{% elif r._days_left == 1 %}Tomorrow{% else %}{{r._days_left}}d left{% endif %}
       </div>{% endif %}
      </td>
-     <td style="text-align:center" class="mono">{{r.line_items|length}}</td>
+     <td style="text-align:center" class="mono">{{(r.get("line_items") or r.get("items") or [])|length}}</td>
      <td style="text-align:center"><span class="badge b-{{r.status}}">{{r.status}}</span></td>
      <td style="text-align:center" onclick="event.stopPropagation()">
       <button class="dismiss-x-btn" onclick="showDismissMenu('rfq','{{id}}',this,event)" title="Dismiss" style="background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.2);color:#f85149;cursor:pointer;font-size:13px;padding:4px 10px;border-radius:4px;font-weight:600" onmouseover="this.style.background='rgba(248,81,73,.2)'" onmouseout="this.style.background='rgba(248,81,73,.08)'">✕</button>

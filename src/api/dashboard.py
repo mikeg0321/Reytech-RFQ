@@ -246,11 +246,34 @@ def _sanitize_path(path_str: str) -> str:
 # ═══════════════════════════════════════════════════════════════════════
 
 def rfq_db_path(): return os.path.join(DATA_DIR, "rfqs.json")
+def _normalize_rfq_fields(rfqs: dict) -> dict:
+    """Ensure both field name aliases exist on every RFQ dict.
+
+    SQLite uses 'items' + 'rfq_number'; JSON/templates use 'line_items' + 'solicitation_number'.
+    This guarantees every template works regardless of which name it references.
+    """
+    for rid, r in rfqs.items():
+        if not isinstance(r, dict):
+            continue
+        # items ↔ line_items
+        if "items" in r and "line_items" not in r:
+            r["line_items"] = r["items"]
+        if "line_items" in r and "items" not in r:
+            r["items"] = r["line_items"]
+        # rfq_number ↔ solicitation_number
+        if "rfq_number" in r and "solicitation_number" not in r:
+            r["solicitation_number"] = r["rfq_number"]
+        if "solicitation_number" in r and "rfq_number" not in r:
+            r["rfq_number"] = r["solicitation_number"]
+    return rfqs
+
+
 def load_rfqs():
     """Load RFQs — DAL (SQLite) primary, JSON fallback.
 
     Merges line_items from JSON when SQLite items column is empty
     (historical bug: save_rfqs used r.get("items") when data was under "line_items").
+    Normalizes field name aliases so all templates work.
     """
     try:
         from src.core.dal import list_rfqs as _dal_list
@@ -267,11 +290,11 @@ def load_rfqs():
                         li = jr.get("line_items", jr.get("items", []))
                         if li and isinstance(li, list) and len(li) > 0:
                             r["items"] = li
-            return result
+            return _normalize_rfq_fields(result)
     except Exception as e:
         log.warning("DAL list_rfqs failed, falling back to JSON: %s", str(e)[:200])
     # JSON fallback
-    return _cached_json_load(rfq_db_path(), fallback={})
+    return _normalize_rfq_fields(_cached_json_load(rfq_db_path(), fallback={}))
 
 def save_rfqs(rfqs):
     p = rfq_db_path()
@@ -674,6 +697,15 @@ def _load_price_checks(include_items=True):
                     data = json.load(f)
             except Exception:
                 data = {}
+
+    # Normalize: ensure items/line_items both exist
+    for pcid, pc in data.items():
+        if not isinstance(pc, dict):
+            continue
+        if "items" in pc and "line_items" not in pc:
+            pc["line_items"] = pc["items"]
+        if "line_items" in pc and "items" not in pc:
+            pc["items"] = pc["line_items"]
 
     # Only cache full results (with items)
     if include_items:

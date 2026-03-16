@@ -51,7 +51,7 @@
    {% set total = total + (item.qty or 0) * (item.price_per_unit or 0) %}
   {% endfor %}
   <tr onclick="location.href='/rfq/{{r.id}}'" style="cursor:pointer">
-   <td style="font-weight:600;font-family:'JetBrains Mono',monospace">#{{r.solicitation_number}}</td>
+   <td style="font-weight:600;font-family:'JetBrains Mono',monospace">#{{r.get("solicitation_number") or r.get("rfq_number") or "—"}}</td>
    <td><span class="badge b-{{r.status}}">{{r.status}}</span></td>
    <td>{{r.get('line_items',[])|length}}</td>
    <td style="font-family:'JetBrains Mono',monospace">${{"${:,.2f}".format(total)}}</td>
