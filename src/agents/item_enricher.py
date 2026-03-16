@@ -213,6 +213,33 @@ def enrich_catalog():
     return enriched_count
 
 
+def learn_new_item(description, unit_price, quantity=1, uom="",
+                   supplier="", department="", po_number="", date=""):
+    """Add a newly-priced item to the catalog."""
+    import sqlite3
+    from src.core.db import DB_PATH
+    try:
+        db = sqlite3.connect(DB_PATH, timeout=10)
+        db.execute("""
+            INSERT INTO scprs_catalog
+            (description, last_unit_price, last_quantity, last_uom,
+             last_supplier, last_department, last_po_number,
+             last_date, times_seen, updated_at)
+            VALUES (?,?,?,?,?,?,?,?,1,datetime('now'))
+            ON CONFLICT(description) DO UPDATE SET
+                last_unit_price = excluded.last_unit_price,
+                last_quantity = excluded.last_quantity,
+                times_seen = scprs_catalog.times_seen + 1,
+                updated_at = datetime('now')
+        """, (description[:500], unit_price, quantity, uom,
+              supplier, department, po_number, date))
+        db.commit()
+        db.close()
+        log.info("Learned item: %s @ $%s", description[:60], unit_price)
+    except Exception as e:
+        log.warning("Learn item failed: %s", e)
+
+
 def set_product_url(description, url, verified=True):
     """User confirms a product URL — persist permanently."""
     import sqlite3

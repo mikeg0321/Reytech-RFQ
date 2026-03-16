@@ -2165,6 +2165,15 @@ def api_v1_quotes_underpriced():
         return api_response({"underpriced_items": [], "count": 0, "error": str(e)})
 
 
+@bp.route("/api/v1/system/validate-data")
+@auth_required
+def api_v1_validate_data():
+    """Run data validation checks across all layers."""
+    from src.agents.data_validator import validate_all
+    report = validate_all()
+    return api_response(report)
+
+
 @bp.route("/api/v1/quotes/reprocess")
 @auth_required
 def api_v1_quotes_reprocess():

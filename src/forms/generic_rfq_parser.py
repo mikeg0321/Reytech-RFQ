@@ -865,6 +865,7 @@ def parse_generic_rfq(pdf_paths, subject="", sender_email="", body=""):
         "quote_type": agency_info.get("quote_type", "formal"),
         "line_items": all_items,
         "parse_details": parse_details,
+        "_enrichment_pending": True,  # Flag for downstream enrichment
         "parsed_at": datetime.now().isoformat(),
         **sol_info,
     }
@@ -874,6 +875,16 @@ def parse_generic_rfq(pdf_paths, subject="", sender_email="", body=""):
 
     log.info("Generic RFQ parsed: agency=%s, %d items from %d PDFs, sol=%s",
              agency_key, len(all_items), len(pdf_paths), sol_info.get("solicitation_number", "?"))
+
+    # Enrich with FI$Cal pricing intelligence
+    try:
+        from src.agents.quote_intelligence import enrich_extracted_items
+        enriched = enrich_extracted_items(all_items)
+        for i, e in enumerate(enriched):
+            if i < len(all_items) and e.get("intelligence"):
+                all_items[i]["intelligence"] = e["intelligence"]
+    except Exception:
+        pass
 
     return result
 

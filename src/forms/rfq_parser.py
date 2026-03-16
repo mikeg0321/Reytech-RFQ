@@ -147,7 +147,17 @@ def parse_704b(pdf_path):
     
     if current:
         items.append(current)
-    
+
+    # Enrich with FI$Cal pricing intelligence
+    try:
+        from src.agents.quote_intelligence import enrich_extracted_items
+        enriched = enrich_extracted_items(items)
+        for i, e in enumerate(enriched):
+            if i < len(items) and e.get("intelligence"):
+                items[i]["intelligence"] = e["intelligence"]
+    except Exception:
+        pass
+
     return {"header": header, "line_items": items}
 
 

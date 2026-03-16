@@ -572,6 +572,30 @@ def ingest_scprs_result(
     except Exception as e:
         log.debug("price_history cross-post skipped: %s", e)
 
+    # ── Update scprs_catalog with won pricing ────────────────────
+    try:
+        import sqlite3
+        from src.core.db import DB_PATH
+        _cdb = sqlite3.connect(DB_PATH, timeout=10)
+        _cdb.execute("""
+            INSERT INTO scprs_catalog
+            (description, last_unit_price, last_quantity, last_uom,
+             last_supplier, last_department, last_po_number,
+             last_date, times_seen, updated_at)
+            VALUES (?,?,?,?,?,?,?,?,1,datetime('now'))
+            ON CONFLICT(description) DO UPDATE SET
+                last_unit_price = excluded.last_unit_price,
+                last_quantity = excluded.last_quantity,
+                last_supplier = excluded.last_supplier,
+                times_seen = scprs_catalog.times_seen + 1,
+                updated_at = datetime('now')
+        """, (description[:500], float(unit_price), float(quantity), "",
+              supplier, department, po_number, award_date))
+        _cdb.commit()
+        _cdb.close()
+    except Exception:
+        pass
+
     return record
 
 

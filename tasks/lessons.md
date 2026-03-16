@@ -457,3 +457,22 @@ the table is worse than a 45% markup that captures it.
 Any exhaustive scrape or batch job should load existing data into a skip-set
 before starting. The 2AM run pre-loads 14K+ existing PO numbers so it only
 fetches new ones. Without this, you re-scrape everything every night.
+
+### Law 11: Scheduler Wiring Law (The "Plugged In" Rule)
+Any function that runs on a schedule MUST have THREE things:
+1. The function itself
+2. A startup call in dashboard.py background agents section
+3. A manual trigger endpoint (/api/v1/{feature}/fire-now)
+
+Before committing any scheduler:
+- [ ] Function exists
+- [ ] Imported + called in dashboard.py scheduler section
+- [ ] Manual trigger endpoint exists
+- [ ] Tested manually and confirmed in logs
+
+If you build it but don't wire it, it doesn't exist.
+
+This law exists because on 2026-03-15 we built
+schedule_full_fiscal_scrape() and schedule_system_audit() —
+both compiled clean but neither was called on startup.
+The 2AM scrape never fired. NEVER AGAIN.

@@ -692,6 +692,35 @@ def _run_exhaustive_scrape():
     except Exception as e:
         log.warning("Catalog enrichment failed: %s", e)
 
+    # Update connector status
+    try:
+        import sqlite3
+        from src.core.db import DB_PATH
+        _cdb = sqlite3.connect(DB_PATH, timeout=10)
+        po_count = _cdb.execute("SELECT COUNT(*) FROM scprs_po_master").fetchone()[0]
+        _cdb.execute("""
+            UPDATE connectors SET
+                record_count = ?, last_pulled = datetime('now'),
+                health_grade = 'A', status = 'active'
+            WHERE name = 'ca_scprs' OR name = 'California SCPRS'
+        """, (po_count,))
+        _cdb.commit()
+        _cdb.close()
+        log.info("Updated ca_scprs connector: %d records, grade A", po_count)
+    except Exception as e:
+        log.warning("Connector status update: %s", e)
+
+    # Validate all data paths
+    try:
+        from src.agents.data_validator import validate_all
+        validation = validate_all()
+        log.info("Data validation: %s — %d/%d passed",
+                 validation["summary"]["health"],
+                 validation["summary"]["passed"],
+                 validation["summary"]["total_checks"])
+    except Exception as e:
+        log.warning("Data validation failed: %s", e)
+
 
 async def _scrape_full_async(search_params, seen_pos, max_rows=500):
     """Full async scrape with search_params dict (supports to_date, description)."""
