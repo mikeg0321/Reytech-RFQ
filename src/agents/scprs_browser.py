@@ -611,6 +611,19 @@ def _run_exhaustive_scrape():
     log.info("=" * 60)
 
     seen_pos = set()
+
+    # Pre-load existing POs so we don't re-scrape them
+    try:
+        import sqlite3
+        from src.core.db import DB_PATH
+        _db = sqlite3.connect(DB_PATH, timeout=10)
+        existing = _db.execute("SELECT po_number FROM scprs_po_master").fetchall()
+        seen_pos = {r[0] for r in existing if r[0]}
+        _db.close()
+        log.info("FISCAL: pre-loaded %d existing POs to skip", len(seen_pos))
+    except Exception as e:
+        log.warning("FISCAL: couldn't pre-load existing POs: %s", e)
+
     total_pos = 0
     total_lines = 0
     total_ingested = 0
