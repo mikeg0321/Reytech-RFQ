@@ -566,7 +566,11 @@ function saveField(el,field){
     saveField(el,field);return;
    }
   }
-  if(d.ok){el.style.borderColor='#16a34a';setTimeout(function(){el.style.borderColor='transparent'},1500)}
+  if(d.ok){
+   el.style.borderColor='#16a34a';setTimeout(function(){el.style.borderColor='transparent'},1500);
+   if(d.link_result&&d.link_result.linked){alert('Linked to PC #'+d.link_result.pc_number+'! Reload to see imported pricing.');location.reload();}
+   else if(d.link_result&&!d.link_result.linked){console.log('Re-link attempted, no match found',d.link_result);}
+  }
   else{el.style.borderColor='#f85149'}
  }).catch(function(){el.style.borderColor='#f85149'});
 }
