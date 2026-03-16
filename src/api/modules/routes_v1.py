@@ -2572,6 +2572,38 @@ def api_v1_recovery_restore():
     return api_response(results)
 
 
+@bp.route("/api/v1/debug/rfq-raw/<rid>")
+@auth_required
+def api_v1_debug_rfq_raw(rid):
+    """Show raw RFQ data to debug missing items."""
+    import json as _json
+    import os as _os
+    result = {"rid": rid}
+    try:
+        rfq_path = _os.path.join(_os.environ.get("DATA_DIR", "/data"), "rfqs.json")
+        with open(rfq_path) as f:
+            rfqs = _json.load(f)
+        r = rfqs.get(rid)
+        if not r:
+            return api_response({"error": "RFQ not found", "available": list(rfqs.keys())})
+        result["keys"] = list(r.keys())
+        result["line_items_count"] = len(r.get("line_items", []))
+        result["items_count"] = len(r.get("items", []))
+        result["status"] = r.get("status")
+        # Show first item from each key
+        if r.get("line_items"):
+            result["first_line_item"] = r["line_items"][0] if r["line_items"] else None
+        if r.get("items"):
+            result["first_item"] = r["items"][0] if r["items"] else None
+        # Check for items_detail or other keys
+        for k in r.keys():
+            if "item" in k.lower() and isinstance(r[k], list) and r[k]:
+                result[f"found_in_{k}"] = len(r[k])
+    except Exception as e:
+        result["error"] = str(e)
+    return api_response(result)
+
+
 @bp.route("/api/v1/debug/rfq-status")
 @auth_required
 def api_v1_debug_rfq_status():
