@@ -102,14 +102,31 @@ def safe_save_json(filepath, data, reason=""):
             )
             return False
 
-    # 3. Atomic write
+    # 3. Size guard — catch runaway growth before it fills the disk
+    serialized = json.dumps(data, indent=2, default=str)
+    size_mb = len(serialized) / 1_000_000
+    if size_mb > 10:
+        log.error(
+            "BLOCKED: %s would be %.1fMB — likely recursive nesting "
+            "(reason: %s). Snapshot preserved at %s",
+            basename, size_mb, reason,
+            os.path.join(SNAPSHOT_DIR, f"{basename}.{ts}"),
+        )
+        return False
+    if size_mb > 2:
+        log.warning("LARGE SAVE: %s = %.1fMB (reason: %s)", basename, size_mb, reason)
+
+    # 4. Atomic write
     tmp = filepath + ".tmp"
     try:
         with open(tmp, "w") as f:
-            json.dump(data, f, indent=2, default=str)
+            f.write(serialized)
             f.flush()
             os.fsync(f.fileno())
         os.replace(tmp, filepath)
+        log.info("SAVE OK: %s (%.1fKB, %d records, reason: %s)",
+                 basename, len(serialized)/1000,
+                 len(data) if isinstance(data, dict) else 0, reason)
         return True
     except Exception as e:
         log.error("Save FAILED for %s: %s", basename, e)
@@ -170,3 +187,94 @@ def cleanup_old_snapshots(days=7):
             os.remove(fpath)
             removed += 1
     return removed
+
+
+def boot_health_check():
+    """Run on every boot. Logs the state of all critical data files and DB tables.
+    Returns a dict with status of each check. Logs errors loudly.
+    """
+    data_dir = os.environ.get("DATA_DIR", "/data")
+    checks = {"ok": True, "issues": [], "stats": {}}
+
+    # 1. Check JSON files
+    for fname in ["rfqs.json", "price_checks.json"]:
+        fpath = os.path.join(data_dir, fname)
+        try:
+            if not os.path.exists(fpath):
+                checks["issues"].append(f"{fname}: MISSING")
+                checks["stats"][fname] = {"exists": False, "records": 0, "size_kb": 0}
+                continue
+            size = os.path.getsize(fpath)
+            with open(fpath) as f:
+                data = json.load(f)
+            records = len(data) if isinstance(data, dict) else 0
+            checks["stats"][fname] = {"exists": True, "records": records, "size_kb": round(size/1000, 1)}
+            if records == 0:
+                checks["issues"].append(f"{fname}: EXISTS but EMPTY (0 records)")
+            if size > 5_000_000:
+                checks["issues"].append(f"{fname}: BLOATED ({round(size/1_000_000,1)}MB) — possible recursive nesting")
+            log.info("BOOT CHECK: %s — %d records, %.1fKB", fname, records, size/1000)
+        except json.JSONDecodeError as e:
+            checks["issues"].append(f"{fname}: CORRUPTED JSON ({e})")
+            checks["stats"][fname] = {"exists": True, "records": 0, "error": str(e)}
+            log.error("BOOT CHECK: %s CORRUPTED: %s", fname, e)
+        except Exception as e:
+            checks["issues"].append(f"{fname}: ERROR ({e})")
+            checks["stats"][fname] = {"error": str(e)}
+
+    # 2. Check SQLite tables
+    try:
+        import sqlite3
+        db_path = os.path.join(data_dir, "reytech.db")
+        if os.path.exists(db_path):
+            conn = sqlite3.connect(db_path, timeout=5)
+            for table in ["price_checks", "rfqs"]:
+                try:
+                    count = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+                    checks["stats"][f"sqlite_{table}"] = {"records": count}
+                    log.info("BOOT CHECK: SQLite %s — %d records", table, count)
+
+                    # Cross-check: if SQLite has data but JSON is empty, flag it
+                    json_fname = f"{table.replace('price_checks','price_checks')}.json"
+                    if table == "price_checks":
+                        json_fname = "price_checks.json"
+                    elif table == "rfqs":
+                        json_fname = "rfqs.json"
+                    json_records = checks["stats"].get(json_fname, {}).get("records", 0)
+                    if count > 0 and json_records == 0:
+                        checks["issues"].append(
+                            f"MISMATCH: SQLite {table} has {count} records but {json_fname} has 0 — NEEDS RECOVERY"
+                        )
+                        log.error("BOOT CHECK: MISMATCH — SQLite %s=%d but %s=0", table, count, json_fname)
+                except Exception as e:
+                    checks["stats"][f"sqlite_{table}"] = {"error": str(e)}
+            conn.close()
+        else:
+            checks["issues"].append("reytech.db: MISSING")
+    except Exception as e:
+        checks["issues"].append(f"SQLite check failed: {e}")
+
+    # 3. Check snapshot disk usage
+    try:
+        if os.path.exists(SNAPSHOT_DIR):
+            total_snap_size = sum(
+                os.path.getsize(os.path.join(SNAPSHOT_DIR, f))
+                for f in os.listdir(SNAPSHOT_DIR)
+            )
+            snap_count = len(os.listdir(SNAPSHOT_DIR))
+            checks["stats"]["snapshots"] = {"count": snap_count, "size_mb": round(total_snap_size/1_000_000, 1)}
+            if total_snap_size > 100_000_000:  # >100MB
+                checks["issues"].append(f"Snapshots using {round(total_snap_size/1_000_000,1)}MB — run cleanup")
+                log.warning("BOOT CHECK: Snapshots using %.1fMB", total_snap_size/1_000_000)
+    except Exception:
+        pass
+
+    if checks["issues"]:
+        checks["ok"] = False
+        for issue in checks["issues"]:
+            log.error("BOOT ISSUE: %s", issue)
+    else:
+        log.info("BOOT CHECK: ALL OK — %s",
+                 ", ".join(f"{k}={v.get('records','?')}" for k, v in checks["stats"].items() if 'records' in v))
+
+    return checks

@@ -3554,3 +3554,15 @@ def api_v1_system_emergency_cleanup():
         "kept": kept,
         "restored_from": restored_from,
     })
+
+
+@bp.route("/api/v1/system/boot-health")
+@auth_required
+def api_v1_system_boot_health():
+    """Run full health check — same as boot but on demand."""
+    try:
+        from src.core.data_guard import boot_health_check
+        return api_response(boot_health_check())
+    except Exception as e:
+        log.error("boot-health error: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)

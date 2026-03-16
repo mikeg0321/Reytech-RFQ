@@ -4659,6 +4659,15 @@ log.info(f"Dashboard: {len(_ROUTE_MODULES)} route modules loaded, {len([r for r 
 
 # ── Award Monitor merged into Award Tracker (single thread) ─────────────
 
+# ── Boot Health Check (runs every deploy) ────────────────────────────────
+try:
+    from src.core.data_guard import boot_health_check
+    _boot_health = boot_health_check()
+    if not _boot_health["ok"]:
+        log.error("BOOT HEALTH ISSUES: %s", _boot_health["issues"])
+except Exception as _e:
+    log.warning("Boot health check failed: %s", _e)
+
 # ── Boot Recovery: rebuild JSON caches from SQLite if empty (Law 19) ─────
 try:
     # Recover price_checks.json
