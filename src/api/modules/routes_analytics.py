@@ -19,7 +19,7 @@ import sqlite3 as _sqlite3
 from collections import defaultdict as _defaultdict
 from datetime import timedelta as _timedelta
 
-import csv, io, glob, platform, re, sqlite3
+import csv, io, glob, os, json, platform, re, sqlite3
 from datetime import datetime, timedelta
 from collections import defaultdict
 try:
@@ -1442,24 +1442,49 @@ def convert_pc_to_rfq(pcid):
     rfq_id = str(_uuid.uuid4())[:8]
     now = datetime.now().isoformat()
 
-    # Convert PC items to RFQ line items, preserving all pricing intelligence
+    # Convert PC items to RFQ line items — copy ALL fields, don't cherry-pick
     line_items = []
     for i, item in enumerate(pc.get("items", [])):
-        pricing = item.get("pricing", {})
-        line_items.append({
-            "row_index": i,
-            "description": item.get("description", ""),
-            "item_number": item.get("mfg_number", "") or item.get("item_number", ""),
-            "qty": item.get("qty", 0),
-            "uom": item.get("uom", "EA"),
-            "price_per_unit": pricing.get("recommended_price") or pricing.get("unit_price", 0),
-            "supplier_cost": pricing.get("your_cost", 0),
-            "scprs_last_price": pricing.get("scprs_price", 0),
-            "amazon_price": pricing.get("amazon_cost", 0),
-            "catalog_match": pricing.get("catalog_match"),
-            "extension": (item.get("qty", 0) or 0) * (pricing.get("recommended_price") or pricing.get("unit_price", 0) or 0),
-            "_from_pc": pcid,
-        })
+        # Copy ALL fields from PC item
+        rfq_item = {}
+        for key, val in item.items():
+            rfq_item[key] = val
+
+        # Add row_index for ordering
+        rfq_item["row_index"] = i
+
+        # Normalize field names for RFQ compatibility
+        rfq_item.setdefault("description", item.get("desc", ""))
+        rfq_item.setdefault("quantity", item.get("qty", 1))
+        rfq_item.setdefault("uom", item.get("uom", "EACH"))
+        rfq_item.setdefault("item_number", item.get("part_number", ""))
+        rfq_item.setdefault("supplier_cost",
+            item.get("cost", item.get("unit_cost", item.get("unit_price"))))
+        rfq_item.setdefault("price_per_unit",
+            item.get("bid_price", item.get("sell_price")))
+        rfq_item.setdefault("item_supplier", item.get("supplier", ""))
+        rfq_item.setdefault("item_link",
+            item.get("url", item.get("product_url",
+            item.get("amazon_url", ""))))
+
+        # Tag the source
+        rfq_item["source_pc"] = pcid
+        rfq_item["imported_from_pc"] = True
+        rfq_item["imported_at"] = now
+        rfq_item["_from_pc"] = pcid
+
+        # Check for PO screenshots
+        try:
+            po_num = pc.get("po_number", "")
+            if po_num:
+                for ext in [".png", ".html"]:
+                    po_path = os.path.join(DATA_DIR, "po_records", f"{po_num}{ext}")
+                    if os.path.exists(po_path):
+                        rfq_item["po_screenshot"] = po_path
+        except Exception:
+            pass
+
+        line_items.append(rfq_item)
 
     rfq_data = {
         "id": rfq_id,
@@ -1476,11 +1501,43 @@ def convert_pc_to_rfq(pcid):
         "linked_pc_id": pcid,
         "linked_pc_number": pc.get("pc_number", ""),
         "reytech_quote_number": pc.get("reytech_quote_number", ""),
+        # PC-level metadata
+        "source_pc": pcid,
+        "source_pc_number": pc.get("pc_number", ""),
+        "source_pc_status": pc.get("status", ""),
+        "source_pc_requestor": pc.get("requestor", ""),
     }
+
+    # Copy source PDF if it exists
+    source_file = pc.get("source_file", "")
+    if source_file and os.path.exists(source_file):
+        rfq_data["source_file"] = source_file
+        rfq_data["pc_pdf_path"] = source_file
 
     rfqs = load_rfqs()
     rfqs[rfq_id] = rfq_data
     save_rfqs(rfqs)
+
+    # Copy attachments/files from PC to RFQ
+    files_copied = 0
+    try:
+        from src.api.dashboard import list_rfq_files, get_rfq_file, save_rfq_file
+        pc_files = list_rfq_files(pcid)
+        for pf in pc_files:
+            full = get_rfq_file(pf["id"])
+            if full and full.get("data"):
+                save_rfq_file(
+                    rfq_id=rfq_id,
+                    filename=pf["filename"],
+                    file_type=pf.get("file_type", ""),
+                    data=full["data"],
+                    category=pf.get("category", "attachment"),
+                    uploaded_by="pc_conversion",
+                )
+                files_copied += 1
+        log.info("Copied %d files from PC %s to RFQ %s", len(pc_files), pcid, rfq_id)
+    except Exception as _e:
+        log.warning("File copy from PC %s to RFQ %s: %s", pcid, rfq_id, _e)
 
     # Update PC with link
     pc["linked_rfq_id"] = rfq_id
@@ -1488,8 +1545,8 @@ def convert_pc_to_rfq(pcid):
     pc["converted_to_rfq"] = True
     _save_price_checks(pcs)
 
-    log.info("PC %s converted to RFQ %s with %d items", pcid, rfq_id, len(line_items))
-    return jsonify({"ok": True, "rfq_id": rfq_id, "items": len(line_items)})
+    log.info("PC %s converted to RFQ %s with %d items, %d files", pcid, rfq_id, len(line_items), files_copied)
+    return jsonify({"ok": True, "rfq_id": rfq_id, "items": len(line_items), "files_copied": files_copied})
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -2316,44 +2373,48 @@ def api_rfq_import_from_pc(rid):
     if not pc_items:
         return jsonify({"ok": False, "error": "PC has no items"})
 
-    # Build RFQ line items from PC items — copy EVERYTHING
+    # Build RFQ line items from PC items — copy ALL fields, don't cherry-pick
     imported = []
     for it in pc_items:
         if not isinstance(it, dict):
             continue
-        pricing = it.get("pricing", {})
 
-        # Get best cost from any source
-        cost = (pricing.get("unit_cost") or pricing.get("your_cost") or
-                pricing.get("catalog_cost") or pricing.get("scprs_price") or
-                pricing.get("amazon_price") or pricing.get("web_price") or 0)
+        # Copy ALL fields — don't cherry-pick
+        rfq_item = {}
+        for key, val in it.items():
+            rfq_item[key] = val
+
+        # Then normalize field names for RFQ compatibility
+        rfq_item.setdefault("description", it.get("desc", ""))
+        rfq_item.setdefault("quantity", it.get("qty", 1))
+        rfq_item.setdefault("uom", it.get("uom", "EACH"))
+        rfq_item.setdefault("item_number", it.get("part_number", ""))
+        rfq_item.setdefault("supplier_cost",
+            it.get("cost", it.get("unit_cost", it.get("unit_price"))))
+        rfq_item.setdefault("price_per_unit",
+            it.get("bid_price", it.get("sell_price")))
+        rfq_item.setdefault("item_supplier", it.get("supplier", ""))
+        rfq_item.setdefault("item_link",
+            it.get("url", it.get("product_url",
+            it.get("amazon_url", ""))))
+
+        # Tag the source
+        rfq_item["source_pc"] = pc_id
+        rfq_item["imported_from_pc"] = True
+        rfq_item["imported_at"] = datetime.now().isoformat()
+        rfq_item["_from_pc"] = pc.get("pc_number", pc_id)
+
+        # Also check for PO screenshots linked to this PC
         try:
-            cost = round(float(cost), 2) if cost else 0
-        except (ValueError, TypeError):
-            cost = 0
+            po_num = pc.get("po_number", "")
+            if po_num:
+                for ext in [".png", ".html"]:
+                    po_path = os.path.join(DATA_DIR, "po_records", f"{po_num}{ext}")
+                    if os.path.exists(po_path):
+                        rfq_item["po_screenshot"] = po_path
+        except Exception:
+            pass
 
-        # Get bid price
-        bid = pricing.get("recommended_price") or pricing.get("unit_price") or 0
-        try:
-            bid = round(float(bid), 2) if bid else 0
-        except (ValueError, TypeError):
-            bid = 0
-        if not bid and cost > 0:
-            bid = round(cost * 1.25, 2)
-
-        rfq_item = {
-            "description": it.get("description", ""),
-            "qty": it.get("qty", 1),
-            "uom": it.get("uom", "EA"),
-            "item_number": it.get("mfg_number") or it.get("item_number", ""),
-            "supplier_cost": cost,
-            "price_per_unit": bid,
-            "scprs_last_price": pricing.get("scprs_price"),
-            "amazon_price": pricing.get("amazon_price") or pricing.get("amazon_cost"),
-            "item_link": it.get("item_link") or pricing.get("web_url") or pricing.get("catalog_url") or pricing.get("amazon_url", ""),
-            "item_supplier": it.get("item_supplier") or pricing.get("catalog_best_supplier") or pricing.get("web_source", ""),
-            "_from_pc": pc.get("pc_number", pc_id),
-        }
         imported.append(rfq_item)
 
     # Replace RFQ line items with PC items
@@ -2362,11 +2423,45 @@ def api_rfq_import_from_pc(rid):
     r["linked_pc_number"] = pc.get("pc_number", "")
     r["linked_pc_match_reason"] = "manual_import"
 
+    # Copy PC-level metadata to the RFQ
+    r["source_pc"] = pc_id
+    r["source_pc_number"] = pc.get("pc_number", "")
+    r["source_pc_status"] = pc.get("status", "")
+    r["source_pc_requestor"] = pc.get("requestor", "")
+
+    # Copy source PDF if it exists
+    source_file = pc.get("source_file", "")
+    if source_file and os.path.exists(source_file):
+        r["source_file"] = source_file
+        r["pc_pdf_path"] = source_file
+
     save_rfqs(rfqs)
+
+    # Copy attachments/files from PC to RFQ
+    files_copied = 0
+    try:
+        from src.api.dashboard import list_rfq_files, get_rfq_file, save_rfq_file
+        pc_files = list_rfq_files(pc_id)
+        for pf in pc_files:
+            full = get_rfq_file(pf["id"])
+            if full and full.get("data"):
+                save_rfq_file(
+                    rfq_id=rid,
+                    filename=pf["filename"],
+                    file_type=pf.get("file_type", ""),
+                    data=full["data"],
+                    category=pf.get("category", "attachment"),
+                    uploaded_by="import_from_pc",
+                )
+                files_copied += 1
+        log.info("Copied %d files from PC %s to RFQ %s", len(pc_files), pc_id, rid)
+    except Exception as _e:
+        log.warning("File copy from PC %s to RFQ %s: %s", pc_id, rid, _e)
 
     return jsonify({
         "ok": True,
         "items_imported": len(imported),
+        "files_copied": files_copied,
         "pc_number": pc.get("pc_number", ""),
         "priced": sum(1 for it in imported if it.get("supplier_cost") or it.get("price_per_unit")),
     })

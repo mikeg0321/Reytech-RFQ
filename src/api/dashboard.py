@@ -1309,7 +1309,7 @@ def _link_rfq_to_pc(rfq_data, _trace):
     _trace.append(f"PC LINKED: {matched_pid} ({match_reason})")
     log.info("Auto-linked RFQ %s → PC %s (%s)", rfq_data["id"], matched_pid, match_reason)
 
-    # ── Port pricing from PC items to RFQ items ──
+    # ── Port ALL fields from PC items to RFQ items (full transfer, not cherry-pick) ──
     pc_items = pc.get("items", [])
     ported = 0
     diff_added, diff_removed, diff_qty = [], [], []
@@ -1329,53 +1329,31 @@ def _link_rfq_to_pc(rfq_data, _trace):
             diff_added.append(rfq_item.get("description", "")[:50])
             continue
 
-        pricing = match.get("pricing", {})
         desc = rfq_item.get("description", "")
-        pn = match.get("mfg_number") or match.get("item_number", "")
-        rfq_id = rfq_data.get("solicitation_number", "")
 
-        # PC prices ALWAYS override — PC is the pricing research phase
-        # RFQ uses those prices as baseline (can go lower, not higher without justification)
-        cost = (pricing.get("unit_cost") or pricing.get("your_cost") or 
-                pricing.get("catalog_cost") or pricing.get("scprs_price") or
-                pricing.get("amazon_price") or pricing.get("web_price") or 0)
-        bid = (pricing.get("recommended_price") or pricing.get("unit_price") or 0)
-        
-        try:
-            cost = float(cost) if cost else 0
-        except (ValueError, TypeError):
-            cost = 0
-        try:
-            bid = float(bid) if bid else 0
-        except (ValueError, TypeError):
-            bid = 0
-            
-        if not bid and cost > 0:
-            bid = round(cost * 1.25, 2)
+        # Copy ALL fields from PC item — don't cherry-pick
+        for key, val in match.items():
+            if key not in rfq_item or not rfq_item[key]:
+                rfq_item[key] = val
 
-        if cost > 0:
-            rfq_item["supplier_cost"] = round(cost, 2)
-        if bid > 0:
-            rfq_item["price_per_unit"] = round(bid, 2)
-        
-        # Port SCPRS + Amazon prices
-        scprs = pricing.get("scprs_price")
-        if scprs:
-            try: rfq_item["scprs_last_price"] = round(float(scprs), 2)
-            except (ValueError, TypeError): pass
-        amz = pricing.get("amazon_price") or pricing.get("amazon_cost")
-        if amz:
-            try: rfq_item["amazon_price"] = round(float(amz), 2)
-            except (ValueError, TypeError): pass
-        # Port item link and supplier
-        if match.get("item_link") and not rfq_item.get("item_link"):
-            rfq_item["item_link"] = match["item_link"]
-        if match.get("item_supplier") and not rfq_item.get("item_supplier"):
-            rfq_item["item_supplier"] = match["item_supplier"]
+        # Normalize field names for RFQ compatibility
+        rfq_item.setdefault("description", match.get("desc", ""))
+        rfq_item.setdefault("quantity", match.get("qty", 1))
+        rfq_item.setdefault("uom", match.get("uom", "EACH"))
+        rfq_item.setdefault("item_number", match.get("part_number", ""))
+        rfq_item.setdefault("supplier_cost",
+            match.get("cost", match.get("unit_cost", match.get("unit_price"))))
+        rfq_item.setdefault("price_per_unit",
+            match.get("bid_price", match.get("sell_price")))
+        rfq_item.setdefault("item_supplier", match.get("supplier", ""))
+        rfq_item.setdefault("item_link",
+            match.get("url", match.get("product_url",
+            match.get("amazon_url", ""))))
 
-        if not rfq_item.get("item_number") and pn:
-            rfq_item["item_number"] = pn
-
+        # Tag the source
+        rfq_item["source_pc"] = matched_pid
+        rfq_item["imported_from_pc"] = True
+        rfq_item["imported_at"] = datetime.now(timezone.utc).isoformat()
         rfq_item["_from_pc"] = pc.get("pc_number", "")
         ported += 1
 
@@ -1384,6 +1362,17 @@ def _link_rfq_to_pc(rfq_data, _trace):
         rfq_qty = rfq_item.get("qty", 0) or 0
         if pc_qty and rfq_qty and pc_qty != rfq_qty:
             diff_qty.append({"desc": desc[:50], "pc": pc_qty, "rfq": rfq_qty})
+
+        # Check for PO screenshots
+        try:
+            po_num = pc.get("po_number", "")
+            if po_num:
+                for ext in [".png", ".html"]:
+                    po_path = os.path.join(DATA_DIR, "po_records", f"{po_num}{ext}")
+                    if os.path.exists(po_path):
+                        rfq_item["po_screenshot"] = po_path
+        except Exception:
+            pass
 
     # Items in PC but not in RFQ
     for pci in pc_items:
@@ -1397,6 +1386,18 @@ def _link_rfq_to_pc(rfq_data, _trace):
         )
         if not found:
             diff_removed.append(pci.get("description", "")[:50])
+
+    # Copy PC-level metadata to the RFQ
+    rfq_data["source_pc"] = matched_pid
+    rfq_data["source_pc_number"] = pc.get("pc_number", "")
+    rfq_data["source_pc_status"] = pc.get("status", "")
+    rfq_data["source_pc_requestor"] = pc.get("requestor", "")
+
+    # Copy source PDF if it exists
+    source_file = pc.get("source_file", "")
+    if source_file and os.path.exists(source_file):
+        rfq_data["source_file"] = source_file
+        rfq_data["pc_pdf_path"] = source_file
 
     # Store diff
     rfq_data["pc_diff"] = {
