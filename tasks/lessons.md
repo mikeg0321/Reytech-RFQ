@@ -612,3 +612,15 @@ strings) will fail in production. Always.
 Before committing changes to _link_rfq_to_pc, save_rfqs,
 _save_price_checks, or any data pipeline function, run
 the test script and show the output. All tests must pass.
+
+### Law 25: Destructive Endpoints Need Confirmation
+Any endpoint that modifies, rebuilds, or bulk-changes data
+must require explicit confirmation before executing:
+- Use `?confirm=1` parameter or POST with confirmation body
+- Show what WILL happen before doing it
+- Never auto-trigger on page load or via plain GET links
+- Accidental clicks on diagnostic/recovery endpoints must
+  not cause data changes
+
+On 2026-03-16, recover-pcs was accidentally triggered by a
+misclick. All bulk data operations must have a safety gate.
