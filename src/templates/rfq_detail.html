@@ -508,7 +508,7 @@ td:hover .desc-expand-btn { opacity: 1 !important; }
 </style>
 <script>
 const RID = {{rid|tojson}};
-const items={{r.line_items|tojson}};
+const items={{r.get("line_items",[])|tojson}};
 const n=items.length;
 
 // ── Description textarea expand/collapse ──
