@@ -3381,3 +3381,116 @@ def api_v1_quotes_sent_tracker():
     except Exception as e:
         log.error("sent-tracker error: %s", e, exc_info=True)
         return api_response(error=str(e), status=500)
+
+
+@bp.route("/api/v1/system/recover-pcs")
+@auth_required
+def api_v1_system_recover_pcs():
+    """Recover PCs from SQLite into price_checks.json. Merges all sources, keeps version with most items."""
+    import json as _json
+    try:
+        from src.core.db import get_db
+        from src.core.data_guard import safe_save_json
+        try:
+            from src.core.paths import DATA_DIR as _DATA_DIR
+        except Exception:
+            _DATA_DIR = os.environ.get("DATA_DIR", "/data")
+
+        pc_json_path = os.path.join(_DATA_DIR, "price_checks.json")
+
+        # Load current JSON
+        current = {}
+        try:
+            with open(pc_json_path) as f:
+                current = _json.load(f)
+        except Exception:
+            pass
+
+        # Load from live SQLite
+        all_sources = {}
+        with get_db() as conn:
+            rows = conn.execute("SELECT * FROM price_checks").fetchall()
+            for r in rows:
+                d = dict(r)
+                pcid = d["id"]
+                pc_data = d.get("pc_data", "{}")
+                if isinstance(pc_data, str):
+                    try:
+                        pc_data = _json.loads(pc_data)
+                    except Exception:
+                        pc_data = {}
+                if isinstance(pc_data, dict):
+                    for k, v in d.items():
+                        if k != "pc_data" and v and not pc_data.get(k):
+                            pc_data[k] = v
+                items = pc_data.get("items", []) if isinstance(pc_data, dict) else []
+                if not items:
+                    items_col = d.get("items", "[]")
+                    if isinstance(items_col, str):
+                        try:
+                            items = _json.loads(items_col)
+                        except Exception:
+                            items = []
+                    if items and isinstance(pc_data, dict):
+                        pc_data["items"] = items
+                all_sources[pcid] = {"data": pc_data, "items": len(items), "source": "sqlite"}
+
+        # Merge with JSON (prefer version with more items)
+        for pcid, pc in current.items():
+            if not isinstance(pc, dict):
+                continue
+            pd = pc.get("pc_data", pc)
+            if isinstance(pd, str):
+                try:
+                    pd = _json.loads(pd)
+                except Exception:
+                    pd = {}
+            items = pd.get("items", pc.get("items", [])) if isinstance(pd, dict) else []
+            item_count = len(items) if isinstance(items, list) else 0
+            if pcid not in all_sources or item_count > all_sources[pcid]["items"]:
+                all_sources[pcid] = {"data": pc, "items": item_count, "source": "json"}
+
+        # Build restored dict
+        restored = {}
+        details = []
+        for pcid, info in all_sources.items():
+            restored[pcid] = info["data"]
+            details.append({"id": pcid, "items": info["items"], "source": info["source"]})
+
+        # Save with data guard
+        safe_save_json(pc_json_path, restored, reason="manual_recovery")
+
+        # Also update SQLite
+        with get_db() as conn:
+            for pcid, pc in restored.items():
+                if not isinstance(pc, dict):
+                    continue
+                items = pc.get("items", [])
+                if isinstance(items, str):
+                    try:
+                        items = _json.loads(items)
+                    except Exception:
+                        items = []
+                try:
+                    conn.execute("""
+                        INSERT OR REPLACE INTO price_checks
+                        (id, created_at, requestor, agency, institution, items,
+                         pc_number, status, pc_data)
+                        VALUES (?,?,?,?,?,?,?,?,?)
+                    """, (pcid, pc.get("created_at", ""), pc.get("requestor", ""),
+                          pc.get("agency", ""), pc.get("institution", ""),
+                          _json.dumps(items, default=str),
+                          pc.get("pc_number", ""), pc.get("status", "parsed"),
+                          _json.dumps(pc, default=str)))
+                except Exception:
+                    pass
+
+        total_items = sum(info["items"] for info in all_sources.values())
+        return api_response({
+            "recovered": len(restored),
+            "total_items": total_items,
+            "details": details,
+        })
+    except Exception as e:
+        log.error("recover-pcs error: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)

@@ -4658,6 +4658,92 @@ log.info(f"Dashboard: {len(_ROUTE_MODULES)} route modules loaded, {len([r for r 
 
 # ── Award Monitor merged into Award Tracker (single thread) ─────────────
 
+# ── Boot Recovery: rebuild JSON caches from SQLite if empty (Law 19) ─────
+try:
+    # Recover price_checks.json
+    pc_json_path = os.path.join(DATA_DIR, "price_checks.json")
+    pc_json_empty = True
+    if os.path.exists(pc_json_path):
+        try:
+            with open(pc_json_path) as f:
+                _existing_pcs = json.load(f)
+            if _existing_pcs and len(_existing_pcs) > 0:
+                pc_json_empty = False
+        except Exception:
+            pass
+    if pc_json_empty:
+        log.warning("BOOT: price_checks.json empty/missing — rebuilding from SQLite")
+        from src.core.db import get_db as _boot_db
+        with _boot_db() as _bconn:
+            _brows = _bconn.execute("SELECT id, pc_data FROM price_checks WHERE pc_data IS NOT NULL").fetchall()
+            if _brows:
+                _rebuilt = {}
+                for _br in _brows:
+                    try:
+                        _pd = json.loads(_br[1]) if isinstance(_br[1], str) else _br[1]
+                        if isinstance(_pd, dict):
+                            _rebuilt[_br[0]] = _pd
+                    except Exception:
+                        pass
+                if _rebuilt:
+                    from src.core.data_guard import safe_save_json
+                    safe_save_json(pc_json_path, _rebuilt, reason="boot_recovery")
+                    log.info("BOOT: Rebuilt price_checks.json from SQLite: %d PCs", len(_rebuilt))
+except Exception as _e:
+    log.warning("BOOT: PC recovery failed: %s", _e)
+
+try:
+    # Recover rfqs.json
+    rfq_json_path = os.path.join(DATA_DIR, "rfqs.json")
+    rfq_json_empty = True
+    if os.path.exists(rfq_json_path):
+        try:
+            with open(rfq_json_path) as f:
+                _existing_rfqs = json.load(f)
+            if _existing_rfqs and len(_existing_rfqs) > 0:
+                rfq_json_empty = False
+        except Exception:
+            pass
+    if rfq_json_empty:
+        log.warning("BOOT: rfqs.json empty/missing — rebuilding from SQLite")
+        from src.core.db import get_db as _boot_db2
+        with _boot_db2() as _bconn2:
+            _brows2 = _bconn2.execute("SELECT * FROM rfqs").fetchall()
+            if _brows2:
+                _rebuilt2 = {}
+                for _br2 in _brows2:
+                    try:
+                        _d2 = dict(_br2)
+                        _rid = _d2["id"]
+                        _items = json.loads(_d2.get("items", "[]")) if isinstance(_d2.get("items"), str) else _d2.get("items", [])
+                        _rebuilt2[_rid] = {
+                            "id": _rid,
+                            "line_items": _items,
+                            "items": _items,
+                            "status": _d2.get("status", "draft"),
+                            "requestor_name": _d2.get("requestor_name", ""),
+                            "requestor_email": _d2.get("requestor_email", ""),
+                            "solicitation_number": _d2.get("solicitation_number", _d2.get("rfq_number", "")),
+                            "rfq_number": _d2.get("rfq_number", ""),
+                            "due_date": _d2.get("due_date", ""),
+                            "email_subject": _d2.get("email_subject", ""),
+                            "body_text": _d2.get("body_text", ""),
+                            "form_type": _d2.get("form_type", ""),
+                            "agency": _d2.get("agency", ""),
+                            "institution": _d2.get("institution", ""),
+                            "received_at": _d2.get("received_at", ""),
+                            "source": _d2.get("source", ""),
+                            "email_uid": _d2.get("email_uid", ""),
+                        }
+                    except Exception:
+                        pass
+                if _rebuilt2:
+                    from src.core.data_guard import safe_save_json
+                    safe_save_json(rfq_json_path, _rebuilt2, reason="boot_recovery")
+                    log.info("BOOT: Rebuilt rfqs.json from SQLite: %d RFQs", len(_rebuilt2))
+except Exception as _e:
+    log.warning("BOOT: RFQ recovery failed: %s", _e)
+
 # ── Background agent schedulers (disabled in tests via ENABLE_BACKGROUND_AGENTS=false) ──
 if os.environ.get("ENABLE_BACKGROUND_AGENTS", "true").lower() not in ("false", "0", "off"):
     # ── Start Follow-Up Engine (auto-creates follow-up drafts) ──────────────

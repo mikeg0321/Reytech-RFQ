@@ -553,3 +553,32 @@ On 2026-03-16, SQLite stored items as "items" but templates
 read "line_items". Data appeared lost but was there all along.
 Before adding ANY field, grep the entire codebase for existing
 names: `grep -rn "line_items\|\"items\"" src/`
+
+### Law 19: Boot Recovery Is Mandatory
+Every deploy restarts the container. JSON files on the volume
+can become stale, empty, or corrupted. SQLite is the source
+of truth. On EVERY boot:
+1. Check if rfqs.json is empty but SQLite has data → rebuild
+2. Check if price_checks.json is empty but SQLite has data → rebuild
+3. Log the recovery
+
+This law exists because PCs were wiped on 3+ deploys before
+boot recovery was added. 2026-03-16.
+
+### Law 20: The "Zero Callers" Check
+Before committing ANY new utility function, run:
+  `grep -rn "function_name" src/ | grep -v "def function_name" | grep -v __pycache__`
+If it returns NOTHING, the function is NOT WIRED.
+
+safe_save_json was requested 3 times and committed 3 times.
+Each time the file was created but callers were not verified.
+NEVER commit a function with zero callers.
+
+### Law 21: SQLite Is Source of Truth, JSON Is Cache
+SQLite DB persists across deploys on Railway volume.
+JSON files are a READ CACHE that gets rebuilt from SQLite.
+When they disagree, SQLite wins.
+
+Write path: Always SQLite first, then JSON cache.
+Read path: DAL (SQLite) first, JSON fallback only if DAL empty.
+Boot path: If JSON empty but SQLite has data, rebuild JSON.
