@@ -276,32 +276,7 @@ def home():
     except Exception:
         all_pcs = {}
     log.info("HOME: PCs loaded (%d) in %.0fms", len(all_pcs), (_ht.time()-_t0)*1000)
-
-    # Recovery check: if SQLite has PCs but JSON doesn't, rebuild (Law 19)
-    if not all_pcs:
-        try:
-            from src.core.db import get_db
-            with get_db() as _hconn:
-                _db_count = _hconn.execute(
-                    "SELECT COUNT(*) FROM price_checks WHERE pc_data IS NOT NULL AND pc_data != '{}'"
-                ).fetchone()[0]
-            if _db_count > 0:
-                log.warning("HOME: 0 PCs in JSON but %d in SQLite — triggering recovery", _db_count)
-                from src.core.dal import list_pcs as _dal_list_pcs
-                _rows = _dal_list_pcs(limit=10000)
-                if _rows:
-                    all_pcs = {r["id"]: r for r in _rows}
-                    # Strip pc_data blob before saving to JSON (prevents recursive nesting)
-                    _clean_pcs = {}
-                    for _pid, _pc in all_pcs.items():
-                        _cpc = {k: v for k, v in _pc.items() if k != "pc_data"}
-                        _clean_pcs[_pid] = _cpc
-                    from src.core.data_guard import safe_save_json
-                    _pc_path = os.path.join(DATA_DIR, "price_checks.json")
-                    safe_save_json(_pc_path, _clean_pcs, reason="home_recovery")
-                    log.info("HOME: Recovered %d PCs from SQLite", len(all_pcs))
-        except Exception as _re:
-            log.warning("HOME: PC recovery: %s", _re)
+    # Recovery runs at boot (dashboard.py), not on every request
     from src.api.dashboard import _is_user_facing_pc
     user_pcs = {k: v for k, v in all_pcs.items() if _is_user_facing_pc(v)}
     # PST "today" for California-based due date comparisons
