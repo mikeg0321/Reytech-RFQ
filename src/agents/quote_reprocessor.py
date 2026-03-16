@@ -27,204 +27,290 @@ def reprocess_all_quotes():
 
 
 def _enrich_pending_pcs():
-    """Find all unpriced/pending PC items and attach intelligence."""
-    log.info("Enriching pending PCs...")
+    """Enrich pending PCs and quotes with pricing intelligence."""
+    import json
+    import sqlite3
+    from src.core.db import DB_PATH
+
+    log.info("Enriching pending PCs and quotes...")
     enriched_count = 0
 
     try:
-        # Import dashboard's PC loader (exec'd module, access via globals)
-        import importlib
-        import sys
-
-        # Load PCs from DB
-        import sqlite3
-        from src.core.db import DB_PATH
-        db = sqlite3.connect(DB_PATH, timeout=10)
-        db.row_factory = sqlite3.Row
-
-        rows = db.execute("""
-            SELECT id, status, pc_data FROM price_checks
-            WHERE LOWER(status) IN ('parsed', 'new', 'draft', 'priced', 'review')
-        """).fetchall()
-
-        log.info("Found %d pending PCs to enrich", len(rows))
-
+        db = sqlite3.connect(DB_PATH, timeout=30)
         from src.agents.quote_intelligence import enrich_extracted_items
-        import json
 
-        for row in rows:
-            pc_id = row["id"]
-            try:
-                pc_data = json.loads(row["pc_data"]) if row["pc_data"] else {}
-            except (json.JSONDecodeError, TypeError):
-                continue
+        # --- Price Checks (pc_data JSON blob) ---
+        try:
+            pcs = db.execute("""
+                SELECT id, pc_data, items FROM price_checks
+                WHERE LOWER(status) IN ('parsed', 'new', 'pending', 'review', 'priced')
+            """).fetchall()
+            log.info("Found %d pending PCs", len(pcs))
 
-            items = pc_data.get("items", [])
-            if not items:
-                continue
-
-            # Check if already enriched recently
-            last_enriched = pc_data.get("intelligence_enriched_at", "")
-            if last_enriched:
+            for pc in pcs:
+                pc_id = pc[0]
                 try:
-                    last_dt = datetime.fromisoformat(last_enriched)
-                    hours_ago = (datetime.now() - last_dt).total_seconds() / 3600
-                    if hours_ago < 12:
-                        continue  # Skip if enriched less than 12 hours ago
-                except Exception:
-                    pass
+                    pc_data = json.loads(pc[1] or "{}") if pc[1] else {}
+                    items_json = json.loads(pc[2] or "[]") if pc[2] else []
 
-            # Enrich items
-            try:
-                enriched_items = enrich_extracted_items(items)
-                items_with_intel = 0
-                for i, enriched in enumerate(enriched_items):
-                    if i < len(items) and enriched.get("intelligence"):
-                        items[i]["intelligence"] = enriched["intelligence"]
-                        items_with_intel += 1
+                    items = pc_data.get("items", pc_data.get("line_items", items_json))
+                    if isinstance(items, str):
+                        items = json.loads(items)
+                    if not items:
+                        continue
 
-                if items_with_intel > 0:
-                    pc_data["items"] = items
-                    pc_data["intelligence_enriched_at"] = datetime.now().isoformat()
-                    pc_data["intelligence_items_count"] = items_with_intel
+                    # Skip if recently enriched
+                    last = pc_data.get("intelligence_enriched_at", "")
+                    if last:
+                        try:
+                            if (datetime.now() - datetime.fromisoformat(last)).total_seconds() < 43200:
+                                continue
+                        except Exception:
+                            pass
 
-                    db.execute(
-                        "UPDATE price_checks SET pc_data = ? WHERE id = ?",
-                        (json.dumps(pc_data, default=str), pc_id)
-                    )
-                    enriched_count += 1
-                    log.info("Enriched PC %s: %d/%d items with intelligence",
-                             pc_id, items_with_intel, len(items))
-            except Exception as e:
-                log.warning("Enrich PC %s failed: %s", pc_id, str(e)[:60])
+                    items_for_enrichment = [{
+                        "description": it.get("description", it.get("desc", "")),
+                        "quantity": it.get("quantity", it.get("qty", 1)),
+                        "unit_price": it.get("unit_price", it.get("price")),
+                        "cost": it.get("cost", it.get("unit_cost", it.get("unit_price"))),
+                    } for it in items]
+
+                    enriched = enrich_extracted_items(items_for_enrichment)
+                    count = 0
+                    for i, e in enumerate(enriched):
+                        if i < len(items) and e.get("intelligence"):
+                            items[i]["intelligence"] = e["intelligence"]
+                            count += 1
+
+                    if count > 0:
+                        pc_data["items"] = items
+                        pc_data["intelligence_enriched_at"] = datetime.now().isoformat()
+                        db.execute("UPDATE price_checks SET pc_data = ? WHERE id = ?",
+                                   (json.dumps(pc_data, default=str), pc_id))
+                        enriched_count += 1
+                        log.info("Enriched PC %s: %d items", pc_id, count)
+                except Exception as e:
+                    log.warning("PC %s: %s", pc_id, str(e)[:60])
+        except Exception as e:
+            log.warning("PC enrichment: %s", e)
+
+        # --- Quotes (items_detail JSON blob) ---
+        try:
+            quotes = db.execute("""
+                SELECT id, items_detail, line_items, status FROM quotes
+                WHERE LOWER(status) IN ('pending', 'draft', 'new', 'review')
+            """).fetchall()
+            log.info("Found %d pending quotes", len(quotes))
+
+            for q in quotes:
+                q_id = q[0]
+                try:
+                    items_raw = q[1] or q[2] or "[]"
+                    items = json.loads(items_raw) if isinstance(items_raw, str) else items_raw
+                    if not items:
+                        continue
+
+                    items_for_enrichment = [{
+                        "description": it.get("description", ""),
+                        "quantity": it.get("quantity", it.get("qty", 1)),
+                        "unit_price": it.get("unit_price", it.get("price")),
+                        "cost": it.get("cost", it.get("unit_cost")),
+                    } for it in items]
+
+                    enriched = enrich_extracted_items(items_for_enrichment)
+                    count = 0
+                    for i, e in enumerate(enriched):
+                        if i < len(items) and e.get("intelligence"):
+                            items[i]["intelligence"] = e["intelligence"]
+                            count += 1
+
+                    if count > 0:
+                        db.execute("UPDATE quotes SET items_detail = ? WHERE id = ?",
+                                   (json.dumps(items, default=str), q_id))
+                        enriched_count += 1
+                        log.info("Enriched quote %s: %d items", q_id, count)
+                except Exception as e:
+                    log.warning("Quote %s: %s", q_id, str(e)[:60])
+        except Exception as e:
+            log.warning("Quote enrichment: %s", e)
 
         db.commit()
         db.close()
-
     except Exception as e:
-        log.error("Pending PC enrichment failed: %s", e)
+        log.error("Enrichment failed: %s", e)
 
     return enriched_count
 
 
 def _validate_sent_pcs():
-    """Check sent quotes against fresh market data. Flag underpriced items."""
-    log.info("Validating sent PCs...")
+    """Validate sent quotes/PCs against current market data."""
+    import json
+    import sqlite3
+    from src.core.db import DB_PATH
+
+    log.info("Validating sent PCs and quotes...")
     validated_count = 0
+    underpriced = 0
     alerts = []
 
     try:
-        import sqlite3
-        import json
-        from src.core.db import DB_PATH
-        db = sqlite3.connect(DB_PATH, timeout=10)
-        db.row_factory = sqlite3.Row
+        db = sqlite3.connect(DB_PATH, timeout=30)
+        from src.agents.quote_intelligence import get_competitor_prices, _parse_price_str
 
-        rows = db.execute("""
-            SELECT id, status, pc_data FROM price_checks
-            WHERE LOWER(status) IN ('sent', 'pending_award')
-        """).fetchall()
+        # --- Sent Price Checks ---
+        try:
+            pcs = db.execute("""
+                SELECT id, pc_data, items, status FROM price_checks
+                WHERE LOWER(status) IN ('sent', 'submitted', 'won', 'completed', 'pending_award')
+            """).fetchall()
+            log.info("Found %d sent PCs to validate", len(pcs))
 
-        log.info("Found %d sent PCs to validate", len(rows))
-
-        from src.agents.quote_intelligence import (
-            search_catalog, get_competitor_prices, _parse_price_str, _normalize_unit_price
-        )
-
-        for row in rows:
-            pc_id = row["id"]
-            try:
-                pc_data = json.loads(row["pc_data"]) if row["pc_data"] else {}
-            except (json.JSONDecodeError, TypeError):
-                continue
-
-            items = pc_data.get("items", [])
-            institution = pc_data.get("institution", "")
-            pc_number = pc_data.get("pc_number", pc_id)
-            underpriced_items = []
-
-            for item in items:
-                desc = item.get("description", "")
-                our_price = item.get("pricing", {}).get("recommended_price")
-                if not desc or not our_price:
-                    continue
-
+            for pc in pcs:
+                pc_id = pc[0]
                 try:
-                    our_price = float(our_price)
-                except (ValueError, TypeError):
-                    continue
+                    pc_data = json.loads(pc[1] or "{}") if pc[1] else {}
+                    items = pc_data.get("items", pc_data.get("line_items", []))
+                    if isinstance(items, str):
+                        items = json.loads(items)
+                    if not items:
+                        items_raw = pc[2]
+                        items = json.loads(items_raw or "[]") if items_raw else []
 
-                # Get current market data
-                competitors = get_competitor_prices(desc, limit=10)
-                if not competitors:
-                    continue
+                    institution = pc_data.get("institution", "")
+                    pc_number = pc_data.get("pc_number", pc_id)
+                    underpriced_items = []
 
-                # Calculate market avg (non-Reytech)
-                comp_prices = []
-                for cp in competitors:
-                    if "REYTECH" in (cp.get("supplier", "") or "").upper():
-                        continue
-                    norm = _normalize_unit_price(
-                        _parse_price_str(cp.get("unit_price")),
-                        cp.get("description", "")
-                    )
-                    if norm and norm["normalized_price"] > 0:
-                        comp_prices.append(norm["normalized_price"])
+                    for item in items:
+                        desc = item.get("description", item.get("desc", ""))
+                        qp = item.get("unit_price", item.get("price"))
+                        if not qp:
+                            qp = (item.get("pricing") or {}).get("recommended_price")
+                        qty = item.get("quantity", item.get("qty", 1)) or 1
+                        if not desc or not qp:
+                            continue
+                        try:
+                            qp = float(str(qp).replace("$", "").replace(",", ""))
+                        except (ValueError, TypeError):
+                            continue
 
-                if not comp_prices:
-                    continue
+                        comps = get_competitor_prices(desc, limit=10)
+                        comp_prices = [_parse_price_str(cp.get("unit_price"))
+                                       for cp in comps if not cp.get("is_reytech")]
+                        comp_prices = [p for p in comp_prices if p and p > 0]
 
-                market_avg = sum(comp_prices) / len(comp_prices)
+                        if comp_prices:
+                            comp_avg = sum(comp_prices) / len(comp_prices)
+                            gap = comp_avg - qp
+                            gap_pct = (gap / comp_avg) * 100 if comp_avg > 0 else 0
 
-                # Flag if our price is significantly below market
-                if our_price < market_avg * 0.85:
-                    gap = market_avg - our_price
-                    qty = item.get("qty", 1) or 1
-                    money_left = gap * float(qty)
-                    underpriced_items.append({
-                        "description": desc[:80],
-                        "our_price": our_price,
-                        "market_avg": round(market_avg, 2),
-                        "gap_per_unit": round(gap, 2),
-                        "money_left_on_table": round(money_left, 2),
-                        "qty": qty,
-                    })
+                            validation = {
+                                "quoted_price": qp, "market_avg": round(comp_avg, 2),
+                                "gap_per_unit": round(gap, 2), "gap_pct": round(gap_pct, 1),
+                                "gap_total": round(gap * float(qty), 2),
+                                "validated_at": datetime.now().isoformat(),
+                                "flag": ("SIGNIFICANTLY_UNDERPRICED" if gap_pct > 15
+                                         else ("SLIGHTLY_UNDER" if gap_pct > 5
+                                               else ("ABOVE_MARKET" if gap_pct < -10
+                                                     else "WELL_PRICED"))),
+                            }
+                            item["market_validation"] = validation
+                            validated_count += 1
+                            if gap_pct > 15:
+                                underpriced += 1
+                                underpriced_items.append({
+                                    "description": desc[:80], "our_price": qp,
+                                    "market_avg": round(comp_avg, 2),
+                                    "gap_per_unit": round(gap, 2),
+                                    "money_left_on_table": round(gap * float(qty), 2),
+                                    "qty": qty,
+                                })
 
-            if underpriced_items:
-                alert = {
-                    "pc_id": pc_id,
-                    "pc_number": pc_number,
-                    "institution": institution,
-                    "underpriced_items": underpriced_items,
-                    "total_money_left": round(sum(u["money_left_on_table"] for u in underpriced_items), 2),
-                }
-                alerts.append(alert)
+                    if underpriced_items:
+                        alerts.append({
+                            "pc_id": pc_id, "pc_number": pc_number,
+                            "institution": institution,
+                            "underpriced_items": underpriced_items,
+                            "total_money_left": round(sum(u["money_left_on_table"] for u in underpriced_items), 2),
+                        })
 
-                # Store validation result on PC
-                pc_data["price_validation"] = {
-                    "validated_at": datetime.now().isoformat(),
-                    "underpriced_count": len(underpriced_items),
-                    "total_money_left": alert["total_money_left"],
-                    "details": underpriced_items,
-                }
-                db.execute(
-                    "UPDATE price_checks SET pc_data = ? WHERE id = ?",
-                    (json.dumps(pc_data, default=str), pc_id)
-                )
-                validated_count += 1
+                    # Save back
+                    pc_data["items"] = items
+                    pc_data["market_validated_at"] = datetime.now().isoformat()
+                    db.execute("UPDATE price_checks SET pc_data = ? WHERE id = ?",
+                               (json.dumps(pc_data, default=str), pc_id))
+                except Exception as e:
+                    log.warning("Validate PC %s: %s", pc_id, str(e)[:60])
+        except Exception as e:
+            log.warning("PC validation: %s", e)
 
-                log.warning("PC %s UNDERPRICED: %d items, $%.2f left on table",
-                            pc_number, len(underpriced_items), alert["total_money_left"])
+        # --- Sent Quotes ---
+        try:
+            quotes = db.execute("""
+                SELECT id, items_detail, line_items, status FROM quotes
+                WHERE LOWER(status) IN ('sent', 'submitted', 'won')
+            """).fetchall()
+            log.info("Found %d sent quotes to validate", len(quotes))
+
+            for q in quotes:
+                q_id = q[0]
+                try:
+                    items = json.loads(q[1] or "[]") if q[1] else []
+                    if not items:
+                        items = json.loads(q[2] or "[]") if q[2] else []
+                    if isinstance(items, str):
+                        items = json.loads(items)
+
+                    for item in items:
+                        desc = item.get("description", item.get("desc", ""))
+                        qp = item.get("unit_price", item.get("price"))
+                        qty = item.get("quantity", item.get("qty", 1)) or 1
+                        if not desc or not qp:
+                            continue
+                        try:
+                            qp = float(str(qp).replace("$", "").replace(",", ""))
+                        except (ValueError, TypeError):
+                            continue
+
+                        comps = get_competitor_prices(desc, limit=10)
+                        comp_prices = [_parse_price_str(cp.get("unit_price"))
+                                       for cp in comps if not cp.get("is_reytech")]
+                        comp_prices = [p for p in comp_prices if p and p > 0]
+
+                        if comp_prices:
+                            comp_avg = sum(comp_prices) / len(comp_prices)
+                            gap = comp_avg - qp
+                            gap_pct = (gap / comp_avg) * 100 if comp_avg > 0 else 0
+                            item["market_validation"] = {
+                                "quoted_price": qp, "market_avg": round(comp_avg, 2),
+                                "gap_per_unit": round(gap, 2), "gap_pct": round(gap_pct, 1),
+                                "gap_total": round(gap * float(qty), 2),
+                                "flag": ("SIGNIFICANTLY_UNDERPRICED" if gap_pct > 15
+                                         else ("SLIGHTLY_UNDER" if gap_pct > 5
+                                               else ("ABOVE_MARKET" if gap_pct < -10 else "WELL_PRICED"))),
+                                "validated_at": datetime.now().isoformat(),
+                            }
+                            validated_count += 1
+                            if gap_pct > 15:
+                                underpriced += 1
+
+                    db.execute("UPDATE quotes SET items_detail = ? WHERE id = ?",
+                               (json.dumps(items, default=str), q_id))
+                except Exception as e:
+                    log.warning("Validate quote %s: %s", q_id, str(e)[:60])
+        except Exception as e:
+            log.warning("Quote validation: %s", e)
 
         db.commit()
         db.close()
 
-        # Write alerts summary
         if alerts:
             _write_price_alerts(alerts)
 
     except Exception as e:
-        log.error("Sent PC validation failed: %s", e)
+        log.error("Validation failed: %s", e)
+
+    if underpriced:
+        log.warning("UNDERPRICING ALERT: %d items below market", underpriced)
 
     return validated_count
 
@@ -234,84 +320,78 @@ def _write_price_alerts(alerts):
     import json
     import os
     os.makedirs("/data", exist_ok=True)
-
     alert_data = {
         "generated_at": datetime.now().isoformat(),
         "total_alerts": len(alerts),
-        "total_money_left": round(sum(a["total_money_left"] for a in alerts), 2),
+        "total_money_left": round(sum(a.get("total_money_left", 0) for a in alerts), 2),
         "alerts": alerts,
     }
-
     with open("/data/price_alerts.json", "w") as f:
         json.dump(alert_data, f, indent=2, default=str)
-
-    log.info("Price alerts written: %d PCs, $%.2f total opportunity",
-             len(alerts), alert_data["total_money_left"])
-
-    # Send notification
+    log.info("Price alerts: %d PCs, $%.2f opportunity", len(alerts), alert_data["total_money_left"])
     try:
         from src.agents.notify_agent import send_alert
-        msg = (f"Price validation: {len(alerts)} sent quotes underpriced by "
-               f"${alert_data['total_money_left']:,.2f} total")
-        send_alert("bell", msg, {"type": "price_validation"})
+        send_alert("bell", f"Price validation: {len(alerts)} underpriced by ${alert_data['total_money_left']:,.2f}",
+                   {"type": "price_validation"})
     except Exception:
         pass
 
 
 def get_underpriced_report():
-    """Get summary of sent quotes that were underpriced vs market."""
+    """Get sent quotes/PCs that were underpriced vs market."""
     import json
-    import os
+    import sqlite3
+    from src.core.db import DB_PATH
     results = []
 
-    # First check the alerts file
     try:
-        path = "/data/price_alerts.json"
-        if os.path.exists(path):
-            with open(path, "r") as f:
-                data = json.load(f)
-            for alert in data.get("alerts", []):
-                for item in alert.get("underpriced_items", []):
-                    results.append({
-                        "pc_number": alert.get("pc_number", ""),
-                        "institution": alert.get("institution", ""),
-                        **item,
-                    })
-            return results
-    except Exception:
-        pass
-
-    # Fallback: scan DB for intelligence with underpriced flags
-    try:
-        import sqlite3
-        from src.core.db import DB_PATH
         db = sqlite3.connect(DB_PATH, timeout=10)
 
-        tables = db.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall()
+        # Check price_checks
+        try:
+            rows = db.execute("""
+                SELECT id, pc_data, status FROM price_checks
+                WHERE LOWER(status) IN ('sent', 'submitted', 'won', 'completed')
+            """).fetchall()
+            for row in rows:
+                try:
+                    pc_data = json.loads(row[1] or "{}")
+                    for item in pc_data.get("items", []):
+                        v = item.get("market_validation", {})
+                        if v.get("flag") in ("SIGNIFICANTLY_UNDERPRICED", "SLIGHTLY_UNDER"):
+                            results.append({
+                                "source": "price_check", "id": row[0], "status": row[2],
+                                "description": item.get("description", item.get("desc", ""))[:80],
+                                "quantity": item.get("quantity", item.get("qty")),
+                                **v,
+                            })
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
-        for tbl in [t[0] for t in tables]:
-            try:
-                cols = [d[1] for d in db.execute(f"PRAGMA table_info([{tbl}])").fetchall()]
-                if "intelligence" not in cols:
-                    continue
-                rows = db.execute(f"""
-                    SELECT * FROM [{tbl}]
-                    WHERE intelligence LIKE '%UNDERPRICED%'
-                       OR intelligence LIKE '%SLIGHTLY_UNDER%'
-                """).fetchall()
-                intel_idx = cols.index("intelligence")
-                for row in rows:
-                    try:
-                        intel = json.loads(row[intel_idx] or "{}")
-                        validation = intel.get("market_validation", {})
-                        if validation:
-                            results.append(validation)
-                    except Exception:
-                        pass
-            except Exception:
-                pass
+        # Check quotes
+        try:
+            rows = db.execute("""
+                SELECT id, items_detail, status FROM quotes
+                WHERE LOWER(status) IN ('sent', 'submitted', 'won')
+            """).fetchall()
+            for row in rows:
+                try:
+                    items = json.loads(row[1] or "[]")
+                    for item in items:
+                        v = item.get("market_validation", {})
+                        if v.get("flag") in ("SIGNIFICANTLY_UNDERPRICED", "SLIGHTLY_UNDER"):
+                            results.append({
+                                "source": "quote", "id": row[0], "status": row[2],
+                                "description": item.get("description", item.get("desc", ""))[:80],
+                                "quantity": item.get("quantity", item.get("qty")),
+                                **v,
+                            })
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
         db.close()
     except Exception as e:
