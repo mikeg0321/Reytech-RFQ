@@ -949,7 +949,49 @@ def _auto_price_new_pc(pc_id: str):
         except Exception as e:
             log.debug("FI$Cal enrichment error: %s", e)
 
-        # ── 5. Save if we found anything ──
+        # ── 5. Unified Pricing Oracle ──
+        try:
+            from src.core.pricing_oracle_v2 import get_pricing, lock_cost, auto_learn_mapping
+            for item in items:
+                desc = item.get("description", "")
+                if not desc:
+                    continue
+                oracle = get_pricing(
+                    description=desc,
+                    quantity=item.get("quantity", item.get("qty", 1)),
+                    cost=item.get("pricing", {}).get("unit_cost") or item.get("supplier_cost"),
+                    item_number=item.get("item_number", ""),
+                )
+                if oracle.get("recommendation", {}).get("quote_price"):
+                    item["oracle_price"] = oracle["recommendation"]["quote_price"]
+                    item["oracle_confidence"] = oracle["recommendation"]["confidence"]
+                    item["oracle_rationale"] = oracle["recommendation"]["rationale"]
+                    item["oracle_strategies"] = oracle.get("strategies", [])
+                    item["oracle_competitors"] = oracle.get("competitors", [])
+                    if not item.get("pricing", {}).get("recommended_price"):
+                        if not item.get("pricing"):
+                            item["pricing"] = {}
+                        item["pricing"]["recommended_price"] = oracle["recommendation"]["quote_price"]
+                        item["pricing"]["price_source"] = f"oracle_{oracle['recommendation']['confidence']}"
+                        found_count += 1
+                # Auto-lock cost
+                cost_val = item.get("pricing", {}).get("unit_cost") or item.get("supplier_cost")
+                if cost_val:
+                    try:
+                        lock_cost(desc, float(cost_val), source="auto_price", expires_days=30,
+                                  item_number=item.get("item_number", ""))
+                    except Exception:
+                        pass
+                # Auto-learn mapping
+                if item.get("pricing", {}).get("catalog_match"):
+                    auto_learn_mapping(desc, item["pricing"]["catalog_match"],
+                                       item_number=item.get("item_number", ""), confidence=0.6)
+        except ImportError:
+            log.debug("pricing_oracle_v2 not available")
+        except Exception as e:
+            log.debug("Oracle auto-price: %s", e)
+
+        # ── 6. Save if we found anything ──
         if found_count > 0:
             pcs = _load_price_checks()  # Reload fresh
             if pc_id in pcs:

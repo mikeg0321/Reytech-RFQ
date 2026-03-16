@@ -232,7 +232,46 @@ def _search_product_catalog(db, description, item_number=""):
     return prices
 
 
+def _normalize_to_per_unit(price, description, quantity=1, uom=""):
+    """Normalize any price to per-unit (per-each) basis."""
+    desc = (description or "").upper()
+    total_units = 1
+    detected = ""
+    # X/BX Y BXS/CS
+    m = re.search(r'(\d+)\s*/\s*(?:BX|BOX|PK|PKG)\s+(\d+)\s*(?:BXS?|BOXES|PKS?|PKGS?)\s*/\s*(?:CS|CASE|CT|CTN)', desc)
+    if m:
+        total_units = int(m.group(1)) * int(m.group(2))
+        detected = m.group(0)
+    if total_units == 1:
+        m = re.search(r'(\d+)\s*/\s*(?:BX|BOX|PK|PKG|BAG|RL|ROLL|BT|BTL|EA|CT|CASE)', desc)
+        if m:
+            total_units = int(m.group(1))
+            detected = m.group(0)
+    if total_units == 1:
+        m = re.search(r'(?:BOX|CASE|PACK|PKG|PACKAGE)\s+(?:OF\s+)?(\d+)', desc)
+        if m:
+            total_units = int(m.group(1))
+            detected = m.group(0)
+    if total_units == 1:
+        m = re.search(r'(\d+)\s+PER\s+(?:BOX|BX|CASE|CS|PACK|PK)', desc)
+        if m:
+            total_units = int(m.group(1))
+            detected = m.group(0)
+    if total_units == 1:
+        m = re.search(r'(\d+)\s*(?:CT|COUNT|EA)\b', desc)
+        if m and int(m.group(1)) > 1:
+            total_units = int(m.group(1))
+            detected = m.group(0)
+    if total_units > 10000:
+        total_units = 1
+        detected = ""
+    per_unit = price / total_units if total_units > 0 else price
+    return {"per_unit": round(per_unit, 6), "total_units": total_units,
+            "detected": detected, "original_price": price}
+
+
 def _analyze_market_prices(market_prices, request_qty):
+    """Time-weighted market analysis with proper UOM normalization."""
     if not market_prices:
         return {"data_points": 0, "freshness": "none"}
     now = datetime.now()
@@ -241,35 +280,46 @@ def _analyze_market_prices(market_prices, request_qty):
         price = mp.get("price", 0)
         if not price or price <= 0:
             continue
-        try:
-            from src.agents.quote_intelligence import _normalize_unit_price
-            norm = _normalize_unit_price(price, mp.get("description", ""), mp.get("quantity", 1))
-            if norm and norm.get("normalized_price") and norm["normalized_price"] > 0:
-                price = norm["normalized_price"]
-        except Exception:
-            pass
+        norm = _normalize_to_per_unit(price, mp.get("description", ""),
+                                      mp.get("quantity", 1), mp.get("uom", ""))
+        per_unit = norm["per_unit"]
+        if per_unit < 0.001 or per_unit > 50000:
+            continue
         date_str = mp.get("date", "")
         weight = 0.3
-        for fmt in ("%m/%d/%Y", "%Y-%m-%d"):
+        for fmt in ("%m/%d/%Y", "%Y-%m-%d", "%m/%d/%y"):
             try:
                 dt = datetime.strptime(str(date_str).strip(), fmt)
                 weight = math.pow(0.5, max(0, (now - dt).days) / 180)
                 break
             except (ValueError, TypeError):
                 continue
-        weighted.append({"price": price, "weight": round(weight, 4),
-                         "supplier": mp.get("supplier", ""), "date": date_str,
-                         "is_reytech": mp.get("is_reytech", False)})
-
+        covid_cats = ['glove', 'mask', 'gown', 'sanitiz', 'disinfect', 'ppe', 'n95']
+        desc_lower = mp.get("description", "").lower()
+        if any(c in desc_lower for c in covid_cats):
+            for fmt in ("%m/%d/%Y", "%Y-%m-%d"):
+                try:
+                    dt = datetime.strptime(str(date_str).strip(), fmt)
+                    if datetime(2020, 3, 1) <= dt <= datetime(2021, 12, 31):
+                        weight *= 0.05
+                    break
+                except (ValueError, TypeError):
+                    continue
+        weighted.append({"price": per_unit, "raw_price": price,
+                         "total_units": norm["total_units"], "pack_detected": norm["detected"],
+                         "weight": round(weight, 4), "supplier": mp.get("supplier", ""),
+                         "date": date_str, "is_reytech": mp.get("is_reytech", False),
+                         "source": mp.get("source", "")})
     if not weighted:
         return {"data_points": 0, "freshness": "none"}
-
     total_w = sum(w["weight"] for w in weighted)
     wavg = sum(w["price"] * w["weight"] for w in weighted) / total_w if total_w > 0 else 0
     reytech = [w for w in weighted if w["is_reytech"]]
     comps = [w for w in weighted if not w["is_reytech"]]
-    rt_wavg = (sum(w["price"] * w["weight"] for w in reytech) /
-               sum(w["weight"] for w in reytech)) if reytech else None
+    rt_wavg = None
+    if reytech:
+        rt_w = sum(w["weight"] for w in reytech)
+        rt_wavg = sum(w["price"] * w["weight"] for w in reytech) / rt_w if rt_w > 0 else None
     comp_wavg = comp_low = comp_high = None
     if comps:
         c_w = sum(w["weight"] for w in comps)
@@ -290,6 +340,7 @@ def _analyze_market_prices(market_prices, request_qty):
         "competitor_low": round(comp_low, 4) if comp_low else None,
         "competitor_high": round(comp_high, 4) if comp_high else None,
         "unique_suppliers": len(set(w["supplier"] for w in weighted if w["supplier"])),
+        "normalization": "All prices normalized to per-unit",
     }
 
 
@@ -341,35 +392,53 @@ def _calculate_recommendation(cost, market, quantity):
 
 
 def _get_competitor_breakdown(market_prices):
+    """Top competitors with normalized per-unit prices."""
     by_sup = {}
     for mp in market_prices:
         s = mp.get("supplier", "")
         if not s or mp.get("is_reytech"):
             continue
-        by_sup.setdefault(s, []).append(mp["price"])
+        norm = _normalize_to_per_unit(mp.get("price", 0), mp.get("description", ""),
+                                      mp.get("quantity", 1), mp.get("uom", ""))
+        if norm["per_unit"] < 0.001 or norm["per_unit"] > 50000:
+            continue
+        if s not in by_sup:
+            by_sup[s] = {"supplier": s, "prices": [], "department": mp.get("department", ""),
+                         "buyer_email": mp.get("buyer_email", "")}
+        by_sup[s]["prices"].append(norm["per_unit"])
     result = []
-    for s, prices in by_sup.items():
-        avg = sum(prices) / len(prices)
-        result.append({"supplier": s, "avg_price": round(avg, 2), "low": round(min(prices), 2),
-                       "high": round(max(prices), 2), "data_points": len(prices)})
+    for s, data in by_sup.items():
+        avg = sum(data["prices"]) / len(data["prices"])
+        result.append({"supplier": s, "avg_price": round(avg, 4),
+                       "low": round(min(data["prices"]), 4), "high": round(max(data["prices"]), 4),
+                       "data_points": len(data["prices"]), "department": data["department"],
+                       "buyer_email": data["buyer_email"]})
     result.sort(key=lambda x: x["avg_price"])
     return result[:8]
 
 
 def _get_cross_sell(db, description):
+    """Items commonly ordered on the same PO."""
     try:
-        token_groups = _tokenize(description)[:3]
+        token_groups = _tokenize(description)[:2]
         if not token_groups:
             return []
-        # Flatten to first variant of each group for cross-sell query
         flat_kw = [g[0] for g in token_groups]
-        where = " AND ".join(["LOWER(l1.description) LIKE ?" for _ in flat_kw])
+        where = " AND ".join(["LOWER(description) LIKE ?" for _ in flat_kw])
         params = [f"%{k}%" for k in flat_kw]
-        rows = db.execute(f"""
-            SELECT l2.description, COUNT(*) c FROM scprs_po_lines l1
-            JOIN scprs_po_lines l2 ON l1.po_number=l2.po_number AND l1.description!=l2.description
-            WHERE {where} AND l2.description!='' GROUP BY l2.description HAVING c>=2 ORDER BY c DESC LIMIT 5
+        po_rows = db.execute(f"""
+            SELECT DISTINCT po_number FROM scprs_po_lines WHERE {where} LIMIT 50
         """, params).fetchall()
+        if not po_rows:
+            return []
+        po_nums = [r[0] for r in po_rows]
+        placeholders = ",".join(["?" for _ in po_nums])
+        exclude = f"NOT (LOWER(description) LIKE ?)"
+        rows = db.execute(f"""
+            SELECT description, COUNT(DISTINCT po_number) c FROM scprs_po_lines
+            WHERE po_number IN ({placeholders}) AND description!='' AND {exclude}
+            GROUP BY description HAVING c>=2 ORDER BY c DESC LIMIT 5
+        """, po_nums + [f"%{flat_kw[0]}%"]).fetchall()
         return [{"description": r[0][:100], "co_occurrence": r[1]} for r in rows]
     except Exception:
         return []
