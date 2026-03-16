@@ -178,7 +178,7 @@ def api_pc_merge_items(pcid):
 
         _save_price_checks(pcs)
         return jsonify({"ok": True, "merged_into": idx - 1, "remaining_items": len(items),
-                        "description": merged_desc[:100]})
+                        "description": merged_desc})
     except Exception as e:
         log.error("api_pc_merge_items error pcid=%s: %s", pcid, e, exc_info=True)
         return jsonify({"ok": False, "error": str(e)})

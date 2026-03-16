@@ -23,6 +23,49 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(SCRIPT_DIR, "reytech_config.json")
 SIGNATURE_PATH = os.path.join(SCRIPT_DIR, "signature_transparent.png")
 
+
+def _normalize_item(item):
+    """Normalize item field names for PDF generation.
+    Handles both PC format and RFQ format items."""
+    n = dict(item)
+    n["description"] = (item.get("description")
+                        or item.get("desc")
+                        or item.get("item_description")
+                        or "").strip()
+    qty = item.get("qty") or item.get("quantity") or item.get("QTY") or 0
+    try:
+        n["qty"] = float(str(qty).replace(",", ""))
+    except (ValueError, TypeError):
+        n["qty"] = 0
+    price = (item.get("price_per_unit")
+             or item.get("bid_price")
+             or item.get("unit_price")
+             or item.get("sell_price") or 0)
+    try:
+        n["price_per_unit"] = float(str(price).replace("$", "").replace(",", ""))
+    except (ValueError, TypeError):
+        n["price_per_unit"] = 0
+    cost = (item.get("supplier_cost")
+            or item.get("cost")
+            or item.get("unit_cost") or 0)
+    try:
+        n["supplier_cost"] = float(str(cost).replace("$", "").replace(",", ""))
+    except (ValueError, TypeError):
+        n["supplier_cost"] = 0
+    n["part_number"] = str(
+        item.get("part_number")
+        or item.get("item_number")
+        or item.get("catalog_number")
+        or item.get("mfg_number")
+        or "")
+    n["uom"] = str(
+        item.get("uom")
+        or item.get("UOM")
+        or item.get("unit_of_measure")
+        or "EA")
+    n["line_number"] = item.get("line_number") or item.get("#") or 0
+    return n
+
 # ── Signature whitelist ──────────────────────────────────────────────
 # Only these /Sig fields get the signature image. Everything else stays blank.
 SIGN_FIELDS = {
@@ -568,10 +611,11 @@ def fill_704b(input_path, rfq_data, config, output_path):
         print(f"  ⚠ 704B pre-fill detection failed: {_pf_err}")
 
     seq = 0
-    for item in line_items:
+    for _raw_item in line_items:
         seq += 1
-        price = item.get("price_per_unit", 0)
-        qty = item.get("qty", 0)
+        item = _normalize_item(_raw_item)
+        price = item["price_per_unit"]
+        qty = item["qty"]
         subtotal = round(price * qty, 2)
         merchandise_subtotal += subtotal
 
@@ -590,12 +634,12 @@ def fill_704b(input_path, rfq_data, config, output_path):
                 values[f"SUBTOTAL{r}"] = f"{subtotal:.2f}" if subtotal else ""
         else:
             # Fresh template: write everything (original behavior)
-            uom = item.get("uom", "EA")
-            desc = item.get("description", "")
+            uom = item["uom"]
+            desc = item["description"]
             r = _row_field(seq)
             values[f"PRICE PER UNIT{r}"] = f"{price:.2f}" if price else ""
             values[f"SUBTOTAL{r}"] = f"{subtotal:.2f}" if subtotal else ""
-            values[f"ITEM NUMBER{r}"] = str(item.get("part_number", item.get("item_number", "")))
+            values[f"ITEM NUMBER{r}"] = item["part_number"]
             values[f"QTY{r}"] = str(qty) if qty else ""
             values[f"UOM{r}"] = uom
             values[f"ITEM DESCRIPTION PRODUCT SPECIFICATION{r}"] = desc

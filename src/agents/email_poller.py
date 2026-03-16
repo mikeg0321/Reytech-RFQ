@@ -376,7 +376,7 @@ def _parse_po_pdf(pdf_path: str) -> dict:
                 if len(desc_part) < 5 and i > 0:
                     desc_part = lines[i-1].strip()
                 items_found.append({
-                    "description": desc_part[:150],
+                    "description": desc_part[:500],
                     "qty": qty,
                     "unit_price": up,
                     "extended": ext,
@@ -397,7 +397,7 @@ def _parse_po_pdf(pdf_path: str) -> dict:
                 desc = re.sub(r'^\d{1,3}\s+', '', desc)
                 if desc and len(desc) > 3:
                     items_found.append({
-                        "description": desc[:150],
+                        "description": desc[:500],
                         "qty": qty,
                         "unit_price": up,
                         "extended": ext,

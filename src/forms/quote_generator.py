@@ -33,6 +33,26 @@ from reportlab.pdfgen import canvas
 log = logging.getLogger("quote_gen")
 
 try:
+    from src.forms.reytech_filler_v4 import _normalize_item
+except ImportError:
+    def _normalize_item(item):
+        """Fallback normalizer."""
+        n = dict(item)
+        n["description"] = (item.get("description") or item.get("desc") or "").strip()
+        qty = item.get("qty") or item.get("quantity") or 0
+        try: n["qty"] = float(str(qty).replace(",", ""))
+        except: n["qty"] = 0
+        price = item.get("price_per_unit") or item.get("bid_price") or item.get("unit_price") or 0
+        try: n["price_per_unit"] = float(str(price).replace("$", "").replace(",", ""))
+        except: n["price_per_unit"] = 0
+        cost = item.get("supplier_cost") or item.get("cost") or 0
+        try: n["supplier_cost"] = float(str(cost).replace("$", "").replace(",", ""))
+        except: n["supplier_cost"] = 0
+        n["part_number"] = str(item.get("part_number") or item.get("item_number") or "")
+        n["uom"] = str(item.get("uom") or item.get("UOM") or "EA")
+        return n
+
+try:
     from src.core.paths import DATA_DIR
 except ImportError:
     DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
@@ -1047,21 +1067,19 @@ def generate_quote(
     page_num = 1
     total_pages = 1  # will fix up if multi-page
 
-    for idx, item in enumerate(items):
-        qty    = item.get("qty", 1)
-        uprice = item.get("unit_price",
-                  item.get("our_price",
-                  item.get("price_per_unit",
-                  item.get("recommended_price", 0))))
-        try:
-            uprice = float(uprice)
-        except (TypeError, ValueError):
-            uprice = 0.0
+    for idx, _raw_item in enumerate(items):
+        item = _normalize_item(_raw_item)
+        qty    = item["qty"] or 1
+        uprice = item["price_per_unit"]
+        if not uprice:
+            uprice = _raw_item.get("unit_price") or _raw_item.get("our_price") or _raw_item.get("recommended_price") or 0
+            try: uprice = float(uprice)
+            except (TypeError, ValueError): uprice = 0.0
         tprice = round(uprice * qty, 2)
         subtotal += tprice
 
-        desc = str(item.get("description", ""))
-        part = str(item.get("part_number", item.get("item_number", "")))
+        desc = item["description"]
+        part = item["part_number"]
 
         # ── Dynamic row height based on description wrapping ──────────────────
         desc_col_w = 203 - 8  # desc column width minus padding
@@ -1498,8 +1516,9 @@ def generate_quote_from_rfq(rfq: dict, output_path: str, **kwargs) -> dict:
         "line_items": [],
     }
 
-    for idx_q, item in enumerate(rfq.get("line_items", [])):
-        up = item.get("price_per_unit") or item.get("our_price") or 0
+    for idx_q, _raw_q in enumerate(rfq.get("line_items", [])):
+        item = _normalize_item(_raw_q)
+        up = item["price_per_unit"] or _raw_q.get("our_price") or 0
         pn = item.get("item_number", item.get("part_number", ""))
         
         # Don't use pure numeric values as MFG PART # — those are form row numbers
