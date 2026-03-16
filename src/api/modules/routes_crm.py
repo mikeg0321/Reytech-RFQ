@@ -1773,20 +1773,30 @@ def api_notifications_persistent():
         return jsonify({"ok": False, "error": str(e)})
 
 
+_bell_cache = {"data": None, "ts": 0}
+
 @bp.route("/api/notifications/bell-count")
 @auth_required
 def api_bell_count():
-    """Fast unread count for nav bell badge — polled every 30s."""
+    """Fast unread count for nav bell badge — polled every 5min."""
+    import time as _t
+    global _bell_cache
+    if _bell_cache["data"] and (_t.time() - _bell_cache["ts"]) < 30:
+        return jsonify(_bell_cache["data"])
     try:
         from src.agents.notify_agent import get_unread_count
         from src.agents.cs_agent import get_cs_drafts
         cs_pending = len(get_cs_drafts())
-        return jsonify({
+        unread = get_unread_count()
+        result = {
             "ok": True,
-            "unread": get_unread_count(),
+            "unread": unread,
             "cs_drafts": cs_pending,
-            "total_badge": get_unread_count() + cs_pending,
-        })
+            "total_badge": unread + cs_pending,
+        }
+        _bell_cache["data"] = result
+        _bell_cache["ts"] = _t.time()
+        return jsonify(result)
     except Exception as e:
         return jsonify({"ok": False, "unread": 0, "cs_drafts": 0, "total_badge": 0})
 

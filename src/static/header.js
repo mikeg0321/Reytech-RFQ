@@ -138,7 +138,7 @@ function _resetBtn(btn,label){
     }).catch(function(){});
   }
   updateBellCount();
-  setInterval(updateBellCount,30000);
+  setInterval(updateBellCount,300000); // 5 min (was 30s)
 })();
 function toggleNotifPanel(){
   var panel=document.getElementById('notif-panel');
