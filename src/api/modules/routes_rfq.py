@@ -844,25 +844,28 @@ def detail(rid):
     except Exception as _e:
         log.warning("Memory auto-fill failed (non-fatal): %s", _e)
 
-    # CRITICAL: sanitize ALL item values before render — tojson crashes on Undefined
+    # CRITICAL: recursively sanitize ENTIRE r dict — tojson crashes on Undefined
+    import json as _json
+
+    def _sanitize(obj):
+        """Recursively make any object JSON-serializable."""
+        if obj is None:
+            return ""
+        if isinstance(obj, (str, int, float, bool)):
+            return obj
+        if isinstance(obj, dict):
+            return {k: _sanitize(v) for k, v in obj.items()}
+        if isinstance(obj, (list, tuple)):
+            return [_sanitize(v) for v in obj]
+        # Jinja2 Undefined, custom objects, anything else
+        try:
+            _json.dumps(obj)
+            return obj
+        except (TypeError, ValueError):
+            return str(obj) if obj else ""
+
     try:
-        import json as _json
-        for _item in r.get("line_items", []):
-            for _k in list(_item.keys()):
-                _v = _item[_k]
-                # Remove Jinja2 Undefined, non-serializable objects, or test serialize
-                if _v is None:
-                    _item[_k] = ""
-                elif isinstance(_v, (str, int, float, bool)):
-                    continue
-                elif isinstance(_v, (list, dict)):
-                    try:
-                        _json.dumps(_v, default=str)
-                    except (TypeError, ValueError):
-                        _item[_k] = str(_v)
-                else:
-                    # Catches Jinja2 Undefined and any other non-standard type
-                    _item[_k] = str(_v) if _v else ""
+        r = _sanitize(r)
     except Exception:
         pass
 

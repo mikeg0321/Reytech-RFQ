@@ -1386,7 +1386,7 @@ function saveDraft(){
 function sendQuoteEmail(){
  var to=prompt('Send quote to:',{{r.get("requestor_email","")|tojson}});
  if(!to)return;
- var subject=prompt('Subject:','Quote — Solicitation #{{ (r.solicitation_number)|tojson }}');
+ var subject=prompt('Subject:','Quote — Solicitation #{{ r.get("solicitation_number","")|tojson }}');
  if(subject===null)return;
  fetch('/api/rfq/'+RID+'/send-quote',{
   method:'POST',
