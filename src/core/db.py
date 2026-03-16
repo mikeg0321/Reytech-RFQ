@@ -930,6 +930,19 @@ CREATE TABLE IF NOT EXISTS supplier_costs (
     notes TEXT DEFAULT '',
     UNIQUE(description, supplier)
 );
+
+CREATE TABLE IF NOT EXISTS parse_gaps (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    rfq_id          TEXT,
+    field_name      TEXT,
+    was_empty       INTEGER DEFAULT 1,
+    user_filled_value TEXT DEFAULT '',
+    source_type     TEXT DEFAULT '',
+    email_subject   TEXT DEFAULT '',
+    requestor_email TEXT DEFAULT '',
+    agency          TEXT DEFAULT '',
+    created_at      TEXT DEFAULT (datetime('now'))
+);
 """
 
 def init_db():

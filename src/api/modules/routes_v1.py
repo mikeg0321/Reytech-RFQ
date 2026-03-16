@@ -3566,3 +3566,28 @@ def api_v1_system_boot_health():
     except Exception as e:
         log.error("boot-health error: %s", e, exc_info=True)
         return api_response(error=str(e), status=500)
+
+
+@bp.route("/api/v1/system/parse-gaps")
+@auth_required
+def api_v1_parse_gaps():
+    """Report fields most often filled manually — parser improvement targets."""
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            gaps = conn.execute("""
+                SELECT field_name, COUNT(*) as count,
+                       GROUP_CONCAT(DISTINCT agency) as agencies
+                FROM parse_gaps
+                GROUP BY field_name
+                ORDER BY count DESC
+            """).fetchall()
+        return api_response({
+            "gaps": [{"field": r[0], "count": r[1], "agencies": r[2]}
+                    for r in gaps],
+            "total": sum(r[1] for r in gaps),
+            "recommendation": "Fields most often filled manually should be prioritized for parser improvement"
+        })
+    except Exception as e:
+        log.error("parse-gaps error: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)

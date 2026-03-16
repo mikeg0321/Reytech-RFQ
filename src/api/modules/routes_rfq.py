@@ -1009,6 +1009,49 @@ def update(rid):
     return redirect(f"/rfq/{rid}")
 
 
+@bp.route("/api/rfq/<rid>/update-field", methods=["POST"])
+@auth_required
+def rfq_update_field(rid):
+    """Update individual header fields (solicitation, requestor, due date, etc.)."""
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "Not found"})
+    data = request.get_json(force=True, silent=True) or {}
+    changed = []
+    allowed = ["solicitation_number", "requestor_name", "requestor_email",
+               "due_date", "ship_to", "delivery_location", "institution",
+               "agency_name", "notes"]
+    for field in allowed:
+        if field in data:
+            old = r.get(field, "")
+            r[field] = data[field]
+            if old != data[field]:
+                changed.append(f"{field}: '{old}' -> '{data[field]}'")
+                # Log parse gap when user fills an empty field
+                if not old and data[field]:
+                    try:
+                        from src.core.db import get_db
+                        with get_db() as _conn:
+                            _conn.execute("""
+                                INSERT INTO parse_gaps
+                                (rfq_id, field_name, user_filled_value,
+                                 source_type, email_subject, requestor_email, agency)
+                                VALUES (?,?,?,?,?,?,?)
+                            """, (rid, field, data[field],
+                                  r.get("source", ""),
+                                  r.get("email_subject", ""),
+                                  r.get("requestor_email", ""),
+                                  r.get("agency", "")))
+                    except Exception:
+                        pass
+    if changed:
+        save_rfqs(rfqs)
+        _log_rfq_activity(rid, "field_updated",
+            "; ".join(changed), actor="user")
+    return jsonify({"ok": True, "updated": changed})
+
+
 @bp.route("/api/rfq/<rid>/autosave", methods=["POST"])
 @auth_required
 def api_rfq_autosave(rid):

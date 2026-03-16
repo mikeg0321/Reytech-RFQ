@@ -25,16 +25,16 @@
 <div class="card">
  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px">
   <div>
-   <div style="font-family:'JetBrains Mono',monospace;font-size:24px;font-weight:700">#{{r.get("solicitation_number") or r.get("rfq_number") or "—"}}</div>
+   <div style="font-family:'JetBrains Mono',monospace;font-size:24px;font-weight:700">#<input type="text" value="{{r.get('solicitation_number') or r.get('rfq_number') or ''}}" class="editable-field" data-field="solicitation_number" onblur="saveField(this,'solicitation_number')" placeholder="Sol #" style="font-family:inherit;font-size:inherit;font-weight:inherit;background:transparent;border:1px solid transparent;border-radius:4px;padding:0 4px;color:inherit;width:200px" onfocus="this.style.borderColor='#58a6ff'" onblur="saveField(this,'solicitation_number');this.style.borderColor='transparent'"></div>
    <div style="color:var(--tx2);font-size:14px;margin-top:2px">{{r.get('award_method','all_or_none')|replace('_',' ')|title}}{% if r.source=='email' %} · 📧 Auto-imported{% endif %}{% if r.get('agency_name') %} · <span style="padding:2px 8px;border-radius:4px;font-size:13px;font-weight:600;{% if r.get('form_type')=='generic_rfq' %}background:rgba(167,139,250,.15);color:#a78bfa;border:1px solid rgba(167,139,250,.3){% else %}background:rgba(52,211,153,.1);color:#3fb950;border:1px solid rgba(52,211,153,.2){% endif %}">{{ r.agency_name }}</span>{% endif %}</div>
   </div>
   <span class="badge b-{{r.status}}">{{r.status}}</span>
  </div>
  <div class="meta-g">
-  <div class="meta-i"><div class="meta-l">Requestor</div><div class="meta-v">{% if r.get("requestor_name") %}<a href="/contacts?q={{ r.get("requestor_name","")|urlencode }}" style="color:#58a6ff;text-decoration:none" title="View buyer profile">{{r.get("requestor_name","")}}</a>{% else %}—{% endif %}</div></div>
-  <div class="meta-i"><div class="meta-l">Email</div><div class="meta-v">{% if r.get("requestor_email") %}<a href="mailto:{{r.get("requestor_email","")}}" style="color:#58a6ff;text-decoration:none" title="Send email">{{r.get("requestor_email","")}}</a>{% else %}—{% endif %}</div></div>
-  <div class="meta-i"><div class="meta-l">Due Date</div><div class="meta-v">{{r.due_date}}</div></div>
-  <div class="meta-i"><div class="meta-l">Delivery</div><div class="meta-v" style="font-size:14px">{{r.get('delivery_location','N/A')[:55]}}</div></div>
+  <div class="meta-i"><div class="meta-l">Buyer</div><div class="meta-v"><input type="text" value="{{r.get('requestor_name','')}}" class="editable-field" onblur="saveField(this,'requestor_name')" onfocus="this.style.borderColor='#58a6ff'" placeholder="Name" style="background:transparent;border:1px solid transparent;border-radius:4px;padding:2px 6px;color:#58a6ff;font-size:inherit;width:180px"></div></div>
+  <div class="meta-i"><div class="meta-l">Email</div><div class="meta-v"><input type="email" value="{{r.get('requestor_email','')}}" class="editable-field" onblur="saveField(this,'requestor_email')" onfocus="this.style.borderColor='#58a6ff'" placeholder="email@example.com" style="background:transparent;border:1px solid transparent;border-radius:4px;padding:2px 6px;color:#58a6ff;font-size:inherit;width:220px"></div></div>
+  <div class="meta-i"><div class="meta-l">Due Date</div><div class="meta-v"><input type="text" value="{{r.get('due_date','')}}" class="editable-field" onblur="saveField(this,'due_date')" onfocus="this.style.borderColor='#58a6ff'" placeholder="MM/DD/YYYY" style="background:transparent;border:1px solid transparent;border-radius:4px;padding:2px 6px;color:inherit;font-size:inherit;width:110px"></div></div>
+  <div class="meta-i"><div class="meta-l">Delivery</div><div class="meta-v"><input type="text" value="{{r.get('delivery_location','')}}" class="editable-field" onblur="saveField(this,'delivery_location')" onfocus="this.style.borderColor='#58a6ff'" placeholder="Location" style="background:transparent;border:1px solid transparent;border-radius:4px;padding:2px 6px;color:inherit;font-size:14px;width:200px"></div></div>
  </div>
  {% set lookup = r.get('auto_lookup_results', {}) %}
  {% set items = r.get('line_items', []) %}
@@ -512,6 +512,16 @@ const RID = {{rid|tojson}};
 fetch('/rfq/'+RID+'/save-restore',{method:'POST',credentials:'same-origin'}).catch(function(){});
 const items={{r.get("line_items",[])|tojson}};
 const n=items.length;
+
+// ── Header field inline edit ──
+function saveField(el,field){
+ var data={};data[field]=el.value;
+ fetch('/api/rfq/'+RID+'/update-field',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data),credentials:'same-origin'})
+ .then(function(r){return r.json()}).then(function(d){
+  if(d.ok){el.style.borderColor='#16a34a';setTimeout(function(){el.style.borderColor='transparent'},1500)}
+  else{el.style.borderColor='#f85149'}
+ }).catch(function(){el.style.borderColor='#f85149'});
+}
 
 // ── Description textarea expand/collapse ──
 function expandDesc(el) {
