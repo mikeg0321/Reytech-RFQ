@@ -242,19 +242,32 @@ async def _scrape_detail_async(supplier_name="reytech",
                                      detail["header"].get("buyer_name", "?"),
                                      processed)
 
-                            # Save screenshot + HTML for every PO
+                            # Save screenshot for recent POs only (data is in SQLite)
                             import os
-                            os.makedirs("/data/po_records", exist_ok=True)
-                            try:
-                                await detail_page.screenshot(
-                                    path=f"/data/po_records/{po_text}.png",
-                                    full_page=True
-                                )
-                                with open(f"/data/po_records/{po_text}.html", "w", encoding="utf-8") as _f:
-                                    _f.write(dp_content)
-                                detail["screenshot_path"] = f"/data/po_records/{po_text}.png"
-                            except Exception:
-                                pass
+                            _save_ss = False
+                            _sup = (detail.get("supplier") or detail.get("header", {}).get("supplier_name", "")).upper()
+                            if "REYTECH" in _sup:
+                                _save_ss = True
+                            else:
+                                try:
+                                    _pd = detail.get("header", {}).get("start_date", "")
+                                    if _pd:
+                                        from datetime import datetime as _dt, timedelta as _td
+                                        _pdt = _dt.strptime(_pd, "%m/%d/%Y")
+                                        if _pdt > _dt.now() - _td(days=90):
+                                            _save_ss = True
+                                except Exception:
+                                    _save_ss = True  # save if can't parse date
+                            if _save_ss:
+                                os.makedirs("/data/po_records", exist_ok=True)
+                                try:
+                                    await detail_page.screenshot(
+                                        path=f"/data/po_records/{po_text}.png",
+                                        full_page=True
+                                    )
+                                    detail["screenshot_path"] = f"/data/po_records/{po_text}.png"
+                                except Exception:
+                                    pass
                     else:
                         log.warning("Browser: PO %s no line items in %db",
                                     po_text, len(dp_content))
@@ -831,17 +844,31 @@ async def _scrape_full_async(search_params, seen_pos, max_rows=500):
                     dp_content = await detail_page.content()
                     if "ZZ_SCPR_PDL_DVW" in dp_content:
                         import os
-                        os.makedirs("/data/po_records", exist_ok=True)
-                        try:
-                            await detail_page.screenshot(path=f"/data/po_records/{po_text}.png", full_page=True)
-                            with open(f"/data/po_records/{po_text}.html", "w", encoding="utf-8") as fw:
-                                fw.write(dp_content)
-                        except Exception:
-                            pass
                         detail = _parse_browser_detail(dp_content)
                         if detail and detail.get("line_items"):
                             detail["source"] = "scprs_browser"
-                            detail["screenshot_path"] = f"/data/po_records/{po_text}.png"
+                            # Only save screenshot for recent POs (data is in SQLite)
+                            _save_ss2 = False
+                            _sup2 = (detail.get("header", {}).get("supplier_name", "")).upper()
+                            if "REYTECH" in _sup2:
+                                _save_ss2 = True
+                            else:
+                                try:
+                                    _pd2 = detail.get("header", {}).get("start_date", "")
+                                    if _pd2:
+                                        from datetime import datetime as _dt2, timedelta as _td2
+                                        _pdt2 = _dt2.strptime(_pd2, "%m/%d/%Y")
+                                        if _pdt2 > _dt2.now() - _td2(days=90):
+                                            _save_ss2 = True
+                                except Exception:
+                                    _save_ss2 = True
+                            if _save_ss2:
+                                os.makedirs("/data/po_records", exist_ok=True)
+                                try:
+                                    await detail_page.screenshot(path=f"/data/po_records/{po_text}.png", full_page=True)
+                                    detail["screenshot_path"] = f"/data/po_records/{po_text}.png"
+                                except Exception:
+                                    pass
                             results.append(detail)
                             seen_pos.add(po_text)
                             log.info("Browser full: PO=%s %d lines [%d done]",
@@ -893,3 +920,30 @@ def _scrape_with_retry(search_params, seen_pos, max_rows=500, max_retries=3):
             else:
                 raise
     return []
+
+
+def _cleanup_old_po_records():
+    """Delete PO screenshots older than 90 days + all HTML files. Data is in SQLite."""
+    import os, time
+    po_dir = os.environ.get("DATA_DIR", "/data") + "/po_records"
+    if not os.path.exists(po_dir):
+        return 0
+    cutoff = time.time() - (90 * 86400)
+    deleted = 0
+    freed = 0
+    for f in os.listdir(po_dir):
+        fpath = os.path.join(po_dir, f)
+        try:
+            if f.endswith(".html"):
+                freed += os.path.getsize(fpath)
+                os.remove(fpath)
+                deleted += 1
+            elif f.endswith(".png") and os.path.getmtime(fpath) < cutoff:
+                freed += os.path.getsize(fpath)
+                os.remove(fpath)
+                deleted += 1
+        except Exception:
+            pass
+    if deleted:
+        log.info("PO cleanup: deleted %d files, freed %.0fMB", deleted, freed / 1_000_000)
+    return deleted

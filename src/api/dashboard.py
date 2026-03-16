@@ -4977,6 +4977,30 @@ if os.environ.get("ENABLE_BACKGROUND_AGENTS", "true").lower() not in ("false", "
     except Exception as _e:
         log.warning("Due date reminders failed: %s", _e)
 
+    # ── Daily disk cleanup (snapshots + PO records) ────────────
+    try:
+        import threading as _thr_cleanup
+        def _daily_cleanup():
+            import time as _tc
+            _tc.sleep(300)  # 5 min after boot
+            while True:
+                try:
+                    from src.core.data_guard import cleanup_old_snapshots
+                    removed = cleanup_old_snapshots(days=7)
+                    if removed:
+                        log.info("Daily cleanup: %d old snapshots removed", removed)
+                    from src.agents.scprs_browser import _cleanup_old_po_records
+                    po_removed = _cleanup_old_po_records()
+                    if po_removed:
+                        log.info("Daily cleanup: %d old PO records removed", po_removed)
+                except Exception as _ce:
+                    log.debug("Daily cleanup: %s", _ce)
+                _tc.sleep(86400)
+        _thr_cleanup.Thread(target=_daily_cleanup, daemon=True, name="daily-cleanup").start()
+        log.info("Daily disk cleanup started")
+    except Exception as _e:
+        log.warning("Daily cleanup setup: %s", _e)
+
     # ── Backfill RFQ metadata on boot ──────────────────────────
     try:
         _bf_meta = backfill_rfq_metadata()
