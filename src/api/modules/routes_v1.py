@@ -2300,6 +2300,90 @@ def api_v1_pricing_cross_sell():
     return api_response({"suggestions": result})
 
 
+@bp.route("/api/v1/recovery/restore-from-drive")
+@auth_required
+def api_v1_recovery_restore():
+    """Restore rfqs.json and price_checks.json from latest Google Drive backup."""
+    import json as _json
+    import os as _os
+    results = {"steps": [], "restored_rfqs": 0, "restored_pcs": 0}
+
+    try:
+        from src.core.gdrive import is_configured, list_files, download_file, get_folder_path
+
+        if not is_configured():
+            return api_response({"error": "Drive not configured"})
+
+        results["steps"].append("Drive configured")
+
+        # Find backup folders
+        backups_root = get_folder_path(category="Backups")
+        folders = list_files(backups_root)
+        sorted_folders = sorted(folders, key=lambda x: x.get("name", ""), reverse=True)
+        results["backup_folders"] = [f["name"] for f in sorted_folders[:5]]
+
+        if not sorted_folders:
+            return api_response({"error": "No backup folders found"})
+
+        latest = sorted_folders[0]
+        results["restoring_from"] = latest["name"]
+        backup_files = list_files(latest["id"])
+        results["backup_files"] = [f["name"] for f in backup_files]
+
+        # Restore rfqs.json
+        for bf in backup_files:
+            if bf["name"] == "rfqs.json":
+                content = download_file(bf["id"])
+                data = _json.loads(content)
+                total_items = sum(len(r.get("line_items", [])) for r in data.values())
+                results["steps"].append(f"Downloaded rfqs.json: {len(data)} RFQs, {total_items} items")
+
+                if total_items > 0:
+                    # Backup current
+                    if _os.path.exists("/data/rfqs.json"):
+                        _os.rename("/data/rfqs.json", "/data/rfqs.json.pre_restore")
+                    with open("/data/rfqs.json", "w") as f:
+                        _json.dump(data, f, indent=2, default=str)
+                    results["restored_rfqs"] = len(data)
+                    results["restored_rfq_items"] = total_items
+                    results["steps"].append(f"RESTORED rfqs.json: {len(data)} RFQs, {total_items} items")
+                else:
+                    results["steps"].append("WARNING: backup rfqs.json has 0 items")
+
+        # Restore price_checks.json
+        for bf in backup_files:
+            if bf["name"] == "price_checks.json":
+                content = download_file(bf["id"])
+                data = _json.loads(content)
+                total_items = 0
+                for pc in data.values():
+                    items = pc.get("items", [])
+                    if not items:
+                        pd = pc.get("pc_data", {})
+                        if isinstance(pd, str):
+                            pd = _json.loads(pd)
+                        items = pd.get("items", [])
+                    total_items += len(items)
+                results["steps"].append(f"Downloaded price_checks.json: {len(data)} PCs, {total_items} items")
+
+                if total_items > 0:
+                    if _os.path.exists("/data/price_checks.json"):
+                        _os.rename("/data/price_checks.json", "/data/price_checks.json.pre_restore")
+                    with open("/data/price_checks.json", "w") as f:
+                        _json.dump(data, f, indent=2, default=str)
+                    results["restored_pcs"] = len(data)
+                    results["restored_pc_items"] = total_items
+                    results["steps"].append(f"RESTORED price_checks.json: {len(data)} PCs, {total_items} items")
+
+        results["steps"].append("DONE — reload the app to pick up restored data")
+    except Exception as e:
+        import traceback
+        results["error"] = str(e)
+        results["traceback"] = traceback.format_exc()
+
+    return api_response(results)
+
+
 @bp.route("/api/v1/debug/rfq-status")
 @auth_required
 def api_v1_debug_rfq_status():
