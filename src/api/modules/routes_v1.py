@@ -2174,6 +2174,37 @@ def api_v1_validate_data():
     return api_response(report)
 
 
+@bp.route("/api/v1/usage/track", methods=["POST"])
+def api_v1_usage_track():
+    """Receive usage tracking beacons from frontend."""
+    try:
+        from src.core.usage_tracker import track_action
+        data = request.get_json(silent=True) or {}
+        track_action(page=data.get("page", ""), action=data.get("action", ""),
+                     detail=data.get("type", "click"))
+    except Exception:
+        pass
+    return "", 204
+
+
+@bp.route("/api/v1/usage/stats")
+@auth_required
+def api_v1_usage_stats():
+    """Get usage analytics."""
+    from src.core.usage_tracker import get_usage_stats
+    days = int(request.args.get("days", "30"))
+    return api_response(get_usage_stats(days))
+
+
+@bp.route("/api/v1/usage/dead-pages")
+@auth_required
+def api_v1_usage_dead_pages():
+    """Find pages with zero usage."""
+    from src.core.usage_tracker import get_dead_pages
+    days = int(request.args.get("days", "30"))
+    return api_response(get_dead_pages(days))
+
+
 @bp.route("/api/v1/quotes/reprocess")
 @auth_required
 def api_v1_quotes_reprocess():

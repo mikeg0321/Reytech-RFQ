@@ -314,5 +314,6 @@ textarea{overflow:hidden;resize:vertical}
 })();
 </script>
 {% block scripts %}{% endblock %}
+<script>document.addEventListener('click',function(e){var b=e.target.closest('button,a.btn,[role="button"],[data-action]');if(!b)return;var a=b.getAttribute('data-action')||b.textContent.trim().substring(0,50);navigator.sendBeacon('/api/v1/usage/track',JSON.stringify({page:location.pathname,action:a,type:'click'}))});</script>
 </body>
 </html>

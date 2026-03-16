@@ -243,6 +243,18 @@ def init_security(app):
                         duration_ms, rid, request.remote_addr or '-')
             # Add request ID to response headers for debugging
             response.headers['X-Request-ID'] = rid
+            # Usage tracking
+            try:
+                from src.core.usage_tracker import track_page_view, track_api_call
+                path = request.path
+                dur = int(duration_ms)
+                if path.startswith('/api/') and path != '/api/v1/usage/track':
+                    track_api_call(path, method=request.method,
+                                   status_code=response.status_code, duration_ms=dur)
+                elif response.content_type and 'text/html' in response.content_type:
+                    track_page_view(page=path, route=path, duration_ms=dur)
+            except Exception:
+                pass
         return response
     
     # ── E5: Auto-inject CSRF token into template context ─────────────────────

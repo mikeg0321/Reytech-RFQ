@@ -878,6 +878,13 @@ def init_db():
         conn.executescript(SCHEMA)
     print("[BOOT:DB] init_db: migrating columns...", flush=True)
     _migrate_columns()
+    # Usage tracking
+    try:
+        from src.core.usage_tracker import init_usage_tracking
+        with get_db() as _uconn:
+            init_usage_tracking(_uconn)
+    except Exception:
+        pass
     print("[BOOT:DB] init_db: complete", flush=True)
     log.info("DB initialized at %s", DB_PATH)
     return True
