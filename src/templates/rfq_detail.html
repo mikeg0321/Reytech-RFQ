@@ -1256,17 +1256,20 @@ function lookupSingleItem(idx){
   if(d.ok){
    var r=d.results;
    var msg='🔍 Price Lookup: '+d.description+'\n\n';
-   if(r.scprs && !r.scprs.error) msg+='✅ SCPRS: $'+r.scprs.price.toFixed(2)+(r.scprs.vendor?' ('+r.scprs.vendor+')':'')+'\n';
+   if(r.scprs && !r.scprs.error && r.scprs.price) msg+='✅ SCPRS: $'+r.scprs.price.toFixed(2)+(r.scprs.vendor?' ('+r.scprs.vendor+')':'')+'\n';
    else if(r.scprs && r.scprs.error) msg+='❌ SCPRS: '+r.scprs.error+'\n';
    else msg+='⚪ SCPRS: Not found\n';
 
-   if(r.catalog && !r.catalog.error && r.catalog.cost) msg+='✅ Catalog: $'+r.catalog.cost.toFixed(2)+' ('+r.catalog.supplier+', '+Math.round(r.catalog.confidence*100)+'% match)\n';
+   if(r.catalog && !r.catalog.error && r.catalog.cost) msg+='✅ Catalog: $'+r.catalog.cost.toFixed(2)+' ('+(r.catalog.supplier||'?')+', '+Math.round((r.catalog.confidence||0)*100)+'% match)\n';
    else if(r.catalog && r.catalog.error) msg+='❌ Catalog: '+r.catalog.error+'\n';
    else msg+='⚪ Catalog: Not found\n';
 
-   if(r.amazon && !r.amazon.error) msg+='✅ Amazon: $'+r.amazon.price.toFixed(2)+'\n';
+   if(r.amazon && !r.amazon.error && r.amazon.price) msg+='✅ Amazon: $'+r.amazon.price.toFixed(2)+'\n';
    else if(r.amazon && r.amazon.error) msg+='❌ Amazon: '+r.amazon.error+'\n';
    else msg+='⚪ Amazon: Not found\n';
+
+   if(r.oracle && !r.oracle.error && r.oracle.quote_price) msg+='✅ Oracle: $'+r.oracle.quote_price.toFixed(2)+' ('+r.oracle.confidence+', '+r.oracle.competitors+' competitors)\n';
+   else msg+='⚪ Oracle: '+(r.oracle&&r.oracle.error?r.oracle.error:'No data')+'\n';
 
    msg+='\nSummary: '+d.summary;
    alert(msg);
