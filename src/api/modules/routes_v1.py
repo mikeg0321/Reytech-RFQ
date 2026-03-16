@@ -3568,6 +3568,102 @@ def api_v1_system_boot_health():
         return api_response(error=str(e), status=500)
 
 
+@bp.route("/api/v1/rfq/backfill-all-fields")
+@auth_required
+def api_v1_rfq_backfill_all_fields():
+    """Backfill empty fields on all RFQs from buyer SCPRS history + email text."""
+    import json as _json
+    try:
+        from src.core.db import get_db
+        rfqs = load_rfqs()
+        updated = 0
+        details = []
+
+        for rid, r in rfqs.items():
+            changed = False
+            entry = {"id": rid, "filled": []}
+            email = (r.get("requestor_email") or "").strip().lower()
+
+            # Source 1: Buyer SCPRS PO history for delivery/institution
+            if email and (not r.get("delivery_location") or not r.get("institution")):
+                try:
+                    with get_db() as conn:
+                        # Most common ship-to for this buyer
+                        hist = conn.execute("""
+                            SELECT ship_to_address, dept_name, COUNT(*) as cnt
+                            FROM scprs_po_master
+                            WHERE buyer_email = ?
+                            AND ship_to_address != ''
+                            GROUP BY ship_to_address
+                            ORDER BY cnt DESC LIMIT 1
+                        """, (email,)).fetchone()
+                        if hist:
+                            if not r.get("delivery_location") and hist[0]:
+                                r["delivery_location"] = hist[0]
+                                entry["filled"].append(f"delivery_location={hist[0][:40]}")
+                                changed = True
+                            if not r.get("institution") and hist[1]:
+                                r["institution"] = hist[1]
+                                entry["filled"].append(f"institution={hist[1][:40]}")
+                                changed = True
+                except Exception:
+                    pass
+
+            # Source 2: Buyer SCPRS history for requestor name
+            if email and not r.get("requestor_name"):
+                try:
+                    with get_db() as conn:
+                        buyer = conn.execute("""
+                            SELECT buyer_name FROM scprs_po_master
+                            WHERE buyer_email = ? AND buyer_name != ''
+                            LIMIT 1
+                        """, (email,)).fetchone()
+                        if buyer and buyer[0]:
+                            r["requestor_name"] = buyer[0]
+                            entry["filled"].append(f"requestor_name={buyer[0]}")
+                            changed = True
+                except Exception:
+                    pass
+
+            # Source 3: Email text for due date
+            if not r.get("due_date") or r.get("due_date") == "TBD":
+                combined = f"{r.get('email_subject', '')} {r.get('body_text', '')}"
+                if combined.strip():
+                    from src.api.dashboard import _extract_due_date
+                    due = _extract_due_date(combined)
+                    if due:
+                        r["due_date"] = due
+                        entry["filled"].append(f"due_date={due}")
+                        changed = True
+
+            # Source 4: Email text for solicitation
+            if not r.get("solicitation_number") or r.get("solicitation_number") == "unknown":
+                combined = f"{r.get('email_subject', '')} {r.get('body_text', '')}"
+                if combined.strip():
+                    from src.api.dashboard import _extract_solicitation
+                    sol = _extract_solicitation(combined)
+                    if sol:
+                        r["solicitation_number"] = sol
+                        entry["filled"].append(f"solicitation_number={sol}")
+                        changed = True
+
+            if changed:
+                updated += 1
+                details.append(entry)
+
+        if updated:
+            save_rfqs(rfqs)
+
+        return api_response({
+            "updated": updated,
+            "total_rfqs": len(rfqs),
+            "details": details,
+        })
+    except Exception as e:
+        log.error("backfill-all-fields error: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)
+
+
 @bp.route("/api/v1/system/parse-gaps")
 @auth_required
 def api_v1_parse_gaps():
