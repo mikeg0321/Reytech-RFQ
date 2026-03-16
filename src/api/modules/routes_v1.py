@@ -3568,6 +3568,39 @@ def api_v1_system_boot_health():
         return api_response(error=str(e), status=500)
 
 
+@bp.route("/api/v1/locations/search")
+@auth_required
+def api_v1_locations_search():
+    """Search state facility locations for autocomplete. ?q=keyword"""
+    q = (request.args.get("q", "") or "").strip().lower()
+    if len(q) < 2:
+        return api_response({"results": []})
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            rows = conn.execute("""
+                SELECT display_name, agency, address, city, state, zip
+                FROM customers
+                WHERE display_name != ''
+                AND (LOWER(display_name) LIKE ? OR LOWER(agency) LIKE ? OR LOWER(city) LIKE ?)
+                ORDER BY display_name
+                LIMIT 15
+            """, (f"%{q}%", f"%{q}%", f"%{q}%")).fetchall()
+        results = []
+        for r in rows:
+            addr_parts = [p for p in [r[2], r[3], r[4], r[5]] if p]
+            results.append({
+                "name": r[0],
+                "agency": r[1] or "",
+                "address": ", ".join(addr_parts),
+                "display": f"{r[0]} ({r[1]})" if r[1] else r[0],
+            })
+        return api_response({"results": results})
+    except Exception as e:
+        log.error("locations/search error: %s", e, exc_info=True)
+        return api_response({"results": []})
+
+
 @bp.route("/api/v1/rfq/backfill-all-fields")
 @auth_required
 def api_v1_rfq_backfill_all_fields():
