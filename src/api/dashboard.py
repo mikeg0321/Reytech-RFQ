@@ -1156,8 +1156,9 @@ def _save_price_checks(pcs):
 
             for pc_id, pc in pcs.items():
                 items_json = json.dumps(pc.get("items", []), default=str)
-                # Store full PC blob for lossless round-trip
-                pc_blob = json.dumps(pc, default=str)
+                # Store full PC blob for lossless round-trip (strip pc_data to prevent recursive nesting)
+                _pc_clean = {k: v for k, v in pc.items() if k != "pc_data"}
+                pc_blob = json.dumps(_pc_clean, default=str)
                 conn.execute("""
                     INSERT OR REPLACE INTO price_checks
                     (id, created_at, requestor, agency, institution, items, source_file,
@@ -4682,7 +4683,9 @@ try:
                     try:
                         _pd = json.loads(_br[1]) if isinstance(_br[1], str) else _br[1]
                         if isinstance(_pd, dict):
-                            _rebuilt[_br[0]] = _pd
+                            # Strip pc_data blob to prevent recursive nesting
+                            _clean = {k: v for k, v in _pd.items() if k != "pc_data"}
+                            _rebuilt[_br[0]] = _clean
                     except Exception:
                         pass
                 if _rebuilt:

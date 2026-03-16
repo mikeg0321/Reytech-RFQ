@@ -291,9 +291,14 @@ def home():
                 _rows = _dal_list_pcs(limit=10000)
                 if _rows:
                     all_pcs = {r["id"]: r for r in _rows}
+                    # Strip pc_data blob before saving to JSON (prevents recursive nesting)
+                    _clean_pcs = {}
+                    for _pid, _pc in all_pcs.items():
+                        _cpc = {k: v for k, v in _pc.items() if k != "pc_data"}
+                        _clean_pcs[_pid] = _cpc
                     from src.core.data_guard import safe_save_json
                     _pc_path = os.path.join(DATA_DIR, "price_checks.json")
-                    safe_save_json(_pc_path, all_pcs, reason="home_recovery")
+                    safe_save_json(_pc_path, _clean_pcs, reason="home_recovery")
                     log.info("HOME: Recovered %d PCs from SQLite", len(all_pcs))
         except Exception as _re:
             log.warning("HOME: PC recovery: %s", _re)

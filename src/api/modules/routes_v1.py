@@ -3494,3 +3494,63 @@ def api_v1_system_recover_pcs():
     except Exception as e:
         log.error("recover-pcs error: %s", e, exc_info=True)
         return api_response(error=str(e), status=500)
+
+
+@bp.route("/api/v1/system/emergency-cleanup")
+@auth_required
+def api_v1_system_emergency_cleanup():
+    """Delete bloated snapshot files and restore from smallest good snapshot."""
+    try:
+        from src.core.paths import DATA_DIR as _DATA_DIR
+    except Exception:
+        _DATA_DIR = os.environ.get("DATA_DIR", "/data")
+    import json as _json
+
+    snap_dir = os.path.join(_DATA_DIR, "snapshots")
+    if not os.path.exists(snap_dir):
+        return api_response({"error": "No snapshots dir"})
+
+    # Find and delete bloated files (>1MB), keep small ones
+    deleted = []
+    kept = []
+    freed = 0
+    for f in os.listdir(snap_dir):
+        fpath = os.path.join(snap_dir, f)
+        size = os.path.getsize(fpath)
+        if size > 1_000_000:  # >1MB is bloated
+            os.remove(fpath)
+            deleted.append({"file": f, "size": size})
+            freed += size
+        else:
+            kept.append({"file": f, "size": size})
+
+    # Now restore price_checks.json from the smallest valid snapshot
+    best_snap = None
+    best_size = 0
+    for snap in kept:
+        if "price_checks" in snap["file"] and snap["size"] > 100:
+            fpath = os.path.join(snap_dir, snap["file"])
+            try:
+                with open(fpath) as sf:
+                    data = _json.load(sf)
+                if isinstance(data, dict) and len(data) > 0:
+                    if best_snap is None or snap["size"] > best_size:
+                        best_snap = snap["file"]
+                        best_size = snap["size"]
+            except Exception:
+                pass
+
+    restored_from = None
+    if best_snap:
+        src_path = os.path.join(snap_dir, best_snap)
+        dst_path = os.path.join(_DATA_DIR, "price_checks.json")
+        import shutil
+        shutil.copy2(src_path, dst_path)
+        restored_from = best_snap
+
+    return api_response({
+        "deleted": len(deleted),
+        "freed_mb": round(freed / 1_000_000, 1),
+        "kept": kept,
+        "restored_from": restored_from,
+    })
