@@ -103,7 +103,13 @@ def validate_ready_to_send(rfq_data):
         result["errors"].append("No buyer email address")
         result["ok"] = False
 
-    if not rfq_data.get("output_files"):
+    has_files = (
+        rfq_data.get("output_files") or
+        rfq_data.get("generated_files") or
+        rfq_data.get("reytech_quote_number") or
+        rfq_data.get("status") in ("generated", "sent")
+    )
+    if not has_files:
         result["errors"].append("No generated quote PDF — generate first")
         result["ok"] = False
 
