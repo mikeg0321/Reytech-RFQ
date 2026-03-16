@@ -3067,9 +3067,46 @@ def api_v1_rfq_backfill_metadata():
 @bp.route("/api/v1/rfq/diagnose-fields")
 @auth_required
 def api_v1_rfq_diagnose_fields():
-    """Show what metadata fields each RFQ has — for debugging."""
+    """Show what metadata fields each RFQ has — for debugging.
+    ?source=json  → read raw JSON file only
+    ?source=db    → read raw SQLite only
+    ?source=merged (default) → load_rfqs() merged view
+    ?id=xxx       → show ALL fields for a single RFQ
+    """
+    import json as _json
+    source = request.args.get("source", "merged")
+    single_id = request.args.get("id", "")
     try:
-        rfqs = load_rfqs()
+        if source == "json":
+            # Raw JSON file — no DAL, no merge
+            import os as _os
+            _rfq_path = _os.path.join(
+                _os.environ.get("DATA_DIR", _os.path.join(_os.path.dirname(__file__), "..", "..", "data")),
+                "rfqs.json")
+            try:
+                with open(_rfq_path) as f:
+                    rfqs = _json.load(f)
+            except Exception as _e:
+                return api_response({"error": f"JSON read failed: {_e}", "path": _rfq_path})
+            label = f"json ({_rfq_path})"
+        elif source == "db":
+            # Raw SQLite — no JSON merge
+            from src.core.dal import list_rfqs as _dal_list
+            rows = _dal_list(limit=10000)
+            rfqs = {r["id"]: r for r in rows} if rows else {}
+            label = "sqlite"
+        else:
+            rfqs = load_rfqs()
+            label = "merged"
+
+        if single_id and single_id in rfqs:
+            r = rfqs[single_id]
+            # Show all keys
+            return api_response({"source": label, "id": single_id,
+                                 "keys": sorted(r.keys()),
+                                 "data": {k: (str(v)[:200] if isinstance(v, (str, list, dict)) else v)
+                                          for k, v in r.items()}})
+
         diag = []
         for rid, r in rfqs.items():
             diag.append({
@@ -3082,10 +3119,10 @@ def api_v1_rfq_diagnose_fields():
                 "has_body_text": bool(r.get("body_text", "")),
                 "has_parse_note": bool(r.get("parse_note", "")),
                 "requestor_email": r.get("requestor_email", ""),
-                "source": r.get("source", ""),
                 "form_type": r.get("form_type", ""),
+                "keys": sorted(r.keys()),
             })
-        return api_response({"rfqs": diag, "count": len(diag)})
+        return api_response({"source": label, "rfqs": diag, "count": len(diag)})
     except Exception as e:
         log.error("diagnose-fields error: %s", e, exc_info=True)
         return api_response(error=str(e), status=500)
