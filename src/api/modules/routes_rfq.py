@@ -1050,6 +1050,17 @@ def rfq_update_field(rid):
         _log_rfq_activity(rid, "field_updated",
             "; ".join(changed), actor="user")
 
+    # Re-attempt PC linking if solicitation number was updated
+    if "solicitation_number" in data and data["solicitation_number"] and not r.get("linked_pc_id"):
+        try:
+            from src.api.dashboard import _link_rfq_to_pc
+            _link_trace = []
+            if _link_rfq_to_pc(r, _link_trace):
+                save_rfqs(rfqs)
+                log.info("Re-linked RFQ %s after sol# update: %s", rid, _link_trace)
+        except Exception as _le:
+            log.warning("Re-link after sol# update: %s", _le)
+
     # Smart validation against buyer history
     suggestions = {}
     if "delivery_location" in data or "ship_to" in data or "institution" in data:

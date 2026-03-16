@@ -2473,7 +2473,7 @@ def api_test_cleanup():
     pcs = _load_price_checks()
     test_pcs = [k for k, v in pcs.items() if v.get("is_test")]
     for k in test_pcs:
-        del pcs[k]
+        pcs[k]["status"] = "dismissed"  # Law 22: never delete
     _save_price_checks(pcs)
 
     # Clean RFQs

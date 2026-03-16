@@ -1699,13 +1699,64 @@ def _extract_signature_contact(body: str) -> dict:
     return result
 
 
+def _get_pc_items(pc):
+    """Get items from a PC regardless of storage format."""
+    items = pc.get("items", [])
+    if items and isinstance(items, list) and len(items) > 0:
+        return items
+    pc_data = pc.get("pc_data", {})
+    if isinstance(pc_data, str):
+        try:
+            pc_data = json.loads(pc_data)
+        except (json.JSONDecodeError, TypeError):
+            pc_data = {}
+    if isinstance(pc_data, dict):
+        items = pc_data.get("items", [])
+        if items:
+            return items
+    return pc.get("line_items", [])
+
+
+def _fuzzy_item_overlap(rfq_items, pc_items, threshold=0.6):
+    """Count items with >=60% description similarity."""
+    from difflib import SequenceMatcher
+    matches = 0
+    matched_pc_indices = set()
+    for rfq_item in rfq_items:
+        rfq_desc = (rfq_item.get("description", "") or "").lower().strip()
+        if not rfq_desc or len(rfq_desc) < 5:
+            continue
+        best_sim = 0
+        best_idx = -1
+        for idx, pc_item in enumerate(pc_items):
+            if idx in matched_pc_indices:
+                continue
+            pc_desc = (pc_item.get("description", pc_item.get("desc", "")) or "").lower().strip()
+            if not pc_desc or len(pc_desc) < 5:
+                continue
+            rfq_words = rfq_desc.split()[:3]
+            pc_words = pc_desc.split()[:3]
+            if rfq_words == pc_words:
+                best_sim = 0.9
+                best_idx = idx
+                break
+            sim = SequenceMatcher(None, rfq_desc[:80], pc_desc[:80]).ratio()
+            if sim > best_sim:
+                best_sim = sim
+                best_idx = idx
+        if best_sim >= threshold and best_idx >= 0:
+            matches += 1
+            matched_pc_indices.add(best_idx)
+    return matches
+
+
 def _link_rfq_to_pc(rfq_data, _trace):
     """F1: Auto-link new RFQ to matching Price Check, port pricing, detect diffs.
-    
-    Matching: sol# (exact) > requestor+50% items > agency+80% items.
+
+    Matching: sol# (exact) > requestor+fuzzy items > agency+fuzzy items.
     Ports: cost, bid, SCPRS, Amazon, item_link, MFG#, supplier.
     Records audit trail for every ported price.
-    Marks PC as converted (preserved, not deleted).
+    Marks PC as converted (NEVER deleted — Law 22).
     Returns True if linked."""
     try:
         pcs = _load_price_checks()
@@ -1715,9 +1766,16 @@ def _link_rfq_to_pc(rfq_data, _trace):
         return False
 
     sol = (rfq_data.get("solicitation_number") or "").strip()
-    sender = (rfq_data.get("requestor_email") or rfq_data.get("email_sender") or "").lower()
-    rfq_descs = {(it.get("description", "") or "").lower()[:40]
-                 for it in rfq_data.get("line_items", []) if it.get("description")}
+    rfq_items_list = rfq_data.get("line_items", rfq_data.get("items", []))
+
+    # Collect all RFQ identifiers for requestor matching
+    rfq_identifiers = set()
+    for field in ["requestor_email", "requestor_name", "email_sender", "requestor"]:
+        val = (rfq_data.get(field, "") or "").lower().strip()
+        if val and len(val) >= 3:
+            rfq_identifiers.add(val)
+            if "@" in val:
+                rfq_identifiers.add(val.split("@")[0])
 
     matched_pid = None
     match_reason = ""
@@ -1726,30 +1784,45 @@ def _link_rfq_to_pc(rfq_data, _trace):
         if pc.get("status") in ("dismissed", "cancelled"):
             continue
         pc_sol = (pc.get("pc_number", "") or "").replace("AD-", "").strip()
-        pc_req = (pc.get("requestor", "") or "").lower()
-        pc_descs = {(it.get("description", "") or "").lower()[:40]
-                    for it in pc.get("items", []) if it.get("description")}
+        pc_items_list = _get_pc_items(pc)
 
         # Match 1: Same solicitation number
         if sol and sol != "unknown" and pc_sol == sol:
             matched_pid, match_reason = pid, f"sol#{sol}"
             break
 
-        # Match 2: Same requestor + ≥50% item overlap
-        if sender and pc_req and sender in pc_req and rfq_descs and pc_descs:
-            overlap = len(rfq_descs & pc_descs)
-            if overlap >= max(1, len(pc_descs) * 0.5):
-                matched_pid, match_reason = pid, f"requestor+{overlap}/{len(pc_descs)}_items"
+        # Match 2: Same requestor + >=50% fuzzy item overlap
+        pc_identifiers = set()
+        for field in ["requestor", "requestor_email", "requestor_name", "email"]:
+            val = (pc.get(field, "") or "").lower().strip()
+            if val and len(val) >= 3:
+                pc_identifiers.add(val)
+                if "@" in val:
+                    pc_identifiers.add(val.split("@")[0])
+        requestor_match = bool(pc_identifiers & rfq_identifiers)
+        if not requestor_match:
+            for pc_id in pc_identifiers:
+                for rfq_id in rfq_identifiers:
+                    if len(pc_id) >= 3 and len(rfq_id) >= 3:
+                        if pc_id in rfq_id or rfq_id in pc_id:
+                            requestor_match = True
+                            break
+                if requestor_match:
+                    break
+        if requestor_match and rfq_items_list and pc_items_list:
+            overlap = _fuzzy_item_overlap(rfq_items_list, pc_items_list)
+            if overlap >= max(1, len(pc_items_list) * 0.5):
+                matched_pid, match_reason = pid, f"requestor+{overlap}/{len(pc_items_list)}_items"
                 break
 
-        # Match 3: Same agency/institution + ≥80% item overlap
-        if pc_descs and rfq_descs:
+        # Match 3: Same agency/institution + >=80% fuzzy item overlap
+        if pc_items_list and rfq_items_list:
             pc_inst = (pc.get("institution", "") or "").lower()
             rfq_inst = (rfq_data.get("delivery_location", "") or rfq_data.get("agency_name", "") or "").lower()
             if pc_inst and rfq_inst and (pc_inst in rfq_inst or rfq_inst in pc_inst):
-                overlap = len(rfq_descs & pc_descs)
-                if overlap >= max(1, len(pc_descs) * 0.8):
-                    matched_pid, match_reason = pid, f"agency+{overlap}/{len(pc_descs)}_items"
+                overlap = _fuzzy_item_overlap(rfq_items_list, pc_items_list)
+                if overlap >= max(1, len(pc_items_list) * 0.8):
+                    matched_pid, match_reason = pid, f"agency+{overlap}/{len(pc_items_list)}_items"
                     break
 
     if not matched_pid:
@@ -1763,20 +1836,26 @@ def _link_rfq_to_pc(rfq_data, _trace):
     log.info("Auto-linked RFQ %s → PC %s (%s)", rfq_data["id"], matched_pid, match_reason)
 
     # ── Port ALL fields from PC items to RFQ items (full transfer, not cherry-pick) ──
-    pc_items = pc.get("items", [])
+    pc_items = _get_pc_items(pc)
     ported = 0
     diff_added, diff_removed, diff_qty = [], [], []
 
     for rfq_item in rfq_data.get("line_items", []):
-        rd = (rfq_item.get("description", "") or "").lower()[:40]
+        from difflib import SequenceMatcher as _SM
+        rd = (rfq_item.get("description", "") or "").lower().strip()
         match = None
+        best_sim = 0
         for pci in pc_items:
-            pd = (pci.get("description", "") or "").lower()[:40]
-            if not pd:
+            pd = (pci.get("description", pci.get("desc", "")) or "").lower().strip()
+            if not pd or len(pd) < 5:
                 continue
-            if rd == pd or (len(rd) > 10 and rd in pd) or (len(pd) > 10 and pd in rd):
+            if rd == pd:
                 match = pci
                 break
+            sim = _SM(None, rd[:80], pd[:80]).ratio()
+            if sim > best_sim and sim >= 0.6:
+                best_sim = sim
+                match = pci
 
         if not match:
             diff_added.append(rfq_item.get("description", "")[:50])
@@ -1827,18 +1906,19 @@ def _link_rfq_to_pc(rfq_data, _trace):
         except Exception:
             pass
 
-    # Items in PC but not in RFQ
+    # Items in PC but not in RFQ (fuzzy)
     for pci in pc_items:
-        pd = (pci.get("description", "") or "").lower()[:40]
-        if not pd:
+        pd = (pci.get("description", pci.get("desc", "")) or "").lower().strip()
+        if not pd or len(pd) < 5:
             continue
-        found = any(
-            pd == (ri.get("description", "") or "").lower()[:40]
-            or (len(pd) > 10 and pd in (ri.get("description", "") or "").lower())
-            for ri in rfq_data.get("line_items", [])
-        )
+        found = False
+        for ri in rfq_data.get("line_items", []):
+            rd = (ri.get("description", "") or "").lower().strip()
+            if rd and _SM(None, pd[:80], rd[:80]).ratio() >= 0.6:
+                found = True
+                break
         if not found:
-            diff_removed.append(pci.get("description", "")[:50])
+            diff_removed.append(pci.get("description", pci.get("desc", ""))[:50])
 
     # Copy PC-level metadata to the RFQ
     rfq_data["source_pc"] = matched_pid
@@ -2236,10 +2316,14 @@ def process_rfq_email(rfq_email):
                                     "id": pc_id, "pc_number": pc_num,
                                     "institution": institution, "due_date": due_date,
                                     "requestor": header.get("requestor", ""),
+                                    "requestor_email": rfq_email.get("sender_email", ""),
+                                    "requestor_name": rfq_email.get("sender_name", rfq_email.get("sender_email", "")),
                                     "ship_to": header.get("ship_to", ""),
                                     "items": items, "source_pdf": pc_file,
                                     "status": "parsed" if items else "new",
                                     "parsed": parsed,
+                                    "email_uid": rfq_email.get("email_uid", ""),
+                                    "email_subject": rfq_email.get("subject", ""),
                                     "created_at": datetime.now().isoformat(),
                                     "source": "email_auto",
                                     "reytech_quote_number": "",
@@ -2654,10 +2738,12 @@ def process_rfq_email(rfq_email):
                        and not pc.get("converted_to_rfq")]
             if pc_dups:
                 for pid in pc_dups:
-                    del pcs[pid]
+                    pcs[pid]["converted_to_rfq"] = rfq_data["id"]
+                    pcs[pid]["converted_at"] = datetime.now().isoformat()
+                    pcs[pid]["status"] = "converted"
                 _save_price_checks(pcs)
-                _trace.append(f"Cross-queue cleanup: removed {len(pc_dups)} unlinked PC entries: {pc_dups}")
-                log.info("Cross-queue cleanup: removed PCs %s (same sol# as RFQ %s)", pc_dups, sol_num)
+                _trace.append(f"Marked {len(pc_dups)} PCs as converted (preserved)")
+                log.info("PCs %s marked converted for RFQ %s", pc_dups, rfq_data["id"])
         except Exception as _xqe:
             _trace.append(f"Cross-queue cleanup error: {_xqe}")
     

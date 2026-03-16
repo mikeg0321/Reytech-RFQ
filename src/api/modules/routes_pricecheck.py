@@ -3582,7 +3582,7 @@ def api_pricecheck_delete(pcid):
     linked_qn = pc.get("reytech_quote_number", "") or pc.get("linked_quote_number", "")
 
     # Remove the PC
-    del pcs[pcid]
+    pcs[pcid]["status"] = "dismissed"  # Law 22: never delete
     try:
         with open(pc_path, "w") as f:
             _json.dump(pcs, f, indent=2)
@@ -5401,7 +5401,7 @@ def api_admin_cleanup():
                 to_delete.append(pcid)
                 results["removed_pcs"].append(f"{pcid[:8]}: blank/empty")
         for pcid in to_delete:
-            del pcs[pcid]
+            pcs[pcid]["status"] = "dismissed"  # Law 22: never delete
 
         # --- Step 2: Deduplicate by (pc_number, institution) ---
         # Keep the most recent one (highest pcid / latest updated_at)
@@ -5426,7 +5426,7 @@ def api_admin_cleanup():
         kept_ids = set(seen.values())
         for pcid in list(pcs.keys()):
             if pcid not in kept_ids:
-                del pcs[pcid]
+                pcs[pcid]["status"] = "dismissed"  # Law 22: never delete
 
         _save_price_checks(pcs)
         results["total_after"] = len(pcs)
@@ -5733,7 +5733,7 @@ def api_admin_recall():
             pc_num = pc.get("pc_number", pcid)
             linked_qn = pc.get("reytech_quote_number", "") or pc.get("linked_quote_number", "")
             
-            del pcs[pcid]
+            pcs[pcid]["status"] = "dismissed"  # Law 22: never delete
             
             # SQLite cleanup
             try:

@@ -582,3 +582,33 @@ When they disagree, SQLite wins.
 Write path: Always SQLite first, then JSON cache.
 Read path: DAL (SQLite) first, JSON fallback only if DAL empty.
 Boot path: If JSON empty but SQLite has data, rebuild JSON.
+
+### Law 22: Never Delete Business Data
+PCs, RFQs, quotes, and orders must NEVER be deleted by
+automated code. Use status fields instead:
+- "converted" — PC was linked to an RFQ
+- "dismissed" — user explicitly dismissed
+- "archived" — past retention period
+
+`grep -rn "del pcs\[|del rfqs\[|del orders\[" src/`
+must return ZERO results. On 2026-03-16, cross-queue cleanup
+was deleting PCs that matched an RFQ's solicitation number.
+When the linker failed (bugs 1-4), PC was deleted AND not
+linked. User lost all pricing data with no recovery path.
+
+### Law 23: Matching Must Be Fuzzy
+Names, descriptions, and identifiers from different sources
+(email vs PDF vs database) will NEVER be exactly identical.
+All matching code must use:
+- SequenceMatcher with threshold >=0.6 for descriptions
+- Set intersection of normalized identifiers for people
+- Both name AND email checked for requestor matching
+- Case-insensitive, punctuation-tolerant comparison
+
+Exact string matching (==, set intersection of truncated
+strings) will fail in production. Always.
+
+### Law 24: Critical Paths Need Automated Tests
+Before committing changes to _link_rfq_to_pc, save_rfqs,
+_save_price_checks, or any data pipeline function, run
+the test script and show the output. All tests must pass.

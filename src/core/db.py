@@ -2038,7 +2038,7 @@ def _dedup_price_checks_on_boot():
             qn = pc.get("reytech_quote_number", "") or pc.get("linked_quote_number", "")
             if qn:
                 freed_quotes.append(qn)
-            del pcs[dup_id]
+            pcs[dup_id]["status"] = "dismissed"  # Law 22: never delete
 
         with open(pc_path, "w") as f:
             json.dump(pcs, f, indent=2, default=str)
