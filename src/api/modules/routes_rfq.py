@@ -1049,7 +1049,58 @@ def rfq_update_field(rid):
         save_rfqs(rfqs)
         _log_rfq_activity(rid, "field_updated",
             "; ".join(changed), actor="user")
-    return jsonify({"ok": True, "updated": changed})
+
+    # Smart validation against buyer history
+    suggestions = {}
+    if "delivery_location" in data or "ship_to" in data or "institution" in data:
+        try:
+            from src.core.db import get_db
+            with get_db() as _vconn:
+                email = r.get("requestor_email", "")
+                if email:
+                    history = _vconn.execute("""
+                        SELECT ship_to_address, dept_name, COUNT(*) as cnt
+                        FROM scprs_po_master
+                        WHERE buyer_email = ?
+                        AND ship_to_address != ''
+                        GROUP BY ship_to_address
+                        ORDER BY cnt DESC LIMIT 5
+                    """, (email,)).fetchall()
+
+                    if history:
+                        new_val = data.get("delivery_location", data.get("ship_to", data.get("institution", "")))
+                        top_location = history[0][0]
+                        top_count = history[0][2]
+                        total = sum(h[2] for h in history)
+
+                        from difflib import SequenceMatcher
+                        best_match = max(
+                            [(h[0], h[2], SequenceMatcher(None, new_val.lower(), h[0].lower()).ratio())
+                             for h in history],
+                            key=lambda x: x[2]
+                        )
+
+                        suggestions["buyer_history"] = {
+                            "most_common": top_location,
+                            "frequency": f"{top_count}/{total} POs",
+                            "confidence": round(top_count / total * 100),
+                            "all_locations": [
+                                {"location": h[0], "department": h[1], "count": h[2]}
+                                for h in history
+                            ],
+                        }
+
+                        if best_match[2] < 0.5 and top_count >= 3:
+                            suggestions["warning"] = (
+                                f"This buyer usually ships to '{top_location}' "
+                                f"({top_count} of {total} POs). "
+                                f"You entered '{new_val}'. Confirm?"
+                            )
+                            suggestions["needs_confirm"] = True
+        except Exception:
+            pass
+
+    return jsonify({"ok": True, "updated": changed, "suggestions": suggestions})
 
 
 @bp.route("/api/rfq/<rid>/autosave", methods=["POST"])

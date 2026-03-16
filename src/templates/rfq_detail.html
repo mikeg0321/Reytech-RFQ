@@ -518,6 +518,12 @@ function saveField(el,field){
  var data={};data[field]=el.value;
  fetch('/api/rfq/'+RID+'/update-field',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data),credentials:'same-origin'})
  .then(function(r){return r.json()}).then(function(d){
+  if(d.ok&&d.suggestions&&d.suggestions.needs_confirm){
+   if(!confirm(d.suggestions.warning)){
+    el.value=d.suggestions.buyer_history.most_common;
+    saveField(el,field);return;
+   }
+  }
   if(d.ok){el.style.borderColor='#16a34a';setTimeout(function(){el.style.borderColor='transparent'},1500)}
   else{el.style.borderColor='#f85149'}
  }).catch(function(){el.style.borderColor='#f85149'});
