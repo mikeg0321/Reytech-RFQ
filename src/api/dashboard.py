@@ -496,6 +496,248 @@ def backfill_rfq_metadata(dry_run=False):
             "total_checked": len(details)}
 
 
+def imap_backfill_rfq_metadata(dry_run=False):
+    """Re-fetch original emails from IMAP to recover solicitation#, due dates, and PDFs.
+
+    For each RFQ missing metadata:
+    1. Connect to IMAP, fetch email by UID
+    2. Extract subject, body, PDF attachments
+    3. Re-parse PDFs (703B/704B form fields, text extraction)
+    4. Update RFQ with recovered data
+    5. Store PDFs in rfq_files table
+    """
+    import imaplib
+    import email as _email_mod
+    from email.header import decode_header as _decode_header
+    import tempfile
+
+    rfqs = load_rfqs()
+    results = []
+
+    # Connect to IMAP
+    imap_user = os.environ.get("GMAIL_ADDRESS", "")
+    imap_pass = os.environ.get("GMAIL_PASSWORD", "")
+    if not imap_user or not imap_pass:
+        return {"error": "GMAIL_ADDRESS or GMAIL_PASSWORD not set", "updated": 0}
+
+    try:
+        mail = imaplib.IMAP4_SSL("imap.gmail.com", 993)
+        mail.login(imap_user, imap_pass)
+        mail.select("INBOX")
+    except Exception as e:
+        return {"error": f"IMAP connect failed: {e}", "updated": 0}
+
+    def _decode_hdr(header):
+        if not header:
+            return ""
+        try:
+            parts = _decode_header(header)
+            out = ""
+            for content, charset in parts:
+                if isinstance(content, bytes):
+                    out += content.decode(charset or "utf-8", errors="replace")
+                else:
+                    out += content
+            return out
+        except Exception:
+            return str(header)
+
+    def _get_body(msg):
+        bodies = []
+        if msg.is_multipart():
+            for part in msg.walk():
+                if part.get_content_type() == "text/plain":
+                    payload = part.get_payload(decode=True)
+                    if payload:
+                        bodies.append(payload.decode("utf-8", errors="replace"))
+        else:
+            payload = msg.get_payload(decode=True)
+            if payload:
+                bodies.append(payload.decode("utf-8", errors="replace"))
+        return "\n".join(bodies)
+
+    def _get_pdfs(msg):
+        pdfs = []
+        for part in msg.walk():
+            if part.get_content_maintype() == "multipart":
+                continue
+            filename = part.get_filename()
+            if not filename:
+                continue
+            filename = _decode_hdr(filename) if isinstance(filename, str) else str(filename)
+            if not filename.lower().endswith(".pdf"):
+                continue
+            payload = part.get_payload(decode=True)
+            if payload:
+                pdfs.append({"filename": filename, "data": payload})
+            # Also check nested message/rfc822 parts
+        for part in msg.walk():
+            if part.get_content_type() == "message/rfc822":
+                inner = part.get_payload()
+                msgs = inner if isinstance(inner, list) else [inner] if hasattr(inner, 'walk') else []
+                for inner_msg in msgs:
+                    for ipart in inner_msg.walk():
+                        fn = ipart.get_filename()
+                        if not fn:
+                            continue
+                        fn = _decode_hdr(fn) if isinstance(fn, str) else str(fn)
+                        if fn.lower().endswith(".pdf"):
+                            pl = ipart.get_payload(decode=True)
+                            if pl:
+                                pdfs.append({"filename": fn, "data": pl})
+        return pdfs
+
+    updated = 0
+    for rid, r in rfqs.items():
+        _needs_sol = not r.get("solicitation_number") or r.get("solicitation_number") == "unknown"
+        _needs_due = not r.get("due_date") or r.get("due_date") in ("", "TBD")
+        _needs_subject = not r.get("email_subject")
+        _needs_body = not r.get("body_text")
+
+        if not (_needs_sol or _needs_due or _needs_subject or _needs_body):
+            continue
+
+        uid = r.get("email_uid", "")
+        if not uid:
+            results.append({"id": rid, "status": "no_uid"})
+            continue
+
+        try:
+            status, data = mail.uid("fetch", uid.encode(), "(BODY.PEEK[])")
+            if status != "OK" or not data or not data[0]:
+                results.append({"id": rid, "status": "fetch_failed", "uid": uid})
+                continue
+
+            msg = _email_mod.message_from_bytes(data[0][1])
+            subject = _decode_hdr(msg["Subject"]) or ""
+            body = _get_body(msg)
+            pdfs = _get_pdfs(msg)
+            combined = f"{subject} {body}"
+
+            entry = {"id": rid, "uid": uid, "subject": subject[:80],
+                     "pdfs": len(pdfs), "sol": "", "due": ""}
+
+            # Update email_subject and body_text
+            if _needs_subject and subject:
+                r["email_subject"] = subject
+            if _needs_body and body:
+                r["body_text"] = body[:3000]
+
+            # Parse PDFs for solicitation and due date
+            for pdf in pdfs:
+                fname_lower = pdf["filename"].lower()
+                # Store PDF in rfq_files
+                if not dry_run:
+                    try:
+                        import re as _re
+                        safe_fn = _re.sub(r'[^\w\-_. ()]+', '_', pdf["filename"])
+                        ftype = "unknown"
+                        if "703b" in fname_lower:
+                            ftype = "template_703b"
+                        elif "704b" in fname_lower or "704" in fname_lower:
+                            ftype = "template_704b"
+                        elif "bid" in fname_lower and "package" in fname_lower:
+                            ftype = "template_bidpkg"
+                        save_rfq_file(rid, safe_fn, ftype, pdf["data"],
+                                      category="template" if ftype != "unknown" else "attachment")
+                    except Exception as _fe:
+                        log.debug("Store PDF %s for %s: %s", pdf["filename"], rid, _fe)
+
+                # Parse for metadata
+                if _needs_sol or _needs_due:
+                    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+                        tmp.write(pdf["data"])
+                        tmp_path = tmp.name
+                    try:
+                        if "703b" in fname_lower:
+                            from src.forms.rfq_parser import parse_703b
+                            parsed = parse_703b(tmp_path)
+                            if _needs_sol and parsed.get("solicitation_number"):
+                                r["solicitation_number"] = parsed["solicitation_number"]
+                                _needs_sol = False
+                                entry["sol"] = parsed["solicitation_number"]
+                            if _needs_due and parsed.get("due_date"):
+                                r["due_date"] = parsed["due_date"]
+                                _needs_due = False
+                                entry["due"] = parsed["due_date"]
+                            # Recover requestor info
+                            if not r.get("requestor_name") and parsed.get("requestor_name"):
+                                r["requestor_name"] = parsed["requestor_name"]
+                            if not r.get("requestor_email") and parsed.get("requestor_email"):
+                                r["requestor_email"] = parsed["requestor_email"]
+                            # Also set form_type
+                            if not r.get("form_type"):
+                                r["form_type"] = "ams_704"
+                        elif "704b" in fname_lower or "704" in fname_lower:
+                            from src.forms.rfq_parser import parse_704b
+                            parsed = parse_704b(tmp_path)
+                            header = parsed.get("header", {})
+                            if _needs_sol and header.get("solicitation_number"):
+                                r["solicitation_number"] = header["solicitation_number"]
+                                _needs_sol = False
+                                entry["sol"] = header["solicitation_number"]
+                            if not r.get("form_type"):
+                                r["form_type"] = "ams_704"
+                        else:
+                            # Generic PDF — text extraction
+                            try:
+                                from pypdf import PdfReader
+                                reader = PdfReader(tmp_path)
+                                text = " ".join((p.extract_text() or "") for p in reader.pages[:3])
+                                if _needs_sol:
+                                    sol = _extract_solicitation(text)
+                                    if sol:
+                                        r["solicitation_number"] = sol
+                                        _needs_sol = False
+                                        entry["sol"] = sol
+                                if _needs_due:
+                                    due = _extract_due_date(text)
+                                    if due:
+                                        r["due_date"] = due
+                                        _needs_due = False
+                                        entry["due"] = due
+                            except Exception:
+                                pass
+                    except Exception as _pe:
+                        log.debug("Parse PDF %s for %s: %s", pdf["filename"], rid, _pe)
+                    finally:
+                        try:
+                            os.unlink(tmp_path)
+                        except Exception:
+                            pass
+
+            # Fallback: extract from email text
+            if _needs_sol:
+                sol = _extract_solicitation(combined)
+                if sol:
+                    r["solicitation_number"] = sol
+                    entry["sol"] = sol
+            if _needs_due:
+                due = _extract_due_date(combined)
+                if due:
+                    r["due_date"] = due
+                    entry["due"] = due
+
+            entry["recovered"] = bool(entry["sol"] or entry["due"] or subject)
+            results.append(entry)
+            if entry["recovered"]:
+                updated += 1
+
+        except Exception as e:
+            results.append({"id": rid, "uid": uid, "status": "error", "error": str(e)[:200]})
+
+    try:
+        mail.logout()
+    except Exception:
+        pass
+
+    if updated and not dry_run:
+        save_rfqs(rfqs)
+        log.info("IMAP backfill: recovered metadata for %d RFQs", updated)
+
+    return {"updated": updated, "results": results, "dry_run": dry_run}
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # RFQ File Storage — PDFs stored as BLOBs in SQLite (survives redeploys)
 # ═══════════════════════════════════════════════════════════════════════
@@ -2285,6 +2527,9 @@ def process_rfq_email(rfq_email):
         rfq_data["email_subject"] = rfq_email["subject"]
         rfq_data["email_sender"] = rfq_email["sender_email"]
         rfq_data["email_message_id"] = rfq_email.get("message_id", "")
+        rfq_data["body_text"] = (rfq_email.get("body_text", rfq_email.get("body_preview", "")) or "")[:3000]
+        rfq_data["requestor_name"] = rfq_data.get("requestor_name") or rfq_email.get("sender_email", "")
+        rfq_data["requestor_email"] = rfq_data.get("requestor_email") or rfq_email.get("sender_email", "")
         rfq_data["line_items"] = bulk_lookup(rfq_data.get("line_items", []))
         # Detect agency for 704-based RFQs too
         try:

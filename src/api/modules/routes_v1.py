@@ -3067,6 +3067,21 @@ def api_v1_rfq_backfill_metadata():
         return api_response(error=str(e), status=500)
 
 
+@bp.route("/api/v1/rfq/imap-backfill")
+@auth_required
+def api_v1_rfq_imap_backfill():
+    """Re-fetch original emails from IMAP to recover metadata and PDFs.
+    ?dry_run=1 — show what would be recovered without saving
+    """
+    try:
+        dry = request.args.get("dry_run", "0") == "1"
+        result = imap_backfill_rfq_metadata(dry_run=dry)
+        return api_response(result)
+    except Exception as e:
+        log.error("imap-backfill error: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)
+
+
 @bp.route("/api/v1/rfq/diagnose-files")
 @auth_required
 def api_v1_rfq_diagnose_files():
