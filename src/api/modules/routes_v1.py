@@ -3064,6 +3064,33 @@ def api_v1_rfq_backfill_metadata():
         return api_response(error=str(e), status=500)
 
 
+@bp.route("/api/v1/rfq/diagnose-fields")
+@auth_required
+def api_v1_rfq_diagnose_fields():
+    """Show what metadata fields each RFQ has — for debugging."""
+    try:
+        rfqs = load_rfqs()
+        diag = []
+        for rid, r in rfqs.items():
+            diag.append({
+                "id": rid,
+                "solicitation_number": r.get("solicitation_number", ""),
+                "rfq_number": r.get("rfq_number", ""),
+                "due_date": r.get("due_date", ""),
+                "status": r.get("status", ""),
+                "email_subject": (r.get("email_subject", "") or "")[:120],
+                "has_body_text": bool(r.get("body_text", "")),
+                "has_parse_note": bool(r.get("parse_note", "")),
+                "requestor_email": r.get("requestor_email", ""),
+                "source": r.get("source", ""),
+                "form_type": r.get("form_type", ""),
+            })
+        return api_response({"rfqs": diag, "count": len(diag)})
+    except Exception as e:
+        log.error("diagnose-fields error: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)
+
+
 # ── Due Date Reminders ────────────────────────────────────────────────────
 
 @bp.route("/api/v1/reminders/check-now")
