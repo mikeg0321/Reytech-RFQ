@@ -507,6 +507,51 @@ def _transition_status(record, new_status, actor="system", notes=""):
         entry["notes"] = notes
     history.append(entry)
     record["status_history"] = history
+
+    # Speed clock tracking
+    try:
+        from src.core.pricing_oracle_v2 import record_speed_event
+        record_id = record.get("id") or record.get("pc_id") or ""
+        record_type = "pc" if "pc_data" in record or "pc_number" in record else "quote"
+        speed_map = {"parsed": "received", "draft": "received", "new": "received",
+                     "priced": "priced", "ready": "priced", "generated": "generated",
+                     "sent": "sent", "submitted": "sent"}
+        event = speed_map.get(new_status)
+        if event and record_id:
+            record_speed_event(record_type, record_id, event)
+    except Exception:
+        pass
+
+    # On win: confirm item mappings + lock costs
+    if new_status in ("won", "awarded"):
+        try:
+            from src.core.pricing_oracle_v2 import confirm_item_mapping, lock_cost
+            items = record.get("line_items", record.get("items", []))
+            if isinstance(items, str):
+                import json as _json
+                items = _json.loads(items)
+            for item in (items or []):
+                desc = item.get("description", "")
+                cost = item.get("supplier_cost") or item.get("unit_cost") or item.get("cost")
+                sell = item.get("unit_price") or item.get("sell_price") or item.get("price")
+                if desc and sell:
+                    confirm_item_mapping(
+                        original_description=desc, canonical_description=desc,
+                        item_number=item.get("item_number", ""),
+                        supplier=item.get("item_supplier", ""),
+                        cost=float(str(cost or 0).replace("$", "").replace(",", "")) if cost else None,
+                    )
+                if desc and cost:
+                    try:
+                        lock_cost(desc, float(str(cost).replace("$", "").replace(",", "")),
+                                  supplier=item.get("item_supplier", ""),
+                                  source="won_quote", expires_days=60,
+                                  item_number=item.get("item_number", ""))
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
     return record
 
 
@@ -848,6 +893,26 @@ def update(rid):
     except Exception as _ce:
         log.debug("Finalize catalog sync: %s", _ce)
     
+    # Auto-learn item mappings + lock costs from user pricing
+    try:
+        from src.core.pricing_oracle_v2 import auto_learn_mapping, lock_cost
+        for _item in r.get("line_items", []):
+            _desc = _item.get("description", "")
+            _cost = _item.get("supplier_cost") or _item.get("unit_price")
+            if _desc and _cost:
+                try:
+                    _cv = float(str(_cost).replace("$", "").replace(",", ""))
+                except (ValueError, TypeError):
+                    _cv = 0
+                if _cv > 0:
+                    auto_learn_mapping(_desc, _item.get("catalog_match", {}).get("name", _desc),
+                                       item_number=_item.get("item_number", ""), confidence=0.7)
+                    lock_cost(_desc, _cv, supplier=_item.get("item_supplier", ""),
+                              source="user_pricing", expires_days=30,
+                              item_number=_item.get("item_number", ""))
+    except Exception:
+        pass
+
     _log_rfq_activity(rid, "pricing_finalized",
         f"Pricing finalized for #{r.get('solicitation_number','?')} ({len(r.get('line_items',[]))} items, catalog +{cat_added}/~{cat_updated})",
         actor="user")
@@ -1165,6 +1230,27 @@ def rfq_lookup_single_item(rid, idx):
         results["amazon"] = {"error": str(e)[:80]}
         log.debug("Single item Amazon error: %s", e)
 
+    # 4. Unified Pricing Oracle
+    try:
+        from src.core.pricing_oracle_v2 import get_pricing
+        oracle = get_pricing(
+            description=desc,
+            quantity=item.get("quantity", item.get("qty", 1)),
+            cost=item.get("supplier_cost") or item.get("unit_price"),
+            item_number=pn,
+        )
+        items[idx]["oracle"] = oracle
+        results["oracle"] = {
+            "quote_price": oracle.get("recommendation", {}).get("quote_price"),
+            "confidence": oracle.get("recommendation", {}).get("confidence"),
+            "market_avg": oracle.get("market", {}).get("weighted_avg"),
+            "competitors": len(oracle.get("competitors", [])),
+            "cross_sell": len(oracle.get("cross_sell", [])),
+            "sources": oracle.get("sources_used", []),
+        }
+    except Exception as e:
+        results["oracle"] = {"error": str(e)[:80]}
+
     save_rfqs(rfqs)
 
     # Build summary
@@ -1175,6 +1261,8 @@ def rfq_lookup_single_item(rid, idx):
         found.append(f"Catalog: ${results['catalog']['cost']:.2f} ({results['catalog']['supplier']})")
     if results["amazon"] and not results["amazon"].get("error"):
         found.append(f"Amazon: ${results['amazon']['price']:.2f}")
+    if results.get("oracle") and not results["oracle"].get("error") and results["oracle"].get("quote_price"):
+        found.append(f"Oracle: ${results['oracle']['quote_price']:.2f} ({results['oracle'].get('confidence','?')})")
 
     return jsonify({
         "ok": True,
