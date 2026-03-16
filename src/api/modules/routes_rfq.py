@@ -723,7 +723,11 @@ def detail(rid):
     rfqs = load_rfqs()
     r = rfqs.get(rid)
     if not r: flash("Not found", "error"); return redirect("/")
-    
+
+    # Ensure r is a plain dict (not a Jinja2-aware object)
+    if not isinstance(r, dict):
+        r = dict(r) if hasattr(r, 'items') else {}
+
     # ── Restore template paths from DB if files missing from disk (post-redeploy) ──
     tmpl = r.get("templates", {})
     db_files = list_rfq_files(rid, category="template")
@@ -867,7 +871,11 @@ def detail(rid):
     try:
         r = _sanitize(r)
     except Exception:
-        pass
+        # Last resort: round-trip through JSON with default=str
+        try:
+            r = _json.loads(_json.dumps(r, default=str))
+        except Exception:
+            pass
 
     return render_page("rfq_detail.html", active_page="Home", r=r, rid=rid)
 
