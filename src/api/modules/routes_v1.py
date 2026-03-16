@@ -3294,3 +3294,90 @@ def api_v1_system_data_health():
     except Exception:
         health["snapshots"] = 0
     return api_response(health)
+
+
+# ── Workflow Safeguards: Validation / Checklist / Linker / Sent Tracker ──
+
+@bp.route("/api/v1/rfq/<rid>/validate")
+@auth_required
+def api_v1_rfq_validate(rid):
+    """Validate RFQ readiness to generate a quote."""
+    try:
+        from src.core.quote_validator import validate_ready_to_generate
+        rfqs = load_rfqs()
+        r = rfqs.get(rid)
+        if not r:
+            return api_response(error="RFQ not found", status=404)
+        return api_response(validate_ready_to_generate(r))
+    except Exception as e:
+        log.error("rfq validate error: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)
+
+
+@bp.route("/api/v1/rfq/<rid>/checklist")
+@auth_required
+def api_v1_rfq_checklist(rid):
+    """Get completion checklist for an RFQ."""
+    try:
+        from src.core.quote_validator import get_completion_checklist
+        rfqs = load_rfqs()
+        r = rfqs.get(rid)
+        if not r:
+            return api_response(error="RFQ not found", status=404)
+        return api_response(get_completion_checklist(r))
+    except Exception as e:
+        log.error("rfq checklist error: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)
+
+
+@bp.route("/api/v1/rfq/<rid>/link-pc", methods=["POST"])
+@auth_required
+def api_v1_rfq_link_pc(rid):
+    """Link an RFQ to a PC and import pricing."""
+    try:
+        from src.core.pc_rfq_linker import auto_link_rfq_to_pc
+        from src.api.dashboard import _load_price_checks
+        data = request.get_json(force=True, silent=True) or {}
+        pc_id = data.get("pc_id", "")
+
+        rfqs = load_rfqs()
+        r = rfqs.get(rid)
+        if not r:
+            return api_response(error="RFQ not found", status=404)
+
+        pcs = _load_price_checks()
+        pc = pcs.get(pc_id)
+        if not pc:
+            return api_response(error="PC not found", status=404)
+
+        count = auto_link_rfq_to_pc(r, pc_id, pc)
+        save_rfqs(rfqs)
+
+        return api_response({
+            "linked": True,
+            "pc_id": pc_id,
+            "items_imported": count,
+        })
+    except Exception as e:
+        log.error("rfq link-pc error: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)
+
+
+@bp.route("/api/v1/quotes/sent-tracker")
+@auth_required
+def api_v1_quotes_sent_tracker():
+    """Get all sent quotes with follow-up status."""
+    try:
+        from src.agents.post_send_pipeline import get_sent_quotes_dashboard
+        quotes = get_sent_quotes_dashboard()
+        overdue = [q for q in quotes if q["urgency"] == "overdue"]
+        follow_up_due = [q for q in quotes if q["urgency"] == "follow_up_due"]
+        return api_response({
+            "quotes": quotes,
+            "total": len(quotes),
+            "overdue": len(overdue),
+            "follow_up_due": len(follow_up_due),
+        })
+    except Exception as e:
+        log.error("sent-tracker error: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)

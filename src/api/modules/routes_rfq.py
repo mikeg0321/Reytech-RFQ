@@ -492,10 +492,26 @@ RFQ_LIFECYCLE = ["new", "pending", "ready", "generated", "sent", "won", "lost"]
 
 def _transition_status(record, new_status, actor="system", notes=""):
     """Record a status transition with full history.
-    
+
     Mutates record in place. Returns the record for chaining.
     """
     old_status = record.get("status", "")
+
+    # Validate transition
+    try:
+        from src.core.quote_validator import validate_transition
+        check = validate_transition(old_status, new_status)
+        if not check["ok"]:
+            log.warning("BLOCKED transition: %s -> %s (%s)",
+                       old_status, new_status, check["error"])
+            try:
+                from flask import flash as _flash
+                _flash(f"Unusual status change: {old_status} -> {new_status}", "warning")
+            except Exception:
+                pass
+    except Exception:
+        pass
+
     record["status"] = new_status
     now = datetime.now().isoformat()
     record["status_updated"] = now
@@ -551,6 +567,17 @@ def _transition_status(record, new_status, actor="system", notes=""):
                         pass
         except Exception:
             pass
+
+    # Post-send pipeline: schedule follow-ups and tracking
+    if new_status in ("sent", "submitted"):
+        try:
+            from src.agents.post_send_pipeline import on_quote_sent
+            record_type = "pc" if "pc_data" in record or "pc_number" in record else "rfq"
+            on_quote_sent(record_type,
+                         record.get("id", record.get("pc_id", "")),
+                         record)
+        except Exception as _e:
+            log.warning("Post-send pipeline: %s", _e)
 
     return record
 
@@ -802,6 +829,28 @@ def detail(rid):
     # Also map solicitation_number from rfq_number (SQLite vs JSON field names)
     if not r.get("solicitation_number") and r.get("rfq_number"):
         r["solicitation_number"] = r["rfq_number"]
+
+    # Show link suggestion if unlinked (read-only — no save_rfqs here)
+    if not r.get("linked_pc_id"):
+        try:
+            from src.core.pc_rfq_linker import find_matching_pc
+            from src.api.dashboard import _load_price_checks
+            pcs = _load_price_checks()
+            pc_id, pc_data, reason = find_matching_pc(r, pcs)
+            if pc_id:
+                r["_suggested_pc"] = pc_id
+                r["_suggested_pc_reason"] = reason
+                pc_inner = pc_data.get("pc_data", pc_data)
+                if isinstance(pc_inner, str):
+                    try:
+                        import json as _json
+                        pc_inner = _json.loads(pc_inner)
+                    except Exception:
+                        pc_inner = {}
+                r["_suggested_pc_number"] = pc_inner.get("pc_number", pc_data.get("pc_number", ""))
+                r["_suggested_pc_items"] = len(pc_inner.get("items", pc_data.get("items", [])))
+        except Exception:
+            pass
 
     log.info("RFQ detail render: rid=%s, line_items=%d, has_items_key=%s",
              rid, len(r.get("line_items", [])), "items" in r)
@@ -2428,6 +2477,14 @@ def rfq_generate_quote(rid):
         t.fail("RFQ not found")
         flash("RFQ not found", "error"); return redirect("/")
 
+    # Validate before generating
+    from src.core.quote_validator import validate_ready_to_generate
+    validation = validate_ready_to_generate(r)
+    if not validation["ok"]:
+        t.fail("Validation failed", errors=validation["errors"])
+        flash(f"Cannot generate: {'; '.join(validation['errors'])}", "error")
+        return redirect(f"/rfq/{rid}")
+
     sol = r.get("solicitation_number", "unknown")
     t.step("Starting", sol=sol, items=len(r.get("line_items",[])))
     safe_sol = re.sub(r'[^a-zA-Z0-9_-]', '_', sol.strip())
@@ -2471,7 +2528,15 @@ def send_email(rid):
     if not r or not r.get("draft_email"):
         t.fail("No draft to send")
         flash("No draft to send", "error"); return redirect(f"/rfq/{rid}")
-    
+
+    # Validate before sending
+    from src.core.quote_validator import validate_ready_to_send
+    validation = validate_ready_to_send(r)
+    if not validation["ok"]:
+        t.fail("Send validation failed", errors=validation["errors"])
+        flash(f"Cannot send: {'; '.join(validation['errors'])}", "error")
+        return redirect(f"/rfq/{rid}")
+
     try:
         sender = EmailSender(CONFIG.get("email", {}))
         sender.send(r["draft_email"])
@@ -3180,14 +3245,22 @@ def send_email_enhanced(rid):
     """
     from src.api.trace import Trace
     t = Trace("email_send", rfq_id=rid)
-    
+
     rfqs = load_rfqs()
     r = rfqs.get(rid)
     if not r:
         t.fail("RFQ not found")
         flash("RFQ not found", "error")
         return redirect("/")
-    
+
+    # Validate before sending
+    from src.core.quote_validator import validate_ready_to_send
+    validation = validate_ready_to_send(r)
+    if not validation["ok"]:
+        t.fail("Send validation failed", errors=validation["errors"])
+        flash(f"Cannot send: {'; '.join(validation['errors'])}", "error")
+        return redirect(f"/rfq/{rid}")
+
     # Get editable fields from form
     to_addr = request.form.get("to", "").strip()
     subject = request.form.get("subject", "").strip()

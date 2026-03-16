@@ -1853,6 +1853,16 @@ def pricecheck_generate_quote(pcid):
         t.fail("PC not found", pc_id=pcid)
         return jsonify({"ok": False, "error": "PC not found"})
 
+    # Validate before generating
+    try:
+        from src.core.quote_validator import validate_ready_to_generate
+        validation = validate_ready_to_generate(pc)
+        if not validation["ok"]:
+            t.fail("Validation failed", errors=validation["errors"])
+            return jsonify({"ok": False, "error": f"Cannot generate: {'; '.join(validation['errors'])}"})
+    except Exception:
+        pass
+
     pc_num = pc.get("pc_number", "unknown")
     t.step("Starting", pc_number=pc_num, institution=pc.get("institution",""), items=len(pc.get("items",[])))
     safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', pc_num.strip())

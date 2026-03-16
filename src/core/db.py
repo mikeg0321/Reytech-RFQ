@@ -245,6 +245,32 @@ CREATE TABLE IF NOT EXISTS rfqs (
     updated_at      TEXT
 );
 
+CREATE TABLE IF NOT EXISTS sent_quote_tracker (
+    id              TEXT PRIMARY KEY,
+    record_type     TEXT DEFAULT 'rfq',
+    solicitation    TEXT DEFAULT '',
+    institution     TEXT DEFAULT '',
+    requestor_email TEXT DEFAULT '',
+    sent_at         TEXT DEFAULT '',
+    total_value     REAL DEFAULT 0,
+    item_count      INTEGER DEFAULT 0,
+    follow_up_schedule TEXT DEFAULT '[]',
+    follow_up_status TEXT DEFAULT 'scheduled',
+    status          TEXT DEFAULT 'sent',
+    updated_at      TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS award_check_queue (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    record_id       TEXT NOT NULL,
+    record_type     TEXT DEFAULT 'rfq',
+    solicitation    TEXT DEFAULT '',
+    check_after     TEXT DEFAULT '',
+    status          TEXT DEFAULT 'pending',
+    checked_at      TEXT DEFAULT '',
+    result          TEXT DEFAULT ''
+);
+
 CREATE TABLE IF NOT EXISTS revenue_log (
     id              TEXT PRIMARY KEY,
     logged_at       TEXT NOT NULL,
