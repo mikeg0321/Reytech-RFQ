@@ -510,3 +510,33 @@ $652/case != $8/box != $0.065/glove
 
 Parse pack sizes from descriptions before ANY price math.
 If UOM cannot be determined, exclude the price from averages.
+
+### Law 14: GET Handlers Are Read-Only
+A GET route handler must NEVER call save_rfqs(), save_price_checks(),
+db.execute("UPDATE"), db.execute("INSERT"), or any other write operation.
+
+GET = read. POST = write. No exceptions.
+
+On 2026-03-16, a memory auto-fill feature was added to the RFQ detail
+GET handler that modified line items and called save_rfqs(). During
+6 rapid emergency deploys to fix a crash, the corrupted data was saved
+to disk, wiping line items from active RFQs.
+
+### Law 15: Never Deploy Enrichment Into Core Render Paths
+New enrichment/intelligence code must NEVER be added directly into
+page render handlers (detail, list, etc). Instead:
+1. Add enrichment as a SEPARATE endpoint (/api/v1/rfq/{id}/enrich)
+2. Call it asynchronously from the frontend
+3. The main page renders IMMEDIATELY with whatever data exists
+4. Enrichment populates additional fields via AJAX after page load
+
+This way: if enrichment crashes, the page still works.
+
+### Law 16: Atomic Writes Need Rollback
+Before any save_rfqs() call, snapshot the current state:
+    backup = json.dumps(rfqs[rid])
+    try:
+        # modifications
+        save_rfqs(rfqs)
+    except:
+        rfqs[rid] = json.loads(backup)  # rollback

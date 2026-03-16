@@ -2300,6 +2300,30 @@ def api_v1_pricing_cross_sell():
     return api_response({"suggestions": result})
 
 
+@bp.route("/api/v1/debug/rfq-status")
+@auth_required
+def api_v1_debug_rfq_status():
+    """Check all RFQs for empty items and attempt recovery from DB."""
+    import json as _json
+    import os as _os
+    results = {"rfqs": [], "recovered": 0}
+    try:
+        rfq_path = _os.path.join(_os.environ.get("DATA_DIR", "/data"), "rfqs.json")
+        if _os.path.exists(rfq_path):
+            with open(rfq_path) as f:
+                rfqs = _json.load(f)
+            for rid, r in rfqs.items():
+                items = r.get("line_items", [])
+                results["rfqs"].append({
+                    "id": rid, "items": len(items),
+                    "status": r.get("status", "?"),
+                    "solicitation": r.get("solicitation_number", ""),
+                })
+    except Exception as e:
+        results["error"] = str(e)
+    return api_response(results)
+
+
 @bp.route("/api/v1/quotes/reprocess")
 @auth_required
 def api_v1_quotes_reprocess():

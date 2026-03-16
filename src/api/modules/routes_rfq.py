@@ -716,6 +716,8 @@ def _save_price_checks(pcs):
 @auth_required
 @safe_route
 def detail(rid):
+    # WARNING: GET handler — must NEVER call save_rfqs() or modify data.
+    # Data loss incident 2026-03-16: save_rfqs in GET handler corrupted items.
     # Check if this is actually a price check
     pcs = _load_price_checks()
     if rid in pcs:
