@@ -310,6 +310,23 @@ def _analyze_market_prices(market_prices, request_qty):
                          "weight": round(weight, 4), "supplier": mp.get("supplier", ""),
                          "date": date_str, "is_reytech": mp.get("is_reytech", False),
                          "source": mp.get("source", "")})
+
+    # Outlier removal: median-based clustering
+    # Problem: $652/case and $8/box are in different UOMs.
+    # If normalization couldn't detect pack size, raw price is an outlier.
+    if len(weighted) >= 3:
+        sorted_prices = sorted(w["price"] for w in weighted)
+        median = sorted_prices[len(sorted_prices) // 2]
+        if median > 0 and max(sorted_prices) / min(sorted_prices) > 50:
+            filtered = [w for w in weighted
+                        if median / 10 <= w["price"] <= median * 10]
+            if len(filtered) >= 2:
+                removed = len(weighted) - len(filtered)
+                log.info("Oracle: removed %d outliers (median=$%.4f, "
+                         "range kept: $%.4f-$%.4f)",
+                         removed, median, median / 10, median * 10)
+                weighted = filtered
+
     if not weighted:
         return {"data_points": 0, "freshness": "none"}
     total_w = sum(w["weight"] for w in weighted)
