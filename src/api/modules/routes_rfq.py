@@ -1150,6 +1150,14 @@ def api_rfq_autosave(rid):
             try: item["markup_pct"] = float(update["markup_pct"])
             except Exception: pass
 
+    # Save tax rate if provided
+    tax_rate = data.get("tax_rate")
+    if tax_rate is not None:
+        try:
+            r["tax_rate"] = float(tax_rate)
+        except (ValueError, TypeError):
+            pass
+
     save_rfqs(rfqs)
 
     # F11: Check guardrails on saved data
@@ -3172,11 +3180,12 @@ def _build_default_signature():
  <tr>
   <td style="padding-right:14px;vertical-align:top"><img src="cid:reytech_logo" alt="Reytech Inc." style="width:120px;height:auto;display:block"></td>
   <td style="vertical-align:top;font-size:13px;color:#444;line-height:1.5">
-   <strong style="font-size:14px;color:#1a1a2e">Reytech Inc.</strong><br>
-   Sales Support<br>
-   <a href="https://www.reytechinc.com" style="color:#2563eb;text-decoration:none">www.reytechinc.com</a><br>
-   Trabuco Canyon, CA<br>
-   949-229-1575
+   <strong style="font-size:14px;color:#1a1a2e">Michael Guadan</strong><br>
+   <strong>Reytech Inc.</strong><br>
+   <a href="tel:9498728676" style="color:#2563eb;text-decoration:none">(949) 872-8676</a><br>
+   <a href="mailto:mike@reytechinc.com" style="color:#2563eb;text-decoration:none">mike@reytechinc.com</a><br>
+   DVBE / Small Business Certified<br>
+   <a href="https://www.reytechinc.com" style="color:#2563eb;text-decoration:none">www.reytechinc.com</a>
   </td>
  </tr>
 </table>
