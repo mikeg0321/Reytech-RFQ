@@ -860,8 +860,8 @@ def detail(rid):
     if not r.get("linked_pc_id"):
         try:
             from src.core.pc_rfq_linker import find_matching_pc
-            from src.api.dashboard import _load_price_checks
-            pcs = _load_price_checks()
+            from src.api.dashboard import _load_price_checks as _dash_load_pcs
+            pcs = _dash_load_pcs()
             pc_id, pc_data, reason = find_matching_pc(r, pcs)
             if pc_id:
                 r["_suggested_pc"] = pc_id
