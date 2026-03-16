@@ -783,32 +783,9 @@ def detail(rid):
     # TODO: re-enable after fixing stored Undefined values in rfqs.json
     pass  # enrichment disabled
 
-    # NUCLEAR SANITIZE: manually walk and convert every value
-    def _nuke(obj):
-        if obj is None:
-            return ""
-        t = type(obj).__name__
-        if t == "Undefined":
-            return ""
-        if isinstance(obj, bool):
-            return obj
-        if isinstance(obj, (int, float)):
-            return obj
-        if isinstance(obj, str):
-            return obj
-        if isinstance(obj, dict):
-            return {str(k): _nuke(v) for k, v in obj.items()}
-        if isinstance(obj, (list, tuple)):
-            return [_nuke(v) for v in obj]
-        try:
-            return str(obj)
-        except Exception:
-            return ""
-
-    try:
-        r = _nuke(r)
-    except Exception as _sanitize_err:
-        log.error("Sanitize failed: %s", _sanitize_err)
+    # Sanitize: just ensure line_items exists and is a list
+    if not isinstance(r.get("line_items"), list):
+        r["line_items"] = r.get("line_items") or []
 
     return render_page("rfq_detail.html", active_page="Home", r=r, rid=rid)
 
