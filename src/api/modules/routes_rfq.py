@@ -777,76 +777,9 @@ def detail(rid):
             rfqs[rid] = r
             save_rfqs(rfqs)
     
-    # ── Enrichment (ALL optional — must NEVER crash the page) ──
-    try:
-        _enrich_items_with_intel(
-            r.get("line_items", []),
-            rfq_number=r.get("solicitation_number", ""),
-            agency=r.get("agency", "")
-        )
-    except Exception as _e:
-        log.warning("Price intel enrichment failed (non-fatal): %s", _e)
-
-    try:
-        from src.core.pricing_oracle_v2 import _check_item_memory
-        import sqlite3 as _sqlite3
-        from src.core.db import DB_PATH as _DB_PATH
-        _mem_db = _sqlite3.connect(_DB_PATH, timeout=5)
-        _memory_filled = 0
-        for _item in r.get("line_items", []):
-            try:
-                _desc = str(_item.get("description", "") or "")
-                _item_num = str(_item.get("item_number", "") or "")
-                if not _desc or len(_desc) < 3:
-                    continue
-                mem = _check_item_memory(_mem_db, _desc, _item_num)
-                if not mem:
-                    continue
-                # Fill cost (only if empty)
-                try:
-                    _cur_cost = float(str(_item.get("supplier_cost", 0) or 0).replace("$", "").replace(",", ""))
-                except (ValueError, TypeError):
-                    _cur_cost = 0
-                if mem.get("last_cost") and float(mem["last_cost"] or 0) > 0 and _cur_cost <= 0:
-                    _item["supplier_cost"] = round(float(mem["last_cost"]), 2)
-                # Fill sell price (only if empty)
-                try:
-                    _cur_sell = float(str(_item.get("price_per_unit", 0) or 0).replace("$", "").replace(",", ""))
-                except (ValueError, TypeError):
-                    _cur_sell = 0
-                if mem.get("last_sell_price") and float(mem["last_sell_price"] or 0) > 0 and _cur_sell <= 0:
-                    _item["price_per_unit"] = round(float(mem["last_sell_price"]), 2)
-                # Fill supplier
-                if mem.get("supplier") and not _item.get("item_supplier"):
-                    _item["item_supplier"] = str(mem["supplier"])
-                # Fill URL (critical for ordering)
-                if not _item.get("item_link"):
-                    _url = mem.get("product_url") or mem.get("supplier_url") or ""
-                    if _url:
-                        _item["item_link"] = str(_url)
-                # Fill MFG#
-                if not _item.get("item_number"):
-                    _mfg = mem.get("mfg_number") or mem.get("canonical_item_number") or ""
-                    if _mfg:
-                        _item["item_number"] = str(_mfg)
-                # Fill ASIN
-                if mem.get("asin") and not _item.get("asin"):
-                    _item["asin"] = str(mem["asin"])
-                # Fill UOM
-                if mem.get("uom") and not _item.get("uom"):
-                    _item["uom"] = str(mem["uom"])
-                _item["memory_match"] = True
-                _memory_filled += 1
-            except Exception:
-                continue
-        _mem_db.close()
-        if _memory_filled > 0:
-            try:
-                save_rfqs(rfqs)
-            except Exception:
-                pass
-    except Exception as _e:
-        log.warning("Memory auto-fill failed (non-fatal): %s", _e)
+    # ── Enrichment DISABLED — was crashing page with Undefined serialization ──
+    # TODO: re-enable after fixing stored Undefined values in rfqs.json
+    pass  # enrichment disabled
 
     # CRITICAL: recursively sanitize ENTIRE r dict — tojson crashes on Undefined
     import json as _json
