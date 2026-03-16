@@ -1,3 +1,8 @@
+# MANDATORY: READ tasks/CC_IMPLEMENTATION_RULES.md BEFORE EVERY TASK
+# That file contains hardcoded rules for wiring, testing, data paths,
+# and verification that MUST be followed. No exceptions.
+# Failure to follow those rules has caused repeated production failures.
+
 # Lessons Learned — Reytech RFQ
 
 ## Session 2026-02-21
@@ -476,3 +481,32 @@ This law exists because on 2026-03-15 we built
 schedule_full_fiscal_scrape() and schedule_system_audit() —
 both compiled clean but neither was called on startup.
 The 2AM scrape never fired. NEVER AGAIN.
+
+### Law 12: The Wiring Verification Law
+Before committing ANY code, run these verification commands:
+
+1. Every new function must have >=1 caller outside its own file:
+   `grep -rn "function_name" src/ | grep -v "def function_name" | grep -v __pycache__`
+
+2. Every new table must have >=1 INSERT and >=1 SELECT:
+   `grep -rn "INSERT.*table_name" src/ | wc -l` (must be > 0)
+   `grep -rn "SELECT.*table_name\|FROM table_name" src/ | wc -l` (must be > 0)
+
+3. Every new endpoint must be referenced by UI or another function:
+   `grep -rn "/api/v1/endpoint" src/ | grep -v "@bp.route" | wc -l` (must be > 0)
+
+4. Every new scheduler must be called in dashboard.py:
+   `grep -rn "schedule_function" src/api/dashboard.py | grep -v "def " | wc -l` (must be > 0)
+
+If ANY of these return 0, THE FEATURE IS NOT WIRED IN. Fix before committing.
+
+See tasks/CC_IMPLEMENTATION_RULES.md for the complete rule set.
+
+### Law 13: The UOM Normalization Law
+Never compare, average, or recommend prices without first
+normalizing all prices to the same unit of measure.
+
+$652/case != $8/box != $0.065/glove
+
+Parse pack sizes from descriptions before ANY price math.
+If UOM cannot be determined, exclude the price from averages.
