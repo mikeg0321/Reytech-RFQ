@@ -821,7 +821,7 @@ function recalc(){
 
 // ── Markup Config: load from settings, build buttons dynamically ──
 var _mkConfig={buttons:[10,15,20,25,30],undercuts:[1,2,5],step:1};
-(function loadMarkupConfig(){
+setTimeout(function(){
  fetch('/api/settings/markup-config',{credentials:'same-origin'}).then(function(r){return r.json()}).then(function(d){
   if(d.ok){
    _mkConfig.buttons=d.markup_buttons||[10,15,20,25,30];
@@ -830,7 +830,7 @@ var _mkConfig={buttons:[10,15,20,25,30],undercuts:[1,2,5],step:1};
   }
   _buildMarkupButtons();
  }).catch(function(){_buildMarkupButtons()});
-})();
+},2000);
 
 function _buildMarkupButtons(){
  var mc=document.getElementById('mk-buttons-container');
@@ -1681,8 +1681,8 @@ function updateAttachInput(){
  }
 }
 
-// ── Email Templates ──
-(function(){
+// ── Email Templates (deferred 3s — not needed on initial render) ──
+setTimeout(function(){
  fetch('/api/email-templates?category=rfq',{credentials:'same-origin'})
  .then(function(r){return r.json()})
  .then(function(d){
@@ -1697,7 +1697,7 @@ function updateAttachInput(){
    sel.appendChild(opt);
   });
  }).catch(function(){});
-})();
+},3000);
 
 function loadEmailTemplate(){
  var sel=document.getElementById('emailTemplateSelect');
@@ -1736,9 +1736,9 @@ function saveCurrentAsTemplate(){
  });
 }
 
-// ── Email Signature ──
+// ── Email Signature (deferred) ──
 var _sigHtml='';
-(function(){
+setTimeout(function(){
  fetch('/api/email-signature',{credentials:'same-origin'})
  .then(function(r){return r.json()}).then(function(d){
   if(d.ok){
@@ -1750,7 +1750,7 @@ var _sigHtml='';
    toggleSigPreview();
   }
  }).catch(function(){});
-})();
+},3000);
 function toggleSigPreview(){
  var on=document.getElementById('sigToggle').checked;
  var prev=document.getElementById('sigPreview');
@@ -1797,8 +1797,8 @@ function handleSigLogoUpload(input){
  input.value='';
 }
 
-// ── Email History ──
-(function(){
+// ── Email History (deferred) ──
+setTimeout(function(){
  fetch('/api/email-history?rfq_id='+RID,{credentials:'same-origin'})
  .then(function(r){return r.json()})
  .then(function(d){
@@ -1817,10 +1817,10 @@ function handleSigLogoUpload(input){
   });
   document.getElementById('email-history-list').innerHTML=html;
  }).catch(function(){});
-})();
+},4000);
 
-// ── Load Activity Log ──
-(function(){
+// ── Load Activity Log (deferred) ──
+setTimeout(function(){
  fetch('/api/rfq/'+RID+'/activity',{credentials:'same-origin'})
  .then(function(r){return r.json()})
  .then(function(d){
@@ -1850,7 +1850,7 @@ function handleSigLogoUpload(input){
  }).catch(function(){
   document.getElementById('rfq-activity').innerHTML='<div style="color:var(--tx2)">Could not load activity</div>';
  });
-})();
+},4000);
 // ── Price Intelligence ──
 var _intelData=null;
 function loadIntel(){

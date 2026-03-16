@@ -114,7 +114,7 @@ function _refreshAgentStatus(){
  }).catch(()=>{});
 }
 setTimeout(_refreshAgentStatus,4000);
-setInterval(_refreshAgentStatus,60000);
+setInterval(_refreshAgentStatus,300000); // 5 min (was 60s)
 function _runAwardTracker(){
  var btn=event.target;btn.disabled=true;btn.textContent='Running...';
  fetch('/api/intel/award-tracker/run',{method:'POST'}).then(r=>r.json()).then(d=>{
@@ -856,8 +856,8 @@ function _renderMetrics(data){
 </script>
 
 <script>
-// ═══ Stale Quotes Widget ═══
-(function loadStaleWidget(){
+// ═══ Stale Quotes Widget (deferred 6s) ═══
+setTimeout(function(){
  fetch('/api/stale-quotes?days=3',{credentials:'same-origin'})
  .then(function(r){return r.json();})
  .then(function(d){
@@ -880,7 +880,7 @@ function _renderMetrics(data){
   if(d.count>5)html+='<div style="text-align:center;padding:6px;color:var(--tx2);font-size:14px">+'+(d.count-5)+' more — <a href="/follow-ups" style="color:var(--ac)">view all</a></div>';
   document.getElementById('stale-items').innerHTML=html;
  }).catch(function(){});
-})();
+},6000);
 function sendQuickFollowUp(type,id,email,num){
  if(!confirm('Send follow-up to '+email+'?'))return;
  fetch('/api/stale-quotes/'+type+'/'+id+'/follow-up',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({to:email})})
@@ -990,7 +990,7 @@ function timeAgo(ts){
  if(s<604800)return Math.floor(s/86400)+'d ago';
  return d.toLocaleDateString();
 }
-loadFeed();
+setTimeout(loadFeed,5000); // defer — not needed for initial render
 </script>
 
 {% endblock %}

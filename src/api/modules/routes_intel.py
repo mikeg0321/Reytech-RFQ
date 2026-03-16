@@ -3010,7 +3010,7 @@ def api_manager_brief_debug():
 
 
 _brief_cache = {"data": None, "ts": 0}
-_BRIEF_TTL = 30  # seconds
+_BRIEF_TTL = 120  # seconds (was 30 — too short for 6.5s avg generation)
 
 @bp.route("/api/manager/brief")
 @auth_required

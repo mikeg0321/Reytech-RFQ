@@ -648,6 +648,8 @@ loadRevenue();
 """
 
 
+_dash_init_cache = {"data": None, "ts": 0}
+
 @bp.route("/api/dashboard/init")
 @auth_required
 def api_dashboard_init():
@@ -655,6 +657,10 @@ def api_dashboard_init():
     Replaces 6 separate fetch() calls that each loaded the same JSON files."""
     import time as _time
     t0 = _time.time()
+    # 90-second cache — this is the most expensive home page call
+    global _dash_init_cache
+    if _dash_init_cache["data"] and (_time.time() - _dash_init_cache["ts"]) < 90:
+        return jsonify(_dash_init_cache["data"])
     result = {"ok": True}
 
     # ── 1. Actions (urgent / action_needed / progress) ──
@@ -880,6 +886,8 @@ def api_dashboard_init():
         result["growth"] = {"ok": False, "error": str(e)}
 
     result["_ms"] = round((_time.time() - t0) * 1000)
+    _dash_init_cache["data"] = result
+    _dash_init_cache["ts"] = _time.time()
     return jsonify(result)
 
 
