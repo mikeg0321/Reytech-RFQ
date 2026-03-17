@@ -283,6 +283,15 @@ CREATE TABLE IF NOT EXISTS revenue_log (
     date            TEXT
 );
 
+CREATE TABLE IF NOT EXISTS contract_violations (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    record_type     TEXT NOT NULL,
+    record_id       TEXT NOT NULL,
+    violations      TEXT NOT NULL,
+    caller          TEXT DEFAULT '',
+    created_at      TEXT DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS quote_number_ledger (
     quote_number    TEXT PRIMARY KEY,
     assigned_at     TEXT NOT NULL DEFAULT (datetime('now')),

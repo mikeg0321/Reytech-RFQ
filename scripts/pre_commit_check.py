@@ -152,8 +152,23 @@ for _rf in sorted(run('find src/api/modules -name "routes_*.py"').stdout.strip()
 check("no duplicate route functions", len(_dup_found) == 0,
       f"duplicates: {_dup_found[:3]}")
 
-# 12. Data trace — verify one real record has real data (Law 27/32)
-print("\n12. Data trace (Law 27)...")
+# 12. Data contracts module (Law 28/29)
+print("\n12. Data contracts...")
+try:
+    sys.path.insert(0, ".")
+    from src.core.contracts import validate_quote, safe_match
+    assert not safe_match("", "anything"), "safe_match rejects empty"
+    assert not safe_match("ab", "anything"), "safe_match rejects <3"
+    assert safe_match("test", "testing"), "safe_match accepts valid"
+    v, _ = validate_quote({"quote_number": "R26Q1"})
+    assert not v, "empty quote should fail"
+    print("  OK  contracts module + safe_match verified")
+except Exception as _ce:
+    print(f"  FAIL  {_ce}")
+    errors.append(f"Contracts: {_ce}")
+
+# 13. Data trace — verify one real record has real data (Law 27/32)
+print("\n13. Data trace (Law 27)...")
 try:
     import sqlite3
     _db_path = os.path.join("data", "reytech.db")

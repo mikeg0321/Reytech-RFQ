@@ -4210,6 +4210,69 @@ def api_v1_quotes_backfill_items():
         return api_response(error=str(e), status=500)
 
 
+# ── Data Integrity ────────────────────────────────────────────────────
+
+@bp.route("/api/v1/data/contract-violations")
+@auth_required
+def api_v1_contract_violations():
+    """View recent contract violations."""
+    try:
+        from src.core.contracts import get_blocked_saves
+        return api_response({"violations": get_blocked_saves(100), "count": len(get_blocked_saves(100))})
+    except Exception as e:
+        return api_response(error=str(e), status=500)
+
+
+@bp.route("/api/v1/data/integrity-check")
+@auth_required
+def api_v1_integrity_check():
+    """Full data integrity audit — checks every record against its contract."""
+    try:
+        from src.core.contracts import validate_quote, validate_pc, validate_rfq
+        from src.core.db import get_db
+        issues = []
+        with get_db() as conn:
+            quotes = conn.execute("""
+                SELECT quote_number, total, items_count, source_pc_id, source_rfq_id,
+                       status, institution FROM quotes WHERE status != 'void'
+            """).fetchall()
+        for q in quotes:
+            qd = {"quote_number": q[0], "total": q[1], "items_count": q[2],
+                  "source_pc_id": q[3], "source_rfq_id": q[4], "status": q[5],
+                  "institution": q[6]}
+            valid, v = validate_quote(qd)
+            if not valid:
+                issues.append({"type": "quote", "id": q[0], "violations": v})
+        try:
+            from src.api.dashboard import _load_price_checks
+            pcs = _load_price_checks()
+            for pcid, pc in pcs.items():
+                valid, v = validate_pc(pc, pcid)
+                if not valid:
+                    issues.append({"type": "pc", "id": pcid[:30], "violations": v})
+        except Exception:
+            pass
+        try:
+            rfqs = load_rfqs()
+            for rid, r in rfqs.items():
+                valid, v = validate_rfq(r, rid)
+                if not valid:
+                    issues.append({"type": "rfq", "id": rid[:30], "violations": v})
+        except Exception:
+            pass
+        return api_response({
+            "total_issues": len(issues), "issues": issues[:100],
+            "summary": {
+                "quotes": len([i for i in issues if i["type"] == "quote"]),
+                "pcs": len([i for i in issues if i["type"] == "pc"]),
+                "rfqs": len([i for i in issues if i["type"] == "rfq"]),
+            }
+        })
+    except Exception as e:
+        log.error("integrity-check: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)
+
+
 # ── DGS Form Auto-Downloader ─────────────────────────────────────────
 
 @bp.route("/api/v1/forms/status")
