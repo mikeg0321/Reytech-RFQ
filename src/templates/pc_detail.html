@@ -285,6 +285,18 @@
      </div>
     </div>
 
+    {% if pc.get('_split_hint') and pc['_split_hint'].get('total_items', 0) > 8 %}
+    <div id="splitBanner" style="background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.3);border-radius:8px;padding:12px 16px;margin-bottom:12px;display:flex;align-items:center;gap:12px">
+      <span style="font-size:20px">✂️</span>
+      <div style="flex:1">
+        <b style="color:#d29922">This PC has {{ pc['_split_hint']['total_items'] }} items from a multi-page source PDF.</b>
+        <div style="font-size:13px;color:var(--tx2);margin-top:2px">If this should only have the first 8 items, use <b>Trim</b> below or split at a specific item.</div>
+      </div>
+      <button class="btn btn-sm" style="background:rgba(251,191,36,.15);color:#d29922;border:1px solid rgba(251,191,36,.3);white-space:nowrap" onclick="trimItems()">✂️ Trim</button>
+      <button class="btn btn-sm" style="background:none;border:none;color:var(--tx2);font-size:18px;cursor:pointer;padding:4px" onclick="this.closest('#splitBanner').remove()" title="Dismiss">&times;</button>
+    </div>
+    {% endif %}
+
     <div class="card">
      <h3 style="margin-top:0;font-size:18px">Line Items <span id="itemCount" style="font-weight:normal;color:#8b949e;font-size:15px">({{ items|length }} items)</span></h3>
      <!-- Lock Toggle + Bulk Paste -->

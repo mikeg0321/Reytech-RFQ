@@ -181,6 +181,75 @@ def pricecheck_trim_items(pcid):
     return jsonify({"ok": True, "kept": keep, "removed": removed})
 
 
+@bp.route("/api/pricecheck/<pcid>/split", methods=["POST"])
+@auth_required
+def pricecheck_split(pcid):
+    """Split a PC at a given item index. Creates a new PC with items from split_at onwards.
+    Original PC keeps items 0..split_at-1."""
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"})
+
+    data = request.get_json(force=True, silent=True) or {}
+    split_at = data.get("split_at", 0)
+    if not split_at or not isinstance(split_at, int) or split_at < 1:
+        return jsonify({"ok": False, "error": "Invalid split_at"})
+
+    items = pc.get("items", [])
+    if split_at >= len(items):
+        return jsonify({"ok": False, "error": f"split_at={split_at} >= {len(items)} items"})
+
+    try:
+        _save_pc_revision(pcid, pc, reason="split")
+    except Exception:
+        pass
+
+    import uuid as _uuid
+    new_id = f"pc_{str(_uuid.uuid4())[:8]}"
+
+    new_items = items[split_at:]
+    pc["items"] = items[:split_at]
+
+    if "parsed" in pc:
+        pc["parsed"]["line_items"] = list(pc["items"])
+    pc["_generate_count"] = 0
+    if "_split_hint" in pc:
+        del pc["_split_hint"]
+
+    pcs[new_id] = {
+        "id": new_id,
+        "pc_number": pc.get("pc_number", "") + "_split",
+        "institution": pc.get("institution", ""),
+        "due_date": pc.get("due_date", ""),
+        "requestor": pc.get("requestor", ""),
+        "requestor_email": pc.get("requestor_email", ""),
+        "ship_to": pc.get("ship_to", ""),
+        "items": new_items,
+        "source_pdf": pc.get("source_pdf", ""),
+        "status": "parsed",
+        "created_at": datetime.now().isoformat(),
+        "source": f"split_from_{pcid}",
+        "email_uid": pc.get("email_uid", ""),
+        "reytech_quote_number": "",
+        "linked_quote_number": "",
+        "parsed": {"header": (pc.get("parsed") or {}).get("header", {}), "line_items": list(new_items)},
+    }
+
+    _save_price_checks(pcs)
+
+    log.info("SPLIT PC %s at item %d: kept %d, new PC %s with %d items",
+             pcid, split_at, len(pc["items"]), new_id, len(new_items))
+
+    return jsonify({
+        "ok": True,
+        "original_id": pcid,
+        "original_items": len(pc["items"]),
+        "new_id": new_id,
+        "new_items": len(new_items),
+    })
+
+
 @bp.route("/api/pricecheck/<pcid>/merge-items", methods=["POST"])
 @auth_required
 def api_pc_merge_items(pcid):

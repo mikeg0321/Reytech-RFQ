@@ -2339,6 +2339,22 @@ def process_rfq_email(rfq_email):
                                     "reytech_quote_number": "",
                                     "linked_quote_number": "",
                                 }
+                                # Detect multi-page PDFs that may need splitting
+                                if len(items) > 8:
+                                    pcs[pc_id]["_split_hint"] = {
+                                        "total_items": len(items),
+                                        "source_pages": (len(items) + 7) // 8,
+                                        "suggested_splits": [],
+                                    }
+                                    for _si, _sitem in enumerate(items):
+                                        _item_num = _sitem.get("item_number", "")
+                                        try:
+                                            if int(_item_num) == 1 and _si > 0:
+                                                pcs[pc_id]["_split_hint"]["suggested_splits"].append(_si)
+                                        except (ValueError, TypeError):
+                                            pass
+                                    log.info("PC %s: split hint — %d items, splits at %s",
+                                             pc_id, len(items), pcs[pc_id]["_split_hint"]["suggested_splits"])
                                 _save_price_checks(pcs)
                                 # Persist source PDF to DB so it survives redeploys
                                 try:
