@@ -221,6 +221,7 @@
  </details>
  <div style="margin-top:6px">
   <button type="button" onclick="resetItems()" class="btn btn-sm" style="background:rgba(248,81,73,.08);color:#f85149;border:1px solid rgba(248,81,73,.2);font-size:13px;padding:4px 12px">🔄 Reset All Items</button>
+  <button class="btn btn-sm" style="background:rgba(251,191,36,.12);color:#d29922;border:1px solid rgba(251,191,36,.3);padding:6px 12px;font-size:13px;border-radius:6px;cursor:pointer;font-weight:600;margin-left:6px" onclick="cleanJunkItems()">🧹 Clean Junk Items</button>
  </div>
 
  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;padding-top:14px;border-top:1px solid var(--bd)">
@@ -1642,6 +1643,16 @@ function resetItems(){
   if(d.ok){alert(d.message);location.reload();}
   else alert('Error: '+(d.message||'Failed'));
  }).catch(e=>alert('Error: '+e.message));
+}
+
+function cleanJunkItems(){
+ if(!confirm('Remove items that look like legal text, instructions, or boilerplate? This cannot be undone.')) return;
+ fetch('/api/rfq/'+RID+'/clean-items',{method:'POST'})
+ .then(function(r){return r.json();})
+ .then(function(d){
+  if(d.ok){alert('Removed '+d.removed+' junk items. '+d.kept+' items remaining.');location.reload();}
+  else alert('Error: '+(d.error||'Unknown'));
+ });
 }
 
 function runAutoLookup(){

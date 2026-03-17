@@ -395,7 +395,11 @@ def upload():
     rfq = parse_rfq_attachments(templates)
     rfq["id"] = rfq_id
     rfq["source"] = "upload"
-    
+
+    # Filter out junk items (legal text, instructions, boilerplate)
+    from src.forms.price_check import _filter_junk_items
+    rfq["line_items"] = _filter_junk_items(rfq.get("line_items", []))
+
     # Auto SCPRS lookup
     rfq["line_items"] = bulk_lookup(rfq.get("line_items", []))
     
@@ -5210,3 +5214,29 @@ def api_rfq_ready_to_quote():
         "overdue": len([r for r in ready if r["overdue"]]),
         "due_this_week": len([r for r in ready if r.get("days_left") is not None and 0 <= r["days_left"] <= 7])
     })
+
+
+@bp.route("/api/rfq/<rid>/clean-items", methods=["POST"])
+@auth_required
+def rfq_clean_items(rid):
+    """Remove junk items (legal text, instructions, boilerplate) from an RFQ."""
+    from src.api.dashboard import load_rfqs, save_rfqs
+    rfqs = load_rfqs()
+    rfq = rfqs.get(rid)
+    if not rfq:
+        return jsonify({"ok": False, "error": "RFQ not found"})
+
+    items = rfq.get("line_items", [])
+    original_count = len(items)
+
+    from src.forms.price_check import _filter_junk_items
+    cleaned = _filter_junk_items(items)
+
+    rfq["line_items"] = cleaned
+    if "parsed" in rfq:
+        rfq["parsed"]["line_items"] = cleaned
+
+    save_rfqs(rfqs)
+
+    removed = original_count - len(cleaned)
+    return jsonify({"ok": True, "removed": removed, "kept": len(cleaned), "original": original_count})

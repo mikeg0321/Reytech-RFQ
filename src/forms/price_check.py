@@ -267,6 +267,124 @@ def extract_item_numbers(item: dict) -> str:
     return ""
 
 
+# ─── Junk item filter ────────────────────────────────────────────────────────
+
+def _filter_junk_items(items: list) -> list:
+    """Remove parsed items that are clearly not real line items.
+    Government PDFs contain legal text, definitions, instructions,
+    and boilerplate that parsers mistakenly extract as items."""
+
+    # Phrases that indicate legal/instruction text, not product descriptions
+    JUNK_PHRASES = [
+        "i certify under penalty",
+        "penalty of perjury",
+        "laws of the state",
+        "postconsumer recycled",
+        "recycled-content material",
+        "product category refers to",
+        "categories listed below",
+        "does not belong in any",
+        "enter n/a",
+        "common n/a",
+        "reportable purchase",
+        "instructions last page",
+        "see instructions",
+        "data entry notes",
+        "enter the model",
+        "complete this field",
+        "qty per uom",
+        "substituted item",
+        "item description, noun first",
+        "include manufacturer",
+        "used for informational purposes",
+        "it is not an order",
+        "enter grand total",
+        "front page",
+        "fob destination",
+        "fob origin",
+        "freight prepaid",
+        "freight collect",
+        "merchandise subtotal",
+        "total price",
+        "supplier and/or requestor",
+        "price check worksheet",
+        "ams 704",
+        "state of california",
+        "correctional health care",
+        "non-negotiable",
+        "payment terms",
+        "signature and date",
+        "company representative",
+        "certified sb/mb",
+        "certified dvbe",
+        "delivery date and time",
+        "discount offered",
+        "price check expires",
+        "this document is used for",
+        "all or none",
+        "(rev 1/2019)",
+        "supplier information",
+        "company name",
+        "bid submission",
+        "terms and conditions",
+        "pursuant to",
+        "in accordance with",
+        "hereby certify",
+        "authorized signature",
+    ]
+
+    filtered = []
+    removed = 0
+    for item in items:
+        desc = (item.get("description") or "").strip().lower()
+
+        # Skip items with no description
+        if not desc or len(desc) < 3:
+            removed += 1
+            continue
+
+        # Skip items where description matches junk phrases
+        is_junk = False
+        for phrase in JUNK_PHRASES:
+            if phrase in desc:
+                is_junk = True
+                break
+
+        if is_junk:
+            removed += 1
+            continue
+
+        # Skip items that are just reference numbers like "(2), (3) and (b)(1)"
+        # Pattern: mostly parentheses, commas, numbers, "and", "or"
+        stripped = re.sub(r'[\(\)\,\.\d\s]', '', desc)
+        stripped = stripped.replace('and', '').replace('or', '').strip()
+        if len(stripped) < 4 and len(desc) > 3:
+            removed += 1
+            continue
+
+        # Skip items where description is clearly a sentence/paragraph (>150 chars)
+        # with no product-like content (no numbers, no brand names)
+        if len(desc) > 150:
+            has_number = bool(re.search(r'\d{3,}', desc))  # 3+ digit number (UPC, part#)
+            has_dash_number = bool(re.search(r'\w+-\w+', desc))  # part-number pattern
+            if not has_number and not has_dash_number:
+                removed += 1
+                continue
+
+        # Skip items that start with a quote and look like definitions
+        if desc.startswith('"') or desc.startswith("'") or desc.startswith('\u201c'):
+            if len(desc) > 80:
+                removed += 1
+                continue
+
+        filtered.append(item)
+
+    if removed:
+        log.info("Junk filter: removed %d/%d items, kept %d", removed, len(items), len(filtered))
+
+    return filtered
+
+
 # ─── Parse AMS 704 ──────────────────────────────────────────────────────────
 
 def parse_ams704(pdf_path: str) -> dict:
@@ -482,7 +600,7 @@ def parse_ams704(pdf_path: str) -> dict:
     
     # Post-processing: merge items that look like continuation rows the parser missed
     result["line_items"] = _merge_continuation_items(result["line_items"])
-    
+
     # ── CRITICAL: If fillable fields existed but yielded 0 items, fall through
     # to text regex + vision chain. This happens with DocuSign-flattened forms
     # that have field definitions but empty values. ──
@@ -490,7 +608,9 @@ def parse_ams704(pdf_path: str) -> dict:
         log.info("parse_ams704: fillable fields found (%d) but 0 items extracted — trying text/vision fallback",
                  result["field_count"])
         return _parse_ams704_ocr(pdf_path, result)
-    
+
+    # Filter out junk items (legal text, instructions, boilerplate)
+    result["line_items"] = _filter_junk_items(result["line_items"])
     return result
 
 
@@ -621,6 +741,8 @@ def _parse_ams704_ocr(pdf_path: str, result: dict) -> dict:
 
     if pdfplumber_worked and len(result["line_items"]) >= 3:
         result["line_items"] = _merge_continuation_items(result["line_items"])
+        # Filter out junk items (legal text, instructions, boilerplate)
+        result["line_items"] = _filter_junk_items(result["line_items"])
         return result
 
     # pdfplumber failed — use regex text parser on pypdf output
@@ -678,6 +800,8 @@ def _parse_ams704_ocr(pdf_path: str, result: dict) -> dict:
                 if vision_result and len(vision_result.get("line_items", [])) > text_item_count:
                     log.info("Vision parser got %d items (vs %d from text) — using vision result",
                              len(vision_result["line_items"]), text_item_count)
+                    # Filter out junk items (legal text, instructions, boilerplate)
+                    vision_result["line_items"] = _filter_junk_items(vision_result.get("line_items", []))
                     return vision_result
                 else:
                     log.info("Vision parser got %d items — keeping text result (%d items)",
@@ -688,6 +812,8 @@ def _parse_ams704_ocr(pdf_path: str, result: dict) -> dict:
         except Exception as _ve:
             log.debug("Vision fallback: %s", _ve)
 
+    # Filter out junk items (legal text, instructions, boilerplate)
+    result["line_items"] = _filter_junk_items(result["line_items"])
     return result
 
 
