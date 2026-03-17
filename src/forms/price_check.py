@@ -1657,9 +1657,9 @@ def fill_ams704(
 
 def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str):
     """
-    Fallback for flat/scanned PDFs with no fillable form fields.
-    Uses reportlab to draw text as an overlay merged onto each page.
-    The AMS 704 is landscape letter (792 x 612 points).
+    Fallback for truly flat PDFs with no form fields at all.
+    Reads annotation rectangles from the source PDF to determine where fields are.
+    If no annotations found, uses standard AMS 704 layout coordinates.
     """
     import io
     from reportlab.pdfgen import canvas as rl_canvas
@@ -1668,116 +1668,172 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
     writer = PdfWriter()
     writer.append(reader)
 
-    PAGE_W, PAGE_H = 792.0, 612.0
+    # Step 1: Try to read field positions from PDF annotations
+    field_rects = {}  # field_name -> (page_idx, x, y, width, height)
+    for page_idx, page in enumerate(reader.pages):
+        for annot_ref in (page.get("/Annots") or []):
+            try:
+                annot = annot_ref.get_object()
+                name = str(annot.get("/T", "")).strip()
+                rect = annot.get("/Rect")
+                if name and rect:
+                    x1, y1, x2, y2 = [float(v) for v in rect]
+                    field_rects[name] = (page_idx, min(x1, x2), min(y1, y2), abs(x2 - x1), abs(y2 - y1))
+            except Exception:
+                pass
 
-    # Map field names to approximate (x, y, font_size, max_width) on the 704
-    SUPPLIER_POS = {
-        "COMPANY NAME":                         (553, 545, 10, 220),
-        "Address":                              (553, 530, 9, 220),
-        "Phone Number_2":                       (553, 516, 9, 120),
-        "EMail Address":                        (553, 502, 8, 220),
-        "COMPANY REPRESENTATIVE print name":    (553, 472, 9, 220),
-        "Certified SBMB":                       (635, 457, 8, 100),
-        "Certified DVBE":                       (735, 457, 8, 50),
-        "Delivery Date and Time ARO":           (553, 442, 9, 220),
-        "Discount Offered":                     (553, 428, 9, 220),
-        "Date Price Check Expires":             (553, 414, 9, 120),
-        "Ship to":                              (85, 528, 9, 200),
-    }
+    if field_rects:
+        log.info("_fill_pdf_text_overlay: found %d field rects from annotations", len(field_rects))
+    else:
+        log.warning("_fill_pdf_text_overlay: no annotation rects found, using default 704 layout")
 
-    # Row item positions: 8 rows per page, row 1 starts at y~370, each row ~28pt apart
-    ROW_Y_START = 370
-    ROW_H = 28
-    ROW_COL = {
-        "item_number":  (30, 25, 9),
-        "qty":          (60, 30, 9),
-        "uom":          (95, 35, 8),
-        "description":  (175, 250, 8),
-        "substituted":  (430, 130, 7),
-        "unit_price":   (565, 60, 9),
-        "extension":    (640, 65, 9),
-    }
-
-    TOTALS_POS = {
-        "fill_70": (640, 85, 10, 70),
-        "fill_71": (640, 70, 10, 70),
-        "fill_72": (640, 55, 10, 70),
-        "fill_73": (640, 40, 10, 70),
-    }
-
-    NOTES_POS = {
-        "Supplier andor Requestor Notes": (85, 85, 8, 400),
-    }
-
-    # Build field name -> value lookup
+    # Step 2: Build field_name -> value map
     fv_map = {fv["field_id"]: fv.get("value", "") for fv in field_values}
 
-    def _draw_text(canvas_obj, x, y, text, font_size, max_width):
-        """Draw text, truncating if too wide."""
+    # Step 3: Get page sizes
+    page_sizes = []
+    for page in reader.pages:
+        mb = page.mediabox
+        page_sizes.append((float(mb.width), float(mb.height)))
+
+    def _draw_text(c, x, y, text, width, height):
+        """Draw text at position, auto-sizing font to fit."""
         if not text or not text.strip():
             return
-        canvas_obj.setFont("Helvetica", font_size)
-        t = text.strip()
-        while canvas_obj.stringWidth(t, "Helvetica", font_size) > max_width and len(t) > 5:
-            t = t[:-1]
-        canvas_obj.drawString(x, y, t)
+        text = text.strip()
+        fs = min(11, max(6, height * 0.7)) if height > 0 else 9
+        c.setFont("Helvetica", fs)
+        while c.stringWidth(text, "Helvetica", fs) > width - 2 and fs > 5:
+            fs -= 0.5
+            c.setFont("Helvetica", fs)
+        if "\n" in text:
+            lines = text.split("\n")
+            line_height = fs + 1
+            for i, line in enumerate(lines[:4]):
+                trunc = line
+                while c.stringWidth(trunc, "Helvetica", fs) > width - 2 and len(trunc) > 3:
+                    trunc = trunc[:-1]
+                c.drawString(x + 1, y + height - (fs + 2) - (i * line_height), trunc)
+        else:
+            c.drawString(x + 1, y + (height - fs) / 2, text)
 
-    def _make_page_overlay(page_idx):
-        """Create a reportlab overlay for a given page index."""
-        buf = io.BytesIO()
-        c = rl_canvas.Canvas(buf, pagesize=(PAGE_W, PAGE_H))
+    # Step 4: Create overlays per page
+    if field_rects:
+        # Annotation-guided mode: place text exactly where fields are
+        pages_content = {}  # page_idx -> [(x, y, w, h, text)]
+        for field_name, value in fv_map.items():
+            if not value or not value.strip():
+                continue
+            if field_name in field_rects:
+                pg, x, y, w, h = field_rects[field_name]
+                if pg not in pages_content:
+                    pages_content[pg] = []
+                pages_content[pg].append((x, y, w, h, value))
+            else:
+                # Try matching without case sensitivity
+                for pdf_name, (pg, x, y, w, h) in field_rects.items():
+                    if pdf_name.lower().replace(" ", "") == field_name.lower().replace(" ", ""):
+                        if pg not in pages_content:
+                            pages_content[pg] = []
+                        pages_content[pg].append((x, y, w, h, value))
+                        break
 
-        if page_idx == 0:
-            # Supplier info — only on page 1
-            for fname, (x, y, fs, mw) in SUPPLIER_POS.items():
-                _draw_text(c, x, y, fv_map.get(fname, ""), fs, mw)
+        for pg_idx in range(len(writer.pages)):
+            pw, ph = page_sizes[pg_idx] if pg_idx < len(page_sizes) else (792, 612)
+            buf = io.BytesIO()
+            c = rl_canvas.Canvas(buf, pagesize=(pw, ph))
+            for (x, y, w, h, text) in pages_content.get(pg_idx, []):
+                if text in ("/Yes", "Yes"):
+                    c.setFont("ZapfDingbats", min(10, h * 0.8))
+                    c.drawString(x + 2, y + 2, "4")
+                elif text in ("/Off", "Off", " "):
+                    pass
+                else:
+                    _draw_text(c, x, y, text, w, h)
+            c.save()
+            buf.seek(0)
+            overlay = PdfReader(buf)
+            if overlay.pages:
+                writer.pages[pg_idx].merge_page(overlay.pages[0])
 
-            # FOB checkbox
-            if fv_map.get("Check Box4") in ("/Yes", "Yes"):
-                c.setFont("ZapfDingbats", 10)
-                c.drawString(553, 400, "4")
+    else:
+        # No annotations at all — use hardcoded AMS 704 positions
+        PAGE_W, PAGE_H = 792.0, 612.0
 
-        # Row items for this page (page 0 = rows 1-8, page 1 = rows 9-16, etc.)
-        row_start = 1 + (page_idx * 8)
-        row_end = row_start + 8
-        for row_num in range(row_start, row_end):
-            local_row = row_num - row_start
-            base_y = ROW_Y_START - (local_row * ROW_H)
-            for field_key, (x, mw, fs) in ROW_COL.items():
-                field_name = ROW_FIELDS[field_key].format(n=row_num)
-                val = fv_map.get(field_name, "")
-                if val and val.strip():
-                    # Handle multi-line descriptions
-                    if field_key == "description" and "\n" in val:
-                        lines = val.split("\n")
-                        for li, line in enumerate(lines[:3]):
-                            _draw_text(c, x, base_y - (li * (fs + 1)), line, fs, mw)
-                    else:
-                        _draw_text(c, x, base_y, val, fs, mw)
+        SUPPLIER_POS = {
+            "COMPANY NAME":                       (403, 303, 160, 14),
+            "COMPANY REPRESENTATIVE print name":  (580, 303, 200, 14),
+            "Address":                            (403, 282, 160, 14),
+            "Phone Number_2":                     (693, 261, 85, 14),
+            "EMail Address":                      (693, 246, 85, 14),
+            "Certified SBMB":                     (403, 261, 110, 14),
+            "Certified DVBE":                     (530, 261, 110, 14),
+            "Delivery Date and Time ARO":         (580, 282, 200, 14),
+            "Discount Offered":                   (680, 282, 100, 14),
+            "Date Price Check Expires":           (693, 231, 85, 14),
+            "Ship to":                            (58, 56, 250, 14),
+        }
 
-        if page_idx == 0:
-            # Totals and notes — only on page 1
-            for fname, (x, y, fs, mw) in {**TOTALS_POS, **NOTES_POS}.items():
-                _draw_text(c, x, y, fv_map.get(fname, ""), fs, mw)
+        ROW_Y_START = 207
+        ROW_H = 24
+        ROW_COL = {
+            "item_number":  (28, 30, 14),
+            "qty":          (61, 32, 14),
+            "uom":          (96, 50, 14),
+            "description":  (190, 280, 14),
+            "substituted":  (475, 140, 14),
+            "unit_price":   (620, 60, 14),
+            "extension":    (685, 70, 14),
+        }
 
-        c.save()
-        buf.seek(0)
-        return buf
+        TOTALS_POS = {
+            "fill_70": (685, 52, 70, 14),
+            "fill_71": (685, 38, 70, 14),
+            "fill_72": (685, 24, 70, 14),
+            "fill_73": (685, 10, 70, 14),
+        }
 
-    # Merge overlays onto each page
-    for pg_idx in range(len(writer.pages)):
-        overlay_buf = _make_page_overlay(pg_idx)
-        overlay_reader = PdfReader(overlay_buf)
-        if overlay_reader.pages:
-            writer.pages[pg_idx].merge_page(overlay_reader.pages[0])
+        for pg_idx in range(len(writer.pages)):
+            pw, ph = page_sizes[pg_idx] if pg_idx < len(page_sizes) else (PAGE_W, PAGE_H)
+            buf = io.BytesIO()
+            c = rl_canvas.Canvas(buf, pagesize=(pw, ph))
 
-    # Signature
+            if pg_idx == 0:
+                for fname, (x, y, w, h) in SUPPLIER_POS.items():
+                    val = fv_map.get(fname, "")
+                    _draw_text(c, x, y, val, w, h)
+
+                if fv_map.get("Check Box4") in ("/Yes", "Yes"):
+                    c.setFont("ZapfDingbats", 10)
+                    c.drawString(452, 56, "4")
+
+            row_start = 1 + (pg_idx * 8)
+            for row_num in range(row_start, row_start + 8):
+                local_row = row_num - row_start
+                for field_key, (x, w, h) in ROW_COL.items():
+                    field_name = ROW_FIELDS[field_key].format(n=row_num)
+                    val = fv_map.get(field_name, "")
+                    if val and val.strip():
+                        base_y = ROW_Y_START - (local_row * ROW_H)
+                        _draw_text(c, x, base_y, val, w, h)
+
+            if pg_idx == 0:
+                for fname, (x, y, w, h) in TOTALS_POS.items():
+                    _draw_text(c, x, y, fv_map.get(fname, ""), w, h)
+
+            c.save()
+            buf.seek(0)
+            overlay = PdfReader(buf)
+            if overlay.pages:
+                writer.pages[pg_idx].merge_page(overlay.pages[0])
+
     _add_signature_to_pdf(writer)
 
     with open(output_pdf, "wb") as f:
         writer.write(f)
 
-    log.info("Filled AMS 704 (TEXT OVERLAY fallback) saved to %s", output_pdf)
+    log.info("Filled AMS 704 (TEXT OVERLAY) saved to %s (%s mode)",
+             output_pdf, "annotation-guided" if field_rects else "hardcoded-layout")
 
 
 def _fill_pdf_fields(source_pdf: str, field_values: list, output_pdf: str):
@@ -1792,28 +1848,53 @@ def _fill_pdf_fields(source_pdf: str, field_values: list, output_pdf: str):
     writer = PdfWriter()
     writer.append(reader)
 
-    from pypdf.generic import NameObject, TextStringObject, ArrayObject
+    from pypdf.generic import NameObject, TextStringObject, ArrayObject, DictionaryObject
 
-    # Check if this PDF has fillable form fields
     has_acroform = "/AcroForm" in writer._root_object
-    if not has_acroform:
-        reader_fields = reader.get_fields()
-        has_acroform = bool(reader_fields)
-        if has_acroform:
-            try:
-                acroform = reader.trailer["/Root"].get("/AcroForm")
-                if acroform:
-                    writer._root_object[NameObject("/AcroForm")] = acroform
-            except Exception:
-                has_acroform = False
 
     if not has_acroform:
-        log.warning("_fill_pdf_fields: No /AcroForm — using text overlay fallback for %s",
+        # Method 1: Reader has fields that didn't transfer to writer
+        reader_fields = reader.get_fields()
+        if reader_fields:
+            try:
+                root = reader.trailer["/Root"]
+                if hasattr(root, 'get_object'):
+                    root = root.get_object()
+                acroform = root.get("/AcroForm")
+                if acroform:
+                    if hasattr(acroform, 'get_object'):
+                        acroform = acroform.get_object()
+                    writer._root_object[NameObject("/AcroForm")] = acroform
+                    has_acroform = True
+                    log.info("_fill_pdf_fields: recovered /AcroForm from reader (%d fields)", len(reader_fields))
+            except Exception as e:
+                log.warning("_fill_pdf_fields: AcroForm copy failed: %s", e)
+
+        # Method 2: Build AcroForm from page Widget annotations
+        if not has_acroform:
+            all_widgets = []
+            for page in writer.pages:
+                for annot_ref in (page.get("/Annots") or []):
+                    try:
+                        annot = annot_ref.get_object()
+                        if str(annot.get("/Subtype", "")) == "/Widget":
+                            all_widgets.append(annot_ref)
+                    except Exception:
+                        pass
+            if all_widgets:
+                writer._root_object[NameObject("/AcroForm")] = DictionaryObject({
+                    NameObject("/Fields"): ArrayObject(all_widgets),
+                })
+                has_acroform = True
+                log.info("_fill_pdf_fields: built /AcroForm from %d Widget annotations", len(all_widgets))
+
+    if not has_acroform:
+        log.warning("_fill_pdf_fields: No /AcroForm and no Widget annotations — using text overlay for %s",
                      os.path.basename(source_pdf))
         _fill_pdf_text_overlay(source_pdf, field_values, output_pdf)
         return
 
-    # ── Native form-field fill path (original logic) ──
+    # ── Native form-field fill path ──
 
     # Strip non-form annotations
     for page in writer.pages:
