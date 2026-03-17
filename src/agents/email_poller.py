@@ -2179,6 +2179,80 @@ class EmailPoller:
                     return email.group(0)
         return None
 
+    def reprocess_uid(self, uid_str):
+        """Remove a UID from processed list so it gets picked up next cycle."""
+        self._processed.discard(uid_str)
+        self._save_processed()
+        try:
+            from src.core.db import get_db
+            with get_db() as conn:
+                conn.execute("DELETE FROM processed_emails WHERE uid=?", (uid_str,))
+        except Exception:
+            pass
+        log.info("UID %s removed from processed — will reprocess next cycle", uid_str)
+        return True
+
+    def audit_missed_emails(self, days=7):
+        """Find buyer/forward emails processed but never created a PC or RFQ."""
+        import imaplib
+        import email as email_mod
+        missed = []
+        since = (datetime.now() - timedelta(days=days)).strftime("%d-%b-%Y")
+        try:
+            imap = imaplib.IMAP4_SSL("imap.gmail.com")
+            imap.login(self.email_addr, self.password)
+            imap.select("INBOX", readonly=True)
+            _, data = imap.uid("search", None, f"(SINCE {since})")
+            uids = data[0].split() if data[0] else []
+
+            created_uids = set()
+            try:
+                from src.api.dashboard import _load_price_checks, load_rfqs
+                for pc in _load_price_checks().values():
+                    u = pc.get("email_uid", "")
+                    if u:
+                        created_uids.add(str(u))
+                for r in load_rfqs().values():
+                    u = r.get("email_uid", "")
+                    if u:
+                        created_uids.add(str(u))
+            except Exception:
+                pass
+
+            buyer_domains = [".ca.gov", "cdcr", "calvet", "cdph", "cchcs", "dsh", "calfire", "chp", "dgs"]
+            our_domains = ["reytechinc.com", "reytech.com"]
+
+            for uid_bytes in uids[-200:]:
+                uid_str = uid_bytes.decode()
+                if uid_str in created_uids:
+                    continue
+                try:
+                    _, msg_data = imap.uid("fetch", uid_bytes, "(BODY.PEEK[HEADER])")
+                    if not msg_data or not msg_data[0]:
+                        continue
+                    header = email_mod.message_from_bytes(msg_data[0][1])
+                    from_hdr = header.get("From", "")
+                    subj = self._decode_header(header.get("Subject", ""))
+                    sender_email = self._extract_email(from_hdr).lower()
+                    is_buyer = any(d in sender_email for d in buyer_domains)
+                    is_self = any(sender_email.endswith(f"@{d}") for d in our_domains)
+                    was_processed = uid_str in self._processed
+                    if (is_buyer or is_self) and was_processed:
+                        missed.append({
+                            "uid": uid_str,
+                            "sender_email": sender_email,
+                            "subject": subj[:120],
+                            "is_forward": is_self,
+                            "is_buyer": is_buyer,
+                        })
+                except Exception:
+                    continue
+            imap.close()
+            imap.logout()
+        except Exception as e:
+            log.warning("Missed email audit: %s", e)
+        return missed
+
     def disconnect(self):
         try:
             if self.mail:

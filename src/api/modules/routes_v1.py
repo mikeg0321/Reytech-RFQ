@@ -4210,6 +4210,69 @@ def api_v1_quotes_backfill_items():
         return api_response(error=str(e), status=500)
 
 
+# ── Email Recovery ────────────────────────────────────────────────────
+
+@bp.route("/api/v1/email/missed")
+@auth_required
+def api_v1_email_missed():
+    """Find buyer/forward emails processed but never created a record."""
+    try:
+        from src.api.dashboard import POLL_STATUS
+        poller = POLL_STATUS.get("_poller_instance")
+        if not poller or not hasattr(poller, "audit_missed_emails"):
+            return api_response(error="Poller not available — try after next poll cycle")
+        days = int(request.args.get("days", 7))
+        missed = poller.audit_missed_emails(days=days)
+        return api_response({"missed": missed, "count": len(missed)})
+    except Exception as e:
+        log.error("email/missed: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)
+
+
+@bp.route("/api/v1/email/reprocess/<uid>", methods=["GET", "POST"])
+@auth_required
+def api_v1_email_reprocess(uid):
+    """Remove a UID from processed — will reprocess next poll cycle."""
+    try:
+        from src.api.dashboard import POLL_STATUS
+        poller = POLL_STATUS.get("_poller_instance")
+        if poller and hasattr(poller, "reprocess_uid"):
+            poller.reprocess_uid(uid)
+            return api_response({"ok": True, "uid": uid, "message": "Will reprocess next cycle"})
+        # Fallback: direct DB removal
+        from src.core.db import get_db
+        with get_db() as conn:
+            conn.execute("DELETE FROM processed_emails WHERE uid=?", (uid,))
+        return api_response({"ok": True, "uid": uid, "message": "Removed from DB — will reprocess"})
+    except Exception as e:
+        return api_response(error=str(e), status=500)
+
+
+@bp.route("/api/v1/email/reprocess-all-missed", methods=["GET", "POST"])
+@auth_required
+def api_v1_email_reprocess_all():
+    """Find and reprocess ALL missed buyer/forward emails."""
+    try:
+        from src.api.dashboard import POLL_STATUS
+        poller = POLL_STATUS.get("_poller_instance")
+        if not poller or not hasattr(poller, "audit_missed_emails"):
+            return api_response(error="Poller not available")
+        missed = poller.audit_missed_emails(days=int(request.args.get("days", 7)))
+        recovered = []
+        for m in missed:
+            uid = m.get("uid", "")
+            if uid:
+                poller.reprocess_uid(uid)
+                recovered.append({"uid": uid, "sender": m.get("sender_email", ""), "subject": m.get("subject", "")})
+        return api_response({
+            "recovered": len(recovered), "details": recovered,
+            "message": f"Removed {len(recovered)} UIDs. They will be picked up next poll cycle."
+        })
+    except Exception as e:
+        log.error("reprocess-all: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)
+
+
 # ── Data Integrity ────────────────────────────────────────────────────
 
 @bp.route("/api/v1/quotes/fix-orphans", methods=["GET", "POST"])

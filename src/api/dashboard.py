@@ -3075,6 +3075,7 @@ def do_poll_check():
 
     if _shared_poller is None:
         _shared_poller = EmailPoller(email_cfg)
+        POLL_STATUS["_poller_instance"] = _shared_poller
         log.info("Created poller for %s", email_cfg.get("email", "NO EMAIL SET"))
     else:
         # Reload processed UIDs from file (picks up system-reset changes)
