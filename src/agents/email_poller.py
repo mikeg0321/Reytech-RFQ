@@ -2033,14 +2033,28 @@ class EmailPoller:
         return results
 
     def _get_pdf_names(self, msg):
-        """Get list of PDF filenames without saving them."""
+        """Get list of PDF filenames without saving them. Checks inside ZIPs too."""
         names = []
         for part in msg.walk():
             if part.get_content_maintype() == "multipart":
                 continue
             filename = part.get_filename()
-            if filename and filename.lower().endswith(".pdf"):
-                names.append(self._decode_header(filename) if isinstance(filename, str) else filename)
+            if filename:
+                fname_lower = filename.lower()
+                if fname_lower.endswith(".pdf"):
+                    names.append(self._decode_header(filename) if isinstance(filename, str) else filename)
+                elif fname_lower.endswith(".zip"):
+                    # Peek inside ZIP for PDFs
+                    try:
+                        import zipfile, io
+                        payload = part.get_payload(decode=True)
+                        if payload:
+                            with zipfile.ZipFile(io.BytesIO(payload)) as zf:
+                                for zn in zf.namelist():
+                                    if zn.lower().endswith(".pdf") and not zn.startswith("__MACOSX"):
+                                        names.append(os.path.basename(zn))
+                    except Exception:
+                        pass
             if part.get_content_type() == "message/rfc822":
                 payload = part.get_payload()
                 inner_msgs = []
@@ -2056,28 +2070,49 @@ class EmailPoller:
         return names
 
     def _save_attachments(self, msg, save_dir):
-        """Save PDF attachments and identify them."""
+        """Save PDF attachments and identify them. Also extracts PDFs from ZIP files."""
         saved = []
         for part in msg.walk():
             if part.get_content_maintype() == "multipart":
                 continue
-            
+
             filename = part.get_filename()
-            if not filename or not filename.lower().endswith(".pdf"):
+            if not filename:
                 continue
-            
+
             filename = self._decode_header(filename) if isinstance(filename, str) else filename
-            safe_name = re.sub(r'[^\w\-_. ()]+', '_', filename)
-            
-            filepath = os.path.join(save_dir, safe_name)
-            payload = part.get_payload(decode=True)
-            if payload:
-                with open(filepath, "wb") as f:
-                    f.write(payload)
-                
-                form_type = self._identify_form(safe_name)
-                saved.append({"path": filepath, "filename": safe_name, "type": form_type})
-        
+            fname_lower = filename.lower()
+
+            if fname_lower.endswith(".pdf"):
+                safe_name = re.sub(r'[^\w\-_. ()]+', '_', filename)
+                filepath = os.path.join(save_dir, safe_name)
+                payload = part.get_payload(decode=True)
+                if payload:
+                    with open(filepath, "wb") as f:
+                        f.write(payload)
+                    form_type = self._identify_form(safe_name)
+                    saved.append({"path": filepath, "filename": safe_name, "type": form_type})
+
+            elif fname_lower.endswith(".zip"):
+                # Extract PDFs from ZIP attachments
+                payload = part.get_payload(decode=True)
+                if payload:
+                    try:
+                        import zipfile
+                        import io
+                        with zipfile.ZipFile(io.BytesIO(payload)) as zf:
+                            for zname in zf.namelist():
+                                if zname.lower().endswith(".pdf") and not zname.startswith("__MACOSX"):
+                                    safe_name = re.sub(r'[^\w\-_. ()]+', '_', os.path.basename(zname))
+                                    filepath = os.path.join(save_dir, safe_name)
+                                    with open(filepath, "wb") as f:
+                                        f.write(zf.read(zname))
+                                    form_type = self._identify_form(safe_name)
+                                    saved.append({"path": filepath, "filename": safe_name, "type": form_type})
+                                    log.info("Extracted PDF from ZIP: %s -> %s", zname, safe_name)
+                    except Exception as _ze:
+                        log.warning("ZIP extraction failed for %s: %s", filename, _ze)
+
         return saved
 
     def _extract_forwarded_attachments(self, msg, save_dir):
