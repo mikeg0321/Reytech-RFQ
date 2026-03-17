@@ -2917,6 +2917,32 @@
     })();
 
     })(); // end Block 3
+
+    // ── AUTOSAVE — every 60 seconds if changes detected ──
+    var _lastSaveHash = JSON.stringify(collectPrices());
+    setInterval(function() {
+        try {
+            var current = JSON.stringify(collectPrices());
+            if (current !== _lastSaveHash) {
+                _lastSaveHash = current;
+                fetch('/pricecheck/'+_pcid+'/save-prices', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: current,
+                    credentials: 'same-origin'
+                }).then(function(r) { return r.json(); }).then(function(d) {
+                    if (d.ok) {
+                        var s = document.getElementById('saveBtn');
+                        if (s) {
+                            var orig = s.textContent;
+                            s.textContent = '\u2713 Auto-saved';
+                            setTimeout(function() { s.textContent = orig; }, 2000);
+                        }
+                    }
+                }).catch(function() {});
+            }
+        } catch(e) {}
+    }, 60000);
     </script>
     </body></html>
 
