@@ -4124,7 +4124,7 @@ def api_v1_pc_mark_reviewed(pcid):
 
 # ── Quote Integrity ──────────────────────────────────────────────────
 
-@bp.route("/api/v1/quotes/cleanup-ghosts", methods=["POST"])
+@bp.route("/api/v1/quotes/cleanup-ghosts", methods=["GET", "POST"])
 @auth_required
 def api_v1_quotes_cleanup_ghosts():
     """Mark empty quote shells as VOID. Numbers preserved in ledger."""
@@ -4166,7 +4166,7 @@ def api_v1_quotes_cleanup_ghosts():
         return api_response(error=str(e), status=500)
 
 
-@bp.route("/api/v1/quotes/backfill-items", methods=["POST"])
+@bp.route("/api/v1/quotes/backfill-items", methods=["GET", "POST"])
 @auth_required
 def api_v1_quotes_backfill_items():
     """Fill items_detail on quotes from their source PC/RFQ."""
