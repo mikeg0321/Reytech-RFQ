@@ -1658,9 +1658,12 @@ def fill_ams704(
 def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str):
     """
     Fallback for flat/DocuSign PDFs with no fillable form fields.
-    Uses reportlab to draw text as an overlay at exact AMS 704 field positions.
-    Coordinates extracted from a correctly-filled AMS 704 Rev 1/2019 template.
-    PDF is landscape letter: 792 x 612 points, origin at bottom-left.
+
+    Strategy: VISION-FIRST approach
+    1. Extract text with positions from each page
+    2. Detect page format (page-1 with supplier info vs continuation vs instructions)
+    3. Find actual column X positions and row Y positions from the text
+    4. Draw overlay using measured positions, falling back to template coords
     """
     import io
     from reportlab.pdfgen import canvas as rl_canvas
@@ -1669,90 +1672,179 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
     writer = PdfWriter()
     writer.append(reader)
 
-    # Build field_name -> value lookup
     fv_map = {fv["field_id"]: fv.get("value", "") for fv in field_values}
 
-    # ── EXACT FIELD POSITIONS from real AMS 704 template ──
-    # Format: field_name -> (x1, y1, x2, y2) = bottom-left to top-right of field rect
-    # Extracted from PC_Karaoke_Reytech.pdf annotation rectangles
-
-    SUPPLIER_RECTS = {
-        "COMPANY NAME":                       (33.1, 421.3, 278.3, 441.4),
-        "COMPANY REPRESENTATIVE print name":  (280.1, 421.3, 602.4, 441.4),
-        "Delivery Date and Time ARO":         (604.3, 421.3, 754.9, 441.4),
-        "Address":                            (33.1, 389.9, 278.3, 412.1),
-        "Discount Offered":                   (604.3, 389.9, 754.9, 412.1),
-        "Certified SBMB":                     (33.0, 362.8, 156.8, 380.8),
-        "Certified DVBE":                     (158.4, 362.8, 278.4, 380.8),
-        "Phone Number_2":                     (280.0, 362.8, 445.0, 380.8),
-        "EMail Address":                      (446.5, 362.8, 602.5, 380.8),
-        "Date Price Check Expires":           (604.2, 362.8, 755.0, 380.8),
-        "Ship to":                            (277.6, 74.2, 526.1, 89.2),
-        "Supplier andor Requestor Notes":     (32.6, 41.9, 237.2, 118.9),
+    # ── TEMPLATE COORDINATES (fallback if text extraction fails) ──
+    TEMPLATE = {
+        "supplier": {
+            "COMPANY NAME":                       (33.1, 421.3, 278.3, 441.4),
+            "COMPANY REPRESENTATIVE print name":  (280.1, 421.3, 602.4, 441.4),
+            "Delivery Date and Time ARO":         (604.3, 421.3, 754.9, 441.4),
+            "Address":                            (33.1, 389.9, 278.3, 412.1),
+            "Discount Offered":                   (604.3, 389.9, 754.9, 412.1),
+            "Certified SBMB":                     (33.0, 362.8, 156.8, 380.8),
+            "Certified DVBE":                     (158.4, 362.8, 278.4, 380.8),
+            "Phone Number_2":                     (280.0, 362.8, 445.0, 380.8),
+            "EMail Address":                      (446.5, 362.8, 602.5, 380.8),
+            "Date Price Check Expires":           (604.2, 362.8, 755.0, 380.8),
+            "Ship to":                            (277.6, 74.2, 526.1, 89.2),
+            "Supplier andor Requestor Notes":     (32.6, 41.9, 237.2, 118.9),
+        },
+        "totals": {
+            "fill_70": (696.0, 113.8, 760.0, 134.0),
+            "fill_71": (694.9, 89.9, 760.0, 112.3),
+            "fill_72": (695.4, 67.4, 760.0, 88.6),
+            "fill_73": (695.5, 41.9, 760.0, 66.0),
+        },
+        "checkboxes": {
+            "Check Box4":  (244.5, 95.1, 257.6, 106.7),
+            "Check Box8":  (407.8, 94.4, 420.8, 106.0),
+            "Check Box10": (548.4, 94.4, 560.0, 106.0),
+        },
+        "row_cols": {
+            "item_number": (32.2, 62.3),
+            "qty":         (64.1, 98.3),
+            "uom":         (100.1, 152.3),
+            "qty_per_uom": (154.1, 197.3),
+            "description": (199.1, 444.8),
+            "substituted": (446.6, 633.8),
+            "unit_price":  (644.6, 696.8),
+            "extension":   (698.6, 764.8),
+        },
+        "pg2_header": {
+            "supplier_name": (330.0, 525.0, 760.0, 548.0),
+            "pc_number":     (130.0, 527.0, 320.0, 545.0),
+        },
     }
 
-    # Row field rects — 8 rows per page, extracted from Row1-Row8
-    # Row 1: y_bottom=300.1, y_top=321.2; row spacing = 22.5pt
-    ROW_RECTS = {
-        "item_number": (32.2, 62.3),    # (x1, x2)
-        "qty":         (64.1, 98.3),
-        "uom":         (100.1, 152.3),
-        "qty_per_uom": (154.1, 197.3),
-        "description": (199.1, 444.8),
-        "substituted": (446.6, 633.8),
-        "unit_price":  (639.6, 691.8),
-        "extension":   (693.6, 759.8),
-    }
-    # Page 1 row positions (below supplier info section)
-    PG1_ROW1_Y_BOTTOM = 300.1
-    PG1_ROW1_Y_TOP = 321.2
-    # Page 2+ row positions (no supplier section — rows start higher)
-    PG2_ROW1_Y_BOTTOM = 459.0
-    PG2_ROW1_Y_TOP = 480.0
-    ROW_SPACING = 22.5  # same on both pages
+    # ══════════════════════════════════════════════════════════════
+    # STEP 1: VISION — Extract text positions from every page
+    # ══════════════════════════════════════════════════════════════
+    page_layouts = []
 
-    # Totals
-    TOTAL_RECTS = {
-        "fill_70": (696.0, 113.8, 755.8, 134.0),   # Subtotal
-        "fill_71": (694.9, 89.9, 755.6, 112.3),     # Freight
-        "fill_72": (695.4, 67.4, 755.8, 88.6),      # Tax
-        "fill_73": (695.5, 41.9, 755.6, 66.0),      # Total
-    }
+    for pg_idx, page in enumerate(reader.pages):
+        layout = {
+            "page_idx": pg_idx,
+            "text_items": [],
+            "is_page1_format": False,
+            "is_continuation": False,
+            "is_instructions": False,
+            "row_y_positions": [],
+            "header_y": None,
+            "price_col_x": None,
+            "ext_col_x": None,
+        }
 
-    # Page 2+ header fields that need masking
-    PG2_HEADER = {
-        "supplier_name": (440.0, 527.0, 750.0, 545.0),  # SUPPLIER NAME: field
-        "pc_number":     (130.0, 527.0, 320.0, 545.0),   # PRICE CHECK #: field
-    }
+        # Extract text with positions using visitor
+        try:
+            def _visitor(text, cm, tm, font_dict, font_size):
+                if text.strip():
+                    layout["text_items"].append((tm[4], tm[5], font_size, text.strip()))
+            page.extract_text(visitor_text=_visitor)
+        except Exception as _e:
+            log.warning("Text extraction failed for page %d: %s", pg_idx, _e)
 
-    # Checkboxes
-    CHECKBOX_RECTS = {
-        "Check Box4":  (244.5, 95.1, 257.6, 106.7),   # FOB Dest, Freight Prepaid
-        "Check Box8":  (407.8, 94.4, 420.8, 106.0),   # FOB Dest, PP/ADD
-        "Check Box10": (548.4, 94.4, 560.0, 106.0),   # FOB Origin, Freight Collect
-    }
+        # Sort top-to-bottom
+        layout["text_items"].sort(key=lambda t: (-t[1], t[0]))
+        all_text_upper = " ".join(t[3] for t in layout["text_items"]).upper()
 
+        # ── Detect page format ──
+        if "INSTRUCTION" in all_text_upper and "DATA ENTRY" in all_text_upper:
+            layout["is_instructions"] = True
+        elif "SUPPLIER" in all_text_upper and "INFORMATION" in all_text_upper:
+            layout["is_page1_format"] = True
+        elif "COMPANY NAME" in all_text_upper and "CERTIFIED" in all_text_upper:
+            layout["is_page1_format"] = True
+        elif pg_idx == 0:
+            layout["is_page1_format"] = True
+        elif "SUPPLIER NAME" in all_text_upper or "PRICE CHECK" in all_text_upper:
+            layout["is_continuation"] = True
+        else:
+            layout["is_instructions"] = True
+
+        # ── Find column header row ──
+        for x, y, fs, txt in layout["text_items"]:
+            txt_up = txt.upper()
+            if "PRICE PER" in txt_up or "PER UNIT" in txt_up:
+                layout["header_y"] = y
+                layout["price_col_x"] = x
+            if "EXTENSION" in txt_up and x > 600:
+                layout["ext_col_x"] = x
+            if "ITEM DESCRIPTION" in txt_up or ("ITEM" in txt_up and "DESCRIPTION" in txt_up):
+                if layout["header_y"] is None:
+                    layout["header_y"] = y
+
+        # ── Find data row Y positions (item numbers 1-50 at x < 70) ──
+        for x, y, fs, txt in layout["text_items"]:
+            if x < 70 and fs > 7:
+                try:
+                    num = int(txt.strip())
+                    if 1 <= num <= 50:
+                        layout["row_y_positions"].append(y)
+                except (ValueError, TypeError):
+                    pass
+
+        layout["row_y_positions"].sort(reverse=True)
+
+        log.info("OVERLAY VISION pg%d: format=%s header_y=%s rows_found=%d price_x=%s ext_x=%s",
+                 pg_idx,
+                 "page1" if layout["is_page1_format"] else ("cont" if layout["is_continuation"] else "instr"),
+                 layout.get("header_y"),
+                 len(layout["row_y_positions"]),
+                 layout.get("price_col_x"),
+                 layout.get("ext_col_x"))
+
+        page_layouts.append(layout)
+
+    # ══════════════════════════════════════════════════════════════
+    # STEP 2: PLAN — Compute actual rendering positions per page
+    # ══════════════════════════════════════════════════════════════
+    def _compute_row_ys(layout):
+        """Compute (y_bottom, y_top) for each row slot using detected positions."""
+        detected = layout["row_y_positions"]
+        if len(detected) >= 2:
+            results = []
+            for y in detected:
+                results.append((y - 3, y + 18))
+            return results
+        elif layout["is_page1_format"]:
+            return [(300.1 - i * 22.5, 321.2 - i * 22.5) for i in range(8)]
+        else:
+            return [(459.0 - i * 22.5, 480.0 - i * 22.5) for i in range(8)]
+
+    def _get_price_x(layout):
+        if layout.get("price_col_x"):
+            x = layout["price_col_x"]
+            return (x, x + 52)
+        return TEMPLATE["row_cols"]["unit_price"]
+
+    def _get_ext_x(layout):
+        if layout.get("ext_col_x"):
+            x = layout["ext_col_x"]
+            return (x, x + 66)
+        return TEMPLATE["row_cols"]["extension"]
+
+    # ══════════════════════════════════════════════════════════════
+    # STEP 3: RENDER — Draw overlay using measured positions
+    # ══════════════════════════════════════════════════════════════
     def _draw_in_rect(c, x1, y1, x2, y2, text, max_font=10, mask=True):
-        """Draw text inside a rectangle, auto-sizing font to fit.
-        If mask=True, draws a white rectangle first to cover existing content."""
         if not text or not text.strip():
             return
         text = text.strip()
         w = x2 - x1
         h = y2 - y1
-        # Draw white background to mask existing PDF content underneath
+        if w <= 0 or h <= 0:
+            return
         if mask:
             c.saveState()
-            c.setFillColorRGB(1, 1, 1)  # white
+            c.setFillColorRGB(1, 1, 1)
             c.rect(x1, y1, w, h, fill=1, stroke=0)
             c.restoreState()
         fs = min(max_font, h * 0.75)
         c.setFont("Helvetica", fs)
-        # Shrink font until text fits width
         while c.stringWidth(text, "Helvetica", fs) > w - 2 and fs > 5:
             fs -= 0.5
             c.setFont("Helvetica", fs)
-        # Handle multi-line: split on newlines
         if "\n" in text and h > fs * 2:
             lines = text.split("\n")
             line_h = fs + 1
@@ -1763,14 +1855,11 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
                     trunc = trunc[:-1]
                 c.drawString(x1 + 1, y2 - fs - 1 - (i * line_h), trunc)
         else:
-            # Single line, vertically centered
             c.drawString(x1 + 1, y1 + (h - fs) / 2, text)
 
     def _draw_checkmark(c, x1, y1, x2, y2):
-        """Draw a checkmark in a checkbox rectangle with white background."""
         w = x2 - x1
         h = y2 - y1
-        # White background to mask any existing content
         c.saveState()
         c.setFillColorRGB(1, 1, 1)
         c.rect(x1, y1, w, h, fill=1, stroke=0)
@@ -1779,84 +1868,84 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
         c.setFont("ZapfDingbats", fs)
         c.drawString(x1 + 1, y1 + 1, "4")
 
-    def _make_overlay(page_idx):
-        """Build reportlab overlay for a page."""
-        page = reader.pages[page_idx]
+    # Track row numbering across pages
+    current_row = 1
+
+    for pg_idx, layout in enumerate(page_layouts):
+        if layout["is_instructions"]:
+            log.info("OVERLAY pg%d: skipping (instructions page)", pg_idx)
+            continue
+
+        page = reader.pages[pg_idx]
         mb = page.mediabox
         pw, ph = float(mb.width), float(mb.height)
         buf = io.BytesIO()
         c = rl_canvas.Canvas(buf, pagesize=(pw, ph))
 
-        if page_idx == 0:
-            # ── Supplier info fields ──
-            for fname, (x1, y1, x2, y2) in SUPPLIER_RECTS.items():
+        if layout["is_page1_format"]:
+            for fname, (x1, y1, x2, y2) in TEMPLATE["supplier"].items():
                 val = fv_map.get(fname, "")
                 _draw_in_rect(c, x1, y1, x2, y2, val)
 
-            # ── Checkboxes ──
-            for fname, (x1, y1, x2, y2) in CHECKBOX_RECTS.items():
+            for fname, (x1, y1, x2, y2) in TEMPLATE["checkboxes"].items():
                 val = fv_map.get(fname, "")
                 if val in ("/Yes", "Yes", True, "True"):
                     _draw_checkmark(c, x1, y1, x2, y2)
 
-            # ── Totals ──
-            for fname, (x1, y1, x2, y2) in TOTAL_RECTS.items():
-                val = fv_map.get(fname, "")
-                _draw_in_rect(c, x1, y1, x2, y2, val, max_font=10)
+            if pg_idx == 0:
+                for fname, (x1, y1, x2, y2) in TEMPLATE["totals"].items():
+                    val = fv_map.get(fname, "")
+                    _draw_in_rect(c, x1, y1, x2, y2, val, max_font=10)
 
-        # ── Page 2+ header: mask SUPPLIER NAME and PRICE CHECK # ──
-        if page_idx > 0:
+        elif layout["is_continuation"]:
             company = fv_map.get("COMPANY NAME", "")
             if company:
-                x1, y1, x2, y2 = PG2_HEADER["supplier_name"]
+                x1, y1, x2, y2 = TEMPLATE["pg2_header"]["supplier_name"]
                 _draw_in_rect(c, x1, y1, x2, y2, company, max_font=12)
-            pc_num = fv_map.get("Text1", "")  # Text1 = PRICE CHECK # field
+            pc_num = fv_map.get("Text1", "")
             if pc_num:
-                x1, y1, x2, y2 = PG2_HEADER["pc_number"]
+                x1, y1, x2, y2 = TEMPLATE["pg2_header"]["pc_number"]
                 _draw_in_rect(c, x1, y1, x2, y2, pc_num, max_font=12)
 
-        # ── Row items ──
-        # Page 0 = rows 1-8, page 1 = rows 9-16, page 2 = rows 17-24
-        # Use different Y start for page 1 vs page 2+ (page 2 has no supplier section)
-        if page_idx == 0:
-            base_y_bottom = PG1_ROW1_Y_BOTTOM
-            base_y_top = PG1_ROW1_Y_TOP
-        else:
-            base_y_bottom = PG2_ROW1_Y_BOTTOM
-            base_y_top = PG2_ROW1_Y_TOP
+        # ── ROW ITEMS: use DETECTED positions ──
+        row_ys = _compute_row_ys(layout)
+        price_x = _get_price_x(layout)
+        ext_x = _get_ext_x(layout)
 
-        row_start = 1 + (page_idx * 8)
-        row_end = row_start + 8
-        for row_num in range(row_start, row_end):
-            row_offset = row_num - row_start  # 0-7
-            y_bottom = base_y_bottom - (row_offset * ROW_SPACING)
-            y_top = base_y_top - (row_offset * ROW_SPACING)
+        page_row_cols = dict(TEMPLATE["row_cols"])
+        page_row_cols["unit_price"] = price_x
+        page_row_cols["extension"] = ext_x
 
-            for field_key, (x1, x2) in ROW_RECTS.items():
+        for slot_idx, (y_bottom, y_top) in enumerate(row_ys):
+            row_num = current_row + slot_idx
+            for field_key, (x1, x2) in page_row_cols.items():
                 field_name = ROW_FIELDS[field_key].format(n=row_num)
                 val = fv_map.get(field_name, "")
                 if val and val.strip():
                     _draw_in_rect(c, x1, y_bottom, x2, y_top, val,
                                   max_font=9 if field_key == "description" else 10)
 
+        log.info("OVERLAY RENDER pg%d: format=%s rows=%d-%d (%d slots) price_x=%s",
+                 pg_idx,
+                 "page1" if layout["is_page1_format"] else "cont",
+                 current_row, current_row + len(row_ys) - 1,
+                 len(row_ys), price_x)
+
+        current_row += len(row_ys)
+
         c.save()
         buf.seek(0)
-        return buf
-
-    # Merge overlays onto each page
-    for pg_idx in range(len(writer.pages)):
-        overlay_buf = _make_overlay(pg_idx)
-        overlay_reader = PdfReader(overlay_buf)
+        overlay_reader = PdfReader(buf)
         if overlay_reader.pages:
             writer.pages[pg_idx].merge_page(overlay_reader.pages[0])
 
-    # Add signature
     _add_signature_to_pdf(writer)
 
     with open(output_pdf, "wb") as f:
         writer.write(f)
 
-    log.info("Filled AMS 704 (TEXT OVERLAY with template coords) saved to %s", output_pdf)
+    log.info("Filled AMS 704 (VISION-GUIDED OVERLAY) saved to %s — %d pages processed, %d total rows",
+             output_pdf, len([l for l in page_layouts if not l["is_instructions"]]), current_row - 1)
 
 
 def _fill_pdf_fields(source_pdf: str, field_values: list, output_pdf: str):
