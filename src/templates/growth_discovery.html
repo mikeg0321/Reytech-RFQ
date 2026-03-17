@@ -1,7 +1,18 @@
 {% extends "base.html" %}
-{% block title %}Growth Discovery{% endblock %}
+{% block title %}Growth & Intel{% endblock %}
 {% block content %}
 <div style="max-width:1400px;margin:0 auto;padding:0 16px">
+
+<!-- Intel Tab Bar -->
+<div id="intel-tabs" style="display:flex;gap:4px;margin-bottom:16px;flex-wrap:wrap;border-bottom:1px solid var(--bd);padding-bottom:8px">
+  <button class="btn btn-sm intel-tab active" onclick="switchIntelTab('discovery',this)" style="font-size:13px;background:rgba(79,140,255,.12);color:var(--ac)">🔍 Discovery</button>
+  <button class="btn btn-sm intel-tab" onclick="switchIntelTab('scprs',this)" style="font-size:13px">📊 SCPRS</button>
+  <button class="btn btn-sm intel-tab" onclick="switchIntelTab('competitor',this)" style="font-size:13px">🏢 Competitor</button>
+  <button class="btn btn-sm intel-tab" onclick="switchIntelTab('intelligence',this)" style="font-size:13px">🧠 Intelligence</button>
+</div>
+<div id="intel-tab-content" style="display:none"></div>
+
+<div id="growth-main-content">
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
  <div>
   <h2 style="margin:0;color:var(--tx)">🚀 Growth Discovery</h2>
@@ -69,8 +80,54 @@
 <div id="tab-vehicles" class="tp">
  <div id="vehicleGuide" style="color:var(--tx2);padding:30px;text-align:center">Loading contract vehicle guide...</div>
 </div>
+</div><!-- /growth-main-content -->
 
 </div>
+
+<script>
+function switchIntelTab(tab, btn) {
+  document.querySelectorAll('.intel-tab').forEach(function(b) {
+    b.classList.remove('active');
+    b.style.background = 'none';
+    b.style.color = 'var(--tx2)';
+  });
+  btn.classList.add('active');
+  btn.style.background = 'rgba(79,140,255,.12)';
+  btn.style.color = 'var(--ac)';
+  var container = document.getElementById('intel-tab-content');
+  if (tab === 'discovery') {
+    container.style.display = 'none';
+    document.getElementById('growth-main-content').style.display = 'block';
+    return;
+  }
+  var routes = {
+    'scprs': '/intel/scprs',
+    'competitor': '/intel/competitors',
+    'intelligence': '/growth-intel'
+  };
+  var url = routes[tab];
+  if (!url) return;
+  document.getElementById('growth-main-content').style.display = 'none';
+  container.style.display = 'block';
+  container.innerHTML = '<div style="text-align:center;padding:40px;color:var(--tx2)">Loading...</div>';
+  fetch(url, {headers: {'X-Requested-With': 'XMLHttpRequest'}})
+  .then(function(r) { return r.text(); })
+  .then(function(html) {
+    var tmp = document.createElement('div');
+    tmp.innerHTML = html;
+    var content = tmp.querySelector('.ctr') || tmp.querySelector('main') || tmp;
+    container.innerHTML = content.innerHTML;
+    container.querySelectorAll('script').forEach(function(s) {
+      var ns = document.createElement('script');
+      ns.textContent = s.textContent;
+      document.body.appendChild(ns);
+    });
+  })
+  .catch(function(e) {
+    container.innerHTML = '<div style="padding:20px;color:#f85149">Failed to load: ' + e.message + '</div>';
+  });
+}
+</script>
 
 <script>
 function escH(s){const d=document.createElement('div');d.textContent=s||'';return d.innerHTML}
