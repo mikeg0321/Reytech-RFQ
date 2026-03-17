@@ -1382,10 +1382,10 @@ def api_debug_fix(fix_name):
     return jsonify({"ok": False, "error": f"Unknown fix: {fix_name}"})
 
 
-@bp.route("/search")
+@bp.route("/search-intel")  # Moved to /search-intel — primary /search is in routes_search.py
 @auth_required
-def universal_search_page():
-    """Universal search page — searches all data types: quotes, contacts, intel buyers, orders, RFQs."""
+def universal_search_page_intel():
+    """Universal search page (legacy intel version) — primary /search is in routes_search.py."""
     q = (_sanitize_input(request.args.get("q", "")) or "").strip()
 
     # Run search if query provided

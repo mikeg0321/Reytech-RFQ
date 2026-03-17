@@ -751,8 +751,14 @@ def detail(rid):
     if rid in pcs:
         return redirect(f"/pricecheck/{rid}")
     rfqs = load_rfqs()
-    r = rfqs.get(rid)
-    if not r: flash("Not found", "error"); return redirect("/")
+    _r_orig = rfqs.get(rid)
+    if not _r_orig: flash("Not found", "error"); return redirect("/")
+
+    # CRITICAL: deep copy for rendering — never mutate cached objects.
+    # load_rfqs() has in-memory cache. Mutating r here (item mapping, intelligence
+    # trimming) would persist in cache and corrupt data on next save.
+    import copy as _copy
+    r = _copy.deepcopy(_r_orig)
 
     # Ensure r is a plain dict (not a Jinja2-aware object)
     if not isinstance(r, dict):

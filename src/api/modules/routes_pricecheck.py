@@ -3689,8 +3689,12 @@ def api_pricecheck_dismiss(pcid):
     
     pc = pcs[pcid]
     # Use the reason as the status directly for known actions
-    valid_statuses = {"not_responding", "dismissed", "archived", "duplicate", "no_response"}
-    new_status = reason if reason in valid_statuses else "dismissed"
+    valid_statuses = {"not_responding", "dismissed", "archived", "duplicate", "no_response", "won", "lost"}
+    # Map UI reasons to appropriate statuses
+    _reason_map = {"cs_question": "dismissed", "other": "dismissed"}
+    new_status = _reason_map.get(reason, reason) if reason not in valid_statuses else reason
+    if new_status not in valid_statuses:
+        new_status = "dismissed"
     pc["status"] = new_status
     pc["dismiss_reason"] = reason
     pc["dismissed_at"] = datetime.now().isoformat()

@@ -698,23 +698,6 @@ document.querySelectorAll('details').forEach(d=>{
 });
 
     // ── Clear stale quote number from PC ──────────────────────────────────
-    function clearPCQuote(id, btn) {
-      if (!confirm('Clear the stale quote number from this PC? The PC will return to "parsed" status so you can generate a fresh quote.')) return;
-      btn.textContent = '⏳';
-      fetch('/api/pricecheck/' + id + '/clear-quote', {method: 'POST', credentials: 'same-origin'})
-        .then(r => r.json())
-        .then(d => {
-          if (d.ok) {
-            // Reload to show updated state
-            location.reload();
-          } else {
-            btn.textContent = '✕';
-            alert('Error: ' + (d.error || 'unknown'));
-          }
-        })
-        .catch(() => { btn.textContent = '✕'; });
-    }
-
     // ── Delete Price Check ─────────────────────────────────────────────────
 
     // dismissItem replaced by global doDismiss()

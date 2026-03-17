@@ -5084,10 +5084,10 @@ else:
 # Force Recapture — guaranteed to load (not in exec'd module)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-@bp.route("/api/force-recapture", methods=["POST", "GET"])
+@bp.route("/api/force-recapture-legacy", methods=["POST", "GET"])  # Primary handler in routes_pricecheck.py
 @auth_required
 def _force_recapture():
-    """Delete RFQ/PC by keyword, clear UID, re-poll. GET with ?match=calvet also works."""
+    """LEGACY — primary /api/force-recapture is in routes_pricecheck.py."""
     if request.method == "GET":
         match_kw = request.args.get("match", "").lower().strip()
         exact_id = request.args.get("rfq_id", "").strip()

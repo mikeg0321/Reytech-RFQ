@@ -182,7 +182,7 @@
    </td>
    <td>
     <div style="display:flex;align-items:center;gap:2px">
-     <input type="number" step="1" min="0" max="200" name="markup_{{loop.index0}}" value="{{i.get('markup_pct', '')}}" placeholder="%" class="num-in" style="width:62px;font-size:15px;font-weight:700;padding:6px 4px;text-align:center;background:rgba(88,166,255,.06);border:1px solid rgba(88,166,255,.2)" oninput="recalcFromMarkup({{loop.index0}})">
+     <input type="number" step="1" min="0" max="200" name="markup_{{loop.index0}}" value="{{i.get('markup_pct', '')}}" placeholder="%" class="num-in" style="width:62px;font-size:15px;font-weight:700;padding:6px 4px;text-align:center;background:rgba(88,166,255,.06);border:1px solid rgba(88,166,255,.2)" oninput="recalcFromMarkup({{loop.index0}},true)">
      <span style="color:#58a6ff;font-size:14px;font-weight:600">%</span>
     </div>
    </td>
@@ -699,18 +699,6 @@ function toggleDescFull(el) {
     el.focus();
   }
 }
-function useSupplierDesc(idx, hintEl) {
-  var ta = document.querySelector('textarea[name="desc_' + idx + '"]');
-  if (!ta) return;
-  var fullDesc = hintEl.getAttribute('title');
-  if (fullDesc) {
-    ta.value = fullDesc;
-    expandDesc(ta);
-    hintEl.innerHTML = '<span style="color:#3fb950">✓ Applied</span>';
-    recalc();
-  }
-}
-
 // ── URL Link Lookup ──
 const _linkDebounce = {};
 const _KNOWN_DOMAINS = {'amazon.com':'Amazon','grainger.com':'Grainger',
@@ -915,18 +903,19 @@ function _showBulkResults(d){
 function _applyLinkData(idx,d){
  const filled=[];
  const metaEl=document.getElementById('rfq_link_meta_'+idx);
- // Fill cost
+ // Fill cost — only if currently empty/zero
  const costEl=document.querySelector('[name=cost_'+idx+']');
- if(costEl&&d.price&&d.price>0){
+ const _existingCost=costEl?(parseFloat(costEl.value)||0):0;
+ if(costEl&&d.price&&d.price>0&&_existingCost===0){
   costEl.value=d.price.toFixed(2);costEl.style.background='#0d2818';
   setTimeout(()=>{costEl.style.background=''},1500);
   filled.push('cost $'+d.price.toFixed(2));
  }
- // Fill description if better
+ // Fill description — only if empty or very short
  const descEl=document.querySelector('[name=desc_'+idx+']');
  if(descEl&&d.description){
   const cur=descEl.value.trim();
-  if(!cur||cur.length<5||d.description.length>cur.length){descEl.value=d.description;filled.push('description')}
+  if(!cur||cur.length<3){descEl.value=d.description;filled.push('description')}
  }
  // Fill part#
  const partEl=document.querySelector('[name=part_'+idx+']');
@@ -1147,7 +1136,7 @@ function applyMarkup(pct){
  for(var i=0;i<n;i++){
   var mkInp=document.querySelector('[name=markup_'+i+']');
   if(mkInp) mkInp.value=pctVal;
-  recalcFromMarkup(i);
+  recalcFromMarkup(i, true);
  }
 }
 
@@ -1164,7 +1153,7 @@ function applyCustomMarkup(){
  for(var i=0;i<n;i++){
   var mkInp=document.querySelector('[name=markup_'+i+']');
   if(mkInp) mkInp.value=pct;
-  recalcFromMarkup(i);
+  recalcFromMarkup(i, true);
  }
 }
 
@@ -1191,20 +1180,24 @@ function applyFlatMarkup(){
  });
 })();
 
-function recalcFromMarkup(idx){
+function recalcFromMarkup(idx, forceOverwrite){
  var costEl=document.querySelector('[name=cost_'+idx+']');
  var mkEl=document.querySelector('[name=markup_'+idx+']');
  var priceEl=document.querySelector('[name=price_'+idx+']');
  if(!costEl||!priceEl) return;
  var cost=parseFloat(costEl.value)||0;
  var mk=mkEl?parseFloat(mkEl.value):0;
- var price=parseFloat(priceEl.value)||0;
+ var currentPrice=parseFloat(priceEl.value)||0;
+ if(!forceOverwrite && currentPrice>0 && cost>0 && mk>0){
+  // Price was manually set — don't overwrite, just recalc totals
+  recalc();
+  triggerAutosave();
+  return;
+ }
  if(cost>0 && mk>0){
-  // Markup exists — calculate bid from cost + markup
   priceEl.value=(cost*(1+mk/100)).toFixed(2);
- } else if(cost>0 && price>0 && mkEl && !mk){
-  // Cost changed, bid exists but no markup — back-calculate markup
-  mkEl.value=Math.round((price-cost)/cost*100);
+ } else if(cost>0 && currentPrice>0 && mkEl && !mk){
+  mkEl.value=Math.round((currentPrice-cost)/cost*100);
  }
  recalc();
  triggerAutosave();
@@ -2264,23 +2257,6 @@ function showIntel(idx){
  document.body.insertAdjacentHTML('beforeend',html);
 }
 // ── Apply Recommended Prices ──
-function applyRecommended(){
- if(!_intelData){alert('Loading pricing data, try again in a moment.');return;}
- var applied=0;
- _intelData.forEach(function(info,i){
-  if(!info.recommendation)return;
-  var priceEl=document.querySelector('[name=price_'+i+']');
-  if(!priceEl)return;
-  var cur=parseFloat(priceEl.value)||0;
-  if(cur>0)return; // don't overwrite existing prices
-  priceEl.value=info.recommendation.recommended;
-  priceEl.style.background='rgba(31,111,235,.12)';
-  setTimeout(function(){priceEl.style.background='';},2000);
-  applied++;
- });
- if(applied>0){recalc();triggerAutosave();alert('Applied recommended prices to '+applied+' items.');}
- else{alert('No empty bid prices to fill (all items already priced).');}
-}
 </script>
 
 {% endblock %}

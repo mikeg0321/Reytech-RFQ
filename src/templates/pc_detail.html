@@ -902,15 +902,6 @@
       _linkDebounce[idx] = setTimeout(() => _fireLinkLookup(idx, url, 'pc'), 600);
     }
 
-    function handleRfqLinkInput(idx, inp) {
-      const url = inp.value.trim();
-      const metaEl = document.getElementById('rfq_link_meta_'+idx);
-      if (!url || !_isUrl(url)) return;
-      if (metaEl) metaEl.innerHTML='<span style="color:#d29922">\u23F3 Looking up…</span>';
-      clearTimeout(_linkDebounce['rfq_'+idx]);
-      _linkDebounce['rfq_'+idx] = setTimeout(() => _fireLinkLookup(idx, url, 'rfq'), 800);
-    }
-
     function _fireLinkLookup(idx, url, mode) {
       const metaEl = mode==='pc' ? document.getElementById('link_meta_'+idx) : document.getElementById('rfq_link_meta_'+idx);
       if (metaEl) metaEl.innerHTML='<span style="color:#d29922">\u23F3 Looking up…</span>';
@@ -1012,12 +1003,6 @@
       if (filled.length > 0 && typeof showMsg==='function') {
         showMsg('\uD83D\uDD17 Auto-filled from '+(d.supplier||'URL')+': '+filled.join(', '),'ok');
       }
-    }
-
-    function relookupLink(idx) {
-      const inp = document.querySelector('[name=link_'+idx+']');
-      if (!inp||!inp.value.trim()) { typeof showMsg==='function'&&showMsg('Paste a supplier URL first','warn'); return; }
-      _fireLinkLookup(idx, inp.value.trim(), 'pc');
     }
 
     // ── Reverse URL Parsing: detect URL pasted in ANY field ──────────────────
@@ -2523,22 +2508,6 @@
      }
     }
 
-    function generateReytechQuote(btn) {
-     btn.disabled=true;btn.textContent='⏳ Saving...';
-     showMsg('Saving prices and generating Reytech Quote PDF...','warn');
-     fetch('/pricecheck/'+_pcid+'/save-prices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(collectPrices())})
-     .then(r=>r.json()).then(d=>{
-      if (d.profit_summary) updateProfitPanel(d.profit_summary);
-      if(!d.ok){btn.textContent='📋 Reytech Quote PDF';btn.disabled=false;showMsg('❌ Save failed','err');return;}
-      btn.textContent='⏳ Generating quote...';
-      return fetch('/pricecheck/'+_pcid+'/generate-quote');
-     }).then(r=>r.json()).then(d=>{
-      btn.disabled=false;btn.textContent='📋 Reytech Quote PDF';
-      if(d&&d.ok){showMsg('✅ Reytech Quote #'+d.quote_number+' generated! Reloading...','ok');setTimeout(()=>location.reload(),1200)}
-      else{showMsg('❌ Quote generation failed: '+(d?.error||'unknown'),'err')}
-     }).catch(e=>{btn.textContent='📋 Reytech Quote PDF';btn.disabled=false;showMsg('❌ Error: '+e,'err')});
-    }
-
     // Enhancement 5: PC→RFQ Linkage
     function linkToRFQ(){
      var rfqId=prompt('Enter RFQ ID to link to (or leave blank to auto-match):','');
@@ -2556,20 +2525,6 @@
       if(d.ok){showMsg('✅ Converted! '+d.items+' items. Redirecting...','ok');setTimeout(()=>location.href='/rfq/'+d.rfq_id,1200);}
       else{showMsg('❌ '+(d.error||'Conversion failed'),'err');}
      });
-    }
-
-    function convertToQuote(btn) {
-     if(!confirm('Convert this Price Check into a full quote?\\n\\nThis will create an RFQ entry with 704A, 704B, and Bid Package forms pre-filled with the pricing from this Price Check.'))return;
-     btn.disabled=true;btn.textContent='⏳ Converting...';
-     showMsg('Saving prices first...','warn');
-     fetch('/pricecheck/'+_pcid+'/save-prices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(collectPrices())})
-     .then(r=>r.json()).then(d=>{
-      return fetch('/pricecheck/'+_pcid+'/convert-to-quote');
-     }).then(r=>r.json()).then(d=>{
-      btn.disabled=false;btn.textContent='🔄 Convert to Full Quote (704A/B + Package)';
-      if(d&&d.ok){showMsg('✅ Quote created! Redirecting...','ok');setTimeout(()=>window.location='/rfq/'+d.rfq_id,1000)}
-      else{showMsg('❌ Conversion failed: '+(d?.error||'unknown'),'err')}
-     }).catch(e=>{btn.textContent='🔄 Convert to Full Quote (704A/B + Package)';btn.disabled=false;showMsg('❌ Error: '+e,'err')});
     }
 
     function autoProcess(btn) {
