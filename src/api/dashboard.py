@@ -2699,6 +2699,23 @@ def process_rfq_email(rfq_email):
             rfq_data["due_date"] = _due
             _trace.append(f"DUE FROM EMAIL TEXT: {_due}")
 
+    # ── Auto-detect required forms from email body ──────────────────────
+    try:
+        from src.core.agency_config import extract_required_forms_from_text
+        _form_result = extract_required_forms_from_text(_combined_text)
+        if _form_result["forms"]:
+            # Set as package_forms checklist (user can override on detail page)
+            _pkg = {}
+            for _fid in _form_result["forms"]:
+                _pkg[_fid] = True
+            rfq_data["package_forms"] = _pkg
+            rfq_data["_detected_forms"] = _form_result["raw_matches"]
+            _trace.append(f"FORMS DETECTED FROM EMAIL: {_form_result['forms']}")
+            log.info("Auto-detected %d required forms from email text: %s",
+                     len(_form_result["forms"]), _form_result["forms"])
+    except Exception as _fe:
+        log.debug("Form detection from email: %s", _fe)
+
     rfqs[rfq_data["id"]] = rfq_data
     save_rfqs(rfqs)
     POLL_STATUS["emails_found"] += 1

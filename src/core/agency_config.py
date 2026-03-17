@@ -5,21 +5,45 @@ Standalone module (no Flask imports) so it can be imported from anywhere.
 
 AVAILABLE_FORMS = [
     {"id": "703b", "name": "AMS 703B", "desc": "RFQ Pricing Form"},
+    {"id": "703c", "name": "AMS 703C", "desc": "Fair & Reasonable Form"},
     {"id": "704b", "name": "AMS 704B", "desc": "Quote Worksheet"},
     {"id": "bidpkg", "name": "Bid Package", "desc": "Agency Bid Package"},
     {"id": "quote", "name": "Reytech Quote", "desc": "Formal quote on letterhead"},
     {"id": "std204", "name": "STD 204", "desc": "Payee Data Record"},
+    {"id": "std205", "name": "STD 205", "desc": "Payee Supplemental"},
     {"id": "sellers_permit", "name": "Seller's Permit", "desc": "CA Seller's Permit"},
     {"id": "dvbe843", "name": "DVBE 843", "desc": "DVBE Declarations"},
     {"id": "cv012_cuf", "name": "CV 012 CUF", "desc": "CalVet Commercially Useful Function"},
     {"id": "bidder_decl", "name": "Bidder Declaration", "desc": "GSPD-05-105"},
     {"id": "darfur_act", "name": "Darfur Act", "desc": "DGS PD 1"},
     {"id": "calrecycle74", "name": "CalRecycle 74", "desc": "Postconsumer Recycled Content"},
-    {"id": "std1000", "name": "STD 1000", "desc": "GenAI Reporting"},
-    {"id": "std205", "name": "STD 205", "desc": "Payee Supplemental"},
+    {"id": "std1000", "name": "STD 1000", "desc": "GenAI Reporting / Disclosure"},
     {"id": "drug_free", "name": "Drug-Free STD 21", "desc": "Drug-Free Workplace"},
     {"id": "barstow_cuf", "name": "Barstow CUF", "desc": "Barstow facility CUF"},
+    {"id": "obs_1600", "name": "OBS 1600", "desc": "Food Product Certification"},
+    {"id": "w9", "name": "W-9", "desc": "IRS W-9 Tax Form"},
 ]
+
+# Patterns in email body/PDF text that indicate a specific form is required
+# These match what buyers list in their "what to include" instructions
+FORM_TEXT_PATTERNS = {
+    "std204":       ["STD 204", "STD204", "PAYEE DATA", "PAYEE RECORD", "204/205 PAYEE"],
+    "std205":       ["STD 205", "STD205", "PAYEE SUPPLEMENTAL"],
+    "dvbe843":      ["STD 843", "DGS PD 843", "DVBE DECLARATION", "DVBE 843", "843"],
+    "darfur_act":   ["DARFUR", "DARFUR CONTRACTING", "DARFUR ACT"],
+    "cv012_cuf":    ["CV 012", "CV012", "COMMERCIALLY USEFUL FUNCTION", "CUF FORM", "CUF,"],
+    "calrecycle74": ["CALRECYCLE", "RECYCLED-CONTENT", "RECYCLED CONTENT", "POSTCONSUMER", "074"],
+    "bidder_decl":  ["BIDDER DECLARATION", "GSPD-05-105", "GSPD 05"],
+    "std1000":      ["STD 1000", "STD1000", "GENAI", "GEN AI DISCLOSURE", "GEN AI REPORTING"],
+    "sellers_permit": ["SELLER'S PERMIT", "SELLERS PERMIT", "SELLER PERMIT"],
+    "w9":           ["W-9", "W9", "TAX FORM"],
+    "drug_free":    ["DRUG-FREE", "DRUG FREE WORKPLACE"],
+    "obs_1600":     ["OBS 1600", "FOOD PRODUCT", "AGRICULTURAL PRODUCT"],
+    "quote":        ["YOUR QUOTE", "YOUR BID", "PRICE QUOTE", "QUOTATION"],
+    "703b":         ["703B", "703-B", "AMS 703"],
+    "703c":         ["703C", "703-C", "FAIR AND REASONABLE"],
+    "704b":         ["704B", "704-B", "QUOTE WORKSHEET"],
+}
 
 DEFAULT_AGENCY_CONFIGS = {
     "calvet": {
@@ -90,6 +114,39 @@ DEFAULT_AGENCY_CONFIGS = {
         "notes": "Default config for unrecognized agencies. Minimal forms.",
     },
 }
+
+
+def extract_required_forms_from_text(text):
+    """Parse email body or PDF text to detect which forms the buyer is asking for.
+
+    Buyers often list required forms like:
+        - A completed STD 204/205 Payee Data Record
+        - Darfur Contracting Act Certification
+        - CV 012, Commercially Useful Function Form
+        - CalRecycle 074, Postconsumer Recycled-Content Certification
+
+    Returns: {"forms": ["std204", "darfur_act", ...], "raw_matches": [...]}
+    """
+    if not text:
+        return {"forms": [], "raw_matches": []}
+
+    text_upper = text.upper()
+    found = []
+    raw = []
+
+    for form_id, patterns in FORM_TEXT_PATTERNS.items():
+        for pat in patterns:
+            if pat.upper() in text_upper:
+                if form_id not in found:
+                    found.append(form_id)
+                    raw.append({"form": form_id, "matched": pat})
+                break
+
+    # Always include quote if any forms were requested
+    if found and "quote" not in found:
+        found.insert(0, "quote")
+
+    return {"forms": found, "raw_matches": raw}
 
 
 def load_agency_configs():
