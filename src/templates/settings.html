@@ -14,6 +14,45 @@
  </div>
 </div>
 
+<!-- ═══ Master Form Templates ═══ -->
+<div class="card" style="margin-bottom:12px">
+ <div class="card-t">📋 Master Form Templates</div>
+ <div style="font-size:13px;color:var(--tx2);margin-bottom:10px">Blank PDF templates used to generate bid package forms. These are auto-seeded on deploy but can be replaced here.</div>
+ <div id="tmpl-list" style="margin-bottom:12px">Loading...</div>
+ <form id="tmpl-upload" style="display:flex;gap:8px;align-items:center;padding:10px 14px;background:var(--sf2);border-radius:8px;border:1px solid var(--bd)">
+  <input type="file" name="template" accept=".pdf" style="font-size:13px">
+  <input type="text" name="save_as" placeholder="Save as (optional)" style="width:200px;font-size:13px;padding:4px 8px;background:var(--sf);border:1px solid var(--bd);border-radius:4px;color:var(--tx)">
+  <button type="submit" class="btn btn-sm btn-p" style="font-size:13px">Upload</button>
+ </form>
+</div>
+<script>
+(function(){
+ function loadTmpls(){
+  fetch('/api/v1/system/templates',{credentials:'same-origin'}).then(r=>r.json()).then(d=>{
+   if(!d.ok||!d.data)return;
+   var t=d.data.templates||[];
+   if(!t.length){document.getElementById('tmpl-list').innerHTML='<div style="color:var(--tx2)">No templates found</div>';return;}
+   var html='<table style="width:100%;font-size:13px"><thead><tr><th style="text-align:left;padding:4px 8px">Filename</th><th style="text-align:right;padding:4px 8px">Size</th></tr></thead><tbody>';
+   t.forEach(function(f){
+    html+='<tr><td style="padding:4px 8px;color:var(--tx)">'+f.filename+'</td><td style="padding:4px 8px;text-align:right;color:var(--tx2)">'+f.size_kb+'KB</td></tr>';
+   });
+   html+='</tbody></table>';
+   document.getElementById('tmpl-list').innerHTML=html;
+  }).catch(function(){document.getElementById('tmpl-list').innerHTML='<div style="color:#f85149">Failed to load</div>';});
+ }
+ loadTmpls();
+ document.getElementById('tmpl-upload').addEventListener('submit',function(e){
+  e.preventDefault();
+  var fd=new FormData(this);
+  fetch('/api/v1/system/templates/upload',{method:'POST',credentials:'same-origin',body:fd})
+  .then(r=>r.json()).then(d=>{
+   if(d.ok){alert('Uploaded: '+d.data.uploaded);loadTmpls();}
+   else alert('Error: '+(d.error||'failed'));
+  }).catch(function(err){alert('Upload failed: '+err.message);});
+ });
+})();
+</script>
+
 <!-- ═══ System Health ═══ -->
 <div class="card" style="margin-bottom:12px">
  <div class="card-t" style="display:flex;justify-content:space-between;align-items:center">
