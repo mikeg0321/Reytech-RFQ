@@ -7367,6 +7367,15 @@ def api_bulk_scrape_urls(pcid):
                 item = items[i]
                 item["item_link"] = url
                 item["item_supplier"] = r.get("supplier", "")
+                # Update MFG#/part number if scrape found one
+                _pn = r.get("mfg_number") or r.get("part_number") or ""
+                if _pn:
+                    item["item_number"] = _pn
+                    item["mfg_number"] = _pn
+                # Update description if scrape has a better one
+                _title = r.get("title") or r.get("description") or ""
+                if _title and (not item.get("description") or len(item.get("description", "")) < 10):
+                    item["description"] = _title
                 if not item.get("pricing"):
                     item["pricing"] = {}
                 item["pricing"]["unit_cost"] = price
