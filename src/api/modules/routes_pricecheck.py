@@ -250,6 +250,12 @@ def _pricecheck_detail_inner(pcid):
         flash("Price Check not found", "error"); return redirect("/")
 
     import copy as _copy
+    # CRITICAL: deep copy for rendering — never mutate cached objects.
+    # _load_price_checks() has a 30s in-memory cache. If we mutate items here
+    # (description cleaning line ~268, link promotion line ~348, line_number
+    # assignment line ~704), those changes persist in the cache and get written
+    # to DB on the next /save-prices call — causing "data replaced without
+    # prompt" where just OPENING a PC page silently changes stored data.
     items = _copy.deepcopy(pc.get("items") or [])
     header = _copy.deepcopy((pc.get("parsed") or {}).get("header") or {})
 
