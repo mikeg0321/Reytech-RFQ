@@ -3858,3 +3858,56 @@ def api_v1_parse_gaps():
     except Exception as e:
         log.error("parse-gaps error: %s", e, exc_info=True)
         return api_response(error=str(e), status=500)
+
+
+# ── Master Template Management ────────────────────────────────────────
+
+@bp.route("/api/v1/system/templates")
+@auth_required
+def api_v1_system_templates():
+    """List master form templates on the volume."""
+    try:
+        from src.core.paths import DATA_DIR as _DATA_DIR
+    except Exception:
+        _DATA_DIR = os.environ.get("DATA_DIR", "/data")
+    tmpl_dir = os.path.join(_DATA_DIR, "templates")
+    if not os.path.exists(tmpl_dir):
+        return api_response({"templates": [], "path": tmpl_dir})
+    templates = []
+    for f in sorted(os.listdir(tmpl_dir)):
+        fp = os.path.join(tmpl_dir, f)
+        if os.path.isfile(fp):
+            templates.append({
+                "filename": f,
+                "size_kb": round(os.path.getsize(fp) / 1000, 1),
+                "modified": os.path.getmtime(fp),
+            })
+    return api_response({"templates": templates, "path": tmpl_dir})
+
+
+@bp.route("/api/v1/system/templates/upload", methods=["POST"])
+@auth_required
+def api_v1_system_templates_upload():
+    """Upload a master form template (843, CalRecycle, CUF, etc.)."""
+    try:
+        from src.core.paths import DATA_DIR as _DATA_DIR
+    except Exception:
+        _DATA_DIR = os.environ.get("DATA_DIR", "/data")
+    tmpl_dir = os.path.join(_DATA_DIR, "templates")
+    os.makedirs(tmpl_dir, exist_ok=True)
+
+    f = request.files.get("template")
+    if not f or not f.filename:
+        return api_response(error="No file uploaded", status=400)
+    filename = f.filename.strip()
+    if not filename.lower().endswith(".pdf"):
+        return api_response(error="Only PDF files allowed", status=400)
+
+    # Allow custom name override
+    save_as = request.form.get("save_as", "").strip() or filename
+    if not save_as.lower().endswith(".pdf"):
+        save_as += ".pdf"
+    dest = os.path.join(tmpl_dir, save_as)
+    f.save(dest)
+    log.info("Master template uploaded: %s (%d bytes)", save_as, os.path.getsize(dest))
+    return api_response({"uploaded": save_as, "size_kb": round(os.path.getsize(dest) / 1000, 1)})

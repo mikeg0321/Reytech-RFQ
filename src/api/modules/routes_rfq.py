@@ -2108,9 +2108,36 @@ def generate_rfq_package(rid):
         if _include("bidpkg"):
             if "bidpkg" in tmpl and os.path.exists(tmpl["bidpkg"]):
                 try:
-                    fill_bid_package(tmpl["bidpkg"], r, CONFIG, f"{out_dir}/{sol}_BidPackage_Reytech.pdf")
+                    _bidpkg_path = f"{out_dir}/{sol}_BidPackage_Reytech.pdf"
+                    fill_bid_package(tmpl["bidpkg"], r, CONFIG, _bidpkg_path)
                     output_files.append(f"{sol}_BidPackage_Reytech.pdf")
                     t.step("Bid Package filled")
+                    # Replace 843 pages in bid package with master template version
+                    try:
+                        import tempfile as _tmpf
+                        _843_tmp = _tmpf.mktemp(suffix=".pdf")
+                        from src.forms.reytech_filler_v4 import generate_dvbe_843
+                        generate_dvbe_843(r, CONFIG, _843_tmp)
+                        from pypdf import PdfReader as _PR843, PdfWriter as _PW843
+                        _bp_reader = _PR843(_bidpkg_path)
+                        _843_reader = _PR843(_843_tmp)
+                        _bp_writer = _PW843()
+                        _replaced = False
+                        for _bp_page in _bp_reader.pages:
+                            _ptxt = (_bp_page.extract_text() or "").upper()
+                            if ("DVBE DECLARATIONS" in _ptxt or "DGS PD 843" in _ptxt) and not _replaced:
+                                for _843p in _843_reader.pages:
+                                    _bp_writer.add_page(_843p)
+                                _replaced = True
+                                continue
+                            _bp_writer.add_page(_bp_page)
+                        if _replaced:
+                            with open(_bidpkg_path, "wb") as _bpf:
+                                _bp_writer.write(_bpf)
+                            t.step("843 replaced with master template in bid package")
+                        os.remove(_843_tmp)
+                    except Exception as _843e:
+                        log.debug("843 replacement in bid package: %s", _843e)
                 except Exception as e:
                     errors.append(f"Bid Package: {e}")
                     t.warn("Bid Package fill failed", error=str(e))
