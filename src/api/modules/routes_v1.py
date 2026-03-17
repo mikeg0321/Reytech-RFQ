@@ -4625,6 +4625,48 @@ def api_v1_email_force_process(uid):
         return api_response(error=str(e), status=500)
 
 
+@bp.route("/api/v1/data/fix-buyer-names", methods=["GET", "POST"])
+@auth_required
+def api_v1_fix_buyer_names():
+    """Fix garbage buyer names on existing PCs and RFQs using email sender."""
+    try:
+        from src.core.contracts import resolve_buyer_name, _is_real_name
+        from src.api.dashboard import _load_price_checks, _save_price_checks
+        fixed_pcs = 0
+        fixed_rfqs = 0
+        details = []
+        pcs = _load_price_checks()
+        for pcid, pc in pcs.items():
+            current = pc.get("requestor", "")
+            email = pc.get("requestor_email", pc.get("email", ""))
+            if (current and not _is_real_name(current) and email) or (not current and email):
+                new_name = resolve_buyer_name(current, "", email)
+                if new_name and new_name != current:
+                    pc["requestor"] = new_name
+                    pc["_original_parsed_requestor"] = current
+                    details.append({"type": "pc", "id": pcid[:20], "old": current, "new": new_name})
+                    fixed_pcs += 1
+        if fixed_pcs:
+            _save_price_checks(pcs)
+        rfqs = load_rfqs()
+        for rid, r in rfqs.items():
+            current = r.get("requestor_name", "")
+            email = r.get("requestor_email", "")
+            if (current and not _is_real_name(current) and email) or (not current and email):
+                new_name = resolve_buyer_name(current, "", email)
+                if new_name and new_name != current:
+                    r["requestor_name"] = new_name
+                    r["_original_parsed_requestor"] = current
+                    details.append({"type": "rfq", "id": rid[:20], "old": current, "new": new_name})
+                    fixed_rfqs += 1
+        if fixed_rfqs:
+            save_rfqs(rfqs)
+        return api_response({"fixed_pcs": fixed_pcs, "fixed_rfqs": fixed_rfqs, "details": details})
+    except Exception as e:
+        log.error("fix-buyer-names: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)
+
+
 # ── Data Integrity ────────────────────────────────────────────────────
 
 @bp.route("/api/v1/quotes/fix-orphans", methods=["GET", "POST"])

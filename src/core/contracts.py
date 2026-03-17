@@ -133,3 +133,57 @@ def log_blocked_save(record_type, record_id, violations, caller=""):
 
 def get_blocked_saves(limit=50):
     return _blocked_saves[-limit:]
+
+
+# ════════════════════════════════════════════════════════════════
+# BUYER NAME RESOLUTION
+# ════════════════════════════════════════════════════════════════
+
+def resolve_buyer_name(parsed_name, sender_name, sender_email):
+    """Determine real buyer name. Email sender is default unless parsed name is valid."""
+    if parsed_name and _is_real_name(parsed_name):
+        return parsed_name.strip()
+    if sender_name and _is_real_name(sender_name):
+        return sender_name.strip()
+    if sender_email and "@" in sender_email:
+        local = sender_email.split("@")[0]
+        parts = re.split(r'[._]', local)
+        if len(parts) >= 2:
+            name = " ".join(p.capitalize() for p in parts if len(p) >= 2)
+            if _is_real_name(name):
+                return name
+        if len(local) >= 3:
+            return local.capitalize()
+    return parsed_name or sender_name or ""
+
+
+_NON_NAMES = [
+    "purchase order", "price check", "quote request", "bid package",
+    "request for", "solicitation", "department of", "state of california",
+    "attention", "procurement", "accounts payable", "general services",
+    "tbd", "n/a", "none", "unknown", "test", "see attached",
+    "see instructions", "various", "mail room", "receiving dock",
+]
+
+
+def _is_real_name(name):
+    """Check if a string is a plausible human name."""
+    if not name or not isinstance(name, str):
+        return False
+    name = name.strip()
+    if len(name) < 3 or len(name) > 60:
+        return False
+    words = name.split()
+    if len(words) < 2:
+        return False
+    for word in words:
+        cleaned = word.strip(".,'-")
+        if len(cleaned) < 2:
+            return False
+        if not re.match(r"^[A-Za-z][A-Za-z'\-]+$", cleaned):
+            return False
+    name_lower = name.lower()
+    for non in _NON_NAMES:
+        if non in name_lower:
+            return False
+    return True

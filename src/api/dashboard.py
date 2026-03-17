@@ -2726,6 +2726,22 @@ def process_rfq_email(rfq_email):
     except Exception as _fe:
         log.debug("Form detection from email: %s", _fe)
 
+    # ── Resolve buyer name: email sender is default, parsed name only if valid ──
+    try:
+        from src.core.contracts import resolve_buyer_name
+        _from_header = rfq_email.get("sender", "")
+        _sender_name = ""
+        _sn_match = re.match(r'^([^<]+)<', _from_header)
+        if _sn_match:
+            _sender_name = _sn_match.group(1).strip().strip('"')
+        _sender_email = rfq_email.get("sender_email", rfq_data.get("requestor_email", ""))
+        rfq_data["requestor_name"] = resolve_buyer_name(
+            rfq_data.get("requestor_name", ""), _sender_name, _sender_email)
+        if not rfq_data.get("requestor_email") and _sender_email:
+            rfq_data["requestor_email"] = _sender_email
+    except Exception:
+        pass
+
     rfqs[rfq_data["id"]] = rfq_data
     save_rfqs(rfqs)
     POLL_STATUS["emails_found"] += 1
