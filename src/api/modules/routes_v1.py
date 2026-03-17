@@ -3860,6 +3860,32 @@ def api_v1_parse_gaps():
         return api_response(error=str(e), status=500)
 
 
+# ── Agency Intelligence ───────────────────────────────────────────────
+
+@bp.route("/api/v1/agency/buyer-profile")
+@auth_required
+def api_v1_buyer_profile():
+    """Get learned form preferences for a buyer email."""
+    email = request.args.get("email", "")
+    if not email:
+        return api_response(error="Pass ?email=buyer@agency.gov", status=400)
+    try:
+        from src.core.agency_config import get_buyer_form_preferences, match_agency
+        prefs = get_buyer_form_preferences(email)
+        # Also show what the pattern matcher would pick
+        dummy = {"requestor_email": email}
+        matched_key, matched_cfg = match_agency(dummy)
+        return api_response({
+            "email": email,
+            "learned": prefs,
+            "pattern_match": {"agency": matched_key, "name": matched_cfg.get("name", ""),
+                            "required": matched_cfg.get("required_forms", [])},
+        })
+    except Exception as e:
+        log.error("buyer-profile error: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)
+
+
 # ── Master Template Management ────────────────────────────────────────
 
 @bp.route("/api/v1/system/templates")

@@ -2490,6 +2490,16 @@ def generate_rfq_package(rid):
     # ── Step 6: Save, transition, create draft email ──
     _transition_status(r, "generated", actor="user", notes=f"Package: {len(final_output_files)} files")
     r["output_files"] = final_output_files
+
+    # Learn which forms were used for this agency/buyer (improves future matching)
+    try:
+        from src.core.agency_config import learn_agency_forms
+        learn_agency_forms(
+            rid, _agency_key if '_agency_key' in dir() else r.get("agency", "unknown"),
+            output_files,
+            buyer_email=r.get("requestor_email", ""))
+    except Exception:
+        pass
     r["generated_at"] = datetime.now().isoformat()
     
     # ── Google Drive: upload package to Pending ──
