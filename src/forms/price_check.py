@@ -1711,8 +1711,8 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
     CHECKBOX = ("Check Box4", 244.5, 95.1, 257.6, 106.7)
 
     # Price + Extension column X ranges (tight — only these two columns)
-    PRICE_X = (644.0, 698.0)
-    EXT_X = (700.0, 764.0)
+    PRICE_X = (635.6, 687.8)   # exact from template annotation PRICE PER UNITRow1
+    EXT_X = (689.6, 755.8)     # exact from template annotation EXTENSIONRow1
 
     # Page-1-format: 8 rows starting at y=300
     PG1_ROWS = [(300.1 - i * 22.5, 321.2 - i * 22.5) for i in range(8)]
@@ -1739,6 +1739,26 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
             fs -= 0.5
             c.setFont("Helvetica", fs)
         c.drawString(x1 + 1, y1 + (h - fs) / 2, text)
+
+    def _cell_right(c, x1, y1, x2, y2, text, fs=9):
+        """Draw RIGHT-ALIGNED text in a tight white-masked cell. For prices/currency."""
+        if not text or not text.strip():
+            return
+        text = text.strip()
+        w, h = x2 - x1, y2 - y1
+        if w <= 0 or h <= 0:
+            return
+        c.saveState()
+        c.setFillColorRGB(1, 1, 1)
+        c.rect(x1 + 1, y1 + 1, w - 2, h - 2, fill=1, stroke=0)
+        c.restoreState()
+        fs = min(fs, h * 0.75)
+        c.setFont("Helvetica", fs)
+        while c.stringWidth(text, "Helvetica", fs) > w - 4 and fs > 4.5:
+            fs -= 0.5
+            c.setFont("Helvetica", fs)
+        text_w = c.stringWidth(text, "Helvetica", fs)
+        c.drawString(x2 - text_w - 2, y1 + (h - fs) / 2, text)
 
     def _multiline(c, x1, y1, x2, y2, text, fs=8):
         """Draw multi-line text with white mask."""
@@ -1820,7 +1840,7 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
                 for fname, (x1, y1, x2, y2) in TOTALS.items():
                     val = fv_map.get(fname, "")
                     if val:
-                        _cell(c, x1, y1, x2, y2, val, fs=10)
+                        _cell_right(c, x1, y1, x2, y2, val, fs=10)
                         drew = True
 
         # ── CONTINUATION HEADER (mask + fill SUPPLIER NAME) ──
@@ -1838,13 +1858,13 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
             pf = ROW_FIELDS["unit_price"].format(n=rn)
             pv = fv_map.get(pf, "")
             if pv and pv.strip():
-                _cell(c, PRICE_X[0], y_bot, PRICE_X[1], y_top, pv, fs=9)
+                _cell_right(c, PRICE_X[0], y_bot, PRICE_X[1], y_top, pv, fs=9)
                 drew = True
             # Extension
             ef = ROW_FIELDS["extension"].format(n=rn)
             ev = fv_map.get(ef, "")
             if ev and ev.strip():
-                _cell(c, EXT_X[0], y_bot, EXT_X[1], y_top, ev, fs=9)
+                _cell_right(c, EXT_X[0], y_bot, EXT_X[1], y_top, ev, fs=9)
                 drew = True
 
         log.info("OVERLAY pg%d: %s rows=%d-%d drew=%s",
