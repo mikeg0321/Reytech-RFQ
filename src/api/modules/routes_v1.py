@@ -4639,6 +4639,10 @@ def api_v1_fix_buyer_names():
         for pcid, pc in pcs.items():
             current = pc.get("requestor", "")
             email = pc.get("requestor_email", pc.get("email", ""))
+            if current and "@" in current and not email:
+                email = current
+                pc["requestor_email"] = current
+                current = ""
             if (current and not _is_real_name(current) and email) or (not current and email):
                 new_name = resolve_buyer_name(current, "", email)
                 if new_name and new_name != current:
@@ -4652,6 +4656,11 @@ def api_v1_fix_buyer_names():
         for rid, r in rfqs.items():
             current = r.get("requestor_name", "")
             email = r.get("requestor_email", "")
+            # If name field contains an email address, use it as email source
+            if current and "@" in current and not email:
+                email = current
+                r["requestor_email"] = current
+                current = ""
             if (current and not _is_real_name(current) and email) or (not current and email):
                 new_name = resolve_buyer_name(current, "", email)
                 if new_name and new_name != current:
