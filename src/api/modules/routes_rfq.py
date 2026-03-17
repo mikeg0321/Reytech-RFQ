@@ -4212,10 +4212,16 @@ def api_rfq_price_intel(rid):
     return jsonify({"ok": True, "intel": intel})
 
 
+_pricing_alerts_cache = {"data": None, "ts": 0}
+
 @bp.route("/api/pricing-alerts")
 @auth_required
 def api_pricing_alerts():
     """F8: Dashboard pricing alerts — stale prices, drift, unpriced items."""
+    import time as _time
+    global _pricing_alerts_cache
+    if _pricing_alerts_cache["data"] and (_time.time() - _pricing_alerts_cache["ts"]) < 120:
+        return jsonify(_pricing_alerts_cache["data"])
     from datetime import datetime as _dt, timedelta
     rfqs = load_rfqs()
     stale_rfqs = []
@@ -4267,13 +4273,16 @@ def api_pricing_alerts():
         pass
 
     total_alerts = len(stale_rfqs) + len(unpriced_rfqs) + (1 if drift_items > 0 else 0)
-    return jsonify({
+    _pa_result = {
         "ok": True,
         "total_alerts": total_alerts,
         "stale_rfqs": stale_rfqs,
         "unpriced_rfqs": unpriced_rfqs,
         "drift_items": drift_items,
-    })
+    }
+    _pricing_alerts_cache["data"] = _pa_result
+    _pricing_alerts_cache["ts"] = _time.time()
+    return jsonify(_pa_result)
 
 
 @bp.route("/api/rfq/<rid>/qa-check")

@@ -1063,10 +1063,16 @@ def won_history_search():
 # Enhancement 4: Stale Quote Follow-Up Tracker
 # ═══════════════════════════════════════════════════════════════════════════════
 
+_stale_cache = {"data": None, "ts": 0}
+
 @bp.route("/api/stale-quotes")
 @auth_required
 def stale_quotes():
     """Find quotes sent but with no response after configurable days."""
+    import time as _time
+    global _stale_cache
+    if _stale_cache["data"] and (_time.time() - _stale_cache["ts"]) < 120:
+        return jsonify(_stale_cache["data"])
     days_threshold = int(request.args.get("days", 3))
     cutoff = (datetime.now() - _timedelta(days=days_threshold)).isoformat()
 
@@ -1146,8 +1152,11 @@ def stale_quotes():
             })
 
     stale.sort(key=lambda x: x.get("days_since", 0), reverse=True)
-    return jsonify({"ok": True, "stale": stale, "threshold_days": days_threshold,
-                    "count": len(stale)})
+    _stale_result = {"ok": True, "stale": stale, "threshold_days": days_threshold,
+                     "count": len(stale)}
+    _stale_cache["data"] = _stale_result
+    _stale_cache["ts"] = _time.time()
+    return jsonify(_stale_result)
 
 
 @bp.route("/api/stale-quotes/<entity_type>/<eid>/follow-up", methods=["POST"])

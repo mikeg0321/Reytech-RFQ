@@ -261,6 +261,8 @@ def api_v1_pc_item_history(pc_id, item_number):
         return api_response(error=str(e), status=500)
 
 
+_health_cache = {"data": None, "ts": 0}
+
 @bp.route("/api/v1/health")
 @auth_required
 def api_v1_health():
@@ -268,6 +270,10 @@ def api_v1_health():
     Returns: version, uptime, DB state, queue depths, agent status.
     Auth: X-API-Key or Basic Auth.
     """
+    import time as _time
+    global _health_cache
+    if _health_cache["data"] and (_time.time() - _health_cache["ts"]) < 60:
+        return jsonify(_health_cache["data"])
     import sqlite3
     try:
         # Version (git sha)
@@ -382,7 +388,7 @@ def api_v1_health():
         except Exception:
             pass
 
-        return api_response({
+        _result = {
             "version": version,
             "uptime_seconds": uptime,
             "db": db_info,
@@ -391,7 +397,10 @@ def api_v1_health():
             "scprs_harvest": harvest,
             "connectors": connector_status,
             "compliance": compliance,
-        })
+        }
+        _health_cache["data"] = _result
+        _health_cache["ts"] = _time.time()
+        return api_response(_result)
     except Exception as e:
         log.error("v1/health error: %s", e, exc_info=True)
         return api_response(error=str(e), status=500)
