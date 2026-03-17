@@ -4397,6 +4397,96 @@ def api_v1_recover_forwards():
         return api_response(error=str(e), status=500)
 
 
+@bp.route("/api/v1/email/diagnose/<uid>")
+@auth_required
+def api_v1_email_diagnose(uid):
+    """Trace exactly what the poller would do with a specific email UID."""
+    try:
+        import imaplib
+        import email as _em
+        addr = os.environ.get("GMAIL_ADDRESS", "")
+        pwd = os.environ.get("GMAIL_PASSWORD", "")
+        if not addr or not pwd:
+            return api_response(error="No email credentials")
+        imap = imaplib.IMAP4_SSL("imap.gmail.com")
+        imap.login(addr, pwd)
+        # Try sales@ first
+        imap.select("INBOX")
+        _, data = imap.uid("fetch", uid.encode(), "(BODY.PEEK[])")
+        if not data or not data[0] or data[0] == b"":
+            # Try searching by UID
+            _, search = imap.uid("search", None, "ALL")
+            all_uids = search[0].split() if search[0] else []
+            found = uid.encode() in all_uids
+            imap.logout()
+            return api_response({"error": f"UID {uid} not found in sales@ INBOX", "total_uids": len(all_uids), "uid_in_list": found})
+
+        msg = _em.message_from_bytes(data[0][1])
+        subj = msg.get("Subject", "")
+        from_hdr = msg.get("From", "")
+        # Analyze structure
+        parts = []
+        pdf_count = 0
+        nested_pdf_count = 0
+        for part in msg.walk():
+            ct = part.get_content_type()
+            fn = part.get_filename() or ""
+            parts.append({"type": ct, "filename": fn[:60]})
+            if fn.lower().endswith(".pdf"):
+                pdf_count += 1
+            if ct == "message/rfc822":
+                payload = part.get_payload()
+                inners = payload if isinstance(payload, list) else ([payload] if hasattr(payload, 'walk') else [])
+                for inner in inners:
+                    if hasattr(inner, 'walk'):
+                        for ip in inner.walk():
+                            ipfn = ip.get_filename() or ""
+                            if ipfn.lower().endswith(".pdf"):
+                                nested_pdf_count += 1
+                                parts.append({"type": "NESTED_PDF", "filename": ipfn[:60]})
+        # Check forward signals
+        subj_lower = subj.lower().strip()
+        is_fwd = any(subj_lower.startswith(p) for p in ["fwd:", "fw:"])
+        body = ""
+        for part in msg.walk():
+            if part.get_content_type() == "text/plain":
+                try: body = part.get_payload(decode=True).decode(errors="replace")
+                except: pass
+                break
+        has_fwd_body = any(m in body.lower() for m in ["forwarded message", "begin forwarded", "---------- forwarded"])
+        has_rfc822 = any(p.get_content_type() == "message/rfc822" for p in msg.walk())
+        signals = sum([is_fwd, has_fwd_body, bool(pdf_count), bool(nested_pdf_count), has_rfc822])
+
+        # Check processed status
+        from src.api.dashboard import POLL_STATUS
+        poller = POLL_STATUS.get("_poller_instance")
+        in_processed = uid in poller._processed if poller else "unknown"
+
+        imap.logout()
+        return api_response({
+            "uid": uid,
+            "subject": subj[:120],
+            "from": from_hdr[:80],
+            "parts": parts[:20],
+            "top_level_pdfs": pdf_count,
+            "nested_pdfs": nested_pdf_count,
+            "forward_signals": {
+                "fwd_subject": is_fwd,
+                "fwd_body": has_fwd_body,
+                "has_rfc822": has_rfc822,
+                "top_pdfs": pdf_count,
+                "nested_pdfs": nested_pdf_count,
+                "total_signals": signals,
+                "would_pass": signals >= 2,
+            },
+            "in_processed": in_processed,
+            "body_preview": body[:500],
+        })
+    except Exception as e:
+        log.error("email diagnose: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)
+
+
 # ── Data Integrity ────────────────────────────────────────────────────
 
 @bp.route("/api/v1/quotes/fix-orphans", methods=["GET", "POST"])
