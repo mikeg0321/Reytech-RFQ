@@ -148,30 +148,6 @@
       });
     }
 
-    function markQuote(qn, status) {
-      let po = '';
-      if (status === 'won') {
-        po = prompt('Enter PO number (required — only formal POs count as wins):', '');
-        if (!po || !po.trim()) { alert('PO number is required to mark as won.'); return; }
-        po = po.trim();
-      }
-      fetch('/quotes/' + qn + '/status', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({status: status, po_number: po})
-      })
-      .then(r => r.json())
-      .then(d => {
-        if (d.ok) {
-          if (status === 'won' && confirm('Quote marked Won! Create an order from this quote?')) {
-            convertToOrder(qn, po);
-          } else {
-            location.reload();
-          }
-        }
-        else { alert('Error: ' + (d.error || 'unknown')); }
-      });
-    }
 
     function convertToOrder(qn, poNum) {
       var po = poNum || prompt('PO number (optional):', '') || '';

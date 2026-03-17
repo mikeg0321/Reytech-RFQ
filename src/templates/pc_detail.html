@@ -213,10 +213,6 @@
         <hr style="border-color:#30363d;margin:4px 0">
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#58a6ff;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runScprs(this);this.closest('details').open=false" aria-label="SCPRS (state contracts)">🔍 SCPRS (state contracts)</button>
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#3fb950;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runCatalogMatch(this);this.closest('details').open=false" aria-label="Catalog (our products)">🎯 Catalog (our products)</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#f0883e;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runLookup(this);this.closest('details').open=false" aria-label="Amazon">🔬 Amazon</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#f778ba;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runPriceSweep(this);this.closest('details').open=false" aria-label="Sweep (multi-retailer)">🛒 Sweep (multi-retailer)</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#d2a8ff;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runWebSearch(this);this.closest('details').open=false" aria-label="Web Search">🌐 Web Search</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#d2a8ff;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runAIFindAll(this);this.closest('details').open=false" aria-label="AI Find">🤖 AI Find</button>
        </div>
       </details>
       <button class="btn btn-sm" onclick="toggleAllNotes()" style="background:#21262d;color:#d2a8ff;border:1px solid #30363d;font-size:13px;padding:6px 14px" title="Show/hide notes row for each item">📝 Notes</button>
@@ -227,13 +223,8 @@
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#c9d1d9;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="saveAndGenerate(this)" aria-label="Re-fill 704">♻️ Re-fill 704</button>
         {% endif %}
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#f0883e;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="generateOriginal704(this)" aria-label="Generate Original 704">📄 Generate Original 704</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#c9d1d9;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="window.print()" aria-label="Print Page">🖨️ Print Page</button>
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#58a6ff;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="generateQuote1Click(this)" aria-label="Generate Formal Quote (704b/703b)">📋 Generate Formal Quote (704b/703b)</button>
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#a78bfa;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="showRevisions()" aria-label="Revision History">📝 Revision History</button>
-        <hr style="border-color:#30363d;margin:4px 0">
-        <div style="font-size:13px;color:#484f58;padding:2px 10px;text-transform:uppercase;letter-spacing:.5px">Analysis</div>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#d2a8ff;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runPortfolioPrice(this)" aria-label="Portfolio Optimizer">📊 Portfolio Optimizer</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#f0883e;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runCompetitorIntel(this)" aria-label="Competitor Intel">🏢 Competitor Intel</button>
         <hr style="border-color:#30363d;margin:4px 0">
         <div style="font-size:13px;color:#484f58;padding:2px 10px;text-transform:uppercase;letter-spacing:.5px">Admin</div>
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runReparse(this)" aria-label="Re-parse from PDF">🔄 Re-parse from PDF</button>
@@ -241,7 +232,6 @@
         <form id="pc-upload-form" action="/pricecheck/{{pcid}}/upload-pdf" method="POST" enctype="multipart/form-data" style="display:none">
          <input type="file" id="pc-pdf-upload" name="file" accept=".pdf" onchange="this.form.submit()">
         </form>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="rescanMfgNumbers(this)" aria-label="Rescan MFGs">🔍 Rescan MFG#s</button>
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('no_response')" aria-label="No Response">💤 No Response</button>
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('duplicate')" aria-label="Mark Duplicate">📋 Mark Duplicate</button>
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('archived')" aria-label="Archive">🗄️ Archive</button>
@@ -2764,204 +2754,6 @@
     var showMsg = (typeof window.showMsg==='function') ? window.showMsg : function(m,t){console.log('[MSG]',m);};
     var recalcPC = (typeof window.recalcPC==='function') ? window.recalcPC : function(){};
     var recalcRow = (typeof window.recalcRow==='function') ? window.recalcRow : function(){};
-    _log('block3: auto-pricing-start');
-    // ── AUTO-PRICE ON LOAD — ONCE ONLY ──
-    // Only runs when status='parsed' AND auto-pricing hasn't been attempted yet.
-    // Prevents re-running on every page visit when some items remain unpriced.
-    (function autoRunPricing() {
-     var pcStatus = '{{ pc.get("status","") }}';
-     var alreadyAutoPriced = '{{ pc.get("auto_priced","") }}' === 'True';
-     
-     // Only auto-price on first load after parsing
-     if (pcStatus !== 'parsed' || alreadyAutoPriced) {
-      var banner = document.getElementById('autoStatusBanner');
-      if (banner) banner.style.display = 'none';
-      return;
-     }
-     
-     // Check if any items need pricing
-     const costInputs = document.querySelectorAll('input[name^=cost_]');
-     let unpriced = 0;
-     costInputs.forEach(inp => {
-      if (!parseFloat(inp.value)) unpriced++;
-     });
-     if (unpriced === 0 || costInputs.length === 0) {
-      const banner = document.getElementById('autoStatusBanner');
-      if (banner) banner.style.display = 'none';
-      return;
-     }
-
-     function updateBanner(icon, text, color) {
-      const b = document.getElementById('autoStatusBanner');
-      if (b) {
-       b.style.borderColor = color + '40';
-       b.style.background = color + '0d';
-       b.style.color = color;
-       b.innerHTML = '<span style="font-size:18px">' + icon + '</span><div>' + text + '</div>';
-      }
-     }
-
-     // Show auto-pricing status
-     updateBanner('🔄', '<b>Auto-pricing:</b> finding prices for ' + unpriced + '/' + costInputs.length + ' items...', '#d29922');
-     showMsg('🔄 Auto-pricing: checking Catalog → Amazon → SCPRS for ' + unpriced + ' items...', 'warn');
-
-     // Step 1: Catalog match
-     const items = [];
-     document.querySelectorAll('textarea[name^=desc_]').forEach(ta => {
-      const idx = ta.name.replace('desc_', '');
-      const desc = (ta.value || '').trim();
-      const pn = (document.querySelector('[name=itemnum_' + idx + ']') || {}).value || '';
-      if (desc || pn) items.push({idx: parseInt(idx), description: desc, part_number: pn});
-     });
-     if (!items.length) return;
-
-     fetch('/api/catalog/match-batch', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({items: items})
-     }).then(r => {
-      if(!r.ok) throw new Error('Server error');
-      return r.json();
-     }).then(d => {
-      let catFound = 0;
-      if (d.ok && d.results) {
-       d.results.forEach(r => {
-        if (!r.matched) return;
-        const costEl = document.querySelector('[name=cost_' + r.idx + ']');
-        const priceEl = document.querySelector('[name=price_' + r.idx + ']');
-        const bestCost = r.best_cost || r.last_cost || 0;
-        if (costEl && bestCost > 0 && !parseFloat(costEl.value)) {
-         costEl.value = Number(bestCost).toFixed(2);
-         catFound++;
-        }
-        if (priceEl && r.recommended_price > 0 && !parseFloat(priceEl.value)) {
-         priceEl.value = Number(r.recommended_price).toFixed(2);
-        }
-        if (typeof recalcRow === 'function') recalcRow(r.idx);
-       });
-      }
-      updateBanner('🔬', '<b>Step 2:</b> Catalog found ' + catFound + '. Searching Amazon + web...', '#58a6ff');
-
-      // Step 2: Amazon / Web search for remaining unpriced items
-      fetch('/api/pricecheck/'+_pcid+'/web-search',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(r=>r.json()).then(wd=>{
-       let webFound = wd.found || 0;
-       let total = catFound + webFound;
-       if (total > 0) {
-        updateBanner('✅', '<b>Found prices!</b> ' + catFound + ' catalog + ' + webFound + ' web search.', '#3fb950');
-        showMsg('✅ Auto-priced: ' + catFound + ' from catalog, ' + webFound + ' from web. Auto-saving...', 'ok');
-        // Auto-save instead of reloading (prevents page flash + data loss)
-        recalcPC();
-        fetch('/pricecheck/'+_pcid+'/save-prices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(collectPrices())})
-         .then(r=>r.json()).then(sd=>{
-          if(sd.ok) showMsg('✅ Auto-priced '+total+' items and saved.','ok');
-          fetch('/api/pricecheck/'+_pcid+'/mark-auto-priced',{method:'POST'});
-         })
-         .catch(()=>{});
-       } else {
-        // Try SCPRS as last resort
-        updateBanner('🔍', '<b>Step 3:</b> Checking SCPRS won quotes KB...', '#58a6ff');
-        fetch('/pricecheck/'+_pcid+'/scprs-lookup').then(r=>r.json()).then(sd=>{
-         let scprsFound = sd.found || 0;
-         if(scprsFound > 0){
-          updateBanner('✅', '<b>Found prices!</b> ' + scprsFound + ' from SCPRS. Reloading...', '#3fb950');
-          showMsg('✅ Auto-priced: ' + scprsFound + ' from SCPRS. Reloading...', 'ok');
-          fetch("/api/pricecheck/"+_pcid+"/mark-auto-priced",{method:"POST"}).then(()=>setTimeout(()=>location.reload(),500));
-         } else {
-          updateBanner('ℹ️', '<b>No auto-matches found.</b> Use 🔬 Amazon, 🌐 Web Search, or paste supplier URLs.', '#8b949e');
-          showMsg('ℹ️ No auto-matches found. Use the pricing buttons or paste supplier URLs.', 'warn');
-          fetch('/api/pricecheck/'+_pcid+'/mark-auto-priced',{method:'POST'});
-         }
-        }).catch(()=>{
-         updateBanner('ℹ️', '<b>No auto-matches found.</b> Use 🔬 Amazon, 🌐 Web Search, or paste supplier URLs.', '#8b949e');
-         showMsg('ℹ️ No auto-matches. Use the pricing buttons or paste supplier URLs.', 'warn');
-         fetch('/api/pricecheck/'+_pcid+'/mark-auto-priced',{method:'POST'});
-        });
-       }
-      }).catch(() => {
-       // Web search failed — if catalog found results, just save those
-       if(catFound > 0){
-        updateBanner('✅', '<b>Catalog:</b> '+catFound+' matches applied.', '#3fb950');
-        showMsg('✅ Catalog: '+catFound+' matches applied. Auto-saving...', 'ok');
-        recalcPC();
-        fetch('/pricecheck/'+_pcid+'/save-prices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(collectPrices())})
-         .then(r=>r.json()).then(sd=>{if(sd.ok) showMsg('✅ '+catFound+' catalog prices saved.','ok')})
-         .catch(()=>{});
-       } else {
-        // Try SCPRS alone
-        updateBanner('🔍', '<b>Web search unavailable.</b> Checking SCPRS...', '#d29922');
-        fetch('/pricecheck/'+_pcid+'/scprs-lookup').then(r=>r.json()).then(sd=>{
-         if(sd.found > 0){
-          showMsg('✅ SCPRS: Found '+sd.found+' matches. Reloading...', 'ok');
-          updateBanner('✅', '<b>Found prices!</b> '+sd.found+' from SCPRS. Reloading...', '#3fb950');
-          fetch("/api/pricecheck/"+_pcid+"/mark-auto-priced",{method:"POST"}).then(()=>setTimeout(()=>location.reload(),500));
-         }
-        }).catch(()=>{});
-       }
-      });
-     }).catch(e => {
-      console.warn('Auto-price catalog error:', e);
-      updateBanner('🔬', '<b>Searching Amazon + web...</b>', '#f0883e');
-      // Catalog failed, try web search directly
-      fetch('/api/pricecheck/'+_pcid+'/web-search',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(r=>r.json()).then(wd=>{
-       if(wd.found > 0){
-        showMsg('✅ Web search: Found ' + wd.found + ' prices. Reloading...', 'ok');
-        updateBanner('✅', '<b>Found prices!</b> '+wd.found+' from web search. Reloading...', '#3fb950');
-        fetch("/api/pricecheck/"+_pcid+"/mark-auto-priced",{method:"POST"}).then(()=>setTimeout(()=>location.reload(),500));
-       } else {
-        updateBanner('ℹ️', '<b>No auto-matches.</b> Use 🔬 Amazon, 🌐 Web Search, or paste supplier URLs.', '#8b949e');
-        showMsg('ℹ️ No auto-matches. Use the pricing buttons or paste supplier URLs.', 'warn');
-       }
-      }).catch(() => {
-       updateBanner('ℹ️', '<b>No auto-matches.</b> Try the pricing buttons manually.', '#8b949e');
-      });
-     });
-    })();
-    _log('auto-pricing-started');
-
-    // ── DIAGNOSTIC: Show log if errors detected ──
-    (function showDiag(){
-     _log('script-complete: '+window._pcLog.length+' events, '+window._pcErrors.length+' errors');
-     // Report errors to server for debugging
-     if(window._pcErrors.length>0){
-      try{
-       fetch('/pricecheck/'+_pcid+'/client-error',{
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({errors:window._pcErrors, log:window._pcLog.map(function(e){return e.m})})
-       }).catch(function(){});
-      }catch(e){}
-     }
-     // Show log panel if errors OR if ?debug in URL
-     if(window._pcErrors.length>0 || location.search.includes('debug')){
-      var el=document.getElementById('jsErrorLog');
-      if(el){
-       el.style.display='block';
-       el.innerHTML='<b>JS Log ('+window._pcLog.length+' events):</b><br>';
-       window._pcLog.forEach(function(e){
-        el.innerHTML+='<span style="color:#8b949e">'+e.m+'</span><br>';
-       });
-       if(window._pcErrors.length>0){
-        el.innerHTML+='<br><b style="color:#f85149">ERRORS ('+window._pcErrors.length+'):</b><br>';
-        window._pcErrors.forEach(function(e){
-         el.innerHTML+='<span style="color:#f85149">❌ '+e.msg+' (line '+e.line+')</span><br>';
-        });
-       }
-      }
-     }
-     // Also check if key functions exist
-     var missing=[];
-     ['showMsg','savePrices','recalcPC','runScprs','runLookup','runWebSearch','runCatalogMatch','runAutoPrice','runPriceSweep','autoProcess'].forEach(function(fn){
-      if(typeof window[fn]==='undefined') missing.push(fn);
-     });
-     if(missing.length>0){
-      _log('MISSING FUNCTIONS: '+missing.join(', '));
-      var el=document.getElementById('jsErrorLog');
-      if(el){el.style.display='block';el.innerHTML+='<br><b style="color:#f85149">MISSING: '+missing.join(', ')+'</b>';}
-      // Also show in status bar
-      if(typeof showMsg==='function') showMsg('⚠️ '+missing.length+' button functions failed to load. Check console.','err');
-     }
-    })();
-
     })(); // end Block 3
 
     // ── CLOSE DROPDOWNS ON OUTSIDE CLICK ──

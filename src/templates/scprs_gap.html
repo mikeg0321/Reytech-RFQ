@@ -15,26 +15,6 @@
 </div>
 {{ no_data_html | safe }}{{ stats_html | safe }}{{ paste_box | safe }}
 <script>
-async function ingestCSV() {
-  const csv = document.getElementById("csvPaste").value.trim();
-  const st = document.getElementById("ingestStatus");
-  if (!csv) { alert("Paste SCPRS CSV first"); return; }
-  st.textContent = "Analyzing...";
-  try {
-    const r = await fetch("/api/scprs/public/ingest", {
-      method: "POST", credentials: "same-origin",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({csv_text: csv})
-    });
-    const d = await r.json();
-    if (d.ok) {
-      st.textContent = d.gap_analysis;
-      setTimeout(() => location.reload(), 1500);
-    } else {
-      st.textContent = "Error: " + d.error;
-    }
-  } catch(e) { st.textContent = "Error: " + e.message; }
-}
 </script>
 
 {% endblock %}

@@ -114,20 +114,6 @@ function handlePOUpload(input) {
     });
   });
 }
-function deleteOrder(oid) {
-  const reason = prompt('Delete order ' + oid + '?\n\nReason:\n1. Duplicate\n2. Created in error\n3. PO cancelled\n4. Test order\n\nEnter number or custom reason:', '1');
-  if (reason === null) return;
-  const reasonMap = {'1':'Duplicate','2':'Created in error','3':'PO cancelled','4':'Test order'};
-  const finalReason = reasonMap[reason] || reason;
-  fetch('/api/order/' + oid + '/delete', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({reason: finalReason})
-  }).then(r => r.json()).then(d => {
-    if (d.ok) location.reload();
-    else alert('Error: ' + (d.error || 'unknown'));
-  });
-}
 // F10: KPI Dashboard
 fetch('/api/orders/kpi').then(r=>r.json()).then(d=>{
  if(!d.ok) return;

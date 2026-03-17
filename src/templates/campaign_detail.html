@@ -35,16 +35,6 @@
 
 {% block scripts %}
 <script>
-function dialContact(idx) {
-  fetch('/api/campaigns/{{ (cid)|tojson }}/call', {
-    method: 'POST', credentials: 'same-origin',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({target_index: idx})
-  }).then(r => r.json()).then(d => {
-    if (d.ok) { alert('Call placed: ' + (d.call_id||d.call_sid||'queued')); location.reload(); }
-    else { alert(d.error || 'Call failed'); }
-  });
-}
 function dialNext() {
   fetch('/api/campaigns/{{ (cid)|tojson }}/call', {
     method: 'POST', credentials: 'same-origin',
@@ -53,16 +43,6 @@ function dialNext() {
   }).then(r => r.json()).then(d => {
     if (d.ok) { alert('Calling: ' + (d.to||'next contact')); location.reload(); }
     else { alert(d.error || 'No more contacts'); }
-  });
-}
-function logOutcome(phone, outcome) {
-  if (!outcome) return;
-  fetch('/api/campaigns/{{ (cid)|tojson }}/outcome', {
-    method: 'POST', credentials: 'same-origin',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({phone, outcome})
-  }).then(r => r.json()).then(d => {
-    if (d.ok) location.reload();
   });
 }
 </script>

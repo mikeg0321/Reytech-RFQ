@@ -269,16 +269,6 @@
       window.open(url, '_blank');
     }
 
-    function updateLine(oid, lid, field, value) {
-      fetch('/api/order/' + oid + '/line/' + lid, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({[field]: value})
-      }).then(r => r.json()).then(d => {
-        if (!d.ok) alert('Error: ' + (d.error||'unknown'));
-        else location.reload();
-      });
-    }
 
     function invoiceOrder(oid, type) {
       const num = prompt('Invoice number:');
@@ -342,28 +332,7 @@
       }).then(r => r.json()).then(d => { if(d.ok) location.reload(); });
     }
 
-    function editSupplier(oid, lid) {
-      const name = prompt('Supplier name (Amazon, Grainger, Curbell, etc):');
-      if (name === null) return;
-      const url = prompt('Product URL (paste Amazon/Grainger/supplier link):');
-      if (url === null) return;
-      fetch('/api/order/' + oid + '/line/' + lid, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({supplier: name, supplier_url: url})
-      }).then(r => r.json()).then(d => { if(d.ok) location.reload(); else alert(d.error); });
-    }
 
-    function addTracking(oid, lid) {
-      const tracking = prompt('Tracking number:');
-      if (!tracking) return;
-      const carrier = prompt('Carrier (Amazon/UPS/FedEx/USPS):', 'Amazon');
-      fetch('/api/order/' + oid + '/line/' + lid, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({tracking_number: tracking, carrier: carrier, sourcing_status: 'shipped'})
-      }).then(r => r.json()).then(d => { if(d.ok) location.reload(); else alert(d.error); });
-    }
 
     function addLineItem(oid) {
       const desc = prompt('Item description:');
@@ -380,29 +349,6 @@
       }).then(r => r.json()).then(d => { if(d.ok) location.reload(); else alert(d.error || 'Failed'); });
     }
 
-    function uploadPO(oid, input) {
-      const file = input.files[0];
-      if (!file) return;
-      const status = document.getElementById('upload-status');
-      status.innerHTML = '⏳ Parsing PO PDF...';
-      const formData = new FormData();
-      formData.append('file', file);
-      fetch('/api/order/' + oid + '/import-po', {
-        method: 'POST',
-        body: formData
-      }).then(r => r.json()).then(d => {
-        if (d.ok) {
-          status.innerHTML = '✅ Imported ' + d.items_added + ' items · $' + (d.total||0).toLocaleString();
-          setTimeout(() => location.reload(), 800);
-        } else {
-          status.innerHTML = '❌ ' + (d.error || 'Parse failed');
-          if (d.raw_text) {
-            console.log('PO raw text:', d.raw_text);
-            status.innerHTML += ' — raw text logged to console';
-          }
-        }
-      }).catch(e => { status.innerHTML = '❌ Upload failed: ' + e; });
-    }
 
     function lookupSuppliers(oid) {
       var btn = document.getElementById('lookup-btn');
