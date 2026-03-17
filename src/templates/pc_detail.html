@@ -226,6 +226,7 @@
         {% if pc.get('status') in ('completed','converted') %}
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#c9d1d9;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="saveAndGenerate(this)" aria-label="Re-fill 704">♻️ Re-fill 704</button>
         {% endif %}
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#f0883e;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="generateOriginal704(this)" aria-label="Generate Original 704">📄 Generate Original 704</button>
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#c9d1d9;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="window.print()" aria-label="Print Page">🖨️ Print Page</button>
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#58a6ff;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="generateQuote1Click(this)" aria-label="Generate Formal Quote (704b/703b)">📋 Generate Formal Quote (704b/703b)</button>
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#a78bfa;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="showRevisions()" aria-label="Revision History">📝 Revision History</button>
@@ -2365,6 +2366,38 @@
       }
       else{btn.textContent='📄 Save & Fill 704';showMsg('❌ Generation failed: '+(d?.error||'unknown'),'err')}
      }).catch(e=>{btn.textContent='📄 Save & Fill 704';btn.disabled=false;showMsg('❌ '+e.message,'err')});
+    }
+
+    function generateOriginal704(btn) {
+     var origText = btn.textContent;
+     btn.disabled=true; btn.textContent='⏳ Saving...';
+     showMsg('Saving prices, then generating Original 704...','warn');
+     fetch('/pricecheck/'+_pcid+'/save-prices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(collectPrices())})
+     .then(r=>{
+      if(!r.ok) return r.text().then(t=>{throw new Error('Save: Server '+r.status)});
+      return r.json();
+     }).then(d=>{
+      if(!d.ok){btn.textContent=origText;btn.disabled=false;showMsg('❌ Save failed: '+(d.error||'unknown'),'err');return;}
+      btn.textContent='⏳ Generating Original 704...';
+      return fetch('/pricecheck/'+_pcid+'/generate-original');
+     }).then(r=>{
+      if(!r||!r.json) return;
+      if(!r.ok) return r.text().then(t=>{throw new Error('Generate: Server '+r.status)});
+      return r.json();
+     }).then(d=>{
+      if(!d) return;
+      btn.disabled=false;
+      if(d&&d.ok){
+       showMsg('✅ Original 704 generated! Downloading...','ok');
+       btn.textContent='✅ Original 704 Done';
+       if(d.download){
+        var a=document.createElement('a');a.href=d.download;a.download='';
+        document.body.appendChild(a);a.click();document.body.removeChild(a);
+       }
+       setTimeout(()=>{btn.textContent=origText;},3000);
+      }
+      else{btn.textContent=origText;showMsg('❌ Generation failed: '+(d?.error||'unknown'),'err')}
+     }).catch(e=>{btn.textContent=origText;btn.disabled=false;showMsg('❌ '+e.message,'err')});
     }
 
     // ═══ PRD Feature 3.2.1: 1-click Price Check → Quote ═══

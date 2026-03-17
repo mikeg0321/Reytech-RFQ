@@ -1315,6 +1315,7 @@ def fill_ams704(
     tax_rate: float = 0.0,  # e.g. 0.0775 for 7.75%
     custom_notes: str = "",  # Editable supplier notes
     delivery_option: str = "",  # Override delivery time
+    original_mode: bool = False,  # True = only fill company info + pricing, leave buyer fields
 ) -> dict:
     """
     Fill in the AMS 704 form with supplier info and pricing.
@@ -1415,6 +1416,30 @@ def fill_ams704(
         pricing = item.get("pricing", {})
         seq += 1
         qty = item.get("qty", 1)
+
+        # ── ORIGINAL MODE: only fill pricing fields, leave buyer fields untouched ──
+        if original_mode:
+            unit_price = item.get("unit_price") or pricing.get("recommended_price")
+            if not unit_price:
+                unit_price = pricing.get("amazon_price")
+            if unit_price:
+                try:
+                    unit_price = float(unit_price)
+                except (ValueError, TypeError):
+                    unit_price = 0
+            if unit_price and unit_price > 0:
+                extension = round(unit_price * qty, 2)
+                subtotal += extension
+                items_priced += 1
+                price_field = ROW_FIELDS["unit_price"].format(n=row)
+                ext_field = ROW_FIELDS["extension"].format(n=row)
+                field_values.append({"field_id": price_field, "page": 1, "value": f"{unit_price:,.2f}"})
+                field_values.append({"field_id": ext_field, "page": 1, "value": f"{extension:,.2f}"})
+                log.info("fill_ams704 ORIGINAL row=%d: price=%.2f qty=%d ext=%.2f",
+                         row, unit_price, qty, extension)
+            else:
+                _skipped_no_price += 1
+            continue  # Skip description, item#, qty, uom, substituted — buyer's fields stay as-is
 
         # ── ALWAYS WRITE: Item#, Qty, Description, UOM ──
         # These fields appear on every 704 regardless of pricing status
@@ -1564,21 +1589,24 @@ def fill_ams704(
             })
 
     # Clear unused rows to prevent ghost data from previous fills
-    filled_rows = occupied_rows | overflow_rows
+    if not original_mode:
+        filled_rows = occupied_rows | overflow_rows
 
-    for empty_row in range(1, max_row + 1):
-        if empty_row in filled_rows:
-            continue
-        # Blank out all fields for this row
-        for key, pattern in ROW_FIELDS.items():
-            field_values.append({
-                "field_id": pattern.format(n=empty_row),
-                "page": 1,
-                "value": " ",  # Space forces pypdf to overwrite (empty string may not)
-            })
+        for empty_row in range(1, max_row + 1):
+            if empty_row in filled_rows:
+                continue
+            # Blank out all fields for this row
+            for key, pattern in ROW_FIELDS.items():
+                field_values.append({
+                    "field_id": pattern.format(n=empty_row),
+                    "page": 1,
+                    "value": " ",  # Space forces pypdf to overwrite (empty string may not)
+                })
 
-    log.info("fill_ams704: cleared %d unused rows (filled: %d items + %d overflow)",
-             max_row - len(filled_rows), len(occupied_rows), len(overflow_rows))
+        log.info("fill_ams704: cleared %d unused rows (filled: %d items + %d overflow)",
+                 max_row - len(filled_rows), len(occupied_rows), len(overflow_rows))
+    else:
+        log.info("fill_ams704 ORIGINAL MODE: skipped row clearing (preserving buyer fields)")
 
     # Totals
     tax = round(subtotal * tax_rate, 2)

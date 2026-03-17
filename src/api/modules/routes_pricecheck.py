@@ -1833,6 +1833,71 @@ def _do_generate(pcid):
     return jsonify({"ok": False, "error": result.get("error", "Unknown error")})
 
 
+@bp.route("/pricecheck/<pcid>/generate-original", methods=["GET", "POST"])
+@auth_required
+def pricecheck_generate_original(pcid):
+    """Generate 'Original 704' — company info + pricing only, buyer fields untouched."""
+    if not PRICE_CHECK_AVAILABLE:
+        return jsonify({"ok": False, "error": "price_check.py not available"})
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"})
+
+    from src.forms.price_check import fill_ams704
+
+    _sanitize_pc_items(pc)
+
+    if "parsed" not in pc:
+        pc["parsed"] = {"header": {}, "line_items": []}
+    pc["parsed"]["line_items"] = pc.get("items", [])
+
+    # Auto-compute missing prices before PDF generation
+    for it in pc.get("items", []):
+        cost = it.get("vendor_cost") or it.get("pricing", {}).get("unit_cost") or 0
+        price = it.get("unit_price") or it.get("pricing", {}).get("recommended_price") or 0
+        if cost > 0 and not price and not it.get("no_bid"):
+            markup = it.get("markup_pct") or it.get("pricing", {}).get("markup_pct") or 25
+            computed = round(cost * (1 + markup / 100), 2)
+            it["unit_price"] = computed
+            if not it.get("pricing"):
+                it["pricing"] = {}
+            it["pricing"]["recommended_price"] = computed
+
+    _save_price_checks(pcs)
+
+    parsed = pc.get("parsed", {})
+    source_pdf = pc.get("source_pdf", "")
+    if not source_pdf or not os.path.exists(source_pdf):
+        return jsonify({"ok": False, "error": "Source PDF not found"})
+
+    pc_num = pc.get("pc_number", "unknown")
+    safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', pc_num.strip())
+    output_path = os.path.join(DATA_DIR, f"PC_{safe_name}_Original.pdf")
+
+    log.info("GENERATE ORIGINAL %s: %d items, source: %s",
+             pcid, len(parsed.get("line_items", [])), os.path.basename(source_pdf))
+
+    result = fill_ams704(
+        source_pdf=source_pdf,
+        parsed_pc=parsed,
+        output_pdf=output_path,
+        tax_rate=pc.get("tax_rate", 0) if pc.get("tax_enabled") else 0.0,
+        custom_notes=pc.get("custom_notes", ""),
+        delivery_option=pc.get("delivery_option", ""),
+        original_mode=True,
+    )
+
+    log.info("GENERATE ORIGINAL %s: result ok=%s, items_priced=%s",
+             pcid, result.get("ok"), result.get("summary", {}).get("items_priced"))
+
+    if result.get("ok"):
+        pc["original_pdf"] = output_path
+        _save_price_checks(pcs)
+        return jsonify({"ok": True, "download": f"/api/pricecheck/download/{os.path.basename(output_path)}"})
+    return jsonify({"ok": False, "error": result.get("error", "Unknown error")})
+
+
 @bp.route("/api/pricecheck/download/<fname>")
 @auth_required
 def pricecheck_download(fname):
