@@ -1366,6 +1366,20 @@ def fill_ams704(
                 "value": value,
             })
 
+    # Ship To: use institution/HQ program from the PC header
+    _institution = (parsed_pc.get("header", {}).get("institution", "") or "").strip()
+    _ship_to = (parsed_pc.get("ship_to", "") or "").strip()
+    _zip = (parsed_pc.get("header", {}).get("zip_code", "") or "").strip()
+    ship_to_value = _ship_to or _institution
+    if ship_to_value and _zip and _zip not in ship_to_value:
+        ship_to_value = f"{ship_to_value}, {_zip}"
+    if ship_to_value:
+        field_values.append({
+            "field_id": "Ship to",
+            "page": 1,
+            "value": ship_to_value,
+        })
+
     # FOB Destination, Freight Prepaid checkbox
     field_values.append({
         "field_id": "Check Box4",
@@ -1381,6 +1395,15 @@ def fill_ams704(
     _skipped_no_row = 0
     _skipped_no_price = 0
     max_row = 24  # Support up to 3 pages (8 rows each)
+
+    # Pre-compute which rows are occupied by items (for description overflow)
+    occupied_rows = set()
+    for _idx, _item in enumerate(items):
+        _r = _item.get("row_index") or (_idx + 1)
+        if 1 <= _r <= max_row:
+            occupied_rows.add(_r)
+    overflow_rows = set()  # Track rows used for description overflow
+
     for item_idx, item in enumerate(items):
         row = item.get("row_index") or (item_idx + 1)  # default to 1-based position
         if row < 1 or row > max_row:
@@ -1434,6 +1457,29 @@ def fill_ams704(
             item_notes = (item.get("notes") or "").strip()
             if item_notes:
                 desc_final = f"{desc_final}\nNote: {item_notes}"
+            # Description overflow into next empty row
+            DESC_CHAR_LIMIT = 140
+            if len(desc_final) > DESC_CHAR_LIMIT:
+                next_row = row + 1
+                if next_row <= max_row and next_row not in occupied_rows and next_row not in overflow_rows:
+                    split_at = DESC_CHAR_LIMIT
+                    for break_char in ['\n', ', ', ' ']:
+                        pos = desc_final.rfind(break_char, 0, split_at + 10)
+                        if pos > split_at - 40:
+                            split_at = pos + len(break_char)
+                            break
+                    part1 = desc_final[:split_at].rstrip()
+                    part2 = desc_final[split_at:].lstrip()
+                    if part2:
+                        overflow_field = ROW_FIELDS["description"].format(n=next_row)
+                        field_values.append({
+                            "field_id": overflow_field,
+                            "page": 1,
+                            "value": part2,
+                        })
+                        overflow_rows.add(next_row)
+                        desc_final = part1
+                        log.info("fill_ams704 row=%d: desc overflow into row %d (%d chars)", row, next_row, len(part2))
             field_values.append({
                 "field_id": desc_field,
                 "page": 1,
@@ -1518,12 +1564,8 @@ def fill_ams704(
             })
 
     # Clear unused rows to prevent ghost data from previous fills
-    filled_rows = set()
-    for item_idx, item in enumerate(items):
-        r = item.get("row_index") or (item_idx + 1)
-        if 1 <= r <= max_row:
-            filled_rows.add(r)
-    
+    filled_rows = occupied_rows | overflow_rows
+
     for empty_row in range(1, max_row + 1):
         if empty_row in filled_rows:
             continue
@@ -1534,9 +1576,9 @@ def fill_ams704(
                 "page": 1,
                 "value": " ",  # Space forces pypdf to overwrite (empty string may not)
             })
-    
-    log.info("fill_ams704: cleared %d unused rows (filled: %s)", 
-             max_row - len(filled_rows), sorted(filled_rows))
+
+    log.info("fill_ams704: cleared %d unused rows (filled: %d items + %d overflow)",
+             max_row - len(filled_rows), len(occupied_rows), len(overflow_rows))
 
     # Totals
     tax = round(subtotal * tax_rate, 2)
