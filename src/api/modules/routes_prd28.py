@@ -924,42 +924,31 @@ def api_activity_feed():
     except Exception:
         pass
 
-    # 1b) RFQ/PC/Quote activity from crm_activity.json
+    # 1b) RFQ/PC/Quote events from crm_activity.json
     try:
-        import json as _jfeed
-        _crm_path = os.path.join(DATA_DIR, "crm_activity.json")
-        if os.path.exists(_crm_path):
-            with open(_crm_path) as _cf:
-                _crm_events = _jfeed.load(_cf)
-            if isinstance(_crm_events, list):
-                _icon_map = {
-                    "rfq_created": "📄", "rfq_pricing_finalized": "💰",
-                    "rfq_package_generated": "📦", "rfq_email_sent": "📧",
-                    "rfq_field_updated": "✏️", "rfq_deleted": "🗑️",
-                    "quote_generated": "💰", "quote_sent": "📤",
-                    "quote_won": "🏆", "quote_lost": "📉",
-                    "pc_follow_up": "🔄", "email_sent": "📧",
-                }
-                for _evt in reversed(_crm_events[-limit:]):
-                    _et = _evt.get("event_type", "")
-                    if _et in ("scprs_lookup",):
-                        continue
-                    _src = "crm"
-                    for _pfx, _s in [("rfq_", "rfq"), ("quote_", "quotes"), ("pc_", "pc"), ("order_", "orders")]:
-                        if _et.startswith(_pfx):
-                            _src = _s
-                            break
-                    events.append({
-                        "ts": _evt.get("timestamp", ""),
-                        "type": _et,
-                        "icon": _icon_map.get(_et, "📋"),
-                        "title": (_evt.get("description", "") or "")[:120],
-                        "detail": "",
-                        "link": f"/rfq/{_evt.get('ref_id', '')}" if _et.startswith("rfq_") else (
-                            f"/pricecheck/{_evt.get('ref_id', '')}" if _et.startswith("pc_") else None),
-                        "source": _src,
-                        "ref_id": _evt.get("ref_id", ""),
-                    })
+        _crm_events = _load_crm_activity()
+        _icon_map = {"rfq_created":"📄","rfq_pricing_finalized":"💰","rfq_package_generated":"📦","rfq_email_sent":"📧","rfq_field_updated":"✏️","quote_generated":"💰","quote_sent":"📤","quote_won":"🏆","quote_lost":"📉","pc_follow_up":"🔄","order_created":"📦","email_sent":"📧"}
+        if isinstance(_crm_events, list):
+            for _evt in reversed(_crm_events[-limit:]):
+                _et = _evt.get("event_type", "")
+                if _et in ("scprs_lookup",):
+                    continue
+                _src = "crm"
+                for _pfx, _s in [("rfq_", "rfq"), ("quote_", "quotes"), ("pc_", "pc"), ("order_", "orders")]:
+                    if _et.startswith(_pfx):
+                        _src = _s
+                        break
+                events.append({
+                    "ts": _evt.get("timestamp", ""),
+                    "type": _et,
+                    "icon": _icon_map.get(_et, "📋"),
+                    "title": (_evt.get("description", "") or "")[:120],
+                    "detail": "",
+                    "link": f"/rfq/{_evt.get('ref_id', '')}" if _et.startswith("rfq_") else (
+                        f"/pricecheck/{_evt.get('ref_id', '')}" if _et.startswith("pc_") else None),
+                    "source": _src,
+                    "ref_id": _evt.get("ref_id", ""),
+                })
     except Exception as _cfe:
         log.debug("CRM activity feed: %s", _cfe)
 
