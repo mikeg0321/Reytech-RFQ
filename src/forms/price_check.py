@@ -1620,7 +1620,8 @@ def fill_ams704(
     field_values.append({"field_id": "fill_73", "page": 1, "value": f"{total:,.2f}"})
 
     # Notes — user-editable, no default
-    field_values.append({"field_id": "Supplier andor Requestor Notes", "page": 1, "value": custom_notes or ""})
+    if not original_mode:
+        field_values.append({"field_id": "Supplier andor Requestor Notes", "page": 1, "value": custom_notes or ""})
 
     # Write field_values.json and use fill script
     fv_path = os.path.join(DATA_DIR, "pc_field_values.json")

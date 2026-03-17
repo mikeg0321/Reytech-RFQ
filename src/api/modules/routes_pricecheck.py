@@ -249,8 +249,9 @@ def _pricecheck_detail_inner(pcid):
     if not pc:
         flash("Price Check not found", "error"); return redirect("/")
 
-    items = pc.get("items") or []
-    header = (pc.get("parsed") or {}).get("header") or {}
+    import copy as _copy
+    items = _copy.deepcopy(pc.get("items") or [])
+    header = _copy.deepcopy((pc.get("parsed") or {}).get("header") or {})
 
     items_html = ""
     for idx, item in enumerate(items):

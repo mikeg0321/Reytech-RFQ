@@ -926,7 +926,7 @@
       const descEl = document.querySelector('[name=desc_'+idx+']');
       if (descEl && d.description) {
         const cur = descEl.value.trim();
-        if (!cur || cur.length < 5 || descEl.placeholder.includes('Loading') || d.description.length > cur.length) {
+        if (!cur || cur.length < 3 || descEl.placeholder.includes('Loading')) {
           descEl.value = d.description;
           descEl.placeholder = 'Enter description';
           filled.push('description');
@@ -935,7 +935,8 @@
       
       // Fill cost — use list price (non-discounted) for stable quoting
       const costEl = document.querySelector('[name=cost_'+idx+']');
-      if (costEl && d.price && d.price > 0) {
+      const _existingCost = costEl ? (parseFloat(costEl.value) || 0) : 0;
+      if (costEl && d.price && d.price > 0 && _existingCost === 0) {
         costEl.value = d.price.toFixed(2);
         costEl.style.background='#0d2818';
         setTimeout(()=>{costEl.style.background='';},1500);
@@ -1017,17 +1018,17 @@
     function detectDescUrl(idx, el) {
       const val = el.value.trim();
       if (!_isUrl(val)) return;
-      // URL was pasted in description — move it to link field and trigger lookup
+      if (val.split(/\s+/).length > 1) return;
       const linkEl = document.querySelector('[name=link_'+idx+']');
-      if (linkEl) {
-        let url = val;
-        if (!url.startsWith('http')) url = 'https://' + url;
-        linkEl.value = url;
-        el.value = ''; // Clear description — will be filled by lookup
-        el.placeholder = '⏳ Loading from URL…';
-        handleLinkInput(idx, linkEl);
-        showMsg('🔗 URL detected in description — moved to Item Link, auto-looking up…','ok');
-      }
+      if (!linkEl) return;
+      if (linkEl.value.trim()) return;
+      let url = val;
+      if (!url.startsWith('http')) url = 'https://' + url;
+      linkEl.value = url;
+      el.value = '';
+      el.placeholder = '⏳ Loading from URL…';
+      handleLinkInput(idx, linkEl);
+      showMsg('🔗 URL moved to Item Link field, looking up…','ok');
     }
 
     function recalcPC() {
@@ -1457,13 +1458,16 @@
        const costEl = document.querySelector('[name=cost_' + idx + ']');
        const priceEl = document.querySelector('[name=price_' + idx + ']');
        const currentCost = parseFloat(costEl?.value) || 0;
-       if (conf >= 80 && currentCost === 0) {
+       const currentPrice = parseFloat(priceEl?.value) || 0;
+       if (conf >= 80 && currentCost === 0 && currentPrice === 0) {
         if (r.best_cost && costEl) { costEl.value = Number(r.best_cost).toFixed(2); }
         if (r.recommended_price && priceEl) { priceEl.value = Number(r.recommended_price).toFixed(2); }
         else if (r.last_sell && priceEl) { priceEl.value = Number(r.last_sell).toFixed(2); }
         recalcRow(idx);
         recalcPC();
-        showMsg('✅ Applied catalog pricing for "' + pn + '"', 'ok');
+        showMsg('✅ Applied catalog pricing for "' + pn + '" (fields were empty)', 'ok');
+       } else if (conf >= 70 && r.best_cost) {
+        showMsg('ℹ️ Catalog has pricing for "' + pn + '" — use Find Prices to compare', 'ok');
        }
       }).catch(function(){});
      }, 300);
