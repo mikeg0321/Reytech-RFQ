@@ -1441,6 +1441,8 @@ def fill_ams704(
                 _skipped_no_price += 1
             continue  # Skip description, item#, qty, uom, substituted — buyer's fields stay as-is
 
+        # ── NORMAL MODE: write all fields ──
+
         # ── ALWAYS WRITE: Item#, Qty, Description, UOM ──
         # These fields appear on every 704 regardless of pricing status
 
@@ -1632,8 +1634,9 @@ def fill_ams704(
     except Exception as e:
         return {"ok": False, "error": f"PDF fill error: {e}"}
 
-    log.info("fill_ams704 COMPLETE: %d/%d items priced, %d skipped(no row), %d skipped(no price), "
+    log.info("fill_ams704 COMPLETE%s: %d/%d items priced, %d skipped(no row), %d skipped(no price), "
              "subtotal=$%.2f, %d field_values written to %s",
+             " [ORIGINAL MODE]" if original_mode else "",
              items_priced, len(items), _skipped_no_row, _skipped_no_price,
              subtotal, len(field_values), os.path.basename(output_pdf))
 

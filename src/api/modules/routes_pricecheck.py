@@ -1768,7 +1768,37 @@ def _do_generate(pcid):
     parsed = pc.get("parsed", {})
     source_pdf = pc.get("source_pdf", "")
     if not source_pdf or not os.path.exists(source_pdf):
-        return jsonify({"ok": False, "error": "Source PDF not found"})
+        recovered = False
+        try:
+            from src.core.db import get_db
+            with get_db() as conn:
+                row = conn.execute(
+                    "SELECT data, filename FROM rfq_files WHERE rfq_id=? AND category='source' ORDER BY id DESC LIMIT 1",
+                    (pcid,)
+                ).fetchone()
+                if not row:
+                    try:
+                        row = conn.execute(
+                            "SELECT data, filename FROM email_attachments WHERE pc_id=? ORDER BY id DESC LIMIT 1",
+                            (pcid,)
+                        ).fetchone()
+                    except Exception:
+                        pass
+                if row and row["data"]:
+                    restore_dir = os.path.join(DATA_DIR, "pc_pdfs")
+                    os.makedirs(restore_dir, exist_ok=True)
+                    source_pdf = os.path.join(restore_dir, row["filename"] or f"{pcid}.pdf")
+                    with open(source_pdf, "wb") as _fw:
+                        _fw.write(row["data"])
+                    pc["source_pdf"] = source_pdf
+                    _save_price_checks(pcs)
+                    recovered = True
+                    log.info("GENERATE %s: recovered PDF from DB (%d bytes)", pcid, len(row["data"]))
+        except Exception as _dbe:
+            log.warning("GENERATE %s: DB recovery failed: %s", pcid, _dbe)
+
+        if not recovered:
+            return jsonify({"ok": False, "error": "Source PDF not found. Upload the 704 PDF (More → Upload PDF & Parse), then try again."})
 
     # Detailed logging: what exactly will fill_ams704 receive?
     _fill_items = parsed.get("line_items", [])
@@ -1837,6 +1867,15 @@ def _do_generate(pcid):
 @auth_required
 def pricecheck_generate_original(pcid):
     """Generate 'Original 704' — company info + pricing only, buyer fields untouched."""
+    try:
+        return _do_generate_original(pcid)
+    except Exception as e:
+        log.error("GENERATE-ORIGINAL %s CRASHED: %s", pcid, e)
+        import traceback; traceback.print_exc()
+        return jsonify({"ok": False, "error": f"Server error: {e}"})
+
+
+def _do_generate_original(pcid):
     if not PRICE_CHECK_AVAILABLE:
         return jsonify({"ok": False, "error": "price_check.py not available"})
     pcs = _load_price_checks()
@@ -1852,7 +1891,6 @@ def pricecheck_generate_original(pcid):
         pc["parsed"] = {"header": {}, "line_items": []}
     pc["parsed"]["line_items"] = pc.get("items", [])
 
-    # Auto-compute missing prices before PDF generation
     for it in pc.get("items", []):
         cost = it.get("vendor_cost") or it.get("pricing", {}).get("unit_cost") or 0
         price = it.get("unit_price") or it.get("pricing", {}).get("recommended_price") or 0
@@ -1869,14 +1907,45 @@ def pricecheck_generate_original(pcid):
     parsed = pc.get("parsed", {})
     source_pdf = pc.get("source_pdf", "")
     if not source_pdf or not os.path.exists(source_pdf):
-        return jsonify({"ok": False, "error": "Source PDF not found"})
+        recovered = False
+        try:
+            from src.core.db import get_db
+            with get_db() as conn:
+                row = conn.execute(
+                    "SELECT data, filename FROM rfq_files WHERE rfq_id=? AND category='source' ORDER BY id DESC LIMIT 1",
+                    (pcid,)
+                ).fetchone()
+                if not row:
+                    try:
+                        row = conn.execute(
+                            "SELECT data, filename FROM email_attachments WHERE pc_id=? ORDER BY id DESC LIMIT 1",
+                            (pcid,)
+                        ).fetchone()
+                    except Exception:
+                        pass
+                if row and row["data"]:
+                    restore_dir = os.path.join(DATA_DIR, "pc_pdfs")
+                    os.makedirs(restore_dir, exist_ok=True)
+                    source_pdf = os.path.join(restore_dir, row["filename"] or f"{pcid}.pdf")
+                    with open(source_pdf, "wb") as _fw:
+                        _fw.write(row["data"])
+                    pc["source_pdf"] = source_pdf
+                    _save_price_checks(pcs)
+                    recovered = True
+                    log.info("GENERATE-ORIGINAL %s: recovered PDF from DB (%d bytes)", pcid, len(row["data"]))
+        except Exception as _dbe:
+            log.warning("GENERATE-ORIGINAL %s: DB recovery failed: %s", pcid, _dbe)
+
+        if not recovered:
+            return jsonify({"ok": False, "error": "Source PDF not found. Upload the buyer's original 704 PDF first (More \u2192 Upload PDF & Parse), then try again."})
 
     pc_num = pc.get("pc_number", "unknown")
     safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', pc_num.strip())
     output_path = os.path.join(DATA_DIR, f"PC_{safe_name}_Original.pdf")
 
-    log.info("GENERATE ORIGINAL %s: %d items, source: %s",
-             pcid, len(parsed.get("line_items", [])), os.path.basename(source_pdf))
+    log.info("GENERATE-ORIGINAL %s: %d items, source=%s, output=%s",
+             pcid, len(parsed.get("line_items", [])), os.path.basename(source_pdf),
+             os.path.basename(output_path))
 
     result = fill_ams704(
         source_pdf=source_pdf,
@@ -1888,13 +1957,15 @@ def pricecheck_generate_original(pcid):
         original_mode=True,
     )
 
-    log.info("GENERATE ORIGINAL %s: result ok=%s, items_priced=%s",
-             pcid, result.get("ok"), result.get("summary", {}).get("items_priced"))
-
     if result.get("ok"):
         pc["original_pdf"] = output_path
         _save_price_checks(pcs)
+        log.info("GENERATE-ORIGINAL %s: SUCCESS \u2014 %d items priced, subtotal=$%.2f",
+                 pcid, result.get("summary", {}).get("items_priced", 0),
+                 result.get("summary", {}).get("subtotal", 0))
         return jsonify({"ok": True, "download": f"/api/pricecheck/download/{os.path.basename(output_path)}"})
+
+    log.error("GENERATE-ORIGINAL %s FAILED: %s", pcid, result.get("error"))
     return jsonify({"ok": False, "error": result.get("error", "Unknown error")})
 
 
