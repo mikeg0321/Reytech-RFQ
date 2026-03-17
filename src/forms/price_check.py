@@ -334,7 +334,7 @@ def parse_ams704(pdf_path: str) -> dict:
 
     # Extract line items — check rows 1-24 to support multi-page 704s
     # (Standard 704 has 8 rows per page, up to 3 pages = 24 items)
-    max_row_check = 24
+    max_row_check = 50
     
     # Build a field lookup that handles naming variants
     # Some 704s use "SUBSTITUTED ITEM..." while others use "REPLACEMENT..." etc.
@@ -1395,7 +1395,7 @@ def fill_ams704(
     seq = 0  # sequential line item counter
     _skipped_no_row = 0
     _skipped_no_price = 0
-    max_row = 24  # Support up to 3 pages (8 rows each)
+    max_row = 50  # Support up to 50 items across multiple pages (8+11+8+11+8...)
 
     # Pre-compute which rows are occupied by items (for description overflow)
     occupied_rows = set()
@@ -1418,7 +1418,11 @@ def fill_ams704(
 
         pricing = item.get("pricing", {})
         seq += 1
-        qty = item.get("qty", 1)
+        _raw_qty = item.get("qty", 1)
+        try:
+            qty = int(float(_raw_qty)) if _raw_qty else 1
+        except (ValueError, TypeError):
+            qty = 1
 
         # ── ORIGINAL MODE: only fill pricing fields, leave buyer fields untouched ──
         if original_mode:
@@ -1431,15 +1435,23 @@ def fill_ams704(
                 except (ValueError, TypeError):
                     unit_price = 0
             if unit_price and unit_price > 0:
-                extension = round(unit_price * qty, 2)
-                subtotal += extension
-                items_priced += 1
-                price_field = ROW_FIELDS["unit_price"].format(n=row)
-                ext_field = ROW_FIELDS["extension"].format(n=row)
-                field_values.append({"field_id": price_field, "page": 1, "value": f"{unit_price:,.2f}"})
-                field_values.append({"field_id": ext_field, "page": 1, "value": f"{extension:,.2f}"})
-                log.info("fill_ams704 ORIGINAL row=%d: price=%.2f qty=%d ext=%.2f",
-                         row, unit_price, qty, extension)
+                try:
+                    extension = round(float(unit_price) * int(qty), 2)
+                except (ValueError, TypeError):
+                    extension = 0
+                if extension > 0:
+                    subtotal += extension
+                    items_priced += 1
+                    price_field = ROW_FIELDS["unit_price"].format(n=row)
+                    ext_field = ROW_FIELDS["extension"].format(n=row)
+                    field_values.append({"field_id": price_field, "page": 1, "value": f"{unit_price:,.2f}"})
+                    field_values.append({"field_id": ext_field, "page": 1, "value": f"{extension:,.2f}"})
+                    log.info("fill_ams704 ORIGINAL row=%d idx=%d: price=%.2f qty=%d ext=%.2f",
+                             row, item_idx, unit_price, qty, extension)
+                else:
+                    _skipped_no_price += 1
+                    log.warning("fill_ams704 ORIGINAL row=%d idx=%d: extension=0 (price=%.2f qty=%s)",
+                                row, item_idx, unit_price, item.get("qty"))
             else:
                 _skipped_no_price += 1
             continue  # Skip description, item#, qty, uom, substituted — buyer's fields stay as-is
