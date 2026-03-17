@@ -1819,7 +1819,7 @@ def _link_rfq_to_pc(rfq_data, _trace):
         if pc_items_list and rfq_items_list:
             pc_inst = (pc.get("institution", "") or "").lower()
             rfq_inst = (rfq_data.get("delivery_location", "") or rfq_data.get("agency_name", "") or "").lower()
-            if pc_inst and rfq_inst and (pc_inst in rfq_inst or rfq_inst in pc_inst):
+            if pc_inst and rfq_inst and len(pc_inst) >= 3 and len(rfq_inst) >= 3 and (pc_inst in rfq_inst or rfq_inst in pc_inst):
                 overlap = _fuzzy_item_overlap(rfq_items_list, pc_items_list)
                 if overlap >= max(1, len(pc_items_list) * 0.8):
                     matched_pid, match_reason = pid, f"agency+{overlap}/{len(pc_items_list)}_items"

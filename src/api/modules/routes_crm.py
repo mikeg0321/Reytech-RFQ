@@ -487,7 +487,7 @@ def api_quote_history():
     matches = []
     for qt in reversed(quotes):
         qt_inst = qt.get("institution", "").upper()
-        if inst_upper in qt_inst or qt_inst in inst_upper:
+        if inst_upper and qt_inst and len(inst_upper) >= 3 and len(qt_inst) >= 3 and (inst_upper in qt_inst or qt_inst in inst_upper):
             source_pc = qt.get("source_pc_id", "")
             source_rfq = qt.get("source_rfq_id", "")
             

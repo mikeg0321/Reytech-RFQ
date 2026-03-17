@@ -152,6 +152,45 @@ for _rf in sorted(run('find src/api/modules -name "routes_*.py"').stdout.strip()
 check("no duplicate route functions", len(_dup_found) == 0,
       f"duplicates: {_dup_found[:3]}")
 
+# 12. Data trace — verify one real record has real data (Law 27/32)
+print("\n12. Data trace (Law 27)...")
+try:
+    import sqlite3
+    _db_path = os.path.join("data", "reytech.db")
+    if os.path.exists(_db_path):
+        _conn = sqlite3.connect(_db_path, timeout=5)
+        _conn.row_factory = sqlite3.Row
+        # Check a real PC has items
+        _pc = _conn.execute("SELECT id, pc_data, requestor FROM price_checks WHERE pc_data IS NOT NULL AND pc_data != '{}' LIMIT 1").fetchone()
+        if _pc:
+            _pc_data = _pc["pc_data"]
+            if isinstance(_pc_data, str):
+                import json as _dj
+                try:
+                    _pd = _dj.loads(_pc_data)
+                    _items = _pd.get("items", []) if isinstance(_pd, dict) else []
+                except Exception:
+                    _items = []
+            else:
+                _items = []
+            if len(_items) > 0:
+                print(f"  OK  PC {_pc['id'][:20]} has {len(_items)} items")
+            else:
+                warn(f"PC {_pc['id'][:20]} has 0 items in pc_data")
+        else:
+            print("  OK  (no PCs in local DB — skip)")
+        # Check empty string matching guard (Law 29)
+        r = run('grep -rn "in qt_inst\\|in pc_inst\\|in rfq_inst" src/ --include="*.py"')
+        _hits = [l for l in r.stdout.strip().split("\n") if l and "__pycache__" not in l and "len(" not in l and ">= 3" not in l]
+        if _hits:
+            for _h in _hits[:3]:
+                warn(f"Empty string match risk: {_h.strip()[:80]}")
+        _conn.close()
+    else:
+        print("  OK  (no local DB — skip)")
+except Exception as _dte:
+    print(f"  SKIP  Data trace: {_dte}")
+
 print("\n" + "=" * 60)
 if errors:
     print(f"BLOCKED: {len(errors)} error(s) — fix before committing")

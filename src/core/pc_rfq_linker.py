@@ -51,7 +51,7 @@ def find_matching_pc(rfq_data, pcs):
         # Match by institution
         rfq_inst = (rfq_data.get("institution") or "").lower()
         pc_inst = (pc_data.get("institution", pc.get("institution", "")) or "").lower()
-        if rfq_inst and pc_inst and (rfq_inst in pc_inst or pc_inst in rfq_inst):
+        if rfq_inst and pc_inst and len(rfq_inst) >= 3 and len(pc_inst) >= 3 and (rfq_inst in pc_inst or pc_inst in rfq_inst):
             score += 20
             reasons.append("same_institution")
 

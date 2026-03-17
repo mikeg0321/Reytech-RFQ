@@ -646,3 +646,43 @@ timeout killed the app. It was down for 20+ minutes.
 Run `python scripts/pre_commit_check.py` before every push.
 It catches: blocking boot code, missing wiring, PC deletion,
 fetch overrides, missing size guards, and compile errors.
+
+### Law 27: Audit Data, Not Code
+Before any audit is considered "passed", trace ONE real
+record through the full lifecycle. Pick a REAL record,
+query it from DB, load via API, render in UI, follow
+every link, check every number. If step 7 shows $0.00
+and 0 items on a "sent" quote, the audit FAILED.
+
+On 2026-03-17, "ALL CHECKS PASSED" while every quote had
+0 items, the counter was 83 behind, and empty strings
+matched every institution.
+
+### Law 28: Every Record Needs a Data Contract
+Before creating ANY record, define minimum required fields.
+Save/upsert MUST reject records that don't meet contract:
+- Quote: quote_number + items_count>0 + total>0 + source
+- PC: id + requestor + items with descriptions
+- RFQ: id + line_items + requestor_email + source
+
+### Law 29: Empty String Matches Nothing
+`if "" in "anything"` → True (Python default). ALWAYS a bug.
+Every comparison must guard: `if a and b and len(a)>=3`.
+
+On 2026-03-17, empty institution on quotes caused every
+quote to appear in every PC's history.
+
+### Law 30: Sequential IDs Must Be Collision-Proof
+Any sequential ID generator MUST check highest existing
+in BOTH JSON and SQLite, use higher+1, verify no collision.
+
+On 2026-03-17, counter was seq=16 while R26Q99 existed.
+
+### Law 31: Follow Every Link Before Shipping
+Click every hyperlink. Does it show real data? Does the
+destination link back? Are empty records hidden or explained?
+
+### Law 32: The Pre-Commit Data Trace
+After code checks pass, trace one real record through the
+full data path. Verify linked records have real data.
+Empty/broken links = FAIL the check.
