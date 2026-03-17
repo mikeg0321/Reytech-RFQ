@@ -400,7 +400,6 @@
     <script src="/static/shared_item_utils.js"></script>
     <script>
     var _srcOpen=false;
-    function toggleSourcePanel(){var p=document.getElementById('source-panel');_srcOpen=!_srcOpen;p.style.right=_srcOpen?'0':'-500px';if(_srcOpen)_loadPcSource();}
     function _loadPcSource(){
      var c=document.getElementById('source-content');c.innerHTML='<div style="text-align:center;padding:20px">Loading...</div>';
      var pid={{pcid|tojson}};
@@ -714,24 +713,6 @@
     // Show comparison on load
     setTimeout(showTierComparison, 200);
 
-    // Auto-format currency inputs to 2 decimal places on blur
-    function fmtCurrency(el) {
-     const v=parseFloat(el.value.replace(/[^0-9.\-]/g,''));
-     if(!isNaN(v) && v>0) el.value=v.toFixed(2);
-     else if(el.value==='0'||el.value==='0.00') el.value='';
-    }
-    // Sanitize: only allow digits, decimal, minus in price fields
-    function sanitizePrice(el) {
-     el.value=el.value.replace(/[^0-9.\-]/g,'');
-     // Only allow one decimal point
-     const parts=el.value.split('.');
-     if(parts.length>2) el.value=parts[0]+'.'+parts.slice(1).join('');
-    }
-    // Sanitize: only allow digits in integer fields (markup %)
-    function sanitizeInt(el) {
-     el.value=el.value.replace(/[^0-9]/g,'');
-    }
-
     function recalcRow(idx, forceOverwrite) {
      const costEl=document.querySelector('[name=cost_'+idx+']');
      const markupEl=document.querySelector('[name=markup_'+idx+']');
@@ -873,96 +854,6 @@
       if (!_isUrl(url)) return;
       clearTimeout(_linkDebounce[idx]);
       _linkDebounce[idx] = setTimeout(() => _fireLinkLookup(idx, url, 'pc'), 600);
-    }
-
-    function _applyLinkData(idx, d, mode) {
-      const filled = [];
-      const metaEl = mode==='pc' ? document.getElementById('link_meta_'+idx) : document.getElementById('rfq_link_meta_'+idx);
-      
-      // Fill description — always allowed (lock only protects URLs)
-      const descEl = document.querySelector('[name=desc_'+idx+']');
-      if (descEl && d.description) {
-        const cur = descEl.value.trim();
-        if (!cur || cur.length < 3 || descEl.placeholder.includes('Loading')) {
-          descEl.value = d.description;
-          descEl.placeholder = 'Enter description';
-          filled.push('description');
-        }
-      }
-      
-      // Fill cost — use list price (non-discounted) for stable quoting
-      const costEl = document.querySelector('[name=cost_'+idx+']');
-      const _existingCost = costEl ? (parseFloat(costEl.value) || 0) : 0;
-      if (costEl && d.price && d.price > 0 && _existingCost === 0) {
-        costEl.value = d.price.toFixed(2);
-        costEl.style.background='#0d2818';
-        setTimeout(()=>{costEl.style.background='';},1500);
-        var priceNote = 'cost $'+d.price.toFixed(2);
-        if (d.list_price && d.sale_price && d.sale_price < d.list_price) {
-          priceNote += ' (list, sale $'+d.sale_price.toFixed(2)+')';
-        }
-        filled.push(priceNote);
-      }
-      
-      // Fill MFG#/Part# — only if field is empty. Never overwrite existing MFG#.
-      const itemNumEl = document.querySelector('[name=itemnum_'+idx+']');
-      if (itemNumEl) {
-        const currentMfg = itemNumEl.value.trim();
-        const bestNum = d.mfg_number || d.part_number || '';
-        // Only fill MFG# if currently empty AND we have a real part number (not ASIN)
-        if (!currentMfg && bestNum) {
-          itemNumEl.value = bestNum;
-          filled.push('MFG# ' + bestNum);
-        }
-      }
-
-      // Append ASIN + size to description (never put ASIN in MFG# field)
-      if (descEl) {
-        let appendParts = [];
-        if (d.asin) appendParts.push('REF ASIN: ' + d.asin);
-        if (d.size) appendParts.push('Size: ' + d.size);
-        else if (d.variant) appendParts.push('Size: ' + d.variant);
-        if (appendParts.length) {
-          const cur = descEl.value.trim();
-          // Only append if not already there
-          const appendStr = appendParts.join(', ');
-          if (cur.indexOf(appendStr) < 0 && cur.indexOf(d.asin || '___') < 0) {
-            descEl.value = (cur ? cur + '\n' : '') + appendStr;
-            filled.push(appendStr);
-          }
-        }
-      }
-      // Also try dedicated part field if it exists
-      const partEl = document.querySelector('[name=part_'+idx+']');
-      if (partEl && !partEl.value.trim() && d.part_number) { partEl.value=d.part_number; }
-
-      // Fill UOM if detected
-      const uomEl = document.querySelector('[name=uom_'+idx+']');
-      if (uomEl && d.uom) {
-        const curUom = uomEl.value.trim();
-        if (!curUom || curUom === 'EA') { uomEl.value = d.uom.toUpperCase(); filled.push('UOM'); }
-      }
-      
-      // Recalc — use recalcRow to compute price from cost+markup, then recalcPC for totals
-      if (mode==='pc') { recalcRow(idx); }
-      else if (typeof recalc==='function') recalc();
-      
-      // Show meta info
-      if (metaEl) {
-        const supStr = d.supplier ? '<b style="color:#c9d1d9">'+d.supplier+'</b>' : '';
-        const shipStr = d.shipping===0 ? ' \u00B7 <span style="color:#3fb950">Free shipping</span>'
-                      : d.shipping>0 ? ' \u00B7 Ship $'+d.shipping.toFixed(2) : '';
-        const partStr = d.part_number ? ' \u00B7 Part: <span style="font-family:monospace;color:#58a6ff">'+d.part_number+'</span>' : '';
-        const mfgStr = d.mfg_number ? ' \u00B7 MFG: <span style="font-family:monospace;color:#bc8cff">'+d.mfg_number+'</span>' : '';
-        const mfrStr = d.manufacturer ? ' \u00B7 '+d.manufacturer : '';
-        const fillStr = filled.length ? ' <span style="color:#3fb950">\u2713 '+filled.join(', ')+'</span>' : '';
-        var bestNum = (document.querySelector('[name=itemnum_'+idx+']')||{}).value || d.part_number || d.mfg_number || '';
-        var phLink = bestNum ? ' <a onclick="togglePriceHistory(\''+_pcid+'\',\''+bestNum.replace(/'/g,"\\'")+'\',this)" style="cursor:pointer;color:var(--tx2,#8b949e);font-size:12px;margin-left:8px">\u25b8 Price history</a>' : '';
-        metaEl.innerHTML = supStr+shipStr+partStr+mfgStr+mfrStr+fillStr+phLink;
-      }
-      if (filled.length > 0 && typeof showMsg==='function') {
-        showMsg('\uD83D\uDD17 Auto-filled from '+(d.supplier||'URL')+': '+filled.join(', '),'ok');
-      }
     }
 
     // ── Reverse URL Parsing: detect URL pasted in ANY field ──────────────────
@@ -2368,11 +2259,6 @@
     document.addEventListener('DOMContentLoaded', applyLockState);
 
     // ── BULK PASTE URLs ──
-    function openBulkPaste(){
-     var m=document.getElementById('bulkPasteModal');if(m)m.style.display='flex';
-     var ta=document.getElementById('bulkUrlsInput');if(ta){ta.value='';ta.focus();}
-     document.getElementById('bulkResults').innerHTML='';
-    }
     document.addEventListener('keydown',function(e){if(e.key==='Escape')closeBulkPaste();});
     function startBulkScrape(){
      var ta=document.getElementById('bulkUrlsInput');

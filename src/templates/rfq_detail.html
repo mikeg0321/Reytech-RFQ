@@ -593,7 +593,6 @@ document.addEventListener('paste',function(e){
 
 // ── Source Material Panel ──
 var _srcOpen=false;
-function toggleSourcePanel(){var p=document.getElementById('source-panel');_srcOpen=!_srcOpen;p.style.right=_srcOpen?'0':'-500px';if(_srcOpen)_loadSource();}
 function _loadSource(){
  var c=document.getElementById('source-content');c.innerHTML='<div style="text-align:center;padding:20px">Loading...</div>';
  fetch('/api/v1/rfq/'+RID+'/source-material',{credentials:'same-origin'}).then(function(r){return r.json()}).then(function(d){
@@ -747,14 +746,6 @@ function setBulkMode(mode){
  document.getElementById('bulkPreview').style.display='none';
  document.getElementById('bulkResults').innerHTML='';
 }
-function openBulkPaste(){
- var m=document.getElementById('bulkPasteModal');if(m)m.style.display='flex';
- var ta=document.getElementById('bulkUrlsInput');if(ta){ta.value='';ta.focus();}
- document.getElementById('bulkResults').innerHTML='';
- document.getElementById('bulkPreview').style.display='none';
- document.getElementById('bulkDetect').style.display='none';
- setBulkMode('url');
-}
 document.addEventListener('keydown',function(e){if(e.key==='Escape')closeBulkPaste();});
 
 // Auto-detect mode on paste
@@ -869,42 +860,6 @@ function _showBulkResults(d){
  html+='<div style="margin-top:8px;font-weight:600;color:#3fb950">'+d.applied+'/'+d.total+' items updated</div></div>';
  document.getElementById('bulkResults').innerHTML=html;
  if(d.applied>0)setTimeout(function(){location.reload()},2000);
-}
-
-function _applyLinkData(idx,d){
- const filled=[];
- const metaEl=document.getElementById('rfq_link_meta_'+idx);
- // Fill cost — only if currently empty/zero
- const costEl=document.querySelector('[name=cost_'+idx+']');
- const _existingCost=costEl?(parseFloat(costEl.value)||0):0;
- if(costEl&&d.price&&d.price>0&&_existingCost===0){
-  costEl.value=d.price.toFixed(2);costEl.style.background='#0d2818';
-  setTimeout(()=>{costEl.style.background=''},1500);
-  filled.push('cost $'+d.price.toFixed(2));
- }
- // Fill description — only if empty or very short
- const descEl=document.querySelector('[name=desc_'+idx+']');
- if(descEl&&d.description){
-  const cur=descEl.value.trim();
-  if(!cur||cur.length<3){descEl.value=d.description;filled.push('description')}
- }
- // Fill part#
- const partEl=document.querySelector('[name=part_'+idx+']');
- if(partEl){
-  const bestNum=d.mfg_number||d.part_number||d.asin||'';
-  if(bestNum){partEl.value=bestNum;filled.push('MFG# '+bestNum)}
- }
- // Fill UOM
- const uomEl=document.querySelector('[name=uom_'+idx+']');
- if(uomEl&&d.uom){const cur=uomEl.value.trim();if(!cur||cur==='EA'){uomEl.value=d.uom.toUpperCase();filled.push('UOM')}}
- recalc();
- triggerAutosave();
- // Meta display
- if(metaEl){
-  if(filled.length){metaEl.innerHTML='<span style="color:#3fb950">\u2705 '+filled.join(', ')+'</span>'}
-  else{metaEl.innerHTML='<span style="color:#d29922">No price found</span>'}
-  if(d.supplier)metaEl.innerHTML+=' <span style="color:#8b949e;margin-left:6px">'+d.supplier+'</span>';
- }
 }
 
 // ── Auto-Save ──

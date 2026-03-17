@@ -88,3 +88,66 @@ function _fireLinkLookup(idx, url, mode) {
     if (metaEl) metaEl.innerHTML = '<span style="color:#f85149">Lookup failed</span>';
   });
 }
+
+/** Open bulk paste modal */
+function openBulkPaste() {
+  var m = document.getElementById('bulkPasteModal');
+  if (m) m.style.display = 'flex';
+  var ta = document.getElementById('bulkPasteArea');
+  if (ta) { ta.value = ''; ta.focus(); }
+  var p = document.getElementById('bulkPreview');
+  if (p) p.style.display = 'none';
+}
+
+/** Toggle source panel visibility */
+function toggleSourcePanel() {
+  var p = document.getElementById('source-panel');
+  if (!p) return;
+  p.style.display = (p.style.display !== 'none') ? 'none' : 'block';
+}
+
+/** Sanitize a price value — returns float or 0 */
+function sanitizePrice(v) {
+  if (!v && v !== 0) return 0;
+  if (typeof v === 'number') return v;
+  var f = parseFloat(String(v).replace(/[^0-9.\-]/g, ''));
+  return isNaN(f) ? 0 : f;
+}
+
+/** Sanitize an integer — returns int or default */
+function sanitizeInt(v, d) {
+  if (d === undefined) d = 0;
+  if (!v && v !== 0) return d;
+  var i = parseInt(v, 10);
+  return isNaN(i) ? d : i;
+}
+
+/** Format currency for display */
+function fmtCurrency(v) {
+  var n = sanitizePrice(v);
+  if (n === 0) return '\u2014';
+  return '$' + n.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+}
+
+/**
+ * Apply link lookup data to a row with overwrite protection.
+ * mode: 'pc' or 'rfq' — determines which meta element ID to use.
+ */
+function _applyLinkData(idx, d, mode) {
+  if (!d) return;
+  var filled = [];
+  var metaId = (mode === 'pc') ? 'link_meta_' + idx : 'rfq_link_meta_' + idx;
+  var metaEl = document.getElementById(metaId);
+  var descEl = document.querySelector('[name="desc_' + idx + '"]');
+  if (descEl && d.description) {
+    var cur = (descEl.value || '').trim();
+    if (!cur || cur.length < 3) { descEl.value = d.description; filled.push('desc'); }
+  }
+  var mfgEl = document.querySelector('[name="itemnum_' + idx + '"]');
+  if (mfgEl && d.part_number && !(mfgEl.value || '').trim()) { mfgEl.value = d.part_number; filled.push('mfg'); }
+  var costEl = document.querySelector('[name="cost_' + idx + '"]');
+  var ec = costEl ? (parseFloat(costEl.value) || 0) : 0;
+  if (costEl && d.price && d.price > 0 && ec === 0) { costEl.value = d.price.toFixed(2); filled.push('cost'); }
+  if (d.supplier) { var badge = document.getElementById('supplier_badge_' + idx); if (badge) badge.textContent = d.supplier; }
+  if (metaEl && filled.length) { metaEl.textContent = filled.join(', ') + ' filled'; metaEl.style.color = '#3fb950'; }
+}
