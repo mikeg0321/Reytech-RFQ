@@ -324,20 +324,52 @@ def _should_reset_counter(stored_year: int) -> bool:
     return stored_year != now.year
 
 def _next_quote_number() -> str:
-    """R{YY}Q{seq} — sequential per calendar year, resets midnight Jan 1."""
+    """R{YY}Q{seq} — sequential, collision-safe, syncs to highest existing."""
     data = _load_counter()
     year = datetime.now().year
     yy = str(year)[-2:]
+    prefix = f"R{yy}Q"
 
     if _should_reset_counter(data.get("year", 0)):
         log.info("New year detected — resetting quote counter from seq=%d (year=%d) to seq=1 (year=%d)",
                  data.get("seq", 0), data.get("year", 0), year)
         data = {"year": year, "seq": 0}
 
-    data["seq"] = data.get("seq", 0) + 1
+    # Sync to highest existing quote number to prevent collisions
+    highest = data.get("seq", 0)
+    try:
+        for q in get_all_quotes():
+            qn = q.get("quote_number", "")
+            if qn.startswith(prefix):
+                try:
+                    num = int(qn[len(prefix):])
+                    if num > highest:
+                        highest = num
+                except (ValueError, IndexError):
+                    pass
+        # Also check SQLite quotes table
+        try:
+            from src.core.db import get_db
+            with get_db() as conn:
+                for r in conn.execute("SELECT quote_number FROM quotes WHERE quote_number LIKE ?", (f"{prefix}%",)).fetchall():
+                    try:
+                        num = int(r[0][len(prefix):])
+                        if num > highest:
+                            highest = num
+                    except (ValueError, IndexError):
+                        pass
+        except Exception:
+            pass
+    except Exception as e:
+        log.warning("Counter sync: %s", e)
+
+    next_seq = max(data.get("seq", 0), highest) + 1
+    data["seq"] = next_seq
     data["year"] = year
     _save_counter(data)
-    return f"R{yy}Q{data['seq']}"
+    new_number = f"{prefix}{next_seq}"
+    log.info("Quote number: %s (synced to %d)", new_number, next_seq)
+    return new_number
 
 def peek_next_quote_number() -> str:
     """Preview what the next number would be without consuming it."""

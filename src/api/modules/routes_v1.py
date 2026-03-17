@@ -4122,6 +4122,94 @@ def api_v1_pc_mark_reviewed(pcid):
     return api_response({"ok": True})
 
 
+# ── Quote Integrity ──────────────────────────────────────────────────
+
+@bp.route("/api/v1/quotes/cleanup-ghosts", methods=["POST"])
+@auth_required
+def api_v1_quotes_cleanup_ghosts():
+    """Mark empty quote shells as VOID. Numbers preserved in ledger."""
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            ghosts = conn.execute("""
+                SELECT quote_number, total, items_count, pdf_path, status
+                FROM quotes
+                WHERE (items_count IS NULL OR items_count = 0)
+                AND (pdf_path IS NULL OR pdf_path = '')
+                AND status NOT IN ('void', 'cancelled')
+            """).fetchall()
+            voided = []
+            for g in ghosts:
+                qn = g[0]
+                total = g[1] or 0
+                if total == 0:
+                    conn.execute("""
+                        UPDATE quotes SET status='void',
+                        notes = COALESCE(notes,'') || ' [VOIDED: empty shell]'
+                        WHERE quote_number = ?
+                    """, (qn,))
+                    try:
+                        conn.execute("""
+                            INSERT OR REPLACE INTO quote_number_ledger
+                            (quote_number, assigned_at, status, voided_at, void_reason)
+                            VALUES (?, COALESCE(
+                                (SELECT assigned_at FROM quote_number_ledger WHERE quote_number=?),
+                                datetime('now')),
+                                'void', datetime('now'), 'empty shell')
+                        """, (qn, qn))
+                    except Exception:
+                        pass
+                    voided.append(qn)
+        return api_response({"voided": voided, "count": len(voided)})
+    except Exception as e:
+        log.error("cleanup-ghosts: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)
+
+
+@bp.route("/api/v1/quotes/backfill-items", methods=["POST"])
+@auth_required
+def api_v1_quotes_backfill_items():
+    """Fill items_detail on quotes from their source PC/RFQ."""
+    import json as _json
+    try:
+        from src.core.db import get_db
+        from src.api.dashboard import _load_price_checks, _get_pc_items
+        pcs = _load_price_checks()
+        rfqs = load_rfqs()
+        fixed = 0
+        with get_db() as conn:
+            rows = conn.execute("""
+                SELECT quote_number, source_pc_id, source_rfq_id, requestor, institution
+                FROM quotes
+                WHERE (items_count IS NULL OR items_count = 0)
+                AND status NOT IN ('void', 'cancelled')
+            """).fetchall()
+            for r in rows:
+                qn, pc_id, rfq_id = r[0], r[1], r[2]
+                items = []
+                if pc_id and pc_id in pcs:
+                    items = _get_pc_items(pcs[pc_id])
+                if not items and rfq_id and rfq_id in rfqs:
+                    items = rfqs[rfq_id].get("line_items", rfqs[rfq_id].get("items", []))
+                if items:
+                    details = [{
+                        "description": it.get("description", it.get("desc", "")),
+                        "qty": it.get("qty", it.get("quantity", 1)),
+                        "unit_price": it.get("bid_price", it.get("price_per_unit", 0)),
+                        "vendor_cost": it.get("supplier_cost", it.get("cost", 0)),
+                    } for it in items]
+                    conn.execute("""
+                        UPDATE quotes SET items_detail=?, items_count=?,
+                        items_text=? WHERE quote_number=?
+                    """, (_json.dumps(details, default=str), len(details),
+                          "; ".join(d["description"][:50] for d in details[:10]), qn))
+                    fixed += 1
+        return api_response({"fixed": fixed, "checked": len(rows)})
+    except Exception as e:
+        log.error("backfill-items: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)
+
+
 # ── DGS Form Auto-Downloader ─────────────────────────────────────────
 
 @bp.route("/api/v1/forms/status")

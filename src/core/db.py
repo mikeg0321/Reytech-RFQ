@@ -283,6 +283,16 @@ CREATE TABLE IF NOT EXISTS revenue_log (
     date            TEXT
 );
 
+CREATE TABLE IF NOT EXISTS quote_number_ledger (
+    quote_number    TEXT PRIMARY KEY,
+    assigned_at     TEXT NOT NULL DEFAULT (datetime('now')),
+    source_type     TEXT DEFAULT '',
+    source_id       TEXT DEFAULT '',
+    status          TEXT DEFAULT 'active',
+    voided_at       TEXT DEFAULT '',
+    void_reason     TEXT DEFAULT ''
+);
+
 CREATE TABLE IF NOT EXISTS intel_pulls (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     started_at      TEXT NOT NULL,
