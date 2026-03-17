@@ -30,12 +30,13 @@ def _safe_do_poll_check():
 
 def _sync_pc_items(pc, items):
     """Safely sync items list to both pc['items'] and pc['parsed']['line_items'].
-    Creates pc['parsed'] if it doesn't exist (e.g. after SQLite restore)."""
+    Creates pc['parsed'] if it doesn't exist (e.g. after SQLite restore).
+    Uses list() to prevent aliasing — items and line_items must be separate objects."""
     pc["items"] = items
     if "parsed" not in pc:
-        pc["parsed"] = {"header": {}, "line_items": items}
+        pc["parsed"] = {"header": {}, "line_items": list(items)}
     else:
-        pc["parsed"]["line_items"] = items
+        pc["parsed"]["line_items"] = list(items)
 
 
 # Price Check Pages (v6.2)
@@ -1175,7 +1176,9 @@ def _do_save_prices(pcid):
     pc["custom_notes"] = data.get("custom_notes", "")
     pc["price_buffer"] = data.get("price_buffer", 0)
     pc["default_markup"] = data.get("default_markup", 25)
-    
+    if data.get("ship_to") is not None:
+        pc["ship_to"] = data.get("ship_to", "")
+
     for key, val in data.items():
         try:
             if key in ("tax_enabled", "tax_rate"):
@@ -1258,6 +1261,13 @@ def _do_save_prices(pcid):
                         items[idx]["row_index"] = int(float(val)) if val else idx + 1
                     except (ValueError, TypeError):
                         items[idx]["row_index"] = idx + 1
+                elif field_type == "qpu":
+                    try:
+                        items[idx]["qty_per_uom"] = int(float(val)) if val else 1
+                    except (ValueError, TypeError):
+                        items[idx]["qty_per_uom"] = 1
+                elif field_type == "linkopen":
+                    pass  # UI-only toggle, no server-side storage needed
         except (ValueError, IndexError):
             pass
 
@@ -1335,58 +1345,61 @@ def _do_save_prices(pcid):
         log.warning("Single-PC save failed, falling back to full save: %s", _single_e)
         _save_price_checks(pcs)
 
-    # ── Save items to product catalog on every save (not just terminal status) ──
-    try:
-        from src.agents.product_catalog import (
-            match_item, add_to_catalog, add_supplier_price, init_catalog_db
-        )
-        init_catalog_db()
-        _cat_added, _cat_updated = 0, 0
-        for _item in items:
-            if _item.get("no_bid"):
-                continue
-            _desc = _item.get("description", "")
-            _pn = str(_item.get("mfg_number") or _item.get("item_number") or "")
-            _cost = _item.get("vendor_cost") or _item.get("pricing", {}).get("unit_cost") or 0
-            _price = _item.get("unit_price") or _item.get("pricing", {}).get("recommended_price") or 0
-            _supplier = _item.get("item_supplier", "")
-            _uom = _item.get("uom", "EA")
-            _url = _item.get("item_link", "")
-            if not _desc or (not _cost and not _price):
-                continue
-            cat_matches = match_item(_desc, _pn, top_n=1)
-            if cat_matches and cat_matches[0].get("match_confidence", 0) >= 0.5:
-                pid = cat_matches[0]["id"]
-                if _cost > 0 and _supplier:
-                    add_supplier_price(pid, _supplier, _cost, url=_url)
-                # Update URL on existing catalog entry if we have one
-                if _url:
-                    try:
-                        from src.agents.product_catalog import _get_conn
-                        conn = _get_conn()
-                        conn.execute(
-                            "UPDATE product_catalog SET photo_url=COALESCE(NULLIF(photo_url,''),?) WHERE id=?",
-                            (_url, pid))
-                        conn.commit(); conn.close()
-                    except Exception:
-                        pass
-                _cat_updated += 1
-            else:
-                pid = add_to_catalog(
-                    description=_desc, part_number=_pn,
-                    cost=_cost if _cost > 0 else 0,
-                    sell_price=_price if _price > 0 else 0,
-                    supplier_name=_supplier, uom=_uom,
-                    supplier_url=_url,
-                    source=f"pc_{pcid}",
-                )
-                if pid and _cost > 0 and _supplier:
-                    add_supplier_price(pid, _supplier, _cost, url=_url)
-                    _cat_added += 1
-        if _cat_added or _cat_updated:
-            log.info("PC %s catalog sync: +%d new, ~%d updated", pcid, _cat_added, _cat_updated)
-    except Exception as _ce:
-        log.debug("PC catalog sync: %s", _ce)
+    # ── Save items to product catalog — only when items are priced ──
+    _priced_count = sum(1 for it in items if not it.get("no_bid") and (it.get("unit_price") or it.get("pricing", {}).get("recommended_price")))
+    _should_sync_catalog = _priced_count >= len([it for it in items if not it.get("no_bid")]) * 0.5  # at least 50% priced
+    if _should_sync_catalog:
+        try:
+            from src.agents.product_catalog import (
+                match_item, add_to_catalog, add_supplier_price, init_catalog_db
+            )
+            init_catalog_db()
+            _cat_added, _cat_updated = 0, 0
+            for _item in items:
+                if _item.get("no_bid"):
+                    continue
+                _desc = _item.get("description", "")
+                _pn = str(_item.get("mfg_number") or _item.get("item_number") or "")
+                _cost = _item.get("vendor_cost") or _item.get("pricing", {}).get("unit_cost") or 0
+                _price = _item.get("unit_price") or _item.get("pricing", {}).get("recommended_price") or 0
+                _supplier = _item.get("item_supplier", "")
+                _uom = _item.get("uom", "EA")
+                _url = _item.get("item_link", "")
+                if not _desc or (not _cost and not _price):
+                    continue
+                cat_matches = match_item(_desc, _pn, top_n=1)
+                if cat_matches and cat_matches[0].get("match_confidence", 0) >= 0.5:
+                    pid = cat_matches[0]["id"]
+                    if _cost > 0 and _supplier:
+                        add_supplier_price(pid, _supplier, _cost, url=_url)
+                    # Update URL on existing catalog entry if we have one
+                    if _url:
+                        try:
+                            from src.agents.product_catalog import _get_conn
+                            conn = _get_conn()
+                            conn.execute(
+                                "UPDATE product_catalog SET photo_url=COALESCE(NULLIF(photo_url,''),?) WHERE id=?",
+                                (_url, pid))
+                            conn.commit(); conn.close()
+                        except Exception:
+                            pass
+                    _cat_updated += 1
+                else:
+                    pid = add_to_catalog(
+                        description=_desc, part_number=_pn,
+                        cost=_cost if _cost > 0 else 0,
+                        sell_price=_price if _price > 0 else 0,
+                        supplier_name=_supplier, uom=_uom,
+                        supplier_url=_url,
+                        source=f"pc_{pcid}",
+                    )
+                    if pid and _cost > 0 and _supplier:
+                        add_supplier_price(pid, _supplier, _cost, url=_url)
+                        _cat_added += 1
+            if _cat_added or _cat_updated:
+                log.info("PC %s catalog sync: +%d new, ~%d updated", pcid, _cat_added, _cat_updated)
+        except Exception as _ce:
+            log.debug("PC catalog sync: %s", _ce)
 
     # ── GAP 3 FIX: write confirmed prices to price_history + won_quotes ───────
     institution = pc.get("institution", "")
