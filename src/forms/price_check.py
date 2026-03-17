@@ -1722,13 +1722,20 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
         "Check Box10": (548.4, 94.4, 560.0, 106.0),   # FOB Origin, Freight Collect
     }
 
-    def _draw_in_rect(c, x1, y1, x2, y2, text, max_font=10):
-        """Draw text inside a rectangle, auto-sizing font to fit."""
+    def _draw_in_rect(c, x1, y1, x2, y2, text, max_font=10, mask=True):
+        """Draw text inside a rectangle, auto-sizing font to fit.
+        If mask=True, draws a white rectangle first to cover existing content."""
         if not text or not text.strip():
             return
         text = text.strip()
         w = x2 - x1
         h = y2 - y1
+        # Draw white background to mask existing PDF content underneath
+        if mask:
+            c.saveState()
+            c.setFillColorRGB(1, 1, 1)  # white
+            c.rect(x1, y1, w, h, fill=1, stroke=0)
+            c.restoreState()
         fs = min(max_font, h * 0.75)
         c.setFont("Helvetica", fs)
         # Shrink font until text fits width
@@ -1750,11 +1757,17 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
             c.drawString(x1 + 1, y1 + (h - fs) / 2, text)
 
     def _draw_checkmark(c, x1, y1, x2, y2):
-        """Draw a checkmark in a checkbox rectangle."""
+        """Draw a checkmark in a checkbox rectangle with white background."""
+        w = x2 - x1
         h = y2 - y1
+        # White background to mask any existing content
+        c.saveState()
+        c.setFillColorRGB(1, 1, 1)
+        c.rect(x1, y1, w, h, fill=1, stroke=0)
+        c.restoreState()
         fs = min(10, h * 0.9)
         c.setFont("ZapfDingbats", fs)
-        c.drawString(x1 + 1, y1 + 1, "4")  # checkmark glyph
+        c.drawString(x1 + 1, y1 + 1, "4")
 
     def _make_overlay(page_idx):
         """Build reportlab overlay for a page."""
