@@ -1205,6 +1205,114 @@ def api_rfq_bulk_scrape_urls(rid):
     return jsonify({"ok": True, "results": results, "applied": applied, "total": len(urls)})
 
 
+@bp.route("/api/rfq/<rid>/bulk-paste-data", methods=["POST"])
+@auth_required
+def api_rfq_bulk_paste_data(rid):
+    """Bulk paste multi-column data (description, MFG#, URL, cost, markup) into line items."""
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"}), 404
+    data = request.get_json(force=True, silent=True) or {}
+    rows = data.get("rows", [])
+    if not rows:
+        return jsonify({"ok": False, "error": "No data provided"})
+    items = r.get("line_items", [])
+    results = []
+    applied = 0
+    for i, row in enumerate(rows):
+        if not isinstance(row, dict):
+            results.append({"line": i + 1, "status": "skipped"})
+            continue
+        if i >= len(items):
+            results.append({"line": i + 1, "status": "skipped"})
+            continue
+        # Check if row has any non-empty values
+        has_data = any((row.get(k) or "").strip() for k in
+                       ("description", "item_number", "item_link", "supplier_cost", "markup_pct"))
+        if not has_data:
+            results.append({"line": i + 1, "status": "skipped"})
+            continue
+        try:
+            item = items[i]
+            fields_set = 0
+            # Description
+            desc = (row.get("description") or "").strip()
+            if desc:
+                item["description"] = desc
+                fields_set += 1
+            # MFG# / Item Number
+            mfg = (row.get("item_number") or "").strip()
+            if mfg:
+                item["item_number"] = mfg
+                fields_set += 1
+            # Item Link / URL
+            link = (row.get("item_link") or "").strip()
+            if link:
+                if not link.startswith("http") and ("." in link):
+                    link = "https://" + link
+                item["item_link"] = link
+                try:
+                    from src.agents.item_link_lookup import detect_supplier
+                    item["item_supplier"] = detect_supplier(link)
+                except Exception:
+                    pass
+                fields_set += 1
+            # Cost
+            cost_str = (row.get("supplier_cost") or "").strip().replace("$", "").replace(",", "")
+            if cost_str:
+                try:
+                    cost = float(cost_str)
+                    if cost > 0:
+                        item["supplier_cost"] = cost
+                        fields_set += 1
+                        # Recalculate bid price with markup
+                        markup_str = (row.get("markup_pct") or "").strip().replace("%", "")
+                        if markup_str:
+                            try:
+                                markup = float(markup_str)
+                                item["markup_pct"] = markup
+                            except (ValueError, TypeError):
+                                markup = item.get("markup_pct") or r.get("default_markup") or 25
+                        else:
+                            markup = item.get("markup_pct") or r.get("default_markup") or 25
+                        try:
+                            markup = float(markup)
+                        except (ValueError, TypeError):
+                            markup = 25
+                        item["markup_pct"] = markup
+                        item["price_per_unit"] = round(cost * (1 + markup / 100), 2)
+                except (ValueError, TypeError):
+                    pass
+            elif (row.get("markup_pct") or "").strip():
+                # Markup without cost — update markup only if item already has cost
+                markup_str = (row.get("markup_pct") or "").strip().replace("%", "")
+                try:
+                    markup = float(markup_str)
+                    item["markup_pct"] = markup
+                    if item.get("supplier_cost") and float(item["supplier_cost"]) > 0:
+                        item["price_per_unit"] = round(float(item["supplier_cost"]) * (1 + markup / 100), 2)
+                    fields_set += 1
+                except (ValueError, TypeError):
+                    pass
+            if fields_set > 0:
+                res_obj = {"line": i + 1, "status": "ok", "fields": fields_set}
+                if item.get("supplier_cost"):
+                    res_obj["price"] = item["supplier_cost"]
+                if item.get("item_supplier"):
+                    res_obj["supplier"] = item["item_supplier"]
+                results.append(res_obj)
+                applied += 1
+            else:
+                results.append({"line": i + 1, "status": "skipped"})
+        except Exception as e:
+            log.error("Bulk paste data error line %d: %s", i + 1, e, exc_info=True)
+            results.append({"line": i + 1, "status": "error", "error": str(e)[:80]})
+    if applied > 0:
+        save_rfqs(rfqs)
+    return jsonify({"ok": True, "results": results, "applied": applied, "total": len(rows)})
+
+
 @bp.route("/api/rfq/<rid>/autosave", methods=["POST"])
 @auth_required
 def api_rfq_autosave(rid):

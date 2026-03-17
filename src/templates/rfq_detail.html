@@ -241,21 +241,33 @@
  </form>
 </div>
 
-<!-- Bulk Paste URLs Modal -->
+<!-- Bulk Paste Modal -->
 <div id="bulkPasteModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:10001;justify-content:center;align-items:center">
- <div style="background:#161b22;border:1px solid #30363d;border-radius:12px;width:520px;max-width:90vw;max-height:85vh;padding:24px;box-shadow:0 16px 48px rgba(0,0,0,0.4);display:flex;flex-direction:column">
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-   <h3 style="margin:0;color:#e6edf3">📋 Bulk Paste URLs</h3>
+ <div style="background:#161b22;border:1px solid #30363d;border-radius:12px;width:680px;max-width:95vw;max-height:85vh;padding:24px;box-shadow:0 16px 48px rgba(0,0,0,0.4);display:flex;flex-direction:column">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+   <h3 style="margin:0;color:#e6edf3">📋 Bulk Paste</h3>
    <button onclick="closeBulkPaste()" style="background:none;border:none;color:#8b949e;font-size:20px;cursor:pointer">✕</button>
   </div>
-  <div style="font-size:13px;color:#8b949e;margin-bottom:8px">Paste one URL per line. Line 1 → Item 1, Line 2 → Item 2, etc.</div>
+  <!-- Mode tabs -->
+  <div style="display:flex;gap:4px;margin-bottom:10px">
+   <button id="bulkModeUrl" onclick="setBulkMode('url')" style="padding:5px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid #30363d;background:#238636;color:#fff">URLs (Scrape Prices)</button>
+   <button id="bulkModeData" onclick="setBulkMode('data')" style="padding:5px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid #30363d;background:#21262d;color:#8b949e">Multi-Column (Tab-Separated)</button>
+  </div>
+  <div id="bulkHintUrl" style="font-size:13px;color:#8b949e;margin-bottom:8px">Paste one URL per line. Line 1 → Item 1, Line 2 → Item 2, etc. URLs are scraped for pricing.</div>
+  <div id="bulkHintData" style="display:none;font-size:13px;color:#8b949e;margin-bottom:8px">
+   Paste tab-separated columns from a spreadsheet. Line 1 → Item 1, etc.<br>
+   <span style="color:#58a6ff;font-size:12px">Columns: Description &nbsp;|&nbsp; MFG# &nbsp;|&nbsp; URL &nbsp;|&nbsp; Cost &nbsp;|&nbsp; Markup%</span><br>
+   <span style="font-size:11px;color:#6e7681">Skip columns with empty values. Partial rows are fine — only non-empty fields are applied.</span>
+  </div>
   <textarea id="bulkUrlsInput" style="width:100%;min-height:120px;max-height:40vh;flex:1 1 180px;background:#0d1117;border:1px solid #30363d;border-radius:8px;color:#e6edf3;font-family:'JetBrains Mono',monospace;font-size:13px;padding:10px;resize:vertical" placeholder="https://www.amazon.com/dp/B00IGU9BRY&#10;https://www.amazon.com/dp/B078PJCVSQ&#10;..."></textarea>
+  <div id="bulkDetect" style="display:none;font-size:11px;color:#d29922;margin-top:4px"></div>
+  <div id="bulkPreview" style="display:none;margin-top:8px;max-height:20vh;overflow:auto;border:1px solid #30363d;border-radius:6px"></div>
   <div id="bulkProgress" style="display:none;margin-top:8px;height:4px;background:#30363d;border-radius:2px;overflow:hidden"><div style="width:100%;height:100%;background:#58a6ff;animation:bulkPulse 1.5s infinite"></div></div>
   <style>@keyframes bulkPulse{0%,100%{opacity:0.4}50%{opacity:1}}</style>
   <div id="bulkResults" style="max-height:30vh;overflow-y:auto"></div>
   <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end;flex-shrink:0">
    <button onclick="closeBulkPaste()" style="padding:8px 16px;background:#21262d;border:1px solid #30363d;border-radius:6px;color:#8b949e;cursor:pointer">Cancel</button>
-   <button id="bulkScrapeBtn" onclick="startBulkScrapeRfq()" style="padding:8px 16px;background:#238636;border:none;border-radius:6px;color:#fff;font-weight:600;cursor:pointer">Scrape & Apply Prices</button>
+   <button id="bulkScrapeBtn" onclick="startBulkApply()" style="padding:8px 16px;background:#238636;border:none;border-radius:6px;color:#fff;font-weight:600;cursor:pointer">Apply</button>
   </div>
  </div>
 </div>
@@ -750,15 +762,97 @@ function _fireLinkLookup(idx,url){
  }).catch(()=>{if(metaEl)metaEl.innerHTML='<span style="color:#f85149">Lookup failed</span>';});
 }
 
-// ── Bulk Paste URLs ──
+// ── Bulk Paste ──
+var _bulkMode='url';
+function setBulkMode(mode){
+ _bulkMode=mode;
+ var urlBtn=document.getElementById('bulkModeUrl'),dataBtn=document.getElementById('bulkModeData');
+ var hintUrl=document.getElementById('bulkHintUrl'),hintData=document.getElementById('bulkHintData');
+ var ta=document.getElementById('bulkUrlsInput');
+ var applyBtn=document.getElementById('bulkScrapeBtn');
+ if(mode==='url'){
+  urlBtn.style.background='#238636';urlBtn.style.color='#fff';
+  dataBtn.style.background='#21262d';dataBtn.style.color='#8b949e';
+  hintUrl.style.display='';hintData.style.display='none';
+  ta.placeholder='https://www.amazon.com/dp/B00IGU9BRY\nhttps://www.amazon.com/dp/B078PJCVSQ\n...';
+  applyBtn.textContent='Scrape & Apply Prices';
+ } else {
+  dataBtn.style.background='#238636';dataBtn.style.color='#fff';
+  urlBtn.style.background='#21262d';urlBtn.style.color='#8b949e';
+  hintUrl.style.display='none';hintData.style.display='';
+  ta.placeholder='Description\tMFG#\tURL\tCost\tMarkup%\nWidget Assembly Kit\tWDG-100\thttps://supplier.com/wdg100\t45.99\t25\n...';
+  applyBtn.textContent='Apply Data';
+ }
+ document.getElementById('bulkDetect').style.display='none';
+ document.getElementById('bulkPreview').style.display='none';
+ document.getElementById('bulkResults').innerHTML='';
+}
 function openBulkPaste(){
  var m=document.getElementById('bulkPasteModal');if(m)m.style.display='flex';
  var ta=document.getElementById('bulkUrlsInput');if(ta){ta.value='';ta.focus();}
  document.getElementById('bulkResults').innerHTML='';
+ document.getElementById('bulkPreview').style.display='none';
+ document.getElementById('bulkDetect').style.display='none';
+ setBulkMode('url');
 }
 function closeBulkPaste(){var m=document.getElementById('bulkPasteModal');if(m)m.style.display='none';}
 document.addEventListener('keydown',function(e){if(e.key==='Escape')closeBulkPaste();});
-function startBulkScrapeRfq(){
+
+// Auto-detect mode on paste
+document.addEventListener('DOMContentLoaded',function(){
+ var ta=document.getElementById('bulkUrlsInput');
+ if(ta)ta.addEventListener('input',function(){
+  var v=ta.value;
+  var det=document.getElementById('bulkDetect');
+  if(v.includes('\t')&&_bulkMode==='url'){
+   det.textContent='Tab characters detected — switched to Multi-Column mode';
+   det.style.display='block';
+   setBulkMode('data');
+   _showBulkPreview(v);
+  } else if(!v.includes('\t')&&_bulkMode==='data'&&v.trim().split('\n').every(function(l){return !l.includes('\t')})){
+   det.textContent='No tabs detected — switched to URL mode';
+   det.style.display='block';
+   setBulkMode('url');
+   document.getElementById('bulkPreview').style.display='none';
+  } else if(v.includes('\t')&&_bulkMode==='data'){
+   _showBulkPreview(v);
+  } else {
+   document.getElementById('bulkPreview').style.display='none';
+  }
+ });
+});
+
+function _showBulkPreview(text){
+ var lines=text.trim().split('\n').filter(function(l){return l.trim().length>0});
+ if(!lines.length){document.getElementById('bulkPreview').style.display='none';return;}
+ var cols=['Description','MFG#','URL','Cost','Markup%'];
+ var html='<table style="width:100%;font-size:11px;border-collapse:collapse;color:#e6edf3"><thead><tr style="background:#21262d">';
+ html+='<th style="padding:4px 6px;color:#8b949e;text-align:left;font-size:10px">Line</th>';
+ cols.forEach(function(c){html+='<th style="padding:4px 6px;color:#8b949e;text-align:left;font-size:10px">'+c+'</th>';});
+ html+='</tr></thead><tbody>';
+ var maxPreview=Math.min(lines.length,8);
+ for(var i=0;i<maxPreview;i++){
+  var parts=lines[i].split('\t');
+  html+='<tr style="border-top:1px solid #21262d">';
+  html+='<td style="padding:3px 6px;color:#8b949e">'+(i+1)+'</td>';
+  for(var c=0;c<5;c++){
+   var val=(parts[c]||'').trim();
+   var color=val?'#e6edf3':'#30363d';
+   html+='<td style="padding:3px 6px;color:'+color+';max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(val||'—')+'</td>';
+  }
+  html+='</tr>';
+ }
+ if(lines.length>maxPreview)html+='<tr><td colspan="6" style="padding:3px 6px;color:#8b949e;font-style:italic">...and '+(lines.length-maxPreview)+' more rows</td></tr>';
+ html+='</tbody></table>';
+ var prev=document.getElementById('bulkPreview');prev.innerHTML=html;prev.style.display='block';
+}
+
+function startBulkApply(){
+ if(_bulkMode==='url') return _startBulkScrapeRfq();
+ return _startBulkDataRfq();
+}
+
+function _startBulkScrapeRfq(){
  var ta=document.getElementById('bulkUrlsInput');
  var urls=ta.value.trim().split('\n').map(function(u){return u.trim()}).filter(function(u){return u.length>0});
  if(!urls.length){alert('Paste at least one URL');return;}
@@ -769,16 +863,53 @@ function startBulkScrapeRfq(){
  .then(function(r){return r.json()}).then(function(d){
   btn.disabled=false;btn.textContent='Scrape & Apply Prices';prog.style.display='none';
   if(!d.ok){alert(d.error||'Failed');return;}
-  var html='<div style="margin-top:12px">';
-  (d.results||[]).forEach(function(r){
-   if(r.status==='ok')html+='<div style="color:#3fb950;font-size:13px;padding:2px 0">✅ Line '+r.line+': $'+Number(r.price).toFixed(2)+' ('+r.supplier+')</div>';
-   else if(r.status==='skipped')html+='<div style="color:#8b949e;font-size:13px;padding:2px 0">⏭ Line '+r.line+': skipped</div>';
-   else html+='<div style="color:#f85149;font-size:13px;padding:2px 0">❌ Line '+r.line+': '+(r.error||r.status)+'</div>';
-  });
-  html+='<div style="margin-top:8px;font-weight:600;color:#3fb950">'+d.applied+'/'+d.total+' prices applied</div></div>';
-  document.getElementById('bulkResults').innerHTML=html;
-  if(d.applied>0)setTimeout(function(){location.reload()},2000);
+  _showBulkResults(d);
  }).catch(function(e){btn.disabled=false;btn.textContent='Scrape & Apply Prices';prog.style.display='none';alert('Error: '+e.message);});
+}
+
+function _startBulkDataRfq(){
+ var ta=document.getElementById('bulkUrlsInput');
+ var lines=ta.value.trim().split('\n').filter(function(l){return l.trim().length>0});
+ if(!lines.length){alert('Paste at least one row of data');return;}
+ // Parse tab-separated: Description | MFG# | URL | Cost | Markup%
+ var rows=[];
+ lines.forEach(function(line){
+  var parts=line.split('\t');
+  rows.push({
+   description:(parts[0]||'').trim(),
+   item_number:(parts[1]||'').trim(),
+   item_link:(parts[2]||'').trim(),
+   supplier_cost:(parts[3]||'').trim(),
+   markup_pct:(parts[4]||'').trim()
+  });
+ });
+ var btn=document.getElementById('bulkScrapeBtn');
+ btn.disabled=true;btn.textContent='Applying '+rows.length+' rows...';
+ var prog=document.getElementById('bulkProgress');prog.style.display='block';
+ fetch('/api/rfq/'+RID+'/bulk-paste-data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rows:rows}),credentials:'same-origin'})
+ .then(function(r){return r.json()}).then(function(d){
+  btn.disabled=false;btn.textContent='Apply Data';prog.style.display='none';
+  if(!d.ok){alert(d.error||'Failed');return;}
+  _showBulkResults(d);
+ }).catch(function(e){btn.disabled=false;btn.textContent='Apply Data';prog.style.display='none';alert('Error: '+e.message);});
+}
+
+function _showBulkResults(d){
+ var html='<div style="margin-top:12px">';
+ (d.results||[]).forEach(function(r){
+  if(r.status==='ok'){
+   var detail=[];
+   if(r.price)detail.push('$'+Number(r.price).toFixed(2));
+   if(r.supplier)detail.push(r.supplier);
+   if(r.fields)detail.push(r.fields+' fields');
+   html+='<div style="color:#3fb950;font-size:13px;padding:2px 0">✅ Line '+r.line+': '+(detail.join(', ')||'applied')+'</div>';
+  }
+  else if(r.status==='skipped')html+='<div style="color:#8b949e;font-size:13px;padding:2px 0">⏭ Line '+r.line+': skipped</div>';
+  else html+='<div style="color:#f85149;font-size:13px;padding:2px 0">❌ Line '+r.line+': '+(r.error||r.status)+'</div>';
+ });
+ html+='<div style="margin-top:8px;font-weight:600;color:#3fb950">'+d.applied+'/'+d.total+' items updated</div></div>';
+ document.getElementById('bulkResults').innerHTML=html;
+ if(d.applied>0)setTimeout(function(){location.reload()},2000);
 }
 
 function _applyLinkData(idx,d){
