@@ -1735,7 +1735,10 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
             "ext_col_x": None,
         }
 
-        # Extract text with positions using visitor
+        # ── Detect page format using structural analysis ──
+        # IMPORTANT: Don't rely on text content alone — our own overlay text from
+        # previous generates can pollute detection. Use positional analysis instead.
+
         try:
             def _visitor(text, cm, tm, font_dict, font_size):
                 if text.strip():
@@ -1744,23 +1747,55 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
         except Exception as _e:
             log.warning("Text extraction failed for page %d: %s", pg_idx, _e)
 
-        # Sort top-to-bottom
         layout["text_items"].sort(key=lambda t: (-t[1], t[0]))
         all_text_upper = " ".join(t[3] for t in layout["text_items"]).upper()
 
-        # ── Detect page format ──
+        # Check for INSTRUCTIONS page first
         if "INSTRUCTION" in all_text_upper and "DATA ENTRY" in all_text_upper:
-            layout["is_instructions"] = True
-        elif "SUPPLIER" in all_text_upper and "INFORMATION" in all_text_upper:
-            layout["is_page1_format"] = True
-        elif "COMPANY NAME" in all_text_upper and "CERTIFIED" in all_text_upper:
-            layout["is_page1_format"] = True
+            has_item_numbers = False
+            for x, y, fs, txt in layout["text_items"]:
+                if x < 85 and fs > 6:
+                    try:
+                        num = int(txt.strip())
+                        if 1 <= num <= 50:
+                            has_item_numbers = True
+                            break
+                    except (ValueError, TypeError):
+                        pass
+            if not has_item_numbers:
+                layout["is_instructions"] = True
+            else:
+                layout["is_continuation"] = True
         elif pg_idx == 0:
             layout["is_page1_format"] = True
-        elif "SUPPLIER NAME" in all_text_upper or "PRICE CHECK" in all_text_upper:
-            layout["is_continuation"] = True
         else:
-            layout["is_instructions"] = True
+            # For page 2+, use positional analysis not keyword matching
+            has_continuation_header = False
+            has_page1_supplier_section = False
+            for x, y, fs, txt in layout["text_items"]:
+                txt_up = txt.upper()
+                if y > 520:
+                    if "SUPPLIER NAME" in txt_up or "PRICE CHECK" in txt_up:
+                        has_continuation_header = True
+                    if "PAGE" in txt_up and any(c.isdigit() for c in txt):
+                        has_continuation_header = True
+                # SUPPLIER INFORMATION banner appears at y=440-470 on page-1-format pages
+                if 440 < y < 470 and "SUPPLIER" in txt_up and "INFORMATION" in txt_up:
+                    has_page1_supplier_section = True
+
+            if has_continuation_header and not has_page1_supplier_section:
+                layout["is_continuation"] = True
+            elif has_page1_supplier_section:
+                layout["is_page1_format"] = True
+            else:
+                has_rows = any(
+                    x < 85 and fs > 6 and txt.strip().isdigit() and 1 <= int(txt.strip()) <= 50
+                    for x, y, fs, txt in layout["text_items"]
+                )
+                if has_rows:
+                    layout["is_continuation"] = True
+                else:
+                    layout["is_instructions"] = True
 
         # ── Find column header row ──
         for x, y, fs, txt in layout["text_items"]:
@@ -1774,9 +1809,9 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
                 if layout["header_y"] is None:
                     layout["header_y"] = y
 
-        # ── Find data row Y positions (item numbers 1-50 at x < 70) ──
+        # ── Find data row Y positions (item numbers 1-50 at x < 85) ──
         for x, y, fs, txt in layout["text_items"]:
-            if x < 70 and fs > 7:
+            if x < 85 and fs > 6:
                 try:
                     num = int(txt.strip())
                     if 1 <= num <= 50:
@@ -1803,14 +1838,29 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
         """Compute (y_bottom, y_top) for each row slot using detected positions."""
         detected = layout["row_y_positions"]
         if len(detected) >= 2:
+            # Compute average spacing from detected positions
+            spacings = [detected[i] - detected[i + 1] for i in range(len(detected) - 1)]
+            avg_spacing = sum(spacings) / len(spacings) if spacings else 22.5
+            row_height = avg_spacing * 0.93  # row rect is ~93% of spacing
+
             results = []
             for y in detected:
-                results.append((y - 3, y + 18))
+                results.append((y - 3, y + row_height))
+
+            # Extrapolate additional rows below the last detected one
+            max_rows = 11  # some continuation pages have up to 11 rows
+            while len(results) < max_rows:
+                last_y = results[-1][0]
+                next_y_bottom = last_y - avg_spacing
+                if next_y_bottom < 40:  # don't go below footer area
+                    break
+                results.append((next_y_bottom, next_y_bottom + row_height))
+
             return results
         elif layout["is_page1_format"]:
             return [(300.1 - i * 22.5, 321.2 - i * 22.5) for i in range(8)]
         else:
-            return [(459.0 - i * 22.5, 480.0 - i * 22.5) for i in range(8)]
+            return [(459.0 - i * 22.5, 480.0 - i * 22.5) for i in range(11)]
 
     def _get_price_x(layout):
         if layout.get("price_col_x"):
