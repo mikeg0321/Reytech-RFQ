@@ -1751,18 +1751,18 @@ def _do_generate(pcid):
 
     # ── Sanitize stored data before PDF generation ──
     _sanitize_pc_items(pc)
-    
+
     # ALWAYS sync parsed.line_items from pc.items (the source of truth)
-    # pc["items"] gets updated on every save; parsed["line_items"] may be stale
-    # from the original parse if not explicitly synced.
     if "parsed" not in pc:
         pc["parsed"] = {"header": {}, "line_items": []}
     pc["parsed"]["line_items"] = pc.get("items", [])
-    
+
     log.info("GENERATE %s: synced %d items from pc['items'] to parsed['line_items']",
              pcid, len(pc.get("items", [])))
-    
-    # Auto-compute missing prices before PDF generation
+
+    # Auto-compute missing prices before PDF generation.
+    # Track whether we actually changed anything so we only save when needed.
+    _auto_priced = 0
     for it in pc.get("items", []):
         cost = it.get("vendor_cost") or it.get("pricing", {}).get("unit_cost") or 0
         price = it.get("unit_price") or it.get("pricing", {}).get("recommended_price") or 0
@@ -1773,8 +1773,10 @@ def _do_generate(pcid):
             if not it.get("pricing"):
                 it["pricing"] = {}
             it["pricing"]["recommended_price"] = computed
-    
-    _save_price_checks(pcs)
+            _auto_priced += 1
+    if _auto_priced:
+        log.info("GENERATE %s: auto-computed %d missing prices", pcid, _auto_priced)
+        _save_price_checks(pcs)
 
     parsed = pc.get("parsed", {})
     source_pdf = pc.get("source_pdf", "")
@@ -1902,6 +1904,7 @@ def _do_generate_original(pcid):
         pc["parsed"] = {"header": {}, "line_items": []}
     pc["parsed"]["line_items"] = pc.get("items", [])
 
+    _auto_priced = 0
     for it in pc.get("items", []):
         cost = it.get("vendor_cost") or it.get("pricing", {}).get("unit_cost") or 0
         price = it.get("unit_price") or it.get("pricing", {}).get("recommended_price") or 0
@@ -1912,8 +1915,10 @@ def _do_generate_original(pcid):
             if not it.get("pricing"):
                 it["pricing"] = {}
             it["pricing"]["recommended_price"] = computed
-
-    _save_price_checks(pcs)
+            _auto_priced += 1
+    if _auto_priced:
+        log.info("GENERATE-ORIGINAL %s: auto-computed %d missing prices", pcid, _auto_priced)
+        _save_price_checks(pcs)
 
     parsed = pc.get("parsed", {})
     source_pdf = pc.get("source_pdf", "")
