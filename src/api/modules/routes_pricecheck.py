@@ -139,6 +139,47 @@ def api_pc_revert(pcid):
         return jsonify({"ok": False, "error": str(e)})
 
 
+@bp.route("/api/pricecheck/<pcid>/trim-items", methods=["POST"])
+@auth_required
+def pricecheck_trim_items(pcid):
+    """Trim items list to keep only the first N items. Used when a multi-page
+    source PDF was parsed into too many items for this PC."""
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"})
+
+    data = request.get_json(force=True, silent=True) or {}
+    keep = data.get("keep", 0)
+    if not keep or not isinstance(keep, int) or keep < 1:
+        return jsonify({"ok": False, "error": "Invalid keep count"})
+
+    items = pc.get("items", [])
+    if keep >= len(items):
+        return jsonify({"ok": False, "error": f"Already have {len(items)} items, keep={keep} does nothing"})
+
+    # Save revision before trimming
+    try:
+        _save_pc_revision(pcid, pc, reason="trim")
+    except Exception:
+        pass
+
+    removed = len(items) - keep
+    pc["items"] = items[:keep]
+
+    # Sync parsed.line_items
+    if "parsed" in pc:
+        pc["parsed"]["line_items"] = pc["items"]
+
+    # Reset generate count so next generate starts fresh
+    pc["_generate_count"] = 0
+
+    _save_price_checks(pcs)
+
+    log.info("TRIM PC %s: kept %d, removed %d items", pcid, keep, removed)
+    return jsonify({"ok": True, "kept": keep, "removed": removed})
+
+
 @bp.route("/api/pricecheck/<pcid>/merge-items", methods=["POST"])
 @auth_required
 def api_pc_merge_items(pcid):

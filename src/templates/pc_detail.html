@@ -246,6 +246,8 @@
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('duplicate')" aria-label="Mark Duplicate">📋 Mark Duplicate</button>
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('archived')" aria-label="Archive">🗄️ Archive</button>
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#f85149;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('delete')" aria-label="Delete">🗑️ Delete</button>
+        <hr style="border-color:#30363d;margin:4px 0">
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#d29922;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="trimItems()" aria-label="Trim Items">✂️ Trim to Visible Items</button>
        </div>
       </details>
      </div>
@@ -1568,6 +1570,27 @@
        } else {
         showMsg('❌ ' + (d.error || 'Unknown error'), 'err');
        }
+      }).catch(e => showMsg('❌ ' + e.message, 'err'));
+    }
+
+    function trimItems() {
+      var count = document.querySelectorAll('tr[data-row]:not(.notes-row)').length;
+      var keep = prompt('This PC has ' + count + ' items. Keep how many? (removes items from the end)', count);
+      if (!keep) return;
+      keep = parseInt(keep);
+      if (isNaN(keep) || keep < 1 || keep >= count) { showMsg('Enter a number less than ' + count, 'warn'); return; }
+      if (!confirm('Remove items ' + (keep+1) + '-' + count + '? This saves immediately. Use Revision History to undo.')) return;
+      fetch('/api/pricecheck/' + _pcid + '/trim-items', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({keep: keep})
+      }).then(r => r.json()).then(d => {
+        if (d.ok) {
+          showMsg('✅ Trimmed to ' + keep + ' items. Reloading...', 'ok');
+          setTimeout(() => location.reload(), 1000);
+        } else {
+          showMsg('❌ ' + (d.error || 'Trim failed'), 'err');
+        }
       }).catch(e => showMsg('❌ ' + e.message, 'err'));
     }
 
