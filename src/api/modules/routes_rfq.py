@@ -2295,10 +2295,78 @@ def generate_rfq_package(rid):
                 t.step("Drug-Free STD 21 generated")
             except Exception as e:
                 t.warn("Drug-Free failed", error=str(e))
+        # GenAI 708
+        if _include("genai_708") or r.get("form_type") == "703c":
+            _genai_tmpl = os.path.join(DATA_DIR, "templates", "genai_708_blank.pdf")
+            if os.path.exists(_genai_tmpl):
+                try:
+                    from src.forms.reytech_filler_v4 import fill_genai_708
+                    fill_genai_708(_genai_tmpl, r, CONFIG, f"{out_dir}/{sol}_GenAI708_Reytech.pdf")
+                    output_files.append(f"{sol}_GenAI708_Reytech.pdf")
+                    t.step("GenAI 708 filled")
+                except Exception as e:
+                    errors.append(f"GenAI 708: {e}")
+
+        # STD 205 from template (prefer over ReportLab version)
+        if _include("std205"):
+            _std205_tmpl = os.path.join(DATA_DIR, "templates", "STD205_Payee_Data_Record_Supplement.pdf")
+            if os.path.exists(_std205_tmpl) and f"{sol}_STD205_Reytech.pdf" not in output_files:
+                try:
+                    from src.forms.reytech_filler_v4 import fill_std205
+                    fill_std205(_std205_tmpl, r, CONFIG, f"{out_dir}/{sol}_STD205_Reytech.pdf")
+                    output_files.append(f"{sol}_STD205_Reytech.pdf")
+                    t.step("STD 205 filled from template")
+                except Exception as e:
+                    errors.append(f"STD 205 template: {e}")
+
+        # Standalone Darfur (for non-CDCR agencies that don't have bidpkg)
+        if _include("darfur_act") and "bidpkg" not in tmpl:
+            _darfur_tmpl = os.path.join(DATA_DIR, "templates", "Darfur_Certification_Form.pdf")
+            if os.path.exists(_darfur_tmpl):
+                try:
+                    from src.forms.reytech_filler_v4 import fill_darfur_standalone
+                    fill_darfur_standalone(_darfur_tmpl, r, CONFIG, f"{out_dir}/{sol}_DarfurAct_Reytech.pdf")
+                    output_files.append(f"{sol}_DarfurAct_Reytech.pdf")
+                    t.step("Darfur Act filled from template")
+                except Exception as e:
+                    errors.append(f"Darfur Act: {e}")
+
+        # W-9 (static copy)
+        _w9_path = os.path.join(DATA_DIR, "templates", "w9_reytech.pdf")
+        if os.path.exists(_w9_path):
+            import shutil as _sh_w9
+            try:
+                _sh_w9.copy2(_w9_path, f"{out_dir}/{sol}_W9_Reytech.pdf")
+                output_files.append(f"{sol}_W9_Reytech.pdf")
+            except Exception:
+                pass
+
+        # Seller's Permit (static copy if not already added)
+        if _include("sellers_permit"):
+            _sp_path = os.path.join(DATA_DIR, "templates", "sellers_permit_reytech.pdf")
+            if os.path.exists(_sp_path) and f"{sol}_SellersPermit_Reytech.pdf" not in output_files:
+                import shutil as _sh_sp
+                try:
+                    _sh_sp.copy2(_sp_path, f"{out_dir}/{sol}_SellersPermit_Reytech.pdf")
+                    output_files.append(f"{sol}_SellersPermit_Reytech.pdf")
+                except Exception:
+                    pass
+
     except Exception as e:
         errors.append(f"State forms: {e}")
         t.warn("State forms exception", error=str(e))
-    
+
+    # ── Step 2.5: 703C master template fallback ──
+    if not any(f.endswith("_703B_Reytech.pdf") or f.endswith("_703C_Reytech.pdf") for f in output_files):
+        _master_703c = os.path.join(DATA_DIR, "templates", "AMS 703C - RFQ.pdf")
+        if os.path.exists(_master_703c):
+            try:
+                fill_703b(_master_703c, r, CONFIG, f"{out_dir}/{sol}_703C_Reytech.pdf")
+                output_files.append(f"{sol}_703C_Reytech.pdf")
+                t.step("703C filled from master template")
+            except Exception as e:
+                t.warn("703C master fill failed", error=str(e))
+
     # ── Step 3: Generate Reytech Quote on letterhead ──
     if QUOTE_GEN_AVAILABLE:
         try:

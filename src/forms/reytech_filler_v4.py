@@ -2772,3 +2772,77 @@ def _compute_bidpkg_keep_indices(template_path):
     print(f"  ✓ BidPackage page map: keep indices {keep} (of {len(reader.pages)} total)")
     return keep
 
+
+def fill_genai_708(input_path, rfq_data, config, output_path):
+    """Fill AMS 708 GenAI Disclosure. Always: No GenAI used."""
+    company = config["company"]
+    sign_date = rfq_data.get("sign_date", get_pst_date())
+    sol = rfq_data.get("solicitation_number", "")
+
+    values = {
+        "Solicitation Number": sol, "Solicitation": sol, "Solicitation #": sol,
+        "Company Name": company["name"], "Vendor Name": company["name"],
+        "Contact Person": company["owner"], "Date": sign_date,
+        "Date1_af_date": sign_date,
+    }
+
+    # Scan fields and check "No" for GenAI usage
+    try:
+        from pypdf import PdfReader
+        r = PdfReader(input_path)
+        fields = r.get_fields() or {}
+        for fname, fobj in fields.items():
+            fn_lower = fname.lower()
+            if ("no" in fn_lower and ("genai" in fn_lower or "ai" in fn_lower or "option" in fn_lower)) or \
+               ("check" in fn_lower and "no" in fn_lower):
+                values[fname] = "/Yes"
+        # Common checkbox names
+        for prefix in ["", "_2"]:
+            values[f"NoGenAI{prefix}"] = "/Yes"
+            values[f"No{prefix}"] = "/Yes"
+            values[f"Check_No{prefix}"] = "/Yes"
+    except Exception:
+        pass
+
+    fill_and_sign_pdf(input_path, values, output_path, sign_date=sign_date)
+    print(f"  ✓ 708 GenAI filled — No GenAI used")
+
+
+def fill_std205(input_path, rfq_data, config, output_path):
+    """Fill STD 205 Payee Data Record Supplement from blank template."""
+    company = config["company"]
+    sign_date = rfq_data.get("sign_date", get_pst_date())
+
+    values = {
+        "Name": company["name"], "Business Name": company["name"],
+        "DBA": company["name"],
+        "Address": company.get("address", ""),
+        "City": company.get("city", ""), "State": company.get("state", "CA"),
+        "Zip": company.get("zip", ""), "Phone": company.get("phone", ""),
+        "Email": company.get("email", ""),
+        "FEIN": company.get("fein", ""), "Date": sign_date,
+    }
+
+    fill_and_sign_pdf(input_path, values, output_path, sign_date=sign_date)
+    print(f"  ✓ STD 205 filled")
+
+
+def fill_darfur_standalone(input_path, rfq_data, config, output_path):
+    """Fill standalone Darfur Certification Form. Option 1: not scrutinized."""
+    company = config["company"]
+    sign_date = rfq_data.get("sign_date", get_pst_date())
+
+    values = {
+        "CompanyVendor Name Printed": company["name"],
+        "Company Name": company["name"], "Vendor Name": company["name"],
+        "Federal ID Number": company.get("fein", ""),
+        "FEIN": company.get("fein", ""),
+        "Printed Name and Title of Person Signing": f"{company['owner']}, {company.get('title', 'President')}",
+        "Date": sign_date, "Date__darfur": sign_date,
+    }
+    for name in ["Option1", "Check1", "Option_1", "#1"]:
+        values[name] = "/Yes"
+
+    fill_and_sign_pdf(input_path, values, output_path, sign_date=sign_date)
+    print(f"  ✓ Darfur Act filled — Option 1 (not scrutinized)")
+
