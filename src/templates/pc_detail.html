@@ -2948,8 +2948,8 @@
      fieldsLocked = !fieldsLocked;
      applyLockState();
      var btn = document.getElementById('lockToggleBtn');
-     if(fieldsLocked){btn.textContent='🔒 Desc/URL Locked';btn.style.background='#21262d';btn.style.borderColor='#30363d';btn.style.color='#8b949e';}
-     else{btn.textContent='🔓 EDIT MODE';btn.style.background='rgba(240,136,62,0.12)';btn.style.borderColor='#f0883e';btn.style.color='#f0883e';}
+     if(fieldsLocked){btn.textContent='🔒 Description + URL Locked';btn.style.background='#21262d';btn.style.borderColor='#30363d';btn.style.color='#8b949e';}
+     else{btn.textContent='🔓 EDIT MODE — Description + URL';btn.style.background='rgba(240,136,62,0.12)';btn.style.borderColor='#f0883e';btn.style.color='#f0883e';}
     }
     function applyLockState(){
      document.querySelectorAll('.lockable-field').forEach(function(el){
