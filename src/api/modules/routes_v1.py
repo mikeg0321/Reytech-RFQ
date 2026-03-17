@@ -4009,6 +4009,119 @@ def api_v1_system_templates_upload():
     return api_response({"uploaded": results, "count": len(results)})
 
 
+# ── Source Material Preview ───────────────────────────────────────────
+
+@bp.route("/api/v1/rfq/<rid>/source-material")
+@auth_required
+def api_v1_rfq_source_material(rid):
+    """Return original email + attachments for an RFQ."""
+    return _get_source_material("rfq", rid)
+
+@bp.route("/api/v1/pc/<pcid>/source-material")
+@auth_required
+def api_v1_pc_source_material(pcid):
+    """Return original email + attachments for a PC."""
+    return _get_source_material("pc", pcid)
+
+def _get_source_material(entity_type, entity_id):
+    import json as _json
+    result = {"email_subject": "", "email_from": "", "email_date": "",
+              "email_body": "", "attachments": [], "extracted_fields": {},
+              "linked_pc": None, "linked_rfq": None}
+    try:
+        if entity_type == "rfq":
+            rfqs = load_rfqs()
+            r = rfqs.get(entity_id)
+            if not r:
+                return api_response(error="Not found", status=404)
+            result["email_subject"] = r.get("email_subject", "")
+            result["email_from"] = r.get("requestor_email", r.get("email_sender", ""))
+            result["email_date"] = r.get("created_at", r.get("received_at", ""))
+            result["email_body"] = (r.get("body_text", "") or "")[:3000]
+            result["extracted_fields"] = {
+                "Solicitation #": r.get("solicitation_number", ""),
+                "Buyer Name": r.get("requestor_name", ""),
+                "Buyer Email": r.get("requestor_email", ""),
+                "Due Date": r.get("due_date", ""),
+                "Delivery": r.get("delivery_location", r.get("ship_to", "")),
+                "Agency": r.get("agency_name", r.get("agency", "")),
+                "Form Type": r.get("form_type", ""),
+                "Items": len(r.get("line_items", r.get("items", []))),
+            }
+            if r.get("linked_pc_id"):
+                result["linked_pc"] = {"id": r["linked_pc_id"],
+                                       "number": r.get("linked_pc_number", "")}
+        elif entity_type == "pc":
+            from src.api.dashboard import _load_price_checks
+            pcs = _load_price_checks()
+            pc = pcs.get(entity_id)
+            if not pc:
+                return api_response(error="Not found", status=404)
+            result["email_subject"] = pc.get("email_subject", "")
+            result["email_from"] = pc.get("requestor_email", pc.get("requestor", ""))
+            result["email_date"] = pc.get("created_at", "")
+            result["email_body"] = (pc.get("body_text", "") or "")[:3000]
+            pd = pc.get("pc_data", pc)
+            if isinstance(pd, str):
+                try: pd = _json.loads(pd)
+                except: pd = pc
+            result["extracted_fields"] = {
+                "PC Number": pc.get("pc_number", ""),
+                "Requestor": pc.get("requestor", ""),
+                "Institution": pc.get("institution", ""),
+                "Due Date": pc.get("due_date", ""),
+                "Ship To": pc.get("ship_to", ""),
+                "Items": len(pc.get("items", [])),
+            }
+            if pc.get("linked_rfq_id"):
+                result["linked_rfq"] = {"id": pc["linked_rfq_id"],
+                                        "number": pc.get("linked_rfq_number", "")}
+        # Attachments from rfq_files table
+        try:
+            from src.api.dashboard import list_rfq_files
+            files = list_rfq_files(entity_id)
+            for f in files:
+                result["attachments"].append({
+                    "filename": f.get("filename", ""),
+                    "category": f.get("category", ""),
+                    "size_kb": round(f.get("file_size", 0) / 1024, 1) if f.get("file_size") else 0,
+                    "download_url": f"/rfq/{entity_id}/file/{f['id']}" if f.get("id") else "",
+                })
+        except Exception:
+            pass
+        return api_response(result)
+    except Exception as e:
+        log.error("source-material error: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)
+
+@bp.route("/api/v1/rfq/<rid>/mark-reviewed", methods=["POST"])
+@auth_required
+def api_v1_rfq_mark_reviewed(rid):
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return api_response(error="Not found", status=404)
+    from datetime import datetime
+    r["reviewed_at"] = datetime.now().isoformat()
+    r["needs_review"] = False
+    save_rfqs(rfqs)
+    return api_response({"ok": True})
+
+@bp.route("/api/v1/pc/<pcid>/mark-reviewed", methods=["POST"])
+@auth_required
+def api_v1_pc_mark_reviewed(pcid):
+    from src.api.dashboard import _load_price_checks, _save_price_checks
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return api_response(error="Not found", status=404)
+    from datetime import datetime
+    pc["reviewed"] = True
+    pc["reviewed_at"] = datetime.now().isoformat()
+    _save_price_checks(pcs)
+    return api_response({"ok": True})
+
+
 # ── DGS Form Auto-Downloader ─────────────────────────────────────────
 
 @bp.route("/api/v1/forms/status")

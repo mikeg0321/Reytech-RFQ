@@ -29,6 +29,7 @@
    <div style="color:var(--tx2);font-size:14px;margin-top:2px">{{r.get('award_method','all_or_none')|replace('_',' ')|title}}{% if r.source=='email' %} · 📧 Auto-imported{% endif %}{% if r.get('agency_name') %} · <span style="padding:2px 8px;border-radius:4px;font-size:13px;font-weight:600;{% if r.get('form_type')=='generic_rfq' %}background:rgba(167,139,250,.15);color:#a78bfa;border:1px solid rgba(167,139,250,.3){% else %}background:rgba(52,211,153,.1);color:#3fb950;border:1px solid rgba(52,211,153,.2){% endif %}">{{ r.agency_name }}</span>{% endif %}</div>
   </div>
   <span class="badge b-{{r.status}}">{{r.status}}</span>
+  <button onclick="toggleSourcePanel()" style="padding:4px 10px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--ac);font-size:12px;cursor:pointer;margin-left:8px" title="View original email and attachments">📧 Source</button>
  </div>
  <div class="meta-g">
   <div class="meta-i"><div class="meta-l">Buyer</div><div class="meta-v"><input type="text" value="{{r.get('requestor_name','')}}" class="editable-field" onblur="saveField(this,'requestor_name')" onfocus="this.style.borderColor='#58a6ff'" placeholder="Name" style="background:transparent;border:1px solid transparent;border-radius:4px;padding:2px 6px;color:#58a6ff;font-size:inherit;width:180px"></div></div>
@@ -510,6 +511,15 @@
 </div>
 {% endif %}
 
+<!-- Source Material Panel -->
+<div id="source-panel" style="position:fixed;top:0;right:-500px;width:480px;height:100vh;background:var(--bg,#0d1117);border-left:2px solid var(--bd,#30363d);z-index:10000;transition:right 0.3s ease;overflow-y:auto;padding:20px;box-shadow:-4px 0 20px rgba(0,0,0,0.3)">
+ <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+  <h3 style="margin:0;color:var(--tx)">📧 Source Material</h3>
+  <button onclick="toggleSourcePanel()" style="background:none;border:none;color:var(--tx2);font-size:20px;cursor:pointer">✕</button>
+ </div>
+ <div id="source-content" style="color:var(--tx2)">Click "Source" to load</div>
+</div>
+
 <!-- Email History -->
 <div class="card" id="email-history-card" style="display:none">
  <div class="card-t" style="font-size:14px">📬 Email History</div>
@@ -530,6 +540,26 @@ td:hover .desc-expand-btn { opacity: 1 !important; }
 </style>
 <script>
 const RID = {{rid|tojson}};
+
+// ── Source Material Panel ──
+var _srcOpen=false;
+function toggleSourcePanel(){var p=document.getElementById('source-panel');_srcOpen=!_srcOpen;p.style.right=_srcOpen?'0':'-500px';if(_srcOpen)_loadSource();}
+function _escH(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+function _loadSource(){
+ var c=document.getElementById('source-content');c.innerHTML='<div style="text-align:center;padding:20px">Loading...</div>';
+ fetch('/api/v1/rfq/'+RID+'/source-material',{credentials:'same-origin'}).then(function(r){return r.json()}).then(function(d){
+  if(!d.ok||!d.data){c.innerHTML='<div style="padding:12px">No source data found</div>';return;}
+  var s=d.data,h='';
+  if(s.email_subject||s.email_from){h+='<div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px;margin-bottom:12px"><div style="font-size:11px;color:var(--tx2);text-transform:uppercase;margin-bottom:6px">Original Email</div>';if(s.email_subject)h+='<div style="font-weight:600;color:var(--tx);margin-bottom:4px">'+_escH(s.email_subject)+'</div>';if(s.email_from)h+='<div style="font-size:13px;color:var(--tx2)">From: '+_escH(s.email_from)+'</div>';if(s.email_date)h+='<div style="font-size:13px;color:var(--tx2)">Date: '+_escH(s.email_date)+'</div>';h+='</div>';}
+  if(s.email_body){h+='<div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px;margin-bottom:12px"><div style="font-size:11px;color:var(--tx2);text-transform:uppercase;margin-bottom:6px">Email Body</div><div style="font-size:13px;color:var(--tx);white-space:pre-wrap;max-height:300px;overflow-y:auto;font-family:monospace;line-height:1.4">'+_escH(s.email_body)+'</div></div>';}
+  if(s.attachments&&s.attachments.length){h+='<div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px;margin-bottom:12px"><div style="font-size:11px;color:var(--tx2);text-transform:uppercase;margin-bottom:8px">Attachments ('+s.attachments.length+')</div>';s.attachments.forEach(function(a){h+='<div style="display:flex;align-items:center;gap:8px;padding:6px;border-radius:4px;margin-bottom:4px;background:var(--bg)"><span style="flex:1;font-size:13px;color:var(--tx)">'+_escH(a.filename)+'</span>';if(a.size_kb)h+='<span style="font-size:11px;color:var(--tx2)">'+a.size_kb+'KB</span>';if(a.download_url)h+='<a href="'+a.download_url+'" target="_blank" style="font-size:12px;color:var(--ac)">View</a>';h+='</div>';});h+='</div>';}
+  if(s.extracted_fields){h+='<div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px;margin-bottom:12px"><div style="font-size:11px;color:var(--tx2);text-transform:uppercase;margin-bottom:6px">Extracted Fields</div>';for(var k in s.extracted_fields){var v=s.extracted_fields[k];h+='<div style="display:flex;gap:6px;font-size:13px;padding:2px 0"><span>'+(v?'\u2705':'\u274c')+'</span><span style="color:var(--tx2);min-width:110px">'+_escH(k)+':</span><span style="color:var(--tx)">'+(v?_escH(String(v).substring(0,80)):'<em style="color:var(--tx2)">not found</em>')+'</span></div>';}h+='</div>';}
+  if(s.linked_pc){h+='<div style="padding:8px 0"><a href="/pricecheck/'+s.linked_pc.id+'" style="color:var(--ac);font-size:13px">Linked PC #'+_escH(s.linked_pc.number||s.linked_pc.id)+'</a></div>';}
+  h+='<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--bd)"><button onclick="fetch(\'/api/v1/rfq/\'+RID+\'/mark-reviewed\',{method:\'POST\',credentials:\'same-origin\'}).then(function(){this.textContent=\'Verified\';this.disabled=true}.bind(this))" style="padding:8px 16px;background:var(--ac);color:white;border:none;border-radius:6px;cursor:pointer;font-size:13px">Verified — Source Confirmed</button></div>';
+  c.innerHTML=h;
+ }).catch(function(){c.innerHTML='<div style="padding:12px">Failed to load</div>';});
+}
+
 // Save restored templates/files via POST (not in GET handler — Law 14)
 fetch('/rfq/'+RID+'/save-restore',{method:'POST',credentials:'same-origin'}).catch(function(){});
 const items={{r.get("line_items",[])|tojson}};

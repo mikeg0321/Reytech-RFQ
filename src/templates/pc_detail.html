@@ -103,7 +103,9 @@
        <button onclick="document.getElementById('pcNumEdit').style.display='none';document.getElementById('pcNumDisplay').style.display='inline'" style="background:none;border:1px solid #30363d;color:#8b949e;padding:4px 8px;border-radius:4px;font-size:14px;cursor:pointer">✕</button>
       </span>
       <span class="status status-{{ pc.get('status','parsed') }}">{{ pc.get('status','parsed').upper() }}</span>
-      {% if pc.get('reytech_quote_number') %}<span style='margin-left:12px;font-family:JetBrains Mono,monospace;font-size:16px;color:#58a6ff;font-weight:700'>{{ pc.get('reytech_quote_number','') }}</span>{% endif %}</h1>
+      {% if pc.get('reytech_quote_number') %}<span style='margin-left:12px;font-family:JetBrains Mono,monospace;font-size:16px;color:#58a6ff;font-weight:700'>{{ pc.get('reytech_quote_number','') }}</span>{% endif %}
+      <button onclick="toggleSourcePanel()" style="padding:4px 10px;background:var(--sf,#161b22);border:1px solid var(--bd,#30363d);border-radius:6px;color:#58a6ff;font-size:12px;cursor:pointer;margin-left:8px" title="View original email and attachments">📧 Source</button>
+     </h1>
 
      <!-- Pipeline Status Tracker -->
      <div style="margin:12px 0;display:flex;align-items:center;gap:0;font-size:14px;font-weight:600">
@@ -357,6 +359,34 @@
 
     <!-- Error catcher: shows JS errors visually instead of silent death -->
     <div id="jsErrorLog" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999;background:#1a0000;border-top:2px solid #f85149;padding:8px 16px;font-size:14px;color:#f85149;font-family:monospace;max-height:120px;overflow-y:auto"></div>
+    <!-- Source Material Panel -->
+    <div id="source-panel" style="position:fixed;top:0;right:-500px;width:480px;height:100vh;background:#0d1117;border-left:2px solid #30363d;z-index:10000;transition:right 0.3s ease;overflow-y:auto;padding:20px;box-shadow:-4px 0 20px rgba(0,0,0,0.3)">
+     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h3 style="margin:0;color:#e6edf3">📧 Source Material</h3>
+      <button onclick="toggleSourcePanel()" style="background:none;border:none;color:#8b949e;font-size:20px;cursor:pointer">✕</button>
+     </div>
+     <div id="source-content" style="color:#8b949e">Click "Source" to load</div>
+    </div>
+    <script>
+    var _srcOpen=false;
+    function toggleSourcePanel(){var p=document.getElementById('source-panel');_srcOpen=!_srcOpen;p.style.right=_srcOpen?'0':'-500px';if(_srcOpen)_loadPcSource();}
+    function _escH(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+    function _loadPcSource(){
+     var c=document.getElementById('source-content');c.innerHTML='<div style="text-align:center;padding:20px">Loading...</div>';
+     var pid={{pcid|tojson}};
+     fetch('/api/v1/pc/'+pid+'/source-material',{credentials:'same-origin'}).then(function(r){return r.json()}).then(function(d){
+      if(!d.ok||!d.data){c.innerHTML='<div style="padding:12px">No source data found</div>';return;}
+      var s=d.data,h='';
+      if(s.email_subject||s.email_from){h+='<div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px;margin-bottom:12px"><div style="font-size:11px;color:#8b949e;text-transform:uppercase;margin-bottom:6px">Original Email</div>';if(s.email_subject)h+='<div style="font-weight:600;color:#e6edf3;margin-bottom:4px">'+_escH(s.email_subject)+'</div>';if(s.email_from)h+='<div style="font-size:13px;color:#8b949e">From: '+_escH(s.email_from)+'</div>';if(s.email_date)h+='<div style="font-size:13px;color:#8b949e">Date: '+_escH(s.email_date)+'</div>';h+='</div>';}
+      if(s.email_body){h+='<div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px;margin-bottom:12px"><div style="font-size:11px;color:#8b949e;text-transform:uppercase;margin-bottom:6px">Email Body</div><div style="font-size:13px;color:#e6edf3;white-space:pre-wrap;max-height:300px;overflow-y:auto;font-family:monospace;line-height:1.4">'+_escH(s.email_body)+'</div></div>';}
+      if(s.attachments&&s.attachments.length){h+='<div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px;margin-bottom:12px"><div style="font-size:11px;color:#8b949e;text-transform:uppercase;margin-bottom:8px">Attachments ('+s.attachments.length+')</div>';s.attachments.forEach(function(a){h+='<div style="display:flex;align-items:center;gap:8px;padding:6px;border-radius:4px;margin-bottom:4px;background:#0d1117"><span style="flex:1;font-size:13px;color:#e6edf3">'+_escH(a.filename)+'</span>';if(a.size_kb)h+='<span style="font-size:11px;color:#8b949e">'+a.size_kb+'KB</span>';if(a.download_url)h+='<a href="'+a.download_url+'" target="_blank" style="font-size:12px;color:#58a6ff">View</a>';h+='</div>';});h+='</div>';}
+      if(s.extracted_fields){h+='<div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px;margin-bottom:12px"><div style="font-size:11px;color:#8b949e;text-transform:uppercase;margin-bottom:6px">Extracted Fields</div>';for(var k in s.extracted_fields){var v=s.extracted_fields[k];h+='<div style="display:flex;gap:6px;font-size:13px;padding:2px 0"><span>'+(v?'\u2705':'\u274c')+'</span><span style="color:#8b949e;min-width:110px">'+_escH(k)+':</span><span style="color:#e6edf3">'+(v?_escH(String(v).substring(0,80)):'<em style="color:#8b949e">not found</em>')+'</span></div>';}h+='</div>';}
+      if(s.linked_rfq){h+='<div style="padding:8px 0"><a href="/rfq/'+s.linked_rfq.id+'" style="color:#58a6ff;font-size:13px">Linked RFQ #'+_escH(s.linked_rfq.number||s.linked_rfq.id)+'</a></div>';}
+      c.innerHTML=h;
+     }).catch(function(){c.innerHTML='<div style="padding:12px">Failed to load</div>';});
+    }
+    </script>
+
     <script>
     window._pcErrors=[];
     window._pcLog=[];
