@@ -615,6 +615,10 @@ def fill_704b(input_path, rfq_data, config, output_path):
     except Exception as _pf_err:
         print(f"  ⚠ 704B pre-fill detection failed: {_pf_err}")
 
+    # Fix duplicate line numbers at generation time only (does not save back)
+    for _i, _item in enumerate(line_items, start=1):
+        _item["line_number"] = _i
+
     seq = 0
     for _raw_item in line_items:
         seq += 1
