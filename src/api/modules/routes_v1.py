@@ -3888,7 +3888,11 @@ def api_v1_system_templates():
 @bp.route("/api/v1/system/templates/upload", methods=["POST"])
 @auth_required
 def api_v1_system_templates_upload():
-    """Upload a master form template (843, CalRecycle, CUF, etc.)."""
+    """Upload form templates. Supports:
+    - Single PDF: saved as-is (or with save_as name)
+    - Multi-file: multiple PDFs uploaded at once
+    - Bid package split: ?split=1 auto-detects and splits combined PDF into individual forms
+    """
     try:
         from src.core.paths import DATA_DIR as _DATA_DIR
     except Exception:
@@ -3896,18 +3900,162 @@ def api_v1_system_templates_upload():
     tmpl_dir = os.path.join(_DATA_DIR, "templates")
     os.makedirs(tmpl_dir, exist_ok=True)
 
-    f = request.files.get("template")
-    if not f or not f.filename:
-        return api_response(error="No file uploaded", status=400)
-    filename = f.filename.strip()
-    if not filename.lower().endswith(".pdf"):
-        return api_response(error="Only PDF files allowed", status=400)
+    split_mode = request.args.get("split", "0") == "1" or request.form.get("split", "0") == "1"
+    results = []
 
-    # Allow custom name override
-    save_as = request.form.get("save_as", "").strip() or filename
-    if not save_as.lower().endswith(".pdf"):
-        save_as += ".pdf"
-    dest = os.path.join(tmpl_dir, save_as)
-    f.save(dest)
-    log.info("Master template uploaded: %s (%d bytes)", save_as, os.path.getsize(dest))
-    return api_response({"uploaded": save_as, "size_kb": round(os.path.getsize(dest) / 1000, 1)})
+    # Accept multiple files
+    files = request.files.getlist("template") or request.files.getlist("templates")
+    if not files or (len(files) == 1 and not files[0].filename):
+        # Try single file field
+        f = request.files.get("template")
+        if f and f.filename:
+            files = [f]
+        else:
+            return api_response(error="No files uploaded", status=400)
+
+    for f in files:
+        filename = (f.filename or "").strip()
+        if not filename.lower().endswith(".pdf"):
+            results.append({"file": filename, "error": "not a PDF"})
+            continue
+
+        # Save to temp first
+        import tempfile as _tf
+        tmp = _tf.NamedTemporaryFile(suffix=".pdf", delete=False)
+        f.save(tmp.name)
+        tmp.close()
+
+        if split_mode:
+            # Auto-detect and split forms from combined PDF
+            split_results = _split_bid_package(tmp.name, tmpl_dir)
+            results.extend(split_results)
+            os.remove(tmp.name)
+        else:
+            # Save as single template
+            save_as = request.form.get("save_as", "").strip() or filename
+            if not save_as.lower().endswith(".pdf"):
+                save_as += ".pdf"
+            import shutil
+            dest = os.path.join(tmpl_dir, save_as)
+            shutil.move(tmp.name, dest)
+            results.append({"file": save_as, "size_kb": round(os.path.getsize(dest) / 1000, 1)})
+            log.info("Template uploaded: %s", save_as)
+
+    return api_response({"uploaded": results, "count": len(results)})
+
+
+def _split_bid_package(pdf_path, output_dir):
+    """Split a combined bid package PDF into individual form templates."""
+    from pypdf import PdfReader, PdfWriter
+    results = []
+
+    # Form detection markers: form_name -> (keywords in page text, output filename)
+    FORM_MARKERS = {
+        "calrecycle_74": {
+            "keywords": ["CALRECYCLE", "RECYCLED-CONTENT", "RECYCLED CONTENT", "POSTCONSUMER"],
+            "filename": "calrecycle_74_blank.pdf",
+        },
+        "obs_1600": {
+            "keywords": ["OBS 1600", "AGRICULTURAL", "FOOD PRODUCT CERTIFICATION"],
+            "filename": "obs_1600_blank.pdf",
+        },
+        "cuf": {
+            "keywords": ["COMMERCIALLY USEFUL FUNCTION", "CV 012", "CV-012"],
+            "filename": "cv012_cuf_blank.pdf",
+        },
+        "dvbe_843": {
+            "keywords": ["DVBE DECLARATIONS", "DGS PD 843", "PD 843"],
+            "filename": "dvbe_843_blank.pdf",
+        },
+        "darfur": {
+            "keywords": ["DARFUR CONTRACTING", "DARFUR ACT"],
+            "filename": "darfur_blank.pdf",
+        },
+        "bidder_decl": {
+            "keywords": ["BIDDER DECLARATION", "GS/OAS 09"],
+            "filename": "bidder_declaration_blank.pdf",
+        },
+        "drug_free": {
+            "keywords": ["DRUG-FREE WORKPLACE", "DRUG FREE WORKPLACE"],
+            "filename": "drug_free_blank.pdf",
+        },
+        "genai_708": {
+            "keywords": ["GENAI", "GEN AI", "ARTIFICIAL INTELLIGENCE", "708"],
+            "filename": "genai_708_blank.pdf",
+        },
+        "std_204": {
+            "keywords": ["STD 204", "PAYEE DATA"],
+            "filename": "std204_blank.pdf",
+        },
+    }
+
+    try:
+        reader = PdfReader(pdf_path)
+        # Tag each page with its form type
+        page_forms = []
+        for i, page in enumerate(reader.pages):
+            text = (page.extract_text() or "").upper()
+            form_type = None
+            for ftype, info in FORM_MARKERS.items():
+                if any(kw.upper() in text for kw in info["keywords"]):
+                    form_type = ftype
+                    break
+            page_forms.append(form_type)
+
+        # Group consecutive pages of same form type
+        current_form = None
+        current_pages = []
+        groups = []
+        for i, ftype in enumerate(page_forms):
+            if ftype and ftype != current_form:
+                if current_form and current_pages:
+                    groups.append((current_form, current_pages))
+                current_form = ftype
+                current_pages = [i]
+            elif ftype == current_form:
+                current_pages.append(i)
+            else:
+                # Unidentified page — attach to current form if within 1 page
+                if current_form and current_pages and (i - current_pages[-1]) <= 1:
+                    current_pages.append(i)
+                else:
+                    if current_form and current_pages:
+                        groups.append((current_form, current_pages))
+                    current_form = None
+                    current_pages = []
+        if current_form and current_pages:
+            groups.append((current_form, current_pages))
+
+        # Write each form group as a separate PDF
+        for ftype, pages in groups:
+            info = FORM_MARKERS[ftype]
+            writer = PdfWriter()
+            for p in pages:
+                writer.add_page(reader.pages[p])
+            out_path = os.path.join(output_dir, info["filename"])
+            with open(out_path, "wb") as of:
+                writer.write(of)
+            results.append({
+                "file": info["filename"],
+                "form": ftype,
+                "pages": [p + 1 for p in pages],
+                "size_kb": round(os.path.getsize(out_path) / 1000, 1),
+            })
+            log.info("Split form: %s (%d pages) -> %s", ftype, len(pages), info["filename"])
+
+        # Also save the full package as-is
+        import shutil
+        full_dest = os.path.join(output_dir, "cdcr_bid_package_template.pdf")
+        shutil.copy2(pdf_path, full_dest)
+        results.append({
+            "file": "cdcr_bid_package_template.pdf",
+            "form": "full_package",
+            "pages": list(range(1, len(reader.pages) + 1)),
+            "size_kb": round(os.path.getsize(full_dest) / 1000, 1),
+        })
+
+    except Exception as e:
+        results.append({"error": f"Split failed: {e}"})
+        log.error("Bid package split: %s", e, exc_info=True)
+
+    return results
