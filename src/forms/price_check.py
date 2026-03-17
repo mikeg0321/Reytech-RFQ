@@ -1700,12 +1700,16 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
         "qty_per_uom": (154.1, 197.3),
         "description": (199.1, 444.8),
         "substituted": (446.6, 633.8),
-        "unit_price":  (635.6, 687.8),
-        "extension":   (689.6, 755.8),
+        "unit_price":  (639.6, 691.8),
+        "extension":   (693.6, 759.8),
     }
-    ROW1_Y_BOTTOM = 300.1
-    ROW1_Y_TOP = 321.2
-    ROW_SPACING = 22.5  # y decreases by this per row
+    # Page 1 row positions (below supplier info section)
+    PG1_ROW1_Y_BOTTOM = 300.1
+    PG1_ROW1_Y_TOP = 321.2
+    # Page 2+ row positions (no supplier section — rows start higher)
+    PG2_ROW1_Y_BOTTOM = 459.0
+    PG2_ROW1_Y_TOP = 480.0
+    ROW_SPACING = 22.5  # same on both pages
 
     # Totals
     TOTAL_RECTS = {
@@ -1713,6 +1717,12 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
         "fill_71": (694.9, 89.9, 755.6, 112.3),     # Freight
         "fill_72": (695.4, 67.4, 755.8, 88.6),      # Tax
         "fill_73": (695.5, 41.9, 755.6, 66.0),      # Total
+    }
+
+    # Page 2+ header fields that need masking
+    PG2_HEADER = {
+        "supplier_name": (440.0, 527.0, 750.0, 545.0),  # SUPPLIER NAME: field
+        "pc_number":     (130.0, 527.0, 320.0, 545.0),   # PRICE CHECK #: field
     }
 
     # Checkboxes
@@ -1794,14 +1804,33 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
                 val = fv_map.get(fname, "")
                 _draw_in_rect(c, x1, y1, x2, y2, val, max_font=10)
 
+        # ── Page 2+ header: mask SUPPLIER NAME and PRICE CHECK # ──
+        if page_idx > 0:
+            company = fv_map.get("COMPANY NAME", "")
+            if company:
+                x1, y1, x2, y2 = PG2_HEADER["supplier_name"]
+                _draw_in_rect(c, x1, y1, x2, y2, company, max_font=12)
+            pc_num = fv_map.get("Text1", "")  # Text1 = PRICE CHECK # field
+            if pc_num:
+                x1, y1, x2, y2 = PG2_HEADER["pc_number"]
+                _draw_in_rect(c, x1, y1, x2, y2, pc_num, max_font=12)
+
         # ── Row items ──
         # Page 0 = rows 1-8, page 1 = rows 9-16, page 2 = rows 17-24
+        # Use different Y start for page 1 vs page 2+ (page 2 has no supplier section)
+        if page_idx == 0:
+            base_y_bottom = PG1_ROW1_Y_BOTTOM
+            base_y_top = PG1_ROW1_Y_TOP
+        else:
+            base_y_bottom = PG2_ROW1_Y_BOTTOM
+            base_y_top = PG2_ROW1_Y_TOP
+
         row_start = 1 + (page_idx * 8)
         row_end = row_start + 8
         for row_num in range(row_start, row_end):
             row_offset = row_num - row_start  # 0-7
-            y_bottom = ROW1_Y_BOTTOM - (row_offset * ROW_SPACING)
-            y_top = ROW1_Y_TOP - (row_offset * ROW_SPACING)
+            y_bottom = base_y_bottom - (row_offset * ROW_SPACING)
+            y_top = base_y_top - (row_offset * ROW_SPACING)
 
             for field_key, (x1, x2) in ROW_RECTS.items():
                 field_name = ROW_FIELDS[field_key].format(n=row_num)
