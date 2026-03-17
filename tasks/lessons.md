@@ -624,3 +624,25 @@ must require explicit confirmation before executing:
 
 On 2026-03-16, recover-pcs was accidentally triggered by a
 misclick. All bulk data operations must have a safety gate.
+
+### Law 26: Boot Must Never Block
+The app MUST start and serve requests within 10 seconds.
+ALL heavy operations must run in background threads:
+- Health checks → background thread, 10s delay
+- JSON recovery from SQLite → background thread
+- Snapshot cleanup → background thread
+- Catalog population → background thread
+
+NEVER at module level:
+- json.load() on large files (price_checks.json was 439MB)
+- SQLite queries that scan full tables
+- Network calls (IMAP, API, scraping)
+- File system walks
+
+On 2026-03-16, boot health check + recovery tried to read
+439MB JSON + query SQLite at module load. Railway's 30s boot
+timeout killed the app. It was down for 20+ minutes.
+
+Run `python scripts/pre_commit_check.py` before every push.
+It catches: blocking boot code, missing wiring, PC deletion,
+fetch overrides, missing size guards, and compile errors.
