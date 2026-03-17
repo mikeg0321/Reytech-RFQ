@@ -1155,7 +1155,7 @@ def match_item(description: str, part_number: str = "", top_n: int = 3) -> list:
                     intersection = desc_tokens & prod_tokens
                     union = desc_tokens | prod_tokens
                     similarity = len(intersection) / len(union) if union else 0
-                    if similarity >= 0.25:
+                    if similarity >= 0.35:  # was 0.25 — too many garbage matches
                         m = dict(r)
                         m["match_confidence"] = round(min(similarity * 1.3, 0.95), 2)
                         m["match_reason"] = f"Token match: {len(intersection)} shared ({similarity:.0%})"
@@ -1215,9 +1215,29 @@ def match_item(description: str, part_number: str = "", top_n: int = 3) -> list:
                 if m["match_confidence"] < 0.40:
                     m["match_confidence"] = 0.0  # Below threshold, mark as non-match
 
+    # ── Filter garbage matches ──
+    _NON_PRODUCT = ["amendment", "name change", "legal name", "has changed their",
+                    "fiscal year", "fy ", "sl ", "service level", "organization"]
+    _HIGH_VALUE_OK = {"equipment", "vehicle", "system", "machine", "contract",
+                      "service", "software", "construction", "generator"}
+    filtered = []
+    for m in matches:
+        # Skip zero-confidence
+        if m.get("match_confidence", 0) < 0.35:
+            continue
+        # Skip non-product entries (amendments, org name changes)
+        _mdesc = (m.get("description", "") or "").lower()
+        if any(s in _mdesc for s in _NON_PRODUCT):
+            continue
+        # Sanity: reject >$50K unit price for non-equipment items
+        _uprice = m.get("last_unit_price", 0) or m.get("normalized_unit_price", 0) or 0
+        if _uprice > 50000 and not any(w in _mdesc for w in _HIGH_VALUE_OK):
+            continue
+        filtered.append(m)
+
     # Sort by confidence descending
-    matches.sort(key=lambda x: x.get("match_confidence", 0), reverse=True)
-    return matches[:top_n]
+    filtered.sort(key=lambda x: x.get("match_confidence", 0), reverse=True)
+    return filtered[:top_n]
 
 
 def match_items_batch(items: list) -> list:

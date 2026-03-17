@@ -3860,6 +3860,36 @@ def api_v1_parse_gaps():
         return api_response(error=str(e), status=500)
 
 
+# ── Intelligence Cleanup ──────────────────────────────────────────────
+
+@bp.route("/api/v1/rfq/clean-intelligence")
+@auth_required
+def api_v1_clean_intelligence():
+    """Strip garbage catalog matches from all RFQs."""
+    _NON_PRODUCT = ["amendment", "name change", "legal name",
+                    "has changed their", "fiscal year", "fy "]
+    rfqs = load_rfqs()
+    cleaned = 0
+    for rid, r in rfqs.items():
+        for item in r.get("line_items", r.get("items", [])):
+            intel = item.get("intelligence", {})
+            if not isinstance(intel, dict):
+                continue
+            matches = intel.get("catalog_matches", [])
+            before = len(matches)
+            matches = [m for m in matches if m.get("relevance_score", m.get("match_confidence", 0)) >= 0.4]
+            matches = [m for m in matches if not any(
+                s in (m.get("description", "") or "").lower() for s in _NON_PRODUCT)]
+            matches = [m for m in matches if
+                       (m.get("normalized_unit_price", 0) or 0) < 50000]
+            intel["catalog_matches"] = matches[:3]
+            if len(matches) < before:
+                cleaned += 1
+    if cleaned:
+        save_rfqs(rfqs)
+    return api_response({"cleaned_items": cleaned})
+
+
 # ── Agency Intelligence ───────────────────────────────────────────────
 
 @bp.route("/api/v1/agency/buyer-profile")

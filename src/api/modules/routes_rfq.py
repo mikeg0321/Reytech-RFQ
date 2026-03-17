@@ -853,8 +853,32 @@ def detail(rid):
         except Exception:
             pass
 
-    log.info("RFQ detail render: rid=%s, line_items=%d, has_items_key=%s",
-             rid, len(r.get("line_items", [])), "items" in r)
+    # Trim intelligence blobs to prevent page crash / slow render
+    import json as _json_trim
+    _items_list = r.get("line_items", r.get("items", []))
+    try:
+        _items_size = len(_json_trim.dumps(_items_list, default=str))
+        if _items_size > 100000:  # >100KB of item JSON
+            for _itm in _items_list:
+                _itm.pop("intelligence", None)
+                _itm.pop("oracle", None)
+            log.warning("DETAIL %s: stripped intelligence blobs (%.0fKB)", rid, _items_size / 1024)
+        else:
+            for _itm in _items_list:
+                _intel = _itm.get("intelligence", {})
+                if isinstance(_intel, dict):
+                    _cms = _intel.get("catalog_matches", [])
+                    if len(_cms) > 3:
+                        _intel["catalog_matches"] = _cms[:3]
+                    for _cm in _intel.get("catalog_matches", []):
+                        for _fld in ("description", "enriched_description"):
+                            _v = _cm.get(_fld, "")
+                            if len(_v) > 100:
+                                _cm[_fld] = _v[:100] + "..."
+    except Exception:
+        pass
+
+    log.info("RFQ detail render: rid=%s, line_items=%d", rid, len(_items_list))
 
     return render_page("rfq_detail.html", active_page="Home", r=r, rid=rid)
 
