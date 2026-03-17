@@ -4293,10 +4293,16 @@ def api_v1_email_reprocess_all():
         return api_response(error=str(e), status=500)
 
 
-@bp.route("/api/v1/email/recover-forwards", methods=["GET", "POST"])
+@bp.route("/api/v1/email/recover-stuck", methods=["GET", "POST"])
 @auth_required
-def api_v1_recover_forwards():
-    """Find forwarded emails killed by self-filter and reprocess them."""
+def api_v1_recover_stuck():
+    """Find ALL emails processed but never created a record. Covers:
+    - Forwards from our domain (CalVet via mike@)
+    - Direct buyer emails before PC detection existed (Katrina)
+    - Emails misclassified as CS inquiries
+    - Any .ca.gov email swallowed silently
+    Removes UIDs from _processed so current detection logic can reclassify.
+    """
     try:
         from src.api.dashboard import POLL_STATUS, _load_price_checks
         import imaplib
@@ -4312,7 +4318,7 @@ def api_v1_recover_forwards():
         if not addr or not pwd:
             return api_response(error="Email credentials not configured")
 
-        # Get UIDs that already created records
+        # Get UIDs that already created records — DON'T touch these
         created_uids = set()
         try:
             pcs = _load_price_checks()
@@ -4328,73 +4334,115 @@ def api_v1_recover_forwards():
         except Exception:
             pass
 
+        days = int(request.args.get("days", 30))
+        buyer_domains = [".ca.gov", "cdcr", "calvet", "cdph", "cchcs", "dsh",
+                        "calfire", "caltrans", "chp", "dgs", "edd", "dca"]
+        our_domains = ["reytechinc.com", "reytech.com"]
+        noise_senders = ["no-reply@", "noreply@", "mailer-daemon", "postmaster",
+                        "notifications@", "alerts@", "support@"]
+
         recovered = []
+        skipped = []
+
         imap = imaplib.IMAP4_SSL("imap.gmail.com")
         imap.login(addr, pwd)
         imap.select("INBOX", readonly=True)
 
-        since = (_dt.now() - _td(days=30)).strftime("%d-%b-%Y")
-        for domain in ["reytechinc.com", "reytech.com"]:
-            _, data = imap.uid("search", None, f'FROM "@{domain}" SINCE {since}')
-            if not data or not data[0]:
+        since = (_dt.now() - _td(days=days)).strftime("%d-%b-%Y")
+        _, data = imap.uid("search", None, f"(SINCE {since})")
+        all_uids = data[0].split() if data[0] else []
+
+        for uid_bytes in all_uids:
+            uid_str = uid_bytes.decode()
+
+            # Only look at UIDs that ARE in processed (stuck ones)
+            if uid_str not in poller._processed:
                 continue
-            for uid_bytes in data[0].split():
-                uid_str = uid_bytes.decode()
-                if uid_str not in poller._processed:
+            # Skip if it already created a record
+            if uid_str in created_uids:
+                continue
+
+            try:
+                _, msg_data = imap.uid("fetch", uid_bytes, "(BODY.PEEK[HEADER])")
+                if not msg_data or not msg_data[0]:
                     continue
-                if uid_str in created_uids:
+                header = _email_mod.message_from_bytes(msg_data[0][1])
+                from_hdr = header.get("From", "")
+                subj = header.get("Subject", "") or ""
+                sender = ""
+                _em = __import__("re").search(r'[\w.+-]+@[\w.-]+', from_hdr)
+                if _em:
+                    sender = _em.group(0).lower()
+
+                # Skip noise
+                if any(n in sender for n in noise_senders):
                     continue
-                try:
-                    _, msg_data = imap.uid("fetch", uid_bytes, "(BODY.PEEK[])")
-                    if not msg_data or not msg_data[0]:
-                        continue
-                    msg = _email_mod.message_from_bytes(msg_data[0][1])
-                    subj = (msg.get("Subject", "") or "").strip()
-                    subj_lower = subj.lower()
-                    is_fwd = any(subj_lower.startswith(p) for p in ["fwd:", "fw:"])
-                    has_rfc822 = any(p.get_content_type() == "message/rfc822" for p in msg.walk())
-                    body = ""
-                    for part in msg.walk():
-                        if part.get_content_type() == "text/plain":
-                            try:
-                                body = part.get_payload(decode=True).decode(errors="replace")
-                            except Exception:
-                                pass
-                            break
-                    has_fwd_body = any(m in body.lower() for m in ["forwarded message", "begin forwarded", "---------- forwarded"])
-                    has_nested_pdf = False
-                    for part in msg.walk():
-                        if part.get_content_type() == "message/rfc822":
-                            payload = part.get_payload()
-                            inners = payload if isinstance(payload, list) else ([payload] if hasattr(payload, 'walk') else [])
-                            for inner in inners:
-                                if hasattr(inner, 'walk'):
-                                    for ip in inner.walk():
-                                        if (ip.get_filename() or "").lower().endswith(".pdf"):
-                                            has_nested_pdf = True
-                                            break
-                                if has_nested_pdf:
-                                    break
-                    signals = sum([is_fwd, has_rfc822, has_fwd_body, has_nested_pdf])
-                    if signals >= 2:
-                        poller.reprocess_uid(uid_str)
-                        recovered.append({
-                            "uid": uid_str, "subject": subj[:100],
-                            "signals": {"fwd_subject": is_fwd, "rfc822": has_rfc822,
-                                        "fwd_body": has_fwd_body, "nested_pdf": has_nested_pdf},
-                        })
-                        log.info("RECOVERED forward: uid=%s subj=%s", uid_str, subj[:60])
-                except Exception:
-                    pass
+
+                # Is this a buyer email or our forward?
+                is_buyer = any(d in sender for d in buyer_domains)
+                is_self = any(sender.endswith(f"@{d}") for d in our_domains)
+                is_forward = any(subj.lower().strip().startswith(p) for p in ["fwd:", "fw:"])
+
+                # Recover if: buyer email OR our forward with fwd: subject
+                should_recover = False
+                reason = ""
+                if is_buyer:
+                    should_recover = True
+                    reason = "buyer_email"
+                elif is_self and is_forward:
+                    should_recover = True
+                    reason = "self_forward"
+
+                if should_recover:
+                    poller.reprocess_uid(uid_str)
+                    # Also clear from mike@ processed file
+                    try:
+                        import json as _jrm
+                        _mike_path = os.path.join(
+                            os.environ.get("DATA_DIR", "/data"), "processed_emails_mike.json")
+                        if os.path.exists(_mike_path):
+                            with open(_mike_path) as _f:
+                                _muids = _jrm.load(_f)
+                            if uid_str in _muids:
+                                _muids.remove(uid_str)
+                                with open(_mike_path, "w") as _f:
+                                    _jrm.dump(_muids, _f)
+                    except Exception:
+                        pass
+
+                    recovered.append({
+                        "uid": uid_str,
+                        "sender": sender,
+                        "subject": subj[:100],
+                        "reason": reason,
+                    })
+                    log.info("RECOVERED stuck: uid=%s sender=%s reason=%s subj=%s",
+                            uid_str, sender, reason, subj[:60])
+                else:
+                    skipped.append({"uid": uid_str, "sender": sender, "subject": subj[:60]})
+            except Exception:
+                continue
+
         imap.close()
         imap.logout()
         return api_response({
-            "recovered": len(recovered), "details": recovered,
-            "next_step": "Hit Check Now — recovered emails will be reprocessed"
+            "recovered": len(recovered),
+            "skipped": len(skipped),
+            "details": recovered,
+            "skipped_details": skipped[:20],
+            "next_step": "Hit Check Now or wait for next poll cycle"
         })
     except Exception as e:
-        log.error("recover-forwards: %s", e, exc_info=True)
+        log.error("recover-stuck: %s", e, exc_info=True)
         return api_response(error=str(e), status=500)
+
+
+# Keep old URL as alias
+@bp.route("/api/v1/email/recover-forwards", methods=["GET", "POST"])
+@auth_required
+def api_v1_recover_forwards():
+    """Alias for recover-stuck (broader recovery)."""
+    return api_v1_recover_stuck()
 
 
 @bp.route("/api/v1/email/diagnose/<uid>")
