@@ -4232,18 +4232,38 @@ def api_v1_email_missed():
 @bp.route("/api/v1/email/reprocess/<uid>", methods=["GET", "POST"])
 @auth_required
 def api_v1_email_reprocess(uid):
-    """Remove a UID from processed — will reprocess next poll cycle."""
+    """Remove a UID from ALL processed lists (sales@ + mike@) — will reprocess next cycle."""
+    cleared = []
     try:
         from src.api.dashboard import POLL_STATUS
+        # Clear from sales@ poller
         poller = POLL_STATUS.get("_poller_instance")
         if poller and hasattr(poller, "reprocess_uid"):
             poller.reprocess_uid(uid)
-            return api_response({"ok": True, "uid": uid, "message": "Will reprocess next cycle"})
-        # Fallback: direct DB removal
-        from src.core.db import get_db
-        with get_db() as conn:
-            conn.execute("DELETE FROM processed_emails WHERE uid=?", (uid,))
-        return api_response({"ok": True, "uid": uid, "message": "Removed from DB — will reprocess"})
+            cleared.append("sales@")
+        # Clear from mike@ processed file
+        try:
+            _mike_path = os.path.join(os.environ.get("DATA_DIR", "/data"), "processed_emails_mike.json")
+            if os.path.exists(_mike_path):
+                import json as _jm
+                with open(_mike_path) as _f:
+                    _mike_uids = _jm.load(_f)
+                if uid in _mike_uids:
+                    _mike_uids.remove(uid)
+                    with open(_mike_path, "w") as _f:
+                        _jm.dump(_mike_uids, _f)
+                    cleared.append("mike@")
+        except Exception:
+            pass
+        # Clear from SQLite (both inboxes)
+        try:
+            from src.core.db import get_db
+            with get_db() as conn:
+                conn.execute("DELETE FROM processed_emails WHERE uid=?", (uid,))
+            cleared.append("sqlite")
+        except Exception:
+            pass
+        return api_response({"ok": True, "uid": uid, "cleared_from": cleared})
     except Exception as e:
         return api_response(error=str(e), status=500)
 
