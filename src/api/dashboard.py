@@ -3310,6 +3310,7 @@ def _log_crm_activity(ref_id: str, event_type: str, description: str,
                  qb_po_created, email_sent, email_received, voice_call,
                  scprs_lookup, price_check, lead_scored, follow_up
     """
+    _now = datetime.now().isoformat()
     activity = _load_crm_activity()
     activity.append({
         "id": f"crm-{datetime.now().strftime('%Y%m%d%H%M%S')}-{len(activity)}",
@@ -3317,10 +3318,24 @@ def _log_crm_activity(ref_id: str, event_type: str, description: str,
         "event_type": event_type,
         "description": description,
         "actor": actor,
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": _now,
         "metadata": metadata or {},
     })
     _save_crm_activity(activity)
+
+    # Dual-write to SQLite activity_log for unified feed
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            conn.execute("""
+                INSERT INTO activity_log
+                (contact_id, logged_at, event_type, subject, body, actor, metadata)
+                VALUES (?,?,?,?,?,?,?)
+            """, (ref_id, _now, event_type, description[:200],
+                  description, actor,
+                  json.dumps(metadata or {}, default=str)))
+    except Exception:
+        pass
 
 def _get_crm_activity(ref_id: str = None, event_type: str = None,
                        institution: str = None, limit: int = 50) -> list:
