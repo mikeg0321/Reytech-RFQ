@@ -9,6 +9,7 @@
   <button class="btn btn-sm intel-tab" onclick="switchIntelTab('scprs',this)" style="font-size:13px">📊 SCPRS</button>
   <button class="btn btn-sm intel-tab" onclick="switchIntelTab('competitor',this)" style="font-size:13px">🏢 Competitor</button>
   <button class="btn btn-sm intel-tab" onclick="switchIntelTab('intelligence',this)" style="font-size:13px">🧠 Intelligence</button>
+  <button class="btn btn-sm intel-tab" onclick="switchIntelTab('cchcs',this)" style="font-size:13px">🏥 CCHCS</button>
 </div>
 <div id="intel-tab-content" style="display:none"></div>
 
@@ -102,6 +103,7 @@ function switchIntelTab(tab, btn) {
   }
   var routes = {
     'scprs': '/intel/scprs',
+    'cchcs': '/cchcs/expansion',
     'competitor': '/intel/competitors',
     'intelligence': '/growth-intel'
   };
