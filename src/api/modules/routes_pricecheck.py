@@ -399,10 +399,19 @@ def _pricecheck_detail_inner(pcid):
         cat_match = p.get("catalog_match", "")
         cat_pid = p.get("catalog_product_id")
         if cat_cost and cat_match:
-            cat_url = f"/catalog/{cat_pid}" if cat_pid else ""
+            cat_url = p.get("catalog_url", p.get("best_supplier_url", ""))
+            if not cat_url and cat_pid:
+                cat_url = f"/catalog/{cat_pid}"
             cat_sup = p.get("catalog_best_supplier", "")
             cat_label = f"📦 {cat_sup}" if cat_sup else "📦 Catalog"
             sources.append((cat_cost, cat_label, cat_url, "#58a6ff", True))
+
+        # Item link URL as a source (if user pasted a URL with a price)
+        _item_link = item.get("item_link", "")
+        _item_link_price = _safe_float(item.get("item_link_price"), 0)
+        if _item_link and _item_link_price and _item_link_price not in [s[0] for s in sources]:
+            _il_supplier = item.get("item_supplier", "Link")
+            sources.append((_item_link_price, _il_supplier, _item_link, "#f59e0b", True))
 
         # Sort by price, preferred suppliers get a small boost (within 10% of cheapest = preferred wins)
         if sources:

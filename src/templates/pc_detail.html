@@ -907,13 +907,17 @@
         }
       }
       
-      // Fill cost — ALWAYS override: user pasted URL to get this price
+      // Fill cost — use list price (non-discounted) for stable quoting
       const costEl = document.querySelector('[name=cost_'+idx+']');
       if (costEl && d.price && d.price > 0) {
         costEl.value = d.price.toFixed(2);
         costEl.style.background='#0d2818';
         setTimeout(()=>{costEl.style.background='';},1500);
-        filled.push('cost $'+d.price.toFixed(2));
+        var priceNote = 'cost $'+d.price.toFixed(2);
+        if (d.list_price && d.sale_price && d.sale_price < d.list_price) {
+          priceNote += ' (list, sale $'+d.sale_price.toFixed(2)+')';
+        }
+        filled.push(priceNote);
       }
       
       // Fill MFG#/Part# — only if field is empty. Never overwrite existing MFG#.
