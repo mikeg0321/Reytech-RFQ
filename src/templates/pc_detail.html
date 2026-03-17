@@ -293,6 +293,11 @@
 
     <div class="card">
      <h3 style="margin-top:0;font-size:18px">Line Items <span id="itemCount" style="font-weight:normal;color:#8b949e;font-size:15px">({{ items|length }} items)</span></h3>
+     <!-- Lock Toggle + Bulk Paste -->
+     <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+      <button id="lockToggleBtn" onclick="toggleGlobalLock()" style="background:#21262d;border:1px solid #30363d;color:#8b949e;border-radius:6px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer">🔒 Desc/URL Locked</button>
+      <button onclick="openBulkPaste()" style="background:#21262d;border:1px solid #30363d;color:#58a6ff;border-radius:6px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer">📋 Bulk Paste URLs</button>
+     </div>
      <!-- Quick Markup Bar (config-driven, parity with RFQ) -->
      <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:10px;font-size:14px">
       <span style="color:#8b949e">Quick Markup:</span>
@@ -359,6 +364,25 @@
 
     <!-- Error catcher: shows JS errors visually instead of silent death -->
     <div id="jsErrorLog" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999;background:#1a0000;border-top:2px solid #f85149;padding:8px 16px;font-size:14px;color:#f85149;font-family:monospace;max-height:120px;overflow-y:auto"></div>
+    <!-- Bulk Paste URLs Modal -->
+    <div id="bulkPasteModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:10001;justify-content:center;align-items:center">
+     <div style="background:#161b22;border:1px solid #30363d;border-radius:12px;width:520px;max-width:90vw;padding:24px;box-shadow:0 16px 48px rgba(0,0,0,0.4)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+       <h3 style="margin:0;color:#e6edf3">📋 Bulk Paste URLs</h3>
+       <button onclick="closeBulkPaste()" style="background:none;border:none;color:#8b949e;font-size:20px;cursor:pointer">✕</button>
+      </div>
+      <div style="font-size:13px;color:#8b949e;margin-bottom:8px">Paste one URL per line. Line 1 → Item 1, Line 2 → Item 2, etc.</div>
+      <textarea id="bulkUrlsInput" style="width:100%;height:180px;background:#0d1117;border:1px solid #30363d;border-radius:8px;color:#e6edf3;font-family:'JetBrains Mono',monospace;font-size:13px;padding:10px;resize:vertical" placeholder="https://www.amazon.com/dp/B00IGU9BRY&#10;https://www.amazon.com/dp/B078PJCVSQ&#10;..."></textarea>
+      <div id="bulkProgress" style="display:none;margin-top:8px;height:4px;background:#30363d;border-radius:2px;overflow:hidden"><div style="width:100%;height:100%;background:#58a6ff;animation:pulse 1.5s infinite"></div></div>
+      <style>@keyframes pulse{0%,100%{opacity:0.4}50%{opacity:1}}</style>
+      <div id="bulkResults"></div>
+      <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
+       <button onclick="closeBulkPaste()" style="padding:8px 16px;background:#21262d;border:1px solid #30363d;border-radius:6px;color:#8b949e;cursor:pointer">Cancel</button>
+       <button id="bulkScrapeBtn" onclick="startBulkScrape()" style="padding:8px 16px;background:#238636;border:none;border-radius:6px;color:#fff;font-weight:600;cursor:pointer">Scrape & Apply Prices</button>
+      </div>
+     </div>
+    </div>
+
     <!-- Source Material Panel -->
     <div id="source-panel" style="position:fixed;top:0;right:-500px;width:480px;height:100vh;background:#0d1117;border-left:2px solid #30363d;z-index:10000;transition:right 0.3s ease;overflow-y:auto;padding:20px;box-shadow:-4px 0 20px rgba(0,0,0,0.3)">
      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
@@ -896,9 +920,9 @@
       const filled = [];
       const metaEl = mode==='pc' ? document.getElementById('link_meta_'+idx) : document.getElementById('rfq_link_meta_'+idx);
       
-      // Fill description — override if lookup has a better one (longer or current is placeholder)
+      // Fill description — only if fields are unlocked (lock protects desc + URL)
       const descEl = document.querySelector('[name=desc_'+idx+']');
-      if (descEl && d.description) {
+      if (descEl && d.description && !fieldsLocked) {
         const cur = descEl.value.trim();
         if (!cur || cur.length < 5 || descEl.placeholder.includes('Loading') || d.description.length > cur.length) {
           descEl.value = d.description;
@@ -2917,6 +2941,55 @@
     })();
 
     })(); // end Block 3
+
+    // ── GLOBAL LOCK TOGGLE — protects desc + URL from accidental overwrite ──
+    var fieldsLocked = true;
+    function toggleGlobalLock(){
+     fieldsLocked = !fieldsLocked;
+     applyLockState();
+     var btn = document.getElementById('lockToggleBtn');
+     if(fieldsLocked){btn.textContent='🔒 Desc/URL Locked';btn.style.background='#21262d';btn.style.borderColor='#30363d';btn.style.color='#8b949e';}
+     else{btn.textContent='🔓 EDIT MODE';btn.style.background='rgba(240,136,62,0.12)';btn.style.borderColor='#f0883e';btn.style.color='#f0883e';}
+    }
+    function applyLockState(){
+     document.querySelectorAll('.lockable-field').forEach(function(el){
+      el.readOnly = fieldsLocked;
+      if(fieldsLocked){el.style.opacity='0.85';el.style.borderColor='transparent';}
+      else{el.style.opacity='1';el.style.borderColor='#f0883e';}
+     });
+    }
+    document.addEventListener('DOMContentLoaded', applyLockState);
+
+    // ── BULK PASTE URLs ──
+    function openBulkPaste(){
+     var m=document.getElementById('bulkPasteModal');if(m)m.style.display='flex';
+     var ta=document.getElementById('bulkUrlsInput');if(ta){ta.value='';ta.focus();}
+     document.getElementById('bulkResults').innerHTML='';
+    }
+    function closeBulkPaste(){var m=document.getElementById('bulkPasteModal');if(m)m.style.display='none';}
+    document.addEventListener('keydown',function(e){if(e.key==='Escape')closeBulkPaste();});
+    function startBulkScrape(){
+     var ta=document.getElementById('bulkUrlsInput');
+     var urls=ta.value.trim().split('\n').map(function(u){return u.trim()}).filter(function(u){return u.length>5});
+     if(!urls.length){alert('Paste at least one URL');return;}
+     var btn=document.getElementById('bulkScrapeBtn');
+     btn.disabled=true;btn.textContent='Scraping '+urls.length+' URLs...';
+     var prog=document.getElementById('bulkProgress');prog.style.display='block';
+     fetch('/api/pricecheck/'+_pcid+'/bulk-scrape-urls',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({urls:urls}),credentials:'same-origin'})
+     .then(function(r){return r.json()}).then(function(d){
+      btn.disabled=false;btn.textContent='Scrape & Apply Prices';prog.style.display='none';
+      if(!d.ok){alert(d.error||'Failed');return;}
+      var html='<div style="margin-top:12px">';
+      (d.results||[]).forEach(function(r){
+       if(r.status==='ok')html+='<div style="color:#3fb950;font-size:13px;padding:2px 0">✅ Line '+r.line+': $'+Number(r.price).toFixed(2)+' ('+r.supplier+')</div>';
+       else if(r.status==='skipped')html+='<div style="color:#8b949e;font-size:13px;padding:2px 0">⏭ Line '+r.line+': skipped</div>';
+       else html+='<div style="color:#f85149;font-size:13px;padding:2px 0">❌ Line '+r.line+': '+(r.error||r.status)+'</div>';
+      });
+      html+='<div style="margin-top:8px;font-weight:600;color:#3fb950">'+d.applied+'/'+d.total+' prices applied</div></div>';
+      document.getElementById('bulkResults').innerHTML=html;
+      if(d.applied>0)setTimeout(function(){location.reload()},2000);
+     }).catch(function(e){btn.disabled=false;btn.textContent='Scrape & Apply Prices';prog.style.display='none';alert('Error: '+e.message);});
+    }
 
     // ── AUTOSAVE — every 60 seconds if changes detected ──
     var _lastSaveHash = JSON.stringify(collectPrices());

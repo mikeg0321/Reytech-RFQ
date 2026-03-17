@@ -480,12 +480,12 @@ def _pricecheck_detail_inner(pcid):
          <td><input type="text" name="itemnum_{idx}" value="{mfg_display}" class="text-in" style="width:80px;text-align:center;font-weight:600;font-size:14px;font-family:'JetBrains Mono',monospace;padding:6px 4px" placeholder="MFG#" onblur="handleMfgInput({idx}, this)"></td>
          <td><input type="number" name="qty_{idx}" value="{qty}" class="num-in sm" style="width:55px" onchange="recalcPC()"></td>
          <td><input type="text" name="uom_{idx}" value="{(item.get('uom') or 'EA').upper()}" class="text-in" style="width:45px;text-transform:uppercase;text-align:center;font-weight:600"></td>
-         <td><textarea name="desc_{idx}" class="text-in" style="width:100%;min-height:38px;resize:vertical;font-family:inherit;font-size:13px;line-height:1.4;padding:6px 8px" title="{raw_desc.replace('"','&quot;').replace('<','&lt;')}" oninput="detectDescUrl({idx},this)" placeholder="Enter description or paste URL">{display_desc.replace('&','&amp;').replace('<','&lt;').replace('>','&gt;')}</textarea></td>
+         <td><textarea name="desc_{idx}" class="text-in lockable-field" style="width:100%;min-height:38px;resize:vertical;font-family:inherit;font-size:13px;line-height:1.4;padding:6px 8px" title="{raw_desc.replace('"','&quot;').replace('<','&lt;')}" oninput="detectDescUrl({idx},this)" placeholder="Enter description or paste URL">{display_desc.replace('&','&amp;').replace('<','&lt;').replace('>','&gt;')}</textarea></td>
          <td style="text-align:center"><input type="checkbox" name="substitute_{idx}" {sub_checked} style="width:16px;height:16px;cursor:pointer;accent-color:#d29922" title="Check if quoting a replacement/substitute item"></td>
          <td style="min-width:180px">
           <div style="display:flex;flex-direction:column;gap:3px">
            <div style="display:flex;gap:2px;align-items:center">
-            <input type="text" name="link_{idx}" value="{item_link.replace(chr(34), '&quot;')}" placeholder="Paste supplier URL…" class="text-in" style="flex:1;font-size:14px;color:#58a6ff;padding:5px 7px" oninput="handleLinkInput({idx}, this)" onpaste="setTimeout(()=>handleLinkInput({idx},this),50)">
+            <input type="text" name="link_{idx}" value="{item_link.replace(chr(34), '&quot;')}" placeholder="Paste supplier URL…" class="text-in lockable-field" style="flex:1;font-size:14px;color:#58a6ff;padding:5px 7px" oninput="handleLinkInput({idx}, this)" onpaste="setTimeout(()=>handleLinkInput({idx},this),50)">
             <a href="{item_link}" target="_blank" id="linkopen_{idx}" onclick="return !!this.href && this.href!==''" style="display:{'flex' if item_link else 'none'};align-items:center;justify-content:center;width:28px;height:28px;border-radius:4px;background:#21262d;border:1px solid #30363d;color:#58a6ff;font-size:14px;text-decoration:none;flex-shrink:0" title="Open link">↗</a>
            </div>
            <div id="link_meta_{idx}" style="font-size:13px;color:#8b949e">{supplier_badge}{ph_link}</div>
@@ -7336,3 +7336,66 @@ def api_quote_set_counter(num):
     set_quote_counter(num, year=_dt.datetime.now().year)
     return jsonify({"ok": True, "counter": num, "next_quote": f"R{str(_dt.datetime.now().year)[-2:]}Q{num+1}",
                     "note": "All counter keys synced (quote_counter, quote_counter_seq, quote_counter_year)"})
+
+
+@bp.route("/api/pricecheck/<pcid>/bulk-scrape-urls", methods=["POST"])
+@auth_required
+def api_bulk_scrape_urls(pcid):
+    """Bulk paste URLs → scrape each → apply cost + supplier to items by index."""
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"})
+    data = request.get_json(force=True, silent=True) or {}
+    urls = data.get("urls", [])
+    if not urls:
+        return jsonify({"ok": False, "error": "No URLs provided"})
+    items = pc.get("items", [])
+    results = []
+    applied = 0
+    for i, url in enumerate(urls):
+        url = (url or "").strip()
+        if not url or i >= len(items):
+            results.append({"line": i + 1, "url": url[:60], "status": "skipped"})
+            continue
+        try:
+            from src.agents.item_link_lookup import lookup_from_url
+            r = lookup_from_url(url)
+            price = r.get("price") or r.get("list_price") or r.get("cost")
+            if price and float(price) > 0:
+                price = float(price)
+                item = items[i]
+                item["item_link"] = url
+                item["item_supplier"] = r.get("supplier", "")
+                if not item.get("pricing"):
+                    item["pricing"] = {}
+                item["pricing"]["unit_cost"] = price
+                item["pricing"]["source_url"] = url
+                item["pricing"]["source"] = "bulk_scrape"
+                item["vendor_cost"] = price
+                markup = item.get("markup_pct") or pc.get("default_markup") or 25
+                try:
+                    markup = float(markup)
+                except (ValueError, TypeError):
+                    markup = 25
+                item["markup_pct"] = markup
+                unit_price = round(price * (1 + markup / 100), 2)
+                item["unit_price"] = unit_price
+                item["pricing"]["recommended_price"] = unit_price
+                qty = item.get("qty", 1) or 1
+                try:
+                    qty = float(qty)
+                except (ValueError, TypeError):
+                    qty = 1
+                item["extension"] = round(unit_price * qty, 2)
+                results.append({"line": i + 1, "url": url[:60], "status": "ok",
+                               "price": price, "supplier": r.get("supplier", "")})
+                applied += 1
+            else:
+                results.append({"line": i + 1, "url": url[:60], "status": "no_price",
+                               "error": r.get("error", "No price found")})
+        except Exception as e:
+            results.append({"line": i + 1, "url": url[:60], "status": "error", "error": str(e)[:80]})
+    if applied:
+        _save_price_checks(pcs)
+    return jsonify({"ok": True, "results": results, "applied": applied, "total": len(urls)})
