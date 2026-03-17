@@ -651,6 +651,17 @@ def _log_quote(result: dict):
         "is_test":       is_test,
     }
 
+    # Contract enforcement (Law 28) — block empty shells
+    try:
+        from src.core.contracts import validate_quote, log_blocked_save
+        is_valid, violations = validate_quote(entry, strict=True)
+        if not is_valid:
+            log_blocked_save("quote", qn, violations, "_log_quote")
+            log.warning("Quote %s NOT saved — contract: %s", qn, violations)
+            return
+    except ImportError:
+        pass
+
     # TEST GUARD: test quotes never write to SQLite or appear in real data
     if is_test:
         log.info("Test quote %s logged with is_test=True — excluded from real records", qn)

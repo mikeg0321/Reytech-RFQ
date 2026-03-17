@@ -1229,10 +1229,21 @@ def _reconcile_quotes_json():
 # ── Quote operations ──────────────────────────────────────────────────────────
 def upsert_quote(q: dict, actor: str = "system") -> bool:
     """Insert or update a quote record. Called from _log_quote().
-    
+
     Computes profit fields from line_items if vendor_cost is present.
     This is the source of truth for per-quote profitability.
     """
+    # Contract enforcement (Law 28) — block empty shells
+    try:
+        from src.core.contracts import validate_quote, log_blocked_save
+        is_void = q.get("status") in ("void", "cancelled")
+        if not is_void:
+            is_valid, violations = validate_quote(q, strict=True)
+            if not is_valid:
+                log_blocked_save("quote", q.get("quote_number", "?"), violations, "upsert_quote")
+                return False
+    except ImportError:
+        pass  # contracts.py not deployed yet — skip
     now = datetime.now().isoformat()
 
     # Compute profit from line items — use first-class fields if available
