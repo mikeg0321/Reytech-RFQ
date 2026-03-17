@@ -314,6 +314,59 @@ textarea{overflow:hidden;resize:vertical}
 })();
 </script>
 {% block scripts %}{% endblock %}
+<script>
+// Universal upload indicator — shows "Uploading..." on any form submit with file inputs
+document.addEventListener('submit',function(e){
+ var form=e.target;
+ if(!form||form.tagName!=='FORM')return;
+ var hasFile=form.querySelector('input[type="file"]');
+ if(!hasFile)return;
+ // Find the submit button
+ var btn=form.querySelector('button[type="submit"],input[type="submit"]');
+ if(!btn)btn=form.querySelector('button:not([type="button"])');
+ if(btn){
+  btn._origText=btn.textContent;
+  btn.textContent='Uploading...';
+  btn.disabled=true;
+  btn.style.opacity='0.7';
+ }
+ // Also show a toast
+ var toast=document.createElement('div');
+ toast.id='upload-toast';
+ toast.style.cssText='position:fixed;bottom:20px;right:20px;padding:10px 20px;background:#1c2128;border:1px solid #58a6ff;border-radius:8px;color:#58a6ff;font-size:14px;font-weight:600;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,.4)';
+ toast.textContent='Uploading...';
+ document.body.appendChild(toast);
+ // Restore after 30s max (in case page doesn't redirect)
+ setTimeout(function(){
+  if(btn){btn.textContent=btn._origText||'Upload';btn.disabled=false;btn.style.opacity='';}
+  var t=document.getElementById('upload-toast');if(t)t.remove();
+ },30000);
+});
+// Also handle fetch-based uploads (XHR)
+var _origFetch=window.fetch;
+window.fetch=function(){
+ var url=arguments[0];var opts=arguments[1]||{};
+ if(opts.body instanceof FormData){
+  var hasFile=false;
+  opts.body.forEach(function(v){if(v instanceof File)hasFile=true;});
+  if(hasFile){
+   var toast=document.createElement('div');
+   toast.id='upload-toast-xhr';
+   toast.style.cssText='position:fixed;bottom:20px;right:20px;padding:10px 20px;background:#1c2128;border:1px solid #58a6ff;border-radius:8px;color:#58a6ff;font-size:14px;font-weight:600;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,.4)';
+   toast.textContent='Uploading...';
+   document.body.appendChild(toast);
+   return _origFetch.apply(this,arguments).then(function(r){
+    var t=document.getElementById('upload-toast-xhr');if(t)t.remove();
+    return r;
+   }).catch(function(e){
+    var t=document.getElementById('upload-toast-xhr');if(t){t.textContent='Upload failed';t.style.borderColor='#f85149';t.style.color='#f85149';setTimeout(function(){t.remove()},3000);}
+    throw e;
+   });
+  }
+ }
+ return _origFetch.apply(this,arguments);
+};
+</script>
 <script>document.addEventListener('click',function(e){var b=e.target.closest('button,a.btn,[role="button"],[data-action]');if(!b)return;var a=b.getAttribute('data-action')||b.textContent.trim().substring(0,50);navigator.sendBeacon('/api/v1/usage/track',JSON.stringify({page:location.pathname,action:a,type:'click'}))});</script>
 </body>
 </html>
