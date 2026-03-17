@@ -1654,15 +1654,138 @@ def fill_ams704(
     }
 
 
+def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str):
+    """
+    Fallback for flat/scanned PDFs with no fillable form fields.
+    Uses reportlab to draw text as an overlay merged onto each page.
+    The AMS 704 is landscape letter (792 x 612 points).
+    """
+    import io
+    from reportlab.pdfgen import canvas as rl_canvas
+
+    reader = PdfReader(source_pdf)
+    writer = PdfWriter()
+    writer.append(reader)
+
+    PAGE_W, PAGE_H = 792.0, 612.0
+
+    # Map field names to approximate (x, y, font_size, max_width) on the 704
+    SUPPLIER_POS = {
+        "COMPANY NAME":                         (553, 545, 10, 220),
+        "Address":                              (553, 530, 9, 220),
+        "Phone Number_2":                       (553, 516, 9, 120),
+        "EMail Address":                        (553, 502, 8, 220),
+        "COMPANY REPRESENTATIVE print name":    (553, 472, 9, 220),
+        "Certified SBMB":                       (635, 457, 8, 100),
+        "Certified DVBE":                       (735, 457, 8, 50),
+        "Delivery Date and Time ARO":           (553, 442, 9, 220),
+        "Discount Offered":                     (553, 428, 9, 220),
+        "Date Price Check Expires":             (553, 414, 9, 120),
+        "Ship to":                              (85, 528, 9, 200),
+    }
+
+    # Row item positions: 8 rows per page, row 1 starts at y~370, each row ~28pt apart
+    ROW_Y_START = 370
+    ROW_H = 28
+    ROW_COL = {
+        "item_number":  (30, 25, 9),
+        "qty":          (60, 30, 9),
+        "uom":          (95, 35, 8),
+        "description":  (175, 250, 8),
+        "substituted":  (430, 130, 7),
+        "unit_price":   (565, 60, 9),
+        "extension":    (640, 65, 9),
+    }
+
+    TOTALS_POS = {
+        "fill_70": (640, 85, 10, 70),
+        "fill_71": (640, 70, 10, 70),
+        "fill_72": (640, 55, 10, 70),
+        "fill_73": (640, 40, 10, 70),
+    }
+
+    NOTES_POS = {
+        "Supplier andor Requestor Notes": (85, 85, 8, 400),
+    }
+
+    # Build field name -> value lookup
+    fv_map = {fv["field_id"]: fv.get("value", "") for fv in field_values}
+
+    def _draw_text(canvas_obj, x, y, text, font_size, max_width):
+        """Draw text, truncating if too wide."""
+        if not text or not text.strip():
+            return
+        canvas_obj.setFont("Helvetica", font_size)
+        t = text.strip()
+        while canvas_obj.stringWidth(t, "Helvetica", font_size) > max_width and len(t) > 5:
+            t = t[:-1]
+        canvas_obj.drawString(x, y, t)
+
+    def _make_page_overlay(page_idx):
+        """Create a reportlab overlay for a given page index."""
+        buf = io.BytesIO()
+        c = rl_canvas.Canvas(buf, pagesize=(PAGE_W, PAGE_H))
+
+        if page_idx == 0:
+            # Supplier info — only on page 1
+            for fname, (x, y, fs, mw) in SUPPLIER_POS.items():
+                _draw_text(c, x, y, fv_map.get(fname, ""), fs, mw)
+
+            # FOB checkbox
+            if fv_map.get("Check Box4") in ("/Yes", "Yes"):
+                c.setFont("ZapfDingbats", 10)
+                c.drawString(553, 400, "4")
+
+        # Row items for this page (page 0 = rows 1-8, page 1 = rows 9-16, etc.)
+        row_start = 1 + (page_idx * 8)
+        row_end = row_start + 8
+        for row_num in range(row_start, row_end):
+            local_row = row_num - row_start
+            base_y = ROW_Y_START - (local_row * ROW_H)
+            for field_key, (x, mw, fs) in ROW_COL.items():
+                field_name = ROW_FIELDS[field_key].format(n=row_num)
+                val = fv_map.get(field_name, "")
+                if val and val.strip():
+                    # Handle multi-line descriptions
+                    if field_key == "description" and "\n" in val:
+                        lines = val.split("\n")
+                        for li, line in enumerate(lines[:3]):
+                            _draw_text(c, x, base_y - (li * (fs + 1)), line, fs, mw)
+                    else:
+                        _draw_text(c, x, base_y, val, fs, mw)
+
+        if page_idx == 0:
+            # Totals and notes — only on page 1
+            for fname, (x, y, fs, mw) in {**TOTALS_POS, **NOTES_POS}.items():
+                _draw_text(c, x, y, fv_map.get(fname, ""), fs, mw)
+
+        c.save()
+        buf.seek(0)
+        return buf
+
+    # Merge overlays onto each page
+    for pg_idx in range(len(writer.pages)):
+        overlay_buf = _make_page_overlay(pg_idx)
+        overlay_reader = PdfReader(overlay_buf)
+        if overlay_reader.pages:
+            writer.pages[pg_idx].merge_page(overlay_reader.pages[0])
+
+    # Signature
+    _add_signature_to_pdf(writer)
+
+    with open(output_pdf, "wb") as f:
+        writer.write(f)
+
+    log.info("Filled AMS 704 (TEXT OVERLAY fallback) saved to %s", output_pdf)
+
+
 def _fill_pdf_fields(source_pdf: str, field_values: list, output_pdf: str):
     """
     Fill PDF form fields with auto-fit font sizing.
-    
+
     Strategy:
-    1. Read all field rects from source PDF
-    2. Calculate optimal font size per field based on content vs width
-    3. Set /DA with correct font size on each annotation
-    4. Fill values with auto_regenerate=True so pypdf builds appearance streams
+    1. Try native form-field fill (works for fillable PDFs with /AcroForm)
+    2. If PDF is flat/scanned (no /AcroForm), fall back to reportlab text overlay
     """
     reader = PdfReader(source_pdf)
     writer = PdfWriter()
@@ -1670,7 +1793,28 @@ def _fill_pdf_fields(source_pdf: str, field_values: list, output_pdf: str):
 
     from pypdf.generic import NameObject, TextStringObject, ArrayObject
 
-    # Step 0: Strip non-form annotations (stamps, popups, freetext placed by requestors)
+    # Check if this PDF has fillable form fields
+    has_acroform = "/AcroForm" in writer._root_object
+    if not has_acroform:
+        reader_fields = reader.get_fields()
+        has_acroform = bool(reader_fields)
+        if has_acroform:
+            try:
+                acroform = reader.trailer["/Root"].get("/AcroForm")
+                if acroform:
+                    writer._root_object[NameObject("/AcroForm")] = acroform
+            except Exception:
+                has_acroform = False
+
+    if not has_acroform:
+        log.warning("_fill_pdf_fields: No /AcroForm — using text overlay fallback for %s",
+                     os.path.basename(source_pdf))
+        _fill_pdf_text_overlay(source_pdf, field_values, output_pdf)
+        return
+
+    # ── Native form-field fill path (original logic) ──
+
+    # Strip non-form annotations
     for page in writer.pages:
         annots = page.get("/Annots")
         if not annots:
@@ -1680,16 +1824,14 @@ def _fill_pdf_fields(source_pdf: str, field_values: list, output_pdf: str):
             try:
                 annot = annot_ref.get_object()
                 subtype = str(annot.get("/Subtype", ""))
-                # Keep only form widgets, remove stamps/popups/freetext/etc.
                 if subtype == "/Widget":
                     cleaned.append(annot_ref)
                 else:
                     log.debug(f"Stripping annotation: {subtype} T={annot.get('/T','')}")
             except Exception:
-                cleaned.append(annot_ref)  # Keep if we can't inspect
+                cleaned.append(annot_ref)
         page[NameObject("/Annots")] = ArrayObject(cleaned)
 
-    # Separate checkbox values from text values
     checkbox_fields = {}
     text_values = {}
     for fv in field_values:
@@ -1698,7 +1840,6 @@ def _fill_pdf_fields(source_pdf: str, field_values: list, output_pdf: str):
         else:
             text_values[fv["field_id"]] = fv["value"]
 
-    # Step 1: Build field width map from source annotations
     field_widths = {}
     for page in reader.pages:
         for annot_ref in (page.get("/Annots") or []):
@@ -1711,21 +1852,16 @@ def _fill_pdf_fields(source_pdf: str, field_values: list, output_pdf: str):
             except Exception:
                 pass
 
-    # Step 2: Calculate optimal font size for each text value
     def calc_font_size(text: str, field_width: float, max_size: float = 12.0, min_size: float = 6.0) -> float:
-        """Calculate largest font that fits text in field width."""
         if not text or field_width <= 0:
             return max_size
-        # Helvetica average char width ≈ 0.52 × font_size (mixed case)
-        # Narrower for digits: ≈ 0.50 × font_size
         is_numeric = all(c in '0123456789.,$' for c in text.strip())
         char_factor = 0.50 if is_numeric else 0.52
-        padding = 4  # 2pt each side
+        padding = 4
         usable = field_width - padding
         ideal = usable / (len(text) * char_factor)
         return max(min_size, min(max_size, ideal))
 
-    # Step 3: Set /DA with calculated font size on writer's annotations BEFORE filling
     for page in writer.pages:
         for annot_ref in (page.get("/Annots") or []):
             try:
@@ -1740,7 +1876,6 @@ def _fill_pdf_fields(source_pdf: str, field_values: list, output_pdf: str):
             except Exception:
                 pass
 
-    # Step 4: Fill values with auto_regenerate=True (builds appearance streams using our /DA)
     for page_num in range(len(writer.pages)):
         writer.update_page_form_field_values(
             writer.pages[page_num],
@@ -1748,7 +1883,6 @@ def _fill_pdf_fields(source_pdf: str, field_values: list, output_pdf: str):
             auto_regenerate=True,
         )
 
-    # Step 5: Set checkbox states
     for page in writer.pages:
         for annot_ref in (page.get("/Annots") or []):
             try:
@@ -1761,7 +1895,6 @@ def _fill_pdf_fields(source_pdf: str, field_values: list, output_pdf: str):
             except Exception:
                 pass
 
-    # Step 6: Add signature image + date
     _add_signature_to_pdf(writer)
 
     with open(output_pdf, "wb") as f:
