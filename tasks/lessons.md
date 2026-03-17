@@ -687,6 +687,26 @@ After code checks pass, trace one real record through the
 full data path. Verify linked records have real data.
 Empty/broken links = FAIL the check.
 
+### Law 34: Common Workflows Are Not Edge Cases
+If the business owner forwards emails, that's a core workflow.
+If buyers zip their attachments, that's a core workflow.
+If emails come from both sales@ and mike@, that's a core workflow.
+
+Every "edge case" that happens more than once is a workflow.
+Test it. Handle it. No excuses.
+
+On 2026-03-17, a forwarded CalVet email with zipped PDFs
+took 8 attempts to process because:
+1. Self-email filter killed forwards (fixed: relaxed signals)
+2. No nested PDF detection (fixed: check message/rfc822)
+3. No ZIP extraction (fixed: extract PDFs from .zip)
+4. Poller race condition (fixed: force-process endpoint)
+5. Wrong inbox processed list (fixed: clear from both)
+
+Each fix only solved one layer. The real fix was building
+force-process — a bypass that fetches, extracts, and creates
+in one call. Every complex workflow needs a manual override.
+
 ### Law 33: Fixes Must Heal, Not Just Prevent
 Every fix has two jobs: stop the bleeding AND clean the wound.
 
