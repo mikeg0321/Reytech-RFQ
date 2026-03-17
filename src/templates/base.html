@@ -342,30 +342,7 @@ document.addEventListener('submit',function(e){
   var t=document.getElementById('upload-toast');if(t)t.remove();
  },30000);
 });
-// Also handle fetch-based uploads (XHR)
-var _origFetch=window.fetch;
-window.fetch=function(){
- var url=arguments[0];var opts=arguments[1]||{};
- if(opts.body instanceof FormData){
-  var hasFile=false;
-  opts.body.forEach(function(v){if(v instanceof File)hasFile=true;});
-  if(hasFile){
-   var toast=document.createElement('div');
-   toast.id='upload-toast-xhr';
-   toast.style.cssText='position:fixed;bottom:20px;right:20px;padding:10px 20px;background:#1c2128;border:1px solid #58a6ff;border-radius:8px;color:#58a6ff;font-size:14px;font-weight:600;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,.4)';
-   toast.textContent='Uploading...';
-   document.body.appendChild(toast);
-   return _origFetch.apply(this,arguments).then(function(r){
-    var t=document.getElementById('upload-toast-xhr');if(t)t.remove();
-    return r;
-   }).catch(function(e){
-    var t=document.getElementById('upload-toast-xhr');if(t){t.textContent='Upload failed';t.style.borderColor='#f85149';t.style.color='#f85149';setTimeout(function(){t.remove()},3000);}
-    throw e;
-   });
-  }
- }
- return _origFetch.apply(this,arguments);
-};
+// Fetch wrapper removed — too risky to override window.fetch globally
 </script>
 <script>document.addEventListener('click',function(e){var b=e.target.closest('button,a.btn,[role="button"],[data-action]');if(!b)return;var a=b.getAttribute('data-action')||b.textContent.trim().substring(0,50);navigator.sendBeacon('/api/v1/usage/track',JSON.stringify({page:location.pathname,action:a,type:'click'}))});</script>
 </body>
