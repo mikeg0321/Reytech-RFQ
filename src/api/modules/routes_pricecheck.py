@@ -7408,3 +7408,103 @@ def api_bulk_scrape_urls(pcid):
     if applied:
         _save_price_checks(pcs)
     return jsonify({"ok": True, "results": results, "applied": applied, "total": len(urls)})
+
+
+@bp.route("/api/pricecheck/<pcid>/send-quote", methods=["POST"])
+@auth_required
+def api_pc_send_quote(pcid):
+    """Send the generated PC quote PDF via email."""
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"})
+
+    data = request.get_json(force=True, silent=True) or {}
+    to_email = data.get("to") or pc.get("requestor_email", pc.get("requestor", ""))
+    pc_num = pc.get("pc_number", pcid)
+    subject = data.get("subject") or f"Price Quote — {pc_num}"
+    body_text = data.get("body") or f"Please find attached our price quote for {pc_num}.\n\nThank you,\nReytech Inc."
+
+    if not to_email or "@" not in to_email:
+        return jsonify({"ok": False, "error": "No valid recipient email"})
+
+    # Find the latest generated PDF
+    pdf_path = ""
+    qn = pc.get("reytech_quote_number", "")
+    if qn:
+        import re as _re
+        safe = _re.sub(r'[^a-zA-Z0-9_-]', '_', pc_num.strip())
+        for candidate in [
+            os.path.join(DATA_DIR, f"Quote_{safe}_Reytech.pdf"),
+            os.path.join(DATA_DIR, f"PC_{safe}_Reytech.pdf"),
+        ]:
+            if os.path.exists(candidate):
+                pdf_path = candidate
+                break
+    if not pdf_path:
+        # Try rfq_files DB
+        try:
+            from src.api.dashboard import list_rfq_files, get_rfq_file
+            files = list_rfq_files(pcid, category="generated")
+            if files:
+                full = get_rfq_file(files[0]["id"])
+                if full and full.get("data"):
+                    import tempfile
+                    tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+                    tmp.write(full["data"])
+                    tmp.close()
+                    pdf_path = tmp.name
+        except Exception:
+            pass
+
+    if not pdf_path:
+        return jsonify({"ok": False, "error": "No generated PDF found — generate first"})
+
+    # Send via Gmail
+    try:
+        gmail_user = os.environ.get("GMAIL_ADDRESS", "")
+        gmail_pass = os.environ.get("GMAIL_PASSWORD", "")
+        if not gmail_user or not gmail_pass:
+            return jsonify({"ok": False, "error": "Gmail not configured"})
+
+        import smtplib
+        from email.mime.multipart import MIMEMultipart
+        from email.mime.text import MIMEText
+        from email.mime.base import MIMEBase
+        from email import encoders
+
+        msg = MIMEMultipart()
+        msg["From"] = f"Reytech Inc. <{gmail_user}>"
+        msg["To"] = to_email
+        msg["Subject"] = subject
+        msg.attach(MIMEText(body_text, "plain"))
+
+        with open(pdf_path, "rb") as f:
+            part = MIMEBase("application", "pdf")
+            part.set_payload(f.read())
+            encoders.encode_base64(part)
+            part.add_header("Content-Disposition", f'attachment; filename="Quote_{pc_num}_Reytech.pdf"')
+            msg.attach(part)
+
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(gmail_user, gmail_pass)
+            server.sendmail(gmail_user, [to_email], msg.as_string())
+
+        # Update PC status
+        pc["status"] = "sent"
+        pc["sent_at"] = datetime.now().isoformat()
+        pc["sent_to"] = to_email
+        _save_price_checks(pcs)
+
+        # Log activity
+        try:
+            _log_crm_activity(pcid, "pc_quote_sent",
+                f"Quote {qn} sent to {to_email} for PC #{pc_num}",
+                actor="user")
+        except Exception:
+            pass
+
+        return jsonify({"ok": True, "sent_to": to_email, "quote": qn})
+    except Exception as e:
+        log.error("PC send-quote: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)[:200]})

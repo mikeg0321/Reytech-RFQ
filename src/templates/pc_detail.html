@@ -202,6 +202,7 @@
      <div class="action-bar" style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center" id="actionBar">
       <button class="btn btn-p" onclick="savePrices(this)" id="saveBtn" aria-label="Save prices and generate PDF" style="font-size:14px;padding:8px 20px;background:#238636;color:#fff">💾 Save &amp; Generate</button>
       <button class="btn" onclick="showPreview()" aria-label="Preview quote" style="background:#21262d;color:#c9d1d9;border:1px solid #484f58;font-size:14px;padding:8px 20px">👁️ Preview</button>
+      <button class="btn" onclick="sendPcQuote()" aria-label="Send quote email" style="background:rgba(79,140,255,.15);color:#58a6ff;border:1px solid rgba(79,140,255,.3);font-size:14px;padding:8px 20px">📧 Send Quote</button>
       {{ download_html | safe }}
       <!-- Pricing: consolidated into dropdown -->
       <span style="border-left:1px solid #30363d;height:28px;margin:0 4px"></span>
@@ -2941,6 +2942,20 @@
     })();
 
     })(); // end Block 3
+
+    // ── SEND PC QUOTE EMAIL ──
+    function sendPcQuote(){
+     var to=prompt('Send quote to:',{{(pc.get('requestor_email','')|tojson)}});
+     if(!to)return;
+     var pcNum={{(pc.get('pc_number','')|tojson)}};
+     var subject=prompt('Subject:','Price Quote — '+pcNum);
+     if(subject===null)return;
+     fetch('/api/pricecheck/'+_pcid+'/send-quote',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({to:to,subject:subject}),credentials:'same-origin'})
+     .then(function(r){return r.json()}).then(function(d){
+      if(d.ok){alert('Quote sent to '+d.sent_to);location.reload();}
+      else{alert('Error: '+(d.error||'unknown'));}
+     }).catch(function(e){alert('Send failed: '+e.message);});
+    }
 
     // ── AUTO-SEQUENCE LINE NUMBERS — change one, rest follow ──
     function autoSequenceLineNums(changedIdx){
