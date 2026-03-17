@@ -280,8 +280,8 @@
  {# ── Standard 704B Agency (CCHCS, DSH) ── #}
  <div class="card-t">📋 Form Templates</div>
  <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px">
-  <div style="padding:8px 14px;border-radius:6px;font-size:13px;border:1px solid {{ 'rgba(52,211,153,.3)' if t.get('703b') else 'rgba(248,113,113,.3)' }};background:{{ 'rgba(52,211,153,.06)' if t.get('703b') else 'rgba(248,113,113,.06)' }}">
-   {{ '✅' if t.get('703b') else '❌' }} 703B (RFQ)
+  <div style="padding:8px 14px;border-radius:6px;font-size:13px;border:1px solid {{ 'rgba(52,211,153,.3)' if t.get('703b') or t.get('703c') else 'rgba(248,113,113,.3)' }};background:{{ 'rgba(52,211,153,.06)' if t.get('703b') or t.get('703c') else 'rgba(248,113,113,.06)' }}">
+   {{ '✅' if t.get('703b') or t.get('703c') else '❌' }} {{ '703C (F&R)' if t.get('703c') else '703B (RFQ)' }}
   </div>
   <div style="padding:8px 14px;border-radius:6px;font-size:13px;border:1px solid {{ 'rgba(52,211,153,.3)' if t.get('704b') else 'rgba(248,113,113,.3)' }};background:{{ 'rgba(52,211,153,.06)' if t.get('704b') else 'rgba(248,113,113,.06)' }}">
    {{ '✅' if t.get('704b') else '❌' }} 704B (Quote Worksheet)
@@ -305,6 +305,21 @@
  </form>
  {% endif %}
  {% endif %}
+ {% set pf = r.get('package_forms', {}) %}
+ <div style="margin-top:10px;padding:10px 14px;background:var(--sf2);border:1px solid var(--bd);border-radius:8px">
+  <div style="font-size:13px;font-weight:600;color:var(--tx2);margin-bottom:6px">Include in package:</div>
+  <div style="display:flex;flex-wrap:wrap;gap:6px 14px;font-size:13px">
+   <label><input type="checkbox" class="pkg-form" data-form="703b" {% if pf.get('703b', true) %}checked{% endif %}> 703B/C</label>
+   <label><input type="checkbox" class="pkg-form" data-form="704b" {% if pf.get('704b', true) %}checked{% endif %}> 704B</label>
+   <label><input type="checkbox" class="pkg-form" data-form="bidpkg" {% if pf.get('bidpkg', true) %}checked{% endif %}> Bid Pkg</label>
+   <label><input type="checkbox" class="pkg-form" data-form="calrecycle74" {% if pf.get('calrecycle74', true) %}checked{% endif %}> CalRecycle</label>
+   <label><input type="checkbox" class="pkg-form" data-form="dvbe843" {% if pf.get('dvbe843', true) %}checked{% endif %}> DVBE 843</label>
+   <label><input type="checkbox" class="pkg-form" data-form="cv012_cuf" {% if pf.get('cv012_cuf', true) %}checked{% endif %}> CUF</label>
+   <label><input type="checkbox" class="pkg-form" data-form="obs_1600" {% if pf.get('obs_1600', false) %}checked{% endif %}> OBS 1600</label>
+   <label><input type="checkbox" class="pkg-form" data-form="sellers_permit" {% if pf.get('sellers_permit', true) %}checked{% endif %}> Seller's Permit</label>
+   <label><input type="checkbox" class="pkg-form" data-form="quote" {% if pf.get('quote', true) %}checked{% endif %}> Quote</label>
+  </div>
+ </div>
 </div>
 
 <!-- SCPRS Results Panel (populated by JS after lookup) -->
@@ -700,6 +715,10 @@ function _getFormData(){
  var taxRateEl=document.getElementById('tax-rate');
  var payload={items:items};
  if(taxRateEl)payload.tax_rate=parseFloat(taxRateEl.value)||0;
+ // Package form checklist
+ var pkgForms={};
+ document.querySelectorAll('.pkg-form').forEach(function(cb){pkgForms[cb.dataset.form]=cb.checked;});
+ if(Object.keys(pkgForms).length>0)payload.package_forms=pkgForms;
  return JSON.stringify(payload);
 }
 
@@ -761,6 +780,8 @@ document.addEventListener('DOMContentLoaded',function(){
   if(inp.type==='text')inp.addEventListener('input',function(){clearTimeout(_autosaveTimer);_autosaveTimer=setTimeout(triggerAutosave,1500)});
  });
  recalc(); // Show margin summary on load
+ // Package form checkboxes trigger autosave
+ document.querySelectorAll('.pkg-form').forEach(function(cb){cb.addEventListener('change',triggerAutosave);});
 });
 
 function recalc(){

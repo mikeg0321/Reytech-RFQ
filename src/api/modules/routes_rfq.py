@@ -1169,6 +1169,11 @@ def api_rfq_autosave(rid):
             try: item["markup_pct"] = float(update["markup_pct"])
             except Exception: pass
 
+    # Save package form checklist if provided
+    pkg_forms = data.get("package_forms")
+    if pkg_forms is not None and isinstance(pkg_forms, dict):
+        r["package_forms"] = pkg_forms
+
     # Save tax rate if provided
     tax_rate = data.get("tax_rate")
     if tax_rate is not None:
@@ -2058,27 +2063,34 @@ def generate_rfq_package(rid):
             t.step(f"Agency matched: {_agency_key} ({_agency_cfg.get('name','')}), {len(_req_forms)} required forms: {', '.join(sorted(_req_forms))}")
         except Exception as _ae:
             t.warn(f"Agency config load failed, using CCHCS default: {_ae}")
-            _req_forms = {"703b", "704b", "bidpkg", "quote", "sellers_permit"}
+            _req_forms = {"703b", "703c", "704b", "bidpkg", "quote", "sellers_permit"}
             _opt_forms = set()
             _agency_key = "cchcs"
         
         # Helper: should this form be included?
+        _user_forms = r.get("package_forms", {})
         def _include(form_id):
+            # User checklist overrides if set
+            if form_id in _user_forms:
+                return bool(_user_forms[form_id])
             return form_id in _req_forms
         
         # ── Template-based forms (only if agency requires them) ──
-        if _include("703b"):
-            if "703b" in tmpl and os.path.exists(tmpl["703b"]):
+        if _include("703b") or _include("703c"):
+            # Handle both 703B and 703C (Fair & Reasonable) — same fill logic
+            _703_key = "703c" if "703c" in tmpl else "703b"
+            _703_label = "703C" if _703_key == "703c" else "703B"
+            if _703_key in tmpl and os.path.exists(tmpl[_703_key]):
                 try:
-                    fill_703b(tmpl["703b"], r, CONFIG, f"{out_dir}/{sol}_703B_Reytech.pdf")
-                    output_files.append(f"{sol}_703B_Reytech.pdf")
-                    t.step("703B filled")
+                    fill_703b(tmpl[_703_key], r, CONFIG, f"{out_dir}/{sol}_{_703_label}_Reytech.pdf")
+                    output_files.append(f"{sol}_{_703_label}_Reytech.pdf")
+                    t.step(f"{_703_label} filled")
                 except Exception as e:
-                    errors.append(f"703B: {e}")
-                    t.warn("703B fill failed", error=str(e))
+                    errors.append(f"{_703_label}: {e}")
+                    t.warn(f"{_703_label} fill failed", error=str(e))
             else:
-                t.step("703B skipped — no template")
-                errors.append("703B: no template uploaded — upload 703B PDF on this RFQ page")
+                t.step(f"{_703_label} skipped — no template")
+                errors.append(f"{_703_label}: no template uploaded — upload {_703_label} PDF on this RFQ page")
         
         if _include("704b"):
             if "704b" in tmpl and os.path.exists(tmpl["704b"]):

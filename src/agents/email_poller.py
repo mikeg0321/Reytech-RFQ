@@ -44,7 +44,7 @@ except ImportError:
 
 # Strong indicators — if any match, definitely an RFQ
 RFQ_STRONG = [
-    "request for quotation", "rfq", "703b", "704b", "bid package",
+    "request for quotation", "rfq", "703b", "703c", "704b", "bid package",
     "cchcs", "cdcr", "solicitation", "informal competitive",
     "acquisition quote", "quote worksheet", "bid response",
     "quote request", "quote is due",  # "PR 10840486 - QUOTE REQUEST"
@@ -82,7 +82,7 @@ RFQ_PDF_PATTERNS = [
 ]
 
 ATTACHMENT_PATTERNS = {
-    "703b": ["703b", "rfq", "request_for_quotation", "informal_competitive", "attachment_1", "attachment1"],
+    "703b": ["703b", "703c", "rfq", "request_for_quotation", "informal_competitive", "fair_and_reasonable", "exempt", "attachment_1", "attachment1"],
     "704b": ["704b", "quote_worksheet", "acquisition_quote", "attachment_2", "attachment2"],
     "bidpkg": ["bid_package", "bid package", "forms", "attachment_3", "attachment3", "under_100k", "under 100k"],
     # Generic RFQ package (non-704 agencies like Cal Vet)
@@ -2080,8 +2080,11 @@ class EmailPoller:
         return saved
 
     def _identify_form(self, filename):
-        """Identify if a PDF is 703B, 704B, or Bid Package."""
+        """Identify if a PDF is 703B, 703C, 704B, or Bid Package."""
         name_lower = filename.lower().replace(" ", "_").replace("-", "_")
+        # Check 703C specifically before 703B (703C patterns include "703c", "fair_and_reasonable")
+        if "703c" in name_lower or "fair_and_reasonable" in name_lower or "fair_reasonable" in name_lower:
+            return "703c"
         for form_type, patterns in ATTACHMENT_PATTERNS.items():
             if any(p.replace(" ", "_") in name_lower or p in filename.lower() for p in patterns):
                 return form_type

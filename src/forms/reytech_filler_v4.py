@@ -362,6 +362,11 @@ def fill_and_sign_pdf(input_path, field_values, output_path,
 # Form Fillers
 # ═══════════════════════════════════════════════════════════════════════
 
+def fill_703c(input_path, rfq_data, config, output_path):
+    """Fill AMS 703C (Fair and Reasonable / Exempt). Same fields as 703B."""
+    return fill_703b(input_path, rfq_data, config, output_path)
+
+
 def fill_703b(input_path, rfq_data, config, output_path):
     company = config["company"]
     sign_date = rfq_data.get("sign_date", get_pst_date())
@@ -2439,10 +2444,9 @@ def fill_bid_package(input_path, rfq_data, config, output_path):
         desc = _re_cr.sub(r'\s*Model\s*#.*', '', desc, flags=_re_cr.IGNORECASE)
         desc = _re_cr.sub(r'\s*UPC\s*#.*', '', desc, flags=_re_cr.IGNORECASE)
         desc = desc.strip(" ,;-/")
-        # Cap at 62 chars — fits in 246pt field at 6pt Helvetica (3.7pt/char = 66 max).
-        # Font auto-sizer in set_field_fonts will reduce 9→8→7→6pt as needed.
-        if len(desc) > 62:
-            desc = desc[:59] + "..."
+        # Cap at 80 chars — font auto-sizer will reduce to fit (9→8→7→6pt).
+        if len(desc) > 80:
+            desc = desc[:77] + "..."
         return desc
 
     line_items = rfq_data.get("line_items", [])

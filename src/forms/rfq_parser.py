@@ -207,7 +207,9 @@ def identify_attachments(file_paths):
     templates = {}
     for path in file_paths:
         name = os.path.basename(path).upper()
-        if "703B" in name or "RFQ" in name:
+        if "703C" in name or "FAIR_AND_REASONABLE" in name or "FAIR AND REASONABLE" in name:
+            templates["703c"] = path
+        elif "703B" in name or "RFQ" in name:
             templates["703b"] = path
         elif "704B" in name or "QUOTE_WORKSHEET" in name or "WORKSHEET" in name:
             templates["704b"] = path
