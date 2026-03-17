@@ -1711,8 +1711,8 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
     CHECKBOX = ("Check Box4", 244.5, 95.1, 257.6, 106.7)
 
     # Price + Extension column X ranges (tight — only these two columns)
-    PRICE_X = (635.6, 687.8)   # exact from template annotation PRICE PER UNITRow1
-    EXT_X = (689.6, 755.8)     # exact from template annotation EXTENSIONRow1
+    PRICE_X = (637.0, 686.0)   # inset 2pt from annotation edges to avoid border overlap
+    EXT_X = (691.0, 754.0)     # inset 2pt from annotation edges to avoid border overlap
 
     # Page-1-format: 8 rows starting at y=300
     PG1_ROWS = [(300.1 - i * 22.5, 321.2 - i * 22.5) for i in range(8)]
@@ -1731,7 +1731,7 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
             return
         c.saveState()
         c.setFillColorRGB(1, 1, 1)
-        c.rect(x1 + 1, y1 + 1, w - 2, h - 2, fill=1, stroke=0)
+        c.rect(x1 + 2, y1 + 1, w - 4, h - 2, fill=1, stroke=0)
         c.restoreState()
         fs = min(fs, h * 0.75)
         c.setFont("Helvetica", fs)
@@ -1750,7 +1750,7 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
             return
         c.saveState()
         c.setFillColorRGB(1, 1, 1)
-        c.rect(x1 + 1, y1 + 1, w - 2, h - 2, fill=1, stroke=0)
+        c.rect(x1 + 2, y1 + 1, w - 4, h - 2, fill=1, stroke=0)
         c.restoreState()
         fs = min(fs, h * 0.75)
         c.setFont("Helvetica", fs)
@@ -1767,7 +1767,7 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
         w, h = x2 - x1, y2 - y1
         c.saveState()
         c.setFillColorRGB(1, 1, 1)
-        c.rect(x1 + 1, y1 + 1, w - 2, h - 2, fill=1, stroke=0)
+        c.rect(x1 + 2, y1 + 1, w - 4, h - 2, fill=1, stroke=0)
         c.restoreState()
         fs = min(fs, h * 0.6)
         c.setFont("Helvetica", fs)
