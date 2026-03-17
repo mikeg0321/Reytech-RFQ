@@ -541,6 +541,21 @@ td:hover .desc-expand-btn { opacity: 1 !important; }
 <script>
 const RID = {{rid|tojson}};
 
+// ── CLOSE DROPDOWNS ON OUTSIDE CLICK ──
+document.addEventListener('click',function(e){
+ document.querySelectorAll('details[open]').forEach(function(d){
+  if(!d.contains(e.target))d.removeAttribute('open');
+ });
+});
+// ── FIX PAGE BOUNCE ON PASTE ──
+document.addEventListener('paste',function(e){
+ var el=e.target;
+ if(el&&(el.tagName==='TEXTAREA'||el.tagName==='INPUT')){
+  var scrollY=window.scrollY;
+  requestAnimationFrame(function(){window.scrollTo(0,scrollY);});
+ }
+});
+
 // ── Source Material Panel ──
 var _srcOpen=false;
 function toggleSourcePanel(){var p=document.getElementById('source-panel');_srcOpen=!_srcOpen;p.style.right=_srcOpen?'0':'-500px';if(_srcOpen)_loadSource();}

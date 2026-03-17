@@ -2943,6 +2943,22 @@
 
     })(); // end Block 3
 
+    // ── CLOSE DROPDOWNS ON OUTSIDE CLICK ──
+    document.addEventListener('click',function(e){
+     document.querySelectorAll('details[open]').forEach(function(d){
+      if(!d.contains(e.target))d.removeAttribute('open');
+     });
+    });
+
+    // ── FIX PAGE BOUNCE ON PASTE — prevent textarea auto-scroll ──
+    document.addEventListener('paste',function(e){
+     var el=e.target;
+     if(el&&(el.tagName==='TEXTAREA'||el.tagName==='INPUT')){
+      var scrollY=window.scrollY;
+      requestAnimationFrame(function(){window.scrollTo(0,scrollY);});
+     }
+    });
+
     // ── SEND PC QUOTE EMAIL ──
     function sendPcQuote(){
      var to=prompt('Send quote to:',{{(pc.get('requestor_email','')|tojson)}});
