@@ -1407,6 +1407,9 @@ def fill_ams704(
 
     for item_idx, item in enumerate(items):
         row = item.get("row_index") or (item_idx + 1)  # default to 1-based position
+        # Ensure row is sequential if row_index resets per page (1-8 instead of 9-16, 17-24)
+        if row <= 8 and item_idx >= 8:
+            row = item_idx + 1
         if row < 1 or row > max_row:
             _skipped_no_row += 1
             log.debug("fill_ams704 SKIP item (bad row_index=%s): desc='%s'",
@@ -1716,7 +1719,7 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
             return
         c.saveState()
         c.setFillColorRGB(1, 1, 1)
-        c.rect(x1, y1, w, h, fill=1, stroke=0)
+        c.rect(x1 + 1, y1 + 1, w - 2, h - 2, fill=1, stroke=0)
         c.restoreState()
         fs = min(fs, h * 0.75)
         c.setFont("Helvetica", fs)
@@ -1732,7 +1735,7 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
         w, h = x2 - x1, y2 - y1
         c.saveState()
         c.setFillColorRGB(1, 1, 1)
-        c.rect(x1, y1, w, h, fill=1, stroke=0)
+        c.rect(x1 + 1, y1 + 1, w - 2, h - 2, fill=1, stroke=0)
         c.restoreState()
         fs = min(fs, h * 0.6)
         c.setFont("Helvetica", fs)
@@ -1795,7 +1798,7 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
             if fv_map.get(cf) in ("/Yes", "Yes", True, "True"):
                 c.saveState()
                 c.setFillColorRGB(1, 1, 1)
-                c.rect(cx1, cy1, cx2 - cx1, cy2 - cy1, fill=1, stroke=0)
+                c.rect(cx1 + 1, cy1 + 1, cx2 - cx1 - 2, cy2 - cy1 - 2, fill=1, stroke=0)
                 c.restoreState()
                 c.setFont("ZapfDingbats", 10)
                 c.drawString(cx1 + 1, cy1 + 1, "4")
