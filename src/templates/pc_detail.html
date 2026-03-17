@@ -385,10 +385,10 @@
      </div>
      <div id="source-content" style="color:#8b949e">Click "Source" to load</div>
     </div>
+    <script src="/static/shared_item_utils.js"></script>
     <script>
     var _srcOpen=false;
     function toggleSourcePanel(){var p=document.getElementById('source-panel');_srcOpen=!_srcOpen;p.style.right=_srcOpen?'0':'-500px';if(_srcOpen)_loadPcSource();}
-    function _escH(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML;}
     function _loadPcSource(){
      var c=document.getElementById('source-content');c.innerHTML='<div style="text-align:center;padding:20px">Loading...</div>';
      var pid={{pcid|tojson}};
@@ -841,37 +841,6 @@
 
     // ── Item Link Autofill ──────────────────────────────────────────────────
     const _linkDebounce = {};
-    const _KNOWN_DOMAINS = {'amazon.com':'Amazon','grainger.com':'Grainger',
-      'mcmaster.com':'McMaster-Carr','fishersci.com':'Fisher Scientific',
-      'medline.com':'Medline','boundtree.com':'Bound Tree Medical',
-      'henryschein.com':'Henry Schein','uline.com':'Uline','zoro.com':'Zoro',
-      'staples.com':'Staples','waxie.com':'Waxie','fastenal.com':'Fastenal',
-      'globalindustrial.com':'Global Industrial','homedepot.com':'Home Depot',
-      'officedepot.com':'Office Depot','aedstore.com':'AED Store',
-      'aed.com':'AED Superstore','boundtree.com':'Bound Tree Medical',
-      'concordancehealthcare.com':'Concordance Healthcare',
-      'vwr.com':'VWR','thermofisher.com':'Thermo Fisher',
-      'lowes.com':"Lowe's",'sysco.com':'Sysco','shoplet.com':'Shoplet',
-      'quill.com':'Quill','usfoods.com':'US Foods'
-    };
-
-    function _detectSupplierJS(url) {
-      try {
-        const host = new URL(url).hostname.replace(/^www\./,'');
-        for (const [dom, name] of Object.entries(_KNOWN_DOMAINS)) {
-          if (host.includes(dom)) return name;
-        }
-        const parts = host.split('.');
-        return parts.length >= 2
-          ? parts[parts.length-2].charAt(0).toUpperCase()+parts[parts.length-2].slice(1)
-          : host;
-      } catch(e) { return ''; }
-    }
-
-    function _isUrl(v) {
-      return /^https?:\/\//i.test(v) || /^[a-z0-9-]+\.[a-z]{2,}\//i.test(v) || /\.(com|org|net|gov|edu|io|co|us)\b/i.test(v);
-    }
-
     function handleLinkInput(idx, inp) {
       let url = inp.value.trim();
       const metaEl = document.getElementById('link_meta_'+idx);
@@ -2830,7 +2799,6 @@
      var ta=document.getElementById('bulkUrlsInput');if(ta){ta.value='';ta.focus();}
      document.getElementById('bulkResults').innerHTML='';
     }
-    function closeBulkPaste(){var m=document.getElementById('bulkPasteModal');if(m)m.style.display='none';}
     document.addEventListener('keydown',function(e){if(e.key==='Escape')closeBulkPaste();});
     function startBulkScrape(){
      var ta=document.getElementById('bulkUrlsInput');

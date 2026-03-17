@@ -19,6 +19,57 @@ Workflow:
 Dependencies: pypdf (already installed)
 """
 
+# ═══════════════════════════════════════════════════════════════
+# DATA MODEL — PC Item Dict
+# ═══════════════════════════════════════════════════════════════
+# Each item in pc["items"] has this structure:
+#
+# CORE FIELDS (always present):
+#   description     str    Item description text
+#   qty             int    Quantity ordered (ALWAYS coerce with int(float(raw)))
+#   uom             str    Unit of measure ("EA", "PACK", "CASE", etc.)
+#   qty_per_uom     int    Items per unit (default 1)
+#   row_index       int    1-based row number for PDF field mapping
+#   no_bid          bool   True if item is marked no-bid
+#   is_substitute   bool   True if offering a substitute product
+#
+# PRICING FIELDS (dual storage — write to BOTH on save):
+#   unit_price      float  Selling price → also in pricing["recommended_price"]
+#   vendor_cost     float  Our cost      → also in pricing["unit_cost"]
+#   markup_pct      float  Markup %      → also in pricing["markup_pct"]
+#
+# PRICING SUB-DICT (item["pricing"]):
+#   recommended_price  float  = unit_price (canonical sell price)
+#   unit_cost          float  = vendor_cost (canonical cost)
+#   markup_pct         float  = markup_pct
+#   amazon_price       float  Price from Amazon lookup
+#   scprs_price        float  Price from state contract lookup
+#   amazon_url         str    Amazon product URL
+#   scprs_confidence   float  0-1 confidence of SCPRS match
+#   web_source         str    Source name from web search
+#   web_url            str    URL from web search
+#
+# IDENTITY FIELDS:
+#   mfg_number      str    Manufacturer part number / MFG#
+#   item_link       str    Supplier product URL
+#   item_supplier   str    Detected supplier name from URL
+#   item_number     str    Sequential item number on the form
+#
+# METADATA:
+#   notes           str    User notes for this item
+#   description_raw str    Original uncleaned description (set on first display)
+#   confidence      dict   Grading info {grade: "A"/"B"/"C"/"F"}
+#   profit_unit     float  Per-unit profit (price - cost)
+#   profit_total    float  Total profit (profit_unit × qty)
+#   margin_pct      float  Margin percentage
+#
+# ROW_FIELDS MAPPING (for PDF generation):
+#   "PRICE PER UNITRow{n}" → unit_price
+#   "EXTENSIONRow{n}"      → unit_price × qty
+#   Row numbers are 1-based, sequential across pages
+#   Page 1: rows 1-8, Page 2: rows 9-19, Page 3: rows 20-27
+# ═══════════════════════════════════════════════════════════════
+
 import json
 import os
 import re

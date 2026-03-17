@@ -1118,6 +1118,73 @@ def pricecheck_save_prices(pcid):
         return jsonify({"ok": False, "error": f"Server error: {e}"})
 
 
+def _validate_item_field(field_type, val):
+    """Validate and sanitize a single item field value.
+    Returns (sanitized_value, error_string_or_None)."""
+    if field_type == "price":
+        try:
+            v = float(val) if val else 0
+            if v < 0: return (0, "Negative price")
+            if v > 999999: return (v, "Price exceeds $999,999")
+            return (v, None)
+        except (ValueError, TypeError):
+            return (0, f"Invalid price: {val}")
+    elif field_type == "cost":
+        try:
+            v = float(val) if val else 0
+            if v < 0: return (0, "Negative cost")
+            return (v, None)
+        except (ValueError, TypeError):
+            return (0, f"Invalid cost: {val}")
+    elif field_type == "markup":
+        try:
+            v = float(val) if val else 25
+            if v < 0: v = 0
+            if v > 500: v = 500  # cap at 500%
+            return (v, None)
+        except (ValueError, TypeError):
+            return (25, f"Invalid markup: {val}")
+    elif field_type == "qty":
+        try:
+            v = int(float(val)) if val else 1
+            if v < 0: v = 1
+            if v > 999999: v = 999999
+            return (v, None)
+        except (ValueError, TypeError):
+            return (1, f"Invalid qty: {val}")
+    elif field_type == "desc":
+        s = str(val)[:5000] if val else ""  # cap at 5000 chars
+        return (s, None)
+    elif field_type == "link":
+        s = str(val).strip()[:2000] if val else ""  # cap URL length
+        return (s, None)
+    elif field_type in ("uom", "itemno", "itemnum"):
+        s = str(val).strip()[:50] if val else ""
+        return (s, None)
+    elif field_type == "notes":
+        s = str(val).strip()[:2000] if val else ""
+        return (s, None)
+    elif field_type == "linenum":
+        try:
+            v = int(float(val)) if val else 0
+            return (v, None)
+        except (ValueError, TypeError):
+            return (0, f"Invalid linenum: {val}")
+    elif field_type in ("bid", "substitute"):
+        return (bool(val), None)
+    elif field_type == "qpu":
+        try:
+            v = int(float(val)) if val else 1
+            if v < 1: v = 1
+            return (v, None)
+        except (ValueError, TypeError):
+            return (1, None)
+    elif field_type == "linkopen":
+        return (None, None)  # UI-only, intentionally dropped
+    else:
+        return (val, None)
+
+
 def _do_save_prices(pcid):
     """Inner save handler — separated so exceptions always return JSON."""
     pcs = _load_price_checks()
@@ -1200,16 +1267,17 @@ def _do_save_prices(pcid):
                     if not items[idx].get("pricing"):
                         items[idx]["pricing"] = {}
                     if field_type == "price":
-                        # Write to both pricing dict (oracle compat) and first-class field
-                        v = float(val) if val else None
-                        items[idx]["pricing"]["recommended_price"] = v
-                        items[idx]["unit_price"] = v
+                        v, _err = _validate_item_field("price", val)
+                        if _err: log.warning("SAVE validation: item[%d] %s", idx, _err)
+                        items[idx]["pricing"]["recommended_price"] = v if v else None
+                        items[idx]["unit_price"] = v if v else None
                     elif field_type == "cost":
-                        v = float(val) if val else None
-                        items[idx]["pricing"]["unit_cost"] = v
-                        items[idx]["vendor_cost"] = v
+                        v, _err = _validate_item_field("cost", val)
+                        if _err: log.warning("SAVE validation: item[%d] %s", idx, _err)
+                        items[idx]["pricing"]["unit_cost"] = v if v else None
+                        items[idx]["vendor_cost"] = v if v else None
                     elif field_type == "markup":
-                        v = float(val) if val else 25
+                        v, _err = _validate_item_field("markup", val)
                         items[idx]["pricing"]["markup_pct"] = v
                         items[idx]["markup_pct"] = v
                     # Recalculate derived profit fields whenever any of these change
@@ -1227,7 +1295,8 @@ def _do_save_prices(pcid):
                         it["profit_total"] = None
                         it["margin_pct"] = None
                 elif field_type == "qty":
-                    items[idx]["qty"] = int(val) if val else 1
+                    v, _err = _validate_item_field("qty", val)
+                    items[idx]["qty"] = v
                     # Recalc profit_total when qty changes
                     it = items[idx]
                     vc = it.get("vendor_cost") or it.get("pricing", {}).get("unit_cost") or 0
@@ -1237,7 +1306,8 @@ def _do_save_prices(pcid):
                         it["profit_unit"] = round(up - vc, 4)
                         it["profit_total"] = round((up - vc) * qty, 2)
                 elif field_type == "desc":
-                    items[idx]["description"] = str(val) if val else ""
+                    v, _ = _validate_item_field("desc", val)
+                    items[idx]["description"] = v
                 elif field_type == "uom":
                     items[idx]["uom"] = str(val).upper() if val else "EA"
                 elif field_type in ("itemno", "itemnum"):
@@ -3722,8 +3792,7 @@ def api_pricecheck_dismiss(pcid):
     Keeps data for SCPRS intelligence. reason=delete does hard delete.
     Valid reasons: dismissed, archived, duplicate, no_response, delete"""
     from datetime import datetime
-    import os as _os
-    
+
     data = request.get_json(force=True) if request.data else {}
     reason = data.get("reason", "other")
     
@@ -3731,17 +3800,11 @@ def api_pricecheck_dismiss(pcid):
     if reason == "delete":
         return api_pricecheck_delete(pcid)
     
-    # Load price checks from JSON
-    pc_path = _os.path.join(DATA_DIR, "price_checks.json")
-    try:
-        with open(pc_path) as f:
-            pcs = _json.load(f)
-    except Exception:
-        pcs = {}
-    
+    pcs = _load_price_checks()
+
     if pcid not in pcs:
         return jsonify({"ok": False, "error": "PC not found"})
-    
+
     pc = pcs[pcid]
     # Use the reason as the status directly for known actions
     valid_statuses = {"not_responding", "dismissed", "archived", "duplicate", "no_response", "won", "lost"}
@@ -3754,29 +3817,9 @@ def api_pricecheck_dismiss(pcid):
     pc["dismiss_reason"] = reason
     pc["dismissed_at"] = datetime.now().isoformat()
     pcs[pcid] = pc
-    
-    try:
-        with open(pc_path, "w") as f:
-            _json.dump(pcs, f, indent=2)
-    except Exception as e:
-        log.error("Failed to save price_checks.json: %s", e)
-        return jsonify({"ok": False, "error": "Save failed"})
-    
-    # ALSO update SQLite via DAL so all data stores are in sync
-    try:
-        from src.core.dal import update_pc_status as _dal_update_pc
-        _dal_update_pc(pcid, new_status)
-    except Exception as e:
-        log.debug("DAL PC dismiss update: %s", e)
-    
-    # Invalidate cache so next page load sees the change
-    try:
-        import src.api.dashboard as _dash
-        _dash._pc_cache = None
-        _dash._pc_cache_time = 0
-    except Exception:
-        pass
-    
+
+    _save_price_checks(pcs)
+
     log.info("PC %s dismissed: reason=%s pc_number=%s", pcid, reason, pc.get("pc_number","?"))
     
     # Queue SCPRS price intelligence pull on the items (async)

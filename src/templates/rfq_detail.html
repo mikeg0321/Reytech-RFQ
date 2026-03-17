@@ -572,6 +572,7 @@ td:hover .desc-expand-btn { opacity: 1 !important; }
 .desc-area:focus + .desc-expand-btn { opacity: 1 !important; }
 .desc-area.expanded { height: auto !important; min-height: 80px !important; overflow: auto !important; resize: vertical !important; }
 </style>
+<script src="/static/shared_item_utils.js"></script>
 <script>
 const RID = {{rid|tojson}};
 
@@ -593,7 +594,6 @@ document.addEventListener('paste',function(e){
 // ── Source Material Panel ──
 var _srcOpen=false;
 function toggleSourcePanel(){var p=document.getElementById('source-panel');_srcOpen=!_srcOpen;p.style.right=_srcOpen?'0':'-500px';if(_srcOpen)_loadSource();}
-function _escH(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML;}
 function _loadSource(){
  var c=document.getElementById('source-content');c.innerHTML='<div style="text-align:center;padding:20px">Loading...</div>';
  fetch('/api/v1/rfq/'+RID+'/source-material',{credentials:'same-origin'}).then(function(r){return r.json()}).then(function(d){
@@ -702,25 +702,6 @@ function toggleDescFull(el) {
 }
 // ── URL Link Lookup ──
 const _linkDebounce = {};
-const _KNOWN_DOMAINS = {'amazon.com':'Amazon','grainger.com':'Grainger',
-  'uline.com':'Uline','mckesson.com':'McKesson','medline.com':'Medline',
-  'cardinalhealth.com':'Cardinal Health','staples.com':'Staples',
-  'officedepot.com':'Office Depot','walmart.com':'Walmart',
-  'homedepot.com':'Home Depot','lowes.com':"Lowe's"};
-
-function _isUrl(v){
- return /^https?:\/\//i.test(v)||/^[a-z0-9-]+\.[a-z]{2,}\//i.test(v)||/\.(com|org|net|gov|edu|io|co|us)\b/i.test(v);
-}
-
-function _detectSupplierJS(url){
- try{
-  const host=new URL(url).hostname.replace(/^www\./,'');
-  for(const [dom,name] of Object.entries(_KNOWN_DOMAINS)){if(host.includes(dom))return name;}
-  const parts=host.split('.');
-  return parts.length>=2?parts[parts.length-2].charAt(0).toUpperCase()+parts[parts.length-2].slice(1):host;
- }catch(e){return '';}
-}
-
 function handleRfqLinkInput(idx, inp){
  let url=inp.value.trim();
  const metaEl=document.getElementById('rfq_link_meta_'+idx);
@@ -784,7 +765,6 @@ function openBulkPaste(){
  document.getElementById('bulkDetect').style.display='none';
  setBulkMode('url');
 }
-function closeBulkPaste(){var m=document.getElementById('bulkPasteModal');if(m)m.style.display='none';}
 document.addEventListener('keydown',function(e){if(e.key==='Escape')closeBulkPaste();});
 
 // Auto-detect mode on paste
