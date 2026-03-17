@@ -1859,10 +1859,37 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
             if overlay.pages:
                 writer.pages[pg_idx].merge_page(overlay.pages[0])
 
+    # ── Remove pages that had no priced items drawn ──
+    pages_with_items = set()
+    check_row = 1
+    for pg_idx in range(len(reader.pages)):
+        is_pg1 = (pg_idx % 2 == 0)
+        rows_on_page = 8 if is_pg1 else 11
+        page_first = check_row
+        page_last = check_row + rows_on_page - 1
+        has_items = False
+        for rn in range(page_first, page_last + 1):
+            pf = ROW_FIELDS["unit_price"].format(n=rn)
+            if fv_map.get(pf, "").strip():
+                has_items = True
+                break
+        if has_items or pg_idx == 0:  # always keep page 1
+            pages_with_items.add(pg_idx)
+        check_row += rows_on_page
+
+    if len(pages_with_items) < len(writer.pages):
+        trimmed_writer = PdfWriter()
+        for pg_idx in range(len(writer.pages)):
+            if pg_idx in pages_with_items:
+                trimmed_writer.add_page(writer.pages[pg_idx])
+        log.info("OVERLAY: trimmed output from %d to %d pages (kept: %s)",
+                 len(writer.pages), len(trimmed_writer.pages), sorted(pages_with_items))
+        writer = trimmed_writer
+
     _add_signature_to_pdf(writer)
     with open(output_pdf, "wb") as f:
         writer.write(f)
-    log.info("Filled AMS 704 (OVERLAY) to %s — %d pages", output_pdf, num_pages)
+    log.info("Filled AMS 704 (OVERLAY) to %s — %d pages", output_pdf, len(writer.pages))
 
 
 def _fill_pdf_fields(source_pdf: str, field_values: list, output_pdf: str):

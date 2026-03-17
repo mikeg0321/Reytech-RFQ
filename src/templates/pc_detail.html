@@ -1568,7 +1568,8 @@
       var keep = prompt('This PC has ' + count + ' items. Keep how many? (removes items from the end)', count);
       if (!keep) return;
       keep = parseInt(keep);
-      if (isNaN(keep) || keep < 1 || keep >= count) { showMsg('Enter a number less than ' + count, 'warn'); return; }
+      if (isNaN(keep) || keep < 1) { showMsg('Enter a number between 1 and ' + count, 'warn'); return; }
+      if (keep >= count) { showMsg('Already have ' + count + ' items — nothing to trim', 'warn'); return; }
       if (!confirm('Remove items ' + (keep+1) + '-' + count + '? This saves immediately. Use Revision History to undo.')) return;
       fetch('/api/pricecheck/' + _pcid + '/trim-items', {
         method: 'POST',
