@@ -4273,6 +4273,110 @@ def api_v1_email_reprocess_all():
         return api_response(error=str(e), status=500)
 
 
+@bp.route("/api/v1/email/recover-forwards", methods=["GET", "POST"])
+@auth_required
+def api_v1_recover_forwards():
+    """Find forwarded emails killed by self-filter and reprocess them."""
+    try:
+        from src.api.dashboard import POLL_STATUS, _load_price_checks
+        import imaplib
+        import email as _email_mod
+        from datetime import datetime as _dt, timedelta as _td
+
+        poller = POLL_STATUS.get("_poller_instance")
+        if not poller:
+            return api_response(error="Poller not running — wait for first poll cycle")
+
+        addr = os.environ.get("GMAIL_ADDRESS", "")
+        pwd = os.environ.get("GMAIL_PASSWORD", "")
+        if not addr or not pwd:
+            return api_response(error="Email credentials not configured")
+
+        # Get UIDs that already created records
+        created_uids = set()
+        try:
+            pcs = _load_price_checks()
+            rfqs = load_rfqs()
+            for pc in pcs.values():
+                u = pc.get("email_uid", "")
+                if u:
+                    created_uids.add(str(u))
+            for r in rfqs.values():
+                u = r.get("email_uid", "")
+                if u:
+                    created_uids.add(str(u))
+        except Exception:
+            pass
+
+        recovered = []
+        imap = imaplib.IMAP4_SSL("imap.gmail.com")
+        imap.login(addr, pwd)
+        imap.select("INBOX", readonly=True)
+
+        since = (_dt.now() - _td(days=30)).strftime("%d-%b-%Y")
+        for domain in ["reytechinc.com", "reytech.com"]:
+            _, data = imap.uid("search", None, f'FROM "@{domain}" SINCE {since}')
+            if not data or not data[0]:
+                continue
+            for uid_bytes in data[0].split():
+                uid_str = uid_bytes.decode()
+                if uid_str not in poller._processed:
+                    continue
+                if uid_str in created_uids:
+                    continue
+                try:
+                    _, msg_data = imap.uid("fetch", uid_bytes, "(BODY.PEEK[])")
+                    if not msg_data or not msg_data[0]:
+                        continue
+                    msg = _email_mod.message_from_bytes(msg_data[0][1])
+                    subj = (msg.get("Subject", "") or "").strip()
+                    subj_lower = subj.lower()
+                    is_fwd = any(subj_lower.startswith(p) for p in ["fwd:", "fw:"])
+                    has_rfc822 = any(p.get_content_type() == "message/rfc822" for p in msg.walk())
+                    body = ""
+                    for part in msg.walk():
+                        if part.get_content_type() == "text/plain":
+                            try:
+                                body = part.get_payload(decode=True).decode(errors="replace")
+                            except Exception:
+                                pass
+                            break
+                    has_fwd_body = any(m in body.lower() for m in ["forwarded message", "begin forwarded", "---------- forwarded"])
+                    has_nested_pdf = False
+                    for part in msg.walk():
+                        if part.get_content_type() == "message/rfc822":
+                            payload = part.get_payload()
+                            inners = payload if isinstance(payload, list) else ([payload] if hasattr(payload, 'walk') else [])
+                            for inner in inners:
+                                if hasattr(inner, 'walk'):
+                                    for ip in inner.walk():
+                                        if (ip.get_filename() or "").lower().endswith(".pdf"):
+                                            has_nested_pdf = True
+                                            break
+                                if has_nested_pdf:
+                                    break
+                    signals = sum([is_fwd, has_rfc822, has_fwd_body, has_nested_pdf])
+                    if signals >= 2:
+                        poller.reprocess_uid(uid_str)
+                        recovered.append({
+                            "uid": uid_str, "subject": subj[:100],
+                            "signals": {"fwd_subject": is_fwd, "rfc822": has_rfc822,
+                                        "fwd_body": has_fwd_body, "nested_pdf": has_nested_pdf},
+                        })
+                        log.info("RECOVERED forward: uid=%s subj=%s", uid_str, subj[:60])
+                except Exception:
+                    pass
+        imap.close()
+        imap.logout()
+        return api_response({
+            "recovered": len(recovered), "details": recovered,
+            "next_step": "Hit Check Now — recovered emails will be reprocessed"
+        })
+    except Exception as e:
+        log.error("recover-forwards: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)
+
+
 # ── Data Integrity ────────────────────────────────────────────────────
 
 @bp.route("/api/v1/quotes/fix-orphans", methods=["GET", "POST"])

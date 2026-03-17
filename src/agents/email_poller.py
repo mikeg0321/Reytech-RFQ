@@ -1314,12 +1314,28 @@ class EmailPoller:
                             "from:", "forwarded message",
                         ])
                         has_pdfs = bool(pdf_names)  # pdf_names populated at line ~1242
-                        
-                        # Let through if: (forward indicators) AND (has PDFs OR is clearly a forward)
-                        # Nested PDFs inside message/rfc822 may not be detected by _get_pdf_names
-                        # but _extract_forwarded_attachments will find them during processing.
-                        is_clear_forward = is_forward and has_fwd_body
-                        if (is_forward or has_fwd_body) and (has_pdfs or is_clear_forward):
+
+                        # Check for nested PDFs inside message/rfc822 parts
+                        if not has_pdfs:
+                            for _np in msg.walk():
+                                if _np.get_content_type() == "message/rfc822":
+                                    _np_payload = _np.get_payload()
+                                    _np_msgs = _np_payload if isinstance(_np_payload, list) else ([_np_payload] if hasattr(_np_payload, 'walk') else [])
+                                    for _np_inner in _np_msgs:
+                                        if hasattr(_np_inner, 'walk'):
+                                            for _np_part in _np_inner.walk():
+                                                if (_np_part.get_filename() or "").lower().endswith(".pdf"):
+                                                    has_pdfs = True
+                                                    break
+                                        if has_pdfs:
+                                            break
+                                if has_pdfs:
+                                    break
+
+                        # Relaxed: any 2+ of these signals is enough to pass
+                        _has_rfc822 = any(p.get_content_type() == "message/rfc822" for p in msg.walk())
+                        _fwd_signals = sum([bool(is_forward), bool(has_fwd_body), bool(has_pdfs), bool(_has_rfc822)])
+                        if _fwd_signals >= 2:
                             # This is a forwarded RFQ — let it through
                             log.info("Forwarded email from self with PDFs — processing as RFQ: %s — %s (%d PDFs)",
                                      sender_email_raw, subject[:60], len(pdf_names))
