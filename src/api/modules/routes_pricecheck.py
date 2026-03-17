@@ -1716,7 +1716,7 @@ def pricecheck_upload_pdf(pcid):
     return redirect(f"/pricecheck/{pcid}")
 
 
-@bp.route("/pricecheck/<pcid>/generate")
+@bp.route("/pricecheck/<pcid>/generate", methods=["GET", "POST"])
 @auth_required
 def pricecheck_generate(pcid):
     """Generate completed Price Check PDF and ingest into Won Quotes KB."""
