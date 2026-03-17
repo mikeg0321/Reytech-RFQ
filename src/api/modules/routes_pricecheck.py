@@ -1119,66 +1119,35 @@ def pricecheck_save_prices(pcid):
 
 
 def _validate_item_field(field_type, val):
-    """Validate and sanitize a single item field value.
+    """Validate and sanitize a single PC item field value.
+    Delegates to shared src.core.validation module.
     Returns (sanitized_value, error_string_or_None)."""
-    if field_type == "price":
-        try:
-            v = float(val) if val else 0
-            if v < 0: return (0, "Negative price")
-            if v > 999999: return (v, "Price exceeds $999,999")
-            return (v, None)
-        except (ValueError, TypeError):
-            return (0, f"Invalid price: {val}")
-    elif field_type == "cost":
-        try:
-            v = float(val) if val else 0
-            if v < 0: return (0, "Negative cost")
-            return (v, None)
-        except (ValueError, TypeError):
-            return (0, f"Invalid cost: {val}")
-    elif field_type == "markup":
-        try:
-            v = float(val) if val else 25
-            if v < 0: v = 0
-            if v > 500: v = 500  # cap at 500%
-            return (v, None)
-        except (ValueError, TypeError):
-            return (25, f"Invalid markup: {val}")
-    elif field_type == "qty":
-        try:
-            v = int(float(val)) if val else 1
-            if v < 0: v = 1
-            if v > 999999: v = 999999
-            return (v, None)
-        except (ValueError, TypeError):
-            return (1, f"Invalid qty: {val}")
+    from src.core.validation import (
+        validate_price, validate_cost, validate_markup, validate_qty,
+        validate_text, validate_url, validate_short_text, validate_bool, validate_int
+    )
+    _dispatch = {
+        "price": validate_price,
+        "cost": validate_cost,
+        "markup": validate_markup,
+        "qty": validate_qty,
+    }
+    if field_type in _dispatch:
+        return _dispatch[field_type](val)
     elif field_type == "desc":
-        s = str(val)[:5000] if val else ""  # cap at 5000 chars
-        return (s, None)
+        return validate_text(val, max_len=5000)
     elif field_type == "link":
-        s = str(val).strip()[:2000] if val else ""  # cap URL length
-        return (s, None)
+        return validate_url(val)
     elif field_type in ("uom", "itemno", "itemnum"):
-        s = str(val).strip()[:50] if val else ""
-        return (s, None)
+        return validate_short_text(val, max_len=50)
     elif field_type == "notes":
-        s = str(val).strip()[:2000] if val else ""
-        return (s, None)
+        return validate_text(val, max_len=2000)
     elif field_type == "linenum":
-        try:
-            v = int(float(val)) if val else 0
-            return (v, None)
-        except (ValueError, TypeError):
-            return (0, f"Invalid linenum: {val}")
+        return validate_int(val, min_val=0, max_val=999, default=0)
     elif field_type in ("bid", "substitute"):
-        return (bool(val), None)
+        return validate_bool(val)
     elif field_type == "qpu":
-        try:
-            v = int(float(val)) if val else 1
-            if v < 1: v = 1
-            return (v, None)
-        except (ValueError, TypeError):
-            return (1, None)
+        return validate_int(val, min_val=1, max_val=9999, default=1)
     elif field_type == "linkopen":
         return (None, None)  # UI-only, intentionally dropped
     else:

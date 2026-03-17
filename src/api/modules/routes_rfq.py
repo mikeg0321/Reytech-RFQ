@@ -262,6 +262,26 @@ def health_check():
     except Exception as e:
         checks["disk"] = f"error: {e}"
         checks["status"] = "degraded"
+    # Check validation module loads
+    try:
+        from src.core.validation import validate_price
+        v, err = validate_price("12.50")
+        checks["validation"] = "ok" if v == 12.5 and err is None else "fail"
+    except Exception as e:
+        checks["validation"] = f"error: {e}"
+    # Active RFQ/PC counts (non-critical)
+    try:
+        active_rfqs = {k: v for k, v in load_rfqs().items() if v.get("status") not in ("dismissed", "sent", "duplicate")}
+        checks["active_rfqs"] = len(active_rfqs)
+    except Exception:
+        checks["active_rfqs"] = -1
+    try:
+        from src.api.dashboard import load_price_checks
+        pcs = load_price_checks()
+        active_pcs = {k: v for k, v in pcs.items() if v.get("status") not in ("dismissed", "duplicate", "archived")}
+        checks["active_pcs"] = len(active_pcs)
+    except Exception:
+        checks["active_pcs"] = -1
     code = 200 if checks["status"] == "ok" else 503
     return jsonify(checks), code
 
@@ -916,32 +936,37 @@ def update(rid):
     r = rfqs.get(rid)
     if not r: return redirect("/")
     
+    from src.core.validation import validate_price, validate_cost, validate_markup, validate_qty, validate_text, validate_short_text, validate_url
     for i, item in enumerate(r["line_items"]):
-        for field, key in [("cost", "supplier_cost"), ("scprs", "scprs_last_price"), ("price", "price_per_unit"), ("markup", "markup_pct")]:
+        for field, key, vfn in [("cost", "supplier_cost", validate_cost), ("scprs", "scprs_last_price", validate_price), ("price", "price_per_unit", validate_price), ("markup", "markup_pct", validate_markup)]:
             v = request.form.get(f"{field}_{i}")
             if v:
-                try: item[key] = float(v)
-                except Exception as e:
-
-                    log.debug("Suppressed: %s", e)
+                val, err = vfn(v)
+                if err: log.warning("RFQ update item[%d] %s: %s", i, key, err)
+                item[key] = val
         # Save qty and uom from separate inputs
         qty_val = request.form.get(f"qty_{i}")
         if qty_val:
-            try: item["qty"] = int(float(qty_val))
-            except Exception: pass
+            val, err = validate_qty(qty_val)
+            if err: log.warning("RFQ update item[%d] qty: %s", i, err)
+            item["qty"] = val
         uom_val = request.form.get(f"uom_{i}")
         if uom_val is not None:
-            item["uom"] = uom_val.strip().upper()
+            val, _ = validate_short_text(uom_val, max_len=20, default="EA")
+            item["uom"] = val.upper()
         # Save edited description
         desc_val = request.form.get(f"desc_{i}")
         if desc_val is not None:
-            item["description"] = desc_val
+            val, _ = validate_text(desc_val, max_len=5000)
+            item["description"] = val
         # Save part number
         part_val = request.form.get(f"part_{i}")
         if part_val is not None:
-            item["item_number"] = part_val.strip()
+            val, _ = validate_short_text(part_val, max_len=100)
+            item["item_number"] = val
         # Save item link and auto-detect supplier
-        link_val = request.form.get(f"link_{i}", "").strip()
+        link_raw = request.form.get(f"link_{i}", "")
+        link_val, _ = validate_url(link_raw)
         item["item_link"] = link_val
         if link_val:
             try:
@@ -1056,10 +1081,14 @@ def rfq_update_field(rid):
     allowed = ["solicitation_number", "requestor_name", "requestor_email",
                "due_date", "ship_to", "delivery_location", "institution",
                "agency_name", "notes"]
+    from src.core.validation import validate_header_field
     for field in allowed:
         if field in data:
             old = r.get(field, "")
-            r[field] = data[field]
+            val, err = validate_header_field(field, data[field])
+            if err:
+                log.warning("RFQ %s update-field %s: %s", rid, field, err)
+            r[field] = val
             if old != data[field]:
                 changed.append(f"{field}: '{old}' -> '{data[field]}'")
                 # Log parse gap when user fills an empty field
@@ -1335,40 +1364,22 @@ def api_rfq_autosave(rid):
     data = request.get_json(force=True, silent=True) or {}
     items_data = data.get("items", [])
 
+    from src.core.validation import validate_rfq_item
     for update in items_data:
         idx = update.get("idx")
         if idx is None or idx >= len(r["line_items"]):
             continue
         item = r["line_items"][idx]
-        if "supplier_cost" in update and update["supplier_cost"] is not None:
-            try: item["supplier_cost"] = float(update["supplier_cost"])
-            except Exception: pass
-        if "price_per_unit" in update and update["price_per_unit"] is not None:
-            try: item["price_per_unit"] = float(update["price_per_unit"])
-            except Exception: pass
-        if "qty" in update and update["qty"] is not None:
-            try: item["qty"] = int(float(update["qty"]))
-            except Exception: pass
-        if "uom" in update:
-            item["uom"] = str(update["uom"]).strip().upper()
-        if "description" in update:
-            item["description"] = str(update["description"])
-        if "item_number" in update:
-            item["item_number"] = str(update["item_number"]).strip()
-        if "item_link" in update:
-            item["item_link"] = str(update["item_link"]).strip()
-            if item["item_link"]:
-                try:
-                    from src.agents.item_link_lookup import detect_supplier
-                    item["item_supplier"] = detect_supplier(item["item_link"])
-                except Exception:
-                    pass
-        if "scprs_last_price" in update and update["scprs_last_price"] is not None:
-            try: item["scprs_last_price"] = float(update["scprs_last_price"])
-            except Exception: pass
-        if "markup_pct" in update and update["markup_pct"] is not None:
-            try: item["markup_pct"] = float(update["markup_pct"])
-            except Exception: pass
+        errs = validate_rfq_item(update, item)
+        if errs:
+            log.warning("RFQ autosave %s item[%s]: %s", rid, idx, "; ".join(errs))
+        # Auto-detect supplier from link
+        if "item_link" in update and item.get("item_link"):
+            try:
+                from src.agents.item_link_lookup import detect_supplier
+                item["item_supplier"] = detect_supplier(item["item_link"])
+            except Exception:
+                pass
 
     # Save package form checklist if provided
     pkg_forms = data.get("package_forms")
@@ -1378,10 +1389,9 @@ def api_rfq_autosave(rid):
     # Save tax rate if provided
     tax_rate = data.get("tax_rate")
     if tax_rate is not None:
-        try:
-            r["tax_rate"] = float(tax_rate)
-        except (ValueError, TypeError):
-            pass
+        from src.core.validation import validate_header_field
+        v, _ = validate_header_field("tax_rate", tax_rate)
+        r["tax_rate"] = v
 
     save_rfqs(rfqs)
 
@@ -1462,12 +1472,17 @@ def rfq_add_item(rid):
 
     next_num = len(r["line_items"]) + 1
 
+    from src.core.validation import validate_qty, validate_short_text, validate_text
+    _qty, _ = validate_qty(request.form.get("qty", 1))
+    _uom, _ = validate_short_text(request.form.get("uom", "EA"), max_len=20, default="EA")
+    _desc, _ = validate_text(request.form.get("description", ""), max_len=5000)
+    _itemno, _ = validate_short_text(request.form.get("item_number", ""), max_len=100)
     new_item = {
         "line_number": next_num,
-        "qty": int(request.form.get("qty", 1)),
-        "uom": request.form.get("uom", "EA").strip().upper(),
-        "description": request.form.get("description", "").strip(),
-        "item_number": request.form.get("item_number", "").strip(),
+        "qty": _qty,
+        "uom": _uom.upper(),
+        "description": _desc.strip(),
+        "item_number": _itemno,
         "supplier_cost": 0,
         "scprs_last_price": None,
         "source_type": "manual",

@@ -318,6 +318,39 @@ def extract_item_numbers(item: dict) -> str:
     return ""
 
 
+# ─── Parse-time sanitizer ─────────────────────────────────────────────────────
+
+def _sanitize_parsed_items(items: list) -> list:
+    """Normalize types on freshly-parsed items to prevent downstream crashes.
+    Ensures qty is int, uom is str, description is str, row_index is int."""
+    for item in items:
+        # qty: must be int >= 1
+        raw_qty = item.get("qty", 1)
+        try:
+            item["qty"] = max(1, int(float(raw_qty))) if raw_qty else 1
+        except (ValueError, TypeError):
+            item["qty"] = 1
+        # uom: must be str, uppercased
+        item["uom"] = str(item.get("uom") or "EA").strip().upper()
+        # description: must be str, capped at 5000
+        desc = item.get("description") or ""
+        item["description"] = str(desc)[:5000]
+        # row_index: must be int >= 1
+        try:
+            item["row_index"] = max(1, int(item.get("row_index", 1)))
+        except (ValueError, TypeError):
+            item["row_index"] = 1
+        # qty_per_uom: must be int >= 1
+        try:
+            item["qty_per_uom"] = max(1, int(item.get("qty_per_uom", 1)))
+        except (ValueError, TypeError):
+            item["qty_per_uom"] = 1
+        # Ensure pricing dict exists
+        if "pricing" not in item:
+            item["pricing"] = {}
+    return items
+
+
 # ─── Junk item filter ────────────────────────────────────────────────────────
 
 def _filter_junk_items(items: list) -> list:
@@ -661,7 +694,7 @@ def parse_ams704(pdf_path: str) -> dict:
         return _parse_ams704_ocr(pdf_path, result)
 
     # Filter out junk items (legal text, instructions, boilerplate)
-    result["line_items"] = _filter_junk_items(result["line_items"])
+    result["line_items"] = _filter_junk_items(_sanitize_parsed_items(result["line_items"]))
     return result
 
 
@@ -793,7 +826,7 @@ def _parse_ams704_ocr(pdf_path: str, result: dict) -> dict:
     if pdfplumber_worked and len(result["line_items"]) >= 3:
         result["line_items"] = _merge_continuation_items(result["line_items"])
         # Filter out junk items (legal text, instructions, boilerplate)
-        result["line_items"] = _filter_junk_items(result["line_items"])
+        result["line_items"] = _filter_junk_items(_sanitize_parsed_items(result["line_items"]))
         return result
 
     # pdfplumber failed — use regex text parser on pypdf output
@@ -852,7 +885,7 @@ def _parse_ams704_ocr(pdf_path: str, result: dict) -> dict:
                     log.info("Vision parser got %d items (vs %d from text) — using vision result",
                              len(vision_result["line_items"]), text_item_count)
                     # Filter out junk items (legal text, instructions, boilerplate)
-                    vision_result["line_items"] = _filter_junk_items(vision_result.get("line_items", []))
+                    vision_result["line_items"] = _filter_junk_items(_sanitize_parsed_items(vision_result.get("line_items", [])))
                     return vision_result
                 else:
                     log.info("Vision parser got %d items — keeping text result (%d items)",
@@ -864,7 +897,7 @@ def _parse_ams704_ocr(pdf_path: str, result: dict) -> dict:
             log.debug("Vision fallback: %s", _ve)
 
     # Filter out junk items (legal text, instructions, boilerplate)
-    result["line_items"] = _filter_junk_items(result["line_items"])
+    result["line_items"] = _filter_junk_items(_sanitize_parsed_items(result["line_items"]))
     return result
 
 
