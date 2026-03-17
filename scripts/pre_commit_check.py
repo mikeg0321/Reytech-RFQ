@@ -131,6 +131,27 @@ if os.path.exists("src/core/data_guard.py"):
     check("max snapshots per file", "MAX_SNAPSHOTS_PER_FILE" in content,
           "must cap snapshots per file")
 
+# 11. Duplicate route function names (Law 43)
+print("\n11. No duplicate route functions...")
+import re as _re
+_route_fns = {}
+_dup_found = []
+for _rf in sorted(run('find src/api/modules -name "routes_*.py"').stdout.strip().split("\n")):
+    _rf = _rf.strip()
+    if not _rf or not os.path.exists(_rf):
+        continue
+    with open(_rf, encoding="utf-8", errors="replace") as _f:
+        for _ln, _line in enumerate(_f, 1):
+            _m = _re.match(r'^def (api_\w+|[a-z]\w+)\(', _line)
+            if _m and not _line.strip().startswith("#"):
+                _fn = _m.group(1)
+                if _fn in _route_fns:
+                    _dup_found.append(f"{_fn} in {_rf}:{_ln} AND {_route_fns[_fn]}")
+                else:
+                    _route_fns[_fn] = f"{_rf}:{_ln}"
+check("no duplicate route functions", len(_dup_found) == 0,
+      f"duplicates: {_dup_found[:3]}")
+
 print("\n" + "=" * 60)
 if errors:
     print(f"BLOCKED: {len(errors)} error(s) — fix before committing")
