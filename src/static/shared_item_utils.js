@@ -60,3 +60,31 @@ function closeBulkPaste() {
   var m = document.getElementById('bulkPasteModal');
   if (m) m.style.display = 'none';
 }
+
+/**
+ * Fire a link lookup for a URL.
+ * mode: 'pc' or 'rfq' — determines which meta element ID to use.
+ * Calls page-specific _applyLinkData(idx, d, mode) with the result.
+ */
+function _fireLinkLookup(idx, url, mode) {
+  if (!url || !_isUrl(url)) return;
+  var metaId = (mode === 'rfq') ? 'rfq_link_meta_' + idx : 'link_meta_' + idx;
+  var metaEl = document.getElementById(metaId);
+  if (metaEl) metaEl.innerHTML = '<span style="color:#d29922">\u23F3 Looking up\u2026</span>';
+  fetch('/api/item-link/lookup', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({url: url, idx: idx})
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    if (!d.ok && d.error) {
+      if (metaEl) metaEl.innerHTML = '<span style="color:#f85149">\u26A0\uFE0F ' + d.error + '</span>';
+      return;
+    }
+    _applyLinkData(idx, d, mode);
+  })
+  .catch(function() {
+    if (metaEl) metaEl.innerHTML = '<span style="color:#f85149">Lookup failed</span>';
+  });
+}

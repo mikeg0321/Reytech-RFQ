@@ -719,17 +719,7 @@ function handleRfqLinkInput(idx, inp){
  else if(metaEl&&_isUrl(url))metaEl.innerHTML='<span style="color:#d29922">\u23F3 Looking up…</span>';
  if(!_isUrl(url))return;
  clearTimeout(_linkDebounce['rfq_'+idx]);
- _linkDebounce['rfq_'+idx]=setTimeout(()=>_fireLinkLookup(idx,url),800);
-}
-
-function _fireLinkLookup(idx,url){
- const metaEl=document.getElementById('rfq_link_meta_'+idx);
- if(metaEl)metaEl.innerHTML='<span style="color:#d29922">\u23F3 Looking up…</span>';
- fetch('/api/item-link/lookup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})})
- .then(r=>r.json()).then(d=>{
-  if(!d.ok&&d.error){if(metaEl)metaEl.innerHTML='<span style="color:#f85149">\u26A0\uFE0F '+d.error+'</span>';return;}
-  _applyLinkData(idx,d);
- }).catch(()=>{if(metaEl)metaEl.innerHTML='<span style="color:#f85149">Lookup failed</span>';});
+ _linkDebounce['rfq_'+idx]=setTimeout(()=>_fireLinkLookup(idx,url,'rfq'),800);
 }
 
 // ── Bulk Paste ──

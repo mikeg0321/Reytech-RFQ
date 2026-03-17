@@ -863,19 +863,6 @@
       _linkDebounce[idx] = setTimeout(() => _fireLinkLookup(idx, url, 'pc'), 600);
     }
 
-    function _fireLinkLookup(idx, url, mode) {
-      const metaEl = mode==='pc' ? document.getElementById('link_meta_'+idx) : document.getElementById('rfq_link_meta_'+idx);
-      if (metaEl) metaEl.innerHTML='<span style="color:#d29922">\u23F3 Looking up…</span>';
-      fetch('/api/item-link/lookup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})})
-      .then(r=>r.json()).then(d=>{
-        if (!d.ok && d.error) {
-          if (metaEl) metaEl.innerHTML='<span style="color:#f85149">\u26A0\uFE0F '+d.error+'</span>';
-          return;
-        }
-        _applyLinkData(idx, d, mode);
-      }).catch(()=>{ if(metaEl) metaEl.innerHTML='<span style="color:#f85149">Lookup failed</span>'; });
-    }
-
     function _applyLinkData(idx, d, mode) {
       const filled = [];
       const metaEl = mode==='pc' ? document.getElementById('link_meta_'+idx) : document.getElementById('rfq_link_meta_'+idx);
