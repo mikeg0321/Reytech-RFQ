@@ -14,19 +14,51 @@ log = logging.getLogger("reytech.data_guard")
 SNAPSHOT_DIR = os.path.join(os.environ.get("DATA_DIR", "/data"), "snapshots")
 
 
+MAX_SNAPSHOTS_PER_FILE = 10  # Keep only the most recent N snapshots per file
+SNAPSHOT_THROTTLE_SEC = 60   # Don't snapshot if last one was <60s ago
+
+
+def _prune_snapshots(basename):
+    """Keep only the most recent MAX_SNAPSHOTS_PER_FILE snapshots per file."""
+    if not os.path.exists(SNAPSHOT_DIR):
+        return
+    snaps = sorted(
+        [f for f in os.listdir(SNAPSHOT_DIR) if f.startswith(basename + ".")],
+        key=lambda f: os.path.getmtime(os.path.join(SNAPSHOT_DIR, f)),
+        reverse=True,
+    )
+    for old in snaps[MAX_SNAPSHOTS_PER_FILE:]:
+        try:
+            os.remove(os.path.join(SNAPSHOT_DIR, old))
+        except OSError:
+            pass
+
+
 def safe_save_json(filepath, data, reason=""):
     """Save JSON with pre-save snapshot. Blocks destructive saves."""
     os.makedirs(SNAPSHOT_DIR, exist_ok=True)
     basename = os.path.basename(filepath)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    # 1. Snapshot current file
+    # 1. Snapshot current file (throttled: skip if recent snapshot exists)
     if os.path.exists(filepath):
-        snapshot_path = os.path.join(SNAPSHOT_DIR, f"{basename}.{ts}")
+        _skip_snapshot = False
         try:
-            shutil.copy2(filepath, snapshot_path)
-        except Exception as e:
-            log.warning("Snapshot failed for %s: %s", basename, e)
+            existing = [f for f in os.listdir(SNAPSHOT_DIR) if f.startswith(basename + ".")]
+            if existing:
+                newest = max(existing, key=lambda f: os.path.getmtime(os.path.join(SNAPSHOT_DIR, f)))
+                age = datetime.now().timestamp() - os.path.getmtime(os.path.join(SNAPSHOT_DIR, newest))
+                if age < SNAPSHOT_THROTTLE_SEC:
+                    _skip_snapshot = True
+        except Exception:
+            pass
+        if not _skip_snapshot:
+            snapshot_path = os.path.join(SNAPSHOT_DIR, f"{basename}.{ts}")
+            try:
+                shutil.copy2(filepath, snapshot_path)
+            except Exception as e:
+                log.warning("Snapshot failed for %s: %s", basename, e)
+            _prune_snapshots(basename)
 
     # 2. Block empty saves on files that had data
     if isinstance(data, dict) and "rfqs" in basename.lower():
@@ -124,9 +156,9 @@ def safe_save_json(filepath, data, reason=""):
             f.flush()
             os.fsync(f.fileno())
         os.replace(tmp, filepath)
-        log.info("SAVE OK: %s (%.1fKB, %d records, reason: %s)",
-                 basename, len(serialized)/1000,
-                 len(data) if isinstance(data, dict) else 0, reason)
+        log.debug("SAVE OK: %s (%.1fKB, %d records, reason: %s)",
+                  basename, len(serialized)/1000,
+                  len(data) if isinstance(data, dict) else 0, reason)
         return True
     except Exception as e:
         log.error("Save FAILED for %s: %s", basename, e)
