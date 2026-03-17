@@ -25,17 +25,17 @@
 <div class="card">
  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px">
   <div>
-   <div style="font-family:'JetBrains Mono',monospace;font-size:24px;font-weight:700">#<input type="text" value="{{r.get('solicitation_number') or r.get('rfq_number') or ''}}" class="editable-field" data-field="solicitation_number" onblur="saveField(this,'solicitation_number')" placeholder="Sol #" style="font-family:inherit;font-size:inherit;font-weight:inherit;background:transparent;border:1px solid transparent;border-radius:4px;padding:0 4px;color:inherit;width:200px" onfocus="this.style.borderColor='#58a6ff'" onblur="saveField(this,'solicitation_number');this.style.borderColor='transparent'"></div>
+   <div style="font-family:'JetBrains Mono',monospace;font-size:24px;font-weight:700">#<input type="text" value="{{r.get('solicitation_number') or r.get('rfq_number') or ''}}" class="editable-field" data-field="solicitation_number" aria-label="Solicitation Number" onblur="saveField(this,'solicitation_number')" placeholder="Sol #" style="font-family:inherit;font-size:inherit;font-weight:inherit;background:transparent;border:1px solid transparent;border-radius:4px;padding:0 4px;color:inherit;width:200px" onfocus="this.style.borderColor='#58a6ff'" onblur="saveField(this,'solicitation_number');this.style.borderColor='transparent'"></div>
    <div style="color:var(--tx2);font-size:14px;margin-top:2px">{{r.get('award_method','all_or_none')|replace('_',' ')|title}}{% if r.source=='email' %} · 📧 Auto-imported{% endif %}{% if r.get('agency_name') %} · <span style="padding:2px 8px;border-radius:4px;font-size:13px;font-weight:600;{% if r.get('form_type')=='generic_rfq' %}background:rgba(167,139,250,.15);color:#a78bfa;border:1px solid rgba(167,139,250,.3){% else %}background:rgba(52,211,153,.1);color:#3fb950;border:1px solid rgba(52,211,153,.2){% endif %}">{{ r.agency_name }}</span>{% endif %}</div>
   </div>
   <span class="badge b-{{r.status}}">{{r.status}}</span>
   <button onclick="toggleSourcePanel()" style="padding:4px 10px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--ac);font-size:12px;cursor:pointer;margin-left:8px" title="View original email and attachments">📧 Source</button>
  </div>
  <div class="meta-g">
-  <div class="meta-i"><div class="meta-l">Buyer</div><div class="meta-v"><input type="text" value="{{r.get('requestor_name','')}}" class="editable-field" onblur="saveField(this,'requestor_name')" onfocus="this.style.borderColor='#58a6ff'" placeholder="Name" style="background:transparent;border:1px solid transparent;border-radius:4px;padding:2px 6px;color:#58a6ff;font-size:inherit;width:180px"></div></div>
-  <div class="meta-i"><div class="meta-l">Email</div><div class="meta-v"><input type="email" value="{{r.get('requestor_email','')}}" class="editable-field" onblur="saveField(this,'requestor_email')" onfocus="this.style.borderColor='#58a6ff'" placeholder="email@example.com" style="background:transparent;border:1px solid transparent;border-radius:4px;padding:2px 6px;color:#58a6ff;font-size:inherit;width:220px"></div></div>
-  <div class="meta-i"><div class="meta-l">Due Date</div><div class="meta-v"><input type="text" value="{{r.get('due_date','')}}" class="editable-field" onblur="saveField(this,'due_date')" onfocus="this.style.borderColor='#58a6ff'" placeholder="MM/DD/YYYY" style="background:transparent;border:1px solid transparent;border-radius:4px;padding:2px 6px;color:inherit;font-size:inherit;width:110px"></div></div>
-  <div class="meta-i"><div class="meta-l">Delivery</div><div class="meta-v" style="position:relative"><input type="text" id="delivery-input" value="{{r.get('delivery_location','')}}" class="editable-field" oninput="searchLocations(this)" onblur="setTimeout(function(){document.getElementById('loc-dropdown').style.display='none'},200);saveField(document.getElementById('delivery-input'),'delivery_location')" onfocus="this.style.borderColor='#58a6ff';if(this.value.length>=2)searchLocations(this)" placeholder="Type facility name..." autocomplete="off" style="background:transparent;border:1px solid transparent;border-radius:4px;padding:2px 6px;color:inherit;font-size:14px;width:260px"><div id="loc-dropdown" style="display:none;position:absolute;top:100%;left:0;z-index:100;background:#1c2128;border:1px solid #30363d;border-radius:6px;max-height:220px;overflow-y:auto;width:320px;box-shadow:0 8px 24px rgba(0,0,0,.4)"></div></div></div>
+  <div class="meta-i"><div class="meta-l">Buyer</div><div class="meta-v"><input type="text" value="{{r.get('requestor_name','')}}" class="editable-field" aria-label="Buyer Name" onblur="saveField(this,'requestor_name')" onfocus="this.style.borderColor='#58a6ff'" placeholder="Name" style="background:transparent;border:1px solid transparent;border-radius:4px;padding:2px 6px;color:#58a6ff;font-size:inherit;width:180px"></div></div>
+  <div class="meta-i"><div class="meta-l">Email</div><div class="meta-v"><input type="email" value="{{r.get('requestor_email','')}}" class="editable-field" aria-label="Buyer Email" onblur="saveField(this,'requestor_email')" onfocus="this.style.borderColor='#58a6ff'" placeholder="email@example.com" style="background:transparent;border:1px solid transparent;border-radius:4px;padding:2px 6px;color:#58a6ff;font-size:inherit;width:220px"></div></div>
+  <div class="meta-i"><div class="meta-l">Due Date</div><div class="meta-v"><input type="text" value="{{r.get('due_date','')}}" class="editable-field" aria-label="Due Date" onblur="saveField(this,'due_date')" onfocus="this.style.borderColor='#58a6ff'" placeholder="MM/DD/YYYY" style="background:transparent;border:1px solid transparent;border-radius:4px;padding:2px 6px;color:inherit;font-size:inherit;width:110px"></div></div>
+  <div class="meta-i"><div class="meta-l">Delivery</div><div class="meta-v" style="position:relative"><input type="text" id="delivery-input" value="{{r.get('delivery_location','')}}" class="editable-field" aria-label="Delivery Location" oninput="searchLocations(this)" onblur="setTimeout(function(){document.getElementById('loc-dropdown').style.display='none'},200);saveField(document.getElementById('delivery-input'),'delivery_location')" onfocus="this.style.borderColor='#58a6ff';if(this.value.length>=2)searchLocations(this)" placeholder="Type facility name..." autocomplete="off" style="background:transparent;border:1px solid transparent;border-radius:4px;padding:2px 6px;color:inherit;font-size:14px;width:260px"><div id="loc-dropdown" style="display:none;position:absolute;top:100%;left:0;z-index:100;background:#1c2128;border:1px solid #30363d;border-radius:6px;max-height:220px;overflow-y:auto;width:320px;box-shadow:0 8px 24px rgba(0,0,0,.4)"></div></div></div>
  </div>
  {% set lookup = r.get('auto_lookup_results', {}) %}
  {% set items = r.get('line_items', []) %}
@@ -142,9 +142,9 @@
  <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
  <table class="it" style="min-width:1400px">
   <thead><tr>
-   <th>#</th><th style="width:55px">Qty</th><th style="width:55px">UOM</th><th>Description</th><th>Part #</th>
-   <th style="min-width:220px">Item Link</th>
-   <th>Your Cost</th><th style="width:30px" title="Price Intelligence">📊</th><th style="width:70px">Markup</th><th>Bid Price</th><th>Subtotal</th><th>Margin</th><th>Profit</th><th style="width:30px"></th>
+   <th scope="col">#</th><th scope="col" style="width:55px">Qty</th><th scope="col" style="width:55px">UOM</th><th scope="col">Description</th><th scope="col">Part #</th>
+   <th scope="col" style="min-width:220px">Item Link</th>
+   <th scope="col">Your Cost</th><th scope="col" style="width:30px" title="Price Intelligence">📊</th><th scope="col" style="width:70px">Markup</th><th scope="col">Bid Price</th><th scope="col">Subtotal</th><th scope="col">Margin</th><th scope="col">Profit</th><th scope="col" style="width:30px"></th>
   </tr></thead>
   <tbody>
   {% for i in (r.get("line_items") or r.get("items") or []) %}
@@ -953,6 +953,10 @@ function triggerAutosave(){
  _autosaveTimer=setTimeout(_doAutosave,2000);
  _showSaveStatus('unsaved');
 }
+// Ctrl+S / Cmd+S = immediate save
+document.addEventListener('keydown',function(e){
+ if((e.ctrlKey||e.metaKey)&&e.key==='s'){e.preventDefault();clearTimeout(_autosaveTimer);_doAutosave();}
+});
 
 function _doAutosave(){
  const data=_getFormData();

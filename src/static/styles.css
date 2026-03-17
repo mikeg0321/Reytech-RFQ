@@ -53,7 +53,7 @@ nav::-webkit-scrollbar{height:4px}nav::-webkit-scrollbar-track{background:transp
 .home-row{cursor:pointer;transition:background .12s}
 .home-row:hover{background:rgba(79,140,255,.06)}
 .home-row a{text-decoration:none}
-.dismiss-opt{display:block;width:100%;text-align:left;padding:8px 14px;font-size:14px;background:none;border:none;color:var(--tx1);cursor:pointer;white-space:nowrap}
+.dismiss-opt{display:block;width:100%;text-align:left;padding:8px 14px;font-size:14px;background:none;border:none;color:var(--tx);cursor:pointer;white-space:nowrap}
 .dismiss-opt:hover{background:rgba(79,140,255,.1)}
 .info-tip{position:relative;display:inline-flex;cursor:help;margin-left:4px;vertical-align:middle}
 .info-tip .tip-icon{width:16px;height:16px;border-radius:50%;background:rgba(79,140,255,.15);color:var(--ac);font-size:14px;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-style:normal;border:1px solid rgba(79,140,255,.3)}
@@ -296,3 +296,23 @@ table.it .text-in:focus{border-color:var(--ac);outline:none}
 .bulk-bar.active{display:flex}
 .bulk-count{font-weight:700;color:var(--ac);font-size:15px}
 .row-check{width:16px;height:16px;accent-color:var(--ac);cursor:pointer}
+
+/* ═══ Accessibility: Focus-visible ═══════════════════════════════════════════ */
+.skip-link{position:absolute;top:-60px;left:0;background:var(--ac);color:#fff;padding:10px 20px;z-index:10000;font-weight:600;border-radius:0 0 8px 0;transition:top .2s}
+.skip-link:focus{top:0}
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[role="button"]:focus-visible,
+[tabindex]:focus-visible{outline:2px solid var(--ac);outline-offset:2px;border-radius:4px}
+
+/* ═══ Accessibility: Reduced motion ══════════════════════════════════════════ */
+@media(prefers-reduced-motion:reduce){
+ .poll-on{animation:none}
+ .progress-fill{transition:none}
+ .rfq-i:hover{transform:none}
+ .btn,.hdr-btn,.notif-bell{transition:none}
+ *{transition-duration:0s!important;animation-duration:0s!important}
+}
