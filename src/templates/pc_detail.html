@@ -295,7 +295,7 @@
      <h3 style="margin-top:0;font-size:18px">Line Items <span id="itemCount" style="font-weight:normal;color:#8b949e;font-size:15px">({{ items|length }} items)</span></h3>
      <!-- Lock Toggle + Bulk Paste -->
      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-      <button id="lockToggleBtn" onclick="toggleGlobalLock()" style="background:#21262d;border:1px solid #30363d;color:#8b949e;border-radius:6px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer">🔒 MFG# + URLs Locked</button>
+      <button id="lockToggleBtn" onclick="toggleGlobalLock()" style="background:#21262d;border:1px solid #30363d;color:#8b949e;border-radius:6px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer">🔒 Line# + MFG# + URLs Locked</button>
       <button onclick="openBulkPaste()" style="background:#21262d;border:1px solid #30363d;color:#58a6ff;border-radius:6px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer">📋 Bulk Paste URLs</button>
      </div>
      <!-- Quick Markup Bar (config-driven, parity with RFQ) -->
@@ -2961,8 +2961,8 @@
      fieldsLocked = !fieldsLocked;
      applyLockState();
      var btn = document.getElementById('lockToggleBtn');
-     if(fieldsLocked){btn.textContent='🔒 MFG# + URLs Locked';btn.style.background='#21262d';btn.style.borderColor='#30363d';btn.style.color='#8b949e';}
-     else{btn.textContent='🔓 EDIT — MFG# + URLs Unlocked';btn.style.background='rgba(240,136,62,0.12)';btn.style.borderColor='#f0883e';btn.style.color='#f0883e';}
+     if(fieldsLocked){btn.textContent='🔒 Line# + MFG# + URLs Locked';btn.style.background='#21262d';btn.style.borderColor='#30363d';btn.style.color='#8b949e';}
+     else{btn.textContent='🔓 EDIT MODE';btn.style.background='rgba(240,136,62,0.12)';btn.style.borderColor='#f0883e';btn.style.color='#f0883e';}
     }
     function applyLockState(){
      document.querySelectorAll('.lockable-field').forEach(function(el){
