@@ -890,7 +890,19 @@ def get_pc(pc_id: str) -> dict | None:
                     pc_data = _json.loads(pc_blob)
                     if isinstance(pc_data, dict):
                         for k, v in pc_data.items():
-                            if k not in d or not d[k]:
+                            if k == "items":
+                                # pc_data blob has richer item data (pricing, notes, links)
+                                # than the separate items column. Use the richer version.
+                                blob_items = v if isinstance(v, list) else _safe_json(v, [])
+                                col_items = d.get("items", [])
+                                if isinstance(col_items, list) and isinstance(blob_items, list):
+                                    blob_richness = len(blob_items[0].keys()) if blob_items and isinstance(blob_items[0], dict) else 0
+                                    col_richness = len(col_items[0].keys()) if col_items and isinstance(col_items[0], dict) else 0
+                                    if blob_richness > col_richness:
+                                        d["items"] = blob_items
+                                elif blob_items:
+                                    d["items"] = blob_items
+                            elif k not in d or not d[k]:
                                 d[k] = v
                 except (json.JSONDecodeError, TypeError):
                     pass

@@ -1280,14 +1280,19 @@ def _do_save_prices(pcid):
     else:
         pc["parsed"]["line_items"] = items
 
-    _save_price_checks(pcs)
-
-    # Also mirror to SQLite via DAL
+    # Only save the single PC that changed — not the entire collection
     try:
-        from src.core.dal import save_pc as _dal_save_pc
-        _dal_save_pc(pc)
-    except Exception as _e:
-        log.debug("DAL save_pc: %s", _e)
+        from src.core.dal import save_pc as _dal_save_single
+        _dal_save_single(pc)
+        # Invalidate cache so next load picks up changes
+        import sys as _sys
+        _dash = _sys.modules.get('src.api.dashboard')
+        if _dash:
+            _dash._pc_cache = None
+            _dash._pc_cache_time = 0
+    except Exception as _single_e:
+        log.warning("Single-PC save failed, falling back to full save: %s", _single_e)
+        _save_price_checks(pcs)
 
     # ── Save items to product catalog on every save (not just terminal status) ──
     try:
@@ -1825,12 +1830,20 @@ def _do_generate(pcid):
                  it.get("vendor_cost") or it.get("pricing", {}).get("unit_cost"),
                  it.get("mfg_number", ""))
 
-    pc_num = pc.get("pc_number", "unknown")
-    safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', pc_num.strip())
+    pc_num = pc.get("pc_number", "") or ""
+    safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', pc_num.strip()) if pc_num.strip() else ""
+    # Always include pcid to prevent filename collisions between PCs with same/empty pc_number
+    safe_name = f"{safe_name}_{pcid}" if safe_name else pcid
 
     # Determine revision suffix: first download = no suffix, subsequent = _Revised, _Revised_2, etc.
+    # Resets if pc_number changes (rename/reparse)
+    _prev_gen_pcnum = pc.get("_gen_for_pcnum", "")
+    _current_pcnum = pc.get("pc_number", "")
+    if _prev_gen_pcnum != _current_pcnum:
+        pc["_generate_count"] = 0
     gen_count = pc.get("_generate_count", 0) + 1
     pc["_generate_count"] = gen_count
+    pc["_gen_for_pcnum"] = _current_pcnum
     if gen_count <= 1:
         suffix = ""
     elif gen_count == 2:
@@ -1955,8 +1968,9 @@ def _do_generate_original(pcid):
         if not recovered:
             return jsonify({"ok": False, "error": "Source PDF not found. Upload the buyer's original 704 PDF first (More \u2192 Upload PDF & Parse), then try again."})
 
-    pc_num = pc.get("pc_number", "unknown")
-    safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', pc_num.strip())
+    pc_num = pc.get("pc_number", "") or ""
+    safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', pc_num.strip()) if pc_num.strip() else ""
+    safe_name = f"{safe_name}_{pcid}" if safe_name else pcid
     output_path = os.path.join(DATA_DIR, f"PC_{safe_name}_Original.pdf")
 
     log.info("GENERATE-ORIGINAL %s: %d items, source=%s, output=%s",
@@ -2029,9 +2043,10 @@ def pricecheck_generate_quote(pcid):
     except Exception:
         pass
 
-    pc_num = pc.get("pc_number", "unknown")
+    pc_num = pc.get("pc_number", "") or ""
     t.step("Starting", pc_number=pc_num, institution=pc.get("institution",""), items=len(pc.get("items",[])))
-    safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', pc_num.strip())
+    safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', pc_num.strip()) if pc_num.strip() else ""
+    safe_name = f"{safe_name}_{pcid}" if safe_name else pcid
     output_path = os.path.join(DATA_DIR, f"Quote_{safe_name}_Reytech.pdf")
 
     locked_qn = pc.get("reytech_quote_number", "")
@@ -4121,9 +4136,10 @@ def api_pricecheck_mark_sent(pcid):
     output_pdf = pc.get("output_pdf", "")
     if output_pdf and os.path.exists(output_pdf):
         import shutil
-        # Copy to versioned filename: PC_BLS_IT_v1_sent_20260224.pdf
-        pc_num = pc.get("pc_number", "unknown")
-        safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', pc_num.strip())
+        # Copy to versioned filename: PC_BLS_IT_{pcid}_v1_sent_20260224.pdf
+        pc_num = pc.get("pc_number", "") or ""
+        safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', pc_num.strip()) if pc_num.strip() else ""
+        safe_name = f"{safe_name}_{pcid}" if safe_name else pcid
         date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
         
         # Get next version
@@ -4579,9 +4595,10 @@ def pricecheck_document_save(pcid):
     if not source_pdf or not os.path.exists(source_pdf):
         return jsonify({"ok": False, "error": "Source PDF not found"})
     
-    pc_num = pc.get("pc_number", "unknown")
-    safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', pc_num.strip())
-    
+    pc_num = pc.get("pc_number", "") or ""
+    safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', pc_num.strip()) if pc_num.strip() else ""
+    safe_name = f"{safe_name}_{pcid}" if safe_name else pcid
+
     # Get next version number
     from src.core.db import get_sent_documents, create_sent_document
     existing = get_sent_documents(pcid)

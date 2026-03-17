@@ -1120,9 +1120,9 @@ def _load_price_checks(include_items=True):
         if not isinstance(pc, dict):
             continue
         if "items" in pc and "line_items" not in pc:
-            pc["line_items"] = pc["items"]
+            pc["line_items"] = list(pc["items"])  # shallow copy to prevent aliasing
         if "line_items" in pc and "items" not in pc:
-            pc["items"] = pc["line_items"]
+            pc["items"] = list(pc["line_items"])  # shallow copy to prevent aliasing
 
     # Only cache full results (with items)
     if include_items:
