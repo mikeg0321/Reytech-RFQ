@@ -4487,6 +4487,144 @@ def api_v1_email_diagnose(uid):
         return api_response(error=str(e), status=500)
 
 
+@bp.route("/api/v1/email/force-process/<uid>", methods=["GET", "POST"])
+@auth_required
+def api_v1_email_force_process(uid):
+    """Bypass poller — fetch email by UID, extract attachments (including ZIP), create RFQ/PC directly."""
+    try:
+        import imaplib
+        import email as _em
+        import zipfile
+        import io
+        import re as _re
+        import uuid as _uuid
+        from datetime import datetime as _dt
+
+        addr = os.environ.get("GMAIL_ADDRESS", "")
+        pwd = os.environ.get("GMAIL_PASSWORD", "")
+        if not addr or not pwd:
+            return api_response(error="No email credentials")
+
+        imap = imaplib.IMAP4_SSL("imap.gmail.com")
+        imap.login(addr, pwd)
+        imap.select("INBOX")
+        _, data = imap.uid("fetch", uid.encode(), "(BODY.PEEK[])")
+        if not data or not data[0]:
+            imap.logout()
+            return api_response(error=f"UID {uid} not found")
+
+        msg = _em.message_from_bytes(data[0][1])
+        subj = msg.get("Subject", "")
+        from_hdr = msg.get("From", "")
+        sender_email = _re.search(r'[\w.+-]+@[\w.-]+', from_hdr)
+        sender_email = sender_email.group(0).lower() if sender_email else ""
+
+        # Extract forwarded sender
+        body = ""
+        for part in msg.walk():
+            if part.get_content_type() == "text/plain":
+                try:
+                    body = part.get_payload(decode=True).decode(errors="replace")
+                except Exception:
+                    pass
+                break
+        orig_sender = ""
+        _fm = _re.search(r'From:.*?([\w.+-]+@[\w.-]+)', body, _re.IGNORECASE)
+        if _fm:
+            _addr = _fm.group(1).lower()
+            if not any(_addr.endswith(f"@{d}") for d in ["reytechinc.com", "reytech.com"]):
+                orig_sender = _addr
+
+        # Extract ALL attachments — PDFs + PDFs from ZIPs
+        try:
+            from src.core.paths import UPLOAD_DIR
+        except Exception:
+            UPLOAD_DIR = os.path.join(os.environ.get("DATA_DIR", "/data"), "uploads")
+        save_dir = os.path.join(UPLOAD_DIR, f"force_{uid}_{_dt.now().strftime('%H%M%S')}")
+        os.makedirs(save_dir, exist_ok=True)
+
+        pdfs = []
+        for part in msg.walk():
+            fn = part.get_filename()
+            if not fn:
+                continue
+            fn_lower = fn.lower()
+            if fn_lower.endswith(".pdf"):
+                safe = _re.sub(r'[^\w\-_. ()]+', '_', fn)
+                path = os.path.join(save_dir, safe)
+                payload = part.get_payload(decode=True)
+                if payload:
+                    with open(path, "wb") as f:
+                        f.write(payload)
+                    pdfs.append({"path": path, "filename": safe, "type": "unknown"})
+            elif fn_lower.endswith(".zip"):
+                payload = part.get_payload(decode=True)
+                if payload:
+                    try:
+                        with zipfile.ZipFile(io.BytesIO(payload)) as zf:
+                            for zn in zf.namelist():
+                                if zn.lower().endswith(".pdf") and not zn.startswith("__MACOSX"):
+                                    safe = _re.sub(r'[^\w\-_. ()]+', '_', os.path.basename(zn))
+                                    path = os.path.join(save_dir, safe)
+                                    with open(path, "wb") as f:
+                                        f.write(zf.read(zn))
+                                    pdfs.append({"path": path, "filename": safe, "type": "unknown"})
+                    except Exception as _ze:
+                        log.warning("ZIP extract: %s", _ze)
+
+        if not pdfs:
+            imap.logout()
+            return api_response({"error": "No PDFs found (even after ZIP extraction)", "parts": [
+                {"filename": p.get_filename() or "", "type": p.get_content_type()} for p in msg.walk() if p.get_filename()
+            ]})
+
+        # Identify form types
+        from src.forms.rfq_parser import identify_attachments
+        id_map = identify_attachments([p["path"] for p in pdfs])
+        for p in pdfs:
+            for ftype, fpath in id_map.items():
+                if fpath == p["path"]:
+                    p["type"] = ftype
+
+        # Build RFQ email info dict
+        rfq_id = _dt.now().strftime("%Y%m%d_%H%M%S") + "_" + uid[:4]
+        rfq_email = {
+            "id": rfq_id,
+            "email_uid": uid,
+            "message_id": msg.get("Message-ID", ""),
+            "subject": subj,
+            "sender": from_hdr,
+            "sender_email": orig_sender or sender_email,
+            "body_text": body[:3000],
+            "attachments": pdfs,
+            "solicitation_hint": "",
+        }
+
+        # Extract solicitation from body
+        _sol_m = _re.search(r'Requisition\s*\[?(\d+)\]?', body)
+        if _sol_m:
+            rfq_email["solicitation_hint"] = _sol_m.group(1)
+
+        # Process through normal pipeline
+        from src.api.dashboard import process_rfq_email
+        result = process_rfq_email(rfq_email)
+
+        imap.logout()
+        return api_response({
+            "processed": True,
+            "rfq_id": rfq_id,
+            "subject": subj[:100],
+            "original_sender": orig_sender,
+            "pdfs_found": len(pdfs),
+            "pdf_files": [p["filename"] for p in pdfs],
+            "form_types": {p["filename"]: p["type"] for p in pdfs},
+            "result": "created" if result else "routed_to_pc_or_skipped",
+        })
+    except Exception as e:
+        log.error("force-process: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)
+
+
 # ── Data Integrity ────────────────────────────────────────────────────
 
 @bp.route("/api/v1/quotes/fix-orphans", methods=["GET", "POST"])
