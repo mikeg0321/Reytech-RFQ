@@ -167,6 +167,11 @@ def create_app():
     def _ping():
         return "pong", 200, {"Content-Type": "text/plain"}
 
+    @app.route("/health")
+    def _health():
+        """Lightweight health check for Railway — no auth, no DB, instant."""
+        return jsonify({"status": "ok"}), 200
+
     @app.errorhandler(404)
     def _not_found(e):
         if request.path.startswith("/api/"):
