@@ -3125,7 +3125,7 @@ def page_market_intel():
         for it in all_items[:4]:
             vendor = it.get("vendor", "")
             annual = it.get("annual_est", 0)
-            items_html += f'<div style="font-size:14px;padding:3px 0;border-bottom:1px solid var(--bd)"><span style="color:var(--tx1)">{it["item"][:45]}</span> <span style="color:var(--tx2);float:right">${annual:,.0f}/yr → {vendor[:20]}</span></div>'
+            items_html += f'<div style="font-size:14px;padding:3px 0;border-bottom:1px solid var(--bd)"><span style="color:var(--tx)">{it["item"][:45]}</span> <span style="color:var(--tx2);float:right">${annual:,.0f}/yr → {vendor[:20]}</span></div>'
 
         return f"""<div class="card" style="border-color:{color};margin-bottom:14px">
   <div style="display:flex;justify-content:space-between;align-items:flex-start">

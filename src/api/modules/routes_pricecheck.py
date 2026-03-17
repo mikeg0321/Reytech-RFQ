@@ -3817,15 +3817,8 @@ def api_pricecheck_dismiss(pcid):
 @auth_required
 def api_pricecheck_delete(pcid):
     """Delete a price check by ID. Also removes linked quote draft and recalculates counter."""
-    import os as _os
-    
-    pc_path = _os.path.join(DATA_DIR, "price_checks.json")
-    try:
-        with open(pc_path) as f:
-            pcs = _json.load(f)
-    except Exception:
-        pcs = {}
-    
+    pcs = _load_price_checks()
+
     if pcid not in pcs:
         return jsonify({"ok": False, "error": "PC not found"})
 
@@ -3833,14 +3826,9 @@ def api_pricecheck_delete(pcid):
     pc_num = pc.get("pc_number", pcid)
     linked_qn = pc.get("reytech_quote_number", "") or pc.get("linked_quote_number", "")
 
-    # Remove the PC
-    pcs[pcid]["status"] = "dismissed"  # Law 22: never delete
-    try:
-        with open(pc_path, "w") as f:
-            _json.dump(pcs, f, indent=2)
-    except Exception as e:
-        log.error("Failed to save price_checks.json: %s", e)
-        return jsonify({"ok": False, "error": "Save failed"})
+    # Mark dismissed (Law 22: never truly delete)
+    pcs[pcid]["status"] = "dismissed"
+    _save_price_checks(pcs)
 
     # Also remove from SQLite
     try:

@@ -8,9 +8,9 @@
 <meta name="csrf-token" content="{{ csrf_token_value }}">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📋</text></svg>">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/styles.css">
-<link rel="icon" href="/static/reytech_logo.png" type="image/png">
 {% block head_extra %}{% endblock %}
 </head>
 <body>
@@ -264,8 +264,8 @@ document.getElementById('cmd-palette').addEventListener('click',function(e){if(e
 </script>
 <style>
 /* Accessibility: visible focus indicators */
-button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible{outline:2px solid #58a6ff;outline-offset:2px;border-radius:4px}
-[role="button"]:focus-visible{outline:2px solid #58a6ff;outline-offset:2px}
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible{outline:2px solid var(--ac,#4f8cff);outline-offset:2px;border-radius:4px}
+[role="button"]:focus-visible{outline:2px solid var(--ac,#4f8cff);outline-offset:2px}
 /* Global: textareas auto-expand to fit content */
 textarea{overflow:hidden;resize:vertical}
 /* Clickable truncated text expands on click */
