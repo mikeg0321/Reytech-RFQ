@@ -4009,6 +4009,56 @@ def api_v1_system_templates_upload():
     return api_response({"uploaded": results, "count": len(results)})
 
 
+# ── DGS Form Auto-Downloader ─────────────────────────────────────────
+
+@bp.route("/api/v1/forms/status")
+@auth_required
+def api_v1_forms_status():
+    """Status of all registered DGS form templates."""
+    try:
+        from src.agents.form_updater import get_form_status, FORM_REGISTRY
+        status = get_form_status()
+        on_disk = sum(1 for s in status if s["on_disk"])
+        return api_response({
+            "forms": status,
+            "total_registered": len(FORM_REGISTRY),
+            "on_disk": on_disk,
+            "missing": len(FORM_REGISTRY) - on_disk,
+        })
+    except Exception as e:
+        log.error("forms/status error: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)
+
+
+@bp.route("/api/v1/forms/update", methods=["POST"])
+@auth_required
+def api_v1_forms_update():
+    """Download/update all registered forms from DGS."""
+    try:
+        from src.agents.form_updater import update_all_forms
+        data = request.get_json(force=True, silent=True) or {}
+        result = update_all_forms(force=data.get("force", False))
+        return api_response(result)
+    except Exception as e:
+        log.error("forms/update error: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)
+
+
+@bp.route("/api/v1/forms/update/<form_id>", methods=["POST"])
+@auth_required
+def api_v1_forms_update_single(form_id):
+    """Download a specific form by ID."""
+    try:
+        from src.agents.form_updater import download_form, FORM_REGISTRY
+        if form_id not in FORM_REGISTRY:
+            return api_response(error=f"Unknown form: {form_id}", status=404)
+        result = download_form(form_id, FORM_REGISTRY[form_id], force=True)
+        return api_response(result)
+    except Exception as e:
+        log.error("forms/update/%s error: %s", form_id, e, exc_info=True)
+        return api_response(error=str(e), status=500)
+
+
 def _split_bid_package(pdf_path, output_dir):
     """Split a combined bid package PDF into individual form templates."""
     from pypdf import PdfReader, PdfWriter

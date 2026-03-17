@@ -4983,6 +4983,39 @@ if os.environ.get("ENABLE_BACKGROUND_AGENTS", "true").lower() not in ("false", "
     except Exception as _e:
         log.warning("Daily cleanup setup: %s", _e)
 
+    # ── Form Updater (1st + 15th of month, 3AM PST) ──────────
+    try:
+        def _form_update_scheduler():
+            import time as _fut
+            _fut.sleep(300)
+            while True:
+                try:
+                    _pst = timezone(timedelta(hours=-8))
+                    _now = datetime.now(_pst)
+                    if _now.day in (1, 15) and 2 <= _now.hour <= 4:
+                        _skip = False
+                        try:
+                            from src.core.usage_tracker import get_recent_activity
+                            if get_recent_activity(minutes=30) > 0:
+                                _skip = True
+                        except Exception:
+                            pass
+                        if not _skip:
+                            from src.agents.form_updater import update_all_forms
+                            _result = update_all_forms()
+                            if _result.get("updated", 0) > 0:
+                                log.info("Form updater: %d forms updated", _result["updated"])
+                            _fut.sleep(86400)
+                            continue
+                    _fut.sleep(3600)
+                except Exception as _fe:
+                    log.warning("Form updater: %s", _fe)
+                    _fut.sleep(3600)
+        threading.Thread(target=_form_update_scheduler, daemon=True, name="form-updater").start()
+        log.info("Form updater scheduled (1st + 15th, 3AM PST)")
+    except Exception as _e:
+        log.warning("Form updater setup: %s", _e)
+
     # ── Backfill RFQ metadata on boot ──────────────────────────
     try:
         _bf_meta = backfill_rfq_metadata()

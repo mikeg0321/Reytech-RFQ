@@ -149,3 +149,19 @@ def get_dead_pages(days=30):
     except Exception as e:
         db.close()
         return {"error": str(e)}
+
+
+def get_recent_activity(minutes=30):
+    """Count page views in last N minutes."""
+    try:
+        import sqlite3
+        from src.core.db import DB_PATH
+        db = sqlite3.connect(DB_PATH, timeout=5)
+        count = db.execute("""
+            SELECT COUNT(*) FROM usage_events
+            WHERE timestamp > datetime('now', ?)
+        """, (f"-{minutes} minutes",)).fetchone()[0]
+        db.close()
+        return count
+    except Exception:
+        return 0
