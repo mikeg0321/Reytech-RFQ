@@ -686,3 +686,27 @@ destination link back? Are empty records hidden or explained?
 After code checks pass, trace one real record through the
 full data path. Verify linked records have real data.
 Empty/broken links = FAIL the check.
+
+### Law 33: Fixes Must Heal, Not Just Prevent
+Every fix has two jobs: stop the bleeding AND clean the wound.
+
+A fix that only changes future behavior leaves broken data
+in the system forever. Every fix commit MUST include:
+1. The code change (prevents future occurrences)
+2. A migration or recovery path for existing data
+3. An endpoint or script that applies the fix retroactively
+4. Verification that existing records are now correct
+
+The pattern:
+  `POST /api/v1/{thing}/fix-existing` — always include this
+  `GET  /api/v1/{thing}/verify` — prove it worked
+
+If the prompt only says "change this function" without
+addressing what's already in the database, the prompt is
+incomplete. Send it back.
+
+On 2026-03-17, the email poller fix only changed detection
+logic for future emails. Valentina's karaoke PC and Mike's
+CalVet forward were already in the processed list — stuck
+forever. The fix needed a recovery endpoint to find and
+reprocess them. Future-only fixes are half-fixes.
