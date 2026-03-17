@@ -4212,6 +4212,58 @@ def api_v1_quotes_backfill_items():
 
 # ── Data Integrity ────────────────────────────────────────────────────
 
+@bp.route("/api/v1/quotes/fix-orphans", methods=["GET", "POST"])
+@auth_required
+def api_v1_fix_orphan_quotes():
+    """Link orphan quotes (no source_pc_id/source_rfq_id) to matching PCs/RFQs."""
+    try:
+        from src.core.db import get_db
+        from src.api.dashboard import _load_price_checks
+        from src.core.contracts import safe_match
+        import json as _json
+        pcs = _load_price_checks()
+        rfqs = load_rfqs()
+        fixed = []
+        with get_db() as conn:
+            orphans = conn.execute("""
+                SELECT quote_number, institution, requestor, rfq_number, contact_email
+                FROM quotes
+                WHERE (source_pc_id IS NULL OR source_pc_id = '')
+                AND (source_rfq_id IS NULL OR source_rfq_id = '')
+                AND status NOT IN ('void', 'cancelled')
+            """).fetchall()
+            for o in orphans:
+                qn, inst, req, rfq_num, email = o[0], o[1] or "", o[2] or "", o[3] or "", o[4] or ""
+                linked_to = None
+                link_type = None
+                # Try RFQ by solicitation number
+                if rfq_num:
+                    for rid, r in rfqs.items():
+                        if safe_match(rfq_num, r.get("solicitation_number", "")):
+                            linked_to = rid
+                            link_type = "source_rfq_id"
+                            break
+                # Try PC by institution or requestor
+                if not linked_to:
+                    for pcid, pc in pcs.items():
+                        if email and safe_match(email, pc.get("requestor_email", "") or pc.get("requestor", "")):
+                            linked_to = pcid
+                            link_type = "source_pc_id"
+                            break
+                        if safe_match(inst, pc.get("institution", "")):
+                            linked_to = pcid
+                            link_type = "source_pc_id"
+                            break
+                if linked_to:
+                    conn.execute(f"UPDATE quotes SET {link_type}=? WHERE quote_number=?",
+                                (linked_to, qn))
+                    fixed.append({"quote": qn, "linked_to": linked_to, "via": link_type})
+        return api_response({"fixed": fixed, "orphans_checked": len(orphans)})
+    except Exception as e:
+        log.error("fix-orphans: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)
+
+
 @bp.route("/api/v1/data/contract-violations")
 @auth_required
 def api_v1_contract_violations():
