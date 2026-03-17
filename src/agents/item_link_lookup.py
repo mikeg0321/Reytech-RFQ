@@ -161,30 +161,53 @@ def _scrape_generic(url: str) -> dict:
         title = re.split(r'\s*[|\-–]\s*(Grainger|Amazon|McMaster|Fisher|Medline|Bound Tree|Henry Schein|Uline|Zoro|Staples|Waxie)', title)[0].strip()
         result["title"] = title[:200]
 
-    # Price — common patterns: $12.34 or "price":"12.34" or data-price="12.34"
+    # Price — extract BOTH list price (non-discounted) and sale price
+    # Default to list price for quoting (Amazon prices fluctuate)
     price = None
-    # JSON-LD or data attributes
-    price_patterns = [
-        r'"price"\s*:\s*"?(\d{1,6}\.\d{2})"?',
-        r'data-price\s*=\s*"(\d{1,6}\.\d{2})"',
-        r'data-unit-price\s*=\s*"(\d{1,6}\.\d{2})"',
-        r'itemprop\s*=\s*"price"[^>]*content\s*=\s*"(\d{1,6}\.\d{2})"',
-        r'<span[^>]*class\s*=\s*"[^"]*price[^"]*"[^>]*>\s*\$?([\d,]+\.\d{2})',
-        r'"unitPrice"\s*:\s*(\d+\.?\d*)',
-        r'"listPrice"\s*:\s*"?\$?([\d,]+\.?\d*)"?',
-    ]
-    for pat in price_patterns:
+    list_price = None
+    sale_price = None
+
+    # List price (non-discounted) — check first
+    for pat in [r'"listPrice"\s*:\s*"?\$?([\d,]+\.?\d*)"?',
+                r'"was_price"\s*:\s*"?\$?([\d,]+\.?\d*)"?',
+                r'<span[^>]*class\s*=\s*"[^"]*(?:list|was|original|strike|basis)[^"]*"[^>]*>\s*\$?([\d,]+\.\d{2})',
+                r'"typicalPrice"\s*:\s*\{[^}]*"amount"\s*:\s*(\d+\.?\d*)']:
         m = re.search(pat, html, re.IGNORECASE)
         if m:
             try:
                 v = float(m.group(1).replace(",", ""))
                 if 0.01 < v < 100000:
-                    price = v
+                    list_price = v
                     break
             except Exception:
                 pass
+
+    # Sale/current price
+    for pat in [r'"price"\s*:\s*"?(\d{1,6}\.\d{2})"?',
+                r'data-price\s*=\s*"(\d{1,6}\.\d{2})"',
+                r'data-unit-price\s*=\s*"(\d{1,6}\.\d{2})"',
+                r'itemprop\s*=\s*"price"[^>]*content\s*=\s*"(\d{1,6}\.\d{2})"',
+                r'<span[^>]*class\s*=\s*"[^"]*price[^"]*"[^>]*>\s*\$?([\d,]+\.\d{2})',
+                r'"unitPrice"\s*:\s*(\d+\.?\d*)']:
+        m = re.search(pat, html, re.IGNORECASE)
+        if m:
+            try:
+                v = float(m.group(1).replace(",", ""))
+                if 0.01 < v < 100000:
+                    sale_price = v
+                    break
+            except Exception:
+                pass
+
+    # Use list price for quoting (stable), sale price as reference
+    price = list_price or sale_price
     if price:
         result["price"] = price
+    if list_price:
+        result["list_price"] = list_price
+    if sale_price and sale_price != list_price:
+        result["sale_price"] = sale_price
+        result["discount_pct"] = round((1 - sale_price / list_price) * 100, 1) if list_price else 0
 
     # Part number / SKU / MFG number
     part_patterns = [
@@ -333,12 +356,18 @@ def _lookup_amazon(url: str) -> dict:
             )
             if size_match:
                 size = size_match.group(1).strip()
+            # Prefer list price (non-discounted) for stable quoting
+            _list = r.get("list_price") or r.get("typical_price") or r.get("price")
+            _sale = r.get("price")
+            _use_price = _list or _sale
             return {
                 "supplier":     "Amazon",
                 "title":        title,
                 "description":  title,
-                "price":        r.get("price"),
-                "cost":         r.get("price"),   # Amazon price = your cost
+                "price":        _use_price,
+                "list_price":   _list,
+                "sale_price":   _sale if _sale != _list else None,
+                "cost":         _use_price,   # Amazon list price = your cost basis
                 "part_number":  r.get("mfg_number", "") or r.get("part_number", ""),
                 "mfg_number":   r.get("mfg_number", ""),
                 "manufacturer": r.get("manufacturer", ""),
