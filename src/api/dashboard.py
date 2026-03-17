@@ -2119,6 +2119,16 @@ def process_rfq_email(rfq_email):
     Deduplicates by checking email_uid against existing RFQs.
     PRD Feature 4.2: After parsing, auto-triggers price check + draft quote generation.
     """
+    if isinstance(rfq_email, str):
+        log.error("process_rfq_email got string instead of dict: %s", rfq_email[:100])
+        return None
+    if not isinstance(rfq_email, dict):
+        log.error("process_rfq_email got %s instead of dict", type(rfq_email).__name__)
+        return None
+    # Ensure attachments are dicts not strings
+    atts = rfq_email.get("attachments", [])
+    if atts and isinstance(atts, list):
+        rfq_email["attachments"] = [a for a in atts if isinstance(a, dict)]
     _trace = []  # Legacy trace for poll_diag compatibility
     _subj = rfq_email.get("subject", "?")[:50]
     _trace.append(f"START: {_subj}")
@@ -3162,7 +3172,8 @@ def do_poll_check():
                     else:
                         POLL_STATUS["_diag"]["pcs_routed"] += 1
                 except Exception as pe:
-                    POLL_STATUS["_diag"]["errors"].append(f"process_rfq({rfq_email.get('subject','?')[:40]}): {pe}")
+                    _subj_err = rfq_email.get('subject','?')[:40] if isinstance(rfq_email, dict) else str(rfq_email)[:40]
+                    POLL_STATUS["_diag"]["errors"].append(f"process_rfq({_subj_err}): {pe}")
                     log.error("process_rfq_email error for '%s': %s", rfq_email.get("subject","?")[:50], pe, exc_info=True)
                     # CRITICAL: If processing failed (disk full, parse error, etc),
                     # remove UID from processed set so it gets retried next poll
