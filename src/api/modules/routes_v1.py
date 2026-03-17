@@ -3892,9 +3892,9 @@ def api_v1_clean_intelligence():
 
 # ── Agency Intelligence ───────────────────────────────────────────────
 
-@bp.route("/api/v1/agency/buyer-profile")
+@bp.route("/api/v1/agency/buyer-form-profile")
 @auth_required
-def api_v1_buyer_profile():
+def api_v1_agency_buyer_form_profile():
     """Get learned form preferences for a buyer email."""
     email = request.args.get("email", "")
     if not email:
