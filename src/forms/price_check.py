@@ -1657,9 +1657,10 @@ def fill_ams704(
 
 def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str):
     """
-    Fallback for truly flat PDFs with no form fields at all.
-    Reads annotation rectangles from the source PDF to determine where fields are.
-    If no annotations found, uses standard AMS 704 layout coordinates.
+    Fallback for flat/DocuSign PDFs with no fillable form fields.
+    Uses reportlab to draw text as an overlay at exact AMS 704 field positions.
+    Coordinates extracted from a correctly-filled AMS 704 Rev 1/2019 template.
+    PDF is landscape letter: 792 x 612 points, origin at bottom-left.
     """
     import io
     from reportlab.pdfgen import canvas as rl_canvas
@@ -1668,172 +1669,152 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
     writer = PdfWriter()
     writer.append(reader)
 
-    # Step 1: Try to read field positions from PDF annotations
-    field_rects = {}  # field_name -> (page_idx, x, y, width, height)
-    for page_idx, page in enumerate(reader.pages):
-        for annot_ref in (page.get("/Annots") or []):
-            try:
-                annot = annot_ref.get_object()
-                name = str(annot.get("/T", "")).strip()
-                rect = annot.get("/Rect")
-                if name and rect:
-                    x1, y1, x2, y2 = [float(v) for v in rect]
-                    field_rects[name] = (page_idx, min(x1, x2), min(y1, y2), abs(x2 - x1), abs(y2 - y1))
-            except Exception:
-                pass
-
-    if field_rects:
-        log.info("_fill_pdf_text_overlay: found %d field rects from annotations", len(field_rects))
-    else:
-        log.warning("_fill_pdf_text_overlay: no annotation rects found, using default 704 layout")
-
-    # Step 2: Build field_name -> value map
+    # Build field_name -> value lookup
     fv_map = {fv["field_id"]: fv.get("value", "") for fv in field_values}
 
-    # Step 3: Get page sizes
-    page_sizes = []
-    for page in reader.pages:
-        mb = page.mediabox
-        page_sizes.append((float(mb.width), float(mb.height)))
+    # ── EXACT FIELD POSITIONS from real AMS 704 template ──
+    # Format: field_name -> (x1, y1, x2, y2) = bottom-left to top-right of field rect
+    # Extracted from PC_Karaoke_Reytech.pdf annotation rectangles
 
-    def _draw_text(c, x, y, text, width, height):
-        """Draw text at position, auto-sizing font to fit."""
+    SUPPLIER_RECTS = {
+        "COMPANY NAME":                       (33.1, 421.3, 278.3, 441.4),
+        "COMPANY REPRESENTATIVE print name":  (280.1, 421.3, 602.4, 441.4),
+        "Delivery Date and Time ARO":         (604.3, 421.3, 754.9, 441.4),
+        "Address":                            (33.1, 389.9, 278.3, 412.1),
+        "Discount Offered":                   (604.3, 389.9, 754.9, 412.1),
+        "Certified SBMB":                     (33.0, 362.8, 156.8, 380.8),
+        "Certified DVBE":                     (158.4, 362.8, 278.4, 380.8),
+        "Phone Number_2":                     (280.0, 362.8, 445.0, 380.8),
+        "EMail Address":                      (446.5, 362.8, 602.5, 380.8),
+        "Date Price Check Expires":           (604.2, 362.8, 755.0, 380.8),
+        "Ship to":                            (277.6, 74.2, 526.1, 89.2),
+        "Supplier andor Requestor Notes":     (32.6, 41.9, 237.2, 118.9),
+    }
+
+    # Row field rects — 8 rows per page, extracted from Row1-Row8
+    # Row 1: y_bottom=300.1, y_top=321.2; row spacing = 22.5pt
+    ROW_RECTS = {
+        "item_number": (32.2, 62.3),    # (x1, x2)
+        "qty":         (64.1, 98.3),
+        "uom":         (100.1, 152.3),
+        "qty_per_uom": (154.1, 197.3),
+        "description": (199.1, 444.8),
+        "substituted": (446.6, 633.8),
+        "unit_price":  (635.6, 687.8),
+        "extension":   (689.6, 755.8),
+    }
+    ROW1_Y_BOTTOM = 300.1
+    ROW1_Y_TOP = 321.2
+    ROW_SPACING = 22.5  # y decreases by this per row
+
+    # Totals
+    TOTAL_RECTS = {
+        "fill_70": (696.0, 113.8, 755.8, 134.0),   # Subtotal
+        "fill_71": (694.9, 89.9, 755.6, 112.3),     # Freight
+        "fill_72": (695.4, 67.4, 755.8, 88.6),      # Tax
+        "fill_73": (695.5, 41.9, 755.6, 66.0),      # Total
+    }
+
+    # Checkboxes
+    CHECKBOX_RECTS = {
+        "Check Box4":  (244.5, 95.1, 257.6, 106.7),   # FOB Dest, Freight Prepaid
+        "Check Box8":  (407.8, 94.4, 420.8, 106.0),   # FOB Dest, PP/ADD
+        "Check Box10": (548.4, 94.4, 560.0, 106.0),   # FOB Origin, Freight Collect
+    }
+
+    def _draw_in_rect(c, x1, y1, x2, y2, text, max_font=10):
+        """Draw text inside a rectangle, auto-sizing font to fit."""
         if not text or not text.strip():
             return
         text = text.strip()
-        fs = min(11, max(6, height * 0.7)) if height > 0 else 9
+        w = x2 - x1
+        h = y2 - y1
+        fs = min(max_font, h * 0.75)
         c.setFont("Helvetica", fs)
-        while c.stringWidth(text, "Helvetica", fs) > width - 2 and fs > 5:
+        # Shrink font until text fits width
+        while c.stringWidth(text, "Helvetica", fs) > w - 2 and fs > 5:
             fs -= 0.5
             c.setFont("Helvetica", fs)
-        if "\n" in text:
+        # Handle multi-line: split on newlines
+        if "\n" in text and h > fs * 2:
             lines = text.split("\n")
-            line_height = fs + 1
-            for i, line in enumerate(lines[:4]):
-                trunc = line
-                while c.stringWidth(trunc, "Helvetica", fs) > width - 2 and len(trunc) > 3:
+            line_h = fs + 1
+            max_lines = max(1, int(h / line_h))
+            for i, line in enumerate(lines[:max_lines]):
+                trunc = line.strip()
+                while c.stringWidth(trunc, "Helvetica", fs) > w - 2 and len(trunc) > 3:
                     trunc = trunc[:-1]
-                c.drawString(x + 1, y + height - (fs + 2) - (i * line_height), trunc)
+                c.drawString(x1 + 1, y2 - fs - 1 - (i * line_h), trunc)
         else:
-            c.drawString(x + 1, y + (height - fs) / 2, text)
+            # Single line, vertically centered
+            c.drawString(x1 + 1, y1 + (h - fs) / 2, text)
 
-    # Step 4: Create overlays per page
-    if field_rects:
-        # Annotation-guided mode: place text exactly where fields are
-        pages_content = {}  # page_idx -> [(x, y, w, h, text)]
-        for field_name, value in fv_map.items():
-            if not value or not value.strip():
-                continue
-            if field_name in field_rects:
-                pg, x, y, w, h = field_rects[field_name]
-                if pg not in pages_content:
-                    pages_content[pg] = []
-                pages_content[pg].append((x, y, w, h, value))
-            else:
-                # Try matching without case sensitivity
-                for pdf_name, (pg, x, y, w, h) in field_rects.items():
-                    if pdf_name.lower().replace(" ", "") == field_name.lower().replace(" ", ""):
-                        if pg not in pages_content:
-                            pages_content[pg] = []
-                        pages_content[pg].append((x, y, w, h, value))
-                        break
+    def _draw_checkmark(c, x1, y1, x2, y2):
+        """Draw a checkmark in a checkbox rectangle."""
+        h = y2 - y1
+        fs = min(10, h * 0.9)
+        c.setFont("ZapfDingbats", fs)
+        c.drawString(x1 + 1, y1 + 1, "4")  # checkmark glyph
 
-        for pg_idx in range(len(writer.pages)):
-            pw, ph = page_sizes[pg_idx] if pg_idx < len(page_sizes) else (792, 612)
-            buf = io.BytesIO()
-            c = rl_canvas.Canvas(buf, pagesize=(pw, ph))
-            for (x, y, w, h, text) in pages_content.get(pg_idx, []):
-                if text in ("/Yes", "Yes"):
-                    c.setFont("ZapfDingbats", min(10, h * 0.8))
-                    c.drawString(x + 2, y + 2, "4")
-                elif text in ("/Off", "Off", " "):
-                    pass
-                else:
-                    _draw_text(c, x, y, text, w, h)
-            c.save()
-            buf.seek(0)
-            overlay = PdfReader(buf)
-            if overlay.pages:
-                writer.pages[pg_idx].merge_page(overlay.pages[0])
+    def _make_overlay(page_idx):
+        """Build reportlab overlay for a page."""
+        page = reader.pages[page_idx]
+        mb = page.mediabox
+        pw, ph = float(mb.width), float(mb.height)
+        buf = io.BytesIO()
+        c = rl_canvas.Canvas(buf, pagesize=(pw, ph))
 
-    else:
-        # No annotations at all — use hardcoded AMS 704 positions
-        PAGE_W, PAGE_H = 792.0, 612.0
+        if page_idx == 0:
+            # ── Supplier info fields ──
+            for fname, (x1, y1, x2, y2) in SUPPLIER_RECTS.items():
+                val = fv_map.get(fname, "")
+                _draw_in_rect(c, x1, y1, x2, y2, val)
 
-        SUPPLIER_POS = {
-            "COMPANY NAME":                       (403, 303, 160, 14),
-            "COMPANY REPRESENTATIVE print name":  (580, 303, 200, 14),
-            "Address":                            (403, 282, 160, 14),
-            "Phone Number_2":                     (693, 261, 85, 14),
-            "EMail Address":                      (693, 246, 85, 14),
-            "Certified SBMB":                     (403, 261, 110, 14),
-            "Certified DVBE":                     (530, 261, 110, 14),
-            "Delivery Date and Time ARO":         (580, 282, 200, 14),
-            "Discount Offered":                   (680, 282, 100, 14),
-            "Date Price Check Expires":           (693, 231, 85, 14),
-            "Ship to":                            (58, 56, 250, 14),
-        }
+            # ── Checkboxes ──
+            for fname, (x1, y1, x2, y2) in CHECKBOX_RECTS.items():
+                val = fv_map.get(fname, "")
+                if val in ("/Yes", "Yes", True, "True"):
+                    _draw_checkmark(c, x1, y1, x2, y2)
 
-        ROW_Y_START = 207
-        ROW_H = 24
-        ROW_COL = {
-            "item_number":  (28, 30, 14),
-            "qty":          (61, 32, 14),
-            "uom":          (96, 50, 14),
-            "description":  (190, 280, 14),
-            "substituted":  (475, 140, 14),
-            "unit_price":   (620, 60, 14),
-            "extension":    (685, 70, 14),
-        }
+            # ── Totals ──
+            for fname, (x1, y1, x2, y2) in TOTAL_RECTS.items():
+                val = fv_map.get(fname, "")
+                _draw_in_rect(c, x1, y1, x2, y2, val, max_font=10)
 
-        TOTALS_POS = {
-            "fill_70": (685, 52, 70, 14),
-            "fill_71": (685, 38, 70, 14),
-            "fill_72": (685, 24, 70, 14),
-            "fill_73": (685, 10, 70, 14),
-        }
+        # ── Row items ──
+        # Page 0 = rows 1-8, page 1 = rows 9-16, page 2 = rows 17-24
+        row_start = 1 + (page_idx * 8)
+        row_end = row_start + 8
+        for row_num in range(row_start, row_end):
+            row_offset = row_num - row_start  # 0-7
+            y_bottom = ROW1_Y_BOTTOM - (row_offset * ROW_SPACING)
+            y_top = ROW1_Y_TOP - (row_offset * ROW_SPACING)
 
-        for pg_idx in range(len(writer.pages)):
-            pw, ph = page_sizes[pg_idx] if pg_idx < len(page_sizes) else (PAGE_W, PAGE_H)
-            buf = io.BytesIO()
-            c = rl_canvas.Canvas(buf, pagesize=(pw, ph))
+            for field_key, (x1, x2) in ROW_RECTS.items():
+                field_name = ROW_FIELDS[field_key].format(n=row_num)
+                val = fv_map.get(field_name, "")
+                if val and val.strip():
+                    _draw_in_rect(c, x1, y_bottom, x2, y_top, val,
+                                  max_font=9 if field_key == "description" else 10)
 
-            if pg_idx == 0:
-                for fname, (x, y, w, h) in SUPPLIER_POS.items():
-                    val = fv_map.get(fname, "")
-                    _draw_text(c, x, y, val, w, h)
+        c.save()
+        buf.seek(0)
+        return buf
 
-                if fv_map.get("Check Box4") in ("/Yes", "Yes"):
-                    c.setFont("ZapfDingbats", 10)
-                    c.drawString(452, 56, "4")
+    # Merge overlays onto each page
+    for pg_idx in range(len(writer.pages)):
+        overlay_buf = _make_overlay(pg_idx)
+        overlay_reader = PdfReader(overlay_buf)
+        if overlay_reader.pages:
+            writer.pages[pg_idx].merge_page(overlay_reader.pages[0])
 
-            row_start = 1 + (pg_idx * 8)
-            for row_num in range(row_start, row_start + 8):
-                local_row = row_num - row_start
-                for field_key, (x, w, h) in ROW_COL.items():
-                    field_name = ROW_FIELDS[field_key].format(n=row_num)
-                    val = fv_map.get(field_name, "")
-                    if val and val.strip():
-                        base_y = ROW_Y_START - (local_row * ROW_H)
-                        _draw_text(c, x, base_y, val, w, h)
-
-            if pg_idx == 0:
-                for fname, (x, y, w, h) in TOTALS_POS.items():
-                    _draw_text(c, x, y, fv_map.get(fname, ""), w, h)
-
-            c.save()
-            buf.seek(0)
-            overlay = PdfReader(buf)
-            if overlay.pages:
-                writer.pages[pg_idx].merge_page(overlay.pages[0])
-
+    # Add signature
     _add_signature_to_pdf(writer)
 
     with open(output_pdf, "wb") as f:
         writer.write(f)
 
-    log.info("Filled AMS 704 (TEXT OVERLAY) saved to %s (%s mode)",
-             output_pdf, "annotation-guided" if field_rects else "hardcoded-layout")
+    log.info("Filled AMS 704 (TEXT OVERLAY with template coords) saved to %s", output_pdf)
 
 
 def _fill_pdf_fields(source_pdf: str, field_values: list, output_pdf: str):
