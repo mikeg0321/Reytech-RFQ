@@ -690,6 +690,10 @@ def _pricecheck_detail_inner(pcid):
     except Exception:
         catalog_count = 0
 
+    # Fix duplicate line numbers — always sequential
+    for _i, _item in enumerate(items, start=1):
+        _item["line_number"] = _i
+
     html = render_page("pc_detail.html", active_page="PCs",
         pcid=pcid, pc=pc, items=items, items_html=items_html,
         download_html=download_html, expiry_date=expiry_date,
