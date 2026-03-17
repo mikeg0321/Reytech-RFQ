@@ -295,7 +295,7 @@
      <h3 style="margin-top:0;font-size:18px">Line Items <span id="itemCount" style="font-weight:normal;color:#8b949e;font-size:15px">({{ items|length }} items)</span></h3>
      <!-- Lock Toggle + Bulk Paste -->
      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-      <button id="lockToggleBtn" onclick="toggleGlobalLock()" style="background:#21262d;border:1px solid #30363d;color:#8b949e;border-radius:6px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer">🔒 Desc/URL Locked</button>
+      <button id="lockToggleBtn" onclick="toggleGlobalLock()" style="background:#21262d;border:1px solid #30363d;color:#8b949e;border-radius:6px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer">🔒 MFG# + URLs Locked</button>
       <button onclick="openBulkPaste()" style="background:#21262d;border:1px solid #30363d;color:#58a6ff;border-radius:6px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer">📋 Bulk Paste URLs</button>
      </div>
      <!-- Quick Markup Bar (config-driven, parity with RFQ) -->
@@ -2942,14 +2942,27 @@
 
     })(); // end Block 3
 
-    // ── GLOBAL LOCK TOGGLE — protects desc + URL from accidental overwrite ──
+    // ── AUTO-SEQUENCE LINE NUMBERS — change one, rest follow ──
+    function autoSequenceLineNums(changedIdx){
+     var startEl=document.querySelector('[name=linenum_'+changedIdx+']');
+     if(!startEl)return;
+     var startNum=parseInt(startEl.value)||1;
+     // Re-number all items from changedIdx onward
+     for(var i=changedIdx;i<999;i++){
+      var el=document.querySelector('[name=linenum_'+i+']');
+      if(!el)break;
+      el.value=startNum+(i-changedIdx);
+     }
+    }
+
+    // ── GLOBAL LOCK TOGGLE — protects line numbers + URLs from accidental overwrite ──
     var fieldsLocked = true;
     function toggleGlobalLock(){
      fieldsLocked = !fieldsLocked;
      applyLockState();
      var btn = document.getElementById('lockToggleBtn');
-     if(fieldsLocked){btn.textContent='🔒 Item URLs Locked';btn.style.background='#21262d';btn.style.borderColor='#30363d';btn.style.color='#8b949e';}
-     else{btn.textContent='🔓 EDIT MODE — URLs Unlocked';btn.style.background='rgba(240,136,62,0.12)';btn.style.borderColor='#f0883e';btn.style.color='#f0883e';}
+     if(fieldsLocked){btn.textContent='🔒 MFG# + URLs Locked';btn.style.background='#21262d';btn.style.borderColor='#30363d';btn.style.color='#8b949e';}
+     else{btn.textContent='🔓 EDIT — MFG# + URLs Unlocked';btn.style.background='rgba(240,136,62,0.12)';btn.style.borderColor='#f0883e';btn.style.color='#f0883e';}
     }
     function applyLockState(){
      document.querySelectorAll('.lockable-field').forEach(function(el){
