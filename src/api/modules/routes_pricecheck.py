@@ -302,7 +302,6 @@ def _pricecheck_detail_inner(pcid):
         scprs_str = f"${scprs_cost:.2f}" if scprs_cost else "—"
         cost_str = f"{unit_cost:.2f}" if unit_cost else ""
         final_str = f"{final_price:.2f}" if final_price else ""
-        qty = item.get("qty", 1)
         ext = f"${final_price * qty:.2f}" if final_price else "—"
 
         # Amazon match link + ASIN
@@ -499,8 +498,8 @@ def _pricecheck_detail_inner(pcid):
           </div>
          </td>
          <td style="min-width:160px;max-width:220px;vertical-align:top;padding:6px 4px">{source_html}</td>
-         <td><div class="currency-wrap"><input type="text" inputmode="decimal" name="cost_{idx}" value="{cost_str}" class="num-in" placeholder="0.00" oninput="sanitizePrice(this)" onchange="recalcRow({idx})" onblur="fmtCurrency(this)"></div></td>
-         <td><input type="text" inputmode="numeric" name="markup_{idx}" value="{markup_pct}" class="num-in sm" style="width:48px" oninput="sanitizeInt(this)" onchange="recalcRow({idx})"><span style="color:#8b949e;font-size:13px">%</span></td>
+         <td><div class="currency-wrap"><input type="text" inputmode="decimal" name="cost_{idx}" value="{cost_str}" class="num-in" placeholder="0.00" oninput="sanitizePrice(this)" onchange="recalcRow({idx},true)" onblur="fmtCurrency(this)"></div></td>
+         <td><input type="text" inputmode="numeric" name="markup_{idx}" value="{markup_pct}" class="num-in sm" style="width:48px" oninput="sanitizeInt(this)" onchange="recalcRow({idx},true)"><span style="color:#8b949e;font-size:13px">%</span></td>
          <td><div class="currency-wrap"><input type="text" inputmode="decimal" name="price_{idx}" value="{final_str}" class="num-in price-out" placeholder="0.00" oninput="sanitizePrice(this)" onchange="recalcPC()" onblur="fmtCurrency(this)"></div></td>
          <td class="ext" style="font-weight:600;font-size:14px">{ext}</td>
          <td class="profit" style="font-size:14px">{profit_str}</td>
@@ -1213,6 +1212,11 @@ def _do_save_prices(pcid):
                             log.debug("Suppressed: %s", _e)
                 elif field_type == "notes":
                     items[idx]["notes"] = str(val).strip() if val else ""
+                elif field_type == "linenum":
+                    try:
+                        items[idx]["row_index"] = int(float(val)) if val else idx + 1
+                    except (ValueError, TypeError):
+                        items[idx]["row_index"] = idx + 1
         except (ValueError, IndexError):
             pass
 

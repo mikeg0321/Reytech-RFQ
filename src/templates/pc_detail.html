@@ -589,7 +589,7 @@
       var idx=row.getAttribute('data-row');
       var markupInp=row.querySelector('[name=markup_'+idx+']');
       if(markupInp) markupInp.value=markup;
-      recalcRow(parseInt(idx));
+      recalcRow(parseInt(idx), true);
      });
      showMsg('✅ Applied '+markup+'% markup to all items','ok');
     }
@@ -607,7 +607,7 @@
       var idx=row.getAttribute('data-row');
       var markupInp=row.querySelector('[name=markup_'+idx+']');
       if(markupInp) markupInp.value=pct;
-      recalcRow(parseInt(idx));
+      recalcRow(parseInt(idx), true);
      });
      showMsg('✅ Applied '+pct+'% markup to all items','ok');
     }
@@ -648,7 +648,7 @@
       if(!costEl||!priceEl) return;
       var c=parseFloat(costEl.value)||0;
       if(c>0) priceEl.value=(c+flat).toFixed(2);
-      recalcRow(parseInt(idx));
+      recalcRow(parseInt(idx), true);
      });
      showMsg('✅ Added $'+flat.toFixed(2)+' to all items','ok');
     }
@@ -728,20 +728,26 @@
      el.value=el.value.replace(/[^0-9]/g,'');
     }
 
-    function recalcRow(idx) {
+    function recalcRow(idx, forceOverwrite) {
      const costEl=document.querySelector('[name=cost_'+idx+']');
      const markupEl=document.querySelector('[name=markup_'+idx+']');
      const priceField=document.querySelector('[name=price_'+idx+']');
      if(!costEl||!markupEl||!priceField) return;
      const cost=parseFloat(costEl.value.replace(/[^0-9.\-]/g,''))||0;
      const markup=parseFloat(markupEl.value.replace(/[^0-9]/g,''))||0;
-     const newPrice=(cost*(1+markup/100)).toFixed(2);
-     priceField.value=parseFloat(newPrice)>0?newPrice:'';
-     // Flash the price field green briefly when it changes
-     if(parseFloat(newPrice)>0) {
-      priceField.style.transition='background .3s';
-      priceField.style.background='#23863633';
-      setTimeout(()=>{priceField.style.background='';},600);
+     const currentPrice=parseFloat(priceField.value.replace(/[^0-9.\-]/g,''))||0;
+     const computedPrice=parseFloat((cost*(1+markup/100)).toFixed(2));
+     // Only overwrite price if:
+     // 1. forceOverwrite is true (explicit markup change, Apply All, etc.)
+     // 2. Price field is empty (no user value yet)
+     // 3. Cost is zero (clearing)
+     if(forceOverwrite || currentPrice===0 || cost===0) {
+      priceField.value=computedPrice>0?computedPrice.toFixed(2):'';
+      if(computedPrice>0) {
+       priceField.style.transition='background .3s';
+       priceField.style.background='#23863633';
+       setTimeout(()=>{priceField.style.background='';},600);
+      }
      }
      recalcPC();
     }
@@ -825,8 +831,8 @@
       +'<td style="text-align:center"><input type="checkbox" name="substitute_'+idx+'" style="width:16px;height:16px;cursor:pointer;accent-color:#d29922" title="Check if quoting a replacement/substitute item"></td>'
       +'<td style="min-width:160px"><div style="display:flex;flex-direction:column;gap:3px"><div style="display:flex;gap:2px;align-items:center"><input type="text" name="link_'+idx+'" value="" placeholder="Paste supplier URL\u2026" class="text-in" style="flex:1;font-size:14px;color:#58a6ff;padding:5px 7px" oninput="handleLinkInput('+idx+',this)" onpaste="setTimeout(()=>handleLinkInput('+idx+',this),50)"><a href="" target="_blank" id="linkopen_'+idx+'" style="display:none;align-items:center;justify-content:center;width:28px;height:28px;border-radius:4px;background:#21262d;border:1px solid #30363d;color:#58a6ff;font-size:14px;text-decoration:none;flex-shrink:0" title="Open link">\u2197</a></div><div id="link_meta_'+idx+'" style="font-size:13px;color:#8b949e"></div></div></td>'
       +'<td style="min-width:160px"><span style="color:#484f58;font-size:14px">No sources</span></td>'
-      +'<td><div class="currency-wrap"><input type="text" inputmode="decimal" name="cost_'+idx+'" value="" class="num-in" placeholder="0.00" oninput="sanitizePrice(this)" onchange="recalcRow('+idx+')" onblur="fmtCurrency(this)"></div></td>'
-      +'<td><input type="text" inputmode="numeric" name="markup_'+idx+'" value="25" class="num-in sm" style="width:48px" oninput="sanitizeInt(this)" onchange="recalcRow('+idx+')"><span style="color:#8b949e;font-size:13px">%</span></td>'
+      +'<td><div class="currency-wrap"><input type="text" inputmode="decimal" name="cost_'+idx+'" value="" class="num-in" placeholder="0.00" oninput="sanitizePrice(this)" onchange="recalcRow('+idx+',true)" onblur="fmtCurrency(this)"></div></td>'
+      +'<td><input type="text" inputmode="numeric" name="markup_'+idx+'" value="25" class="num-in sm" style="width:48px" oninput="sanitizeInt(this)" onchange="recalcRow('+idx+',true)"><span style="color:#8b949e;font-size:13px">%</span></td>'
       +'<td><div class="currency-wrap"><input type="text" inputmode="decimal" name="price_'+idx+'" value="" class="num-in price-out" placeholder="0.00" oninput="sanitizePrice(this)" onchange="reverseMarkup('+idx+');recalcPC()" onblur="fmtCurrency(this)"></div></td>'
       +'<td class="ext">\u2014</td><td class="profit">\u2014</td>';
      table.appendChild(tr);
@@ -1033,23 +1039,25 @@
 
     function recalcPC() {
      let sub=0, totalCost=0, totalProfit=0, bidCount=0, totalCount=0;
-     const priceInputs=document.querySelectorAll('input[name^=price_]');
-     totalCount=priceInputs.length;
-     priceInputs.forEach((inp,i)=>{
-      const bidCb=document.querySelector('[name=bid_'+i+']');
+     const rows=document.querySelectorAll('tr[data-row]:not(.notes-row)');
+     totalCount=rows.length;
+     rows.forEach((row)=>{
+      const idx=row.getAttribute('data-row');
+      const bidCb=document.querySelector('[name=bid_'+idx+']');
       const isBid=bidCb?bidCb.checked:true;
-      let p=parseFloat((inp.value||'').replace(/[^0-9.\-]/g,''))||0;
-      let cEl=document.querySelector('[name=cost_'+i+']');
+      const priceEl=document.querySelector('[name=price_'+idx+']');
+      let p=parseFloat((priceEl?.value||'').replace(/[^0-9.\-]/g,''))||0;
+      let cEl=document.querySelector('[name=cost_'+idx+']');
       let c=parseFloat((cEl?.value||'').replace(/[^0-9.\-]/g,''))||0;
-      let qtyInp=document.querySelector('[name=qty_'+i+']');
+      let qtyInp=document.querySelector('[name=qty_'+idx+']');
       let qty=parseInt(qtyInp?.value)||1;
 
+      let extCells=row.querySelectorAll('.ext');
+      let profitCells=row.querySelectorAll('.profit');
+
       if(!isBid) {
-       // No-bid: zero out extension and profit display
-       let extCells=document.querySelectorAll('.ext');
-       if(extCells[i]) extCells[i].textContent='N/B';
-       let profitCells=document.querySelectorAll('.profit');
-       if(profitCells[i]) profitCells[i].innerHTML='<span style="color:#8b949e">N/B</span>';
+       if(extCells[0]) extCells[0].textContent='N/B';
+       if(profitCells[0]) profitCells[0].innerHTML='<span style="color:#8b949e">N/B</span>';
        return;
       }
 
@@ -1061,16 +1069,14 @@
       totalCost+=costExt;
       totalProfit+=profit;
 
-      let extCells=document.querySelectorAll('.ext');
-      if(extCells[i]) extCells[i].textContent=ext>0?'$'+ext.toFixed(2):'—';
+      if(extCells[0]) extCells[0].textContent=ext>0?'$'+ext.toFixed(2):'—';
 
-      let profitCells=document.querySelectorAll('.profit');
-      if(profitCells[i]) {
+      if(profitCells[0]) {
        if(c>0 && p>0) {
         let pColor=profit>0?'#3fb950':(profit<0?'#f85149':'#8b949e');
-        profitCells[i].innerHTML='<span style="color:'+pColor+'">$'+profit.toFixed(2)+'</span>';
+        profitCells[0].innerHTML='<span style="color:'+pColor+'">$'+profit.toFixed(2)+'</span>';
        } else {
-        profitCells[i].innerHTML='—';
+        profitCells[0].innerHTML='—';
        }
       }
      });
@@ -1649,8 +1655,8 @@
         let html='<span style="background:#d2a8ff22;color:#d2a8ff;border:1px solid #d2a8ff44;border-radius:4px;padding:1px 6px;font-weight:600;font-family:JetBrains Mono,monospace">🧠 $'+Number(r.recommended).toFixed(2)+'</span>';
         html+='<span style="color:'+winColor+';font-weight:600;font-size:13px">'+Math.round(r.win_probability)+'% win</span>';
         html+='<span style="color:#8b949e;font-size:13px" title="'+(r.reasoning||[]).join(' | ')+'">'+(r.reasoning||[])[0]||''+'</span>';
-        if(r.aggressive) html+=' <a href="#" onclick="document.querySelector(\'[name=price_'+idx+']\').value='+r.aggressive.toFixed(2)+';recalcRow('+idx+');recalcPC();return false" style="color:#f0883e;font-size:13px;text-decoration:none">⚡$'+r.aggressive.toFixed(2)+'</a>';
-        if(r.safe) html+=' <a href="#" onclick="document.querySelector(\'[name=price_'+idx+']\').value='+r.safe.toFixed(2)+';recalcRow('+idx+');recalcPC();return false" style="color:#3fb950;font-size:13px;text-decoration:none">🛡️$'+r.safe.toFixed(2)+'</a>';
+        if(r.aggressive) html+=' <a href="#" onclick="document.querySelector(\'[name=price_'+idx+']\').value='+r.aggressive.toFixed(2)+';recalcPC();return false" style="color:#f0883e;font-size:13px;text-decoration:none">⚡$'+r.aggressive.toFixed(2)+'</a>';
+        if(r.safe) html+=' <a href="#" onclick="document.querySelector(\'[name=price_'+idx+']\').value='+r.safe.toFixed(2)+';recalcPC();return false" style="color:#3fb950;font-size:13px;text-decoration:none">🛡️$'+r.safe.toFixed(2)+'</a>';
         badge.innerHTML=html;
         descEl.parentElement.insertBefore(badge,descEl);
        }
@@ -2162,7 +2168,7 @@
      document.querySelectorAll('input[name^=qty_]').forEach(inp=>{
       data[inp.name]=parseInt(inp.value)||1;
      });
-     document.querySelectorAll('input[name^=uom_],input[name^=itemno_],input[name^=itemnum_]').forEach(inp=>{
+     document.querySelectorAll('input[name^=uom_],input[name^=itemno_],input[name^=itemnum_],input[name^=linenum_]').forEach(inp=>{
       data[inp.name]=inp.value;
      });
      document.querySelectorAll('textarea[name^=desc_],input[name^=desc_]').forEach(inp=>{
