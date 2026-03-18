@@ -13,6 +13,28 @@ Reytech Bid Package Filler v4
 
 import json, os, io
 from datetime import datetime, timezone, timedelta
+
+# ═══════════════════════════════════════════════════════════════════════════
+# FORM FIELD OWNERSHIP RULES (hard rules — never violate)
+# Per buyer feedback: Grace Pfost, CCHCS AMS PS, 2026-03-17
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# AMS 704B (Quote Worksheet) — buyer pre-fills, vendor adds pricing:
+#   BUYER FILLS (never overwrite):
+#     DEPARTMENT, PHONE/EMAIL, SOLICITATION#, REQUESTOR, DATE,
+#     all line item fields (QTY, UOM, DESCRIPTION, #)
+#   VENDOR FILLS (we write these):
+#     COMPANY NAME, PERSON PROVIDING QUOTE, SIGNATURE DATE,
+#     Contract_Number, PRICE PER UNIT, SUBTOTAL columns,
+#     MERCHANDISE SUBTOTAL, TAX, TOTAL
+#
+# AMS 704 (Price Check Response) — when original_mode=True:
+#   Same rule as 704B. Only write pricing + vendor info.
+#   Ship to: only write if template field is currently empty.
+#
+# AMS 703B/703C (Bid Response) — Reytech's form, we fill everything.
+# Certification forms (CUF, Darfur, DVBE, OBS1600, etc.) — we fill all.
+# ═══════════════════════════════════════════════════════════════════════════
 from pypdf import PdfReader, PdfWriter
 from pypdf.generic import NameObject, TextStringObject
 from reportlab.pdfgen import canvas as rl_canvas
@@ -660,27 +682,19 @@ def fill_704b(input_path, rfq_data, config, output_path):
             else:
                 values[sub_field] = ""
 
-    # Header fields — write all known variants to handle different 704B template versions
+    # ═══ VENDOR FIELDS ONLY — buyer header fields are NEVER overwritten ═══
+    # Buyer fills: DEPARTMENT, PHONEEMAIL, SOLICITATION#, REQUESTOR, DATE
+    # See FORM FIELD OWNERSHIP RULES at top of file.
     for sfx in ("", "_2"):
+        # Vendor identification
         values[f"COMPANY NAME{sfx}"] = company["name"]
-        values[f"PERSON PROVIDING QUOTE{sfx}"] = company["owner"]
-        values[f"Contract_Number{sfx}"] = rfq_data.get("solicitation_number", "N/A")
-        values[f"DEPARTMENT{sfx}"] = rfq_data.get("agency", "CCHCS")
-        values[f"PHONEEMAIL{sfx}"] = f"{company.get('phone','')} / {company.get('email','')}"
-        values[f"SOLICITATION #{sfx}"] = rfq_data.get("solicitation_number", "")
-        values[f"SOLICITATION{sfx}"] = rfq_data.get("solicitation_number", "")
-        values[f"REQUESTOR{sfx}"] = rfq_data.get("requestor_name", "")
-        values[f"DATE{sfx}"] = sign_date
-        # Additional name variants seen in other 704B template revisions
-        values[f"Solicitation #{sfx}"] = rfq_data.get("solicitation_number", "")
-        values[f"Solicitation{sfx}"] = rfq_data.get("solicitation_number", "")
-        values[f"Requestor{sfx}"] = rfq_data.get("requestor_name", "")
-        values[f"Date{sfx}"] = sign_date
-        values[f"Date1_af_date"] = sign_date   # AMS 704B Rev 10/2022 date field name
-        values[f"Date1_af_date{sfx}"] = sign_date
         values[f"Company Name{sfx}"] = company["name"]
         values[f"Vendor Name{sfx}"] = company["name"]
+        values[f"PERSON PROVIDING QUOTE{sfx}"] = company["owner"]
         values[f"Person Providing Quote{sfx}"] = company["owner"]
+        # Contract reference (vendor's contract number)
+        values[f"Contract_Number{sfx}"] = rfq_data.get("solicitation_number", "N/A")
+        # Vendor signature date (NOT the buyer's DATE field)
         values[f"SIGNATURE DATE{sfx}"] = sign_date
         values[f"Signature Date{sfx}"] = sign_date
 

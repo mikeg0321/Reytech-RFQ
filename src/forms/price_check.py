@@ -1779,12 +1779,24 @@ def fill_ams704(
     ship_to_value = _ship_to or _institution
     if ship_to_value and _zip and _zip not in ship_to_value:
         ship_to_value = f"{ship_to_value}, {_zip}"
+    # Ship to: only write if template field is empty (buyer may have pre-filled)
     if ship_to_value:
-        field_values.append({
-            "field_id": "Ship to",
-            "page": 1,
-            "value": ship_to_value,
-        })
+        _existing_ship = ""
+        try:
+            from pypdf import PdfReader as _ShipPR
+            _ship_check = _ShipPR(source_pdf)
+            _ship_fields = _ship_check.get_fields() or {}
+            _existing_ship = str((_ship_fields.get("Ship to") or {}).get("/V", "")).strip()
+        except Exception:
+            pass
+        if not _existing_ship:
+            field_values.append({
+                "field_id": "Ship to",
+                "page": 1,
+                "value": ship_to_value,
+            })
+        else:
+            log.info("fill_ams704: Ship to already has value '%s' — not overwriting", _existing_ship[:40])
 
     # FOB Destination, Freight Prepaid checkbox
     field_values.append({
@@ -1796,6 +1808,26 @@ def fill_ams704(
     # Line items with pricing
     subtotal = 0.0
     items_priced = 0
+
+    # ── Detect if template is pre-filled by buyer ──
+    _form_is_prefilled = False
+    try:
+        from pypdf import PdfReader as _PrePR
+        _pre_check = _PrePR(source_pdf)
+        _pre_fields = _pre_check.get_fields() or {}
+        for _check_field in ["Qty_1", "QTY_1", "qty_1", "fill_5"]:
+            _pv = str((_pre_fields.get(_check_field) or {}).get("/V", "")).strip()
+            if _pv and _pv not in ("", "0"):
+                _form_is_prefilled = True
+                break
+        if _form_is_prefilled:
+            log.info("fill_ams704: template is pre-filled — switching to pricing-only mode")
+    except Exception:
+        pass
+
+    if _form_is_prefilled and not original_mode:
+        original_mode = True
+        log.info("fill_ams704: auto-switched to original_mode (pre-filled template detected)")
 
     seq = 0  # sequential line item counter
     _skipped_no_row = 0
