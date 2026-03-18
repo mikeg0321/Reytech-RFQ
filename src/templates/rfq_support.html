@@ -115,13 +115,62 @@
         </div>
       </div>
 
+      {% if manifest and manifest.reviews %}
+      <div class="sp-card">
+        <div class="sp-card-title">📋 Package Contents (v{{ manifest.version }})</div>
+        {% for rev in manifest.reviews %}
+        <div style="display:flex;align-items:center;gap:6px;padding:4px 0;font-size:13px">
+          <span>{% if rev.verdict == 'approved' %}✅{% elif rev.verdict == 'rejected' %}❌{% else %}⏳{% endif %}</span>
+          <span style="flex:1;color:var(--tx)">{{ rev.form_id|replace('_',' ')|title }}</span>
+          {% if rev.form_filename %}<a href="/api/download/{{ sol }}/{{ rev.form_filename }}" target="_blank" style="font-size:11px;color:var(--ac)">view</a>{% endif %}
+          <span style="font-size:11px;color:var(--tx2)">{{ rev.verdict }}</span>
+        </div>
+        {% endfor %}
+        {% if manifest.missing_forms %}
+        <div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--bd)">
+          {% for mf in manifest.missing_forms %}<div style="font-size:12px;color:#f85149">🚫 Missing: {{ mf|replace('_',' ')|title }}</div>{% endfor %}
+        </div>
+        {% endif %}
+      </div>
+      {% endif %}
+
+      {% if emails %}
+      <div class="sp-card">
+        <div class="sp-card-title">📧 Email History ({{ emails|length }})</div>
+        {% for e in emails %}
+        <div class="sp-delivery">
+          <div style="display:flex;gap:4px;align-items:center">
+            <span style="font-size:12px">{% if e.direction == 'outbound' %}📤{% else %}📥{% endif %}</span>
+            <span style="font-size:13px;color:var(--tx)">{{ e.subject[:50] if e.subject else '(no subject)' }}</span>
+          </div>
+          <div style="font-size:12px;color:var(--tx2)">
+            {{ (e.sender or '?')[:30] }} → {{ (e.recipient or '?')[:30] }}
+            · {{ e.logged_at[:16] if e.logged_at else '' }}
+            · <span style="color:{% if e.status == 'sent' %}#3fb950{% else %}var(--tx2){% endif %}">{{ e.status or '?' }}</span>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
       {% if manifest and manifest.package_filename %}
       <div class="sp-card">
         <div class="sp-card-title">⚡ Quick Actions</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <a href="/api/download/{{ sol }}/{{ manifest.package_filename }}" target="_blank" class="btn btn-sm" style="flex:1;text-align:center;font-size:12px;background:rgba(79,140,255,.15);color:var(--ac)">📎 Download</a>
           <a href="/rfq/{{ rid }}" class="btn btn-sm" style="flex:1;text-align:center;font-size:12px">📋 Open RFQ</a>
+          {% if manifest.overall_status in ('approved', 'sent') %}
+          <button class="btn btn-sm" style="flex:1;text-align:center;font-size:12px;background:rgba(63,185,80,.15);color:#3fb950" onclick="resendPackage()">📧 Resend</button>
+          {% endif %}
         </div>
+        {% if manifest.overall_status in ('approved', 'sent') %}
+        <div id="resend-form" style="display:none;margin-top:8px;padding-top:8px;border-top:1px solid var(--bd)">
+          <input type="email" id="resend-to" value="{{ r.get('requestor_email','') }}" placeholder="Recipient email" style="width:100%;margin-bottom:4px;background:var(--bg);color:var(--tx);border:1px solid var(--bd);border-radius:4px;padding:6px;font-size:12px;box-sizing:border-box">
+          <input type="text" id="resend-subject" value="Reytech Inc. — RFQ Response #{{ sol }}" style="width:100%;margin-bottom:4px;background:var(--bg);color:var(--tx);border:1px solid var(--bd);border-radius:4px;padding:6px;font-size:12px;box-sizing:border-box">
+          <textarea id="resend-body" style="width:100%;margin-bottom:4px;background:var(--bg);color:var(--tx);border:1px solid var(--bd);border-radius:4px;padding:6px;font-size:12px;min-height:60px;resize:vertical;box-sizing:border-box">Please find attached our RFQ response package for solicitation #{{ sol }}.</textarea>
+          <button class="btn btn-sm" style="background:var(--ac);color:#fff;font-size:12px;width:100%" onclick="doResend()">Send</button>
+        </div>
+        {% endif %}
       </div>
       {% endif %}
     </div>
@@ -130,6 +179,16 @@
 
 <script>
 var RID={{ rid|tojson }};
+function resendPackage(){var f=document.getElementById('resend-form');f.style.display=f.style.display==='none'?'block':'none';}
+function doResend(){
+ var to=document.getElementById('resend-to').value;
+ var subj=document.getElementById('resend-subject').value;
+ var body=document.getElementById('resend-body').value;
+ if(!to){alert('Enter recipient email');return;}
+ if(!confirm('Resend package to '+to+'?'))return;
+ fetch('/api/rfq/'+RID+'/resend-package',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({to:to,subject:subj,body:body})})
+ .then(function(r){return r.json()}).then(function(d){if(d.ok){alert('Sent to '+to);location.reload();}else alert(d.error||'Failed');});
+}
 function saveBuyerPref(){
  var key=document.getElementById('pref-key').value;
  var notes=document.getElementById('pref-notes').value;

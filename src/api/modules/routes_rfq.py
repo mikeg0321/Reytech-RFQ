@@ -1040,6 +1040,122 @@ def api_add_buyer_pref(rid):
     return jsonify({"ok": ok})
 
 
+@bp.route("/api/rfq/<rid>/resend-package", methods=["POST"])
+@auth_required
+def api_resend_package(rid):
+    """Resend the latest approved package to a recipient."""
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"})
+    data = request.get_json(force=True, silent=True) or {}
+    to_email = data.get("to", "")
+    subject = data.get("subject", "")
+    body_text = data.get("body", "")
+    if not to_email:
+        return jsonify({"ok": False, "error": "Recipient email required"})
+    sol = r.get("solicitation_number", "") or "unknown"
+
+    from src.core.dal import get_latest_manifest, log_lifecycle_event, record_package_delivery
+    manifest = get_latest_manifest(rid)
+    if not manifest:
+        return jsonify({"ok": False, "error": "No package generated"})
+    pkg_filename = manifest.get("package_filename") or f"RFQ_Package_{sol}_ReytechInc.pdf"
+
+    # Find package data (disk or DB)
+    pkg_data = None
+    pkg_path = os.path.join(OUTPUT_DIR, sol, pkg_filename)
+    if os.path.exists(pkg_path):
+        with open(pkg_path, "rb") as _f:
+            pkg_data = _f.read()
+    else:
+        try:
+            files = list_rfq_files(rid, category="generated")
+            for dbf in files:
+                if "Package" in (dbf.get("filename") or "") or dbf.get("filename") == pkg_filename:
+                    full = get_rfq_file(dbf["id"])
+                    if full and full.get("data"):
+                        pkg_data = full["data"]; break
+        except Exception:
+            pass
+    if not pkg_data:
+        return jsonify({"ok": False, "error": f"Package file not found: {pkg_filename}"})
+
+    try:
+        import smtplib
+        from email.mime.multipart import MIMEMultipart
+        from email.mime.text import MIMEText
+        from email.mime.application import MIMEApplication
+        smtp_user = os.environ.get("GMAIL_ADDRESS", "")
+        smtp_pass = os.environ.get("GMAIL_PASSWORD", "")
+        if not smtp_user or not smtp_pass:
+            return jsonify({"ok": False, "error": "Email not configured"})
+        msg = MIMEMultipart()
+        msg["From"] = smtp_user
+        msg["To"] = to_email
+        msg["Subject"] = subject or f"Reytech Inc. — RFQ Response #{sol}"
+        msg.attach(MIMEText(body_text or "Please find attached our RFQ response package.", "plain"))
+        att = MIMEApplication(pkg_data, _subtype="pdf")
+        att.add_header("Content-Disposition", "attachment", filename=pkg_filename)
+        msg.attach(att)
+        server = smtplib.SMTP_SSL("smtp.gmail.com", 465)
+        server.login(smtp_user, smtp_pass)
+        server.sendmail(smtp_user, [to_email], msg.as_string())
+        server.quit()
+
+        log_lifecycle_event("rfq", rid, "package_sent",
+            f"Resent to {to_email} (support view)", actor="user",
+            detail={"recipient": to_email, "subject": subject, "resend": True})
+        if manifest.get("id"):
+            import hashlib
+            record_package_delivery(manifest["id"], rid, to_email,
+                recipient_name=r.get("requestor_name", ""), email_subject=subject,
+                package_hash=hashlib.sha256(pkg_data).hexdigest())
+        return jsonify({"ok": True, "sent_to": to_email, "size": len(pkg_data)})
+    except Exception as e:
+        log.error("Resend RFQ %s: %s", rid, e)
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/support/search-packages")
+@auth_required
+def api_search_packages():
+    """Search package manifests by form_id, agency, status, solicitation, or buyer."""
+    form_id = request.args.get("form_id", "")
+    agency = request.args.get("agency", "")
+    status = request.args.get("status", "")
+    sol = request.args.get("sol", "")
+    buyer = request.args.get("buyer", "")
+    limit = min(int(request.args.get("limit", 50)), 200)
+    try:
+        from src.core.db import get_db
+        import json as _jsearch
+        with get_db() as conn:
+            q = "SELECT pm.* FROM package_manifest pm WHERE 1=1"
+            p = []
+            if form_id:
+                q += " AND pm.generated_forms LIKE ?"; p.append(f"%{form_id}%")
+            if agency:
+                q += " AND pm.agency_key LIKE ?"; p.append(f"%{agency}%")
+            if status:
+                q += " AND pm.overall_status = ?"; p.append(status)
+            if sol:
+                q += " AND pm.rfq_id LIKE ?"; p.append(f"%{sol}%")
+            q += " ORDER BY pm.created_at DESC LIMIT ?"; p.append(limit)
+            rows = conn.execute(q, p).fetchall()
+            results = []
+            for row in rows:
+                d = dict(row)
+                for f in ("generated_forms", "missing_forms", "required_forms"):
+                    if d.get(f):
+                        try: d[f] = _jsearch.loads(d[f])
+                        except Exception: pass
+                results.append(d)
+            return jsonify({"ok": True, "results": results, "count": len(results)})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
 @bp.route("/rfq/<rid>/save-restore", methods=["POST"])
 @auth_required
 @safe_route
@@ -2439,6 +2555,28 @@ def generate_rfq_package(rid):
             if form_id in _user_forms:
                 return bool(_user_forms[form_id])
             return form_id in _req_forms
+
+        # ── Check buyer preferences before generating ──
+        try:
+            from src.core.dal import get_buyer_preferences as _gbp
+            _buyer_email = r.get("requestor_email", "")
+            if _buyer_email:
+                for _bp in _gbp(_buyer_email):
+                    _bk = _bp.get("preference_key", "")
+                    _bv = _bp.get("preference_value", "")
+                    if _bk == "ship_to_override" and _bv and _bv != r.get("delivery_location", ""):
+                        r["delivery_location"] = _bv
+                        log.info("GENERATE %s: ship_to overridden by buyer pref: %s", rid, _bv[:40])
+                        t.step(f"Buyer pref: ship_to → {_bv[:40]}")
+                    elif _bk == "required_forms" and _bv:
+                        for _ef in [f.strip() for f in _bv.split(",") if f.strip()]:
+                            if _ef not in _req_forms:
+                                _req_forms.add(_ef)
+                                t.step(f"Buyer pref: added form {_ef}")
+                    elif _bk == "no_modify_buyer_fields":
+                        t.step("Buyer pref: no_modify_buyer_fields active")
+        except Exception as _bp_e:
+            log.debug("Buyer pref check: %s", _bp_e)
 
         try:
             from src.core.dal import log_lifecycle_event as _lle_start
