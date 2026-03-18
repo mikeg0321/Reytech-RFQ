@@ -3216,6 +3216,14 @@ def delete_rfq(rid):
             _remove_processed_uid(email_uid)
         del rfqs[rid]
         save_rfqs(rfqs)
+        # Direct SQLite delete — save_rfqs only does INSERT OR REPLACE, never DELETE
+        try:
+            from src.core.db import get_db
+            with get_db() as conn:
+                conn.execute("DELETE FROM rfqs WHERE id = ?", (rid,))
+            log.info("Deleted RFQ %s from SQLite", rid)
+        except Exception as _db_e:
+            log.warning("SQLite delete for RFQ %s failed: %s", rid, _db_e)
         log.info("Deleted RFQ #%s (id=%s)", sol, rid)
         _log_rfq_activity(rid, "deleted", f"RFQ #{sol} deleted", actor="user")
         flash(f"Deleted RFQ #{sol}", "success")
