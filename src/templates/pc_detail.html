@@ -503,11 +503,28 @@
      if(type==='ok') setTimeout(()=>el.innerHTML='',5000);
     }
 
+    // Retry wrapper for transient 500 errors
+    function _fetchWithRetry(url, opts, retries) {
+     retries = retries || 2;
+     return fetch(url, opts).then(function(r) {
+      if (r.ok || r.status < 500) return r;
+      if (retries <= 0) return r;
+      return new Promise(function(resolve) {
+       setTimeout(function() { resolve(_fetchWithRetry(url, opts, retries - 1)); }, 1500);
+      });
+     }).catch(function(err) {
+      if (retries <= 0) throw err;
+      return new Promise(function(resolve, reject) {
+       setTimeout(function() { _fetchWithRetry(url, opts, retries - 1).then(resolve).catch(reject); }, 1500);
+      });
+     });
+    }
+
     // ── Standalone Save with feedback ──
     function savePrices(btn) {
      const origText=btn.textContent;
      btn.disabled=true;btn.textContent='⏳ Saving...';
-     fetch('/pricecheck/'+_pcid+'/save-prices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(collectPrices())})
+     _fetchWithRetry('/pricecheck/'+_pcid+'/save-prices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(collectPrices())})
      .then(r=>{
       if(!r.ok) return r.text().then(t=>{throw new Error('Server '+r.status+': '+(t||'').substring(0,100))});
       return r.json();

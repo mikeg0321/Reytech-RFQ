@@ -322,12 +322,19 @@ function sortTable(th, col) {
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
    <div class="card-t" style="margin:0">Price Checks <span style="font-size:14px;font-weight:400;color:var(--tx2)">(AMS 704 — price your response)</span> <span id="pc-queue-count" style="font-family:'JetBrains Mono',monospace;font-weight:700">{{price_checks|length}}</span></div>
   </div>
+  <!-- PC Bulk Action Bar -->
+  <div class="bulk-bar" id="pc-bulk-bar">
+   <span class="bulk-count"><span id="pc-bulk-count">0</span> selected</span>
+   <button class="btn btn-sm btn-s" onclick="bulkAction('pc','dismiss')" aria-label="Dismiss Selected">Dismiss</button>
+   <button class="btn btn-sm" style="background:rgba(52,211,153,.15);color:var(--gn)" onclick="bulkGenerate()" aria-label="Bulk Generate">📄 Generate All</button>
+  </div>
   {% if price_checks %}
   <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
   <table class="home-tbl">
    <thead>
     <tr>
-     <th onclick="sortTable(this,0)" style="cursor:pointer">PC Number ⇅</th>
+     <th style="width:28px"><input type="checkbox" class="row-check" onchange="toggleAllChecks('pc',this)"></th>
+     <th onclick="sortTable(this,1)" style="cursor:pointer">PC Number ⇅</th>
      <th onclick="sortTable(this,1)" style="cursor:pointer">Institution ⇅</th>
      <th onclick="sortTable(this,2)" style="cursor:pointer">Buyer ⇅</th>
      <th onclick="sortTable(this,3)" style="cursor:pointer;width:90px">Due ⇅</th>
@@ -340,6 +347,7 @@ function sortTable(th, col) {
    <tbody>
     {% for id, pc in price_checks.items() %}
     <tr class="home-row" id="pc-row-{{id}}" onclick="location.href='/pricecheck/{{id}}'">
+     <td onclick="event.stopPropagation()"><input type="checkbox" class="pc-check row-check" value="{{id}}" onchange="updateBulkBar('pc')"></td>
      <td><a href="/pricecheck/{{id}}" class="sol">#{{pc.pc_number or '(blank)'}}</a></td>
      <td style="font-weight:600">{{pc.institution or '—'}}</td>
      <td>{% if pc.get('requestor_email') or pc.get('email_subject') %}<span style="font-weight:600">{{pc.get('requestor_email','').split('@')[0].replace('.',' ').title() if pc.get('requestor_email') else '—'}}</span>{% if pc.requestor and pc.requestor != pc.get('requestor_email','').split('@')[0].replace('.',' ').title() %}<span style="display:block;font-size:12px;color:var(--tx2)">Req: {{pc.requestor}}</span>{% endif %}{% else %}<span style="font-weight:600">{{pc.requestor or '—'}}</span>{% endif %}</td>
@@ -760,6 +768,24 @@ document.querySelectorAll('details').forEach(d=>{
       .then(function(r){return r.json();}).then(function(d){
         if(d.ok){alert('Applied to '+d.applied+' items');location.reload();}
         else{alert('Error: '+(d.error||'unknown'));}
+      });
+    }
+    function bulkGenerate(){
+      var ids=[];
+      document.querySelectorAll('.pc-check:checked').forEach(function(c){ids.push(c.value);});
+      if(!ids.length){showMsg('Select PCs first','warn');return;}
+      if(!confirm('Generate PDFs for '+ids.length+' PCs?'))return;
+      var done=0,failed=0;
+      showMsg('📄 Generating '+ids.length+' PDFs...','warn');
+      ids.forEach(function(id){
+        fetch('/pricecheck/'+id+'/generate',{method:'POST'})
+        .then(function(r){return r.json();}).then(function(d){
+          done++;if(!d.ok)failed++;
+          if(done===ids.length){
+            showMsg('📄 Generated '+(done-failed)+'/'+ids.length+' PDFs'+(failed?' ('+failed+' failed)':''),'ok');
+            setTimeout(function(){location.reload();},1500);
+          }
+        }).catch(function(){done++;failed++;});
       });
     }
 
