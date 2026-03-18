@@ -176,7 +176,7 @@ FACILITY_DB = {
     "SQ":   {"name": "SQ - San Quentin State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["Main Street", "San Quentin, CA 94964"]},
     "SQSP": {"name": "SQ - San Quentin State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["Main Street", "San Quentin, CA 94964"]},
     # CalVet facilities
-    "CALVETHOME-YV": {"name": "Veterans Home of California - Yountville", "parent": "CalVet", "parent_full": "California Department of Veterans Affairs", "address": ["260 California Dr", "Yountville, CA 94599"]},
+    "CALVETHOME-YV": {"name": "Veterans Home of California - Yountville", "parent": "CalVet", "parent_full": "California Department of Veterans Affairs", "address": ["190 California Dr", "Yountville, CA 94599"]},
     "CALVETHOME-BF": {"name": "Veterans Home of California - Barstow", "parent": "CalVet", "parent_full": "California Department of Veterans Affairs", "address": ["100 E Veterans Pkwy", "Barstow, CA 92311"]},
     "CALVETHOME-CV": {"name": "Veterans Home of California - Chula Vista", "parent": "CalVet", "parent_full": "California Department of Veterans Affairs", "address": ["700 E Naples Ct", "Chula Vista, CA 91911"]},
     "CALVETHOME-LA": {"name": "Veterans Home of California - West Los Angeles", "parent": "CalVet", "parent_full": "California Department of Veterans Affairs", "address": ["11500 Nimitz Ave Bldg 209", "Los Angeles, CA 90049"]},
@@ -1346,12 +1346,27 @@ def generate_quote_from_pc(pc: dict, output_path: str, **kwargs) -> dict:
     ship_to_raw = pc.get("ship_to", "") or ""
     delivery = pc.get("delivery_location", "") or ""
 
+    # If user explicitly entered a delivery address (>10 chars), trust it over facility DB
+    _user_set_delivery = bool(delivery and delivery.strip() and len(delivery.strip()) > 10)
+
     # ── Facility lookup: try all available address sources ──
-    facility = (_lookup_facility(delivery) or 
-                _lookup_facility(ship_to_raw) or 
+    facility = (_lookup_facility(delivery) or
+                _lookup_facility(ship_to_raw) or
                 _lookup_facility(institution))
 
-    if facility:
+    if _user_set_delivery:
+        # User-entered delivery address takes priority — parse it directly
+        ship_name, ship_addr = _parse_address_parts(delivery)
+        if not ship_name:
+            ship_name = institution
+        to_name = institution
+        to_addr = list(ship_addr)
+        # Still use facility for agency detection
+        if facility and "agency" not in kwargs:
+            _parent_map = {"CDCR": "CDCR", "CCHCS": "CCHCS", "CalVet": "CalVet", "DGS": "DGS", "DSH": "DSH"}
+            if facility["parent"] in _parent_map:
+                kwargs["agency"] = _parent_map[facility["parent"]]
+    elif facility:
         ship_name = facility["name"]
         ship_addr = list(facility["address"])
         to_name = institution or facility["parent_full"]
