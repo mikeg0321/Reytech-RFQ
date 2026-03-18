@@ -1486,3 +1486,287 @@ def get_funnel_stats(tenant_id: str = "reytech") -> dict:
     except Exception as e:
         log.error("get_funnel_stats failed: %s", e, exc_info=True)
         return {}
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Package Audit Trail DAL
+# ═══════════════════════════════════════════════════════════════════
+
+def create_package_manifest(rfq_id, agency_key, agency_name, required_forms,
+                            generated_forms, missing_forms=None, quote_number="",
+                            quote_total=0, item_count=0, created_by="system"):
+    """Create a new package manifest record. Returns manifest ID."""
+    try:
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT MAX(version) FROM package_manifest WHERE rfq_id = ?",
+                (rfq_id,)).fetchone()
+            version = (row[0] or 0) + 1
+            cursor = conn.execute("""
+                INSERT INTO package_manifest
+                (rfq_id, version, created_at, created_by, agency_key, agency_name,
+                 required_forms, generated_forms, missing_forms, overall_status,
+                 quote_number, quote_total, item_count, total_forms)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """, (rfq_id, version, datetime.now().isoformat(), created_by,
+                  agency_key, agency_name,
+                  json.dumps(required_forms), json.dumps(generated_forms),
+                  json.dumps(missing_forms or []), "draft",
+                  quote_number, quote_total, item_count, len(generated_forms)))
+            manifest_id = cursor.lastrowid
+            for form in generated_forms:
+                form_id = form.get("form_id", "") if isinstance(form, dict) else str(form)
+                form_filename = form.get("filename", "") if isinstance(form, dict) else ""
+                conn.execute("""
+                    INSERT INTO package_review
+                    (manifest_id, form_id, form_filename, verdict)
+                    VALUES (?,?,?,?)
+                """, (manifest_id, form_id, form_filename, "pending"))
+            log.info("Created package manifest %d for RFQ %s (v%d, %d forms)",
+                     manifest_id, rfq_id, version, len(generated_forms))
+            return manifest_id
+    except Exception as e:
+        log.error("create_package_manifest failed: %s", e)
+        return None
+
+
+def get_package_manifest(manifest_id):
+    """Get a single package manifest with its review records."""
+    try:
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT * FROM package_manifest WHERE id = ?",
+                (manifest_id,)).fetchone()
+            if not row:
+                return None
+            d = dict(row)
+            for field in ("required_forms", "generated_forms", "missing_forms",
+                          "source_validation", "field_audit"):
+                if d.get(field):
+                    try:
+                        d[field] = json.loads(d[field])
+                    except Exception:
+                        pass
+            reviews = conn.execute(
+                "SELECT * FROM package_review WHERE manifest_id = ? ORDER BY id",
+                (manifest_id,)).fetchall()
+            d["reviews"] = [dict(r) for r in reviews]
+            return d
+    except Exception as e:
+        log.error("get_package_manifest failed: %s", e)
+        return None
+
+
+def get_latest_manifest(rfq_id):
+    """Get the most recent package manifest for an RFQ."""
+    try:
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT id FROM package_manifest WHERE rfq_id = ? ORDER BY version DESC LIMIT 1",
+                (rfq_id,)).fetchone()
+            if row:
+                return get_package_manifest(row[0])
+            return None
+    except Exception as e:
+        log.error("get_latest_manifest failed: %s", e)
+        return None
+
+
+def update_manifest_status(manifest_id, status, package_filename=None, package_size=None):
+    """Update manifest status (draft → reviewed → approved → sent)."""
+    try:
+        with get_db() as conn:
+            updates = ["overall_status = ?"]
+            params = [status]
+            if package_filename:
+                updates.append("package_filename = ?")
+                params.append(package_filename)
+            if package_size:
+                updates.append("package_size = ?")
+                params.append(package_size)
+            params.append(manifest_id)
+            conn.execute(f"UPDATE package_manifest SET {', '.join(updates)} WHERE id = ?", params)
+        return True
+    except Exception as e:
+        log.error("update_manifest_status failed: %s", e)
+        return False
+
+
+def review_form(manifest_id, form_id, verdict, reviewed_by="user", notes=""):
+    """Record a review verdict for a specific form in a manifest."""
+    try:
+        with get_db() as conn:
+            conn.execute("""
+                UPDATE package_review
+                SET verdict = ?, reviewed_at = ?, reviewed_by = ?, notes = ?
+                WHERE manifest_id = ? AND form_id = ?
+            """, (verdict, datetime.now().isoformat(), reviewed_by, notes,
+                  manifest_id, form_id))
+            pending = conn.execute(
+                "SELECT COUNT(*) FROM package_review WHERE manifest_id = ? AND verdict = 'pending'",
+                (manifest_id,)).fetchone()[0]
+            if pending == 0:
+                conn.execute(
+                    "UPDATE package_manifest SET overall_status = 'reviewed' WHERE id = ? AND overall_status = 'draft'",
+                    (manifest_id,))
+            return True
+    except Exception as e:
+        log.error("review_form failed: %s", e)
+        return False
+
+
+def record_package_delivery(manifest_id, rfq_id, recipient_email, recipient_name="",
+                            email_subject="", email_log_id=None, package_hash=""):
+    """Record that a package was sent."""
+    try:
+        with get_db() as conn:
+            conn.execute("""
+                INSERT INTO package_delivery
+                (manifest_id, rfq_id, delivered_at, recipient_email, recipient_name,
+                 email_subject, email_log_id, package_hash)
+                VALUES (?,?,?,?,?,?,?,?)
+            """, (manifest_id, rfq_id, datetime.now().isoformat(),
+                  recipient_email, recipient_name, email_subject,
+                  email_log_id, package_hash))
+            conn.execute(
+                "UPDATE package_manifest SET overall_status = 'sent' WHERE id = ?",
+                (manifest_id,))
+            return True
+    except Exception as e:
+        log.error("record_package_delivery failed: %s", e)
+        return False
+
+
+def log_lifecycle_event(entity_type, entity_id, event_type, summary,
+                        actor="system", detail=None, metadata=None):
+    """Log an immutable lifecycle event. INSERT-only, never updated or deleted."""
+    try:
+        with get_db() as conn:
+            conn.execute("""
+                INSERT INTO lifecycle_events
+                (entity_type, entity_id, event_type, occurred_at, actor, summary, detail_json, metadata)
+                VALUES (?,?,?,?,?,?,?,?)
+            """, (entity_type, entity_id, event_type, datetime.now().isoformat(),
+                  actor, summary,
+                  json.dumps(detail, default=str) if detail else None,
+                  metadata))
+        return True
+    except Exception as e:
+        log.error("log_lifecycle_event failed: %s", e)
+        return False
+
+
+def get_lifecycle_events(entity_type, entity_id, limit=100):
+    """Get lifecycle events for an entity, newest first."""
+    try:
+        with get_db() as conn:
+            rows = conn.execute("""
+                SELECT * FROM lifecycle_events
+                WHERE entity_type = ? AND entity_id = ?
+                ORDER BY occurred_at DESC LIMIT ?
+            """, (entity_type, entity_id, limit)).fetchall()
+            result = []
+            for r in rows:
+                d = dict(r)
+                if d.get("detail_json"):
+                    try:
+                        d["detail"] = json.loads(d["detail_json"])
+                    except Exception:
+                        d["detail"] = d["detail_json"]
+                result.append(d)
+            return result
+    except Exception as e:
+        log.error("get_lifecycle_events failed: %s", e)
+        return []
+
+
+def save_buyer_preference(buyer_email, preference_key, preference_value,
+                          buyer_name="", agency_key="", source="manual", notes=""):
+    """Save or update a buyer preference."""
+    try:
+        with get_db() as conn:
+            conn.execute("""
+                INSERT INTO buyer_preferences
+                (buyer_email, buyer_name, agency_key, preference_key, preference_value,
+                 source, learned_at, notes)
+                VALUES (?,?,?,?,?,?,?,?)
+                ON CONFLICT(buyer_email, preference_key) DO UPDATE SET
+                    preference_value = excluded.preference_value,
+                    source = excluded.source,
+                    learned_at = excluded.learned_at,
+                    notes = excluded.notes
+            """, (buyer_email.lower(), buyer_name, agency_key, preference_key,
+                  preference_value, source, datetime.now().isoformat(), notes))
+        return True
+    except Exception as e:
+        log.error("save_buyer_preference failed: %s", e)
+        return False
+
+
+def get_buyer_preferences(buyer_email):
+    """Get all preferences for a buyer."""
+    try:
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT * FROM buyer_preferences WHERE buyer_email = ?",
+                (buyer_email.lower(),)).fetchall()
+            return [dict(r) for r in rows]
+    except Exception as e:
+        log.error("get_buyer_preferences failed: %s", e)
+        return []
+
+
+def seed_known_buyer_preferences():
+    """Seed buyer preferences from known feedback. Safe to run multiple times."""
+    prefs = [
+        ("grace.pfost@cdcr.ca.gov", "Grace Pfost", "cchcs",
+         "no_modify_buyer_fields", "true",
+         "buyer_feedback", "Do not change highlighted fields in AMS 704B. Buyer fills department and phone/email. Vendor fills vendor information only. (2026-03-17)"),
+        ("eva.madison@calvet.ca.gov", "Eva Madison", "calvet",
+         "ship_to_override", "190 California Dr, Yountville, CA 94599",
+         "buyer_feedback", "Ship to 190 California Dr not 260. (2026-03-17)"),
+    ]
+    for email, name, agency, key, value, source, notes in prefs:
+        save_buyer_preference(email, key, value, buyer_name=name,
+                              agency_key=agency, source=source, notes=notes)
+
+
+def seed_form_template_registry():
+    """Register all known form templates. Safe to run multiple times."""
+    import hashlib
+    templates = [
+        ("bidder_decl", "Bidder Declaration GSPD-05-105", "data/templates/bidder_declaration_blank.pdf", "08/09"),
+        ("darfur_act", "Darfur Contracting Act DGS PD 1", "data/templates/darfur_act_blank.pdf", "12/19"),
+        ("dvbe843", "DVBE Declaration PD 843", "data/templates/dvbe_843_blank.pdf", "09/2019"),
+        ("calrecycle74", "CalRecycle 74", "data/templates/calrecycle_74_blank.pdf", ""),
+        ("cv012_cuf", "CV 012 CUF Certification", "data/templates/cv012_cuf_blank.pdf", "01/2026"),
+        ("std204", "STD 204 Payee Data Record", "data/templates/std204_blank.pdf", ""),
+        ("std1000", "STD 1000 Terms and Conditions", "data/templates/std1000_blank.pdf", ""),
+        ("sellers_permit", "Sellers Permit (static copy)", "data/templates/sellers_permit_reytech.pdf", ""),
+    ]
+    try:
+        with get_db() as conn:
+            for form_id, name, path, rev in templates:
+                sha = ""
+                field_count = 0
+                if os.path.exists(path):
+                    with open(path, "rb") as f:
+                        sha = hashlib.sha256(f.read()).hexdigest()
+                    try:
+                        from pypdf import PdfReader
+                        field_count = len(PdfReader(path).get_fields() or {})
+                    except Exception:
+                        pass
+                conn.execute("""
+                    INSERT INTO form_templates
+                    (form_id, form_name, template_path, revision_date, field_count, sha256, last_verified)
+                    VALUES (?,?,?,?,?,?,datetime('now'))
+                    ON CONFLICT(form_id) DO UPDATE SET
+                        template_path = excluded.template_path,
+                        sha256 = excluded.sha256,
+                        field_count = excluded.field_count,
+                        last_verified = excluded.last_verified
+                """, (form_id, name, path, rev, field_count, sha))
+            log.info("Seeded %d form templates", len(templates))
+    except Exception as e:
+        log.error("seed_form_template_registry failed: %s", e)

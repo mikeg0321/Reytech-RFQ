@@ -962,6 +962,106 @@ CREATE TABLE IF NOT EXISTS parse_gaps (
     agency          TEXT DEFAULT '',
     created_at      TEXT DEFAULT (datetime('now'))
 );
+
+-- ═══════════════════════════════════════════════════════════════════
+-- PACKAGE AUDIT TRAIL (added 2026-03-18)
+-- ═══════════════════════════════════════════════════════════════════
+
+CREATE TABLE IF NOT EXISTS package_manifest (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    rfq_id          TEXT NOT NULL,
+    version         INTEGER NOT NULL DEFAULT 1,
+    created_at      TEXT NOT NULL,
+    created_by      TEXT DEFAULT 'system',
+    agency_key      TEXT,
+    agency_name     TEXT,
+    required_forms  TEXT NOT NULL DEFAULT '[]',
+    generated_forms TEXT NOT NULL DEFAULT '[]',
+    missing_forms   TEXT DEFAULT '[]',
+    source_validation TEXT,
+    field_audit     TEXT,
+    overall_status  TEXT DEFAULT 'draft',
+    package_filename TEXT,
+    package_size    INTEGER,
+    total_forms     INTEGER,
+    total_pages     INTEGER,
+    quote_number    TEXT,
+    quote_total     REAL,
+    item_count      INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_pm_rfq ON package_manifest(rfq_id);
+CREATE INDEX IF NOT EXISTS idx_pm_status ON package_manifest(overall_status);
+
+CREATE TABLE IF NOT EXISTS package_review (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    manifest_id     INTEGER NOT NULL,
+    form_id         TEXT NOT NULL,
+    form_filename   TEXT,
+    reviewed_at     TEXT,
+    reviewed_by     TEXT DEFAULT 'user',
+    verdict         TEXT DEFAULT 'pending',
+    notes           TEXT,
+    field_warnings  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_pr_manifest ON package_review(manifest_id);
+
+CREATE TABLE IF NOT EXISTS package_delivery (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    manifest_id     INTEGER NOT NULL,
+    rfq_id          TEXT NOT NULL,
+    delivered_at    TEXT NOT NULL,
+    delivery_method TEXT DEFAULT 'email',
+    recipient_email TEXT,
+    recipient_name  TEXT,
+    email_subject   TEXT,
+    email_log_id    INTEGER,
+    package_hash    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_pd_rfq ON package_delivery(rfq_id);
+CREATE INDEX IF NOT EXISTS idx_pd_manifest ON package_delivery(manifest_id);
+
+CREATE TABLE IF NOT EXISTS buyer_preferences (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    buyer_email     TEXT NOT NULL,
+    buyer_name      TEXT,
+    agency_key      TEXT,
+    preference_key  TEXT NOT NULL,
+    preference_value TEXT NOT NULL,
+    source          TEXT,
+    learned_at      TEXT NOT NULL,
+    notes           TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_bp_email_key ON buyer_preferences(buyer_email, preference_key);
+
+CREATE TABLE IF NOT EXISTS form_templates (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    form_id         TEXT NOT NULL UNIQUE,
+    form_name       TEXT NOT NULL,
+    template_path   TEXT NOT NULL,
+    revision_date   TEXT,
+    field_count     INTEGER,
+    field_names     TEXT,
+    vendor_fields   TEXT,
+    buyer_fields    TEXT,
+    last_verified   TEXT,
+    sha256          TEXT,
+    notes           TEXT
+);
+
+CREATE TABLE IF NOT EXISTS lifecycle_events (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    entity_type     TEXT NOT NULL,
+    entity_id       TEXT NOT NULL,
+    event_type      TEXT NOT NULL,
+    occurred_at     TEXT NOT NULL,
+    actor           TEXT DEFAULT 'system',
+    summary         TEXT,
+    detail_json     TEXT,
+    metadata        TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_le_entity ON lifecycle_events(entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_le_type ON lifecycle_events(event_type);
+CREATE INDEX IF NOT EXISTS idx_le_time ON lifecycle_events(occurred_at);
 """
 
 def init_db():

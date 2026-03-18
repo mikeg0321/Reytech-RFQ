@@ -797,6 +797,14 @@ def _init_rfq_files_table():
 # Init on import
 _init_rfq_files_table()
 
+# Seed buyer preferences and form template registry
+try:
+    from src.core.dal import seed_known_buyer_preferences, seed_form_template_registry
+    seed_known_buyer_preferences()
+    seed_form_template_registry()
+except Exception as _seed_e:
+    log.debug("Seed on startup: %s", _seed_e)
+
 
 def save_rfq_file(rfq_id: str, filename: str, file_type: str, data: bytes,
                    category: str = "template", uploaded_by: str = "system") -> str:
